@@ -1,0 +1,71 @@
+// Test List higher-order methods: forEach, filter, any, all
+#include <assert.h>
+
+int sum_acc = 0;
+
+void add_to_sum(int x) {
+    sum_acc += x;
+}
+
+bool is_even(int x) {
+    return x % 2 == 0;
+}
+
+bool is_positive(int x) {
+    return x > 0;
+}
+
+bool is_negative(int x) {
+    return x < 0;
+}
+
+bool is_gt3(int x) {
+    return x > 3;
+}
+
+int main() {
+    List<int> nums = [1, 2, 3, 4, 5];
+
+    // forEach with named function
+    sum_acc = 0;
+    nums.forEach(add_to_sum);
+    assert(sum_acc == 15);
+
+    // filter with named function
+    List<int> evens = nums.filter(is_even);
+    assert(evens.len == 2);
+    assert(evens.get(0) == 2);
+    assert(evens.get(1) == 4);
+
+    // any
+    assert(nums.any(is_even) == true);
+    assert(nums.any(is_negative) == false);
+
+    // all
+    assert(nums.all(is_positive) == true);
+    assert(nums.all(is_even) == false);
+
+    // filter with named function
+    List<int> big = nums.filter(is_gt3);
+    assert(big.len == 2);
+    assert(big.get(0) == 4);
+    assert(big.get(1) == 5);
+
+    // filter with lambda (no closure needed)
+    List<int> small = nums.filter(bool function(int x) { return x <= 2; });
+    assert(small.len == 2);
+    assert(small.get(0) == 1);
+    assert(small.get(1) == 2);
+
+    // any/all with lambda
+    assert(nums.any(bool function(int x) { return x == 3; }) == true);
+    assert(nums.all(bool function(int x) { return x < 10; }) == true);
+
+    btrc_List_int_free(&evens);
+    btrc_List_int_free(&big);
+    btrc_List_int_free(&small);
+    btrc_List_int_free(&nums);
+
+    printf("PASS: test_list_functional\n");
+    return 0;
+}

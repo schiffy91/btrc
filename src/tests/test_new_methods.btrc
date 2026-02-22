@@ -1,0 +1,255 @@
+// Test isEmpty(), insert(), string reverse/removePrefix/removeSuffix
+#include <assert.h>
+
+int main() {
+    // ---- List.isEmpty() ----
+    List<int> empty = [];
+    assert(empty.isEmpty() == true);
+    empty.push(1);
+    assert(empty.isEmpty() == false);
+
+    // ---- List.insert() ----
+    List<int> nums = [1, 2, 4, 5];
+    nums.insert(2, 3);
+    assert(nums.size() == 5);
+    assert(nums.get(0) == 1);
+    assert(nums.get(1) == 2);
+    assert(nums.get(2) == 3);
+    assert(nums.get(3) == 4);
+    assert(nums.get(4) == 5);
+
+    // Insert at beginning
+    nums.insert(0, 0);
+    assert(nums.get(0) == 0);
+    assert(nums.size() == 6);
+
+    // Insert at end
+    nums.insert(6, 6);
+    assert(nums.get(6) == 6);
+    assert(nums.size() == 7);
+
+    // ---- Map.isEmpty() ----
+    Map<string, int> m = {};
+    assert(m.isEmpty() == true);
+    m.put("a", 1);
+    assert(m.isEmpty() == false);
+
+    // ---- Set.isEmpty() ----
+    Set<int> s = {};
+    assert(s.isEmpty() == true);
+    s.add(42);
+    assert(s.isEmpty() == false);
+
+    // ---- List.first() / List.last() ----
+    List<int> fl = [10, 20, 30];
+    assert(fl.first() == 10);
+    assert(fl.last() == 30);
+    fl.push(40);
+    assert(fl.last() == 40);
+
+    // ---- Map.putIfAbsent() ----
+    Map<string, int> m2 = {};
+    m2.put("x", 1);
+    m2.putIfAbsent("x", 99);
+    assert(m2.get("x") == 1);
+    m2.putIfAbsent("y", 42);
+    assert(m2.get("y") == 42);
+
+    // ---- String.isEmpty() ----
+    string e = "";
+    assert(e.isEmpty() == true);
+    string h = "hello";
+    assert(h.isEmpty() == false);
+
+    // ---- String.reverse() ----
+    string rev = "hello".reverse();
+    assert(rev == "olleh");
+    string empty_rev = "".reverse();
+    assert(empty_rev == "");
+
+    // ---- String.removePrefix() ----
+    string p = "prefix_text".removePrefix("prefix_");
+    assert(p == "text");
+    string no_match = "hello".removePrefix("world");
+    assert(no_match == "hello");
+
+    // ---- String.removeSuffix() ----
+    string suf = "file.txt".removeSuffix(".txt");
+    assert(suf == "file");
+    string no_suf = "hello".removeSuffix(".txt");
+    assert(no_suf == "hello");
+
+    // ---- List.reduce() ----
+    List<int> rn = [1, 2, 3, 4, 5];
+    int sum = rn.reduce(0, addInts);
+    assert(sum == 15);
+    int product = rn.reduce(1, mulInts);
+    assert(product == 120);
+
+    // ---- List.count() ----
+    List<int> cn = [1, 2, 2, 3, 2, 4];
+    assert(cn.count(2) == 3);
+    assert(cn.count(5) == 0);
+    assert(cn.count(1) == 1);
+
+    // ---- List.fill() ----
+    List<int> fn2 = [1, 2, 3, 4];
+    fn2.fill(0);
+    assert(fn2.get(0) == 0);
+    assert(fn2.get(1) == 0);
+    assert(fn2.get(2) == 0);
+    assert(fn2.get(3) == 0);
+
+    // ---- String.isUpper() / isLower() ----
+    assert("HELLO".isUpper() == true);
+    assert("hello".isUpper() == false);
+    assert("hello".isLower() == true);
+    assert("HELLO".isLower() == false);
+    assert("Hello".isUpper() == false);
+    assert("Hello".isLower() == false);
+
+    // ---- List.removeAll() ----
+    List<int> ra = [1, 2, 3, 2, 4, 2];
+    ra.removeAll(2);
+    assert(ra.size() == 3);
+    assert(ra.get(0) == 1);
+    assert(ra.get(1) == 3);
+    assert(ra.get(2) == 4);
+
+    // ---- Set.toList() ----
+    Set<int> ts = {};
+    ts.add(10);
+    ts.add(20);
+    ts.add(30);
+    List<int> tl = ts.toList();
+    assert(tl.size() == 3);
+
+    // ---- Map.merge() ----
+    Map<string, int> ma = {};
+    ma.put("a", 1);
+    ma.put("b", 2);
+    Map<string, int> mb = {};
+    mb.put("c", 3);
+    mb.put("d", 4);
+    ma.merge(mb);
+    assert(ma.size() == 4);
+    assert(ma.get("c") == 3);
+    assert(ma.get("d") == 4);
+
+    // ---- String.isAlnum() ----
+    assert("abc123".isAlnum() == true);
+    assert("abc 123".isAlnum() == false);
+    assert("!@#".isAlnum() == false);
+    assert("".isAlnum() == false);
+
+    // ---- List.swap() ----
+    List<int> sw = [10, 20, 30, 40];
+    sw.swap(0, 3);
+    assert(sw.get(0) == 40);
+    assert(sw.get(3) == 10);
+    sw.swap(1, 2);
+    assert(sw.get(1) == 30);
+    assert(sw.get(2) == 20);
+
+    // ---- List.min() / max() / sum() ----
+    List<int> mms = [5, 2, 8, 1, 9, 3];
+    assert(mms.min() == 1);
+    assert(mms.max() == 9);
+    assert(mms.sum() == 28);
+
+    // ---- String relational operators ----
+    assert("abc" < "def");
+    assert("def" > "abc");
+    assert("abc" <= "abc");
+    assert("abc" >= "abc");
+    assert("abc" <= "def");
+
+    // ---- Map[key] indexing ----
+    Map<string, int> mi = {};
+    mi.put("x", 10);
+    mi.put("y", 20);
+    assert(mi["x"] == 10);
+    assert(mi["y"] == 20);
+    mi["z"] = 30;
+    assert(mi["z"] == 30);
+
+    // ---- List.sorted() ----
+    List<int> unsorted = [5, 2, 8, 1, 9];
+    List<int> sorted_list = unsorted.sorted();
+    assert(sorted_list.get(0) == 1);
+    assert(sorted_list.get(4) == 9);
+    // original unchanged
+    assert(unsorted.get(0) == 5);
+
+    // ---- List.distinct() ----
+    List<int> dups = [1, 2, 2, 3, 3, 3, 4];
+    List<int> uniq = dups.distinct();
+    assert(uniq.size() == 4);
+    assert(uniq.get(0) == 1);
+    assert(uniq.get(1) == 2);
+    assert(uniq.get(2) == 3);
+    assert(uniq.get(3) == 4);
+
+    // ---- String relational ----
+    assert("abc" < "def");
+    assert("def" > "abc");
+
+    // ---- List.reversed() ----
+    List<int> rv = [1, 2, 3, 4, 5];
+    List<int> rv2 = rv.reversed();
+    assert(rv2.get(0) == 5);
+    assert(rv2.get(1) == 4);
+    assert(rv2.get(2) == 3);
+    assert(rv2.get(3) == 2);
+    assert(rv2.get(4) == 1);
+    // original unchanged
+    assert(rv.get(0) == 1);
+
+    // ---- Map.containsValue() ----
+    Map<string, int> cv = {};
+    cv.put("a", 10);
+    cv.put("b", 20);
+    assert(cv.containsValue(10) == true);
+    assert(cv.containsValue(20) == true);
+    assert(cv.containsValue(99) == false);
+
+    // ---- List.removeAt() alias ----
+    List<int> rat = [10, 20, 30, 40];
+    rat.removeAt(1);
+    assert(rat.size() == 3);
+    assert(rat.get(0) == 10);
+    assert(rat.get(1) == 30);
+
+    // ---- String.toDouble() / toLong() ----
+    string dstr = "3.14";
+    double dval = dstr.toDouble();
+    string lstr = "12345";
+    long lval = lstr.toLong();
+    assert(lval == 12345);
+
+    // ---- List.take() / drop() ----
+    List<int> td = [1, 2, 3, 4, 5];
+    List<int> taken = td.take(3);
+    assert(taken.size() == 3);
+    assert(taken.get(0) == 1);
+    assert(taken.get(2) == 3);
+    List<int> dropped = td.drop(2);
+    assert(dropped.size() == 3);
+    assert(dropped.get(0) == 3);
+    assert(dropped.get(2) == 5);
+
+    // ---- List.findIndex() ----
+    List<int> fi = [1, 3, 4, 7, 8];
+    int idx = fi.findIndex(isEven);
+    assert(idx == 2);
+    int idx2 = fi.findIndex(isNegative);
+    assert(idx2 == -1);
+
+    print("PASS: test_new_methods");
+    return 0;
+}
+
+int addInts(int a, int b) { return a + b; }
+int mulInts(int a, int b) { return a * b; }
+bool isEven(int x) { return x % 2 == 0; }
+bool isNegative(int x) { return x < 0; }

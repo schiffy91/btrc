@@ -1,0 +1,49 @@
+// Test string concatenation with + and comparison with ==, !=
+#include <assert.h>
+
+int main() {
+    // Basic concatenation
+    string a = "hello";
+    string b = " world";
+    string c = a + b;
+    assert(strcmp(c, "hello world") == 0);
+
+    // Concatenation with literals
+    string d = "foo" + "bar";
+    assert(strcmp(d, "foobar") == 0);
+
+    // += concatenation
+    string e = "start";
+    e += " middle";
+    e += " end";
+    assert(strcmp(e, "start middle end") == 0);
+
+    // String comparison ==
+    string f = "abc";
+    string g = "abc";
+    assert(f == g);
+
+    // String comparison !=
+    string h = "abc";
+    string i = "xyz";
+    assert(h != i);
+
+    // Chained concatenation
+    string j = "a" + "b" + "c";
+    assert(strcmp(j, "abc") == 0);
+
+    // Concatenation in expressions
+    string name = "World";
+    string greeting = "Hello, " + name + "!";
+    assert(strcmp(greeting, "Hello, World!") == 0);
+
+    // Empty string concatenation
+    string empty = "";
+    string k = empty + "test";
+    assert(strcmp(k, "test") == 0);
+    string l = "test" + empty;
+    assert(strcmp(l, "test") == 0);
+
+    printf("PASS: test_string_ops\n");
+    return 0;
+}

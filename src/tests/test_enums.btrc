@@ -1,0 +1,49 @@
+#include <assert.h>
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+};
+
+enum Status {
+    OK = 200,
+    NOT_FOUND = 404,
+    ERROR = 500
+};
+
+int main() {
+    // Basic enum values
+    int r = RED;
+    int g = GREEN;
+    int b = BLUE;
+    assert(r == 0);
+    assert(g == 1);
+    assert(b == 2);
+
+    // Explicit enum values
+    assert(OK == 200);
+    assert(NOT_FOUND == 404);
+    assert(ERROR == 500);
+
+    // Enum in conditions
+    int status = OK;
+    if (status == OK) {
+        assert(true);
+    } else {
+        assert(false);
+    }
+
+    // Enum in switch
+    int color = GREEN;
+    int result = 0;
+    switch (color) {
+        case RED: result = 1; break;
+        case GREEN: result = 2; break;
+        case BLUE: result = 3; break;
+    }
+    assert(result == 2);
+
+    printf("PASS: test_enums\n");
+    return 0;
+}

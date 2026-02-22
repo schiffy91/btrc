@@ -1,0 +1,186 @@
+/* btrc self-hosted compiler — AST Node Definitions
+ *
+ * Uses a tagged-union approach: a single Node class with a `kind` field.
+ * Nodes are stored in a flat List<Node> arena. Child references are
+ * integer indices into the arena. -1 means "no node".
+ *
+ * Field usage per NodeKind:
+ *
+ * NK_PROGRAM:       items=declarations
+ * NK_PREPROCESSOR:  sval=text
+ * NK_CLASS_DECL:    name=class_name, name2=parent, items=members, items2=generic_param_ident_nodes
+ * NK_FUNC_DECL:     name=func_name, n1=return_type, items=params, n2=body, flag2=is_gpu
+ * NK_METHOD_DECL:   name=method_name, n1=return_type, items=params, n2=body,
+ *                   sval=access("public"/"private"/"class"), flag2=is_gpu
+ * NK_FIELD_DECL:    name=field_name, n1=type, n2=initializer, sval=access
+ * NK_ENUM_DECL:     name=enum_name, items=members
+ * NK_ENUM_MEMBER:   name=member_name, n1=value_expr(-1 if none)
+ * NK_STRUCT_DECL:   name=struct_name, items=field_decls
+ * NK_TYPEDEF_DECL:  name=alias, n1=original_type
+ * NK_PARAM:         name=param_name, n1=type, n2=default_value
+ * NK_BLOCK:         items=statements
+ * NK_VAR_DECL:      name=var_name, n1=type(-1 for var), n2=initializer
+ * NK_EXPR_STMT:     n1=expression
+ * NK_RETURN:        n1=value(-1 for void return)
+ * NK_IF:            n1=condition, n2=then_block, n3=else_block_or_if(-1 if none)
+ * NK_WHILE:         n1=condition, n2=body
+ * NK_DO_WHILE:      n1=body, n2=condition
+ * NK_C_FOR:         n1=init, n2=condition, n3=update, n4=body
+ * NK_FOR_IN:        name=var_name, n1=iterable, n2=body
+ * NK_PARALLEL_FOR:  name=var_name, n1=iterable, n2=body
+ * NK_SWITCH:        n1=value_expr, items=cases
+ * NK_CASE:          n1=value_expr(-1 for default), items=body_stmts
+ * NK_TRY_CATCH:     n1=try_block, n2=catch_block, name=catch_var
+ * NK_THROW:         n1=expression
+ * NK_BREAK:         (nothing)
+ * NK_CONTINUE:      (nothing)
+ * NK_DELETE_STMT:   n1=expression
+ * NK_BINARY:        n1=left, n2=right, op=operator
+ * NK_UNARY:         n1=operand, op=operator, flag1=is_prefix
+ * NK_CALL:          n1=callee, items=args
+ * NK_INDEX:         n1=object, n2=index
+ * NK_FIELD_ACCESS:  n1=object, name=field_name, flag1=is_arrow, flag2=is_optional
+ * NK_ASSIGN:        n1=target, n2=value, op=operator
+ * NK_CAST:          n1=target_type, n2=expression
+ * NK_SIZEOF:        n1=operand(type or expr), flag1=is_type
+ * NK_NEW:           n1=type, items=args
+ * NK_TERNARY:       n1=condition, n2=true_expr, n3=false_expr
+ * NK_ADDRESS_OF:    n1=operand
+ * NK_DEREF:         n1=operand
+ * NK_INT_LIT:       ival=value, sval=raw_text
+ * NK_FLOAT_LIT:     fval=value, sval=raw_text
+ * NK_STRING_LIT:    sval=value(with quotes)
+ * NK_CHAR_LIT:      sval=value(with quotes)
+ * NK_BOOL_LIT:      bval=value
+ * NK_NULL_LIT:      (nothing)
+ * NK_IDENTIFIER:    name=identifier
+ * NK_SELF:          (nothing)
+ * NK_LIST_LIT:      items=elements
+ * NK_MAP_LIT:       items=keys, items2=values
+ * NK_TUPLE_LIT:     items=elements
+ * NK_FSTRING:       items=parts (NK_STRING_LIT for text, any expr node for exprs)
+ * NK_BRACE_INIT:    items=elements
+ * NK_PROPERTY_DECL: name=prop_name, n1=type, sval=access, flag1=has_getter, flag2=has_setter,
+ *                   n2=getter_body(-1 for auto), n3=setter_body(-1 for auto)
+ * NK_LAMBDA:        n1=return_type(-1 for arrow), items=params(NK_PARAM), n2=body(NK_BLOCK),
+ *                   flag1=is_arrow, sval=assigned_c_name(set during codegen)
+ * NK_TYPE:          name=base, items=generic_arg_type_nodes, ival=pointer_depth,
+ *                   bval=is_array, n1=array_size(-1 if none)
+ */
+
+enum NodeKind {
+    NK_NONE = 0,
+    NK_PROGRAM,
+    NK_PREPROCESSOR,
+    NK_CLASS_DECL,
+    NK_FUNC_DECL,
+    NK_METHOD_DECL,
+    NK_FIELD_DECL,
+    NK_ENUM_DECL,
+    NK_ENUM_MEMBER,
+    NK_STRUCT_DECL,
+    NK_TYPEDEF_DECL,
+    NK_PARAM,
+    NK_BLOCK,
+    NK_VAR_DECL,
+    NK_EXPR_STMT,
+    NK_RETURN,
+    NK_IF,
+    NK_WHILE,
+    NK_DO_WHILE,
+    NK_C_FOR,
+    NK_FOR_IN,
+    NK_PARALLEL_FOR,
+    NK_SWITCH,
+    NK_CASE,
+    NK_TRY_CATCH,
+    NK_THROW,
+    NK_BREAK,
+    NK_CONTINUE,
+    NK_DELETE_STMT,
+    NK_BINARY,
+    NK_UNARY,
+    NK_CALL,
+    NK_INDEX,
+    NK_FIELD_ACCESS,
+    NK_ASSIGN,
+    NK_CAST,
+    NK_SIZEOF,
+    NK_NEW,
+    NK_TERNARY,
+    NK_ADDRESS_OF,
+    NK_DEREF,
+    NK_INT_LIT,
+    NK_FLOAT_LIT,
+    NK_STRING_LIT,
+    NK_CHAR_LIT,
+    NK_BOOL_LIT,
+    NK_NULL_LIT,
+    NK_IDENTIFIER,
+    NK_SELF,
+    NK_LIST_LIT,
+    NK_MAP_LIT,
+    NK_TUPLE_LIT,
+    NK_FSTRING,
+    NK_BRACE_INIT,
+    NK_PROPERTY_DECL,
+    NK_LAMBDA,
+    NK_TYPE
+};
+
+class Node {
+    public int kind;
+    public int line;
+    public int col;
+    public string name;
+    public string name2;
+    public string op;
+    public string sval;
+    public int ival;
+    public float fval;
+    public bool bval;
+    public int n1;
+    public int n2;
+    public int n3;
+    public int n4;
+    public List<int> items;
+    public List<int> items2;
+    public bool flag1;
+    public bool flag2;
+
+    public Node(int kind, int line, int col) {
+        self.kind = kind;
+        self.line = line;
+        self.col = col;
+        self.name = "";
+        self.name2 = "";
+        self.op = "";
+        self.sval = "";
+        self.ival = 0;
+        self.fval = 0.0;
+        self.bval = false;
+        self.n1 = -1;
+        self.n2 = -1;
+        self.n3 = -1;
+        self.n4 = -1;
+        self.items = [];
+        self.items2 = [];
+        self.flag1 = false;
+        self.flag2 = false;
+    }
+}
+
+/* Helper: check if a token type is a type keyword */
+bool is_type_token(int t) {
+    return t == TOK_INT || t == TOK_FLOAT || t == TOK_CHAR || t == TOK_VOID ||
+           t == TOK_DOUBLE || t == TOK_SHORT || t == TOK_LONG ||
+           t == TOK_SIGNED || t == TOK_UNSIGNED ||
+           t == TOK_BOOL || t == TOK_STRING ||
+           t == TOK_CONST || t == TOK_STATIC || t == TOK_EXTERN || t == TOK_VOLATILE ||
+           t == TOK_STRUCT || t == TOK_ENUM || t == TOK_UNION;
+}
+
+/* Helper: check if a token type is a qualifier */
+bool is_qualifier_token(int t) {
+    return t == TOK_CONST || t == TOK_STATIC || t == TOK_EXTERN || t == TOK_VOLATILE;
+}

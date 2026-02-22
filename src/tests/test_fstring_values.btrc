@@ -1,0 +1,48 @@
+#include <assert.h>
+#include <string.h>
+#include <stdio.h>
+
+string format_greeting(string name) {
+    return f"Hello, {name}!";
+}
+
+string format_pair(int a, int b) {
+    return f"{a} + {b}";
+}
+
+class Formatter {
+    class string format(string label, int value) {
+        return f"{label}: {value}";
+    }
+}
+
+int main() {
+    // f-string in return from function
+    string g = format_greeting("world");
+    assert(strcmp(g, "Hello, world!") == 0);
+
+    // f-string with int expressions
+    string p = format_pair(3, 7);
+    assert(strcmp(p, "3 + 7") == 0);
+
+    // f-string in variable declaration
+    int age = 25;
+    string msg = f"Age is {age}";
+    assert(strcmp(msg, "Age is 25") == 0);
+
+    // f-string in assignment
+    string s = "initial";
+    int x = 42;
+    s = f"updated: {x}";
+    assert(strcmp(s, "updated: 42") == 0);
+
+    // f-string in static method return
+    string formatted = Formatter.format("count", 10);
+    assert(strcmp(formatted, "count: 10") == 0);
+
+    // f-string in print (already working)
+    print(f"done: {x}");
+
+    print("PASS: test_fstring_values");
+    return 0;
+}

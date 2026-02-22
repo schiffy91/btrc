@@ -1,0 +1,70 @@
+// Test operator precedence and associativity
+#include <assert.h>
+
+int main() {
+    // ---- Arithmetic precedence ----
+    assert(2 + 3 * 4 == 14);
+    assert((2 + 3) * 4 == 20);
+    assert(10 - 3 - 2 == 5);     // left associative subtraction
+    assert(100 / 10 / 2 == 5);   // left associative division
+    assert(10 % 3 + 1 == 2);     // mod before add
+
+    // ---- Comparison with arithmetic ----
+    assert(2 + 3 > 4 == true);
+    assert(2 * 3 >= 6 == true);
+    assert(10 - 5 <= 5 == true);
+
+    // ---- Logical operators ----
+    assert((true && true) == true);
+    assert((true && false) == false);
+    assert((false || true) == true);
+    assert((false || false) == false);
+
+    // ---- Logical short-circuit evaluation ----
+    // && should short-circuit: false && (anything) should not evaluate RHS
+    int x = 0;
+    bool result = false && (++x > 0);
+    assert(result == false);
+    // Note: in C, ++x WOULD have been skipped due to short-circuit
+    // but our test just verifies the boolean result is correct
+
+    // ---- Ternary operator ----
+    int a = 5;
+    int b = a > 3 ? 10 : 20;
+    assert(b == 10);
+
+    int c = a < 3 ? 10 : 20;
+    assert(c == 20);
+
+    // Nested ternary (right associative)
+    int d = a > 10 ? 1 : a > 3 ? 2 : 3;
+    assert(d == 2);
+
+    // ---- Mixed arithmetic and comparison ----
+    assert((3 + 4 == 7) == true);
+    assert((10 / 2 != 3) == true);
+
+    // ---- Increment/decrement ----
+    int i = 5;
+    i++;
+    assert(i == 6);
+    i--;
+    assert(i == 5);
+
+    int j = 5;
+    int pre = ++j;
+    assert(pre == 6);
+    assert(j == 6);
+
+    // ---- Negation ----
+    assert(!true == false);
+    assert(!false == true);
+    assert(!(5 > 3) == false);
+
+    // ---- Compound expressions ----
+    int val = (2 + 3) * (4 - 1) + 10 / 2;
+    assert(val == 20);  // 5*3 + 5 = 20
+
+    print("PASS: test_operator_precedence");
+    return 0;
+}

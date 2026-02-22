@@ -3,3 +3,12 @@ __pycache__/
 .pytest_cache/
 *.pyc
 *.o
+*.dSYM/
+
+# LSP server venv
+devex/lsp/.venv/
+
+# VS Code extension build artifacts
+devex/ext/out/
+devex/ext/node_modules/
+devex/ext/*.vsix

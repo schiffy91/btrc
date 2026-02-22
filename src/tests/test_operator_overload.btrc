@@ -1,0 +1,45 @@
+#include <assert.h>
+
+class Vec2 {
+    public int x;
+    public int y;
+    public Vec2(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+    public Vec2 __add__(Vec2 other) {
+        return Vec2(self.x + other.x, self.y + other.y);
+    }
+    public Vec2 __sub__(Vec2 other) {
+        return Vec2(self.x - other.x, self.y - other.y);
+    }
+    public Vec2 __neg__() {
+        return Vec2(-self.x, -self.y);
+    }
+    public bool __eq__(Vec2 other) {
+        return self.x == other.x && self.y == other.y;
+    }
+}
+
+int main() {
+    Vec2 a = Vec2(1, 2);
+    Vec2 b = Vec2(3, 4);
+    Vec2 c = a + b;
+    assert(c.x == 4);
+    assert(c.y == 6);
+    Vec2 d = Vec2(4, 6);
+    assert(c == d);
+    Vec2 e = Vec2(0, 0);
+    assert(!(c == e));
+    Vec2 f = a - b;
+    assert(f.x == -2);
+    assert(f.y == -2);
+    Vec2 g = -a;
+    assert(g.x == -1);
+    assert(g.y == -2);
+    Vec2 h = -b;
+    assert(h.x == -3);
+    assert(h.y == -4);
+    print("PASS: test_operator_overload");
+    return 0;
+}

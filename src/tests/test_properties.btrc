@@ -1,0 +1,55 @@
+#include <assert.h>
+
+class Temperature {
+    private float celsius;
+
+    public Temperature(float celsius) {
+        self.celsius = celsius;
+    }
+
+    public float fahrenheit {
+        get { return self.celsius * 9.0 / 5.0 + 32.0; }
+        set { self.celsius = (value - 32.0) * 5.0 / 9.0; }
+    }
+
+    public float getCelsius() {
+        return self.celsius;
+    }
+}
+
+class Point {
+    public int x { get; set; }
+    public int y { get; set; }
+
+    public int manhattan {
+        get {
+            int ax = self.x;
+            if (ax < 0) { ax = -ax; }
+            int ay = self.y;
+            if (ay < 0) { ay = -ay; }
+            return ax + ay;
+        }
+    }
+}
+
+int main() {
+    // Test custom getter/setter
+    var t = Temperature(100.0);
+    float f = t.fahrenheit;
+    assert(f > 211.0 && f < 213.0);
+
+    t.fahrenheit = 32.0;
+    float c = t.getCelsius();
+    assert(c > -1.0 && c < 1.0);
+
+    // Test auto-properties
+    var p = Point();
+    p.x = 3;
+    p.y = -4;
+    assert(p.x == 3);
+    assert(p.y == -4);
+    assert(p.manhattan == 7);
+
+    print("PASS: test_properties");
+    return 0;
+}

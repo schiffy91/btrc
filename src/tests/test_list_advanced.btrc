@@ -1,0 +1,63 @@
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    // ---- indexOf / lastIndexOf ----
+    List<int> nums = [10, 20, 30, 20, 10];
+    assert(nums.indexOf(10) == 0);
+    assert(nums.indexOf(20) == 1);
+    assert(nums.indexOf(30) == 2);
+    assert(nums.indexOf(99) == -1);
+
+    assert(nums.lastIndexOf(10) == 4);
+    assert(nums.lastIndexOf(20) == 3);
+    assert(nums.lastIndexOf(30) == 2);
+    assert(nums.lastIndexOf(99) == -1);
+
+    // ---- slice ----
+    List<int> sub = nums.slice(1, 4);
+    assert(sub.len == 3);
+    assert(sub[0] == 20);
+    assert(sub[1] == 30);
+    assert(sub[2] == 20);
+
+    // Slice from start
+    List<int> head = nums.slice(0, 2);
+    assert(head.len == 2);
+    assert(head[0] == 10);
+    assert(head[1] == 20);
+
+    // Empty slice
+    List<int> empty = nums.slice(3, 3);
+    assert(empty.len == 0);
+
+    // Slice past end (should clamp)
+    List<int> tail = nums.slice(3, 100);
+    assert(tail.len == 2);
+
+    // ---- join (List<string>) ----
+    List<string> words = ["hello", "world", "btrc"];
+    string joined = words.join(", ");
+    assert(strcmp(joined, "hello, world, btrc") == 0);
+
+    List<string> single = ["only"];
+    string s1 = single.join("-");
+    assert(strcmp(s1, "only") == 0);
+
+    List<string> none = [];
+    string s2 = none.join(",");
+    assert(strcmp(s2, "") == 0);
+
+    // cleanup
+    sub.free();
+    head.free();
+    empty.free();
+    tail.free();
+    words.free();
+    single.free();
+    none.free();
+    nums.free();
+
+    print("PASS: test_list_advanced");
+    return 0;
+}

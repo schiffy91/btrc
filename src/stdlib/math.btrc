@@ -1,0 +1,189 @@
+/* btrc standard library — Math
+ * Object-oriented math utilities inspired by Python's math module.
+ */
+
+class Math {
+    /* Constants */
+    class float PI()    { return 3.14159265358979323846f; }
+    class float E()     { return 2.71828182845904523536f; }
+    class float TAU()   { return 6.28318530717958647692f; }
+    class float INF()   { return 1.0f / 0.0f; }
+
+    /* Basic operations */
+    class int abs(int x) {
+        if (x < 0) { return -x; }
+        return x;
+    }
+
+    class float fabs(float x) {
+        if (x < 0.0f) { return -x; }
+        return x;
+    }
+
+    class int max(int a, int b) {
+        if (a > b) { return a; }
+        return b;
+    }
+
+    class int min(int a, int b) {
+        if (a < b) { return a; }
+        return b;
+    }
+
+    class float fmax(float a, float b) {
+        if (a > b) { return a; }
+        return b;
+    }
+
+    class float fmin(float a, float b) {
+        if (a < b) { return a; }
+        return b;
+    }
+
+    class int clamp(int x, int lo, int hi) {
+        if (x < lo) { return lo; }
+        if (x > hi) { return hi; }
+        return x;
+    }
+
+    /* Power and roots */
+    class float power(float base, int exp) {
+        float result = 1.0f;
+        bool negative = false;
+        if (exp < 0) {
+            negative = true;
+            exp = -exp;
+        }
+        for i in range(exp) {
+            result = result * base;
+        }
+        if (negative) {
+            return 1.0f / result;
+        }
+        return result;
+    }
+
+    class float sqrt(float x) {
+        return sqrt(x);
+    }
+
+    /* Factorial and combinatorics */
+    class int factorial(int n) {
+        if (n <= 1) { return 1; }
+        return n * Math.factorial(n - 1);
+    }
+
+    class int gcd(int a, int b) {
+        while (b != 0) {
+            int temp = b;
+            b = a % b;
+            a = temp;
+        }
+        return a;
+    }
+
+    class int lcm(int a, int b) {
+        return Math.abs(a * b) / Math.gcd(a, b);
+    }
+
+    /* Fibonacci */
+    class int fibonacci(int n) {
+        if (n <= 0) { return 0; }
+        if (n == 1) { return 1; }
+        int a = 0;
+        int b = 1;
+        for i in range(2, n + 1) {
+            int temp = a + b;
+            a = b;
+            b = temp;
+        }
+        return b;
+    }
+
+    /* Integer checks */
+    class bool isPrime(int n) {
+        if (n < 2) { return false; }
+        if (n < 4) { return true; }
+        if (n % 2 == 0) { return false; }
+        int i = 3;
+        while (i * i <= n) {
+            if (n % i == 0) { return false; }
+            i = i + 2;
+        }
+        return true;
+    }
+
+    class bool isEven(int n) {
+        return n % 2 == 0;
+    }
+
+    class bool isOdd(int n) {
+        return n % 2 != 0;
+    }
+
+    /* Sum and product of lists */
+    class int sum(List<int> items) {
+        int total = 0;
+        for i in range(items.len) {
+            total = total + items.get(i);
+        }
+        return total;
+    }
+
+    class float fsum(List<float> items) {
+        float total = 0.0f;
+        for i in range(items.len) {
+            total = total + items.get(i);
+        }
+        return total;
+    }
+
+    /* Trigonometric */
+    class float sin(float x)  { return sin(x); }
+    class float cos(float x)  { return cos(x); }
+    class float tan(float x)  { return tan(x); }
+    class float asin(float x) { return asin(x); }
+    class float acos(float x) { return acos(x); }
+    class float atan(float x) { return atan(x); }
+    class float atan2(float y, float x) { return atan2(y, x); }
+
+    /* Rounding */
+    class float ceil(float x)     { return ceil(x); }
+    class float floor(float x)    { return floor(x); }
+    class int round(float x)      { return (int)round(x); }
+    class int truncate(float x)   { return (int)trunc(x); }
+
+    /* Logarithmic / Exponential */
+    class float log(float x)   { return log(x); }
+    class float log10(float x) { return log10(x); }
+    class float log2(float x)  { return log2(x); }
+    class float exp(float x)   { return exp(x); }
+
+    /* Conversion */
+    class float toRadians(float degrees) {
+        return degrees * 3.14159265358979323846f / 180.0f;
+    }
+
+    class float toDegrees(float radians) {
+        return radians * 180.0f / 3.14159265358979323846f;
+    }
+
+    /* Utility */
+    class float fclamp(float val, float lo, float hi) {
+        if (val < lo) { return lo; }
+        if (val > hi) { return hi; }
+        return val;
+    }
+
+    class int sign(int x) {
+        if (x > 0) { return 1; }
+        if (x < 0) { return -1; }
+        return 0;
+    }
+
+    class float fsign(float x) {
+        if (x > 0.0f) { return 1.0f; }
+        if (x < 0.0f) { return -1.0f; }
+        return 0.0f;
+    }
+}

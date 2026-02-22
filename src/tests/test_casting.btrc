@@ -1,0 +1,38 @@
+#include <assert.h>
+
+int main() {
+    // Float to int truncation
+    float f = 3.7;
+    int i = (int)f;
+    assert(i == 3);
+
+    // Int to float
+    int a = 7;
+    float b = (float)a;
+    assert(b > 6.9 && b < 7.1);
+
+    // Int to bool
+    int nonzero = 42;
+    int zero = 0;
+    assert((bool)nonzero == true);
+    assert((bool)zero == false);
+
+    // Char to int
+    char c = 'A';
+    int code = (int)c;
+    assert(code == 65);
+
+    // Int to char
+    int val = 66;
+    char ch = (char)val;
+    assert(ch == 'B');
+
+    // Double cast
+    float pi = 3.14;
+    int truncated = (int)pi;
+    float restored = (float)truncated;
+    assert(restored > 2.9 && restored < 3.1);
+
+    printf("PASS: test_casting\n");
+    return 0;
+}

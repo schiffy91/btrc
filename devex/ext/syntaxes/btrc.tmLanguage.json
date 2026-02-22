@@ -1,0 +1,480 @@
+{
+  "name": "btrc",
+  "scopeName": "source.btrc",
+  "fileTypes": ["btrc"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#preprocessor" },
+    { "include": "#annotations" },
+    { "include": "#class-declaration" },
+    { "include": "#struct-declaration" },
+    { "include": "#enum-declaration" },
+    { "include": "#static-method-declaration" },
+    { "include": "#function-definition" },
+    { "include": "#fstrings" },
+    { "include": "#strings" },
+    { "include": "#characters" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#generic-type" },
+    { "include": "#types" },
+    { "include": "#c-cast" },
+    { "include": "#constants" },
+    { "include": "#dunder-method" },
+    { "include": "#builtin-functions" },
+    { "include": "#operators" },
+    { "include": "#function-call" },
+    { "include": "#member-access" },
+    { "include": "#user-type" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.btrc",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.btrc",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.btrc" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.end.btrc" } }
+        }
+      ]
+    },
+
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.include.btrc",
+          "match": "^\\s*(#include)\\s+(\"[^\"]+\"|<[^>]+>)",
+          "captures": {
+            "1": { "name": "keyword.control.directive.include.btrc" },
+            "2": { "name": "string.quoted.other.include.btrc" }
+          }
+        },
+        {
+          "name": "meta.preprocessor.btrc",
+          "match": "^\\s*(#\\s*(?:define|undef|ifdef|ifndef|if|elif|else|endif|pragma|error|warning))\\b(.*)$",
+          "captures": {
+            "1": { "name": "keyword.control.directive.btrc" },
+            "2": { "name": "meta.preprocessor.body.btrc" }
+          }
+        }
+      ]
+    },
+
+    "annotations": {
+      "match": "(@\\w+)\\b",
+      "captures": {
+        "1": { "name": "storage.modifier.annotation.btrc" }
+      }
+    },
+
+    "class-declaration": {
+      "match": "\\b(class)\\s+([A-Z_]\\w*)(?:\\s*(<)([^>]*)(>))?(?:\\s+(extends)\\s+([A-Z_]\\w*))?",
+      "captures": {
+        "1": { "name": "storage.type.class.btrc" },
+        "2": { "name": "entity.name.type.class.btrc" },
+        "3": { "name": "punctuation.definition.generic.begin.btrc" },
+        "4": {
+          "patterns": [
+            {
+              "match": "\\b([A-Z_]\\w*)\\b",
+              "name": "entity.name.type.parameter.btrc"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.btrc"
+            }
+          ]
+        },
+        "5": { "name": "punctuation.definition.generic.end.btrc" },
+        "6": { "name": "storage.modifier.extends.btrc" },
+        "7": { "name": "entity.other.inherited-class.btrc" }
+      }
+    },
+
+    "struct-declaration": {
+      "match": "\\b(struct)\\s+([A-Z_]\\w*)",
+      "captures": {
+        "1": { "name": "storage.type.struct.btrc" },
+        "2": { "name": "entity.name.type.struct.btrc" }
+      }
+    },
+
+    "enum-declaration": {
+      "match": "\\b(enum)\\s+([A-Z_]\\w*)",
+      "captures": {
+        "1": { "name": "storage.type.enum.btrc" },
+        "2": { "name": "entity.name.type.enum.btrc" }
+      }
+    },
+
+    "static-method-declaration": {
+      "comment": "Matches: class ReturnType methodName( -- for static methods inside a class body",
+      "match": "\\b(class)\\s+(?:(int|float|double|char|short|long|void|string|bool|unsigned|signed|List|Map|Set|Array|[A-Z_]\\w*)(?:\\s*<[^>]*>)?\\*?)\\s+([a-zA-Z_]\\w*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "storage.modifier.static.btrc" },
+        "2": { "name": "storage.type.btrc" },
+        "3": { "name": "entity.name.function.definition.btrc" }
+      }
+    },
+
+    "function-definition": {
+      "comment": "Matches return_type function_name( -- for function/method definitions",
+      "match": "\\b(?:(int|float|double|char|short|long|void|string|bool|unsigned|signed|List|Map|Set|Array|[A-Z_]\\w*)(?:\\s*<[^>]*>)?\\*?)\\s+([a-zA-Z_]\\w*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "storage.type.btrc" },
+        "2": { "name": "entity.name.function.definition.btrc" }
+      }
+    },
+
+    "fstrings": {
+      "name": "string.interpolated.btrc",
+      "begin": "f\"",
+      "end": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.btrc" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.btrc" } },
+      "patterns": [
+        {
+          "name": "constant.character.escape.btrc",
+          "match": "\\\\(?:[abfnrtv\\\\\"'0]|[0-7]{1,3}|x[0-9a-fA-F]{1,2})"
+        },
+        {
+          "name": "meta.interpolation.btrc",
+          "begin": "\\{",
+          "end": "\\}",
+          "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.btrc" } },
+          "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.btrc" } },
+          "patterns": [
+            { "include": "#expression" }
+          ]
+        }
+      ]
+    },
+
+    "strings": {
+      "name": "string.quoted.double.btrc",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.btrc" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.btrc" } },
+      "patterns": [
+        {
+          "name": "constant.character.escape.btrc",
+          "match": "\\\\(?:[abfnrtv\\\\\"'0]|[0-7]{1,3}|x[0-9a-fA-F]{1,2})"
+        }
+      ]
+    },
+
+    "characters": {
+      "name": "string.quoted.single.btrc",
+      "match": "'(?:[^'\\\\]|\\\\(?:[abfnrtv\\\\\"'0]|[0-7]{1,3}|x[0-9a-fA-F]{1,2}))'",
+      "captures": {
+        "0": { "name": "string.quoted.single.btrc" }
+      }
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.btrc",
+          "match": "\\b0[xX][0-9a-fA-F]+(?:[uU]?[lL]{0,2})?\\b"
+        },
+        {
+          "name": "constant.numeric.binary.btrc",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.btrc",
+          "match": "\\b\\d+\\.\\d+(?:[eE][+-]?\\d+)?[fF]?\\b"
+        },
+        {
+          "name": "constant.numeric.float.btrc",
+          "match": "\\b\\d+[eE][+-]?\\d+[fF]?\\b"
+        },
+        {
+          "name": "constant.numeric.float.btrc",
+          "match": "\\b\\d+[fF]\\b"
+        },
+        {
+          "name": "constant.numeric.integer.btrc",
+          "match": "\\b\\d+(?:[uU]?[lL]{0,2})?\\b"
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.btrc",
+          "match": "\\b(if|else|while|for|do|switch|case|default|break|continue|return|goto|in|try|catch|throw)\\b"
+        },
+        {
+          "name": "storage.type.btrc",
+          "match": "\\b(class|struct|enum|union|typedef)\\b"
+        },
+        {
+          "name": "storage.modifier.btrc",
+          "match": "\\b(public|private|static|extern|const|volatile|register|auto|var|extends)\\b"
+        },
+        {
+          "name": "keyword.operator.new.btrc",
+          "match": "\\b(new)\\b"
+        },
+        {
+          "name": "keyword.operator.delete.btrc",
+          "match": "\\b(delete)\\b"
+        },
+        {
+          "name": "keyword.operator.sizeof.btrc",
+          "match": "\\b(sizeof)\\b"
+        },
+        {
+          "name": "keyword.other.parallel.btrc",
+          "match": "\\b(parallel)\\b"
+        }
+      ]
+    },
+
+    "generic-type": {
+      "comment": "Matches generic types: List<int>, Map<string, int>, Array<float>, etc.",
+      "match": "\\b(List|Map|Set|Array)\\s*(<)([^>]*)(>)",
+      "captures": {
+        "1": { "name": "support.type.builtin.btrc" },
+        "2": { "name": "punctuation.definition.generic.begin.btrc" },
+        "3": {
+          "patterns": [
+            {
+              "comment": "Nested generic type: e.g. List<List<int>>",
+              "match": "\\b(List|Map|Set|Array)\\b",
+              "name": "support.type.builtin.btrc"
+            },
+            {
+              "match": "\\b(int|float|double|char|short|long|void|string|bool|unsigned|signed)\\b",
+              "name": "storage.type.builtin.btrc"
+            },
+            {
+              "match": "\\b([A-Z_]\\w*)\\b",
+              "name": "entity.name.type.btrc"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.btrc"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.pointer.btrc"
+            }
+          ]
+        },
+        "4": { "name": "punctuation.definition.generic.end.btrc" }
+      }
+    },
+
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.builtin.btrc",
+          "match": "\\b(int|float|double|char|short|long|void|string|bool|unsigned|signed)\\b"
+        },
+        {
+          "name": "support.type.builtin.btrc",
+          "match": "\\b(List|Map|Set|Array)\\b"
+        },
+        {
+          "comment": "C standard library types used in stdlib",
+          "name": "support.type.c.btrc",
+          "match": "\\b(FILE|time_t|clock_t|size_t)\\b"
+        }
+      ]
+    },
+
+    "c-cast": {
+      "comment": "C-style type cast: (int), (float), (char*), (unsigned char), etc.",
+      "match": "(\\()\\s*((?:unsigned\\s+|signed\\s+)?(?:int|float|double|char|short|long|void|string|bool)\\**)\\s*(\\))",
+      "captures": {
+        "1": { "name": "punctuation.section.parens.begin.btrc" },
+        "2": { "name": "storage.type.cast.btrc" },
+        "3": { "name": "punctuation.section.parens.end.btrc" }
+      }
+    },
+
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.true.btrc",
+          "match": "\\btrue\\b"
+        },
+        {
+          "name": "constant.language.boolean.false.btrc",
+          "match": "\\bfalse\\b"
+        },
+        {
+          "name": "constant.language.null.btrc",
+          "match": "\\b(null|NULL)\\b"
+        },
+        {
+          "name": "variable.language.self.btrc",
+          "match": "\\bself\\b"
+        },
+        {
+          "comment": "C standard library macros and constants",
+          "name": "constant.language.c.btrc",
+          "match": "\\b(SEEK_SET|SEEK_END|SEEK_CUR|CLOCKS_PER_SEC|RAND_MAX|EXIT_SUCCESS|EXIT_FAILURE|EOF)\\b"
+        },
+        {
+          "comment": "ALL_CAPS identifiers as constants (e.g., user-defined macros)",
+          "name": "constant.other.caps.btrc",
+          "match": "\\b[A-Z][A-Z0-9_]{2,}\\b"
+        }
+      ]
+    },
+
+    "dunder-method": {
+      "comment": "Dunder/magic method names: __add__, __del__, __eq__, etc.",
+      "match": "\\b(__[a-zA-Z_][a-zA-Z0-9_]*__)\\b",
+      "captures": {
+        "1": { "name": "support.function.magic.btrc" }
+      }
+    },
+
+    "builtin-functions": {
+      "comment": "Built-in functions: print, range, printf, scanf, C stdlib functions",
+      "match": "\\b(print|range|printf|scanf|sprintf|snprintf|fprintf|puts|fputs|fputc|fgets|strlen|strcmp|strncmp|strdup|strcpy|strncpy|strcat|strncat|malloc|calloc|realloc|free|memcpy|memset|memmove|fopen|fclose|fread|fwrite|fseek|ftell|feof|fflush|atoi|atof|sqrt|sin|cos|tan|asin|acos|atan|atan2|log|log2|log10|exp|pow|ceil|floor|round|trunc|abs|fabs|rand|srand|time|clock|localtime|toupper|tolower|exit)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "support.function.builtin.btrc" }
+      }
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.compound.btrc",
+          "match": "<<=|>>=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^="
+        },
+        {
+          "name": "keyword.operator.comparison.btrc",
+          "match": "==|!=|<=|>="
+        },
+        {
+          "name": "keyword.operator.logical.btrc",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.bitwise.btrc",
+          "match": "<<|>>|~"
+        },
+        {
+          "name": "keyword.operator.assignment.btrc",
+          "match": "(?<![=!<>])=(?!=)"
+        },
+        {
+          "name": "keyword.operator.increment-decrement.btrc",
+          "match": "\\+\\+|--"
+        },
+        {
+          "name": "keyword.operator.arrow.btrc",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.optional-chaining.btrc",
+          "match": "\\?\\."
+        },
+        {
+          "name": "keyword.operator.null-coalescing.btrc",
+          "match": "\\?\\?"
+        },
+        {
+          "name": "keyword.operator.arithmetic.btrc",
+          "match": "\\+|-|\\*|/|%"
+        },
+        {
+          "name": "keyword.operator.bitwise.btrc",
+          "match": "&|\\||\\^"
+        },
+        {
+          "name": "keyword.operator.comparison.btrc",
+          "match": "<|>"
+        },
+        {
+          "name": "keyword.operator.ternary.btrc",
+          "match": "\\?"
+        }
+      ]
+    },
+
+    "function-call": {
+      "match": "\\b([a-zA-Z_]\\w*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.call.btrc" }
+      }
+    },
+
+    "member-access": {
+      "patterns": [
+        {
+          "comment": "Method call on member: .method( or ->method(",
+          "match": "(?:\\.|->|\\?\\.)\\s*([a-zA-Z_]\\w*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.member.btrc" }
+          }
+        },
+        {
+          "comment": "Field access: .field or ->field",
+          "match": "(?:\\.|->|\\?\\.)\\s*([a-zA-Z_]\\w*)",
+          "captures": {
+            "1": { "name": "variable.other.member.btrc" }
+          }
+        }
+      ]
+    },
+
+    "user-type": {
+      "comment": "User-defined types: identifiers starting with uppercase (e.g., Counter, Node, Complex)",
+      "match": "\\b([A-Z][a-zA-Z0-9_]*)\\b",
+      "captures": {
+        "1": { "name": "entity.name.type.btrc" }
+      }
+    },
+
+    "punctuation": {
+      "patterns": [
+        { "match": "\\{", "name": "punctuation.section.block.begin.btrc" },
+        { "match": "\\}", "name": "punctuation.section.block.end.btrc" },
+        { "match": "\\(", "name": "punctuation.section.parens.begin.btrc" },
+        { "match": "\\)", "name": "punctuation.section.parens.end.btrc" },
+        { "match": "\\[", "name": "punctuation.section.bracket.begin.btrc" },
+        { "match": "\\]", "name": "punctuation.section.bracket.end.btrc" },
+        { "match": ";", "name": "punctuation.terminator.statement.btrc" },
+        { "match": ",", "name": "punctuation.separator.comma.btrc" },
+        { "match": ":", "name": "punctuation.separator.colon.btrc" }
+      ]
+    },
+
+    "expression": {
+      "comment": "Composite rule for nested expression contexts (f-string interpolation, etc.)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#fstrings" },
+        { "include": "#strings" },
+        { "include": "#characters" },
+        { "include": "#numbers" },
+        { "include": "#constants" },
+        { "include": "#keywords" },
+        { "include": "#generic-type" },
+        { "include": "#types" },
+        { "include": "#dunder-method" },
+        { "include": "#builtin-functions" },
+        { "include": "#operators" },
+        { "include": "#function-call" },
+        { "include": "#member-access" },
+        { "include": "#user-type" },
+        { "include": "#punctuation" }
+      ]
+    }
+  }
+}

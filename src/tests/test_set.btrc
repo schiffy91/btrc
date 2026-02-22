@@ -1,0 +1,70 @@
+// Test Set<T> data structure
+#include <assert.h>
+
+int main() {
+    // ---- Set<int>: basic add/contains ----
+    Set<int> nums = {};
+    nums.add(10);
+    nums.add(20);
+    nums.add(30);
+    assert(nums.len == 3);
+    assert(nums.contains(10) == true);
+    assert(nums.contains(20) == true);
+    assert(nums.contains(30) == true);
+    assert(nums.contains(99) == false);
+
+    // ---- Set: duplicates are ignored ----
+    nums.add(10);
+    nums.add(20);
+    assert(nums.len == 3);  // still 3
+
+    // ---- Set: has() alias ----
+    assert(nums.has(10) == true);
+    assert(nums.has(42) == false);
+
+    // ---- Set: remove ----
+    nums.remove(20);
+    assert(nums.len == 2);
+    assert(nums.contains(20) == false);
+    assert(nums.contains(10) == true);
+    assert(nums.contains(30) == true);
+
+    // ---- Set: toList ----
+    List<int> as_list = nums.toList();
+    assert(as_list.len == 2);
+
+    int sum = 0;
+    for v in as_list {
+        sum += v;
+    }
+    assert(sum == 40);  // 10 + 30
+    as_list.free();
+
+    // ---- Set<string> ----
+    Set<string> words = {};
+    words.add("hello");
+    words.add("world");
+    words.add("hello");  // duplicate
+    assert(words.len == 2);
+    assert(words.contains("hello") == true);
+    assert(words.contains("world") == true);
+    assert(words.contains("missing") == false);
+
+    // ---- Set: for-in iteration ----
+    int count = 0;
+    for w in words {
+        count++;
+    }
+    assert(count == 2);
+
+    // ---- Set: clear ----
+    words.clear();
+    assert(words.len == 0);
+    assert(words.contains("hello") == false);
+
+    nums.free();
+    words.free();
+
+    print("PASS: test_set");
+    return 0;
+}

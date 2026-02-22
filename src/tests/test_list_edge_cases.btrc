@@ -1,0 +1,80 @@
+// Test List edge cases: pop bounds, slice negative indices, operations near boundaries
+#include <assert.h>
+
+int main() {
+    // ---- slice with negative indices ----
+    List<int> nums = [10, 20, 30, 40, 50];
+
+    // Slice last 2 elements: slice(-2, len)
+    List<int> last_two = nums.slice(-2, nums.len);
+    assert(last_two.len == 2);
+    assert(last_two.get(0) == 40);
+    assert(last_two.get(1) == 50);
+
+    // Slice with negative end
+    List<int> mid = nums.slice(1, -1);
+    assert(mid.len == 3);
+    assert(mid.get(0) == 20);
+    assert(mid.get(1) == 30);
+    assert(mid.get(2) == 40);
+
+    // Slice with both negative
+    List<int> inner = nums.slice(-4, -1);
+    assert(inner.len == 3);
+    assert(inner.get(0) == 20);
+    assert(inner.get(1) == 30);
+    assert(inner.get(2) == 40);
+
+    // Slice with start > end returns empty
+    List<int> empty = nums.slice(3, 1);
+    assert(empty.len == 0);
+
+    // Slice with start beyond bounds returns empty
+    List<int> empty2 = nums.slice(10, 20);
+    assert(empty2.len == 0);
+
+    // ---- pop operations ----
+    List<int> stack = [1, 2, 3];
+    int val = stack.pop();
+    assert(val == 3);
+    assert(stack.len == 2);
+
+    val = stack.pop();
+    assert(val == 2);
+    assert(stack.len == 1);
+
+    val = stack.pop();
+    assert(val == 1);
+    assert(stack.len == 0);
+
+    // ---- single element list operations ----
+    List<int> single = [42];
+    assert(single.contains(42) == true);
+    assert(single.contains(99) == false);
+    assert(single.indexOf(42) == 0);
+    assert(single.indexOf(99) == -1);
+    single.reverse();
+    assert(single.get(0) == 42);
+
+    // ---- clear and reuse ----
+    List<int> reuse = [1, 2, 3];
+    reuse.clear();
+    assert(reuse.len == 0);
+    reuse.push(99);
+    assert(reuse.len == 1);
+    assert(reuse.get(0) == 99);
+
+    // cleanup
+    nums.free();
+    last_two.free();
+    mid.free();
+    inner.free();
+    empty.free();
+    empty2.free();
+    stack.free();
+    single.free();
+    reuse.free();
+
+    print("PASS: test_list_edge_cases");
+    return 0;
+}

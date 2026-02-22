@@ -1,0 +1,43 @@
+// Test List.pop() and string List operations
+#include <assert.h>
+
+int main() {
+    // pop on int list
+    List<int> nums = [10, 20, 30];
+    int last = nums.pop();
+    assert(last == 30);
+    assert(nums.len == 2);
+    int second = nums.pop();
+    assert(second == 20);
+    assert(nums.len == 1);
+
+    // String list contains with strcmp
+    List<string> words = ["hello", "world", "btrc"];
+    assert(words.contains("hello") == true);
+    assert(words.contains("btrc") == true);
+    assert(words.contains("missing") == false);
+
+    // String list indexOf
+    assert(words.indexOf("world") == 1);
+    assert(words.indexOf("btrc") == 2);
+    assert(words.indexOf("missing") == -1);
+
+    // String list sort (alphabetical)
+    List<string> unsorted = ["banana", "apple", "cherry"];
+    unsorted.sort();
+    assert(strcmp(unsorted.get(0), "apple") == 0);
+    assert(strcmp(unsorted.get(1), "banana") == 0);
+    assert(strcmp(unsorted.get(2), "cherry") == 0);
+
+    // Pop on string list
+    string popped = words.pop();
+    assert(strcmp(popped, "btrc") == 0);
+    assert(words.len == 2);
+
+    btrc_List_int_free(&nums);
+    btrc_List_string_free(&words);
+    btrc_List_string_free(&unsorted);
+
+    printf("PASS: test_list_pop\n");
+    return 0;
+}

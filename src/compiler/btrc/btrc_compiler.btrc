@@ -1,0 +1,171 @@
+/* btrc self-hosted compiler
+ *
+ * Transpiles btrc source to C. This file IS btrc source that gets compiled
+ * by the Python btrc compiler first, then can compile itself.
+ *
+ * Build: python3 btrc.py compiler/btrc/btrc_compiler.btrc -o build/btrc_compiler.c
+ *        gcc build/btrc_compiler.c -o build/btrc_compiler -lm
+ *
+ * Usage: ./build/btrc_compiler <input.btrc> [-o output.c] [--emit-tokens] [--emit-ast]
+ */
+
+#include <ctype.h>
+
+#include "../../stdlib/io.btrc"
+#include "console.btrc"
+#include "token_types.btrc"
+#include "token.btrc"
+#include "char_buffer.btrc"
+#include "keywords.btrc"
+#include "lexer.btrc"
+#include "ast_nodes.btrc"
+#include "parser.btrc"
+#include "analyzer.btrc"
+#include "codegen.btrc"
+
+/* Resolve #include "file.btrc" directives by textual inclusion */
+string resolve_btrc_includes(string source, string base_dir) {
+    var result = CharBuffer(source.len() * 2);
+    int i = 0;
+    while (i < source.len()) {
+        /* Check for #include " at start of a line */
+        bool at_line_start = (i == 0) || (source.charAt(i - 1) == '\n');
+        if (at_line_start && i + 10 < source.len() && source.charAt(i) == '#') {
+            /* Try to match #include "*.btrc" */
+            string rest = source.substring(i, source.len() - i);
+            if (rest.startsWith("#include \"")) {
+                int quote_start = i + 10;
+                int quote_end = quote_start;
+                while (quote_end < source.len() && source.charAt(quote_end) != '"') {
+                    quote_end++;
+                }
+                if (quote_end < source.len()) {
+                    string inc_file = source.substring(quote_start, quote_end - quote_start);
+                    if (inc_file.endsWith(".btrc")) {
+                        /* Build full path: base_dir/inc_file */
+                        char path_buf[1024];
+                        snprintf(path_buf, sizeof(path_buf), "%s/%s", base_dir, inc_file);
+                        string inc_source = Path.readAll(path_buf);
+                        if (inc_source.len() > 0) {
+                            result.appendStr(inc_source);
+                            result.push('\n');
+                            /* Skip past the #include line */
+                            i = quote_end + 1;
+                            if (i < source.len() && source.charAt(i) == '\n') { i++; }
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        result.push(source.charAt(i));
+        i++;
+    }
+    string out = result.toString();
+    result.__del__();
+    return out;
+}
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        Console.error("Usage: btrc_compiler <input.btrc> [-o output.c] [--emit-tokens] [--emit-ast]");
+        return EXIT_USAGE;
+    }
+
+    string input_file = "";
+    string output_file = "";
+    bool emit_tokens = false;
+    bool emit_ast = false;
+
+    for (int i = 1; i < argc; i++) {
+        string arg = argv[i];
+        if (arg.equals("--emit-tokens")) {
+            emit_tokens = true;
+        } else if (arg.equals("--emit-ast")) {
+            emit_ast = true;
+        } else if (arg.equals("-o") && i + 1 < argc) {
+            i++;
+            output_file = argv[i];
+        } else if (arg.charAt(0) != '-') {
+            input_file = arg;
+        } else {
+            fprintf(stderr, "Unknown option: %s\n", arg);
+            return EXIT_ERROR;
+        }
+    }
+
+    if (input_file.len() == 0) {
+        Console.error("No input file specified");
+        return EXIT_ERROR;
+    }
+
+    string source = Path.readAll(input_file);
+    if (source.len() == 0) {
+        fprintf(stderr, "Error: Cannot read file '%s'\n", input_file);
+        return EXIT_ERROR;
+    }
+
+    /* Extract directory and filename from path */
+    string source_dir = ".";
+    string filename = input_file;
+    for (int i = 0; i < input_file.len(); i++) {
+        if (input_file.charAt(i) == '/') {
+            source_dir = input_file.substring(0, i);
+            filename = input_file.substring(i + 1, input_file.len() - i - 1);
+        }
+    }
+
+    /* Resolve #include "file.btrc" directives by textual inclusion */
+    source = resolve_btrc_includes(source, source_dir);
+
+    /* Milestone A: Lex */
+    var lexer = Lexer(source, filename);
+    List<Token> tokens = lexer.tokenize();
+
+    if (emit_tokens) {
+        for (int i = 0; i < tokens.len; i++) {
+            Token t = tokens.get(i);
+            printf("Token(%s, '%s', %d:%d)\n",
+                   tok_type_name(t.type), t.value, t.line, t.col);
+        }
+        return EXIT_OK;
+    }
+
+    /* Milestone B: Parse */
+    var parser = Parser(tokens, filename);
+    int program_idx = parser.parse();
+
+    if (emit_ast) {
+        printf("AST: %d nodes, program at index %d\n", parser.nodes.len, program_idx);
+        return EXIT_OK;
+    }
+
+    /* Milestone C: Analyze */
+    var analyzer = Analyzer(parser.nodes);
+    analyzer.analyze(program_idx);
+
+    if (analyzer.errors.len > 0) {
+        for (int i = 0; i < analyzer.errors.len; i++) {
+            fprintf(stderr, "Analyzer error: %s\n", analyzer.errors.get(i));
+        }
+    }
+
+    /* Milestone D: Code generation */
+    FILE* out = stdout;
+    if (output_file.len() > 0) {
+        out = fopen(output_file, "w");
+        if (out == NULL) {
+            fprintf(stderr, "Error: Cannot open output file '%s'\n", output_file);
+            return EXIT_ERROR;
+        }
+    }
+
+    var codegen = CodeGen(analyzer.nodes, analyzer, out);
+    codegen.generate(program_idx);
+
+    if (output_file.len() > 0) {
+        fclose(out);
+    }
+
+    return EXIT_OK;
+}

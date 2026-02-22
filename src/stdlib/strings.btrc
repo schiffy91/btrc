@@ -1,0 +1,319 @@
+/* btrc standard library — Strings
+ * String utilities beyond the built-in string methods.
+ * Built-in: .len(), .contains(), .startsWith(), .endsWith(), .substring(),
+ *           .trim(), .toUpper(), .toLower(), .indexOf(), .split(), .charAt(), .equals()
+ *
+ * Note: repeat/join/replace require C string functions because btrc does not
+ * yet support string concatenation or f-string assignment.
+ */
+
+class Strings {
+    class string repeat(string s, int count) {
+        int slen = (int)strlen(s);
+        int total = slen * count;
+        char* result = (char*)malloc(total + 1);
+        for i in range(count) {
+            memcpy(result + i * slen, s, slen);
+        }
+        result[total] = '\0';
+        return result;
+    }
+
+    class string join(List<string> items, string sep) {
+        if (items.len == 0) { return strdup(""); }
+        int seplen = (int)strlen(sep);
+        int total = 0;
+        for i in range(items.len) {
+            total = total + (int)strlen(items.get(i));
+        }
+        total = total + seplen * (items.len - 1);
+        char* result = (char*)malloc(total + 1);
+        int pos = 0;
+        int first_len = (int)strlen(items.get(0));
+        memcpy(result, items.get(0), first_len);
+        pos = first_len;
+        for i in range(1, items.len) {
+            memcpy(result + pos, sep, seplen);
+            pos = pos + seplen;
+            int item_len = (int)strlen(items.get(i));
+            memcpy(result + pos, items.get(i), item_len);
+            pos = pos + item_len;
+        }
+        result[pos] = '\0';
+        return result;
+    }
+
+    class string replace(string s, string old, string replacement) {
+        int slen = (int)strlen(s);
+        int oldlen = (int)strlen(old);
+        int replen = (int)strlen(replacement);
+        int cap = slen * 2 + 1;
+        char* result = (char*)malloc(cap);
+        int rlen = 0;
+        int i = 0;
+        while (i < slen) {
+            if (i + oldlen <= slen && strncmp(s + i, old, oldlen) == 0) {
+                while (rlen + replen >= cap) {
+                    cap = cap * 2;
+                    result = (char*)realloc(result, cap);
+                }
+                memcpy(result + rlen, replacement, replen);
+                rlen = rlen + replen;
+                i = i + oldlen;
+            } else {
+                if (rlen + 1 >= cap) {
+                    cap = cap * 2;
+                    result = (char*)realloc(result, cap);
+                }
+                result[rlen] = s[i];
+                rlen++;
+                i++;
+            }
+        }
+        result[rlen] = '\0';
+        return result;
+    }
+
+    class bool isDigit(char c) {
+        return c >= '0' && c <= '9';
+    }
+
+    class bool isAlpha(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+
+    class bool isAlnum(char c) {
+        return Strings.isAlpha(c) || Strings.isDigit(c);
+    }
+
+    class bool isSpace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+    }
+
+    class int toInt(string s) {
+        return atoi(s);
+    }
+
+    class float toFloat(string s) {
+        return (float)atof(s);
+    }
+
+    /* --- String Analysis --- */
+
+    class int count(string s, string sub) {
+        int slen = (int)strlen(s);
+        int sublen = (int)strlen(sub);
+        if (sublen == 0) { return 0; }
+        int n = 0;
+        int i = 0;
+        while (i + sublen <= slen) {
+            if (strncmp(s + i, sub, sublen) == 0) {
+                n++;
+                i = i + sublen;
+            } else {
+                i++;
+            }
+        }
+        return n;
+    }
+
+    class int find(string s, string sub, int start) {
+        int slen = (int)strlen(s);
+        int sublen = (int)strlen(sub);
+        if (start < 0) { start = 0; }
+        if (sublen == 0) { return start; }
+        int i = start;
+        while (i + sublen <= slen) {
+            if (strncmp(s + i, sub, sublen) == 0) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
+    }
+
+    class int rfind(string s, string sub) {
+        int slen = (int)strlen(s);
+        int sublen = (int)strlen(sub);
+        if (sublen == 0) { return slen; }
+        int i = slen - sublen;
+        while (i >= 0) {
+            if (strncmp(s + i, sub, sublen) == 0) {
+                return i;
+            }
+            i--;
+        }
+        return -1;
+    }
+
+    /* --- Case Conversion --- */
+
+    class string capitalize(string s) {
+        int slen = (int)strlen(s);
+        char* result = (char*)malloc(slen + 1);
+        for i in range(slen) {
+            result[i] = (char)tolower((unsigned char)s[i]);
+        }
+        if (slen > 0) {
+            result[0] = (char)toupper((unsigned char)s[0]);
+        }
+        result[slen] = '\0';
+        return result;
+    }
+
+    class string title(string s) {
+        int slen = (int)strlen(s);
+        char* result = (char*)malloc(slen + 1);
+        bool newWord = true;
+        for i in range(slen) {
+            char c = s[i];
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                result[i] = c;
+                newWord = true;
+            } else {
+                if (newWord) {
+                    result[i] = (char)toupper((unsigned char)c);
+                } else {
+                    result[i] = (char)tolower((unsigned char)c);
+                }
+                newWord = false;
+            }
+        }
+        result[slen] = '\0';
+        return result;
+    }
+
+    class string swapCase(string s) {
+        int slen = (int)strlen(s);
+        char* result = (char*)malloc(slen + 1);
+        for i in range(slen) {
+            char c = s[i];
+            if (c >= 'A' && c <= 'Z') {
+                result[i] = (char)tolower((unsigned char)c);
+            } else if (c >= 'a' && c <= 'z') {
+                result[i] = (char)toupper((unsigned char)c);
+            } else {
+                result[i] = c;
+            }
+        }
+        result[slen] = '\0';
+        return result;
+    }
+
+    /* --- Padding --- */
+
+    class string padLeft(string s, int width, char fill) {
+        int slen = (int)strlen(s);
+        if (slen >= width) { return strdup(s); }
+        int pad = width - slen;
+        char* result = (char*)malloc(width + 1);
+        for i in range(pad) {
+            result[i] = fill;
+        }
+        memcpy(result + pad, s, slen);
+        result[width] = '\0';
+        return result;
+    }
+
+    class string padRight(string s, int width, char fill) {
+        int slen = (int)strlen(s);
+        if (slen >= width) { return strdup(s); }
+        int pad = width - slen;
+        char* result = (char*)malloc(width + 1);
+        memcpy(result, s, slen);
+        for i in range(pad) {
+            result[slen + i] = fill;
+        }
+        result[width] = '\0';
+        return result;
+    }
+
+    class string center(string s, int width, char fill) {
+        int slen = (int)strlen(s);
+        if (slen >= width) { return strdup(s); }
+        int total_pad = width - slen;
+        int left_pad = total_pad / 2;
+        int right_pad = total_pad - left_pad;
+        char* result = (char*)malloc(width + 1);
+        for i in range(left_pad) {
+            result[i] = fill;
+        }
+        memcpy(result + left_pad, s, slen);
+        for i in range(right_pad) {
+            result[left_pad + slen + i] = fill;
+        }
+        result[width] = '\0';
+        return result;
+    }
+
+    /* --- Stripping --- */
+
+    class string lstrip(string s) {
+        int slen = (int)strlen(s);
+        int start = 0;
+        while (start < slen && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r')) {
+            start++;
+        }
+        int newlen = slen - start;
+        char* result = (char*)malloc(newlen + 1);
+        memcpy(result, s + start, newlen);
+        result[newlen] = '\0';
+        return result;
+    }
+
+    class string rstrip(string s) {
+        int slen = (int)strlen(s);
+        int end = slen;
+        while (end > 0 && (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\n' || s[end - 1] == '\r')) {
+            end--;
+        }
+        char* result = (char*)malloc(end + 1);
+        memcpy(result, s, end);
+        result[end] = '\0';
+        return result;
+    }
+
+    /* --- Numeric Conversion --- */
+
+    class string fromInt(int n) {
+        char* buf = (char*)malloc(32);
+        snprintf(buf, 32, "%d", n);
+        return buf;
+    }
+
+    class string fromFloat(float f) {
+        char* buf = (char*)malloc(64);
+        snprintf(buf, 64, "%g", f);
+        return buf;
+    }
+
+    /* --- String Checks --- */
+
+    class bool isDigitStr(string s) {
+        int slen = (int)strlen(s);
+        if (slen == 0) { return false; }
+        for i in range(slen) {
+            if (s[i] < '0' || s[i] > '9') { return false; }
+        }
+        return true;
+    }
+
+    class bool isAlphaStr(string s) {
+        int slen = (int)strlen(s);
+        if (slen == 0) { return false; }
+        for i in range(slen) {
+            char c = s[i];
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) { return false; }
+        }
+        return true;
+    }
+
+    class bool isBlank(string s) {
+        int slen = (int)strlen(s);
+        for i in range(slen) {
+            char c = s[i];
+            if (c != ' ' && c != '\t' && c != '\n' && c != '\r') { return false; }
+        }
+        return true;
+    }
+}

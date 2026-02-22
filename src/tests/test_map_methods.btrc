@@ -1,0 +1,103 @@
+#include <assert.h>
+
+int main() {
+    // ---- Map.keys() with int keys ----
+
+    Map<int, int> squares = {1: 1, 2: 4, 3: 9, 4: 16};
+    List<int> k = squares.keys();
+    assert(k.len == 4);
+    k.sort();
+    assert(k[0] == 1);
+    assert(k[1] == 2);
+    assert(k[2] == 3);
+    assert(k[3] == 4);
+    k.free();
+
+    // ---- Map.values() with int values ----
+
+    List<int> v = squares.values();
+    assert(v.len == 4);
+    v.sort();
+    assert(v[0] == 1);
+    assert(v[1] == 4);
+    assert(v[2] == 9);
+    assert(v[3] == 16);
+    v.free();
+
+    // ---- Map.remove() ----
+
+    squares.remove(2);
+    assert(squares.len == 3);
+    assert(squares.has(1));
+    assert(!squares.has(2));
+    assert(squares.has(3));
+    assert(squares.has(4));
+
+    // Remaining values should still be correct
+    assert(squares.get(1) == 1);
+    assert(squares.get(3) == 9);
+    assert(squares.get(4) == 16);
+
+    squares.free();
+
+    // ---- Map.keys() with string keys ----
+
+    Map<string, int> ages = {"alice": 30, "bob": 25, "carol": 35};
+    List<string> names = ages.keys();
+    assert(names.len == 3);
+    names.free();
+
+    // ---- Map.values() with string keys ----
+
+    List<int> age_vals = ages.values();
+    assert(age_vals.len == 3);
+    age_vals.sort();
+    assert(age_vals[0] == 25);
+    assert(age_vals[1] == 30);
+    assert(age_vals[2] == 35);
+    age_vals.free();
+
+    // ---- Map.remove() with string keys ----
+
+    ages.remove("bob");
+    assert(ages.len == 2);
+    assert(!ages.has("bob"));
+    assert(ages.has("alice"));
+    assert(ages.has("carol"));
+    assert(ages.get("alice") == 30);
+    assert(ages.get("carol") == 35);
+
+    // ---- Remove and reinsert ----
+
+    ages.put("bob", 99);
+    assert(ages.len == 3);
+    assert(ages.has("bob"));
+    assert(ages.get("bob") == 99);
+
+    ages.free();
+
+    // ---- Remove nonexistent key (should be a no-op) ----
+
+    Map<int, int> m = {10: 100};
+    m.remove(999);
+    assert(m.len == 1);
+    assert(m.get(10) == 100);
+    m.free();
+
+    // ---- keys/values on empty map after removes ----
+
+    Map<int, int> m2 = {1: 10, 2: 20};
+    m2.remove(1);
+    m2.remove(2);
+    assert(m2.len == 0);
+    List<int> ek = m2.keys();
+    List<int> ev = m2.values();
+    assert(ek.len == 0);
+    assert(ev.len == 0);
+    ek.free();
+    ev.free();
+    m2.free();
+
+    print("PASS: test_map_methods");
+    return 0;
+}

@@ -1,0 +1,74 @@
+// Test for-in loops over collections with break and continue
+#include <assert.h>
+
+int main() {
+    // ---- for-in over List<int> with break ----
+    List<int> nums = [10, 20, 30, 40, 50];
+    int found = -1;
+    for val in nums {
+        if (val == 30) {
+            found = val;
+            break;
+        }
+    }
+    assert(found == 30);
+
+    // ---- for-in over List<int> with continue ----
+    int odd_sum = 0;
+    List<int> values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    for v in values {
+        if (v % 2 == 0) {
+            continue;
+        }
+        odd_sum += v;
+    }
+    assert(odd_sum == 25);  // 1+3+5+7+9
+
+    // ---- for-in over List<string> with break ----
+    List<string> words = ["hello", "world", "stop", "extra"];
+    string last_seen = "";
+    for w in words {
+        if (strcmp(w, "stop") == 0) {
+            break;
+        }
+        last_seen = w;
+    }
+    assert(strcmp(last_seen, "world") == 0);
+
+    // ---- for-in over List<string> with continue (skip short words) ----
+    int long_count = 0;
+    List<string> names = ["al", "bob", "carol", "ed", "frank"];
+    for name in names {
+        if ((int)strlen(name) <= 2) {
+            continue;
+        }
+        long_count++;
+    }
+    assert(long_count == 3);  // bob, carol, frank
+
+    // ---- Nested for-in with break in inner loop ----
+    List<int> outer = [1, 2, 3];
+    List<int> inner = [10, 20, 30];
+    int pair_sum = 0;
+    for a in outer {
+        for b in inner {
+            if (b == 20) {
+                break;
+            }
+            pair_sum += a + b;
+        }
+    }
+    // Inner loop always hits 10 then breaks at 20
+    // (1+10) + (2+10) + (3+10) = 11 + 12 + 13 = 36
+    assert(pair_sum == 36);
+
+    nums.free();
+    values.free();
+    words.free();
+    names.free();
+    outer.free();
+    inner.free();
+
+    print("PASS: test_forin_control");
+    return 0;
+}

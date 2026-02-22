@@ -1,0 +1,3441 @@
+/* btrc self-hosted compiler — C Code Generator
+ *
+ * Transforms an analyzed AST into C source code.
+ * Writes output to a FILE* directly.
+ */
+
+class CodeGen {
+    private FILE* out;
+    private Analyzer analyzer;
+    private int indent;
+    private string current_class;
+    private bool in_constructor;
+    /* Generic instances: collected from arena scan */
+    private List<int> generic_types;
+    private List<string> generic_keys;
+    /* Lambda support */
+    private int lambda_counter;
+    private List<string> lambda_defs;
+    /* F-string counter for heap-allocated f-string temporaries */
+    private int fstr_counter;
+    /* Track globals/enums already emitted before lambdas */
+    private List<int> emitted_globals;
+
+    public CodeGen(List<Node> nodes, Analyzer analyzer, FILE* out) {
+        self.out = out;
+        self.analyzer = analyzer;
+        self.analyzer.nodes = nodes;
+        self.indent = 0;
+        self.current_class = "";
+        self.in_constructor = false;
+        self.generic_types = [];
+        self.generic_keys = [];
+        self.lambda_counter = 0;
+        self.lambda_defs = [];
+        self.fstr_counter = 0;
+        self.emitted_globals = [];
+    }
+
+    /* ---- Main entry point ---- */
+
+    public void generate(int program_idx) {
+        self.collect_generic_instances();
+        self.prescan_lambdas(program_idx);
+        self.emit_header();
+        self.emit_preprocessor_directives(program_idx);
+        self.emit_string_helpers();
+        self.emit_try_catch_runtime();
+        self.emit_forward_declarations(program_idx);
+        self.emit_generic_struct_typedefs();
+        self.emit_struct_definitions(program_idx);
+        self.emit_destroy_forward_decls(program_idx);
+        self.emit_generic_function_bodies();
+        /* Emit globals/enums before lambdas so lambdas can reference them */
+        self.emit_globals_and_enums(program_idx);
+        /* Emit lambda definitions */
+        for (int i = 0; i < self.lambda_defs.len; i++) {
+            fprintf(self.out, "%s", self.lambda_defs.get(i));
+        }
+        self.emit_declarations(program_idx);
+    }
+
+    /* ---- Output helpers ---- */
+
+    private void indent_out() {
+        for (int i = 0; i < self.indent; i++) {
+            fprintf(self.out, "    ");
+        }
+    }
+
+    private void emit(string text) {
+        self.indent_out();
+        fprintf(self.out, "%s\n", text);
+    }
+
+    private void emit_raw(string text) {
+        fprintf(self.out, "%s\n", text);
+    }
+
+    private void emit_blank() {
+        fprintf(self.out, "\n");
+    }
+
+    /* ---- Lambda pre-scanning ---- */
+
+    private void prescan_lambdas(int program_idx) {
+        /* Walk entire AST to find all NK_LAMBDA nodes */
+        for (int i = 0; i < self.analyzer.nodes.len; i++) {
+            Node n = self.analyzer.nodes.get(i);
+            if (n.kind == NK_LAMBDA) {
+                self.register_lambda(i);
+            }
+        }
+    }
+
+    private void register_lambda(int lambda_idx) {
+        self.lambda_counter++;
+        Node expr = self.analyzer.nodes.get(lambda_idx);
+        char name_buf[64];
+        snprintf(name_buf, sizeof(name_buf), "__btrc_lambda_%d", self.lambda_counter);
+        /* Store the C function name in the node's sval field */
+        expr.sval = strdup(name_buf);
+        self.analyzer.nodes.set(lambda_idx, expr);
+
+        /* Determine return type */
+        string ret_type = "int";
+        if (expr.n1 != -1) {
+            ret_type = self.type_to_c(expr.n1);
+        } else {
+            /* Infer from body: find first return statement */
+            if (expr.n2 != -1) {
+                Node body = self.analyzer.nodes.get(expr.n2);
+                for (int i = 0; i < body.items.len; i++) {
+                    Node s = self.analyzer.nodes.get(body.items.get(i));
+                    if (s.kind == NK_RETURN && s.n1 != -1) {
+                        int rt = self.analyzer.infer_type(s.n1);
+                        if (rt != -1) {
+                            ret_type = self.type_to_c(rt);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        /* Build parameter list */
+        var params_buf = CharBuffer(256);
+        if (expr.items.len == 0) {
+            params_buf.appendStr("void");
+        } else {
+            for (int i = 0; i < expr.items.len; i++) {
+                if (i > 0) { params_buf.appendStr(", "); }
+                Node param = self.analyzer.nodes.get(expr.items.get(i));
+                string ptype = self.type_to_c(param.n1);
+                params_buf.appendStr(ptype);
+                params_buf.push(' ');
+                params_buf.appendStr(param.name);
+            }
+        }
+        string params_str = params_buf.toString();
+        params_buf.__del__();
+
+        /* Generate function body by emitting to a temporary file */
+        FILE* saved_out = self.out;
+        int saved_indent = self.indent;
+        FILE* mem = tmpfile();
+        self.out = mem;
+        self.indent = 1;
+        if (expr.n2 != -1) {
+            self.emit_block_contents(expr.n2);
+        }
+        fflush(mem);
+        long body_len = ftell(mem);
+        rewind(mem);
+        char* body_buf = (char*)malloc(body_len + 1);
+        fread(body_buf, 1, body_len, mem);
+        body_buf[body_len] = '\0';
+        fclose(mem);
+        self.out = saved_out;
+        self.indent = saved_indent;
+
+        /* Build the full lambda function string */
+        char header[512];
+        snprintf(header, sizeof(header), "static %s %s(%s) {\n",
+                 ret_type, name_buf, params_str);
+        var def_buf = CharBuffer(1024);
+        def_buf.appendStr(header);
+        if (body_buf != NULL) {
+            def_buf.appendStr(body_buf);
+            free(body_buf);
+        }
+        def_buf.appendStr("}\n\n");
+        self.lambda_defs.push(def_buf.toString());
+        def_buf.__del__();
+    }
+
+    /* ---- Collect generic instances from arena ---- */
+
+    private void add_generic_type(int idx) {
+        string key = self.mangle_type(idx);
+        for (int j = 0; j < self.generic_keys.len; j++) {
+            if (self.generic_keys.get(j).equals(key)) { return; }
+        }
+        self.generic_keys.push(key);
+        self.generic_types.push(idx);
+    }
+
+    private void collect_generic_instances() {
+        for (int i = 0; i < self.analyzer.nodes.len; i++) {
+            Node n = self.analyzer.nodes.get(i);
+            if (n.kind == NK_TYPE && n.items.len > 0) {
+                self.add_generic_type(i);
+            }
+        }
+        /* For every Map<K,V>, ensure List<K> and List<V> also exist.
+           Map.keys() and Map.values() return these list types. */
+        int count = self.generic_types.len;
+        for (int i = 0; i < count; i++) {
+            int tidx = self.generic_types.get(i);
+            Node tn = self.analyzer.nodes.get(tidx);
+            if (tn.name.equals("Map") && tn.items.len == 2) {
+                /* Create synthetic List<K> and List<V> type nodes if missing */
+                int key_type_idx = tn.items.get(0);
+                int val_type_idx = tn.items.get(1);
+                /* Build List<K> type node */
+                Node lk = Node(NK_TYPE, 0, 0);
+                lk.name = "List";
+                lk.items.push(key_type_idx);
+                int lk_idx = self.analyzer.nodes.len;
+                self.analyzer.nodes.push(lk);
+                self.add_generic_type(lk_idx);
+                /* Build List<V> type node */
+                Node lv = Node(NK_TYPE, 0, 0);
+                lv.name = "List";
+                lv.items.push(val_type_idx);
+                int lv_idx = self.analyzer.nodes.len;
+                self.analyzer.nodes.push(lv);
+                self.add_generic_type(lv_idx);
+            }
+        }
+    }
+
+    /* ---- Header ---- */
+
+    private void emit_header() {
+        self.emit("/* Generated by btrc */");
+        self.emit("#include <stdio.h>");
+        self.emit("#include <stdlib.h>");
+        self.emit("#include <stdbool.h>");
+        self.emit("#include <string.h>");
+        self.emit("#include <ctype.h>");
+        self.emit("#include <math.h>");
+        self.emit("#include <setjmp.h>");
+        self.emit("#include <assert.h>");
+        self.emit_blank();
+    }
+
+    /* Emit user preprocessor directives (#include <assert.h>, etc.) right after standard headers */
+    private void emit_preprocessor_directives(int prog_idx) {
+        Node prog = self.analyzer.nodes.get(prog_idx);
+        for (int i = 0; i < prog.items.len; i++) {
+            int d = prog.items.get(i);
+            Node decl = self.analyzer.nodes.get(d);
+            if (decl.kind == NK_PREPROCESSOR) {
+                self.emit_raw(decl.sval);
+            }
+        }
+    }
+
+    private void emit_string_helpers() {
+        self.emit("/* btrc string helper functions */");
+        self.emit("static inline char* __btrc_substring(const char* s, int start, int len) {");
+        self.emit("    char* result = (char*)malloc(len + 1);");
+        self.emit("    strncpy(result, s + start, len);");
+        self.emit("    result[len] = '\\0';");
+        self.emit("    return result;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_trim(const char* s) {");
+        self.emit("    while (*s && isspace((unsigned char)*s)) s++;");
+        self.emit("    if (*s == '\\0') { char* r = (char*)malloc(1); r[0]='\\0'; return r; }");
+        self.emit("    const char* end = s + strlen(s) - 1;");
+        self.emit("    while (end > s && isspace((unsigned char)*end)) end--;");
+        self.emit("    int len = (int)(end - s + 1);");
+        self.emit("    char* result = (char*)malloc(len + 1);");
+        self.emit("    strncpy(result, s, len);");
+        self.emit("    result[len] = '\\0';");
+        self.emit("    return result;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_toUpper(const char* s) {");
+        self.emit("    int len = (int)strlen(s);");
+        self.emit("    char* result = (char*)malloc(len + 1);");
+        self.emit("    for (int i = 0; i < len; i++) result[i] = (char)toupper((unsigned char)s[i]);");
+        self.emit("    result[len] = '\\0';");
+        self.emit("    return result;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_toLower(const char* s) {");
+        self.emit("    int len = (int)strlen(s);");
+        self.emit("    char* result = (char*)malloc(len + 1);");
+        self.emit("    for (int i = 0; i < len; i++) result[i] = (char)tolower((unsigned char)s[i]);");
+        self.emit("    result[len] = '\\0';");
+        self.emit("    return result;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline int __btrc_utf8_charlen(const char* s) {");
+        self.emit("    int count = 0;");
+        self.emit("    while (*s) { if ((*s & 0xC0) != 0x80) count++; s++; }");
+        self.emit("    return count;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline int __btrc_indexOf(const char* s, const char* sub) {");
+        self.emit("    char* p = strstr(s, sub);");
+        self.emit("    return p ? (int)(p - s) : -1;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_strcat(const char* a, const char* b) {");
+        self.emit("    int la = (int)strlen(a), lb = (int)strlen(b);");
+        self.emit("    char* r = (char*)malloc(la + lb + 1);");
+        self.emit("    memcpy(r, a, la);");
+        self.emit("    memcpy(r + la, b, lb + 1);");
+        self.emit("    return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline int __btrc_lastIndexOf(const char* s, const char* sub) {");
+        self.emit("    int slen = (int)strlen(s); int sublen = (int)strlen(sub);");
+        self.emit("    if (sublen == 0) return slen;");
+        self.emit("    for (int i = slen - sublen; i >= 0; i--) { if (strncmp(s + i, sub, sublen) == 0) return i; }");
+        self.emit("    return -1;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_replace(const char* s, const char* old, const char* rep) {");
+        self.emit("    int slen = (int)strlen(s), oldlen = (int)strlen(old), replen = (int)strlen(rep);");
+        self.emit("    if (oldlen == 0) return strdup(s);");
+        self.emit("    int cap = slen * 2 + 1; char* result = (char*)malloc(cap); int rlen = 0, i = 0;");
+        self.emit("    while (i < slen) {");
+        self.emit("        if (i + oldlen <= slen && strncmp(s + i, old, oldlen) == 0) {");
+        self.emit("            while (rlen + replen >= cap) { cap *= 2; result = (char*)realloc(result, cap); }");
+        self.emit("            memcpy(result + rlen, rep, replen); rlen += replen; i += oldlen;");
+        self.emit("        } else { if (rlen + 1 >= cap) { cap *= 2; result = (char*)realloc(result, cap); } result[rlen++] = s[i++]; }");
+        self.emit("    }");
+        self.emit("    result[rlen] = '\\0'; return result;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char** __btrc_split(const char* s, const char* delim) {");
+        self.emit("    int cap = 8; char** result = (char**)malloc(sizeof(char*) * cap); int count = 0; int dlen = (int)strlen(delim); const char* p = s;");
+        self.emit("    while (*p) { const char* found = strstr(p, delim); int seglen = found ? (int)(found - p) : (int)strlen(p);");
+        self.emit("        if (count + 2 > cap) { cap *= 2; result = (char**)realloc(result, sizeof(char*) * cap); }");
+        self.emit("        result[count] = (char*)malloc(seglen + 1); memcpy(result[count], p, seglen); result[count][seglen] = '\\0'; count++;");
+        self.emit("        if (!found) break; p = found + dlen; }");
+        self.emit("    result[count] = NULL; return result;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_repeat(const char* s, int count) {");
+        self.emit("    int slen = (int)strlen(s); char* result = (char*)malloc(slen * count + 1); result[0] = '\\0';");
+        self.emit("    for (int i = 0; i < count; i++) memcpy(result + i * slen, s, slen);");
+        self.emit("    result[slen * count] = '\\0'; return result;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_capitalize(const char* s) {");
+        self.emit("    int len = (int)strlen(s); char* r = (char*)malloc(len + 1);");
+        self.emit("    for (int i = 0; i < len; i++) r[i] = tolower((unsigned char)s[i]);");
+        self.emit("    if (len > 0) r[0] = toupper((unsigned char)r[0]); r[len] = '\\0'; return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_title(const char* s) {");
+        self.emit("    int len = (int)strlen(s); char* r = (char*)malloc(len + 1); int cap_next = 1;");
+        self.emit("    for (int i = 0; i < len; i++) {");
+        self.emit("        if (isspace((unsigned char)s[i])) { r[i] = s[i]; cap_next = 1; }");
+        self.emit("        else if (cap_next) { r[i] = toupper((unsigned char)s[i]); cap_next = 0; }");
+        self.emit("        else { r[i] = tolower((unsigned char)s[i]); }");
+        self.emit("    }");
+        self.emit("    r[len] = '\\0'; return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_swapCase(const char* s) {");
+        self.emit("    int len = (int)strlen(s); char* r = (char*)malloc(len + 1);");
+        self.emit("    for (int i = 0; i < len; i++) {");
+        self.emit("        if (isupper((unsigned char)s[i])) r[i] = tolower((unsigned char)s[i]);");
+        self.emit("        else if (islower((unsigned char)s[i])) r[i] = toupper((unsigned char)s[i]);");
+        self.emit("        else r[i] = s[i];");
+        self.emit("    }");
+        self.emit("    r[len] = '\\0'; return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_padLeft(const char* s, int width, char fill) {");
+        self.emit("    int len = (int)strlen(s);");
+        self.emit("    if (len >= width) { char* r = (char*)malloc(len + 1); strcpy(r, s); return r; }");
+        self.emit("    char* r = (char*)malloc(width + 1); int pad = width - len;");
+        self.emit("    memset(r, fill, pad); memcpy(r + pad, s, len); r[width] = '\\0'; return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_padRight(const char* s, int width, char fill) {");
+        self.emit("    int len = (int)strlen(s);");
+        self.emit("    if (len >= width) { char* r = (char*)malloc(len + 1); strcpy(r, s); return r; }");
+        self.emit("    char* r = (char*)malloc(width + 1); memcpy(r, s, len);");
+        self.emit("    memset(r + len, fill, width - len); r[width] = '\\0'; return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_center(const char* s, int width, char fill) {");
+        self.emit("    int len = (int)strlen(s);");
+        self.emit("    if (len >= width) { char* r = (char*)malloc(len + 1); strcpy(r, s); return r; }");
+        self.emit("    char* r = (char*)malloc(width + 1); int left = (width - len) / 2;");
+        self.emit("    memset(r, fill, left); memcpy(r + left, s, len);");
+        self.emit("    memset(r + left + len, fill, width - len - left); r[width] = '\\0'; return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_lstrip(const char* s) {");
+        self.emit("    while (*s && isspace((unsigned char)*s)) s++;");
+        self.emit("    char* r = (char*)malloc(strlen(s) + 1); strcpy(r, s); return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_rstrip(const char* s) {");
+        self.emit("    int len = (int)strlen(s);");
+        self.emit("    while (len > 0 && isspace((unsigned char)s[len - 1])) len--;");
+        self.emit("    char* r = (char*)malloc(len + 1); memcpy(r, s, len); r[len] = '\\0'; return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline int __btrc_count(const char* s, const char* sub) {");
+        self.emit("    int count = 0, sublen = (int)strlen(sub); if (sublen == 0) return 0;");
+        self.emit("    const char* p = s; while ((p = strstr(p, sub)) != NULL) { count++; p += sublen; }");
+        self.emit("    return count;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline int __btrc_find(const char* s, const char* sub, int start) {");
+        self.emit("    int len = (int)strlen(s); if (start < 0 || start >= len) return -1;");
+        self.emit("    const char* found = strstr(s + start, sub); if (!found) return -1;");
+        self.emit("    return (int)(found - s);");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_fromInt(int n) {");
+        self.emit("    char* r = (char*)malloc(21); snprintf(r, 21, \"%d\", n); return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline char* __btrc_fromFloat(float f) {");
+        self.emit("    char* r = (char*)malloc(32); snprintf(r, 32, \"%g\", (double)f); return r;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline bool __btrc_isDigitStr(const char* s) {");
+        self.emit("    if (!*s) return false; for (; *s; s++) if (!isdigit((unsigned char)*s)) return false; return true;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline bool __btrc_isAlphaStr(const char* s) {");
+        self.emit("    if (!*s) return false; for (; *s; s++) if (!isalpha((unsigned char)*s)) return false; return true;");
+        self.emit("}");
+        self.emit_blank();
+        self.emit("static inline bool __btrc_isBlank(const char* s) {");
+        self.emit("    for (; *s; s++) if (!isspace((unsigned char)*s)) return false; return true;");
+        self.emit("}");
+        self.emit_blank();
+    }
+
+    private void emit_try_catch_runtime() {
+        self.emit("/* btrc try/catch runtime */");
+        self.emit("#define __BTRC_TRY_STACK_SIZE 64");
+        self.emit("static jmp_buf __btrc_try_stack[__BTRC_TRY_STACK_SIZE];");
+        self.emit("static int __btrc_try_top = -1;");
+        self.emit("static char __btrc_error_msg[1024] = \"\";");
+        self.emit_blank();
+        self.emit("static inline void __btrc_throw(const char* msg) {");
+        self.emit("    if (__btrc_try_top < 0) {");
+        self.emit("        fprintf(stderr, \"Unhandled exception: %s\\n\", msg);");
+        self.emit("        exit(1);");
+        self.emit("    }");
+        self.emit("    strncpy(__btrc_error_msg, msg, 1023);");
+        self.emit("    __btrc_error_msg[1023] = '\\0';");
+        self.emit("    longjmp(__btrc_try_stack[__btrc_try_top--], 1);");
+        self.emit("}");
+        self.emit_blank();
+    }
+
+    /* ---- Forward declarations ---- */
+
+    private void emit_forward_declarations(int prog_idx) {
+        Node prog = self.analyzer.nodes.get(prog_idx);
+        for (int i = 0; i < prog.items.len; i++) {
+            int d = prog.items.get(i);
+            Node decl = self.analyzer.nodes.get(d);
+            if (decl.kind == NK_CLASS_DECL && decl.items2.len == 0) {
+                self.indent_out();
+                fprintf(self.out, "typedef struct %s %s;\n", decl.name, decl.name);
+            }
+        }
+        self.emit_blank();
+    }
+
+    /* ---- Generic struct typedefs ---- */
+
+    private void emit_generic_struct_typedefs() {
+        /* Emit List/Array/Tuple structs first, then Map (Map keys/values depend on List) */
+        for (int i = 0; i < self.generic_types.len; i++) {
+            int tidx = self.generic_types.get(i);
+            Node tn = self.analyzer.nodes.get(tidx);
+            if (tn.name.equals("List") && tn.items.len == 1) {
+                string mangled = self.mangle_type(tn.items.get(0));
+                string c_type = self.type_to_c(tn.items.get(0));
+                self.emit_list_struct(c_type, mangled);
+            } else if (tn.name.equals("Array") && tn.items.len == 1) {
+                string mangled = self.mangle_type(tn.items.get(0));
+                string c_type = self.type_to_c(tn.items.get(0));
+                self.emit_array_struct(c_type, mangled);
+            } else if (tn.name.equals("Tuple") && tn.items.len > 0) {
+                self.emit_tuple_struct(tidx);
+            }
+        }
+        for (int i = 0; i < self.generic_types.len; i++) {
+            int tidx = self.generic_types.get(i);
+            Node tn = self.analyzer.nodes.get(tidx);
+            if (tn.name.equals("Map") && tn.items.len == 2) {
+                string km = self.mangle_type(tn.items.get(0));
+                string vm = self.mangle_type(tn.items.get(1));
+                string kt = self.type_to_c(tn.items.get(0));
+                string vt = self.type_to_c(tn.items.get(1));
+                self.emit_map_struct(kt, vt, km, vm);
+            }
+        }
+    }
+
+    private void emit_list_struct(string c_type, string mangled) {
+        char name[256];
+        snprintf(name, sizeof(name), "btrc_List_%s", mangled);
+        fprintf(self.out, "typedef struct {\n");
+        fprintf(self.out, "    %s* data;\n", c_type);
+        fprintf(self.out, "    int len;\n");
+        fprintf(self.out, "    int cap;\n");
+        fprintf(self.out, "} %s;\n\n", name);
+    }
+
+    private void emit_array_struct(string c_type, string mangled) {
+        char name[256];
+        snprintf(name, sizeof(name), "btrc_Array_%s", mangled);
+        fprintf(self.out, "typedef struct {\n");
+        fprintf(self.out, "    %s* data;\n", c_type);
+        fprintf(self.out, "    int len;\n");
+        fprintf(self.out, "} %s;\n\n", name);
+    }
+
+    private void emit_map_struct(string kt, string vt, string km, string vm) {
+        char name[256];
+        snprintf(name, sizeof(name), "btrc_Map_%s_%s", km, vm);
+        fprintf(self.out, "typedef struct { %s key; %s value; bool occupied; } %s_entry;\n", kt, vt, name);
+        fprintf(self.out, "typedef struct {\n");
+        fprintf(self.out, "    %s_entry* buckets;\n", name);
+        fprintf(self.out, "    int cap;\n");
+        fprintf(self.out, "    int len;\n");
+        fprintf(self.out, "} %s;\n\n", name);
+    }
+
+    private void emit_tuple_struct(int type_idx) {
+        Node tn = self.analyzer.nodes.get(type_idx);
+        string mangled = self.mangle_type(type_idx);
+        /* Strip leading "Tuple_" prefix since mangle includes it */
+        fprintf(self.out, "typedef struct {\n");
+        for (int i = 0; i < tn.items.len; i++) {
+            string ct = self.type_to_c(tn.items.get(i));
+            fprintf(self.out, "    %s _%d;\n", ct, i);
+        }
+        fprintf(self.out, "} btrc_%s;\n\n", mangled);
+    }
+
+    /* ---- Class struct bodies ---- */
+
+    private void emit_struct_definitions(int prog_idx) {
+        Node prog = self.analyzer.nodes.get(prog_idx);
+        for (int i = 0; i < prog.items.len; i++) {
+            int d = prog.items.get(i);
+            Node decl = self.analyzer.nodes.get(d);
+            if (decl.kind == NK_CLASS_DECL && decl.items2.len == 0) {
+                self.emit_class_struct(d);
+            }
+        }
+    }
+
+    private void emit_class_struct(int class_idx) {
+        Node decl = self.analyzer.nodes.get(class_idx);
+        fprintf(self.out, "struct %s {\n", decl.name);
+        /* Inherited fields from parent */
+        if (decl.name2.len() > 0 && self.analyzer.has_class(decl.name2)) {
+            ClassInfo parent = self.analyzer.get_class(decl.name2);
+            /* Collect child field names for override check */
+            for (int i = 0; i < parent.field_names.len; i++) {
+                string fname = parent.field_names.get(i);
+                bool overridden = false;
+                for (int j = 0; j < decl.items.len; j++) {
+                    Node m = self.analyzer.nodes.get(decl.items.get(j));
+                    if (m.kind == NK_FIELD_DECL && m.name.equals(fname)) {
+                        overridden = true;
+                        break;
+                    }
+                }
+                if (!overridden) {
+                    string ct = self.type_to_c(parent.field_types.get(i));
+                    fprintf(self.out, "    %s %s;\n", ct, fname);
+                }
+            }
+        }
+        /* Own fields */
+        for (int i = 0; i < decl.items.len; i++) {
+            Node m = self.analyzer.nodes.get(decl.items.get(i));
+            if (m.kind == NK_FIELD_DECL) {
+                string ct = self.type_to_c(m.n1);
+                fprintf(self.out, "    %s %s;\n", ct, m.name);
+            } else if (m.kind == NK_PROPERTY_DECL) {
+                /* Auto-properties get a backing field _name */
+                bool auto_get = m.flag1 && m.n2 == -1;
+                bool auto_set = m.flag2 && m.n3 == -1;
+                if (auto_get || auto_set) {
+                    string ct = self.type_to_c(m.n1);
+                    fprintf(self.out, "    %s _%s;\n", ct, m.name);
+                }
+            }
+        }
+        fprintf(self.out, "};\n\n");
+    }
+
+    /* ---- Destroy forward declarations ---- */
+
+    private void emit_destroy_forward_decls(int prog_idx) {
+        Node prog = self.analyzer.nodes.get(prog_idx);
+        for (int i = 0; i < prog.items.len; i++) {
+            int d = prog.items.get(i);
+            Node decl = self.analyzer.nodes.get(d);
+            if (decl.kind == NK_CLASS_DECL && decl.items2.len == 0) {
+                fprintf(self.out, "void %s_destroy(%s* self);\n", decl.name, decl.name);
+            }
+        }
+        self.emit_blank();
+    }
+
+    /* ---- Generic function bodies ---- */
+
+    private void emit_generic_function_bodies() {
+        /* Emit all List functions first, then Maps (Maps depend on List for keys/values) */
+        for (int i = 0; i < self.generic_types.len; i++) {
+            int tidx = self.generic_types.get(i);
+            Node tn = self.analyzer.nodes.get(tidx);
+            if (tn.name.equals("List") && tn.items.len == 1) {
+                string mangled = self.mangle_type(tn.items.get(0));
+                string c_type = self.type_to_c(tn.items.get(0));
+                self.emit_list_functions(c_type, mangled);
+            }
+        }
+        for (int i = 0; i < self.generic_types.len; i++) {
+            int tidx = self.generic_types.get(i);
+            Node tn = self.analyzer.nodes.get(tidx);
+            if (tn.name.equals("Map") && tn.items.len == 2) {
+                string km = self.mangle_type(tn.items.get(0));
+                string vm = self.mangle_type(tn.items.get(1));
+                string kt = self.type_to_c(tn.items.get(0));
+                string vt = self.type_to_c(tn.items.get(1));
+                self.emit_map_functions(kt, vt, km, vm);
+            }
+        }
+    }
+
+    private void emit_list_functions(string c_type, string mangled) {
+        char n[256];
+        snprintf(n, sizeof(n), "btrc_List_%s", mangled);
+        /* new */
+        fprintf(self.out, "static inline %s %s_new() {\n", n, n);
+        fprintf(self.out, "    return (%s){NULL, 0, 0};\n", n);
+        fprintf(self.out, "}\n\n");
+        /* push */
+        fprintf(self.out, "static inline void %s_push(%s* l, %s val) {\n", n, n, c_type);
+        fprintf(self.out, "    if (l->len >= l->cap) {\n");
+        fprintf(self.out, "        l->cap = l->cap ? l->cap * 2 : 4;\n");
+        fprintf(self.out, "        l->data = (%s*)realloc(l->data, sizeof(%s) * l->cap);\n", c_type, c_type);
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    l->data[l->len++] = val;\n");
+        fprintf(self.out, "}\n\n");
+        /* get */
+        fprintf(self.out, "static inline %s %s_get(%s* l, int i) {\n", c_type, n, n);
+        fprintf(self.out, "    return l->data[i];\n");
+        fprintf(self.out, "}\n\n");
+        /* set */
+        fprintf(self.out, "static inline void %s_set(%s* l, int i, %s val) {\n", n, n, c_type);
+        fprintf(self.out, "    l->data[i] = val;\n");
+        fprintf(self.out, "}\n\n");
+        /* free */
+        fprintf(self.out, "static inline void %s_free(%s* l) {\n", n, n);
+        fprintf(self.out, "    free(l->data);\n");
+        fprintf(self.out, "    l->data = NULL; l->len = 0; l->cap = 0;\n");
+        fprintf(self.out, "}\n\n");
+        /* contains — for primitive types and strings */
+        Node elem_node = self.analyzer.nodes.get(self.find_type_node_for_mangled(mangled));
+        bool is_collection = elem_node.name.equals("List") || elem_node.name.equals("Map");
+        bool is_prim = !self.analyzer.has_class(elem_node.name) && !is_collection;
+        bool is_str = elem_node.name.equals("string") || elem_node.name.equals("char_ptr") ||
+                      (elem_node.name.equals("char") && elem_node.ival >= 1);
+        if (is_prim) {
+            fprintf(self.out, "static inline bool %s_contains(%s* l, %s val) {\n", n, n, c_type);
+            fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
+            if (is_str) {
+                fprintf(self.out, "        if (strcmp(l->data[i], val) == 0) return true;\n");
+            } else {
+                fprintf(self.out, "        if (l->data[i] == val) return true;\n");
+            }
+            fprintf(self.out, "    }\n");
+            fprintf(self.out, "    return false;\n");
+            fprintf(self.out, "}\n\n");
+        }
+        /* remove */
+        fprintf(self.out, "static inline void %s_remove(%s* l, int idx) {\n", n, n);
+        fprintf(self.out, "    for (int i = idx; i < l->len - 1; i++) {\n");
+        fprintf(self.out, "        l->data[i] = l->data[i + 1];\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    l->len--;\n");
+        fprintf(self.out, "}\n\n");
+        /* reverse */
+        fprintf(self.out, "static inline void %s_reverse(%s* l) {\n", n, n);
+        fprintf(self.out, "    for (int i = 0; i < l->len / 2; i++) {\n");
+        fprintf(self.out, "        %s tmp = l->data[i];\n", c_type);
+        fprintf(self.out, "        l->data[i] = l->data[l->len - 1 - i];\n");
+        fprintf(self.out, "        l->data[l->len - 1 - i] = tmp;\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "}\n\n");
+        /* sort — for primitive types and strings */
+        if (is_prim) {
+            fprintf(self.out, "static int __%s_cmp(const void* a, const void* b) {\n", n);
+            if (is_str) {
+                fprintf(self.out, "    return strcmp(*(const char**)a, *(const char**)b);\n");
+            } else {
+                fprintf(self.out, "    %s va = *(%s*)a;\n", c_type, c_type);
+                fprintf(self.out, "    %s vb = *(%s*)b;\n", c_type, c_type);
+                fprintf(self.out, "    return (va > vb) - (va < vb);\n");
+            }
+            fprintf(self.out, "}\n");
+            fprintf(self.out, "static inline void %s_sort(%s* l) {\n", n, n);
+            fprintf(self.out, "    qsort(l->data, l->len, sizeof(%s), __%s_cmp);\n", c_type, n);
+            fprintf(self.out, "}\n\n");
+        }
+        /* pop — remove and return the last element */
+        fprintf(self.out, "static inline %s %s_pop(%s* l) {\n", c_type, n, n);
+        fprintf(self.out, "    return l->data[--l->len];\n");
+        fprintf(self.out, "}\n\n");
+        /* clear */
+        fprintf(self.out, "static inline void %s_clear(%s* l) {\n", n, n);
+        fprintf(self.out, "    l->len = 0;\n");
+        fprintf(self.out, "}\n\n");
+        /* indexOf — for primitive types and strings */
+        if (is_prim) {
+            fprintf(self.out, "static inline int %s_indexOf(%s* l, %s val) {\n", n, n, c_type);
+            fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
+            if (is_str) {
+                fprintf(self.out, "        if (strcmp(l->data[i], val) == 0) return i;\n");
+            } else {
+                fprintf(self.out, "        if (l->data[i] == val) return i;\n");
+            }
+            fprintf(self.out, "    }\n");
+            fprintf(self.out, "    return -1;\n");
+            fprintf(self.out, "}\n\n");
+        }
+        /* lastIndexOf — for primitive types and strings */
+        if (is_prim) {
+            fprintf(self.out, "static inline int %s_lastIndexOf(%s* l, %s val) {\n", n, n, c_type);
+            fprintf(self.out, "    for (int i = l->len - 1; i >= 0; i--) {\n");
+            if (is_str) {
+                fprintf(self.out, "        if (strcmp(l->data[i], val) == 0) return i;\n");
+            } else {
+                fprintf(self.out, "        if (l->data[i] == val) return i;\n");
+            }
+            fprintf(self.out, "    }\n");
+            fprintf(self.out, "    return -1;\n");
+            fprintf(self.out, "}\n\n");
+        }
+        /* slice */
+        fprintf(self.out, "static inline %s %s_slice(%s* l, int start, int end) {\n", n, n, n);
+        fprintf(self.out, "    %s result = %s_new();\n", n, n);
+        fprintf(self.out, "    for (int i = start; i < end && i < l->len; i++) {\n");
+        fprintf(self.out, "        %s_push(&result, l->data[i]);\n", n);
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    return result;\n");
+        fprintf(self.out, "}\n\n");
+        /* join — only for List<string> */
+        if (mangled.equals("char_ptr") || mangled.equals("string")) {
+            fprintf(self.out, "static inline char* %s_join(%s* l, const char* sep) {\n", n, n);
+            fprintf(self.out, "    int total = 0;\n");
+            fprintf(self.out, "    int sep_len = strlen(sep);\n");
+            fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
+            fprintf(self.out, "        total += strlen(l->data[i]);\n");
+            fprintf(self.out, "        if (i < l->len - 1) total += sep_len;\n");
+            fprintf(self.out, "    }\n");
+            fprintf(self.out, "    char* result = (char*)malloc(total + 1);\n");
+            fprintf(self.out, "    result[0] = '\\0';\n");
+            fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
+            fprintf(self.out, "        strcat(result, l->data[i]);\n");
+            fprintf(self.out, "        if (i < l->len - 1) strcat(result, sep);\n");
+            fprintf(self.out, "    }\n");
+            fprintf(self.out, "    return result;\n");
+            fprintf(self.out, "}\n\n");
+        }
+        /* forEach(fn) — call fn(element) for each element */
+        fprintf(self.out, "static inline void %s_forEach(%s* l, void (*fn)(%s)) {\n", n, n, c_type);
+        fprintf(self.out, "    for (int i = 0; i < l->len; i++) fn(l->data[i]);\n");
+        fprintf(self.out, "}\n\n");
+        /* filter(fn) — return new list where fn(element) is true */
+        fprintf(self.out, "static inline %s %s_filter(%s* l, bool (*fn)(%s)) {\n", n, n, n, c_type);
+        fprintf(self.out, "    %s result = %s_new();\n", n, n);
+        fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
+        fprintf(self.out, "        if (fn(l->data[i])) %s_push(&result, l->data[i]);\n", n);
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    return result;\n");
+        fprintf(self.out, "}\n\n");
+        /* any(fn) — return true if fn(element) is true for any element */
+        fprintf(self.out, "static inline bool %s_any(%s* l, bool (*fn)(%s)) {\n", n, n, c_type);
+        fprintf(self.out, "    for (int i = 0; i < l->len; i++) { if (fn(l->data[i])) return true; }\n");
+        fprintf(self.out, "    return false;\n");
+        fprintf(self.out, "}\n\n");
+        /* all(fn) — return true if fn(element) is true for all elements */
+        fprintf(self.out, "static inline bool %s_all(%s* l, bool (*fn)(%s)) {\n", n, n, c_type);
+        fprintf(self.out, "    for (int i = 0; i < l->len; i++) { if (!fn(l->data[i])) return false; }\n");
+        fprintf(self.out, "    return true;\n");
+        fprintf(self.out, "}\n\n");
+    }
+
+    private int find_type_node_for_mangled(string mangled) {
+        /* Find the type node index whose mangle matches */
+        for (int i = 0; i < self.analyzer.nodes.len; i++) {
+            Node n = self.analyzer.nodes.get(i);
+            if (n.kind == NK_TYPE && n.name.equals(mangled)) {
+                return i;
+            }
+        }
+        /* Fallback: return first NK_TYPE with matching name */
+        for (int i = 0; i < self.analyzer.nodes.len; i++) {
+            Node n = self.analyzer.nodes.get(i);
+            if (n.kind == NK_TYPE && self.mangle_type(i).equals(mangled)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private void emit_map_functions(string kt, string vt, string km, string vm) {
+        char n[256];
+        snprintf(n, sizeof(n), "btrc_Map_%s_%s", km, vm);
+        bool is_str_key = strcmp(kt, "char*") == 0;
+        /* String hash function */
+        if (is_str_key) {
+            fprintf(self.out, "static inline unsigned int __btrc_hash_str_%s_%s(const char* s) {\n", km, vm);
+            fprintf(self.out, "    unsigned int h = 5381;\n");
+            fprintf(self.out, "    while (*s) h = h * 33 + (unsigned char)*s++;\n");
+            fprintf(self.out, "    return h;\n");
+            fprintf(self.out, "}\n\n");
+        }
+        /* new */
+        fprintf(self.out, "static inline %s %s_new() {\n", n, n);
+        fprintf(self.out, "    %s m;\n", n);
+        fprintf(self.out, "    m.cap = 16;\n");
+        fprintf(self.out, "    m.len = 0;\n");
+        fprintf(self.out, "    m.buckets = (%s_entry*)calloc(m.cap, sizeof(%s_entry));\n", n, n);
+        fprintf(self.out, "    return m;\n");
+        fprintf(self.out, "}\n\n");
+        /* Forward declare put */
+        fprintf(self.out, "static inline void %s_put(%s* m, %s key, %s value);\n\n", n, n, kt, vt);
+        /* resize */
+        fprintf(self.out, "static inline void %s_resize(%s* m) {\n", n, n);
+        fprintf(self.out, "    int old_cap = m->cap;\n");
+        fprintf(self.out, "    %s_entry* old_buckets = m->buckets;\n", n);
+        fprintf(self.out, "    m->cap *= 2;\n");
+        fprintf(self.out, "    m->len = 0;\n");
+        fprintf(self.out, "    m->buckets = (%s_entry*)calloc(m->cap, sizeof(%s_entry));\n", n, n);
+        fprintf(self.out, "    for (int i = 0; i < old_cap; i++) {\n");
+        fprintf(self.out, "        if (old_buckets[i].occupied) {\n");
+        fprintf(self.out, "            %s_put(m, old_buckets[i].key, old_buckets[i].value);\n", n);
+        fprintf(self.out, "        }\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    free(old_buckets);\n");
+        fprintf(self.out, "}\n\n");
+        /* put */
+        fprintf(self.out, "static inline void %s_put(%s* m, %s key, %s value) {\n", n, n, kt, vt);
+        fprintf(self.out, "    if (m->len * 4 >= m->cap * 3) { %s_resize(m); }\n", n);
+        if (is_str_key) {
+            fprintf(self.out, "    unsigned int idx = __btrc_hash_str_%s_%s(key) %% m->cap;\n", km, vm);
+        } else {
+            fprintf(self.out, "    unsigned int idx = (unsigned int)key %% m->cap;\n");
+        }
+        fprintf(self.out, "    while (m->buckets[idx].occupied) {\n");
+        if (is_str_key) {
+            fprintf(self.out, "        if (strcmp(m->buckets[idx].key, key) == 0) { m->buckets[idx].value = value; return; }\n");
+        } else {
+            fprintf(self.out, "        if (m->buckets[idx].key == key) { m->buckets[idx].value = value; return; }\n");
+        }
+        fprintf(self.out, "        idx = (idx + 1) %% m->cap;\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    m->buckets[idx].key = key;\n");
+        fprintf(self.out, "    m->buckets[idx].value = value;\n");
+        fprintf(self.out, "    m->buckets[idx].occupied = true;\n");
+        fprintf(self.out, "    m->len++;\n");
+        fprintf(self.out, "}\n\n");
+        /* get */
+        fprintf(self.out, "static inline %s %s_get(%s* m, %s key) {\n", vt, n, n, kt);
+        if (is_str_key) {
+            fprintf(self.out, "    unsigned int idx = __btrc_hash_str_%s_%s(key) %% m->cap;\n", km, vm);
+        } else {
+            fprintf(self.out, "    unsigned int idx = (unsigned int)key %% m->cap;\n");
+        }
+        fprintf(self.out, "    while (m->buckets[idx].occupied) {\n");
+        if (is_str_key) {
+            fprintf(self.out, "        if (strcmp(m->buckets[idx].key, key) == 0) return m->buckets[idx].value;\n");
+        } else {
+            fprintf(self.out, "        if (m->buckets[idx].key == key) return m->buckets[idx].value;\n");
+        }
+        fprintf(self.out, "        idx = (idx + 1) %% m->cap;\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    return (%s){0};\n", vt);
+        fprintf(self.out, "}\n\n");
+        /* has */
+        fprintf(self.out, "static inline bool %s_has(%s* m, %s key) {\n", n, n, kt);
+        if (is_str_key) {
+            fprintf(self.out, "    unsigned int idx = __btrc_hash_str_%s_%s(key) %% m->cap;\n", km, vm);
+        } else {
+            fprintf(self.out, "    unsigned int idx = (unsigned int)key %% m->cap;\n");
+        }
+        fprintf(self.out, "    while (m->buckets[idx].occupied) {\n");
+        if (is_str_key) {
+            fprintf(self.out, "        if (strcmp(m->buckets[idx].key, key) == 0) return true;\n");
+        } else {
+            fprintf(self.out, "        if (m->buckets[idx].key == key) return true;\n");
+        }
+        fprintf(self.out, "        idx = (idx + 1) %% m->cap;\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    return false;\n");
+        fprintf(self.out, "}\n\n");
+        /* contains (alias for has) */
+        fprintf(self.out, "static inline bool %s_contains(%s* m, %s key) {\n", n, n, kt);
+        fprintf(self.out, "    return %s_has(m, key);\n", n);
+        fprintf(self.out, "}\n\n");
+        /* free */
+        fprintf(self.out, "static inline void %s_free(%s* m) {\n", n, n);
+        fprintf(self.out, "    free(m->buckets);\n");
+        fprintf(self.out, "    m->buckets = NULL; m->cap = 0; m->len = 0;\n");
+        fprintf(self.out, "}\n\n");
+
+        /* remove — find and remove a key, rehashing the cluster */
+        fprintf(self.out, "static inline void %s_remove(%s* m, %s key) {\n", n, n, kt);
+        if (is_str_key) {
+            fprintf(self.out, "    unsigned int idx = __btrc_hash_str_%s_%s(key) %% m->cap;\n", km, vm);
+        } else {
+            fprintf(self.out, "    unsigned int idx = (unsigned int)key %% m->cap;\n");
+        }
+        fprintf(self.out, "    while (m->buckets[idx].occupied) {\n");
+        if (is_str_key) {
+            fprintf(self.out, "        if (strcmp(m->buckets[idx].key, key) == 0) {\n");
+        } else {
+            fprintf(self.out, "        if (m->buckets[idx].key == key) {\n");
+        }
+        fprintf(self.out, "            m->buckets[idx].occupied = false;\n");
+        fprintf(self.out, "            m->len--;\n");
+        fprintf(self.out, "            /* Rehash the rest of the cluster */\n");
+        fprintf(self.out, "            unsigned int j = (idx + 1) %% m->cap;\n");
+        fprintf(self.out, "            while (m->buckets[j].occupied) {\n");
+        fprintf(self.out, "                %s rk = m->buckets[j].key;\n", kt);
+        fprintf(self.out, "                %s rv = m->buckets[j].value;\n", vt);
+        fprintf(self.out, "                m->buckets[j].occupied = false;\n");
+        fprintf(self.out, "                m->len--;\n");
+        fprintf(self.out, "                %s_put(m, rk, rv);\n", n);
+        fprintf(self.out, "                j = (j + 1) %% m->cap;\n");
+        fprintf(self.out, "            }\n");
+        fprintf(self.out, "            return;\n");
+        fprintf(self.out, "        }\n");
+        fprintf(self.out, "        idx = (idx + 1) %% m->cap;\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "}\n\n");
+
+        /* keys — returns a List<K> of all keys */
+        char kl[256];
+        snprintf(kl, sizeof(kl), "btrc_List_%s", km);
+        fprintf(self.out, "static inline %s %s_keys(%s* m) {\n", kl, n, n);
+        fprintf(self.out, "    %s result = %s_new();\n", kl, kl);
+        fprintf(self.out, "    for (int i = 0; i < m->cap; i++) {\n");
+        fprintf(self.out, "        if (m->buckets[i].occupied) {\n");
+        fprintf(self.out, "            %s_push(&result, m->buckets[i].key);\n", kl);
+        fprintf(self.out, "        }\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    return result;\n");
+        fprintf(self.out, "}\n\n");
+
+        /* values — returns a List<V> of all values */
+        char vl[256];
+        snprintf(vl, sizeof(vl), "btrc_List_%s", vm);
+        fprintf(self.out, "static inline %s %s_values(%s* m) {\n", vl, n, n);
+        fprintf(self.out, "    %s result = %s_new();\n", vl, vl);
+        fprintf(self.out, "    for (int i = 0; i < m->cap; i++) {\n");
+        fprintf(self.out, "        if (m->buckets[i].occupied) {\n");
+        fprintf(self.out, "            %s_push(&result, m->buckets[i].value);\n", vl);
+        fprintf(self.out, "        }\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "    return result;\n");
+        fprintf(self.out, "}\n\n");
+
+        /* clear — remove all entries without deallocating */
+        fprintf(self.out, "static inline void %s_clear(%s* m) {\n", n, n);
+        fprintf(self.out, "    for (int i = 0; i < m->cap; i++) m->buckets[i].occupied = false;\n");
+        fprintf(self.out, "    m->len = 0;\n");
+        fprintf(self.out, "}\n\n");
+        /* forEach(fn) — call fn(key, value) for each entry */
+        fprintf(self.out, "static inline void %s_forEach(%s* m, void (*fn)(%s, %s)) {\n", n, n, kt, vt);
+        fprintf(self.out, "    for (int i = 0; i < m->cap; i++) {\n");
+        fprintf(self.out, "        if (m->buckets[i].occupied) fn(m->buckets[i].key, m->buckets[i].value);\n");
+        fprintf(self.out, "    }\n");
+        fprintf(self.out, "}\n\n");
+    }
+
+    /* ---- Declarations ---- */
+
+    private void emit_globals_and_enums(int prog_idx) {
+        Node prog = self.analyzer.nodes.get(prog_idx);
+        for (int i = 0; i < prog.items.len; i++) {
+            int idx = prog.items.get(i);
+            Node decl = self.analyzer.nodes.get(idx);
+            if (decl.kind == NK_VAR_DECL || decl.kind == NK_ENUM_DECL) {
+                self.emit_decl(idx);
+                self.emitted_globals.push(idx);
+            }
+        }
+    }
+
+    private bool is_already_emitted(int idx) {
+        for (int i = 0; i < self.emitted_globals.len; i++) {
+            if (self.emitted_globals.get(i) == idx) { return true; }
+        }
+        return false;
+    }
+
+    private void emit_declarations(int prog_idx) {
+        Node prog = self.analyzer.nodes.get(prog_idx);
+        for (int i = 0; i < prog.items.len; i++) {
+            int idx = prog.items.get(i);
+            if (!self.is_already_emitted(idx)) {
+                self.emit_decl(idx);
+            }
+        }
+    }
+
+    private void emit_decl(int idx) {
+        Node decl = self.analyzer.nodes.get(idx);
+        if (decl.kind == NK_PREPROCESSOR) {
+            /* Already emitted in emit_preprocessor_directives */
+            return;
+        } else if (decl.kind == NK_CLASS_DECL) {
+            self.emit_class(idx);
+        } else if (decl.kind == NK_FUNC_DECL) {
+            self.emit_function(idx);
+        } else if (decl.kind == NK_VAR_DECL) {
+            self.emit_var_decl_stmt(idx);
+        } else if (decl.kind == NK_STRUCT_DECL) {
+            self.emit_struct_decl(idx);
+        } else if (decl.kind == NK_ENUM_DECL) {
+            self.emit_enum_decl(idx);
+        } else if (decl.kind == NK_TYPEDEF_DECL) {
+            self.emit_typedef_decl(idx);
+        }
+    }
+
+    /* ---- Class emission ---- */
+
+    private void emit_class(int class_idx) {
+        Node decl = self.analyzer.nodes.get(class_idx);
+        if (decl.items2.len > 0) { return; } /* Skip generic classes */
+        if (!self.analyzer.has_class(decl.name)) { return; }
+
+        ClassInfo cls = self.analyzer.get_class(decl.name);
+        self.current_class = decl.name;
+        self.analyzer.current_class_name = decl.name;
+
+        /* Emit method forward declarations (skip if overridden later) */
+        for (int i = 0; i < cls.method_names.len; i++) {
+            string mname = cls.method_names.get(i);
+            bool overridden = false;
+            for (int j = i + 1; j < cls.method_names.len; j++) {
+                string later = cls.method_names.get(j);
+                if (later.equals(mname)) { overridden = true; break; }
+            }
+            if (!overridden) {
+                self.emit_method_forward_decl(decl.name, cls, i);
+            }
+        }
+
+        /* Emit method bodies (skip if overridden later) */
+        for (int i = 0; i < cls.method_names.len; i++) {
+            string mname = cls.method_names.get(i);
+            bool overridden = false;
+            for (int j = i + 1; j < cls.method_names.len; j++) {
+                string later = cls.method_names.get(j);
+                if (later.equals(mname)) { overridden = true; break; }
+            }
+            if (!overridden) {
+                int mnode = cls.method_nodes.get(i);
+                self.emit_method(decl.name, cls, mnode);
+            }
+        }
+
+        /* Emit property accessors */
+        for (int i = 0; i < cls.prop_names.len; i++) {
+            int pnode_idx = cls.prop_nodes.get(i);
+            self.emit_property_accessors(decl.name, pnode_idx);
+        }
+
+        /* Emit default constructor if has field defaults or auto-properties but no explicit constructor */
+        if (!cls.has_constructor) {
+            bool needs_ctor = false;
+            for (int i = 0; i < decl.items.len; i++) {
+                Node m = self.analyzer.nodes.get(decl.items.get(i));
+                if (m.kind == NK_FIELD_DECL && m.n2 != -1) {
+                    needs_ctor = true;
+                    break;
+                }
+                if (m.kind == NK_PROPERTY_DECL) {
+                    needs_ctor = true;
+                    break;
+                }
+            }
+            if (needs_ctor) {
+                self.emit_default_constructor(decl.name, class_idx, cls);
+            }
+        }
+
+        /* Heap allocation helper */
+        fprintf(self.out, "static inline %s* __btrc_heap_%s(%s val) {\n",
+                decl.name, decl.name, decl.name);
+        fprintf(self.out, "    %s* ptr = (%s*)malloc(sizeof(%s));\n",
+                decl.name, decl.name, decl.name);
+        fprintf(self.out, "    *ptr = val;\n");
+        fprintf(self.out, "    return ptr;\n");
+        fprintf(self.out, "}\n\n");
+
+        /* Destroy function */
+        self.emit_destroy_function(decl.name, cls);
+
+        self.current_class = "";
+        self.analyzer.current_class_name = "";
+    }
+
+    private void emit_method_forward_decl(string class_name, ClassInfo cls, int midx) {
+        string mname = cls.method_names.get(midx);
+        string maccess = cls.method_access.get(midx);
+        int mnode_idx = cls.method_nodes.get(midx);
+        Node mnode = self.analyzer.nodes.get(mnode_idx);
+        bool is_ctor = mname.equals(class_name);
+        bool is_static = maccess.equals("class");
+
+        if (is_ctor) {
+            fprintf(self.out, "%s %s_new(", class_name, class_name);
+        } else {
+            string ret = self.type_to_c(mnode.n1);
+            fprintf(self.out, "%s %s_%s(", ret, class_name, mname);
+        }
+
+        bool first = true;
+        if (!is_static && !is_ctor) {
+            fprintf(self.out, "%s* self", class_name);
+            first = false;
+        }
+        for (int j = 0; j < mnode.items.len; j++) {
+            if (!first) { fprintf(self.out, ", "); }
+            first = false;
+            self.emit_param(mnode.items.get(j));
+        }
+        if (first) { fprintf(self.out, "void"); }
+        fprintf(self.out, ");\n");
+    }
+
+    private void emit_method(string class_name, ClassInfo cls, int method_idx) {
+        Node method = self.analyzer.nodes.get(method_idx);
+        bool is_ctor = method.name.equals(class_name);
+        bool is_static = method.sval.equals("class");
+
+        /* Signature */
+        if (is_ctor) {
+            fprintf(self.out, "%s %s_new(", class_name, class_name);
+        } else {
+            string ret = self.type_to_c(method.n1);
+            fprintf(self.out, "%s %s_%s(", ret, class_name, method.name);
+        }
+
+        bool first = true;
+        if (!is_static && !is_ctor) {
+            fprintf(self.out, "%s* self", class_name);
+            first = false;
+        }
+        for (int j = 0; j < method.items.len; j++) {
+            if (!first) { fprintf(self.out, ", "); }
+            first = false;
+            self.emit_param(method.items.get(j));
+        }
+        if (first) { fprintf(self.out, "void"); }
+        fprintf(self.out, ") {\n");
+
+        self.indent++;
+        if (is_ctor) {
+            self.emit_raw("");
+            self.indent_out();
+            fprintf(self.out, "%s self;\n", class_name);
+            /* Apply field defaults */
+            for (int fi = 0; fi < cls.field_names.len; fi++) {
+                int ft = cls.field_types.get(fi);
+                /* Find field decl to check for initializer */
+                self.emit_field_default(class_name, cls.field_names.get(fi), ft);
+            }
+            self.in_constructor = true;
+            self.emit_block_contents(method.n2);
+            self.in_constructor = false;
+            self.indent_out();
+            fprintf(self.out, "return self;\n");
+        } else {
+            self.emit_block_contents(method.n2);
+        }
+        self.indent--;
+        fprintf(self.out, "}\n\n");
+    }
+
+    private void emit_field_default(string class_name, string fname, int type_idx) {
+        /* Search for field initializer in class members — look through all class decls */
+        for (int i = 0; i < self.analyzer.nodes.len; i++) {
+            Node n = self.analyzer.nodes.get(i);
+            if (n.kind == NK_FIELD_DECL && n.name.equals(fname) && n.n2 != -1) {
+                string init = self.expr_to_c(n.n2);
+                self.indent_out();
+                fprintf(self.out, "self.%s = %s;\n", fname, init);
+                return;
+            }
+        }
+    }
+
+    private void emit_property_accessors(string class_name, int prop_idx) {
+        Node prop = self.analyzer.nodes.get(prop_idx);
+        string c_type = self.type_to_c(prop.n1);
+        bool auto_get = prop.flag1 && prop.n2 == -1;
+        bool auto_set = prop.flag2 && prop.n3 == -1;
+
+        /* Getter */
+        if (prop.flag1) {
+            fprintf(self.out, "%s %s_get_%s(%s* self) {\n", c_type, class_name, prop.name, class_name);
+            self.indent++;
+            if (auto_get) {
+                self.indent_out();
+                fprintf(self.out, "return self->_%s;\n", prop.name);
+            } else {
+                self.emit_block_contents(prop.n2);
+            }
+            self.indent--;
+            fprintf(self.out, "}\n\n");
+        }
+
+        /* Setter */
+        if (prop.flag2) {
+            fprintf(self.out, "void %s_set_%s(%s* self, %s value) {\n",
+                    class_name, prop.name, class_name, c_type);
+            self.indent++;
+            if (auto_set) {
+                self.indent_out();
+                fprintf(self.out, "self->_%s = value;\n", prop.name);
+            } else {
+                self.emit_block_contents(prop.n3);
+            }
+            self.indent--;
+            fprintf(self.out, "}\n\n");
+        }
+    }
+
+    private void emit_default_constructor(string class_name, int class_idx, ClassInfo cls) {
+        Node decl = self.analyzer.nodes.get(class_idx);
+        fprintf(self.out, "%s %s_new(void) {\n", class_name, class_name);
+        fprintf(self.out, "    %s self;\n", class_name);
+        fprintf(self.out, "    memset(&self, 0, sizeof(%s));\n", class_name);
+        for (int i = 0; i < decl.items.len; i++) {
+            Node m = self.analyzer.nodes.get(decl.items.get(i));
+            if (m.kind == NK_FIELD_DECL && m.n2 != -1) {
+                string init = self.expr_to_c(m.n2);
+                fprintf(self.out, "    self.%s = %s;\n", m.name, init);
+            }
+        }
+        fprintf(self.out, "    return self;\n");
+        fprintf(self.out, "}\n\n");
+    }
+
+    private void emit_destroy_function(string class_name, ClassInfo cls) {
+        fprintf(self.out, "void %s_destroy(%s* self) {\n", class_name, class_name);
+        fprintf(self.out, "    if (self == NULL) return;\n");
+        /* Call user __del__ if exists */
+        int delidx = cls.find_method("__del__");
+        if (delidx >= 0) {
+            fprintf(self.out, "    %s___del__(self);\n", class_name);
+        }
+        /* Recursively destroy class-instance pointer fields, free List/Map fields */
+        for (int i = 0; i < cls.field_names.len; i++) {
+            string fname = cls.field_names.get(i);
+            int ft = cls.field_types.get(i);
+            if (ft == -1) { continue; }
+            Node ftn = self.analyzer.nodes.get(ft);
+            if (ftn.kind != NK_TYPE) { continue; }
+            if (ftn.ival > 0 && self.analyzer.has_class(ftn.name)) {
+                /* Pointer to another class — recursively destroy */
+                fprintf(self.out, "    %s_destroy(self->%s);\n", ftn.name, fname);
+            } else if (ftn.name.equals("List") && ftn.items.len == 1) {
+                string ct = self.type_to_c(ft);
+                fprintf(self.out, "    %s_free(&self->%s);\n", ct, fname);
+            } else if (ftn.name.equals("Map") && ftn.items.len == 2) {
+                string ct = self.type_to_c(ft);
+                fprintf(self.out, "    %s_free(&self->%s);\n", ct, fname);
+            }
+        }
+        fprintf(self.out, "    free(self);\n");
+        fprintf(self.out, "}\n\n");
+    }
+
+    /* ---- Function emission ---- */
+
+    private void emit_function(int func_idx) {
+        Node func = self.analyzer.nodes.get(func_idx);
+        string ret = self.type_to_c(func.n1);
+        fprintf(self.out, "%s %s(", ret, func.name);
+        bool first = true;
+        for (int i = 0; i < func.items.len; i++) {
+            if (!first) { fprintf(self.out, ", "); }
+            first = false;
+            self.emit_param(func.items.get(i));
+        }
+        if (first) { fprintf(self.out, "void"); }
+        fprintf(self.out, ") {\n");
+        self.indent++;
+        self.emit_block_contents(func.n2);
+        self.indent--;
+        fprintf(self.out, "}\n\n");
+    }
+
+    private void emit_param(int param_idx) {
+        Node p = self.analyzer.nodes.get(param_idx);
+        string ct = self.type_to_c(p.n1);
+        fprintf(self.out, "%s %s", ct, p.name);
+        /* C-style array suffix */
+        if (p.flag1) {
+            if (p.n3 != -1) {
+                string sz = self.expr_to_c(p.n3);
+                fprintf(self.out, "[%s]", sz);
+            } else {
+                fprintf(self.out, "[]");
+            }
+        }
+    }
+
+    /* ---- Struct / Enum / Typedef ---- */
+
+    private void emit_struct_decl(int idx) {
+        Node decl = self.analyzer.nodes.get(idx);
+        if (decl.items.len > 0) {
+            fprintf(self.out, "typedef struct %s {\n", decl.name);
+            for (int i = 0; i < decl.items.len; i++) {
+                Node f = self.analyzer.nodes.get(decl.items.get(i));
+                string ct = self.type_to_c(f.n1);
+                fprintf(self.out, "    %s %s;\n", ct, f.name);
+            }
+            fprintf(self.out, "} %s;\n\n", decl.name);
+        } else {
+            fprintf(self.out, "struct %s;\n\n", decl.name);
+        }
+    }
+
+    private void emit_enum_decl(int idx) {
+        Node decl = self.analyzer.nodes.get(idx);
+        fprintf(self.out, "typedef enum {\n");
+        for (int i = 0; i < decl.items.len; i++) {
+            Node em = self.analyzer.nodes.get(decl.items.get(i));
+            if (em.n1 != -1) {
+                string val = self.expr_to_c(em.n1);
+                fprintf(self.out, "    %s = %s", em.name, val);
+            } else {
+                fprintf(self.out, "    %s", em.name);
+            }
+            if (i < decl.items.len - 1) {
+                fprintf(self.out, ",");
+            }
+            fprintf(self.out, "\n");
+        }
+        fprintf(self.out, "} %s;\n\n", decl.name);
+    }
+
+    private void emit_typedef_decl(int idx) {
+        Node decl = self.analyzer.nodes.get(idx);
+        string ct = self.type_to_c(decl.n1);
+        fprintf(self.out, "typedef %s %s;\n\n", ct, decl.name);
+    }
+
+    /* ---- Statements ---- */
+
+    private void emit_block_contents(int block_idx) {
+        if (block_idx == -1) { return; }
+        Node block = self.analyzer.nodes.get(block_idx);
+        if (block.kind != NK_BLOCK) { return; }
+        for (int i = 0; i < block.items.len; i++) {
+            self.emit_stmt(block.items.get(i));
+        }
+    }
+
+    private void emit_stmt(int idx) {
+        if (idx == -1) { return; }
+        Node stmt = self.analyzer.nodes.get(idx);
+
+        if (stmt.kind == NK_VAR_DECL) {
+            self.emit_var_decl_stmt(idx);
+        } else if (stmt.kind == NK_RETURN) {
+            if (stmt.n1 != -1) {
+                Node ret_expr = self.analyzer.nodes.get(stmt.n1);
+                if (ret_expr.kind == NK_FSTRING) {
+                    string tmp = self.emit_fstring_as_value(stmt.n1);
+                    self.indent_out();
+                    fprintf(self.out, "return %s;\n", tmp);
+                } else {
+                    string val = self.expr_to_c(stmt.n1);
+                    self.indent_out();
+                    fprintf(self.out, "return %s;\n", val);
+                }
+            } else {
+                self.emit("return;");
+            }
+        } else if (stmt.kind == NK_IF) {
+            self.emit_if_stmt(idx);
+        } else if (stmt.kind == NK_WHILE) {
+            string cond = self.expr_to_c(stmt.n1);
+            self.indent_out();
+            fprintf(self.out, "while (%s) {\n", cond);
+            self.indent++;
+            self.emit_block_contents(stmt.n2);
+            self.indent--;
+            self.emit("}");
+        } else if (stmt.kind == NK_DO_WHILE) {
+            self.emit("do {");
+            self.indent++;
+            self.emit_block_contents(stmt.n1);
+            self.indent--;
+            string cond = self.expr_to_c(stmt.n2);
+            self.indent_out();
+            fprintf(self.out, "} while (%s);\n", cond);
+        } else if (stmt.kind == NK_FOR_IN) {
+            self.emit_for_in(idx);
+        } else if (stmt.kind == NK_PARALLEL_FOR) {
+            self.emit_parallel_for(idx);
+        } else if (stmt.kind == NK_C_FOR) {
+            self.emit_c_for(idx);
+        } else if (stmt.kind == NK_SWITCH) {
+            self.emit_switch(idx);
+        } else if (stmt.kind == NK_BREAK) {
+            self.emit("break;");
+        } else if (stmt.kind == NK_CONTINUE) {
+            self.emit("continue;");
+        } else if (stmt.kind == NK_EXPR_STMT) {
+            string e = self.expr_to_c(stmt.n1);
+            self.indent_out();
+            fprintf(self.out, "%s;\n", e);
+        } else if (stmt.kind == NK_DELETE_STMT) {
+            string e = self.expr_to_c(stmt.n1);
+            int del_type = self.analyzer.infer_type(stmt.n1);
+            if (del_type != -1) {
+                Node dt = self.analyzer.nodes.get(del_type);
+                if (self.analyzer.has_class(dt.name)) {
+                    self.indent_out();
+                    fprintf(self.out, "%s_destroy(%s);\n", dt.name, e);
+                } else {
+                    self.indent_out();
+                    fprintf(self.out, "free(%s);\n", e);
+                }
+            } else {
+                self.indent_out();
+                fprintf(self.out, "free(%s);\n", e);
+            }
+        } else if (stmt.kind == NK_TRY_CATCH) {
+            self.emit_try_catch_stmt(idx);
+        } else if (stmt.kind == NK_THROW) {
+            string e = self.expr_to_c(stmt.n1);
+            self.indent_out();
+            fprintf(self.out, "__btrc_throw(%s);\n", e);
+        } else if (stmt.kind == NK_BLOCK) {
+            self.emit("{");
+            self.indent++;
+            self.emit_block_contents(idx);
+            self.indent--;
+            self.emit("}");
+        }
+    }
+
+    private void emit_var_decl_stmt(int idx) {
+        Node stmt = self.analyzer.nodes.get(idx);
+        int type_idx = stmt.n1;
+        /* Handle 'var' inference */
+        if (type_idx == -1) {
+            if (self.analyzer.var_types.has(idx)) {
+                type_idx = self.analyzer.var_types.get(idx);
+            } else {
+                type_idx = -1;
+            }
+        }
+        /* Function pointer type (from lambda inference) */
+        if (type_idx != -1) {
+            Node fn_tn = self.analyzer.nodes.get(type_idx);
+            if (fn_tn.kind == NK_TYPE && fn_tn.name.equals("__fn_ptr") && fn_tn.items.len > 0) {
+                string ret_type = self.type_to_c(fn_tn.items.get(0));
+                var param_buf = CharBuffer(128);
+                if (fn_tn.items.len <= 1) {
+                    param_buf.appendStr("void");
+                } else {
+                    for (int i = 1; i < fn_tn.items.len; i++) {
+                        if (i > 1) { param_buf.appendStr(", "); }
+                        param_buf.appendStr(self.type_to_c(fn_tn.items.get(i)));
+                    }
+                }
+                string params = param_buf.toString();
+                param_buf.__del__();
+                string init = "";
+                if (stmt.n2 != -1) {
+                    init = self.expr_to_c(stmt.n2);
+                }
+                self.indent_out();
+                if (stmt.n2 != -1) {
+                    fprintf(self.out, "%s (*%s)(%s) = %s;\n", ret_type, stmt.name, params, init);
+                } else {
+                    fprintf(self.out, "%s (*%s)(%s);\n", ret_type, stmt.name, params);
+                }
+                return;
+            }
+        }
+
+        string ct = self.type_to_c(type_idx);
+
+        /* Array suffix */
+        string suffix = "";
+        if (type_idx != -1) {
+            Node tn = self.analyzer.nodes.get(type_idx);
+            if (tn.kind == NK_TYPE && tn.bval && tn.items.len == 0) {
+                suffix = "[]";
+            } else if (tn.kind == NK_TYPE && tn.n1 != -1) {
+                char sbuf[64];
+                string sz = self.expr_to_c(tn.n1);
+                snprintf(sbuf, sizeof(sbuf), "[%s]", sz);
+                suffix = strdup(sbuf);
+            }
+        }
+        /* C-style array on var decl */
+        if (stmt.flag1) {
+            if (stmt.n3 != -1) {
+                char sbuf[64];
+                string sz = self.expr_to_c(stmt.n3);
+                snprintf(sbuf, sizeof(sbuf), "[%s]", sz);
+                suffix = strdup(sbuf);
+            } else {
+                suffix = "[]";
+            }
+        }
+
+        if (stmt.n2 != -1) {
+            Node init_node = self.analyzer.nodes.get(stmt.n2);
+            /* F-string initialization — use snprintf */
+            if (init_node.kind == NK_FSTRING) {
+                string tmp = self.emit_fstring_as_value(stmt.n2);
+                self.indent_out();
+                fprintf(self.out, "%s %s = %s;\n", ct, stmt.name, tmp);
+                return;
+            }
+            /* List literal initialization */
+            if (init_node.kind == NK_LIST_LIT) {
+                self.indent_out();
+                fprintf(self.out, "%s %s = %s_new();\n", ct, stmt.name, ct);
+                for (int i = 0; i < init_node.items.len; i++) {
+                    string elem = self.expr_to_c(init_node.items.get(i));
+                    self.indent_out();
+                    fprintf(self.out, "%s_push(&%s, %s);\n", ct, stmt.name, elem);
+                }
+                return;
+            }
+            /* Map literal initialization */
+            if (init_node.kind == NK_MAP_LIT) {
+                self.indent_out();
+                fprintf(self.out, "%s %s = %s_new();\n", ct, stmt.name, ct);
+                for (int i = 0; i < init_node.items.len; i++) {
+                    string k = self.expr_to_c(init_node.items.get(i));
+                    string v = self.expr_to_c(init_node.items2.get(i));
+                    self.indent_out();
+                    fprintf(self.out, "%s_put(&%s, %s, %s);\n", ct, stmt.name, k, v);
+                }
+                return;
+            }
+            /* Empty {} for Map or List — call _new() instead of C zero-init */
+            if (init_node.kind == NK_BRACE_INIT && init_node.items.len == 0 && type_idx != -1) {
+                Node tn = self.analyzer.nodes.get(type_idx);
+                if (tn.name.equals("Map") || tn.name.equals("List")) {
+                    self.indent_out();
+                    fprintf(self.out, "%s %s = %s_new();\n", ct, stmt.name, ct);
+                    return;
+                }
+            }
+            /* Constructor call */
+            if (init_node.kind == NK_CALL && init_node.n1 != -1) {
+                Node callee = self.analyzer.nodes.get(init_node.n1);
+                if (callee.kind == NK_IDENTIFIER && self.analyzer.has_class(callee.name)) {
+                    self.indent_out();
+                    fprintf(self.out, "%s %s = ", ct, stmt.name);
+                    string init = self.call_to_c(stmt.n2);
+                    fprintf(self.out, "%s;\n", init);
+                    return;
+                }
+            }
+            string init = self.expr_to_c(stmt.n2);
+            self.indent_out();
+            fprintf(self.out, "%s %s%s = %s;\n", ct, stmt.name, suffix, init);
+        } else {
+            self.indent_out();
+            fprintf(self.out, "%s %s%s;\n", ct, stmt.name, suffix);
+        }
+    }
+
+    private void emit_if_stmt(int idx) {
+        Node stmt = self.analyzer.nodes.get(idx);
+        string cond = self.expr_to_c(stmt.n1);
+        self.indent_out();
+        fprintf(self.out, "if (%s) {\n", cond);
+        self.indent++;
+        self.emit_block_contents(stmt.n2);
+        self.indent--;
+        if (stmt.n3 != -1) {
+            Node else_node = self.analyzer.nodes.get(stmt.n3);
+            if (else_node.kind == NK_IF) {
+                self.indent_out();
+                fprintf(self.out, "} else ");
+                /* Re-emit the if without indentation prefix */
+                string cond2 = self.expr_to_c(else_node.n1);
+                fprintf(self.out, "if (%s) {\n", cond2);
+                self.indent++;
+                self.emit_block_contents(else_node.n2);
+                self.indent--;
+                if (else_node.n3 != -1) {
+                    self.emit_else_chain(else_node.n3);
+                } else {
+                    self.emit("}");
+                }
+            } else {
+                self.emit("} else {");
+                self.indent++;
+                self.emit_block_contents(stmt.n3);
+                self.indent--;
+                self.emit("}");
+            }
+        } else {
+            self.emit("}");
+        }
+    }
+
+    private void emit_else_chain(int idx) {
+        Node n = self.analyzer.nodes.get(idx);
+        if (n.kind == NK_IF) {
+            self.indent_out();
+            fprintf(self.out, "} else ");
+            string cond = self.expr_to_c(n.n1);
+            fprintf(self.out, "if (%s) {\n", cond);
+            self.indent++;
+            self.emit_block_contents(n.n2);
+            self.indent--;
+            if (n.n3 != -1) {
+                self.emit_else_chain(n.n3);
+            } else {
+                self.emit("}");
+            }
+        } else {
+            self.emit("} else {");
+            self.indent++;
+            self.emit_block_contents(idx);
+            self.indent--;
+            self.emit("}");
+        }
+    }
+
+    private void emit_for_in(int idx) {
+        Node stmt = self.analyzer.nodes.get(idx);
+        /* Check for range() */
+        if (stmt.n1 != -1) {
+            Node iter = self.analyzer.nodes.get(stmt.n1);
+            if (iter.kind == NK_CALL && iter.n1 != -1) {
+                Node callee = self.analyzer.nodes.get(iter.n1);
+                if (callee.kind == NK_IDENTIFIER && callee.name.equals("range")) {
+                    self.emit_range_for(stmt, iter);
+                    return;
+                }
+            }
+        }
+        /* Collection iteration */
+        string iterable = self.expr_to_c(stmt.n1);
+        char ivar[64];
+        snprintf(ivar, sizeof(ivar), "__btrc_i_%s", stmt.name);
+        /* Resolve element type from collection type */
+        string elem_type = "int";
+        int iter_type = self.analyzer.infer_type(stmt.n1);
+        if (iter_type != -1) {
+            Node itn = self.analyzer.nodes.get(iter_type);
+            if ((itn.name.equals("List") || itn.name.equals("Array")) && itn.items.len > 0) {
+                elem_type = self.type_to_c(itn.items.get(0));
+            }
+        }
+        self.indent_out();
+        fprintf(self.out, "for (int %s = 0; %s < %s.len; %s++) {\n",
+                ivar, ivar, iterable, ivar);
+        self.indent++;
+        self.indent_out();
+        fprintf(self.out, "%s %s = %s.data[%s];\n",
+                elem_type, stmt.name, iterable, ivar);
+        self.emit_block_contents(stmt.n2);
+        self.indent--;
+        self.emit("}");
+    }
+
+    private void emit_range_for(Node stmt, Node call) {
+        if (call.items.len == 1) {
+            string end = self.expr_to_c(call.items.get(0));
+            self.indent_out();
+            fprintf(self.out, "for (int %s = 0; %s < %s; %s++) {\n",
+                    stmt.name, stmt.name, end, stmt.name);
+        } else if (call.items.len == 2) {
+            string start = self.expr_to_c(call.items.get(0));
+            string end = self.expr_to_c(call.items.get(1));
+            self.indent_out();
+            fprintf(self.out, "for (int %s = %s; %s < %s; %s++) {\n",
+                    stmt.name, start, stmt.name, end, stmt.name);
+        } else if (call.items.len == 3) {
+            string start = self.expr_to_c(call.items.get(0));
+            string end = self.expr_to_c(call.items.get(1));
+            string step = self.expr_to_c(call.items.get(2));
+            self.indent_out();
+            fprintf(self.out, "for (int %s = %s; %s < %s; %s += %s) {\n",
+                    stmt.name, start, stmt.name, end, stmt.name, step);
+        }
+        self.indent++;
+        self.emit_block_contents(stmt.n2);
+        self.indent--;
+        self.emit("}");
+    }
+
+    private void emit_parallel_for(int idx) {
+        Node stmt = self.analyzer.nodes.get(idx);
+        string iterable = self.expr_to_c(stmt.n1);
+        char ivar[64];
+        snprintf(ivar, sizeof(ivar), "__btrc_i_%s", stmt.name);
+        self.emit("#pragma omp parallel for");
+        self.indent_out();
+        fprintf(self.out, "for (int %s = 0; %s < %s.len; %s++) {\n",
+                ivar, ivar, iterable, ivar);
+        self.indent++;
+        self.indent_out();
+        fprintf(self.out, "__typeof__(%s.data[0]) %s = %s.data[%s];\n",
+                iterable, stmt.name, iterable, ivar);
+        self.emit_block_contents(stmt.n2);
+        self.indent--;
+        self.emit("}");
+    }
+
+    private void emit_c_for(int idx) {
+        Node stmt = self.analyzer.nodes.get(idx);
+        self.indent_out();
+        fprintf(self.out, "for (");
+        /* Init */
+        if (stmt.n1 != -1) {
+            Node init = self.analyzer.nodes.get(stmt.n1);
+            if (init.kind == NK_VAR_DECL) {
+                int tinit = init.n1;
+                if (tinit == -1 && self.analyzer.var_types.has(stmt.n1)) {
+                    tinit = self.analyzer.var_types.get(stmt.n1);
+                }
+                string ct = self.type_to_c(tinit);
+                fprintf(self.out, "%s %s", ct, init.name);
+                if (init.n2 != -1) {
+                    string iv = self.expr_to_c(init.n2);
+                    fprintf(self.out, " = %s", iv);
+                }
+            } else {
+                string ie = self.expr_to_c(stmt.n1);
+                fprintf(self.out, "%s", ie);
+            }
+        }
+        fprintf(self.out, "; ");
+        /* Condition */
+        if (stmt.n2 != -1) {
+            string ce = self.expr_to_c(stmt.n2);
+            fprintf(self.out, "%s", ce);
+        }
+        fprintf(self.out, "; ");
+        /* Update */
+        if (stmt.n3 != -1) {
+            string ue = self.expr_to_c(stmt.n3);
+            fprintf(self.out, "%s", ue);
+        }
+        fprintf(self.out, ") {\n");
+        self.indent++;
+        self.emit_block_contents(stmt.n4);
+        self.indent--;
+        self.emit("}");
+    }
+
+    private void emit_switch(int idx) {
+        Node stmt = self.analyzer.nodes.get(idx);
+        string val = self.expr_to_c(stmt.n1);
+        self.indent_out();
+        fprintf(self.out, "switch (%s) {\n", val);
+        self.indent++;
+        for (int i = 0; i < stmt.items.len; i++) {
+            int cidx = stmt.items.get(i);
+            Node c = self.analyzer.nodes.get(cidx);
+            if (c.n1 != -1) {
+                string cv = self.expr_to_c(c.n1);
+                self.indent_out();
+                fprintf(self.out, "case %s:\n", cv);
+            } else {
+                self.emit("default:");
+            }
+            self.indent++;
+            for (int j = 0; j < c.items.len; j++) {
+                self.emit_stmt(c.items.get(j));
+            }
+            self.indent--;
+        }
+        self.indent--;
+        self.emit("}");
+    }
+
+    private void emit_try_catch_stmt(int idx) {
+        Node stmt = self.analyzer.nodes.get(idx);
+        self.emit("__btrc_try_top++;");
+        self.emit("if (setjmp(__btrc_try_stack[__btrc_try_top]) == 0) {");
+        self.indent++;
+        self.emit_block_contents(stmt.n1);
+        self.emit("__btrc_try_top--;");
+        self.indent--;
+        self.emit("} else {");
+        self.indent++;
+        self.indent_out();
+        fprintf(self.out, "const char* %s = __btrc_error_msg;\n", stmt.name);
+        self.emit_block_contents(stmt.n2);
+        self.indent--;
+        self.emit("}");
+    }
+
+    /* ---- Expression → C string ---- */
+
+    public string expr_to_c(int idx) {
+        if (idx == -1) { return ""; }
+        Node n = self.analyzer.nodes.get(idx);
+        char buf[4096];
+
+        if (n.kind == NK_INT_LIT) { return n.sval; }
+        if (n.kind == NK_FLOAT_LIT) { return n.sval; }
+        if (n.kind == NK_STRING_LIT) { return n.sval; }
+        if (n.kind == NK_CHAR_LIT) { return n.sval; }
+        if (n.kind == NK_BOOL_LIT) { return n.bval ? "true" : "false"; }
+        if (n.kind == NK_NULL_LIT) { return "NULL"; }
+        if (n.kind == NK_IDENTIFIER) { return n.name; }
+        if (n.kind == NK_SELF) { return "self"; }
+
+        if (n.kind == NK_BINARY) {
+            /* Null coalescing */
+            if (n.op.equals("??")) {
+                string left = self.expr_to_c(n.n1);
+                string right = self.expr_to_c(n.n2);
+                snprintf(buf, sizeof(buf), "(%s != NULL ? %s : %s)", left, left, right);
+                return strdup(buf);
+            }
+            /* Operator overloading check */
+            int left_type = self.analyzer.infer_type(n.n1);
+            if (left_type != -1) {
+                Node lt = self.analyzer.nodes.get(left_type);
+                if (self.analyzer.has_class(lt.name)) {
+                    string op_method = self.op_to_method(n.op);
+                    if (op_method.len() > 0) {
+                        ClassInfo cls = self.analyzer.get_class(lt.name);
+                        if (cls.find_method(op_method) >= 0) {
+                            string left = self.expr_to_c(n.n1);
+                            string right = self.expr_to_c(n.n2);
+                            if (lt.ival > 0) {
+                                snprintf(buf, sizeof(buf), "%s_%s(%s, %s)",
+                                         lt.name, op_method, left, right);
+                            } else {
+                                snprintf(buf, sizeof(buf), "%s_%s(&%s, %s)",
+                                         lt.name, op_method, left, right);
+                            }
+                            return strdup(buf);
+                        }
+                    }
+                }
+            }
+            /* String operations: +, ==, != */
+            if (left_type != -1) {
+                Node lt2 = self.analyzer.nodes.get(left_type);
+                if (lt2.name.equals("string") || (lt2.name.equals("char") && lt2.ival >= 1)) {
+                    string left = self.expr_to_c(n.n1);
+                    string right = self.expr_to_c(n.n2);
+                    if (n.op.equals("+")) {
+                        snprintf(buf, sizeof(buf), "__btrc_strcat(%s, %s)", left, right);
+                        return strdup(buf);
+                    }
+                    if (n.op.equals("==")) {
+                        snprintf(buf, sizeof(buf), "(strcmp(%s, %s) == 0)", left, right);
+                        return strdup(buf);
+                    }
+                    if (n.op.equals("!=")) {
+                        snprintf(buf, sizeof(buf), "(strcmp(%s, %s) != 0)", left, right);
+                        return strdup(buf);
+                    }
+                }
+            }
+            string left = self.expr_to_c(n.n1);
+            string right = self.expr_to_c(n.n2);
+            snprintf(buf, sizeof(buf), "(%s %s %s)", left, n.op, right);
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_UNARY) {
+            /* Unary operator overloading (__neg__) */
+            if (n.flag1 && n.op.equals("-")) {
+                int operand_type = self.analyzer.infer_type(n.n1);
+                if (operand_type != -1) {
+                    Node ot = self.analyzer.nodes.get(operand_type);
+                    if (self.analyzer.has_class(ot.name)) {
+                        ClassInfo cls = self.analyzer.get_class(ot.name);
+                        if (cls.find_method("__neg__") >= 0) {
+                            string operand = self.expr_to_c(n.n1);
+                            if (ot.ival > 0) {
+                                snprintf(buf, sizeof(buf), "%s___neg__(%s)", ot.name, operand);
+                            } else {
+                                snprintf(buf, sizeof(buf), "%s___neg__(&%s)", ot.name, operand);
+                            }
+                            return strdup(buf);
+                        }
+                    }
+                }
+            }
+            string operand = self.expr_to_c(n.n1);
+            if (n.flag1) {
+                snprintf(buf, sizeof(buf), "(%s%s)", n.op, operand);
+            } else {
+                snprintf(buf, sizeof(buf), "(%s%s)", operand, n.op);
+            }
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_CALL) {
+            return self.call_to_c(idx);
+        }
+
+        if (n.kind == NK_INDEX) {
+            string obj = self.expr_to_c(n.n1);
+            string index = self.expr_to_c(n.n2);
+            /* Check if collection type */
+            int obj_type = self.analyzer.infer_type(n.n1);
+            if (obj_type != -1) {
+                Node ot = self.analyzer.nodes.get(obj_type);
+                if (ot.name.equals("List") || ot.name.equals("Array")) {
+                    if (ot.ival > 0) {
+                        snprintf(buf, sizeof(buf), "%s->data[%s]", obj, index);
+                    } else {
+                        snprintf(buf, sizeof(buf), "%s.data[%s]", obj, index);
+                    }
+                    return strdup(buf);
+                }
+            }
+            snprintf(buf, sizeof(buf), "%s[%s]", obj, index);
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_FIELD_ACCESS) {
+            return self.field_access_to_c(idx);
+        }
+
+        if (n.kind == NK_ASSIGN) {
+            /* Check if target is a property setter: obj.prop = value */
+            if (n.n1 != -1 && n.op.equals("=")) {
+                Node target_node = self.analyzer.nodes.get(n.n1);
+                if (target_node.kind == NK_FIELD_ACCESS) {
+                    string prop_class = self.get_class_for_obj(target_node.n1);
+                    if (prop_class.len() > 0 && self.analyzer.has_class(prop_class)) {
+                        ClassInfo cls = self.analyzer.get_class(prop_class);
+                        int pidx = cls.find_property(target_node.name);
+                        if (pidx >= 0) {
+                            Node prop = self.analyzer.nodes.get(cls.prop_nodes.get(pidx));
+                            if (prop.flag2) { /* has_setter */
+                                string obj_c = self.expr_to_c(target_node.n1);
+                                string val_c = self.expr_to_c(n.n2);
+                                /* Check if obj is already a pointer */
+                                int obj_type = self.analyzer.infer_type(target_node.n1);
+                                bool already_ptr = false;
+                                if (obj_type != -1) {
+                                    Node otn = self.analyzer.nodes.get(obj_type);
+                                    already_ptr = otn.ival > 0;
+                                }
+                                if (target_node.n1 != -1) {
+                                    Node on = self.analyzer.nodes.get(target_node.n1);
+                                    if (on.kind == NK_SELF) { already_ptr = true; }
+                                }
+                                if (already_ptr) {
+                                    snprintf(buf, sizeof(buf), "%s_set_%s(%s, %s)",
+                                             prop_class, target_node.name, obj_c, val_c);
+                                } else {
+                                    snprintf(buf, sizeof(buf), "%s_set_%s(&%s, %s)",
+                                             prop_class, target_node.name, obj_c, val_c);
+                                }
+                                return strdup(buf);
+                            }
+                        }
+                    }
+                }
+            }
+            string target = self.expr_to_c(n.n1);
+            /* Handle f-string assignment: emit snprintf first, then assign */
+            if (n.n2 != -1 && n.op.equals("=")) {
+                Node val_node = self.analyzer.nodes.get(n.n2);
+                if (val_node.kind == NK_FSTRING) {
+                    string tmp = self.emit_fstring_as_value(n.n2);
+                    snprintf(buf, sizeof(buf), "(%s = %s)", target, tmp);
+                    return strdup(buf);
+                }
+            }
+            /* Handle Map/List/empty-brace or empty list literal assignments */
+            if (n.n2 != -1) {
+                Node val_node = self.analyzer.nodes.get(n.n2);
+                bool is_empty_init = (val_node.kind == NK_BRACE_INIT && val_node.items.len == 0) ||
+                                     (val_node.kind == NK_LIST_LIT && val_node.items.len == 0) ||
+                                     (val_node.kind == NK_MAP_LIT && val_node.items.len == 0);
+                if (is_empty_init) {
+                    int target_type = self.analyzer.infer_type(n.n1);
+                    if (target_type != -1) {
+                        Node tt = self.analyzer.nodes.get(target_type);
+                        if (tt.name.equals("Map") || tt.name.equals("List")) {
+                            string ct = self.type_to_c(target_type);
+                            snprintf(buf, sizeof(buf), "(%s = %s_new())", target, ct);
+                            return strdup(buf);
+                        }
+                    }
+                }
+            }
+            string value = self.expr_to_c(n.n2);
+            /* String += concatenation */
+            if (n.op.equals("+=")) {
+                int target_type = self.analyzer.infer_type(n.n1);
+                if (target_type != -1) {
+                    Node tt = self.analyzer.nodes.get(target_type);
+                    if (tt.name.equals("string") || (tt.name.equals("char") && tt.ival >= 1)) {
+                        snprintf(buf, sizeof(buf), "(%s = __btrc_strcat(%s, %s))", target, target, value);
+                        return strdup(buf);
+                    }
+                }
+            }
+            snprintf(buf, sizeof(buf), "(%s %s %s)", target, n.op, value);
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_TERNARY) {
+            string cond = self.expr_to_c(n.n1);
+            string te = self.expr_to_c(n.n2);
+            string fe = self.expr_to_c(n.n3);
+            snprintf(buf, sizeof(buf), "(%s ? %s : %s)", cond, te, fe);
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_CAST) {
+            string ct = self.type_to_c(n.n1);
+            string e = self.expr_to_c(n.n2);
+            snprintf(buf, sizeof(buf), "((%s)%s)", ct, e);
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_SIZEOF) {
+            if (n.flag1) {
+                string ct = self.type_to_c(n.n1);
+                snprintf(buf, sizeof(buf), "sizeof(%s)", ct);
+            } else {
+                string e = self.expr_to_c(n.n1);
+                snprintf(buf, sizeof(buf), "sizeof(%s)", e);
+            }
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_NEW) {
+            return self.new_to_c(idx);
+        }
+
+        if (n.kind == NK_FSTRING) {
+            return self.fstring_to_c(idx);
+        }
+
+        if (n.kind == NK_LIST_LIT) {
+            return "/* list literal */";
+        }
+
+        if (n.kind == NK_MAP_LIT) {
+            return "/* map literal */";
+        }
+
+        if (n.kind == NK_TUPLE_LIT) {
+            return self.tuple_to_c(idx);
+        }
+
+        if (n.kind == NK_BRACE_INIT) {
+            var cb = CharBuffer(256);
+            cb.push('{');
+            for (int i = 0; i < n.items.len; i++) {
+                if (i > 0) { cb.push(','); cb.push(' '); }
+                string e = self.expr_to_c(n.items.get(i));
+                for (int j = 0; j < strlen(e); j++) {
+                    cb.push(e[j]);
+                }
+            }
+            cb.push('}');
+            string result = cb.toString();
+            cb.__del__();
+            return result;
+        }
+
+        if (n.kind == NK_ADDRESS_OF) {
+            string e = self.expr_to_c(n.n1);
+            snprintf(buf, sizeof(buf), "(&%s)", e);
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_DEREF) {
+            string e = self.expr_to_c(n.n1);
+            snprintf(buf, sizeof(buf), "(*%s)", e);
+            return strdup(buf);
+        }
+
+        if (n.kind == NK_LAMBDA) {
+            /* Return the pre-assigned C function name */
+            return n.sval;
+        }
+
+        return "/* unknown expr */";
+    }
+
+    /* ---- Call expression ---- */
+
+    /* Fill in default values for missing arguments.
+     * params is the List<int> of NK_PARAM node indices from the function/method decl. */
+    private string fill_default_args(List<int> call_args, List<int> param_nodes) {
+        var ab = CharBuffer(256);
+        /* Emit provided arguments */
+        for (int i = 0; i < call_args.len; i++) {
+            if (i > 0) { ab.appendStr(", "); }
+            string a = self.expr_to_c(call_args.get(i));
+            ab.appendStr(a);
+        }
+        /* Fill in defaults for missing args */
+        for (int i = call_args.len; i < param_nodes.len; i++) {
+            Node p = self.analyzer.nodes.get(param_nodes.get(i));
+            if (p.n2 != -1) { /* has default value */
+                if (i > 0) { ab.appendStr(", "); }
+                string d = self.expr_to_c(p.n2);
+                ab.appendStr(d);
+            }
+        }
+        string result = ab.toString();
+        ab.__del__();
+        return result;
+    }
+
+    /* Find the function declaration node by name, returns its param list via items */
+    private int find_func_decl(string name) {
+        for (int i = 0; i < self.analyzer.nodes.len; i++) {
+            Node n = self.analyzer.nodes.get(i);
+            if (n.kind == NK_FUNC_DECL && n.name.equals(name)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /* Find constructor node for a class */
+    private int find_constructor(string class_name) {
+        if (!self.analyzer.has_class(class_name)) { return -1; }
+        ClassInfo cls = self.analyzer.get_class(class_name);
+        int midx = cls.find_method(class_name);
+        if (midx >= 0) {
+            return cls.method_nodes.get(midx);
+        }
+        return -1;
+    }
+
+    /* Find a method declaration node for a class+method combo */
+    private int find_method_decl(string class_name, string method_name) {
+        if (!self.analyzer.has_class(class_name)) { return -1; }
+        ClassInfo cls = self.analyzer.get_class(class_name);
+        int midx = cls.find_method(method_name);
+        if (midx >= 0) {
+            return cls.method_nodes.get(midx);
+        }
+        return -1;
+    }
+
+    private string call_to_c(int idx) {
+        Node expr = self.analyzer.nodes.get(idx);
+        char buf[4096];
+
+        if (expr.n1 == -1) { return "/* null callee */"; }
+        Node callee = self.analyzer.nodes.get(expr.n1);
+
+        /* Method call: callee is FieldAccessExpr */
+        if (callee.kind == NK_FIELD_ACCESS) {
+            return self.method_call_to_c(idx);
+        }
+
+        /* Constructor call: callee is Identifier and it's a class name */
+        if (callee.kind == NK_IDENTIFIER && self.analyzer.has_class(callee.name)) {
+            var cb = CharBuffer(256);
+            cb.appendStr(callee.name);
+            cb.appendStr("_new(");
+            /* Fill in default args from constructor */
+            int ctor_idx = self.find_constructor(callee.name);
+            if (ctor_idx != -1) {
+                Node ctor = self.analyzer.nodes.get(ctor_idx);
+                string args = self.fill_default_args(expr.items, ctor.items);
+                cb.appendStr(args);
+            } else {
+                for (int i = 0; i < expr.items.len; i++) {
+                    if (i > 0) { cb.appendStr(", "); }
+                    cb.appendStr(self.expr_to_c(expr.items.get(i)));
+                }
+            }
+            cb.push(')');
+            string result = cb.toString();
+            cb.__del__();
+            return result;
+        }
+
+        /* print() builtin */
+        if (callee.kind == NK_IDENTIFIER && callee.name.equals("print")) {
+            if (!self.analyzer.has_function("print")) {
+                return self.print_to_c(idx);
+            }
+        }
+
+        /* Regular function call with default arg filling */
+        var cb = CharBuffer(256);
+        cb.appendStr(self.expr_to_c(expr.n1));
+        cb.push('(');
+        int func_idx = -1;
+        if (callee.kind == NK_IDENTIFIER) {
+            func_idx = self.find_func_decl(callee.name);
+        }
+        if (func_idx != -1) {
+            Node func = self.analyzer.nodes.get(func_idx);
+            string args = self.fill_default_args(expr.items, func.items);
+            cb.appendStr(args);
+        } else {
+            for (int i = 0; i < expr.items.len; i++) {
+                if (i > 0) { cb.appendStr(", "); }
+                cb.appendStr(self.expr_to_c(expr.items.get(i)));
+            }
+        }
+        cb.push(')');
+        string result = cb.toString();
+        cb.__del__();
+        return result;
+    }
+
+    /* ---- Method call ---- */
+
+    private string method_call_to_c(int idx) {
+        Node expr = self.analyzer.nodes.get(idx);
+        Node access = self.analyzer.nodes.get(expr.n1);
+        string method_name = access.name;
+        char buf[4096];
+
+        /* Strings.method() — stdlib static dispatch */
+        if (access.n1 != -1) {
+            Node obj_node = self.analyzer.nodes.get(access.n1);
+            if (obj_node.kind == NK_IDENTIFIER && obj_node.name.equals("Strings") &&
+                !self.analyzer.has_class("Strings")) {
+                return self.strings_static_to_c(method_name, idx);
+            }
+            if (obj_node.kind == NK_IDENTIFIER && obj_node.name.equals("Math") &&
+                !self.analyzer.has_class("Math")) {
+                return self.math_static_to_c(method_name, idx);
+            }
+        }
+        /* Static call: ClassName.method() */
+        if (access.n1 != -1) {
+            Node obj_node = self.analyzer.nodes.get(access.n1);
+            if (obj_node.kind == NK_IDENTIFIER && self.analyzer.has_class(obj_node.name)) {
+                var cb = CharBuffer(256);
+                cb.appendStr( obj_node.name);
+                cb.push('_');
+                cb.appendStr( method_name);
+                cb.push('(');
+                int mdecl = self.find_method_decl(obj_node.name, method_name);
+                if (mdecl != -1) {
+                    Node m = self.analyzer.nodes.get(mdecl);
+                    string args = self.fill_default_args(expr.items, m.items);
+                    cb.appendStr(args);
+                } else {
+                    for (int i = 0; i < expr.items.len; i++) {
+                        if (i > 0) { cb.push(','); cb.push(' '); }
+                        string a = self.expr_to_c(expr.items.get(i));
+                        cb.appendStr( a);
+                    }
+                }
+                cb.push(')');
+                string result = cb.toString();
+                cb.__del__();
+                return result;
+            }
+        }
+
+        string obj_c = self.expr_to_c(access.n1);
+
+        /* String method */
+        int obj_type = self.analyzer.infer_type(access.n1);
+        if (obj_type != -1) {
+            Node ot = self.analyzer.nodes.get(obj_type);
+            if (ot.name.equals("string") || (ot.name.equals("char") && ot.ival >= 1)) {
+                return self.string_method_to_c(obj_c, method_name, idx);
+            }
+        }
+
+        /* Collection method */
+        if (obj_type != -1) {
+            Node ot = self.analyzer.nodes.get(obj_type);
+            if (ot.name.equals("List") || ot.name.equals("Array") || ot.name.equals("Map")) {
+                return self.collection_method_to_c(obj_type, obj_c, method_name, idx, access.flag1);
+            }
+        }
+
+        /* Instance method */
+        string class_name = self.get_class_for_obj(access.n1);
+        if (class_name.len() > 0) {
+            bool already_ptr = access.flag1; /* is_arrow */
+            if (access.n1 != -1) {
+                Node obj_node = self.analyzer.nodes.get(access.n1);
+                if (obj_node.kind == NK_SELF && !self.in_constructor) {
+                    already_ptr = true;
+                }
+            }
+            var cb = CharBuffer(512);
+            cb.appendStr( class_name);
+            cb.push('_');
+            cb.appendStr( method_name);
+            cb.push('(');
+            if (already_ptr) {
+                cb.appendStr( obj_c);
+            } else {
+                cb.push('&');
+                cb.appendStr( obj_c);
+            }
+            /* Fill remaining args with defaults if available */
+            int mdecl = self.find_method_decl(class_name, method_name);
+            if (mdecl != -1) {
+                Node m = self.analyzer.nodes.get(mdecl);
+                /* Emit provided args */
+                for (int i = 0; i < expr.items.len; i++) {
+                    cb.appendStr(", ");
+                    string a = self.expr_to_c(expr.items.get(i));
+                    cb.appendStr(a);
+                }
+                /* Fill defaults for missing args */
+                for (int i = expr.items.len; i < m.items.len; i++) {
+                    Node p = self.analyzer.nodes.get(m.items.get(i));
+                    if (p.n2 != -1) {
+                        cb.appendStr(", ");
+                        string d = self.expr_to_c(p.n2);
+                        cb.appendStr(d);
+                    }
+                }
+            } else {
+                for (int i = 0; i < expr.items.len; i++) {
+                    cb.appendStr(", ");
+                    string a = self.expr_to_c(expr.items.get(i));
+                    cb.appendStr(a);
+                }
+            }
+            cb.push(')');
+            string result = cb.toString();
+            cb.__del__();
+            return result;
+        }
+
+        /* Fallback: obj.method(args) or obj->method(args) */
+        var cb = CharBuffer(256);
+        cb.appendStr( obj_c);
+        if (access.flag1) {
+            cb.push('-'); cb.push('>');
+        } else {
+            cb.push('.');
+        }
+        cb.appendStr( method_name);
+        cb.push('(');
+        for (int i = 0; i < expr.items.len; i++) {
+            if (i > 0) { cb.push(','); cb.push(' '); }
+            string a = self.expr_to_c(expr.items.get(i));
+            cb.appendStr( a);
+        }
+        cb.push(')');
+        string result = cb.toString();
+        cb.__del__();
+        return result;
+    }
+
+    /* ---- String method translation ---- */
+
+    private string string_method_to_c(string obj_c, string method, int call_idx) {
+        Node call = self.analyzer.nodes.get(call_idx);
+        char buf[4096];
+
+        if (method.equals("len") || method.equals("byteLen")) {
+            snprintf(buf, sizeof(buf), "(int)strlen(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("charLen")) {
+            snprintf(buf, sizeof(buf), "__btrc_utf8_charlen(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("contains")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "(strstr(%s, %s) != NULL)", obj_c, arg);
+            return strdup(buf);
+        }
+        if (method.equals("startsWith")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "(strncmp(%s, %s, strlen(%s)) == 0)", obj_c, arg, arg);
+            return strdup(buf);
+        }
+        if (method.equals("endsWith")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf),
+                     "(strlen(%s) >= strlen(%s) && strcmp(%s + strlen(%s) - strlen(%s), %s) == 0)",
+                     obj_c, arg, obj_c, obj_c, arg, arg);
+            return strdup(buf);
+        }
+        if (method.equals("substring")) {
+            var cb = CharBuffer(256);
+            cb.appendStr( "__btrc_substring(");
+            cb.appendStr( obj_c);
+            for (int i = 0; i < call.items.len; i++) {
+                cb.push(','); cb.push(' ');
+                string a = self.expr_to_c(call.items.get(i));
+                cb.appendStr( a);
+            }
+            cb.push(')');
+            string result = cb.toString();
+            cb.__del__();
+            return result;
+        }
+        if (method.equals("trim")) {
+            snprintf(buf, sizeof(buf), "__btrc_trim(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("toUpper")) {
+            snprintf(buf, sizeof(buf), "__btrc_toUpper(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("toLower")) {
+            snprintf(buf, sizeof(buf), "__btrc_toLower(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("indexOf")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_indexOf(%s, %s)", obj_c, arg);
+            return strdup(buf);
+        }
+        if (method.equals("charAt")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "%s[%s]", obj_c, arg);
+            return strdup(buf);
+        }
+        if (method.equals("equals")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "(strcmp(%s, %s) == 0)", obj_c, arg);
+            return strdup(buf);
+        }
+        if (method.equals("lastIndexOf")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_lastIndexOf(%s, %s)", obj_c, arg);
+            return strdup(buf);
+        }
+        if (method.equals("replace")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_replace(%s, %s, %s)", obj_c, a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("split")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_split(%s, %s)", obj_c, arg);
+            return strdup(buf);
+        }
+        if (method.equals("repeat")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_repeat(%s, %s)", obj_c, arg);
+            return strdup(buf);
+        }
+        if (method.equals("count")) {
+            string arg = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_count(%s, %s)", obj_c, arg);
+            return strdup(buf);
+        }
+        if (method.equals("find")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_find(%s, %s, %s)", obj_c, a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("lstrip")) {
+            snprintf(buf, sizeof(buf), "__btrc_lstrip(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("rstrip")) {
+            snprintf(buf, sizeof(buf), "__btrc_rstrip(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("capitalize")) {
+            snprintf(buf, sizeof(buf), "__btrc_capitalize(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("title")) {
+            snprintf(buf, sizeof(buf), "__btrc_title(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("swapCase")) {
+            snprintf(buf, sizeof(buf), "__btrc_swapCase(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("padLeft")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_padLeft(%s, %s, %s)", obj_c, a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("padRight")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_padRight(%s, %s, %s)", obj_c, a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("center")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_center(%s, %s, %s)", obj_c, a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("isDigit")) {
+            snprintf(buf, sizeof(buf), "__btrc_isDigitStr(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("isAlpha")) {
+            snprintf(buf, sizeof(buf), "__btrc_isAlphaStr(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("isBlank")) {
+            snprintf(buf, sizeof(buf), "__btrc_isBlank(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("toInt")) {
+            snprintf(buf, sizeof(buf), "atoi(%s)", obj_c);
+            return strdup(buf);
+        }
+        if (method.equals("toFloat")) {
+            snprintf(buf, sizeof(buf), "((float)atof(%s))", obj_c);
+            return strdup(buf);
+        }
+        snprintf(buf, sizeof(buf), "/* unknown string method: %s */", method);
+        return strdup(buf);
+    }
+
+    /* ---- Collection method translation ---- */
+
+    private string collection_method_to_c(int type_idx, string obj_c, string method,
+                                           int call_idx, bool arrow) {
+        Node call = self.analyzer.nodes.get(call_idx);
+        Node ot = self.analyzer.nodes.get(type_idx);
+        string ct = self.type_to_c(type_idx);
+        char buf[4096];
+
+        var cb = CharBuffer(512);
+        cb.appendStr( ct);
+        cb.push('_');
+        cb.appendStr( method);
+        cb.push('(');
+        if (arrow || ot.ival > 0) {
+            cb.appendStr( obj_c);
+        } else {
+            cb.push('&');
+            cb.appendStr( obj_c);
+        }
+        for (int i = 0; i < call.items.len; i++) {
+            cb.push(','); cb.push(' ');
+            string a = self.expr_to_c(call.items.get(i));
+            cb.appendStr( a);
+        }
+        cb.push(')');
+        string result = cb.toString();
+        cb.__del__();
+        return result;
+    }
+
+    /* ---- Strings static dispatch ---- */
+
+    private string strings_static_to_c(string method, int call_idx) {
+        Node call = self.analyzer.nodes.get(call_idx);
+        char buf[4096];
+
+        if (method.equals("repeat")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_repeat(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("join")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_join(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("replace")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            string a2 = self.expr_to_c(call.items.get(2));
+            snprintf(buf, sizeof(buf), "__btrc_replace(%s, %s, %s)", a0, a1, a2);
+            return strdup(buf);
+        }
+        if (method.equals("isDigit")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "isdigit((unsigned char)%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("isAlpha")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "isalpha((unsigned char)%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("isAlnum")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "isalnum((unsigned char)%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("isSpace")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "isspace((unsigned char)%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("toInt")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "atoi(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("toFloat")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((float)atof(%s))", a0);
+            return strdup(buf);
+        }
+        if (method.equals("count")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_count(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("find")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            string a2 = self.expr_to_c(call.items.get(2));
+            snprintf(buf, sizeof(buf), "__btrc_find(%s, %s, %s)", a0, a1, a2);
+            return strdup(buf);
+        }
+        if (method.equals("rfind")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_lastIndexOf(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("capitalize")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_capitalize(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("title")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_title(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("swapCase")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_swapCase(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("padLeft")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            string a2 = self.expr_to_c(call.items.get(2));
+            snprintf(buf, sizeof(buf), "__btrc_padLeft(%s, %s, %s)", a0, a1, a2);
+            return strdup(buf);
+        }
+        if (method.equals("padRight")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            string a2 = self.expr_to_c(call.items.get(2));
+            snprintf(buf, sizeof(buf), "__btrc_padRight(%s, %s, %s)", a0, a1, a2);
+            return strdup(buf);
+        }
+        if (method.equals("center")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            string a2 = self.expr_to_c(call.items.get(2));
+            snprintf(buf, sizeof(buf), "__btrc_center(%s, %s, %s)", a0, a1, a2);
+            return strdup(buf);
+        }
+        if (method.equals("lstrip")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_lstrip(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("rstrip")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_rstrip(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("fromInt")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_fromInt(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("fromFloat")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_fromFloat(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("isDigitStr")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_isDigitStr(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("isAlphaStr")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_isAlphaStr(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("isBlank")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_isBlank(%s)", a0);
+            return strdup(buf);
+        }
+        snprintf(buf, sizeof(buf), "/* unknown Strings method: %s */", method);
+        return strdup(buf);
+    }
+
+    /* ---- Math static dispatch ---- */
+
+    private string math_static_to_c(string method, int call_idx) {
+        Node call = self.analyzer.nodes.get(call_idx);
+        char buf[4096];
+
+        /* Constants */
+        if (method.equals("PI")) {
+            return strdup("3.14159265358979323846");
+        }
+        if (method.equals("E")) {
+            return strdup("2.71828182845904523536");
+        }
+        if (method.equals("TAU")) {
+            return strdup("6.28318530717958647692");
+        }
+        if (method.equals("INF")) {
+            return strdup("(1.0 / 0.0)");
+        }
+        /* Basic operations */
+        if (method.equals("abs")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((%s) < 0 ? -(%s) : (%s))", a0, a0, a0);
+            return strdup(buf);
+        }
+        if (method.equals("fabs")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "fabsf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("max")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "((%s) > (%s) ? (%s) : (%s))", a0, a1, a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("min")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "((%s) < (%s) ? (%s) : (%s))", a0, a1, a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("fmax")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "fmaxf(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("fmin")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "fminf(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("clamp") || method.equals("fclamp")) {
+            string v = self.expr_to_c(call.items.get(0));
+            string lo = self.expr_to_c(call.items.get(1));
+            string hi = self.expr_to_c(call.items.get(2));
+            snprintf(buf, sizeof(buf), "((%s) < (%s) ? (%s) : ((%s) > (%s) ? (%s) : (%s)))",
+                     v, lo, lo, v, hi, hi, v);
+            return strdup(buf);
+        }
+        /* Power and roots */
+        if (method.equals("power")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "powf(%s, (float)(%s))", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("sqrt")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "sqrtf(%s)", a0);
+            return strdup(buf);
+        }
+        /* Combinatorics */
+        if (method.equals("factorial")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_math_factorial(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("gcd")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_math_gcd(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("lcm")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "__btrc_math_lcm(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        if (method.equals("fibonacci")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_math_fibonacci(%s)", a0);
+            return strdup(buf);
+        }
+        /* Checks */
+        if (method.equals("isPrime")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "__btrc_math_isPrime(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("isEven")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((%s) %% 2 == 0)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("isOdd")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((%s) %% 2 != 0)", a0);
+            return strdup(buf);
+        }
+        /* Trigonometry */
+        if (method.equals("sin")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "sinf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("cos")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "cosf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("tan")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "tanf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("asin")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "asinf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("acos")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "acosf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("atan")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "atanf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("atan2")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            string a1 = self.expr_to_c(call.items.get(1));
+            snprintf(buf, sizeof(buf), "atan2f(%s, %s)", a0, a1);
+            return strdup(buf);
+        }
+        /* Rounding */
+        if (method.equals("ceil")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "ceilf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("floor")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "floorf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("round")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((int)roundf(%s))", a0);
+            return strdup(buf);
+        }
+        if (method.equals("truncate")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((int)truncf(%s))", a0);
+            return strdup(buf);
+        }
+        /* Logarithms and exponentials */
+        if (method.equals("log")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "logf(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("log10")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "log10f(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("log2")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "log2f(%s)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("exp")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "expf(%s)", a0);
+            return strdup(buf);
+        }
+        /* Conversions */
+        if (method.equals("toRadians")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((%s) * 3.14159265358979323846f / 180.0f)", a0);
+            return strdup(buf);
+        }
+        if (method.equals("toDegrees")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((%s) * 180.0f / 3.14159265358979323846f)", a0);
+            return strdup(buf);
+        }
+        /* Utility */
+        if (method.equals("sign")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((%s) > 0 ? 1 : ((%s) < 0 ? -1 : 0))", a0, a0);
+            return strdup(buf);
+        }
+        if (method.equals("fsign")) {
+            string a0 = self.expr_to_c(call.items.get(0));
+            snprintf(buf, sizeof(buf), "((%s) > 0.0f ? 1.0f : ((%s) < 0.0f ? -1.0f : 0.0f))", a0, a0);
+            return strdup(buf);
+        }
+        snprintf(buf, sizeof(buf), "/* unknown Math method: %s */", method);
+        return strdup(buf);
+    }
+
+    /* ---- Field access ---- */
+
+    private string field_access_to_c(int idx) {
+        Node n = self.analyzer.nodes.get(idx);
+        string obj = self.expr_to_c(n.n1);
+        char buf[4096];
+
+        /* Check if this is a property getter */
+        string prop_class = self.get_class_for_obj(n.n1);
+        if (prop_class.len() > 0 && self.analyzer.has_class(prop_class)) {
+            ClassInfo cls = self.analyzer.get_class(prop_class);
+            int pidx = cls.find_property(n.name);
+            if (pidx >= 0) {
+                Node prop = self.analyzer.nodes.get(cls.prop_nodes.get(pidx));
+                if (prop.flag1) { /* has_getter */
+                    /* Check if obj is already a pointer or value type */
+                    int obj_type = self.analyzer.infer_type(n.n1);
+                    bool already_ptr = false;
+                    if (obj_type != -1) {
+                        Node otn = self.analyzer.nodes.get(obj_type);
+                        already_ptr = otn.ival > 0;
+                    }
+                    /* self is always a pointer in methods */
+                    if (n.n1 != -1) {
+                        Node on = self.analyzer.nodes.get(n.n1);
+                        if (on.kind == NK_SELF) { already_ptr = true; }
+                    }
+                    if (already_ptr) {
+                        snprintf(buf, sizeof(buf), "%s_get_%s(%s)", prop_class, n.name, obj);
+                    } else {
+                        snprintf(buf, sizeof(buf), "%s_get_%s(&%s)", prop_class, n.name, obj);
+                    }
+                    return strdup(buf);
+                }
+            }
+        }
+
+        /* self.field */
+        if (n.n1 != -1) {
+            Node obj_node = self.analyzer.nodes.get(n.n1);
+            if (obj_node.kind == NK_SELF) {
+                if (self.in_constructor) {
+                    snprintf(buf, sizeof(buf), "self.%s", n.name);
+                } else {
+                    snprintf(buf, sizeof(buf), "self->%s", n.name);
+                }
+                return strdup(buf);
+            }
+        }
+
+        /* Optional chaining: obj?.field */
+        if (n.flag2) {
+            snprintf(buf, sizeof(buf), "(%s != NULL ? %s->%s : 0)", obj, obj, n.name);
+            return strdup(buf);
+        }
+
+        /* Arrow: obj->field */
+        if (n.flag1) {
+            snprintf(buf, sizeof(buf), "%s->%s", obj, n.name);
+            return strdup(buf);
+        }
+
+        /* Dot: obj.field */
+        snprintf(buf, sizeof(buf), "%s.%s", obj, n.name);
+        return strdup(buf);
+    }
+
+    /* ---- New expression ---- */
+
+    private string new_to_c(int idx) {
+        Node n = self.analyzer.nodes.get(idx);
+        string ct = self.type_to_c(n.n1);
+        char buf[4096];
+
+        if (n.n1 != -1) {
+            Node tn = self.analyzer.nodes.get(n.n1);
+            if (self.analyzer.has_class(tn.name)) {
+                var cb = CharBuffer(256);
+                cb.appendStr( "__btrc_heap_");
+                cb.appendStr( ct);
+                cb.push('(');
+                cb.appendStr( ct);
+                cb.appendStr( "_new(");
+                for (int i = 0; i < n.items.len; i++) {
+                    if (i > 0) { cb.push(','); cb.push(' '); }
+                    string a = self.expr_to_c(n.items.get(i));
+                    cb.appendStr( a);
+                }
+                cb.appendStr( "))");
+                string result = cb.toString();
+                cb.__del__();
+                return result;
+            }
+        }
+        snprintf(buf, sizeof(buf), "(%s*)malloc(sizeof(%s))", ct, ct);
+        return strdup(buf);
+    }
+
+    /* ---- F-string ---- */
+
+    private string fstring_to_c(int idx) {
+        Node n = self.analyzer.nodes.get(idx);
+        var fmt_buf = CharBuffer(512);
+        var args_buf = CharBuffer(512);
+        bool has_args = false;
+
+        fmt_buf.push('"');
+        for (int i = 0; i < n.items.len; i++) {
+            int part_idx = n.items.get(i);
+            Node part = self.analyzer.nodes.get(part_idx);
+            if (part.kind == NK_STRING_LIT) {
+                /* Text part — escape % for printf */
+                for (int j = 0; j < part.sval.len(); j++) {
+                    char c = part.sval.charAt(j);
+                    if (c == '%') {
+                        fmt_buf.push('%');
+                        fmt_buf.push('%');
+                    } else {
+                        fmt_buf.push(c);
+                    }
+                }
+            } else {
+                /* Expression part — infer format spec */
+                string spec = self.infer_format_spec(part_idx);
+                fmt_buf.appendStr( spec);
+                if (has_args) {
+                    args_buf.appendStr( ", ");
+                }
+                string e = self.expr_to_c(part_idx);
+                args_buf.appendStr( e);
+                has_args = true;
+            }
+        }
+        fmt_buf.push('"');
+
+        string fmt = fmt_buf.toString();
+        fmt_buf.__del__();
+
+        if (has_args) {
+            var result_buf = CharBuffer(1024);
+            result_buf.appendStr( fmt);
+            result_buf.appendStr( ", ");
+            string args = args_buf.toString();
+            result_buf.appendStr( args);
+            args_buf.__del__();
+            string result = result_buf.toString();
+            result_buf.__del__();
+            return result;
+        }
+        args_buf.__del__();
+        return fmt;
+    }
+
+    /* Emit f-string as heap-allocated snprintf value. Returns the temp var name. */
+    private string emit_fstring_as_value(int idx) {
+        Node n = self.analyzer.nodes.get(idx);
+        var fmt_buf = CharBuffer(512);
+        var args_buf = CharBuffer(512);
+        bool has_args = false;
+
+        fmt_buf.push('"');
+        for (int i = 0; i < n.items.len; i++) {
+            int part_idx = n.items.get(i);
+            Node part = self.analyzer.nodes.get(part_idx);
+            if (part.kind == NK_STRING_LIT) {
+                for (int j = 0; j < part.sval.len(); j++) {
+                    char c = part.sval.charAt(j);
+                    if (c == '%') {
+                        fmt_buf.push('%');
+                        fmt_buf.push('%');
+                    } else {
+                        fmt_buf.push(c);
+                    }
+                }
+            } else {
+                string spec = self.infer_format_spec(part_idx);
+                fmt_buf.appendStr(spec);
+                if (has_args) {
+                    args_buf.appendStr(", ");
+                }
+                string e = self.expr_to_c(part_idx);
+                args_buf.appendStr(e);
+                has_args = true;
+            }
+        }
+        fmt_buf.push('"');
+
+        string fmt = fmt_buf.toString();
+        fmt_buf.__del__();
+        string args = args_buf.toString();
+        args_buf.__del__();
+
+        self.fstr_counter++;
+        char tmp_name[64];
+        snprintf(tmp_name, sizeof(tmp_name), "__btrc_fstr_%d", self.fstr_counter);
+        string tmp = strdup(tmp_name);
+
+        /* int __btrc_fstr_N_len = snprintf(NULL, 0, fmt, args); */
+        self.indent_out();
+        if (has_args) {
+            fprintf(self.out, "int %s_len = snprintf(NULL, 0, %s, %s);\n", tmp, fmt, args);
+        } else {
+            fprintf(self.out, "int %s_len = snprintf(NULL, 0, %s);\n", tmp, fmt);
+        }
+        /* char* __btrc_fstr_N = (char*)malloc(__btrc_fstr_N_len + 1); */
+        self.indent_out();
+        fprintf(self.out, "char* %s = (char*)malloc(%s_len + 1);\n", tmp, tmp);
+        /* snprintf(__btrc_fstr_N, __btrc_fstr_N_len + 1, fmt, args); */
+        self.indent_out();
+        if (has_args) {
+            fprintf(self.out, "snprintf(%s, %s_len + 1, %s, %s);\n", tmp, tmp, fmt, args);
+        } else {
+            fprintf(self.out, "snprintf(%s, %s_len + 1, %s);\n", tmp, tmp, fmt);
+        }
+        return tmp;
+    }
+
+    private string infer_format_spec(int expr_idx) {
+        int type_idx = self.analyzer.infer_type(expr_idx);
+        if (type_idx != -1) {
+            Node tn = self.analyzer.nodes.get(type_idx);
+            if (tn.ival > 0 && !tn.name.equals("string") && !tn.name.equals("char")) {
+                return "%p";
+            }
+            if (tn.name.equals("int") || tn.name.equals("short") || tn.name.equals("bool")) {
+                return "%d";
+            }
+            if (tn.name.equals("long")) { return "%ld"; }
+            if (tn.name.equals("unsigned") || tn.name.equals("unsigned int")) { return "%u"; }
+            if (tn.name.equals("float") || tn.name.equals("double")) { return "%f"; }
+            if (tn.name.equals("string")) { return "%s"; }
+            if (tn.name.equals("char") && tn.ival > 0) { return "%s"; }
+            if (tn.name.equals("char") && tn.ival == 0) { return "%c"; }
+        }
+        /* Fallback by node kind */
+        Node n = self.analyzer.nodes.get(expr_idx);
+        if (n.kind == NK_INT_LIT) { return "%d"; }
+        if (n.kind == NK_FLOAT_LIT) { return "%f"; }
+        if (n.kind == NK_STRING_LIT) { return "%s"; }
+        if (n.kind == NK_CHAR_LIT) { return "%c"; }
+        return "%d";
+    }
+
+    /* ---- print() builtin ---- */
+
+    private string print_to_c(int call_idx) {
+        Node call = self.analyzer.nodes.get(call_idx);
+        char buf[4096];
+
+        if (call.items.len == 0) {
+            return "printf(\"\\n\")";
+        }
+
+        /* Single f-string argument */
+        if (call.items.len == 1) {
+            Node arg = self.analyzer.nodes.get(call.items.get(0));
+            if (arg.kind == NK_FSTRING) {
+                string fstr = self.fstring_to_c(call.items.get(0));
+                /* fstr is "fmt", args — need to insert \n before closing " */
+                var cb = CharBuffer(512);
+                cb.appendStr( "printf(");
+                /* Find the closing " of the format string */
+                int fmt_end = -1;
+                for (int i = 1; i < strlen(fstr); i++) {
+                    if (fstr[i] == '"' && fstr[i-1] != '\\') {
+                        fmt_end = i;
+                        break;
+                    }
+                }
+                if (fmt_end > 0) {
+                    /* Insert \n before the closing quote */
+                    for (int i = 0; i < fmt_end; i++) { cb.push(fstr[i]); }
+                    cb.appendStr( "\\n");
+                    for (int i = fmt_end; i < strlen(fstr); i++) { cb.push(fstr[i]); }
+                } else {
+                    cb.appendStr( fstr);
+                }
+                cb.push(')');
+                string result = cb.toString();
+                cb.__del__();
+                return result;
+            }
+            /* Single string literal */
+            if (arg.kind == NK_STRING_LIT) {
+                /* Strip quotes, add \n */
+                int slen = arg.sval.len();
+                var cb = CharBuffer(256);
+                cb.appendStr( "printf(\"");
+                for (int i = 1; i < slen - 1; i++) { cb.push(arg.sval.charAt(i)); }
+                cb.appendStr( "\\n\")");
+                string result = cb.toString();
+                cb.__del__();
+                return result;
+            }
+        }
+
+        /* General case: auto-format each argument */
+        var fmt = CharBuffer(512);
+        var args = CharBuffer(512);
+        bool has_args = false;
+
+        fmt.push('"');
+        for (int i = 0; i < call.items.len; i++) {
+            if (i > 0) { fmt.push(' '); }
+            Node arg = self.analyzer.nodes.get(call.items.get(i));
+            if (arg.kind == NK_STRING_LIT) {
+                /* Inline the string literal (strip quotes) */
+                int slen = arg.sval.len();
+                for (int j = 1; j < slen - 1; j++) { fmt.push(arg.sval.charAt(j)); }
+            } else {
+                string spec = self.infer_format_spec(call.items.get(i));
+                fmt.appendStr( spec);
+                if (has_args) { args.appendStr( ", "); }
+                string e = self.expr_to_c(call.items.get(i));
+                args.appendStr( e);
+                has_args = true;
+            }
+        }
+        fmt.appendStr( "\\n\"");
+        string fmt_str = fmt.toString();
+        fmt.__del__();
+
+        var result_buf = CharBuffer(1024);
+        result_buf.appendStr( "printf(");
+        result_buf.appendStr( fmt_str);
+        if (has_args) {
+            result_buf.appendStr( ", ");
+            string args_str = args.toString();
+            result_buf.appendStr( args_str);
+        }
+        args.__del__();
+        result_buf.push(')');
+        string result = result_buf.toString();
+        result_buf.__del__();
+        return result;
+    }
+
+    /* ---- Tuple ---- */
+
+    private string tuple_to_c(int idx) {
+        Node n = self.analyzer.nodes.get(idx);
+        var cb = CharBuffer(256);
+        cb.push('(');
+        /* Build tuple struct name from element types */
+        cb.appendStr( "btrc_Tuple_");
+        for (int i = 0; i < n.items.len; i++) {
+            if (i > 0) { cb.push('_'); }
+            int et = self.analyzer.infer_type(n.items.get(i));
+            if (et != -1) {
+                string m = self.mangle_type(et);
+                cb.appendStr( m);
+            } else {
+                cb.appendStr( "int");
+            }
+        }
+        cb.appendStr( "){");
+        for (int i = 0; i < n.items.len; i++) {
+            if (i > 0) { cb.push(','); cb.push(' '); }
+            string e = self.expr_to_c(n.items.get(i));
+            cb.appendStr( e);
+        }
+        cb.push('}');
+        string result = cb.toString();
+        cb.__del__();
+        return result;
+    }
+
+    /* ---- Type → C string ---- */
+
+    public string type_to_c(int type_idx) {
+        if (type_idx == -1) { return "void"; }
+        Node tn = self.analyzer.nodes.get(type_idx);
+        if (tn.kind != NK_TYPE) { return "void"; }
+        char buf[512];
+
+        string base = tn.name;
+
+        if (base.equals("string")) {
+            /* string → char*, pointer adds more * */
+            if (tn.ival > 0) {
+                snprintf(buf, sizeof(buf), "char*");
+                for (int i = 0; i < tn.ival; i++) {
+                    strcat(buf, "*");
+                }
+                return strdup(buf);
+            }
+            return "char*";
+        }
+        if (base.equals("List") && tn.items.len > 0) {
+            string m = self.mangle_type(tn.items.get(0));
+            snprintf(buf, sizeof(buf), "btrc_List_%s", m);
+            for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
+            return strdup(buf);
+        }
+        if (base.equals("Array") && tn.items.len > 0) {
+            string m = self.mangle_type(tn.items.get(0));
+            snprintf(buf, sizeof(buf), "btrc_Array_%s", m);
+            for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
+            return strdup(buf);
+        }
+        if (base.equals("Map") && tn.items.len == 2) {
+            string km = self.mangle_type(tn.items.get(0));
+            string vm = self.mangle_type(tn.items.get(1));
+            snprintf(buf, sizeof(buf), "btrc_Map_%s_%s", km, vm);
+            for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
+            return strdup(buf);
+        }
+        if (base.equals("Tuple") && tn.items.len > 0) {
+            string m = self.mangle_type(type_idx);
+            snprintf(buf, sizeof(buf), "btrc_%s", m);
+            for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
+            return strdup(buf);
+        }
+
+        /* Function pointer type: __fn_ptr<ret, param1, param2, ...> */
+        if (base.equals("__fn_ptr") && tn.items.len > 0) {
+            /* Return just the return type — actual fn ptr syntax handled in var_decl */
+            return self.type_to_c(tn.items.get(0));
+        }
+
+        /* Default: base + pointer stars */
+        snprintf(buf, sizeof(buf), "%s", base);
+        for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
+        return strdup(buf);
+    }
+
+    /* ---- Mangle type ---- */
+
+    public string mangle_type(int type_idx) {
+        if (type_idx == -1) { return "void"; }
+        Node tn = self.analyzer.nodes.get(type_idx);
+        if (tn.kind != NK_TYPE) { return "void"; }
+
+        var cb = CharBuffer(128);
+        /* Base name with spaces → underscores */
+        for (int i = 0; i < tn.name.len(); i++) {
+            char c = tn.name.charAt(i);
+            if (c == ' ') { cb.push('_'); } else { cb.push(c); }
+        }
+        /* Generic args */
+        if (tn.items.len > 0) {
+            cb.push('_');
+            for (int i = 0; i < tn.items.len; i++) {
+                if (i > 0) { cb.push('_'); }
+                string sub = self.mangle_type(tn.items.get(i));
+                cb.appendStr( sub);
+            }
+        }
+        /* Pointer depth */
+        for (int i = 0; i < tn.ival; i++) {
+            cb.appendStr( "_ptr");
+        }
+        string result = cb.toString();
+        cb.__del__();
+        return result;
+    }
+
+    /* ---- Helpers ---- */
+
+    private string get_class_for_obj(int obj_idx) {
+        if (obj_idx == -1) { return ""; }
+        Node obj = self.analyzer.nodes.get(obj_idx);
+
+        /* self → current class */
+        if (obj.kind == NK_SELF && self.current_class.len() > 0) {
+            return self.current_class;
+        }
+
+        /* Infer type */
+        int type_idx = self.analyzer.infer_type(obj_idx);
+        if (type_idx != -1) {
+            Node tn = self.analyzer.nodes.get(type_idx);
+            if (self.analyzer.has_class(tn.name)) {
+                return tn.name;
+            }
+        }
+
+        /* Static call: Identifier is a class name */
+        if (obj.kind == NK_IDENTIFIER && self.analyzer.has_class(obj.name)) {
+            return obj.name;
+        }
+        return "";
+    }
+
+    private string op_to_method(string op) {
+        if (op.equals("+")) { return "__add__"; }
+        if (op.equals("-")) { return "__sub__"; }
+        if (op.equals("*")) { return "__mul__"; }
+        if (op.equals("/")) { return "__div__"; }
+        if (op.equals("%")) { return "__mod__"; }
+        if (op.equals("==")) { return "__eq__"; }
+        if (op.equals("!=")) { return "__ne__"; }
+        if (op.equals("<")) { return "__lt__"; }
+        if (op.equals(">")) { return "__gt__"; }
+        if (op.equals("<=")) { return "__le__"; }
+        if (op.equals(">=")) { return "__ge__"; }
+        return "";
+    }
+
+}

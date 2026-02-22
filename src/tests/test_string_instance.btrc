@@ -1,0 +1,66 @@
+// Test string instance methods (lstrip, rstrip, count, capitalize, etc.)
+#include <assert.h>
+
+int main() {
+    // lstrip / rstrip
+    string padded = "  hello  ";
+    string left = padded.lstrip();
+    string right = padded.rstrip();
+    assert(strcmp(left, "hello  ") == 0);
+    assert(strcmp(right, "  hello") == 0);
+
+    // count
+    string text = "banana";
+    assert(text.count("an") == 2);
+    assert(text.count("z") == 0);
+    assert(text.count("a") == 3);
+
+    // capitalize
+    string word = "hello world";
+    string cap = word.capitalize();
+    assert(strcmp(cap, "Hello world") == 0);
+
+    // title
+    string phrase = "hello world foo";
+    string titled = phrase.title();
+    assert(strcmp(titled, "Hello World Foo") == 0);
+
+    // swapCase
+    string mixed = "Hello World";
+    string swapped = mixed.swapCase();
+    assert(strcmp(swapped, "hELLO wORLD") == 0);
+
+    // repeat
+    string dash = "-";
+    string dashes = dash.repeat(5);
+    assert(strcmp(dashes, "-----") == 0);
+
+    // isBlank
+    string blank = "   ";
+    string empty = "";
+    string notblank = " x ";
+    assert(blank.isBlank() == true);
+    assert(empty.isBlank() == true);
+    assert(notblank.isBlank() == false);
+
+    // isDigitStr / isAlphaStr
+    string digits = "12345";
+    string alpha = "abcXYZ";
+    string mixStr = "abc123";
+    assert(digits.isDigitStr() == true);
+    assert(alpha.isDigitStr() == false);
+    assert(alpha.isAlphaStr() == true);
+    assert(mixStr.isAlphaStr() == false);
+
+    // toInt / toFloat
+    string numStr = "42";
+    int num = numStr.toInt();
+    assert(num == 42);
+
+    string floatStr = "3.14";
+    float fval = floatStr.toFloat();
+    assert(fval > 3.13 && fval < 3.15);
+
+    printf("PASS: test_string_instance\n");
+    return 0;
+}

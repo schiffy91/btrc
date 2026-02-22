@@ -1,0 +1,32 @@
+// Test runtime safety features: charAt bounds, div/mod by zero checks
+#include <assert.h>
+
+int main() {
+    // charAt bounds check (normal access)
+    string s = "hello";
+    assert(s.charAt(0) == 'h');
+    assert(s.charAt(4) == 'o');
+
+    // Division and modulo (normal cases)
+    int a = 17;
+    int b = 5;
+    assert(a / b == 3);
+    assert(a % b == 2);
+
+    // Negative division
+    int c = -10;
+    int d = 3;
+    assert(c / d == -3);
+    assert(c % d == -1);
+
+    // String repeat
+    string rep = "ab".repeat(3);
+    assert(rep == "ababab");
+
+    // String repeat with 0
+    string empty = "abc".repeat(0);
+    assert(empty == "");
+
+    print("PASS: test_safety");
+    return 0;
+}

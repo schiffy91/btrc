@@ -1,0 +1,60 @@
+// Test range() with negative step and Math.sum/fsum
+#include <assert.h>
+#include <math.h>
+
+int main() {
+    // ---- range() with negative step ----
+    // Count down from 5 to 1
+    int total = 0;
+    for i in range(5, 0, -1) {
+        total = total + i;
+    }
+    assert(total == 15);  // 5+4+3+2+1
+
+    // range() with step -2
+    int count = 0;
+    for i in range(10, 0, -2) {
+        count = count + 1;
+    }
+    assert(count == 5);  // 10,8,6,4,2
+
+    // range() with positive step (still works)
+    int sum_pos = 0;
+    for i in range(0, 10, 3) {
+        sum_pos = sum_pos + i;
+    }
+    assert(sum_pos == 18);  // 0+3+6+9
+
+    // ---- Map.getOrDefault ----
+    Map<string, int> scores = {};
+    scores.put("Alice", 95);
+    scores.put("Bob", 87);
+
+    assert(scores.getOrDefault("Alice", 0) == 95);
+    assert(scores.getOrDefault("Charlie", -1) == -1);
+    assert(scores.getOrDefault("Bob", 0) == 87);
+    assert(scores.getOrDefault("Dave", 42) == 42);
+
+    // ---- Map.size() ----
+    assert(scores.size() == 2);
+    scores.put("Charlie", 90);
+    assert(scores.size() == 3);
+
+    // ---- List.size() ----
+    List<int> nums = [1, 2, 3, 4, 5];
+    assert(nums.size() == 5);
+    nums.push(6);
+    assert(nums.size() == 6);
+
+    // ---- Set.size() ----
+    Set<int> s = {};
+    s.add(10);
+    s.add(20);
+    s.add(30);
+    assert(s.size() == 3);
+    s.add(10);  // duplicate
+    assert(s.size() == 3);
+
+    print("PASS: test_range_and_math");
+    return 0;
+}

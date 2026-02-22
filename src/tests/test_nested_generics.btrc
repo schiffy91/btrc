@@ -1,0 +1,66 @@
+// Test nested generic types: List<List<int>>, Map<string, List<int>>
+#include <assert.h>
+
+int main() {
+    // ---- List<List<int>> ----
+    List<int> row1 = [1, 2, 3];
+    List<int> row2 = [4, 5, 6];
+    List<int> row3 = [7, 8, 9];
+
+    // Build a matrix as List of Lists
+    List<List<int>> matrix = [];
+    matrix.push(row1);
+    matrix.push(row2);
+    matrix.push(row3);
+    assert(matrix.len == 3);
+
+    // Access nested elements
+    List<int> first_row = matrix.get(0);
+    assert(first_row.len == 3);
+    assert(first_row[0] == 1);
+    assert(first_row[1] == 2);
+    assert(first_row[2] == 3);
+
+    List<int> second_row = matrix.get(1);
+    assert(second_row[0] == 4);
+    assert(second_row[1] == 5);
+    assert(second_row[2] == 6);
+
+    // Sum all elements through nested iteration
+    int total = 0;
+    for (int i = 0; i < matrix.len; i++) {
+        List<int> row = matrix.get(i);
+        for (int j = 0; j < row.len; j++) {
+            total += row[j];
+        }
+    }
+    assert(total == 45);
+
+    matrix.free();
+
+    // ---- Map<string, List<int>> ----
+    List<int> scores_alice = [90, 85, 92];
+    List<int> scores_bob = [78, 88, 95];
+
+    Map<string, List<int>> grades = {};
+    grades.put("alice", scores_alice);
+    grades.put("bob", scores_bob);
+    assert(grades.len == 2);
+
+    // Read back nested values
+    List<int> alice = grades.get("alice");
+    assert(alice.len == 3);
+    assert(alice[0] == 90);
+    assert(alice[1] == 85);
+    assert(alice[2] == 92);
+
+    List<int> bob = grades.get("bob");
+    assert(bob[0] == 78);
+    assert(bob[1] == 88);
+    assert(bob[2] == 95);
+
+    grades.free();
+
+    print("PASS: test_nested_generics");
+    return 0;
+}

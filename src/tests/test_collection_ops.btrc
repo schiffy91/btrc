@@ -1,0 +1,74 @@
+// Test List.map(), List.extend(), Set.unite/intersect/subtract
+#include <assert.h>
+
+int double_it(int x) { return x * 2; }
+bool is_even(int x) { return x % 2 == 0; }
+
+int main() {
+    // ---- List.map() ----
+    List<int> nums = [1, 2, 3, 4, 5];
+    List<int> doubled = nums.map(double_it);
+    assert(doubled.size() == 5);
+    assert(doubled.get(0) == 2);
+    assert(doubled.get(1) == 4);
+    assert(doubled.get(2) == 6);
+    assert(doubled.get(3) == 8);
+    assert(doubled.get(4) == 10);
+
+    // ---- List.extend() ----
+    List<int> a = [1, 2, 3];
+    List<int> b = [4, 5, 6];
+    a.extend(b);
+    assert(a.size() == 6);
+    assert(a.get(3) == 4);
+    assert(a.get(4) == 5);
+    assert(a.get(5) == 6);
+
+    // ---- Set.unite() ----
+    Set<int> s1 = {};
+    s1.add(1);
+    s1.add(2);
+    s1.add(3);
+
+    Set<int> s2 = {};
+    s2.add(3);
+    s2.add(4);
+    s2.add(5);
+
+    Set<int> u = s1.unite(s2);
+    assert(u.size() == 5);
+    assert(u.contains(1) == true);
+    assert(u.contains(5) == true);
+
+    // ---- Set.intersect() ----
+    Set<int> inter = s1.intersect(s2);
+    assert(inter.size() == 1);
+    assert(inter.contains(3) == true);
+    assert(inter.contains(1) == false);
+
+    // ---- Set.subtract() ----
+    Set<int> diff = s1.subtract(s2);
+    assert(diff.size() == 2);
+    assert(diff.contains(1) == true);
+    assert(diff.contains(2) == true);
+    assert(diff.contains(3) == false);
+
+    // ---- Map.getOrDefault ----
+    Map<string, int> scores = {};
+    scores.put("Alice", 95);
+    assert(scores.getOrDefault("Alice", 0) == 95);
+    assert(scores.getOrDefault("Bob", -1) == -1);
+
+    // ---- List index bounds checking ----
+    List<int> safe = [10, 20, 30];
+    assert(safe[0] == 10);
+    assert(safe[1] == 20);
+    assert(safe[2] == 30);
+
+    // ---- List[i] = value assignment ----
+    safe[1] = 99;
+    assert(safe[1] == 99);
+
+    print("PASS: test_collection_ops");
+    return 0;
+}

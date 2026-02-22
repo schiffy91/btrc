@@ -1,0 +1,64 @@
+// Test all compound assignment operators: +=, -=, *=, /=, %=
+#include <assert.h>
+
+int main() {
+    // ---- Integer compound assignments ----
+    int x = 10;
+
+    x += 5;
+    assert(x == 15);
+
+    x -= 3;
+    assert(x == 12);
+
+    x *= 4;
+    assert(x == 48);
+
+    x /= 6;
+    assert(x == 8);
+
+    x %= 3;
+    assert(x == 2);
+
+    // ---- Float compound assignments ----
+    float f = 10.0;
+
+    f += 2.5;
+    assert(f == 12.5);
+
+    f -= 0.5;
+    assert(f == 12.0);
+
+    f *= 3.0;
+    assert(f == 36.0);
+
+    f /= 4.0;
+    assert(f == 9.0);
+
+    // ---- Compound assign in loop ----
+    int sum = 0;
+    int product = 1;
+    for (int i = 1; i <= 5; i++) {
+        sum += i;
+        product *= i;
+    }
+    assert(sum == 15);
+    assert(product == 120);
+
+    // ---- Compound assign with expressions ----
+    int a = 100;
+    a -= (10 + 20);
+    assert(a == 70);
+
+    a += 5 * 2;
+    assert(a == 80);
+
+    a /= (2 + 2);
+    assert(a == 20);
+
+    a %= 7;
+    assert(a == 6);
+
+    print("PASS: test_compound_assign");
+    return 0;
+}

@@ -1,0 +1,59 @@
+// Test Map iteration via .keys() and .values()
+#include <assert.h>
+
+int main() {
+    // ---- Map<string, int>: iterate keys ----
+    Map<string, int> ages = {"alice": 30, "bob": 25, "carol": 35};
+
+    List<string> keys = ages.keys();
+    assert(keys.len == 3);
+
+    // Verify all expected keys are present
+    bool has_alice = false;
+    bool has_bob = false;
+    bool has_carol = false;
+    for k in keys {
+        if (strcmp(k, "alice") == 0) { has_alice = true; }
+        if (strcmp(k, "bob") == 0) { has_bob = true; }
+        if (strcmp(k, "carol") == 0) { has_carol = true; }
+    }
+    assert(has_alice == true);
+    assert(has_bob == true);
+    assert(has_carol == true);
+
+    keys.free();
+
+    // ---- Map<string, int>: iterate values ----
+    List<int> vals = ages.values();
+    assert(vals.len == 3);
+
+    int total = 0;
+    for v in vals {
+        total += v;
+    }
+    assert(total == 90);  // 30 + 25 + 35
+
+    vals.free();
+
+    // ---- Map<int, int>: iterate and accumulate ----
+    Map<int, int> squares = {1: 1, 2: 4, 3: 9, 4: 16};
+
+    List<int> sq_vals = squares.values();
+    int sq_sum = 0;
+    for sv in sq_vals {
+        sq_sum += sv;
+    }
+    assert(sq_sum == 30);  // 1 + 4 + 9 + 16
+
+    sq_vals.free();
+
+    // ---- Map: check has after iteration ----
+    assert(ages.has("alice") == true);
+    assert(ages.has("unknown") == false);
+
+    ages.free();
+    squares.free();
+
+    print("PASS: test_map_iteration");
+    return 0;
+}

@@ -1,0 +1,50 @@
+// Test forward function declarations and mutual recursion
+#include <assert.h>
+
+// Forward declare is_even so is_odd can call it
+bool is_even(int n);
+
+bool is_odd(int n) {
+    if (n == 0) {
+        return false;
+    }
+    return is_even(n - 1);
+}
+
+bool is_even(int n) {
+    if (n == 0) {
+        return true;
+    }
+    return is_odd(n - 1);
+}
+
+// Forward declare helper
+int double_it(int x);
+
+int quad(int x) {
+    return double_it(double_it(x));
+}
+
+int double_it(int x) {
+    return x * 2;
+}
+
+int main() {
+    // ---- Mutual recursion: is_even / is_odd ----
+    assert(is_even(0) == true);
+    assert(is_odd(0) == false);
+    assert(is_even(4) == true);
+    assert(is_odd(4) == false);
+    assert(is_even(5) == false);
+    assert(is_odd(5) == true);
+    assert(is_even(10) == true);
+    assert(is_odd(7) == true);
+
+    // ---- Forward declare + use before definition ----
+    assert(quad(3) == 12);
+    assert(quad(5) == 20);
+    assert(double_it(7) == 14);
+
+    print("PASS: test_forward_decl");
+    return 0;
+}
