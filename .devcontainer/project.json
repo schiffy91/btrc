@@ -7,10 +7,12 @@
     "ms-python.vscode-pylance",
     "charliermarsh.ruff"
   ],
+  "localExtensions": [
+    "devex/ext"
+  ],
   "setupCommands": [
     "sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 python3-pip python3-venv gcc && sudo rm -rf /var/lib/apt/lists/*",
-    "cd /workspace && python3 -m pip install --break-system-packages pytest pygls lsprotocol",
-    "cd /workspace/devex/ext && npm install && npm run compile"
+    "cd /workspace && python3 -m pip install --break-system-packages pytest pygls lsprotocol"
   ],
   "firewallDomains": [
     "pypi.org",

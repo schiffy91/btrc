@@ -32,6 +32,21 @@ project_setup() {
         echo "Running: $cmd"
         eval "$cmd"
     done
+
+    # Build local extensions (npm install + package as .vsix)
+    local ext_count
+    ext_count=$(jq -r '.localExtensions | length // 0' "$PROJECT_JSON")
+    for ((i = 0; i < ext_count; i++)); do
+        local ext_path
+        ext_path=$(jq -r ".localExtensions[$i]" "$PROJECT_JSON")
+        local abs_path="/workspace/${ext_path}"
+        if [ -d "$abs_path" ] && [ -f "$abs_path/package.json" ]; then
+            echo "Building local extension: $ext_path"
+            (cd "$abs_path" && npm install && npm run package)
+        else
+            echo "WARNING: local extension not found at $abs_path, skipping"
+        fi
+    done
 }
 
 project_firewall_domains() {
@@ -56,7 +71,33 @@ setup() {
 
 start() {
     restore_credentials
+    install_local_extensions
     init_firewall
+}
+
+# --- Local extension installer ------------------------------------------------
+
+install_local_extensions() {
+    # Install .vsix files built during setup. Runs during postStartCommand
+    # when the VS Code CLI is available.
+    if [ ! -f "$PROJECT_JSON" ]; then
+        return
+    fi
+
+    local ext_count
+    ext_count=$(jq -r '.localExtensions | length // 0' "$PROJECT_JSON")
+    for ((i = 0; i < ext_count; i++)); do
+        local ext_path
+        ext_path=$(jq -r ".localExtensions[$i]" "$PROJECT_JSON")
+        local abs_path="/workspace/${ext_path}"
+        # Find any .vsix file in the extension directory
+        local vsix
+        vsix=$(find "$abs_path" -maxdepth 1 -name '*.vsix' -print -quit 2>/dev/null || true)
+        if [ -n "$vsix" ]; then
+            echo "Installing local extension: $vsix"
+            code --install-extension "$vsix" --force 2>/dev/null || true
+        fi
+    done
 }
 
 # --- Credential helpers -------------------------------------------------------

@@ -17,18 +17,29 @@ export function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('btrc');
     const configuredPython = config.get<string>('pythonPath', 'python3');
 
-    // The LSP server lives at <project_root>/devex/lsp/server.py
-    // Extension is at <project_root>/devex/ext/
-    const projectRoot = path.resolve(context.extensionPath, '..', '..');
-    const serverScript = path.join(projectRoot, 'devex', 'lsp', 'server.py');
+    // Find the project root: prefer the workspace folder (works when installed
+    // as a .vsix in a devcontainer), fall back to extension-relative path
+    // (works during extension development with F5).
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const extensionRelativeRoot = path.resolve(context.extensionPath, '..', '..');
 
-    if (!fs.existsSync(serverScript)) {
+    let projectRoot: string | undefined;
+    for (const candidate of [workspaceRoot, extensionRelativeRoot]) {
+        if (candidate && fs.existsSync(path.join(candidate, 'devex', 'lsp', 'server.py'))) {
+            projectRoot = candidate;
+            break;
+        }
+    }
+
+    if (!projectRoot) {
         vscode.window.showErrorMessage(
-            `btrc language server not found at ${serverScript}. ` +
-            'Make sure the extension is installed inside the btrc project.'
+            'btrc language server not found. ' +
+            'Open a btrc project workspace or install the extension inside the project.'
         );
         return;
     }
+
+    const serverScript = path.join(projectRoot, 'devex', 'lsp', 'server.py');
 
     // Prefer the venv Python if it exists (cross-platform)
     const isWindows = process.platform === 'win32';
