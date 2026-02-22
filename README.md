@@ -1,6 +1,6 @@
 # btrc
 
-A modern language that transpiles to C. Write expressive, object-oriented code that compiles to efficient native binaries.
+A modern language that transpiles to C. Write expressive, object-oriented code that compiles to efficient native binaries. No garbage collector — you own your memory.
 
 ## Quick Start
 
@@ -142,9 +142,14 @@ int main() {
 }
 ```
 
-## Pointers & Memory
+## Memory Model
 
-Heap allocation with `new`/`delete`, pointer types, and destructors.
+Classes are value types (C structs). No garbage collector — you allocate and free explicitly.
+
+- **Stack**: `Counter c = Counter();` — lives on the stack, freed automatically when scope ends
+- **Heap**: `Node* n = new Node(42);` — lives on the heap, you call `delete n;` when done
+- **Pointers**: `Node*` is a pointer to a heap-allocated `Node`, accessed with `->`
+- **Destructors**: `__del__()` methods let you clean up owned resources
 
 ```
 class Node {
@@ -194,6 +199,8 @@ int main() {
     return 0;
 }
 ```
+
+btrc gives you C's performance and control with a cleaner syntax. There's no hidden runtime, no GC pauses, no reference counting — just straightforward `new`/`delete` and stack allocation.
 
 ## Project Structure
 
