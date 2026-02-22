@@ -1,0 +1,56 @@
+#include <assert.h>
+
+struct Vec2 {
+    float x;
+    float y;
+};
+
+float dot(struct Vec2* a, struct Vec2* b) {
+    return a->x * b->x + a->y * b->y;
+}
+
+int factorial(int n) {
+    if (n <= 1) { return 1; }
+    return n * factorial(n - 1);
+}
+
+int main() {
+    // Struct usage
+    struct Vec2 a = {3.0f, 4.0f};
+    struct Vec2 b = {1.0f, 2.0f};
+    float d = dot(&a, &b);
+    assert(d == 11.0f);  // 3*1 + 4*2
+
+    // Recursion
+    assert(factorial(5) == 120);
+    assert(factorial(0) == 1);
+
+    // Arrays
+    int arr[] = {5, 3, 1, 4, 2};
+    int n = 5;
+    // Bubble sort
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+                int tmp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = tmp;
+            }
+        }
+    }
+    for (int i = 0; i < n - 1; i++) {
+        assert(arr[i] <= arr[i + 1]);
+    }
+
+    // malloc/free
+    int* nums = (int*)malloc(10 * sizeof(int));
+    for (int i = 0; i < 10; i++) {
+        nums[i] = i * i;
+    }
+    assert(nums[3] == 9);
+    assert(nums[7] == 49);
+    free(nums);
+
+    print("PASS: test_pure_c");
+    return 0;
+}

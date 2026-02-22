@@ -1,0 +1,11 @@
+#include <stdio.h>
+
+int main() {
+    List<int> nums = [10, 20, 30];
+    int sum = 0;
+    for x in nums {
+        sum += x;
+    }
+    printf("sum = %d\n", sum);
+    return 0;
+}

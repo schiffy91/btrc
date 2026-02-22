@@ -1,0 +1,8 @@
+[project]
+name = "btrc"
+version = "0.1.0"
+description = "A language that transpiles to C"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["compiler/python/tests", "tests/btrc"]

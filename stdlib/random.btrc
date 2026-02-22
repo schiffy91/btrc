@@ -1,0 +1,49 @@
+/* btrc standard library — Random
+ * Random number generation inspired by Python's random module.
+ */
+
+class Random {
+    private bool seeded;
+
+    public Random() {
+        self.seeded = false;
+    }
+
+    public void seed(int s) {
+        srand(s);
+        self.seeded = true;
+    }
+
+    public void seedTime() {
+        srand((unsigned int)time(NULL));
+        self.seeded = true;
+    }
+
+    public int randint(int lo, int hi) {
+        if (!self.seeded) { self.seedTime(); }
+        return lo + rand() % (hi - lo + 1);
+    }
+
+    public float random() {
+        if (!self.seeded) { self.seedTime(); }
+        return (float)rand() / (float)RAND_MAX;
+    }
+
+    public float uniform(float lo, float hi) {
+        return lo + self.random() * (hi - lo);
+    }
+
+    public int choice(List<int> items) {
+        int idx = self.randint(0, items.len - 1);
+        return items.get(idx);
+    }
+
+    public void shuffle(List<int> items) {
+        for i in range(items.len - 1, 0) {
+            int j = self.randint(0, i);
+            int tmp = items.get(i);
+            items.set(i, items.get(j));
+            items.set(j, tmp);
+        }
+    }
+}

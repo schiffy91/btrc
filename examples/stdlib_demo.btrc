@@ -1,0 +1,216 @@
+/* Standard Library Demo — showcases the btrc stdlib */
+
+/* --- Math --- */
+class Math {
+    class int abs(int x) {
+        if (x < 0) { return -x; }
+        return x;
+    }
+
+    class int max(int a, int b) {
+        if (a > b) { return a; }
+        return b;
+    }
+
+    class int min(int a, int b) {
+        if (a < b) { return a; }
+        return b;
+    }
+
+    class int clamp(int x, int lo, int hi) {
+        if (x < lo) { return lo; }
+        if (x > hi) { return hi; }
+        return x;
+    }
+
+    class int factorial(int n) {
+        if (n <= 1) { return 1; }
+        return n * Math.factorial(n - 1);
+    }
+
+    class int gcd(int a, int b) {
+        while (b != 0) {
+            int temp = b;
+            b = a % b;
+            a = temp;
+        }
+        return a;
+    }
+
+    class bool isPrime(int n) {
+        if (n < 2) { return false; }
+        if (n < 4) { return true; }
+        if (n % 2 == 0) { return false; }
+        int i = 3;
+        while (i * i <= n) {
+            if (n % i == 0) { return false; }
+            i = i + 2;
+        }
+        return true;
+    }
+
+    class bool isEven(int n) { return n % 2 == 0; }
+    class bool isOdd(int n) { return n % 2 != 0; }
+}
+
+/* --- Strings --- */
+class Strings {
+    class string repeat(string s, int count) {
+        int slen = (int)strlen(s);
+        int total = slen * count;
+        char* result = (char*)malloc(total + 1);
+        for i in range(count) {
+            memcpy(result + i * slen, s, slen);
+        }
+        result[total] = '\0';
+        return result;
+    }
+
+    class string join(List<string> items, string sep) {
+        if (items.len == 0) { return strdup(""); }
+        int seplen = (int)strlen(sep);
+        int total = 0;
+        for i in range(items.len) {
+            total = total + (int)strlen(items.get(i));
+        }
+        total = total + seplen * (items.len - 1);
+        char* result = (char*)malloc(total + 1);
+        int pos = 0;
+        int first_len = (int)strlen(items.get(0));
+        memcpy(result, items.get(0), first_len);
+        pos = first_len;
+        for i in range(1, items.len) {
+            memcpy(result + pos, sep, seplen);
+            pos = pos + seplen;
+            int item_len = (int)strlen(items.get(i));
+            memcpy(result + pos, items.get(i), item_len);
+            pos = pos + item_len;
+        }
+        result[pos] = '\0';
+        return result;
+    }
+}
+
+/* --- Stack --- */
+class Stack {
+    private List<int> items;
+
+    public Stack() {
+        self.items = [];
+    }
+
+    public void push(int value) {
+        self.items.push(value);
+    }
+
+    public int pop() {
+        int last = self.items.get(self.items.len - 1);
+        self.items.remove(self.items.len - 1);
+        return last;
+    }
+
+    public int peek() {
+        return self.items.get(self.items.len - 1);
+    }
+
+    public bool isEmpty() {
+        return self.items.len == 0;
+    }
+
+    public int size() {
+        return self.items.len;
+    }
+
+    public void __del__() {
+        self.items.free();
+    }
+}
+
+/* --- Counter --- */
+class Counter {
+    private Map<string, int> counts;
+    private int total;
+
+    public Counter() {
+        self.counts = {};
+        self.total = 0;
+    }
+
+    public void add(string item) {
+        if (self.counts.has(item)) {
+            self.counts.put(item, self.counts.get(item) + 1);
+        } else {
+            self.counts.put(item, 1);
+        }
+        self.total++;
+    }
+
+    public int get(string item) {
+        if (self.counts.has(item)) {
+            return self.counts.get(item);
+        }
+        return 0;
+    }
+
+    public int totalCount() { return self.total; }
+    public int uniqueCount() { return self.counts.len; }
+
+    public void __del__() {
+        self.counts.free();
+    }
+}
+
+int main() {
+    // Math demo
+    print("=== Math ===");
+    print(f"abs(-42) = {Math.abs(-42)}");
+    print(f"max(10, 20) = {Math.max(10, 20)}");
+    print(f"min(10, 20) = {Math.min(10, 20)}");
+    print(f"clamp(150, 0, 100) = {Math.clamp(150, 0, 100)}");
+    print(f"factorial(6) = {Math.factorial(6)}");
+    print(f"gcd(48, 18) = {Math.gcd(48, 18)}");
+    print(f"isPrime(17) = {Math.isPrime(17)}");
+    print(f"isPrime(15) = {Math.isPrime(15)}");
+    print(f"isEven(42) = {Math.isEven(42)}");
+
+    // Strings demo
+    print("\n=== Strings ===");
+    string stars = Strings.repeat("*", 10);
+    print(f"repeat('*', 10) = {stars}");
+    List<string> parts = ["hello", "world", "btrc"];
+    string joined = Strings.join(parts, ", ");
+    print(f"join = {joined}");
+    parts.free();
+
+    // Stack demo
+    print("\n=== Stack ===");
+    var stack = Stack();
+    stack.push(10);
+    stack.push(20);
+    stack.push(30);
+    print(f"Peek: {stack.peek()}");
+    print(f"Pop: {stack.pop()}");
+    print(f"Pop: {stack.pop()}");
+    print(f"Size: {stack.size()}");
+    print(f"Empty: {stack.isEmpty()}");
+    stack.__del__();
+
+    // Counter demo
+    print("\n=== Counter ===");
+    var counter = Counter();
+    List<string> words = ["the", "cat", "sat", "on", "the", "mat",
+                          "the", "cat", "ate", "the", "rat"];
+    for word in words {
+        counter.add(word);
+    }
+    print(f"Total: {counter.totalCount()}");
+    print(f"Unique: {counter.uniqueCount()}");
+    printf("'the' count: %d\n", counter.get("the"));
+    printf("'cat' count: %d\n", counter.get("cat"));
+    printf("'dog' count: %d\n", counter.get("dog"));
+    counter.__del__();
+    words.free();
+
+    print("\nAll stdlib demos passed!");
+    return 0;
+}

@@ -1,0 +1,20 @@
+#include <assert.h>
+
+(int, int) divmod(int a, int b) {
+    return (a / b, a % b);
+}
+
+(int, int) swap(int a, int b) {
+    return (b, a);
+}
+
+int main() {
+    (int, int) result = divmod(17, 5);
+    assert(result._0 == 3);
+    assert(result._1 == 2);
+    (int, int) t = swap(10, 20);
+    assert(t._0 == 20);
+    assert(t._1 == 10);
+    print("PASS: test_tuples");
+    return 0;
+}

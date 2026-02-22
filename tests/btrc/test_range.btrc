@@ -1,0 +1,32 @@
+#include <assert.h>
+
+int main() {
+    // range(n)
+    int sum = 0;
+    for i in range(5) {
+        sum += i;
+    }
+    assert(sum == 10);
+
+    // range(start, end)
+    sum = 0;
+    for i in range(3, 8) {
+        sum += i;
+    }
+    assert(sum == 25);
+
+    // range(start, end, step)
+    int count = 0;
+    for i in range(0, 10, 3) {
+        count++;
+    }
+    assert(count == 4);  // 0, 3, 6, 9
+
+    // range in combination with fstring
+    for i in range(3) {
+        print(f"val={i}");
+    }
+
+    print("PASS: test_range");
+    return 0;
+}

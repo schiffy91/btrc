@@ -1,0 +1,56 @@
+#include <assert.h>
+
+void risky(int x) {
+    if (x < 0) {
+        throw "negative value";
+    }
+}
+
+int main() {
+    // Basic try/catch
+    int caught = 0;
+    try {
+        throw "test error";
+    } catch (string e) {
+        caught = 1;
+    }
+    assert(caught == 1);
+
+    // No throw path
+    int reached = 0;
+    try {
+        reached = 1;
+    } catch (string e) {
+        reached = 0;
+    }
+    assert(reached == 1);
+
+    // Function throw
+    int func_caught = 0;
+    try {
+        risky(5);
+        risky(-1);
+    } catch (string e) {
+        func_caught = 1;
+    }
+    assert(func_caught == 1);
+
+    // Nested
+    int inner_caught = 0;
+    int outer_caught = 0;
+    try {
+        try {
+            throw "inner";
+        } catch (string e) {
+            inner_caught = 1;
+        }
+        throw "outer";
+    } catch (string e) {
+        outer_caught = 1;
+    }
+    assert(inner_caught == 1);
+    assert(outer_caught == 1);
+
+    print("PASS: test_try_catch");
+    return 0;
+}

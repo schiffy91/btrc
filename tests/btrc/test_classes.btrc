@@ -1,0 +1,126 @@
+#include <assert.h>
+
+// Basic class with constructor and methods
+class Counter {
+    private int count;
+
+    public Counter() {
+        self.count = 0;
+    }
+
+    public void inc() {
+        self.count++;
+    }
+
+    public void dec() {
+        self.count--;
+    }
+
+    public int get() {
+        return self.count;
+    }
+}
+
+// Class with parameterized constructor
+class Point {
+    public int x;
+    public int y;
+
+    public Point(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+
+    public int distSquared() {
+        return self.x * self.x + self.y * self.y;
+    }
+}
+
+// Class with static (class) methods
+class MathUtil {
+    class int square(int x) {
+        return x * x;
+    }
+
+    class int max(int a, int b) {
+        return a > b ? a : b;
+    }
+
+    class int min(int a, int b) {
+        return a < b ? a : b;
+    }
+}
+
+// Class with default field values (auto-generated constructor)
+class Config {
+    public int width = 800;
+    public int height = 600;
+    public int fps = 60;
+}
+
+// Class with method that returns a value
+class Accumulator {
+    private int total;
+
+    public Accumulator(int initial) {
+        self.total = initial;
+    }
+
+    public int add(int n) {
+        self.total += n;
+        return self.total;
+    }
+
+    public int getTotal() {
+        return self.total;
+    }
+}
+
+int main() {
+    // Test Counter: basic constructor and methods
+    Counter c = Counter();
+    assert(c.get() == 0);
+    c.inc();
+    c.inc();
+    c.inc();
+    assert(c.get() == 3);
+    c.dec();
+    assert(c.get() == 2);
+
+    // Test Point: parameterized constructor and dot syntax
+    Point p = Point(3, 4);
+    assert(p.x == 3);
+    assert(p.y == 4);
+    assert(p.distSquared() == 25);
+
+    Point p2 = Point(-1, 0);
+    assert(p2.x == -1);
+    assert(p2.y == 0);
+    assert(p2.distSquared() == 1);
+
+    // Test MathUtil: static (class) methods
+    assert(MathUtil.square(5) == 25);
+    assert(MathUtil.square(0) == 0);
+    assert(MathUtil.square(-3) == 9);
+    assert(MathUtil.max(10, 20) == 20);
+    assert(MathUtil.max(20, 10) == 20);
+    assert(MathUtil.min(10, 20) == 10);
+
+    // Test Config: default field values
+    Config cfg = Config();
+    assert(cfg.width == 800);
+    assert(cfg.height == 600);
+    assert(cfg.fps == 60);
+
+    // Test Accumulator: method with return value
+    Accumulator acc = Accumulator(10);
+    assert(acc.getTotal() == 10);
+    int result = acc.add(5);
+    assert(result == 15);
+    assert(acc.getTotal() == 15);
+    result = acc.add(25);
+    assert(result == 40);
+
+    print("PASS: test_classes");
+    return 0;
+}

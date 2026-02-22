@@ -1,0 +1,107 @@
+/* Error Handling — demonstrates try/catch/throw and default parameters */
+
+class Validator {
+    class void requirePositive(int value, string name = "value") {
+        if (value < 0) {
+            throw "expected positive number";
+        }
+    }
+
+    class void requireNonEmpty(string s, string name = "string") {
+        if (s.len() == 0) {
+            throw "expected non-empty string";
+        }
+    }
+
+    class void requireInRange(int value, int min, int max, string name = "value") {
+        if (value < min || value > max) {
+            throw "value out of range";
+        }
+    }
+}
+
+class Account {
+    public string owner;
+    public int balance;
+
+    public Account(string owner, int balance = 0) {
+        self.owner = owner;
+        self.balance = balance;
+    }
+
+    public void deposit(int amount) {
+        Validator.requirePositive(amount, "deposit amount");
+        self.balance += amount;
+        print(f"  Deposited {amount}. Balance: {self.balance}");
+    }
+
+    public void withdraw(int amount) {
+        Validator.requirePositive(amount, "withdrawal amount");
+        if (amount > self.balance) {
+            throw "insufficient funds";
+        }
+        self.balance -= amount;
+        print(f"  Withdrew {amount}. Balance: {self.balance}");
+    }
+
+    public void display() {
+        print(f"  Account({self.owner}): ${self.balance}");
+    }
+}
+
+int main() {
+    print("=== Banking Demo ===\n");
+
+    var account = Account("Alice", 100);
+    account.display();
+
+    // Successful operations
+    print("\nDeposit $50:");
+    try {
+        account.deposit(50);
+    } catch (string e) {
+        print(f"  Error: {e}");
+    }
+
+    print("\nWithdraw $30:");
+    try {
+        account.withdraw(30);
+    } catch (string e) {
+        print(f"  Error: {e}");
+    }
+
+    // Error: overdraw
+    print("\nWithdraw $200 (should fail):");
+    try {
+        account.withdraw(200);
+    } catch (string e) {
+        print(f"  Error: {e}");
+    }
+
+    // Error: negative deposit
+    print("\nDeposit -10 (should fail):");
+    try {
+        account.deposit(-10);
+    } catch (string e) {
+        print(f"  Error: {e}");
+    }
+
+    // Nested try/catch
+    print("\nNested error handling:");
+    try {
+        print("  Outer try block");
+        try {
+            throw "inner problem";
+        } catch (string e) {
+            print(f"  Caught inner: {e}");
+        }
+        print("  Continuing after inner catch");
+        account.deposit(100);
+        account.display();
+    } catch (string e) {
+        print(f"  Caught outer: {e}");
+    }
+
+    print(f"\nFinal balance: ${account.balance}");
+    return 0;
+}

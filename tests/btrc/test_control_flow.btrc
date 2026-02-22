@@ -1,0 +1,119 @@
+#include <assert.h>
+
+int main() {
+    // if/else basic branching
+    int x = 10;
+    int result = 0;
+    if (x > 5) {
+        result = 1;
+    } else {
+        result = 0;
+    }
+    assert(result == 1);
+
+    // if/else if/else chain
+    int grade = 85;
+    int level = 0;
+    if (grade >= 90) {
+        level = 3;
+    } else if (grade >= 80) {
+        level = 2;
+    } else if (grade >= 70) {
+        level = 1;
+    } else {
+        level = 0;
+    }
+    assert(level == 2);
+
+    // while loop: sum 1..10
+    int sum = 0;
+    int i = 1;
+    while (i <= 10) {
+        sum += i;
+        i++;
+    }
+    assert(sum == 55);
+
+    // C-style for loop: factorial of 5
+    int fact = 1;
+    for (int j = 1; j <= 5; j++) {
+        fact *= j;
+    }
+    assert(fact == 120);
+
+    // for-in with range(n): sum of 0..4
+    int range_sum = 0;
+    for k in range(5) {
+        range_sum += k;
+    }
+    assert(range_sum == 10);
+
+    // for-in with range(start, end): sum of 2..7
+    int range_sum2 = 0;
+    for k in range(2, 8) {
+        range_sum2 += k;
+    }
+    assert(range_sum2 == 27);
+
+    // for-in with range(start, end, step): count even numbers 0,2,4,6,8
+    int count = 0;
+    for k in range(0, 10, 2) {
+        count++;
+    }
+    assert(count == 5);
+
+    // ternary operator
+    int val = 8;
+    int ternary_result = val > 5 ? 100 : 0;
+    assert(ternary_result == 100);
+
+    int val2 = 3;
+    int ternary_result2 = val2 > 5 ? 100 : 0;
+    assert(ternary_result2 == 0);
+
+    // switch/case
+    int day = 3;
+    int day_type = 0;
+    switch (day) {
+        case 1:
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+            day_type = 1;
+            break;
+        case 6:
+        case 7:
+            day_type = 2;
+            break;
+        default:
+            day_type = 0;
+            break;
+    }
+    assert(day_type == 1);
+
+    // break in while loop
+    int break_val = 0;
+    int counter = 0;
+    while (true) {
+        counter++;
+        if (counter == 5) {
+            break_val = counter;
+            break;
+        }
+    }
+    assert(break_val == 5);
+
+    // continue in for loop
+    int skip_sum = 0;
+    for (int n = 0; n < 10; n++) {
+        if (n % 2 == 0) {
+            continue;
+        }
+        skip_sum += n;
+    }
+    assert(skip_sum == 25);
+
+    print("PASS: test_control_flow");
+    return 0;
+}

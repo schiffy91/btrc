@@ -1,0 +1,147 @@
+/* Linked List — demonstrates heap allocation (new/delete), pointers, and data structures */
+
+class Node {
+    public int value;
+    public Node* next;
+
+    public Node(int value) {
+        self.value = value;
+        self.next = null;
+    }
+}
+
+class LinkedList {
+    public Node* head;
+    public int size;
+
+    public LinkedList() {
+        self.head = null;
+        self.size = 0;
+    }
+
+    public void prepend(int value) {
+        Node* node = new Node(value);
+        node->next = self.head;
+        self.head = node;
+        self.size++;
+    }
+
+    public void append(int value) {
+        Node* node = new Node(value);
+        if (self.head == null) {
+            self.head = node;
+        } else {
+            Node* curr = self.head;
+            while (curr->next != null) {
+                curr = curr->next;
+            }
+            curr->next = node;
+        }
+        self.size++;
+    }
+
+    public int get(int index) {
+        Node* curr = self.head;
+        for i in range(index) {
+            curr = curr->next;
+        }
+        return curr->value;
+    }
+
+    public bool contains(int value) {
+        Node* curr = self.head;
+        while (curr != null) {
+            if (curr->value == value) {
+                return true;
+            }
+            curr = curr->next;
+        }
+        return false;
+    }
+
+    public void removeFirst() {
+        if (self.head != null) {
+            Node* old = self.head;
+            self.head = self.head->next;
+            delete old;
+            self.size--;
+        }
+    }
+
+    public void reverse() {
+        Node* prev = null;
+        Node* curr = self.head;
+        while (curr != null) {
+            Node* next = curr->next;
+            curr->next = prev;
+            prev = curr;
+            curr = next;
+        }
+        self.head = prev;
+    }
+
+    public void display() {
+        Node* curr = self.head;
+        while (curr != null) {
+            printf("%d", curr->value);
+            if (curr->next != null) {
+                printf(" -> ");
+            }
+            curr = curr->next;
+        }
+        printf("\n");
+    }
+
+    public int length() {
+        return self.size;
+    }
+
+    public void __del__() {
+        while (self.head != null) {
+            self.removeFirst();
+        }
+    }
+}
+
+int main() {
+    print("=== Linked List ===\n");
+
+    var list = LinkedList();
+
+    // Build the list
+    list.append(10);
+    list.append(20);
+    list.append(30);
+    list.prepend(5);
+    list.prepend(1);
+
+    printf("List: ");
+    list.display();
+    print(f"Length: {list.length()}");
+    print(f"Element at [2]: {list.get(2)}");
+    print(f"Contains 20: {list.contains(20)}");
+    print(f"Contains 99: {list.contains(99)}");
+
+    // Reverse the list
+    print("\nAfter reverse:");
+    list.reverse();
+    printf("List: ");
+    list.display();
+
+    // Remove from front
+    print("\nAfter removing first two:");
+    list.removeFirst();
+    list.removeFirst();
+    printf("List: ");
+    list.display();
+    print(f"Length: {list.length()}");
+
+    // Optional chaining on head pointer
+    print(f"\nHead value: {list.head->value}");
+
+    list.__del__();
+    print(f"Length after __del__: {list.length()}");
+
+    print("\nDone!");
+    return 0;
+}

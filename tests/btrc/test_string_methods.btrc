@@ -1,0 +1,29 @@
+#include <assert.h>
+int main() {
+    string s = "hello world";
+    assert(s.len() == 11);
+    assert(s.contains("world"));
+    assert(!s.contains("xyz"));
+    assert(s.startsWith("hello"));
+    assert(s.endsWith("world"));
+    assert(!s.startsWith("world"));
+    string sub = s.substring(6, 5);
+    assert(sub.equals("world"));
+    assert(s.indexOf("world") == 6);
+    assert(s.indexOf("xyz") == -1);
+    assert(s.charAt(0) == 'h');
+    string up = "hello";
+    assert(up.toUpper().equals("HELLO"));
+    assert(up.toLower().equals("hello"));
+    string padded = "  hi  ";
+    string trimmed = padded.trim();
+    assert(trimmed.equals("hi"));
+    assert(trimmed.len() == 2);
+    string a = "hello";
+    string b = "hello";
+    string c = "world";
+    assert(a.equals(b));
+    assert(!a.equals(c));
+    print("PASS: test_string_methods");
+    return 0;
+}

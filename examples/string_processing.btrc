@@ -1,0 +1,87 @@
+/* String Processing — demonstrates string methods and collections */
+
+class WordCounter {
+    private Map<string, int> counts;
+    private int total_words;
+
+    public WordCounter() {
+        self.counts = {};
+        self.total_words = 0;
+    }
+
+    public void addWord(string word) {
+        if (self.counts.has(word)) {
+            self.counts.put(word, self.counts.get(word) + 1);
+        } else {
+            self.counts.put(word, 1);
+        }
+        self.total_words++;
+    }
+
+    public int getCount(string word) {
+        if (self.counts.has(word)) {
+            return self.counts.get(word);
+        }
+        return 0;
+    }
+
+    public int totalWords() {
+        return self.total_words;
+    }
+
+    public int uniqueWords() {
+        return self.counts.len;
+    }
+
+    public void __del__() {
+        self.counts.free();
+    }
+}
+
+int main() {
+    print("=== String Methods Demo ===\n");
+
+    // Basic string operations
+    string greeting = "  Hello, World!  ";
+    print(f"Original:    '{greeting}'");
+    print(f"Trimmed:     '{greeting.trim()}'");
+    print(f"Upper:       '{greeting.toUpper()}'");
+    print(f"Lower:       '{greeting.toLower()}'");
+    print(f"Length:      {greeting.len()}");
+    print(f"Contains 'World': {greeting.contains(\"World\")}");
+    print(f"Starts with '  H': {greeting.startsWith(\"  H\")}");
+    print(f"IndexOf 'World': {greeting.indexOf(\"World\")}");
+
+    // Substring
+    string sub = greeting.substring(8, 5);
+    print(f"Substring(8,5): '{sub}'");
+
+    // String equality
+    string a = "hello";
+    string b = "hello";
+    string c = "world";
+    print(f"\n'hello' equals 'hello': {a.equals(b)}");
+    print(f"'hello' equals 'world': {a.equals(c)}");
+
+    // Word counting demo
+    print("\n=== Word Counter ===\n");
+    var counter = WordCounter();
+
+    // Simulate counting words
+    List<string> words = ["the", "cat", "sat", "on", "the", "mat",
+                          "the", "cat", "ate", "the", "rat"];
+    for word in words {
+        counter.addWord(word);
+    }
+
+    print(f"Total words: {counter.totalWords()}");
+    print(f"Unique words: {counter.uniqueWords()}");
+    print(f"'the' appears {counter.getCount(\"the\")} times");
+    print(f"'cat' appears {counter.getCount(\"cat\")} times");
+    print(f"'dog' appears {counter.getCount(\"dog\")} times");
+
+    counter.__del__();
+    words.free();
+
+    return 0;
+}

@@ -1,0 +1,109 @@
+/* btrc standard library — Collections
+ * Additional data structures: Stack, Queue, Counter.
+ */
+
+class Stack {
+    private List<int> items;
+
+    public Stack() {
+        self.items = [];
+    }
+
+    public void push(int value) {
+        self.items.push(value);
+    }
+
+    public int pop() {
+        int last = self.items.get(self.items.len - 1);
+        self.items.remove(self.items.len - 1);
+        return last;
+    }
+
+    public int peek() {
+        return self.items.get(self.items.len - 1);
+    }
+
+    public bool isEmpty() {
+        return self.items.len == 0;
+    }
+
+    public int size() {
+        return self.items.len;
+    }
+
+    public void __del__() {
+        self.items.free();
+    }
+}
+
+class Queue {
+    private List<int> items;
+
+    public Queue() {
+        self.items = [];
+    }
+
+    public void enqueue(int value) {
+        self.items.push(value);
+    }
+
+    public int dequeue() {
+        int first = self.items.get(0);
+        self.items.remove(0);
+        return first;
+    }
+
+    public int peek() {
+        return self.items.get(0);
+    }
+
+    public bool isEmpty() {
+        return self.items.len == 0;
+    }
+
+    public int size() {
+        return self.items.len;
+    }
+
+    public void __del__() {
+        self.items.free();
+    }
+}
+
+class Counter {
+    private Map<string, int> counts;
+    private int total;
+
+    public Counter() {
+        self.counts = {};
+        self.total = 0;
+    }
+
+    public void add(string item) {
+        if (self.counts.has(item)) {
+            self.counts.put(item, self.counts.get(item) + 1);
+        } else {
+            self.counts.put(item, 1);
+        }
+        self.total++;
+    }
+
+    public int get(string item) {
+        if (self.counts.has(item)) {
+            return self.counts.get(item);
+        }
+        return 0;
+    }
+
+    public int totalCount() {
+        return self.total;
+    }
+
+    public int uniqueCount() {
+        return self.counts.len;
+    }
+
+    public void __del__() {
+        self.counts.free();
+    }
+}

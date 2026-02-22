@@ -1,0 +1,93 @@
+#include <assert.h>
+
+int main() {
+    // ---- List<int> ----
+
+    // Create list with literal, check len
+    List<int> nums = [10, 20, 30];
+    assert(nums.len == 3);
+
+    // Push elements
+    nums.push(40);
+    nums.push(50);
+    assert(nums.len == 5);
+
+    // Index read
+    assert(nums[0] == 10);
+    assert(nums[1] == 20);
+    assert(nums[2] == 30);
+    assert(nums[3] == 40);
+    assert(nums[4] == 50);
+
+    // Index write
+    nums[2] = 99;
+    assert(nums[2] == 99);
+
+    // for-in iteration
+    int sum = 0;
+    for x in nums {
+        sum += x;
+    }
+    assert(sum == 10 + 20 + 99 + 40 + 50);
+
+    nums.free();
+
+    // ---- List<string> ----
+
+    List<string> names = ["alice", "bob", "carol"];
+    assert(names.len == 3);
+    assert(strcmp(names[0], "alice") == 0);
+    assert(strcmp(names[1], "bob") == 0);
+    assert(strcmp(names[2], "carol") == 0);
+
+    names.push("dave");
+    assert(names.len == 4);
+    assert(strcmp(names[3], "dave") == 0);
+
+    // for-in iteration over string list
+    int total_len = 0;
+    for name in names {
+        total_len += (int)strlen(name);
+    }
+    // "alice"=5 + "bob"=3 + "carol"=5 + "dave"=4 = 17
+    assert(total_len == 17);
+
+    names.free();
+
+    // ---- Map<string, int> ----
+
+    // Map literal creation
+    Map<string, int> ages = {"alice": 30, "bob": 25};
+    assert(ages.len == 2);
+
+    // Get values
+    assert(ages.get("alice") == 30);
+    assert(ages.get("bob") == 25);
+
+    // Put new entry
+    ages.put("carol", 35);
+    assert(ages.len == 3);
+    assert(ages.get("carol") == 35);
+
+    // Overwrite existing entry
+    ages.put("bob", 26);
+    assert(ages.get("bob") == 26);
+    assert(ages.len == 3);
+
+    ages.free();
+
+    // Map<int, int>
+    Map<int, int> squares = {1: 1, 2: 4, 3: 9, 4: 16};
+    assert(squares.len == 4);
+    assert(squares.get(1) == 1);
+    assert(squares.get(2) == 4);
+    assert(squares.get(3) == 9);
+    assert(squares.get(4) == 16);
+    squares.put(5, 25);
+    assert(squares.get(5) == 25);
+    assert(squares.len == 5);
+    squares.free();
+
+    print("PASS: test_collections");
+    return 0;
+}

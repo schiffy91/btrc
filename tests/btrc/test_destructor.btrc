@@ -1,0 +1,71 @@
+/* Test auto-destructor: __del__ method and recursive delete */
+#include <assert.h>
+
+int resource_freed = 0;
+int child_freed = 0;
+
+class Child {
+    public int id;
+
+    public Child(int id) {
+        self.id = id;
+    }
+
+    public void __del__() {
+        child_freed++;
+    }
+}
+
+class Parent {
+    public int value;
+    public Child* child;
+
+    public Parent(int value) {
+        self.value = value;
+        self.child = new Child(value * 10);
+    }
+
+    public void __del__() {
+        resource_freed++;
+    }
+}
+
+class WithList {
+    public List<int> items;
+
+    public WithList() {
+        self.items = [];
+    }
+
+    public void addItem(int x) {
+        self.items.push(x);
+    }
+}
+
+int main() {
+    // Test 1: __del__ is called on delete
+    Child* c = new Child(1);
+    assert(c->id == 1);
+    delete c;
+    assert(child_freed == 1);
+
+    // Test 2: Recursive delete — Parent owns a Child*
+    Parent* p = new Parent(5);
+    assert(p->value == 5);
+    assert(p->child->id == 50);
+    delete p;
+    assert(resource_freed == 1);
+    assert(child_freed == 2);  // Child inside Parent also destroyed
+
+    // Test 3: Class with List field — list freed on delete
+    WithList* w = new WithList();
+    w->addItem(10);
+    w->addItem(20);
+    w->addItem(30);
+    assert(w->items.len == 3);
+    delete w;
+    // After delete, the list's internal data is freed (no crash = success)
+
+    print("PASS: test_destructor");
+    return 0;
+}

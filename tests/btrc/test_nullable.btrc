@@ -1,0 +1,35 @@
+#include <assert.h>
+
+class Box {
+    public int val;
+    public Box(int v) {
+        self.val = v;
+    }
+}
+
+int main() {
+    // Null pointer
+    int* p = null;
+    assert(p == null);
+    int x = 42;
+    p = &x;
+    assert(*p == 42);
+
+    // Null coalescing
+    char* name = null;
+    char* result = name ?? "default";
+    assert(strcmp(result, "default") == 0);
+    name = "Alex";
+    result = name ?? "default";
+    assert(strcmp(result, "Alex") == 0);
+
+    // Optional chaining on class
+    Box* b = new Box(42);
+    assert(b?.val == 42);
+    delete b;
+    b = null;
+    assert(b?.val == 0);
+
+    print("PASS: test_nullable");
+    return 0;
+}

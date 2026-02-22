@@ -1,0 +1,28 @@
+#include <assert.h>
+
+class Node {
+    public int val;
+    public Node(int v) {
+        self.val = v;
+    }
+    public int getVal() {
+        return self.val;
+    }
+}
+
+int main() {
+    Node* n = new Node(99);
+    assert(n->val == 99);
+    assert(n->getVal() == 99);
+    delete n;
+
+    // Multiple allocations
+    Node* a = new Node(10);
+    Node* b = new Node(20);
+    assert(a->val + b->val == 30);
+    delete a;
+    delete b;
+
+    print("PASS: test_new_delete");
+    return 0;
+}

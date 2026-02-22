@@ -1,0 +1,15 @@
+/* Helper file included by test_include.btrc */
+
+class Point {
+    public int x;
+    public int y;
+
+    public Point(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+
+    public int sum() {
+        return self.x + self.y;
+    }
+}

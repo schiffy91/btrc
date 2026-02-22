@@ -1,0 +1,470 @@
+/* btrc self-hosted compiler — Lexer */
+
+class Lexer {
+    private string source;
+    private int source_len;
+    private string filename;
+    private int pos;
+    private int line;
+    private int col;
+    private List<Token> tokens;
+    private Keywords keywords;
+
+    public Lexer(string source, string filename) {
+        self.source = source;
+        self.source_len = source.len();
+        self.filename = filename;
+        self.pos = 0;
+        self.line = 1;
+        self.col = 1;
+        self.tokens = [];
+        self.keywords = Keywords();
+    }
+
+    /* --- Character helpers --- */
+
+    public char peek(int offset) {
+        int p = self.pos + offset;
+        if (p < self.source_len) {
+            return self.source.charAt(p);
+        }
+        return '\0';
+    }
+
+    public char advance() {
+        char ch = self.source.charAt(self.pos);
+        self.pos++;
+        if (ch == '\n') {
+            self.line++;
+            self.col = 1;
+        } else {
+            self.col++;
+        }
+        return ch;
+    }
+
+    private bool atLineStart() {
+        int i = self.pos - 1;
+        while (i >= 0 && (self.source.charAt(i) == ' ' || self.source.charAt(i) == '\t')) {
+            i--;
+        }
+        return i < 0 || self.source.charAt(i) == '\n';
+    }
+
+    private void emit(int type, string value, int line, int col) {
+        self.tokens.push(Token(type, value, line, col));
+    }
+
+    private void emitSlice(int type, int start, int end, int line, int col) {
+        string value = self.source.substring(start, end - start);
+        self.emit(type, value, line, col);
+    }
+
+    private void error(string msg) {
+        Console.errorAt(msg, self.filename, self.line, self.col);
+        exit(EXIT_ERROR);
+    }
+
+    private void errorAt(string msg, int line, int col) {
+        Console.errorAt(msg, self.filename, line, col);
+        exit(EXIT_ERROR);
+    }
+
+    /* --- Whitespace and comments --- */
+
+    private void skipLineComment() {
+        self.advance();
+        self.advance();
+        while (self.pos < self.source_len && self.peek(0) != '\n') {
+            self.advance();
+        }
+    }
+
+    private void skipBlockComment() {
+        int start_line = self.line;
+        int start_col = self.col;
+        self.advance();
+        self.advance();
+        while (self.pos < self.source_len) {
+            if (self.peek(0) == '*' && self.peek(1) == '/') {
+                self.advance();
+                self.advance();
+                return;
+            }
+            self.advance();
+        }
+        self.errorAt("Unterminated block comment", start_line, start_col);
+    }
+
+    private void skipWhitespaceAndComments() {
+        while (self.pos < self.source_len) {
+            char ch = self.peek(0);
+            if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+                self.advance();
+            } else if (ch == '/' && self.peek(1) == '/') {
+                self.skipLineComment();
+            } else if (ch == '/' && self.peek(1) == '*') {
+                self.skipBlockComment();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /* --- Preprocessor --- */
+
+    private void readPreprocessor() {
+        int line = self.line;
+        int col = self.col;
+        int start = self.pos;
+        while (self.pos < self.source_len) {
+            if (self.peek(0) == '\\' && self.peek(1) == '\n') {
+                self.advance();
+                self.advance();
+            } else if (self.peek(0) == '\n') {
+                break;
+            } else {
+                self.advance();
+            }
+        }
+        self.emitSlice(TOK_PREPROCESSOR, start, self.pos, line, col);
+    }
+
+    /* --- Annotation --- */
+
+    private void readAnnotation() {
+        int line = self.line;
+        int col = self.col;
+        self.advance();
+        int start = self.pos;
+        while (self.pos < self.source_len && (isalnum(self.peek(0)) || self.peek(0) == '_')) {
+            self.advance();
+        }
+        string name = self.source.substring(start, self.pos - start);
+        if (name.equals("gpu")) {
+            self.emit(TOK_AT_GPU, "@gpu", line, col);
+        } else {
+            self.errorAt("Unknown annotation", line, col);
+        }
+    }
+
+    /* --- String literal --- */
+
+    private void readString() {
+        int line = self.line;
+        int col = self.col;
+        self.advance();
+
+        var buf = CharBuffer(1024);
+        buf.push('"');
+
+        while (self.pos < self.source_len) {
+            char ch = self.peek(0);
+            if (ch == '"') {
+                self.advance();
+                buf.push('"');
+                string value = buf.toString();
+                self.emit(TOK_STRING_LIT, value, line, col);
+                buf.__del__();
+                return;
+            } else if (ch == '\\') {
+                buf.grow();
+                buf.push(self.advance());
+                if (self.pos < self.source_len) {
+                    buf.push(self.advance());
+                }
+            } else if (ch == '\n') {
+                buf.__del__();
+                self.error("Unterminated string literal");
+            } else {
+                buf.push(self.advance());
+            }
+        }
+        buf.__del__();
+        self.error("Unterminated string literal");
+    }
+
+    /* --- Char literal --- */
+
+    private void readChar() {
+        int line = self.line;
+        int col = self.col;
+        self.advance();
+
+        var buf = CharBuffer(16);
+        buf.push('\'');
+
+        while (self.pos < self.source_len) {
+            char ch = self.peek(0);
+            if (ch == '\'') {
+                self.advance();
+                buf.push('\'');
+                string value = buf.toString();
+                self.emit(TOK_CHAR_LIT, value, line, col);
+                buf.__del__();
+                return;
+            } else if (ch == '\\') {
+                buf.grow();
+                buf.push(self.advance());
+                if (self.pos < self.source_len) {
+                    buf.push(self.advance());
+                }
+            } else {
+                buf.push(self.advance());
+            }
+        }
+        buf.__del__();
+        self.error("Unterminated character literal");
+    }
+
+    /* --- Number literal --- */
+
+    private bool isHexDigit(char ch) {
+        return isdigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+    }
+
+    private void readNumber() {
+        int line = self.line;
+        int col = self.col;
+        int start = self.pos;
+        bool is_float = false;
+
+        /* Hex */
+        if (self.peek(0) == '0' && (self.peek(1) == 'x' || self.peek(1) == 'X')) {
+            self.advance(); self.advance();
+            while (self.pos < self.source_len && self.isHexDigit(self.peek(0))) {
+                self.advance();
+            }
+            self.emitSlice(TOK_INT_LIT, start, self.pos, line, col);
+            return;
+        }
+
+        /* Binary */
+        if (self.peek(0) == '0' && (self.peek(1) == 'b' || self.peek(1) == 'B')) {
+            self.advance(); self.advance();
+            while (self.pos < self.source_len && (self.peek(0) == '0' || self.peek(0) == '1')) {
+                self.advance();
+            }
+            self.emitSlice(TOK_INT_LIT, start, self.pos, line, col);
+            return;
+        }
+
+        /* Decimal digits */
+        while (self.pos < self.source_len && isdigit(self.peek(0))) {
+            self.advance();
+        }
+
+        /* Decimal point */
+        if (self.peek(0) == '.' && isdigit(self.peek(1))) {
+            is_float = true;
+            self.advance();
+            while (self.pos < self.source_len && isdigit(self.peek(0))) {
+                self.advance();
+            }
+        }
+
+        /* Exponent */
+        if (self.peek(0) == 'e' || self.peek(0) == 'E') {
+            is_float = true;
+            self.advance();
+            if (self.peek(0) == '+' || self.peek(0) == '-') {
+                self.advance();
+            }
+            while (self.pos < self.source_len && isdigit(self.peek(0))) {
+                self.advance();
+            }
+        }
+
+        /* Float suffix */
+        if (self.peek(0) == 'f' || self.peek(0) == 'F') {
+            is_float = true;
+            self.advance();
+        }
+
+        /* Long suffix */
+        if (!is_float && (self.peek(0) == 'l' || self.peek(0) == 'L')) {
+            self.advance();
+            if (self.peek(0) == 'l' || self.peek(0) == 'L') {
+                self.advance();
+            }
+        }
+
+        /* Unsigned suffix */
+        if (!is_float && (self.peek(0) == 'u' || self.peek(0) == 'U')) {
+            self.advance();
+        }
+
+        self.emitSlice(is_float ? TOK_FLOAT_LIT : TOK_INT_LIT, start, self.pos, line, col);
+    }
+
+    /* --- f-string --- */
+
+    private void readFString(int line, int col) {
+        self.advance();
+        var buf = CharBuffer(1024);
+        int brace_depth = 0;
+
+        while (self.pos < self.source_len) {
+            char ch = self.peek(0);
+            if (brace_depth == 0 && ch == '"') {
+                self.advance();
+                string value = buf.toString();
+                self.emit(TOK_FSTRING_LIT, value, line, col);
+                buf.__del__();
+                return;
+            } else if (ch == '{') {
+                brace_depth++;
+                buf.push(self.advance());
+            } else if (ch == '}') {
+                brace_depth--;
+                buf.push(self.advance());
+            } else if (ch == '\\') {
+                buf.grow();
+                buf.push(self.advance());
+                if (self.pos < self.source_len) {
+                    buf.push(self.advance());
+                }
+            } else if (ch == '\n') {
+                buf.__del__();
+                self.error("Unterminated f-string literal");
+            } else {
+                buf.push(self.advance());
+            }
+        }
+        buf.__del__();
+        self.error("Unterminated f-string literal");
+    }
+
+    /* --- Identifier / keyword --- */
+
+    private void readIdentifier() {
+        int line = self.line;
+        int col = self.col;
+        int start = self.pos;
+        while (self.pos < self.source_len && (isalnum(self.peek(0)) || self.peek(0) == '_')) {
+            self.advance();
+        }
+
+        string word = self.source.substring(start, self.pos - start);
+
+        /* Check for f-string: identifier 'f' followed by '"' */
+        if (word.len() == 1 && word.charAt(0) == 'f' && self.pos < self.source_len && self.peek(0) == '"') {
+            self.readFString(line, col);
+            return;
+        }
+
+        int type = self.keywords.lookup(word);
+        self.emit(type, word, line, col);
+    }
+
+    /* --- Operators --- */
+
+    private void readOperator() {
+        int line = self.line;
+        int col = self.col;
+        char c1 = self.peek(0);
+        char c2 = self.peek(1);
+        char c3 = self.peek(2);
+
+        /* Three-character operators */
+        if (c1 == '<' && c2 == '<' && c3 == '=') {
+            self.advance(); self.advance(); self.advance();
+            self.emit(TOK_LT_LT_EQ, "<<=", line, col);
+            return;
+        }
+        if (c1 == '>' && c2 == '>' && c3 == '=') {
+            self.advance(); self.advance(); self.advance();
+            self.emit(TOK_GT_GT_EQ, ">>=", line, col);
+            return;
+        }
+
+        /* Two-character operators */
+        if (c1 == '=' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_EQ_EQ, "==", line, col); return; }
+        if (c1 == '!' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_BANG_EQ, "!=", line, col); return; }
+        if (c1 == '<' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_LT_EQ, "<=", line, col); return; }
+        if (c1 == '>' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_GT_EQ, ">=", line, col); return; }
+        if (c1 == '&' && c2 == '&') { self.advance(); self.advance(); self.emit(TOK_AMP_AMP, "&&", line, col); return; }
+        if (c1 == '|' && c2 == '|') { self.advance(); self.advance(); self.emit(TOK_PIPE_PIPE, "||", line, col); return; }
+        if (c1 == '<' && c2 == '<') { self.advance(); self.advance(); self.emit(TOK_LT_LT, "<<", line, col); return; }
+        if (c1 == '>' && c2 == '>') { self.advance(); self.advance(); self.emit(TOK_GT_GT, ">>", line, col); return; }
+        if (c1 == '+' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_PLUS_EQ, "+=", line, col); return; }
+        if (c1 == '-' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_MINUS_EQ, "-=", line, col); return; }
+        if (c1 == '*' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_STAR_EQ, "*=", line, col); return; }
+        if (c1 == '/' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_SLASH_EQ, "/=", line, col); return; }
+        if (c1 == '%' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_PERCENT_EQ, "%=", line, col); return; }
+        if (c1 == '&' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_AMP_EQ, "&=", line, col); return; }
+        if (c1 == '|' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_PIPE_EQ, "|=", line, col); return; }
+        if (c1 == '^' && c2 == '=') { self.advance(); self.advance(); self.emit(TOK_CARET_EQ, "^=", line, col); return; }
+        if (c1 == '+' && c2 == '+') { self.advance(); self.advance(); self.emit(TOK_PLUS_PLUS, "++", line, col); return; }
+        if (c1 == '-' && c2 == '-') { self.advance(); self.advance(); self.emit(TOK_MINUS_MINUS, "--", line, col); return; }
+        if (c1 == '-' && c2 == '>') { self.advance(); self.advance(); self.emit(TOK_ARROW, "->", line, col); return; }
+        if (c1 == '?' && c2 == '.') { self.advance(); self.advance(); self.emit(TOK_QUESTION_DOT, "?.", line, col); return; }
+        if (c1 == '?' && c2 == '?') { self.advance(); self.advance(); self.emit(TOK_QUESTION_QUESTION, "??", line, col); return; }
+
+        /* Single-character operators */
+        self.advance();
+        switch (c1) {
+            case '+': { self.emit(TOK_PLUS, "+", line, col); return; }
+            case '-': { self.emit(TOK_MINUS, "-", line, col); return; }
+            case '*': { self.emit(TOK_STAR, "*", line, col); return; }
+            case '/': { self.emit(TOK_SLASH, "/", line, col); return; }
+            case '%': { self.emit(TOK_PERCENT, "%", line, col); return; }
+            case '=': { self.emit(TOK_EQ, "=", line, col); return; }
+            case '<': { self.emit(TOK_LT, "<", line, col); return; }
+            case '>': { self.emit(TOK_GT, ">", line, col); return; }
+            case '!': { self.emit(TOK_BANG, "!", line, col); return; }
+            case '&': { self.emit(TOK_AMP, "&", line, col); return; }
+            case '|': { self.emit(TOK_PIPE, "|", line, col); return; }
+            case '^': { self.emit(TOK_CARET, "^", line, col); return; }
+            case '~': { self.emit(TOK_TILDE, "~", line, col); return; }
+            case '.': { self.emit(TOK_DOT, ".", line, col); return; }
+            case '?': { self.emit(TOK_QUESTION, "?", line, col); return; }
+            case ':': { self.emit(TOK_COLON, ":", line, col); return; }
+            case ',': { self.emit(TOK_COMMA, ",", line, col); return; }
+            case ';': { self.emit(TOK_SEMICOLON, ";", line, col); return; }
+            case '(': { self.emit(TOK_LPAREN, "(", line, col); return; }
+            case ')': { self.emit(TOK_RPAREN, ")", line, col); return; }
+            case '[': { self.emit(TOK_LBRACKET, "[", line, col); return; }
+            case ']': { self.emit(TOK_RBRACKET, "]", line, col); return; }
+            case '{': { self.emit(TOK_LBRACE, "{", line, col); return; }
+            case '}': { self.emit(TOK_RBRACE, "}", line, col); return; }
+            default: {
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Unexpected character '%c'", c1);
+                self.errorAt(msg, line, col);
+            }
+        }
+    }
+
+    /* --- Main tokenize --- */
+
+    public List<Token> tokenize() {
+        while (self.pos < self.source_len) {
+            self.skipWhitespaceAndComments();
+            if (self.pos >= self.source_len) {
+                break;
+            }
+
+            char ch = self.peek(0);
+
+            if (ch == '#' && self.atLineStart()) {
+                self.readPreprocessor();
+            } else if (ch == '@') {
+                self.readAnnotation();
+            } else if (ch == '"') {
+                self.readString();
+            } else if (ch == '\'') {
+                self.readChar();
+            } else if (isdigit(ch)) {
+                self.readNumber();
+            } else if (isalpha(ch) || ch == '_') {
+                self.readIdentifier();
+            } else {
+                self.readOperator();
+            }
+        }
+
+        self.tokens.push(Token(TOK_EOF, "", self.line, self.col));
+        return self.tokens;
+    }
+}

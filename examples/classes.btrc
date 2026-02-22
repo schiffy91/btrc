@@ -1,0 +1,33 @@
+#include <stdio.h>
+
+class Counter {
+    private int count;
+
+    public Counter() {
+        self.count = 0;
+    }
+
+    public void inc() {
+        self.count++;
+    }
+
+    public int get() {
+        return self.count;
+    }
+}
+
+class Math {
+    class int square(int x) {
+        return x * x;
+    }
+}
+
+int main() {
+    Counter c = Counter();
+    c.inc();
+    c.inc();
+    c.inc();
+    printf("count = %d\n", c.get());
+    printf("5^2 = %d\n", Math.square(5));
+    return 0;
+}

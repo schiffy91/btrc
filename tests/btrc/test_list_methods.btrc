@@ -1,0 +1,68 @@
+#include <assert.h>
+
+int main() {
+    // ---- sort ----
+    List<int> nums = [5, 2, 8, 1, 9, 3];
+    assert(nums.len == 6);
+    nums.sort();
+    assert(nums[0] == 1);
+    assert(nums[1] == 2);
+    assert(nums[2] == 3);
+    assert(nums[3] == 5);
+    assert(nums[4] == 8);
+    assert(nums[5] == 9);
+
+    // ---- reverse ----
+    nums.reverse();
+    assert(nums[0] == 9);
+    assert(nums[1] == 8);
+    assert(nums[2] == 5);
+    assert(nums[3] == 3);
+    assert(nums[4] == 2);
+    assert(nums[5] == 1);
+
+    // ---- contains ----
+    assert(nums.contains(9));
+    assert(nums.contains(1));
+    assert(!nums.contains(99));
+    assert(!nums.contains(0));
+
+    // ---- remove (by index) ----
+    nums.remove(1);  // remove 8
+    assert(nums.len == 5);
+    assert(nums[0] == 9);
+    assert(nums[1] == 5);
+
+    // Remove first element
+    nums.remove(0);  // remove 9
+    assert(nums.len == 4);
+    assert(nums[0] == 5);
+
+    // Remove last element
+    nums.remove(nums.len - 1);
+    assert(nums.len == 3);
+
+    // ---- clear ----
+    nums.clear();
+    assert(nums.len == 0);
+
+    // Push after clear
+    nums.push(99);
+    assert(nums.len == 1);
+    assert(nums[0] == 99);
+
+    // ---- sort after rebuild ----
+    nums.push(10);
+    nums.push(5);
+    nums.push(20);
+    nums.sort();
+    assert(nums[0] == 5);
+    assert(nums[1] == 10);
+    assert(nums[2] == 20);
+    assert(nums[3] == 99);
+
+    nums.free();
+
+    print("PASS: test_list_methods");
+    return 0;
+}

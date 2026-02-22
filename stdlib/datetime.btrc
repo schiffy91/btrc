@@ -1,0 +1,93 @@
+/* btrc standard library — DateTime
+ * Date and time utilities inspired by Python's datetime module.
+ */
+
+class DateTime {
+    public int year;
+    public int month;
+    public int day;
+    public int hour;
+    public int minute;
+    public int second;
+
+    public DateTime(int year, int month, int day, int hour = 0, int minute = 0, int second = 0) {
+        self.year = year;
+        self.month = month;
+        self.day = day;
+        self.hour = hour;
+        self.minute = minute;
+        self.second = second;
+    }
+
+    class DateTime now() {
+        time_t t = time(NULL);
+        struct tm* tm = localtime(&t);
+        return DateTime(
+            tm->tm_year + 1900,
+            tm->tm_mon + 1,
+            tm->tm_mday,
+            tm->tm_hour,
+            tm->tm_min,
+            tm->tm_sec
+        );
+    }
+
+    public void display() {
+        printf("%04d-%02d-%02d %02d:%02d:%02d",
+            self.year, self.month, self.day,
+            self.hour, self.minute, self.second);
+    }
+
+    public string format() {
+        char buf[64];
+        snprintf(buf, 64, "%04d-%02d-%02d %02d:%02d:%02d",
+            self.year, self.month, self.day,
+            self.hour, self.minute, self.second);
+        return strdup(buf);
+    }
+
+    public string dateString() {
+        char buf[32];
+        snprintf(buf, 32, "%04d-%02d-%02d", self.year, self.month, self.day);
+        return strdup(buf);
+    }
+
+    public string timeString() {
+        char buf[32];
+        snprintf(buf, 32, "%02d:%02d:%02d", self.hour, self.minute, self.second);
+        return strdup(buf);
+    }
+}
+
+class Timer {
+    private clock_t start_time;
+    private clock_t end_time;
+    private bool running;
+
+    public Timer() {
+        self.start_time = 0;
+        self.end_time = 0;
+        self.running = false;
+    }
+
+    public void start() {
+        self.start_time = clock();
+        self.running = true;
+    }
+
+    public void stop() {
+        self.end_time = clock();
+        self.running = false;
+    }
+
+    public float elapsed() {
+        clock_t end = self.running ? clock() : self.end_time;
+        return (float)(end - self.start_time) / (float)CLOCKS_PER_SEC;
+    }
+
+    public void reset() {
+        self.start_time = 0;
+        self.end_time = 0;
+        self.running = false;
+    }
+}
