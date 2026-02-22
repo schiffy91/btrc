@@ -1,0 +1,12 @@
+#include <stdio.h>
+class Config {
+    public int width = 800;
+    public int height = 600;
+    public int fps = 60;
+}
+int main() {
+    Config c = Config();
+    printf("%d %d %d\n", c.width, c.height, c.fps);
+    printf("PASS: test_default_field_values\n");
+    return 0;
+}

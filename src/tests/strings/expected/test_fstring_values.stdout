@@ -1,0 +1,2 @@
+done: 42
+PASS: test_fstring_values

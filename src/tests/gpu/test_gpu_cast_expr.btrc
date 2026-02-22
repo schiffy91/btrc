@@ -1,0 +1,15 @@
+#include <assert.h>
+
+@gpu
+float[] intToFloat(int[] a) {
+    int i = gpu_id();
+    return (float)a[i];
+}
+
+int main() {
+    float f = (float)42;
+    assert(f > 41.0f);
+    assert(f < 43.0f);
+    print("PASS: test_gpu_cast_expr");
+    return 0;
+}

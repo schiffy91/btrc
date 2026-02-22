@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    for i in range(3) {
+        print(f"val={i}");
+    }
+    printf("PASS: test_range_in_fstring\n");
+    return 0;
+}

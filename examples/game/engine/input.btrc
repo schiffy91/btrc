@@ -1,0 +1,30 @@
+/* btrc 3D Engine — Input
+ *
+ * Keyboard input via GLFW key codes.
+ * Usage: engine.input.key(KEY_W)
+ */
+
+/* GLFW key codes */
+int KEY_W = 87;
+int KEY_A = 65;
+int KEY_S = 83;
+int KEY_D = 68;
+int KEY_SPACE = 32;
+int KEY_ESCAPE = 256;
+int KEY_UP = 265;
+int KEY_DOWN = 264;
+int KEY_LEFT = 263;
+int KEY_RIGHT = 262;
+int KEY_SHIFT = 340;
+
+class Input {
+    public void* _win;
+
+    public Input(void* winHandle) {
+        self._win = winHandle;
+    }
+
+    public bool key(int code) {
+        return btrc_gpu_window_key_pressed(self._win, code);
+    }
+}

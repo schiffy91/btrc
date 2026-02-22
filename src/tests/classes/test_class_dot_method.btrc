@@ -1,0 +1,16 @@
+#include <stdio.h>
+class Adder {
+    private int total;
+    public Adder() { self.total = 0; }
+    public void add(int n) { self.total += n; }
+    public int result() { return self.total; }
+}
+int main() {
+    Adder a = Adder();
+    a.add(10);
+    a.add(20);
+    a.add(30);
+    printf("%d\n", a.result());
+    printf("PASS: test_class_dot_method\n");
+    return 0;
+}

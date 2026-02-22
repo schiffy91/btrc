@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    int x = 5;
+    int y = x > 3 ? 100 : 0;
+    printf("%d\n", y);
+    printf("PASS: test_ternary\n");
+    return 0;
+}

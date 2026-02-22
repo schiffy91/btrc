@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+float[] prefixSum(float[] a) {
+    int i = gpu_id();
+    float sum = 0.0;
+    for (int j = 0; j <= i; j++) {
+        sum = sum + a[j];
+    }
+    return sum;
+}
+
+int main() {
+    assert(3 + 4 == 7);
+    print("PASS: test_gpu_for_loop");
+    return 0;
+}

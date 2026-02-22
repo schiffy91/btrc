@@ -1,0 +1,17 @@
+#include <stdio.h>
+int main() {
+    int x = 2;
+    switch (x) {
+        case 1:
+            print("one");
+            break;
+        case 2:
+            print("two");
+            break;
+        default:
+            print("other");
+            break;
+    }
+    printf("PASS: test_switch_case\n");
+    return 0;
+}

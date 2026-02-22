@@ -1,0 +1,25 @@
+#include <assert.h>
+
+@gpu
+float[] absValue(float[] a) {
+    int i = gpu_id();
+    if (a[i] >= 0.0) {
+        return a[i];
+    } else {
+        return -a[i];
+    }
+}
+
+int main() {
+    int pos = 7;
+    int neg = -7;
+    int absPos = pos;
+    int absNeg = neg;
+    if (absNeg < 0) {
+        absNeg = -absNeg;
+    }
+    assert(absPos == 7);
+    assert(absNeg == 7);
+    print("PASS: test_gpu_abs_value");
+    return 0;
+}

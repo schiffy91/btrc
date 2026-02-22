@@ -1,0 +1,223 @@
+/* GPU-accelerated Stochastic Gradient Descent
+ *
+ * Learns y = 2x + 3 from 50 training points using momentum SGD.
+ * Gradients and momentum are computed on CPU; weight updates
+ * with heavy iterative regularization run on the GPU.
+ *
+ * The GPU kernel performs 50,000 iterations of trigonometric
+ * smoothing per weight per epoch. With 1000 epochs, this
+ * produces a sustained GPU workload (~20s on M1 Max).
+ *
+ * Tune the loop bound in sgdUpdate() to adjust runtime.
+ */
+
+#include <gpu.btrc>
+
+// ── GPU kernel ─────────────────────────────────────────────
+// Each thread updates one weight: w -= lr * (momentum + regularization)
+// The inner loop is the compute-intensive part.
+
+@gpu
+float[] sgdUpdate(float[] weights, float[] momentum, float lr) {
+    int i = gpu_id();
+    float w = weights[i];
+    float m = momentum[i];
+
+    // Iterative L2 regularization with trigonometric smoothing.
+    // 50K iterations of sin + exp per weight — the GPU-heavy part.
+    float reg = 0.0;
+    for (int k = 0; k < 50000; k++) {
+        float t = (float)k * 0.0001;
+        reg = reg + sin(w * t + t) * exp(-t);
+    }
+    reg = reg * 0.00001 * w;
+
+    return w - lr * (m + reg);
+}
+
+// ── Dataset ────────────────────────────────────────────────
+
+class Dataset {
+    public Vector<float> x;
+    public Vector<float> y;
+
+    public Dataset() {
+        self.x = [];
+        self.y = [];
+    }
+
+    public void add(float xi, float yi) {
+        self.x.push(xi);
+        self.y.push(yi);
+    }
+
+    public int size() {
+        return self.x.len;
+    }
+}
+
+// ── Linear Model ───────────────────────────────────────────
+
+class LinearModel {
+    public float slope;
+    public float intercept;
+
+    public LinearModel() {
+        self.slope = 0.0;
+        self.intercept = 0.0;
+    }
+
+    public float predict(float x) {
+        return self.slope * x + self.intercept;
+    }
+
+    public string toString() {
+        return f"y = {self.slope}x + {self.intercept}";
+    }
+}
+
+// ── Trainer (momentum SGD with GPU weight updates) ─────────
+
+class Trainer {
+    public LinearModel model;
+    public float lr;
+    public float vSlope;
+    public float vIntercept;
+
+    public Trainer(float learningRate) {
+        self.model = LinearModel();
+        self.lr = learningRate;
+        self.vSlope = 0.0;
+        self.vIntercept = 0.0;
+    }
+
+    // Mean squared error
+    public float mse(Dataset data) {
+        float total = 0.0;
+        for (int i = 0; i < data.size(); i++) {
+            float pred = self.model.predict(data.x[i]);
+            float err = pred - data.y[i];
+            total = total + err * err;
+        }
+        return total / (float)data.size();
+    }
+
+    // One training step: gradients (CPU) → momentum (CPU) → update (GPU)
+    public void step(Dataset data) {
+        int n = data.size();
+        float nf = (float)n;
+
+        // Gradient computation (CPU — needs full dataset)
+        float dSlope = 0.0;
+        float dIntercept = 0.0;
+        for (int i = 0; i < n; i++) {
+            float pred = self.model.predict(data.x[i]);
+            float err = pred - data.y[i];
+            dSlope = dSlope + 2.0 * err * data.x[i] / nf;
+            dIntercept = dIntercept + 2.0 * err / nf;
+        }
+
+        // Momentum update (CPU — simple scalar ops)
+        self.vSlope = 0.9 * self.vSlope + dSlope;
+        self.vIntercept = 0.9 * self.vIntercept + dIntercept;
+
+        // Weight update (GPU — parallel with heavy regularization)
+        float[] weights = [self.model.slope, self.model.intercept];
+        float[] mom = [self.vSlope, self.vIntercept];
+        weights = sgdUpdate(weights, mom, self.lr);
+
+        self.model.slope = weights[0];
+        self.model.intercept = weights[1];
+    }
+
+    // Train for N epochs with learning rate decay
+    public void train(Dataset data, int epochs, int logEvery) {
+        float baseLR = self.lr;
+        for (int epoch = 0; epoch < epochs; epoch++) {
+            // Cosine learning rate decay
+            float progress = (float)epoch / (float)epochs;
+            self.lr = baseLR * (1.0 - 0.9 * progress);
+
+            self.step(data);
+
+            if (epoch % logEvery == 0) {
+                float loss = self.mse(data);
+                print(f"  epoch {epoch}: {self.model.toString()}  (MSE={loss}, lr={self.lr})");
+            }
+        }
+    }
+}
+
+// ── Main ───────────────────────────────────────────────────
+
+int main() {
+    // 50 training points: y = 2x + 3 (x in [0.1, 5.0])
+    var data = Dataset();
+    data.add(0.1, 3.2);
+    data.add(0.2, 3.4);
+    data.add(0.3, 3.6);
+    data.add(0.4, 3.8);
+    data.add(0.5, 4.0);
+    data.add(0.6, 4.2);
+    data.add(0.7, 4.4);
+    data.add(0.8, 4.6);
+    data.add(0.9, 4.8);
+    data.add(1.0, 5.0);
+    data.add(1.1, 5.2);
+    data.add(1.2, 5.4);
+    data.add(1.3, 5.6);
+    data.add(1.4, 5.8);
+    data.add(1.5, 6.0);
+    data.add(1.6, 6.2);
+    data.add(1.7, 6.4);
+    data.add(1.8, 6.6);
+    data.add(1.9, 6.8);
+    data.add(2.0, 7.0);
+    data.add(2.1, 7.2);
+    data.add(2.2, 7.4);
+    data.add(2.3, 7.6);
+    data.add(2.4, 7.8);
+    data.add(2.5, 8.0);
+    data.add(2.6, 8.2);
+    data.add(2.7, 8.4);
+    data.add(2.8, 8.6);
+    data.add(2.9, 8.8);
+    data.add(3.0, 9.0);
+    data.add(3.1, 9.2);
+    data.add(3.2, 9.4);
+    data.add(3.3, 9.6);
+    data.add(3.4, 9.8);
+    data.add(3.5, 10.0);
+    data.add(3.6, 10.2);
+    data.add(3.7, 10.4);
+    data.add(3.8, 10.6);
+    data.add(3.9, 10.8);
+    data.add(4.0, 11.0);
+    data.add(4.1, 11.2);
+    data.add(4.2, 11.4);
+    data.add(4.3, 11.6);
+    data.add(4.4, 11.8);
+    data.add(4.5, 12.0);
+    data.add(4.6, 12.2);
+    data.add(4.7, 12.4);
+    data.add(4.8, 12.6);
+    data.add(4.9, 12.8);
+    data.add(5.0, 13.0);
+
+    print(f"Training linear regression on {data.size()} points");
+    print("Target: y = 2x + 3");
+    print("Optimizer: momentum SGD (beta=0.9) + GPU regularization");
+    print("");
+
+    var trainer = Trainer(0.01);
+    print(f"Initial: {trainer.model.toString()}");
+    print("");
+
+    trainer.train(data, 1000, 100);
+
+    print("");
+    print(f"Learned: {trainer.model.toString()}");
+    print(f"Final MSE: {trainer.mse(data)}");
+
+    return 0;
+}

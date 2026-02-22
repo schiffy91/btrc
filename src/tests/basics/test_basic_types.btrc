@@ -1,0 +1,60 @@
+#include <assert.h>
+
+int main() {
+    // Integer type
+    int x = 42;
+    assert(x == 42);
+
+    // Float type
+    float f = 3.14f;
+    assert(f > 3.0f);
+    assert(f < 4.0f);
+
+    // Bool type
+    bool b = true;
+    assert(b);
+    assert(!false);
+    bool b2 = false;
+    assert(!b2);
+
+    // String type
+    string s = "hello";
+    assert(s.len() == 5);
+
+    // Char type
+    char c = 'A';
+    assert(c == 65);
+    assert(c == 'A');
+
+    // Arithmetic operators
+    assert(10 + 20 == 30);
+    assert(10 - 3 == 7);
+    assert(6 * 7 == 42);
+    assert(15 / 3 == 5);
+    assert(17 % 5 == 2);
+
+    // Integer division
+    assert(7 / 2 == 3);
+
+    // Negative numbers
+    int neg = -10;
+    assert(neg == -10);
+    assert(neg + 15 == 5);
+
+    // Comparison operators
+    assert(5 > 3);
+    assert(3 < 5);
+    assert(5 >= 5);
+    assert(5 <= 5);
+    assert(5 == 5);
+    assert(5 != 4);
+
+    // Boolean logic
+    assert(true && true);
+    assert(!(true && false));
+    assert(true || false);
+    assert(!(false || false));
+
+    print("PASS: test_basic_types");
+    return 0;
+}

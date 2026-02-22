@@ -1,0 +1,82 @@
+// Test string method edge cases
+#include <assert.h>
+
+int main() {
+    // ---- Empty string operations ----
+    string empty = "";
+    assert(empty.len() == 0);
+    assert(empty.contains("") == true);
+    assert(empty.startsWith("") == true);
+    assert(empty.endsWith("") == true);
+    assert(empty.equals("") == true);
+    assert(empty.indexOf("x") == -1);
+
+    // ---- trim edge cases ----
+    string spaces = "   ";
+    string trimmed = spaces.trim();
+    assert(trimmed.equals("") == true);
+
+    string leading = "  hello";
+    assert(leading.trim().equals("hello") == true);
+
+    string trailing = "hello  ";
+    assert(trailing.trim().equals("hello") == true);
+
+    string both = "  hello  ";
+    assert(both.trim().equals("hello") == true);
+
+    // ---- substring edge cases ----
+    string s = "hello world";
+    string sub = s.substring(0, 5);
+    assert(sub.equals("hello") == true);
+
+    // Substring of single char
+    string one = s.substring(0, 1);
+    assert(one.equals("h") == true);
+
+    // ---- toUpper/toLower ----
+    string mixed = "Hello World";
+    assert(mixed.toUpper().equals("HELLO WORLD") == true);
+    assert(mixed.toLower().equals("hello world") == true);
+
+    // ---- indexOf ----
+    string text = "banana";
+    assert(text.indexOf("an") == 1);
+    assert(text.indexOf("na") == 2);
+    assert(text.indexOf("xyz") == -1);
+
+    // ---- replace ----
+    string original = "hello world";
+    string replaced = original.replace("world", "btrc");
+    assert(replaced.equals("hello btrc") == true);
+
+    // ---- repeat ----
+    string abc = "abc";
+    string repeated = abc.repeat(3);
+    assert(repeated.equals("abcabcabc") == true);
+
+    // ---- contains/startsWith/endsWith ----
+    string sentence = "the quick brown fox";
+    assert(sentence.contains("quick") == true);
+    assert(sentence.contains("slow") == false);
+    assert(sentence.startsWith("the") == true);
+    assert(sentence.startsWith("quick") == false);
+    assert(sentence.endsWith("fox") == true);
+    assert(sentence.endsWith("the") == false);
+
+    // ---- capitalize ----
+    string lower = "hello world";
+    string cap = lower.capitalize();
+    assert(cap.equals("Hello world") == true);
+
+    // ---- padLeft/padRight ----
+    string num = "42";
+    string padded = num.padLeft(5, '0');
+    assert(padded.equals("00042") == true);
+
+    string right = num.padRight(5, '.');
+    assert(right.equals("42...") == true);
+
+    print("PASS: test_string_edge_cases");
+    return 0;
+}

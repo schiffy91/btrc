@@ -1,0 +1,8 @@
+#include <stdio.h>
+#include <math.h>
+int main() {
+    double x = sqrt(9.0);
+    printf("%g\n", x);
+    printf("PASS: test_user_include_preserved\n");
+    return 0;
+}

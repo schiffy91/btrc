@@ -1,0 +1,26 @@
+#include <assert.h>
+
+@gpu
+float[] complexMath(float[] a, float[] b, float[] c, float scale) {
+    int i = gpu_id();
+    float sum = a[i] + b[i];
+    float diff = a[i] - b[i];
+    float prod = sum * diff;
+    float result = (prod + c[i]) / scale;
+    return result;
+}
+
+int main() {
+    int a = 10;
+    int b = 3;
+    int sum = a + b;
+    int diff = a - b;
+    int prod = sum * diff;
+    int result = prod / 2;
+    assert(sum == 13);
+    assert(diff == 7);
+    assert(prod == 91);
+    assert(result == 45);
+    print("PASS: test_gpu_complex_arithmetic");
+    return 0;
+}

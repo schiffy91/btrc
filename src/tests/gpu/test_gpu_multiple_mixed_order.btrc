@@ -1,0 +1,28 @@
+#include <assert.h>
+
+int square(int x) {
+    return x * x;
+}
+
+@gpu
+float[] gpuScale(float[] a, float factor) {
+    int i = gpu_id();
+    return a[i] * factor;
+}
+
+int cube(int x) {
+    return x * x * x;
+}
+
+@gpu
+float[] gpuOffset(float[] a, float offset) {
+    int i = gpu_id();
+    return a[i] + offset;
+}
+
+int main() {
+    assert(square(3) == 9);
+    assert(cube(2) == 8);
+    print("PASS: test_gpu_multiple_mixed_order");
+    return 0;
+}

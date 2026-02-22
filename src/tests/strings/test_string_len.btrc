@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    string s = "hello";
+    print(s.len());
+    printf("PASS: test_string_len\n");
+    return 0;
+}

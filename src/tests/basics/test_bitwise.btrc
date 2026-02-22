@@ -1,0 +1,31 @@
+#include <assert.h>
+
+int main() {
+    // AND
+    int a = 0xFF;
+    int b = 0x0F;
+    assert((a & b) == 15);
+
+    // OR
+    int c = 0xF0;
+    int d = 0x0F;
+    assert((c | d) == 255);
+
+    // XOR
+    assert((a ^ b) == 240);
+
+    // Left shift
+    int e = 1;
+    assert((e << 4) == 16);
+
+    // Right shift
+    int f = 256;
+    assert((f >> 4) == 16);
+
+    // Bitwise NOT
+    int g = 0;
+    assert(~g == -1);
+
+    print("PASS: test_bitwise");
+    return 0;
+}

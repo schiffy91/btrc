@@ -1,0 +1,11 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [];
+    nums.push(1);
+    nums.push(2);
+    nums.push(3);
+    printf("%d\n", nums.len);
+    nums.free();
+    printf("PASS: test_list_push\n");
+    return 0;
+}

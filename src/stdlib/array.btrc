@@ -1,0 +1,84 @@
+/* btrc standard library — Array<T>
+ * Fixed-size array with bounds checking.
+ * Unlike List<T>, the size is set at construction and does not change.
+ * Uses raw C for memory management (malloc/free).
+ */
+
+class Array<T> implements Iterable {
+    public T* data;
+    public int len;
+
+    public Array(int size) {
+        self.len = size;
+        self.data = (T*)malloc(sizeof(T) * size);
+    }
+
+    public T get(int i) {
+        if (i < 0 || i >= self.len) { exit(1); }
+        return self.data[i];
+    }
+
+    public void set(int i, T val) {
+        if (i < 0 || i >= self.len) { exit(1); }
+        self.data[i] = val;
+    }
+
+    public void fill(T val) {
+        for (int i = 0; i < self.len; i++) {
+            self.data[i] = val;
+        }
+    }
+
+    public bool contains(T val) {
+        for (int i = 0; i < self.len; i++) {
+            if (self.data[i] == val) { return true; }
+        }
+        return false;
+    }
+
+    public int indexOf(T val) {
+        for (int i = 0; i < self.len; i++) {
+            if (self.data[i] == val) { return i; }
+        }
+        return -1;
+    }
+
+    public void swap(int i, int j) {
+        if (i < 0 || i >= self.len || j < 0 || j >= self.len) { exit(1); }
+        T tmp = self.data[i];
+        self.data[i] = self.data[j];
+        self.data[j] = tmp;
+    }
+
+    public void reverse() {
+        for (int i = 0; i < self.len / 2; i++) {
+            T tmp = self.data[i];
+            self.data[i] = self.data[self.len - 1 - i];
+            self.data[self.len - 1 - i] = tmp;
+        }
+    }
+
+    public int size() {
+        return self.len;
+    }
+
+    public bool isEmpty() {
+        return self.len == 0;
+    }
+
+    public void free() {
+        free(self.data);
+        self.data = null;
+        self.len = 0;
+    }
+
+    /* Iterable<T> protocol */
+
+    public int iterLen() {
+        return self.len;
+    }
+
+    public T iterGet(int i) {
+        return self.data[i];
+    }
+}

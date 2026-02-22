@@ -1,0 +1,14 @@
+#include <assert.h>
+
+int main() {
+    // Octal value
+    int x = 0o10;
+    assert(x == 8);
+
+    // Octal permissions
+    int perms = 0o755;
+    assert(perms == 493);
+
+    print("PASS: test_octal");
+    return 0;
+}

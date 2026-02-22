@@ -1,0 +1,15 @@
+#include <stdio.h>
+class Point {
+    public int x;
+    public int y;
+    public Point(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+}
+int main() {
+    Point p = Point(10, 20);
+    printf("%d %d\n", p.x, p.y);
+    printf("PASS: test_constructor_with_params\n");
+    return 0;
+}

@@ -1,0 +1,23 @@
+#include <assert.h>
+
+@gpu
+int[] filterRange(float[] a, float lo, float hi) {
+    int i = gpu_id();
+    if (a[i] >= lo && a[i] <= hi) {
+        return 1;
+    }
+    if (a[i] < lo || a[i] > hi) {
+        return 0;
+    }
+    return 0;
+}
+
+int main() {
+    int val = 50;
+    bool inRange = val >= 10 && val <= 100;
+    bool outOfRange = val < 10 || val > 100;
+    assert(inRange);
+    assert(!outOfRange);
+    print("PASS: test_gpu_compound_condition");
+    return 0;
+}

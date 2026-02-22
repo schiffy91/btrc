@@ -1,0 +1,27 @@
+#include <stdio.h>
+class Registry {
+    public Map<string, int> scores = {};
+    public Vector<string> names = [];
+
+    public void add(string name, int score) {
+        self.names.push(name);
+        self.scores.put(name, score);
+    }
+
+    public int total() {
+        int sum = 0;
+        for n, s in self.scores {
+            sum = sum + s;
+        }
+        return sum;
+    }
+}
+int main() {
+    Registry r = Registry();
+    r.add("alice", 90);
+    r.add("bob", 85);
+    print(r.names.len);
+    print(r.total());
+    printf("PASS: test_class_with_map_and_list_fields\n");
+    return 0;
+}

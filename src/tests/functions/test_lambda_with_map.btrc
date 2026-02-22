@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [1, 2, 3];
+    Vector<int> doubled = nums.map(int function(int x) { return x * 2; });
+    print(doubled.get(0));
+    print(doubled.get(1));
+    print(doubled.get(2));
+    printf("PASS: test_lambda_with_map\n");
+    return 0;
+}

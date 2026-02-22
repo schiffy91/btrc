@@ -1,0 +1,172 @@
+#include <assert.h>
+#include <string.h>
+
+// Base class: Animal with name and speak()
+class Animal {
+    public string name;
+
+    public Animal(string name) {
+        self.name = name;
+    }
+
+    public string speak() {
+        return "...";
+    }
+}
+
+// Derived class: Dog overrides speak()
+class Dog extends Animal {
+    public Dog(string name) {
+        self.name = name;
+    }
+
+    public string speak() {
+        return "Woof";
+    }
+}
+
+// Derived class: Cat overrides speak()
+class Cat extends Animal {
+    public Cat(string name) {
+        self.name = name;
+    }
+
+    public string speak() {
+        return "Meow";
+    }
+}
+
+// Multi-level inheritance: A -> B -> C
+class A {
+    public int x;
+
+    public A(int x) {
+        self.x = x;
+    }
+
+    public int getX() {
+        return self.x;
+    }
+}
+
+class B extends A {
+    public int y;
+
+    public B(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+
+    public int getY() {
+        return self.y;
+    }
+}
+
+class C extends B {
+    public int z;
+
+    public C(int x, int y, int z) {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+    }
+
+    public int sum() {
+        return self.x + self.y + self.z;
+    }
+}
+
+// Method override: base returns value, derived returns value * 2
+class Base {
+    public int value;
+
+    public Base(int v) {
+        self.value = v;
+    }
+
+    public int compute() {
+        return self.value;
+    }
+}
+
+class Derived extends Base {
+    public Derived(int v) {
+        self.value = v;
+    }
+
+    public int compute() {
+        return self.value * 2;
+    }
+}
+
+// Inherited method without override
+class Shape {
+    public int sides;
+
+    public Shape(int sides) {
+        self.sides = sides;
+    }
+
+    public int getSides() {
+        return self.sides;
+    }
+}
+
+class Triangle extends Shape {
+    public Triangle() {
+        self.sides = 3;
+    }
+}
+
+class Square extends Shape {
+    public Square() {
+        self.sides = 4;
+    }
+}
+
+int main() {
+    // Test Animal/Dog/Cat: basic inheritance and method override
+    Dog d = Dog("Rex");
+    assert(strcmp(d.name, "Rex") == 0);
+    assert(strcmp(d.speak(), "Woof") == 0);
+
+    Cat cat = Cat("Whiskers");
+    assert(strcmp(cat.name, "Whiskers") == 0);
+    assert(strcmp(cat.speak(), "Meow") == 0);
+
+    // Test multi-level inheritance: A -> B -> C
+    C c = C(1, 2, 3);
+    assert(c.getX() == 1);
+    assert(c.getY() == 2);
+    assert(c.sum() == 6);
+    assert(c.x == 1);
+    assert(c.y == 2);
+    assert(c.z == 3);
+
+    // Test B level
+    B b = B(10, 20);
+    assert(b.getX() == 10);
+    assert(b.getY() == 20);
+    assert(b.x == 10);
+    assert(b.y == 20);
+
+    // Test method override: base returns value, derived returns value*2
+    Base base = Base(5);
+    assert(base.compute() == 5);
+    Derived derived = Derived(5);
+    assert(derived.compute() == 10);
+
+    Derived d2 = Derived(7);
+    assert(d2.compute() == 14);
+    assert(d2.value == 7);
+
+    // Test inherited method without override
+    Triangle tri = Triangle();
+    assert(tri.getSides() == 3);
+
+    Square sq = Square();
+    assert(sq.getSides() == 4);
+
+    print("PASS: test_inheritance");
+    return 0;
+}

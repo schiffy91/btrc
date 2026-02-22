@@ -1,0 +1,12 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [1, 2, 3, 4, 5];
+    nums.reverse();
+    for x in nums {
+        printf("%d ", x);
+    }
+    printf("\n");
+    nums.free();
+    printf("PASS: test_list_reverse\n");
+    return 0;
+}

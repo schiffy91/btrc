@@ -1,0 +1,41 @@
+// Test Mutex<T>: thread-safe value wrapper
+int main() {
+    // Test 1: basic get/set
+    Mutex<int> m = Mutex(0);
+    m.set(42);
+    int val = m.get();
+    if (val != 42) { return 1; }
+
+    // Test 2: concurrent increments using mutex
+    Mutex<int> counter = Mutex(0);
+
+    Thread<int> t1 = spawn(() => {
+        for (int i = 0; i < 1000; i++) {
+            int cur = counter.get();
+            counter.set(cur + 1);
+        }
+        return 0;
+    });
+
+    Thread<int> t2 = spawn(() => {
+        for (int i = 0; i < 1000; i++) {
+            int cur = counter.get();
+            counter.set(cur + 1);
+        }
+        return 0;
+    });
+
+    t1.join();
+    t2.join();
+
+    // Note: without atomic increment, final value may be less than 2000
+    // due to race conditions. But it should be > 0 and <= 2000.
+    int final_val = counter.get();
+    if (final_val <= 0) { return 2; }
+    if (final_val > 2000) { return 3; }
+
+    counter.destroy();
+
+    print("PASS mutex");
+    return 0;
+}

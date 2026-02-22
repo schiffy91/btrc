@@ -1,0 +1,48 @@
+#include <assert.h>
+#include <string.h>
+
+class Box<T> {
+    public T value;
+    public Box(T val) { self.value = val; }
+    public T get() { return self.value; }
+}
+
+class Pair<A, B> {
+    public A first;
+    public B second;
+    public Pair(A a, B b) { self.first = a; self.second = b; }
+    public A getFirst() { return self.first; }
+    public B getSecond() { return self.second; }
+}
+
+class Container<T> {
+    public T item;
+    public Container(T val) { self.item = val; }
+    public void set(T val) { self.item = val; }
+    public T get() { return self.item; }
+}
+
+int main() {
+    // Simple generic class
+    Box<int> b = Box(42);
+    assert(b.get() == 42);
+
+    // Multiple instantiations
+    Box<int> bi = Box(10);
+    Box<string> bs = Box("hello");
+    assert(bi.get() == 10);
+    assert(strcmp(bs.get(), "hello") == 0);
+
+    // Two type params
+    Pair<string, int> p = Pair("x", 42);
+    assert(strcmp(p.getFirst(), "x") == 0);
+    assert(p.getSecond() == 42);
+
+    // Generic with setter method
+    Container<int> c = Container(1);
+    c.set(99);
+    assert(c.get() == 99);
+
+    print("PASS: test_user_generics");
+    return 0;
+}

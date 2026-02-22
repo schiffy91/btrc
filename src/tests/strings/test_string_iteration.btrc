@@ -1,0 +1,33 @@
+// Test string iteration in for-in loops
+#include <assert.h>
+
+int main() {
+    // ---- Basic string iteration ----
+    string word = "hello";
+    int count = 0;
+    for c in word {
+        count = count + 1;
+    }
+    assert(count == 5);
+
+    // ---- Count specific character ----
+    string text = "banana";
+    int a_count = 0;
+    for ch in text {
+        if (ch == 'a') {
+            a_count = a_count + 1;
+        }
+    }
+    assert(a_count == 3);
+
+    // ---- Empty string iteration ----
+    string empty = "";
+    int empty_count = 0;
+    for c in empty {
+        empty_count = empty_count + 1;
+    }
+    assert(empty_count == 0);
+
+    print("PASS: test_string_iteration");
+    return 0;
+}

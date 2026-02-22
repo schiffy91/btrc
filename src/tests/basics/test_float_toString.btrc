@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    float f = 3.14;
+    string s = f.toString();
+    print(s);
+    printf("PASS: test_float_toString\n");
+    return 0;
+}

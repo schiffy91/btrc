@@ -1,0 +1,26 @@
+// Test spawn with different return types and computations
+int compute(int x) {
+    return x * x + 1;
+}
+
+int main() {
+    // Test 1: spawn with expression body lambda
+    Thread<int> t1 = spawn(() => { return compute(7); });
+    int r1 = t1.join();
+    if (r1 != 50) { return 1; }
+
+    // Test 2: multiple threads computing in parallel
+    Thread<int> t2 = spawn(() => { return compute(3); });
+    Thread<int> t3 = spawn(() => { return compute(4); });
+    int r2 = t2.join();
+    int r3 = t3.join();
+    if (r2 != 10) { return 2; }
+    if (r3 != 17) { return 3; }
+
+    // Test 3: thread returning sum of results
+    int sum = r1 + r2 + r3;
+    if (sum != 77) { return 4; }
+
+    print("PASS thread_result");
+    return 0;
+}

@@ -1,0 +1,93 @@
+// Test multi-level inheritance chain: A -> B -> C
+// Each level adds a field and a method, child constructors
+// initialize all inherited fields.
+
+class A {
+    public int x;
+
+    public A(int x) {
+        self.x = x;
+    }
+
+    public int getX() {
+        return self.x;
+    }
+
+    public string describe() {
+        return "A";
+    }
+}
+
+class B extends A {
+    public int y;
+
+    public B(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+
+    public int getY() {
+        return self.y;
+    }
+
+    public string describe() {
+        return "B";
+    }
+}
+
+class C extends B {
+    public int z;
+
+    public C(int x, int y, int z) {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+    }
+
+    public int getZ() {
+        return self.z;
+    }
+
+    public int sum() {
+        return self.x + self.y + self.z;
+    }
+
+    public string describe() {
+        return "C";
+    }
+}
+
+int main() {
+    // Test C inherits fields and methods from A and B
+    C c = C(10, 20, 30);
+    if (c.getX() == 10 && c.getY() == 20 && c.getZ() == 30) {
+        print("PASS super_chain_fields");
+    }
+
+    // Test sum method on C uses all inherited fields
+    if (c.sum() == 60) {
+        print("PASS super_chain_sum");
+    }
+
+    // Test method override at each level
+    if (c.describe() == "C") {
+        print("PASS super_chain_override_c");
+    }
+
+    B b = B(5, 15);
+    if (b.describe() == "B") {
+        print("PASS super_chain_override_b");
+    }
+
+    A a = A(99);
+    if (a.describe() == "A") {
+        print("PASS super_chain_override_a");
+    }
+
+    // Test inherited methods at each level work
+    if (b.getX() == 5) {
+        print("PASS super_chain_inherited_method");
+    }
+
+    return 0;
+}

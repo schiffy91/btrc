@@ -1,0 +1,62 @@
+/* Test ARC cleanup on exception: managed vars must be released on throw */
+
+int alive = 0;
+
+class Resource {
+    public int id;
+
+    public Resource(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+void throwingFunction() {
+    throw "error in function";
+}
+
+int main() {
+    // Test 1: new in try block, throw → destructor must run
+    try {
+        Resource r = new Resource(1);
+        throw "oops";
+    } catch (string e) {
+        // r should have been cleaned up by the exception cleanup stack
+    }
+    if (alive != 0) { return 1; }
+
+    // Test 2: multiple objects in try, throw after second
+    try {
+        Resource a = new Resource(10);
+        Resource b = new Resource(20);
+        throw "double trouble";
+    } catch (string e) {
+        // Both a and b should be cleaned up
+    }
+    if (alive != 0) { return 2; }
+
+    // Test 3: throw from a called function (not inline throw)
+    try {
+        Resource c = new Resource(30);
+        throwingFunction();
+    } catch (string e) {
+        // c should be cleaned up
+    }
+    if (alive != 0) { return 3; }
+
+    // Test 4: no throw → normal scope release (shouldn't double-free)
+    try {
+        Resource d = new Resource(40);
+        // No throw — normal scope exit releases d
+    } catch (string e) {
+        return 4;
+    }
+    if (alive != 0) { return 5; }
+
+    print("PASS: test_arc_exception");
+    return 0;
+}

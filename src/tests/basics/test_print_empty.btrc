@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    print();
+    print("done");
+    printf("PASS: test_print_empty\n");
+    return 0;
+}

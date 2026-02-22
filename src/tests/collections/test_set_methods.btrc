@@ -1,0 +1,56 @@
+// Test Set functional methods: filter, any, all, forEach
+#include <assert.h>
+
+bool is_even(int x) {
+    return x % 2 == 0;
+}
+
+bool is_positive(int x) {
+    return x > 0;
+}
+
+bool is_negative(int x) {
+    return x < 0;
+}
+
+int main() {
+    // ---- filter ----
+    Set<int> nums = {};
+    nums.add(1);
+    nums.add(2);
+    nums.add(3);
+    nums.add(4);
+    nums.add(5);
+    nums.add(6);
+
+    Set<int> evens = nums.filter(is_even);
+    assert(evens.len == 3);
+    assert(evens.contains(2));
+    assert(evens.contains(4));
+    assert(evens.contains(6));
+    assert(!evens.contains(1));
+
+    // ---- any ----
+    assert(nums.any(is_even) == true);
+    assert(nums.any(is_negative) == false);
+
+    // ---- all ----
+    assert(nums.all(is_positive) == true);
+    assert(nums.all(is_even) == false);
+
+    // ---- empty set edge cases ----
+    Set<int> empty = {};
+    assert(empty.any(is_even) == false);
+    assert(empty.all(is_even) == true);  // vacuously true
+    Set<int> empty_filtered = empty.filter(is_even);
+    assert(empty_filtered.len == 0);
+
+    // cleanup
+    nums.free();
+    evens.free();
+    empty.free();
+    empty_filtered.free();
+
+    print("PASS: test_set_methods");
+    return 0;
+}

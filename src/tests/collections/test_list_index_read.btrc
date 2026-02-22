@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [10, 20, 30];
+    printf("%d %d %d\n", nums[0], nums[1], nums[2]);
+    nums.free();
+    printf("PASS: test_list_index_read\n");
+    return 0;
+}

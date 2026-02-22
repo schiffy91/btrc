@@ -1,0 +1,4 @@
+circle
+rect
+point
+PASS: test_rich_enum_multiple_variants

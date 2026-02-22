@@ -1,0 +1,13 @@
+#include <assert.h>
+
+@gpu
+float[] sqrtArray(float[] a) {
+    int i = gpu_id();
+    return sqrt(a[i]);
+}
+
+int main() {
+    assert(4 * 4 == 16);
+    print("PASS: test_gpu_math_sqrt");
+    return 0;
+}

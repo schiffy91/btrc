@@ -1,0 +1,40 @@
+bin/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.o
+*.dSYM/
+
+# Compilation cache
+.btrc-cache/
+
+# Generated C files from btrc compilation
+src/tests/**/*.c
+examples/**/*.c
+
+# Example binaries (compiled from generated C)
+examples/todo/todo
+examples/game/game
+examples/triangle/triangle
+examples/sgd/sgd
+
+# macOS
+.DS_Store
+
+# LSP server venv
+src/devex/lsp/.venv/
+
+# Generated devcontainer
+.devcontainer/
+
+# Claude Code
+.claude/
+
+# VS Code extension build artifacts
+src/devex/ext/out/
+src/devex/ext/node_modules/
+src/devex/ext/*.vsix
+
+# GPU runtime
+src/stdlib/gpu/build/

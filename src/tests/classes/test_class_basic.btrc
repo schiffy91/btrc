@@ -1,0 +1,16 @@
+#include <stdio.h>
+class Counter {
+    private int count;
+    public Counter() { self.count = 0; }
+    public void inc() { self.count++; }
+    public int get() { return self.count; }
+}
+int main() {
+    Counter c = Counter();
+    c.inc();
+    c.inc();
+    c.inc();
+    printf("%d\n", c.get());
+    printf("PASS: test_class_basic\n");
+    return 0;
+}

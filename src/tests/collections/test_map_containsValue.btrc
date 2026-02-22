@@ -1,0 +1,13 @@
+#include <assert.h>
+
+int main() {
+    Map<string, int> m = {};
+    m.put("x", 10);
+    m.put("y", 20);
+    assert(m.containsValue(10));
+    assert(!m.containsValue(99));
+    m.free();
+
+    print("PASS: test_map_containsValue");
+    return 0;
+}

@@ -1,0 +1,13 @@
+#include <assert.h>
+
+@gpu
+float[] linearTransform(float[] x, float slope, float intercept) {
+    int i = gpu_id();
+    return x[i] * slope + intercept;
+}
+
+int main() {
+    assert(2 * 3 + 1 == 7);
+    print("PASS: test_gpu_multiple_scalars");
+    return 0;
+}

@@ -1,0 +1,9 @@
+/* btrc standard library — Iterable<T> interface
+ * Any class that implements iterLen() and iterGet() supports for-in loops.
+ * Map<K,V> also provides iterValueAt() for two-variable iteration.
+ */
+
+interface Iterable<T> {
+    int iterLen();
+    T iterGet(int i);
+}

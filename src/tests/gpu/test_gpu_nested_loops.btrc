@@ -1,0 +1,27 @@
+#include <assert.h>
+
+@gpu
+float[] matMul(float[] a, float[] b, int n) {
+    int row = gpu_id();
+    float sum = 0.0;
+    for (int k = 0; k < n; k++) {
+        float aVal = a[row * n + k];
+        float bVal = b[k * n + 0];
+        for (int col = 0; col < n; col++) {
+            sum = sum + aVal * bVal;
+        }
+    }
+    return sum;
+}
+
+int main() {
+    int total = 0;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            total = total + (i * j);
+        }
+    }
+    assert(total == 36);
+    print("PASS: test_gpu_nested_loops");
+    return 0;
+}

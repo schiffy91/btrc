@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+float[] weightedIndex(float[] values, int[] weights) {
+    int i = gpu_id();
+    return values[i] * weights[i];
+}
+
+int main() {
+    float f = 2.5;
+    int n = 4;
+    float result = f * n;
+    assert(result > 9.9f);
+    assert(result < 10.1f);
+    print("PASS: test_gpu_float_int_mixed");
+    return 0;
+}

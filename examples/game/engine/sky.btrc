@@ -1,0 +1,36 @@
+/* btrc 3D Engine -- Sky
+ *
+ * Sky gradient and fog atmosphere.
+ * Writes 8 uniforms: sky_top (3) + fogDensity (1) + sky_bot (3) + pad (1).
+ */
+
+class Sky {
+    public float topR;
+    public float topG;
+    public float topB;
+    public float botR;
+    public float botG;
+    public float botB;
+    public float fogDensity;
+
+    public Sky() {
+        self.topR = 0.55;
+        self.topG = 0.75;
+        self.topB = 1.0;
+        self.botR = 0.25;
+        self.botG = 0.45;
+        self.botB = 0.85;
+        self.fogDensity = 0.06;
+    }
+
+    public void writeUniforms(GPUUniform u, int offset) {
+        u.set(offset + 0, self.topR);
+        u.set(offset + 1, self.topG);
+        u.set(offset + 2, self.topB);
+        u.set(offset + 3, self.fogDensity);
+        u.set(offset + 4, self.botR);
+        u.set(offset + 5, self.botG);
+        u.set(offset + 6, self.botB);
+        u.set(offset + 7, 0.0);
+    }
+}

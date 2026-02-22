@@ -1,0 +1,14 @@
+#include <assert.h>
+
+int main() {
+    // sizeof int
+    int s = sizeof(int);
+    assert(s > 0);
+
+    // sizeof double
+    int sd = sizeof(double);
+    assert(sd == 8);
+
+    print("PASS: test_sizeof");
+    return 0;
+}

@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    string s = "42";
+    string z = s.zfill(5);
+    print(z);
+    printf("PASS: test_zfill_basic\n");
+    return 0;
+}

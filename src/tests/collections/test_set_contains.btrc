@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    Set<int> s = {};
+    s.add(10);
+    s.add(20);
+    if (s.contains(10)) { print("yes"); }
+    if (!s.contains(99)) { print("no"); }
+    printf("PASS: test_set_contains\n");
+    return 0;
+}

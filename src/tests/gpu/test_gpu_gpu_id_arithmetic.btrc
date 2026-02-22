@@ -1,0 +1,14 @@
+#include <assert.h>
+
+@gpu
+int[] indexSquared(int[] a) {
+    int i = gpu_id();
+    return i * i;
+}
+
+int main() {
+    assert(3 * 3 == 9);
+    assert(4 * 4 == 16);
+    print("PASS: test_gpu_gpu_id_arithmetic");
+    return 0;
+}

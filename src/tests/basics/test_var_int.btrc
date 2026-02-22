@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    var x = 42;
+    printf("%d\n", x);
+    printf("PASS: test_var_int\n");
+    return 0;
+}

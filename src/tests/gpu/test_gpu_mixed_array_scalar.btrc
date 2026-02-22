@@ -1,0 +1,27 @@
+#include <assert.h>
+
+@gpu
+float[] clampValues(float[] a, float minVal, float maxVal) {
+    int i = gpu_id();
+    float val = a[i];
+    if (val < minVal) {
+        return minVal;
+    }
+    if (val > maxVal) {
+        return maxVal;
+    }
+    return val;
+}
+
+int main() {
+    int x = 50;
+    if (x < 0) {
+        x = 0;
+    }
+    if (x > 100) {
+        x = 100;
+    }
+    assert(x == 50);
+    print("PASS: test_gpu_mixed_array_scalar");
+    return 0;
+}

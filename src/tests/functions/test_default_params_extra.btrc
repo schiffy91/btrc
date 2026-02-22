@@ -1,0 +1,16 @@
+#include <assert.h>
+#include <string.h>
+
+string greet(string name, string greeting = "Hello") {
+    return f"{greeting}, {name}!";
+}
+
+int main() {
+    string g1 = greet("World");
+    assert(strcmp(g1, "Hello, World!") == 0);
+    string g2 = greet("btrc", "Hey");
+    assert(strcmp(g2, "Hey, btrc!") == 0);
+
+    print("PASS: test_default_params_extra");
+    return 0;
+}

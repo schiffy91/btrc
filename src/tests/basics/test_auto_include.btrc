@@ -1,0 +1,16 @@
+#include <assert.h>
+#include <stdio.h>
+#include <math.h>
+
+int main() {
+    // Auto-include math
+    double x = sqrt(4.0);
+    assert(x > 1.9 && x < 2.1);
+
+    // User include preserved
+    double y = sqrt(9.0);
+    assert(y > 2.9 && y < 3.1);
+
+    print("PASS: test_auto_include");
+    return 0;
+}

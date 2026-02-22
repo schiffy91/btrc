@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    int x = 42;
+    print(f"value: {{x}} = {x}");
+    printf("PASS: test_literal_braces\n");
+    return 0;
+}

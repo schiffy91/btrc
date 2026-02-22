@@ -1,0 +1,23 @@
+#include <stdio.h>
+class Vec2 {
+    public int x;
+    public int y;
+    public Vec2(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+    public Vec2 __add__(Vec2 other) {
+        return Vec2(self.x + other.x, self.y + other.y);
+    }
+    public bool __eq__(Vec2 other) {
+        return self.x == other.x && self.y == other.y;
+    }
+}
+int main() {
+    Vec2 a = Vec2(1, 2);
+    Vec2 b = Vec2(3, 4);
+    Vec2 c = a + b;
+    printf("%d %d\n", c.x, c.y);
+    printf("PASS: test_vec2_add\n");
+    return 0;
+}

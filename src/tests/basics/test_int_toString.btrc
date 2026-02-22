@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    int n = 42;
+    string s = n.toString();
+    print(s);
+    printf("PASS: test_int_toString\n");
+    return 0;
+}

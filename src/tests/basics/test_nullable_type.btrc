@@ -1,0 +1,12 @@
+#include <stdio.h>
+int main() {
+    int* p = null;
+    if (p == null) {
+        print("is null");
+    }
+    int x = 42;
+    p = &x;
+    printf("%d\n", *p);
+    printf("PASS: test_nullable_type\n");
+    return 0;
+}

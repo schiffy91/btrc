@@ -1,0 +1,29 @@
+#include <stdio.h>
+class Result<T, E> {
+    private bool _ok;
+    private T _value;
+    private E _error;
+
+    public Result(bool ok, T value, E error) {
+        self._ok = ok;
+        self._value = value;
+        self._error = error;
+    }
+
+    public bool isOk() { return self._ok; }
+    public bool isErr() { return !self._ok; }
+    public T unwrap() { return self._value; }
+    public E unwrapErr() { return self._error; }
+}
+
+int main() {
+    Result<int, string> r = new Result<int, string>(true, 42, "");
+    if (r.isOk()) {
+        print(r.unwrap());
+    }
+    if (!r.isErr()) {
+        print("not an error");
+    }
+    printf("PASS: test_result_ok\n");
+    return 0;
+}

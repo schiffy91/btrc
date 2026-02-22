@@ -1,0 +1,15 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [];
+    nums.push(100);
+    nums.push(200);
+    nums.push(300);
+    int sum = 0;
+    for x in nums {
+        sum += x;
+    }
+    printf("%d %d\n", nums.len, sum);
+    nums.free();
+    printf("PASS: test_list_dot_methods\n");
+    return 0;
+}

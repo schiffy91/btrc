@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    Vector<int> a = [1, 2, 3, 4, 5];
+    Vector<int> t = a.take(3);
+    print(t.size());
+    print(t.get(0));
+    print(t.get(2));
+    printf("PASS: test_take\n");
+    return 0;
+}

@@ -1,0 +1,4 @@
+true
+true
+false
+PASS: test_string_startsWith_endsWith

@@ -1,0 +1,194 @@
+/* btrc 3D Engine -- Scene
+ *
+ * Composes Camera, Light, Material, Ground, Sky into a renderable scene.
+ * Owns the WGSL shader and GPU uniform buffer (32 floats).
+ */
+
+/* Uniform buffer offsets */
+int U_CAMERA   = 0;
+int U_LIGHT    = 8;
+int U_BALL     = 12;
+int U_MATERIAL = 16;
+int U_GROUND   = 21;
+int U_TIME     = 23;
+int U_SKY      = 24;
+int U_COUNT    = 32;
+
+class Scene {
+    public Camera camera;
+    public Light light;
+    public Material ballMaterial;
+    public Ground ground;
+    public Sky sky;
+    public GPURenderPipeline _pipeline;
+    public GPUUniform _uniform;
+    public int width;
+    public int height;
+
+    public Scene(GPU gpu, int w, int h) {
+        self.width = w;
+        self.height = h;
+        self.camera = new Camera();
+        self.light = new Light();
+        self.ballMaterial = new Material(0.95, 0.25, 0.12);
+        self.ground = new Ground();
+        self.sky = new Sky();
+
+        var shader = gpu.createShader("""
+            struct VsOut {
+                @builtin(position) pos: vec4f,
+                @location(0) uv: vec2f,
+            }
+
+            @vertex fn vs_main(@builtin(vertex_index) i: u32) -> VsOut {
+                var out: VsOut;
+                var verts = array<vec2f, 3>(
+                    vec2f(-1.0, -1.0),
+                    vec2f( 3.0, -1.0),
+                    vec2f(-1.0,  3.0)
+                );
+                out.pos = vec4f(verts[i], 0.0, 1.0);
+                out.uv = verts[i];
+                return out;
+            }
+
+            struct Uniforms {
+                cam_pos: vec3f, fov: f32,
+                cam_target: vec3f, aspect: f32,
+                light_dir: vec3f, ambient: f32,
+                ball_pos: vec3f, ball_radius: f32,
+                ball_color: vec3f, shininess: f32,
+                fresnel_str: f32, checker_dark: f32, checker_light: f32, time: f32,
+                sky_top: vec3f, fog_density: f32,
+                sky_bot: vec3f, _pad: f32,
+            }
+            @group(0) @binding(0) var<uniform> u: Uniforms;
+
+            fn sdSphere(p: vec3f, c: vec3f, r: f32) -> f32 {
+                return length(p - c) - r;
+            }
+
+            fn sdPlane(p: vec3f) -> f32 { return p.y; }
+
+            fn map(p: vec3f) -> vec2f {
+                let sphere = sdSphere(p, u.ball_pos, u.ball_radius);
+                let plane  = sdPlane(p);
+                if (sphere < plane) { return vec2f(sphere, 1.0); }
+                return vec2f(plane, 0.0);
+            }
+
+            fn calcNormal(p: vec3f) -> vec3f {
+                let e = vec2f(0.001, 0.0);
+                return normalize(vec3f(
+                    map(p + e.xyy).x - map(p - e.xyy).x,
+                    map(p + e.yxy).x - map(p - e.yxy).x,
+                    map(p + e.yyx).x - map(p - e.yyx).x
+                ));
+            }
+
+            fn softShadow(ro: vec3f, rd: vec3f) -> f32 {
+                var t = 0.05;
+                var res = 1.0;
+                for (var i = 0; i < 48; i++) {
+                    let h = map(ro + rd * t).x;
+                    res = min(res, 6.0 * h / t);
+                    t += clamp(h, 0.02, 0.2);
+                    if (h < 0.001 || t > 20.0) { break; }
+                }
+                return clamp(res, 0.0, 1.0);
+            }
+
+            fn checker(p: vec2f) -> f32 {
+                let f = floor(p);
+                let c = ((i32(f.x) + i32(f.y)) % 2 + 2) % 2;
+                return select(u.checker_dark, u.checker_light, c == 0);
+            }
+
+            @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
+                let p = vec2f(uv.x * u.aspect, uv.y);
+                let fwd = normalize(u.cam_target - u.cam_pos);
+                let right = normalize(cross(fwd, vec3f(0.0, 1.0, 0.0)));
+                let up = cross(right, fwd);
+                let rd = normalize(fwd * u.fov + right * p.x + up * p.y);
+
+                var t = 0.0;
+                var mat = 0.0;
+                for (var i = 0; i < 80; i++) {
+                    let pos = u.cam_pos + rd * t;
+                    let d = map(pos);
+                    if (d.x < 0.001) { mat = d.y; break; }
+                    if (t > 40.0)    { break; }
+                    t += d.x;
+                }
+
+                if (t > 40.0) {
+                    let sky = mix(u.sky_top, u.sky_bot,
+                        clamp(uv.y * 0.5 + 0.5, 0.0, 1.0));
+                    return vec4f(sky, 1.0);
+                }
+
+                let pos = u.cam_pos + rd * t;
+                let nor = calcNormal(pos);
+                let ld = normalize(u.light_dir);
+                let diff = max(dot(nor, ld), 0.0);
+                let sh = softShadow(pos + nor * 0.02, ld);
+
+                var col: vec3f;
+                if (mat > 0.5) {
+                    col = u.ball_color * (diff * sh + u.ambient);
+                    let fresnel = pow(1.0 - max(dot(nor, -rd), 0.0), 3.0);
+                    col += vec3f(0.6, 0.8, 1.0) * fresnel * u.fresnel_str;
+                    let refl = reflect(-ld, nor);
+                    let spec = pow(max(dot(refl, -rd), 0.0), u.shininess) * sh;
+                    col += vec3f(1.0) * spec * 0.6;
+                } else {
+                    let check = checker(pos.xz);
+                    let base = vec3f(check * 0.9, check * 0.95, check * 1.0);
+                    col = base * (diff * sh * 0.8 + u.ambient);
+                }
+
+                let fog = exp(-t * u.fog_density);
+                col = mix(u.sky_top, col, fog);
+                col = pow(col, vec3f(1.0 / 2.2));
+                return vec4f(col, 1.0);
+            }
+        """);
+
+        self._pipeline = gpu.createPipeline(shader);
+        self._uniform = GPUUniform(gpu._handle, U_COUNT);
+    }
+
+    public void render(GPU gpu, GameObject player, float time) {
+        float aspect = 1.0 * self.width / self.height;
+
+        /* Camera */
+        self.camera.follow(
+            player.position.x, player.position.y,
+            player.position.z, 4.5, 5.5
+        );
+        self.camera.writeUniforms(self._uniform, U_CAMERA);
+        self._uniform.set(7, aspect);
+
+        /* Light */
+        self.light.writeUniforms(self._uniform, U_LIGHT);
+
+        /* Ball position + radius */
+        self._uniform.set(U_BALL + 0, player.position.x);
+        self._uniform.set(U_BALL + 1, player.position.y);
+        self._uniform.set(U_BALL + 2, player.position.z);
+        self._uniform.set(U_BALL + 3, BALL_RADIUS);
+
+        /* Material + ground + time */
+        self.ballMaterial.writeUniforms(self._uniform, U_MATERIAL);
+        self.ground.writeUniforms(self._uniform, U_GROUND);
+        self._uniform.set(U_TIME, time);
+
+        /* Sky */
+        self.sky.writeUniforms(self._uniform, U_SKY);
+
+        if (gpu.beginFrame(0.0, 0.0, 0.0)) {
+            gpu.drawWithUniform(self._pipeline, 3, self._uniform);
+            gpu.endFrame();
+        }
+    }
+}

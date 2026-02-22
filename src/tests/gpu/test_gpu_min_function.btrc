@@ -1,0 +1,22 @@
+#include <assert.h>
+
+@gpu
+float[] elementMin(float[] a, float[] b) {
+    int i = gpu_id();
+    if (a[i] < b[i]) {
+        return a[i];
+    }
+    return b[i];
+}
+
+int main() {
+    int a = 10;
+    int b = 20;
+    int smaller = a;
+    if (b < a) {
+        smaller = b;
+    }
+    assert(smaller == 10);
+    print("PASS: test_gpu_min_function");
+    return 0;
+}

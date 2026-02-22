@@ -1,0 +1,20 @@
+/* btrc 3D Engine -- Ground
+ *
+ * Ground plane with checkerboard pattern.
+ * Writes 2 uniforms: checkerDark (1) + checkerLight (1).
+ */
+
+class Ground {
+    public float checkerDark;
+    public float checkerLight;
+
+    public Ground() {
+        self.checkerDark = 0.35;
+        self.checkerLight = 0.55;
+    }
+
+    public void writeUniforms(GPUUniform u, int offset) {
+        u.set(offset + 0, self.checkerDark);
+        u.set(offset + 1, self.checkerLight);
+    }
+}

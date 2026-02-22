@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    Vector<float> vals = [1.5, 2.5, 3.5, 2.5];
+    printf("%d %d\n", vals.indexOf(2.5), vals.lastIndexOf(2.5));
+    vals.free();
+    printf("PASS: test_indexof_float\n");
+    return 0;
+}

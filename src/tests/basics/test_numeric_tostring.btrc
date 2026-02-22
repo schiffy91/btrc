@@ -1,0 +1,24 @@
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    // int toString
+    int n = 42;
+    string s = n.toString();
+    assert(strcmp(s, "42") == 0);
+
+    // float toString
+    float f = 3.14;
+    string fs = f.toString();
+    assert(fs[0] == '3');
+    assert(fs[1] == '.');
+    assert(fs[2] == '1');
+
+    // bool toString
+    bool b = true;
+    string bs = b.toString();
+    assert(strcmp(bs, "true") == 0);
+
+    print("PASS: test_numeric_tostring");
+    return 0;
+}

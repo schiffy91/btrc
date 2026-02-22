@@ -1,0 +1,44 @@
+#include <assert.h>
+#include <string.h>
+
+abstract class Shape {
+    public abstract double area();
+    public string kind() { return "shape"; }
+}
+
+class Circle extends Shape {
+    public double r;
+    public Circle(double r) { self.r = r; }
+    public double area() { return 3.14 * self.r * self.r; }
+}
+
+abstract class Animal {
+    public abstract string speak();
+}
+
+class Cat extends Animal {
+    public Cat() {}
+    public string speak() { return "Meow"; }
+}
+
+class Duck extends Animal {
+    public Duck() {}
+    public string speak() { return "Quack"; }
+}
+
+int main() {
+    // Abstract class with concrete method
+    Circle c = Circle(1.0);
+    double a = c.area();
+    assert(a > 3.13 && a < 3.15);
+    assert(strcmp(c.kind(), "shape") == 0);
+
+    // Multiple subclasses of abstract
+    Cat cat = Cat();
+    Duck duck = Duck();
+    assert(strcmp(cat.speak(), "Meow") == 0);
+    assert(strcmp(duck.speak(), "Quack") == 0);
+
+    print("PASS: test_abstract_classes");
+    return 0;
+}

@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [1, 2, 3];
+    print(nums.lastIndexOf(99));
+    nums.free();
+    printf("PASS: test_lastindexof_not_found\n");
+    return 0;
+}

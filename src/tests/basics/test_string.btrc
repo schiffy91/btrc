@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    string s = "world";
+    printf("hello %s\n", s);
+    printf("PASS: test_string\n");
+    return 0;
+}

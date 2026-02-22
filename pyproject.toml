@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "btrc"
+version = "0.1.0"
+description = "A language that transpiles to C"
+requires-python = ">=3.13"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.1.0"]
+
+[project.scripts]
+btrcpy = "src.compiler.python.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["src/compiler/python/tests", "src/tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E402",   # scripts use sys.path.insert() before imports — unavoidable
+    "E501",   # line-length already set to 120; remaining cases are strings/comments
+    "E701",   # compact one-liners (e.g. `if x: return`) used idiomatically throughout
+    "SIM102", # nested ifs are often more readable than long `and` chains in parser/analyzer
+    "SIM108", # ternary expressions less readable for multi-line conditions
+    "UP007",  # Optional[X] / Union[X, Y] is more explicit; used consistently in codebase
+    "UP045",  # same as UP007 — keep Optional[X] over X | None
+    "UP015",  # open("r") vs open() — explicit mode is clearer
+    "B905",   # zip(strict=True) not needed — lengths are always matched by construction
+    "RUF005", # [a] + list is clearer intent than [a, *list] for concatenation patterns
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.pyright]
+extraPaths = ["."]
+pythonVersion = "3.13"

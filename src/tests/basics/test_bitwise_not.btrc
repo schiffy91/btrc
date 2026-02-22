@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    int a = 0;
+    print(~a);
+    printf("PASS: test_bitwise_not\n");
+    return 0;
+}

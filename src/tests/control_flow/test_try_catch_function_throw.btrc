@@ -1,0 +1,18 @@
+#include <stdio.h>
+void risky(int x) {
+    if (x < 0) {
+        throw "negative value";
+    }
+}
+int main() {
+    try {
+        risky(5);
+        print("ok");
+        risky(-1);
+        print("should not reach");
+    } catch (string e) {
+        print(f"error: {e}");
+    }
+    printf("PASS: test_try_catch_function_throw\n");
+    return 0;
+}

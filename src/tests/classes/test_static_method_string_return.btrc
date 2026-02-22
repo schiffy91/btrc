@@ -1,0 +1,12 @@
+#include <string.h>
+#include <stdio.h>
+class Greeter {
+    class string greet(string name) {
+        return f"Hello, {name}!";
+    }
+}
+int main() {
+    printf("%s\n", Greeter.greet("world"));
+    printf("PASS: test_static_method_string_return\n");
+    return 0;
+}

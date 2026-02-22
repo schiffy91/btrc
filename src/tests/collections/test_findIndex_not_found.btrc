@@ -1,0 +1,9 @@
+#include <stdio.h>
+bool isNeg(int x) { return x < 0; }
+int main() {
+    Vector<int> a = [1, 2, 3];
+    int idx = a.findIndex(isNeg);
+    print(idx);
+    printf("PASS: test_findIndex_not_found\n");
+    return 0;
+}

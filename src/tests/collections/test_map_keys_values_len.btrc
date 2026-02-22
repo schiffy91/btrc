@@ -1,0 +1,12 @@
+#include <stdio.h>
+int main() {
+    Map<int, int> m = {10: 100, 20: 200, 30: 300};
+    Vector<int> k = m.keys();
+    Vector<int> v = m.values();
+    printf("%d %d %d\n", m.len, k.len, v.len);
+    k.free();
+    v.free();
+    m.free();
+    printf("PASS: test_map_keys_values_len\n");
+    return 0;
+}

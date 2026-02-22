@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    int perms = 0o755;
+    print(perms);
+    printf("PASS: test_octal_permissions\n");
+    return 0;
+}

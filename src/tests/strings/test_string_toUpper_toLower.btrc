@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    string s = "Hello";
+    print(s.toUpper());
+    print(s.toLower());
+    printf("PASS: test_string_toUpper_toLower\n");
+    return 0;
+}

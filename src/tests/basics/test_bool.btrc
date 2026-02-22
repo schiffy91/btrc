@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    bool a = true;
+    bool b = false;
+    printf("%d %d\n", a, b);
+    printf("PASS: test_bool\n");
+    return 0;
+}

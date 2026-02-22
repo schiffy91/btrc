@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    string s = "hello";
+    print(f"upper: {s.toUpper()}");
+    printf("PASS: test_fstring_with_string_method\n");
+    return 0;
+}

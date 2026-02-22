@@ -1,0 +1,30 @@
+#include <assert.h>
+
+class Point {
+    public int x;
+    public int y;
+    public Point(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+}
+
+int main() {
+    var x = 42;
+    assert(x == 42);
+    var s = "hello";
+    assert(s.len() == 5);
+    var b = true;
+    assert(b);
+    var p = Point(10, 20);
+    assert(p.x == 10);
+    assert(p.y == 20);
+    // var in for-init
+    int sum = 0;
+    for (var i = 0; i < 5; i++) {
+        sum += i;
+    }
+    assert(sum == 10);
+    print("PASS: test_var_inference");
+    return 0;
+}

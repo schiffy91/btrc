@@ -1,0 +1,28 @@
+// Test spawning 3 threads that return integers, join all, sum results
+int double_it(int x) {
+    return x * 2;
+}
+
+int main() {
+    // Spawn 3 threads with different computations
+    Thread<int> t1 = spawn(() => { return double_it(5); });
+    Thread<int> t2 = spawn(() => { return double_it(10); });
+    Thread<int> t3 = spawn(() => { return double_it(15); });
+
+    // Join all threads and collect results
+    int r1 = t1.join();
+    int r2 = t2.join();
+    int r3 = t3.join();
+
+    // Verify individual results
+    if (r1 != 10) { return 1; }
+    if (r2 != 20) { return 2; }
+    if (r3 != 30) { return 3; }
+
+    // Verify sum
+    int sum = r1 + r2 + r3;
+    if (sum != 60) { return 4; }
+
+    print("PASS thread_multiple");
+    return 0;
+}

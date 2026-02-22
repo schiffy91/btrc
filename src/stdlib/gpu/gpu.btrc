@@ -1,0 +1,196 @@
+/* btrc standard library — GPU (WebGPU)
+ * Hardware-accelerated graphics via the WebGPU standard.
+ * Works with wgpu-native (default) or Dawn (Google).
+ *
+ * NOT auto-included. Use:  #include "gpu.btrc"
+ * Build:  make gpu
+ */
+
+#include <btrc_gpu.h>
+
+/* ---- Forward declarations for C runtime functions ---- */
+void* btrc_gpu_window_create(string title, int width, int height);
+bool  btrc_gpu_window_is_open(void* win);
+void  btrc_gpu_window_poll(void* win);
+int   btrc_gpu_window_width(void* win);
+int   btrc_gpu_window_height(void* win);
+void  btrc_gpu_window_destroy(void* win);
+
+void* btrc_gpu_init(void* win);
+void  btrc_gpu_destroy(void* gpu);
+
+void* btrc_gpu_create_shader(void* gpu, string wgsl_source);
+void  btrc_gpu_shader_destroy(void* shader);
+
+void* btrc_gpu_create_render_pipeline(void* gpu, void* shader,
+                                      string vert_entry, string frag_entry);
+void  btrc_gpu_pipeline_destroy(void* pipeline);
+
+bool  btrc_gpu_begin_frame(void* gpu, float r, float g, float b, float a);
+void  btrc_gpu_draw(void* gpu, void* pipeline, int vertex_count);
+void  btrc_gpu_end_frame(void* gpu);
+
+/* ---- Keyboard + time ---- */
+bool  btrc_gpu_window_key_pressed(void* win, int key);
+float btrc_gpu_get_time();
+
+/* ---- Uniform buffer helpers ---- */
+void* btrc_gpu_create_uniform(void* gpu, int float_count);
+void  btrc_gpu_set_uniform(void* uniform, int index, float value);
+void  btrc_gpu_upload_uniform(void* gpu, void* uniform);
+void  btrc_gpu_draw_uniform(void* gpu, void* pipeline, int vertex_count, void* uniform);
+void  btrc_gpu_uniform_destroy(void* uniform);
+
+
+class GPUWindow {
+    public void* _handle;
+
+    public GPUWindow(string title, int width, int height) {
+        self._handle = btrc_gpu_window_create(title, width, height);
+    }
+
+    public bool isOpen() {
+        return btrc_gpu_window_is_open(self._handle);
+    }
+
+    public void poll() {
+        btrc_gpu_window_poll(self._handle);
+    }
+
+    public int width() {
+        return btrc_gpu_window_width(self._handle);
+    }
+
+    public int height() {
+        return btrc_gpu_window_height(self._handle);
+    }
+
+    public bool keyPressed(int key) {
+        return btrc_gpu_window_key_pressed(self._handle, key);
+    }
+
+    public void __del__() {
+        if (self._handle != null) {
+            btrc_gpu_window_destroy(self._handle);
+        }
+    }
+}
+
+class GPUShader {
+    public void* _handle;
+
+    public GPUShader(void* h) {
+        self._handle = h;
+    }
+
+    public void __del__() {
+        if (self._handle != null) {
+            btrc_gpu_shader_destroy(self._handle);
+        }
+    }
+}
+
+class GPURenderPipeline {
+    public void* _handle;
+
+    public GPURenderPipeline(void* h) {
+        self._handle = h;
+    }
+
+    public void __del__() {
+        if (self._handle != null) {
+            btrc_gpu_pipeline_destroy(self._handle);
+        }
+    }
+}
+
+class GPUUniform {
+    public void* _handle;
+    public void* _gpu;
+
+    public GPUUniform(void* gpuHandle, int floatCount) {
+        self._gpu = gpuHandle;
+        self._handle = btrc_gpu_create_uniform(gpuHandle, floatCount);
+    }
+
+    public void set(int index, float value) {
+        btrc_gpu_set_uniform(self._handle, index, value);
+    }
+
+    public void __del__() {
+        if (self._handle != null) {
+            btrc_gpu_uniform_destroy(self._handle);
+        }
+    }
+}
+
+class GPU {
+    public void* _handle;
+
+    public GPU(GPUWindow window) {
+        self._handle = btrc_gpu_init(window._handle);
+    }
+
+    public GPUShader createShader(string wgsl) {
+        return GPUShader(btrc_gpu_create_shader(self._handle, wgsl));
+    }
+
+    public GPURenderPipeline createPipeline(GPUShader shader) {
+        return GPURenderPipeline(
+            btrc_gpu_create_render_pipeline(
+                self._handle, shader._handle, "vs_main", "fs_main"));
+    }
+
+    public bool beginFrame(float r, float g, float b) {
+        return btrc_gpu_begin_frame(self._handle, r, g, b, 1.0);
+    }
+
+    public void draw(GPURenderPipeline pipeline, int vertexCount) {
+        btrc_gpu_draw(self._handle, pipeline._handle, vertexCount);
+    }
+
+    public void endFrame() {
+        btrc_gpu_end_frame(self._handle);
+    }
+
+    public void drawWithUniform(GPURenderPipeline pipeline, int vertexCount, GPUUniform uniform) {
+        btrc_gpu_draw_uniform(self._handle, pipeline._handle, vertexCount, uniform._handle);
+    }
+
+    public void __del__() {
+        if (self._handle != null) {
+            btrc_gpu_destroy(self._handle);
+        }
+    }
+}
+
+/* ---- Headless compute (for @gpu functions and manual compute) ---- */
+void* btrc_gpu_init_compute();
+void* btrc_gpu_create_buffer(void* gpu, int size, int usage);
+void  btrc_gpu_write_buffer(void* gpu, void* buf, void* data, int size);
+void  btrc_gpu_read_buffer(void* gpu, void* buf, void* dst, int size);
+void  btrc_gpu_buffer_destroy(void* buf);
+void* btrc_gpu_create_compute_pipeline(void* gpu, void* shader, string entry);
+void  btrc_gpu_compute_pipeline_destroy(void* pipeline);
+void* btrc_gpu_create_bind_group(void* gpu, void* pipeline,
+                                  void** buffers, int count);
+void  btrc_gpu_bind_group_destroy(void* bg);
+void  btrc_gpu_dispatch(void* gpu, void* pipeline, void* bg, int workgroups);
+
+class GPUCompute {
+    public void* _handle;
+
+    public GPUCompute() {
+        self._handle = btrc_gpu_init_compute();
+    }
+
+    public GPUShader createShader(string wgsl) {
+        return GPUShader(btrc_gpu_create_shader(self._handle, wgsl));
+    }
+
+    public void __del__() {
+        if (self._handle != null) {
+            btrc_gpu_destroy(self._handle);
+        }
+    }
+}

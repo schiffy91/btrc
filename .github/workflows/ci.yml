@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - run: make devcontainer
+      - run: chmod -R a+w .
+      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make NIX= lint
+      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make NIX= test
+      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make NIX= test-c11

@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    string a = "hello";
+    string b = "hello";
+    string c = "world";
+    print(a.equals(b));
+    print(a.equals(c));
+    printf("PASS: test_string_equals\n");
+    return 0;
+}

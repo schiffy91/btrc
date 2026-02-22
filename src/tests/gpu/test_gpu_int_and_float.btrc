@@ -1,0 +1,19 @@
+#include <assert.h>
+
+@gpu
+float[] floatOp(float[] a) {
+    int i = gpu_id();
+    return a[i] * 2.0;
+}
+
+@gpu
+int[] intOp(int[] a) {
+    int i = gpu_id();
+    return a[i] + 10;
+}
+
+int main() {
+    assert(3 * 3 == 9);
+    print("PASS: test_gpu_int_and_float");
+    return 0;
+}

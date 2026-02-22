@@ -1,0 +1,27 @@
+/* Test UTF-8 string methods: charLen and byteLen */
+
+int main() {
+    // ASCII string — byteLen == charLen
+    string ascii = "hello";
+    assert(ascii.byteLen() == 5);
+    assert(ascii.charLen() == 5);
+    assert(ascii.len() == 5);
+
+    // Empty string
+    string empty = "";
+    assert(empty.byteLen() == 0);
+    assert(empty.charLen() == 0);
+
+    // UTF-8 multi-byte: "café" — é is 2 bytes
+    string cafe = "caf\xc3\xa9";
+    assert(cafe.byteLen() == 5);
+    assert(cafe.charLen() == 4);
+
+    // UTF-8 3-byte: "日本" — each char is 3 bytes
+    string jp = "\xe6\x97\xa5\xe6\x9c\xac";
+    assert(jp.byteLen() == 6);
+    assert(jp.charLen() == 2);
+
+    print("PASS: test_utf8");
+    return 0;
+}

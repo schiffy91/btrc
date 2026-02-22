@@ -1,0 +1,20 @@
+#include <assert.h>
+
+@gpu
+float[] normalizeToFloat(int[] a, int maxVal) {
+    int i = gpu_id();
+    float fVal = (float)a[i];
+    float fMax = (float)maxVal;
+    return fVal / fMax;
+}
+
+int main() {
+    int x = 50;
+    float f = (float)x;
+    assert(f > 49.9f);
+    assert(f < 50.1f);
+    int back = (int)f;
+    assert(back == 50);
+    print("PASS: test_gpu_cast_in_kernel");
+    return 0;
+}

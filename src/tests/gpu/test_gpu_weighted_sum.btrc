@@ -1,0 +1,18 @@
+#include <assert.h>
+
+@gpu
+float[] weightedSum(float[] a, float[] b, float wA, float wB) {
+    int i = gpu_id();
+    return wA * a[i] + wB * b[i];
+}
+
+int main() {
+    float a = 4.0;
+    float b = 6.0;
+    float wA = 0.5;
+    float wB = 0.5;
+    float result = wA * a + wB * b;
+    assert(result == 5.0);
+    print("PASS: test_gpu_weighted_sum");
+    return 0;
+}

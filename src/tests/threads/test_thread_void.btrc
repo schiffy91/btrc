@@ -1,0 +1,28 @@
+// Test thread that modifies a global variable as a side effect
+int global_val = 0;
+
+int main() {
+    // Spawn a thread that modifies a global variable
+    Thread<int> t = spawn(() => {
+        global_val = 42;
+        return 0;
+    });
+
+    // Join the thread to ensure it completes
+    t.join();
+
+    // Verify the global was modified by the thread
+    if (global_val != 42) { return 1; }
+
+    // Spawn another thread that increments the global
+    Thread<int> t2 = spawn(() => {
+        global_val = global_val + 8;
+        return 0;
+    });
+    t2.join();
+
+    if (global_val != 50) { return 2; }
+
+    print("PASS thread_void");
+    return 0;
+}

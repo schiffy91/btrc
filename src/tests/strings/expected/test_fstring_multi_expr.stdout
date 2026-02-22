@@ -1,0 +1,2 @@
+3 + 4 = 7
+PASS: test_fstring_multi_expr

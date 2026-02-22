@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    string s = "hello world";
+    string sub = s.substring(6, 5);
+    print(sub);
+    printf("PASS: test_string_substring\n");
+    return 0;
+}

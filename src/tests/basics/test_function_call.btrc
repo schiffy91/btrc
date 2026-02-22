@@ -1,0 +1,7 @@
+#include <stdio.h>
+int square(int x) { return x * x; }
+int main() {
+    printf("%d\n", square(7));
+    printf("PASS: test_function_call\n");
+    return 0;
+}

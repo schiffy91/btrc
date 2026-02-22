@@ -1,0 +1,20 @@
+/* btrc 3D Engine -- Renderer
+ *
+ * Thin wrapper around Scene. Sets up camera follow and renders.
+ */
+
+class Renderer {
+    public Scene scene;
+    public int width;
+    public int height;
+
+    public Renderer(GPU gpu, int w, int h) {
+        self.width = w;
+        self.height = h;
+        self.scene = new Scene(gpu, w, h);
+    }
+
+    public void render(GPU gpu, GameObject player, float time) {
+        self.scene.render(gpu, player, time);
+    }
+}

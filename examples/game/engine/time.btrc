@@ -1,0 +1,24 @@
+/* btrc 3D Engine — Time
+ *
+ * Frame timing. Updated once per frame by Engine.update().
+ * Usage: engine.time.deltaTime
+ */
+
+class Time {
+    public float deltaTime;
+    public float elapsed;
+    public float _lastTime;
+
+    public Time() {
+        self._lastTime = btrc_gpu_get_time();
+        self.deltaTime = 0.0;
+        self.elapsed = 0.0;
+    }
+
+    public void update() {
+        float now = btrc_gpu_get_time();
+        self.deltaTime = now - self._lastTime;
+        self._lastTime = now;
+        self.elapsed = now;
+    }
+}

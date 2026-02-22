@@ -1,0 +1,17 @@
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    // Basic zfill
+    string s = "42";
+    string z = s.zfill(5);
+    assert(strcmp(z, "00042") == 0);
+
+    // Zfill with sign
+    string neg = "-42";
+    string zn = neg.zfill(6);
+    assert(strcmp(zn, "-00042") == 0);
+
+    print("PASS: test_string_zfill");
+    return 0;
+}

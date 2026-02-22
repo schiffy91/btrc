@@ -1,0 +1,2 @@
+size: 3
+PASS: test_fstring_with_list_size

@@ -1,0 +1,22 @@
+#include <assert.h>
+
+@gpu
+int[] classify(float[] a) {
+    int i = gpu_id();
+    if (a[i] > 0.0) {
+        return 1;
+    }
+    if (a[i] < 0.0) {
+        return -1;
+    }
+    return 0;
+}
+
+int main() {
+    assert(5 > 3);
+    assert(3 < 5);
+    assert(5 >= 5);
+    assert(5 <= 5);
+    print("PASS: test_gpu_comparison_ops");
+    return 0;
+}

@@ -1,0 +1,15 @@
+#include <assert.h>
+
+@gpu
+float[] lerp(float[] a, float[] b, float t) {
+    int i = gpu_id();
+    return a[i] + (b[i] - a[i]) * t;
+}
+
+int main() {
+    float t = 0.5f;
+    assert(t > 0.0f);
+    assert(t < 1.0f);
+    print("PASS: test_gpu_before_main");
+    return 0;
+}

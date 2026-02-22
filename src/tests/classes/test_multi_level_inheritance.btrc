@@ -1,0 +1,39 @@
+#include <stdio.h>
+class A {
+    public int x;
+    public A(int x) {
+        self.x = x;
+    }
+    public int getX() {
+        return self.x;
+    }
+}
+class B extends A {
+    public int y;
+    public B(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+    public int getY() {
+        return self.y;
+    }
+}
+class C extends B {
+    public int z;
+    public C(int x, int y, int z) {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+    }
+    public int sum() {
+        return self.x + self.y + self.z;
+    }
+}
+int main() {
+    C c = C(1, 2, 3);
+    print(c.getX());
+    print(c.getY());
+    print(c.sum());
+    printf("PASS: test_multi_level_inheritance\n");
+    return 0;
+}

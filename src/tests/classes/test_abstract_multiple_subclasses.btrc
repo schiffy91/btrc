@@ -1,0 +1,20 @@
+#include <stdio.h>
+abstract class Animal {
+    public abstract string speak();
+}
+class Cat extends Animal {
+    public Cat() {}
+    public string speak() { return "Meow"; }
+}
+class Duck extends Animal {
+    public Duck() {}
+    public string speak() { return "Quack"; }
+}
+int main() {
+    Cat c = Cat();
+    Duck d = Duck();
+    print(c.speak());
+    print(d.speak());
+    printf("PASS: test_abstract_multiple_subclasses\n");
+    return 0;
+}

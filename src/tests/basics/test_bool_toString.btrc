@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    bool b = true;
+    string s = b.toString();
+    print(s);
+    printf("PASS: test_bool_toString\n");
+    return 0;
+}

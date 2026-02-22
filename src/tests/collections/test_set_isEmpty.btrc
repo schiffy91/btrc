@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    Set<int> s = {};
+    if (s.isEmpty()) { print("empty"); }
+    s.add(1);
+    if (!s.isEmpty()) { print("not empty"); }
+    printf("PASS: test_set_isEmpty\n");
+    return 0;
+}

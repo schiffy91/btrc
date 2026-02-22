@@ -1,0 +1,12 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [5, 2, 8, 1, 9, 3];
+    nums.sort();
+    for x in nums {
+        printf("%d ", x);
+    }
+    printf("\n");
+    nums.free();
+    printf("PASS: test_list_sort\n");
+    return 0;
+}

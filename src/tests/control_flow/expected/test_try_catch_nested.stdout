@@ -1,0 +1,4 @@
+inner: inner error
+between
+outer: outer error
+PASS: test_try_catch_nested

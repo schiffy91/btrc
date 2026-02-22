@@ -1,0 +1,13 @@
+#include <assert.h>
+
+@gpu
+float[] doubleValues(float[] a) {
+    int i = gpu_id();
+    return a[i] * 2.0;
+}
+
+int main() {
+    assert(5 - 2 == 3);
+    print("PASS: test_gpu_single_param");
+    return 0;
+}

@@ -1,0 +1,25 @@
+#include <assert.h>
+
+@gpu
+float[] filterPositive(float[] a) {
+    int i = gpu_id();
+    bool isPositive = a[i] > 0.0;
+    if (isPositive) {
+        return a[i];
+    } else {
+        return 0.0;
+    }
+}
+
+int main() {
+    bool t = true;
+    bool f = false;
+    assert(t == true);
+    assert(f == false);
+    assert(t != f);
+    int val = 5;
+    bool positive = val > 0;
+    assert(positive == true);
+    print("PASS: test_gpu_bool_condition");
+    return 0;
+}

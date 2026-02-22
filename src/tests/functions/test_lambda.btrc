@@ -1,0 +1,31 @@
+#include <assert.h>
+
+int main() {
+    // Verbose lambda assigned to a variable
+    var doubler = int function(int x) { return x * 2; };
+    assert(doubler(5) == 10);
+    assert(doubler(0) == 0);
+
+    // Arrow lambda (expression body)
+    var tripler = (int x) => x * 3;
+    assert(tripler(4) == 12);
+
+    // Arrow lambda with block body
+    var abs_fn = (int x) => {
+        if (x < 0) { return -x; }
+        return x;
+    };
+    assert(abs_fn(-7) == 7);
+    assert(abs_fn(3) == 3);
+
+    // Binary arrow lambda
+    var adder = (int a, int b) => a + b;
+    assert(adder(10, 20) == 30);
+
+    // Verbose binary lambda
+    var mul = int function(int a, int b) { return a * b; };
+    assert(mul(4, 5) == 20);
+
+    print("PASS: test_lambda");
+    return 0;
+}

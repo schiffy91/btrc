@@ -1,0 +1,11 @@
+#include <stdio.h>
+int main() {
+    string s = "hello world";
+    if (s.contains("world")) {
+        print("yes");
+    } else {
+        print("no");
+    }
+    printf("PASS: test_string_contains\n");
+    return 0;
+}

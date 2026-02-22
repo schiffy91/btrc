@@ -1,0 +1,3 @@
+is null
+42
+PASS: test_nullable_type

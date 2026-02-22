@@ -1,0 +1,20 @@
+#include <assert.h>
+
+@gpu
+float[] polynomial(float[] x) {
+    int i = gpu_id();
+    float val = x[i];
+    float x2 = val * val;
+    float x3 = x2 * val;
+    float result = 3.0 * x3 - 2.0 * x2 + val - 1.0;
+    return result;
+}
+
+int main() {
+    int x = 2;
+    int x2 = x * x;
+    int x3 = x2 * x;
+    assert(x3 == 8);
+    print("PASS: test_gpu_multiple_vars");
+    return 0;
+}

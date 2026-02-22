@@ -1,0 +1,13 @@
+#include <assert.h>
+int main() {
+    int x = 42;
+    print(f"x={x}");
+    int a = 3;
+    int b = 4;
+    int c = a + b;
+    print(f"{a} + {b} = {c}");
+    string name = "world";
+    print(f"hello {name}");
+    print("PASS: test_fstrings");
+    return 0;
+}

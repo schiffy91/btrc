@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    var s = "hello";
+    printf("%s\n", s);
+    printf("PASS: test_var_string\n");
+    return 0;
+}

@@ -1,0 +1,86 @@
+/* Test auto-release: scope-exit cleanup for managed variables */
+#include <assert.h>
+
+int alive = 0;
+
+class Resource {
+    public int id;
+
+    public Resource(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Manager {
+    public Resource res;
+
+    public Manager() {
+        self.res = null;
+    }
+
+    public void setResource(keep Resource r) {
+        self.res = r;
+    }
+}
+
+// Factory function
+Resource createResource(int id) {
+    Resource r = new Resource(id);
+    return r;
+}
+
+int main() {
+    // Test 1: new auto-manages, scope-exit releases
+    // keep param adds extra rc, field assign adds extra rc
+    // scope exit releases both (new + keep registrations)
+    {
+        Manager m = new Manager();
+        Resource r = new Resource(1);
+        assert(alive == 1);
+
+        // keep param → rc++ at call site, r registered as managed (again)
+        // field assign → rc++ inside method
+        m.setResource(r);
+        assert(alive == 1);
+
+        // r's rc: 1 (new) + 1 (keep param) + 1 (field assign) = 3
+        // delete m: destructor releases res field → r.rc = 2
+        delete m;
+        assert(alive == 1);
+        // m: NULL after delete → scope exit skips
+        // scope exit: r managed twice (new + keep), rc-- twice → 2-2 = 0 → destroy
+    }
+    assert(alive == 0); // r properly cleaned up
+
+    // Test 2: delete sets var to NULL, scope exit skips null vars
+    {
+        Resource d = new Resource(2);
+        assert(alive == 1);
+        delete d;
+        assert(d == null);
+        assert(alive == 0);
+        // scope exit: d is NULL from delete → skip
+    }
+
+    // Test 3: keep/release explicit statements
+    Resource k = new Resource(3);
+    assert(alive == 1);
+    keep k;
+    // k's rc: 1 (new) + 1 (keep) = 2
+    release k;
+    // k's rc: 2 - 1 = 1, > 0 so not destroyed. k = NULL
+    assert(k == null);
+    assert(alive == 1); // not destroyed (rc=1, but unreachable via k)
+
+    // k is managed from new, but k=NULL → return release skips
+    // The resource leaks (rc=1 with no references) — expected behavior
+    // when using keep/release incorrectly
+
+    print("PASS: test_auto_release");
+    return 0;
+}

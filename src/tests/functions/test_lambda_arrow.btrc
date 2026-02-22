@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [1, 2, 3, 4, 5];
+    Vector<int> evens = nums.filter((int x) => x % 2 == 0);
+    print(evens.size());
+    printf("PASS: test_lambda_arrow\n");
+    return 0;
+}

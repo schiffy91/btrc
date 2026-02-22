@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    Vector<string> words = ["hello", "world", "btrc"];
+    print(words.join(", "));
+    words.free();
+    printf("PASS: test_join_basic\n");
+    return 0;
+}

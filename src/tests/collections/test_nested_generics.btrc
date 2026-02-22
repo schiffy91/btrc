@@ -1,0 +1,98 @@
+// Test nested generic types: 2-level and 3-level nesting
+#include <assert.h>
+
+int main() {
+    // ---- 2-level: Vector<Vector<int>> ----
+    Vector<int> row1 = [1, 2, 3];
+    Vector<int> row2 = [4, 5, 6];
+    Vector<int> row3 = [7, 8, 9];
+
+    Vector<Vector<int>> matrix = [];
+    matrix.push(row1);
+    matrix.push(row2);
+    matrix.push(row3);
+    assert(matrix.len == 3);
+
+    Vector<int> first_row = matrix.get(0);
+    assert(first_row.len == 3);
+    assert(first_row[0] == 1);
+    assert(first_row[1] == 2);
+    assert(first_row[2] == 3);
+
+    Vector<int> second_row = matrix.get(1);
+    assert(second_row[0] == 4);
+    assert(second_row[1] == 5);
+    assert(second_row[2] == 6);
+
+    // Sum all elements through nested iteration
+    int total = 0;
+    for (int i = 0; i < matrix.len; i++) {
+        Vector<int> row = matrix.get(i);
+        for (int j = 0; j < row.len; j++) {
+            total += row[j];
+        }
+    }
+    assert(total == 45);
+
+    // ---- 2-level: Map<string, Vector<int>> ----
+    Vector<int> scores_alice = [90, 85, 92];
+    Vector<int> scores_bob = [78, 88, 95];
+
+    Map<string, Vector<int>> grades = {};
+    grades.put("alice", scores_alice);
+    grades.put("bob", scores_bob);
+    assert(grades.len == 2);
+
+    Vector<int> alice = grades.get("alice");
+    assert(alice.len == 3);
+    assert(alice[0] == 90);
+
+    // ---- 3-level: Vector<Map<string, Vector<int>>> ----
+    Map<string, Vector<int>> record1 = {};
+    Vector<int> vals1 = [10, 20, 30];
+    record1.put("data", vals1);
+
+    Map<string, Vector<int>> record2 = {};
+    Vector<int> vals2 = [40, 50];
+    record2.put("data", vals2);
+
+    Vector<Map<string, Vector<int>>> database = [];
+    database.push(record1);
+    database.push(record2);
+    assert(database.len == 2);
+    assert(database.get(0).get("data").get(0) == 10);
+    assert(database.get(1).get("data").get(1) == 50);
+
+    // ---- 2-level: Map<string, Map<string, int>> ----
+    Map<string, int> db_cfg = {};
+    db_cfg.put("port", 5432);
+    db_cfg.put("pool", 10);
+
+    Map<string, Map<string, int>> config = {};
+    config.put("database", db_cfg);
+    assert(config.get("database").get("port") == 5432);
+    assert(config.get("database").get("pool") == 10);
+
+    // ---- Tuple tests ----
+    (int, string) pair = (42, "hello");
+    assert(pair.0 == 42);
+    assert(strcmp(pair.1, "hello") == 0);
+
+    // Nested tuple: (int, (string, bool))
+    (int, (string, bool)) nested = (1, ("yes", true));
+    assert(nested.0 == 1);
+    (string, bool) inner = nested.1;
+    assert(strcmp(inner.0, "yes") == 0);
+    assert(inner.1 == true);
+
+    // Tuple with collection: (string, Vector<int>)
+    Vector<int> items = [10, 20, 30];
+    (string, Vector<int>) labeled = ("nums", items);
+    assert(strcmp(labeled.0, "nums") == 0);
+    Vector<int> lab_items = labeled.1;
+    assert(lab_items.len == 3);
+    assert(lab_items.get(0) == 10);
+
+    print("PASS: test_nested_generics");
+    return 0;
+}

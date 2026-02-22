@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    string s = "hello world";
+    print(s.replace("world", "btrc"));
+    printf("PASS: test_string_replace\n");
+    return 0;
+}

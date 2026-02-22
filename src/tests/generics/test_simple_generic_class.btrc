@@ -1,0 +1,12 @@
+#include <stdio.h>
+class Box<T> {
+    public T value;
+    public Box(T val) { self.value = val; }
+    public T get() { return self.value; }
+}
+int main() {
+    Box<int> b = Box(42);
+    print(b.get());
+    printf("PASS: test_simple_generic_class\n");
+    return 0;
+}

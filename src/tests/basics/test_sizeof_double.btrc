@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    int s = sizeof(double);
+    print(s);
+    printf("PASS: test_sizeof_double\n");
+    return 0;
+}

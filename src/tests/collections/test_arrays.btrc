@@ -1,0 +1,33 @@
+#include <assert.h>
+
+int main() {
+    // Stack-allocated fixed-size array
+    int arr[5];
+    for (int i = 0; i < 5; i++) {
+        arr[i] = i * 10;
+    }
+    assert(arr[0] == 0);
+    assert(arr[2] == 20);
+    assert(arr[4] == 40);
+
+    // Array with initializer
+    int nums[] = {10, 20, 30, 40, 50};
+    assert(nums[0] == 10);
+    assert(nums[4] == 50);
+
+    // Array modification
+    nums[2] = 99;
+    assert(nums[2] == 99);
+
+    // String array
+    string words[] = {"hello", "world", "btrc"};
+    assert(strcmp(words[0], "hello") == 0);
+    assert(strcmp(words[2], "btrc") == 0);
+
+    // sizeof on array
+    int sizes[10];
+    assert(sizeof(sizes) == 10 * sizeof(int));
+
+    printf("PASS: test_arrays\n");
+    return 0;
+}

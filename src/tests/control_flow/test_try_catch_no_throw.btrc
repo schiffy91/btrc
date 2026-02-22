@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    try {
+        print("no error");
+    } catch (string e) {
+        print("should not reach");
+    }
+    printf("PASS: test_try_catch_no_throw\n");
+    return 0;
+}

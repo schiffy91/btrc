@@ -1,0 +1,66 @@
+/* btrc 3D Engine — GameObject
+ *
+ * Unity-inspired game object with Vector3 position & velocity.
+ * Gravity pulls down, ground plane at y=0 stops the fall.
+ */
+
+struct Vector3 {
+    float x;
+    float y;
+    float z;
+};
+
+float GRAVITY = 20.0;
+float BALL_RADIUS = 0.5;
+
+class GameObject {
+    public struct Vector3 position;
+    public struct Vector3 velocity;
+    public bool grounded;
+
+    public GameObject() {
+        self.position.x = 0.0;
+        self.position.y = BALL_RADIUS;
+        self.position.z = 0.0;
+        self.velocity.x = 0.0;
+        self.velocity.y = 0.0;
+        self.velocity.z = 0.0;
+        self.grounded = true;
+    }
+
+    public void move(float dx, float dy, float dz) {
+        self.position.x = self.position.x + dx;
+        self.position.y = self.position.y + dy;
+        self.position.z = self.position.z + dz;
+    }
+
+    public void jump(float force) {
+        if (self.grounded) {
+            self.velocity.y = force;
+            self.grounded = false;
+        }
+    }
+
+    public bool isGrounded() {
+        return self.grounded;
+    }
+
+    public void applyPhysics(float dt) {
+        /* Gravity */
+        self.velocity.y = self.velocity.y - GRAVITY * dt;
+
+        /* Integrate velocity */
+        self.position.x = self.position.x + self.velocity.x * dt;
+        self.position.y = self.position.y + self.velocity.y * dt;
+        self.position.z = self.position.z + self.velocity.z * dt;
+
+        /* Ground collision */
+        if (self.position.y <= BALL_RADIUS) {
+            self.position.y = BALL_RADIUS;
+            self.velocity.y = 0.0;
+            self.grounded = true;
+        } else {
+            self.grounded = false;
+        }
+    }
+}

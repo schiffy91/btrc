@@ -1,0 +1,16 @@
+#include <stdio.h>
+enum class Shape {
+    Circle(double radius),
+    Rect(double w, double h),
+    Point
+}
+int main() {
+    Shape s = Shape.Circle(5.0);
+    Shape r = Shape.Rect(3.0, 4.0);
+    Shape p = Shape.Point();
+    if (s.tag == Shape.Circle) { print("circle"); }
+    if (r.tag == Shape.Rect) { print("rect"); }
+    if (p.tag == Shape.Point) { print("point"); }
+    printf("PASS: test_rich_enum_multiple_variants\n");
+    return 0;
+}

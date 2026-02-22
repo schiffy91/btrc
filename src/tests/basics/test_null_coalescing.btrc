@@ -1,0 +1,11 @@
+#include <stdio.h>
+int main() {
+    char* name = null;
+    char* result = name ?? "default";
+    print(result);
+    name = "Alex";
+    result = name ?? "default";
+    print(result);
+    printf("PASS: test_null_coalescing\n");
+    return 0;
+}

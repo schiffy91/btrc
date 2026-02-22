@@ -1,0 +1,11 @@
+// Test basic spawn + join: spawn a lambda, join to get result
+int main() {
+    Thread<int> t = spawn(() => {
+        return 42;
+    });
+    int result = t.join();
+    if (result == 42) {
+        print("PASS spawn_join_basic");
+    }
+    return 0;
+}

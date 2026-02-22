@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    Vector<int> a = [1, 2, 3, 4, 5];
+    Vector<int> d = a.drop(2);
+    print(d.size());
+    print(d.get(0));
+    print(d.get(2));
+    printf("PASS: test_drop\n");
+    return 0;
+}

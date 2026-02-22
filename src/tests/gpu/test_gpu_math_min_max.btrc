@@ -1,0 +1,20 @@
+#include <assert.h>
+
+@gpu
+float[] clampMinMax(float[] a, float lo, float hi) {
+    int i = gpu_id();
+    float val = max(a[i], lo);
+    return min(val, hi);
+}
+
+int main() {
+    int a = 3;
+    int b = 7;
+    int smaller = a;
+    if (b < a) {
+        smaller = b;
+    }
+    assert(smaller == 3);
+    print("PASS: test_gpu_math_min_max");
+    return 0;
+}

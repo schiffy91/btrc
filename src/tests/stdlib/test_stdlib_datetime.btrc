@@ -1,0 +1,56 @@
+/* Test stdlib datetime: DateTime, Timer */
+#include <assert.h>
+#include <string.h>
+#include "../../stdlib/datetime.btrc"
+
+int main() {
+    // DateTime construction
+    DateTime dt = DateTime(2025, 6, 15, 10, 30, 45);
+    assert(dt.year == 2025);
+    assert(dt.month == 6);
+    assert(dt.day == 15);
+    assert(dt.hour == 10);
+    assert(dt.minute == 30);
+    assert(dt.second == 45);
+
+    // Default params (hour, minute, second default to 0)
+    DateTime dt2 = DateTime(2024, 1, 1);
+    assert(dt2.hour == 0);
+    assert(dt2.minute == 0);
+    assert(dt2.second == 0);
+
+    // format()
+    string formatted = dt.format();
+    assert(strcmp(formatted, "2025-06-15 10:30:45") == 0);
+    free(formatted);
+
+    // dateString()
+    string ds = dt.dateString();
+    assert(strcmp(ds, "2025-06-15") == 0);
+    free(ds);
+
+    // timeString()
+    string ts = dt.timeString();
+    assert(strcmp(ts, "10:30:45") == 0);
+    free(ts);
+
+    // DateTime.now() returns sane values
+    DateTime now = DateTime.now();
+    assert(now.year >= 2025);
+    assert(now.month >= 1 && now.month <= 12);
+    assert(now.day >= 1 && now.day <= 31);
+
+    // Timer
+    Timer timer = Timer();
+    timer.start();
+    float e1 = timer.elapsed();
+    assert(e1 >= 0.0f);
+    timer.stop();
+    float e2 = timer.elapsed();
+    assert(e2 >= 0.0f);
+    timer.reset();
+    assert(timer.elapsed() >= 0.0f);
+
+    print("PASS: test_stdlib_datetime");
+    return 0;
+}

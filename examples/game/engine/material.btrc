@@ -1,0 +1,29 @@
+/* btrc 3D Engine -- Material
+ *
+ * Surface material with color, specular, and fresnel.
+ * Writes 5 uniforms: color (3) + shininess (1) + fresnel (1).
+ */
+
+class Material {
+    public float r;
+    public float g;
+    public float b;
+    public float shininess;
+    public float fresnel;
+
+    public Material(float r, float g, float b) {
+        self.r = r;
+        self.g = g;
+        self.b = b;
+        self.shininess = 48.0;
+        self.fresnel = 0.3;
+    }
+
+    public void writeUniforms(GPUUniform u, int offset) {
+        u.set(offset + 0, self.r);
+        u.set(offset + 1, self.g);
+        u.set(offset + 2, self.b);
+        u.set(offset + 3, self.shininess);
+        u.set(offset + 4, self.fresnel);
+    }
+}

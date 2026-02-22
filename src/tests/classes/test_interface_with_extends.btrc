@@ -1,0 +1,21 @@
+#include <stdio.h>
+interface HasName {
+    string name();
+}
+interface HasFullName extends HasName {
+    string fullName();
+}
+class Employee implements HasFullName {
+    public string first;
+    public string last;
+    public Employee(string f, string l) { self.first = f; self.last = l; }
+    public string name() { return self.first; }
+    public string fullName() { return self.first; }
+}
+int main() {
+    Employee e = Employee("Bob", "Smith");
+    print(e.name());
+    print(e.fullName());
+    printf("PASS: test_interface_with_extends\n");
+    return 0;
+}

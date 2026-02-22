@@ -1,0 +1,94 @@
+// Test recursion patterns: single recursion, deep recursion, Collatz
+#include <assert.h>
+
+// ---- Single recursion: factorial ----
+int factorial(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+// ---- Fibonacci (recursive) ----
+int fib(int n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+// ---- Collatz conjecture step counter ----
+int collatz_steps(int n) {
+    if (n == 1) {
+        return 0;
+    }
+    if (n % 2 == 0) {
+        return 1 + collatz_steps(n / 2);
+    }
+    return 1 + collatz_steps(3 * n + 1);
+}
+
+// ---- Power function (recursive) ----
+int power(int base, int exp) {
+    if (exp == 0) {
+        return 1;
+    }
+    return base * power(base, exp - 1);
+}
+
+// ---- Sum of digits (recursive) ----
+int digit_sum(int n) {
+    if (n < 10) {
+        return n;
+    }
+    return (n % 10) + digit_sum(n / 10);
+}
+
+// ---- GCD (Euclidean algorithm) ----
+int gcd(int a, int b) {
+    if (b == 0) {
+        return a;
+    }
+    return gcd(b, a % b);
+}
+
+int main() {
+    // ---- Factorial ----
+    assert(factorial(0) == 1);
+    assert(factorial(1) == 1);
+    assert(factorial(5) == 120);
+    assert(factorial(10) == 3628800);
+
+    // ---- Fibonacci ----
+    assert(fib(0) == 0);
+    assert(fib(1) == 1);
+    assert(fib(2) == 1);
+    assert(fib(5) == 5);
+    assert(fib(10) == 55);
+
+    // ---- Collatz ----
+    assert(collatz_steps(1) == 0);
+    assert(collatz_steps(2) == 1);
+    assert(collatz_steps(3) == 7);
+    assert(collatz_steps(6) == 8);
+    assert(collatz_steps(27) == 111);
+
+    // ---- Power ----
+    assert(power(2, 0) == 1);
+    assert(power(2, 10) == 1024);
+    assert(power(3, 5) == 243);
+
+    // ---- Digit sum ----
+    assert(digit_sum(0) == 0);
+    assert(digit_sum(9) == 9);
+    assert(digit_sum(123) == 6);
+    assert(digit_sum(9999) == 36);
+
+    // ---- GCD ----
+    assert(gcd(12, 8) == 4);
+    assert(gcd(100, 75) == 25);
+    assert(gcd(17, 13) == 1);  // coprime
+
+    print("PASS: test_mutual_recursion");
+    return 0;
+}

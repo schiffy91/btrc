@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+void accumulate(float[] a, float[] b) {
+    int i = gpu_id();
+    a[i] += b[i];
+}
+
+int main() {
+    int x = 10;
+    x += 5;
+    assert(x == 15);
+    x -= 3;
+    assert(x == 12);
+    print("PASS: test_gpu_compound_assign");
+    return 0;
+}

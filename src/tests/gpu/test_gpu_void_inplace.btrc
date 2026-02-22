@@ -1,0 +1,13 @@
+#include <assert.h>
+
+@gpu
+void doubleInPlace(float[] a) {
+    int i = gpu_id();
+    a[i] = a[i] * 2.0;
+}
+
+int main() {
+    assert(6 * 2 == 12);
+    print("PASS: test_gpu_void_inplace");
+    return 0;
+}

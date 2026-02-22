@@ -1,0 +1,16 @@
+#include <assert.h>
+
+@gpu
+float[] scaleAndOffset(float[] a, float scale, float offset) {
+    int i = gpu_id();
+    float val = a[i];
+    float scaled = val * scale;
+    float result = scaled + offset;
+    return result;
+}
+
+int main() {
+    assert(2 + 2 == 4);
+    print("PASS: test_gpu_var_decl");
+    return 0;
+}

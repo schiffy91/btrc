@@ -1,0 +1,16 @@
+#include <stdio.h>
+int main() {
+    try {
+        try {
+            throw "inner error";
+        } catch (string e) {
+            print(f"inner: {e}");
+        }
+        print("between");
+        throw "outer error";
+    } catch (string e) {
+        print(f"outer: {e}");
+    }
+    printf("PASS: test_try_catch_nested\n");
+    return 0;
+}

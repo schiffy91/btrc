@@ -1,0 +1,31 @@
+/* btrc 3D Ball Game
+ *
+ * A ball on a ground plane with WASD movement and space to jump.
+ * Rendered via GPU raymarching with shadows and lighting.
+ *
+ * Build:
+ *   make gpu && make -C examples/3d
+ *   ./examples/3d/game
+ */
+#include "engine/engine.btrc"
+
+int main() {
+    var engine = Engine("btrc 3D Ball", 800, 600);
+    var player = new GameObject();
+    float speed = 4.0;
+
+    while (engine.isRunning()) {
+        engine.update();
+        float dt = engine.time.deltaTime;
+
+        if (engine.input.key(KEY_W)) { player.move(0.0, 0.0, speed * dt); }
+        if (engine.input.key(KEY_S)) { player.move(0.0, 0.0, -speed * dt); }
+        if (engine.input.key(KEY_A)) { player.move(speed * dt, 0.0, 0.0); }
+        if (engine.input.key(KEY_D)) { player.move(-speed * dt, 0.0, 0.0); }
+        if (engine.input.key(KEY_SPACE)) { player.jump(speed); }
+
+        player.applyPhysics(dt);
+        engine.render(player);
+    }
+    return 0;
+}

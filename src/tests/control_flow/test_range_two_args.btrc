@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    int sum = 0;
+    for i in range(3, 8) {
+        sum += i;
+    }
+    print(sum);
+    printf("PASS: test_range_two_args\n");
+    return 0;
+}

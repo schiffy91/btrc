@@ -1,0 +1,24 @@
+/* btrc 3D Engine -- Light
+ *
+ * Directional light with ambient term.
+ * Writes 4 uniforms: direction (3) + ambient (1).
+ */
+
+class Light {
+    public struct Vector3 direction;
+    public float ambient;
+
+    public Light() {
+        self.direction.x = 1.0;
+        self.direction.y = 3.0;
+        self.direction.z = -1.5;
+        self.ambient = 0.22;
+    }
+
+    public void writeUniforms(GPUUniform u, int offset) {
+        u.set(offset + 0, self.direction.x);
+        u.set(offset + 1, self.direction.y);
+        u.set(offset + 2, self.direction.z);
+        u.set(offset + 3, self.ambient);
+    }
+}

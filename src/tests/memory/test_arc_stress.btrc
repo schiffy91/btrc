@@ -1,0 +1,178 @@
+/* ARC stress test: complex ownership patterns with keep/release */
+#include <assert.h>
+
+int task_count = 0;
+int holder_count = 0;
+
+class Task {
+    public int id;
+    public int priority;
+    public bool done;
+
+    public Task(int id, int priority) {
+        self.id = id;
+        self.priority = priority;
+        self.done = false;
+        task_count++;
+    }
+
+    public void complete() {
+        self.done = true;
+    }
+
+    public void __del__() {
+        task_count--;
+    }
+}
+
+class TaskHolder {
+    public Task task;
+    public int seq;
+
+    public TaskHolder(int seq) {
+        self.task = null;
+        self.seq = seq;
+        holder_count++;
+    }
+
+    public void setTask(keep Task t) {
+        self.task = t;
+    }
+
+    public void __del__() {
+        holder_count--;
+    }
+}
+
+// Factory function: creates and returns a new task
+Task makeTask(int id, int pri) {
+    Task t = new Task(id, pri);
+    return t;
+}
+
+int main() {
+    // ---- Phase 1: Basic keep/release lifecycle ----
+    assert(task_count == 0);
+    assert(holder_count == 0);
+
+    Task t1 = new Task(1, 10);
+    Task t2 = new Task(2, 20);
+    Task t3 = new Task(3, 30);
+    assert(task_count == 3);
+
+    TaskHolder h1 = new TaskHolder(1);
+    TaskHolder h2 = new TaskHolder(2);
+    assert(holder_count == 2);
+
+    // Store t1 in h1: keep param → rc++ at call site
+    h1.setTask(t1);
+    assert(h1.task.id == 1);
+
+    // Store t2 in h2
+    h2.setTask(t2);
+    assert(h2.task.id == 2);
+
+    // ---- Phase 2: Reassignment (replace stored task) ----
+
+    // h1 gets a new task — old t1 is released from h1's field,
+    // but still alive because t1 local var + keep param rc
+    h1.setTask(t3);
+    assert(h1.task.id == 3);
+    assert(task_count == 3); // all three still alive
+
+    // ---- Phase 3: Delete holders ----
+
+    // Delete h1: releases t3 from field (--rc, destroy at zero)
+    delete h1;
+    assert(holder_count == 1);
+    // t3 was: rc=1 (new) + 1 (keep) + 1 (field assign) = 3
+    // First setTask replaced nothing (null), so no release of old
+    // h1 destroy: --t3.field.rc → 3->2, skip
+    // t3 still alive
+    assert(task_count == 3);
+
+    // Delete h2: releases t2 from field
+    delete h2;
+    assert(holder_count == 0);
+    assert(task_count == 3); // tasks still alive via local vars
+
+    // ---- Phase 4: Delete tasks directly ----
+
+    t1.complete();
+    assert(t1.done == true);
+    delete t1;
+    assert(task_count == 2);
+
+    t2.complete();
+    delete t2;
+    assert(task_count == 1);
+
+    t3.complete();
+    delete t3;
+    assert(task_count == 0);
+
+    // ---- Phase 5: Factory function + field assignment ----
+
+    TaskHolder h3 = new TaskHolder(3);
+    Task f1 = makeTask(100, 5);
+    assert(task_count == 1);
+
+    h3.setTask(f1);
+    assert(h3.task.id == 100);
+    assert(h3.task.priority == 5);
+
+    // Delete holder first
+    delete h3;
+    assert(holder_count == 0);
+    // f1 still alive (local var)
+    assert(task_count == 1);
+    delete f1;
+    assert(task_count == 0);
+
+    // ---- Phase 6: keep/release statements ----
+
+    Task k = new Task(200, 99);
+    assert(task_count == 1);
+
+    // Explicit keep: rc++
+    keep k;
+    // Explicit release: rc-- (2->1), set NULL
+    release k;
+    assert(k == null);
+    assert(task_count == 1); // still alive (rc was 2, now 1)
+
+    // Can't clean up k anymore since it's null
+    // This is the expected "leaked" behavior when keep without matching release-to-zero
+
+    // ---- Phase 7: delete sets NULL ----
+
+    Task d = new Task(300, 1);
+    assert(task_count == 2); // leaked task + new task
+    delete d;
+    assert(d == null);
+    assert(task_count == 1); // only leaked task remains
+
+    // ---- Phase 8: Multiple field reassignments ----
+
+    TaskHolder h4 = new TaskHolder(4);
+    Task s1 = new Task(401, 1);
+    Task s2 = new Task(402, 2);
+    Task s3 = new Task(403, 3);
+    assert(task_count == 4); // leaked + 3 new
+
+    h4.setTask(s1);
+    h4.setTask(s2);
+    h4.setTask(s3);
+    assert(h4.task.id == 403);
+    assert(task_count == 4); // all still alive
+
+    delete h4;
+    delete s1;
+    delete s2;
+    delete s3;
+    assert(holder_count == 0);
+    assert(task_count == 1); // only the leaked task
+
+    print("PASS: test_arc_stress");
+    return 0;
+}

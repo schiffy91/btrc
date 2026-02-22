@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    Set<int> s = {};
+    s.add(42);
+    Vector<int> lst = s.toVector();
+    print(lst.size());
+    print(lst.get(0));
+    printf("PASS: test_set_to_list\n");
+    return 0;
+}

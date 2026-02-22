@@ -1,0 +1,12 @@
+#include <stdio.h>
+enum Day { MON, TUE, WED, THU, FRI, SAT, SUN };
+int main() {
+    int d = WED;
+    switch (d) {
+        case MON: print("Monday"); break;
+        case WED: print("Wednesday"); break;
+        default: print("other"); break;
+    }
+    printf("PASS: test_enum_in_switch\n");
+    return 0;
+}

@@ -1,0 +1,65 @@
+#include <assert.h>
+#include <stdio.h>
+
+class Math {
+    class int abs(int x) {
+        if (x < 0) { return -x; }
+        return x;
+    }
+
+    class int max(int a, int b) {
+        if (a > b) { return a; }
+        return b;
+    }
+
+    class int min(int a, int b) {
+        if (a < b) { return a; }
+        return b;
+    }
+
+    class int clamp(int x, int lo, int hi) {
+        if (x < lo) { return lo; }
+        if (x > hi) { return hi; }
+        return x;
+    }
+}
+
+class Counter {
+    class int add(int a, int b) {
+        return a + b;
+    }
+    class int negate(int x) {
+        return -x;
+    }
+}
+
+int main() {
+    // Math static methods
+    assert(Math.abs(-5) == 5);
+    assert(Math.abs(3) == 3);
+    assert(Math.abs(0) == 0);
+
+    assert(Math.max(3, 7) == 7);
+    assert(Math.max(10, 2) == 10);
+
+    assert(Math.min(3, 7) == 3);
+    assert(Math.min(10, 2) == 2);
+
+    assert(Math.clamp(5, 0, 10) == 5);
+    assert(Math.clamp(-5, 0, 10) == 0);
+    assert(Math.clamp(15, 0, 10) == 10);
+
+    // Counter static methods
+    assert(Counter.add(3, 7) == 10);
+    assert(Counter.negate(5) == -5);
+
+    // Nested static calls
+    assert(Counter.negate(Counter.add(3, 7)) == -10);
+
+    // Static call in expression
+    int x = Math.abs(-3) + Math.max(1, 2);
+    assert(x == 5);
+
+    print("PASS: test_static_methods");
+    return 0;
+}

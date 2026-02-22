@@ -1,0 +1,43 @@
+#include <assert.h>
+#include <string.h>
+
+enum class Color {
+    RGB(int r, int g, int b),
+    Named(string name)
+}
+
+enum class Shape {
+    Circle(double radius),
+    Rect(double w, double h),
+    Point
+}
+
+enum class Direction {
+    North,
+    South,
+    East,
+    West
+}
+
+int main() {
+    // Rich enum basic
+    Color c = Color.RGB(255, 0, 0);
+    assert(c.tag == Color.RGB);
+    assert(c.data.RGB.r == 255);
+
+    // Multiple variants
+    Shape s = Shape.Circle(5.0);
+    Shape r = Shape.Rect(3.0, 4.0);
+    Shape p = Shape.Point();
+    assert(s.tag == Shape.Circle);
+    assert(r.tag == Shape.Rect);
+    assert(p.tag == Shape.Point);
+
+    // Rich enum toString
+    Direction d = Direction.North();
+    string name = Direction_toString(d);
+    assert(strcmp(name, "North") == 0);
+
+    print("PASS: test_rich_enums");
+    return 0;
+}

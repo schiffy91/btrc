@@ -1,0 +1,15 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+int main() {
+    char buf[128];
+    strcpy(buf, "hello");
+    strcat(buf, " ");
+    strcat(buf, "world");
+    printf("%d\n", (int)strlen(buf));
+    printf("%d\n", strcmp(buf, "hello world") == 0 ? 1 : 0);
+    char* found = strstr(buf, "world");
+    printf("%s\n", found);
+    printf("PASS: test_string_operations\n");
+    return 0;
+}

@@ -1,0 +1,16 @@
+#include <assert.h>
+
+int main() {
+    // toDouble
+    string s = "3.14";
+    double d = s.toDouble();
+    assert(d > 3.0);
+
+    // toLong
+    string s2 = "99999";
+    long n = s2.toLong();
+    assert(n == 99999);
+
+    print("PASS: test_string_conversions");
+    return 0;
+}

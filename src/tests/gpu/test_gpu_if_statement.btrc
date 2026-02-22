@@ -1,0 +1,16 @@
+#include <assert.h>
+
+@gpu
+float[] clampPositive(float[] a) {
+    int i = gpu_id();
+    if (a[i] < 0.0) {
+        return 0.0;
+    }
+    return a[i];
+}
+
+int main() {
+    assert(true);
+    print("PASS: test_gpu_if_statement");
+    return 0;
+}

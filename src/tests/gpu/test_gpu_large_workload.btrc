@@ -1,0 +1,22 @@
+#include <assert.h>
+
+@gpu
+float[] blendFour(float[] a, float[] b, float[] c, float[] d, float w1, float w2, float w3, float w4) {
+    int i = gpu_id();
+    return a[i] * w1 + b[i] * w2 + c[i] * w3 + d[i] * w4;
+}
+
+int main() {
+    int a = 1;
+    int b = 2;
+    int c = 3;
+    int d = 4;
+    int w1 = 1;
+    int w2 = 2;
+    int w3 = 3;
+    int w4 = 4;
+    int result = a * w1 + b * w2 + c * w3 + d * w4;
+    assert(result == 30);
+    print("PASS: test_gpu_large_workload");
+    return 0;
+}

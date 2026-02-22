@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    Vector<string> names = ["alice", "bob", "carol"];
+    print(names.size());
+    print(names.get(1));
+    printf("PASS: test_list_of_strings\n");
+    return 0;
+}

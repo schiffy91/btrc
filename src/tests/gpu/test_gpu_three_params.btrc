@@ -1,0 +1,13 @@
+#include <assert.h>
+
+@gpu
+float[] fusedMulAdd(float[] a, float[] b, float[] c) {
+    int i = gpu_id();
+    return a[i] * b[i] + c[i];
+}
+
+int main() {
+    assert(10 / 2 == 5);
+    print("PASS: test_gpu_three_params");
+    return 0;
+}

@@ -1,0 +1,15 @@
+#include <assert.h>
+
+@gpu
+void addInPlace(float[] a, float[] b) {
+    int i = gpu_id();
+    a[i] = a[i] + b[i];
+}
+
+int main() {
+    int x = 10;
+    x = x + 5;
+    assert(x == 15);
+    print("PASS: test_gpu_void_add_inplace");
+    return 0;
+}

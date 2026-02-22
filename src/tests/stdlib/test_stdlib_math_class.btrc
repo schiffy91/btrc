@@ -1,0 +1,40 @@
+#include <assert.h>
+#include <stdio.h>
+#include <math.h>
+
+class Math {
+    class int abs(int x) {
+        if (x < 0) { return -x; }
+        return x;
+    }
+    class int max(int a, int b) {
+        if (a > b) { return a; }
+        return b;
+    }
+    class int min(int a, int b) {
+        if (a < b) { return a; }
+        return b;
+    }
+    class float pow(float base, float exp) {
+        return powf(base, exp);
+    }
+    class float sqrt(float x) {
+        return sqrtf(x);
+    }
+}
+
+int main() {
+    assert(Math.abs(-5) == 5);
+    assert(Math.abs(3) == 3);
+    assert(Math.max(3, 7) == 7);
+    assert(Math.min(3, 7) == 3);
+
+    float pw = Math.pow(2.0, 10.0);
+    assert(pw > 1023.0 && pw < 1025.0);
+
+    float sq = Math.sqrt(25.0);
+    assert(sq > 4.9 && sq < 5.1);
+
+    print("PASS: test_stdlib_math_class");
+    return 0;
+}

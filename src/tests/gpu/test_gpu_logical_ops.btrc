@@ -1,0 +1,21 @@
+#include <assert.h>
+
+@gpu
+int[] inRange(float[] a, float lo, float hi) {
+    int i = gpu_id();
+    if (a[i] >= lo && a[i] <= hi) {
+        return 1;
+    }
+    return 0;
+}
+
+int main() {
+    bool a = true && true;
+    bool b = true || false;
+    bool c = !false;
+    assert(a);
+    assert(b);
+    assert(c);
+    print("PASS: test_gpu_logical_ops");
+    return 0;
+}

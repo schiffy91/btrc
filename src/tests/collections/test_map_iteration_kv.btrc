@@ -1,0 +1,13 @@
+#include <stdio.h>
+int main() {
+    Map<string, int> ages = {};
+    ages.put("alice", 30);
+    ages.put("bob", 25);
+    int total = 0;
+    for name, age in ages {
+        total = total + age;
+    }
+    print(total);
+    printf("PASS: test_map_iteration_kv\n");
+    return 0;
+}

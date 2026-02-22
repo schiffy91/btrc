@@ -1,0 +1,24 @@
+// Test parallel computation: spawn multiple threads that compute independently
+int fib(int n) {
+    if (n <= 1) { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+int main() {
+    // Compute fibonacci numbers in parallel
+    Thread<int> t1 = spawn(() => { return fib(10); });
+    Thread<int> t2 = spawn(() => { return fib(12); });
+    Thread<int> t3 = spawn(() => { return fib(15); });
+
+    int r1 = t1.join();
+    int r2 = t2.join();
+    int r3 = t3.join();
+
+    // fib(10) = 55, fib(12) = 144, fib(15) = 610
+    if (r1 != 55) { return 1; }
+    if (r2 != 144) { return 2; }
+    if (r3 != 610) { return 3; }
+
+    print("PASS parallel_compute");
+    return 0;
+}

@@ -1,0 +1,2 @@
+caught: something went wrong
+PASS: test_try_catch_basic

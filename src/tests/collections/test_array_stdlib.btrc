@@ -1,0 +1,40 @@
+/* Test Array<T> stdlib */
+
+int main() {
+    // Create and fill
+    Array<int> a = new Array<int>(5);
+    for (int i = 0; i < 5; i++) {
+        a.set(i, (i + 1) * 10);
+    }
+
+    // get / size / isEmpty
+    print(f"size={a.size()}");
+    print(f"isEmpty={a.isEmpty()}");
+    print(f"get(0)={a.get(0)}");
+    print(f"get(4)={a.get(4)}");
+
+    // contains / indexOf
+    print(f"contains(30)={a.contains(30)}");
+    print(f"contains(99)={a.contains(99)}");
+    print(f"indexOf(30)={a.indexOf(30)}");
+    print(f"indexOf(99)={a.indexOf(99)}");
+
+    // swap
+    a.swap(0, 4);
+    print(f"after swap: get(0)={a.get(0)}, get(4)={a.get(4)}");
+
+    // reverse (swap back first so we have 10,20,30,40,50)
+    a.swap(0, 4);
+    a.reverse();
+    print(f"after reverse: get(0)={a.get(0)}, get(4)={a.get(4)}");
+
+    // fill
+    a.fill(7);
+    print(f"after fill: get(0)={a.get(0)}, get(2)={a.get(2)}");
+
+    // Cleanup
+    delete a;
+
+    print("PASS");
+    return 0;
+}

@@ -1,0 +1,26 @@
+/* btrc standard library — Console
+ * Static methods for formatted terminal output.
+ *
+ * Usage:
+ *   Console.log("Hello");       // prints to stdout with newline
+ *   Console.error("Oops");      // prints to stderr with newline
+ *   Console.write("no newline"); // prints to stdout without newline
+ */
+
+class Console {
+    class void log(string msg) {
+        printf("%s\n", msg);
+    }
+
+    class void error(string msg) {
+        fprintf(stderr, "%s\n", msg);
+    }
+
+    class void write(string msg) {
+        printf("%s", msg);
+    }
+
+    class void writeLine(string msg) {
+        printf("%s\n", msg);
+    }
+}

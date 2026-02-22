@@ -1,0 +1,19 @@
+#include <assert.h>
+
+@gpu
+int[] countDown(int[] a) {
+    int i = gpu_id();
+    int val = a[i];
+    int count = 0;
+    while (val > 0) {
+        val = val - 1;
+        count = count + 1;
+    }
+    return count;
+}
+
+int main() {
+    assert(7 - 3 == 4);
+    print("PASS: test_gpu_while_loop");
+    return 0;
+}

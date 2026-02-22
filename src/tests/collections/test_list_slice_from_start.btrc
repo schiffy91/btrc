@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [1, 2, 3, 4, 5];
+    Vector<int> sub = nums.slice(0, 3);
+    print(sub.len);
+    sub.free();
+    nums.free();
+    printf("PASS: test_list_slice_from_start\n");
+    return 0;
+}

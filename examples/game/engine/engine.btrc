@@ -1,0 +1,54 @@
+/* btrc 3D Engine
+ *
+ * Unity-inspired game engine for btrc.
+ * Include this single file to get the full engine.
+ *
+ * Usage:
+ *   #include "engine/engine.btrc"
+ *   var engine = Engine("My Game", 800, 600);
+ */
+
+#include "gpu/gpu.btrc"
+#include "input.btrc"
+#include "time.btrc"
+#include "gameobject.btrc"
+#include "camera.btrc"
+#include "light.btrc"
+#include "material.btrc"
+#include "ground.btrc"
+#include "sky.btrc"
+#include "scene.btrc"
+#include "renderer.btrc"
+
+class Engine {
+    public GPUWindow window;
+    public GPU gpu;
+    public Input input;
+    public Time time;
+    public Renderer renderer;
+    public int width;
+    public int height;
+
+    public Engine(string title, int w, int h) {
+        self.width = w;
+        self.height = h;
+        self.window = new GPUWindow(title, w, h);
+        self.gpu = new GPU(self.window);
+        self.input = new Input(self.window._handle);
+        self.time = new Time();
+        self.renderer = new Renderer(self.gpu, w, h);
+    }
+
+    public bool isRunning() {
+        return self.window.isOpen();
+    }
+
+    public void update() {
+        self.window.poll();
+        self.time.update();
+    }
+
+    public void render(GameObject player) {
+        self.renderer.render(self.gpu, player, self.time.elapsed);
+    }
+}

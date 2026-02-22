@@ -1,0 +1,22 @@
+#include <assert.h>
+
+@gpu
+float[] elementMax(float[] a, float[] b) {
+    int i = gpu_id();
+    if (a[i] > b[i]) {
+        return a[i];
+    }
+    return b[i];
+}
+
+int main() {
+    int a = 10;
+    int b = 20;
+    int bigger = a;
+    if (b > a) {
+        bigger = b;
+    }
+    assert(bigger == 20);
+    print("PASS: test_gpu_max_function");
+    return 0;
+}

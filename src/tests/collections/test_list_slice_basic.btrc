@@ -1,0 +1,13 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [10, 20, 30, 40, 50];
+    Vector<int> sub = nums.slice(1, 4);
+    for x in sub {
+        printf("%d ", x);
+    }
+    printf("\n");
+    sub.free();
+    nums.free();
+    printf("PASS: test_list_slice_basic\n");
+    return 0;
+}

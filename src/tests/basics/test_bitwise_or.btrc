@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    int a = 0xF0;
+    int b = 0x0F;
+    print(a | b);
+    printf("PASS: test_bitwise_or\n");
+    return 0;
+}

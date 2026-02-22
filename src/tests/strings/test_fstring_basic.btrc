@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    int x = 42;
+    print(f"x={x}");
+    printf("PASS: test_fstring_basic\n");
+    return 0;
+}

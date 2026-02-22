@@ -1,0 +1,6 @@
+PASS super_chain_fields
+PASS super_chain_sum
+PASS super_chain_override_c
+PASS super_chain_override_b
+PASS super_chain_override_a
+PASS super_chain_inherited_method

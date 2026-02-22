@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [10, 20, 30];
+    print(nums.get(0));
+    print(nums.get(2));
+    printf("PASS: test_list_bounds_check\n");
+    return 0;
+}

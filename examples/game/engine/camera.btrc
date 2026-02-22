@@ -1,0 +1,40 @@
+/* btrc 3D Engine -- Camera
+ *
+ * Third-person camera with follow behavior.
+ * Writes 7 uniforms: position (3) + fov (1) + target (3).
+ */
+
+class Camera {
+    public struct Vector3 position;
+    public struct Vector3 target;
+    public float fov;
+
+    public Camera() {
+        self.position.x = 0.0;
+        self.position.y = 4.5;
+        self.position.z = -5.5;
+        self.target.x = 0.0;
+        self.target.y = 0.0;
+        self.target.z = 0.0;
+        self.fov = 1.8;
+    }
+
+    public void follow(float tx, float ty, float tz, float height, float distance) {
+        self.target.x = tx;
+        self.target.y = ty;
+        self.target.z = tz;
+        self.position.x = tx;
+        self.position.y = ty + height;
+        self.position.z = tz - distance;
+    }
+
+    public void writeUniforms(GPUUniform u, int offset) {
+        u.set(offset + 0, self.position.x);
+        u.set(offset + 1, self.position.y);
+        u.set(offset + 2, self.position.z);
+        u.set(offset + 3, self.fov);
+        u.set(offset + 4, self.target.x);
+        u.set(offset + 5, self.target.y);
+        u.set(offset + 6, self.target.z);
+    }
+}

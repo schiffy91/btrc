@@ -1,0 +1,10 @@
+#include <stdio.h>
+string greet(string name, string greeting = "Hello") {
+    return f"{greeting}, {name}!";
+}
+int main() {
+    print(greet("World"));
+    print(greet("btrc", "Hey"));
+    printf("PASS: test_default_params\n");
+    return 0;
+}

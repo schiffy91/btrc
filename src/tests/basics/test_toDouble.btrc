@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    string s = "3.14";
+    double d = s.toDouble();
+    if (d > 3.0) { print("yes"); }
+    printf("PASS: test_toDouble\n");
+    return 0;
+}

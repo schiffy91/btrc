@@ -1,0 +1,11 @@
+#include <stdio.h>
+int main() {
+    Set<int> s = {};
+    s.add(1);
+    s.add(2);
+    s.add(3);
+    s.remove(2);
+    print(s.size());
+    printf("PASS: test_set_remove\n");
+    return 0;
+}

@@ -1,0 +1,83 @@
+/* Test that __btrc_eq/__btrc_lt/__btrc_gt resolve correctly
+ * for user-defined generic classes (int and string variants). */
+
+#include <assert.h>
+#include <string.h>
+
+class Bag<T> {
+    public T* data;
+    public int len;
+    public int cap;
+
+    public Bag() {
+        self.data = null;
+        self.len = 0;
+        self.cap = 0;
+    }
+
+    public void add(T val) {
+        if (self.len >= self.cap) {
+            self.cap = self.cap == 0 ? 4 : self.cap * 2;
+            self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
+        }
+        self.data[self.len] = val;
+        self.len++;
+    }
+
+    public bool contains(T val) {
+        for (int i = 0; i < self.len; i++) {
+            if (__btrc_eq(self.data[i], val)) { return true; }
+        }
+        return false;
+    }
+
+    public T min() {
+        T m = self.data[0];
+        for (int i = 1; i < self.len; i++) {
+            if (__btrc_lt(self.data[i], m)) { m = self.data[i]; }
+        }
+        return m;
+    }
+
+    public T max() {
+        T m = self.data[0];
+        for (int i = 1; i < self.len; i++) {
+            if (__btrc_gt(self.data[i], m)) { m = self.data[i]; }
+        }
+        return m;
+    }
+
+    public void free() {
+        free(self.data);
+    }
+}
+
+int main() {
+    // Test with int
+    Bag<int> ints = new Bag<int>();
+    ints.add(5);
+    ints.add(3);
+    ints.add(8);
+    ints.add(1);
+    assert(ints.contains(3));
+    assert(!ints.contains(99));
+    assert(ints.min() == 1);
+    assert(ints.max() == 8);
+    ints.free();
+    print("PASS int bag");
+
+    // Test with string
+    Bag<string> strs = new Bag<string>();
+    strs.add("cherry");
+    strs.add("apple");
+    strs.add("banana");
+    assert(strs.contains("apple"));
+    assert(!strs.contains("grape"));
+    assert(strcmp(strs.min(), "apple") == 0);
+    assert(strcmp(strs.max(), "cherry") == 0);
+    strs.free();
+    print("PASS string bag");
+
+    print("PASS: test_generic_magic");
+    return 0;
+}

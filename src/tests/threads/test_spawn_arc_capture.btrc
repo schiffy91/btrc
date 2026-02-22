@@ -1,0 +1,38 @@
+// Test ARC safety for class captures in spawned threads
+int alive = 0;
+
+class Counter {
+    public int value;
+
+    public Counter(int v) {
+        self.value = v;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+int main() {
+    // Spawn a thread that captures a class instance
+    // The captured object must survive until the thread completes
+    Counter c = new Counter(42);
+
+    Thread<int> t = spawn(() => {
+        return c.value;
+    });
+
+    int result = t.join();
+    if (result != 42) { return 1; }
+
+    // c should still be alive (original scope owns it)
+    if (alive != 1) { return 2; }
+
+    // Clean up
+    delete c;
+    if (alive != 0) { return 3; }
+
+    print("PASS: test_spawn_arc_capture");
+    return 0;
+}

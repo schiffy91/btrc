@@ -1,0 +1,64 @@
+/* Test field assignment implicit keep: release old, assign, rc++ new */
+#include <assert.h>
+
+int alive = 0;
+
+class Item {
+    public int val;
+
+    public Item(int val) {
+        self.val = val;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Box {
+    public Item content;
+
+    public Box() {
+        self.content = null;
+    }
+}
+
+int main() {
+    // Test 1: field assign to non-null replaces and releases old
+    Box b = new Box();
+    Item a = new Item(10);
+    Item c = new Item(20);
+    assert(alive == 2);
+
+    // First assignment: old is null (skip release), assign, rc++
+    b.content = a;
+    assert(b.content.val == 10);
+
+    // Second assignment: release old (a), assign new (c), rc++
+    b.content = c;
+    assert(b.content.val == 20);
+    // a was released in the field assignment (--rc, if <=0 destroy)
+    // a's rc was: 1 (new) + 1 (field assign rc++) = 2
+    // field release: --rc = 1, > 0 so not destroyed
+    assert(alive == 2); // both still alive
+
+    // Test 2: field assign with new expression (no rc++ on value)
+    b.content = new Item(30);
+    assert(b.content.val == 30);
+    assert(alive == 3); // a, c, and new item
+
+    // Test 3: delete box releases its content field
+    delete b;
+    // Box destructor: release content field (rc-- the Item(30))
+    // Item(30) rc was 1 (from new), destructor does --rc = 0, destroy
+    assert(alive == 2); // only a and c remain
+
+    // Clean up
+    delete a;
+    delete c;
+    assert(alive == 0);
+
+    print("PASS: test_keep_fields");
+    return 0;
+}

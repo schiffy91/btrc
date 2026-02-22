@@ -1,0 +1,16 @@
+// Test spawn with lambda that captures outer variables
+int main() {
+    int x = 10;
+    int y = 20;
+
+    // Spawn a thread that captures x and y from outer scope
+    Thread<int> t = spawn(() => {
+        return x + y;
+    });
+
+    int result = t.join();
+    if (result != 30) { return 1; }
+
+    print("PASS spawn_capture");
+    return 0;
+}
