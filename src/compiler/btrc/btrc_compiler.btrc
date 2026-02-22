@@ -43,9 +43,8 @@ string resolve_btrc_includes(string source, string base_dir) {
                     string inc_file = source.substring(quote_start, quote_end - quote_start);
                     if (inc_file.endsWith(".btrc")) {
                         /* Build full path: base_dir/inc_file */
-                        char path_buf[1024];
-                        snprintf(path_buf, sizeof(path_buf), "%s/%s", base_dir, inc_file);
-                        string inc_source = Path.readAll(path_buf);
+                        string full_path = base_dir + "/" + inc_file;
+                        string inc_source = Path.readAll(full_path);
                         if (inc_source.len() > 0) {
                             result.appendStr(inc_source);
                             result.push('\n');
@@ -89,7 +88,7 @@ int main(int argc, char* argv[]) {
         } else if (arg.charAt(0) != '-') {
             input_file = arg;
         } else {
-            fprintf(stderr, "Unknown option: %s\n", arg);
+            Console.error("Unknown option: " + arg);
             return EXIT_ERROR;
         }
     }
@@ -101,7 +100,7 @@ int main(int argc, char* argv[]) {
 
     string source = Path.readAll(input_file);
     if (source.len() == 0) {
-        fprintf(stderr, "Error: Cannot read file '%s'\n", input_file);
+        Console.error("Error: Cannot read file '" + input_file + "'");
         return EXIT_ERROR;
     }
 
@@ -125,8 +124,7 @@ int main(int argc, char* argv[]) {
     if (emit_tokens) {
         for (int i = 0; i < tokens.len; i++) {
             Token t = tokens.get(i);
-            printf("Token(%s, '%s', %d:%d)\n",
-                   tok_type_name(t.type), t.value, t.line, t.col);
+            print(f"Token({tok_type_name(t.type)}, '{t.value}', {t.line}:{t.col})");
         }
         return EXIT_OK;
     }
@@ -136,7 +134,7 @@ int main(int argc, char* argv[]) {
     int program_idx = parser.parse();
 
     if (emit_ast) {
-        printf("AST: %d nodes, program at index %d\n", parser.nodes.len, program_idx);
+        print(f"AST: {parser.nodes.len} nodes, program at index {program_idx}");
         return EXIT_OK;
     }
 
@@ -146,26 +144,24 @@ int main(int argc, char* argv[]) {
 
     if (analyzer.errors.len > 0) {
         for (int i = 0; i < analyzer.errors.len; i++) {
-            fprintf(stderr, "Analyzer error: %s\n", analyzer.errors.get(i));
+            Console.error("Analyzer error: " + analyzer.errors.get(i));
         }
     }
 
     /* Milestone D: Code generation */
-    FILE* out = stdout;
+    var out = File("", "w");
+    out.setHandle(stdout);
     if (output_file.len() > 0) {
-        out = fopen(output_file, "w");
-        if (out == NULL) {
-            fprintf(stderr, "Error: Cannot open output file '%s'\n", output_file);
+        out = File(output_file, "w");
+        if (!out.ok()) {
+            Console.error("Error: Cannot open output file '" + output_file + "'");
             return EXIT_ERROR;
         }
     }
 
     var codegen = CodeGen(analyzer.nodes, analyzer, out);
     codegen.generate(program_idx);
-
-    if (output_file.len() > 0) {
-        fclose(out);
-    }
+    out.close();
 
     return EXIT_OK;
 }

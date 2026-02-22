@@ -30,11 +30,14 @@ from .ast_nodes import (
     Identifier,
     IfStmt,
     IndexExpr,
+    InterfaceDecl,
     IntLiteral,
     LambdaExpr,
     ListLiteral,
     MapLiteral,
     MethodDecl,
+    RichEnumDecl,
+    RichEnumVariant,
     NewExpr,
     NullLiteral,
     Param,
@@ -44,6 +47,7 @@ from .ast_nodes import (
     PropertyDecl,
     ReturnStmt,
     SelfExpr,
+    SuperExpr,
     SizeofExpr,
     StringLiteral,
     StructDecl,
@@ -157,6 +161,16 @@ class Parser:
             self._advance()
             tok = self._peek()
 
+        # interface declaration
+        if tok.type == TokenType.INTERFACE and not is_gpu:
+            return self._parse_interface_decl()
+
+        # abstract class declaration
+        if tok.type == TokenType.ABSTRACT and not is_gpu:
+            next_tok = self._peek(1)
+            if next_tok.type == TokenType.CLASS:
+                return self._parse_class_decl(is_abstract=True)
+
         # class declaration
         if tok.type == TokenType.CLASS and not is_gpu:
             # Could be class keyword (access spec) or class declaration
@@ -165,7 +179,8 @@ class Parser:
             next_tok = self._peek(1)
             if next_tok.type == TokenType.IDENT:
                 after = self._peek(2)
-                if after.type in (TokenType.LBRACE, TokenType.LT, TokenType.EXTENDS):
+                if after.type in (TokenType.LBRACE, TokenType.LT, TokenType.EXTENDS,
+                                  TokenType.IMPLEMENTS):
                     return self._parse_class_decl()
 
         # struct declaration (only if 'struct Name {' or 'struct Name ;', not 'struct Name* func()')
@@ -178,8 +193,11 @@ class Parser:
             elif next_tok.type == TokenType.LBRACE:
                 return self._parse_struct_decl()
 
-        # enum declaration
+        # enum declaration (or rich enum: enum class Name { ... })
         if tok.type == TokenType.ENUM and not is_gpu:
+            next_tok = self._peek(1)
+            if next_tok.type == TokenType.CLASS:
+                return self._parse_rich_enum_decl()
             return self._parse_enum_decl()
 
         # typedef
@@ -199,7 +217,9 @@ class Parser:
 
     # ---- Class declaration ----
 
-    def _parse_class_decl(self) -> ClassDecl:
+    def _parse_class_decl(self, is_abstract: bool = False) -> ClassDecl:
+        if is_abstract:
+            self._expect(TokenType.ABSTRACT)
         tok = self._expect(TokenType.CLASS)
         name_tok = self._expect(TokenType.IDENT, "class name")
         name = name_tok.value
@@ -217,17 +237,25 @@ class Parser:
         if self._match(TokenType.EXTENDS):
             parent = self._expect(TokenType.IDENT, "parent class name").value
 
+        # Interface implementation
+        interfaces = []
+        if self._match(TokenType.IMPLEMENTS):
+            interfaces.append(self._expect(TokenType.IDENT, "interface name").value)
+            while self._match(TokenType.COMMA):
+                interfaces.append(self._expect(TokenType.IDENT, "interface name").value)
+
         self._expect(TokenType.LBRACE)
 
         members = []
         while not self._check(TokenType.RBRACE) and not self._at_end():
-            members.append(self._parse_class_member())
+            members.append(self._parse_class_member(allow_abstract=is_abstract))
 
         self._expect(TokenType.RBRACE)
         return ClassDecl(name=name, generic_params=generic_params,
-                         members=members, parent=parent, line=tok.line, col=tok.col)
+                         members=members, parent=parent, interfaces=interfaces,
+                         is_abstract=is_abstract, line=tok.line, col=tok.col)
 
-    def _parse_class_member(self):
+    def _parse_class_member(self, allow_abstract: bool = False):
         """Parse a class member: access_spec (field | method)."""
         tok = self._peek()
 
@@ -238,11 +266,17 @@ class Parser:
         elif tok.type == TokenType.PRIVATE:
             access = "private"
             self._advance()
-        elif tok.type == TokenType.CLASS:
+        elif tok.type in (TokenType.CLASS, TokenType.STATIC):
             access = "class"
             self._advance()
         else:
-            raise self._error(f"Expected access specifier (public/private/class), got '{tok.value}'")
+            raise self._error(f"Expected access specifier (public/private/static), got '{tok.value}'")
+
+        # Check for abstract method
+        is_abstract_method = False
+        if allow_abstract and self._check(TokenType.ABSTRACT):
+            is_abstract_method = True
+            self._advance()
 
         # Check for @gpu
         is_gpu = False
@@ -258,7 +292,8 @@ class Parser:
         if self._check(TokenType.LPAREN):
             # Constructor — type_expr.base is the method name, return type is the same
             name = type_expr.base
-            return self._parse_method_rest(access, type_expr, name, is_gpu, tok.line, tok.col)
+            return self._parse_method_rest(access, type_expr, name, is_gpu, tok.line, tok.col,
+                                           is_abstract=is_abstract_method)
 
         # Name
         name_tok = self._expect(TokenType.IDENT, "member name")
@@ -266,7 +301,8 @@ class Parser:
 
         # If next is '(' → method, otherwise → field or property
         if self._check(TokenType.LPAREN):
-            return self._parse_method_rest(access, type_expr, name, is_gpu, tok.line, tok.col)
+            return self._parse_method_rest(access, type_expr, name, is_gpu, tok.line, tok.col,
+                                           is_abstract=is_abstract_method)
         elif self._check(TokenType.LBRACE) and self._is_property_start():
             return self._parse_property(access, type_expr, name, tok.line, tok.col)
         else:
@@ -278,14 +314,20 @@ class Parser:
             return FieldDecl(access=access, type=type_expr, name=name,
                              initializer=init, line=tok.line, col=tok.col)
 
-    def _parse_method_rest(self, access, return_type, name, is_gpu, line, col) -> MethodDecl:
+    def _parse_method_rest(self, access, return_type, name, is_gpu, line, col,
+                           is_abstract: bool = False) -> MethodDecl:
         self._expect(TokenType.LPAREN)
         params = self._parse_param_list()
         self._expect(TokenType.RPAREN)
-        body = self._parse_block()
+        if is_abstract:
+            # Abstract methods end with semicolon, no body
+            self._expect(TokenType.SEMICOLON)
+            body = None
+        else:
+            body = self._parse_block()
         return MethodDecl(access=access, return_type=return_type, name=name,
                           params=params, body=body, is_gpu=is_gpu,
-                          line=line, col=col)
+                          is_abstract=is_abstract, line=line, col=col)
 
     def _is_property_start(self) -> bool:
         """Check if '{' starts a property definition (contains 'get' or 'set')."""
@@ -367,6 +409,34 @@ class Parser:
             self._expect(TokenType.SEMICOLON)
             return StructDecl(name=name, fields=[], line=tok.line, col=tok.col)
 
+    # ---- Interface declaration ----
+
+    def _parse_interface_decl(self) -> InterfaceDecl:
+        tok = self._expect(TokenType.INTERFACE)
+        name = self._expect(TokenType.IDENT, "interface name").value
+
+        # Interface inheritance
+        parent = None
+        if self._match(TokenType.EXTENDS):
+            parent = self._expect(TokenType.IDENT, "parent interface name").value
+
+        self._expect(TokenType.LBRACE)
+        methods = []
+        while not self._check(TokenType.RBRACE) and not self._at_end():
+            # Interface methods: returnType name(params);
+            ret_type = self._parse_type_expr()
+            mname = self._expect(TokenType.IDENT, "method name").value
+            self._expect(TokenType.LPAREN)
+            params = self._parse_param_list()
+            self._expect(TokenType.RPAREN)
+            self._expect(TokenType.SEMICOLON)
+            methods.append(MethodDecl(access="public", return_type=ret_type, name=mname,
+                                      params=params, body=None, is_abstract=True,
+                                      line=tok.line, col=tok.col))
+        self._expect(TokenType.RBRACE)
+        return InterfaceDecl(name=name, methods=methods, parent=parent,
+                             line=tok.line, col=tok.col)
+
     # ---- Enum declaration ----
 
     def _parse_enum_decl(self) -> EnumDecl:
@@ -388,6 +458,28 @@ class Parser:
         self._expect(TokenType.RBRACE)
         self._expect(TokenType.SEMICOLON)
         return EnumDecl(name=name, values=values, line=tok.line, col=tok.col)
+
+    # ---- Rich enum declaration ----
+
+    def _parse_rich_enum_decl(self) -> RichEnumDecl:
+        """Parse: enum class Name { Variant1(type1 name1), Variant2, ... }"""
+        tok = self._expect(TokenType.ENUM)
+        self._expect(TokenType.CLASS)
+        name = self._expect(TokenType.IDENT, "enum name").value
+        self._expect(TokenType.LBRACE)
+        variants = []
+        while not self._check(TokenType.RBRACE) and not self._at_end():
+            vname = self._expect(TokenType.IDENT, "variant name").value
+            params = []
+            if self._match(TokenType.LPAREN):
+                if not self._check(TokenType.RPAREN):
+                    params = self._parse_param_list()
+                self._expect(TokenType.RPAREN)
+            variants.append(RichEnumVariant(name=vname, params=params))
+            if not self._match(TokenType.COMMA):
+                break
+        self._expect(TokenType.RBRACE)
+        return RichEnumDecl(name=name, variants=variants, line=tok.line, col=tok.col)
 
     # ---- Typedef declaration ----
 
@@ -1047,8 +1139,12 @@ class Parser:
         catch_var = self._expect(TokenType.IDENT, "catch variable").value
         self._expect(TokenType.RPAREN)
         catch_block = self._parse_block()
+        finally_block = None
+        if self._match(TokenType.FINALLY):
+            finally_block = self._parse_block()
         return TryCatchStmt(try_block=try_block, catch_var=catch_var,
-                            catch_block=catch_block, line=tok.line, col=tok.col)
+                            catch_block=catch_block, finally_block=finally_block,
+                            line=tok.line, col=tok.col)
 
     def _parse_throw(self) -> ThrowStmt:
         tok = self._expect(TokenType.THROW)
@@ -1425,6 +1521,11 @@ class Parser:
             self._advance()
             return SelfExpr(line=tok.line, col=tok.col)
 
+        # Super
+        if tok.type == TokenType.SUPER:
+            self._advance()
+            return SuperExpr(line=tok.line, col=tok.col)
+
         # new expression
         if tok.type == TokenType.NEW:
             return self._parse_new_expr()
@@ -1675,6 +1776,11 @@ class Parser:
         while i < len(raw):
             ch = raw[i]
             if ch == '{':
+                # Check for escaped {{ → literal {
+                if i + 1 < len(raw) and raw[i + 1] == '{':
+                    text_buf.append('{')
+                    i += 2
+                    continue
                 # Flush accumulated text
                 if text_buf:
                     parts.append(("text", ''.join(text_buf)))
@@ -1702,6 +1808,15 @@ class Parser:
                 sub_parser = Parser(sub_tokens)
                 expr_node = sub_parser._parse_expr()
                 parts.append(("expr", expr_node))
+            elif ch == '}':
+                # Check for escaped }} → literal }
+                if i + 1 < len(raw) and raw[i + 1] == '}':
+                    text_buf.append('}')
+                    i += 2
+                    continue
+                # Unmatched } outside expression — treat as literal
+                text_buf.append(ch)
+                i += 1
             elif ch == '\\':
                 # Pass escape sequences through as-is
                 text_buf.append(ch)

@@ -7,7 +7,7 @@ class Math {
     class float PI()    { return 3.14159265358979323846f; }
     class float E()     { return 2.71828182845904523536f; }
     class float TAU()   { return 6.28318530717958647692f; }
-    class float INF()   { return 1.0f / 0.0f; }
+    class float INF()   { float zero = 0.0f; return 1.0f / zero; }
 
     /* Basic operations */
     class int abs(int x) {

@@ -293,11 +293,21 @@ class Lexer:
                 self._emit(TokenType.FSTRING_LIT, value, line, col)
                 return
             elif ch == '{':
-                brace_depth += 1
-                chars.append(self._advance())
+                if brace_depth == 0 and self._peek(1) == '{':
+                    # Escaped {{ → store as {{ (literal brace)
+                    chars.append(self._advance())
+                    chars.append(self._advance())
+                else:
+                    brace_depth += 1
+                    chars.append(self._advance())
             elif ch == '}':
-                brace_depth -= 1
-                chars.append(self._advance())
+                if brace_depth == 0 and self._peek(1) == '}':
+                    # Escaped }} → store as }} (literal brace)
+                    chars.append(self._advance())
+                    chars.append(self._advance())
+                else:
+                    brace_depth -= 1
+                    chars.append(self._advance())
             elif ch == '\\':
                 chars.append(self._advance())  # backslash
                 if self.pos < len(self.source):

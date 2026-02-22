@@ -186,7 +186,12 @@ class SemanticTokenCollector:
             # Already handled by TextMate grammar mostly, skip
 
         # Built-in types that are keywords
-        if tok.type in (TokenType.LIST, TokenType.MAP):
+        if tok.type in (
+            TokenType.LIST, TokenType.MAP, TokenType.SET, TokenType.ARRAY,
+            TokenType.STRING, TokenType.BOOL, TokenType.INT, TokenType.FLOAT,
+            TokenType.DOUBLE, TokenType.LONG, TokenType.SHORT, TokenType.CHAR,
+            TokenType.VOID, TokenType.UNSIGNED,
+        ):
             self._add(tok, "type", "defaultLibrary")
 
     def _add(self, tok: Token, type_name: str, *modifiers: str):

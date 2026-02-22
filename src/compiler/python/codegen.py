@@ -27,6 +27,7 @@ from .ast_nodes import (
     ForInStmt,
     FStringLiteral,
     FunctionDecl,
+    RichEnumDecl,
     Identifier,
     IfStmt,
     IndexExpr,
@@ -44,6 +45,7 @@ from .ast_nodes import (
     PropertyDecl,
     ReturnStmt,
     SelfExpr,
+    SuperExpr,
     SizeofExpr,
     StringLiteral,
     StructDecl,
@@ -81,6 +83,63 @@ class CodeGen:
         self._emitted_globals: set[int] = set()  # track already-emitted globals
         self._hash_str_emitted: bool = False  # track if __btrc_hash_str was emitted
         self._tmp_counter: int = 0  # temp variable counter for safe expression evaluation
+        self._current_func_name: str | None = None  # track current function for str_flush
+        self._fn_wrappers: set[str] = set()  # track generated function wrappers for closures
+        # Vtable infrastructure
+        self._vtable_classes: set[str] = set()  # classes needing vtables
+        self._vtable_root: dict[str, str] = {}  # class_name -> root class name
+        self._build_vtable_info()
+
+    def _build_vtable_info(self):
+        """Determine which classes participate in inheritance and need vtables."""
+        # Find all classes with parents
+        has_children: set[str] = set()
+        for cls_name, cls_info in self.class_table.items():
+            if cls_info.parent:
+                has_children.add(cls_info.parent)
+        # Classes needing vtables: any class in an inheritance hierarchy
+        # or any class that implements interfaces
+        for cls_name, cls_info in self.class_table.items():
+            if cls_info.parent or cls_name in has_children or cls_info.interfaces:
+                self._vtable_classes.add(cls_name)
+        # Map each class to its root (topmost parent without a parent)
+        for cls_name in self._vtable_classes:
+            root = cls_name
+            while self.class_table.get(root, None) and self.class_table[root].parent:
+                root = self.class_table[root].parent
+            self._vtable_root[cls_name] = root
+
+    def _get_vtable_methods(self, root_name: str) -> list[tuple[str, str, list]]:
+        """Get methods for the vtable of a class hierarchy rooted at root_name.
+        Includes methods from root class and any implemented interfaces.
+        Returns [(method_name, c_return_type, [(param_c_type, param_name), ...]), ...]"""
+        root_info = self.class_table.get(root_name)
+        if not root_info:
+            return []
+        methods: dict[str, tuple] = {}
+        # Add interface methods first (for root and all ancestors)
+        iface_table = self.analyzed.interface_table
+        cur = root_info
+        while cur:
+            for iface_name in cur.interfaces:
+                if iface_name in iface_table:
+                    for mname, method in iface_table[iface_name].methods.items():
+                        if mname not in methods:
+                            ret_type = self._type_to_c(method.return_type)
+                            params = [(self._type_to_c(p.type), p.name) for p in method.params]
+                            methods[mname] = (mname, ret_type, params)
+            cur = self.class_table.get(cur.parent) if cur.parent else None
+        # Add root class's own methods
+        for mname, method in root_info.methods.items():
+            if mname == root_name:
+                continue  # skip constructor
+            if mname not in methods:
+                ret_type = self._type_to_c(method.return_type)
+                params = []
+                for p in method.params:
+                    params.append((self._type_to_c(p.type), p.name))
+                methods[mname] = (mname, ret_type, params)
+        return sorted(methods.values(), key=lambda x: x[0])
 
     def generate(self) -> str:
         # Collect user includes and determine needed auto-includes
@@ -91,6 +150,7 @@ class CodeGen:
         self._emit_forward_declarations()       # typedef struct Foo Foo;
         self._emit_generic_struct_typedefs()     # btrc_List_Foo struct (pointers only)
         self._emit_struct_definitions()          # full struct bodies
+        self._emit_vtable_typedefs()             # vtable struct types
         self._emit_destroy_forward_declarations()  # void Foo_destroy(Foo* self);
         self._emit_generic_function_bodies()     # List/Map function implementations
         # Emit globals/enums first so lambdas can reference them
@@ -122,15 +182,58 @@ class CodeGen:
     # ---- Lambda pre-scan ----
 
     def _prescan_lambdas(self):
-        """Walk the AST to find all LambdaExpr nodes and pre-generate their C functions."""
+        """Walk the AST to find all LambdaExpr nodes and pre-generate their C functions.
+        Also pre-generates wrappers for named functions passed to collection methods."""
         self._walk_for_lambdas(self.analyzed.program)
 
+    def _prescan_fn_wrapper(self, fn_name: str, coll_type: TypeExpr, method_name: str):
+        """Pre-generate a wrapper for a named function passed to a collection method."""
+        wrapper_name = f"__btrc_wrap_{fn_name}"
+        if wrapper_name in self._fn_wrappers:
+            return
+        self._fn_wrappers.add(wrapper_name)
+
+        elem_type = self._type_to_c(coll_type.generic_args[0]) if coll_type.generic_args else "int"
+
+        if method_name == "forEach":
+            if coll_type.base == "Map" and len(coll_type.generic_args) >= 2:
+                k_type = self._type_to_c(coll_type.generic_args[0])
+                v_type = self._type_to_c(coll_type.generic_args[1])
+                params = f"{k_type} k, {v_type} v, void* __btrc_env"
+                body = f"    {fn_name}(k, v);"
+            else:
+                params = f"{elem_type} x, void* __btrc_env"
+                body = f"    {fn_name}(x);"
+            wrapper = f"static void {wrapper_name}({params}) {{\n{body}\n}}\n"
+        elif method_name in ("filter", "any", "all", "findIndex"):
+            params = f"{elem_type} x, void* __btrc_env"
+            body = f"    return {fn_name}(x);"
+            ret = "bool"
+            wrapper = f"static {ret} {wrapper_name}({params}) {{\n{body}\n}}\n"
+        elif method_name == "map":
+            params = f"{elem_type} x, void* __btrc_env"
+            body = f"    return {fn_name}(x);"
+            wrapper = f"static {elem_type} {wrapper_name}({params}) {{\n{body}\n}}\n"
+        else:
+            return
+
+        self._lambda_defs.append(wrapper)
+
     def _walk_for_lambdas(self, node):
-        """Recursively walk AST to find and process LambdaExpr nodes."""
+        """Recursively walk AST to find and process LambdaExpr nodes,
+        and pre-generate wrappers for named functions passed to collection methods."""
         if node is None:
             return
         if isinstance(node, LambdaExpr):
             self._register_lambda(node)
+        # Detect named functions passed to collection methods: obj.filter(f)
+        if (isinstance(node, CallExpr) and isinstance(node.callee, FieldAccessExpr)
+                and node.callee.field in self._COLLECTION_FN_ARG_METHODS):
+            for a in node.args:
+                if isinstance(a, Identifier) and not isinstance(a, LambdaExpr):
+                    coll_type = self.node_types.get(id(node.callee.obj))
+                    if coll_type:
+                        self._prescan_fn_wrapper(a.name, coll_type, node.callee.field)
         # Walk children
         for attr in ('declarations', 'members', 'statements', 'args', 'elements', 'cases',
                      'entries', 'parts'):
@@ -167,15 +270,32 @@ class CodeGen:
             # Try to infer from body (single return statement)
             ret_type = self._infer_lambda_return_type(expr)
 
-        # Build parameter list
+        captures = getattr(expr, 'captures', [])
+
+        # Build parameter list — always include void* __btrc_env for uniform signature
         params = []
         for p in expr.params:
             params.append(self._param_to_c(p))
-        params_str = ", ".join(params) if params else "void"
+        params.append("void* __btrc_env")
+        params_str = ", ".join(params)
+
+        # Generate environment struct for captures
+        lines = []
+        if captures:
+            lines.append(f"typedef struct {{")
+            for cap_name, cap_type in captures:
+                c_type = self._type_to_c(cap_type)
+                lines.append(f"    {c_type} {cap_name};")
+            lines.append(f"}} {name}_env;")
+            lines.append("")
 
         # Generate function body
-        lines = []
         lines.append(f"static {ret_type} {name}({params_str}) {{")
+        if captures:
+            lines.append(f"    {name}_env* __env = ({name}_env*)__btrc_env;")
+            for cap_name, _cap_type in captures:
+                c_type = self._type_to_c(_cap_type)
+                lines.append(f"    {c_type} {cap_name} = __env->{cap_name};")
         if isinstance(expr.body, Block):
             # Save and restore codegen state
             saved_output = self.output
@@ -324,6 +444,8 @@ class CodeGen:
         if isinstance(node, TryCatchStmt):
             self._walk_for_includes(node.try_block, needed)
             self._walk_for_includes(node.catch_block, needed)
+            if node.finally_block:
+                self._walk_for_includes(node.finally_block, needed)
             return
         if isinstance(node, ThrowStmt):
             self._walk_for_includes(node.expr, needed)
@@ -468,11 +590,9 @@ class CodeGen:
             target_type = self.node_types.get(id(node.target))
             if target_type and target_type.base == "string":
                 return True
-        # Recurse into FStringLiteral expression parts
+        # F-string literals allocate with malloc and use __btrc_str_track
         if isinstance(node, FStringLiteral):
-            for kind, val in node.parts:
-                if kind == "expr" and self._walk_for_string_methods(val):
-                    return True
+            return True
         for attr in ('declarations', 'members', 'statements', 'body', 'then_block',
                      'else_block', 'args', 'elements', 'entries', 'cases'):
             child = getattr(node, attr, None)
@@ -498,6 +618,27 @@ class CodeGen:
 
     def _emit_string_helpers(self):
         """Emit helper functions for string methods."""
+        # String temp pool: tracks malloc'd string temporaries for auto-cleanup
+        self._emit("/* btrc string temp pool */")
+        self._emit("#define __BTRC_STR_POOL_SIZE 256")
+        self._emit("static char* __btrc_str_pool[__BTRC_STR_POOL_SIZE];")
+        self._emit("static int __btrc_str_pool_top = 0;")
+        self._emit()
+        self._emit("static inline char* __btrc_str_track(char* s) {")
+        self._emit("    if (__btrc_str_pool_top < __BTRC_STR_POOL_SIZE) {")
+        self._emit("        __btrc_str_pool[__btrc_str_pool_top++] = s;")
+        self._emit("    }")
+        self._emit("    return s;")
+        self._emit("}")
+        self._emit()
+        self._emit("static inline void __btrc_str_flush(void) {")
+        self._emit("    for (int i = 0; i < __btrc_str_pool_top; i++) {")
+        self._emit("        free(__btrc_str_pool[i]);")
+        self._emit("        __btrc_str_pool[i] = NULL;")
+        self._emit("    }")
+        self._emit("    __btrc_str_pool_top = 0;")
+        self._emit("}")
+        self._emit()
         self._emit("/* btrc string helper functions */")
         # substring(s, start, len)
         self._emit("static inline char* __btrc_substring(const char* s, int start, int len) {")
@@ -881,6 +1022,12 @@ class CodeGen:
         self._emit("    return buf;")
         self._emit("}")
         self._emit()
+        self._emit("static inline char* __btrc_charToString(char c) {")
+        self._emit("    char* buf = (char*)malloc(2);")
+        self._emit("    buf[0] = c; buf[1] = '\\0';")
+        self._emit("    return buf;")
+        self._emit("}")
+        self._emit()
         # zfill(s, width) — left-pad with zeros
         self._emit("static inline char* __btrc_zfill(const char* s, int width) {")
         self._emit("    int len = (int)strlen(s);")
@@ -1041,12 +1188,35 @@ class CodeGen:
         return False
 
     def _emit_try_catch_runtime(self):
-        """Emit the setjmp/longjmp-based try/catch runtime."""
+        """Emit the setjmp/longjmp-based try/catch runtime with cleanup support."""
         self._emit("/* btrc try/catch runtime */")
         self._emit("#define __BTRC_TRY_STACK_SIZE 64")
+        self._emit("#define __BTRC_CLEANUP_MAX 64")
         self._emit("static jmp_buf __btrc_try_stack[__BTRC_TRY_STACK_SIZE];")
         self._emit("static int __btrc_try_top = -1;")
         self._emit("static char __btrc_error_msg[1024] = \"\";")
+        self._emit()
+        self._emit("/* Cleanup stack: tracks heap resources to free on exception */")
+        self._emit("typedef void (*__btrc_cleanup_fn)(void*);")
+        self._emit("typedef struct { void* ptr; __btrc_cleanup_fn fn; int try_level; } __btrc_cleanup_entry;")
+        self._emit("static __btrc_cleanup_entry __btrc_cleanup_stack[__BTRC_CLEANUP_MAX];")
+        self._emit("static int __btrc_cleanup_top = -1;")
+        self._emit()
+        self._emit("static inline void __btrc_register_cleanup(void* ptr, __btrc_cleanup_fn fn) {")
+        self._emit("    if (__btrc_cleanup_top + 1 < __BTRC_CLEANUP_MAX) {")
+        self._emit("        __btrc_cleanup_top++;")
+        self._emit("        __btrc_cleanup_stack[__btrc_cleanup_top].ptr = ptr;")
+        self._emit("        __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;")
+        self._emit("        __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;")
+        self._emit("    }")
+        self._emit("}")
+        self._emit()
+        self._emit("static inline void __btrc_run_cleanups(int level) {")
+        self._emit("    while (__btrc_cleanup_top >= 0 && __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {")
+        self._emit("        __btrc_cleanup_entry e = __btrc_cleanup_stack[__btrc_cleanup_top--];")
+        self._emit("        if (e.fn && e.ptr) e.fn(e.ptr);")
+        self._emit("    }")
+        self._emit("}")
         self._emit()
         self._emit("static inline void __btrc_throw(const char* msg) {")
         self._emit("    if (__btrc_try_top < 0) {")
@@ -1055,17 +1225,19 @@ class CodeGen:
         self._emit("    }")
         self._emit("    strncpy(__btrc_error_msg, msg, 1023);")
         self._emit("    __btrc_error_msg[1023] = '\\0';")
+        self._emit("    __btrc_run_cleanups(__btrc_try_top);")
         self._emit("    longjmp(__btrc_try_stack[__btrc_try_top--], 1);")
         self._emit("}")
         self._emit()
 
     def _emit_try_catch(self, stmt: TryCatchStmt):
-        """Emit try/catch using setjmp/longjmp."""
+        """Emit try/catch/finally using setjmp/longjmp with cleanup support."""
         self._emit("if (__btrc_try_top + 1 >= __BTRC_TRY_STACK_SIZE) { fprintf(stderr, \"try/catch stack overflow\\n\"); exit(1); }")
         self._emit("__btrc_try_top++;")
         self._emit("if (setjmp(__btrc_try_stack[__btrc_try_top]) == 0) {")
         self.indent_level += 1
         self._emit_block_contents(stmt.try_block)
+        self._emit("__btrc_run_cleanups(__btrc_try_top);")
         self._emit("__btrc_try_top--;")
         self.indent_level -= 1
         self._emit("} else {")
@@ -1074,6 +1246,13 @@ class CodeGen:
         self._emit_block_contents(stmt.catch_block)
         self.indent_level -= 1
         self._emit("}")
+        if stmt.finally_block:
+            self._emit("/* finally */")
+            self._emit("{")
+            self.indent_level += 1
+            self._emit_block_contents(stmt.finally_block)
+            self.indent_level -= 1
+            self._emit("}")
 
     # ---- Generic instantiations ----
 
@@ -1426,35 +1605,35 @@ class CodeGen:
             self._emit("    return result;")
             self._emit("}")
             self._emit()
-        # forEach(fn) — call fn(element) for each element
-        self._emit(f"static inline void {name}_forEach({name}* l, void (*fn)({c_type})) {{")
-        self._emit("    for (int i = 0; i < l->len; i++) fn(l->data[i]);")
+        # forEach(fn, ctx) — call fn(element, ctx) for each element
+        self._emit(f"static inline void {name}_forEach({name}* l, void (*fn)({c_type}, void*), void* __ctx) {{")
+        self._emit("    for (int i = 0; i < l->len; i++) fn(l->data[i], __ctx);")
         self._emit("}")
         self._emit()
-        # filter(fn) — return new list of elements where fn(element) returns true
-        self._emit(f"static inline {name} {name}_filter({name}* l, bool (*fn)({c_type})) {{")
+        # filter(fn, ctx) — return new list of elements where fn(element, ctx) returns true
+        self._emit(f"static inline {name} {name}_filter({name}* l, bool (*fn)({c_type}, void*), void* __ctx) {{")
         self._emit(f"    {name} result = {name}_new();")
         self._emit("    for (int i = 0; i < l->len; i++) {")
-        self._emit(f"        if (fn(l->data[i])) {name}_push(&result, l->data[i]);")
+        self._emit(f"        if (fn(l->data[i], __ctx)) {name}_push(&result, l->data[i]);")
         self._emit("    }")
         self._emit("    return result;")
         self._emit("}")
         self._emit()
-        # any(fn) — return true if fn(element) is true for any element
-        self._emit(f"static inline bool {name}_any({name}* l, bool (*fn)({c_type})) {{")
-        self._emit("    for (int i = 0; i < l->len; i++) { if (fn(l->data[i])) return true; }")
+        # any(fn, ctx) — return true if fn(element, ctx) is true for any element
+        self._emit(f"static inline bool {name}_any({name}* l, bool (*fn)({c_type}, void*), void* __ctx) {{")
+        self._emit("    for (int i = 0; i < l->len; i++) { if (fn(l->data[i], __ctx)) return true; }")
         self._emit("    return false;")
         self._emit("}")
         self._emit()
-        # all(fn) — return true if fn(element) is true for all elements
-        self._emit(f"static inline bool {name}_all({name}* l, bool (*fn)({c_type})) {{")
-        self._emit("    for (int i = 0; i < l->len; i++) { if (!fn(l->data[i])) return false; }")
+        # all(fn, ctx) — return true if fn(element, ctx) is true for all elements
+        self._emit(f"static inline bool {name}_all({name}* l, bool (*fn)({c_type}, void*), void* __ctx) {{")
+        self._emit("    for (int i = 0; i < l->len; i++) { if (!fn(l->data[i], __ctx)) return false; }")
         self._emit("    return true;")
         self._emit("}")
         self._emit()
-        # findIndex(fn) — return index of first element where fn(element) is true, or -1
-        self._emit(f"static inline int {name}_findIndex({name}* l, bool (*fn)({c_type})) {{")
-        self._emit("    for (int i = 0; i < l->len; i++) { if (fn(l->data[i])) return i; }")
+        # findIndex(fn, ctx) — return index of first element where fn(element, ctx) is true, or -1
+        self._emit(f"static inline int {name}_findIndex({name}* l, bool (*fn)({c_type}, void*), void* __ctx) {{")
+        self._emit("    for (int i = 0; i < l->len; i++) { if (fn(l->data[i], __ctx)) return i; }")
         self._emit("    return -1;")
         self._emit("}")
         self._emit()
@@ -1480,10 +1659,10 @@ class CodeGen:
         self._emit("    return l->data[l->len - 1];")
         self._emit("}")
         self._emit()
-        # map(fn) — apply fn to each element, return new list (same type)
-        self._emit(f"static inline {name} {name}_map({name}* l, {c_type} (*fn)({c_type})) {{")
+        # map(fn, ctx) — apply fn to each element, return new list (same type)
+        self._emit(f"static inline {name} {name}_map({name}* l, {c_type} (*fn)({c_type}, void*), void* __ctx) {{")
         self._emit(f"    {name} result = {name}_new();")
-        self._emit(f"    for (int i = 0; i < l->len; i++) {name}_push(&result, fn(l->data[i]));")
+        self._emit(f"    for (int i = 0; i < l->len; i++) {name}_push(&result, fn(l->data[i], __ctx));")
         self._emit("    return result;")
         self._emit("}")
         self._emit()
@@ -1712,10 +1891,10 @@ class CodeGen:
         self._emit("}")
         self._emit()
 
-        # forEach(fn) — call fn(key, value) for each entry
-        self._emit(f"static inline void {name}_forEach({name}* m, void (*fn)({k_type}, {v_type})) {{")
+        # forEach(fn, ctx) — call fn(key, value, ctx) for each entry
+        self._emit(f"static inline void {name}_forEach({name}* m, void (*fn)({k_type}, {v_type}, void*), void* __ctx) {{")
         self._emit("    for (int i = 0; i < m->cap; i++) {")
-        self._emit("        if (m->buckets[i].occupied) fn(m->buckets[i].key, m->buckets[i].value);")
+        self._emit("        if (m->buckets[i].occupied) fn(m->buckets[i].key, m->buckets[i].value, __ctx);")
         self._emit("    }")
         self._emit("}")
         self._emit()
@@ -1894,19 +2073,19 @@ class CodeGen:
         self._emit("}")
         self._emit()
 
-        # forEach
-        self._emit(f"static inline void {name}_forEach({name}* s, void (*fn)({c_type})) {{")
+        # forEach(fn, ctx)
+        self._emit(f"static inline void {name}_forEach({name}* s, void (*fn)({c_type}, void*), void* __ctx) {{")
         self._emit("    for (int i = 0; i < s->cap; i++) {")
-        self._emit("        if (s->buckets[i].occupied) fn(s->buckets[i].key);")
+        self._emit("        if (s->buckets[i].occupied) fn(s->buckets[i].key, __ctx);")
         self._emit("    }")
         self._emit("}")
         self._emit()
 
-        # filter(fn) — return new Set of elements where fn(element) returns true
-        self._emit(f"static inline {name} {name}_filter({name}* s, bool (*fn)({c_type})) {{")
+        # filter(fn, ctx) — return new Set of elements where fn(element, ctx) returns true
+        self._emit(f"static inline {name} {name}_filter({name}* s, bool (*fn)({c_type}, void*), void* __ctx) {{")
         self._emit(f"    {name} result = {name}_new();")
         self._emit("    for (int i = 0; i < s->cap; i++) {")
-        self._emit("        if (s->buckets[i].occupied && fn(s->buckets[i].key)) {")
+        self._emit("        if (s->buckets[i].occupied && fn(s->buckets[i].key, __ctx)) {")
         self._emit(f"            {name}_add(&result, s->buckets[i].key);")
         self._emit("        }")
         self._emit("    }")
@@ -1914,19 +2093,19 @@ class CodeGen:
         self._emit("}")
         self._emit()
 
-        # any(fn) — return true if fn(element) is true for any element
-        self._emit(f"static inline bool {name}_any({name}* s, bool (*fn)({c_type})) {{")
+        # any(fn, ctx) — return true if fn(element, ctx) is true for any element
+        self._emit(f"static inline bool {name}_any({name}* s, bool (*fn)({c_type}, void*), void* __ctx) {{")
         self._emit("    for (int i = 0; i < s->cap; i++) {")
-        self._emit("        if (s->buckets[i].occupied && fn(s->buckets[i].key)) return true;")
+        self._emit("        if (s->buckets[i].occupied && fn(s->buckets[i].key, __ctx)) return true;")
         self._emit("    }")
         self._emit("    return false;")
         self._emit("}")
         self._emit()
 
-        # all(fn) — return true if fn(element) is true for all elements
-        self._emit(f"static inline bool {name}_all({name}* s, bool (*fn)({c_type})) {{")
+        # all(fn, ctx) — return true if fn(element, ctx) is true for all elements
+        self._emit(f"static inline bool {name}_all({name}* s, bool (*fn)({c_type}, void*), void* __ctx) {{")
         self._emit("    for (int i = 0; i < s->cap; i++) {")
-        self._emit("        if (s->buckets[i].occupied && !fn(s->buckets[i].key)) return false;")
+        self._emit("        if (s->buckets[i].occupied && !fn(s->buckets[i].key, __ctx)) return false;")
         self._emit("    }")
         self._emit("    return true;")
         self._emit("}")
@@ -2025,15 +2204,91 @@ class CodeGen:
         mono_name = f"btrc_{cls.name}_{mangled_args}"
 
         # Struct
-        self._emit("typedef struct {")
+        self._emit(f"typedef struct {mono_name} {mono_name};")
+        self._emit(f"struct {mono_name} {{")
         self.indent_level += 1
-        if not cls.fields:
-            self._emit("char _dummy;")
+        has_fields = False
         for fname, field in cls.fields.items():
             ftype = self._substitute_type(field.type, subs)
             self._emit(f"{self._type_to_c(ftype)} {fname};")
+            has_fields = True
+        if not has_fields:
+            self._emit("char _dummy;")
         self.indent_level -= 1
-        self._emit(f"}} {mono_name};")
+        self._emit("};")
+        self._emit()
+
+        # Find the original ClassDecl for method bodies
+        decl = None
+        for d in self.analyzed.program.declarations:
+            if isinstance(d, ClassDecl) and d.name == cls.name:
+                decl = d
+                break
+        if not decl:
+            return
+
+        # Emit methods with type substitution
+        prev_class = self.current_class
+        self.current_class = cls
+        for member in decl.members:
+            if isinstance(member, MethodDecl):
+                is_constructor = (member.name == cls.name)
+                if is_constructor:
+                    self._emit_monomorphized_constructor(mono_name, member, subs, cls)
+                elif member.body:
+                    self._emit_monomorphized_method(mono_name, member, subs)
+        self.current_class = prev_class
+
+    def _emit_monomorphized_constructor(self, mono_name: str, method: MethodDecl,
+                                        subs: dict[str, TypeExpr], cls: ClassInfo):
+        """Emit constructor (init + new) for a monomorphized generic class."""
+        # Build parameter list with type substitution
+        params = []
+        for p in method.params:
+            ptype = self._substitute_type(p.type, subs)
+            params.append(f"{self._type_to_c(ptype)} {p.name}")
+
+        # _init function
+        init_params = [f"{mono_name}* self"] + params
+        self._emit(f"void {mono_name}_init({', '.join(init_params)}) {{")
+        self.indent_level += 1
+        if method.body:
+            for stmt in method.body.statements:
+                self._emit_stmt(stmt)
+        self.indent_level -= 1
+        self._emit("}")
+        self._emit()
+
+        # _new function
+        new_params_str = ", ".join(params) if params else "void"
+        self._emit(f"{mono_name}* {mono_name}_new({new_params_str}) {{")
+        self.indent_level += 1
+        self._emit(f"{mono_name}* self = ({mono_name}*)malloc(sizeof({mono_name}));")
+        self._emit(f"memset(self, 0, sizeof({mono_name}));")
+        args = ", ".join(["self"] + [p.name for p in method.params])
+        self._emit(f"{mono_name}_init({args});")
+        self._emit("return self;")
+        self.indent_level -= 1
+        self._emit("}")
+        self._emit()
+
+    def _emit_monomorphized_method(self, mono_name: str, method: MethodDecl,
+                                   subs: dict[str, TypeExpr]):
+        """Emit a method for a monomorphized generic class."""
+        ret_type = self._type_to_c(self._substitute_type(method.return_type, subs))
+        params = [f"{mono_name}* self"]
+        for p in method.params:
+            ptype = self._substitute_type(p.type, subs)
+            params.append(f"{self._type_to_c(ptype)} {p.name}")
+        params_str = ", ".join(params)
+
+        self._emit(f"{ret_type} {mono_name}_{method.name}({params_str}) {{")
+        self.indent_level += 1
+        if method.body:
+            for stmt in method.body.statements:
+                self._emit_stmt(stmt)
+        self.indent_level -= 1
+        self._emit("}")
         self._emit()
 
     # ---- Forward declarations ----
@@ -2065,11 +2320,81 @@ class CodeGen:
         for name, cls in self.class_table.items():
             if not cls.generic_params:  # non-generic classes
                 self._emit(f"typedef struct {name} {name};")
+        # Interface forward declarations (struct with __vt pointer)
+        for name in self.analyzed.interface_table:
+            self._emit(f"typedef struct {name} {name};")
+        self._emit()
+
+    def _emit_vtable_typedefs(self):
+        """Emit vtable struct types for each root class in an inheritance hierarchy."""
+        emitted_roots: set[str] = set()
+        for cls_name in sorted(self._vtable_classes):
+            root = self._vtable_root[cls_name]
+            if root in emitted_roots:
+                continue
+            emitted_roots.add(root)
+            methods = self._get_vtable_methods(root)
+            if not methods:
+                continue
+            self._emit(f"typedef struct {{")
+            self.indent_level += 1
+            for mname, ret_type, params in methods:
+                param_str = f"{root}* self"
+                for pt, pn in params:
+                    param_str += f", {pt} {pn}"
+                self._emit(f"{ret_type} (*{mname})({param_str});")
+            self.indent_level -= 1
+            self._emit(f"}} {root}_VTable;")
+            self._emit()
+
+    def _emit_vtable_instance(self, class_name: str, cls: ClassInfo, methods_to_emit: list):
+        """Emit a static vtable instance for a specific class."""
+        root = self._vtable_root.get(class_name)
+        if not root:
+            return
+        vtable_methods = self._get_vtable_methods(root)
+        if not vtable_methods:
+            return
+        # Don't emit vtable for abstract classes that can't be instantiated
+        if cls.is_abstract:
+            return
+        # Build mapping of method names to the class-qualified function
+        method_map: dict[str, str] = {}
+        for method in methods_to_emit:
+            if method.name != class_name and method.name != cls.name:
+                method_map[method.name] = f"{class_name}_{method.name}"
+        # Also check parent chain for inherited concrete methods
+        cur_parent = cls.parent
+        while cur_parent and cur_parent in self.class_table:
+            parent_cls = self.class_table[cur_parent]
+            for mname, method in parent_cls.methods.items():
+                if mname not in method_map and not method.is_abstract and mname != cur_parent:
+                    method_map[mname] = f"{cur_parent}_{mname}"
+            cur_parent = parent_cls.parent
+        self._emit(f"static {root}_VTable {class_name}__vtable = {{")
+        self.indent_level += 1
+        for mname, ret_type, params in vtable_methods:
+            fn_name = method_map.get(mname, f"{root}_{mname}")
+            # Cast to root-class function pointer type for type compatibility
+            param_str = f"{root}*"
+            for pt, _pn in params:
+                param_str += f", {pt}"
+            self._emit(f".{mname} = ({ret_type} (*)({param_str})){fn_name},")
+        self.indent_level -= 1
+        self._emit("};")
         self._emit()
 
     def _emit_struct_definitions(self):
         """Emit struct bodies for all classes before generic instantiations.
         This ensures List<MyClass> etc. can see the full type."""
+        # Interface structs (just a vtable pointer for type-safe casting)
+        for iname in self.analyzed.interface_table:
+            self._emit(f"struct {iname} {{")
+            self.indent_level += 1
+            self._emit("void** __vt;")
+            self.indent_level -= 1
+            self._emit("};")
+            self._emit()
         for decl in self.analyzed.program.declarations:
             if isinstance(decl, ClassDecl) and not decl.generic_params:
                 self._emit_class_struct(decl)
@@ -2081,6 +2406,10 @@ class CodeGen:
         self._emit(f"struct {decl.name} {{")
         self.indent_level += 1
         field_count = 0
+        # Add vtable pointer for classes in inheritance hierarchies
+        if decl.name in self._vtable_classes:
+            self._emit("void** __vt;")
+            field_count += 1
         if decl.parent and decl.parent in self.class_table:
             parent_cls = self.class_table[decl.parent]
             for fname, fld in parent_cls.fields.items():
@@ -2107,7 +2436,7 @@ class CodeGen:
     # ---- Auto-destructor ----
 
     def _emit_destroy_forward_declarations(self):
-        """Forward-declare destroy functions for all classes so they can reference each other."""
+        """Forward-declare destroy and init functions for all classes."""
         any_emitted = False
         for name, cls in self.class_table.items():
             if not cls.generic_params:
@@ -2157,7 +2486,7 @@ class CodeGen:
     def _emit_globals_and_enums(self):
         """Emit global variables and enums before lambdas so lambdas can reference them."""
         for decl in self.analyzed.program.declarations:
-            if isinstance(decl, (VarDeclStmt, EnumDecl)):
+            if isinstance(decl, (VarDeclStmt, EnumDecl, RichEnumDecl)):
                 self._emit_decl(decl)
                 self._emitted_globals.add(id(decl))
 
@@ -2182,6 +2511,8 @@ class CodeGen:
             self._emit_struct(decl)
         elif isinstance(decl, EnumDecl):
             self._emit_enum(decl)
+        elif isinstance(decl, RichEnumDecl):
+            self._emit_rich_enum(decl)
         elif isinstance(decl, TypedefDecl):
             self._emit_typedef(decl)
 
@@ -2210,13 +2541,19 @@ class CodeGen:
             if isinstance(member, MethodDecl):
                 methods_to_emit.append(member)
 
-        # Emit forward declarations for all methods (handles cross-references
-        # between inherited methods and child overrides)
-        for method in methods_to_emit:
+        # Filter out abstract methods (no body to emit)
+        concrete_methods = [m for m in methods_to_emit if not m.is_abstract]
+
+        # Emit forward declarations for concrete methods
+        for method in concrete_methods:
             self._emit_method_forward_decl(decl.name, method, cls)
 
+        # Emit vtable instance for classes in inheritance hierarchies
+        if decl.name in self._vtable_classes:
+            self._emit_vtable_instance(decl.name, cls, concrete_methods)
+
         # Emit method bodies
-        for method in methods_to_emit:
+        for method in concrete_methods:
             self._emit_method(decl.name, method, cls)
 
         # Emit property getters and setters
@@ -2294,16 +2631,29 @@ class CodeGen:
 
         self._emit_line_directive(method.line)
         if is_constructor:
-            self._emit(f"{ret_type} {func_name}({params_str}) {{")
+            # Emit _init function (for stack allocation — initializes in-place)
+            init_params = [f"{class_name}* self"] + [self._param_to_c(p) for p in method.params]
+            init_params_str = ", ".join(init_params)
+            self._emit(f"void {class_name}_init({init_params_str}) {{")
             self.indent_level += 1
-            self._emit(f"{class_name}* self = ({class_name}*)malloc(sizeof({class_name}));")
-            self._emit(f"memset(self, 0, sizeof({class_name}));")
-            # Apply field defaults before user constructor body
+            # Set vtable pointer for classes in inheritance hierarchies
+            if class_name in self._vtable_classes:
+                self._emit(f"self->__vt = (void**)&{class_name}__vtable;")
             for fname, fld in cls.fields.items():
                 if fld.initializer:
                     init_c = self._expr_to_c(fld.initializer)
                     self._emit(f"self->{fname} = {init_c};")
             self._emit_block_contents(method.body)
+            self.indent_level -= 1
+            self._emit("}")
+            self._emit()
+            # Emit _new function (for heap allocation — mallocs then calls _init)
+            self._emit(f"{ret_type} {func_name}({params_str}) {{")
+            self.indent_level += 1
+            self._emit(f"{class_name}* self = ({class_name}*)malloc(sizeof({class_name}));")
+            self._emit(f"memset(self, 0, sizeof({class_name}));")
+            arg_names = ", ".join(["self"] + [p.name for p in method.params])
+            self._emit(f"{class_name}_init({arg_names});")
             self._emit("return self;")
             self.indent_level -= 1
             self._emit("}")
@@ -2317,19 +2667,19 @@ class CodeGen:
 
     def _emit_default_constructor(self, class_name: str, members: list, cls: ClassInfo):
         """Generate a default constructor from field initializers."""
-        self._emit(f"{class_name}* {class_name}_new(void) {{")
+        # Emit _init function (for stack allocation)
+        self._emit(f"void {class_name}_init({class_name}* self) {{")
         self.indent_level += 1
-        self._emit(f"{class_name}* self = ({class_name}*)malloc(sizeof({class_name}));")
-        self._emit(f"memset(self, 0, sizeof({class_name}));")
+        # Set vtable pointer for classes in inheritance hierarchies
+        if class_name in self._vtable_classes:
+            self._emit(f"self->__vt = (void**)&{class_name}__vtable;")
         for member in members:
             if isinstance(member, FieldDecl) and member.initializer:
-                # Handle collection field initializers: List<T> items = [] or Map<K,V> m = {}
                 is_collection_init = isinstance(member.initializer, (ListLiteral, MapLiteral))
                 is_empty_brace = isinstance(member.initializer, BraceInitializer) and len(member.initializer.elements) == 0
                 if (is_collection_init or is_empty_brace) and member.type and member.type.base in ("Map", "List", "Set"):
                     c_type = self._type_to_c(member.type)
                     self._emit(f"self->{member.name} = {c_type}_new();")
-                    # Push elements for non-empty list literals
                     if isinstance(member.initializer, ListLiteral):
                         for el in member.initializer.elements:
                             self._emit(f"{c_type}_push(&self->{member.name}, {self._expr_to_c(el)});")
@@ -2339,6 +2689,15 @@ class CodeGen:
                 else:
                     init_c = self._expr_to_c(member.initializer)
                     self._emit(f"self->{member.name} = {init_c};")
+        self.indent_level -= 1
+        self._emit("}")
+        self._emit()
+        # Emit _new function (for heap allocation — calls _init)
+        self._emit(f"{class_name}* {class_name}_new(void) {{")
+        self.indent_level += 1
+        self._emit(f"{class_name}* self = ({class_name}*)malloc(sizeof({class_name}));")
+        self._emit(f"memset(self, 0, sizeof({class_name}));")
+        self._emit(f"{class_name}_init(self);")
         self._emit("return self;")
         self.indent_level -= 1
         self._emit("}")
@@ -2408,6 +2767,8 @@ class CodeGen:
         params = [self._param_to_c(p) for p in decl.params]
         params_str = ", ".join(params) if params else "void"
 
+        prev_func = self._current_func_name
+        self._current_func_name = decl.name
         self._emit_line_directive(decl.line)
         self._emit(f"{ret_type} {decl.name}({params_str}) {{")
         self.indent_level += 1
@@ -2415,6 +2776,7 @@ class CodeGen:
         self.indent_level -= 1
         self._emit("}")
         self._emit()
+        self._current_func_name = prev_func
 
     # ---- GPU function ----
 
@@ -2487,6 +2849,92 @@ class CodeGen:
                 self._emit(f"{name}{suffix}")
         self.indent_level -= 1
         self._emit(f"}} {decl.name};")
+        # Generate toString function for this enum
+        self._emit(f"static inline const char* {decl.name}_toString({decl.name} __val) {{")
+        self.indent_level += 1
+        self._emit("switch (__val) {")
+        self.indent_level += 1
+        for name, val in decl.values:
+            self._emit(f'case {name}: return "{name}";')
+        self.indent_level -= 1
+        self._emit("}")
+        self._emit(f'return "unknown";')
+        self.indent_level -= 1
+        self._emit("}")
+        self._emit()
+
+    def _emit_rich_enum(self, decl: RichEnumDecl):
+        """Emit a rich enum as a tagged union in C."""
+        name = decl.name
+        # 1. Tag enum
+        self._emit(f"typedef enum {{")
+        self.indent_level += 1
+        for i, v in enumerate(decl.variants):
+            suffix = "," if i < len(decl.variants) - 1 else ""
+            self._emit(f"{name}_{v.name}{suffix}")
+        self.indent_level -= 1
+        self._emit(f"}} {name}_Tag;")
+        self._emit()
+
+        # 2. Tagged union struct
+        has_data = any(v.params for v in decl.variants)
+        self._emit(f"typedef struct {{")
+        self.indent_level += 1
+        self._emit(f"{name}_Tag tag;")
+        if has_data:
+            self._emit("union {")
+            self.indent_level += 1
+            for v in decl.variants:
+                if v.params:
+                    self._emit("struct {")
+                    self.indent_level += 1
+                    for p in v.params:
+                        self._emit(f"{self._type_to_c(p.type)} {p.name};")
+                    self.indent_level -= 1
+                    self._emit(f"}} {v.name};")
+            self.indent_level -= 1
+            self._emit("} data;")
+        self.indent_level -= 1
+        self._emit(f"}} {name};")
+        self._emit()
+
+        # 3. Constructor functions for each variant
+        for v in decl.variants:
+            if v.params:
+                params = ", ".join(f"{self._type_to_c(p.type)} {p.name}" for p in v.params)
+                self._emit(f"static inline {name} {name}_{v.name}_new({params}) {{")
+                self.indent_level += 1
+                self._emit(f"{name} __r;")
+                self._emit(f"__r.tag = {name}_{v.name};")
+                for p in v.params:
+                    self._emit(f"__r.data.{v.name}.{p.name} = {p.name};")
+                self._emit("return __r;")
+                self.indent_level -= 1
+                self._emit("}")
+                self._emit()
+            else:
+                # No-argument variant: just a constant
+                self._emit(f"static inline {name} {name}_{v.name}_new(void) {{")
+                self.indent_level += 1
+                self._emit(f"{name} __r;")
+                self._emit(f"__r.tag = {name}_{v.name};")
+                self._emit("return __r;")
+                self.indent_level -= 1
+                self._emit("}")
+                self._emit()
+
+        # 4. toString function
+        self._emit(f"static inline const char* {name}_toString({name} __val) {{")
+        self.indent_level += 1
+        self._emit("switch (__val.tag) {")
+        self.indent_level += 1
+        for v in decl.variants:
+            self._emit(f'case {name}_{v.name}: return "{v.name}";')
+        self.indent_level -= 1
+        self._emit("}")
+        self._emit(f'return "unknown";')
+        self.indent_level -= 1
+        self._emit("}")
         self._emit()
 
     def _emit_typedef(self, decl: TypedefDecl):
@@ -2499,9 +2947,9 @@ class CodeGen:
         # Function pointer type (from lambda inference)
         if stmt.type and stmt.type.base == "__fn_ptr" and stmt.type.generic_args:
             ret_type = self._type_to_c(stmt.type.generic_args[0])
-            param_types = ", ".join(self._type_to_c(a) for a in stmt.type.generic_args[1:])
-            if not param_types:
-                param_types = "void"
+            param_parts = [self._type_to_c(a) for a in stmt.type.generic_args[1:]]
+            param_parts.append("void*")  # closure environment parameter
+            param_types = ", ".join(param_parts)
             init = f" = {self._expr_to_c(stmt.initializer)}" if stmt.initializer else ""
             self._emit(f"{ret_type} (*{stmt.name})({param_types}){init};")
             return
@@ -2531,6 +2979,8 @@ class CodeGen:
         if isinstance(stmt, VarDeclStmt):
             self._emit_var_decl_stmt(stmt)
         elif isinstance(stmt, ReturnStmt):
+            if self._current_func_name == "main" and self._needs_string_helpers:
+                self._emit("__btrc_str_flush();")
             if stmt.value:
                 if isinstance(stmt.value, FStringLiteral):
                     tmp = self._emit_fstring_as_value(stmt.value)
@@ -2593,9 +3043,9 @@ class CodeGen:
         # Function pointer type (from lambda inference): emit as ret_type (*name)(param_types)
         if stmt.type and stmt.type.base == "__fn_ptr" and stmt.type.generic_args:
             ret_type = self._type_to_c(stmt.type.generic_args[0])
-            param_types = ", ".join(self._type_to_c(a) for a in stmt.type.generic_args[1:])
-            if not param_types:
-                param_types = "void"
+            param_parts = [self._type_to_c(a) for a in stmt.type.generic_args[1:]]
+            param_parts.append("void*")  # closure environment parameter
+            param_types = ", ".join(param_parts)
             init = f" = {self._expr_to_c(stmt.initializer)}" if stmt.initializer else ""
             self._emit(f"{ret_type} (*{stmt.name})({param_types}){init};")
             return
@@ -2638,7 +3088,15 @@ class CodeGen:
     def _emit_constructor_init(self, c_type: str, name: str, call: CallExpr):
         class_name = call.callee.name
         args = self._fill_default_args(call.args, class_name=class_name)
-        self._emit(f"{c_type} {name} = {class_name}_new({', '.join(args)});")
+        args_str = ", ".join(args)
+        # For generic classes, use the mangled type name for the constructor
+        cls = self.class_table.get(class_name)
+        if cls and cls.generic_params:
+            # c_type is already mangled (e.g., "btrc_Box_int*"), strip the pointer
+            mono_name = c_type.rstrip("*").strip()
+            self._emit(f"{c_type} {name} = {mono_name}_new({args_str});")
+        else:
+            self._emit(f"{c_type} {name} = {class_name}_new({args_str});")
 
     def _is_constructor_call(self, expr: CallExpr) -> bool:
         return isinstance(expr.callee, Identifier) and expr.callee.name in self.class_table
@@ -2875,6 +3333,9 @@ class CodeGen:
         if isinstance(expr, SelfExpr):
             return "self"
 
+        if isinstance(expr, SuperExpr):
+            return "self"  # super dispatches through parent class name, but passes self
+
         if isinstance(expr, BinaryExpr):
             # Check for operator overloading
             left_type = self.node_types.get(id(expr.left))
@@ -2902,7 +3363,7 @@ class CodeGen:
                 left = self._expr_to_c(expr.left)
                 right = self._expr_to_c(expr.right)
                 if expr.op == "+":
-                    return f"__btrc_strcat({left}, {right})"
+                    return f"__btrc_str_track(__btrc_strcat({left}, {right}))"
                 if expr.op == "==":
                     return f"(strcmp({left}, {right}) == 0)"
                 if expr.op == "!=":
@@ -3010,7 +3471,7 @@ class CodeGen:
             if expr.op == "+=" :
                 target_type = self.node_types.get(id(expr.target))
                 if target_type and target_type.base == "string":
-                    return f"({target} = __btrc_strcat({target}, {value}))"
+                    return f"({target} = __btrc_str_track(__btrc_strcat({target}, {value})))"
             # Safe /= and %= compound assignments
             if expr.op in ("/=", "%="):
                 target_type = self.node_types.get(id(expr.target))
@@ -3086,10 +3547,14 @@ class CodeGen:
         if isinstance(expr.callee, Identifier):
             filled = self._fill_default_args(expr.args, func_name=expr.callee.name)
             callee = self._expr_to_c(expr.callee)
+            # Function pointer variable calls need NULL env argument
+            callee_type = self.node_types.get(id(expr.callee))
+            if callee_type and callee_type.base == "__fn_ptr":
+                filled.append("NULL")
             return f"{callee}({', '.join(filled)})"
 
         callee = self._expr_to_c(expr.callee)
-        args = ", ".join(self._expr_to_c(a) for a in expr.args)
+        args = ", ".join(self._materialize_fstring_arg(a) for a in expr.args)
         return f"{callee}({args})"
 
     def _fill_default_args(self, provided_args: list, func_name: str = None,
@@ -3110,18 +3575,38 @@ class CodeGen:
                     params = decl.params
                     break
 
-        args_c = [self._expr_to_c(a) for a in provided_args]
+        args_c = [self._materialize_fstring_arg(a) for a in provided_args]
         if params and len(args_c) < len(params):
             for i in range(len(args_c), len(params)):
                 if params[i].default is not None:
-                    args_c.append(self._expr_to_c(params[i].default))
+                    args_c.append(self._materialize_fstring_arg(params[i].default))
         return args_c
+
+    def _materialize_fstring_arg(self, expr) -> str:
+        """Convert expression to C, materializing f-strings as heap values."""
+        if isinstance(expr, FStringLiteral):
+            return self._emit_fstring_as_value(expr)
+        return self._expr_to_c(expr)
 
     def _method_call_to_c(self, expr: CallExpr) -> str:
         access = expr.callee  # FieldAccessExpr
         obj = access.obj
         method_name = access.field
         args_exprs = expr.args
+
+        # super.method(args) → ParentClass_method(self, args)
+        if isinstance(obj, SuperExpr) and self.current_class and self.current_class.parent:
+            parent_name = self.current_class.parent
+            all_args = ["self"] + self._fill_default_args(
+                args_exprs, class_name=parent_name, method_name=method_name)
+            args_str = ", ".join(all_args)
+            return f"{parent_name}_{method_name}({args_str})"
+
+        # Rich enum variant constructor: EnumName.Variant(args)
+        if isinstance(obj, Identifier) and obj.name in self.analyzed.rich_enum_table:
+            enum_name = obj.name
+            args = ", ".join(self._expr_to_c(a) for a in args_exprs)
+            return f"{enum_name}_{method_name}_new({args})" if args else f"{enum_name}_{method_name}_new()"
 
         # Stdlib static method calls: Strings.method(), Math.method()
         # Only dispatch to stdlib if not a user-defined class
@@ -3133,16 +3618,21 @@ class CodeGen:
         # Static method call: ClassName.method(args)
         if isinstance(obj, Identifier) and obj.name in self.class_table:
             class_name = obj.name
-            args = ", ".join(self._expr_to_c(a) for a in args_exprs)
+            args = ", ".join(self._materialize_fstring_arg(a) for a in args_exprs)
             return f"{class_name}_{method_name}({args})"
 
         obj_c = self._expr_to_c(obj)
 
         # Numeric/bool type method call: n.toString() → sprintf helper
         num_type = self.node_types.get(id(obj))
-        if num_type and num_type.base in ("int", "float", "double", "long", "bool") and num_type.pointer_depth == 0:
+        if num_type and num_type.base in ("int", "float", "double", "long", "bool", "char") and num_type.pointer_depth == 0:
             if method_name == "toString":
                 return self._numeric_to_string(obj_c, num_type.base)
+
+        # Enum type method call: e.toString() → EnumName_toString(e)
+        if num_type and num_type.base in self.analyzed.enum_table and num_type.pointer_depth == 0:
+            if method_name == "toString":
+                return f"{num_type.base}_toString({obj_c})"
 
         # String method call: s.len() → strlen(s), etc.
         str_type = self._get_string_type_for_obj(obj)
@@ -3161,18 +3651,32 @@ class CodeGen:
             all_args = [obj_c] + self._fill_default_args(
                 args_exprs, class_name=class_name, method_name=method_name)
             args_str = ", ".join(all_args)
-            return f"{class_name}_{method_name}({args_str})"
+            # Use vtable dispatch for classes in inheritance hierarchies
+            root = self._vtable_root.get(class_name)
+            if root:
+                vtable_methods = self._get_vtable_methods(root)
+                vtable_method_names = {m[0] for m in vtable_methods}
+                if method_name in vtable_method_names:
+                    # Cast self to root type for vtable function pointer compatibility
+                    cast_obj = f"({root}*){obj_c}" if class_name != root else obj_c
+                    all_args[0] = cast_obj
+                    args_str = ", ".join(all_args)
+                    return f"(({root}_VTable*){obj_c}->__vt)->{method_name}({args_str})"
+            # For generic classes, use the monomorphized name
+            emit_name = self._monomorphized_class_name(obj, class_name)
+            return f"{emit_name}_{method_name}({args_str})"
 
         # Fallback: emit as C-style obj.method(args) — might be a struct function pointer
         if access.arrow:
-            args = ", ".join(self._expr_to_c(a) for a in args_exprs)
+            args = ", ".join(self._materialize_fstring_arg(a) for a in args_exprs)
             return f"{obj_c}->{method_name}({args})"
         else:
-            args = ", ".join(self._expr_to_c(a) for a in args_exprs)
+            args = ", ".join(self._materialize_fstring_arg(a) for a in args_exprs)
             return f"{obj_c}.{method_name}({args})"
 
     # Methods where the second argument is a collection pointer (same type as self)
     _COLLECTION_PTR_ARG_METHODS = {"extend", "unite", "intersect", "subtract", "merge"}
+    _COLLECTION_FN_ARG_METHODS = {"forEach", "filter", "map", "any", "all", "findIndex"}
 
     def _collection_method_to_c(self, type_info: TypeExpr, obj_c: str,
                                  method_name: str, args_exprs: list, arrow: bool) -> str:
@@ -3187,8 +3691,31 @@ class CodeGen:
         c_type = self._type_to_c(type_info)
         obj_ref = obj_c if (arrow or type_info.pointer_depth > 0) else f"&{obj_c}"
         translated_args = []
+        env_arg = "NULL"  # default: no captures
         for i, a in enumerate(args_exprs):
-            arg_c = self._expr_to_c(a)
+            # Handle lambda capture environment for collection methods
+            if isinstance(a, LambdaExpr) and method_name in self._COLLECTION_FN_ARG_METHODS:
+                captures = getattr(a, 'captures', [])
+                arg_c = self._expr_to_c(a)
+                if captures:
+                    lambda_name = getattr(a, '_c_name', '')
+                    env_var = f"__env_{lambda_name}"
+                    self._emit(f"{lambda_name}_env {env_var} = {{")
+                    self.indent_level += 1
+                    for cap_name, _cap_type in captures:
+                        self._emit(f".{cap_name} = {cap_name},")
+                    self.indent_level -= 1
+                    self._emit("};")
+                    env_arg = f"&{env_var}"
+                translated_args.append(arg_c)
+                continue
+            # Named function passed to collection method — generate wrapper with void* env
+            if not isinstance(a, LambdaExpr) and method_name in self._COLLECTION_FN_ARG_METHODS:
+                arg_c = self._expr_to_c(a)
+                wrapper_name = self._get_or_create_fn_wrapper(arg_c, a, type_info, method_name)
+                translated_args.append(wrapper_name)
+                continue
+            arg_c = self._materialize_fstring_arg(a)
             # For methods taking a second collection by pointer, add & if needed
             if i == 0 and method_name in self._COLLECTION_PTR_ARG_METHODS:
                 arg_type = self.node_types.get(id(a))
@@ -3196,7 +3723,16 @@ class CodeGen:
                     arg_c = f"&{arg_c}"
             translated_args.append(arg_c)
         args = [obj_ref] + translated_args
+        # Add context pointer for methods that take function pointers
+        if method_name in self._COLLECTION_FN_ARG_METHODS:
+            args.append(env_arg)
         return f"{c_type}_{method_name}({', '.join(args)})"
+
+    def _get_or_create_fn_wrapper(self, fn_name: str, arg_node, coll_type: TypeExpr,
+                                   method_name: str) -> str:
+        """Return the wrapper name for a named function passed to a collection method.
+        The wrapper was pre-generated during _prescan_lambdas."""
+        return f"__btrc_wrap_{fn_name}"
 
     def _get_class_name_for_obj(self, obj) -> str | None:
         """Determine the class name for an object expression using type info."""
@@ -3215,6 +3751,18 @@ class CodeGen:
             return obj.name
         return None
 
+    def _monomorphized_class_name(self, obj, class_name: str) -> str:
+        """For generic classes, return the monomorphized name (e.g., btrc_Box_int).
+        For non-generic classes, return the class name as-is."""
+        cls = self.class_table.get(class_name)
+        if cls and cls.generic_params:
+            # Get the generic args from the type info
+            type_info = self.node_types.get(id(obj))
+            if type_info and type_info.generic_args:
+                mangled = "_".join(self._mangle_type(a) for a in type_info.generic_args)
+                return f"btrc_{class_name}_{mangled}"
+        return class_name
+
     def _has_user_function(self, name: str) -> bool:
         """Check if the user has defined a function with the given name."""
         for decl in self.analyzed.program.declarations:
@@ -3225,15 +3773,17 @@ class CodeGen:
     def _numeric_to_string(self, obj_c: str, base_type: str) -> str:
         """Emit toString() for numeric/bool types."""
         if base_type == "int":
-            return f"__btrc_intToString({obj_c})"
+            return f"__btrc_str_track(__btrc_intToString({obj_c}))"
         elif base_type == "long":
-            return f"__btrc_longToString({obj_c})"
+            return f"__btrc_str_track(__btrc_longToString({obj_c}))"
         elif base_type == "float":
-            return f"__btrc_floatToString({obj_c})"
+            return f"__btrc_str_track(__btrc_floatToString({obj_c}))"
         elif base_type == "double":
-            return f"__btrc_doubleToString({obj_c})"
+            return f"__btrc_str_track(__btrc_doubleToString({obj_c}))"
         elif base_type == "bool":
             return f"({obj_c} ? \"true\" : \"false\")"
+        elif base_type == "char":
+            return f"__btrc_str_track(__btrc_charToString({obj_c}))"
         return f"/* unknown numeric toString for {base_type} */"
 
     def _get_string_type_for_obj(self, obj) -> bool:
@@ -3248,7 +3798,7 @@ class CodeGen:
 
     def _string_method_to_c(self, obj_c: str, method_name: str, args_exprs: list) -> str:
         """Translate string method calls to C stdlib calls."""
-        args = [self._expr_to_c(a) for a in args_exprs]
+        args = [self._materialize_fstring_arg(a) for a in args_exprs]
 
         if method_name == "len" or method_name == "byteLen":
             return f"(int)strlen({obj_c})"
@@ -3261,13 +3811,13 @@ class CodeGen:
         elif method_name == "endsWith":
             return f"__btrc_endsWith({obj_c}, {args[0]})"
         elif method_name == "substring":
-            return f"__btrc_substring({obj_c}, {', '.join(args)})"
+            return f"__btrc_str_track(__btrc_substring({obj_c}, {', '.join(args)}))"
         elif method_name == "trim":
-            return f"__btrc_trim({obj_c})"
+            return f"__btrc_str_track(__btrc_trim({obj_c}))"
         elif method_name == "toUpper":
-            return f"__btrc_toUpper({obj_c})"
+            return f"__btrc_str_track(__btrc_toUpper({obj_c}))"
         elif method_name == "toLower":
-            return f"__btrc_toLower({obj_c})"
+            return f"__btrc_str_track(__btrc_toLower({obj_c}))"
         elif method_name == "indexOf":
             return f"__btrc_indexOf({obj_c}, {args[0]})"
         elif method_name == "split":
@@ -3279,29 +3829,29 @@ class CodeGen:
         elif method_name == "lastIndexOf":
             return f"__btrc_lastIndexOf({obj_c}, {args[0]})"
         elif method_name == "replace":
-            return f"__btrc_replace({obj_c}, {args[0]}, {args[1]})"
+            return f"__btrc_str_track(__btrc_replace({obj_c}, {args[0]}, {args[1]}))"
         elif method_name == "repeat":
-            return f"__btrc_repeat({obj_c}, {args[0]})"
+            return f"__btrc_str_track(__btrc_repeat({obj_c}, {args[0]}))"
         elif method_name == "count":
             return f"__btrc_count({obj_c}, {args[0]})"
         elif method_name == "find":
             return f"__btrc_find({obj_c}, {args[0]}, {args[1]})"
         elif method_name == "lstrip":
-            return f"__btrc_lstrip({obj_c})"
+            return f"__btrc_str_track(__btrc_lstrip({obj_c}))"
         elif method_name == "rstrip":
-            return f"__btrc_rstrip({obj_c})"
+            return f"__btrc_str_track(__btrc_rstrip({obj_c}))"
         elif method_name == "capitalize":
-            return f"__btrc_capitalize({obj_c})"
+            return f"__btrc_str_track(__btrc_capitalize({obj_c}))"
         elif method_name == "title":
-            return f"__btrc_title({obj_c})"
+            return f"__btrc_str_track(__btrc_title({obj_c}))"
         elif method_name == "swapCase":
-            return f"__btrc_swapCase({obj_c})"
+            return f"__btrc_str_track(__btrc_swapCase({obj_c}))"
         elif method_name == "padLeft":
-            return f"__btrc_padLeft({obj_c}, {args[0]}, {args[1]})"
+            return f"__btrc_str_track(__btrc_padLeft({obj_c}, {args[0]}, {args[1]}))"
         elif method_name == "padRight":
-            return f"__btrc_padRight({obj_c}, {args[0]}, {args[1]})"
+            return f"__btrc_str_track(__btrc_padRight({obj_c}, {args[0]}, {args[1]}))"
         elif method_name == "center":
-            return f"__btrc_center({obj_c}, {args[0]}, {args[1]})"
+            return f"__btrc_str_track(__btrc_center({obj_c}, {args[0]}, {args[1]}))"
         elif method_name == "isBlank":
             return f"__btrc_isBlank({obj_c})"
         elif method_name == "isAlnum":
@@ -3321,15 +3871,15 @@ class CodeGen:
         elif method_name == "toBool":
             return f"(strlen({obj_c}) > 0 && strcmp({obj_c}, \"false\") != 0 && strcmp({obj_c}, \"0\") != 0)"
         elif method_name == "reverse":
-            return f"__btrc_reverse({obj_c})"
+            return f"__btrc_str_track(__btrc_reverse({obj_c}))"
         elif method_name == "isEmpty":
             return f"__btrc_isEmpty({obj_c})"
         elif method_name == "removePrefix":
-            return f"__btrc_removePrefix({obj_c}, {args[0]})"
+            return f"__btrc_str_track(__btrc_removePrefix({obj_c}, {args[0]}))"
         elif method_name == "removeSuffix":
-            return f"__btrc_removeSuffix({obj_c}, {args[0]})"
+            return f"__btrc_str_track(__btrc_removeSuffix({obj_c}, {args[0]}))"
         elif method_name == "zfill":
-            return f"__btrc_zfill({obj_c}, {args[0]})"
+            return f"__btrc_str_track(__btrc_zfill({obj_c}, {args[0]}))"
         elif method_name == "isDigitStr":
             return f"__btrc_isDigitStr({obj_c})"
         elif method_name == "isAlphaStr":
@@ -3339,13 +3889,13 @@ class CodeGen:
 
     def _strings_static_to_c(self, method_name: str, args_exprs: list) -> str:
         """Translate Strings.method(...) static calls to C."""
-        args = [self._expr_to_c(a) for a in args_exprs]
+        args = [self._materialize_fstring_arg(a) for a in args_exprs]
         if method_name == "repeat":
-            return f"__btrc_repeat({args[0]}, {args[1]})"
+            return f"__btrc_str_track(__btrc_repeat({args[0]}, {args[1]}))"
         elif method_name == "join":
-            return f"__btrc_join({args[0]}, {args[1]})"
+            return f"__btrc_str_track(__btrc_join({args[0]}, {args[1]}))"
         elif method_name == "replace":
-            return f"__btrc_replace({args[0]}, {args[1]}, {args[2]})"
+            return f"__btrc_str_track(__btrc_replace({args[0]}, {args[1]}, {args[2]}))"
         elif method_name == "isDigit":
             return f"isdigit((unsigned char){args[0]})"
         elif method_name == "isAlpha":
@@ -3365,25 +3915,25 @@ class CodeGen:
         elif method_name == "rfind":
             return f"__btrc_lastIndexOf({args[0]}, {args[1]})"
         elif method_name == "capitalize":
-            return f"__btrc_capitalize({args[0]})"
+            return f"__btrc_str_track(__btrc_capitalize({args[0]}))"
         elif method_name == "title":
-            return f"__btrc_title({args[0]})"
+            return f"__btrc_str_track(__btrc_title({args[0]}))"
         elif method_name == "swapCase":
-            return f"__btrc_swapCase({args[0]})"
+            return f"__btrc_str_track(__btrc_swapCase({args[0]}))"
         elif method_name == "padLeft":
-            return f"__btrc_padLeft({args[0]}, {args[1]}, {args[2]})"
+            return f"__btrc_str_track(__btrc_padLeft({args[0]}, {args[1]}, {args[2]}))"
         elif method_name == "padRight":
-            return f"__btrc_padRight({args[0]}, {args[1]}, {args[2]})"
+            return f"__btrc_str_track(__btrc_padRight({args[0]}, {args[1]}, {args[2]}))"
         elif method_name == "center":
-            return f"__btrc_center({args[0]}, {args[1]}, {args[2]})"
+            return f"__btrc_str_track(__btrc_center({args[0]}, {args[1]}, {args[2]}))"
         elif method_name == "lstrip":
-            return f"__btrc_lstrip({args[0]})"
+            return f"__btrc_str_track(__btrc_lstrip({args[0]}))"
         elif method_name == "rstrip":
-            return f"__btrc_rstrip({args[0]})"
+            return f"__btrc_str_track(__btrc_rstrip({args[0]}))"
         elif method_name == "fromInt":
-            return f"__btrc_fromInt({args[0]})"
+            return f"__btrc_str_track(__btrc_fromInt({args[0]}))"
         elif method_name == "fromFloat":
-            return f"__btrc_fromFloat({args[0]})"
+            return f"__btrc_str_track(__btrc_fromFloat({args[0]}))"
         elif method_name == "isDigitStr":
             return f"__btrc_isDigitStr({args[0]})"
         elif method_name == "isAlphaStr":
@@ -3407,21 +3957,21 @@ class CodeGen:
         elif method_name == "endsWith":
             return f"__btrc_endsWith({args[0]}, {args[1]})"
         elif method_name == "substring":
-            return f"__btrc_substring({args[0]}, {args[1]}, {args[2]})"
+            return f"__btrc_str_track(__btrc_substring({args[0]}, {args[1]}, {args[2]}))"
         elif method_name == "trim":
-            return f"__btrc_trim({args[0]})"
+            return f"__btrc_str_track(__btrc_trim({args[0]}))"
         elif method_name == "toUpper":
-            return f"__btrc_toUpper({args[0]})"
+            return f"__btrc_str_track(__btrc_toUpper({args[0]}))"
         elif method_name == "toLower":
-            return f"__btrc_toLower({args[0]})"
+            return f"__btrc_str_track(__btrc_toLower({args[0]}))"
         elif method_name == "reverse":
-            return f"__btrc_reverse({args[0]})"
+            return f"__btrc_str_track(__btrc_reverse({args[0]}))"
         elif method_name == "isEmpty":
             return f"__btrc_isEmpty({args[0]})"
         elif method_name == "repeat":
-            return f"__btrc_repeat({args[0]}, {args[1]})"
+            return f"__btrc_str_track(__btrc_repeat({args[0]}, {args[1]}))"
         elif method_name == "replace":
-            return f"__btrc_replace({args[0]}, {args[1]}, {args[2]})"
+            return f"__btrc_str_track(__btrc_replace({args[0]}, {args[1]}, {args[2]}))"
         elif method_name == "charAt":
             return f"{args[0]}[(int){args[1]}]"
         else:
@@ -3429,7 +3979,7 @@ class CodeGen:
 
     def _math_static_to_c(self, method_name: str, args_exprs: list) -> str:
         """Translate Math.method(...) static calls to C."""
-        args = [self._expr_to_c(a) for a in args_exprs]
+        args = [self._materialize_fstring_arg(a) for a in args_exprs]
         # Constants
         if method_name == "PI":
             return "3.14159265358979323846"
@@ -3546,6 +4096,11 @@ class CodeGen:
         return "int"
 
     def _field_access_to_c(self, expr: FieldAccessExpr) -> str:
+        # Rich enum tag constant: EnumName.Variant → EnumName_Variant (tag value)
+        if (isinstance(expr.obj, Identifier) and
+                expr.obj.name in self.analyzed.rich_enum_table):
+            return f"{expr.obj.name}_{expr.field}"
+
         # Check if this is a property getter
         prop = self._is_property_access(expr)
         if prop and prop.has_getter:
@@ -3585,7 +4140,7 @@ class CodeGen:
     def _new_to_c(self, expr: NewExpr) -> str:
         c_type = self._type_to_c(expr.type)
         if expr.type.base in self.class_table:
-            args = ", ".join(self._expr_to_c(a) for a in expr.args)
+            args = ", ".join(self._materialize_fstring_arg(a) for a in expr.args)
             # Constructor already returns a heap-allocated pointer
             return f"{c_type}_new({args})"
         else:
@@ -3595,7 +4150,12 @@ class CodeGen:
         """Generate initializer for simple assignments."""
         if isinstance(init, CallExpr) and self._is_constructor_call(init):
             class_name = init.callee.name
+            cls = self.class_table.get(class_name)
             args = self._fill_default_args(init.args, class_name=class_name)
+            # For generic classes, use the mangled type name
+            if cls and cls.generic_params and type_expr and type_expr.generic_args:
+                mangled = "_".join(self._mangle_type(a) for a in type_expr.generic_args)
+                return f"btrc_{class_name}_{mangled}_new({', '.join(args)})"
             return f"{class_name}_new({', '.join(args)})"
         return self._expr_to_c(init)
 
@@ -3619,7 +4179,7 @@ class CodeGen:
         tmp = f"__btrc_fstr_{self._fstr_counter}"
         args_str = f', {", ".join(args)}' if args else ""
         self._emit(f'int {tmp}_len = snprintf(NULL, 0, "{fmt}"{args_str});')
-        self._emit(f'char* {tmp} = (char*)malloc({tmp}_len + 1);')
+        self._emit(f'char* {tmp} = __btrc_str_track((char*)malloc({tmp}_len + 1));')
         self._emit(f'snprintf({tmp}, {tmp}_len + 1, "{fmt}"{args_str});')
         return tmp
 
@@ -3654,6 +4214,10 @@ class CodeGen:
 
     def _infer_format_spec(self, expr) -> str:
         """Infer printf format specifier for an expression."""
+        # .toString() always returns a string
+        if (isinstance(expr, CallExpr) and isinstance(expr.callee, FieldAccessExpr)
+                and expr.callee.field == "toString"):
+            return "%s"
         type_info = self.node_types.get(id(expr))
         if type_info:
             base = type_info.base

@@ -56,6 +56,17 @@ class ClassDecl:
     generic_params: list[str] = field(default_factory=list)
     members: list = field(default_factory=list)   # FieldDecl | MethodDecl
     parent: Optional[str] = None                  # single inheritance: parent class name
+    interfaces: list[str] = field(default_factory=list)  # implemented interface names
+    is_abstract: bool = False                     # abstract class flag
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class InterfaceDecl:
+    name: str
+    methods: list = field(default_factory=list)   # list of MethodDecl (no body)
+    parent: Optional[str] = None                  # interface extends interface
     line: int = 0
     col: int = 0
 
@@ -88,6 +99,20 @@ class EnumDecl:
 
 
 @dataclass
+class RichEnumVariant:
+    name: str = ""
+    params: list = field(default_factory=list)   # list of Param (type + name)
+
+
+@dataclass
+class RichEnumDecl:
+    name: str = ""
+    variants: list = field(default_factory=list)  # list of RichEnumVariant
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
 class TypedefDecl:
     original: TypeExpr = None
     alias: str = ""
@@ -115,6 +140,7 @@ class MethodDecl:
     params: list[Param] = field(default_factory=list)
     body: Block = None
     is_gpu: bool = False
+    is_abstract: bool = False                     # abstract method (no body)
     line: int = 0
     col: int = 0
 
@@ -258,6 +284,7 @@ class TryCatchStmt:
     try_block: Block = None
     catch_var: str = ""                           # variable name for caught error
     catch_block: Block = None
+    finally_block: Block = None                   # optional finally block
     line: int = 0
     col: int = 0
 
@@ -323,6 +350,12 @@ class Identifier:
 
 @dataclass
 class SelfExpr:
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class SuperExpr:
     line: int = 0
     col: int = 0
 
@@ -452,5 +485,6 @@ class LambdaExpr:
     return_type: Optional[TypeExpr] = None
     params: list[Param] = field(default_factory=list)
     body: object = None                            # Block or single expression
+    captures: list = field(default_factory=list)    # [(name, TypeExpr)] captured vars
     line: int = 0
     col: int = 0

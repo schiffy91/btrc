@@ -37,6 +37,8 @@ from .ast_nodes import (
     Identifier,
     IfStmt,
     IndexExpr,
+    InterfaceDecl,
+    RichEnumDecl,
     IntLiteral,
     LambdaExpr,
     ListLiteral,
@@ -49,6 +51,7 @@ from .ast_nodes import (
     PropertyDecl,
     ReturnStmt,
     SelfExpr,
+    SuperExpr,
     SizeofExpr,
     StringLiteral,
     SwitchStmt,
@@ -79,6 +82,8 @@ class ClassInfo:
     properties: dict[str, PropertyDecl] = field(default_factory=dict)
     constructor: MethodDecl = None
     parent: str = None  # parent class name for inheritance
+    interfaces: list[str] = field(default_factory=list)  # implemented interfaces
+    is_abstract: bool = False  # abstract class flag
 
 
 @dataclass
@@ -105,12 +110,22 @@ class Scope:
 
 
 @dataclass
+class InterfaceInfo:
+    name: str
+    methods: dict[str, MethodDecl] = field(default_factory=dict)  # method_name -> MethodDecl
+    parent: str = None  # parent interface name
+
+
+@dataclass
 class AnalyzedProgram:
     program: Program
     generic_instances: dict[str, list[tuple[TypeExpr, ...]]]
     class_table: dict[str, ClassInfo]
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
     node_types: dict[int, TypeExpr] = field(default_factory=dict)
+    enum_table: dict[str, list[str]] = field(default_factory=dict)
+    interface_table: dict[str, InterfaceInfo] = field(default_factory=dict)
+    rich_enum_table: dict[str, RichEnumDecl] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
 
@@ -121,6 +136,7 @@ class Analyzer:
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.errors: list[str] = []
         self.scope: Scope = Scope()  # global scope
+        self.global_scope: Scope = self.scope  # reference for capture detection
         self.current_class: ClassInfo | None = None
         self.current_method: MethodDecl | None = None
         self.current_return_type: TypeExpr | None = None
@@ -129,6 +145,8 @@ class Analyzer:
         self.loop_depth: int = 0  # track nesting for break/continue validation
         self.break_depth: int = 0  # loops + switches (break is valid in both)
         self.enum_table: dict[str, list[str]] = {}  # enum_name -> [value_names]
+        self.interface_table: dict[str, InterfaceInfo] = {}
+        self.rich_enum_table: dict[str, RichEnumDecl] = {}  # enum_name -> RichEnumDecl
 
     def analyze(self, program: Program) -> AnalyzedProgram:
         # Pass 1: Register all classes and top-level functions
@@ -136,6 +154,9 @@ class Analyzer:
 
         # Pass 1.5: Validate inheritance (after all classes registered)
         self._validate_inheritance(program)
+
+        # Pass 1.6: Validate interface implementations and abstract classes
+        self._validate_interfaces(program)
 
         # Pass 2: Analyze bodies
         for decl in program.declarations:
@@ -147,6 +168,9 @@ class Analyzer:
             class_table=self.class_table,
             function_table=self.function_table,
             node_types=self.node_types,
+            enum_table=self.enum_table,
+            interface_table=self.interface_table,
+            rich_enum_table=self.rich_enum_table,
             errors=self.errors,
         )
 
@@ -164,18 +188,41 @@ class Analyzer:
     # ---- Pass 1: Registration ----
 
     def _register_declarations(self, program: Program):
+        # First pass: register interfaces (classes may depend on them)
+        for decl in program.declarations:
+            if isinstance(decl, InterfaceDecl):
+                self._register_interface(decl)
+        # Second pass: register classes and functions
         for decl in program.declarations:
             if isinstance(decl, ClassDecl):
                 self._register_class(decl)
             elif isinstance(decl, FunctionDecl):
                 self._register_function(decl)
 
+    def _register_interface(self, decl: InterfaceDecl):
+        if decl.name in self.interface_table:
+            self._error(f"Duplicate interface name '{decl.name}'", decl.line, decl.col)
+        info = InterfaceInfo(name=decl.name, parent=decl.parent)
+        # Inherit parent interface methods
+        if decl.parent and decl.parent in self.interface_table:
+            parent_info = self.interface_table[decl.parent]
+            for mname, method in parent_info.methods.items():
+                info.methods[mname] = method
+        elif decl.parent and decl.parent not in self.interface_table:
+            self._error(f"Parent interface '{decl.parent}' not found", decl.line, decl.col)
+        # Add own methods
+        for method in decl.methods:
+            info.methods[method.name] = method
+        self.interface_table[decl.name] = info
+
     def _register_class(self, decl: ClassDecl):
         # Check for duplicate class names
         if decl.name in self.class_table:
             self._error(f"Duplicate class name '{decl.name}'", decl.line, decl.col)
+        # User-defined generics are monomorphized at codegen time
         info = ClassInfo(name=decl.name, generic_params=decl.generic_params,
-                         parent=decl.parent)
+                         parent=decl.parent, interfaces=decl.interfaces,
+                         is_abstract=decl.is_abstract)
 
         # Inherit from parent class if specified
         if decl.parent and decl.parent in self.class_table:
@@ -239,6 +286,41 @@ class Analyzer:
                 seen.add(cur)
                 cur = self.class_table[cur].parent
 
+    def _validate_interfaces(self, program: Program):
+        """Validate interface implementations and abstract class constraints."""
+        for decl in program.declarations:
+            if not isinstance(decl, ClassDecl):
+                continue
+            cls = self.class_table.get(decl.name)
+            if not cls:
+                continue
+
+            # Check interface implementations
+            for iface_name in cls.interfaces:
+                if iface_name not in self.interface_table:
+                    self._error(f"Interface '{iface_name}' not found", decl.line, decl.col)
+                    continue
+                iface = self.interface_table[iface_name]
+                for mname in iface.methods:
+                    if mname not in cls.methods:
+                        self._error(
+                            f"Class '{decl.name}' does not implement interface method '{mname}' "
+                            f"from '{iface_name}'",
+                            decl.line, decl.col)
+
+            # Check abstract class: concrete subclass must implement all abstract methods
+            if cls.parent and cls.parent in self.class_table and not cls.is_abstract:
+                parent = self.class_table[cls.parent]
+                if parent.is_abstract:
+                    for mname, method in parent.methods.items():
+                        if method.is_abstract and mname not in {
+                            m.name for m in decl.members if isinstance(m, MethodDecl)
+                        }:
+                            self._error(
+                                f"Class '{decl.name}' must implement abstract method '{mname}' "
+                                f"from '{cls.parent}'",
+                                decl.line, decl.col)
+
     # ---- Pass 2: Analysis ----
 
     def _analyze_decl(self, decl):
@@ -250,6 +332,8 @@ class Analyzer:
             self._analyze_var_decl(decl)
         elif isinstance(decl, EnumDecl):
             self.enum_table[decl.name] = [v[0] if isinstance(v, tuple) else v for v in decl.values]
+        elif isinstance(decl, RichEnumDecl):
+            self.rich_enum_table[decl.name] = decl
         # PreprocessorDirective, StructDecl, TypedefDecl — no analysis needed
 
     def _analyze_class(self, decl: ClassDecl):
@@ -608,11 +692,6 @@ class Analyzer:
                 else:
                     stmt.type = inferred
                 self._collect_generic_instances(stmt.type)
-                if self.scope.parent:
-                    existing = self.scope.parent.lookup(stmt.name)
-                    if existing and existing.kind in ("variable", "param"):
-                        self._error(f"Variable '{stmt.name}' shadows outer variable of same name",
-                                    stmt.line, stmt.col)
                 self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
                 return
 
@@ -629,16 +708,16 @@ class Analyzer:
                     stmt.line, stmt.col,
                 )
             elif init_type and stmt.type and not self._types_compatible(stmt.type, init_type):
-                self._error(
-                    f"Cannot assign '{init_type.base}' to variable '{stmt.name}' of type '{stmt.type.base}'",
-                    stmt.line, stmt.col,
+                # Skip error for empty collection literals — they adopt the declared type
+                is_empty_literal = (
+                    (isinstance(stmt.initializer, ListLiteral) and not stmt.initializer.elements) or
+                    (isinstance(stmt.initializer, MapLiteral) and not stmt.initializer.entries)
                 )
-        # Variable shadowing warning: check parent scopes (not current scope)
-        if self.scope.parent:
-            existing = self.scope.parent.lookup(stmt.name)
-            if existing and existing.kind in ("variable", "param"):
-                self._error(f"Variable '{stmt.name}' shadows outer variable of same name",
-                            stmt.line, stmt.col)
+                if not is_empty_literal:
+                    self._error(
+                        f"Cannot assign '{init_type.base}' to variable '{stmt.name}' of type '{stmt.type.base}'",
+                        stmt.line, stmt.col,
+                    )
         self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
 
     def _analyze_for_in(self, stmt: ForInStmt):
@@ -745,6 +824,15 @@ class Analyzer:
         elif isinstance(expr, SelfExpr):
             self._validate_self(expr)
 
+        elif isinstance(expr, SuperExpr):
+            if not self.current_class:
+                self._error("'super' can only be used inside a class", expr.line, expr.col)
+            elif not self.current_class.parent:
+                self._error(
+                    f"'super' cannot be used in class '{self.current_class.name}' "
+                    f"which does not extend another class",
+                    expr.line, expr.col)
+
         elif isinstance(expr, BinaryExpr):
             self._analyze_expr(expr.left)
             self._analyze_expr(expr.right)
@@ -843,11 +931,24 @@ class Analyzer:
     def _analyze_lambda(self, expr: LambdaExpr):
         """Analyze a lambda expression."""
         prev_return_type = self.current_return_type
+
+        # Collect outer-scope local variables for capture detection
+        # Walk from current scope up to (but not including) global scope
+        outer_vars: dict[str, TypeExpr] = {}
+        scope = self.scope
+        while scope is not None and scope is not self.global_scope:
+            for name, sym in scope.symbols.items():
+                if name not in outer_vars and sym.kind in ("variable", "param"):
+                    outer_vars[name] = sym.type
+            scope = scope.parent
+
         self._push_scope()
+        param_names = set()
         for param in expr.params:
             param.type = self._upgrade_class_type(param.type)
             self._collect_generic_instances(param.type)
             self.scope.define(param.name, SymbolInfo(param.name, param.type, "param"))
+            param_names.add(param.name)
         if expr.return_type:
             expr.return_type = self._upgrade_class_type(expr.return_type)
             self._collect_generic_instances(expr.return_type)
@@ -858,8 +959,49 @@ class Analyzer:
             self._analyze_block(expr.body)
         else:
             self._analyze_expr(expr.body)
+
+        # Detect captured variables: identifiers used in body that reference outer locals
+        used_names: set[str] = set()
+        self._collect_identifiers(expr.body, used_names)
+        captures = []
+        for name in sorted(used_names):  # sorted for deterministic output
+            if name in param_names:
+                continue
+            if name in outer_vars:
+                captures.append((name, outer_vars[name]))
+        expr.captures = captures
+
         self._pop_scope()
         self.current_return_type = prev_return_type
+
+    def _collect_identifiers(self, node, names: set[str]):
+        """Walk AST subtree and collect all Identifier names."""
+        if node is None:
+            return
+        if isinstance(node, Identifier):
+            names.add(node.name)
+            return
+        for attr in ('declarations', 'members', 'statements', 'body', 'then_block',
+                     'else_block', 'args', 'elements', 'entries', 'cases'):
+            child = getattr(node, attr, None)
+            if child is None:
+                continue
+            if isinstance(child, list):
+                for item in child:
+                    if isinstance(item, tuple):
+                        for sub in item:
+                            if hasattr(sub, '__dict__'):
+                                self._collect_identifiers(sub, names)
+                    elif hasattr(item, '__dict__'):
+                        self._collect_identifiers(item, names)
+            elif hasattr(child, '__dict__'):
+                self._collect_identifiers(child, names)
+        for attr in ('left', 'right', 'operand', 'callee', 'obj', 'expr', 'value',
+                     'target', 'condition', 'true_expr', 'false_expr', 'iterable',
+                     'init', 'update', 'initializer', 'index'):
+            child = getattr(node, attr, None)
+            if child is not None and hasattr(child, '__dict__'):
+                self._collect_identifiers(child, names)
 
     def _analyze_call(self, expr: CallExpr):
         self._analyze_expr(expr.callee)
@@ -869,6 +1011,10 @@ class Analyzer:
         # Check if this is a constructor call: foo(args) where foo is a class name
         if isinstance(expr.callee, Identifier) and expr.callee.name in self.class_table:
             cls = self.class_table[expr.callee.name]
+            if cls.is_abstract:
+                self._error(
+                    f"Cannot instantiate abstract class '{cls.name}'",
+                    expr.line, expr.col)
             self._validate_constructor_args(cls, expr.args, expr.line, expr.col)
         # Check function call arity
         elif isinstance(expr.callee, Identifier) and expr.callee.name in self.function_table:
@@ -1057,12 +1203,40 @@ class Analyzer:
             return None
         elif isinstance(expr, FieldAccessExpr):
             obj_type = self._infer_type(expr.obj)
+            # Rich enum field access: s.data.Variant.field
+            if obj_type and obj_type.base in self.rich_enum_table:
+                # Access on a rich enum value — track nested field types
+                if expr.field == "tag":
+                    return TypeExpr(base="int")  # tag is enum int
+                # For .data.Variant.field we need deeper tracking
+                return None  # handled at innermost field access level
+            # Also handle access on a variant struct
+            if isinstance(expr.obj, FieldAccessExpr) and isinstance(expr.obj.obj, FieldAccessExpr):
+                # Pattern: s.data.Variant.field — check if s is a rich enum
+                data_expr = expr.obj.obj  # s.data
+                if isinstance(data_expr.obj, (Identifier, FieldAccessExpr)):
+                    s_type = self._infer_type(data_expr.obj)
+                    if s_type and s_type.base in self.rich_enum_table:
+                        enum_decl = self.rich_enum_table[s_type.base]
+                        variant_name = expr.obj.field  # Variant
+                        for v in enum_decl.variants:
+                            if v.name == variant_name:
+                                for p in v.params:
+                                    if p.name == expr.field:
+                                        return p.type
             if obj_type and obj_type.base in self.class_table:
                 cls = self.class_table[obj_type.base]
+                field_type = None
                 if expr.field in cls.properties:
-                    return cls.properties[expr.field].type
-                if expr.field in cls.fields:
-                    return cls.fields[expr.field].type
+                    field_type = cls.properties[expr.field].type
+                elif expr.field in cls.fields:
+                    field_type = cls.fields[expr.field].type
+                # Substitute generic type params with concrete args
+                if field_type and cls.generic_params and obj_type.generic_args:
+                    subs = dict(zip(cls.generic_params, obj_type.generic_args))
+                    if field_type.base in subs:
+                        return subs[field_type.base]
+                return field_type
             return None
         elif isinstance(expr, CallExpr):
             if isinstance(expr.callee, Identifier):
@@ -1092,7 +1266,14 @@ class Analyzer:
                 if obj_type and obj_type.base in self.class_table:
                     cls = self.class_table[obj_type.base]
                     if expr.callee.field in cls.methods:
-                        return cls.methods[expr.callee.field].return_type
+                        ret = cls.methods[expr.callee.field].return_type
+                        # Substitute generic type params with concrete args
+                        if cls.generic_params and obj_type.generic_args:
+                            subs = dict(zip(cls.generic_params,
+                                            obj_type.generic_args))
+                            if ret and ret.base in subs:
+                                return subs[ret.base]
+                        return ret
                 # Static method call: ClassName.method() where ClassName is a class
                 if isinstance(expr.callee.obj, Identifier) and expr.callee.obj.name in self.class_table:
                     cls = self.class_table[expr.callee.obj.name]
@@ -1320,6 +1501,21 @@ class Analyzer:
         """Check if source type can be assigned to target type."""
         # Same base type is always compatible
         if target.base == source.base:
+            # If both are collections with explicit generic args, check they match
+            collections = {"Map", "List", "Set", "Array"}
+            if target.base in collections:
+                t_args = getattr(target, 'generic_args', None) or []
+                s_args = getattr(source, 'generic_args', None) or []
+                if t_args and s_args and len(t_args) == len(s_args):
+                    # Only reject if both have explicit non-default args
+                    # and there's a clear incompatibility (e.g., string vs int)
+                    all_known = True
+                    for t_arg, s_arg in zip(t_args, s_args):
+                        if not self._types_compatible(t_arg, s_arg):
+                            all_known = False
+                            break
+                    if not all_known:
+                        return False
             return True
         # Numeric types are mutually compatible (int/float/double/char)
         numeric = {"int", "float", "double", "char"}
@@ -1336,22 +1532,37 @@ class Analyzer:
         # Class types: check inheritance
         if target.base in self.class_table and source.base in self.class_table:
             return self._is_subclass(source.base, target.base)
-        # Collections: must match exactly
+        # Collections: must match base and generic args
         collections = {"Map", "List", "Set", "Array"}
         if target.base in collections and source.base in collections:
             return target.base == source.base
-        # Known incompatible: string ↔ numeric, bool ↔ string, etc.
+        # Known incompatible: string <-> numeric, bool <-> string, etc.
         all_known = numeric | {"string", "bool", "void"} | collections
         if target.base in all_known and source.base in all_known:
             return False  # Both types are known, and they don't match any rule above
-        # Unknown types (C headers, etc.) — be permissive
+        # Unknown types (C headers, etc.) -- be permissive
         return True
 
     def _is_subclass(self, child: str, parent: str) -> bool:
-        """Check if child class extends parent (directly or transitively)."""
+        """Check if child class extends parent (directly or transitively),
+        or implements an interface named parent."""
         if child == parent:
             return True
         info = self.class_table.get(child)
+        if not info:
+            return False
+        # Check interface implementation
+        if parent in self.interface_table:
+            # Walk the class hierarchy checking interfaces
+            cur = info
+            visited = set()
+            while cur and cur.name not in visited:
+                visited.add(cur.name)
+                if parent in cur.interfaces:
+                    return True
+                cur = self.class_table.get(cur.parent) if cur.parent else None
+            return False
+        # Check class inheritance
         visited = set()
         while info and info.parent and info.parent not in visited:
             visited.add(info.parent)

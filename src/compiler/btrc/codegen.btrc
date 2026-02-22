@@ -1,11 +1,11 @@
 /* btrc self-hosted compiler — C Code Generator
  *
  * Transforms an analyzed AST into C source code.
- * Writes output to a FILE* directly.
+ * Writes output to a File object.
  */
 
 class CodeGen {
-    private FILE* out;
+    private File out;
     private Analyzer analyzer;
     private int indent;
     private string current_class;
@@ -13,6 +13,7 @@ class CodeGen {
     /* Generic instances: collected from arena scan */
     private List<int> generic_types;
     private List<string> generic_keys;
+    private Map<string, int> generic_key_set; /* O(1) dedup check */
     /* Lambda support */
     private int lambda_counter;
     private List<string> lambda_defs;
@@ -21,7 +22,7 @@ class CodeGen {
     /* Track globals/enums already emitted before lambdas */
     private List<int> emitted_globals;
 
-    public CodeGen(List<Node> nodes, Analyzer analyzer, FILE* out) {
+    public CodeGen(List<Node> nodes, Analyzer analyzer, File out) {
         self.out = out;
         self.analyzer = analyzer;
         self.analyzer.nodes = nodes;
@@ -30,6 +31,7 @@ class CodeGen {
         self.in_constructor = false;
         self.generic_types = [];
         self.generic_keys = [];
+        self.generic_key_set = {};
         self.lambda_counter = 0;
         self.lambda_defs = [];
         self.fstr_counter = 0;
@@ -54,7 +56,7 @@ class CodeGen {
         self.emit_globals_and_enums(program_idx);
         /* Emit lambda definitions */
         for (int i = 0; i < self.lambda_defs.len; i++) {
-            fprintf(self.out, "%s", self.lambda_defs.get(i));
+            self.out.write(f"{self.lambda_defs.get(i)}");
         }
         self.emit_declarations(program_idx);
     }
@@ -63,21 +65,21 @@ class CodeGen {
 
     private void indent_out() {
         for (int i = 0; i < self.indent; i++) {
-            fprintf(self.out, "    ");
+            self.out.write("    ");
         }
     }
 
     private void emit(string text) {
         self.indent_out();
-        fprintf(self.out, "%s\n", text);
+        self.out.writeLine(f"{text}");
     }
 
     private void emit_raw(string text) {
-        fprintf(self.out, "%s\n", text);
+        self.out.writeLine(f"{text}");
     }
 
     private void emit_blank() {
-        fprintf(self.out, "\n");
+        self.out.writeLine("");
     }
 
     /* ---- Lambda pre-scanning ---- */
@@ -95,10 +97,9 @@ class CodeGen {
     private void register_lambda(int lambda_idx) {
         self.lambda_counter++;
         Node expr = self.analyzer.nodes.get(lambda_idx);
-        char name_buf[64];
-        snprintf(name_buf, sizeof(name_buf), "__btrc_lambda_%d", self.lambda_counter);
+        string lambda_name = f"__btrc_lambda_{self.lambda_counter}";
         /* Store the C function name in the node's sval field */
-        expr.sval = strdup(name_buf);
+        expr.sval = lambda_name;
         self.analyzer.nodes.set(lambda_idx, expr);
 
         /* Determine return type */
@@ -139,16 +140,18 @@ class CodeGen {
         string params_str = params_buf.toString();
         params_buf.__del__();
 
-        /* Generate function body by emitting to a temporary file */
-        FILE* saved_out = self.out;
+        /* Generate function body by redirecting output to a temp file */
+        File saved_out = self.out;
         int saved_indent = self.indent;
         FILE* mem = tmpfile();
-        self.out = mem;
+        var mem_file = File("", "w");
+        mem_file.setHandle(mem);
+        self.out = mem_file;
         self.indent = 1;
         if (expr.n2 != -1) {
             self.emit_block_contents(expr.n2);
         }
-        fflush(mem);
+        mem_file.flush();
         long body_len = ftell(mem);
         rewind(mem);
         char* body_buf = (char*)malloc(body_len + 1);
@@ -159,9 +162,7 @@ class CodeGen {
         self.indent = saved_indent;
 
         /* Build the full lambda function string */
-        char header[512];
-        snprintf(header, sizeof(header), "static %s %s(%s) {\n",
-                 ret_type, name_buf, params_str);
+        string header = "static " + ret_type + " " + lambda_name + "(" + params_str + ") {\n";
         var def_buf = CharBuffer(1024);
         def_buf.appendStr(header);
         if (body_buf != NULL) {
@@ -177,9 +178,8 @@ class CodeGen {
 
     private void add_generic_type(int idx) {
         string key = self.mangle_type(idx);
-        for (int j = 0; j < self.generic_keys.len; j++) {
-            if (self.generic_keys.get(j).equals(key)) { return; }
-        }
+        if (self.generic_key_set.has(key)) { return; }
+        self.generic_key_set.put(key, 1);
         self.generic_keys.push(key);
         self.generic_types.push(idx);
     }
@@ -458,7 +458,7 @@ class CodeGen {
             Node decl = self.analyzer.nodes.get(d);
             if (decl.kind == NK_CLASS_DECL && decl.items2.len == 0) {
                 self.indent_out();
-                fprintf(self.out, "typedef struct %s %s;\n", decl.name, decl.name);
+                self.out.writeLine(f"typedef struct {decl.name} {decl.name};");
             }
         }
         self.emit_blank();
@@ -497,45 +497,46 @@ class CodeGen {
     }
 
     private void emit_list_struct(string c_type, string mangled) {
-        char name[256];
-        snprintf(name, sizeof(name), "btrc_List_%s", mangled);
-        fprintf(self.out, "typedef struct {\n");
-        fprintf(self.out, "    %s* data;\n", c_type);
-        fprintf(self.out, "    int len;\n");
-        fprintf(self.out, "    int cap;\n");
-        fprintf(self.out, "} %s;\n\n", name);
+        string name = f"btrc_List_{mangled}";
+        self.out.writeLine("typedef struct {");
+        self.out.writeLine(f"    {c_type}* data;");
+        self.out.writeLine("    int len;");
+        self.out.writeLine("    int cap;");
+        self.out.writeLine(f"}} {name};");
+        self.emit_blank();
     }
 
     private void emit_array_struct(string c_type, string mangled) {
-        char name[256];
-        snprintf(name, sizeof(name), "btrc_Array_%s", mangled);
-        fprintf(self.out, "typedef struct {\n");
-        fprintf(self.out, "    %s* data;\n", c_type);
-        fprintf(self.out, "    int len;\n");
-        fprintf(self.out, "} %s;\n\n", name);
+        string name = f"btrc_Array_{mangled}";
+        self.out.writeLine("typedef struct {");
+        self.out.writeLine(f"    {c_type}* data;");
+        self.out.writeLine("    int len;");
+        self.out.writeLine(f"}} {name};");
+        self.emit_blank();
     }
 
     private void emit_map_struct(string kt, string vt, string km, string vm) {
-        char name[256];
-        snprintf(name, sizeof(name), "btrc_Map_%s_%s", km, vm);
-        fprintf(self.out, "typedef struct { %s key; %s value; bool occupied; } %s_entry;\n", kt, vt, name);
-        fprintf(self.out, "typedef struct {\n");
-        fprintf(self.out, "    %s_entry* buckets;\n", name);
-        fprintf(self.out, "    int cap;\n");
-        fprintf(self.out, "    int len;\n");
-        fprintf(self.out, "} %s;\n\n", name);
+        string name = f"btrc_Map_{km}_{vm}";
+        self.out.writeLine(f"typedef struct {{ {kt} key; {vt} value; bool occupied; }} {name}_entry;");
+        self.out.writeLine("typedef struct {");
+        self.out.writeLine(f"    {name}_entry* buckets;");
+        self.out.writeLine("    int cap;");
+        self.out.writeLine("    int len;");
+        self.out.writeLine(f"}} {name};");
+        self.emit_blank();
     }
 
     private void emit_tuple_struct(int type_idx) {
         Node tn = self.analyzer.nodes.get(type_idx);
         string mangled = self.mangle_type(type_idx);
         /* Strip leading "Tuple_" prefix since mangle includes it */
-        fprintf(self.out, "typedef struct {\n");
+        self.out.writeLine("typedef struct {");
         for (int i = 0; i < tn.items.len; i++) {
             string ct = self.type_to_c(tn.items.get(i));
-            fprintf(self.out, "    %s _%d;\n", ct, i);
+            self.out.writeLine(f"    {ct} _{i};");
         }
-        fprintf(self.out, "} btrc_%s;\n\n", mangled);
+        self.out.writeLine(f"}} btrc_{mangled};");
+        self.emit_blank();
     }
 
     /* ---- Class struct bodies ---- */
@@ -553,7 +554,7 @@ class CodeGen {
 
     private void emit_class_struct(int class_idx) {
         Node decl = self.analyzer.nodes.get(class_idx);
-        fprintf(self.out, "struct %s {\n", decl.name);
+        self.out.writeLine(f"struct {decl.name} {{");
         /* Inherited fields from parent */
         if (decl.name2.len() > 0 && self.analyzer.has_class(decl.name2)) {
             ClassInfo parent = self.analyzer.get_class(decl.name2);
@@ -570,7 +571,7 @@ class CodeGen {
                 }
                 if (!overridden) {
                     string ct = self.type_to_c(parent.field_types.get(i));
-                    fprintf(self.out, "    %s %s;\n", ct, fname);
+                    self.out.writeLine(f"    {ct} {fname};");
                 }
             }
         }
@@ -579,18 +580,19 @@ class CodeGen {
             Node m = self.analyzer.nodes.get(decl.items.get(i));
             if (m.kind == NK_FIELD_DECL) {
                 string ct = self.type_to_c(m.n1);
-                fprintf(self.out, "    %s %s;\n", ct, m.name);
+                self.out.writeLine(f"    {ct} {m.name};");
             } else if (m.kind == NK_PROPERTY_DECL) {
                 /* Auto-properties get a backing field _name */
                 bool auto_get = m.flag1 && m.n2 == -1;
                 bool auto_set = m.flag2 && m.n3 == -1;
                 if (auto_get || auto_set) {
                     string ct = self.type_to_c(m.n1);
-                    fprintf(self.out, "    %s _%s;\n", ct, m.name);
+                    self.out.writeLine(f"    {ct} _{m.name};");
                 }
             }
         }
-        fprintf(self.out, "};\n\n");
+        self.out.writeLine("};");
+        self.emit_blank();
     }
 
     /* ---- Destroy forward declarations ---- */
@@ -601,7 +603,7 @@ class CodeGen {
             int d = prog.items.get(i);
             Node decl = self.analyzer.nodes.get(d);
             if (decl.kind == NK_CLASS_DECL && decl.items2.len == 0) {
-                fprintf(self.out, "void %s_destroy(%s* self);\n", decl.name, decl.name);
+                self.out.writeLine(f"void {decl.name}_destroy({decl.name}* self);");
             }
         }
         self.emit_blank();
@@ -634,33 +636,37 @@ class CodeGen {
     }
 
     private void emit_list_functions(string c_type, string mangled) {
-        char n[256];
-        snprintf(n, sizeof(n), "btrc_List_%s", mangled);
+        string n = f"btrc_List_{mangled}";
         /* new */
-        fprintf(self.out, "static inline %s %s_new() {\n", n, n);
-        fprintf(self.out, "    return (%s){NULL, 0, 0};\n", n);
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline {n} {n}_new() {{");
+        self.out.writeLine(f"    return ({n}){{NULL, 0, 0}};");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* push */
-        fprintf(self.out, "static inline void %s_push(%s* l, %s val) {\n", n, n, c_type);
-        fprintf(self.out, "    if (l->len >= l->cap) {\n");
-        fprintf(self.out, "        l->cap = l->cap ? l->cap * 2 : 4;\n");
-        fprintf(self.out, "        l->data = (%s*)realloc(l->data, sizeof(%s) * l->cap);\n", c_type, c_type);
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    l->data[l->len++] = val;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_push({n}* l, {c_type} val) {{");
+        self.out.writeLine("    if (l->len >= l->cap) {");
+        self.out.writeLine("        l->cap = l->cap ? l->cap * 2 : 4;");
+        self.out.writeLine(f"        l->data = ({c_type}*)realloc(l->data, sizeof({c_type}) * l->cap);");
+        self.out.writeLine("    }");
+        self.out.writeLine("    l->data[l->len++] = val;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* get */
-        fprintf(self.out, "static inline %s %s_get(%s* l, int i) {\n", c_type, n, n);
-        fprintf(self.out, "    return l->data[i];\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline {c_type} {n}_get({n}* l, int i) {{");
+        self.out.writeLine("    return l->data[i];");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* set */
-        fprintf(self.out, "static inline void %s_set(%s* l, int i, %s val) {\n", n, n, c_type);
-        fprintf(self.out, "    l->data[i] = val;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_set({n}* l, int i, {c_type} val) {{");
+        self.out.writeLine("    l->data[i] = val;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* free */
-        fprintf(self.out, "static inline void %s_free(%s* l) {\n", n, n);
-        fprintf(self.out, "    free(l->data);\n");
-        fprintf(self.out, "    l->data = NULL; l->len = 0; l->cap = 0;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_free({n}* l) {{");
+        self.out.writeLine("    free(l->data);");
+        self.out.writeLine("    l->data = NULL; l->len = 0; l->cap = 0;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* contains — for primitive types and strings */
         Node elem_node = self.analyzer.nodes.get(self.find_type_node_for_mangled(mangled));
         bool is_collection = elem_node.name.equals("List") || elem_node.name.equals("Map");
@@ -668,129 +674,143 @@ class CodeGen {
         bool is_str = elem_node.name.equals("string") || elem_node.name.equals("char_ptr") ||
                       (elem_node.name.equals("char") && elem_node.ival >= 1);
         if (is_prim) {
-            fprintf(self.out, "static inline bool %s_contains(%s* l, %s val) {\n", n, n, c_type);
-            fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
+            self.out.writeLine(f"static inline bool {n}_contains({n}* l, {c_type} val) {{");
+            self.out.writeLine("    for (int i = 0; i < l->len; i++) {");
             if (is_str) {
-                fprintf(self.out, "        if (strcmp(l->data[i], val) == 0) return true;\n");
+                self.out.writeLine("        if (strcmp(l->data[i], val) == 0) return true;");
             } else {
-                fprintf(self.out, "        if (l->data[i] == val) return true;\n");
+                self.out.writeLine("        if (l->data[i] == val) return true;");
             }
-            fprintf(self.out, "    }\n");
-            fprintf(self.out, "    return false;\n");
-            fprintf(self.out, "}\n\n");
+            self.out.writeLine("    }");
+            self.out.writeLine("    return false;");
+            self.out.writeLine("}");
+            self.emit_blank();
         }
         /* remove */
-        fprintf(self.out, "static inline void %s_remove(%s* l, int idx) {\n", n, n);
-        fprintf(self.out, "    for (int i = idx; i < l->len - 1; i++) {\n");
-        fprintf(self.out, "        l->data[i] = l->data[i + 1];\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    l->len--;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_remove({n}* l, int idx) {{");
+        self.out.writeLine("    for (int i = idx; i < l->len - 1; i++) {");
+        self.out.writeLine("        l->data[i] = l->data[i + 1];");
+        self.out.writeLine("    }");
+        self.out.writeLine("    l->len--;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* reverse */
-        fprintf(self.out, "static inline void %s_reverse(%s* l) {\n", n, n);
-        fprintf(self.out, "    for (int i = 0; i < l->len / 2; i++) {\n");
-        fprintf(self.out, "        %s tmp = l->data[i];\n", c_type);
-        fprintf(self.out, "        l->data[i] = l->data[l->len - 1 - i];\n");
-        fprintf(self.out, "        l->data[l->len - 1 - i] = tmp;\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_reverse({n}* l) {{");
+        self.out.writeLine("    for (int i = 0; i < l->len / 2; i++) {");
+        self.out.writeLine(f"        {c_type} tmp = l->data[i];");
+        self.out.writeLine("        l->data[i] = l->data[l->len - 1 - i];");
+        self.out.writeLine("        l->data[l->len - 1 - i] = tmp;");
+        self.out.writeLine("    }");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* sort — for primitive types and strings */
         if (is_prim) {
-            fprintf(self.out, "static int __%s_cmp(const void* a, const void* b) {\n", n);
+            self.out.writeLine(f"static int __{n}_cmp(const void* a, const void* b) {{");
             if (is_str) {
-                fprintf(self.out, "    return strcmp(*(const char**)a, *(const char**)b);\n");
+                self.out.writeLine("    return strcmp(*(const char**)a, *(const char**)b);");
             } else {
-                fprintf(self.out, "    %s va = *(%s*)a;\n", c_type, c_type);
-                fprintf(self.out, "    %s vb = *(%s*)b;\n", c_type, c_type);
-                fprintf(self.out, "    return (va > vb) - (va < vb);\n");
+                self.out.writeLine(f"    {c_type} va = *({c_type}*)a;");
+                self.out.writeLine(f"    {c_type} vb = *({c_type}*)b;");
+                self.out.writeLine("    return (va > vb) - (va < vb);");
             }
-            fprintf(self.out, "}\n");
-            fprintf(self.out, "static inline void %s_sort(%s* l) {\n", n, n);
-            fprintf(self.out, "    qsort(l->data, l->len, sizeof(%s), __%s_cmp);\n", c_type, n);
-            fprintf(self.out, "}\n\n");
+            self.out.writeLine("}");
+            self.out.writeLine(f"static inline void {n}_sort({n}* l) {{");
+            self.out.writeLine(f"    qsort(l->data, l->len, sizeof({c_type}), __{n}_cmp);");
+            self.out.writeLine("}");
+            self.emit_blank();
         }
         /* pop — remove and return the last element */
-        fprintf(self.out, "static inline %s %s_pop(%s* l) {\n", c_type, n, n);
-        fprintf(self.out, "    return l->data[--l->len];\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline {c_type} {n}_pop({n}* l) {{");
+        self.out.writeLine("    return l->data[--l->len];");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* clear */
-        fprintf(self.out, "static inline void %s_clear(%s* l) {\n", n, n);
-        fprintf(self.out, "    l->len = 0;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_clear({n}* l) {{");
+        self.out.writeLine("    l->len = 0;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* indexOf — for primitive types and strings */
         if (is_prim) {
-            fprintf(self.out, "static inline int %s_indexOf(%s* l, %s val) {\n", n, n, c_type);
-            fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
+            self.out.writeLine(f"static inline int {n}_indexOf({n}* l, {c_type} val) {{");
+            self.out.writeLine("    for (int i = 0; i < l->len; i++) {");
             if (is_str) {
-                fprintf(self.out, "        if (strcmp(l->data[i], val) == 0) return i;\n");
+                self.out.writeLine("        if (strcmp(l->data[i], val) == 0) return i;");
             } else {
-                fprintf(self.out, "        if (l->data[i] == val) return i;\n");
+                self.out.writeLine("        if (l->data[i] == val) return i;");
             }
-            fprintf(self.out, "    }\n");
-            fprintf(self.out, "    return -1;\n");
-            fprintf(self.out, "}\n\n");
+            self.out.writeLine("    }");
+            self.out.writeLine("    return -1;");
+            self.out.writeLine("}");
+            self.emit_blank();
         }
         /* lastIndexOf — for primitive types and strings */
         if (is_prim) {
-            fprintf(self.out, "static inline int %s_lastIndexOf(%s* l, %s val) {\n", n, n, c_type);
-            fprintf(self.out, "    for (int i = l->len - 1; i >= 0; i--) {\n");
+            self.out.writeLine(f"static inline int {n}_lastIndexOf({n}* l, {c_type} val) {{");
+            self.out.writeLine("    for (int i = l->len - 1; i >= 0; i--) {");
             if (is_str) {
-                fprintf(self.out, "        if (strcmp(l->data[i], val) == 0) return i;\n");
+                self.out.writeLine("        if (strcmp(l->data[i], val) == 0) return i;");
             } else {
-                fprintf(self.out, "        if (l->data[i] == val) return i;\n");
+                self.out.writeLine("        if (l->data[i] == val) return i;");
             }
-            fprintf(self.out, "    }\n");
-            fprintf(self.out, "    return -1;\n");
-            fprintf(self.out, "}\n\n");
+            self.out.writeLine("    }");
+            self.out.writeLine("    return -1;");
+            self.out.writeLine("}");
+            self.emit_blank();
         }
         /* slice */
-        fprintf(self.out, "static inline %s %s_slice(%s* l, int start, int end) {\n", n, n, n);
-        fprintf(self.out, "    %s result = %s_new();\n", n, n);
-        fprintf(self.out, "    for (int i = start; i < end && i < l->len; i++) {\n");
-        fprintf(self.out, "        %s_push(&result, l->data[i]);\n", n);
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    return result;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline {n} {n}_slice({n}* l, int start, int end) {{");
+        self.out.writeLine(f"    {n} result = {n}_new();");
+        self.out.writeLine("    for (int i = start; i < end && i < l->len; i++) {");
+        self.out.writeLine(f"        {n}_push(&result, l->data[i]);");
+        self.out.writeLine("    }");
+        self.out.writeLine("    return result;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* join — only for List<string> */
         if (mangled.equals("char_ptr") || mangled.equals("string")) {
-            fprintf(self.out, "static inline char* %s_join(%s* l, const char* sep) {\n", n, n);
-            fprintf(self.out, "    int total = 0;\n");
-            fprintf(self.out, "    int sep_len = strlen(sep);\n");
-            fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
-            fprintf(self.out, "        total += strlen(l->data[i]);\n");
-            fprintf(self.out, "        if (i < l->len - 1) total += sep_len;\n");
-            fprintf(self.out, "    }\n");
-            fprintf(self.out, "    char* result = (char*)malloc(total + 1);\n");
-            fprintf(self.out, "    result[0] = '\\0';\n");
-            fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
-            fprintf(self.out, "        strcat(result, l->data[i]);\n");
-            fprintf(self.out, "        if (i < l->len - 1) strcat(result, sep);\n");
-            fprintf(self.out, "    }\n");
-            fprintf(self.out, "    return result;\n");
-            fprintf(self.out, "}\n\n");
+            self.out.writeLine(f"static inline char* {n}_join({n}* l, const char* sep) {{");
+            self.out.writeLine("    int total = 0;");
+            self.out.writeLine("    int sep_len = strlen(sep);");
+            self.out.writeLine("    for (int i = 0; i < l->len; i++) {");
+            self.out.writeLine("        total += strlen(l->data[i]);");
+            self.out.writeLine("        if (i < l->len - 1) total += sep_len;");
+            self.out.writeLine("    }");
+            self.out.writeLine("    char* result = (char*)malloc(total + 1);");
+            self.out.writeLine("    result[0] = '\\0';");
+            self.out.writeLine("    for (int i = 0; i < l->len; i++) {");
+            self.out.writeLine("        strcat(result, l->data[i]);");
+            self.out.writeLine("        if (i < l->len - 1) strcat(result, sep);");
+            self.out.writeLine("    }");
+            self.out.writeLine("    return result;");
+            self.out.writeLine("}");
+            self.emit_blank();
         }
         /* forEach(fn) — call fn(element) for each element */
-        fprintf(self.out, "static inline void %s_forEach(%s* l, void (*fn)(%s)) {\n", n, n, c_type);
-        fprintf(self.out, "    for (int i = 0; i < l->len; i++) fn(l->data[i]);\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_forEach({n}* l, void (*fn)({c_type})) {{");
+        self.out.writeLine("    for (int i = 0; i < l->len; i++) fn(l->data[i]);");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* filter(fn) — return new list where fn(element) is true */
-        fprintf(self.out, "static inline %s %s_filter(%s* l, bool (*fn)(%s)) {\n", n, n, n, c_type);
-        fprintf(self.out, "    %s result = %s_new();\n", n, n);
-        fprintf(self.out, "    for (int i = 0; i < l->len; i++) {\n");
-        fprintf(self.out, "        if (fn(l->data[i])) %s_push(&result, l->data[i]);\n", n);
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    return result;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline {n} {n}_filter({n}* l, bool (*fn)({c_type})) {{");
+        self.out.writeLine(f"    {n} result = {n}_new();");
+        self.out.writeLine("    for (int i = 0; i < l->len; i++) {");
+        self.out.writeLine(f"        if (fn(l->data[i])) {n}_push(&result, l->data[i]);");
+        self.out.writeLine("    }");
+        self.out.writeLine("    return result;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* any(fn) — return true if fn(element) is true for any element */
-        fprintf(self.out, "static inline bool %s_any(%s* l, bool (*fn)(%s)) {\n", n, n, c_type);
-        fprintf(self.out, "    for (int i = 0; i < l->len; i++) { if (fn(l->data[i])) return true; }\n");
-        fprintf(self.out, "    return false;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline bool {n}_any({n}* l, bool (*fn)({c_type})) {{");
+        self.out.writeLine("    for (int i = 0; i < l->len; i++) { if (fn(l->data[i])) return true; }");
+        self.out.writeLine("    return false;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* all(fn) — return true if fn(element) is true for all elements */
-        fprintf(self.out, "static inline bool %s_all(%s* l, bool (*fn)(%s)) {\n", n, n, c_type);
-        fprintf(self.out, "    for (int i = 0; i < l->len; i++) { if (!fn(l->data[i])) return false; }\n");
-        fprintf(self.out, "    return true;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline bool {n}_all({n}* l, bool (*fn)({c_type})) {{");
+        self.out.writeLine("    for (int i = 0; i < l->len; i++) { if (!fn(l->data[i])) return false; }");
+        self.out.writeLine("    return true;");
+        self.out.writeLine("}");
+        self.emit_blank();
     }
 
     private int find_type_node_for_mangled(string mangled) {
@@ -812,174 +832,185 @@ class CodeGen {
     }
 
     private void emit_map_functions(string kt, string vt, string km, string vm) {
-        char n[256];
-        snprintf(n, sizeof(n), "btrc_Map_%s_%s", km, vm);
+        string n = f"btrc_Map_{km}_{vm}";
         bool is_str_key = strcmp(kt, "char*") == 0;
         /* String hash function */
         if (is_str_key) {
-            fprintf(self.out, "static inline unsigned int __btrc_hash_str_%s_%s(const char* s) {\n", km, vm);
-            fprintf(self.out, "    unsigned int h = 5381;\n");
-            fprintf(self.out, "    while (*s) h = h * 33 + (unsigned char)*s++;\n");
-            fprintf(self.out, "    return h;\n");
-            fprintf(self.out, "}\n\n");
+            self.out.writeLine(f"static inline unsigned int __btrc_hash_str_{km}_{vm}(const char* s) {{");
+            self.out.writeLine("    unsigned int h = 5381;");
+            self.out.writeLine("    while (*s) h = h * 33 + (unsigned char)*s++;");
+            self.out.writeLine("    return h;");
+            self.out.writeLine("}");
+            self.emit_blank();
         }
         /* new */
-        fprintf(self.out, "static inline %s %s_new() {\n", n, n);
-        fprintf(self.out, "    %s m;\n", n);
-        fprintf(self.out, "    m.cap = 16;\n");
-        fprintf(self.out, "    m.len = 0;\n");
-        fprintf(self.out, "    m.buckets = (%s_entry*)calloc(m.cap, sizeof(%s_entry));\n", n, n);
-        fprintf(self.out, "    return m;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline {n} {n}_new() {{");
+        self.out.writeLine(f"    {n} m;");
+        self.out.writeLine("    m.cap = 16;");
+        self.out.writeLine("    m.len = 0;");
+        self.out.writeLine(f"    m.buckets = ({n}_entry*)calloc(m.cap, sizeof({n}_entry));");
+        self.out.writeLine("    return m;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* Forward declare put */
-        fprintf(self.out, "static inline void %s_put(%s* m, %s key, %s value);\n\n", n, n, kt, vt);
+        self.out.writeLine(f"static inline void {n}_put({n}* m, {kt} key, {vt} value);");
+        self.emit_blank();
         /* resize */
-        fprintf(self.out, "static inline void %s_resize(%s* m) {\n", n, n);
-        fprintf(self.out, "    int old_cap = m->cap;\n");
-        fprintf(self.out, "    %s_entry* old_buckets = m->buckets;\n", n);
-        fprintf(self.out, "    m->cap *= 2;\n");
-        fprintf(self.out, "    m->len = 0;\n");
-        fprintf(self.out, "    m->buckets = (%s_entry*)calloc(m->cap, sizeof(%s_entry));\n", n, n);
-        fprintf(self.out, "    for (int i = 0; i < old_cap; i++) {\n");
-        fprintf(self.out, "        if (old_buckets[i].occupied) {\n");
-        fprintf(self.out, "            %s_put(m, old_buckets[i].key, old_buckets[i].value);\n", n);
-        fprintf(self.out, "        }\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    free(old_buckets);\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_resize({n}* m) {{");
+        self.out.writeLine("    int old_cap = m->cap;");
+        self.out.writeLine(f"    {n}_entry* old_buckets = m->buckets;");
+        self.out.writeLine("    m->cap *= 2;");
+        self.out.writeLine("    m->len = 0;");
+        self.out.writeLine(f"    m->buckets = ({n}_entry*)calloc(m->cap, sizeof({n}_entry));");
+        self.out.writeLine("    for (int i = 0; i < old_cap; i++) {");
+        self.out.writeLine("        if (old_buckets[i].occupied) {");
+        self.out.writeLine(f"            {n}_put(m, old_buckets[i].key, old_buckets[i].value);");
+        self.out.writeLine("        }");
+        self.out.writeLine("    }");
+        self.out.writeLine("    free(old_buckets);");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* put */
-        fprintf(self.out, "static inline void %s_put(%s* m, %s key, %s value) {\n", n, n, kt, vt);
-        fprintf(self.out, "    if (m->len * 4 >= m->cap * 3) { %s_resize(m); }\n", n);
+        self.out.writeLine(f"static inline void {n}_put({n}* m, {kt} key, {vt} value) {{");
+        self.out.writeLine(f"    if (m->len * 4 >= m->cap * 3) {{ {n}_resize(m); }}");
         if (is_str_key) {
-            fprintf(self.out, "    unsigned int idx = __btrc_hash_str_%s_%s(key) %% m->cap;\n", km, vm);
+            self.out.writeLine(f"    unsigned int idx = __btrc_hash_str_{km}_{vm}(key) % m->cap;");
         } else {
-            fprintf(self.out, "    unsigned int idx = (unsigned int)key %% m->cap;\n");
+            self.out.writeLine("    unsigned int idx = (unsigned int)key % m->cap;");
         }
-        fprintf(self.out, "    while (m->buckets[idx].occupied) {\n");
+        self.out.writeLine("    while (m->buckets[idx].occupied) {");
         if (is_str_key) {
-            fprintf(self.out, "        if (strcmp(m->buckets[idx].key, key) == 0) { m->buckets[idx].value = value; return; }\n");
+            self.out.writeLine("        if (strcmp(m->buckets[idx].key, key) == 0) { m->buckets[idx].value = value; return; }");
         } else {
-            fprintf(self.out, "        if (m->buckets[idx].key == key) { m->buckets[idx].value = value; return; }\n");
+            self.out.writeLine("        if (m->buckets[idx].key == key) { m->buckets[idx].value = value; return; }");
         }
-        fprintf(self.out, "        idx = (idx + 1) %% m->cap;\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    m->buckets[idx].key = key;\n");
-        fprintf(self.out, "    m->buckets[idx].value = value;\n");
-        fprintf(self.out, "    m->buckets[idx].occupied = true;\n");
-        fprintf(self.out, "    m->len++;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine("        idx = (idx + 1) % m->cap;");
+        self.out.writeLine("    }");
+        self.out.writeLine("    m->buckets[idx].key = key;");
+        self.out.writeLine("    m->buckets[idx].value = value;");
+        self.out.writeLine("    m->buckets[idx].occupied = true;");
+        self.out.writeLine("    m->len++;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* get */
-        fprintf(self.out, "static inline %s %s_get(%s* m, %s key) {\n", vt, n, n, kt);
+        self.out.writeLine(f"static inline {vt} {n}_get({n}* m, {kt} key) {{");
         if (is_str_key) {
-            fprintf(self.out, "    unsigned int idx = __btrc_hash_str_%s_%s(key) %% m->cap;\n", km, vm);
+            self.out.writeLine(f"    unsigned int idx = __btrc_hash_str_{km}_{vm}(key) % m->cap;");
         } else {
-            fprintf(self.out, "    unsigned int idx = (unsigned int)key %% m->cap;\n");
+            self.out.writeLine("    unsigned int idx = (unsigned int)key % m->cap;");
         }
-        fprintf(self.out, "    while (m->buckets[idx].occupied) {\n");
+        self.out.writeLine("    while (m->buckets[idx].occupied) {");
         if (is_str_key) {
-            fprintf(self.out, "        if (strcmp(m->buckets[idx].key, key) == 0) return m->buckets[idx].value;\n");
+            self.out.writeLine("        if (strcmp(m->buckets[idx].key, key) == 0) return m->buckets[idx].value;");
         } else {
-            fprintf(self.out, "        if (m->buckets[idx].key == key) return m->buckets[idx].value;\n");
+            self.out.writeLine("        if (m->buckets[idx].key == key) return m->buckets[idx].value;");
         }
-        fprintf(self.out, "        idx = (idx + 1) %% m->cap;\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    return (%s){0};\n", vt);
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine("        idx = (idx + 1) % m->cap;");
+        self.out.writeLine("    }");
+        self.out.writeLine(f"    return ({vt}){{0}};");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* has */
-        fprintf(self.out, "static inline bool %s_has(%s* m, %s key) {\n", n, n, kt);
+        self.out.writeLine(f"static inline bool {n}_has({n}* m, {kt} key) {{");
         if (is_str_key) {
-            fprintf(self.out, "    unsigned int idx = __btrc_hash_str_%s_%s(key) %% m->cap;\n", km, vm);
+            self.out.writeLine(f"    unsigned int idx = __btrc_hash_str_{km}_{vm}(key) % m->cap;");
         } else {
-            fprintf(self.out, "    unsigned int idx = (unsigned int)key %% m->cap;\n");
+            self.out.writeLine("    unsigned int idx = (unsigned int)key % m->cap;");
         }
-        fprintf(self.out, "    while (m->buckets[idx].occupied) {\n");
+        self.out.writeLine("    while (m->buckets[idx].occupied) {");
         if (is_str_key) {
-            fprintf(self.out, "        if (strcmp(m->buckets[idx].key, key) == 0) return true;\n");
+            self.out.writeLine("        if (strcmp(m->buckets[idx].key, key) == 0) return true;");
         } else {
-            fprintf(self.out, "        if (m->buckets[idx].key == key) return true;\n");
+            self.out.writeLine("        if (m->buckets[idx].key == key) return true;");
         }
-        fprintf(self.out, "        idx = (idx + 1) %% m->cap;\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    return false;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine("        idx = (idx + 1) % m->cap;");
+        self.out.writeLine("    }");
+        self.out.writeLine("    return false;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* contains (alias for has) */
-        fprintf(self.out, "static inline bool %s_contains(%s* m, %s key) {\n", n, n, kt);
-        fprintf(self.out, "    return %s_has(m, key);\n", n);
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline bool {n}_contains({n}* m, {kt} key) {{");
+        self.out.writeLine(f"    return {n}_has(m, key);");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* free */
-        fprintf(self.out, "static inline void %s_free(%s* m) {\n", n, n);
-        fprintf(self.out, "    free(m->buckets);\n");
-        fprintf(self.out, "    m->buckets = NULL; m->cap = 0; m->len = 0;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_free({n}* m) {{");
+        self.out.writeLine("    free(m->buckets);");
+        self.out.writeLine("    m->buckets = NULL; m->cap = 0; m->len = 0;");
+        self.out.writeLine("}");
+        self.emit_blank();
 
         /* remove — find and remove a key, rehashing the cluster */
-        fprintf(self.out, "static inline void %s_remove(%s* m, %s key) {\n", n, n, kt);
+        self.out.writeLine(f"static inline void {n}_remove({n}* m, {kt} key) {{");
         if (is_str_key) {
-            fprintf(self.out, "    unsigned int idx = __btrc_hash_str_%s_%s(key) %% m->cap;\n", km, vm);
+            self.out.writeLine(f"    unsigned int idx = __btrc_hash_str_{km}_{vm}(key) % m->cap;");
         } else {
-            fprintf(self.out, "    unsigned int idx = (unsigned int)key %% m->cap;\n");
+            self.out.writeLine("    unsigned int idx = (unsigned int)key % m->cap;");
         }
-        fprintf(self.out, "    while (m->buckets[idx].occupied) {\n");
+        self.out.writeLine("    while (m->buckets[idx].occupied) {");
         if (is_str_key) {
-            fprintf(self.out, "        if (strcmp(m->buckets[idx].key, key) == 0) {\n");
+            self.out.writeLine("        if (strcmp(m->buckets[idx].key, key) == 0) {");
         } else {
-            fprintf(self.out, "        if (m->buckets[idx].key == key) {\n");
+            self.out.writeLine("        if (m->buckets[idx].key == key) {");
         }
-        fprintf(self.out, "            m->buckets[idx].occupied = false;\n");
-        fprintf(self.out, "            m->len--;\n");
-        fprintf(self.out, "            /* Rehash the rest of the cluster */\n");
-        fprintf(self.out, "            unsigned int j = (idx + 1) %% m->cap;\n");
-        fprintf(self.out, "            while (m->buckets[j].occupied) {\n");
-        fprintf(self.out, "                %s rk = m->buckets[j].key;\n", kt);
-        fprintf(self.out, "                %s rv = m->buckets[j].value;\n", vt);
-        fprintf(self.out, "                m->buckets[j].occupied = false;\n");
-        fprintf(self.out, "                m->len--;\n");
-        fprintf(self.out, "                %s_put(m, rk, rv);\n", n);
-        fprintf(self.out, "                j = (j + 1) %% m->cap;\n");
-        fprintf(self.out, "            }\n");
-        fprintf(self.out, "            return;\n");
-        fprintf(self.out, "        }\n");
-        fprintf(self.out, "        idx = (idx + 1) %% m->cap;\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine("            m->buckets[idx].occupied = false;");
+        self.out.writeLine("            m->len--;");
+        self.out.writeLine("            /* Rehash the rest of the cluster */");
+        self.out.writeLine("            unsigned int j = (idx + 1) % m->cap;");
+        self.out.writeLine("            while (m->buckets[j].occupied) {");
+        self.out.writeLine(f"                {kt} rk = m->buckets[j].key;");
+        self.out.writeLine(f"                {vt} rv = m->buckets[j].value;");
+        self.out.writeLine("                m->buckets[j].occupied = false;");
+        self.out.writeLine("                m->len--;");
+        self.out.writeLine(f"                {n}_put(m, rk, rv);");
+        self.out.writeLine("                j = (j + 1) % m->cap;");
+        self.out.writeLine("            }");
+        self.out.writeLine("            return;");
+        self.out.writeLine("        }");
+        self.out.writeLine("        idx = (idx + 1) % m->cap;");
+        self.out.writeLine("    }");
+        self.out.writeLine("}");
+        self.emit_blank();
 
         /* keys — returns a List<K> of all keys */
-        char kl[256];
-        snprintf(kl, sizeof(kl), "btrc_List_%s", km);
-        fprintf(self.out, "static inline %s %s_keys(%s* m) {\n", kl, n, n);
-        fprintf(self.out, "    %s result = %s_new();\n", kl, kl);
-        fprintf(self.out, "    for (int i = 0; i < m->cap; i++) {\n");
-        fprintf(self.out, "        if (m->buckets[i].occupied) {\n");
-        fprintf(self.out, "            %s_push(&result, m->buckets[i].key);\n", kl);
-        fprintf(self.out, "        }\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    return result;\n");
-        fprintf(self.out, "}\n\n");
+        string kl = f"btrc_List_{km}";
+        self.out.writeLine(f"static inline {kl} {n}_keys({n}* m) {{");
+        self.out.writeLine(f"    {kl} result = {kl}_new();");
+        self.out.writeLine("    for (int i = 0; i < m->cap; i++) {");
+        self.out.writeLine("        if (m->buckets[i].occupied) {");
+        self.out.writeLine(f"            {kl}_push(&result, m->buckets[i].key);");
+        self.out.writeLine("        }");
+        self.out.writeLine("    }");
+        self.out.writeLine("    return result;");
+        self.out.writeLine("}");
+        self.emit_blank();
 
         /* values — returns a List<V> of all values */
-        char vl[256];
-        snprintf(vl, sizeof(vl), "btrc_List_%s", vm);
-        fprintf(self.out, "static inline %s %s_values(%s* m) {\n", vl, n, n);
-        fprintf(self.out, "    %s result = %s_new();\n", vl, vl);
-        fprintf(self.out, "    for (int i = 0; i < m->cap; i++) {\n");
-        fprintf(self.out, "        if (m->buckets[i].occupied) {\n");
-        fprintf(self.out, "            %s_push(&result, m->buckets[i].value);\n", vl);
-        fprintf(self.out, "        }\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "    return result;\n");
-        fprintf(self.out, "}\n\n");
+        string vl = f"btrc_List_{vm}";
+        self.out.writeLine(f"static inline {vl} {n}_values({n}* m) {{");
+        self.out.writeLine(f"    {vl} result = {vl}_new();");
+        self.out.writeLine("    for (int i = 0; i < m->cap; i++) {");
+        self.out.writeLine("        if (m->buckets[i].occupied) {");
+        self.out.writeLine(f"            {vl}_push(&result, m->buckets[i].value);");
+        self.out.writeLine("        }");
+        self.out.writeLine("    }");
+        self.out.writeLine("    return result;");
+        self.out.writeLine("}");
+        self.emit_blank();
 
         /* clear — remove all entries without deallocating */
-        fprintf(self.out, "static inline void %s_clear(%s* m) {\n", n, n);
-        fprintf(self.out, "    for (int i = 0; i < m->cap; i++) m->buckets[i].occupied = false;\n");
-        fprintf(self.out, "    m->len = 0;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_clear({n}* m) {{");
+        self.out.writeLine("    for (int i = 0; i < m->cap; i++) m->buckets[i].occupied = false;");
+        self.out.writeLine("    m->len = 0;");
+        self.out.writeLine("}");
+        self.emit_blank();
         /* forEach(fn) — call fn(key, value) for each entry */
-        fprintf(self.out, "static inline void %s_forEach(%s* m, void (*fn)(%s, %s)) {\n", n, n, kt, vt);
-        fprintf(self.out, "    for (int i = 0; i < m->cap; i++) {\n");
-        fprintf(self.out, "        if (m->buckets[i].occupied) fn(m->buckets[i].key, m->buckets[i].value);\n");
-        fprintf(self.out, "    }\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline void {n}_forEach({n}* m, void (*fn)({kt}, {vt})) {{");
+        self.out.writeLine("    for (int i = 0; i < m->cap; i++) {");
+        self.out.writeLine("        if (m->buckets[i].occupied) fn(m->buckets[i].key, m->buckets[i].value);");
+        self.out.writeLine("    }");
+        self.out.writeLine("}");
+        self.emit_blank();
     }
 
     /* ---- Declarations ---- */
@@ -1097,13 +1128,12 @@ class CodeGen {
         }
 
         /* Heap allocation helper */
-        fprintf(self.out, "static inline %s* __btrc_heap_%s(%s val) {\n",
-                decl.name, decl.name, decl.name);
-        fprintf(self.out, "    %s* ptr = (%s*)malloc(sizeof(%s));\n",
-                decl.name, decl.name, decl.name);
-        fprintf(self.out, "    *ptr = val;\n");
-        fprintf(self.out, "    return ptr;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine(f"static inline {decl.name}* __btrc_heap_{decl.name}({decl.name} val) {{");
+        self.out.writeLine(f"    {decl.name}* ptr = ({decl.name}*)malloc(sizeof({decl.name}));");
+        self.out.writeLine("    *ptr = val;");
+        self.out.writeLine("    return ptr;");
+        self.out.writeLine("}");
+        self.emit_blank();
 
         /* Destroy function */
         self.emit_destroy_function(decl.name, cls);
@@ -1121,24 +1151,24 @@ class CodeGen {
         bool is_static = maccess.equals("class");
 
         if (is_ctor) {
-            fprintf(self.out, "%s %s_new(", class_name, class_name);
+            self.out.write(f"{class_name} {class_name}_new(");
         } else {
             string ret = self.type_to_c(mnode.n1);
-            fprintf(self.out, "%s %s_%s(", ret, class_name, mname);
+            self.out.write(f"{ret} {class_name}_{mname}(");
         }
 
         bool first = true;
         if (!is_static && !is_ctor) {
-            fprintf(self.out, "%s* self", class_name);
+            self.out.write(f"{class_name}* self");
             first = false;
         }
         for (int j = 0; j < mnode.items.len; j++) {
-            if (!first) { fprintf(self.out, ", "); }
+            if (!first) { self.out.write(", "); }
             first = false;
             self.emit_param(mnode.items.get(j));
         }
-        if (first) { fprintf(self.out, "void"); }
-        fprintf(self.out, ");\n");
+        if (first) { self.out.write("void"); }
+        self.out.writeLine(");");
     }
 
     private void emit_method(string class_name, ClassInfo cls, int method_idx) {
@@ -1148,30 +1178,30 @@ class CodeGen {
 
         /* Signature */
         if (is_ctor) {
-            fprintf(self.out, "%s %s_new(", class_name, class_name);
+            self.out.write(f"{class_name} {class_name}_new(");
         } else {
             string ret = self.type_to_c(method.n1);
-            fprintf(self.out, "%s %s_%s(", ret, class_name, method.name);
+            self.out.write(f"{ret} {class_name}_{method.name}(");
         }
 
         bool first = true;
         if (!is_static && !is_ctor) {
-            fprintf(self.out, "%s* self", class_name);
+            self.out.write(f"{class_name}* self");
             first = false;
         }
         for (int j = 0; j < method.items.len; j++) {
-            if (!first) { fprintf(self.out, ", "); }
+            if (!first) { self.out.write(", "); }
             first = false;
             self.emit_param(method.items.get(j));
         }
-        if (first) { fprintf(self.out, "void"); }
-        fprintf(self.out, ") {\n");
+        if (first) { self.out.write("void"); }
+        self.out.writeLine(") {");
 
         self.indent++;
         if (is_ctor) {
             self.emit_raw("");
             self.indent_out();
-            fprintf(self.out, "%s self;\n", class_name);
+            self.out.writeLine(f"{class_name} self;");
             /* Apply field defaults */
             for (int fi = 0; fi < cls.field_names.len; fi++) {
                 int ft = cls.field_types.get(fi);
@@ -1182,12 +1212,13 @@ class CodeGen {
             self.emit_block_contents(method.n2);
             self.in_constructor = false;
             self.indent_out();
-            fprintf(self.out, "return self;\n");
+            self.out.writeLine("return self;");
         } else {
             self.emit_block_contents(method.n2);
         }
         self.indent--;
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine("}");
+        self.emit_blank();
     }
 
     private void emit_field_default(string class_name, string fname, int type_idx) {
@@ -1197,7 +1228,7 @@ class CodeGen {
             if (n.kind == NK_FIELD_DECL && n.name.equals(fname) && n.n2 != -1) {
                 string init = self.expr_to_c(n.n2);
                 self.indent_out();
-                fprintf(self.out, "self.%s = %s;\n", fname, init);
+                self.out.writeLine(f"self.{fname} = {init};");
                 return;
             }
         }
@@ -1211,57 +1242,59 @@ class CodeGen {
 
         /* Getter */
         if (prop.flag1) {
-            fprintf(self.out, "%s %s_get_%s(%s* self) {\n", c_type, class_name, prop.name, class_name);
+            self.out.writeLine(f"{c_type} {class_name}_get_{prop.name}({class_name}* self) {{");
             self.indent++;
             if (auto_get) {
                 self.indent_out();
-                fprintf(self.out, "return self->_%s;\n", prop.name);
+                self.out.writeLine(f"return self->_{prop.name};");
             } else {
                 self.emit_block_contents(prop.n2);
             }
             self.indent--;
-            fprintf(self.out, "}\n\n");
+            self.out.writeLine("}");
+            self.emit_blank();
         }
 
         /* Setter */
         if (prop.flag2) {
-            fprintf(self.out, "void %s_set_%s(%s* self, %s value) {\n",
-                    class_name, prop.name, class_name, c_type);
+            self.out.writeLine(f"void {class_name}_set_{prop.name}({class_name}* self, {c_type} value) {{");
             self.indent++;
             if (auto_set) {
                 self.indent_out();
-                fprintf(self.out, "self->_%s = value;\n", prop.name);
+                self.out.writeLine(f"self->_{prop.name} = value;");
             } else {
                 self.emit_block_contents(prop.n3);
             }
             self.indent--;
-            fprintf(self.out, "}\n\n");
+            self.out.writeLine("}");
+            self.emit_blank();
         }
     }
 
     private void emit_default_constructor(string class_name, int class_idx, ClassInfo cls) {
         Node decl = self.analyzer.nodes.get(class_idx);
-        fprintf(self.out, "%s %s_new(void) {\n", class_name, class_name);
-        fprintf(self.out, "    %s self;\n", class_name);
-        fprintf(self.out, "    memset(&self, 0, sizeof(%s));\n", class_name);
+        self.out.writeLine(f"{class_name} {class_name}_new(void) {{");
+        self.out.writeLine(f"    {class_name} self;");
+        self.out.writeLine(f"    memset(&self, 0, sizeof({class_name}));");
         for (int i = 0; i < decl.items.len; i++) {
             Node m = self.analyzer.nodes.get(decl.items.get(i));
             if (m.kind == NK_FIELD_DECL && m.n2 != -1) {
                 string init = self.expr_to_c(m.n2);
-                fprintf(self.out, "    self.%s = %s;\n", m.name, init);
+                self.out.writeLine(f"    self.{m.name} = {init};");
             }
         }
-        fprintf(self.out, "    return self;\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine("    return self;");
+        self.out.writeLine("}");
+        self.emit_blank();
     }
 
     private void emit_destroy_function(string class_name, ClassInfo cls) {
-        fprintf(self.out, "void %s_destroy(%s* self) {\n", class_name, class_name);
-        fprintf(self.out, "    if (self == NULL) return;\n");
+        self.out.writeLine(f"void {class_name}_destroy({class_name}* self) {{");
+        self.out.writeLine("    if (self == NULL) return;");
         /* Call user __del__ if exists */
         int delidx = cls.find_method("__del__");
         if (delidx >= 0) {
-            fprintf(self.out, "    %s___del__(self);\n", class_name);
+            self.out.writeLine(f"    {class_name}___del__(self);");
         }
         /* Recursively destroy class-instance pointer fields, free List/Map fields */
         for (int i = 0; i < cls.field_names.len; i++) {
@@ -1272,17 +1305,18 @@ class CodeGen {
             if (ftn.kind != NK_TYPE) { continue; }
             if (ftn.ival > 0 && self.analyzer.has_class(ftn.name)) {
                 /* Pointer to another class — recursively destroy */
-                fprintf(self.out, "    %s_destroy(self->%s);\n", ftn.name, fname);
+                self.out.writeLine(f"    {ftn.name}_destroy(self->{fname});");
             } else if (ftn.name.equals("List") && ftn.items.len == 1) {
                 string ct = self.type_to_c(ft);
-                fprintf(self.out, "    %s_free(&self->%s);\n", ct, fname);
+                self.out.writeLine(f"    {ct}_free(&self->{fname});");
             } else if (ftn.name.equals("Map") && ftn.items.len == 2) {
                 string ct = self.type_to_c(ft);
-                fprintf(self.out, "    %s_free(&self->%s);\n", ct, fname);
+                self.out.writeLine(f"    {ct}_free(&self->{fname});");
             }
         }
-        fprintf(self.out, "    free(self);\n");
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine("    free(self);");
+        self.out.writeLine("}");
+        self.emit_blank();
     }
 
     /* ---- Function emission ---- */
@@ -1290,32 +1324,33 @@ class CodeGen {
     private void emit_function(int func_idx) {
         Node func = self.analyzer.nodes.get(func_idx);
         string ret = self.type_to_c(func.n1);
-        fprintf(self.out, "%s %s(", ret, func.name);
+        self.out.write(f"{ret} {func.name}(");
         bool first = true;
         for (int i = 0; i < func.items.len; i++) {
-            if (!first) { fprintf(self.out, ", "); }
+            if (!first) { self.out.write(", "); }
             first = false;
             self.emit_param(func.items.get(i));
         }
-        if (first) { fprintf(self.out, "void"); }
-        fprintf(self.out, ") {\n");
+        if (first) { self.out.write("void"); }
+        self.out.writeLine(") {");
         self.indent++;
         self.emit_block_contents(func.n2);
         self.indent--;
-        fprintf(self.out, "}\n\n");
+        self.out.writeLine("}");
+        self.emit_blank();
     }
 
     private void emit_param(int param_idx) {
         Node p = self.analyzer.nodes.get(param_idx);
         string ct = self.type_to_c(p.n1);
-        fprintf(self.out, "%s %s", ct, p.name);
+        self.out.write(f"{ct} {p.name}");
         /* C-style array suffix */
         if (p.flag1) {
             if (p.n3 != -1) {
                 string sz = self.expr_to_c(p.n3);
-                fprintf(self.out, "[%s]", sz);
+                self.out.write(f"[{sz}]");
             } else {
-                fprintf(self.out, "[]");
+                self.out.write("[]");
             }
         }
     }
@@ -1325,41 +1360,45 @@ class CodeGen {
     private void emit_struct_decl(int idx) {
         Node decl = self.analyzer.nodes.get(idx);
         if (decl.items.len > 0) {
-            fprintf(self.out, "typedef struct %s {\n", decl.name);
+            self.out.writeLine(f"typedef struct {decl.name} {{");
             for (int i = 0; i < decl.items.len; i++) {
                 Node f = self.analyzer.nodes.get(decl.items.get(i));
                 string ct = self.type_to_c(f.n1);
-                fprintf(self.out, "    %s %s;\n", ct, f.name);
+                self.out.writeLine(f"    {ct} {f.name};");
             }
-            fprintf(self.out, "} %s;\n\n", decl.name);
+            self.out.writeLine(f"}} {decl.name};");
+            self.emit_blank();
         } else {
-            fprintf(self.out, "struct %s;\n\n", decl.name);
+            self.out.writeLine(f"struct {decl.name};");
+            self.emit_blank();
         }
     }
 
     private void emit_enum_decl(int idx) {
         Node decl = self.analyzer.nodes.get(idx);
-        fprintf(self.out, "typedef enum {\n");
+        self.out.writeLine("typedef enum {");
         for (int i = 0; i < decl.items.len; i++) {
             Node em = self.analyzer.nodes.get(decl.items.get(i));
             if (em.n1 != -1) {
                 string val = self.expr_to_c(em.n1);
-                fprintf(self.out, "    %s = %s", em.name, val);
+                self.out.write(f"    {em.name} = {val}");
             } else {
-                fprintf(self.out, "    %s", em.name);
+                self.out.write(f"    {em.name}");
             }
             if (i < decl.items.len - 1) {
-                fprintf(self.out, ",");
+                self.out.write(",");
             }
-            fprintf(self.out, "\n");
+            self.out.writeLine("");
         }
-        fprintf(self.out, "} %s;\n\n", decl.name);
+        self.out.writeLine(f"}} {decl.name};");
+        self.emit_blank();
     }
 
     private void emit_typedef_decl(int idx) {
         Node decl = self.analyzer.nodes.get(idx);
         string ct = self.type_to_c(decl.n1);
-        fprintf(self.out, "typedef %s %s;\n\n", ct, decl.name);
+        self.out.writeLine(f"typedef {ct} {decl.name};");
+        self.emit_blank();
     }
 
     /* ---- Statements ---- */
@@ -1385,11 +1424,11 @@ class CodeGen {
                 if (ret_expr.kind == NK_FSTRING) {
                     string tmp = self.emit_fstring_as_value(stmt.n1);
                     self.indent_out();
-                    fprintf(self.out, "return %s;\n", tmp);
+                    self.out.writeLine(f"return {tmp};");
                 } else {
                     string val = self.expr_to_c(stmt.n1);
                     self.indent_out();
-                    fprintf(self.out, "return %s;\n", val);
+                    self.out.writeLine(f"return {val};");
                 }
             } else {
                 self.emit("return;");
@@ -1399,7 +1438,7 @@ class CodeGen {
         } else if (stmt.kind == NK_WHILE) {
             string cond = self.expr_to_c(stmt.n1);
             self.indent_out();
-            fprintf(self.out, "while (%s) {\n", cond);
+            self.out.writeLine(f"while ({cond}) {{");
             self.indent++;
             self.emit_block_contents(stmt.n2);
             self.indent--;
@@ -1411,7 +1450,7 @@ class CodeGen {
             self.indent--;
             string cond = self.expr_to_c(stmt.n2);
             self.indent_out();
-            fprintf(self.out, "} while (%s);\n", cond);
+            self.out.writeLine(f"}} while ({cond});");
         } else if (stmt.kind == NK_FOR_IN) {
             self.emit_for_in(idx);
         } else if (stmt.kind == NK_PARALLEL_FOR) {
@@ -1427,7 +1466,7 @@ class CodeGen {
         } else if (stmt.kind == NK_EXPR_STMT) {
             string e = self.expr_to_c(stmt.n1);
             self.indent_out();
-            fprintf(self.out, "%s;\n", e);
+            self.out.writeLine(f"{e};");
         } else if (stmt.kind == NK_DELETE_STMT) {
             string e = self.expr_to_c(stmt.n1);
             int del_type = self.analyzer.infer_type(stmt.n1);
@@ -1435,21 +1474,21 @@ class CodeGen {
                 Node dt = self.analyzer.nodes.get(del_type);
                 if (self.analyzer.has_class(dt.name)) {
                     self.indent_out();
-                    fprintf(self.out, "%s_destroy(%s);\n", dt.name, e);
+                    self.out.writeLine(f"{dt.name}_destroy({e});");
                 } else {
                     self.indent_out();
-                    fprintf(self.out, "free(%s);\n", e);
+                    self.out.writeLine(f"free({e});");
                 }
             } else {
                 self.indent_out();
-                fprintf(self.out, "free(%s);\n", e);
+                self.out.writeLine(f"free({e});");
             }
         } else if (stmt.kind == NK_TRY_CATCH) {
             self.emit_try_catch_stmt(idx);
         } else if (stmt.kind == NK_THROW) {
             string e = self.expr_to_c(stmt.n1);
             self.indent_out();
-            fprintf(self.out, "__btrc_throw(%s);\n", e);
+            self.out.writeLine(f"__btrc_throw({e});");
         } else if (stmt.kind == NK_BLOCK) {
             self.emit("{");
             self.indent++;
@@ -1492,9 +1531,9 @@ class CodeGen {
                 }
                 self.indent_out();
                 if (stmt.n2 != -1) {
-                    fprintf(self.out, "%s (*%s)(%s) = %s;\n", ret_type, stmt.name, params, init);
+                    self.out.writeLine(f"{ret_type} (*{stmt.name})({params}) = {init};");
                 } else {
-                    fprintf(self.out, "%s (*%s)(%s);\n", ret_type, stmt.name, params);
+                    self.out.writeLine(f"{ret_type} (*{stmt.name})({params});");
                 }
                 return;
             }
@@ -1509,19 +1548,15 @@ class CodeGen {
             if (tn.kind == NK_TYPE && tn.bval && tn.items.len == 0) {
                 suffix = "[]";
             } else if (tn.kind == NK_TYPE && tn.n1 != -1) {
-                char sbuf[64];
                 string sz = self.expr_to_c(tn.n1);
-                snprintf(sbuf, sizeof(sbuf), "[%s]", sz);
-                suffix = strdup(sbuf);
+                suffix = f"[{sz}]";
             }
         }
         /* C-style array on var decl */
         if (stmt.flag1) {
             if (stmt.n3 != -1) {
-                char sbuf[64];
                 string sz = self.expr_to_c(stmt.n3);
-                snprintf(sbuf, sizeof(sbuf), "[%s]", sz);
-                suffix = strdup(sbuf);
+                suffix = f"[{sz}]";
             } else {
                 suffix = "[]";
             }
@@ -1533,29 +1568,29 @@ class CodeGen {
             if (init_node.kind == NK_FSTRING) {
                 string tmp = self.emit_fstring_as_value(stmt.n2);
                 self.indent_out();
-                fprintf(self.out, "%s %s = %s;\n", ct, stmt.name, tmp);
+                self.out.writeLine(f"{ct} {stmt.name} = {tmp};");
                 return;
             }
             /* List literal initialization */
             if (init_node.kind == NK_LIST_LIT) {
                 self.indent_out();
-                fprintf(self.out, "%s %s = %s_new();\n", ct, stmt.name, ct);
+                self.out.writeLine(f"{ct} {stmt.name} = {ct}_new();");
                 for (int i = 0; i < init_node.items.len; i++) {
                     string elem = self.expr_to_c(init_node.items.get(i));
                     self.indent_out();
-                    fprintf(self.out, "%s_push(&%s, %s);\n", ct, stmt.name, elem);
+                    self.out.writeLine(f"{ct}_push(&{stmt.name}, {elem});");
                 }
                 return;
             }
             /* Map literal initialization */
             if (init_node.kind == NK_MAP_LIT) {
                 self.indent_out();
-                fprintf(self.out, "%s %s = %s_new();\n", ct, stmt.name, ct);
+                self.out.writeLine(f"{ct} {stmt.name} = {ct}_new();");
                 for (int i = 0; i < init_node.items.len; i++) {
                     string k = self.expr_to_c(init_node.items.get(i));
                     string v = self.expr_to_c(init_node.items2.get(i));
                     self.indent_out();
-                    fprintf(self.out, "%s_put(&%s, %s, %s);\n", ct, stmt.name, k, v);
+                    self.out.writeLine(f"{ct}_put(&{stmt.name}, {k}, {v});");
                 }
                 return;
             }
@@ -1564,7 +1599,7 @@ class CodeGen {
                 Node tn = self.analyzer.nodes.get(type_idx);
                 if (tn.name.equals("Map") || tn.name.equals("List")) {
                     self.indent_out();
-                    fprintf(self.out, "%s %s = %s_new();\n", ct, stmt.name, ct);
+                    self.out.writeLine(f"{ct} {stmt.name} = {ct}_new();");
                     return;
                 }
             }
@@ -1573,18 +1608,18 @@ class CodeGen {
                 Node callee = self.analyzer.nodes.get(init_node.n1);
                 if (callee.kind == NK_IDENTIFIER && self.analyzer.has_class(callee.name)) {
                     self.indent_out();
-                    fprintf(self.out, "%s %s = ", ct, stmt.name);
+                    self.out.write(f"{ct} {stmt.name} = ");
                     string init = self.call_to_c(stmt.n2);
-                    fprintf(self.out, "%s;\n", init);
+                    self.out.writeLine(f"{init};");
                     return;
                 }
             }
             string init = self.expr_to_c(stmt.n2);
             self.indent_out();
-            fprintf(self.out, "%s %s%s = %s;\n", ct, stmt.name, suffix, init);
+            self.out.writeLine(f"{ct} {stmt.name}{suffix} = {init};");
         } else {
             self.indent_out();
-            fprintf(self.out, "%s %s%s;\n", ct, stmt.name, suffix);
+            self.out.writeLine(f"{ct} {stmt.name}{suffix};");
         }
     }
 
@@ -1592,7 +1627,7 @@ class CodeGen {
         Node stmt = self.analyzer.nodes.get(idx);
         string cond = self.expr_to_c(stmt.n1);
         self.indent_out();
-        fprintf(self.out, "if (%s) {\n", cond);
+        self.out.writeLine(f"if ({cond}) {{");
         self.indent++;
         self.emit_block_contents(stmt.n2);
         self.indent--;
@@ -1600,10 +1635,10 @@ class CodeGen {
             Node else_node = self.analyzer.nodes.get(stmt.n3);
             if (else_node.kind == NK_IF) {
                 self.indent_out();
-                fprintf(self.out, "} else ");
+                self.out.write("} else ");
                 /* Re-emit the if without indentation prefix */
                 string cond2 = self.expr_to_c(else_node.n1);
-                fprintf(self.out, "if (%s) {\n", cond2);
+                self.out.writeLine(f"if ({cond2}) {{");
                 self.indent++;
                 self.emit_block_contents(else_node.n2);
                 self.indent--;
@@ -1628,9 +1663,9 @@ class CodeGen {
         Node n = self.analyzer.nodes.get(idx);
         if (n.kind == NK_IF) {
             self.indent_out();
-            fprintf(self.out, "} else ");
+            self.out.write("} else ");
             string cond = self.expr_to_c(n.n1);
-            fprintf(self.out, "if (%s) {\n", cond);
+            self.out.writeLine(f"if ({cond}) {{");
             self.indent++;
             self.emit_block_contents(n.n2);
             self.indent--;
@@ -1663,8 +1698,7 @@ class CodeGen {
         }
         /* Collection iteration */
         string iterable = self.expr_to_c(stmt.n1);
-        char ivar[64];
-        snprintf(ivar, sizeof(ivar), "__btrc_i_%s", stmt.name);
+        string ivar = f"__btrc_i_{stmt.name}";
         /* Resolve element type from collection type */
         string elem_type = "int";
         int iter_type = self.analyzer.infer_type(stmt.n1);
@@ -1675,12 +1709,10 @@ class CodeGen {
             }
         }
         self.indent_out();
-        fprintf(self.out, "for (int %s = 0; %s < %s.len; %s++) {\n",
-                ivar, ivar, iterable, ivar);
+        self.out.writeLine(f"for (int {ivar} = 0; {ivar} < {iterable}.len; {ivar}++) {{");
         self.indent++;
         self.indent_out();
-        fprintf(self.out, "%s %s = %s.data[%s];\n",
-                elem_type, stmt.name, iterable, ivar);
+        self.out.writeLine(f"{elem_type} {stmt.name} = {iterable}.data[{ivar}];");
         self.emit_block_contents(stmt.n2);
         self.indent--;
         self.emit("}");
@@ -1690,21 +1722,18 @@ class CodeGen {
         if (call.items.len == 1) {
             string end = self.expr_to_c(call.items.get(0));
             self.indent_out();
-            fprintf(self.out, "for (int %s = 0; %s < %s; %s++) {\n",
-                    stmt.name, stmt.name, end, stmt.name);
+            self.out.writeLine(f"for (int {stmt.name} = 0; {stmt.name} < {end}; {stmt.name}++) {{");
         } else if (call.items.len == 2) {
             string start = self.expr_to_c(call.items.get(0));
             string end = self.expr_to_c(call.items.get(1));
             self.indent_out();
-            fprintf(self.out, "for (int %s = %s; %s < %s; %s++) {\n",
-                    stmt.name, start, stmt.name, end, stmt.name);
+            self.out.writeLine(f"for (int {stmt.name} = {start}; {stmt.name} < {end}; {stmt.name}++) {{");
         } else if (call.items.len == 3) {
             string start = self.expr_to_c(call.items.get(0));
             string end = self.expr_to_c(call.items.get(1));
             string step = self.expr_to_c(call.items.get(2));
             self.indent_out();
-            fprintf(self.out, "for (int %s = %s; %s < %s; %s += %s) {\n",
-                    stmt.name, start, stmt.name, end, stmt.name, step);
+            self.out.writeLine(f"for (int {stmt.name} = {start}; {stmt.name} < {end}; {stmt.name} += {step}) {{");
         }
         self.indent++;
         self.emit_block_contents(stmt.n2);
@@ -1715,16 +1744,13 @@ class CodeGen {
     private void emit_parallel_for(int idx) {
         Node stmt = self.analyzer.nodes.get(idx);
         string iterable = self.expr_to_c(stmt.n1);
-        char ivar[64];
-        snprintf(ivar, sizeof(ivar), "__btrc_i_%s", stmt.name);
+        string ivar = f"__btrc_i_{stmt.name}";
         self.emit("#pragma omp parallel for");
         self.indent_out();
-        fprintf(self.out, "for (int %s = 0; %s < %s.len; %s++) {\n",
-                ivar, ivar, iterable, ivar);
+        self.out.writeLine(f"for (int {ivar} = 0; {ivar} < {iterable}.len; {ivar}++) {{");
         self.indent++;
         self.indent_out();
-        fprintf(self.out, "__typeof__(%s.data[0]) %s = %s.data[%s];\n",
-                iterable, stmt.name, iterable, ivar);
+        self.out.writeLine(f"__typeof__({iterable}.data[0]) {stmt.name} = {iterable}.data[{ivar}];");
         self.emit_block_contents(stmt.n2);
         self.indent--;
         self.emit("}");
@@ -1733,7 +1759,7 @@ class CodeGen {
     private void emit_c_for(int idx) {
         Node stmt = self.analyzer.nodes.get(idx);
         self.indent_out();
-        fprintf(self.out, "for (");
+        self.out.write("for (");
         /* Init */
         if (stmt.n1 != -1) {
             Node init = self.analyzer.nodes.get(stmt.n1);
@@ -1743,29 +1769,29 @@ class CodeGen {
                     tinit = self.analyzer.var_types.get(stmt.n1);
                 }
                 string ct = self.type_to_c(tinit);
-                fprintf(self.out, "%s %s", ct, init.name);
+                self.out.write(f"{ct} {init.name}");
                 if (init.n2 != -1) {
                     string iv = self.expr_to_c(init.n2);
-                    fprintf(self.out, " = %s", iv);
+                    self.out.write(f" = {iv}");
                 }
             } else {
                 string ie = self.expr_to_c(stmt.n1);
-                fprintf(self.out, "%s", ie);
+                self.out.write(f"{ie}");
             }
         }
-        fprintf(self.out, "; ");
+        self.out.write("; ");
         /* Condition */
         if (stmt.n2 != -1) {
             string ce = self.expr_to_c(stmt.n2);
-            fprintf(self.out, "%s", ce);
+            self.out.write(f"{ce}");
         }
-        fprintf(self.out, "; ");
+        self.out.write("; ");
         /* Update */
         if (stmt.n3 != -1) {
             string ue = self.expr_to_c(stmt.n3);
-            fprintf(self.out, "%s", ue);
+            self.out.write(f"{ue}");
         }
-        fprintf(self.out, ") {\n");
+        self.out.writeLine(") {");
         self.indent++;
         self.emit_block_contents(stmt.n4);
         self.indent--;
@@ -1776,7 +1802,7 @@ class CodeGen {
         Node stmt = self.analyzer.nodes.get(idx);
         string val = self.expr_to_c(stmt.n1);
         self.indent_out();
-        fprintf(self.out, "switch (%s) {\n", val);
+        self.out.writeLine(f"switch ({val}) {{");
         self.indent++;
         for (int i = 0; i < stmt.items.len; i++) {
             int cidx = stmt.items.get(i);
@@ -1784,7 +1810,7 @@ class CodeGen {
             if (c.n1 != -1) {
                 string cv = self.expr_to_c(c.n1);
                 self.indent_out();
-                fprintf(self.out, "case %s:\n", cv);
+                self.out.writeLine(f"case {cv}:");
             } else {
                 self.emit("default:");
             }
@@ -1809,7 +1835,7 @@ class CodeGen {
         self.emit("} else {");
         self.indent++;
         self.indent_out();
-        fprintf(self.out, "const char* %s = __btrc_error_msg;\n", stmt.name);
+        self.out.writeLine(f"const char* {stmt.name} = __btrc_error_msg;");
         self.emit_block_contents(stmt.n2);
         self.indent--;
         self.emit("}");
@@ -1820,7 +1846,6 @@ class CodeGen {
     public string expr_to_c(int idx) {
         if (idx == -1) { return ""; }
         Node n = self.analyzer.nodes.get(idx);
-        char buf[4096];
 
         if (n.kind == NK_INT_LIT) { return n.sval; }
         if (n.kind == NK_FLOAT_LIT) { return n.sval; }
@@ -1836,8 +1861,7 @@ class CodeGen {
             if (n.op.equals("??")) {
                 string left = self.expr_to_c(n.n1);
                 string right = self.expr_to_c(n.n2);
-                snprintf(buf, sizeof(buf), "(%s != NULL ? %s : %s)", left, left, right);
-                return strdup(buf);
+                return f"({left} != NULL ? {left} : {right})";
             }
             /* Operator overloading check */
             int left_type = self.analyzer.infer_type(n.n1);
@@ -1851,13 +1875,10 @@ class CodeGen {
                             string left = self.expr_to_c(n.n1);
                             string right = self.expr_to_c(n.n2);
                             if (lt.ival > 0) {
-                                snprintf(buf, sizeof(buf), "%s_%s(%s, %s)",
-                                         lt.name, op_method, left, right);
+                                return f"{lt.name}_{op_method}({left}, {right})";
                             } else {
-                                snprintf(buf, sizeof(buf), "%s_%s(&%s, %s)",
-                                         lt.name, op_method, left, right);
+                                return f"{lt.name}_{op_method}(&{left}, {right})";
                             }
-                            return strdup(buf);
                         }
                     }
                 }
@@ -1869,23 +1890,19 @@ class CodeGen {
                     string left = self.expr_to_c(n.n1);
                     string right = self.expr_to_c(n.n2);
                     if (n.op.equals("+")) {
-                        snprintf(buf, sizeof(buf), "__btrc_strcat(%s, %s)", left, right);
-                        return strdup(buf);
+                        return f"__btrc_strcat({left}, {right})";
                     }
                     if (n.op.equals("==")) {
-                        snprintf(buf, sizeof(buf), "(strcmp(%s, %s) == 0)", left, right);
-                        return strdup(buf);
+                        return f"(strcmp({left}, {right}) == 0)";
                     }
                     if (n.op.equals("!=")) {
-                        snprintf(buf, sizeof(buf), "(strcmp(%s, %s) != 0)", left, right);
-                        return strdup(buf);
+                        return f"(strcmp({left}, {right}) != 0)";
                     }
                 }
             }
             string left = self.expr_to_c(n.n1);
             string right = self.expr_to_c(n.n2);
-            snprintf(buf, sizeof(buf), "(%s %s %s)", left, n.op, right);
-            return strdup(buf);
+            return f"({left} {n.op} {right})";
         }
 
         if (n.kind == NK_UNARY) {
@@ -1899,22 +1916,20 @@ class CodeGen {
                         if (cls.find_method("__neg__") >= 0) {
                             string operand = self.expr_to_c(n.n1);
                             if (ot.ival > 0) {
-                                snprintf(buf, sizeof(buf), "%s___neg__(%s)", ot.name, operand);
+                                return f"{ot.name}___neg__({operand})";
                             } else {
-                                snprintf(buf, sizeof(buf), "%s___neg__(&%s)", ot.name, operand);
+                                return f"{ot.name}___neg__(&{operand})";
                             }
-                            return strdup(buf);
                         }
                     }
                 }
             }
             string operand = self.expr_to_c(n.n1);
             if (n.flag1) {
-                snprintf(buf, sizeof(buf), "(%s%s)", n.op, operand);
+                return f"({n.op}{operand})";
             } else {
-                snprintf(buf, sizeof(buf), "(%s%s)", operand, n.op);
+                return f"({operand}{n.op})";
             }
-            return strdup(buf);
         }
 
         if (n.kind == NK_CALL) {
@@ -1930,15 +1945,13 @@ class CodeGen {
                 Node ot = self.analyzer.nodes.get(obj_type);
                 if (ot.name.equals("List") || ot.name.equals("Array")) {
                     if (ot.ival > 0) {
-                        snprintf(buf, sizeof(buf), "%s->data[%s]", obj, index);
+                        return f"{obj}->data[{index}]";
                     } else {
-                        snprintf(buf, sizeof(buf), "%s.data[%s]", obj, index);
+                        return f"{obj}.data[{index}]";
                     }
-                    return strdup(buf);
                 }
             }
-            snprintf(buf, sizeof(buf), "%s[%s]", obj, index);
-            return strdup(buf);
+            return f"{obj}[{index}]";
         }
 
         if (n.kind == NK_FIELD_ACCESS) {
@@ -1971,13 +1984,10 @@ class CodeGen {
                                     if (on.kind == NK_SELF) { already_ptr = true; }
                                 }
                                 if (already_ptr) {
-                                    snprintf(buf, sizeof(buf), "%s_set_%s(%s, %s)",
-                                             prop_class, target_node.name, obj_c, val_c);
+                                    return f"{prop_class}_set_{target_node.name}({obj_c}, {val_c})";
                                 } else {
-                                    snprintf(buf, sizeof(buf), "%s_set_%s(&%s, %s)",
-                                             prop_class, target_node.name, obj_c, val_c);
+                                    return f"{prop_class}_set_{target_node.name}(&{obj_c}, {val_c})";
                                 }
-                                return strdup(buf);
                             }
                         }
                     }
@@ -1989,8 +1999,7 @@ class CodeGen {
                 Node val_node = self.analyzer.nodes.get(n.n2);
                 if (val_node.kind == NK_FSTRING) {
                     string tmp = self.emit_fstring_as_value(n.n2);
-                    snprintf(buf, sizeof(buf), "(%s = %s)", target, tmp);
-                    return strdup(buf);
+                    return f"({target} = {tmp})";
                 }
             }
             /* Handle Map/List/empty-brace or empty list literal assignments */
@@ -2005,8 +2014,7 @@ class CodeGen {
                         Node tt = self.analyzer.nodes.get(target_type);
                         if (tt.name.equals("Map") || tt.name.equals("List")) {
                             string ct = self.type_to_c(target_type);
-                            snprintf(buf, sizeof(buf), "(%s = %s_new())", target, ct);
-                            return strdup(buf);
+                            return f"({target} = {ct}_new())";
                         }
                     }
                 }
@@ -2018,39 +2026,34 @@ class CodeGen {
                 if (target_type != -1) {
                     Node tt = self.analyzer.nodes.get(target_type);
                     if (tt.name.equals("string") || (tt.name.equals("char") && tt.ival >= 1)) {
-                        snprintf(buf, sizeof(buf), "(%s = __btrc_strcat(%s, %s))", target, target, value);
-                        return strdup(buf);
+                        return f"({target} = __btrc_strcat({target}, {value}))";
                     }
                 }
             }
-            snprintf(buf, sizeof(buf), "(%s %s %s)", target, n.op, value);
-            return strdup(buf);
+            return f"({target} {n.op} {value})";
         }
 
         if (n.kind == NK_TERNARY) {
             string cond = self.expr_to_c(n.n1);
             string te = self.expr_to_c(n.n2);
             string fe = self.expr_to_c(n.n3);
-            snprintf(buf, sizeof(buf), "(%s ? %s : %s)", cond, te, fe);
-            return strdup(buf);
+            return f"({cond} ? {te} : {fe})";
         }
 
         if (n.kind == NK_CAST) {
             string ct = self.type_to_c(n.n1);
             string e = self.expr_to_c(n.n2);
-            snprintf(buf, sizeof(buf), "((%s)%s)", ct, e);
-            return strdup(buf);
+            return f"(({ct}){e})";
         }
 
         if (n.kind == NK_SIZEOF) {
             if (n.flag1) {
                 string ct = self.type_to_c(n.n1);
-                snprintf(buf, sizeof(buf), "sizeof(%s)", ct);
+                return f"sizeof({ct})";
             } else {
                 string e = self.expr_to_c(n.n1);
-                snprintf(buf, sizeof(buf), "sizeof(%s)", e);
+                return f"sizeof({e})";
             }
-            return strdup(buf);
         }
 
         if (n.kind == NK_NEW) {
@@ -2058,7 +2061,7 @@ class CodeGen {
         }
 
         if (n.kind == NK_FSTRING) {
-            return self.fstring_to_c(idx);
+            return self.emit_fstring_as_value(idx);
         }
 
         if (n.kind == NK_LIST_LIT) {
@@ -2091,14 +2094,12 @@ class CodeGen {
 
         if (n.kind == NK_ADDRESS_OF) {
             string e = self.expr_to_c(n.n1);
-            snprintf(buf, sizeof(buf), "(&%s)", e);
-            return strdup(buf);
+            return f"(&{e})";
         }
 
         if (n.kind == NK_DEREF) {
             string e = self.expr_to_c(n.n1);
-            snprintf(buf, sizeof(buf), "(*%s)", e);
-            return strdup(buf);
+            return f"(*{e})";
         }
 
         if (n.kind == NK_LAMBDA) {
@@ -2170,7 +2171,6 @@ class CodeGen {
 
     private string call_to_c(int idx) {
         Node expr = self.analyzer.nodes.get(idx);
-        char buf[4096];
 
         if (expr.n1 == -1) { return "/* null callee */"; }
         Node callee = self.analyzer.nodes.get(expr.n1);
@@ -2240,7 +2240,6 @@ class CodeGen {
         Node expr = self.analyzer.nodes.get(idx);
         Node access = self.analyzer.nodes.get(expr.n1);
         string method_name = access.name;
-        char buf[4096];
 
         /* Strings.method() — stdlib static dispatch */
         if (access.n1 != -1) {
@@ -2379,32 +2378,24 @@ class CodeGen {
 
     private string string_method_to_c(string obj_c, string method, int call_idx) {
         Node call = self.analyzer.nodes.get(call_idx);
-        char buf[4096];
 
         if (method.equals("len") || method.equals("byteLen")) {
-            snprintf(buf, sizeof(buf), "(int)strlen(%s)", obj_c);
-            return strdup(buf);
+            return f"(int)strlen({obj_c})";
         }
         if (method.equals("charLen")) {
-            snprintf(buf, sizeof(buf), "__btrc_utf8_charlen(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_utf8_charlen({obj_c})";
         }
         if (method.equals("contains")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "(strstr(%s, %s) != NULL)", obj_c, arg);
-            return strdup(buf);
+            return f"(strstr({obj_c}, {arg}) != NULL)";
         }
         if (method.equals("startsWith")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "(strncmp(%s, %s, strlen(%s)) == 0)", obj_c, arg, arg);
-            return strdup(buf);
+            return f"(strncmp({obj_c}, {arg}, strlen({arg})) == 0)";
         }
         if (method.equals("endsWith")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf),
-                     "(strlen(%s) >= strlen(%s) && strcmp(%s + strlen(%s) - strlen(%s), %s) == 0)",
-                     obj_c, arg, obj_c, obj_c, arg, arg);
-            return strdup(buf);
+            return f"(strlen({obj_c}) >= strlen({arg}) && strcmp({obj_c} + strlen({obj_c}) - strlen({arg}), {arg}) == 0)";
         }
         if (method.equals("substring")) {
             var cb = CharBuffer(256);
@@ -2421,124 +2412,98 @@ class CodeGen {
             return result;
         }
         if (method.equals("trim")) {
-            snprintf(buf, sizeof(buf), "__btrc_trim(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_trim({obj_c})";
         }
         if (method.equals("toUpper")) {
-            snprintf(buf, sizeof(buf), "__btrc_toUpper(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_toUpper({obj_c})";
         }
         if (method.equals("toLower")) {
-            snprintf(buf, sizeof(buf), "__btrc_toLower(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_toLower({obj_c})";
         }
         if (method.equals("indexOf")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_indexOf(%s, %s)", obj_c, arg);
-            return strdup(buf);
+            return f"__btrc_indexOf({obj_c}, {arg})";
         }
         if (method.equals("charAt")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "%s[%s]", obj_c, arg);
-            return strdup(buf);
+            return f"{obj_c}[{arg}]";
         }
         if (method.equals("equals")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "(strcmp(%s, %s) == 0)", obj_c, arg);
-            return strdup(buf);
+            return f"(strcmp({obj_c}, {arg}) == 0)";
         }
         if (method.equals("lastIndexOf")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_lastIndexOf(%s, %s)", obj_c, arg);
-            return strdup(buf);
+            return f"__btrc_lastIndexOf({obj_c}, {arg})";
         }
         if (method.equals("replace")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_replace(%s, %s, %s)", obj_c, a0, a1);
-            return strdup(buf);
+            return f"__btrc_replace({obj_c}, {a0}, {a1})";
         }
         if (method.equals("split")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_split(%s, %s)", obj_c, arg);
-            return strdup(buf);
+            return f"__btrc_split({obj_c}, {arg})";
         }
         if (method.equals("repeat")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_repeat(%s, %s)", obj_c, arg);
-            return strdup(buf);
+            return f"__btrc_repeat({obj_c}, {arg})";
         }
         if (method.equals("count")) {
             string arg = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_count(%s, %s)", obj_c, arg);
-            return strdup(buf);
+            return f"__btrc_count({obj_c}, {arg})";
         }
         if (method.equals("find")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_find(%s, %s, %s)", obj_c, a0, a1);
-            return strdup(buf);
+            return f"__btrc_find({obj_c}, {a0}, {a1})";
         }
         if (method.equals("lstrip")) {
-            snprintf(buf, sizeof(buf), "__btrc_lstrip(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_lstrip({obj_c})";
         }
         if (method.equals("rstrip")) {
-            snprintf(buf, sizeof(buf), "__btrc_rstrip(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_rstrip({obj_c})";
         }
         if (method.equals("capitalize")) {
-            snprintf(buf, sizeof(buf), "__btrc_capitalize(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_capitalize({obj_c})";
         }
         if (method.equals("title")) {
-            snprintf(buf, sizeof(buf), "__btrc_title(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_title({obj_c})";
         }
         if (method.equals("swapCase")) {
-            snprintf(buf, sizeof(buf), "__btrc_swapCase(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_swapCase({obj_c})";
         }
         if (method.equals("padLeft")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_padLeft(%s, %s, %s)", obj_c, a0, a1);
-            return strdup(buf);
+            return f"__btrc_padLeft({obj_c}, {a0}, {a1})";
         }
         if (method.equals("padRight")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_padRight(%s, %s, %s)", obj_c, a0, a1);
-            return strdup(buf);
+            return f"__btrc_padRight({obj_c}, {a0}, {a1})";
         }
         if (method.equals("center")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_center(%s, %s, %s)", obj_c, a0, a1);
-            return strdup(buf);
+            return f"__btrc_center({obj_c}, {a0}, {a1})";
         }
         if (method.equals("isDigit")) {
-            snprintf(buf, sizeof(buf), "__btrc_isDigitStr(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_isDigitStr({obj_c})";
         }
         if (method.equals("isAlpha")) {
-            snprintf(buf, sizeof(buf), "__btrc_isAlphaStr(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_isAlphaStr({obj_c})";
         }
         if (method.equals("isBlank")) {
-            snprintf(buf, sizeof(buf), "__btrc_isBlank(%s)", obj_c);
-            return strdup(buf);
+            return f"__btrc_isBlank({obj_c})";
         }
         if (method.equals("toInt")) {
-            snprintf(buf, sizeof(buf), "atoi(%s)", obj_c);
-            return strdup(buf);
+            return f"atoi({obj_c})";
         }
         if (method.equals("toFloat")) {
-            snprintf(buf, sizeof(buf), "((float)atof(%s))", obj_c);
-            return strdup(buf);
+            return f"((float)atof({obj_c}))";
         }
-        snprintf(buf, sizeof(buf), "/* unknown string method: %s */", method);
-        return strdup(buf);
+        return f"/* unknown string method: {method} */";
     }
 
     /* ---- Collection method translation ---- */
@@ -2548,7 +2513,6 @@ class CodeGen {
         Node call = self.analyzer.nodes.get(call_idx);
         Node ot = self.analyzer.nodes.get(type_idx);
         string ct = self.type_to_c(type_idx);
-        char buf[4096];
 
         var cb = CharBuffer(512);
         cb.appendStr( ct);
@@ -2576,367 +2540,303 @@ class CodeGen {
 
     private string strings_static_to_c(string method, int call_idx) {
         Node call = self.analyzer.nodes.get(call_idx);
-        char buf[4096];
 
         if (method.equals("repeat")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_repeat(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"__btrc_repeat({a0}, {a1})";
         }
         if (method.equals("join")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_join(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"__btrc_join({a0}, {a1})";
         }
         if (method.equals("replace")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
             string a2 = self.expr_to_c(call.items.get(2));
-            snprintf(buf, sizeof(buf), "__btrc_replace(%s, %s, %s)", a0, a1, a2);
-            return strdup(buf);
+            return f"__btrc_replace({a0}, {a1}, {a2})";
         }
         if (method.equals("isDigit")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "isdigit((unsigned char)%s)", a0);
-            return strdup(buf);
+            return f"isdigit((unsigned char){a0})";
         }
         if (method.equals("isAlpha")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "isalpha((unsigned char)%s)", a0);
-            return strdup(buf);
+            return f"isalpha((unsigned char){a0})";
         }
         if (method.equals("isAlnum")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "isalnum((unsigned char)%s)", a0);
-            return strdup(buf);
+            return f"isalnum((unsigned char){a0})";
         }
         if (method.equals("isSpace")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "isspace((unsigned char)%s)", a0);
-            return strdup(buf);
+            return f"isspace((unsigned char){a0})";
         }
         if (method.equals("toInt")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "atoi(%s)", a0);
-            return strdup(buf);
+            return f"atoi({a0})";
         }
         if (method.equals("toFloat")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((float)atof(%s))", a0);
-            return strdup(buf);
+            return f"((float)atof({a0}))";
         }
         if (method.equals("count")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_count(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"__btrc_count({a0}, {a1})";
         }
         if (method.equals("find")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
             string a2 = self.expr_to_c(call.items.get(2));
-            snprintf(buf, sizeof(buf), "__btrc_find(%s, %s, %s)", a0, a1, a2);
-            return strdup(buf);
+            return f"__btrc_find({a0}, {a1}, {a2})";
         }
         if (method.equals("rfind")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_lastIndexOf(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"__btrc_lastIndexOf({a0}, {a1})";
         }
         if (method.equals("capitalize")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_capitalize(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_capitalize({a0})";
         }
         if (method.equals("title")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_title(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_title({a0})";
         }
         if (method.equals("swapCase")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_swapCase(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_swapCase({a0})";
         }
         if (method.equals("padLeft")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
             string a2 = self.expr_to_c(call.items.get(2));
-            snprintf(buf, sizeof(buf), "__btrc_padLeft(%s, %s, %s)", a0, a1, a2);
-            return strdup(buf);
+            return f"__btrc_padLeft({a0}, {a1}, {a2})";
         }
         if (method.equals("padRight")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
             string a2 = self.expr_to_c(call.items.get(2));
-            snprintf(buf, sizeof(buf), "__btrc_padRight(%s, %s, %s)", a0, a1, a2);
-            return strdup(buf);
+            return f"__btrc_padRight({a0}, {a1}, {a2})";
         }
         if (method.equals("center")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
             string a2 = self.expr_to_c(call.items.get(2));
-            snprintf(buf, sizeof(buf), "__btrc_center(%s, %s, %s)", a0, a1, a2);
-            return strdup(buf);
+            return f"__btrc_center({a0}, {a1}, {a2})";
         }
         if (method.equals("lstrip")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_lstrip(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_lstrip({a0})";
         }
         if (method.equals("rstrip")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_rstrip(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_rstrip({a0})";
         }
         if (method.equals("fromInt")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_fromInt(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_fromInt({a0})";
         }
         if (method.equals("fromFloat")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_fromFloat(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_fromFloat({a0})";
         }
         if (method.equals("isDigitStr")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_isDigitStr(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_isDigitStr({a0})";
         }
         if (method.equals("isAlphaStr")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_isAlphaStr(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_isAlphaStr({a0})";
         }
         if (method.equals("isBlank")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_isBlank(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_isBlank({a0})";
         }
-        snprintf(buf, sizeof(buf), "/* unknown Strings method: %s */", method);
-        return strdup(buf);
+        return f"/* unknown Strings method: {method} */";
     }
 
     /* ---- Math static dispatch ---- */
 
     private string math_static_to_c(string method, int call_idx) {
         Node call = self.analyzer.nodes.get(call_idx);
-        char buf[4096];
 
         /* Constants */
         if (method.equals("PI")) {
-            return strdup("3.14159265358979323846");
+            return "3.14159265358979323846";
         }
         if (method.equals("E")) {
-            return strdup("2.71828182845904523536");
+            return "2.71828182845904523536";
         }
         if (method.equals("TAU")) {
-            return strdup("6.28318530717958647692");
+            return "6.28318530717958647692";
         }
         if (method.equals("INF")) {
-            return strdup("(1.0 / 0.0)");
+            return "(1.0 / 0.0)";
         }
         /* Basic operations */
         if (method.equals("abs")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((%s) < 0 ? -(%s) : (%s))", a0, a0, a0);
-            return strdup(buf);
+            return f"(({a0}) < 0 ? -({a0}) : ({a0}))";
         }
         if (method.equals("fabs")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "fabsf(%s)", a0);
-            return strdup(buf);
+            return f"fabsf({a0})";
         }
         if (method.equals("max")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "((%s) > (%s) ? (%s) : (%s))", a0, a1, a0, a1);
-            return strdup(buf);
+            return f"(({a0}) > ({a1}) ? ({a0}) : ({a1}))";
         }
         if (method.equals("min")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "((%s) < (%s) ? (%s) : (%s))", a0, a1, a0, a1);
-            return strdup(buf);
+            return f"(({a0}) < ({a1}) ? ({a0}) : ({a1}))";
         }
         if (method.equals("fmax")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "fmaxf(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"fmaxf({a0}, {a1})";
         }
         if (method.equals("fmin")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "fminf(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"fminf({a0}, {a1})";
         }
         if (method.equals("clamp") || method.equals("fclamp")) {
             string v = self.expr_to_c(call.items.get(0));
             string lo = self.expr_to_c(call.items.get(1));
             string hi = self.expr_to_c(call.items.get(2));
-            snprintf(buf, sizeof(buf), "((%s) < (%s) ? (%s) : ((%s) > (%s) ? (%s) : (%s)))",
-                     v, lo, lo, v, hi, hi, v);
-            return strdup(buf);
+            return f"(({v}) < ({lo}) ? ({lo}) : (({v}) > ({hi}) ? ({hi}) : ({v})))";
+
         }
         /* Power and roots */
         if (method.equals("power")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "powf(%s, (float)(%s))", a0, a1);
-            return strdup(buf);
+            return f"powf({a0}, (float)({a1}))";
         }
         if (method.equals("sqrt")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "sqrtf(%s)", a0);
-            return strdup(buf);
+            return f"sqrtf({a0})";
         }
         /* Combinatorics */
         if (method.equals("factorial")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_math_factorial(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_math_factorial({a0})";
         }
         if (method.equals("gcd")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_math_gcd(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"__btrc_math_gcd({a0}, {a1})";
         }
         if (method.equals("lcm")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "__btrc_math_lcm(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"__btrc_math_lcm({a0}, {a1})";
         }
         if (method.equals("fibonacci")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_math_fibonacci(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_math_fibonacci({a0})";
         }
         /* Checks */
         if (method.equals("isPrime")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "__btrc_math_isPrime(%s)", a0);
-            return strdup(buf);
+            return f"__btrc_math_isPrime({a0})";
         }
         if (method.equals("isEven")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((%s) %% 2 == 0)", a0);
-            return strdup(buf);
+            return f"(({a0}) % 2 == 0)";
         }
         if (method.equals("isOdd")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((%s) %% 2 != 0)", a0);
-            return strdup(buf);
+            return f"(({a0}) % 2 != 0)";
         }
         /* Trigonometry */
         if (method.equals("sin")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "sinf(%s)", a0);
-            return strdup(buf);
+            return f"sinf({a0})";
         }
         if (method.equals("cos")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "cosf(%s)", a0);
-            return strdup(buf);
+            return f"cosf({a0})";
         }
         if (method.equals("tan")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "tanf(%s)", a0);
-            return strdup(buf);
+            return f"tanf({a0})";
         }
         if (method.equals("asin")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "asinf(%s)", a0);
-            return strdup(buf);
+            return f"asinf({a0})";
         }
         if (method.equals("acos")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "acosf(%s)", a0);
-            return strdup(buf);
+            return f"acosf({a0})";
         }
         if (method.equals("atan")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "atanf(%s)", a0);
-            return strdup(buf);
+            return f"atanf({a0})";
         }
         if (method.equals("atan2")) {
             string a0 = self.expr_to_c(call.items.get(0));
             string a1 = self.expr_to_c(call.items.get(1));
-            snprintf(buf, sizeof(buf), "atan2f(%s, %s)", a0, a1);
-            return strdup(buf);
+            return f"atan2f({a0}, {a1})";
         }
         /* Rounding */
         if (method.equals("ceil")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "ceilf(%s)", a0);
-            return strdup(buf);
+            return f"ceilf({a0})";
         }
         if (method.equals("floor")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "floorf(%s)", a0);
-            return strdup(buf);
+            return f"floorf({a0})";
         }
         if (method.equals("round")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((int)roundf(%s))", a0);
-            return strdup(buf);
+            return f"((int)roundf({a0}))";
         }
         if (method.equals("truncate")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((int)truncf(%s))", a0);
-            return strdup(buf);
+            return f"((int)truncf({a0}))";
         }
         /* Logarithms and exponentials */
         if (method.equals("log")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "logf(%s)", a0);
-            return strdup(buf);
+            return f"logf({a0})";
         }
         if (method.equals("log10")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "log10f(%s)", a0);
-            return strdup(buf);
+            return f"log10f({a0})";
         }
         if (method.equals("log2")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "log2f(%s)", a0);
-            return strdup(buf);
+            return f"log2f({a0})";
         }
         if (method.equals("exp")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "expf(%s)", a0);
-            return strdup(buf);
+            return f"expf({a0})";
         }
         /* Conversions */
         if (method.equals("toRadians")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((%s) * 3.14159265358979323846f / 180.0f)", a0);
-            return strdup(buf);
+            return f"(({a0}) * 3.14159265358979323846f / 180.0f)";
         }
         if (method.equals("toDegrees")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((%s) * 180.0f / 3.14159265358979323846f)", a0);
-            return strdup(buf);
+            return f"(({a0}) * 180.0f / 3.14159265358979323846f)";
         }
         /* Utility */
         if (method.equals("sign")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((%s) > 0 ? 1 : ((%s) < 0 ? -1 : 0))", a0, a0);
-            return strdup(buf);
+            return f"(({a0}) > 0 ? 1 : (({a0}) < 0 ? -1 : 0))";
         }
         if (method.equals("fsign")) {
             string a0 = self.expr_to_c(call.items.get(0));
-            snprintf(buf, sizeof(buf), "((%s) > 0.0f ? 1.0f : ((%s) < 0.0f ? -1.0f : 0.0f))", a0, a0);
-            return strdup(buf);
+            return f"(({a0}) > 0.0f ? 1.0f : (({a0}) < 0.0f ? -1.0f : 0.0f))";
         }
-        snprintf(buf, sizeof(buf), "/* unknown Math method: %s */", method);
-        return strdup(buf);
+        return f"/* unknown Math method: {method} */";
     }
 
     /* ---- Field access ---- */
@@ -2944,7 +2844,6 @@ class CodeGen {
     private string field_access_to_c(int idx) {
         Node n = self.analyzer.nodes.get(idx);
         string obj = self.expr_to_c(n.n1);
-        char buf[4096];
 
         /* Check if this is a property getter */
         string prop_class = self.get_class_for_obj(n.n1);
@@ -2967,11 +2866,10 @@ class CodeGen {
                         if (on.kind == NK_SELF) { already_ptr = true; }
                     }
                     if (already_ptr) {
-                        snprintf(buf, sizeof(buf), "%s_get_%s(%s)", prop_class, n.name, obj);
+                        return f"{prop_class}_get_{n.name}({obj})";
                     } else {
-                        snprintf(buf, sizeof(buf), "%s_get_%s(&%s)", prop_class, n.name, obj);
+                        return f"{prop_class}_get_{n.name}(&{obj})";
                     }
-                    return strdup(buf);
                 }
             }
         }
@@ -2981,29 +2879,25 @@ class CodeGen {
             Node obj_node = self.analyzer.nodes.get(n.n1);
             if (obj_node.kind == NK_SELF) {
                 if (self.in_constructor) {
-                    snprintf(buf, sizeof(buf), "self.%s", n.name);
+                    return f"self.{n.name}";
                 } else {
-                    snprintf(buf, sizeof(buf), "self->%s", n.name);
+                    return f"self->{n.name}";
                 }
-                return strdup(buf);
             }
         }
 
         /* Optional chaining: obj?.field */
         if (n.flag2) {
-            snprintf(buf, sizeof(buf), "(%s != NULL ? %s->%s : 0)", obj, obj, n.name);
-            return strdup(buf);
+            return f"({obj} != NULL ? {obj}->{n.name} : 0)";
         }
 
         /* Arrow: obj->field */
         if (n.flag1) {
-            snprintf(buf, sizeof(buf), "%s->%s", obj, n.name);
-            return strdup(buf);
+            return f"{obj}->{n.name}";
         }
 
         /* Dot: obj.field */
-        snprintf(buf, sizeof(buf), "%s.%s", obj, n.name);
-        return strdup(buf);
+        return f"{obj}.{n.name}";
     }
 
     /* ---- New expression ---- */
@@ -3011,7 +2905,6 @@ class CodeGen {
     private string new_to_c(int idx) {
         Node n = self.analyzer.nodes.get(idx);
         string ct = self.type_to_c(n.n1);
-        char buf[4096];
 
         if (n.n1 != -1) {
             Node tn = self.analyzer.nodes.get(n.n1);
@@ -3033,8 +2926,7 @@ class CodeGen {
                 return result;
             }
         }
-        snprintf(buf, sizeof(buf), "(%s*)malloc(sizeof(%s))", ct, ct);
-        return strdup(buf);
+        return f"({ct}*)malloc(sizeof({ct}))";
     }
 
     /* ---- F-string ---- */
@@ -3132,26 +3024,26 @@ class CodeGen {
         args_buf.__del__();
 
         self.fstr_counter++;
-        char tmp_name[64];
-        snprintf(tmp_name, sizeof(tmp_name), "__btrc_fstr_%d", self.fstr_counter);
-        string tmp = strdup(tmp_name);
+        string tmp_name = f"__btrc_fstr_{self.fstr_counter}";
+        string tmp = tmp_name;
+
 
         /* int __btrc_fstr_N_len = snprintf(NULL, 0, fmt, args); */
         self.indent_out();
         if (has_args) {
-            fprintf(self.out, "int %s_len = snprintf(NULL, 0, %s, %s);\n", tmp, fmt, args);
+            self.out.writeLine(f"int {tmp}_len = snprintf(NULL, 0, {fmt}, {args});");
         } else {
-            fprintf(self.out, "int %s_len = snprintf(NULL, 0, %s);\n", tmp, fmt);
+            self.out.writeLine(f"int {tmp}_len = snprintf(NULL, 0, {fmt});");
         }
         /* char* __btrc_fstr_N = (char*)malloc(__btrc_fstr_N_len + 1); */
         self.indent_out();
-        fprintf(self.out, "char* %s = (char*)malloc(%s_len + 1);\n", tmp, tmp);
+        self.out.writeLine(f"char* {tmp} = (char*)malloc({tmp}_len + 1);");
         /* snprintf(__btrc_fstr_N, __btrc_fstr_N_len + 1, fmt, args); */
         self.indent_out();
         if (has_args) {
-            fprintf(self.out, "snprintf(%s, %s_len + 1, %s, %s);\n", tmp, tmp, fmt, args);
+            self.out.writeLine(f"snprintf({tmp}, {tmp}_len + 1, {fmt}, {args});");
         } else {
-            fprintf(self.out, "snprintf(%s, %s_len + 1, %s);\n", tmp, tmp, fmt);
+            self.out.writeLine(f"snprintf({tmp}, {tmp}_len + 1, {fmt});");
         }
         return tmp;
     }
@@ -3186,7 +3078,6 @@ class CodeGen {
 
     private string print_to_c(int call_idx) {
         Node call = self.analyzer.nodes.get(call_idx);
-        char buf[4096];
 
         if (call.items.len == 0) {
             return "printf(\"\\n\")";
@@ -3312,45 +3203,30 @@ class CodeGen {
         if (type_idx == -1) { return "void"; }
         Node tn = self.analyzer.nodes.get(type_idx);
         if (tn.kind != NK_TYPE) { return "void"; }
-        char buf[512];
 
         string base = tn.name;
+        string stars = "";
+        for (int i = 0; i < tn.ival; i++) { stars = stars + "*"; }
 
         if (base.equals("string")) {
-            /* string → char*, pointer adds more * */
-            if (tn.ival > 0) {
-                snprintf(buf, sizeof(buf), "char*");
-                for (int i = 0; i < tn.ival; i++) {
-                    strcat(buf, "*");
-                }
-                return strdup(buf);
-            }
-            return "char*";
+            return f"char*{stars}";
         }
         if (base.equals("List") && tn.items.len > 0) {
             string m = self.mangle_type(tn.items.get(0));
-            snprintf(buf, sizeof(buf), "btrc_List_%s", m);
-            for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
-            return strdup(buf);
+            return f"btrc_List_{m}{stars}";
         }
         if (base.equals("Array") && tn.items.len > 0) {
             string m = self.mangle_type(tn.items.get(0));
-            snprintf(buf, sizeof(buf), "btrc_Array_%s", m);
-            for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
-            return strdup(buf);
+            return f"btrc_Array_{m}{stars}";
         }
         if (base.equals("Map") && tn.items.len == 2) {
             string km = self.mangle_type(tn.items.get(0));
             string vm = self.mangle_type(tn.items.get(1));
-            snprintf(buf, sizeof(buf), "btrc_Map_%s_%s", km, vm);
-            for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
-            return strdup(buf);
+            return f"btrc_Map_{km}_{vm}{stars}";
         }
         if (base.equals("Tuple") && tn.items.len > 0) {
             string m = self.mangle_type(type_idx);
-            snprintf(buf, sizeof(buf), "btrc_%s", m);
-            for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
-            return strdup(buf);
+            return f"btrc_{m}{stars}";
         }
 
         /* Function pointer type: __fn_ptr<ret, param1, param2, ...> */
@@ -3360,9 +3236,7 @@ class CodeGen {
         }
 
         /* Default: base + pointer stars */
-        snprintf(buf, sizeof(buf), "%s", base);
-        for (int i = 0; i < tn.ival; i++) { strcat(buf, "*"); }
-        return strdup(buf);
+        return f"{base}{stars}";
     }
 
     /* ---- Mangle type ---- */

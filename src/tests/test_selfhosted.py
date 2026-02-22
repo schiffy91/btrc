@@ -55,7 +55,7 @@ def selfhosted_compiler():
 
 
 # Tests that use features not yet implemented in the self-hosted compiler
-_SELFHOSTED_SKIP = {"test_set.btrc", "test_set_methods.btrc", "test_list_edge_cases.btrc", "test_forward_decl.btrc", "test_range_and_math.btrc", "test_string_iteration.btrc", "test_collection_ops.btrc", "test_safety.btrc", "test_new_methods.btrc", "test_string_instance.btrc"}
+_SELFHOSTED_SKIP = {"test_set.btrc", "test_set_methods.btrc", "test_list_edge_cases.btrc", "test_forward_decl.btrc", "test_range_and_math.btrc", "test_string_iteration.btrc", "test_collection_ops.btrc", "test_safety.btrc", "test_new_methods.btrc", "test_string_instance.btrc", "test_stdlib_collections.btrc", "test_stdlib_datetime.btrc", "test_stdlib_math.btrc", "test_stdlib_random.btrc"}
 
 
 def get_btrc_test_files():

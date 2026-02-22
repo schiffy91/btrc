@@ -51,6 +51,23 @@ def _validate_document(uri: str, source: str):
     )
 
 
+def _get_best_result(uri: str) -> AnalysisResult | None:
+    """Return the best available analysis for *uri*.
+
+    Prefers the current (possibly broken) analysis when it has a valid AST.
+    Falls back to the last successful analysis so that features like
+    go-to-definition, hover, and find-references keep working while the
+    user is typing and the file has transient parse errors.
+    """
+    result = _analysis_cache.get(uri)
+    if result and result.ast and result.analyzed:
+        return result
+    good = _good_analysis_cache.get(uri)
+    if good:
+        return good
+    return result  # may still have tokens even without AST
+
+
 @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
 def did_open(params: lsp.DidOpenTextDocumentParams):
     _validate_document(
@@ -83,7 +100,7 @@ def did_close(params: lsp.DidCloseTextDocumentParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_DOCUMENT_SYMBOL)
 def document_symbol(params: lsp.DocumentSymbolParams):
-    result = _analysis_cache.get(params.text_document.uri)
+    result = _get_best_result(params.text_document.uri)
     if result and result.ast:
         return get_document_symbols(result)
     return []
@@ -91,7 +108,7 @@ def document_symbol(params: lsp.DocumentSymbolParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_HOVER)
 def hover(params: lsp.HoverParams):
-    result = _analysis_cache.get(params.text_document.uri)
+    result = _get_best_result(params.text_document.uri)
     if result:
         return get_hover_info(result, params.position)
     return None
@@ -99,7 +116,7 @@ def hover(params: lsp.HoverParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_DEFINITION)
 def goto_definition(params: lsp.TextDocumentPositionParams):
-    result = _analysis_cache.get(params.text_document.uri)
+    result = _get_best_result(params.text_document.uri)
     if result:
         return get_definition(result, params.position)
     return None
@@ -107,7 +124,7 @@ def goto_definition(params: lsp.TextDocumentPositionParams):
 
 @server.feature(
     lsp.TEXT_DOCUMENT_COMPLETION,
-    lsp.CompletionOptions(trigger_characters=['.'])
+    lsp.CompletionOptions(trigger_characters=['.', '>'])
 )
 def completion(params: lsp.CompletionParams):
     uri = params.text_document.uri
@@ -199,7 +216,7 @@ def signature_help(params: lsp.SignatureHelpParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_REFERENCES)
 def find_references(params: lsp.ReferenceParams):
-    result = _analysis_cache.get(params.text_document.uri)
+    result = _get_best_result(params.text_document.uri)
     if result:
         include_decl = params.context.include_declaration if params.context else True
         return get_references(result, params.position, include_decl)
@@ -210,7 +227,7 @@ def find_references(params: lsp.ReferenceParams):
     lsp.TEXT_DOCUMENT_RENAME,
 )
 def rename(params: lsp.RenameParams):
-    result = _analysis_cache.get(params.text_document.uri)
+    result = _get_best_result(params.text_document.uri)
     if result:
         return get_rename_edits(result, params.position, params.new_name)
     return None
@@ -218,7 +235,7 @@ def rename(params: lsp.RenameParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_PREPARE_RENAME)
 def prepare_rename_handler(params: lsp.PrepareRenameParams):
-    result = _analysis_cache.get(params.text_document.uri)
+    result = _get_best_result(params.text_document.uri)
     if result:
         return prepare_rename(result, params.position)
     return None
@@ -226,10 +243,10 @@ def prepare_rename_handler(params: lsp.PrepareRenameParams):
 
 @server.feature(
     lsp.TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
-    lsp.SemanticTokensOptions(legend=LEGEND, full=True),
+    lsp.SemanticTokensRegistrationOptions(legend=LEGEND, full=True),
 )
 def semantic_tokens_full(params: lsp.SemanticTokensParams):
-    result = _analysis_cache.get(params.text_document.uri)
+    result = _get_best_result(params.text_document.uri)
     if result:
         return get_semantic_tokens(result)
     return None

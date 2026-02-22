@@ -1,4 +1,4 @@
-.PHONY: build test bootstrap install-ext package-ext lint clean
+.PHONY: build test test-all bootstrap generate-expected lint format install-ext package-ext clean
 
 build:
 	@mkdir -p build
@@ -6,10 +6,19 @@ build:
 	gcc build/btrc_compiler.c -o build/btrc_compiler -lm -Wno-parentheses-equality
 
 test:
+	python3 -m pytest src/compiler/python/tests/ src/tests/test_btrc_runner.py -x -q
+
+test-all:
 	python3 -m pytest src/compiler/python/tests/ src/tests/ -x -q
+
+generate-expected:
+	python3 src/tests/generate_expected.py
 
 lint:
 	ruff check src/ devex/
+
+format:
+	ruff format src/ devex/
 
 bootstrap: build
 	@echo "Stage 2: self-hosted compiles itself..."

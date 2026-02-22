@@ -137,7 +137,7 @@ class Lexer {
         int col = self.col;
         self.advance();
         int start = self.pos;
-        while (self.pos < self.source_len && (isalnum(self.peek(0)) || self.peek(0) == '_')) {
+        while (self.pos < self.source_len && (Strings.isAlnum(self.peek(0)) || self.peek(0) == '_')) {
             self.advance();
         }
         string name = self.source.substring(start, self.pos - start);
@@ -220,7 +220,7 @@ class Lexer {
     /* --- Number literal --- */
 
     private bool isHexDigit(char ch) {
-        return isdigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+        return Strings.isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
     }
 
     private void readNumber() {
@@ -250,15 +250,15 @@ class Lexer {
         }
 
         /* Decimal digits */
-        while (self.pos < self.source_len && isdigit(self.peek(0))) {
+        while (self.pos < self.source_len && Strings.isDigit(self.peek(0))) {
             self.advance();
         }
 
         /* Decimal point */
-        if (self.peek(0) == '.' && isdigit(self.peek(1))) {
+        if (self.peek(0) == '.' && Strings.isDigit(self.peek(1))) {
             is_float = true;
             self.advance();
-            while (self.pos < self.source_len && isdigit(self.peek(0))) {
+            while (self.pos < self.source_len && Strings.isDigit(self.peek(0))) {
                 self.advance();
             }
         }
@@ -270,7 +270,7 @@ class Lexer {
             if (self.peek(0) == '+' || self.peek(0) == '-') {
                 self.advance();
             }
-            while (self.pos < self.source_len && isdigit(self.peek(0))) {
+            while (self.pos < self.source_len && Strings.isDigit(self.peek(0))) {
                 self.advance();
             }
         }
@@ -313,11 +313,23 @@ class Lexer {
                 buf.__del__();
                 return;
             } else if (ch == '{') {
-                brace_depth++;
-                buf.push(self.advance());
+                if (brace_depth == 0 && self.peek(1) == '{') {
+                    /* Escaped {{ → literal brace, store as {{ */
+                    buf.push(self.advance());
+                    buf.push(self.advance());
+                } else {
+                    brace_depth++;
+                    buf.push(self.advance());
+                }
             } else if (ch == '}') {
-                brace_depth--;
-                buf.push(self.advance());
+                if (brace_depth == 0 && self.peek(1) == '}') {
+                    /* Escaped }} → literal brace, store as }} */
+                    buf.push(self.advance());
+                    buf.push(self.advance());
+                } else {
+                    brace_depth--;
+                    buf.push(self.advance());
+                }
             } else if (ch == '\\') {
                 buf.grow();
                 buf.push(self.advance());
@@ -341,7 +353,7 @@ class Lexer {
         int line = self.line;
         int col = self.col;
         int start = self.pos;
-        while (self.pos < self.source_len && (isalnum(self.peek(0)) || self.peek(0) == '_')) {
+        while (self.pos < self.source_len && (Strings.isAlnum(self.peek(0)) || self.peek(0) == '_')) {
             self.advance();
         }
 
@@ -430,9 +442,7 @@ class Lexer {
             case '{': { self.emit(TOK_LBRACE, "{", line, col); return; }
             case '}': { self.emit(TOK_RBRACE, "}", line, col); return; }
             default: {
-                char msg[64];
-                snprintf(msg, sizeof(msg), "Unexpected character '%c'", c1);
-                self.errorAt(msg, line, col);
+                self.errorAt(f"Unexpected character '{c1}'", line, col);
             }
         }
     }
@@ -456,9 +466,9 @@ class Lexer {
                 self.readString();
             } else if (ch == '\'') {
                 self.readChar();
-            } else if (isdigit(ch)) {
+            } else if (Strings.isDigit(ch)) {
                 self.readNumber();
-            } else if (isalpha(ch) || ch == '_') {
+            } else if (Strings.isAlpha(ch) || ch == '_') {
                 self.readIdentifier();
             } else {
                 self.readOperator();

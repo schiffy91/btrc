@@ -438,7 +438,7 @@ def _find_token_at_position(tokens: list[Token], position: lsp.Position) -> Opti
         if tok.line != target_line:
             continue
         tok_end_col = tok.col + len(tok.value)
-        if tok.col <= target_col <= tok_end_col:
+        if tok.col <= target_col < tok_end_col:
             return tok
     return None
 

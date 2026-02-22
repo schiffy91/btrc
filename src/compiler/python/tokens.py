@@ -62,10 +62,16 @@ class TokenType(Enum):
     NULL = auto()
     TRY = auto()
     CATCH = auto()
+    FINALLY = auto()
     THROW = auto()
     EXTENDS = auto()
+    IMPLEMENTS = auto()
+    SUPER = auto()
     VAR = auto()
     FUNCTION = auto()
+    INTERFACE = auto()
+    ABSTRACT = auto()
+    OVERRIDE = auto()
 
     # Built-in types
     LIST = auto()
@@ -196,10 +202,16 @@ KEYWORDS: dict[str, TokenType] = {
     "null": TokenType.NULL,
     "try": TokenType.TRY,
     "catch": TokenType.CATCH,
+    "finally": TokenType.FINALLY,
     "throw": TokenType.THROW,
     "extends": TokenType.EXTENDS,
+    "implements": TokenType.IMPLEMENTS,
+    "super": TokenType.SUPER,
     "var": TokenType.VAR,
     "function": TokenType.FUNCTION,
+    "interface": TokenType.INTERFACE,
+    "abstract": TokenType.ABSTRACT,
+    "override": TokenType.OVERRIDE,
     # Built-in types
     "List": TokenType.LIST,
     "Map": TokenType.MAP,

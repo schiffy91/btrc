@@ -23,13 +23,16 @@ class ClassInfo {
     public List<string> field_names;
     public List<int> field_types;      /* type node index for each field */
     public List<string> field_access;  /* "public" or "private" */
+    public Map<string, int> field_map; /* O(1) field name → index lookup */
     public List<string> method_names;
     public List<int> method_ret_types; /* return type node index */
     public List<string> method_access; /* "public", "private", or "class" */
     public List<int> method_nodes;     /* method decl node index in arena */
+    public Map<string, int> method_map; /* O(1) method name → index lookup */
     public List<string> prop_names;
     public List<int> prop_types;       /* type node index for each property */
     public List<int> prop_nodes;       /* NK_PROPERTY_DECL node index in arena */
+    public Map<string, int> prop_map;  /* O(1) property name → index lookup */
     public bool has_constructor;
     public string parent;
 
@@ -39,24 +42,29 @@ class ClassInfo {
         self.field_names = [];
         self.field_types = [];
         self.field_access = [];
+        self.field_map = {};
         self.method_names = [];
         self.method_ret_types = [];
         self.method_access = [];
         self.method_nodes = [];
+        self.method_map = {};
         self.prop_names = [];
         self.prop_types = [];
         self.prop_nodes = [];
+        self.prop_map = {};
         self.has_constructor = false;
         self.parent = "";
     }
 
     public void add_field(string fname, int type_idx, string access) {
+        self.field_map.put(fname, self.field_names.len);
         self.field_names.push(fname);
         self.field_types.push(type_idx);
         self.field_access.push(access);
     }
 
     public void add_method(string mname, int ret_type, string access, int node_idx) {
+        self.method_map.put(mname, self.method_names.len);
         self.method_names.push(mname);
         self.method_ret_types.push(ret_type);
         self.method_access.push(access);
@@ -64,37 +72,29 @@ class ClassInfo {
     }
 
     public void add_property(string pname, int type_idx, int node_idx) {
+        self.prop_map.put(pname, self.prop_names.len);
         self.prop_names.push(pname);
         self.prop_types.push(type_idx);
         self.prop_nodes.push(node_idx);
     }
 
     public int find_field(string fname) {
-        for (int i = 0; i < self.field_names.len; i++) {
-            string f = self.field_names.get(i);
-            if (f.equals(fname)) {
-                return i;
-            }
+        if (self.field_map.has(fname)) {
+            return self.field_map.get(fname);
         }
         return -1;
     }
 
     public int find_method(string mname) {
-        for (int i = 0; i < self.method_names.len; i++) {
-            string m = self.method_names.get(i);
-            if (m.equals(mname)) {
-                return i;
-            }
+        if (self.method_map.has(mname)) {
+            return self.method_map.get(mname);
         }
         return -1;
     }
 
     public int find_property(string pname) {
-        for (int i = 0; i < self.prop_names.len; i++) {
-            string p = self.prop_names.get(i);
-            if (p.equals(pname)) {
-                return i;
-            }
+        if (self.prop_map.has(pname)) {
+            return self.prop_map.get(pname);
         }
         return -1;
     }
@@ -120,12 +120,14 @@ class Scope {
     public List<string> names;
     public List<int> type_indices;
     public List<string> kinds;
+    public Map<string, int> lookup_map; /* O(1) name → type index lookup (most recent wins) */
     public int parent_start;  /* index into analyzer's scope stack */
 
     public Scope() {
         self.names = [];
         self.type_indices = [];
         self.kinds = [];
+        self.lookup_map = {};
         self.parent_start = -1;
     }
 
@@ -133,14 +135,12 @@ class Scope {
         self.names.push(name);
         self.type_indices.push(type_idx);
         self.kinds.push(kind);
+        self.lookup_map.put(name, type_idx); /* overwrites on shadowing — latest wins */
     }
 
     public int lookup_local(string name) {
-        for (int i = self.names.len - 1; i >= 0; i--) {
-            string n = self.names.get(i);
-            if (n.equals(name)) {
-                return self.type_indices.get(i);
-            }
+        if (self.lookup_map.has(name)) {
+            return self.lookup_map.get(name);
         }
         return -2; /* not found sentinel (since -1 is valid for untyped) */
     }
@@ -154,7 +154,8 @@ class Analyzer {
     private List<string> class_names;
     private Map<string, int> class_map;       /* class name → index in classes list */
     private Map<string, int> function_table;  /* func name → return type node index */
-    private List<string> generic_instance_keys;  /* mangled generic instance names for dedup */
+    private List<string> generic_instance_keys;  /* mangled generic instance names (ordered) */
+    private Map<string, int> generic_instance_set; /* O(1) dedup check */
     public List<string> errors;
 
     /* Flat symbol table: avoids by-value scope copy issues */
@@ -179,6 +180,7 @@ class Analyzer {
         self.class_map = {};
         self.function_table = {};
         self.generic_instance_keys = [];
+        self.generic_instance_set = {};
         self.errors = [];
         self.sym_names = [];
         self.sym_types = [];
@@ -219,9 +221,7 @@ class Analyzer {
     }
 
     private void add_error(string msg, int line, int col) {
-        char buf[512];
-        snprintf(buf, sizeof(buf), "%s at %d:%d", msg, line, col);
-        self.errors.push(strdup(buf));
+        self.errors.push(f"{msg} at {line}:{col}");
     }
 
     /* ---- Scope management (flat symbol table) ---- */
@@ -871,16 +871,9 @@ class Analyzer {
             string key = buf.toString();
             buf.__del__();
 
-            /* Check for duplicate */
-            bool found = false;
-            for (int i = 0; i < self.generic_instance_keys.len; i++) {
-                string existing = self.generic_instance_keys.get(i);
-                if (existing.equals(key)) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
+            /* Check for duplicate using O(1) Map lookup */
+            if (!self.generic_instance_set.has(key)) {
+                self.generic_instance_set.put(key, 1);
                 self.generic_instance_keys.push(key);
             }
 

@@ -318,9 +318,10 @@ class TestFullProgram:
         output = generate(src)
         assert "struct Counter" in output
         assert "Counter* Counter_new" in output
+        assert "void Counter_init(Counter* self)" in output
         assert "void Counter_inc(Counter* self)" in output
         assert "int Counter_get(Counter* self)" in output
-        assert "Counter_new()" in output
+        assert "Counter_init(" in output
 
 
 # --- print() builtin ---
@@ -775,7 +776,7 @@ class TestFieldDefaults:
         output = generate(src)
         # Should generate a default constructor applying field initializers
         assert "Config_new" in output
-        assert "Config* c = Config_new()" in output
+        assert "Config_init(" in output
 
     def test_field_defaults_with_explicit_constructor(self):
         src = '''
@@ -1183,8 +1184,9 @@ class TestSelfContext:
         output = generate(src)
         # All class instances are reference types — self is always a pointer
         assert "self->x" in output
-        constructor_section = output.split("Foo* Foo_new(int val) {")[1].split("return self;")[0]
-        assert "self->x" in constructor_section
+        # Constructor body is now in _init function
+        init_section = output.split("void Foo_init(Foo* self, int val) {")[1].split("}")[0]
+        assert "self->x" in init_section
 
     def test_self_arrow_in_method(self):
         src = '''
@@ -1389,7 +1391,7 @@ class TestLambdas:
             }
         '''
         output = generate(src)
-        assert "int (*adder)(int, int)" in output
+        assert "int (*adder)(int, int, void*)" in output
 
     def test_lambda_before_main(self):
         src = '''
@@ -1521,7 +1523,7 @@ class TestSetFunctionalMethods:
             }
         '''
         output = generate(src)
-        assert "fn(s->buckets[i].key)" in output
+        assert "fn(s->buckets[i].key, __ctx)" in output
 
 
 # --- Forward declarations ---

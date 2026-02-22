@@ -1,5 +1,16 @@
 /* btrc standard library — Collections
- * Additional data structures: Stack, Queue, Counter.
+ *
+ * Built-in generic types (no import needed):
+ *   List<T>   — dynamic array: push, pop, get, set, len, remove, slice, forEach, filter, map
+ *   Map<K,V>  — hash table:   put, get, has, remove, keys, values, len, getOrDefault, forEach, merge
+ *   Set<T>    — hash set:      add, has, remove, len, toList, unite, intersect, subtract
+ *   Array<T>  — fixed-size:    arr[i], arr.len
+ *
+ * Additional data structures in this file: Stack, Queue, Counter.
+ * These are heap-allocated classes — use new/delete:
+ *   Stack* s = new Stack();
+ *   s.push(42);
+ *   delete s;
  */
 
 class Stack {
@@ -30,10 +41,6 @@ class Stack {
     public int size() {
         return self.items.len;
     }
-
-    public void __del__() {
-        self.items.free();
-    }
 }
 
 class Queue {
@@ -63,10 +70,6 @@ class Queue {
 
     public int size() {
         return self.items.len;
-    }
-
-    public void __del__() {
-        self.items.free();
     }
 }
 
@@ -101,9 +104,5 @@ class Counter {
 
     public int uniqueCount() {
         return self.counts.len;
-    }
-
-    public void __del__() {
-        self.counts.free();
     }
 }

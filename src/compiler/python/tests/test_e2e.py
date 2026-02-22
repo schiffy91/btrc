@@ -44,6 +44,14 @@ def compile_and_run(btrc_source: str, extra_flags: list[str] = None) -> str:
                 os.unlink(p)
 
 
+def compile_and_check_errors(btrc_source: str) -> list[str]:
+    """Transpile btrc source and return analyzer errors (don't compile)."""
+    tokens = Lexer(btrc_source).tokenize()
+    program = Parser(tokens).parse()
+    analyzed = Analyzer().analyze(program)
+    return analyzed.errors
+
+
 # --- E2E Tests ---
 
 class TestE2EHelloWorld:
@@ -2375,6 +2383,255 @@ class TestE2ELambdas:
         assert compile_and_run(src).strip() == "2\n4\n6"
 
 
+class TestE2EUserDefinedGenerics:
+    def test_simple_generic_class(self):
+        src = '''
+            class Box<T> {
+                public T value;
+                public Box(T val) { self.value = val; }
+                public T get() { return self.value; }
+            }
+            int main() {
+                Box<int> b = Box(42);
+                print(b.get());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "42"
+
+    def test_generic_class_multiple_instantiations(self):
+        src = '''
+            class Box<T> {
+                public T value;
+                public Box(T val) { self.value = val; }
+                public T get() { return self.value; }
+            }
+            int main() {
+                Box<int> a = Box(10);
+                Box<string> b = Box("hello");
+                print(a.get());
+                print(b.get());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "10\nhello"
+
+    def test_generic_class_two_params(self):
+        src = '''
+            class Pair<A, B> {
+                public A first;
+                public B second;
+                public Pair(A a, B b) { self.first = a; self.second = b; }
+                public A getFirst() { return self.first; }
+                public B getSecond() { return self.second; }
+            }
+            int main() {
+                Pair<string, int> p = Pair("x", 42);
+                print(p.getFirst());
+                print(p.getSecond());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "x\n42"
+
+    def test_generic_class_with_method(self):
+        src = '''
+            class Container<T> {
+                public T item;
+                public Container(T val) { self.item = val; }
+                public void set(T val) { self.item = val; }
+                public T get() { return self.item; }
+            }
+            int main() {
+                Container<int> c = Container(1);
+                c.set(99);
+                print(c.get());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "99"
+
+
+class TestE2ERichEnums:
+    def test_rich_enum_basic(self):
+        src = '''
+            enum class Color {
+                RGB(int r, int g, int b),
+                Named(string name)
+            }
+            int main() {
+                Color c = Color.RGB(255, 0, 0);
+                if (c.tag == Color.RGB) {
+                    print(c.data.RGB.r);
+                }
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "255"
+
+    def test_rich_enum_multiple_variants(self):
+        src = '''
+            enum class Shape {
+                Circle(double radius),
+                Rect(double w, double h),
+                Point
+            }
+            int main() {
+                Shape s = Shape.Circle(5.0);
+                Shape r = Shape.Rect(3.0, 4.0);
+                Shape p = Shape.Point();
+                if (s.tag == Shape.Circle) { print("circle"); }
+                if (r.tag == Shape.Rect) { print("rect"); }
+                if (p.tag == Shape.Point) { print("point"); }
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "circle\nrect\npoint"
+
+    def test_rich_enum_toString(self):
+        src = '''
+            enum class Direction {
+                North,
+                South,
+                East,
+                West
+            }
+            int main() {
+                Direction d = Direction.North();
+                string name = Direction_toString(d);
+                print(name);
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "North"
+
+
+class TestE2EInterfaces:
+    def test_basic_interface(self):
+        src = '''
+            interface Greeter {
+                string greet();
+            }
+            class Dog implements Greeter {
+                public string name;
+                public Dog(string name) { self.name = name; }
+                public string greet() { return "Woof"; }
+            }
+            int main() {
+                Dog d = Dog("Rex");
+                print(d.greet());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "Woof"
+
+    def test_multiple_interface_methods(self):
+        src = '''
+            interface Describable {
+                string name();
+                int age();
+            }
+            class Person implements Describable {
+                public string _name;
+                public int _age;
+                public Person(string n, int a) { self._name = n; self._age = a; }
+                public string name() { return self._name; }
+                public int age() { return self._age; }
+            }
+            int main() {
+                Person p = Person("Alice", 30);
+                print(p.name());
+                print(p.age());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "Alice\n30"
+
+    def test_interface_with_extends(self):
+        src = '''
+            interface HasName {
+                string name();
+            }
+            interface HasFullName extends HasName {
+                string fullName();
+            }
+            class Employee implements HasFullName {
+                public string first;
+                public string last;
+                public Employee(string f, string l) { self.first = f; self.last = l; }
+                public string name() { return self.first; }
+                public string fullName() { return self.first; }
+            }
+            int main() {
+                Employee e = Employee("Bob", "Smith");
+                print(e.name());
+                print(e.fullName());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "Bob\nBob"
+
+
+class TestE2EAbstractClasses:
+    def test_abstract_class(self):
+        src = '''
+            abstract class Shape {
+                public abstract double area();
+                public string kind() { return "shape"; }
+            }
+            class Circle extends Shape {
+                public double r;
+                public Circle(double r) { self.r = r; }
+                public double area() { return 3.14 * self.r * self.r; }
+            }
+            int main() {
+                Circle c = Circle(1.0);
+                print(c.area());
+                print(c.kind());
+                return 0;
+            }
+        '''
+        output = compile_and_run(src).strip().split('\n')
+        assert output[0].startswith("3.14")
+        assert output[1] == "shape"
+
+    def test_abstract_multiple_subclasses(self):
+        src = '''
+            abstract class Animal {
+                public abstract string speak();
+            }
+            class Cat extends Animal {
+                public Cat() {}
+                public string speak() { return "Meow"; }
+            }
+            class Duck extends Animal {
+                public Duck() {}
+                public string speak() { return "Quack"; }
+            }
+            int main() {
+                Cat c = Cat();
+                Duck d = Duck();
+                print(c.speak());
+                print(d.speak());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "Meow\nQuack"
+
+    def test_abstract_cannot_instantiate(self):
+        src = '''
+            abstract class Base {
+                public abstract int value();
+            }
+            int main() {
+                Base b = Base();
+                return 0;
+            }
+        '''
+        errors = compile_and_check_errors(src)
+        assert any("Cannot instantiate abstract class" in e for e in errors)
+
+
 class TestE2EEnums:
     def test_basic_enum(self):
         src = '''
@@ -2401,6 +2658,41 @@ class TestE2EEnums:
             }
         '''
         assert compile_and_run(src).strip() == "Wednesday"
+
+    def test_enum_toString(self):
+        src = '''
+            enum Color { RED, GREEN, BLUE };
+            int main() {
+                Color c = GREEN;
+                string s = c.toString();
+                print(s);
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "GREEN"
+
+    def test_enum_toString_with_values(self):
+        src = '''
+            enum Level { LOW = 1, MEDIUM = 5, HIGH = 10 };
+            int main() {
+                Level lv = HIGH;
+                print(lv.toString());
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "HIGH"
+
+    def test_enum_toString_in_fstring(self):
+        src = '''
+            enum Fruit { APPLE, BANANA, CHERRY };
+            int main() {
+                Fruit f = BANANA;
+                string msg = f"fruit: {f.toString()}";
+                print(msg);
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "fruit: BANANA"
 
 
 class TestE2ENumericToString:
@@ -2701,3 +2993,121 @@ class TestE2EFStringMethodCalls:
             }
         '''
         assert compile_and_run(src).strip() == "upper: HELLO"
+
+
+class TestE2EFStringBraceEscape:
+    def test_literal_braces(self):
+        src = '''
+            int main() {
+                int x = 42;
+                print(f"value: {{x}} = {x}");
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "value: {x} = 42"
+
+    def test_braces_in_code_gen(self):
+        src = '''
+            int main() {
+                string name = "test";
+                string code = f"void {name}() {{}}";
+                print(code);
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "void test() {}"
+
+
+class TestE2EResultType:
+    def test_result_ok(self):
+        src = '''
+            class Result<T, E> {
+                private bool _ok;
+                private T _value;
+                private E _error;
+
+                public Result(bool ok, T value, E error) {
+                    self._ok = ok;
+                    self._value = value;
+                    self._error = error;
+                }
+
+                public bool isOk() { return self._ok; }
+                public bool isErr() { return !self._ok; }
+                public T unwrap() { return self._value; }
+                public E unwrapErr() { return self._error; }
+            }
+
+            int main() {
+                Result<int, string> r = new Result<int, string>(true, 42, "");
+                if (r.isOk()) {
+                    print(r.unwrap());
+                }
+                if (!r.isErr()) {
+                    print("not an error");
+                }
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "42\nnot an error"
+
+    def test_result_err(self):
+        src = '''
+            class Result<T, E> {
+                private bool _ok;
+                private T _value;
+                private E _error;
+
+                public Result(bool ok, T value, E error) {
+                    self._ok = ok;
+                    self._value = value;
+                    self._error = error;
+                }
+
+                public bool isOk() { return self._ok; }
+                public bool isErr() { return !self._ok; }
+                public T unwrap() { return self._value; }
+                public E unwrapErr() { return self._error; }
+            }
+
+            int main() {
+                Result<int, string> e = new Result<int, string>(false, 0, "not found");
+                if (e.isErr()) {
+                    print(e.unwrapErr());
+                }
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "not found"
+
+    def test_result_multiple_types(self):
+        src = '''
+            class Result<T, E> {
+                private bool _ok;
+                private T _value;
+                private E _error;
+
+                public Result(bool ok, T value, E error) {
+                    self._ok = ok;
+                    self._value = value;
+                    self._error = error;
+                }
+
+                public bool isOk() { return self._ok; }
+                public bool isErr() { return !self._ok; }
+                public T unwrap() { return self._value; }
+                public E unwrapErr() { return self._error; }
+            }
+
+            int main() {
+                Result<string, int> r1 = new Result<string, int>(true, "hello", 0);
+                Result<float, string> r2 = new Result<float, string>(true, 3.14, "");
+                print(r1.unwrap());
+                float val = r2.unwrap();
+                if (val > 3.0) {
+                    print("ok");
+                }
+                return 0;
+            }
+        '''
+        assert compile_and_run(src).strip() == "hello\nok"

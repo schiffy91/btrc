@@ -1,12 +1,17 @@
 build/
 __pycache__/
 .pytest_cache/
+.ruff_cache/
 *.pyc
 *.o
 *.dSYM/
+.DS_Store
 
 # LSP server venv
 devex/lsp/.venv/
+
+# Claude Code
+.claude/
 
 # VS Code extension build artifacts
 devex/ext/out/

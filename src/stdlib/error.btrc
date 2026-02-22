@@ -1,0 +1,61 @@
+/* btrc standard library — Error Types
+ * Base error class and common subclasses for structured error handling.
+ *
+ * Usage:
+ *   Error* e = new ValueError("invalid input");
+ *   print(e.message);
+ *   delete e;
+ *
+ * Note: btrc's throw currently accepts string messages.
+ * These classes provide structured error objects for passing
+ * error context through function returns.
+ */
+
+class Error {
+    public string message;
+    public int code;
+
+    public Error(string message, int code) {
+        self.message = message;
+        self.code = code;
+    }
+
+    public string toString() {
+        return self.message;
+    }
+}
+
+class ValueError extends Error {
+    public ValueError(string message) {
+        self.message = message;
+        self.code = 1;
+    }
+}
+
+class IOError extends Error {
+    public IOError(string message) {
+        self.message = message;
+        self.code = 2;
+    }
+}
+
+class TypeError extends Error {
+    public TypeError(string message) {
+        self.message = message;
+        self.code = 3;
+    }
+}
+
+class IndexError extends Error {
+    public IndexError(string message) {
+        self.message = message;
+        self.code = 4;
+    }
+}
+
+class KeyError extends Error {
+    public KeyError(string message) {
+        self.message = message;
+        self.code = 5;
+    }
+}

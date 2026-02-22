@@ -95,22 +95,20 @@ class Parser {
         if (tok.type == type) {
             return self.advance();
         }
-        fprintf(stderr, "Parse error: expected %s, got '%s' at %s:%d:%d\n",
-                msg, tok.value, self.filename, tok.line, tok.col);
+        Console.errorAt("Parse error: expected " + msg + ", got '" + tok.value + "'",
+                        self.filename, tok.line, tok.col);
         exit(EXIT_ERROR);
         return tok;
     }
 
     private void error(string msg) {
         Token tok = self.peek(0);
-        fprintf(stderr, "Parse error: %s at %s:%d:%d\n",
-                msg, self.filename, tok.line, tok.col);
+        Console.errorAt("Parse error: " + msg, self.filename, tok.line, tok.col);
         exit(EXIT_ERROR);
     }
 
     private void error_at(string msg, int line, int col) {
-        fprintf(stderr, "Parse error: %s at %s:%d:%d\n",
-                msg, self.filename, line, col);
+        Console.errorAt("Parse error: " + msg, self.filename, line, col);
         exit(EXIT_ERROR);
     }
 
@@ -204,9 +202,7 @@ class Parser {
             return self.parse_function_or_var_decl(is_gpu);
         }
 
-        char msg[256];
-        snprintf(msg, sizeof(msg), "Unexpected token '%s' at top level", tok.value);
-        self.error(msg);
+        self.error("Unexpected token '" + tok.value + "' at top level");
         return -1;
     }
 
@@ -554,53 +550,37 @@ class Parser {
         if (self.check2(TOK_UNSIGNED, TOK_SIGNED)) {
             base = self.advance().value;
             if (self.check4(TOK_INT, TOK_SHORT, TOK_LONG, TOK_CHAR)) {
-                char tmp[64];
-                snprintf(tmp, sizeof(tmp), "%s %s", base, self.advance().value);
-                base = strdup(tmp);
+                base = base + " " + self.advance().value;
                 /* Handle "long long" */
                 if (self.check(TOK_LONG)) {
-                    char tmp2[64];
-                    snprintf(tmp2, sizeof(tmp2), "%s %s", base, self.advance().value);
-                    base = strdup(tmp2);
+                    base = base + " " + self.advance().value;
                 }
             }
         } else if (self.check(TOK_LONG)) {
             base = self.advance().value;
             if (self.check(TOK_LONG)) {
-                char tmp[64];
-                snprintf(tmp, sizeof(tmp), "%s %s", base, self.advance().value);
-                base = strdup(tmp);
+                base = base + " " + self.advance().value;
             }
             if (self.check2(TOK_INT, TOK_DOUBLE)) {
-                char tmp[64];
-                snprintf(tmp, sizeof(tmp), "%s %s", base, self.advance().value);
-                base = strdup(tmp);
+                base = base + " " + self.advance().value;
             }
         } else if (self.check(TOK_SHORT)) {
             base = self.advance().value;
             if (self.check(TOK_INT)) {
-                char tmp[64];
-                snprintf(tmp, sizeof(tmp), "%s %s", base, self.advance().value);
-                base = strdup(tmp);
+                base = base + " " + self.advance().value;
             }
         } else if (self.check(TOK_STRUCT)) {
             self.advance();
-            char tmp[128];
             Token sn = self.expect(TOK_IDENT, "struct name");
-            snprintf(tmp, sizeof(tmp), "struct %s", sn.value);
-            base = strdup(tmp);
+            base = "struct " + sn.value;
         } else if (self.check(TOK_ENUM)) {
             self.advance();
-            char tmp[128];
             Token en = self.expect(TOK_IDENT, "enum name");
-            snprintf(tmp, sizeof(tmp), "enum %s", en.value);
-            base = strdup(tmp);
+            base = "enum " + en.value;
         } else if (self.check(TOK_UNION)) {
             self.advance();
-            char tmp[128];
             Token un = self.expect(TOK_IDENT, "union name");
-            snprintf(tmp, sizeof(tmp), "union %s", un.value);
-            base = strdup(tmp);
+            base = "union " + un.value;
         } else if (self.check(TOK_LPAREN) && self.is_tuple_type_start()) {
             return self.parse_tuple_type(line, col);
         } else {
@@ -1561,9 +1541,7 @@ class Parser {
                 string field_name = "";
                 if (self.check(TOK_INT_LIT)) {
                     Token idx_tok = self.advance();
-                    char tmp[32];
-                    snprintf(tmp, sizeof(tmp), "_%s", idx_tok.value);
-                    field_name = strdup(tmp);
+                    field_name = "_" + idx_tok.value;
                 } else {
                     Token fn = self.expect(TOK_IDENT, "field name");
                     field_name = fn.value;
@@ -1894,9 +1872,7 @@ class Parser {
             return self.add_node(n);
         }
 
-        char msg[256];
-        snprintf(msg, sizeof(msg), "Unexpected token '%s' in expression", tok.value);
-        self.error(msg);
+        self.error("Unexpected token '" + tok.value + "' in expression");
         return -1;
     }
 
@@ -2002,6 +1978,12 @@ class Parser {
         while (i < raw_len) {
             char ch = raw.charAt(i);
             if (ch == '{') {
+                /* Check for escaped {{ → literal { */
+                if (i + 1 < raw_len && raw.charAt(i + 1) == '{') {
+                    text_buf.push('{');
+                    i = i + 2;
+                    continue;
+                }
                 /* Flush text */
                 if (text_buf.length() > 0) {
                     Node txt = Node(NK_STRING_LIT, tok.line, tok.col);
@@ -2062,6 +2044,16 @@ class Parser {
                 self.pending_token = saved_pend_tok;
 
                 n.items.push(expr_idx);
+            } else if (ch == '}') {
+                /* Check for escaped }} → literal } */
+                if (i + 1 < raw_len && raw.charAt(i + 1) == '}') {
+                    text_buf.push('}');
+                    i = i + 2;
+                    continue;
+                }
+                /* Unmatched } — treat as literal */
+                text_buf.push(ch);
+                i++;
             } else if (ch == '\\') {
                 text_buf.push(ch);
                 if (i + 1 < raw_len) {

@@ -57,6 +57,11 @@ class File {
         return lines;
     }
 
+    public void setHandle(FILE* h) {
+        self.handle = h;
+        self.is_open = true;
+    }
+
     public void write(string text) {
         if (!self.is_open) { return; }
         fputs(text, self.handle);
@@ -74,7 +79,10 @@ class File {
 
     public void close() {
         if (self.is_open) {
-            fclose(self.handle);
+            /* Don't close handles we don't own (stdout, stderr) */
+            if (self.path.len() > 0) {
+                fclose(self.handle);
+            }
             self.is_open = false;
         }
     }

@@ -71,6 +71,17 @@ def test_btrc_file(btrc_file):
         assert "PASS" in run_result.stdout, (
             f"No PASS in output:\n{run_result.stdout}"
         )
+
+        # Compare against golden expected output if available
+        expected_path = os.path.join(BTRC_TEST_DIR, "expected",
+                                      btrc_file.replace(".btrc", ".stdout"))
+        if os.path.exists(expected_path):
+            with open(expected_path) as ef:
+                expected = ef.read()
+            assert run_result.stdout == expected, (
+                f"Output mismatch vs golden file:\n"
+                f"Expected:\n{expected}\nGot:\n{run_result.stdout}"
+            )
     finally:
         for p in [c_path, bin_path]:
             if os.path.exists(p):

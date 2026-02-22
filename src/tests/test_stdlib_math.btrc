@@ -1,0 +1,68 @@
+/* Test stdlib math: Math static methods */
+#include <assert.h>
+#include "../stdlib/math.btrc"
+
+int main() {
+    // Constants
+    assert(Math.PI() > 3.14f && Math.PI() < 3.15f);
+    assert(Math.E() > 2.71f && Math.E() < 2.72f);
+    assert(Math.TAU() > 6.28f && Math.TAU() < 6.29f);
+
+    // Basic operations
+    assert(Math.abs(-5) == 5);
+    assert(Math.abs(3) == 3);
+    assert(Math.fabs(-2.5f) > 2.4f && Math.fabs(-2.5f) < 2.6f);
+    assert(Math.max(3, 7) == 7);
+    assert(Math.min(3, 7) == 3);
+    assert(Math.fmax(1.5f, 2.5f) > 2.4f);
+    assert(Math.fmin(1.5f, 2.5f) < 1.6f);
+    assert(Math.clamp(15, 0, 10) == 10);
+    assert(Math.clamp(-5, 0, 10) == 0);
+    assert(Math.clamp(5, 0, 10) == 5);
+
+    // Power and roots
+    assert(Math.power(2.0f, 3) > 7.9f && Math.power(2.0f, 3) < 8.1f);
+    assert(Math.power(3.0f, 0) > 0.9f && Math.power(3.0f, 0) < 1.1f);
+    assert(Math.sqrt(9.0f) > 2.9f && Math.sqrt(9.0f) < 3.1f);
+
+    // Factorial and combinatorics
+    assert(Math.factorial(0) == 1);
+    assert(Math.factorial(1) == 1);
+    assert(Math.factorial(5) == 120);
+    assert(Math.gcd(12, 8) == 4);
+    assert(Math.gcd(7, 3) == 1);
+    assert(Math.lcm(4, 6) == 12);
+
+    // Fibonacci
+    assert(Math.fibonacci(0) == 0);
+    assert(Math.fibonacci(1) == 1);
+    assert(Math.fibonacci(10) == 55);
+
+    // Integer checks
+    assert(Math.isPrime(2));
+    assert(Math.isPrime(7));
+    assert(!Math.isPrime(4));
+    assert(!Math.isPrime(1));
+    assert(Math.isEven(4));
+    assert(!Math.isEven(3));
+    assert(Math.isOdd(3));
+    assert(!Math.isOdd(4));
+
+    // Sum of list
+    List<int> nums = [1, 2, 3, 4, 5];
+    assert(Math.sum(nums) == 15);
+
+    // Sign
+    assert(Math.sign(5) == 1);
+    assert(Math.sign(-3) == -1);
+    assert(Math.sign(0) == 0);
+
+    // Conversion
+    float rad = Math.toRadians(180.0f);
+    assert(rad > 3.13f && rad < 3.16f);
+    float deg = Math.toDegrees(Math.PI());
+    assert(deg > 179.0f && deg < 181.0f);
+
+    print("PASS: test_stdlib_math");
+    return 0;
+}

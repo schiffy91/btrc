@@ -3,6 +3,7 @@
   "displayName": "btrc Language",
   "description": "Language support for btrc — a language that transpiles to C",
   "version": "0.1.0",
+  "license": "MIT",
   "publisher": "btrc-dev",
   "engines": {
     "vscode": "^1.85.0"
@@ -10,9 +11,7 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [
-    "onLanguage:btrc"
-  ],
+  "icon": "icons/btrc.png",
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
@@ -25,6 +24,10 @@
         "extensions": [
           ".btrc"
         ],
+        "icon": {
+          "light": "./icons/btrc.png",
+          "dark": "./icons/btrc.png"
+        },
         "configuration": "./language-configuration.json"
       }
     ],
@@ -45,7 +48,11 @@
         },
         "btrc.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Traces the communication between VS Code and the btrc language server"
         }
@@ -53,10 +60,11 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "package": "vsce package --out btrc.vsix",
+    "vscode:prepublish": "npm run esbuild-base",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "compile": "npm run esbuild-base",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "package": "vsce package --out btrc.vsix --allow-missing-repository",
     "install-ext": "npm run package && code --install-extension btrc.vsix --force"
   },
   "dependencies": {
@@ -66,6 +74,7 @@
     "@types/node": "^25.3.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.27.3",
     "typescript": "^5.3.0"
   }
 }

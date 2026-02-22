@@ -1,0 +1,4 @@
+x=42
+3 + 4 = 7
+hello world
+PASS: test_fstrings

@@ -1,0 +1,37 @@
+/* btrc standard library — Result<T, E>
+ * A type representing either success (Ok) or failure (Err).
+ *
+ * Usage:
+ *   Result<int, string> r = Result.ok(42);
+ *   if (r.isOk()) {
+ *       print(r.unwrap());
+ *   }
+ *
+ *   Result<int, string> e = Result.err("not found");
+ *   if (e.isErr()) {
+ *       print(e.unwrapErr());
+ *   }
+ */
+
+class Result<T, E> {
+    private bool _ok;
+    private T _value;
+    private E _error;
+
+    public Result(bool ok, T value, E error) {
+        self._ok = ok;
+        self._value = value;
+        self._error = error;
+    }
+
+    public bool isOk() { return self._ok; }
+    public bool isErr() { return !self._ok; }
+
+    public T unwrap() {
+        return self._value;
+    }
+
+    public E unwrapErr() {
+        return self._error;
+    }
+}
