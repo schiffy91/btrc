@@ -1,0 +1,43 @@
+#include <assert.h>
+#include <string.h>
+
+class Result<T, E> {
+    private bool _ok;
+    private T _value;
+    private E _error;
+
+    public Result(bool ok, T value, E error) {
+        self._ok = ok;
+        self._value = value;
+        self._error = error;
+    }
+
+    public bool isOk() { return self._ok; }
+    public bool isErr() { return !self._ok; }
+    public T unwrap() { return self._value; }
+    public E unwrapErr() { return self._error; }
+}
+
+int main() {
+    // Result Ok
+    Result<int, string> r = new Result<int, string>(true, 42, "");
+    assert(r.isOk());
+    assert(r.unwrap() == 42);
+    assert(!r.isErr());
+
+    // Result Err
+    Result<int, string> e = new Result<int, string>(false, 0, "not found");
+    assert(e.isErr());
+    assert(strcmp(e.unwrapErr(), "not found") == 0);
+
+    // Multiple instantiations
+    Result<string, int> r1 = new Result<string, int>(true, "hello", 0);
+    assert(strcmp(r1.unwrap(), "hello") == 0);
+
+    Result<float, string> r2 = new Result<float, string>(true, 3.14, "");
+    float val = r2.unwrap();
+    assert(val > 3.0);
+
+    print("PASS: test_result_type");
+    return 0;
+}

@@ -4,7 +4,7 @@
 
 int main() {
     // Seeded random for deterministic results
-    Random* rng = new Random();
+    Random rng = new Random();
     rng.seed(42);
 
     // randint returns values in range

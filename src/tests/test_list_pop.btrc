@@ -34,9 +34,9 @@ int main() {
     assert(strcmp(popped, "btrc") == 0);
     assert(words.len == 2);
 
-    btrc_List_int_free(&nums);
-    btrc_List_string_free(&words);
-    btrc_List_string_free(&unsorted);
+    delete nums;
+    delete words;
+    delete unsorted;
 
     printf("PASS: test_list_pop\n");
     return 0;

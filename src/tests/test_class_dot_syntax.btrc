@@ -1,0 +1,46 @@
+#include <assert.h>
+#include <string.h>
+
+class Adder {
+    private int total;
+    public Adder() { self.total = 0; }
+    public void add(int n) { self.total += n; }
+    public int result() { return self.total; }
+}
+
+class Box {
+    public int val;
+    public Box(int v) { self.val = v; }
+    public int get() { return self.val; }
+}
+
+int main() {
+    // Class dot method
+    Adder a = Adder();
+    a.add(10);
+    a.add(20);
+    a.add(30);
+    assert(a.result() == 60);
+
+    // Class arrow method (heap allocated, accessed via dot)
+    Box b = new Box(42);
+    assert(b.get() == 42);
+    assert(b.val == 42);
+    free(b);
+
+    // List dot methods
+    List<int> nums = [];
+    nums.push(100);
+    nums.push(200);
+    nums.push(300);
+    int sum = 0;
+    for x in nums {
+        sum += x;
+    }
+    assert(nums.len == 3);
+    assert(sum == 600);
+    nums.free();
+
+    print("PASS: test_class_dot_syntax");
+    return 0;
+}

@@ -1,0 +1,277 @@
+/* btrc standard library — List<T>
+ * Dynamic array with automatic resizing.
+ * Uses raw C for memory management (malloc/realloc/free).
+ */
+
+class List<T> {
+    public T* data;
+    public int len;
+    public int cap;
+
+    public List() {
+        self.data = null;
+        self.len = 0;
+        self.cap = 0;
+    }
+
+    public void push(T val) {
+        if (self.len >= self.cap) {
+            self.cap = self.cap == 0 ? 4 : self.cap * 2;
+            self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
+        }
+        self.data[self.len] = val;
+        self.len++;
+    }
+
+    public T pop() {
+        if (self.len <= 0) { fprintf(stderr, "List pop from empty list\n"); exit(1); }
+        self.len--;
+        return self.data[self.len];
+    }
+
+    public T get(int i) {
+        if (i < 0 || i >= self.len) { fprintf(stderr, "List index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
+        return self.data[i];
+    }
+
+    public void set(int i, T val) {
+        if (i < 0 || i >= self.len) { fprintf(stderr, "List index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
+        self.data[i] = val;
+    }
+
+    public void free() {
+        free(self.data);
+        self.data = null;
+        self.len = 0;
+        self.cap = 0;
+    }
+
+    public void remove(int idx) {
+        if (idx < 0 || idx >= self.len) { fprintf(stderr, "List remove index out of bounds: %d (len=%d)\n", idx, self.len); exit(1); }
+        for (int i = idx; i < self.len - 1; i++) {
+            self.data[i] = self.data[i + 1];
+        }
+        self.len--;
+    }
+
+    public void reverse() {
+        for (int i = 0; i < self.len / 2; i++) {
+            T tmp = self.data[i];
+            self.data[i] = self.data[self.len - 1 - i];
+            self.data[self.len - 1 - i] = tmp;
+        }
+    }
+
+    public List<T> reversed() {
+        List<T> result = [];
+        for (int i = self.len - 1; i >= 0; i--) {
+            result.push(self.data[i]);
+        }
+        return result;
+    }
+
+    public void swap(int i, int j) {
+        if (i < 0 || i >= self.len || j < 0 || j >= self.len) { fprintf(stderr, "List swap index out of bounds\n"); exit(1); }
+        T tmp = self.data[i];
+        self.data[i] = self.data[j];
+        self.data[j] = tmp;
+    }
+
+    public void clear() {
+        self.len = 0;
+    }
+
+    public void fill(T val) {
+        for (int i = 0; i < self.len; i++) {
+            self.data[i] = val;
+        }
+    }
+
+    public int size() {
+        return self.len;
+    }
+
+    public bool isEmpty() {
+        return self.len == 0;
+    }
+
+    public T first() {
+        if (self.len == 0) { fprintf(stderr, "List.first() called on empty list\n"); exit(1); }
+        return self.data[0];
+    }
+
+    public T last() {
+        if (self.len == 0) { fprintf(stderr, "List.last() called on empty list\n"); exit(1); }
+        return self.data[self.len - 1];
+    }
+
+    public List<T> slice(int start, int end) {
+        if (start < 0) { start = self.len + start; }
+        if (end < 0) { end = self.len + end; }
+        if (start < 0) { start = 0; }
+        if (end > self.len) { end = self.len; }
+        List<T> result = [];
+        for (int i = start; i < end; i++) {
+            result.push(self.data[i]);
+        }
+        return result;
+    }
+
+    public List<T> take(int n) {
+        if (n > self.len) { n = self.len; }
+        if (n < 0) { n = 0; }
+        return self.slice(0, n);
+    }
+
+    public List<T> drop(int n) {
+        if (n > self.len) { n = self.len; }
+        if (n < 0) { n = 0; }
+        return self.slice(n, self.len);
+    }
+
+    public void extend(List<T> other) {
+        for (int i = 0; i < other.len; i++) {
+            self.push(other.data[i]);
+        }
+    }
+
+    public void insert(int idx, T val) {
+        if (idx < 0 || idx > self.len) { fprintf(stderr, "List insert index out of bounds: %d (size %d)\n", idx, self.len); exit(1); }
+        if (self.len >= self.cap) {
+            self.cap = self.cap == 0 ? 4 : self.cap * 2;
+            self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
+        }
+        for (int i = self.len; i > idx; i--) {
+            self.data[i] = self.data[i - 1];
+        }
+        self.data[idx] = val;
+        self.len++;
+    }
+
+    /* Comparison-based methods — use __btrc_eq/__btrc_lt macros
+     * for type-safe string vs primitive comparison. */
+
+    public bool contains(T val) {
+        for (int i = 0; i < self.len; i++) {
+            if (__btrc_eq(self.data[i], val)) { return true; }
+        }
+        return false;
+    }
+
+    public int indexOf(T val) {
+        for (int i = 0; i < self.len; i++) {
+            if (__btrc_eq(self.data[i], val)) { return i; }
+        }
+        return -1;
+    }
+
+    public int lastIndexOf(T val) {
+        for (int i = self.len - 1; i >= 0; i--) {
+            if (__btrc_eq(self.data[i], val)) { return i; }
+        }
+        return -1;
+    }
+
+    public int count(T val) {
+        int c = 0;
+        for (int i = 0; i < self.len; i++) {
+            if (__btrc_eq(self.data[i], val)) { c++; }
+        }
+        return c;
+    }
+
+    public void removeAll(T val) {
+        int j = 0;
+        for (int i = 0; i < self.len; i++) {
+            if (!__btrc_eq(self.data[i], val)) {
+                self.data[j] = self.data[i];
+                j++;
+            }
+        }
+        self.len = j;
+    }
+
+    public List<T> distinct() {
+        List<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            if (!result.contains(self.data[i])) {
+                result.push(self.data[i]);
+            }
+        }
+        return result;
+    }
+
+    public void sort() {
+        /* Insertion sort using __btrc_lt for type-safe comparison */
+        for (int i = 1; i < self.len; i++) {
+            T key = self.data[i];
+            int j = i - 1;
+            while (j >= 0 && __btrc_lt(key, self.data[j])) {
+                self.data[j + 1] = self.data[j];
+                j = j - 1;
+            }
+            self.data[j + 1] = key;
+        }
+    }
+
+    public List<T> sorted() {
+        List<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            result.push(self.data[i]);
+        }
+        result.sort();
+        return result;
+    }
+
+    public T min() {
+        if (self.len <= 0) { fprintf(stderr, "List min on empty list\n"); exit(1); }
+        T m = self.data[0];
+        for (int i = 1; i < self.len; i++) {
+            if (__btrc_lt(self.data[i], m)) { m = self.data[i]; }
+        }
+        return m;
+    }
+
+    public T max() {
+        if (self.len <= 0) { fprintf(stderr, "List max on empty list\n"); exit(1); }
+        T m = self.data[0];
+        for (int i = 1; i < self.len; i++) {
+            if (__btrc_gt(self.data[i], m)) { m = self.data[i]; }
+        }
+        return m;
+    }
+
+    public T sum() {
+        T s = (T)0;
+        for (int i = 0; i < self.len; i++) {
+            s = s + self.data[i];
+        }
+        return s;
+    }
+
+    public string join(string sep) {
+        int total = 0;
+        int sep_len = (int)strlen(sep);
+        for (int i = 0; i < self.len; i++) {
+            total = total + (int)strlen(self.data[i]);
+            if (i < self.len - 1) { total = total + sep_len; }
+        }
+        char* result = (char*)malloc(total + 1);
+        int pos = 0;
+        for (int i = 0; i < self.len; i++) {
+            int slen = (int)strlen(self.data[i]);
+            memcpy(result + pos, self.data[i], slen);
+            pos = pos + slen;
+            if (i < self.len - 1) {
+                memcpy(result + pos, sep, sep_len);
+                pos = pos + sep_len;
+            }
+        }
+        result[pos] = '\0';
+        return result;
+    }
+
+    public string joinToString(string sep) {
+        return self.join(sep);
+    }
+}

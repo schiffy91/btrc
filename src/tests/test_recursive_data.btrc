@@ -3,7 +3,7 @@
 
 class ListNode {
     public int value;
-    public ListNode* next;
+    public ListNode next;
 
     public ListNode(int value) {
         self.value = value;
@@ -13,8 +13,8 @@ class ListNode {
 
 class TreeNode {
     public int value;
-    public TreeNode* left;
-    public TreeNode* right;
+    public TreeNode left;
+    public TreeNode right;
 
     public TreeNode(int value) {
         self.value = value;
@@ -24,78 +24,78 @@ class TreeNode {
 }
 
 // ---- Linked list helpers ----
-void list_append(ListNode* head, int value) {
-    ListNode* curr = head;
-    while (curr->next != null) {
-        curr = curr->next;
+void list_append(ListNode head, int value) {
+    ListNode curr = head;
+    while (curr.next != null) {
+        curr = curr.next;
     }
-    curr->next = new ListNode(value);
+    curr.next = new ListNode(value);
 }
 
-int list_length(ListNode* head) {
+int list_length(ListNode head) {
     int count = 0;
-    ListNode* curr = head;
+    ListNode curr = head;
     while (curr != null) {
         count++;
-        curr = curr->next;
+        curr = curr.next;
     }
     return count;
 }
 
-int list_sum(ListNode* head) {
+int list_sum(ListNode head) {
     int sum = 0;
-    ListNode* curr = head;
+    ListNode curr = head;
     while (curr != null) {
-        sum += curr->value;
-        curr = curr->next;
+        sum += curr.value;
+        curr = curr.next;
     }
     return sum;
 }
 
-void list_free(ListNode* head) {
+void list_free(ListNode head) {
     // Auto-generated destructor recursively frees next pointers,
     // so just delete the head to clean up the whole chain.
     delete head;
 }
 
 // ---- Tree helpers ----
-void tree_insert(TreeNode* root, int value) {
-    if (value < root->value) {
-        if (root->left == null) {
-            root->left = new TreeNode(value);
+void tree_insert(TreeNode root, int value) {
+    if (value < root.value) {
+        if (root.left == null) {
+            root.left = new TreeNode(value);
         } else {
-            tree_insert(root->left, value);
+            tree_insert(root.left, value);
         }
     } else {
-        if (root->right == null) {
-            root->right = new TreeNode(value);
+        if (root.right == null) {
+            root.right = new TreeNode(value);
         } else {
-            tree_insert(root->right, value);
+            tree_insert(root.right, value);
         }
     }
 }
 
-int tree_count(TreeNode* node) {
+int tree_count(TreeNode node) {
     if (node == null) {
         return 0;
     }
-    return 1 + tree_count(node->left) + tree_count(node->right);
+    return 1 + tree_count(node.left) + tree_count(node.right);
 }
 
-bool tree_contains(TreeNode* node, int value) {
+bool tree_contains(TreeNode node, int value) {
     if (node == null) {
         return false;
     }
-    if (node->value == value) {
+    if (node.value == value) {
         return true;
     }
-    if (value < node->value) {
-        return tree_contains(node->left, value);
+    if (value < node.value) {
+        return tree_contains(node.left, value);
     }
-    return tree_contains(node->right, value);
+    return tree_contains(node.right, value);
 }
 
-void tree_free(TreeNode* node) {
+void tree_free(TreeNode node) {
     // Auto-generated destructor recursively frees left/right,
     // so just delete root to clean up the whole tree.
     delete node;
@@ -103,7 +103,7 @@ void tree_free(TreeNode* node) {
 
 int main() {
     // ---- Linked list ----
-    ListNode* head = new ListNode(10);
+    ListNode head = new ListNode(10);
     list_append(head, 20);
     list_append(head, 30);
     list_append(head, 40);
@@ -112,16 +112,16 @@ int main() {
     assert(list_sum(head) == 100);  // 10+20+30+40
 
     // Walk the list
-    assert(head->value == 10);
-    assert(head->next->value == 20);
-    assert(head->next->next->value == 30);
-    assert(head->next->next->next->value == 40);
-    assert(head->next->next->next->next == null);
+    assert(head.value == 10);
+    assert(head.next.value == 20);
+    assert(head.next.next.value == 30);
+    assert(head.next.next.next.value == 40);
+    assert(head.next.next.next.next == null);
 
     list_free(head);
 
     // ---- Binary search tree ----
-    TreeNode* root = new TreeNode(50);
+    TreeNode root = new TreeNode(50);
     tree_insert(root, 30);
     tree_insert(root, 70);
     tree_insert(root, 20);
@@ -137,10 +137,10 @@ int main() {
     assert(tree_contains(root, 99) == false);
 
     // BST property: left < root < right
-    assert(root->left->value == 30);
-    assert(root->right->value == 70);
-    assert(root->left->left->value == 20);
-    assert(root->left->right->value == 40);
+    assert(root.left.value == 30);
+    assert(root.right.value == 70);
+    assert(root.left.left.value == 20);
+    assert(root.left.right.value == 40);
 
     tree_free(root);
 

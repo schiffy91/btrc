@@ -1,0 +1,161 @@
+"""Call lowering: function calls, constructors, print → IR."""
+
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+from ...ast_nodes import (
+    CallExpr, FieldAccessExpr, Identifier,
+)
+from ..nodes import (
+    IRCall, IRCast, IRExpr, IRFieldAccess, IRLiteral,
+    IRSizeof, IRTernary,
+)
+from .types import is_string_type, is_collection_type, format_spec_for_type
+
+if TYPE_CHECKING:
+    from .generator import IRGenerator
+
+
+def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
+    """Lower a function/method call."""
+    from .expressions import lower_expr, _expr_text
+
+    # Method call: obj.method(args)
+    if isinstance(node.callee, FieldAccessExpr):
+        from .methods import lower_method_call
+        return lower_method_call(gen, node)
+
+    # Regular function call
+    if isinstance(node.callee, Identifier):
+        name = node.callee.name
+        args = [lower_expr(gen, a) for a in node.args]
+
+        # Constructor call: ClassName(args) where ClassName is a known class
+        if name in gen.analyzed.class_table:
+            return _lower_constructor_call(gen, name, node.args)
+
+        # Built-in functions
+        if name == "print":
+            return _lower_print(gen, node.args)
+        if name == "printf":
+            return IRCall(callee="printf", args=args)
+        if name == "sizeof":
+            if node.args:
+                return IRSizeof(operand=_expr_text(args[0]))
+            return IRSizeof(operand="void")
+        if name == "len":
+            if node.args:
+                arg_type = gen.analyzed.node_types.get(id(node.args[0]))
+                if arg_type and is_string_type(arg_type):
+                    return IRCast(target_type="int",
+                                  expr=IRCall(callee="strlen", args=args))
+                return IRFieldAccess(obj=args[0], field="len", arrow=True)
+
+        # Fill in default parameter values if call has fewer args than params
+        args = _fill_defaults(gen, name, node.args, args)
+
+        return IRCall(callee=name, args=args)
+
+    # Generic/complex callee
+    args = [lower_expr(gen, a) for a in node.args]
+    callee_text = _expr_text(lower_expr(gen, node.callee))
+    return IRCall(callee=callee_text, args=args)
+
+
+def _fill_defaults(gen: IRGenerator, name: str, ast_args: list,
+                    ir_args: list[IRExpr]) -> list[IRExpr]:
+    """Fill in default parameter values for function calls with missing args."""
+    from .expressions import lower_expr
+
+    func_decl = gen.analyzed.function_table.get(name)
+    if not func_decl or not func_decl.params:
+        return ir_args
+    if len(ir_args) >= len(func_decl.params):
+        return ir_args
+    # Fill missing args with defaults
+    result = list(ir_args)
+    for i in range(len(ir_args), len(func_decl.params)):
+        param = func_decl.params[i]
+        if param.default is not None:
+            result.append(lower_expr(gen, param.default))
+        else:
+            result.append(IRLiteral(text="0"))
+    return result
+
+
+def _lower_constructor_call(gen: IRGenerator, class_name: str,
+                            args: list) -> IRExpr:
+    """Lower ClassName(args) → ClassName_new(args) or btrc_ClassName_T_new(args)."""
+    from .expressions import lower_expr
+
+    ir_args = [lower_expr(gen, a) for a in args]
+    cls_info = gen.analyzed.class_table.get(class_name)
+    if cls_info:
+        # Fill constructor defaults
+        if cls_info.constructor and cls_info.constructor.params:
+            ctor_params = cls_info.constructor.params
+            if len(ir_args) < len(ctor_params):
+                for i in range(len(ir_args), len(ctor_params)):
+                    p = ctor_params[i]
+                    if p.default is not None:
+                        ir_args.append(lower_expr(gen, p.default))
+                    else:
+                        ir_args.append(IRLiteral(text="0"))
+        # Generic class: need to find mangled name
+        if cls_info.generic_params:
+            # Try to infer from context (node_types may have the resolved type)
+            # For now, return mangled_new if we can find the instance
+            # The caller will need to patch this in VarDecl context
+            pass
+    return IRCall(callee=f"{class_name}_new", args=ir_args)
+
+
+def _lower_print(gen: IRGenerator, args: list) -> IRExpr:
+    """Lower print(...) to printf with appropriate format string."""
+    from .expressions import lower_expr
+    from ...ast_nodes import FStringLiteral, StringLiteral, CallExpr, FieldAccessExpr
+
+    if not args:
+        return IRCall(callee="printf", args=[IRLiteral(text='"\\n"')])
+
+    parts = []
+    ir_args = []
+    for i, arg in enumerate(args):
+        ir_arg = lower_expr(gen, arg)
+        arg_type = gen.analyzed.node_types.get(id(arg))
+        fmt = format_spec_for_type(arg_type)
+
+        # Force %s for known string-producing expressions when type is untracked
+        if arg_type is None:
+            if isinstance(arg, (FStringLiteral, StringLiteral)):
+                fmt = "%s"
+            elif isinstance(arg, CallExpr):
+                # Check for method calls that return strings
+                callee = arg.callee
+                callee_name = getattr(callee, "name", None)
+                if callee_name in ("toString", "str"):
+                    fmt = "%s"
+                # Method call: obj.method() — check method name
+                if isinstance(callee, FieldAccessExpr):
+                    method_name = callee.field
+                    if method_name in ("toString", "str", "trim", "toUpper",
+                                       "toLower", "substring", "replace",
+                                       "repeat", "reverse", "capitalize",
+                                       "join", "split"):
+                        fmt = "%s"
+
+        if arg_type and arg_type.base == "bool":
+            # bool → ternary: val ? "true" : "false"
+            ir_arg = IRTernary(
+                condition=ir_arg,
+                true_expr=IRLiteral(text='"true"'),
+                false_expr=IRLiteral(text='"false"'),
+            )
+            fmt = "%s"
+
+        parts.append(fmt)
+        ir_args.append(ir_arg)
+
+    fmt_str = " ".join(parts) + "\\n"
+    return IRCall(callee="printf",
+                  args=[IRLiteral(text=f'"{fmt_str}"')] + ir_args)

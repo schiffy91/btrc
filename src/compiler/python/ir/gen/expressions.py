@@ -1,22 +1,24 @@
-"""Expression lowering: AST expr → IRExpr."""
+"""Expression lowering: AST expr → IRExpr.
+
+Main dispatch function plus literal/simple expression handling.
+Operator, call, field access, and assignment lowering are in sub-modules.
+"""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
     AssignExpr, BinaryExpr, BoolLiteral, BraceInitializer, CallExpr,
-    CastExpr, CharLiteral, FieldAccessExpr, FloatLiteral, FStringExpr,
-    FStringLiteral, FStringText, Identifier, IndexExpr, IntLiteral,
-    LambdaExpr, ListLiteral, MapEntry, MapLiteral, NewExpr, NullLiteral,
-    SelfExpr, SizeofExpr, SizeofExprOp, SizeofType, StringLiteral,
-    SuperExpr, TernaryExpr, TupleLiteral, TypeExpr, UnaryExpr,
+    CastExpr, CharLiteral, FieldAccessExpr, FloatLiteral, FStringLiteral,
+    Identifier, IndexExpr, IntLiteral, LambdaExpr, ListLiteral, MapLiteral,
+    NewExpr, NullLiteral, SelfExpr, SizeofExpr, SizeofExprOp, SizeofType,
+    StringLiteral, SuperExpr, TernaryExpr, TupleLiteral, UnaryExpr,
 )
 from ..nodes import (
-    IRAddressOf, IRBinOp, IRCall, IRCast, IRDeref, IRExpr,
-    IRFieldAccess, IRIndex, IRLiteral, IRRawExpr, IRSizeof,
-    IRTernary, IRUnaryOp, IRVar,
+    IRCall, IRCast, IRExpr, IRLiteral, IRRawExpr, IRSizeof,
+    IRTernary, IRVar,
 )
-from .types import type_to_c, is_string_type, is_numeric_type, is_collection_type, format_spec_for_type
+from .types import type_to_c, is_collection_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -61,21 +63,27 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
         return IRVar(name="self")
 
     if isinstance(node, BinaryExpr):
+        from .operators import _lower_binary
         return _lower_binary(gen, node)
 
     if isinstance(node, UnaryExpr):
+        from .operators import _lower_unary
         return _lower_unary(gen, node)
 
     if isinstance(node, CallExpr):
+        from .calls import _lower_call
         return _lower_call(gen, node)
 
     if isinstance(node, FieldAccessExpr):
+        from .fields import _lower_field_access
         return _lower_field_access(gen, node)
 
     if isinstance(node, IndexExpr):
+        from .fields import _lower_index
         return _lower_index(gen, node)
 
     if isinstance(node, AssignExpr):
+        from .fields import _lower_assign
         return _lower_assign(gen, node)
 
     if isinstance(node, CastExpr):
@@ -137,342 +145,6 @@ def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
         if name in values:
             return IRLiteral(text=f"{enum_name}_{name}")
     return IRVar(name=name)
-
-
-def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
-    """Lower a binary expression, handling special operators."""
-    left = lower_expr(gen, node.left)
-    right = lower_expr(gen, node.right)
-
-    # Infer types for special handling
-    left_type = gen.analyzed.node_types.get(id(node.left))
-    right_type = gen.analyzed.node_types.get(id(node.right))
-
-    op = node.op
-
-    # String concatenation: a + b → __btrc_str_track(__btrc_strcat(a, b))
-    if op == "+" and is_string_type(left_type):
-        gen.use_helper("__btrc_strcat")
-        gen.use_helper("__btrc_str_track")
-        cat = IRCall(callee="__btrc_strcat", args=[left, right],
-                     helper_ref="__btrc_strcat")
-        return IRCall(callee="__btrc_str_track", args=[cat],
-                      helper_ref="__btrc_str_track")
-
-    # String comparison: a == b → strcmp(a, b) == 0
-    if op in ("==", "!=") and is_string_type(left_type):
-        cmp = IRCall(callee="strcmp", args=[left, right])
-        cmp_val = "0" if op == "==" else "0"
-        cmp_op = "==" if op == "==" else "!="
-        return IRBinOp(left=cmp, op=cmp_op, right=IRLiteral(text="0"))
-
-    # Division: a / b → __btrc_div_int(a, b)
-    if op == "/" and is_numeric_type(left_type):
-        if left_type and left_type.base in ("float", "double"):
-            gen.use_helper("__btrc_div_double")
-            return IRCall(callee="__btrc_div_double", args=[left, right],
-                          helper_ref="__btrc_div_double")
-        gen.use_helper("__btrc_div_int")
-        return IRCall(callee="__btrc_div_int", args=[left, right],
-                      helper_ref="__btrc_div_int")
-
-    # Modulo: a % b → __btrc_mod_int(a, b)
-    if op == "%" and is_numeric_type(left_type):
-        gen.use_helper("__btrc_mod_int")
-        return IRCall(callee="__btrc_mod_int", args=[left, right],
-                      helper_ref="__btrc_mod_int")
-
-    # Null coalescing: a ?? b → (a != NULL ? a : b)
-    if op == "??":
-        return IRTernary(
-            condition=IRBinOp(left=left, op="!=", right=IRLiteral(text="NULL")),
-            true_expr=left,
-            false_expr=right,
-        )
-
-    # Operator overloading on class types: a + b → ClassName___add__(a, b)
-    if left_type and left_type.base in gen.analyzed.class_table:
-        op_map = {
-            "+": "__add__", "-": "__sub__", "*": "__mul__",
-            "/": "__div__", "%": "__mod__",
-            "==": "__eq__", "!=": "__ne__",
-            "<": "__lt__", ">": "__gt__",
-            "<=": "__le__", ">=": "__ge__",
-        }
-        if op in op_map:
-            cls_info = gen.analyzed.class_table[left_type.base]
-            magic = op_map[op]
-            if magic in cls_info.methods:
-                return IRCall(callee=f"{left_type.base}_{magic}",
-                              args=[left, right])
-
-    return IRBinOp(left=left, op=op, right=right)
-
-
-def _lower_unary(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
-    operand = lower_expr(gen, node.operand)
-    op = node.op
-    if op == "&":
-        return IRAddressOf(expr=operand)
-    if op == "*":
-        return IRDeref(expr=operand)
-    # Operator overloading: -obj where obj is class with __neg__
-    if op == "-" and node.prefix:
-        operand_type = gen.analyzed.node_types.get(id(node.operand))
-        if operand_type and operand_type.base in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[operand_type.base]
-            if "__neg__" in cls_info.methods:
-                return IRCall(callee=f"{operand_type.base}___neg__",
-                              args=[operand])
-    return IRUnaryOp(op=op, operand=operand, prefix=node.prefix)
-
-
-def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
-    """Lower a function/method call."""
-    # Method call: obj.method(args)
-    if isinstance(node.callee, FieldAccessExpr):
-        from .methods import lower_method_call
-        return lower_method_call(gen, node)
-
-    # Regular function call
-    if isinstance(node.callee, Identifier):
-        name = node.callee.name
-        args = [lower_expr(gen, a) for a in node.args]
-
-        # Constructor call: ClassName(args) where ClassName is a known class
-        if name in gen.analyzed.class_table:
-            return _lower_constructor_call(gen, name, node.args)
-
-        # Built-in functions
-        if name == "print":
-            return _lower_print(gen, node.args)
-        if name == "printf":
-            return IRCall(callee="printf", args=args)
-        if name == "sizeof":
-            if node.args:
-                return IRSizeof(operand=_expr_text(args[0]))
-            return IRSizeof(operand="void")
-        if name == "len":
-            if node.args:
-                arg_type = gen.analyzed.node_types.get(id(node.args[0]))
-                if arg_type and is_string_type(arg_type):
-                    return IRCast(target_type="int",
-                                  expr=IRCall(callee="strlen", args=args))
-                return IRFieldAccess(obj=args[0], field="len", arrow=True)
-
-        # Fill in default parameter values if call has fewer args than params
-        args = _fill_defaults(gen, name, node.args, args)
-
-        return IRCall(callee=name, args=args)
-
-    # Generic/complex callee
-    args = [lower_expr(gen, a) for a in node.args]
-    callee_text = _expr_text(lower_expr(gen, node.callee))
-    return IRCall(callee=callee_text, args=args)
-
-
-def _fill_defaults(gen: IRGenerator, name: str, ast_args: list,
-                    ir_args: list[IRExpr]) -> list[IRExpr]:
-    """Fill in default parameter values for function calls with missing args."""
-    func_decl = gen.analyzed.function_table.get(name)
-    if not func_decl or not func_decl.params:
-        return ir_args
-    if len(ir_args) >= len(func_decl.params):
-        return ir_args
-    # Fill missing args with defaults
-    result = list(ir_args)
-    for i in range(len(ir_args), len(func_decl.params)):
-        param = func_decl.params[i]
-        if param.default is not None:
-            result.append(lower_expr(gen, param.default))
-        else:
-            result.append(IRLiteral(text="0"))
-    return result
-
-
-def _lower_constructor_call(gen: IRGenerator, class_name: str,
-                            args: list) -> IRExpr:
-    """Lower ClassName(args) → ClassName_new(args) or btrc_ClassName_T_new(args)."""
-    from .types import mangle_generic_type
-    ir_args = [lower_expr(gen, a) for a in args]
-    cls_info = gen.analyzed.class_table.get(class_name)
-    if cls_info:
-        # Fill constructor defaults
-        if cls_info.constructor and cls_info.constructor.params:
-            ctor_params = cls_info.constructor.params
-            if len(ir_args) < len(ctor_params):
-                for i in range(len(ir_args), len(ctor_params)):
-                    p = ctor_params[i]
-                    if p.default is not None:
-                        ir_args.append(lower_expr(gen, p.default))
-                    else:
-                        ir_args.append(IRLiteral(text="0"))
-        # Generic class: need to find mangled name
-        if cls_info.generic_params:
-            # Try to infer from context (node_types may have the resolved type)
-            # For now, return mangled_new if we can find the instance
-            # The caller will need to patch this in VarDecl context
-            pass
-    return IRCall(callee=f"{class_name}_new", args=ir_args)
-
-
-def _lower_print(gen: IRGenerator, args: list) -> IRExpr:
-    """Lower print(...) to printf with appropriate format string."""
-    if not args:
-        return IRCall(callee="printf", args=[IRLiteral(text='"\\n"')])
-
-    parts = []
-    ir_args = []
-    for i, arg in enumerate(args):
-        ir_arg = lower_expr(gen, arg)
-        arg_type = gen.analyzed.node_types.get(id(arg))
-        fmt = format_spec_for_type(arg_type)
-
-        if arg_type and arg_type.base == "bool":
-            # bool → ternary: val ? "true" : "false"
-            ir_arg = IRTernary(
-                condition=ir_arg,
-                true_expr=IRLiteral(text='"true"'),
-                false_expr=IRLiteral(text='"false"'),
-            )
-            fmt = "%s"
-
-        parts.append(fmt)
-        ir_args.append(ir_arg)
-
-    fmt_str = " ".join(parts) + "\\n"
-    return IRCall(callee="printf",
-                  args=[IRLiteral(text=f'"{fmt_str}"')] + ir_args)
-
-
-def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
-    """Lower field access, handling optional chaining and special types."""
-    obj = lower_expr(gen, node.obj)
-    obj_type = gen.analyzed.node_types.get(id(node.obj))
-
-    # String field access: s.len, s.length → (int)strlen(s)
-    if is_string_type(obj_type) and node.field in ("len", "length"):
-        return IRCast(target_type="int", expr=IRCall(callee="strlen", args=[obj]))
-
-    # Collection field access: list.len → list->len
-    if obj_type and is_collection_type(obj_type) and node.field in ("len", "length", "size"):
-        return IRFieldAccess(obj=obj, field="len", arrow=True)
-
-    # Rich enum variant tag: Color.RGB → Color_RGB_TAG
-    if isinstance(node.obj, Identifier) and node.obj.name in gen.analyzed.rich_enum_table:
-        return IRVar(name=f"{node.obj.name}_{node.field}_TAG")
-
-    # Static method/field on a class name: ClassName.field
-    if isinstance(node.obj, Identifier) and node.obj.name in gen.analyzed.class_table:
-        # This is a static reference — will be handled by method call lowering
-        # if it's a call, but for field-only access emit ClassName_field
-        return IRVar(name=f"{node.obj.name}_{node.field}")
-
-    # Property access on class instances
-    if obj_type and obj_type.base in gen.analyzed.class_table:
-        cls_info = gen.analyzed.class_table[obj_type.base]
-        # Use mangled name for generic class instances
-        if obj_type.generic_args and cls_info.generic_params:
-            from .types import mangle_generic_type
-            callee_prefix = mangle_generic_type(obj_type.base, obj_type.generic_args)
-        else:
-            callee_prefix = obj_type.base
-        if node.field in cls_info.properties:
-            # self.prop inside the class → use backing field directly
-            if isinstance(node.obj, SelfExpr):
-                return IRFieldAccess(obj=obj, field=f"_prop_{node.field}", arrow=True)
-            return IRCall(callee=f"{callee_prefix}_get_{node.field}", args=[obj])
-
-    if node.optional:
-        # a?.b → (a != NULL ? a->b : default)
-        access = IRFieldAccess(obj=obj, field=node.field, arrow=True)
-        return IRTernary(
-            condition=IRBinOp(left=obj, op="!=",
-                              right=IRLiteral(text="NULL")),
-            true_expr=access,
-            false_expr=IRLiteral(text="0"),
-        )
-
-    arrow = node.arrow
-    # Determine if we need -> based on the object type
-    if obj_type and (obj_type.pointer_depth > 0 or
-                     obj_type.base in gen.analyzed.class_table):
-        arrow = True
-
-    return IRFieldAccess(obj=obj, field=node.field, arrow=arrow)
-
-
-def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
-    """Lower index expression: list[i] → List_get(list, i), map[k] → Map_get(map, k)."""
-    from .types import mangle_generic_type
-    obj = lower_expr(gen, node.obj)
-    index = lower_expr(gen, node.index)
-    obj_type = gen.analyzed.node_types.get(id(node.obj))
-    if obj_type and is_collection_type(obj_type):
-        mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
-        return IRCall(callee=f"{mangled}_get", args=[obj, index])
-    return IRIndex(obj=obj, index=index)
-
-
-def _lower_assign(gen: IRGenerator, node: AssignExpr) -> IRExpr:
-    """Lower assignment expression (compound assignments too)."""
-    from .types import mangle_generic_type
-
-    # Property setter: obj.prop = value → ClassName_set_prop(obj, value)
-    if node.op == "=" and isinstance(node.target, FieldAccessExpr):
-        obj_type = gen.analyzed.node_types.get(id(node.target.obj))
-        if obj_type and obj_type.base in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[obj_type.base]
-            if node.target.field in cls_info.properties:
-                obj = lower_expr(gen, node.target.obj)
-                value = lower_expr(gen, node.value)
-                # self.prop = value inside class → backing field
-                if isinstance(node.target.obj, SelfExpr):
-                    backing = IRFieldAccess(obj=obj,
-                                            field=f"_prop_{node.target.field}",
-                                            arrow=True)
-                    return IRBinOp(left=backing, op="=", right=value)
-                return IRCall(
-                    callee=f"{obj_type.base}_set_{node.target.field}",
-                    args=[obj, value])
-
-    # Collection index assignment: list[i] = value → List_set(list, i, value)
-    if node.op == "=" and isinstance(node.target, IndexExpr):
-        obj_type = gen.analyzed.node_types.get(id(node.target.obj))
-        if obj_type and is_collection_type(obj_type):
-            mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
-            obj = lower_expr(gen, node.target.obj)
-            index = lower_expr(gen, node.target.index)
-            value = lower_expr(gen, node.value)
-            return IRCall(callee=f"{mangled}_set", args=[obj, index, value])
-
-    # Empty {} or [] assigned to collection-typed field → collection_new()
-    if node.op == "=" and isinstance(node.value, BraceInitializer) and not node.value.elements:
-        target_type = gen.analyzed.node_types.get(id(node.target))
-        if target_type and is_collection_type(target_type):
-            from .types import mangle_generic_type as _mgt
-            mangled = _mgt(target_type.base, target_type.generic_args)
-            target = lower_expr(gen, node.target)
-            return IRBinOp(left=target, op="=",
-                           right=IRCall(callee=f"{mangled}_new", args=[]))
-
-    target = lower_expr(gen, node.target)
-    value = lower_expr(gen, node.value)
-
-    # String += → target = __btrc_str_track(__btrc_strcat(target, value))
-    if node.op == "+=" and is_string_type(gen.analyzed.node_types.get(id(node.target))):
-        gen.use_helper("__btrc_strcat")
-        gen.use_helper("__btrc_str_track")
-        cat = IRCall(callee="__btrc_strcat", args=[target, value],
-                     helper_ref="__btrc_strcat")
-        tracked = IRCall(callee="__btrc_str_track", args=[cat],
-                         helper_ref="__btrc_str_track")
-        return IRBinOp(left=target, op="=", right=tracked)
-
-    if node.op == "=":
-        return IRBinOp(left=target, op="=", right=value)
-    # Compound: +=, -=, *=, etc.
-    return IRBinOp(left=target, op=node.op, right=value)
 
 
 def _lower_sizeof(gen: IRGenerator, node: SizeofExpr) -> IRExpr:

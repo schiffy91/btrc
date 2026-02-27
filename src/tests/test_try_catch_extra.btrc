@@ -1,0 +1,16 @@
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    int caught = 0;
+    try {
+        throw "something went wrong";
+    } catch (e) {
+        caught = 1;
+        assert(strcmp(e, "something went wrong") == 0);
+    }
+    assert(caught == 1);
+
+    print("PASS: test_try_catch_extra");
+    return 0;
+}

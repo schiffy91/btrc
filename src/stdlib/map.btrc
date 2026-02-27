@@ -1,0 +1,161 @@
+/* btrc standard library — Map<K, V>
+ * Hash map using open addressing with linear probing.
+ * Key comparison via __btrc_eq, hashing via __btrc_hash (djb2).
+ *
+ * Performance: put/get/has O(1) average, O(n) worst case.
+ * Resize at 75% load factor. Deletion uses backward-shift
+ * rehashing (no tombstones) to maintain probe-chain integrity.
+ */
+
+class Map<K, V> {
+    public K* keys;
+    public V* values;
+    public bool* occupied;
+    public int len;
+    public int cap;
+
+    public Map() {
+        self.cap = 16;
+        self.len = 0;
+        self.keys = (K*)__btrc_safe_calloc(16, sizeof(K));
+        self.values = (V*)__btrc_safe_calloc(16, sizeof(V));
+        self.occupied = (bool*)__btrc_safe_calloc(16, sizeof(bool));
+    }
+
+    public void resize() {
+        int old_cap = self.cap;
+        K* old_keys = self.keys;
+        V* old_values = self.values;
+        bool* old_occupied = self.occupied;
+        self.cap = self.cap * 2;
+        self.len = 0;
+        self.keys = (K*)__btrc_safe_calloc(self.cap, sizeof(K));
+        self.values = (V*)__btrc_safe_calloc(self.cap, sizeof(V));
+        self.occupied = (bool*)__btrc_safe_calloc(self.cap, sizeof(bool));
+        for (int i = 0; i < old_cap; i++) {
+            if (old_occupied[i]) {
+                self.put(old_keys[i], old_values[i]);
+            }
+        }
+        free(old_keys);
+        free(old_values);
+        free(old_occupied);
+    }
+
+    public void put(K key, V value) {
+        if (self.len * 4 >= self.cap * 3) { self.resize(); }
+        unsigned int idx = __btrc_hash(key) % self.cap;
+        while (self.occupied[idx]) {
+            if (__btrc_eq(self.keys[idx], key)) { self.values[idx] = value; return; }
+            idx = (idx + 1) % self.cap;
+        }
+        self.keys[idx] = key;
+        self.values[idx] = value;
+        self.occupied[idx] = true;
+        self.len++;
+    }
+
+    public V get(K key) {
+        unsigned int idx = __btrc_hash(key) % self.cap;
+        while (self.occupied[idx]) {
+            if (__btrc_eq(self.keys[idx], key)) { return self.values[idx]; }
+            idx = (idx + 1) % self.cap;
+        }
+        fprintf(stderr, "Map key not found\n"); exit(1);
+        return self.values[0]; /* unreachable — satisfies return-type check */
+    }
+
+    public V getOrDefault(K key, V fallback) {
+        unsigned int idx = __btrc_hash(key) % self.cap;
+        while (self.occupied[idx]) {
+            if (__btrc_eq(self.keys[idx], key)) { return self.values[idx]; }
+            idx = (idx + 1) % self.cap;
+        }
+        return fallback;
+    }
+
+    public bool has(K key) {
+        unsigned int idx = __btrc_hash(key) % self.cap;
+        while (self.occupied[idx]) {
+            if (__btrc_eq(self.keys[idx], key)) { return true; }
+            idx = (idx + 1) % self.cap;
+        }
+        return false;
+    }
+
+    public bool contains(K key) {
+        return self.has(key);
+    }
+
+    public void putIfAbsent(K key, V value) {
+        if (!self.has(key)) { self.put(key, value); }
+    }
+
+    public void free() {
+        free(self.keys);
+        free(self.values);
+        free(self.occupied);
+        self.keys = null;
+        self.values = null;
+        self.occupied = null;
+        self.cap = 0;
+        self.len = 0;
+    }
+
+    public void remove(K key) {
+        unsigned int idx = __btrc_hash(key) % self.cap;
+        while (self.occupied[idx]) {
+            if (__btrc_eq(self.keys[idx], key)) {
+                self.occupied[idx] = false;
+                self.len--;
+                /* Rehash the rest of the cluster */
+                unsigned int j = (idx + 1) % self.cap;
+                while (self.occupied[j]) {
+                    K rk = self.keys[j];
+                    V rv = self.values[j];
+                    self.occupied[j] = false;
+                    self.len--;
+                    self.put(rk, rv);
+                    j = (j + 1) % self.cap;
+                }
+                return;
+            }
+            idx = (idx + 1) % self.cap;
+        }
+    }
+
+    public void clear() {
+        for (int i = 0; i < self.cap; i++) { self.occupied[i] = false; }
+        self.len = 0;
+    }
+
+    public int size() {
+        return self.len;
+    }
+
+    public bool isEmpty() {
+        return self.len == 0;
+    }
+
+    public List<K> keys() {
+        List<K> result = [];
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) { result.push(self.keys[i]); }
+        }
+        return result;
+    }
+
+    public List<V> values() {
+        List<V> result = [];
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) { result.push(self.values[i]); }
+        }
+        return result;
+    }
+
+    public void merge(Map<K, V> other) {
+        for (int i = 0; i < other.cap; i++) {
+            if (other.occupied[i]) { self.put(other.keys[i], other.values[i]); }
+        }
+    }
+}

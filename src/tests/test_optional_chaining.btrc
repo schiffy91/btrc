@@ -1,0 +1,20 @@
+#include <assert.h>
+
+struct Node {
+    int value;
+    struct Node* next;
+};
+
+int main() {
+    struct Node b;
+    b.value = 20;
+    b.next = null;
+    struct Node a;
+    a.value = 10;
+    a.next = &b;
+    assert(a.next?.value == 20);
+    assert(a.next?.next?.value == 0);
+
+    print("PASS: test_optional_chaining");
+    return 0;
+}

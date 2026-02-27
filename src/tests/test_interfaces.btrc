@@ -1,0 +1,60 @@
+#include <assert.h>
+#include <string.h>
+
+interface Greeter {
+    string greet();
+}
+
+class Dog implements Greeter {
+    public string name;
+    public Dog(string name) { self.name = name; }
+    public string greet() { return "Woof"; }
+}
+
+interface Describable {
+    string name();
+    int age();
+}
+
+class Person implements Describable {
+    public string _name;
+    public int _age;
+    public Person(string n, int a) { self._name = n; self._age = a; }
+    public string name() { return self._name; }
+    public int age() { return self._age; }
+}
+
+interface HasName {
+    string name();
+}
+
+interface HasFullName extends HasName {
+    string fullName();
+}
+
+class Employee implements HasFullName {
+    public string first;
+    public string last;
+    public Employee(string f, string l) { self.first = f; self.last = l; }
+    public string name() { return self.first; }
+    public string fullName() { return self.first; }
+}
+
+int main() {
+    // Basic interface
+    Dog d = Dog("Rex");
+    assert(strcmp(d.greet(), "Woof") == 0);
+
+    // Multiple interface methods
+    Person p = Person("Alice", 30);
+    assert(strcmp(p.name(), "Alice") == 0);
+    assert(p.age() == 30);
+
+    // Interface with extends
+    Employee e = Employee("Bob", "Smith");
+    assert(strcmp(e.name(), "Bob") == 0);
+    assert(strcmp(e.fullName(), "Bob") == 0);
+
+    print("PASS: test_interfaces");
+    return 0;
+}

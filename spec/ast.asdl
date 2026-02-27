@@ -1,0 +1,162 @@
+-- btrc AST definition (Zephyr ASDL format)
+--
+-- This is the single source of truth for AST node types.
+-- Generated code:
+--   tools/asdl_python.py  -> src/compiler/python/ast_nodes.py
+--   tools/asdl_btrc.py    -> src/compiler/btrc/ast_nodes.btrc
+--
+-- ASDL modifier semantics:
+--   field        = required (exactly 1)
+--   field?       = optional (0 or 1)
+--   field*       = sequence (0 or more)
+--   attributes() = common fields appended to every constructor in the type
+
+module Btrc {
+
+    -- ================================================================
+    -- Top-level program
+    -- ================================================================
+
+    program = Program(decl* declarations)
+
+    -- ================================================================
+    -- Declarations
+    -- ================================================================
+
+    decl = PreprocessorDirective(string text)
+         | ClassDecl(identifier name, identifier* generic_params,
+                     class_member* members, identifier? parent,
+                     identifier* interfaces, bool is_abstract)
+         | InterfaceDecl(identifier name, method_sig* methods,
+                         identifier? parent)
+         | FunctionDecl(type_expr return_type, identifier name,
+                        param* params, block? body, bool is_gpu)
+         | StructDecl(identifier name, field_def* fields)
+         | EnumDecl(identifier name, enum_value* values)
+         | RichEnumDecl(identifier name, rich_enum_variant* variants)
+         | TypedefDecl(type_expr original, identifier alias)
+         attributes(int line, int col)
+
+    -- ================================================================
+    -- Types
+    -- ================================================================
+
+    type_expr = TypeExpr(identifier base, type_expr* generic_args,
+                         int pointer_depth, bool is_array,
+                         expr? array_size)
+                attributes(int line, int col)
+
+    -- ================================================================
+    -- Parameters and helpers
+    -- ================================================================
+
+    param = Param(type_expr type, identifier name, expr? default)
+            attributes(int line, int col)
+
+    -- Class members
+    class_member = FieldDecl(string access, type_expr type,
+                             identifier name, expr? initializer)
+                 | MethodDecl(string access, type_expr return_type,
+                              identifier name, param* params,
+                              block? body, bool is_gpu, bool is_abstract)
+                 | PropertyDecl(string access, type_expr type,
+                                identifier name, bool has_getter,
+                                bool has_setter, block? getter_body,
+                                block? setter_body)
+                 attributes(int line, int col)
+
+    -- Interface method signature (method with no body)
+    method_sig = MethodSig(type_expr return_type, identifier name,
+                           param* params)
+                 attributes(int line, int col)
+
+    -- Enum helpers
+    enum_value   = EnumValue(identifier name, expr? value)
+    rich_enum_variant = RichEnumVariant(identifier name, param* params)
+    field_def    = FieldDef(type_expr type, identifier name)
+
+    -- ================================================================
+    -- Statements
+    -- ================================================================
+
+    block = Block(stmt* statements)
+            attributes(int line, int col)
+
+    stmt = VarDeclStmt(type_expr? type, identifier name,
+                       expr? initializer)
+         | ReturnStmt(expr? value)
+         | IfStmt(expr condition, block then_block,
+                  if_else? else_block)
+         | WhileStmt(expr condition, block body)
+         | DoWhileStmt(block body, expr condition)
+         | ForInStmt(identifier var_name, identifier? var_name2,
+                     expr iterable, block body)
+         | CForStmt(for_init? init, expr? condition, expr? update,
+                    block body)
+         | ParallelForStmt(identifier var_name, expr iterable,
+                           block body)
+         | SwitchStmt(expr value, case_clause* cases)
+         | BreakStmt
+         | ContinueStmt
+         | ExprStmt(expr expr)
+         | DeleteStmt(expr expr)
+         | TryCatchStmt(block try_block, identifier catch_var,
+                        block catch_block, block? finally_block)
+         | ThrowStmt(expr expr)
+         attributes(int line, int col)
+
+    -- Statement sub-types
+    if_else    = ElseBlock(block body)
+               | ElseIf(stmt if_stmt)
+
+    for_init   = ForInitVar(stmt var_decl)
+               | ForInitExpr(expr expression)
+
+    case_clause = CaseClause(expr? value, stmt* body)
+                  attributes(int line, int col)
+
+    -- ================================================================
+    -- Expressions
+    -- ================================================================
+
+    expr = IntLiteral(int value, string raw)
+         | FloatLiteral(float value, string raw)
+         | StringLiteral(string value)
+         | CharLiteral(string value)
+         | BoolLiteral(bool value)
+         | NullLiteral
+         | Identifier(identifier name)
+         | SelfExpr
+         | SuperExpr
+         | BinaryExpr(expr left, string op, expr right)
+         | UnaryExpr(string op, expr operand, bool prefix)
+         | CallExpr(expr callee, expr* args)
+         | IndexExpr(expr obj, expr index)
+         | FieldAccessExpr(expr obj, identifier field,
+                           bool arrow, bool optional)
+         | CastExpr(type_expr target_type, expr expr)
+         | SizeofExpr(sizeof_operand operand)
+         | TernaryExpr(expr condition, expr true_expr,
+                       expr false_expr)
+         | AssignExpr(expr target, string op, expr value)
+         | ListLiteral(expr* elements)
+         | MapLiteral(map_entry* entries)
+         | BraceInitializer(expr* elements)
+         | FStringLiteral(fstring_part* parts)
+         | NewExpr(type_expr type, expr* args)
+         | TupleLiteral(expr* elements)
+         | LambdaExpr(type_expr? return_type, param* params,
+                      lambda_body body, capture* captures)
+         attributes(int line, int col)
+
+    -- Expression sub-types
+    sizeof_operand = SizeofType(type_expr type)
+                   | SizeofExprOp(expr expr)
+
+    map_entry    = MapEntry(expr key, expr value)
+    fstring_part = FStringText(string text)
+                 | FStringExpr(expr expression)
+    lambda_body  = LambdaBlock(block body)
+                 | LambdaExprBody(expr expression)
+    capture      = Capture(identifier name, type_expr type)
+}

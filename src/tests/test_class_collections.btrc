@@ -1,0 +1,30 @@
+#include <assert.h>
+
+class Registry {
+    public Map<string, int> scores = {};
+    public List<string> names = [];
+
+    public void add(string name, int score) {
+        self.names.push(name);
+        self.scores.put(name, score);
+    }
+
+    public int total() {
+        int sum = 0;
+        for n, s in self.scores {
+            sum = sum + s;
+        }
+        return sum;
+    }
+}
+
+int main() {
+    Registry r = Registry();
+    r.add("alice", 90);
+    r.add("bob", 85);
+    assert(r.names.len == 2);
+    assert(r.total() == 175);
+
+    print("PASS: test_class_collections");
+    return 0;
+}

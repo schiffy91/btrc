@@ -1,0 +1,11 @@
+#include <assert.h>
+
+int main() {
+    List<int> nums = [10, 20, 30];
+    assert(nums.get(0) == 10);
+    assert(nums.get(2) == 30);
+    nums.free();
+
+    print("PASS: test_list_bounds");
+    return 0;
+}

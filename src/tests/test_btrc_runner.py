@@ -17,8 +17,10 @@ import pytest
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser import Parser
 from src.compiler.python.analyzer import Analyzer
-from src.compiler.python.codegen import CodeGen
-from src.compiler.python.main import resolve_includes
+from src.compiler.python.ir.gen import IRGenerator
+from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.emitter import CEmitter
+from src.compiler.python.main import resolve_includes, get_stdlib_source
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 
@@ -39,12 +41,19 @@ def test_btrc_file(btrc_file):
     # Resolve includes
     source = resolve_includes(source, btrc_path)
 
+    # Auto-include stdlib collection types
+    stdlib_source = get_stdlib_source()
+    if stdlib_source:
+        source = stdlib_source + "\n" + source
+
     # Transpile
     tokens = Lexer(source, btrc_file).tokenize()
     program = Parser(tokens).parse()
     analyzed = Analyzer().analyze(program)
     assert not analyzed.errors, f"Analyzer errors: {analyzed.errors}"
-    c_source = CodeGen(analyzed).generate()
+    ir_module = IRGenerator(analyzed).generate()
+    ir_module = optimize(ir_module)
+    c_source = CEmitter().emit(ir_module)
 
     # Write C, compile, run
     with tempfile.NamedTemporaryFile(suffix=".c", delete=False, mode="w") as f:

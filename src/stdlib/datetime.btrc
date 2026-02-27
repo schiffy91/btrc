@@ -1,6 +1,7 @@
 /* btrc standard library — DateTime
  * Date and time utilities inspired by Python's datetime module.
  */
+#include <time.h>
 
 class DateTime {
     public int year;

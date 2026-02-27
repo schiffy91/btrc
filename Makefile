@@ -1,40 +1,41 @@
-.PHONY: build test test-all bootstrap generate-expected lint format install-ext package-ext clean
+.PHONY: build test test-btrc generate-expected gen-builtins lint format install-ext package-ext clean bench
 
 build:
-	@mkdir -p build
-	python3 btrc.py src/compiler/btrc/btrc_compiler.btrc -o build/btrc_compiler.c
-	gcc build/btrc_compiler.c -o build/btrc_compiler -lm -Wno-parentheses-equality
+	@mkdir -p bin
+	@echo '#!/usr/bin/env python3' > bin/btrcpy
+	@echo 'import sys, os' >> bin/btrcpy
+	@echo 'sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))' >> bin/btrcpy
+	@echo 'from src.compiler.python.main import main' >> bin/btrcpy
+	@echo 'main()' >> bin/btrcpy
+	@chmod +x bin/btrcpy
+	@echo "Built bin/btrcpy"
 
 test:
 	python3 -m pytest src/compiler/python/tests/ src/tests/test_btrc_runner.py -x -q
 
-test-all:
-	python3 -m pytest src/compiler/python/tests/ src/tests/ -x -q
+test-btrc:
+	python3 -m pytest src/tests/test_btrc_runner.py -x -q
 
 generate-expected:
 	python3 src/tests/generate_expected.py
 
+gen-builtins:
+	python3 tools/gen_builtins.py
+
 lint:
-	ruff check src/ devex/
+	ruff check src/
 
 format:
-	ruff format src/ devex/
+	ruff format src/
 
-bootstrap: build
-	@echo "Stage 2: self-hosted compiles itself..."
-	./build/btrc_compiler src/compiler/btrc/btrc_compiler.btrc -o build/btrc_stage2.c
-	gcc build/btrc_stage2.c -o build/btrc_stage2 -lm -Wno-parentheses-equality
-	@echo "Stage 2 verification..."
-	./build/btrc_stage2 src/tests/test_classes.btrc -o /tmp/btrc_verify.c
-	gcc /tmp/btrc_verify.c -o /tmp/btrc_verify -lm
-	/tmp/btrc_verify
-	@echo "Bootstrap successful!"
+bench:
+	bash benchmarks/run.sh
 
 install-ext:
-	cd devex/ext && npm install && npm run install-ext
+	cd src/devex/ext && npm install && npm run install-ext
 
 package-ext:
-	cd devex/ext && npm install && npm run package
+	cd src/devex/ext && npm install && npm run package
 
 clean:
-	rm -rf build/ devex/ext/out/ devex/ext/node_modules/ devex/ext/btrc.vsix
+	rm -rf bin/ src/devex/ext/out/ src/devex/ext/node_modules/ src/devex/ext/*.vsix

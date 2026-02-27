@@ -178,7 +178,7 @@ class TestConstructors:
                 public Node(int v) { self.val = v; }
             }
             void test() {
-                Node* n = new Node(42);
+                Node n = new Node(42);
             }
         '''
         assert no_errors(src)
@@ -841,7 +841,7 @@ class TestErrorDetection:
                 public int val;
             }
             void test() {
-                Simple* s = new Simple(1);
+                Simple s = new Simple(1);
             }
         '''
         assert has_error(src, "no constructor")
@@ -1181,7 +1181,7 @@ class TestConstructorValidation:
                 public int data;
             }
             void test() {
-                Plain* p = new Plain();
+                Plain p = new Plain();
             }
         '''
         assert no_errors(src)
@@ -1619,7 +1619,7 @@ class TestConstructorArgCount:
                 public Foo(int x) { }
             }
             int main() {
-                Foo* f = new Foo(1, 2);
+                Foo f = new Foo(1, 2);
                 return 0;
             }
         '''
@@ -1631,7 +1631,7 @@ class TestConstructorArgCount:
                 public Foo(int x, int y) { }
             }
             int main() {
-                Foo* f = new Foo();
+                Foo f = new Foo();
                 return 0;
             }
         '''

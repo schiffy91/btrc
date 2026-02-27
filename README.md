@@ -1,228 +1,363 @@
 # btrc
 
-A modern language that transpiles to C. Write expressive, object-oriented code that compiles to efficient native binaries. No garbage collector — you own your memory.
+**Modern syntax. C output. No magic.**
 
-## Quick Start
-
-```bash
-python3 btrc.py hello.btrc -o hello.c
-gcc hello.c -o hello -lm
-./hello
-```
-
-## Hello World
-
-No boilerplate required — `main` is your entry point.
-
-```
-int main() {
-    print("hello from btrc!");
-    return 0;
-}
-```
-
-## Classes
-
-Fields, constructors, instance methods, and static methods.
+btrc is a statically-typed language that transpiles to C. It adds modern features — classes, generics, type inference, lambdas, f-strings, collections — while keeping C's memory model and performance characteristics. The generated C is readable and self-contained: no runtime library, no garbage collector, no virtual machine. It includes small inline helpers for strings, collections, and exception handling, but requires no separate runtime. You can inspect, debug, and link the output against anything.
 
 ```
 class Counter {
     private int count = 0;
-
     public void inc() { self.count++; }
     public int get() { return self.count; }
 }
 
-class Math {
+int main() {
+    var c = Counter();
+    c.inc();
+    c.inc();
+    print(f"count = {c.get()}");
+    return 0;
+}
+```
+
+## Why btrc?
+
+As LLMs make programming more accessible, code itself becomes less about typing and more about taste — what you choose to build, how you choose to build it, what tradeoffs you find beautiful. Programming is becoming an art. btrc is an art project.
+
+The design question: *what if you could write C with modern syntax and get readable C output you can inspect?* The compiler is spec-driven — a formal [EBNF grammar](spec/grammar.ebnf) defines every keyword and operator, an [algebraic AST spec](spec/ast.asdl) defines every node type, and the pipeline walks through six stages from source to native binary. The generated C is something a human could have written. You can read it, debug it, link it against anything.
+
+It's a transpiler, not a new compiler backend — you get gcc compatibility for free but inherit C's limitations. There is no borrow checker, no lifetime analysis, and no memory safety beyond what C provides. Exception handling uses `setjmp`/`longjmp` and does not automatically free allocations on throw. If you need a production systems language with safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/).
+
+## Quick Start
+
+```bash
+# Build the compiler
+make build
+
+# Compile a program
+./bin/btrc hello.btrc -o hello.c
+gcc hello.c -o hello -lm
+./hello
+
+# Or use the Python compiler directly
+python3 -m src.compiler.python.main hello.btrc -o hello.c
+```
+
+## What You Get Over C
+
+| C Pain Point | btrc Solution |
+|---|---|
+| No classes | Full OOP: classes, inheritance, interfaces, abstract classes |
+| No generics | Monomorphized generics (`List<T>`, `Map<K,V>`, user-defined) |
+| No type inference | `var x = 42;` just works |
+| `printf` formatting | f-strings: `f"x = {x + 1}"` |
+| No collections | Built-in `List<T>`, `Map<K,V>`, `Set<T>` with rich APIs |
+| No lambdas | Arrow lambdas: `(int x) => x * 2` |
+| No exceptions | `try`/`catch`/`finally` via `setjmp`/`longjmp` (no automatic cleanup) |
+| No operator overloading | `__add__`, `__sub__`, `__eq__`, `__neg__` |
+| No string methods | `.len()`, `.contains()`, `.split()`, `.trim()`, `.toUpper()`, ... |
+| No properties | C#-style `get`/`set` properties |
+| Null pointer chaos | Optional chaining `?.` and null coalescing `??` |
+
+## What You Keep From C
+
+- Direct memory control with `new`/`delete` and pointers
+- Compilation to native code via gcc with minimal runtime overhead
+- Full C interop -- call any C library, use any C header
+- `#include`, `struct`, `typedef`, `extern` -- all still work
+- Same mental model: stack vs heap, pointers, manual lifetime management
+- Compiles with `gcc` -- no custom toolchain required
+
+---
+
+## Language Guide
+
+### Types
+
+```
+// Primitives
+int x = 42;
+float f = 3.14;
+double d = 2.718281828;
+bool flag = true;
+char c = 'A';
+string name = "btrc";
+
+// Pointers (just like C)
+int* ptr = &x;
+int val = *ptr;
+
+// Type inference
+var count = 10;          // int
+var msg = "hello";       // string
+var items = [1, 2, 3];   // List<int>
+var cache = {"a": 1};    // Map<string, int>
+```
+
+### Number Literals
+
+```
+int dec = 255;
+int hex = 0xFF;
+int bin = 0b11111111;
+int oct = 0o377;
+float f = 3.14f;
+```
+
+### Control Flow
+
+```
+// if / else if / else
+if (x > 0) {
+    print("positive");
+} else if (x == 0) {
+    print("zero");
+} else {
+    print("negative");
+}
+
+// C-style for
+for (int i = 0; i < 10; i++) {
+    sum += i;
+}
+
+// for-in with range
+for i in range(10) { }
+for i in range(2, 8) { }
+for i in range(0, 20, 2) { }
+
+// for-in over collections
+for val in list { }
+for key, value in map { }
+for ch in someString { }
+
+// while / do-while
+while (running) { tick(); }
+do { x++; } while (x < 10);
+
+// switch
+switch (status) {
+    case 200: handle_ok(); break;
+    case 404: handle_not_found(); break;
+    default: handle_error();
+}
+```
+
+### Functions
+
+```
+int add(int a, int b) {
+    return a + b;
+}
+
+// Default parameters
+string greet(string name, string prefix = "Hello") {
+    return f"{prefix}, {name}!";
+}
+
+greet("world");          // "Hello, world!"
+greet("world", "Hey");   // "Hey, world!"
+
+// Forward declarations (mutual recursion)
+bool is_even(int n);
+bool is_odd(int n) { return n == 0 ? false : is_even(n - 1); }
+bool is_even(int n) { return n == 0 ? true : is_odd(n - 1); }
+```
+
+### Lambdas
+
+```
+// Arrow syntax (expression body)
+var double_it = (int x) => x * 2;
+
+// Arrow syntax (block body)
+var abs_fn = (int x) => {
+    if (x < 0) { return -x; }
+    return x;
+};
+
+// Verbose syntax
+var multiply = int function(int a, int b) { return a * b; };
+
+// Use with collection methods
+nums.forEach(void function(int x) { print(f"{x}"); });
+List<int> evens = nums.filter(bool function(int x) { return x % 2 == 0; });
+```
+
+### Classes
+
+```
+class Point {
+    public int x;
+    public int y;
+
+    public Point(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+
+    public int distSquared() {
+        return self.x * self.x + self.y * self.y;
+    }
+}
+
+Point p = Point(3, 4);
+assert(p.distSquared() == 25);
+```
+
+#### Access Control
+
+```
+class Account {
+    private int balance;
+
+    public Account(int initial) { self.balance = initial; }
+    public int getBalance() { return self.balance; }
+
+    public void deposit(int amount) {
+        if (amount > 0) { self.balance += amount; }
+    }
+}
+```
+
+#### Static Methods
+
+```
+class MathUtil {
     class int square(int x) { return x * x; }
+    class int max(int a, int b) { return a > b ? a : b; }
 }
 
-int main() {
-    Counter c = Counter();
-    c.inc(); c.inc(); c.inc();
-    print(f"count = {c.get()}");        // count = 3
-    print(f"5^2 = {Math.square(5)}");   // 5^2 = 25
-    return 0;
-}
+int result = MathUtil.square(5);  // 25
 ```
 
-## Generics & Collections
-
-`List<T>`, `Map<K,V>`, `Set<T>`, and `Array<T>` with for-in iteration. User-defined generic classes are also supported.
+#### Default Field Values
 
 ```
-int main() {
-    List<int> nums = [10, 20, 30];
-    int sum = 0;
-    for x in nums {
-        sum += x;
-    }
-    print(f"sum = {sum}");  // sum = 60
-
-    Map<string, int> ages = {};
-    ages.put("alice", 30);
-    ages.put("bob", 25);
-    for name, age in ages {
-        print(f"{name}: {age}");
-    }
-
-    Set<int> s = {1, 2, 3};
-    s.add(4);
-    print(f"contains 2: {s.contains(2)}");  // contains 2: true
-    return 0;
+class Config {
+    public int width = 800;
+    public int height = 600;
+    public int fps = 60;
 }
+
+Config cfg = Config();  // all defaults applied
 ```
 
-User-defined generic classes:
-
-```
-class Pair<A, B> {
-    public A first;
-    public B second;
-
-    public Pair(A first, B second) {
-        self.first = first;
-        self.second = second;
-    }
-}
-
-int main() {
-    var p = Pair<string, int>("age", 30);
-    print(f"{p.first}: {p.second}");  // age: 30
-    return 0;
-}
-```
-
-## Interfaces & Abstract Classes
-
-Interfaces define contracts. Abstract classes provide partial implementations.
-
-```
-interface Printable {
-    string toString();
-}
-
-abstract class Shape implements Printable {
-    public abstract float area();
-
-    public string toString() {
-        return f"Shape(area={self.area()})";
-    }
-}
-
-class Circle extends Shape {
-    public float radius;
-    public Circle(float r) { self.radius = r; }
-    public float area() { return 3.14159 * self.radius * self.radius; }
-}
-
-int main() {
-    var c = Circle(5.0);
-    print(c.toString());  // Shape(area=78.539749)
-    return 0;
-}
-```
-
-## Enums
-
-Enums with `toString()` and rich enums with associated values.
-
-```
-enum Color { Red, Green, Blue }
-
-enum Shape {
-    Circle(float radius),
-    Rect(float w, float h)
-}
-
-int main() {
-    Color c = Color.Green;
-    print(c.toString());  // Green
-
-    Shape s = Shape.Circle(5.0);
-    match (s) {
-        Circle(r) => print(f"circle r={r}"),
-        Rect(w, h) => print(f"rect {w}x{h}")
-    }
-    return 0;
-}
-```
-
-## Inheritance
-
-Classes extend other classes. Methods override naturally.
+### Inheritance
 
 ```
 class Animal {
     public string name;
-    public int age;
-
-    public Animal(string name, int age) {
-        self.name = name;
-        self.age = age;
-    }
-
+    public Animal(string name) { self.name = name; }
     public string speak() { return "..."; }
 }
 
 class Dog extends Animal {
-    public string breed;
+    public Dog(string name) { self.name = name; }
+    public string speak() { return "Woof"; }
+}
 
-    public Dog(string name, int age, string breed) {
-        self.name = name;
-        self.age = age;
-        self.breed = breed;
+class Cat extends Animal {
+    public Cat(string name) { self.name = name; }
+    public string speak() { return "Meow"; }
+}
+
+Dog d = Dog("Rex");
+print(d.speak());    // "Woof"
+print(d.name);       // "Rex"
+```
+
+### Interfaces
+
+```
+interface Greeter {
+    string greet();
+}
+
+class Dog implements Greeter {
+    public string name;
+    public Dog(string name) { self.name = name; }
+    public string greet() { return "Woof"; }
+}
+
+// Interface inheritance
+interface HasName {
+    string name();
+}
+
+interface HasFullName extends HasName {
+    string fullName();
+}
+```
+
+### Abstract Classes
+
+```
+abstract class Shape {
+    public abstract double area();
+    public string kind() { return "shape"; }  // concrete method allowed
+}
+
+class Circle extends Shape {
+    public double r;
+    public Circle(double r) { self.r = r; }
+    public double area() { return 3.14159 * self.r * self.r; }
+}
+```
+
+### Generics
+
+btrc generics are monomorphized -- the compiler generates specialized C code for each type combination. Zero runtime overhead, but binary size grows with each unique type combination (the same trade-off as C++ templates and Rust generics).
+
+```
+class Box<T> {
+    public T value;
+    public Box(T val) { self.value = val; }
+    public T get() { return self.value; }
+}
+
+Box<int> bi = Box(42);
+Box<string> bs = Box("hello");
+
+class Pair<A, B> {
+    public A first;
+    public B second;
+    public Pair(A a, B b) { self.first = a; self.second = b; }
+}
+
+Pair<string, int> entry = Pair("score", 100);
+```
+
+### Operator Overloading
+
+```
+class Vec2 {
+    public int x;
+    public int y;
+    public Vec2(int x, int y) { self.x = x; self.y = y; }
+
+    public Vec2 __add__(Vec2 other) {
+        return Vec2(self.x + other.x, self.y + other.y);
     }
-
-    public string speak() { return "Woof!"; }
+    public Vec2 __sub__(Vec2 other) {
+        return Vec2(self.x - other.x, self.y - other.y);
+    }
+    public Vec2 __neg__() {
+        return Vec2(-self.x, -self.y);
+    }
+    public bool __eq__(Vec2 other) {
+        return self.x == other.x && self.y == other.y;
+    }
 }
 
-int main() {
-    var rex = Dog("Rex", 5, "Shepherd");
-    print(f"{rex.name} says {rex.speak()}");  // Rex says Woof!
-    return 0;
-}
+Vec2 a = Vec2(1, 2);
+Vec2 b = Vec2(3, 4);
+Vec2 c = a + b;         // Vec2(4, 6)
+Vec2 d = -a;            // Vec2(-1, -2)
+bool eq = (a == b);     // false
 ```
 
-## Lambdas & Closures
-
-First-class functions with variable capture.
-
-```
-int main() {
-    List<int> nums = [3, 1, 4, 1, 5];
-
-    // Filter and map with lambdas
-    var evens = nums.filter((int x) => x % 2 == 0);
-    var doubled = nums.map((int x) => x * 2);
-
-    // Closures capture variables
-    int factor = 10;
-    var scaled = nums.map((int x) => x * factor);
-
-    return 0;
-}
-```
-
-## Tuples
-
-Lightweight grouping of values.
-
-```
-int main() {
-    (int, string) pair = (42, "hello");
-    print(f"{pair.0}: {pair.1}");  // 42: hello
-
-    // Tuple unpacking
-    var (x, y) = (10, 20);
-    print(f"{x} + {y} = {x + y}");  // 10 + 20 = 30
-    return 0;
-}
-```
-
-## Properties
-
-Computed getters and setters.
+### Properties
 
 ```
 class Temperature {
@@ -231,265 +366,398 @@ class Temperature {
     public Temperature(float c) { self.celsius = c; }
 
     public float fahrenheit {
-        get { return self.celsius * 1.8 + 32.0; }
-        set { self.celsius = (value - 32.0) / 1.8; }
+        get { return self.celsius * 9.0 / 5.0 + 32.0; }
+        set { self.celsius = (value - 32.0) * 5.0 / 9.0; }
     }
 }
 
-int main() {
-    var t = Temperature(100.0);
-    print(f"{t.fahrenheit}");   // 212.000000
-    t.fahrenheit = 32.0;
-    print(f"{t.celsius}");      // 0.000000
-    return 0;
+var t = Temperature(100.0);
+float f = t.fahrenheit;      // 212.0 (getter)
+t.fahrenheit = 32.0;         // sets celsius to 0.0 (setter)
+
+// Auto-properties
+class Point {
+    public int x { get; set; }
+    public int y { get; set; }
 }
 ```
 
-## Nullable Types & Type Inference
-
-Safe nullable types and `var` for type inference.
+### Enums
 
 ```
-int main() {
-    int? maybe = 42;
-    if (maybe != null) {
-        print(f"got {maybe}");
-    }
+// Simple enums
+enum Color { RED, GREEN, BLUE };
+enum Status { OK = 200, NOT_FOUND = 404, ERROR = 500 };
 
-    var name = "btrc";       // inferred as string
-    var nums = [1, 2, 3];    // inferred as List<int>
-    return 0;
+// Rich enums (algebraic data types / tagged unions)
+enum class Shape {
+    Circle(double radius),
+    Rect(double w, double h),
+    Point
+}
+
+Shape s = Shape.Circle(5.0);
+if (s.tag == Shape.Circle) {
+    print(f"radius: {s.data.Circle.radius}");
 }
 ```
 
-## Error Handling
-
-`try`/`catch`/`finally`/`throw` with string exceptions.
+### Tuples
 
 ```
-class Account {
-    public string owner;
-    public int balance;
-
-    public Account(string owner, int balance = 0) {
-        self.owner = owner;
-        self.balance = balance;
-    }
-
-    public void withdraw(int amount) {
-        if (amount > self.balance) {
-            throw "insufficient funds";
-        }
-        self.balance -= amount;
-    }
+(int, int) divmod(int a, int b) {
+    return (a / b, a % b);
 }
 
-int main() {
-    var acct = Account("Alice", 100);
-    try {
-        acct.withdraw(200);
-    } catch (string e) {
-        print(f"Error: {e}");  // Error: insufficient funds
-    } finally {
-        print("done");
-    }
-    return 0;
+(int, int) result = divmod(17, 5);
+assert(result._0 == 3);  // quotient
+assert(result._1 == 2);  // remainder
+
+// Nested tuples
+(int, (string, bool)) nested = (1, ("yes", true));
+```
+
+### Collections
+
+#### List
+
+```
+List<int> nums = [10, 20, 30];
+nums.push(40);
+nums[0] = 99;
+int val = nums.pop();
+
+for x in nums { print(f"{x}"); }
+
+// Rich API
+nums.sort();
+nums.reverse();
+bool has = nums.contains(20);
+int idx = nums.indexOf(20);
+List<int> sub = nums.slice(1, 3);
+List<int> head = nums.take(2);
+int total = nums.sum();
+int smallest = nums.min();
+List<int> unique = nums.distinct();
+string joined = names.join(", ");
+
+// Functional
+List<int> evens = nums.filter(bool function(int x) { return x % 2 == 0; });
+bool any_neg = nums.any(bool function(int x) { return x < 0; });
+
+nums.free();  // manual cleanup
+```
+
+#### Map
+
+```
+Map<string, int> ages = {"alice": 30, "bob": 25};
+ages.put("carol", 35);
+int age = ages.get("alice");
+bool exists = ages.has("bob");
+
+List<string> keys = ages.keys();
+List<int> values = ages.values();
+
+ages.free();
+```
+
+#### Set
+
+```
+Set<int> s = {};
+s.add(10);
+s.add(20);
+s.add(10);            // duplicate ignored
+assert(s.len == 2);
+
+Set<int> other = {};
+other.add(20);
+other.add(30);
+
+Set<int> u = s.unite(other);       // {10, 20, 30}
+Set<int> i = s.intersect(other);   // {20}
+Set<int> d = s.subtract(other);    // {10}
+
+s.free();
+```
+
+### Strings
+
+btrc strings have a full method API -- no more `strlen`/`strstr`/`strtok` gymnastics.
+
+```
+string s = "hello world";
+
+// Info
+int len = s.len();
+bool has = s.contains("world");
+int idx = s.indexOf("world");
+bool starts = s.startsWith("hello");
+
+// Transform
+string up = s.toUpper();
+string low = s.toLower();
+string trimmed = "  hi  ".trim();
+string replaced = s.replace("world", "btrc");
+string repeated = "ab".repeat(3);        // "ababab"
+
+// Extract
+string sub = s.substring(0, 5);          // "hello"
+char ch = s.charAt(0);                   // 'h'
+
+// Pad
+string padded = "42".padLeft(5, '0');    // "00042"
+string zfilled = "42".zfill(5);          // "00042"
+
+// Concatenation
+string full = "hello" + " " + "world";
+
+// Iterate
+for ch in "hello" { print(f"{ch}"); }
+```
+
+### F-Strings
+
+```
+int x = 42;
+string name = "world";
+print(f"hello {name}, x = {x}");
+print(f"{x * 2 + 1}");                  // expressions work
+```
+
+### Null Safety
+
+```
+// Optional chaining -- safe navigation through nullable pointers
+int val = obj?.field;        // 0 if obj is null, no crash
+
+// Null coalescing -- provide defaults
+string name = ptr ?? "anonymous";
+
+// Nullable pointers
+int* p = null;
+if (p != null) {
+    int v = *p;
 }
 ```
 
-## F-Strings
+### Memory Management
 
-Interpolated string expressions with format specifiers.
+btrc gives you C-level control. No garbage collector -- you decide when memory is allocated and freed.
 
-```
-int main() {
-    int x = 42;
-    float pi = 3.14159;
-    print(f"x = {x}, pi = {pi:.2f}");  // x = 42, pi = 3.14
-    print(f"hex: {x:x}");               // hex: 2a
-    print(f"literal braces: {{escaped}}"); // literal braces: {escaped}
-    return 0;
-}
-```
-
-## Operator Overloading
-
-Define `+`, `-`, `*`, `/`, `==`, `<`, and other operators for your types.
+> **Safety model:** btrc inherits C's memory model. The compiler checks types and access control at compile time, but does not prevent use-after-free, double-free, dangling pointers, or buffer overflows. There is no borrow checker or lifetime analysis. If you need memory safety guarantees, use Rust. btrc is for programmers who want C's control with better syntax.
 
 ```
-class Vec2 {
-    public float x;
-    public float y;
+// Stack allocation (automatic lifetime)
+Point p = Point(3, 4);
 
-    public Vec2(float x, float y) { self.x = x; self.y = y; }
+// Heap allocation
+Node n = new Node(99);
+n.val = 100;
+delete n;                    // frees memory + calls destructor
 
-    public Vec2 __add__(Vec2 other) {
-        return Vec2(self.x + other.x, self.y + other.y);
-    }
-}
-
-int main() {
-    var a = Vec2(1.0, 2.0);
-    var b = Vec2(3.0, 4.0);
-    var c = a + b;
-    print(f"({c.x}, {c.y})");  // (4.000000, 6.000000)
-    return 0;
-}
-```
-
-## Range & Iteration
-
-`range()` with start, end, and step.
-
-```
-int main() {
-    for i in range(5) {
-        print(f"{i}");  // 0, 1, 2, 3, 4
-    }
-
-    for i in range(0, 10, 2) {
-        print(f"{i}");  // 0, 2, 4, 6, 8
-    }
-    return 0;
-}
-```
-
-## Memory Model
-
-Classes are value types (C structs). No garbage collector — you allocate and free explicitly.
-
-- **Stack**: `Counter c = Counter();` — lives on the stack, freed automatically when scope ends
-- **Heap**: `Node* n = new Node(42);` — lives on the heap, you call `delete n;` when done
-- **Pointers**: `Node*` is a pointer to a heap-allocated `Node`, accessed with `->`
-- **Destructors**: `__del__()` methods let you clean up owned resources
-
-```
-class Node {
-    public int value;
-    public Node* next;
-
-    public Node(int value) {
-        self.value = value;
-        self.next = null;
-    }
-}
-
-class LinkedList {
-    public Node* head = null;
-    public int size = 0;
-
-    public void append(int value) {
-        Node* node = new Node(value);
-        if (self.head == null) {
-            self.head = node;
-        } else {
-            Node* curr = self.head;
-            while (curr->next != null) {
-                curr = curr->next;
-            }
-            curr->next = node;
-        }
-        self.size++;
-    }
-
+// Destructors for cleanup
+class Resource {
     public void __del__() {
-        while (self.head != null) {
-            Node* old = self.head;
-            self.head = self.head->next;
-            delete old;
-        }
+        // called automatically on delete
     }
 }
 
+// Pointers work like C
+int x = 42;
+int* ptr = &x;
+int val = *ptr;
+
+// C memory functions available
+int* buf = (int*)malloc(100 * sizeof(int));
+free(buf);
+```
+
+### Exception Handling
+
+```
+void validate(int x) {
+    if (x < 0) {
+        throw "negative value";
+    }
+}
+
+try {
+    validate(-1);
+} catch (string e) {
+    print(f"caught: {e}");
+} finally {
+    print("cleanup runs always");
+}
+```
+
+### C Interop
+
+btrc is a superset of a large subset of C. You can mix btrc and C freely in the same file.
+
+```
+#include <math.h>
+
+struct Vec2 {
+    float x;
+    float y;
+};
+
+float dot(struct Vec2* a, struct Vec2* b) {
+    return a->x * b->x + a->y * b->y;
+}
+
 int main() {
-    var list = LinkedList();
-    list.append(10);
-    list.append(20);
-    list.append(30);
-    print(f"size: {list.size}");  // size: 3
-    list.__del__();
+    struct Vec2 a = {3.0f, 4.0f};
+    struct Vec2 b = {1.0f, 0.0f};
+    float d = dot(&a, &b);
+    printf("dot = %f, sqrt = %f\n", d, sqrt(d));
     return 0;
 }
 ```
 
-btrc gives you C's performance and control with a cleaner syntax. There's no hidden runtime, no GC pauses, no reference counting — just straightforward `new`/`delete` and stack allocation.
+---
 
-## Standard Library
+## Compilation Pipeline
 
-| Module | Description |
-|--------|-------------|
-| `math.btrc` | Math functions, constants, Vec2/Vec3 |
-| `strings.btrc` | String utilities (split, trim, replace, etc.) |
-| `collections.btrc` | Stack, Queue, PriorityQueue |
-| `io.btrc` | File I/O, Path utilities |
-| `datetime.btrc` | Date/time types and formatting |
-| `random.btrc` | Random number generation |
-| `error.btrc` | Error types (ValueError, IOError, TypeError) |
-| `console.btrc` | Console I/O (readLine, print, error) |
+btrc compiles through six stages. Two formal specs drive the front-end: [`spec/grammar.ebnf`](spec/grammar.ebnf) defines all keywords, operators, and syntax rules; [`spec/ast.asdl`](spec/ast.asdl) defines all AST node types using [Zephyr ASDL](https://www.cs.princeton.edu/~appel/papers/asdl97.pdf). A structured IR separates lowering from emission.
 
-Include with `#include "stdlib/math.btrc"`.
+```
+  spec/grammar.ebnf          (single source of truth: keywords, operators, syntax)
+  spec/ast.asdl              (single source of truth: AST node types)
+         │
+  .btrc source
+         │
+    [Lexer]       ──→ tokens            grammar-driven (keywords + operators from EBNF)
+         │
+    [Parser]      ──→ typed AST         ASDL-generated node classes
+         │
+    [Analyzer]    ──→ checked AST       scopes, types, generic instance collection
+         │
+    [IR Gen]      ──→ IR tree           structured nodes (IRIf, IRCall, IRFor, ...)
+         │
+    [Optimizer]   ──→ optimized IR      dead helper elimination
+         │
+    [C Emitter]   ──→ .c file           simple tree walk — no lowering logic
+         │
+    gcc -lm       ──→ native binary
+```
+
+The generated C is self-contained -- no runtime library, no special headers. It includes everything inline: vtables for inheritance, monomorphized generic structs, collection implementations, string helpers, and exception handling via `setjmp`/`longjmp`.
+
+---
 
 ## Project Structure
 
 ```
-btrc.py              # CLI entry point
-Makefile             # Build, test, lint, extension targets
+spec/
+  grammar.ebnf                 # Formal EBNF grammar (lexical + syntactic rules)
+  ast.asdl                     # Algebraic AST spec (Zephyr ASDL)
+
+tools/
+  asdl_parser.py               # ASDL file parser
+  asdl_python.py               # ASDL → Python dataclasses
+  asdl_btrc.py                 # ASDL → btrc classes
+  gen_builtins.py              # stdlib .btrc → LSP builtins (make gen-builtins)
+
+benchmarks/                    # Performance benchmarks (.btrc programs + runner)
+
 src/
   compiler/
-    python/          # Python-based transpiler (lexer, parser, analyzer, codegen)
-    btrc/            # Self-hosted compiler (written in btrc)
-  stdlib/            # Standard library
-  tests/             # Integration tests with golden file comparison
-    expected/        # Expected output golden files
-devex/
-  lsp/               # Language server (diagnostics, completion, hover, go-to-def, references)
-  ext/               # VS Code extension
-.devcontainer/       # Dev container setup
+    python/                    # Compiler (Python)
+      ebnf.py                  # EBNF parser → GrammarInfo
+      tokens.py                # Token + TokenType (grammar-driven)
+      lexer.py                 # Grammar-driven lexer
+      lexer_literals.py        # Number/string literal parsing
+      ast_nodes.py             # GENERATED from spec/ast.asdl
+      main.py                  # Pipeline entry point + CLI
+      parser/                  # Recursive descent parser (mixin-based)
+      analyzer/                # Type checking, scopes, generics (mixin-based)
+      ir/                      # IR pipeline
+        nodes.py               # IR node dataclass definitions
+        optimizer.py           # Dead helper elimination
+        emitter.py             # IR → C text (tree walk)
+        gen/                   # AST → IR lowering (classes, generics, lambdas, ...)
+          generics/            # Monomorphization (lists, maps, sets, user types)
+        helpers/               # Runtime helper C source text (strings, alloc, ...)
+      tests/                   # Unit tests (lexer, parser, analyzer, e2e)
+  stdlib/                      # Standard library (auto-included btrc source)
+    list.btrc                  # List<T>
+    map.btrc                   # Map<K,V>
+    set.btrc                   # Set<T>
+    strings.btrc               # String utilities
+    math.btrc                  # Math functions
+    datetime.btrc              # Date/time
+    error.btrc                 # Error classes
+    result.btrc                # Result type
+    io.btrc                    # File I/O
+    console.btrc               # Console output
+    random.btrc                # Random numbers
+  tests/                       # Language test suite (90 .btrc test programs)
+  devex/
+    ext/                       # VS Code extension (syntax highlighting + LSP client)
+    lsp/                       # Language server (completions, diagnostics, hover, go-to-def)
 ```
 
-## Development
+## Build & Test
 
 ```bash
-make test              # Run Python compiler tests + btrc integration tests
-make test-all          # Run all tests including self-hosted compiler tests
-make lint              # Run ruff linter
-make format            # Run ruff formatter
-make build             # Build self-hosted compiler
-make bootstrap         # Full self-hosted bootstrap (stage 2 verification)
-make generate-expected # Regenerate golden expected output files
-make install-ext       # Build + install VS Code extension
-make package-ext       # Package extension as .vsix
-make clean             # Clean build artifacts
+make build              # Create bin/btrcpy wrapper script
+make test               # Run compiler unit tests + btrc test suite (~740 tests)
+make test-btrc          # Run just the 90 btrc end-to-end tests
+make lint               # Lint with ruff
+make format             # Format with ruff
+
+make gen-builtins       # Regenerate LSP builtins from stdlib sources
+make install-ext        # Install VS Code extension
+make package-ext        # Package VS Code extension
+make clean              # Remove build artifacts
 ```
 
-## Self-Hosted Compiler
+### Requirements
 
-btrc has a self-hosted compiler written in btrc itself (`src/compiler/btrc/`). The bootstrap chain verifies correctness:
+- Python 3 + pip
+- gcc
+- pytest (for tests)
+- pygls + lsprotocol (for LSP)
+- Node.js + npm (for VS Code extension)
 
-1. **Stage 1**: Python compiler compiles the btrc compiler source → native binary
-2. **Stage 2**: Stage 1 binary compiles its own source → second native binary
-3. **Verification**: Stage 2 binary compiles and runs a test program
+## Editor Support
+
+btrc ships with a VS Code extension ([`src/devex/ext/`](src/devex/ext/)) and a Language Server Protocol implementation ([`src/devex/lsp/`](src/devex/lsp/)) that reuses the compiler's own lexer, parser, and analyzer. Diagnostics match exactly what the compiler reports — there is no separate linting pass.
+
+The LSP server maintains a two-tier cache: the current analysis (which may have parse errors while you type) and the last fully successful analysis. Features like go-to-definition and hover fall back to the good cache during transient errors, so intelligence keeps working while you edit.
+
+### Features
+
+| Feature | Description |
+|---|---|
+| Syntax highlighting | TextMate grammar + semantic tokens for rich classification |
+| Diagnostics | Real-time errors from the compiler's lexer, parser, and analyzer |
+| Code completion | Keywords, types, member access (`.`, `?.`, `->`), stdlib static methods, snippets |
+| Hover | Type information for variables, fields, methods, classes, and built-in types |
+| Go to definition | Classes, functions, methods, fields, properties, variables, enums, typedefs |
+| Find references | All usages of a symbol across the document with scope-aware matching |
+| Rename | Symbol rename across all references |
+| Signature help | Parameter hints for functions, constructors, methods, and stdlib calls |
+| Document symbols | Outline view with class hierarchy (fields, methods as children) |
+
+### Install
 
 ```bash
-make bootstrap    # Run the full bootstrap chain
+# Install the VS Code extension (builds + installs)
+make install-ext
+
+# Or open the project in the devcontainer for automatic setup
 ```
 
-## VS Code Extension
+The extension auto-discovers the LSP server and Python interpreter. Configure `btrc.pythonPath` or `btrc.serverPath` in VS Code settings if needed.
 
-The btrc VS Code extension provides syntax highlighting, diagnostics, code completion, hover info, go-to-definition, references, signature help, and semantic tokens.
+## Roadmap
 
-```bash
-make install-ext    # Build and install to VS Code
-```
-
-Or manually:
-
-```bash
-cd devex/ext
-npm install
-npm run install-ext
-```
-
-## Dev Container
-
-The `.devcontainer/` directory contains a full dev container setup with Claude Code, firewall, SSH agent forwarding, and credential management. Edit `.devcontainer/project.json` to configure project-specific settings (setup commands, firewall domains, VSCode extensions).
+Planned but not yet implemented:
+- **Self-hosting** -- rewrite the compiler in btrc itself (bootstrap cycle)
+- **Module system** -- currently relies on `#include "file.btrc"` textual inclusion
+- **Lifetime analysis** -- compile-time warnings for common memory errors
+- **Incremental compilation** -- only recompile changed files

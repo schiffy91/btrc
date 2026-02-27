@@ -1,4 +1,8 @@
-"""Token type definitions for the btrc language."""
+"""Token type definitions for the btrc language.
+
+TokenType enum and keyword table are validated against spec/grammar.ebnf
+at import time to ensure the grammar is the single source of truth.
+"""
 
 from enum import Enum, auto
 from dataclasses import dataclass
@@ -47,37 +51,31 @@ class TokenType(Enum):
     WHILE = auto()
 
     # btrc keywords
-    CLASS = auto()
-    PUBLIC = auto()
-    PRIVATE = auto()
-    SELF = auto()
-    IN = auto()
-    PARALLEL = auto()
-    STRING = auto()
-    BOOL = auto()
-    TRUE = auto()
-    FALSE = auto()
-    NEW = auto()
-    DELETE = auto()
-    NULL = auto()
-    TRY = auto()
-    CATCH = auto()
-    FINALLY = auto()
-    THROW = auto()
-    EXTENDS = auto()
-    IMPLEMENTS = auto()
-    SUPER = auto()
-    VAR = auto()
-    FUNCTION = auto()
-    INTERFACE = auto()
     ABSTRACT = auto()
+    BOOL = auto()
+    CATCH = auto()
+    CLASS = auto()
+    DELETE = auto()
+    EXTENDS = auto()
+    FALSE = auto()
+    FINALLY = auto()
+    FUNCTION = auto()
+    IMPLEMENTS = auto()
+    IN = auto()
+    INTERFACE = auto()
+    NEW = auto()
+    NULL = auto()
     OVERRIDE = auto()
-
-    # Built-in types
-    LIST = auto()
-    MAP = auto()
-    SET = auto()
-    ARRAY = auto()
+    PARALLEL = auto()
+    PRIVATE = auto()
+    PUBLIC = auto()
+    SELF = auto()
+    STRING = auto()
+    SUPER = auto()
+    THROW = auto()
+    TRUE = auto()
+    TRY = auto()
+    VAR = auto()
 
     # Annotation
     AT_GPU = auto()
@@ -151,80 +149,53 @@ class Token:
         return f"Token({self.type.name}, {self.value!r}, {self.line}:{self.col})"
 
 
-# Keyword lookup table: string -> TokenType
-KEYWORDS: dict[str, TokenType] = {
-    # C keywords
-    "auto": TokenType.AUTO,
-    "break": TokenType.BREAK,
-    "case": TokenType.CASE,
-    "char": TokenType.CHAR,
-    "const": TokenType.CONST,
-    "continue": TokenType.CONTINUE,
-    "default": TokenType.DEFAULT,
-    "do": TokenType.DO,
-    "double": TokenType.DOUBLE,
-    "else": TokenType.ELSE,
-    "enum": TokenType.ENUM,
-    "extern": TokenType.EXTERN,
-    "float": TokenType.FLOAT,
-    "for": TokenType.FOR,
-    "goto": TokenType.GOTO,
-    "if": TokenType.IF,
-    "int": TokenType.INT,
-    "long": TokenType.LONG,
-    "register": TokenType.REGISTER,
-    "return": TokenType.RETURN,
-    "short": TokenType.SHORT,
-    "signed": TokenType.SIGNED,
-    "sizeof": TokenType.SIZEOF,
-    "static": TokenType.STATIC,
-    "struct": TokenType.STRUCT,
-    "switch": TokenType.SWITCH,
-    "typedef": TokenType.TYPEDEF,
-    "union": TokenType.UNION,
-    "unsigned": TokenType.UNSIGNED,
-    "void": TokenType.VOID,
-    "volatile": TokenType.VOLATILE,
-    "while": TokenType.WHILE,
-    # btrc keywords
-    "class": TokenType.CLASS,
-    "public": TokenType.PUBLIC,
-    "private": TokenType.PRIVATE,
-    "self": TokenType.SELF,
-    "in": TokenType.IN,
-    "parallel": TokenType.PARALLEL,
-    "string": TokenType.STRING,
-    "bool": TokenType.BOOL,
-    "true": TokenType.TRUE,
-    "false": TokenType.FALSE,
-    "new": TokenType.NEW,
-    "delete": TokenType.DELETE,
-    "null": TokenType.NULL,
-    "try": TokenType.TRY,
-    "catch": TokenType.CATCH,
-    "finally": TokenType.FINALLY,
-    "throw": TokenType.THROW,
-    "extends": TokenType.EXTENDS,
-    "implements": TokenType.IMPLEMENTS,
-    "super": TokenType.SUPER,
-    "var": TokenType.VAR,
-    "function": TokenType.FUNCTION,
-    "interface": TokenType.INTERFACE,
-    "abstract": TokenType.ABSTRACT,
-    "override": TokenType.OVERRIDE,
-    # Built-in types
-    "List": TokenType.LIST,
-    "Map": TokenType.MAP,
-    "Set": TokenType.SET,
-    "Array": TokenType.ARRAY,
-}
+def _build_keyword_table() -> dict[str, TokenType]:
+    """Build keyword lookup table, validated against the grammar."""
+    from .ebnf import get_grammar_info
+    gi = get_grammar_info()
+    table: dict[str, TokenType] = {}
+    for kw in gi.keywords:
+        token_name = gi.keyword_to_token[kw]
+        try:
+            table[kw] = TokenType[token_name]
+        except KeyError:
+            raise RuntimeError(
+                f"Grammar keyword {kw!r} maps to TokenType.{token_name} "
+                f"which does not exist in the TokenType enum. "
+                f"Add it to tokens.py."
+            )
+    return table
+
+
+def _build_operator_table() -> dict[str, TokenType]:
+    """Build operator lookup table, validated against the grammar."""
+    from .ebnf import get_grammar_info
+    gi = get_grammar_info()
+    table: dict[str, TokenType] = {}
+    for op in gi.operators:
+        token_name = gi.op_to_token[op]
+        try:
+            table[op] = TokenType[token_name]
+        except KeyError:
+            raise RuntimeError(
+                f"Grammar operator {op!r} maps to TokenType.{token_name} "
+                f"which does not exist in the TokenType enum. "
+                f"Add it to tokens.py."
+            )
+    return table
+
+
+# Keyword lookup table: string -> TokenType (validated against grammar)
+KEYWORDS: dict[str, TokenType] = _build_keyword_table()
+
+# Operator lookup table: string -> TokenType (validated against grammar)
+OPERATORS: dict[str, TokenType] = _build_operator_table()
 
 # Set of token types that represent type keywords (used by parser for disambiguation)
 TYPE_KEYWORDS: set[TokenType] = {
     TokenType.VOID, TokenType.INT, TokenType.FLOAT, TokenType.DOUBLE,
     TokenType.CHAR, TokenType.SHORT, TokenType.LONG, TokenType.UNSIGNED,
     TokenType.SIGNED, TokenType.STRING, TokenType.BOOL,
-    TokenType.LIST, TokenType.MAP, TokenType.ARRAY,
     TokenType.STRUCT, TokenType.ENUM, TokenType.UNION,
     TokenType.CONST, TokenType.STATIC, TokenType.EXTERN, TokenType.VOLATILE,
 }

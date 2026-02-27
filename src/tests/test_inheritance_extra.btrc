@@ -1,0 +1,25 @@
+#include <assert.h>
+#include <string.h>
+
+class Animal {
+    public string name = "";
+    public string speak() {
+        return "...";
+    }
+}
+
+class Dog extends Animal {
+    public string speak() {
+        return "Woof!";
+    }
+}
+
+int main() {
+    Dog d = Dog();
+    d.name = "Rex";
+    assert(strcmp(d.speak(), "Woof!") == 0);
+    assert(strcmp(d.name, "Rex") == 0);
+
+    print("PASS: test_inheritance_extra");
+    return 0;
+}

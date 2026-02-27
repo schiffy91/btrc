@@ -1,0 +1,11 @@
+#include <assert.h>
+#include <string.h>
+#include <stdio.h>
+
+int main() {
+    // Test basic hello world output
+    printf("hello\n");
+
+    print("PASS: test_hello");
+    return 0;
+}

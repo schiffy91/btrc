@@ -115,9 +115,10 @@ class TestKeywords:
         assert types(source) == expected
 
     def test_builtin_types(self):
+        # List/Map/Array are now identifiers (defined as classes in stdlib)
         source = "List Map Array string bool"
         expected = [
-            TokenType.LIST, TokenType.MAP, TokenType.ARRAY,
+            TokenType.IDENT, TokenType.IDENT, TokenType.IDENT,
             TokenType.STRING, TokenType.BOOL, TokenType.EOF,
         ]
         assert types(source) == expected
@@ -315,16 +316,18 @@ class TestComplexInputs:
         assert types(source) == expected
 
     def test_generic_type(self):
+        # List is now an identifier (defined as class in stdlib)
         source = 'List<int>'
-        expected = [TokenType.LIST, TokenType.LT, TokenType.INT, TokenType.GT, TokenType.EOF]
+        expected = [TokenType.IDENT, TokenType.LT, TokenType.INT, TokenType.GT, TokenType.EOF]
         assert types(source) == expected
 
     def test_nested_generic(self):
         # >> is lexed as GT_GT (longest match). The parser splits it in generic context.
+        # Map/List are now identifiers (defined as classes in stdlib)
         source = 'Map<string, List<int>>'
         expected = [
-            TokenType.MAP, TokenType.LT, TokenType.STRING, TokenType.COMMA,
-            TokenType.LIST, TokenType.LT, TokenType.INT, TokenType.GT_GT,
+            TokenType.IDENT, TokenType.LT, TokenType.STRING, TokenType.COMMA,
+            TokenType.IDENT, TokenType.LT, TokenType.INT, TokenType.GT_GT,
             TokenType.EOF,
         ]
         assert types(source) == expected

@@ -1,0 +1,16 @@
+#include <assert.h>
+#include <stdio.h>
+
+(int, float, int) make_triple(int x) {
+    return (x, (float)x * 1.5f, x * 2);
+}
+
+int main() {
+    (int, float, int) t = make_triple(4);
+    assert(t._0 == 4);
+    assert(t._1 > 5.9 && t._1 < 6.1);
+    assert(t._2 == 8);
+
+    print("PASS: test_tuple_three");
+    return 0;
+}

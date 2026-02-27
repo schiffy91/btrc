@@ -1,8 +1,0 @@
-[project]
-name = "btrc"
-version = "0.1.0"
-description = "A language that transpiles to C"
-requires-python = ">=3.10"
-
-[tool.pytest.ini_options]
-testpaths = ["src/compiler/python/tests", "src/tests"]

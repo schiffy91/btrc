@@ -1,0 +1,16 @@
+#include <assert.h>
+
+int main() {
+    List<int> a = [1, 2, 3, 4, 5];
+    List<int> r = a.reversed();
+    assert(r.get(0) == 5);
+    assert(r.get(4) == 1);
+    // original unchanged
+    assert(a.get(0) == 1);
+
+    r.free();
+    a.free();
+
+    print("PASS: test_list_reversed");
+    return 0;
+}

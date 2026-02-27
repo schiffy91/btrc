@@ -1,6 +1,13 @@
-"""Lexer for the btrc language. Tokenizes source code into a stream of tokens."""
+"""Lexer for the btrc language.
 
-from .tokens import Token, TokenType, KEYWORDS
+Grammar-driven: keyword and operator tables are built from spec/grammar.ebnf
+via the ebnf module. Literal parsing (numbers, strings, f-strings) is
+hand-coded for robustness, with the grammar's @literals serving as the spec.
+"""
+
+from .tokens import Token, TokenType, KEYWORDS, OPERATORS
+from .ebnf import get_grammar_info
+from .lexer_literals import read_string, read_char, read_number, read_fstring
 
 
 class LexerError(Exception):
@@ -18,6 +25,10 @@ class Lexer:
         self.line = 1
         self.col = 1
         self.tokens: list[Token] = []
+
+        # Build operator trie from grammar for longest-match tokenization
+        gi = get_grammar_info()
+        self._op_trie = _build_trie(gi.operators)
 
     def tokenize(self) -> list[Token]:
         while self.pos < len(self.source):
@@ -45,7 +56,7 @@ class Lexer:
             # Identifier or keyword
             elif ch.isalpha() or ch == '_':
                 self._read_identifier()
-            # Operators and punctuation
+            # Operators and punctuation (trie-based longest match)
             else:
                 self._read_operator()
 
@@ -71,7 +82,6 @@ class Lexer:
         return ch
 
     def _at_line_start(self) -> bool:
-        # Check if we're at the start of a line (only whitespace before # on this line)
         i = self.pos - 1
         while i >= 0 and self.source[i] in (' ', '\t'):
             i -= 1
@@ -95,18 +105,16 @@ class Lexer:
                 break
 
     def _skip_line_comment(self):
-        # Skip //
-        self._advance()
-        self._advance()
+        self._advance()  # /
+        self._advance()  # /
         while self.pos < len(self.source) and self._peek() != '\n':
             self._advance()
 
     def _skip_block_comment(self):
         start_line = self.line
         start_col = self.col
-        # Skip /*
-        self._advance()
-        self._advance()
+        self._advance()  # /
+        self._advance()  # *
         while self.pos < len(self.source):
             if self._peek() == '*' and self._peek(1) == '/':
                 self._advance()
@@ -120,11 +128,10 @@ class Lexer:
     def _read_preprocessor(self):
         line, col = self.line, self.col
         start = self.pos
-        # Consume everything until newline (handling line continuations with \)
         while self.pos < len(self.source):
             if self._peek() == '\\' and self._peek(1) == '\n':
-                self._advance()  # skip backslash
-                self._advance()  # skip newline
+                self._advance()
+                self._advance()
             elif self._peek() == '\n':
                 break
             else:
@@ -137,7 +144,6 @@ class Lexer:
     def _read_annotation(self):
         line, col = self.line, self.col
         self._advance()  # skip @
-        # Read the annotation name
         start = self.pos
         while self.pos < len(self.source) and (self._peek().isalnum() or self._peek() == '_'):
             self._advance()
@@ -147,123 +153,16 @@ class Lexer:
         else:
             raise LexerError(f"Unknown annotation '@{name}'", line, col)
 
-    # --- String literal ---
+    # --- Literals (delegated to lexer_literals.py) ---
 
     def _read_string(self):
-        line, col = self.line, self.col
-        self._advance()  # skip opening "
-        chars: list[str] = []
-        while self.pos < len(self.source):
-            ch = self._peek()
-            if ch == '"':
-                self._advance()  # skip closing "
-                value = '"' + ''.join(chars) + '"'
-                self._emit(TokenType.STRING_LIT, value, line, col)
-                return
-            elif ch == '\\':
-                chars.append(self._advance())  # backslash
-                if self.pos < len(self.source):
-                    chars.append(self._advance())  # escaped char
-            elif ch == '\n':
-                raise LexerError("Unterminated string literal", line, col)
-            else:
-                chars.append(self._advance())
-        raise LexerError("Unterminated string literal", line, col)
-
-    # --- Char literal ---
+        read_string(self)
 
     def _read_char(self):
-        line, col = self.line, self.col
-        self._advance()  # skip opening '
-        chars: list[str] = []
-        while self.pos < len(self.source):
-            ch = self._peek()
-            if ch == "'":
-                self._advance()  # skip closing '
-                value = "'" + ''.join(chars) + "'"
-                self._emit(TokenType.CHAR_LIT, value, line, col)
-                return
-            elif ch == '\\':
-                chars.append(self._advance())  # backslash
-                if self.pos < len(self.source):
-                    chars.append(self._advance())  # escaped char
-            else:
-                chars.append(self._advance())
-        raise LexerError("Unterminated character literal", line, col)
-
-    # --- Number literal ---
+        read_char(self)
 
     def _read_number(self):
-        line, col = self.line, self.col
-        start = self.pos
-        is_float = False
-
-        # Check for hex/binary prefix
-        if self._peek() == '0' and self._peek(1) in ('x', 'X'):
-            self._advance()  # 0
-            self._advance()  # x
-            while self.pos < len(self.source) and self._is_hex_digit(self._peek()):
-                self._advance()
-            self._emit(TokenType.INT_LIT, self.source[start:self.pos], line, col)
-            return
-
-        if self._peek() == '0' and self._peek(1) in ('b', 'B'):
-            self._advance()  # 0
-            self._advance()  # b
-            while self.pos < len(self.source) and self._peek() in ('0', '1'):
-                self._advance()
-            self._emit(TokenType.INT_LIT, self.source[start:self.pos], line, col)
-            return
-
-        if self._peek() == '0' and self._peek(1) in ('o', 'O'):
-            self._advance()  # 0
-            self._advance()  # o
-            while self.pos < len(self.source) and self._peek() in '01234567':
-                self._advance()
-            self._emit(TokenType.INT_LIT, self.source[start:self.pos], line, col)
-            return
-
-        # Decimal digits
-        while self.pos < len(self.source) and self._peek().isdigit():
-            self._advance()
-
-        # Decimal point
-        if self._peek() == '.' and self._peek(1).isdigit():
-            is_float = True
-            self._advance()  # .
-            while self.pos < len(self.source) and self._peek().isdigit():
-                self._advance()
-
-        # Exponent
-        if self._peek() in ('e', 'E'):
-            is_float = True
-            self._advance()
-            if self._peek() in ('+', '-'):
-                self._advance()
-            while self.pos < len(self.source) and self._peek().isdigit():
-                self._advance()
-
-        # Float suffix
-        if self._peek() in ('f', 'F'):
-            is_float = True
-            self._advance()
-
-        # Long suffix (for ints)
-        if not is_float and self._peek() in ('l', 'L'):
-            self._advance()
-            if self._peek() in ('l', 'L'):
-                self._advance()  # LL
-
-        # Unsigned suffix
-        if not is_float and self._peek() in ('u', 'U'):
-            self._advance()
-
-        value = self.source[start:self.pos]
-        token_type = TokenType.FLOAT_LIT if is_float else TokenType.INT_LIT
-        self._emit(token_type, value, line, col)
-
-    def _is_hex_digit(self, ch: str) -> bool:
-        return ch.isdigit() or ch.lower() in ('a', 'b', 'c', 'd', 'e', 'f')
+        read_number(self)
 
     # --- Identifier / keyword ---
 
@@ -273,135 +172,59 @@ class Lexer:
         while self.pos < len(self.source) and (self._peek().isalnum() or self._peek() == '_'):
             self._advance()
         value = self.source[start:self.pos]
+
         # Check for f-string: identifier 'f' followed immediately by '"'
         if value == "f" and self.pos < len(self.source) and self._peek() == '"':
-            self._read_fstring(line, col)
+            read_fstring(self, line, col)
             return
+
         token_type = KEYWORDS.get(value, TokenType.IDENT)
         self._emit(token_type, value, line, col)
 
-    def _read_fstring(self, line: int, col: int):
-        """Read an f-string literal: f"text {expr} text" """
-        self._advance()  # skip opening "
-        chars: list[str] = []
-        brace_depth = 0
-        while self.pos < len(self.source):
-            ch = self._peek()
-            if brace_depth == 0 and ch == '"':
-                self._advance()  # skip closing "
-                value = ''.join(chars)
-                self._emit(TokenType.FSTRING_LIT, value, line, col)
-                return
-            elif ch == '{':
-                if brace_depth == 0 and self._peek(1) == '{':
-                    # Escaped {{ → store as {{ (literal brace)
-                    chars.append(self._advance())
-                    chars.append(self._advance())
-                else:
-                    brace_depth += 1
-                    chars.append(self._advance())
-            elif ch == '}':
-                if brace_depth == 0 and self._peek(1) == '}':
-                    # Escaped }} → store as }} (literal brace)
-                    chars.append(self._advance())
-                    chars.append(self._advance())
-                else:
-                    brace_depth -= 1
-                    chars.append(self._advance())
-            elif ch == '\\':
-                chars.append(self._advance())  # backslash
-                if self.pos < len(self.source):
-                    chars.append(self._advance())  # escaped char
-            elif ch == '\n':
-                raise LexerError("Unterminated f-string literal", line, col)
-            else:
-                chars.append(self._advance())
-        raise LexerError("Unterminated f-string literal", line, col)
-
-    # --- Operators and punctuation ---
+    # --- Operators and punctuation (trie-based longest match) ---
 
     def _read_operator(self):
         line, col = self.line, self.col
+
+        # Walk the operator trie for longest match
+        node = self._op_trie
+        best_match = None
+        best_len = 0
+        i = 0
+        while self.pos + i < len(self.source):
+            ch = self.source[self.pos + i]
+            if ch not in node:
+                break
+            node = node[ch]
+            i += 1
+            if '' in node:  # terminal marker
+                best_match = node['']
+                best_len = i
+
+        if best_match is not None:
+            value = self.source[self.pos:self.pos + best_len]
+            for _ in range(best_len):
+                self._advance()
+            self._emit(best_match, value, line, col)
+            return
+
         ch = self._peek()
-        ch2 = self._peek(1)
-        ch3 = self._peek(2)
-
-        # Three-character operators
-        if ch == '<' and ch2 == '<' and ch3 == '=':
-            self._advance()
-            self._advance()
-            self._advance()
-            self._emit(TokenType.LT_LT_EQ, "<<=", line, col)
-            return
-        if ch == '>' and ch2 == '>' and ch3 == '=':
-            self._advance()
-            self._advance()
-            self._advance()
-            self._emit(TokenType.GT_GT_EQ, ">>=", line, col)
-            return
-
-        # Two-character operators
-        two_char = ch + ch2
-        two_char_map = {
-            '==': TokenType.EQ_EQ,
-            '!=': TokenType.BANG_EQ,
-            '<=': TokenType.LT_EQ,
-            '>=': TokenType.GT_EQ,
-            '&&': TokenType.AMP_AMP,
-            '||': TokenType.PIPE_PIPE,
-            '<<': TokenType.LT_LT,
-            '>>': TokenType.GT_GT,
-            '+=': TokenType.PLUS_EQ,
-            '-=': TokenType.MINUS_EQ,
-            '*=': TokenType.STAR_EQ,
-            '/=': TokenType.SLASH_EQ,
-            '%=': TokenType.PERCENT_EQ,
-            '&=': TokenType.AMP_EQ,
-            '|=': TokenType.PIPE_EQ,
-            '^=': TokenType.CARET_EQ,
-            '++': TokenType.PLUS_PLUS,
-            '--': TokenType.MINUS_MINUS,
-            '->': TokenType.ARROW,
-            '=>': TokenType.FAT_ARROW,
-            '?.': TokenType.QUESTION_DOT,
-            '??': TokenType.QUESTION_QUESTION,
-        }
-        if two_char in two_char_map:
-            self._advance()
-            self._advance()
-            self._emit(two_char_map[two_char], two_char, line, col)
-            return
-
-        # Single-character operators and punctuation
-        single_char_map = {
-            '+': TokenType.PLUS,
-            '-': TokenType.MINUS,
-            '*': TokenType.STAR,
-            '/': TokenType.SLASH,
-            '%': TokenType.PERCENT,
-            '=': TokenType.EQ,
-            '<': TokenType.LT,
-            '>': TokenType.GT,
-            '!': TokenType.BANG,
-            '&': TokenType.AMP,
-            '|': TokenType.PIPE,
-            '^': TokenType.CARET,
-            '~': TokenType.TILDE,
-            '.': TokenType.DOT,
-            '?': TokenType.QUESTION,
-            ':': TokenType.COLON,
-            ',': TokenType.COMMA,
-            ';': TokenType.SEMICOLON,
-            '(': TokenType.LPAREN,
-            ')': TokenType.RPAREN,
-            '[': TokenType.LBRACKET,
-            ']': TokenType.RBRACKET,
-            '{': TokenType.LBRACE,
-            '}': TokenType.RBRACE,
-        }
-        if ch in single_char_map:
-            self._advance()
-            self._emit(single_char_map[ch], ch, line, col)
-            return
-
         raise LexerError(f"Unexpected character '{ch}'", line, col)
+
+
+def _build_trie(operators: list[str]) -> dict:
+    """Build a trie from operator strings for longest-match tokenization.
+
+    Each node is a dict mapping character -> child node.
+    Terminal nodes have '' -> TokenType entry.
+    """
+    root: dict = {}
+    for op in operators:
+        token_type = OPERATORS[op]
+        node = root
+        for ch in op:
+            if ch not in node:
+                node[ch] = {}
+            node = node[ch]
+        node[''] = token_type  # terminal marker
+    return root

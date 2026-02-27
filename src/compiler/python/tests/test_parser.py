@@ -18,18 +18,25 @@ from src.compiler.python.ast_nodes import (
     ContinueStmt,
     DeleteStmt,
     DoWhileStmt,
+    ElseBlock,
+    ElseIf,
     EnumDecl,
     FieldAccessExpr,
     FieldDecl,
     FloatLiteral,
+    ForInitVar,
     ForInStmt,
+    FStringExpr,
     FStringLiteral,
+    FStringText,
     FunctionDecl,
     Identifier,
     IfStmt,
     IndexExpr,
     IntLiteral,
+    LambdaBlock,
     LambdaExpr,
+    LambdaExprBody,
     ListLiteral,
     MapLiteral,
     MethodDecl,
@@ -42,6 +49,7 @@ from src.compiler.python.ast_nodes import (
     ReturnStmt,
     SelfExpr,
     SizeofExpr,
+    SizeofType,
     StringLiteral,
     StructDecl,
     SwitchStmt,
@@ -270,12 +278,12 @@ class TestEnum:
         assert isinstance(e, EnumDecl)
         assert e.name == "Color"
         assert len(e.values) == 3
-        assert e.values[0][0] == "RED"
+        assert e.values[0].name == "RED"
 
     def test_parse_enum_with_values(self):
         prog = parse('enum Flags { A = 1, B = 2 };')
         e = prog.declarations[0]
-        assert isinstance(e.values[0][1], IntLiteral)
+        assert isinstance(e.values[0].value, IntLiteral)
 
 
 # --- Statements ---
@@ -301,13 +309,13 @@ class TestStatements:
     def test_parse_if_else(self):
         stmt = parse_stmt('if (x) { a; } else { b; }')
         assert isinstance(stmt, IfStmt)
-        assert isinstance(stmt.else_block, Block)
+        assert isinstance(stmt.else_block, ElseBlock)
 
     def test_parse_if_else_if(self):
         stmt = parse_stmt('if (x) { } else if (y) { } else { }')
         assert isinstance(stmt, IfStmt)
-        assert isinstance(stmt.else_block, IfStmt)
-        assert isinstance(stmt.else_block.else_block, Block)
+        assert isinstance(stmt.else_block, ElseIf)
+        assert isinstance(stmt.else_block.if_stmt.else_block, ElseBlock)
 
     def test_parse_while(self):
         stmt = parse_stmt('while (x > 0) { x--; }')
@@ -321,8 +329,8 @@ class TestStatements:
     def test_parse_c_for(self):
         stmt = parse_stmt('for (int i = 0; i < 10; i++) { }')
         assert isinstance(stmt, CForStmt)
-        assert isinstance(stmt.init, VarDeclStmt)
-        assert stmt.init.name == "i"
+        assert isinstance(stmt.init, ForInitVar)
+        assert stmt.init.var_decl.name == "i"
         assert isinstance(stmt.condition, BinaryExpr)
         assert isinstance(stmt.update, UnaryExpr)
 
@@ -345,7 +353,7 @@ class TestStatements:
         stmt = parse_stmt('for key in myMap { }')
         assert isinstance(stmt, ForInStmt)
         assert stmt.var_name == "key"
-        assert stmt.var_name2 == ""
+        assert stmt.var_name2 in ("", None)
         assert isinstance(stmt.iterable, Identifier)
 
     def test_parse_parallel_for(self):
@@ -552,7 +560,7 @@ class TestExpressions:
     def test_parse_sizeof(self):
         e = parse_expr('sizeof(int)')
         assert isinstance(e, SizeofExpr)
-        assert isinstance(e.operand, TypeExpr)
+        assert isinstance(e.operand, SizeofType)
 
     def test_parse_cast(self):
         e = parse_expr('(float)x')
@@ -727,26 +735,30 @@ class TestFStringParsing:
         expr = parse_expr('f"hello world"')
         assert isinstance(expr, FStringLiteral)
         assert len(expr.parts) == 1
-        assert expr.parts[0] == ("text", "hello world")
+        assert isinstance(expr.parts[0], FStringText)
+        assert expr.parts[0].text == "hello world"
 
     def test_parse_fstring_single_expr(self):
         expr = parse_expr('f"x={x}"')
         assert isinstance(expr, FStringLiteral)
         assert len(expr.parts) == 2
-        assert expr.parts[0] == ("text", "x=")
-        assert expr.parts[1][0] == "expr"
-        assert isinstance(expr.parts[1][1], Identifier)
-        assert expr.parts[1][1].name == "x"
+        assert isinstance(expr.parts[0], FStringText)
+        assert expr.parts[0].text == "x="
+        assert isinstance(expr.parts[1], FStringExpr)
+        assert isinstance(expr.parts[1].expression, Identifier)
+        assert expr.parts[1].expression.name == "x"
 
     def test_parse_fstring_multi_expr(self):
         expr = parse_expr('f"{a} + {b} = {c}"')
         assert isinstance(expr, FStringLiteral)
         assert len(expr.parts) == 5
-        assert expr.parts[0][0] == "expr"
-        assert expr.parts[1] == ("text", " + ")
-        assert expr.parts[2][0] == "expr"
-        assert expr.parts[3] == ("text", " = ")
-        assert expr.parts[4][0] == "expr"
+        assert isinstance(expr.parts[0], FStringExpr)
+        assert isinstance(expr.parts[1], FStringText)
+        assert expr.parts[1].text == " + "
+        assert isinstance(expr.parts[2], FStringExpr)
+        assert isinstance(expr.parts[3], FStringText)
+        assert expr.parts[3].text == " = "
+        assert isinstance(expr.parts[4], FStringExpr)
 
 
 # --- Var type inference ---
@@ -782,9 +794,9 @@ class TestVarInference:
     def test_parse_var_in_for_init(self):
         stmt = parse_stmt('for (var i = 0; i < 10; i++) { }')
         assert isinstance(stmt, CForStmt)
-        assert isinstance(stmt.init, VarDeclStmt)
-        assert stmt.init.type is None
-        assert stmt.init.name == "i"
+        assert isinstance(stmt.init, ForInitVar)
+        assert stmt.init.var_decl.type is None
+        assert stmt.init.var_decl.name == "i"
 
     def test_parse_var_top_level(self):
         prog = parse('var x = 42;')
@@ -1255,16 +1267,16 @@ class TestFStringAdvanced:
         expr = parse_expr('f"len={s.len()}"')
         assert isinstance(expr, FStringLiteral)
         assert len(expr.parts) == 2
-        assert expr.parts[0] == ("text", "len=")
-        assert expr.parts[1][0] == "expr"
-        inner = expr.parts[1][1]
-        assert isinstance(inner, CallExpr)
+        assert isinstance(expr.parts[0], FStringText)
+        assert expr.parts[0].text == "len="
+        assert isinstance(expr.parts[1], FStringExpr)
+        assert isinstance(expr.parts[1].expression, CallExpr)
 
     def test_parse_fstring_with_binary_expr(self):
         expr = parse_expr('f"sum={a + b}"')
         assert isinstance(expr, FStringLiteral)
-        assert expr.parts[1][0] == "expr"
-        assert isinstance(expr.parts[1][1], BinaryExpr)
+        assert isinstance(expr.parts[1], FStringExpr)
+        assert isinstance(expr.parts[1].expression, BinaryExpr)
 
 
 # --- Do-while details ---
@@ -1288,22 +1300,20 @@ class TestLambda:
         assert expr.return_type.base == "int"
         assert len(expr.params) == 1
         assert expr.params[0].name == "x"
-        assert isinstance(expr.body, Block)
+        assert isinstance(expr.body, LambdaBlock)
 
     def test_arrow_lambda_expr_body(self):
         expr = parse_expr('(int x) => x * 3')
         assert isinstance(expr, LambdaExpr)
         assert len(expr.params) == 1
         assert expr.params[0].name == "x"
-        assert isinstance(expr.body, Block)
-        ret = expr.body.statements[0]
-        assert isinstance(ret, ReturnStmt)
+        assert isinstance(expr.body, LambdaExprBody)
 
     def test_arrow_lambda_block_body(self):
         expr = parse_expr('(int x) => { return x; }')
         assert isinstance(expr, LambdaExpr)
         assert len(expr.params) == 1
-        assert isinstance(expr.body, Block)
+        assert isinstance(expr.body, LambdaBlock)
 
     def test_arrow_lambda_multiple_params(self):
         expr = parse_expr('(int a, int b) => a + b')

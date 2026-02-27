@@ -1,0 +1,27 @@
+#include <assert.h>
+#include <string.h>
+
+enum Color { RED, GREEN, BLUE };
+
+enum Level { LOW = 1, MEDIUM = 5, HIGH = 10 };
+
+enum Fruit { APPLE, BANANA, CHERRY };
+
+int main() {
+    // Basic toString
+    Color c = GREEN;
+    string s = c.toString();
+    assert(strcmp(s, "GREEN") == 0);
+
+    // toString with explicit values
+    Level lv = HIGH;
+    assert(strcmp(lv.toString(), "HIGH") == 0);
+
+    // toString in fstring
+    Fruit f = BANANA;
+    string msg = f"fruit: {f.toString()}";
+    assert(strcmp(msg, "fruit: BANANA") == 0);
+
+    print("PASS: test_enum_tostring");
+    return 0;
+}

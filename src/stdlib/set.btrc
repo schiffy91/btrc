@@ -1,0 +1,180 @@
+/* btrc standard library — Set<T>
+ * Hash set using open addressing with linear probing.
+ * Element comparison via __btrc_eq, hashing via __btrc_hash (djb2).
+ *
+ * Performance: add/contains O(1) average, O(n) worst case.
+ * Resize at 75% load factor. Deletion uses backward-shift
+ * rehashing (no tombstones) to maintain probe-chain integrity.
+ */
+
+class Set<T> {
+    public T* keys;
+    public bool* occupied;
+    public int len;
+    public int cap;
+
+    public Set() {
+        self.cap = 16;
+        self.len = 0;
+        self.keys = (T*)__btrc_safe_calloc(16, sizeof(T));
+        self.occupied = (bool*)__btrc_safe_calloc(16, sizeof(bool));
+    }
+
+    public void resize() {
+        int old_cap = self.cap;
+        T* old_keys = self.keys;
+        bool* old_occupied = self.occupied;
+        self.cap = self.cap * 2;
+        self.len = 0;
+        self.keys = (T*)__btrc_safe_calloc(self.cap, sizeof(T));
+        self.occupied = (bool*)__btrc_safe_calloc(self.cap, sizeof(bool));
+        for (int i = 0; i < old_cap; i++) {
+            if (old_occupied[i]) {
+                self.add(old_keys[i]);
+            }
+        }
+        free(old_keys);
+        free(old_occupied);
+    }
+
+    public void add(T key) {
+        if (self.len * 4 >= self.cap * 3) { self.resize(); }
+        unsigned int idx = __btrc_hash(key) % self.cap;
+        while (self.occupied[idx]) {
+            if (__btrc_eq(self.keys[idx], key)) { return; }
+            idx = (idx + 1) % self.cap;
+        }
+        self.keys[idx] = key;
+        self.occupied[idx] = true;
+        self.len++;
+    }
+
+    public bool contains(T key) {
+        unsigned int idx = __btrc_hash(key) % self.cap;
+        while (self.occupied[idx]) {
+            if (__btrc_eq(self.keys[idx], key)) { return true; }
+            idx = (idx + 1) % self.cap;
+        }
+        return false;
+    }
+
+    public bool has(T key) {
+        return self.contains(key);
+    }
+
+    public void remove(T key) {
+        unsigned int idx = __btrc_hash(key) % self.cap;
+        while (self.occupied[idx]) {
+            if (__btrc_eq(self.keys[idx], key)) {
+                self.occupied[idx] = false;
+                self.len--;
+                /* Rehash the rest of the cluster */
+                unsigned int j = (idx + 1) % self.cap;
+                while (self.occupied[j]) {
+                    T rk = self.keys[j];
+                    self.occupied[j] = false;
+                    self.len--;
+                    self.add(rk);
+                    j = (j + 1) % self.cap;
+                }
+                return;
+            }
+            idx = (idx + 1) % self.cap;
+        }
+    }
+
+    public void free() {
+        free(self.keys);
+        free(self.occupied);
+        self.keys = null;
+        self.occupied = null;
+        self.cap = 0;
+        self.len = 0;
+    }
+
+    public void clear() {
+        for (int i = 0; i < self.cap; i++) { self.occupied[i] = false; }
+        self.len = 0;
+    }
+
+    public int size() {
+        return self.len;
+    }
+
+    public bool isEmpty() {
+        return self.len == 0;
+    }
+
+    public Set<T> unite(Set<T> other) {
+        Set<T> result = Set();
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) { result.add(self.keys[i]); }
+        }
+        for (int i = 0; i < other.cap; i++) {
+            if (other.occupied[i]) { result.add(other.keys[i]); }
+        }
+        return result;
+    }
+
+    public Set<T> intersect(Set<T> other) {
+        Set<T> result = Set();
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i] && other.contains(self.keys[i])) {
+                result.add(self.keys[i]);
+            }
+        }
+        return result;
+    }
+
+    public Set<T> subtract(Set<T> other) {
+        Set<T> result = Set();
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i] && !other.contains(self.keys[i])) {
+                result.add(self.keys[i]);
+            }
+        }
+        return result;
+    }
+
+    public bool isSubsetOf(Set<T> other) {
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i] && !other.contains(self.keys[i])) { return false; }
+        }
+        return true;
+    }
+
+    public bool isSupersetOf(Set<T> other) {
+        return other.isSubsetOf(self);
+    }
+
+    public Set<T> symmetricDifference(Set<T> other) {
+        Set<T> result = Set();
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i] && !other.contains(self.keys[i])) {
+                result.add(self.keys[i]);
+            }
+        }
+        for (int i = 0; i < other.cap; i++) {
+            if (other.occupied[i] && !self.contains(other.keys[i])) {
+                result.add(other.keys[i]);
+            }
+        }
+        return result;
+    }
+
+    public List<T> toList() {
+        List<T> result = [];
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) { result.push(self.keys[i]); }
+        }
+        return result;
+    }
+
+    public Set<T> copy() {
+        Set<T> result = Set();
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) { result.add(self.keys[i]); }
+        }
+        return result;
+    }
+}

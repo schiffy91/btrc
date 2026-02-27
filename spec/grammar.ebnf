@@ -1,0 +1,393 @@
+-- btrc language grammar
+--
+-- This is the single source of truth for the lexical and syntactic structure
+-- of the btrc language. Both the Python bootstrap compiler and the self-hosted
+-- btrc compiler read this file at compile time.
+--
+-- Lexical section: defines tokens (keywords, operators, literal patterns).
+-- Syntax section: defines grammar rules for the parser.
+--
+-- The lexer extracts keywords and operators from @lexical to build its
+-- lookup tables. The parser uses @syntax as a checked specification for
+-- its hand-written recursive descent methods.
+
+-- ================================================================
+-- LEXICAL RULES
+-- ================================================================
+
+@lexical {
+
+  -- Keywords: identifiers reserved by the language.
+  -- The lexer maps these to distinct token types.
+
+  @keywords {
+    -- C keywords
+    auto break case char const continue default do double else enum extern
+    float for goto if int long register return short signed sizeof static
+    struct switch typedef union unsigned void volatile while
+
+    -- btrc keywords
+    abstract bool catch class delete extends false finally function
+    implements in interface new null override parallel private public
+    self string super throw true try var
+  }
+
+  -- Operators and delimiters, ordered longest-first within each line.
+  -- The lexer builds a trie from this list for longest-match tokenization.
+
+  @operators {
+    -- 3-character operators
+    "<<=" ">>="
+
+    -- 2-character operators
+    "+=" "-=" "*=" "/=" "%=" "&=" "|=" "^="
+    "++" "--" "==" "!=" "<=" ">=" "&&" "||"
+    "?." "??" "=>" "->" "<<" ">>"
+
+    -- 1-character operators
+    "+" "-" "*" "/" "%" "=" "<" ">" "!" "&" "|" "^" "~" "?"
+
+    -- Delimiters
+    "(" ")" "[" "]" "{" "}" "." "," ";" ":"
+  }
+
+  -- Literal token patterns (regex notation, for specification only).
+  -- Actual literal parsing is hand-coded in the lexer for robustness.
+
+  @literals {
+    IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
+    INT_LIT     = /0[xX][0-9a-fA-F]+[uUlL]*/
+                | /0[bB][01]+[uUlL]*/
+                | /0[oO][0-7]+[uUlL]*/
+                | /[0-9]+[uUlL]*/
+    FLOAT_LIT   = /[0-9]+\.[0-9]*([eE][+-]?[0-9]+)?[fF]?/
+                | /[0-9]+[eE][+-]?[0-9]+[fF]?/
+                | /\.[0-9]+([eE][+-]?[0-9]+)?[fF]?/
+    STRING_LIT  = /"([^"\\]|\\.)*"/
+    CHAR_LIT    = /'([^'\\]|\\.)*'/
+    FSTRING_LIT = /f"..."/ -- brace-balanced sub-lexing; see lexer
+  }
+
+  -- Tokens to skip (not passed to parser).
+  @ignore {
+    whitespace    = /[ \t\r\n]+/
+    line_comment  = /\/\/[^\n]*/
+    block_comment = /\/\*([^*]|\*[^\/])*\*\//
+  }
+
+  -- Preprocessor directives are passed through as single tokens.
+  @preprocessor = /^#[^\n]*/
+}
+
+-- ================================================================
+-- SYNTAX RULES
+-- ================================================================
+--
+-- Notation:
+--   { X }        = zero or more X
+--   [ X ]        = optional X
+--   X | Y        = alternation
+--   "keyword"    = terminal keyword or operator
+--   UPPER_CASE   = terminal token from @literals
+--   lower_case   = non-terminal production rule
+--   (* ... *)    = disambiguation comment
+
+@syntax {
+
+  -- ----------------------------------------------------------------
+  -- Top-level
+  -- ----------------------------------------------------------------
+
+  program     = { top_level } ;
+
+  top_level   = preprocessor_directive
+              | class_decl
+              | interface_decl
+              | struct_decl
+              | enum_decl
+              | rich_enum_decl
+              | typedef_decl
+              | function_decl
+              | var_decl_stmt ;
+
+  preprocessor_directive = PREPROCESSOR ;
+
+  -- ----------------------------------------------------------------
+  -- Class declaration
+  -- ----------------------------------------------------------------
+
+  class_decl  = [ "abstract" ] "class" IDENT [ "<" ident_list ">" ]
+                [ "extends" IDENT ]
+                [ "implements" ident_list ]
+                "{" { class_member } "}" ;
+
+  ident_list  = IDENT { "," IDENT } ;
+
+  class_member = access_modifier member_body ;
+
+  access_modifier = "public" | "private" | "class"
+                  (* "class" is used for static methods *) ;
+
+  member_body = [ "abstract" ] method_or_field_or_property ;
+
+  method_or_field_or_property
+              = type_expr IDENT method_rest        (* method: has ( *)
+              | type_expr IDENT property_rest       (* property: has { get/set *)
+              | type_expr IDENT field_rest          (* field: has ; or = *)
+              | type_expr "(" param_list ")" block  (* constructor: name matches class *)
+              (* Disambiguation: peek at tokens after "type IDENT" to decide.
+                 If "(": method or constructor.
+                 If "{" followed by "get" or "set": property.
+                 Otherwise: field. *) ;
+
+  method_rest     = "(" param_list ")" ( block | ";" ) ;
+  property_rest   = "{" { property_accessor } "}" ;
+  field_rest      = [ "=" expr ] ";" ;
+
+  property_accessor = ( "get" | "set" ) ( ";" | block ) ;
+
+  -- ----------------------------------------------------------------
+  -- Interface declaration
+  -- ----------------------------------------------------------------
+
+  interface_decl = "interface" IDENT [ "extends" IDENT ]
+                   "{" { method_signature } "}" ;
+
+  method_signature = type_expr IDENT "(" param_list ")" ";" ;
+
+  -- ----------------------------------------------------------------
+  -- Struct declaration
+  -- ----------------------------------------------------------------
+
+  struct_decl = "struct" IDENT "{" { struct_field } "}" ";" ;
+
+  struct_field = type_expr IDENT [ "[" expr "]" ] ";" ;
+
+  -- ----------------------------------------------------------------
+  -- Enum declarations
+  -- ----------------------------------------------------------------
+
+  enum_decl      = "enum" IDENT "{" enum_value { "," enum_value } [ "," ] "}" ";" ;
+  enum_value     = IDENT [ "=" expr ] ;
+
+  rich_enum_decl = "enum" "class" IDENT "{"
+                     rich_variant { "," rich_variant } [ "," ]
+                   "}" ;
+  rich_variant   = IDENT [ "(" param_list ")" ] ;
+
+  -- ----------------------------------------------------------------
+  -- Typedef
+  -- ----------------------------------------------------------------
+
+  typedef_decl = "typedef" type_expr IDENT ";" ;
+
+  -- ----------------------------------------------------------------
+  -- Function declaration
+  -- ----------------------------------------------------------------
+
+  function_decl = type_expr IDENT "(" param_list ")" ( block | ";" ) ;
+
+  -- ----------------------------------------------------------------
+  -- Type expressions
+  -- ----------------------------------------------------------------
+
+  type_expr = { type_qualifier } base_type [ generic_args ] { pointer_or_array }
+              [ "?" ]
+              (* "?" is nullable sugar: adds one pointer level *) ;
+
+  type_qualifier = "const" | "static" | "extern" | "volatile" ;
+
+  base_type = "void" | "int" | "float" | "double" | "char" | "bool" | "string"
+            | "short" [ "int" ]
+            | "long" [ "long" ] [ "int" | "double" ]
+            | "unsigned" [ "int" | "short" | "long" [ "long" ] | "char" ]
+            | "signed" [ "int" | "short" | "long" [ "long" ] | "char" ]
+            | "struct" IDENT | "enum" IDENT | "union" IDENT
+            | IDENT
+            | "(" type_list ")"  (* tuple type: (int, string, bool) *)
+            ;
+
+  generic_args = "<" type_list ">"
+                 (* Disambiguation: '<' after a type name could be comparison.
+                    Parser uses lookahead to check for matching '>'.
+                    Heuristic: if balanced '<'/'>' with types inside, it is generic.
+                    Also handles ">>" splitting for nested generics like
+                    List<Map<int, int>>. *) ;
+
+  type_list = type_expr { "," type_expr } ;
+
+  pointer_or_array = "*" | "[" [ expr ] "]" ;
+
+  -- ----------------------------------------------------------------
+  -- Parameters
+  -- ----------------------------------------------------------------
+
+  param_list = [ param { "," param } ] ;
+
+  param = type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
+          (* Array-style params: int arr[], int arr[10]
+             Default values: int x = 42 *) ;
+
+  -- ----------------------------------------------------------------
+  -- Statements
+  -- ----------------------------------------------------------------
+
+  block = "{" { statement } "}" ;
+
+  statement = block
+            | var_decl_stmt
+            | return_stmt
+            | if_stmt
+            | while_stmt
+            | do_while_stmt
+            | for_stmt
+            | switch_stmt
+            | break_stmt
+            | continue_stmt
+            | try_catch_stmt
+            | throw_stmt
+            | delete_stmt
+            | expr_stmt ;
+
+  var_decl_stmt = ( "var" IDENT "=" expr
+                  | type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
+                  ) ";"
+                  (* Disambiguation: "var" keyword is unambiguous.
+                     For typed declarations, parser uses lookahead to check
+                     if the token sequence matches "type_expr IDENT" pattern
+                     vs an expression statement. *) ;
+
+  return_stmt     = "return" [ expr ] ";" ;
+  if_stmt         = "if" "(" expr ")" block [ "else" ( if_stmt | block ) ] ;
+  while_stmt      = "while" "(" expr ")" block ;
+  do_while_stmt   = "do" block "while" "(" expr ")" ";" ;
+  break_stmt      = "break" ";" ;
+  continue_stmt   = "continue" ";" ;
+  throw_stmt      = "throw" expr ";" ;
+  delete_stmt     = "delete" expr ";" ;
+  expr_stmt       = expr ";" ;
+
+  for_stmt = "for" ( for_in_clause | c_for_clause ) ;
+
+  for_in_clause = IDENT [ "," IDENT ] "in" expr block
+                  (* Single var: for x in list { }
+                     Two vars: for k, v in map { }
+                     Disambiguation: if token after "for" is IDENT and
+                     second-next is "in" or ",", it is for-in.
+                     Otherwise it is C-style for. *) ;
+
+  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ expr ] ")" block ;
+
+  for_init = var_decl_no_semi | expr ;
+  var_decl_no_semi = "var" IDENT "=" expr
+                   | type_expr IDENT [ "=" expr ] ;
+
+  parallel_for_stmt = "parallel" "for" IDENT "in" expr block ;
+
+  switch_stmt = "switch" "(" expr ")" "{" { case_clause } "}" ;
+  case_clause = ( "case" expr | "default" ) ":" { statement } ;
+
+  try_catch_stmt = "try" block "catch" "(" IDENT ")" block [ "finally" block ] ;
+
+  -- ----------------------------------------------------------------
+  -- Expressions (precedence: lowest to highest)
+  -- ----------------------------------------------------------------
+
+  expr           = assignment ;
+
+  assignment     = ternary [ assign_op assignment ]
+                   (* Right-associative *) ;
+
+  assign_op      = "=" | "+=" | "-=" | "*=" | "/=" | "%="
+                 | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+
+  ternary        = null_coalesce [ "?" expr ":" ternary ] ;
+
+  null_coalesce  = logical_or { "??" logical_or } ;
+
+  logical_or     = logical_and { "||" logical_and } ;
+
+  logical_and    = bitwise_or { "&&" bitwise_or } ;
+
+  bitwise_or     = bitwise_xor { "|" bitwise_xor } ;
+
+  bitwise_xor    = bitwise_and { "^" bitwise_and } ;
+
+  bitwise_and    = equality { "&" equality } ;
+
+  equality       = relational { ( "==" | "!=" ) relational } ;
+
+  relational     = shift { ( "<" | ">" | "<=" | ">=" ) shift } ;
+
+  shift          = additive { ( "<<" | ">>" ) additive } ;
+
+  additive       = multiplicative { ( "+" | "-" ) multiplicative } ;
+
+  multiplicative = unary { ( "*" | "/" | "%" ) unary } ;
+
+  unary          = ( "!" | "~" | "-" | "+" | "++" | "--" ) unary
+                 | "*" unary          (* dereference *)
+                 | "&" unary          (* address-of *)
+                 | "sizeof" "(" type_or_expr ")"
+                 | "(" type_expr ")" unary  (* C-style cast *)
+                 | postfix
+                 (* Cast disambiguation: "(" followed by a type name and ")"
+                    where the token after ")" starts an expression.
+                    Parser uses trial parse: try type_expr, if success
+                    and next is expression-start, treat as cast. *) ;
+
+  type_or_expr   = type_expr | expr
+                   (* Ambiguous: sizeof(int) vs sizeof(x).
+                      Parser tries type_expr first. *) ;
+
+  postfix        = primary { postfix_op } ;
+
+  postfix_op     = "(" arg_list ")"         (* function call *)
+                 | "[" expr "]"             (* indexing *)
+                 | "." IDENT               (* field access *)
+                 | "." INT_LIT             (* tuple field: .0, .1, .2 *)
+                 | "?." IDENT              (* optional chaining *)
+                 | "->" IDENT              (* arrow access *)
+                 | "++"                     (* postfix increment *)
+                 | "--"                     (* postfix decrement *) ;
+
+  primary        = INT_LIT
+                 | FLOAT_LIT
+                 | STRING_LIT
+                 | CHAR_LIT
+                 | FSTRING_LIT
+                 | "true" | "false" | "null" | "self" | "super"
+                 | new_expr
+                 | lambda_expr
+                 | paren_or_tuple
+                 | list_literal
+                 | map_or_brace
+                 | IDENT ;
+
+  new_expr       = "new" type_expr "(" arg_list ")" ;
+
+  lambda_expr    = arrow_lambda | verbose_lambda ;
+
+  arrow_lambda   = "(" param_list ")" "=>" ( block | expr )
+                   (* Disambiguation: starts with "(" like a paren_or_tuple.
+                      Parser tries param_list + "=>" lookahead. *) ;
+
+  verbose_lambda = type_expr "function" "(" param_list ")" block ;
+
+  paren_or_tuple = "(" expr [ "," expr_list ] ")"
+                   (* If comma present: tuple literal (a, b, c).
+                      Otherwise: parenthesized expression (a). *) ;
+
+  list_literal   = "[" [ expr_list ] "]" ;
+
+  map_or_brace   = "{" map_entries "}"    (* map literal: {k: v, ...} *)
+                 | "{" [ expr_list ] "}"  (* brace initializer: {a, b, c} *)
+                 (* Disambiguation: if first expr is followed by ":",
+                    treat as map literal. Otherwise brace initializer. *) ;
+
+  map_entries    = map_entry { "," map_entry } [ "," ] ;
+  map_entry      = expr ":" expr ;
+
+  arg_list       = [ expr { "," expr } ] ;
+  expr_list      = expr { "," expr } ;
+}

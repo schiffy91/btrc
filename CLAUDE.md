@@ -1,0 +1,292 @@
+# btrc Compiler — Architecture & Development Rules
+
+These rules are non-negotiable. Every contributor (human or AI) must follow them.
+Read this ENTIRE file before writing any code.
+
+---
+
+## Multi-Session Warning
+
+This project is too large for a single context window. You WILL run out of memory.
+
+**Before you start working:**
+1. Read this file completely
+2. Read `/home/node/.claude/projects/-workspace/memory/MEMORY.md`
+3. Check git status to see what's been done
+4. Check the todo list
+5. Run `make test` to see what passes and what's broken
+
+**Before context runs out:**
+1. Commit working code frequently
+2. Update MEMORY.md with what you accomplished and what's next
+3. Leave clear breadcrumbs for the next session
+
+**NEVER cut corners when context gets low.** If you're running low on context,
+stop and save state. Do NOT start wrapping things in raw strings, skipping IR
+nodes, or "temporarily" bypassing the architecture. The whole point is to do
+this RIGHT.
+
+---
+
+## The Architecture
+
+### Overview
+
+The Python compiler follows a 6-stage pipeline driven by formal specs.
+A self-hosted btrc compiler (same pipeline) is planned but not yet implemented.
+
+```
+SHARED SPECS (single source of truth):
+  spec/grammar.ebnf              keywords, operators, syntax rules
+  spec/ast.asdl                  AST node types (Zephyr ASDL)
+  tools/asdl_python.py           ASDL → Python dataclasses
+  tools/asdl_btrc.py             ASDL → btrc classes
+
+PIPELINE:
+  source.btrc
+       │
+  [1. Lexer]        →  token stream        (grammar-driven from EBNF)
+       │
+  [2. Parser]       →  typed AST           (ASDL-generated node classes)
+       │
+  [3. Analyzer]     →  type-checked AST    (scopes, types, generic instances)
+       │
+  [4. IR Gen]       →  IR tree             (structured IR nodes — NOT text)
+       │
+  [5. Optimizer]    →  optimized IR tree   (dead helper elimination)
+       │
+  [6. C Emitter]    →  .c file             (simple tree walk, no lowering)
+```
+
+### Stage-by-Stage
+
+#### Stage 1: Lexer
+- Reads keywords + operators from `spec/grammar.ebnf` via EBNF parser
+- Builds keyword lookup table and operator trie at init time
+- Tokenizes source into typed Token stream
+- NO hardcoded keyword or operator lists anywhere in the codebase
+
+#### Stage 2: Parser
+- Hand-written recursive descent, guided by grammar rules
+- Produces typed AST nodes generated from `spec/ast.asdl`
+- Handles disambiguation: generic `<` vs comparison, cast vs grouping,
+  for-in vs C-for, tuple type vs paren group
+- ASDL wrapper types: ElseBlock/ElseIf, ForInitVar/ForInitExpr,
+  SizeofType/SizeofExprOp, MapEntry, FStringText/FStringExpr,
+  LambdaBlock/LambdaExprBody, Capture, EnumValue, MethodSig
+
+#### Stage 3: Analyzer
+- Two-pass: register declarations, then analyze bodies
+- Type inference for `var` declarations
+- Generic instance collection (targets for monomorphization)
+- Scope management, access control, inheritance validation
+- Output: AnalyzedProgram with class_table, generic_instances, etc.
+
+#### Stage 4: IR Gen (THE CORE)
+- Walks typed AST + AnalyzedProgram → IRModule with structured IR nodes
+- ALL lowering happens here and ONLY here:
+  - ClassDecl → IRStructDef + method IRFunctionDefs
+  - Generics → monomorphized copies per type combination
+  - Methods → free functions with explicit self parameter
+  - new/delete → malloc/free + constructor/destructor calls
+  - for-in → C-style for with index variable
+  - f-strings → snprintf sequences
+  - Lambdas → static functions + capture structs
+  - String/collection methods → runtime helper calls
+  - Operator overloading → method calls
+  - Vtable setup for inheritance/interfaces
+- **Produces structured IR nodes** (IRIf, IRCall, IRFor, IRBinOp, etc.)
+- **NEVER produces C text** (exception: IRRawC for setjmp boilerplate only)
+
+#### Stage 5: Optimizer
+- Walks IR tree, collects runtime helper references
+- Removes unused helpers from IRModule.helper_decls
+- Resolves transitive category dependencies
+
+#### Stage 6: C Emitter
+- Simple recursive tree walk over IR nodes
+- Each IR node type → formatted C text
+- **NO lowering logic** — just formatting what IR Gen produced
+
+---
+
+## Shared Specs
+
+### spec/grammar.ebnf
+- @lexical: @keywords (57 keywords), @operators (48 operators sorted longest-first)
+- @syntax: grammar rules (human-readable spec, not parser-generator input)
+- EBNF parser extracts GrammarInfo: keyword set, operator list,
+  keyword→token mapping, operator→token mapping
+
+### spec/ast.asdl (Zephyr ASDL)
+- ~50 AST node types with typed fields
+- Sum types: decl, stmt, expr, class_member, if_else, for_init, etc.
+- Product types: Program, ClassDecl, BinaryExpr, etc.
+- attributes(int line, int col) on nodes that have source locations
+- Field names ARE the API contract for analyzer, IR gen, LSP, and tests
+- NEVER hand-edit ast_nodes.py or ast_nodes.btrc — regenerate from ASDL
+
+---
+
+## Python Compiler (src/compiler/python/)
+
+### File Size Rule
+
+**~200 lines per file, max 300.** If a file exceeds this, decompose it into
+a package with sub-modules. Use `__init__.py` to re-export the public API.
+
+### File Structure
+
+```
+src/compiler/python/
+  __init__.py                    re-exports Lexer, Parser, Analyzer
+  ebnf.py                       EBNF grammar parser → GrammarInfo
+  tokens.py                     Token + TokenType enum
+  lexer.py                      grammar-driven tokenizer
+  lexer_literals.py             number/string literal parsing
+  ast_nodes.py                  GENERATED from spec/ast.asdl
+  main.py                       pipeline entry point + CLI
+
+  parser/                        recursive descent parser (mixin-based)
+    __init__.py                  assembles Parser from mixins
+    core.py                      ParserBase class, state, token helpers
+    types.py                     type expression + param parsing
+    declarations.py              class, struct, enum decls
+    decl_simple.py               function, typedef, extern decls
+    statements.py                var decls, assignments
+    control_flow.py              if, for, while, switch, try/catch
+    expressions.py               precedence climbing
+    postfix.py                   member access, subscript, call chains
+    primary.py                   atoms: literals, new, sizeof, cast, fstring
+    lambdas.py                   verbose + arrow lambda parsing
+
+  analyzer/                      semantic analysis (mixin-based)
+    __init__.py                  assembles Analyzer from mixins
+    core.py                      data structures (ClassInfo, Scope, SymbolInfo)
+    registration.py              pass 1: register declarations
+    statements.py                statement analysis
+    expressions.py               expression analysis + type inference
+    type_inference.py            var type deduction
+    type_utils.py                type compatibility, formatting
+    functions.py                 function/method analysis
+    validation.py                access control, inheritance checks
+
+  ir/                            IR pipeline
+    __init__.py                  re-exports generate_ir, optimize, CEmitter
+    nodes.py                     IR node dataclass definitions
+    optimizer.py                 dead helper elimination
+    emitter.py                   IR → C text (simple tree walk)
+
+    gen/                         IR generation (AST → IR lowering)
+      __init__.py                re-exports generate_ir
+      generator.py               main class, module-level structure
+      classes.py                 class/struct lowering
+      class_members.py           field/method/property lowering
+      enums.py                   enum lowering (simple + rich)
+      statements.py              statement lowering
+      control_flow.py            if/while/for/switch/try lowering
+      expressions.py             expression lowering
+      operators.py               operator overloading → method calls
+      calls.py                   function/method call lowering
+      functions.py               function def lowering
+      methods.py                 method → free function lowering
+      fields.py                  field initialization
+      fstrings.py                f-string → snprintf lowering
+      collections.py             collection method expansion
+      iterations.py              for-in → C-style for lowering
+      lambdas.py                 lambda lifting + capture structs
+      types.py                   type-related IR generation
+      helpers.py                 runtime helper registration
+      generics/                  monomorphization
+        __init__.py              re-exports
+        core.py                  generic infrastructure
+        lists.py                 List<T> specialization
+        maps.py                  Map<K,V> specialization
+        sets.py                  Set<T> specialization
+        user.py                  user-defined generic classes
+
+    helpers/                     runtime helper C source text
+      __init__.py                re-exports HELPERS dict
+      core.py                    helper infrastructure
+      alloc.py                   safe alloc wrappers
+      divmod.py                  division/modulo safety
+      string_pool.py             string tracking pool
+      strings.py                 string operation helpers
+      strings_ops.py             string manipulation (replace, split, etc.)
+      strings_query.py           string queries (contains, indexOf, etc.)
+      strings_convert.py         string conversions (toUpper, toLower, etc.)
+      math.py                    math helpers
+      trycatch.py                setjmp/longjmp infrastructure
+      hash.py                    hash functions for Map/Set
+      collections.py             generic collection function templates
+
+  tests/
+    test_lexer.py                tokenize snippets → check tokens
+    test_parser.py               parse snippets → check AST structure
+    test_analyzer.py             analyze snippets → check types/errors
+    test_e2e.py                  full pipeline → gcc → run → check output
+```
+
+---
+
+## btrc Compiler (src/compiler/btrc/) — NOT YET IMPLEMENTED
+
+The self-hosted compiler is planned but does not exist yet. When implemented,
+it will be a faithful port of the Python compiler in btrc, following the same
+6-stage pipeline and producing identical output for every input.
+
+---
+
+## Testing Strategy
+
+### CLI Flags
+
+| Flag | Output |
+|---|---|
+| `--emit-tokens` | Token stream (one per line) |
+| `--emit-ast` | Canonical AST dump |
+| `--emit-ir` | IR tree dump (after IR gen, before optimizer) |
+| `--emit-optimized-ir` | IR tree dump (after optimizer) |
+| (default) | C source file |
+
+### Test Categories
+
+#### 1. Python Unit Tests (per-stage, ~650 tests)
+```
+src/compiler/python/tests/
+  test_lexer.py           tokenize snippets → check tokens
+  test_parser.py          parse snippets → check AST structure
+  test_analyzer.py        analyze snippets → check types/errors
+  test_e2e.py             full pipeline → gcc → run → check output
+```
+
+#### 2. End-to-End Tests (90 .btrc files)
+```
+for each src/tests/test_*.btrc:
+  transpile → C (Python compiler)
+  gcc → binary
+  run → assert exit 0 + "PASS" in stdout
+```
+
+### Makefile Targets
+```
+make build          Create bin/btrcpy wrapper script
+make test           Python unit tests + 90 btrc e2e tests
+make test-btrc      Just the 90 btrc e2e tests
+make lint           Lint with ruff
+make format         Format with ruff
+make bench          Run performance benchmarks
+make clean          Remove build artifacts
+```
+
+---
+
+## Hard Rules (Summary)
+
+1. **IR Gen produces structured IR nodes, NEVER raw C text.**
+2. **No monolithic codegen.** IR gen + optimizer + emitter is the ONLY path.
+3. **Grammar is the single source of truth.** No hardcoded keywords/operators.
+4. **AST types come from ASDL.** Never hand-edit generated files.
+5. **Files ~200 lines max.** Decompose into packages.
+6. **All 90 tests must pass.** No "pre-existing failures."
+7. **Don't cut corners when context runs low.** Save state and stop.

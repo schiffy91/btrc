@@ -1,11 +1,11 @@
-"""Class lowering: ClassDecl → IRStructDef + method/ctor/dtor IRFunctionDefs."""
+"""Class lowering: ClassDecl → IRStructDef + constructor IRFunctionDefs."""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
     BraceInitializer, ClassDecl, FieldDecl, ListLiteral, MapLiteral,
-    MethodDecl, NewExpr, PropertyDecl, StructDecl, TypeExpr,
+    MethodDecl, PropertyDecl, StructDecl, TypeExpr,
 )
 from ...analyzer import ClassInfo
 from ..nodes import (
@@ -13,7 +13,14 @@ from ..nodes import (
     IRFunctionDef, IRLiteral, IRParam, IRRawExpr, IRReturn, IRStructDef,
     IRStructField, IRVar, IRVarDecl,
 )
-from .types import type_to_c, is_pointer_type, is_collection_type, mangle_generic_type
+from .types import type_to_c, is_collection_type, mangle_generic_type
+from .class_members import (
+    emit_destructor as _emit_destructor,
+    emit_method as _emit_method,
+    emit_property as _emit_property,
+    emit_inherited_methods as _emit_inherited_methods,
+    lower_new_expr,
+)
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -21,9 +28,21 @@ if TYPE_CHECKING:
 
 def emit_struct_decl(gen: IRGenerator, decl: StructDecl):
     """Emit a plain struct (not class) definition."""
+    from .expressions import lower_expr, _expr_text
     fields = []
     for f in decl.fields:
-        fields.append(IRStructField(c_type=CType(text=type_to_c(f.type)), name=f.name))
+        if f.type and f.type.is_array and f.type.array_size:
+            # Array field: encode size in name, use base type
+            base_type = TypeExpr(base=f.type.base,
+                                 generic_args=f.type.generic_args,
+                                 pointer_depth=f.type.pointer_depth)
+            size_text = _expr_text(lower_expr(gen, f.type.array_size))
+            field_name = f"{f.name}[{size_text}]"
+            fields.append(IRStructField(
+                c_type=CType(text=type_to_c(base_type)), name=field_name))
+        else:
+            fields.append(IRStructField(
+                c_type=CType(text=type_to_c(f.type)), name=f.name))
     gen.module.struct_defs.append(IRStructDef(name=decl.name, fields=fields))
 
 
@@ -173,162 +192,3 @@ def _emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     ))
 
 
-def _emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
-    """Emit ClassName_destroy(self) which frees internal resources."""
-    name = decl.name
-    dtor = cls_info.methods.get("__del__")
-
-    body_stmts = []
-    if dtor and dtor.body:
-        from .statements import lower_block
-        body_stmts = lower_block(gen, dtor.body).stmts
-
-    # Recursively destroy owned pointer-type fields
-    for fname, fd in cls_info.fields.items():
-        from ..nodes import IRIf, IRBinOp
-        # Collection fields (List, Map, Set) → mangled_free()
-        if fd.type and is_collection_type(fd.type):
-            mangled = mangle_generic_type(fd.type.base, fd.type.generic_args)
-            fa = IRFieldAccess(obj=IRVar(name="self"), field=fname, arrow=True)
-            body_stmts.append(IRIf(
-                condition=IRBinOp(left=fa, op="!=", right=IRLiteral(text="NULL")),
-                then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=f"{mangled}_free",
-                                args=[IRFieldAccess(obj=IRVar(name="self"),
-                                                     field=fname, arrow=True)]))]),
-            ))
-        # Class instance fields → ClassName_destroy()
-        elif fd.type and fd.type.base in gen.analyzed.class_table:
-            fa = IRFieldAccess(obj=IRVar(name="self"), field=fname, arrow=True)
-            body_stmts.append(IRIf(
-                condition=IRBinOp(left=fa, op="!=", right=IRLiteral(text="NULL")),
-                then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=f"{fd.type.base}_destroy",
-                                args=[IRFieldAccess(obj=IRVar(name="self"),
-                                                     field=fname, arrow=True)]))]),
-            ))
-
-    # Free self at the end
-    body_stmts.append(IRExprStmt(expr=IRCall(callee="free", args=[IRVar(name="self")])))
-
-    gen.module.function_defs.append(IRFunctionDef(
-        name=f"{name}_destroy",
-        return_type=CType(text="void"),
-        params=[IRParam(c_type=CType(text=f"{name}*"), name="self")],
-        body=IRBlock(stmts=body_stmts),
-    ))
-
-
-def _emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
-    """Emit ClassName_methodname(self, ...) as a free function."""
-    name = decl.name
-    is_static = method.access == "class"
-    params = []
-    if not is_static:
-        params.append(IRParam(c_type=CType(text=f"{name}*"), name="self"))
-    for p in method.params:
-        params.append(IRParam(c_type=CType(text=type_to_c(p.type)), name=p.name))
-
-    ret_type = type_to_c(method.return_type) if method.return_type else "void"
-
-    body = IRBlock()
-    if method.body:
-        from .statements import lower_block
-        body = lower_block(gen, method.body)
-
-    gen.module.function_defs.append(IRFunctionDef(
-        name=f"{name}_{method.name}",
-        return_type=CType(text=ret_type),
-        params=params,
-        body=body,
-    ))
-
-
-def _emit_property(gen: IRGenerator, decl: ClassDecl, prop: PropertyDecl):
-    """Emit getter/setter functions for a property."""
-    name = decl.name
-    prop_type = type_to_c(prop.type) if prop.type else "int"
-    backing = f"_prop_{prop.name}"
-
-    if prop.has_getter:
-        if prop.getter_body:
-            from .statements import lower_block
-            body = lower_block(gen, prop.getter_body)
-        else:
-            # Auto-getter: return self->_prop_x;
-            body = IRBlock(stmts=[IRReturn(
-                value=IRFieldAccess(obj=IRVar(name="self"),
-                                    field=backing, arrow=True))])
-        gen.module.function_defs.append(IRFunctionDef(
-            name=f"{name}_get_{prop.name}",
-            return_type=CType(text=prop_type),
-            params=[IRParam(c_type=CType(text=f"{name}*"), name="self")],
-            body=body,
-        ))
-
-    if prop.has_setter:
-        if prop.setter_body:
-            from .statements import lower_block
-            body = lower_block(gen, prop.setter_body)
-        else:
-            # Auto-setter: self->_prop_x = value;
-            body = IRBlock(stmts=[IRAssign(
-                target=IRFieldAccess(obj=IRVar(name="self"),
-                                     field=backing, arrow=True),
-                value=IRVar(name="value"))])
-        gen.module.function_defs.append(IRFunctionDef(
-            name=f"{name}_set_{prop.name}",
-            return_type=CType(text="void"),
-            params=[
-                IRParam(c_type=CType(text=f"{name}*"), name="self"),
-                IRParam(c_type=CType(text=prop_type), name="value"),
-            ],
-            body=body,
-        ))
-
-
-def _emit_inherited_methods(gen: IRGenerator, decl: ClassDecl,
-                            cls_info: ClassInfo, own_methods: set[str]):
-    """Emit wrapper functions for inherited methods not overridden."""
-    parent_name = cls_info.parent
-    while parent_name and parent_name in gen.analyzed.class_table:
-        parent_info = gen.analyzed.class_table[parent_name]
-        for mname, method in parent_info.methods.items():
-            if mname in own_methods or mname == "__del__" or mname == parent_name:
-                continue
-            # Emit wrapper: Child_method(self, ...) → Parent_method(self, ...)
-            own_methods.add(mname)
-            params = [IRParam(c_type=CType(text=f"{decl.name}*"), name="self")]
-            call_args = [IRCast(
-                target_type=f"{parent_name}*", expr=IRVar(name="self"))]
-            for p in method.params:
-                params.append(IRParam(c_type=CType(text=type_to_c(p.type)), name=p.name))
-                call_args.append(IRVar(name=p.name))
-            ret_type = type_to_c(method.return_type) if method.return_type else "void"
-            call = IRCall(callee=f"{parent_name}_{mname}", args=call_args)
-            if ret_type == "void":
-                body = IRBlock(stmts=[IRExprStmt(expr=call)])
-            else:
-                body = IRBlock(stmts=[IRReturn(value=call)])
-            gen.module.function_defs.append(IRFunctionDef(
-                name=f"{decl.name}_{mname}",
-                return_type=CType(text=ret_type),
-                params=params,
-                body=body,
-            ))
-        parent_name = parent_info.parent
-
-
-def lower_new_expr(gen: IRGenerator, node: NewExpr):
-    """Lower new ClassName(args) → ClassName_new(args)."""
-    from .expressions import lower_expr
-    from .types import mangle_generic_type
-    type_name = node.type.base
-    if node.type.generic_args:
-        type_name = mangle_generic_type(node.type.base, node.type.generic_args)
-    args = [lower_expr(gen, a) for a in node.args]
-    return IRCall(callee=f"{type_name}_new", args=args)
-
-
-# Import needed for _new body
-from ..nodes import IRRawExpr

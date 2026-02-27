@@ -2,7 +2,7 @@
  * Base error class and common subclasses for structured error handling.
  *
  * Usage:
- *   Error* e = new ValueError("invalid input");
+ *   Error e = new ValueError("invalid input");
  *   print(e.message);
  *   delete e;
  *

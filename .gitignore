@@ -1,4 +1,4 @@
-build/
+bin/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
@@ -8,12 +8,12 @@ __pycache__/
 .DS_Store
 
 # LSP server venv
-devex/lsp/.venv/
+src/devex/lsp/.venv/
 
 # Claude Code
 .claude/
 
 # VS Code extension build artifacts
-devex/ext/out/
-devex/ext/node_modules/
-devex/ext/*.vsix
+src/devex/ext/out/
+src/devex/ext/node_modules/
+src/devex/ext/*.vsix

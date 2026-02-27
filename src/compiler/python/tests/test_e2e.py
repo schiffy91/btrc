@@ -1,6 +1,6 @@
 """End-to-end tests for the btrc transpiler.
 
-Each test: btrc source → lexer → parser → analyzer → codegen → gcc → run → check output.
+Each test: btrc source → lexer → parser → analyzer → IR gen → optimize → emit → gcc → run → check output.
 """
 
 import subprocess
@@ -11,16 +11,25 @@ import pytest
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser import Parser
 from src.compiler.python.analyzer import Analyzer
-from src.compiler.python.codegen import CodeGen
+from src.compiler.python.ir.gen import IRGenerator
+from src.compiler.python.ir.optimizer import optimize as optimize_module
+from src.compiler.python.ir.emitter import CEmitter
+from src.compiler.python.main import get_stdlib_source
 
 
 def compile_and_run(btrc_source: str, extra_flags: list[str] = None) -> str:
     """Transpile btrc source to C, compile with gcc, run, return stdout."""
+    # Auto-include stdlib collection types
+    stdlib_source = get_stdlib_source()
+    if stdlib_source:
+        btrc_source = stdlib_source + "\n" + btrc_source
     tokens = Lexer(btrc_source).tokenize()
     program = Parser(tokens).parse()
     analyzed = Analyzer().analyze(program)
     assert not analyzed.errors, f"Analyzer errors: {analyzed.errors}"
-    c_source = CodeGen(analyzed).generate()
+    ir_module = IRGenerator(analyzed).generate()
+    optimized = optimize_module(ir_module)
+    c_source = CEmitter().emit(optimized)
 
     with tempfile.NamedTemporaryFile(suffix=".c", mode="w", delete=False) as f:
         f.write(c_source)
@@ -212,8 +221,8 @@ class TestE2ENewDelete:
                 public Node(int v) { self.val = v; }
             }
             int main() {
-                Node* n = new Node(99);
-                printf("%d\\n", n->val);
+                Node n = new Node(99);
+                printf("%d\\n", n.val);
                 free(n);
                 return 0;
             }
@@ -309,8 +318,8 @@ class TestE2EDotSyntax:
                 public int get() { return self.val; }
             }
             int main() {
-                Box* b = new Box(42);
-                printf("%d\\n", b->get());
+                Box b = new Box(42);
+                printf("%d\\n", b.get());
                 free(b);
                 return 0;
             }
@@ -428,11 +437,11 @@ class TestE2EOperatorOverload:
                     self.x = x;
                     self.y = y;
                 }
-                public Vec2 __add__(Vec2* other) {
-                    return Vec2(self.x + other->x, self.y + other->y);
+                public Vec2 __add__(Vec2 other) {
+                    return Vec2(self.x + other.x, self.y + other.y);
                 }
-                public bool __eq__(Vec2* other) {
-                    return self.x == other->x && self.y == other->y;
+                public bool __eq__(Vec2 other) {
+                    return self.x == other.x && self.y == other.y;
                 }
             }
             int main() {
@@ -1514,7 +1523,7 @@ class TestE2ENullable:
                 }
             }
             int main() {
-                Box* b = new Box(42);
+                Box b = new Box(42);
                 print(b?.val);
                 delete b;
                 b = null;
@@ -2040,7 +2049,7 @@ class TestE2EStaticMethods:
                 }
             }
             int main() {
-                Bag* b = new Bag();
+                Bag b = new Bag();
                 b.add(10);
                 b.add(20);
                 b.add(30);
@@ -2062,7 +2071,7 @@ class TestE2EStaticMethods:
                 }
             }
             int main() {
-                Point* p = new Point();
+                Point p = new Point();
                 p.set(10, 20);
                 print(p.x + p.y);
                 return 0;
@@ -2080,7 +2089,7 @@ class TestE2EStaticMethods:
                 }
             }
             int main() {
-                Store* s = new Store();
+                Store s = new Store();
                 s.stock("apples", 50);
                 s.stock("bananas", 30);
                 print(s.inventory.len);

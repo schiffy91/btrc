@@ -15,8 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser import Parser
 from src.compiler.python.analyzer import Analyzer
-from src.compiler.python.codegen import CodeGen
-from src.compiler.python.main import resolve_includes
+from src.compiler.python.ir import optimize, CEmitter
+from src.compiler.python.ir.gen import generate_ir
+from src.compiler.python.main import resolve_includes, get_stdlib_source
 
 BTRC_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 EXPECTED_DIR = os.path.join(BTRC_TEST_DIR, "expected")
@@ -38,6 +39,9 @@ def generate_expected():
             with open(btrc_path) as f:
                 source = f.read()
             source = resolve_includes(source, btrc_path)
+            stdlib_source = get_stdlib_source()
+            if stdlib_source:
+                source = stdlib_source + "\n" + source
 
             tokens = Lexer(source, os.path.basename(btrc_path)).tokenize()
             program = Parser(tokens).parse()
@@ -45,7 +49,9 @@ def generate_expected():
             if analyzed.errors:
                 print(f"  SKIP {name}: analyzer errors")
                 continue
-            c_source = CodeGen(analyzed).generate()
+            ir_module = generate_ir(analyzed)
+            ir_module = optimize(ir_module)
+            c_source = CEmitter().emit(ir_module)
 
             with tempfile.NamedTemporaryFile(suffix=".c", delete=False, mode="w") as f:
                 f.write(c_source)

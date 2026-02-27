@@ -24,7 +24,7 @@ int main() {
     assert(strcmp(result, "Alex") == 0);
 
     // Optional chaining on class
-    Box* b = new Box(42);
+    Box b = new Box(42);
     assert(b?.val == 42);
     delete b;
     b = null;

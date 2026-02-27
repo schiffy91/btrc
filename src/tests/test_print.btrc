@@ -1,0 +1,22 @@
+#include <assert.h>
+
+int main() {
+    // Test print with string
+    print("hello");
+
+    // Test print with int
+    int x = 42;
+    print(x);
+
+    // Test print with multiple args
+    int a = 1;
+    int b = 2;
+    print(a, b);
+
+    // Test print empty (just newline)
+    print();
+    print("done");
+
+    print("PASS: test_print");
+    return 0;
+}
