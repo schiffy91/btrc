@@ -17,8 +17,8 @@ int main() {
     assert(filtered.get(0) == 4);
     assert(filtered.get(1) == 5);
 
-    btrc_List_int_free(&filtered);
-    btrc_List_int_free(&nums);
+    delete filtered;
+    delete nums;
 
     printf("PASS: test_lambda_globals\n");
     return 0;

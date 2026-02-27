@@ -61,10 +61,10 @@ int main() {
     assert(nums.any(bool function(int x) { return x == 3; }) == true);
     assert(nums.all(bool function(int x) { return x < 10; }) == true);
 
-    btrc_List_int_free(&evens);
-    btrc_List_int_free(&big);
-    btrc_List_int_free(&small);
-    btrc_List_int_free(&nums);
+    delete evens;
+    delete big;
+    delete small;
+    delete nums;
 
     printf("PASS: test_list_functional\n");
     return 0;
