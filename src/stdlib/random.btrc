@@ -33,12 +33,12 @@ class Random {
         return lo + self.random() * (hi - lo);
     }
 
-    public int choice(List<int> items) {
+    public int choice(Vector<int> items) {
         int idx = self.randint(0, items.len - 1);
         return items.get(idx);
     }
 
-    public void shuffle(List<int> items) {
+    public void shuffle(Vector<int> items) {
         for i in range(items.len - 1, 0) {
             int j = self.randint(0, i);
             int tmp = items.get(i);

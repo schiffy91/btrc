@@ -5,7 +5,7 @@ int main() {
     // ---- Map<string, int>: iterate keys ----
     Map<string, int> ages = {"alice": 30, "bob": 25, "carol": 35};
 
-    List<string> keys = ages.keys();
+    Vector<string> keys = ages.keys();
     assert(keys.len == 3);
 
     // Verify all expected keys are present
@@ -24,7 +24,7 @@ int main() {
     keys.free();
 
     // ---- Map<string, int>: iterate values ----
-    List<int> vals = ages.values();
+    Vector<int> vals = ages.values();
     assert(vals.len == 3);
 
     int total = 0;
@@ -38,7 +38,7 @@ int main() {
     // ---- Map<int, int>: iterate and accumulate ----
     Map<int, int> squares = {1: 1, 2: 4, 3: 9, 4: 16};
 
-    List<int> sq_vals = squares.values();
+    Vector<int> sq_vals = squares.values();
     int sq_sum = 0;
     for sv in sq_vals {
         sq_sum += sv;

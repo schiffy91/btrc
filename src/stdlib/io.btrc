@@ -43,8 +43,8 @@ class File {
         return "";
     }
 
-    public List<string> readLines() {
-        List<string> lines = [];
+    public Vector<string> readLines() {
+        Vector<string> lines = [];
         if (!self.is_open) { return lines; }
         char buf[4096];
         while (fgets(buf, 4096, self.handle) != NULL) {

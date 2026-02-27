@@ -2,7 +2,7 @@
 
 class Registry {
     public Map<string, int> scores = {};
-    public List<string> names = [];
+    public Vector<string> names = [];
 
     public void add(string name, int score) {
         self.names.push(name);

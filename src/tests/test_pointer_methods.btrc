@@ -1,7 +1,7 @@
 #include <assert.h>
 
 class Bag {
-    public List<int> items = [];
+    public Vector<int> items = [];
 
     public void add(int x) {
         self.items.push(x);

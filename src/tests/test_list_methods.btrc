@@ -2,7 +2,7 @@
 
 int main() {
     // ---- sort ----
-    List<int> nums = [5, 2, 8, 1, 9, 3];
+    Vector<int> nums = [5, 2, 8, 1, 9, 3];
     assert(nums.len == 6);
     nums.sort();
     assert(nums[0] == 1);

@@ -3,7 +3,7 @@
 
 int main() {
     // pop on int list
-    List<int> nums = [10, 20, 30];
+    Vector<int> nums = [10, 20, 30];
     int last = nums.pop();
     assert(last == 30);
     assert(nums.len == 2);
@@ -12,7 +12,7 @@ int main() {
     assert(nums.len == 1);
 
     // String list contains with strcmp
-    List<string> words = ["hello", "world", "btrc"];
+    Vector<string> words = ["hello", "world", "btrc"];
     assert(words.contains("hello") == true);
     assert(words.contains("btrc") == true);
     assert(words.contains("missing") == false);
@@ -23,7 +23,7 @@ int main() {
     assert(words.indexOf("missing") == -1);
 
     // String list sort (alphabetical)
-    List<string> unsorted = ["banana", "apple", "cherry"];
+    Vector<string> unsorted = ["banana", "apple", "cherry"];
     unsorted.sort();
     assert(strcmp(unsorted.get(0), "apple") == 0);
     assert(strcmp(unsorted.get(1), "banana") == 0);

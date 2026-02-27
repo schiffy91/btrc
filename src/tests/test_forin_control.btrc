@@ -2,8 +2,8 @@
 #include <assert.h>
 
 int main() {
-    // ---- for-in over List<int> with break ----
-    List<int> nums = [10, 20, 30, 40, 50];
+    // ---- for-in over Vector<int> with break ----
+    Vector<int> nums = [10, 20, 30, 40, 50];
     int found = -1;
     for val in nums {
         if (val == 30) {
@@ -13,9 +13,9 @@ int main() {
     }
     assert(found == 30);
 
-    // ---- for-in over List<int> with continue ----
+    // ---- for-in over Vector<int> with continue ----
     int odd_sum = 0;
-    List<int> values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    Vector<int> values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     for v in values {
         if (v % 2 == 0) {
             continue;
@@ -24,8 +24,8 @@ int main() {
     }
     assert(odd_sum == 25);  // 1+3+5+7+9
 
-    // ---- for-in over List<string> with break ----
-    List<string> words = ["hello", "world", "stop", "extra"];
+    // ---- for-in over Vector<string> with break ----
+    Vector<string> words = ["hello", "world", "stop", "extra"];
     string last_seen = "";
     for w in words {
         if (strcmp(w, "stop") == 0) {
@@ -35,9 +35,9 @@ int main() {
     }
     assert(strcmp(last_seen, "world") == 0);
 
-    // ---- for-in over List<string> with continue (skip short words) ----
+    // ---- for-in over Vector<string> with continue (skip short words) ----
     int long_count = 0;
-    List<string> names = ["al", "bob", "carol", "ed", "frank"];
+    Vector<string> names = ["al", "bob", "carol", "ed", "frank"];
     for name in names {
         if ((int)strlen(name) <= 2) {
             continue;
@@ -47,8 +47,8 @@ int main() {
     assert(long_count == 3);  // bob, carol, frank
 
     // ---- Nested for-in with break in inner loop ----
-    List<int> outer = [1, 2, 3];
-    List<int> inner = [10, 20, 30];
+    Vector<int> outer = [1, 2, 3];
+    Vector<int> inner = [10, 20, 30];
     int pair_sum = 0;
     for a in outer {
         for b in inner {

@@ -1,16 +1,16 @@
 #include <assert.h>
 
 int main() {
-    List<int> a = [1, 2, 3, 4, 5];
+    Vector<int> a = [1, 2, 3, 4, 5];
 
     // take
-    List<int> t = a.take(3);
+    Vector<int> t = a.take(3);
     assert(t.size() == 3);
     assert(t.get(0) == 1);
     assert(t.get(2) == 3);
 
     // drop
-    List<int> d = a.drop(2);
+    Vector<int> d = a.drop(2);
     assert(d.size() == 3);
     assert(d.get(0) == 3);
     assert(d.get(2) == 5);

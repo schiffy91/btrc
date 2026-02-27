@@ -112,13 +112,13 @@ class TestGenerics:
     def test_generic_instantiation_collected(self):
         src = '''
             void test() {
-                List<int> a;
-                List<float> b;
+                Vector<int> a;
+                Vector<float> b;
             }
         '''
         result = analyze(src)
-        assert "List" in result.generic_instances
-        bases = [args[0].base for args in result.generic_instances["List"]]
+        assert "Vector" in result.generic_instances
+        bases = [args[0].base for args in result.generic_instances["Vector"]]
         assert "int" in bases
         assert "float" in bases
 
@@ -134,13 +134,13 @@ class TestGenerics:
     def test_nested_generic(self):
         src = '''
             void test() {
-                List<List<int>> nested;
+                Vector<Vector<int>> nested;
             }
         '''
         result = analyze(src)
-        assert "List" in result.generic_instances
-        # Should have both List<int> and List<List<int>>
-        assert len(result.generic_instances["List"]) == 2
+        assert "Vector" in result.generic_instances
+        # Should have both Vector<int> and Vector<Vector<int>>
+        assert len(result.generic_instances["Vector"]) == 2
 
     def test_generic_class_registered(self):
         src = '''
@@ -220,7 +220,7 @@ class TestForIn:
     def test_for_in_list(self):
         src = '''
             void test() {
-                List<int> nums;
+                Vector<int> nums;
                 for x in nums { }
             }
         '''
@@ -445,18 +445,18 @@ class TestTypeChecking:
 
 class TestGenericConstraints:
     def test_list_custom_class_generic_collected(self):
-        """List<CustomClass> should be collected as a generic instance."""
+        """Vector<CustomClass> should be collected as a generic instance."""
         src = '''
             class Animal {
                 public string name;
             }
             void test() {
-                List<Animal> animals;
+                Vector<Animal> animals;
             }
         '''
         result = analyze(src)
-        assert "List" in result.generic_instances
-        bases = [args[0].base for args in result.generic_instances["List"]]
+        assert "Vector" in result.generic_instances
+        bases = [args[0].base for args in result.generic_instances["Vector"]]
         assert "Animal" in bases
 
     def test_map_string_keys_collected(self):
@@ -486,59 +486,59 @@ class TestGenericConstraints:
         assert map_args[1].base == "string"
 
     def test_nested_generics_inner_and_outer_collected(self):
-        """List<List<int>> should collect both List<int> and List<List<int>>."""
+        """Vector<Vector<int>> should collect both Vector<int> and Vector<Vector<int>>."""
         src = '''
             void test() {
-                List<List<int>> matrix;
+                Vector<Vector<int>> matrix;
             }
         '''
         result = analyze(src)
-        instances = result.generic_instances["List"]
-        # One for List<int>, one for List<List<int>>
+        instances = result.generic_instances["Vector"]
+        # One for Vector<int>, one for Vector<Vector<int>>
         assert len(instances) == 2
         inner_bases = set()
         for args in instances:
             inner_bases.add(args[0].base)
         assert "int" in inner_bases
-        assert "List" in inner_bases
+        assert "Vector" in inner_bases
 
     def test_generic_class_field_types_collected(self):
         """Generic instances from class field types should be collected."""
         src = '''
             class Container {
-                public List<string> items;
+                public Vector<string> items;
             }
         '''
         result = analyze(src)
-        assert "List" in result.generic_instances
-        bases = [args[0].base for args in result.generic_instances["List"]]
+        assert "Vector" in result.generic_instances
+        bases = [args[0].base for args in result.generic_instances["Vector"]]
         assert "string" in bases
 
     def test_generic_method_param_collected(self):
         """Generic types used as method parameters should be collected."""
         src = '''
             class Store {
-                public void add(List<int> items) { }
+                public void add(Vector<int> items) { }
             }
         '''
         result = analyze(src)
-        assert "List" in result.generic_instances
-        bases = [args[0].base for args in result.generic_instances["List"]]
+        assert "Vector" in result.generic_instances
+        bases = [args[0].base for args in result.generic_instances["Vector"]]
         assert "int" in bases
 
     def test_generic_method_return_type_collected(self):
         """Generic types used as method return types should be collected."""
         src = '''
             class Factory {
-                public List<float> create() {
-                    List<float> result;
+                public Vector<float> create() {
+                    Vector<float> result;
                     return result;
                 }
             }
         '''
         result = analyze(src)
-        assert "List" in result.generic_instances
-        bases = [args[0].base for args in result.generic_instances["List"]]
+        assert "Vector" in result.generic_instances
+        bases = [args[0].base for args in result.generic_instances["Vector"]]
         assert "float" in bases
 
     def test_multiple_generic_classes_tracked_separately(self):
@@ -547,16 +547,16 @@ class TestGenericConstraints:
         so they only appear when stdlib is included."""
         src = '''
             void test() {
-                List<int> nums;
+                Vector<int> nums;
                 Map<string, float> scores;
             }
         '''
         result = analyze(src)
-        assert "List" in result.generic_instances
+        assert "Vector" in result.generic_instances
         assert "Map" in result.generic_instances
-        # List<int> from declaration (transitive deps come from stdlib class_table)
-        assert len(result.generic_instances["List"]) >= 1
-        list_bases = [args[0].base for args in result.generic_instances["List"]]
+        # Vector<int> from declaration (transitive deps come from stdlib class_table)
+        assert len(result.generic_instances["Vector"]) >= 1
+        list_bases = [args[0].base for args in result.generic_instances["Vector"]]
         assert "int" in list_bases
         assert len(result.generic_instances["Map"]) == 1
 
@@ -709,7 +709,7 @@ class TestScopeAnalysis:
         """For-in loop variable should be available inside the loop body."""
         src = '''
             void test() {
-                List<int> nums;
+                Vector<int> nums;
                 for n in nums {
                     int y = n;
                 }
@@ -961,7 +961,7 @@ class TestTypeInferenceExtended:
         result = analyze(src)
         assert not result.errors
         stmt = result.program.declarations[0].body.statements[0]
-        assert stmt.type.base == "List"
+        assert stmt.type.base == "Vector"
         assert stmt.type.generic_args[0].base == "int"
 
     def test_var_infer_from_map_literal(self):
@@ -1044,7 +1044,7 @@ class TestTypeInferenceExtended:
         """Var should infer element type from list indexing."""
         src = '''
             void test() {
-                List<string> names;
+                Vector<string> names;
                 var first = names[0];
             }
         '''
@@ -1306,10 +1306,10 @@ class TestForInExtended:
         assert has_error(src, "not iterable")
 
     def test_for_in_generic_list_no_error(self):
-        """for x in List<float> should be valid."""
+        """for x in Vector<float> should be valid."""
         src = '''
             void test() {
-                List<float> vals;
+                Vector<float> vals;
                 for v in vals { }
             }
         '''
@@ -1495,7 +1495,7 @@ class TestMapIteration:
     def test_for_kv_in_non_map_error(self):
         src = '''
             void test() {
-                List<int> nums;
+                Vector<int> nums;
                 for k, v in nums { }
             }
         '''
@@ -1696,7 +1696,7 @@ class TestConstructorArgCount:
 class TestGenericArgCount:
     # Generic arg count validation requires class_table entries (from stdlib or stubs)
     _STUBS = '''
-        class List<T> { public int len; }
+        class Vector<T> { public int len; }
         class Map<K, V> { public int len; }
         class Array<T> { public int len; }
         class Set<T> { public int len; }
@@ -1705,11 +1705,11 @@ class TestGenericArgCount:
     def test_list_too_many_type_args(self):
         src = self._STUBS + '''
             int main() {
-                List<int, string> x;
+                Vector<int, string> x;
                 return 0;
             }
         '''
-        assert has_error(src, "Type 'List' expects 1 generic argument(s) but got 2")
+        assert has_error(src, "Type 'Vector' expects 1 generic argument(s) but got 2")
 
     def test_map_too_few_type_args(self):
         src = self._STUBS + '''
@@ -1750,7 +1750,7 @@ class TestGenericArgCount:
     def test_correct_generic_args(self):
         src = '''
             int main() {
-                List<int> a;
+                Vector<int> a;
                 Map<string, int> b;
                 Array<float> c;
                 Set<int> d;
@@ -1981,7 +1981,7 @@ class TestBreakContinueValidation:
     def test_break_in_for_in_ok(self):
         src = '''
             void test() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
                 for n in nums {
                     break;
                 }
@@ -2174,7 +2174,7 @@ class TestTypeMismatch:
         """List initialization should work."""
         src = '''
             void test() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
             }
         '''
         assert no_errors(src)
@@ -2399,7 +2399,7 @@ class TestListElementTypeValidation:
     def test_mixed_types_error(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, "three"];
+                Vector<int> nums = [1, 2, "three"];
                 return 0;
             }
         '''
@@ -2408,7 +2408,7 @@ class TestListElementTypeValidation:
     def test_homogeneous_list_ok(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
                 return 0;
             }
         '''
@@ -2417,7 +2417,7 @@ class TestListElementTypeValidation:
     def test_single_element_ok(self):
         src = '''
             int main() {
-                List<int> nums = [1];
+                Vector<int> nums = [1];
                 return 0;
             }
         '''
@@ -2427,7 +2427,7 @@ class TestListElementTypeValidation:
         """int and float are compatible in numeric context."""
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
                 return 0;
             }
         '''
@@ -2547,8 +2547,8 @@ class TestReturnTypeMismatch:
         """Lambda return type check should not leak into enclosing function."""
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3];
-                List<int> filtered = nums.filter(bool function(int x) { return x > 1; });
+                Vector<int> nums = [1, 2, 3];
+                Vector<int> filtered = nums.filter(bool function(int x) { return x > 1; });
                 return 0;
             }
         '''

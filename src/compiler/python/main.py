@@ -53,18 +53,18 @@ def _get_stdlib_dir() -> str:
 def _discover_stdlib_files() -> list[str]:
     """Scan src/stdlib/ and return .btrc filenames in include order.
 
-    list.btrc comes first (Map/Set/Array may depend on List),
-    then the rest alphabetically.
+    vector.btrc comes first (Map/Set/List/Array may depend on Vector),
+    then list.btrc (depends on ListNode + Vector), then rest alphabetically.
     """
     stdlib_dir = _get_stdlib_dir()
     if not os.path.isdir(stdlib_dir):
         return []
     files = sorted(f for f in os.listdir(stdlib_dir) if f.endswith(".btrc"))
-    # list.btrc first, then rest in alphabetical order
-    if "list.btrc" in files:
-        files.remove("list.btrc")
-        files.insert(0, "list.btrc")
-    return files
+    # vector.btrc first, list.btrc second (uses Vector), then rest alphabetical
+    priority = ["vector.btrc", "list.btrc"]
+    ordered = [f for f in priority if f in files]
+    ordered += [f for f in files if f not in priority]
+    return ordered
 
 
 def get_stdlib_source(user_source: str = "") -> str:

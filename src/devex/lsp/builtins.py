@@ -44,7 +44,7 @@ STRING_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("lastIndexOf", "int", "method", [("string", "sub")], "Index of last occurrence"),
     BuiltinMember("substring", "string", "method", [("int", "start"), ("int", "end")], "Extract substring"),
     BuiltinMember("equals", "bool", "method", [("string", "other")], "Compare strings"),
-    BuiltinMember("split", "List<string>", "method", [("string", "delim")], "Split into list"),
+    BuiltinMember("split", "Vector<string>", "method", [("string", "delim")], "Split into list"),
     BuiltinMember("replace", "string", "method", [("string", "old"), ("string", "replacement")], "Replace occurrences"),
     BuiltinMember("repeat", "string", "method", [("int", "count")], "Repeat N times"),
     BuiltinMember("count", "int", "method", [("string", "sub")], "Count non-overlapping occurrences"),
@@ -75,49 +75,50 @@ STRING_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("zfill", "string", "method", [("int", "width")], "Left-pad with zeros (preserves sign)"),
 ]
 
-# Generated from src/stdlib/list.btrc
-LIST_MEMBERS: list[BuiltinMember] = [
+# Generated from src/stdlib/array.btrc
+ARRAY_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("len", "int", "field", doc="len"),
-    BuiltinMember("push", "void", "method", [("T", "val")], "push"),
-    BuiltinMember("pop", "T", "method", [], "pop"),
     BuiltinMember("get", "T", "method", [("int", "i")], "get"),
     BuiltinMember("set", "void", "method", [("int", "i"), ("T", "val")], "set"),
-    BuiltinMember("free", "void", "method", [], "free"),
-    BuiltinMember("remove", "void", "method", [("int", "idx")], "remove"),
-    BuiltinMember("reverse", "void", "method", [], "reverse"),
-    BuiltinMember("reversed", "List<T>", "method", [], "reversed"),
-    BuiltinMember("swap", "void", "method", [("int", "i"), ("int", "j")], "swap"),
-    BuiltinMember("clear", "void", "method", [], "clear"),
     BuiltinMember("fill", "void", "method", [("T", "val")], "fill"),
-    BuiltinMember("size", "int", "method", [], "size"),
-    BuiltinMember("isEmpty", "bool", "method", [], "isEmpty"),
-    BuiltinMember("first", "T", "method", [], "first"),
-    BuiltinMember("last", "T", "method", [], "last"),
-    BuiltinMember("slice", "List<T>", "method", [("int", "start"), ("int", "end")], "slice"),
-    BuiltinMember("take", "List<T>", "method", [("int", "n")], "take"),
-    BuiltinMember("drop", "List<T>", "method", [("int", "n")], "drop"),
-    BuiltinMember("extend", "void", "method", [("List<T>", "other")], "extend"),
-    BuiltinMember("insert", "void", "method", [("int", "idx"), ("T", "val")], "insert"),
     BuiltinMember("contains", "bool", "method", [("T", "val")], "contains"),
     BuiltinMember("indexOf", "int", "method", [("T", "val")], "indexOf"),
-    BuiltinMember("lastIndexOf", "int", "method", [("T", "val")], "lastIndexOf"),
-    BuiltinMember("count", "int", "method", [("T", "val")], "count"),
-    BuiltinMember("removeAll", "void", "method", [("T", "val")], "removeAll"),
-    BuiltinMember("distinct", "List<T>", "method", [], "distinct"),
-    BuiltinMember("sort", "void", "method", [], "sort"),
-    BuiltinMember("sorted", "List<T>", "method", [], "sorted"),
-    BuiltinMember("min", "T", "method", [], "min"),
-    BuiltinMember("max", "T", "method", [], "max"),
-    BuiltinMember("sum", "T", "method", [], "sum"),
-    BuiltinMember("join", "string", "method", [("string", "sep")], "join"),
-    BuiltinMember("joinToString", "string", "method", [("string", "sep")], "joinToString"),
-    BuiltinMember("forEach", "void", "method", [("fn", "callback")], "Call fn for each element"),
-    BuiltinMember("filter", "List<T>", "method", [("fn", "predicate")], "Filter by predicate"),
-    BuiltinMember("any", "bool", "method", [("fn", "predicate")], "True if any element matches"),
-    BuiltinMember("all", "bool", "method", [("fn", "predicate")], "True if all elements match"),
-    BuiltinMember("findIndex", "int", "method", [("fn", "predicate")], "Index of first match, -1 if not found"),
-    BuiltinMember("map", "List<T>", "method", [("fn", "transform")], "Apply fn to each element"),
-    BuiltinMember("reduce", "T", "method", [("T", "init"), ("fn", "accumulator")], "Fold list into single value"),
+    BuiltinMember("swap", "void", "method", [("int", "i"), ("int", "j")], "swap"),
+    BuiltinMember("reverse", "void", "method", [], "reverse"),
+    BuiltinMember("size", "int", "method", [], "size"),
+    BuiltinMember("isEmpty", "bool", "method", [], "isEmpty"),
+    BuiltinMember("free", "void", "method", [], "free"),
+    BuiltinMember("iterLen", "int", "method", [], "iterLen"),
+    BuiltinMember("iterGet", "T", "method", [("int", "i")], "iterGet"),
+]
+
+# Generated from src/stdlib/list.btrc
+LIST_MEMBERS: list[BuiltinMember] = [
+    BuiltinMember("head", "ListNode<T>", "field", doc="head"),
+    BuiltinMember("tail", "ListNode<T>", "field", doc="tail"),
+    BuiltinMember("len", "int", "field", doc="len"),
+    BuiltinMember("pushBack", "void", "method", [("T", "val")], "pushBack"),
+    BuiltinMember("pushFront", "void", "method", [("T", "val")], "pushFront"),
+    BuiltinMember("push", "void", "method", [("T", "val")], "push"),
+    BuiltinMember("popBack", "T", "method", [], "popBack"),
+    BuiltinMember("popFront", "T", "method", [], "popFront"),
+    BuiltinMember("pop", "T", "method", [], "pop"),
+    BuiltinMember("front", "T", "method", [], "front"),
+    BuiltinMember("back", "T", "method", [], "back"),
+    BuiltinMember("get", "T", "method", [("int", "idx")], "get"),
+    BuiltinMember("set", "void", "method", [("int", "idx"), ("T", "val")], "set"),
+    BuiltinMember("size", "int", "method", [], "size"),
+    BuiltinMember("isEmpty", "bool", "method", [], "isEmpty"),
+    BuiltinMember("contains", "bool", "method", [("T", "val")], "contains"),
+    BuiltinMember("indexOf", "int", "method", [("T", "val")], "indexOf"),
+    BuiltinMember("insert", "void", "method", [("int", "idx"), ("T", "val")], "insert"),
+    BuiltinMember("remove", "void", "method", [("int", "idx")], "remove"),
+    BuiltinMember("reverse", "void", "method", [], "reverse"),
+    BuiltinMember("clear", "void", "method", [], "clear"),
+    BuiltinMember("free", "void", "method", [], "free"),
+    BuiltinMember("toVector", "Vector<T>", "method", [], "toVector"),
+    BuiltinMember("iterLen", "int", "method", [], "iterLen"),
+    BuiltinMember("iterGet", "T", "method", [("int", "n")], "iterGet"),
 ]
 
 # Generated from src/stdlib/map.btrc
@@ -134,11 +135,23 @@ MAP_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("clear", "void", "method", [], "clear"),
     BuiltinMember("size", "int", "method", [], "size"),
     BuiltinMember("isEmpty", "bool", "method", [], "isEmpty"),
-    BuiltinMember("keys", "List<K>", "method", [], "keys"),
-    BuiltinMember("values", "List<V>", "method", [], "values"),
+    BuiltinMember("keys", "Vector<K>", "method", [], "keys"),
+    BuiltinMember("values", "Vector<V>", "method", [], "values"),
+    BuiltinMember("containsValue", "bool", "method", [("V", "value")], "containsValue"),
+    BuiltinMember("set", "void", "method", [("K", "key"), ("V", "value")], "set"),
     BuiltinMember("merge", "void", "method", [("Map<K, V>", "other")], "merge"),
+    BuiltinMember("iterLen", "int", "method", [], "iterLen"),
+    BuiltinMember("iterGet", "K", "method", [("int", "n")], "iterGet"),
+    BuiltinMember("iterValueAt", "V", "method", [("int", "n")], "iterValueAt"),
     BuiltinMember("forEach", "void", "method", [("fn", "callback")], "Call fn(key, value) for each entry"),
-    BuiltinMember("containsValue", "bool", "method", [("V", "value")], "Check if any entry has the value"),
+]
+
+# Generated from src/stdlib/result.btrc
+RESULT_MEMBERS: list[BuiltinMember] = [
+    BuiltinMember("isOk", "bool", "method", [], "isOk"),
+    BuiltinMember("isErr", "bool", "method", [], "isErr"),
+    BuiltinMember("unwrap", "T", "method", [], "unwrap"),
+    BuiltinMember("unwrapErr", "E", "method", [], "unwrapErr"),
 ]
 
 # Generated from src/stdlib/set.btrc
@@ -158,19 +171,73 @@ SET_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("isSubsetOf", "bool", "method", [("Set<T>", "other")], "isSubsetOf"),
     BuiltinMember("isSupersetOf", "bool", "method", [("Set<T>", "other")], "isSupersetOf"),
     BuiltinMember("symmetricDifference", "Set<T>", "method", [("Set<T>", "other")], "symmetricDifference"),
-    BuiltinMember("toList", "List<T>", "method", [], "toList"),
+    BuiltinMember("toVector", "Vector<T>", "method", [], "toVector"),
     BuiltinMember("copy", "Set<T>", "method", [], "copy"),
-    BuiltinMember("forEach", "void", "method", [("fn", "callback")], "Call fn(element) for each element"),
-    BuiltinMember("filter", "Set<T>", "method", [("fn", "predicate")], "New set of elements matching predicate"),
-    BuiltinMember("any", "bool", "method", [("fn", "predicate")], "True if any element matches predicate"),
-    BuiltinMember("all", "bool", "method", [("fn", "predicate")], "True if all elements match predicate"),
+    BuiltinMember("filter", "Set<T>", "method", [("__fn_ptr<bool, T>", "pred")], "filter"),
+    BuiltinMember("any", "bool", "method", [("__fn_ptr<bool, T>", "pred")], "any"),
+    BuiltinMember("all", "bool", "method", [("__fn_ptr<bool, T>", "pred")], "all"),
+    BuiltinMember("forEach", "void", "method", [("__fn_ptr<void, T>", "fn")], "forEach"),
+    BuiltinMember("iterLen", "int", "method", [], "iterLen"),
+    BuiltinMember("iterGet", "T", "method", [("int", "n")], "iterGet"),
+]
+
+# Generated from src/stdlib/vector.btrc
+VECTOR_MEMBERS: list[BuiltinMember] = [
+    BuiltinMember("len", "int", "field", doc="len"),
+    BuiltinMember("push", "void", "method", [("T", "val")], "push"),
+    BuiltinMember("pop", "T", "method", [], "pop"),
+    BuiltinMember("get", "T", "method", [("int", "i")], "get"),
+    BuiltinMember("set", "void", "method", [("int", "i"), ("T", "val")], "set"),
+    BuiltinMember("free", "void", "method", [], "free"),
+    BuiltinMember("remove", "void", "method", [("int", "idx")], "remove"),
+    BuiltinMember("reverse", "void", "method", [], "reverse"),
+    BuiltinMember("reversed", "Vector<T>", "method", [], "reversed"),
+    BuiltinMember("swap", "void", "method", [("int", "i"), ("int", "j")], "swap"),
+    BuiltinMember("clear", "void", "method", [], "clear"),
+    BuiltinMember("fill", "void", "method", [("T", "val")], "fill"),
+    BuiltinMember("size", "int", "method", [], "size"),
+    BuiltinMember("isEmpty", "bool", "method", [], "isEmpty"),
+    BuiltinMember("first", "T", "method", [], "first"),
+    BuiltinMember("last", "T", "method", [], "last"),
+    BuiltinMember("slice", "Vector<T>", "method", [("int", "start"), ("int", "end")], "slice"),
+    BuiltinMember("take", "Vector<T>", "method", [("int", "n")], "take"),
+    BuiltinMember("drop", "Vector<T>", "method", [("int", "n")], "drop"),
+    BuiltinMember("extend", "void", "method", [("Vector<T>", "other")], "extend"),
+    BuiltinMember("insert", "void", "method", [("int", "idx"), ("T", "val")], "insert"),
+    BuiltinMember("contains", "bool", "method", [("T", "val")], "contains"),
+    BuiltinMember("indexOf", "int", "method", [("T", "val")], "indexOf"),
+    BuiltinMember("lastIndexOf", "int", "method", [("T", "val")], "lastIndexOf"),
+    BuiltinMember("count", "int", "method", [("T", "val")], "count"),
+    BuiltinMember("removeAll", "void", "method", [("T", "val")], "removeAll"),
+    BuiltinMember("distinct", "Vector<T>", "method", [], "distinct"),
+    BuiltinMember("sort", "void", "method", [], "sort"),
+    BuiltinMember("sorted", "Vector<T>", "method", [], "sorted"),
+    BuiltinMember("min", "T", "method", [], "min"),
+    BuiltinMember("max", "T", "method", [], "max"),
+    BuiltinMember("sum", "T", "method", [], "sum"),
+    BuiltinMember("join", "string", "method", [("string", "sep")], "join"),
+    BuiltinMember("joinToString", "string", "method", [("string", "sep")], "joinToString"),
+    BuiltinMember("filter", "Vector<T>", "method", [("__fn_ptr<bool, T>", "pred")], "filter"),
+    BuiltinMember("findIndex", "int", "method", [("__fn_ptr<bool, T>", "pred")], "findIndex"),
+    BuiltinMember("forEach", "void", "method", [("__fn_ptr<void, T>", "fn")], "forEach"),
+    BuiltinMember("map", "Vector<T>", "method", [("__fn_ptr<T, T>", "fn")], "map"),
+    BuiltinMember("any", "bool", "method", [("__fn_ptr<bool, T>", "pred")], "any"),
+    BuiltinMember("all", "bool", "method", [("__fn_ptr<bool, T>", "pred")], "all"),
+    BuiltinMember("reduce", "T", "method", [("T", "init"), ("__fn_ptr<T, T, T>", "fn")], "reduce"),
+    BuiltinMember("copy", "Vector<T>", "method", [], "copy"),
+    BuiltinMember("removeAt", "void", "method", [("int", "idx")], "removeAt"),
+    BuiltinMember("iterLen", "int", "method", [], "iterLen"),
+    BuiltinMember("iterGet", "T", "method", [("int", "i")], "iterGet"),
 ]
 
 _MEMBER_TABLES: dict[str, list[BuiltinMember]] = {
     "string": STRING_MEMBERS,
+    "Array": ARRAY_MEMBERS,
     "List": LIST_MEMBERS,
     "Map": MAP_MEMBERS,
+    "Result": RESULT_MEMBERS,
     "Set": SET_MEMBERS,
+    "Vector": VECTOR_MEMBERS,
 }
 
 
@@ -180,6 +247,17 @@ _MEMBER_TABLES: dict[str, list[BuiltinMember]] = {
 
 # Generated from stdlib .btrc files
 STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
+    "Console": [
+        BuiltinMember("log", "void", "method", [("string", "msg")], "log"),
+        BuiltinMember("error", "void", "method", [("string", "msg")], "error"),
+        BuiltinMember("write", "void", "method", [("string", "msg")], "write"),
+        BuiltinMember("writeLine", "void", "method", [("string", "msg")], "writeLine"),
+    ],
+    "Path": [
+        BuiltinMember("exists", "bool", "method", [("string", "path")], "exists"),
+        BuiltinMember("readAll", "string", "method", [("string", "path")], "readAll"),
+        BuiltinMember("writeAll", "void", "method", [("string", "path"), ("string", "content")], "writeAll"),
+    ],
     "Math": [
         BuiltinMember("PI", "float", "method", [], "PI"),
         BuiltinMember("E", "float", "method", [], "E"),
@@ -201,8 +279,8 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("isPrime", "bool", "method", [("int", "n")], "isPrime"),
         BuiltinMember("isEven", "bool", "method", [("int", "n")], "isEven"),
         BuiltinMember("isOdd", "bool", "method", [("int", "n")], "isOdd"),
-        BuiltinMember("sum", "int", "method", [("List<int>", "items")], "sum"),
-        BuiltinMember("fsum", "float", "method", [("List<float>", "items")], "fsum"),
+        BuiltinMember("sum", "int", "method", [("Vector<int>", "items")], "sum"),
+        BuiltinMember("fsum", "float", "method", [("Vector<float>", "items")], "fsum"),
         BuiltinMember("sin", "float", "method", [("float", "x")], "sin"),
         BuiltinMember("cos", "float", "method", [("float", "x")], "cos"),
         BuiltinMember("tan", "float", "method", [("float", "x")], "tan"),
@@ -226,7 +304,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     ],
     "Strings": [
         BuiltinMember("repeat", "string", "method", [("string", "s"), ("int", "count")], "repeat"),
-        BuiltinMember("join", "string", "method", [("List<string>", "items"), ("string", "sep")], "join"),
+        BuiltinMember("join", "string", "method", [("Vector<string>", "items"), ("string", "sep")], "join"),
         BuiltinMember("replace", "string", "method", [("string", "s"), ("string", "old"), ("string", "replacement")], "replace"),
         BuiltinMember("isDigit", "bool", "method", [("char", "c")], "isDigit"),
         BuiltinMember("isAlpha", "bool", "method", [("char", "c")], "isAlpha"),
@@ -251,17 +329,6 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("isAlphaStr", "bool", "method", [("string", "s")], "isAlphaStr"),
         BuiltinMember("isBlank", "bool", "method", [("string", "s")], "isBlank"),
     ],
-    "Path": [
-        BuiltinMember("exists", "bool", "method", [("string", "path")], "exists"),
-        BuiltinMember("readAll", "string", "method", [("string", "path")], "readAll"),
-        BuiltinMember("writeAll", "void", "method", [("string", "path"), ("string", "content")], "writeAll"),
-    ],
-    "Console": [
-        BuiltinMember("log", "void", "method", [("string", "msg")], "log"),
-        BuiltinMember("error", "void", "method", [("string", "msg")], "error"),
-        BuiltinMember("write", "void", "method", [("string", "msg")], "write"),
-        BuiltinMember("writeLine", "void", "method", [("string", "msg")], "writeLine"),
-    ],
 }
 
 # Built-in free function signatures: name -> (return_type, [(param_type, param_name)])
@@ -273,7 +340,7 @@ BUILTIN_FUNCTION_SIGNATURES: dict[str, tuple[str, list[tuple[str, str]]]] = {
     "toInt": ("int", [("string", "value")]),
     "toFloat": ("float", [("string", "value")]),
     "len": ("int", [("string", "s")]),
-    "range": ("List<int>", [("int", "n")]),
+    "range": ("Vector<int>", [("int", "n")]),
     "exit": ("void", [("int", "code")]),
 }
 

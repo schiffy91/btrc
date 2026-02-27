@@ -79,8 +79,8 @@ class TypeInferenceMixin:
             if expr.elements:
                 elem_type = self._infer_type(expr.elements[0])
                 if elem_type:
-                    return TypeExpr(base="List", generic_args=[elem_type])
-            return TypeExpr(base="List", generic_args=[TypeExpr(base="int")])
+                    return TypeExpr(base="Vector", generic_args=[elem_type])
+            return TypeExpr(base="Vector", generic_args=[TypeExpr(base="int")])
         elif isinstance(expr, MapLiteral):
             if expr.entries:
                 key_type = self._infer_type(expr.entries[0].key)

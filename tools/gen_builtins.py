@@ -34,23 +34,48 @@ STDLIB_DIR = os.path.join(ROOT, "src", "stdlib")
 OUTPUT = os.path.join(ROOT, "src", "devex", "lsp", "builtins.py")
 
 # ---------------------------------------------------------------------------
-# Which stdlib classes map to which builtin category
+# Auto-classify stdlib classes by scanning src/stdlib/*.btrc
 # ---------------------------------------------------------------------------
 
-# Collection types → instance member tables (for dot-completion on variables)
-COLLECTION_FILES = {
-    "list.btrc": ["List"],
-    "map.btrc": ["Map"],
-    "set.btrc": ["Set"],
-}
 
-# Classes with only static (class) methods → STDLIB_STATIC_METHODS
-STATIC_CLASS_FILES = {
-    "math.btrc": ["Math"],
-    "strings.btrc": ["Strings"],
-    "io.btrc": ["Path"],
-    "console.btrc": ["Console"],
-}
+def _classify_stdlib():
+    """Scan all .btrc files in src/stdlib/ and classify each class.
+
+    Returns:
+        collection_data: {class_name: (fields, methods)} — generic + instance methods
+        static_data: {class_name: methods} — all-static classes
+    """
+    collection_data = {}
+    static_data = {}
+
+    for fname in sorted(os.listdir(STDLIB_DIR)):
+        if not fname.endswith(".btrc"):
+            continue
+        classes = parse_file(fname)
+        for cname, cls in classes.items():
+            has_generic = bool(cls.generic_params)
+            methods_raw = [
+                m for m in cls.members
+                if isinstance(m, MethodDecl) and m.name != cname
+            ]
+            static_methods = [m for m in methods_raw if m.access == "class"]
+            instance_methods = [
+                m for m in methods_raw if m.access in ("public", "private")
+            ]
+
+            if has_generic and instance_methods:
+                # Collection type (List, Map, Set, Array, Result, etc.)
+                fields, methods = extract_members(cls)
+                inst = [m for m in methods if not m[3]]  # non-static only
+                collection_data[cname] = (fields, inst)
+            elif static_methods and not instance_methods:
+                # Static utility class (Math, Strings, Console, Path)
+                _fields, methods = extract_members(cls)
+                static_data[cname] = methods
+            # else: instance class (Error, DateTime, etc.) — skip,
+            # handled by analyzer's class_table at LSP time
+
+    return collection_data, static_data
 
 # ---------------------------------------------------------------------------
 # String instance methods — language intrinsics (not in any .btrc file)
@@ -83,7 +108,7 @@ INTRINSIC_STRING_MEMBERS = [
         "Extract substring",
     ),
     ("equals", "bool", "method", [("string", "other")], "Compare strings"),
-    ("split", "List<string>", "method", [("string", "delim")], "Split into list"),
+    ("split", "Vector<string>", "method", [("string", "delim")], "Split into list"),
     (
         "replace",
         "string",
@@ -180,27 +205,8 @@ INTRINSIC_STRING_MEMBERS = [
 # ---------------------------------------------------------------------------
 
 INTRINSIC_COLLECTION_MEMBERS: dict[str, list[tuple]] = {
-    "List": [
-        ("forEach", "void", "method", [("fn", "callback")], "Call fn for each element"),
-        ("filter", "List<T>", "method", [("fn", "predicate")], "Filter by predicate"),
-        ("any", "bool", "method", [("fn", "predicate")], "True if any element matches"),
-        ("all", "bool", "method", [("fn", "predicate")], "True if all elements match"),
-        (
-            "findIndex",
-            "int",
-            "method",
-            [("fn", "predicate")],
-            "Index of first match, -1 if not found",
-        ),
-        ("map", "List<T>", "method", [("fn", "transform")], "Apply fn to each element"),
-        (
-            "reduce",
-            "T",
-            "method",
-            [("T", "init"), ("fn", "accumulator")],
-            "Fold list into single value",
-        ),
-    ],
+    # Vector, Set: HOF methods are defined in .btrc files, picked up by scanner.
+    # Map: forEach takes (K, V) callback — defined as IR-gen intrinsic only.
     "Map": [
         (
             "forEach",
@@ -209,43 +215,6 @@ INTRINSIC_COLLECTION_MEMBERS: dict[str, list[tuple]] = {
             [("fn", "callback")],
             "Call fn(key, value) for each entry",
         ),
-        (
-            "containsValue",
-            "bool",
-            "method",
-            [("V", "value")],
-            "Check if any entry has the value",
-        ),
-    ],
-    "Set": [
-        (
-            "forEach",
-            "void",
-            "method",
-            [("fn", "callback")],
-            "Call fn(element) for each element",
-        ),
-        (
-            "filter",
-            "Set<T>",
-            "method",
-            [("fn", "predicate")],
-            "New set of elements matching predicate",
-        ),
-        (
-            "any",
-            "bool",
-            "method",
-            [("fn", "predicate")],
-            "True if any element matches predicate",
-        ),
-        (
-            "all",
-            "bool",
-            "method",
-            [("fn", "predicate")],
-            "True if all elements match predicate",
-        ),
     ],
 }
 
@@ -253,17 +222,11 @@ INTRINSIC_COLLECTION_MEMBERS: dict[str, list[tuple]] = {
 # Built-in free function signatures — language intrinsics
 # ---------------------------------------------------------------------------
 
-# Implementation fields/methods to hide from LSP (internal to the stdlib)
-# These are public in the .btrc source but not part of the user-facing API.
-_HIDDEN_FIELDS = {
-    "List": {"data", "cap"},
-    "Map": {"keys", "values", "occupied", "cap"},
-    "Set": {"keys", "occupied", "cap"},
-}
-_HIDDEN_METHODS = {
-    "Map": {"resize"},
-    "Set": {"resize"},
-}
+# Auto-detect implementation details to hide from LSP.
+# Hidden fields: pointer-typed fields, "cap", "occupied" — internal to stdlib.
+# Hidden methods: "resize" — internal resizing logic.
+_ALWAYS_HIDDEN_FIELDS = {"cap", "occupied"}
+_ALWAYS_HIDDEN_METHODS = {"resize"}
 
 INTRINSIC_FUNCTIONS = {
     "println": ("void", [("string", "message")]),
@@ -273,7 +236,7 @@ INTRINSIC_FUNCTIONS = {
     "toInt": ("int", [("string", "value")]),
     "toFloat": ("float", [("string", "value")]),
     "len": ("int", [("string", "s")]),
-    "range": ("List<int>", [("int", "n")]),
+    "range": ("Vector<int>", [("int", "n")]),
     "exit": ("void", [("int", "code")]),
 }
 
@@ -306,24 +269,31 @@ def parse_file(filename: str) -> dict[str, ClassDecl]:
     return {d.name: d for d in program.declarations if isinstance(d, ClassDecl)}
 
 
+def _is_hidden_field(member: FieldDecl) -> bool:
+    """Auto-detect implementation-internal fields."""
+    if member.name in _ALWAYS_HIDDEN_FIELDS:
+        return True
+    if member.type and member.type.pointer_depth > 0:
+        return True
+    return False
+
+
 def extract_members(
     cls: ClassDecl,
 ) -> tuple[list[tuple], list[tuple]]:
     """Extract (fields, methods) from a ClassDecl.
 
-    Filters out implementation details listed in _HIDDEN_FIELDS/_HIDDEN_METHODS.
+    Auto-hides implementation details: pointer fields, "cap", "resize".
 
     Returns:
         fields: [(name, type_str)]
         methods: [(name, return_type, [(param_type, param_name), ...], is_static)]
     """
-    hidden_f = _HIDDEN_FIELDS.get(cls.name, set())
-    hidden_m = _HIDDEN_METHODS.get(cls.name, set())
     fields = []
     methods = []
     for member in cls.members:
         if isinstance(member, FieldDecl) and member.access == "public":
-            if member.name not in hidden_f:
+            if not _is_hidden_field(member):
                 fields.append((member.name, type_repr(member.type)))
         elif isinstance(member, MethodDecl):
             # Skip constructors (same name as class), destructors, internal helpers
@@ -331,7 +301,7 @@ def extract_members(
                 continue
             if member.access not in ("public", "class"):
                 continue
-            if member.name in hidden_m:
+            if member.name in _ALWAYS_HIDDEN_METHODS:
                 continue
             params = [(type_repr(p.type), p.name) for p in member.params]
             is_static = member.access == "class"
@@ -339,7 +309,7 @@ def extract_members(
                 (member.name, type_repr(member.return_type), params, is_static)
             )
         elif isinstance(member, PropertyDecl) and member.access == "public":
-            if member.name not in hidden_f:
+            if member.name not in _ALWAYS_HIDDEN_FIELDS:
                 fields.append((member.name, type_repr(member.type)))
     return fields, methods
 
@@ -415,29 +385,8 @@ def generate_static_methods(class_name: str, methods: list[tuple]) -> str:
 
 
 def main():
-    # --- Parse collection types ---
-    collection_data = {}  # {type_base: (fields, methods)}
-    for filename, class_names in COLLECTION_FILES.items():
-        classes = parse_file(filename)
-        for cname in class_names:
-            if cname not in classes:
-                print(f"Warning: {cname} not found in {filename}", file=sys.stderr)
-                continue
-            fields, methods = extract_members(classes[cname])
-            # Only include instance methods (not static) for collection members
-            instance_methods = [m for m in methods if not m[3]]
-            collection_data[cname] = (fields, instance_methods)
-
-    # --- Parse static classes ---
-    static_data = {}  # {class_name: methods}
-    for filename, class_names in STATIC_CLASS_FILES.items():
-        classes = parse_file(filename)
-        for cname in class_names:
-            if cname not in classes:
-                print(f"Warning: {cname} not found in {filename}", file=sys.stderr)
-                continue
-            _fields, methods = extract_members(classes[cname])
-            static_data[cname] = methods
+    # Auto-classify all stdlib classes
+    collection_data, static_data = _classify_stdlib()
 
     # --- Generate output ---
     out = []

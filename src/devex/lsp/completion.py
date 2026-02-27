@@ -19,6 +19,7 @@ from src.devex.lsp.builtins import (
     BuiltinMember,
     get_members_for_type,
     STDLIB_STATIC_METHODS,
+    _MEMBER_TABLES,
 )
 from src.devex.lsp.utils import (
     type_repr,
@@ -70,7 +71,8 @@ _BTRC_KEYWORDS = [
 # Type completions
 # ---------------------------------------------------------------------------
 
-_BTRC_TYPES = [
+# Primitive types are always present; collection/stdlib types come from builtins
+_PRIMITIVE_TYPES = [
     ("int", "Integer type"),
     ("float", "Floating-point type"),
     ("double", "Double-precision floating-point type"),
@@ -78,13 +80,16 @@ _BTRC_TYPES = [
     ("bool", "Boolean type"),
     ("char", "Character type"),
     ("void", "Void type (no value)"),
-    ("List", "Generic dynamic array: List<T>"),
-    ("Map", "Generic hash map: Map<K, V>"),
-    ("Set", "Generic hash set: Set<T>"),
-    ("Array", "Fixed-size array type"),
     ("long", "Long integer type"),
     ("short", "Short integer type"),
     ("unsigned", "Unsigned integer modifier"),
+]
+
+# Auto-generate type entries from _MEMBER_TABLES (string is already above)
+_BTRC_TYPES = list(_PRIMITIVE_TYPES) + [
+    (name, f"Built-in type: {name}")
+    for name in _MEMBER_TABLES
+    if name not in {t[0] for t in _PRIMITIVE_TYPES}
 ]
 
 

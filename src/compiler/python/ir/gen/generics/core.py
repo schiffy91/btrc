@@ -16,12 +16,14 @@ def emit_generic_instances(gen: IRGenerator):
     ALL generic classes (stdlib and user-defined) go through user.py.
     No type-name-specific dispatch — the stdlib .btrc files define
     everything and user.py emits the monomorphized C code.
+
+    Uses a shared `seen` set passed to user.py so that transitive
+    dependencies (e.g. ListNode<string> needed by List<string>) are
+    emitted before the types that reference them.
     """
     from .user import _emit_user_generic_instance
 
     # Emit C11 _Generic macros for type-dependent operations.
-    # These are used by stdlib .btrc files (__btrc_eq, __btrc_lt, etc.)
-    # and resolved at C compile time based on argument type.
     _emit_generic_macros(gen)
 
     seen = set()
@@ -37,7 +39,7 @@ def emit_generic_instances(gen: IRGenerator):
                     continue
                 seen.add(mangled)
                 changed = True
-                _emit_user_generic_instance(gen, base_name, list(args))
+                _emit_user_generic_instance(gen, base_name, list(args), seen)
 
 
 def _resolve_type(t: TypeExpr | None, type_map: dict[str, TypeExpr]) -> TypeExpr:

@@ -35,7 +35,7 @@ from src.compiler.python.ast_nodes import (
 )
 
 from src.devex.lsp.diagnostics import AnalysisResult
-from src.devex.lsp.builtins import get_hover_markdown
+from src.devex.lsp.builtins import get_hover_markdown, _MEMBER_TABLES
 from src.devex.lsp.utils import (
     type_repr,
     find_token_at_position,
@@ -114,13 +114,24 @@ _KEYWORD_DOCS = {
     "null": "Null value for nullable types.",
     "parallel": "Marks a for loop for parallel execution.",
     "sizeof": "Returns the size of a type or expression in bytes.",
-    "List": "Generic dynamic array: `List<T>`. Methods: push(), get(), set(), len, pop(), free().",
-    "Map": "Generic hash map: `Map<K, V>`. Methods: put(), get(), has(), remove(), free().",
-    "Set": "Generic hash set: `Set<T>`. Methods: add(), contains(), has(), remove(), toList(), free().",
-    "Array": "Fixed-size array type.",
-    "string": "String type. Methods: .len(), .charAt(), .substring(), .trim(), .split(), .toUpper(), .toLower(), etc.",
     "bool": "Boolean type: `true` or `false`.",
 }
+
+# Auto-generate hover docs for types in _MEMBER_TABLES
+for _tn, _members in _MEMBER_TABLES.items():
+    if _tn in _KEYWORD_DOCS:
+        continue
+    _methods = [m.name for m in _members if m.kind == "method"]
+    _fields = [m.name for m in _members if m.kind == "field"]
+    _parts = []
+    if _fields:
+        _parts.append("Fields: " + ", ".join(_fields))
+    if _methods:
+        _preview = _methods[:6]
+        _suffix = ", ..." if len(_methods) > 6 else ""
+        _parts.append("Methods: " + ", ".join(f"{m}()" for m in _preview) + _suffix)
+    _KEYWORD_DOCS[_tn] = f"Built-in type `{_tn}`. " + ". ".join(_parts) + "."
+del _tn, _members, _methods, _fields, _parts, _preview, _suffix
 
 
 def get_hover_info(

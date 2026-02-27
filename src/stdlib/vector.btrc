@@ -1,0 +1,353 @@
+/* btrc standard library — Vector<T>
+ * Dynamic array with automatic resizing.
+ * Uses raw C for memory management (malloc/realloc/free).
+ */
+
+class Vector<T> implements Iterable {
+    public T* data;
+    public int len;
+    public int cap;
+
+    public Vector() {
+        self.data = null;
+        self.len = 0;
+        self.cap = 0;
+    }
+
+    public void push(T val) {
+        if (self.len >= self.cap) {
+            self.cap = self.cap == 0 ? 4 : self.cap * 2;
+            self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
+        }
+        self.data[self.len] = val;
+        self.len++;
+    }
+
+    public T pop() {
+        if (self.len <= 0) { fprintf(stderr, "Vector pop from empty list\n"); exit(1); }
+        self.len--;
+        return self.data[self.len];
+    }
+
+    public T get(int i) {
+        if (i < 0 || i >= self.len) { fprintf(stderr, "Vector index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
+        return self.data[i];
+    }
+
+    public void set(int i, T val) {
+        if (i < 0 || i >= self.len) { fprintf(stderr, "Vector index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
+        self.data[i] = val;
+    }
+
+    public void free() {
+        free(self.data);
+        self.data = null;
+        self.len = 0;
+        self.cap = 0;
+    }
+
+    public void remove(int idx) {
+        if (idx < 0 || idx >= self.len) { fprintf(stderr, "Vector remove index out of bounds: %d (len=%d)\n", idx, self.len); exit(1); }
+        for (int i = idx; i < self.len - 1; i++) {
+            self.data[i] = self.data[i + 1];
+        }
+        self.len--;
+    }
+
+    public void reverse() {
+        for (int i = 0; i < self.len / 2; i++) {
+            T tmp = self.data[i];
+            self.data[i] = self.data[self.len - 1 - i];
+            self.data[self.len - 1 - i] = tmp;
+        }
+    }
+
+    public Vector<T> reversed() {
+        Vector<T> result = [];
+        for (int i = self.len - 1; i >= 0; i--) {
+            result.push(self.data[i]);
+        }
+        return result;
+    }
+
+    public void swap(int i, int j) {
+        if (i < 0 || i >= self.len || j < 0 || j >= self.len) { fprintf(stderr, "Vector swap index out of bounds\n"); exit(1); }
+        T tmp = self.data[i];
+        self.data[i] = self.data[j];
+        self.data[j] = tmp;
+    }
+
+    public void clear() {
+        self.len = 0;
+    }
+
+    public void fill(T val) {
+        for (int i = 0; i < self.len; i++) {
+            self.data[i] = val;
+        }
+    }
+
+    public int size() {
+        return self.len;
+    }
+
+    public bool isEmpty() {
+        return self.len == 0;
+    }
+
+    public T first() {
+        if (self.len == 0) { fprintf(stderr, "Vector.first() called on empty list\n"); exit(1); }
+        return self.data[0];
+    }
+
+    public T last() {
+        if (self.len == 0) { fprintf(stderr, "Vector.last() called on empty list\n"); exit(1); }
+        return self.data[self.len - 1];
+    }
+
+    public Vector<T> slice(int start, int end) {
+        if (start < 0) { start = self.len + start; }
+        if (end < 0) { end = self.len + end; }
+        if (start < 0) { start = 0; }
+        if (end > self.len) { end = self.len; }
+        Vector<T> result = [];
+        for (int i = start; i < end; i++) {
+            result.push(self.data[i]);
+        }
+        return result;
+    }
+
+    public Vector<T> take(int n) {
+        if (n > self.len) { n = self.len; }
+        if (n < 0) { n = 0; }
+        return self.slice(0, n);
+    }
+
+    public Vector<T> drop(int n) {
+        if (n > self.len) { n = self.len; }
+        if (n < 0) { n = 0; }
+        return self.slice(n, self.len);
+    }
+
+    public void extend(Vector<T> other) {
+        for (int i = 0; i < other.len; i++) {
+            self.push(other.data[i]);
+        }
+    }
+
+    public void insert(int idx, T val) {
+        if (idx < 0 || idx > self.len) { fprintf(stderr, "Vector insert index out of bounds: %d (size %d)\n", idx, self.len); exit(1); }
+        if (self.len >= self.cap) {
+            self.cap = self.cap == 0 ? 4 : self.cap * 2;
+            self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
+        }
+        for (int i = self.len; i > idx; i--) {
+            self.data[i] = self.data[i - 1];
+        }
+        self.data[idx] = val;
+        self.len++;
+    }
+
+    /* Comparison-based methods — use __btrc_eq/__btrc_lt macros
+     * for type-safe string vs primitive comparison. */
+
+    public bool contains(T val) {
+        for (int i = 0; i < self.len; i++) {
+            if (__btrc_eq(self.data[i], val)) { return true; }
+        }
+        return false;
+    }
+
+    public int indexOf(T val) {
+        for (int i = 0; i < self.len; i++) {
+            if (__btrc_eq(self.data[i], val)) { return i; }
+        }
+        return -1;
+    }
+
+    public int lastIndexOf(T val) {
+        for (int i = self.len - 1; i >= 0; i--) {
+            if (__btrc_eq(self.data[i], val)) { return i; }
+        }
+        return -1;
+    }
+
+    public int count(T val) {
+        int c = 0;
+        for (int i = 0; i < self.len; i++) {
+            if (__btrc_eq(self.data[i], val)) { c++; }
+        }
+        return c;
+    }
+
+    public void removeAll(T val) {
+        int j = 0;
+        for (int i = 0; i < self.len; i++) {
+            if (!__btrc_eq(self.data[i], val)) {
+                self.data[j] = self.data[i];
+                j++;
+            }
+        }
+        self.len = j;
+    }
+
+    public Vector<T> distinct() {
+        Vector<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            if (!result.contains(self.data[i])) {
+                result.push(self.data[i]);
+            }
+        }
+        return result;
+    }
+
+    public void sort() {
+        /* Insertion sort using __btrc_lt for type-safe comparison */
+        for (int i = 1; i < self.len; i++) {
+            T key = self.data[i];
+            int j = i - 1;
+            while (j >= 0 && __btrc_lt(key, self.data[j])) {
+                self.data[j + 1] = self.data[j];
+                j = j - 1;
+            }
+            self.data[j + 1] = key;
+        }
+    }
+
+    public Vector<T> sorted() {
+        Vector<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            result.push(self.data[i]);
+        }
+        result.sort();
+        return result;
+    }
+
+    public T min() {
+        if (self.len <= 0) { fprintf(stderr, "Vector min on empty list\n"); exit(1); }
+        T m = self.data[0];
+        for (int i = 1; i < self.len; i++) {
+            if (__btrc_lt(self.data[i], m)) { m = self.data[i]; }
+        }
+        return m;
+    }
+
+    public T max() {
+        if (self.len <= 0) { fprintf(stderr, "Vector max on empty list\n"); exit(1); }
+        T m = self.data[0];
+        for (int i = 1; i < self.len; i++) {
+            if (__btrc_gt(self.data[i], m)) { m = self.data[i]; }
+        }
+        return m;
+    }
+
+    public T sum() {
+        T s = (T)0;
+        for (int i = 0; i < self.len; i++) {
+            s = s + self.data[i];
+        }
+        return s;
+    }
+
+    public string join(string sep) {
+        int total = 0;
+        int sep_len = (int)strlen(sep);
+        for (int i = 0; i < self.len; i++) {
+            total = total + (int)strlen(self.data[i]);
+            if (i < self.len - 1) { total = total + sep_len; }
+        }
+        char* result = (char*)malloc(total + 1);
+        int pos = 0;
+        for (int i = 0; i < self.len; i++) {
+            int slen = (int)strlen(self.data[i]);
+            memcpy(result + pos, self.data[i], slen);
+            pos = pos + slen;
+            if (i < self.len - 1) {
+                memcpy(result + pos, sep, sep_len);
+                pos = pos + sep_len;
+            }
+        }
+        result[pos] = '\0';
+        return result;
+    }
+
+    public string joinToString(string sep) {
+        return self.join(sep);
+    }
+
+    /* Higher-order methods — use __fn_ptr<RetType, ParamTypes...> for
+     * function pointer parameters (lambdas compile to static functions). */
+
+    public Vector<T> filter(__fn_ptr<bool, T> pred) {
+        Vector<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            if (pred(self.data[i])) { result.push(self.data[i]); }
+        }
+        return result;
+    }
+
+    public int findIndex(__fn_ptr<bool, T> pred) {
+        for (int i = 0; i < self.len; i++) {
+            if (pred(self.data[i])) { return i; }
+        }
+        return -1;
+    }
+
+    public void forEach(__fn_ptr<void, T> fn) {
+        for (int i = 0; i < self.len; i++) {
+            fn(self.data[i]);
+        }
+    }
+
+    public Vector<T> map(__fn_ptr<T, T> fn) {
+        Vector<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            result.push(fn(self.data[i]));
+        }
+        return result;
+    }
+
+    public bool any(__fn_ptr<bool, T> pred) {
+        for (int i = 0; i < self.len; i++) {
+            if (pred(self.data[i])) { return true; }
+        }
+        return false;
+    }
+
+    public bool all(__fn_ptr<bool, T> pred) {
+        for (int i = 0; i < self.len; i++) {
+            if (!pred(self.data[i])) { return false; }
+        }
+        return true;
+    }
+
+    public T reduce(T init, __fn_ptr<T, T, T> fn) {
+        T acc = init;
+        for (int i = 0; i < self.len; i++) {
+            acc = fn(acc, self.data[i]);
+        }
+        return acc;
+    }
+
+    public Vector<T> copy() {
+        Vector<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            result.push(self.data[i]);
+        }
+        return result;
+    }
+
+    public void removeAt(int idx) {
+        self.remove(idx);
+    }
+
+    /* Iterable<T> protocol */
+
+    public int iterLen() {
+        return self.len;
+    }
+
+    public T iterGet(int i) {
+        return self.data[i];
+    }
+}

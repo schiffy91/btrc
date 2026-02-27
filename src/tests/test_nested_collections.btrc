@@ -2,7 +2,7 @@
 
 int main() {
     // Nested collection operations
-    List<int> a = [1, 2, 3, 4, 5];
+    Vector<int> a = [1, 2, 3, 4, 5];
     a.reverse();
     a.remove(0);
     assert(a.get(0) == 4);

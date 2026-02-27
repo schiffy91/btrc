@@ -39,7 +39,7 @@ def generate_expected():
             with open(btrc_path) as f:
                 source = f.read()
             source = resolve_includes(source, btrc_path)
-            stdlib_source = get_stdlib_source()
+            stdlib_source = get_stdlib_source(source)
             if stdlib_source:
                 source = stdlib_source + "\n" + source
 

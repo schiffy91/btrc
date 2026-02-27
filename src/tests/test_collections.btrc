@@ -1,10 +1,10 @@
 #include <assert.h>
 
 int main() {
-    // ---- List<int> ----
+    // ---- Vector<int> ----
 
     // Create list with literal, check len
-    List<int> nums = [10, 20, 30];
+    Vector<int> nums = [10, 20, 30];
     assert(nums.len == 3);
 
     // Push elements
@@ -32,9 +32,9 @@ int main() {
 
     nums.free();
 
-    // ---- List<string> ----
+    // ---- Vector<string> ----
 
-    List<string> names = ["alice", "bob", "carol"];
+    Vector<string> names = ["alice", "bob", "carol"];
     assert(names.len == 3);
     assert(strcmp(names[0], "alice") == 0);
     assert(strcmp(names[1], "bob") == 0);

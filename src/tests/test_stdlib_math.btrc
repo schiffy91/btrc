@@ -49,7 +49,7 @@ int main() {
     assert(!Math.isOdd(4));
 
     // Sum of list
-    List<int> nums = [1, 2, 3, 4, 5];
+    Vector<int> nums = [1, 2, 3, 4, 5];
     assert(Math.sum(nums) == 15);
 
     // Sign

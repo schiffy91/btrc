@@ -24,7 +24,7 @@ bool is_gt3(int x) {
 }
 
 int main() {
-    List<int> nums = [1, 2, 3, 4, 5];
+    Vector<int> nums = [1, 2, 3, 4, 5];
 
     // forEach with named function
     sum_acc = 0;
@@ -32,7 +32,7 @@ int main() {
     assert(sum_acc == 15);
 
     // filter with named function
-    List<int> evens = nums.filter(is_even);
+    Vector<int> evens = nums.filter(is_even);
     assert(evens.len == 2);
     assert(evens.get(0) == 2);
     assert(evens.get(1) == 4);
@@ -46,13 +46,13 @@ int main() {
     assert(nums.all(is_even) == false);
 
     // filter with named function
-    List<int> big = nums.filter(is_gt3);
+    Vector<int> big = nums.filter(is_gt3);
     assert(big.len == 2);
     assert(big.get(0) == 4);
     assert(big.get(1) == 5);
 
     // filter with lambda (no closure needed)
-    List<int> small = nums.filter(bool function(int x) { return x <= 2; });
+    Vector<int> small = nums.filter(bool function(int x) { return x <= 2; });
     assert(small.len == 2);
     assert(small.get(0) == 1);
     assert(small.get(1) == 2);

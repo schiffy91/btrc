@@ -25,7 +25,7 @@ def lower_list_literal(gen: IRGenerator, node: ListLiteral) -> IRExpr:
         mangled = mangle_generic_type(list_type.base, list_type.generic_args)
     else:
         # Fallback: try to infer from first element
-        mangled = "btrc_List_int"
+        mangled = "btrc_Vector_int"
 
     tmp = gen.fresh_temp("__list")
     parts = [f"{mangled}* {tmp} = {mangled}_new()"]

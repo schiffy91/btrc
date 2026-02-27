@@ -31,6 +31,7 @@ from src.compiler.python.ast_nodes import (
 )
 
 from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.builtins import _MEMBER_TABLES, get_member
 
 
 # ---------------------------------------------------------------------------
@@ -225,24 +226,12 @@ def find_enclosing_class_from_source(
 # Variable type resolution
 # ---------------------------------------------------------------------------
 
-BUILTIN_TYPES = frozenset(
-    {
-        "string",
-        "int",
-        "float",
-        "double",
-        "long",
-        "short",
-        "char",
-        "bool",
-        "void",
-        "unsigned",
-        "List",
-        "Map",
-        "Set",
-        "Array",
-    }
-)
+# Primitive types + auto-discovered types from _MEMBER_TABLES
+_PRIMITIVE_TYPES = frozenset({
+    "int", "float", "double", "long", "short",
+    "char", "bool", "void", "unsigned",
+})
+BUILTIN_TYPES = _PRIMITIVE_TYPES | frozenset(_MEMBER_TABLES.keys())
 
 
 def resolve_variable_type(
@@ -391,7 +380,8 @@ def resolve_member_type(
                 return mdecl.return_type.base
         cname = cinfo.parent
 
-    if owner_type in ("string", "List", "Map", "Set"):
-        if member_name == "len":
-            return "int"
+    # Check built-in type members (string, List, Map, Set, Array, etc.)
+    m = get_member(owner_type, member_name)
+    if m:
+        return m.return_type
     return None

@@ -1,0 +1,12 @@
+size=5
+isEmpty=false
+get(0)=10
+get(4)=50
+contains(30)=true
+contains(99)=false
+indexOf(30)=2
+indexOf(99)=-1
+after swap: get(0)=50, get(4)=10
+after reverse: get(0)=50, get(4)=10
+after fill: get(0)=7, get(2)=7
+PASS

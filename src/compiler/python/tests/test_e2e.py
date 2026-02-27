@@ -19,8 +19,8 @@ from src.compiler.python.main import get_stdlib_source
 
 def compile_and_run(btrc_source: str, extra_flags: list[str] = None) -> str:
     """Transpile btrc source to C, compile with gcc, run, return stdout."""
-    # Auto-include stdlib collection types
-    stdlib_source = get_stdlib_source()
+    # Auto-include stdlib types (skip classes already defined in source)
+    stdlib_source = get_stdlib_source(btrc_source)
     if stdlib_source:
         btrc_source = stdlib_source + "\n" + btrc_source
     tokens = Lexer(btrc_source).tokenize()
@@ -235,7 +235,7 @@ class TestE2EList:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [10, 20, 30];
+                Vector<int> nums = [10, 20, 30];
                 int sum = 0;
                 for x in nums {
                     sum += x;
@@ -251,7 +251,7 @@ class TestE2EList:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [];
+                Vector<int> nums = [];
                 nums.push(1);
                 nums.push(2);
                 nums.push(3);
@@ -330,7 +330,7 @@ class TestE2EDotSyntax:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [];
+                Vector<int> nums = [];
                 nums.push(100);
                 nums.push(200);
                 nums.push(300);
@@ -365,7 +365,7 @@ class TestE2ECollectionIndexing:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [10, 20, 30];
+                Vector<int> nums = [10, 20, 30];
                 printf("%d %d %d\\n", nums[0], nums[1], nums[2]);
                 nums.free();
                 return 0;
@@ -377,7 +377,7 @@ class TestE2ECollectionIndexing:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
                 nums[1] = 99;
                 printf("%d\\n", nums[1]);
                 nums.free();
@@ -971,7 +971,7 @@ class TestE2EListMethods:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [5, 2, 8, 1, 9, 3];
+                Vector<int> nums = [5, 2, 8, 1, 9, 3];
                 nums.sort();
                 for x in nums {
                     printf("%d ", x);
@@ -987,7 +987,7 @@ class TestE2EListMethods:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [1, 2, 3, 4, 5];
+                Vector<int> nums = [1, 2, 3, 4, 5];
                 nums.reverse();
                 for x in nums {
                     printf("%d ", x);
@@ -1002,7 +1002,7 @@ class TestE2EListMethods:
     def test_list_contains(self):
         src = '''
             int main() {
-                List<int> nums = [10, 20, 30];
+                Vector<int> nums = [10, 20, 30];
                 print(nums.contains(20));
                 print(nums.contains(99));
                 nums.free();
@@ -1015,7 +1015,7 @@ class TestE2EListMethods:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [10, 20, 30, 40];
+                Vector<int> nums = [10, 20, 30, 40];
                 nums.remove(1);
                 for x in nums {
                     printf("%d ", x);
@@ -1030,7 +1030,7 @@ class TestE2EListMethods:
     def test_list_clear(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
                 nums.clear();
                 print(nums.len);
                 nums.free();
@@ -1172,7 +1172,7 @@ class TestE2EListJoin:
     def test_join_basic(self):
         src = '''
             int main() {
-                List<string> words = ["hello", "world", "btrc"];
+                Vector<string> words = ["hello", "world", "btrc"];
                 print(words.join(", "));
                 words.free();
                 return 0;
@@ -1183,7 +1183,7 @@ class TestE2EListJoin:
     def test_join_single(self):
         src = '''
             int main() {
-                List<string> words = ["only"];
+                Vector<string> words = ["only"];
                 print(words.join("-"));
                 words.free();
                 return 0;
@@ -1195,7 +1195,7 @@ class TestE2EListJoin:
         src = '''
             #include <stdio.h>
             int main() {
-                List<string> words = [];
+                Vector<string> words = [];
                 string result = words.join(",");
                 printf("[%s]\\n", result);
                 words.free();
@@ -1611,7 +1611,7 @@ class TestE2EMapMethods:
             #include <stdio.h>
             int main() {
                 Map<int, int> m = {1: 10, 2: 20, 3: 30};
-                List<int> k = m.keys();
+                Vector<int> k = m.keys();
                 k.sort();
                 for x in k {
                     printf("%d ", x);
@@ -1629,7 +1629,7 @@ class TestE2EMapMethods:
             #include <stdio.h>
             int main() {
                 Map<int, int> m = {1: 10, 2: 20, 3: 30};
-                List<int> v = m.values();
+                Vector<int> v = m.values();
                 v.sort();
                 for x in v {
                     printf("%d ", x);
@@ -1647,7 +1647,7 @@ class TestE2EMapMethods:
             #include <stdio.h>
             int main() {
                 Map<string, int> m = {"a": 1, "b": 2};
-                List<string> k = m.keys();
+                Vector<string> k = m.keys();
                 printf("%d\\n", k.len);
                 k.free();
                 m.free();
@@ -1661,7 +1661,7 @@ class TestE2EMapMethods:
             #include <stdio.h>
             int main() {
                 Map<string, int> m = {"x": 100, "y": 200};
-                List<int> v = m.values();
+                Vector<int> v = m.values();
                 v.sort();
                 for x in v {
                     printf("%d ", x);
@@ -1734,8 +1734,8 @@ class TestE2EMapMethods:
             #include <stdio.h>
             int main() {
                 Map<int, int> m = {10: 100, 20: 200, 30: 300};
-                List<int> k = m.keys();
-                List<int> v = m.values();
+                Vector<int> k = m.keys();
+                Vector<int> v = m.values();
                 printf("%d %d %d\\n", m.len, k.len, v.len);
                 k.free();
                 v.free();
@@ -1750,7 +1750,7 @@ class TestE2EListIndexOf:
     def test_indexof_found(self):
         src = '''
             int main() {
-                List<int> nums = [10, 20, 30, 40, 50];
+                Vector<int> nums = [10, 20, 30, 40, 50];
                 print(nums.indexOf(30));
                 nums.free();
                 return 0;
@@ -1761,7 +1761,7 @@ class TestE2EListIndexOf:
     def test_indexof_not_found(self):
         src = '''
             int main() {
-                List<int> nums = [10, 20, 30];
+                Vector<int> nums = [10, 20, 30];
                 print(nums.indexOf(99));
                 nums.free();
                 return 0;
@@ -1772,7 +1772,7 @@ class TestE2EListIndexOf:
     def test_indexof_first_occurrence(self):
         src = '''
             int main() {
-                List<int> nums = [5, 10, 5, 10, 5];
+                Vector<int> nums = [5, 10, 5, 10, 5];
                 print(nums.indexOf(10));
                 nums.free();
                 return 0;
@@ -1783,7 +1783,7 @@ class TestE2EListIndexOf:
     def test_lastindexof_found(self):
         src = '''
             int main() {
-                List<int> nums = [5, 10, 5, 10, 5];
+                Vector<int> nums = [5, 10, 5, 10, 5];
                 print(nums.lastIndexOf(10));
                 nums.free();
                 return 0;
@@ -1794,7 +1794,7 @@ class TestE2EListIndexOf:
     def test_lastindexof_not_found(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
                 print(nums.lastIndexOf(99));
                 nums.free();
                 return 0;
@@ -1806,7 +1806,7 @@ class TestE2EListIndexOf:
         src = '''
             #include <stdio.h>
             int main() {
-                List<float> vals = [1.5, 2.5, 3.5, 2.5];
+                Vector<float> vals = [1.5, 2.5, 3.5, 2.5];
                 printf("%d %d\\n", vals.indexOf(2.5), vals.lastIndexOf(2.5));
                 vals.free();
                 return 0;
@@ -1817,7 +1817,7 @@ class TestE2EListIndexOf:
     def test_indexof_empty_list(self):
         src = '''
             int main() {
-                List<int> nums = [];
+                Vector<int> nums = [];
                 print(nums.indexOf(1));
                 print(nums.lastIndexOf(1));
                 nums.free();
@@ -1829,7 +1829,7 @@ class TestE2EListIndexOf:
     def test_indexof_single_element(self):
         src = '''
             int main() {
-                List<int> nums = [42];
+                Vector<int> nums = [42];
                 print(nums.indexOf(42));
                 print(nums.lastIndexOf(42));
                 nums.free();
@@ -1844,8 +1844,8 @@ class TestE2EListSlice:
         src = '''
             #include <stdio.h>
             int main() {
-                List<int> nums = [10, 20, 30, 40, 50];
-                List<int> sub = nums.slice(1, 4);
+                Vector<int> nums = [10, 20, 30, 40, 50];
+                Vector<int> sub = nums.slice(1, 4);
                 for x in sub {
                     printf("%d ", x);
                 }
@@ -1860,8 +1860,8 @@ class TestE2EListSlice:
     def test_list_slice_from_start(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3, 4, 5];
-                List<int> sub = nums.slice(0, 3);
+                Vector<int> nums = [1, 2, 3, 4, 5];
+                Vector<int> sub = nums.slice(0, 3);
                 print(sub.len);
                 sub.free();
                 nums.free();
@@ -1873,8 +1873,8 @@ class TestE2EListSlice:
     def test_list_slice_empty(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3];
-                List<int> sub = nums.slice(2, 2);
+                Vector<int> nums = [1, 2, 3];
+                Vector<int> sub = nums.slice(2, 2);
                 print(sub.len);
                 sub.free();
                 nums.free();
@@ -2038,7 +2038,7 @@ class TestE2EStaticMethods:
     def test_pointer_method_call(self):
         src = '''
             class Bag {
-                public List<int> items = [];
+                public Vector<int> items = [];
 
                 public void add(int x) {
                     self.items.push(x);
@@ -2113,7 +2113,7 @@ class TestE2EStaticMethods:
     def test_list_bounds_check(self):
         src = '''
             int main() {
-                List<int> nums = [10, 20, 30];
+                Vector<int> nums = [10, 20, 30];
                 print(nums.get(0));
                 print(nums.get(2));
                 return 0;
@@ -2151,7 +2151,7 @@ class TestE2EStaticMethods:
     def test_nested_collection_operations(self):
         src = '''
             int main() {
-                List<int> a = [1, 2, 3, 4, 5];
+                Vector<int> a = [1, 2, 3, 4, 5];
                 a.reverse();
                 a.remove(0);
                 print(a.get(0));
@@ -2167,7 +2167,7 @@ class TestE2EStaticMethods:
         src = '''
             class Registry {
                 public Map<string, int> scores = {};
-                public List<string> names = [];
+                public Vector<string> names = [];
 
                 public void add(string name, int score) {
                     self.names.push(name);
@@ -2307,7 +2307,7 @@ class TestE2ESetOperations:
             int main() {
                 Set<int> s = {};
                 s.add(42);
-                List<int> lst = s.toList();
+                Vector<int> lst = s.toVector();
                 print(lst.size());
                 print(lst.get(0));
                 return 0;
@@ -2330,10 +2330,10 @@ class TestE2ESetOperations:
 
 class TestE2ENestedGenerics:
     def test_list_of_strings(self):
-        """Test List<string> which is a generic containing another generic-like type."""
+        """Test Vector<string> which is a generic containing another generic-like type."""
         src = '''
             int main() {
-                List<string> names = ["alice", "bob", "carol"];
+                Vector<string> names = ["alice", "bob", "carol"];
                 print(names.size());
                 print(names.get(1));
                 return 0;
@@ -2359,8 +2359,8 @@ class TestE2ELambdas:
     def test_lambda_verbose(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3, 4, 5];
-                List<int> evens = nums.filter(bool function(int x) { return x % 2 == 0; });
+                Vector<int> nums = [1, 2, 3, 4, 5];
+                Vector<int> evens = nums.filter(bool function(int x) { return x % 2 == 0; });
                 print(evens.size());
                 return 0;
             }
@@ -2370,8 +2370,8 @@ class TestE2ELambdas:
     def test_lambda_arrow(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3, 4, 5];
-                List<int> evens = nums.filter((int x) => x % 2 == 0);
+                Vector<int> nums = [1, 2, 3, 4, 5];
+                Vector<int> evens = nums.filter((int x) => x % 2 == 0);
                 print(evens.size());
                 return 0;
             }
@@ -2381,8 +2381,8 @@ class TestE2ELambdas:
     def test_lambda_with_map(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3];
-                List<int> doubled = nums.map(int function(int x) { return x * 2; });
+                Vector<int> nums = [1, 2, 3];
+                Vector<int> doubled = nums.map(int function(int x) { return x * 2; });
                 print(doubled.get(0));
                 print(doubled.get(1));
                 print(doubled.get(2));
@@ -2768,8 +2768,8 @@ class TestE2EListTakeDrop:
     def test_take(self):
         src = '''
             int main() {
-                List<int> a = [1, 2, 3, 4, 5];
-                List<int> t = a.take(3);
+                Vector<int> a = [1, 2, 3, 4, 5];
+                Vector<int> t = a.take(3);
                 print(t.size());
                 print(t.get(0));
                 print(t.get(2));
@@ -2781,8 +2781,8 @@ class TestE2EListTakeDrop:
     def test_drop(self):
         src = '''
             int main() {
-                List<int> a = [1, 2, 3, 4, 5];
-                List<int> d = a.drop(2);
+                Vector<int> a = [1, 2, 3, 4, 5];
+                Vector<int> d = a.drop(2);
                 print(d.size());
                 print(d.get(0));
                 print(d.get(2));
@@ -2796,8 +2796,8 @@ class TestE2EListReversed:
     def test_reversed(self):
         src = '''
             int main() {
-                List<int> a = [1, 2, 3, 4, 5];
-                List<int> r = a.reversed();
+                Vector<int> a = [1, 2, 3, 4, 5];
+                Vector<int> r = a.reversed();
                 print(r.get(0));
                 print(r.get(4));
                 // original unchanged
@@ -2828,7 +2828,7 @@ class TestE2EListFindIndex:
         src = '''
             bool isEven(int x) { return x % 2 == 0; }
             int main() {
-                List<int> a = [1, 3, 4, 7, 8];
+                Vector<int> a = [1, 3, 4, 7, 8];
                 int idx = a.findIndex(isEven);
                 print(idx);
                 return 0;
@@ -2840,7 +2840,7 @@ class TestE2EListFindIndex:
         src = '''
             bool isNeg(int x) { return x < 0; }
             int main() {
-                List<int> a = [1, 2, 3];
+                Vector<int> a = [1, 2, 3];
                 int idx = a.findIndex(isNeg);
                 print(idx);
                 return 0;
@@ -2986,7 +2986,7 @@ class TestE2EFStringMethodCalls:
     def test_fstring_with_list_size(self):
         src = '''
             int main() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
                 print(f"size: {nums.size()}");
                 return 0;
             }

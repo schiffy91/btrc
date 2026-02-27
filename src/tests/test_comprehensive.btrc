@@ -106,7 +106,7 @@ int main() {
     assert(rect.area() == 12.0);
 
     // --- Generic collections ---
-    List<int> nums = [5, 3, 8, 1, 9, 2];
+    Vector<int> nums = [5, 3, 8, 1, 9, 2];
     nums.sort();
     assert(nums[0] == 1);
     assert(nums[5] == 9);
@@ -114,7 +114,7 @@ int main() {
     assert(nums.contains(5));
     assert(!nums.contains(99));
 
-    List<int> middle = nums.slice(2, 4);
+    Vector<int> middle = nums.slice(2, 4);
     assert(middle.len == 2);
 
     // --- Map ---
@@ -124,7 +124,7 @@ int main() {
     scores.put("dave", 88);
     assert(scores.len == 4);
 
-    List<string> keys = scores.keys();
+    Vector<string> keys = scores.keys();
     assert(keys.len == 4);
 
     scores.remove("bob");

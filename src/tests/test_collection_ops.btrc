@@ -6,8 +6,8 @@ bool is_even(int x) { return x % 2 == 0; }
 
 int main() {
     // ---- List.map() ----
-    List<int> nums = [1, 2, 3, 4, 5];
-    List<int> doubled = nums.map(double_it);
+    Vector<int> nums = [1, 2, 3, 4, 5];
+    Vector<int> doubled = nums.map(double_it);
     assert(doubled.size() == 5);
     assert(doubled.get(0) == 2);
     assert(doubled.get(1) == 4);
@@ -16,8 +16,8 @@ int main() {
     assert(doubled.get(4) == 10);
 
     // ---- List.extend() ----
-    List<int> a = [1, 2, 3];
-    List<int> b = [4, 5, 6];
+    Vector<int> a = [1, 2, 3];
+    Vector<int> b = [4, 5, 6];
     a.extend(b);
     assert(a.size() == 6);
     assert(a.get(3) == 4);
@@ -60,7 +60,7 @@ int main() {
     assert(scores.getOrDefault("Bob", -1) == -1);
 
     // ---- List index bounds checking ----
-    List<int> safe = [10, 20, 30];
+    Vector<int> safe = [10, 20, 30];
     assert(safe[0] == 10);
     assert(safe[1] == 20);
     assert(safe[2] == 30);

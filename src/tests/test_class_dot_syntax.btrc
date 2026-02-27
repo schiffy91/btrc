@@ -29,7 +29,7 @@ int main() {
     free(b);
 
     // List dot methods
-    List<int> nums = [];
+    Vector<int> nums = [];
     nums.push(100);
     nums.push(200);
     nums.push(300);

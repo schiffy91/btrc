@@ -122,7 +122,7 @@ class Math {
     }
 
     /* Sum and product of lists */
-    class int sum(List<int> items) {
+    class int sum(Vector<int> items) {
         int total = 0;
         for i in range(items.len) {
             total = total + items.get(i);
@@ -130,7 +130,7 @@ class Math {
         return total;
     }
 
-    class float fsum(List<float> items) {
+    class float fsum(Vector<float> items) {
         float total = 0.0f;
         for i in range(items.len) {
             total = total + items.get(i);

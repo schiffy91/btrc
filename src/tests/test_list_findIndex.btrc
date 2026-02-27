@@ -4,12 +4,12 @@ bool isEven(int x) { return x % 2 == 0; }
 bool isNeg(int x) { return x < 0; }
 
 int main() {
-    List<int> a = [1, 3, 4, 7, 8];
+    Vector<int> a = [1, 3, 4, 7, 8];
     int idx = a.findIndex(isEven);
     assert(idx == 2);
 
     // findIndex not found
-    List<int> b = [1, 2, 3];
+    Vector<int> b = [1, 2, 3];
     int idx2 = b.findIndex(isNeg);
     assert(idx2 == -1);
 

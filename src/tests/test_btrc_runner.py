@@ -41,8 +41,8 @@ def test_btrc_file(btrc_file):
     # Resolve includes
     source = resolve_includes(source, btrc_path)
 
-    # Auto-include stdlib collection types
-    stdlib_source = get_stdlib_source()
+    # Auto-include stdlib types (skip classes already defined in source)
+    stdlib_source = get_stdlib_source(source)
     if stdlib_source:
         source = stdlib_source + "\n" + source
 

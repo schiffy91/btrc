@@ -26,14 +26,14 @@ int main() {
     }
 
     // choice picks from the list
-    List<int> items = [10, 20, 30, 40, 50];
+    Vector<int> items = [10, 20, 30, 40, 50];
     for i in range(20) {
         int picked = rng.choice(items);
         assert(picked == 10 || picked == 20 || picked == 30 || picked == 40 || picked == 50);
     }
 
     // shuffle doesn't lose elements
-    List<int> deck = [1, 2, 3, 4, 5];
+    Vector<int> deck = [1, 2, 3, 4, 5];
     rng.shuffle(deck);
     assert(deck.len == 5);
     assert(deck.contains(1));

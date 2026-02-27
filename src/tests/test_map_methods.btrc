@@ -4,7 +4,7 @@ int main() {
     // ---- Map.keys() with int keys ----
 
     Map<int, int> squares = {1: 1, 2: 4, 3: 9, 4: 16};
-    List<int> k = squares.keys();
+    Vector<int> k = squares.keys();
     assert(k.len == 4);
     k.sort();
     assert(k[0] == 1);
@@ -15,7 +15,7 @@ int main() {
 
     // ---- Map.values() with int values ----
 
-    List<int> v = squares.values();
+    Vector<int> v = squares.values();
     assert(v.len == 4);
     v.sort();
     assert(v[0] == 1);
@@ -43,13 +43,13 @@ int main() {
     // ---- Map.keys() with string keys ----
 
     Map<string, int> ages = {"alice": 30, "bob": 25, "carol": 35};
-    List<string> names = ages.keys();
+    Vector<string> names = ages.keys();
     assert(names.len == 3);
     names.free();
 
     // ---- Map.values() with string keys ----
 
-    List<int> age_vals = ages.values();
+    Vector<int> age_vals = ages.values();
     assert(age_vals.len == 3);
     age_vals.sort();
     assert(age_vals[0] == 25);
@@ -90,8 +90,8 @@ int main() {
     m2.remove(1);
     m2.remove(2);
     assert(m2.len == 0);
-    List<int> ek = m2.keys();
-    List<int> ev = m2.values();
+    Vector<int> ek = m2.keys();
+    Vector<int> ev = m2.values();
     assert(ek.len == 0);
     assert(ev.len == 0);
     ek.free();

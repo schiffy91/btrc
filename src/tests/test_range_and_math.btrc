@@ -41,7 +41,7 @@ int main() {
     assert(scores.size() == 3);
 
     // ---- List.size() ----
-    List<int> nums = [1, 2, 3, 4, 5];
+    Vector<int> nums = [1, 2, 3, 4, 5];
     assert(nums.size() == 5);
     nums.push(6);
     assert(nums.size() == 6);

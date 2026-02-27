@@ -137,16 +137,16 @@ class Map<K, V> implements Iterable {
         return self.len == 0;
     }
 
-    public List<K> keys() {
-        List<K> result = [];
+    public Vector<K> keys() {
+        Vector<K> result = [];
         for (int i = 0; i < self.cap; i++) {
             if (self.occupied[i]) { result.push(self.keys[i]); }
         }
         return result;
     }
 
-    public List<V> values() {
-        List<V> result = [];
+    public Vector<V> values() {
+        Vector<V> result = [];
         for (int i = 0; i < self.cap; i++) {
             if (self.occupied[i]) { result.push(self.values[i]); }
         }

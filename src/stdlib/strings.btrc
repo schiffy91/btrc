@@ -19,7 +19,7 @@ class Strings {
         return result;
     }
 
-    class string join(List<string> items, string sep) {
+    class string join(Vector<string> items, string sep) {
         if (items.len == 0) { return strdup(""); }
         int seplen = (int)strlen(sep);
         int total = 0;

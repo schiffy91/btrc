@@ -29,8 +29,8 @@ int main() {
     assert(nums.contains(10) == true);
     assert(nums.contains(30) == true);
 
-    // ---- Set: toList ----
-    List<int> as_list = nums.toList();
+    // ---- Set: toVector ----
+    Vector<int> as_list = nums.toVector();
     assert(as_list.len == 2);
 
     int sum = 0;

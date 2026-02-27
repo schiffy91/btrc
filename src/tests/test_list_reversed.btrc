@@ -1,8 +1,8 @@
 #include <assert.h>
 
 int main() {
-    List<int> a = [1, 2, 3, 4, 5];
-    List<int> r = a.reversed();
+    Vector<int> a = [1, 2, 3, 4, 5];
+    Vector<int> r = a.reversed();
     assert(r.get(0) == 5);
     assert(r.get(4) == 1);
     // original unchanged

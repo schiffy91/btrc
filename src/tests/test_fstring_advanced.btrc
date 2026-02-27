@@ -3,7 +3,7 @@
 
 int main() {
     // Fstring with list size method call
-    List<int> nums = [1, 2, 3];
+    Vector<int> nums = [1, 2, 3];
     string s1 = f"size: {nums.size()}";
     assert(strcmp(s1, "size: 3") == 0);
     nums.free();

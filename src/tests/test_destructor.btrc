@@ -31,7 +31,7 @@ class Parent {
 }
 
 class WithList {
-    public List<int> items;
+    public Vector<int> items;
 
     public WithList() {
         self.items = [];

@@ -2,24 +2,24 @@
 #include <assert.h>
 
 int main() {
-    // ---- 2-level: List<List<int>> ----
-    List<int> row1 = [1, 2, 3];
-    List<int> row2 = [4, 5, 6];
-    List<int> row3 = [7, 8, 9];
+    // ---- 2-level: Vector<Vector<int>> ----
+    Vector<int> row1 = [1, 2, 3];
+    Vector<int> row2 = [4, 5, 6];
+    Vector<int> row3 = [7, 8, 9];
 
-    List<List<int>> matrix = [];
+    Vector<Vector<int>> matrix = [];
     matrix.push(row1);
     matrix.push(row2);
     matrix.push(row3);
     assert(matrix.len == 3);
 
-    List<int> first_row = matrix.get(0);
+    Vector<int> first_row = matrix.get(0);
     assert(first_row.len == 3);
     assert(first_row[0] == 1);
     assert(first_row[1] == 2);
     assert(first_row[2] == 3);
 
-    List<int> second_row = matrix.get(1);
+    Vector<int> second_row = matrix.get(1);
     assert(second_row[0] == 4);
     assert(second_row[1] == 5);
     assert(second_row[2] == 6);
@@ -27,36 +27,36 @@ int main() {
     // Sum all elements through nested iteration
     int total = 0;
     for (int i = 0; i < matrix.len; i++) {
-        List<int> row = matrix.get(i);
+        Vector<int> row = matrix.get(i);
         for (int j = 0; j < row.len; j++) {
             total += row[j];
         }
     }
     assert(total == 45);
 
-    // ---- 2-level: Map<string, List<int>> ----
-    List<int> scores_alice = [90, 85, 92];
-    List<int> scores_bob = [78, 88, 95];
+    // ---- 2-level: Map<string, Vector<int>> ----
+    Vector<int> scores_alice = [90, 85, 92];
+    Vector<int> scores_bob = [78, 88, 95];
 
-    Map<string, List<int>> grades = {};
+    Map<string, Vector<int>> grades = {};
     grades.put("alice", scores_alice);
     grades.put("bob", scores_bob);
     assert(grades.len == 2);
 
-    List<int> alice = grades.get("alice");
+    Vector<int> alice = grades.get("alice");
     assert(alice.len == 3);
     assert(alice[0] == 90);
 
-    // ---- 3-level: List<Map<string, List<int>>> ----
-    Map<string, List<int>> record1 = {};
-    List<int> vals1 = [10, 20, 30];
+    // ---- 3-level: Vector<Map<string, Vector<int>>> ----
+    Map<string, Vector<int>> record1 = {};
+    Vector<int> vals1 = [10, 20, 30];
     record1.put("data", vals1);
 
-    Map<string, List<int>> record2 = {};
-    List<int> vals2 = [40, 50];
+    Map<string, Vector<int>> record2 = {};
+    Vector<int> vals2 = [40, 50];
     record2.put("data", vals2);
 
-    List<Map<string, List<int>>> database = [];
+    Vector<Map<string, Vector<int>>> database = [];
     database.push(record1);
     database.push(record2);
     assert(database.len == 2);
@@ -85,11 +85,11 @@ int main() {
     assert(strcmp(inner.0, "yes") == 0);
     assert(inner.1 == true);
 
-    // Tuple with collection: (string, List<int>)
-    List<int> items = [10, 20, 30];
-    (string, List<int>) labeled = ("nums", items);
+    // Tuple with collection: (string, Vector<int>)
+    Vector<int> items = [10, 20, 30];
+    (string, Vector<int>) labeled = ("nums", items);
     assert(strcmp(labeled.0, "nums") == 0);
-    List<int> lab_items = labeled.1;
+    Vector<int> lab_items = labeled.1;
     assert(lab_items.len == 3);
     assert(lab_items.get(0) == 10);
 

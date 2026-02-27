@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 int main() {
-    List<float> vals = [1.5, 2.5, 3.5, 2.5];
+    Vector<float> vals = [1.5, 2.5, 3.5, 2.5];
     assert(vals.indexOf(2.5) == 1);
     assert(vals.lastIndexOf(2.5) == 3);
     vals.free();

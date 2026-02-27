@@ -133,10 +133,10 @@ class TestVarDecl:
         assert d.type.pointer_depth == 2
 
     def test_parse_var_decl_generic(self):
-        prog = parse('List<int> nums;')
+        prog = parse('Vector<int> nums;')
         d = prog.declarations[0]
         assert isinstance(d, VarDeclStmt)
-        assert d.type.base == "List"
+        assert d.type.base == "Vector"
         assert len(d.type.generic_args) == 1
         assert d.type.generic_args[0].base == "int"
 
@@ -696,7 +696,7 @@ class TestFullPrograms:
     def test_parse_generic_usage(self):
         prog = parse('''
             void test() {
-                List<int> nums = [1, 2, 3];
+                Vector<int> nums = [1, 2, 3];
                 for item in nums {
                     printf("%d\\n", item);
                 }
@@ -705,7 +705,7 @@ class TestFullPrograms:
         f = prog.declarations[0]
         stmts = f.body.statements
         assert isinstance(stmts[0], VarDeclStmt)
-        assert stmts[0].type.base == "List"
+        assert stmts[0].type.base == "Vector"
         assert isinstance(stmts[1], ForInStmt)
 
     def test_parse_mixed_c_and_btrc(self):
@@ -1142,20 +1142,20 @@ class TestSwitchAdvanced:
 
 class TestNestedGenerics:
     def test_parse_nested_list(self):
-        prog = parse('void test() { List<List<int>> nested; }')
+        prog = parse('void test() { Vector<Vector<int>> nested; }')
         stmt = prog.declarations[0].body.statements[0]
         assert isinstance(stmt, VarDeclStmt)
-        assert stmt.type.base == "List"
+        assert stmt.type.base == "Vector"
         inner = stmt.type.generic_args[0]
-        assert inner.base == "List"
+        assert inner.base == "Vector"
         assert inner.generic_args[0].base == "int"
 
     def test_parse_map_with_generic_value(self):
-        prog = parse('void test() { Map<string, List<int>> m; }')
+        prog = parse('void test() { Map<string, Vector<int>> m; }')
         stmt = prog.declarations[0].body.statements[0]
         assert stmt.type.base == "Map"
         assert stmt.type.generic_args[0].base == "string"
-        assert stmt.type.generic_args[1].base == "List"
+        assert stmt.type.generic_args[1].base == "Vector"
         assert stmt.type.generic_args[1].generic_args[0].base == "int"
 
 
@@ -1231,9 +1231,9 @@ class TestNewExprVariants:
         assert len(e.args) == 0
 
     def test_parse_new_generic_type(self):
-        e = parse_expr('new List<int>()')
+        e = parse_expr('new Vector<int>()')
         assert isinstance(e, NewExpr)
-        assert e.type.base == "List"
+        assert e.type.base == "Vector"
         assert len(e.type.generic_args) == 1
 
 

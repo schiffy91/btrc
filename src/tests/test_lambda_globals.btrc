@@ -4,7 +4,7 @@
 int counter = 0;
 
 int main() {
-    List<int> nums = [1, 2, 3, 4, 5];
+    Vector<int> nums = [1, 2, 3, 4, 5];
 
     // Lambda accessing global variable
     nums.forEach(void function(int x) { counter += x; });
@@ -12,7 +12,7 @@ int main() {
 
     // Lambda accessing global in filter
     counter = 3;
-    List<int> filtered = nums.filter(bool function(int x) { return x > counter; });
+    Vector<int> filtered = nums.filter(bool function(int x) { return x > counter; });
     assert(filtered.len == 2);
     assert(filtered.get(0) == 4);
     assert(filtered.get(1) == 5);
