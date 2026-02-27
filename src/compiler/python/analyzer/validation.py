@@ -34,17 +34,19 @@ class ValidationMixin:
                         f"{cls.name}.{method_name}", method.params, expr.args,
                         expr.line, expr.col)
 
-        # Map.keys() / Map.values() → register List<K> or List<V>
+        # Register generic return types from method calls (e.g. Map.keys() → List<K>)
         if isinstance(expr.callee, FieldAccessExpr):
             obj_type = self._infer_type(expr.callee.obj)
-            if obj_type and obj_type.base == "Map" and len(obj_type.generic_args) == 2:
-                method = expr.callee.field
-                if method == "keys":
-                    list_type = TypeExpr(base="List", generic_args=[obj_type.generic_args[0]])
-                    self._collect_generic_instances(list_type)
-                elif method == "values":
-                    list_type = TypeExpr(base="List", generic_args=[obj_type.generic_args[1]])
-                    self._collect_generic_instances(list_type)
+            if obj_type and obj_type.base in self.class_table:
+                cls = self.class_table[obj_type.base]
+                method_name = expr.callee.field
+                if method_name in cls.methods:
+                    ret = cls.methods[method_name].return_type
+                    if ret and ret.generic_args and cls.generic_params and obj_type.generic_args:
+                        subs = dict(zip(cls.generic_params, obj_type.generic_args))
+                        resolved = self._substitute_type(ret, subs)
+                        if resolved and resolved.generic_args:
+                            self._collect_generic_instances(resolved)
 
     def _validate_call_arity(self, name, params, args, line, col):
         """Validate argument count for function/method calls."""
@@ -102,17 +104,9 @@ class ValidationMixin:
                             f"Cannot access private method '{expr.field}' "
                             f"of class '{cls.name}'", expr.line, expr.col)
             else:
-                _COLLECTION_FUNCTIONAL = {
-                    "List": {"forEach", "filter", "map", "any", "all",
-                             "findIndex", "reduce", "removeAt"},
-                    "Map": {"forEach", "containsValue"},
-                    "Set": {"forEach", "filter", "any", "all", "findIndex"},
-                }
-                known = _COLLECTION_FUNCTIONAL.get(cls.name, set())
-                if expr.field not in known:
-                    self._error(
-                        f"Class '{cls.name}' has no field or method '{expr.field}'",
-                        expr.line, expr.col)
+                self._error(
+                    f"Class '{cls.name}' has no field or method '{expr.field}'",
+                    expr.line, expr.col)
         elif isinstance(expr.obj, Identifier) and expr.obj.name in self.class_table:
             cls = self.class_table[expr.obj.name]
             if expr.field in cls.methods:
@@ -133,33 +127,35 @@ class ValidationMixin:
 
     # ---- Generic instance collection ----
 
-    _BUILTIN_GENERIC_COUNTS = {"List": 1, "Map": 2, "Array": 1, "Set": 1}
-
     def _collect_generic_instances(self, type_expr):
         if type_expr is None:
             return
         if type_expr.generic_args:
             key = type_expr.base
             args_tuple = tuple(type_expr.generic_args)
-            expected = self._BUILTIN_GENERIC_COUNTS.get(key)
-            if expected is None and key in self.class_table:
-                expected = len(self.class_table[key].generic_params) or None
-            if expected is not None and len(type_expr.generic_args) != expected:
-                self._error(
-                    f"Type '{key}' expects {expected} generic argument(s) "
-                    f"but got {len(type_expr.generic_args)}",
-                    getattr(type_expr, 'line', 0), getattr(type_expr, 'col', 0))
+            # Validate generic arg count from class_table
+            if key in self.class_table:
+                cls = self.class_table[key]
+                expected = len(cls.generic_params) if cls.generic_params else None
+                if expected is not None and len(type_expr.generic_args) != expected:
+                    self._error(
+                        f"Type '{key}' expects {expected} generic argument(s) "
+                        f"but got {len(type_expr.generic_args)}",
+                        getattr(type_expr, 'line', 0), getattr(type_expr, 'col', 0))
             if key not in self.generic_instances:
                 self.generic_instances[key] = []
             existing = [t for t in self.generic_instances[key]]
             if args_tuple not in existing:
                 self.generic_instances[key].append(args_tuple)
-            if key == "Map" and len(type_expr.generic_args) == 2:
-                k_type, v_type = type_expr.generic_args
-                self._collect_generic_instances(TypeExpr(base="List", generic_args=[k_type]))
-                self._collect_generic_instances(TypeExpr(base="List", generic_args=[v_type]))
-            if key == "Set" and len(type_expr.generic_args) == 1:
-                self._collect_generic_instances(
-                    TypeExpr(base="List", generic_args=[type_expr.generic_args[0]]))
+            # Register transitive deps from method return types
+            if key in self.class_table:
+                cls = self.class_table[key]
+                if cls.generic_params and len(type_expr.generic_args) == len(cls.generic_params):
+                    subs = dict(zip(cls.generic_params, type_expr.generic_args))
+                    for method in cls.methods.values():
+                        if method.return_type and method.return_type.generic_args:
+                            resolved = self._substitute_type(method.return_type, subs)
+                            if resolved and resolved.generic_args and resolved.base != key:
+                                self._collect_generic_instances(resolved)
             for arg in type_expr.generic_args:
                 self._collect_generic_instances(arg)

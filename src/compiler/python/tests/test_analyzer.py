@@ -543,7 +543,8 @@ class TestGenericConstraints:
 
     def test_multiple_generic_classes_tracked_separately(self):
         """Different generic base types should be tracked independently.
-        Map<string, float> also registers List<string> and List<float> for keys()/values()."""
+        Transitive deps (Map→List) are registered from class_table method return types,
+        so they only appear when stdlib is included."""
         src = '''
             void test() {
                 List<int> nums;
@@ -553,12 +554,10 @@ class TestGenericConstraints:
         result = analyze(src)
         assert "List" in result.generic_instances
         assert "Map" in result.generic_instances
-        # List<int> from declaration + List<string> and List<float> from Map<string, float>
-        assert len(result.generic_instances["List"]) == 3
+        # List<int> from declaration (transitive deps come from stdlib class_table)
+        assert len(result.generic_instances["List"]) >= 1
         list_bases = [args[0].base for args in result.generic_instances["List"]]
         assert "int" in list_bases
-        assert "string" in list_bases
-        assert "float" in list_bases
         assert len(result.generic_instances["Map"]) == 1
 
 
@@ -1695,8 +1694,16 @@ class TestConstructorArgCount:
 
 
 class TestGenericArgCount:
+    # Generic arg count validation requires class_table entries (from stdlib or stubs)
+    _STUBS = '''
+        class List<T> { public int len; }
+        class Map<K, V> { public int len; }
+        class Array<T> { public int len; }
+        class Set<T> { public int len; }
+    '''
+
     def test_list_too_many_type_args(self):
-        src = '''
+        src = self._STUBS + '''
             int main() {
                 List<int, string> x;
                 return 0;
@@ -1705,7 +1712,7 @@ class TestGenericArgCount:
         assert has_error(src, "Type 'List' expects 1 generic argument(s) but got 2")
 
     def test_map_too_few_type_args(self):
-        src = '''
+        src = self._STUBS + '''
             int main() {
                 Map<int> x;
                 return 0;
@@ -1714,7 +1721,7 @@ class TestGenericArgCount:
         assert has_error(src, "Type 'Map' expects 2 generic argument(s) but got 1")
 
     def test_map_too_many_type_args(self):
-        src = '''
+        src = self._STUBS + '''
             int main() {
                 Map<int, string, bool> x;
                 return 0;
@@ -1723,7 +1730,7 @@ class TestGenericArgCount:
         assert has_error(src, "Type 'Map' expects 2 generic argument(s) but got 3")
 
     def test_array_too_many_type_args(self):
-        src = '''
+        src = self._STUBS + '''
             int main() {
                 Array<int, string> x;
                 return 0;
@@ -1732,7 +1739,7 @@ class TestGenericArgCount:
         assert has_error(src, "Type 'Array' expects 1 generic argument(s) but got 2")
 
     def test_set_too_many_type_args(self):
-        src = '''
+        src = self._STUBS + '''
             int main() {
                 Set<int, string> x;
                 return 0;

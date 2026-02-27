@@ -21,9 +21,6 @@ _PRIMITIVE_MAP = {
     "size_t": "size_t",
 }
 
-# Built-in generic collection types
-_BUILTIN_GENERICS = {"List", "Map", "Set"}
-
 
 def type_to_c(t: TypeExpr | None) -> str:
     """Convert a btrc TypeExpr to a C type string."""
@@ -140,16 +137,6 @@ def is_numeric_type(t: TypeExpr | None) -> bool:
     return t.base in {"int", "float", "double", "long", "short", "byte", "uint"}
 
 
-def is_collection_type(t: TypeExpr | None) -> bool:
-    """Check if a type is a built-in collection (List, Map, Set).
-
-    DEPRECATED: Use is_generic_class_type() with class_table instead.
-    """
-    if t is None:
-        return False
-    return t.base in _BUILTIN_GENERICS and bool(t.generic_args)
-
-
 def is_generic_class_type(t: TypeExpr | None, class_table: dict) -> bool:
     """Check if a type is a generic class (registered with generic_params)."""
     if t is None or not t.generic_args:
@@ -161,8 +148,7 @@ def is_generic_class_type(t: TypeExpr | None, class_table: dict) -> bool:
 def is_concrete_type(t: TypeExpr) -> bool:
     """Check if a type is fully resolved (no unresolved generic params like T, K, V)."""
     base = t.base
-    if base in _PRIMITIVE_MAP or base in _BUILTIN_GENERICS:
-        # These are known types
+    if base in _PRIMITIVE_MAP:
         pass
     elif len(base) == 1 and base.isupper():
         # Single uppercase letter → likely a type parameter

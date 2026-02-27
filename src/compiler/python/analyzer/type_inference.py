@@ -44,11 +44,13 @@ class TypeInferenceMixin:
                             pointer_depth=1)
         elif isinstance(expr, IndexExpr):
             obj_type = self._infer_type(expr.obj)
-            if obj_type and obj_type.base in ("List", "Array") and obj_type.generic_args:
-                return obj_type.generic_args[0]
-            if (obj_type and obj_type.base == "Map" and obj_type.generic_args
-                    and len(obj_type.generic_args) == 2):
-                return obj_type.generic_args[1]
+            if obj_type and obj_type.generic_args:
+                # Generic with 1 arg (List, Array, Set): element = args[0]
+                if len(obj_type.generic_args) == 1:
+                    return obj_type.generic_args[0]
+                # Generic with 2 args (Map): value = args[1]
+                if len(obj_type.generic_args) == 2:
+                    return obj_type.generic_args[1]
             return None
         elif isinstance(expr, BinaryExpr):
             return self._infer_binary_type(expr)
@@ -137,20 +139,13 @@ class TypeInferenceMixin:
             if obj_type and (obj_type.base == "string" or
                              (obj_type.base == "char" and obj_type.pointer_depth >= 1)):
                 return self._string_method_return_type(expr.callee.field)
-            if obj_type and obj_type.base == "Map" and len(obj_type.generic_args) == 2:
-                return self._map_method_return_type(expr.callee.field, obj_type)
-            if obj_type and obj_type.base == "List" and obj_type.generic_args:
-                return self._list_method_return_type(expr.callee.field, obj_type)
-            if obj_type and obj_type.base == "Set" and obj_type.generic_args:
-                return self._set_method_return_type(expr.callee.field, obj_type)
             if obj_type and obj_type.base in self.class_table:
                 cls = self.class_table[obj_type.base]
                 if expr.callee.field in cls.methods:
                     ret = cls.methods[expr.callee.field].return_type
                     if cls.generic_params and obj_type.generic_args:
                         subs = dict(zip(cls.generic_params, obj_type.generic_args))
-                        if ret and ret.base in subs:
-                            return subs[ret.base]
+                        return self._substitute_type(ret, subs)
                     return ret
             if (isinstance(expr.callee.obj, Identifier)
                     and expr.callee.obj.name in self.class_table):
@@ -189,13 +184,18 @@ class TypeInferenceMixin:
         """Get the element type for for-in iteration."""
         if iter_type is None:
             return None
-        if iter_type.base in ("List", "Array", "Set") and iter_type.generic_args:
-            return iter_type.generic_args[0]
         if (iter_type.base == "string"
                 or (iter_type.base == "char" and iter_type.pointer_depth >= 1)):
             return TypeExpr(base="char")
-        if iter_type.base == "Map" and len(iter_type.generic_args) == 2:
-            return None
+        # Generic class with iterGet method → iterable
+        if iter_type.generic_args and iter_type.base in self.class_table:
+            cls = self.class_table[iter_type.base]
+            if "iterGet" in cls.methods:
+                ret = cls.methods["iterGet"].return_type
+                if cls.generic_params and iter_type.generic_args:
+                    subs = dict(zip(cls.generic_params, iter_type.generic_args))
+                    return self._substitute_type(ret, subs)
+                return ret
         if iter_type.base in self.class_table:
             self._error(f"Type '{iter_type.base}' is not iterable", line, col)
             return None
@@ -203,3 +203,20 @@ class TypeInferenceMixin:
             self._error(f"Type '{iter_type.base}' is not iterable", line, col)
             return None
         return None
+
+    def _substitute_type(self, t: TypeExpr | None, subs: dict) -> TypeExpr | None:
+        """Recursively substitute type parameters in a TypeExpr."""
+        if t is None:
+            return None
+        if t.base in subs and not t.generic_args:
+            resolved = subs[t.base]
+            if t.pointer_depth > 0:
+                return TypeExpr(
+                    base=resolved.base, generic_args=resolved.generic_args,
+                    pointer_depth=resolved.pointer_depth + t.pointer_depth)
+            return resolved
+        if t.generic_args:
+            new_args = [self._substitute_type(a, subs) for a in t.generic_args]
+            return TypeExpr(base=t.base, generic_args=new_args,
+                           pointer_depth=t.pointer_depth)
+        return t

@@ -4,8 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
-from ...nodes import CType, IRStructDef, IRStructField
-from ..types import type_to_c, mangle_generic_type, mangle_type_name, is_concrete_instance
+from ..types import mangle_generic_type, is_concrete_instance
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator
@@ -100,20 +99,3 @@ def _emit_generic_macros(gen: IRGenerator):
     if has_generics:
         gen.use_helper("__btrc_hash_str")
         gen.module.raw_sections.append(_GENERIC_MACROS)
-
-
-# --- String-aware comparison helpers (kept for non-generic use) ---
-def _eq(elem_c: str, a: str, b: str) -> str:
-    if elem_c == "char*":
-        return f"strcmp({a}, {b}) == 0"
-    return f"{a} == {b}"
-
-def _gt(elem_c: str, a: str, b: str) -> str:
-    if elem_c == "char*":
-        return f"strcmp({a}, {b}) > 0"
-    return f"{a} > {b}"
-
-def _lt(elem_c: str, a: str, b: str) -> str:
-    if elem_c == "char*":
-        return f"strcmp({a}, {b}) < 0"
-    return f"{a} < {b}"

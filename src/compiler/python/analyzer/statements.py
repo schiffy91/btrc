@@ -140,7 +140,7 @@ class StatementsMixin:
                     return
                 else:
                     stmt.type = inferred
-                if stmt.type.base in ("List", "Map", "Set", "Array"):
+                if stmt.type.base in self.class_table and stmt.type.pointer_depth == 0:
                     stmt.type = self._upgrade_class_type(stmt.type)
                 self._collect_generic_instances(stmt.type)
                 self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
@@ -179,7 +179,12 @@ class StatementsMixin:
             self.break_depth -= 1
             return
         iter_type = self._infer_type(stmt.iterable)
-        if iter_type and iter_type.base == "Map" and len(iter_type.generic_args) == 2:
+        # Two-variable for-in: class with iterValueAt method and 2+ generic args
+        _has_iter_value = (iter_type and iter_type.generic_args
+                          and len(iter_type.generic_args) >= 2
+                          and (iter_type.base not in self.class_table
+                               or "iterValueAt" in self.class_table[iter_type.base].methods))
+        if _has_iter_value:
             key_type = iter_type.generic_args[0]
             val_type = iter_type.generic_args[1]
             self._push_scope()

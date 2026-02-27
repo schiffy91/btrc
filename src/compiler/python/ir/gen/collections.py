@@ -22,7 +22,7 @@ def lower_list_literal(gen: IRGenerator, node: ListLiteral) -> IRExpr:
     # Determine the list type from analyzer
     list_type = gen.analyzed.node_types.get(id(node))
     if list_type and list_type.generic_args:
-        mangled = mangle_generic_type("List", list_type.generic_args)
+        mangled = mangle_generic_type(list_type.base, list_type.generic_args)
     else:
         # Fallback: try to infer from first element
         mangled = "btrc_List_int"
@@ -43,7 +43,7 @@ def lower_map_literal(gen: IRGenerator, node: MapLiteral) -> IRExpr:
 
     map_type = gen.analyzed.node_types.get(id(node))
     if map_type and map_type.generic_args:
-        mangled = mangle_generic_type("Map", map_type.generic_args)
+        mangled = mangle_generic_type(map_type.base, map_type.generic_args)
     else:
         mangled = "btrc_Map_string_int"
 
