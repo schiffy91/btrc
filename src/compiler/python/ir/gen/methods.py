@@ -8,7 +8,7 @@ from ..nodes import (
     IRAddressOf, IRCall, IRExpr, IRFieldAccess, IRLiteral, IRVar,
 )
 from .types import (
-    is_string_type, is_collection_type, mangle_generic_type, type_to_c,
+    is_string_type, mangle_generic_type, type_to_c,
 )
 from .expressions import lower_expr
 
@@ -138,11 +138,7 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     if method_name == "toString":
         return _lower_to_string(gen, obj, obj_type, args)
 
-    # Collection methods (List, Map, Set)
-    if obj_type and is_collection_type(obj_type):
-        return _lower_collection_method(gen, obj, obj_type, method_name, args)
-
-    # User class method: obj.method(args) → ClassName_method(obj, args)
+    # Class method: obj.method(args) → ClassName_method(obj, args)
     if obj_type and obj_type.base in gen.analyzed.class_table:
         cls_info = gen.analyzed.class_table[obj_type.base]
         # Use mangled name for generic class instances
@@ -209,32 +205,6 @@ def _lower_to_string(gen: IRGenerator, obj: IRExpr, obj_type, args) -> IRExpr:
     call = IRCall(callee=helper, args=[obj], helper_ref=helper)
     return IRCall(callee="__btrc_str_track", args=[call],
                   helper_ref="__btrc_str_track")
-
-
-def _lower_collection_method(gen: IRGenerator, obj: IRExpr,
-                             obj_type: TypeExpr, method: str,
-                             args: list[IRExpr]) -> IRExpr:
-    """Lower a collection method call."""
-    base = obj_type.base
-    mangled = mangle_generic_type(base, obj_type.generic_args)
-
-    # Size/length methods
-    if method in ("size", "length", "len"):
-        return IRFieldAccess(obj=obj, field="len", arrow=True)
-
-    # isEmpty
-    if method == "isEmpty":
-        from ..nodes import IRBinOp
-        return IRBinOp(
-            left=IRFieldAccess(obj=obj, field="len", arrow=True),
-            op="==", right=IRLiteral(text="0"),
-        )
-
-    # Most collection methods are mangled: btrc_List_int_push(obj, args)
-    return IRCall(
-        callee=f"{mangled}_{method}",
-        args=[obj] + args,
-    )
 
 
 def _obj_text(expr: IRExpr) -> str:

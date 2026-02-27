@@ -28,7 +28,7 @@ module Btrc {
                      class_member* members, identifier? parent,
                      identifier* interfaces, bool is_abstract)
          | InterfaceDecl(identifier name, method_sig* methods,
-                         identifier? parent)
+                         identifier? parent, identifier* generic_params)
          | FunctionDecl(type_expr return_type, identifier name,
                         param* params, block? body, bool is_gpu)
          | StructDecl(identifier name, field_def* fields)

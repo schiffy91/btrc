@@ -11,7 +11,7 @@ from ..nodes import (
     IRBinOp, IRCall, IRCast, IRExpr, IRFieldAccess,
     IRIndex, IRLiteral, IRTernary, IRVar,
 )
-from .types import is_string_type, is_collection_type, mangle_generic_type
+from .types import is_string_type, is_generic_class_type, mangle_generic_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -28,8 +28,9 @@ def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
     if is_string_type(obj_type) and node.field in ("len", "length"):
         return IRCast(target_type="int", expr=IRCall(callee="strlen", args=[obj]))
 
-    # Collection field access: list.len → list->len
-    if obj_type and is_collection_type(obj_type) and node.field in ("len", "length", "size"):
+    # Generic class field access: coll.len → coll->len
+    if (obj_type and is_generic_class_type(obj_type, gen.analyzed.class_table)
+            and node.field in ("len", "length", "size")):
         return IRFieldAccess(obj=obj, field="len", arrow=True)
 
     # Rich enum variant tag: Color.RGB → Color_RGB_TAG
@@ -82,7 +83,7 @@ def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
     obj = lower_expr(gen, node.obj)
     index = lower_expr(gen, node.index)
     obj_type = gen.analyzed.node_types.get(id(node.obj))
-    if obj_type and is_collection_type(obj_type):
+    if obj_type and is_generic_class_type(obj_type, gen.analyzed.class_table):
         mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
         return IRCall(callee=f"{mangled}_get", args=[obj, index])
     return IRIndex(obj=obj, index=index)
@@ -113,7 +114,7 @@ def _lower_assign(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     # Collection index assignment: list[i] = value → List_set(list, i, value)
     if node.op == "=" and isinstance(node.target, IndexExpr):
         obj_type = gen.analyzed.node_types.get(id(node.target.obj))
-        if obj_type and is_collection_type(obj_type):
+        if obj_type and is_generic_class_type(obj_type, gen.analyzed.class_table):
             mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
             obj = lower_expr(gen, node.target.obj)
             index = lower_expr(gen, node.target.index)
@@ -123,7 +124,7 @@ def _lower_assign(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     # Empty {} or [] assigned to collection-typed field → collection_new()
     if node.op == "=" and isinstance(node.value, BraceInitializer) and not node.value.elements:
         target_type = gen.analyzed.node_types.get(id(node.target))
-        if target_type and is_collection_type(target_type):
+        if target_type and is_generic_class_type(target_type, gen.analyzed.class_table):
             mangled = mangle_generic_type(target_type.base, target_type.generic_args)
             target = lower_expr(gen, node.target)
             return IRBinOp(left=target, op="=",

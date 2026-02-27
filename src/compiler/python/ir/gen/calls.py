@@ -10,7 +10,7 @@ from ..nodes import (
     IRCall, IRCast, IRExpr, IRFieldAccess, IRLiteral,
     IRSizeof, IRTernary,
 )
-from .types import is_string_type, is_collection_type, format_spec_for_type
+from .types import is_string_type, format_spec_for_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator

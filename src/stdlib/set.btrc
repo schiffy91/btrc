@@ -7,7 +7,7 @@
  * rehashing (no tombstones) to maintain probe-chain integrity.
  */
 
-class Set<T> {
+class Set<T> implements Iterable {
     public T* keys;
     public bool* occupied;
     public int len;
@@ -176,5 +176,56 @@ class Set<T> {
             if (self.occupied[i]) { result.add(self.keys[i]); }
         }
         return result;
+    }
+
+    /* Higher-order methods */
+
+    public Set<T> filter(__fn_ptr<bool, T> pred) {
+        Set<T> result = Set();
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i] && pred(self.keys[i])) {
+                result.add(self.keys[i]);
+            }
+        }
+        return result;
+    }
+
+    public bool any(__fn_ptr<bool, T> pred) {
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i] && pred(self.keys[i])) { return true; }
+        }
+        return false;
+    }
+
+    public bool all(__fn_ptr<bool, T> pred) {
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i] && !pred(self.keys[i])) { return false; }
+        }
+        return true;
+    }
+
+    public void forEach(__fn_ptr<void, T> fn) {
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) { fn(self.keys[i]); }
+        }
+    }
+
+    /* Iterable<T> protocol — O(n) per iterGet call, O(n²) total */
+
+    public int iterLen() {
+        return self.len;
+    }
+
+    public T iterGet(int n) {
+        int count = 0;
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) {
+                if (count == n) { return self.keys[i]; }
+                count++;
+            }
+        }
+        fprintf(stderr, "Set iterGet: index out of bounds\n");
+        exit(1);
+        return self.keys[0];
     }
 }

@@ -18,7 +18,7 @@ from ..nodes import (
     IRCall, IRCast, IRExpr, IRLiteral, IRRawExpr, IRSizeof,
     IRTernary, IRVar,
 )
-from .types import type_to_c, is_collection_type
+from .types import type_to_c, is_generic_class_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -125,7 +125,7 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
         if not node.elements:
             # Check if analyzer annotated this with a collection type
             node_type = gen.analyzed.node_types.get(id(node))
-            if node_type and is_collection_type(node_type):
+            if node_type and is_generic_class_type(node_type, gen.analyzed.class_table):
                 from .types import mangle_generic_type
                 mangled = mangle_generic_type(node_type.base, node_type.generic_args)
                 return IRCall(callee=f"{mangled}_new", args=[])

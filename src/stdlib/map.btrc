@@ -7,7 +7,7 @@
  * rehashing (no tombstones) to maintain probe-chain integrity.
  */
 
-class Map<K, V> {
+class Map<K, V> implements Iterable {
     public K* keys;
     public V* values;
     public bool* occupied;
@@ -153,9 +153,53 @@ class Map<K, V> {
         return result;
     }
 
+    public bool containsValue(V value) {
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i] && __btrc_eq(self.values[i], value)) { return true; }
+        }
+        return false;
+    }
+
+    public void set(K key, V value) {
+        self.put(key, value);
+    }
+
     public void merge(Map<K, V> other) {
         for (int i = 0; i < other.cap; i++) {
             if (other.occupied[i]) { self.put(other.keys[i], other.values[i]); }
         }
+    }
+
+    /* Iterable protocol — iterGet returns keys, iterValueAt returns values.
+     * O(n) per call, O(n²) total. Use keys()/values() for O(n) iteration. */
+
+    public int iterLen() {
+        return self.len;
+    }
+
+    public K iterGet(int n) {
+        int count = 0;
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) {
+                if (count == n) { return self.keys[i]; }
+                count++;
+            }
+        }
+        fprintf(stderr, "Map iterGet: index out of bounds\n");
+        exit(1);
+        return self.keys[0];
+    }
+
+    public V iterValueAt(int n) {
+        int count = 0;
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) {
+                if (count == n) { return self.values[i]; }
+                count++;
+            }
+        }
+        fprintf(stderr, "Map iterValueAt: index out of bounds\n");
+        exit(1);
+        return self.values[0];
     }
 }

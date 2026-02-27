@@ -141,10 +141,21 @@ def is_numeric_type(t: TypeExpr | None) -> bool:
 
 
 def is_collection_type(t: TypeExpr | None) -> bool:
-    """Check if a type is a built-in collection (List, Map, Set)."""
+    """Check if a type is a built-in collection (List, Map, Set).
+
+    DEPRECATED: Use is_generic_class_type() with class_table instead.
+    """
     if t is None:
         return False
     return t.base in _BUILTIN_GENERICS and bool(t.generic_args)
+
+
+def is_generic_class_type(t: TypeExpr | None, class_table: dict) -> bool:
+    """Check if a type is a generic class (registered with generic_params)."""
+    if t is None or not t.generic_args:
+        return False
+    info = class_table.get(t.base)
+    return info is not None and bool(info.generic_params)
 
 
 def is_concrete_type(t: TypeExpr) -> bool:

@@ -36,6 +36,7 @@ class InterfaceDecl:
     name: str = ""
     methods: list[MethodSig] = field(default_factory=list)
     parent: Optional[str] = None
+    generic_params: list[str] = field(default_factory=list)
     line: int = 0
     col: int = 0
 

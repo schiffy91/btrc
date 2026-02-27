@@ -7,10 +7,10 @@ from ...ast_nodes import (
     CForStmt, ForInitExpr, ForInitVar, CallExpr, Identifier,
 )
 from ..nodes import (
-    CType, IRBlock, IRContinue, IRFor, IRIf, IRRawC, IRStmt,
-    IRUnaryOp, IRVarDecl, IRVar, IRFieldAccess, IRIndex,
+    CType, IRBlock, IRCall, IRFor, IRRawC, IRStmt,
+    IRVarDecl, IRVar,
 )
-from .types import type_to_c
+from .types import type_to_c, mangle_generic_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -32,125 +32,16 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     iter_type = gen.analyzed.node_types.get(id(iterable))
     ir_iter = _lower_expr(gen, iterable)
 
-    # List iteration: for x in list
-    if iter_type and iter_type.base == "List":
-        idx = gen.fresh_temp("__i")
-        body_block = lower_block(gen, node.body)
-        # Prepend: T x = list->data[__i];
-        elem_c = type_to_c(iter_type.generic_args[0]) if iter_type.generic_args else "int"
-        elem_decl = IRVarDecl(
-            c_type=CType(text=elem_c), name=var_name,
-            init=IRIndex(
-                obj=IRFieldAccess(obj=ir_iter, field="data", arrow=True),
-                index=IRVar(name=idx)))
-        body_block.stmts.insert(0, elem_decl)
-        return [IRFor(
-            init=f"int {idx} = 0",
-            condition=f"{idx} < {_quick_text(ir_iter)}->len",
-            update=f"{idx}++",
-            body=body_block,
-        )]
-
-    # Map iteration: for k, v in map
-    if iter_type and iter_type.base == "Map" and var_name2:
-        idx = gen.fresh_temp("__i")
-        body_block = lower_block(gen, node.body)
-        k_c = type_to_c(iter_type.generic_args[0]) if iter_type.generic_args else "int"
-        v_c = type_to_c(iter_type.generic_args[1]) if len(iter_type.generic_args) > 1 else "int"
-        it = _quick_text(ir_iter)
-        # Prepend: skip unoccupied, then extract k and v
-        skip = IRIf(
-            condition=IRUnaryOp(op="!", operand=IRIndex(
-                obj=IRFieldAccess(obj=ir_iter, field="occupied", arrow=True),
-                index=IRVar(name=idx)), prefix=True),
-            then_block=IRBlock(stmts=[IRContinue()]),
-        )
-
-        k_decl = IRVarDecl(c_type=CType(text=k_c), name=var_name,
-                           init=IRIndex(
-                               obj=IRFieldAccess(obj=ir_iter, field="keys", arrow=True),
-                               index=IRVar(name=idx)))
-        v_decl = IRVarDecl(c_type=CType(text=v_c), name=var_name2,
-                           init=IRIndex(
-                               obj=IRFieldAccess(obj=ir_iter, field="values", arrow=True),
-                               index=IRVar(name=idx)))
-        body_block.stmts.insert(0, v_decl)
-        body_block.stmts.insert(0, k_decl)
-        body_block.stmts.insert(0, skip)
-        return [IRFor(
-            init=f"int {idx} = 0",
-            condition=f"{idx} < {it}->cap",
-            update=f"{idx}++",
-            body=body_block,
-        )]
-
-    # Map keys-only iteration: for k in map (single variable)
-    if iter_type and iter_type.base == "Map" and not var_name2:
-        idx = gen.fresh_temp("__i")
-        body_block = lower_block(gen, node.body)
-        k_c = type_to_c(iter_type.generic_args[0]) if iter_type.generic_args else "int"
-        it = _quick_text(ir_iter)
-        skip = IRIf(
-            condition=IRUnaryOp(op="!", operand=IRIndex(
-                obj=IRFieldAccess(obj=ir_iter, field="occupied", arrow=True),
-                index=IRVar(name=idx)), prefix=True),
-            then_block=IRBlock(stmts=[IRContinue()]),
-        )
-        k_decl = IRVarDecl(c_type=CType(text=k_c), name=var_name,
-                           init=IRIndex(
-                               obj=IRFieldAccess(obj=ir_iter, field="keys", arrow=True),
-                               index=IRVar(name=idx)))
-        body_block.stmts.insert(0, k_decl)
-        body_block.stmts.insert(0, skip)
-        return [IRFor(
-            init=f"int {idx} = 0",
-            condition=f"{idx} < {it}->cap",
-            update=f"{idx}++",
-            body=body_block,
-        )]
-
-    # Set iteration: for x in set
-    if iter_type and iter_type.base == "Set":
-        idx = gen.fresh_temp("__i")
-        body_block = lower_block(gen, node.body)
-        elem_c = type_to_c(iter_type.generic_args[0]) if iter_type.generic_args else "int"
-        it = _quick_text(ir_iter)
-
-        skip = IRIf(
-            condition=IRUnaryOp(op="!", operand=IRIndex(
-                obj=IRFieldAccess(obj=ir_iter, field="occupied", arrow=True),
-                index=IRVar(name=idx)), prefix=True),
-            then_block=IRBlock(stmts=[IRContinue()]),
-        )
-        elem_decl = IRVarDecl(
-            c_type=CType(text=elem_c), name=var_name,
-            init=IRIndex(
-                obj=IRFieldAccess(obj=ir_iter, field="keys", arrow=True),
-                index=IRVar(name=idx)))
-        body_block.stmts.insert(0, elem_decl)
-        body_block.stmts.insert(0, skip)
-        return [IRFor(
-            init=f"int {idx} = 0",
-            condition=f"{idx} < {it}->cap",
-            update=f"{idx}++",
-            body=body_block,
-        )]
+    # Iterable protocol: any class with iterLen + iterGet methods
+    if iter_type and iter_type.generic_args:
+        cls_info = gen.analyzed.class_table.get(iter_type.base)
+        if cls_info and "iterLen" in cls_info.methods and "iterGet" in cls_info.methods:
+            return _lower_iterable_for_in(gen, node, ir_iter, iter_type,
+                                          cls_info, var_name, var_name2)
 
     # String iteration: for c in str
     if iter_type and iter_type.base == "string":
-        idx = gen.fresh_temp("__i")
-        body_block = lower_block(gen, node.body)
-        it = _quick_text(ir_iter)
-        char_decl = IRVarDecl(
-            c_type=CType(text="char"), name=var_name,
-            init=IRIndex(obj=ir_iter, index=IRVar(name=idx)))
-        body_block.stmts.insert(0, char_decl)
-        return [IRFor(
-            init=f"int {idx} = 0",
-            condition=f"{it}[{idx}] != '\\0'",
-            update=f"{idx}++",
-            body=body_block,
-        )]
+        return _lower_string_for_in(gen, node, ir_iter, var_name)
 
     # Fallback: assume list-like with .len and .data
     idx = gen.fresh_temp("__i")
@@ -162,6 +53,70 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     return [IRFor(
         init=f"int {idx} = 0",
         condition=f"{idx} < {it}_len",
+        update=f"{idx}++",
+        body=body_block,
+    )]
+
+
+def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info,
+                            var_name, var_name2) -> list[IRStmt]:
+    """Lower for-in via Iterable protocol (iterLen/iterGet/iterValueAt)."""
+    from .statements import lower_block, _quick_text
+
+    mangled = mangle_generic_type(iter_type.base, iter_type.generic_args)
+    it = _quick_text(ir_iter)
+
+    idx = gen.fresh_temp("__i")
+    n_var = gen.fresh_temp("__n")
+    body_block = lower_block(gen, node.body)
+
+    # Element type from first generic arg
+    elem_c = type_to_c(iter_type.generic_args[0]) if iter_type.generic_args else "int"
+
+    # Two-variable iteration (e.g., for k, v in map): also call iterValueAt
+    if var_name2 and "iterValueAt" in cls_info.methods and len(iter_type.generic_args) > 1:
+        v_c = type_to_c(iter_type.generic_args[1])
+        v_decl = IRVarDecl(
+            c_type=CType(text=v_c), name=var_name2,
+            init=IRCall(callee=f"{mangled}_iterValueAt",
+                        args=[ir_iter, IRVar(name=idx)]))
+        body_block.stmts.insert(0, v_decl)
+
+    # Single-variable: T x = TYPE_iterGet(coll, __i);
+    elem_decl = IRVarDecl(
+        c_type=CType(text=elem_c), name=var_name,
+        init=IRCall(callee=f"{mangled}_iterGet",
+                    args=[ir_iter, IRVar(name=idx)]))
+    body_block.stmts.insert(0, elem_decl)
+
+    # int __n = TYPE_iterLen(coll);
+    # for (int __i = 0; __i < __n; __i++) { body }
+    return [
+        IRVarDecl(c_type=CType(text="int"), name=n_var,
+                  init=IRCall(callee=f"{mangled}_iterLen",
+                              args=[ir_iter])),
+        IRFor(init=f"int {idx} = 0",
+              condition=f"{idx} < {n_var}",
+              update=f"{idx}++",
+              body=body_block),
+    ]
+
+
+def _lower_string_for_in(gen, node, ir_iter, var_name) -> list[IRStmt]:
+    """Lower for c in str to char-by-char iteration."""
+    from .statements import lower_block, _quick_text
+
+    idx = gen.fresh_temp("__i")
+    body_block = lower_block(gen, node.body)
+    it = _quick_text(ir_iter)
+    from ..nodes import IRIndex
+    char_decl = IRVarDecl(
+        c_type=CType(text="char"), name=var_name,
+        init=IRIndex(obj=ir_iter, index=IRVar(name=idx)))
+    body_block.stmts.insert(0, char_decl)
+    return [IRFor(
+        init=f"int {idx} = 0",
+        condition=f"{it}[{idx}] != '\\0'",
         update=f"{idx}++",
         body=body_block,
     )]

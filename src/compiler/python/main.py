@@ -39,9 +39,8 @@ def _format_error(source: str, filename: str, message: str,
 
 _BTRC_INCLUDE_RE = re.compile(r'^\s*#include\s+"([^"]+\.btrc)"\s*$')
 
-# Stdlib collection files to auto-include (order matters: List before Map/Set)
-_STDLIB_COLLECTION_FILES = ["list.btrc", "map.btrc", "set.btrc"]
-_stdlib_cache: Optional[str] = None
+# Regex to extract class names from btrc source (for skip-if-redefined)
+_CLASS_NAME_RE = re.compile(r'^\s*class\s+(\w+)', re.MULTILINE)
 
 
 def _get_stdlib_dir() -> str:
@@ -51,20 +50,47 @@ def _get_stdlib_dir() -> str:
     return os.path.join(module_dir, "..", "..", "stdlib")
 
 
-def get_stdlib_source() -> str:
-    """Read and cache the stdlib collection sources."""
-    global _stdlib_cache
-    if _stdlib_cache is not None:
-        return _stdlib_cache
+def _discover_stdlib_files() -> list[str]:
+    """Scan src/stdlib/ and return .btrc filenames in include order.
+
+    list.btrc comes first (Map/Set/Array may depend on List),
+    then the rest alphabetically.
+    """
     stdlib_dir = _get_stdlib_dir()
+    if not os.path.isdir(stdlib_dir):
+        return []
+    files = sorted(f for f in os.listdir(stdlib_dir) if f.endswith(".btrc"))
+    # list.btrc first, then rest in alphabetical order
+    if "list.btrc" in files:
+        files.remove("list.btrc")
+        files.insert(0, "list.btrc")
+    return files
+
+
+def get_stdlib_source(user_source: str = "") -> str:
+    """Read stdlib sources, skipping classes already defined by the user.
+
+    Args:
+        user_source: The user's btrc source (after include resolution).
+            If a stdlib file defines a class that the user source already
+            defines, that stdlib file is skipped entirely.
+    """
+    stdlib_dir = _get_stdlib_dir()
+    user_classes = set(_CLASS_NAME_RE.findall(user_source))
+
     parts = []
-    for fname in _STDLIB_COLLECTION_FILES:
+    for fname in _discover_stdlib_files():
         fpath = os.path.join(stdlib_dir, fname)
-        if os.path.exists(fpath):
-            with open(fpath, 'r') as f:
-                parts.append(f.read())
-    _stdlib_cache = "\n".join(parts)
-    return _stdlib_cache
+        if not os.path.exists(fpath):
+            continue
+        with open(fpath, 'r') as f:
+            content = f.read()
+        # Skip if any class in this file is already defined by user
+        file_classes = set(_CLASS_NAME_RE.findall(content))
+        if file_classes & user_classes:
+            continue
+        parts.append(content)
+    return "\n".join(parts)
 
 
 def resolve_includes(source: str, source_path: str, included: Optional[Set[str]] = None) -> str:
@@ -142,8 +168,8 @@ def main():
     # Resolve #include "file.btrc" directives
     source = resolve_includes(source, args.input)
 
-    # Auto-include stdlib collection types (List, Map, Set)
-    stdlib_source = get_stdlib_source()
+    # Auto-include all stdlib types (skip classes user already defines)
+    stdlib_source = get_stdlib_source(source)
     if stdlib_source:
         source = stdlib_source + "\n" + source
 

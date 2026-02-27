@@ -14,7 +14,7 @@ from ..nodes import (
     CType, IRBlock, IRFunctionDef, IRHelperDecl, IRModule, IRParam,
     IRStructDef, IRStructField, IRRawC,
 )
-from .types import type_to_c, mangle_generic_type, is_collection_type, is_concrete_instance
+from .types import type_to_c, mangle_generic_type, is_concrete_instance
 
 
 _STANDARD_INCLUDES = [

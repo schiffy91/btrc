@@ -202,6 +202,14 @@ class DeclarationsMixin:
     def _parse_interface_decl(self) -> InterfaceDecl:
         tok = self._expect(TokenType.INTERFACE)
         name = self._expect(TokenType.IDENT, "interface name").value
+
+        generic_params = []
+        if self._match(TokenType.LT):
+            generic_params.append(self._expect(TokenType.IDENT, "generic param").value)
+            while self._match(TokenType.COMMA):
+                generic_params.append(self._expect(TokenType.IDENT, "generic param").value)
+            self._expect_gt()
+
         parent = None
         if self._match(TokenType.EXTENDS):
             parent = self._expect(TokenType.IDENT, "parent interface name").value
@@ -218,4 +226,5 @@ class DeclarationsMixin:
                                      params=params, line=tok.line, col=tok.col))
         self._expect(TokenType.RBRACE)
         return InterfaceDecl(name=name, methods=methods, parent=parent,
+                             generic_params=generic_params,
                              line=tok.line, col=tok.col)

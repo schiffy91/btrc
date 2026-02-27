@@ -102,7 +102,7 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
 
 def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     from ...ast_nodes import BraceInitializer, CallExpr, Identifier, TypeExpr as TE
-    from .types import is_collection_type, mangle_generic_type
+    from .types import is_generic_class_type, mangle_generic_type
 
     # Handle array types: int arr[5] or int nums[]
     if node.type and node.type.is_array:
@@ -122,23 +122,24 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     init = None
     if node.initializer:
         from ...ast_nodes import ListLiteral, MapLiteral
-        # Empty brace initializer on collection types → _new() call
+        ct = gen.analyzed.class_table
+        # Empty brace initializer on generic class types → TYPE_new()
         if (isinstance(node.initializer, BraceInitializer)
                 and not node.initializer.elements
-                and node.type and is_collection_type(node.type)):
+                and node.type and is_generic_class_type(node.type, ct)):
             mangled = mangle_generic_type(node.type.base, node.type.generic_args)
             init = IRCall(callee=f"{mangled}_new", args=[])
-        # Empty [] on List-typed variable → correct List_T_new()
+        # Empty [] on generic-typed variable → TYPE_new()
         elif (isinstance(node.initializer, ListLiteral)
               and not node.initializer.elements
-              and node.type and node.type.base == "List" and node.type.generic_args):
-            mangled = mangle_generic_type("List", node.type.generic_args)
+              and node.type and is_generic_class_type(node.type, ct)):
+            mangled = mangle_generic_type(node.type.base, node.type.generic_args)
             init = IRCall(callee=f"{mangled}_new", args=[])
-        # Empty {} on Map-typed variable → correct Map_K_V_new()
+        # Empty {} on generic-typed variable → TYPE_new()
         elif (isinstance(node.initializer, MapLiteral)
               and not node.initializer.entries
-              and node.type and node.type.base == "Map" and node.type.generic_args):
-            mangled = mangle_generic_type("Map", node.type.generic_args)
+              and node.type and is_generic_class_type(node.type, ct)):
+            mangled = mangle_generic_type(node.type.base, node.type.generic_args)
             init = IRCall(callee=f"{mangled}_new", args=[])
         else:
             init = lower_expr(gen, node.initializer)

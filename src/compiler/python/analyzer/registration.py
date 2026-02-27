@@ -22,7 +22,8 @@ class RegistrationMixin:
     def _register_interface(self, decl):
         if decl.name in self.interface_table:
             self._error(f"Duplicate interface name '{decl.name}'", decl.line, decl.col)
-        info = InterfaceInfo(name=decl.name, parent=decl.parent)
+        info = InterfaceInfo(name=decl.name, parent=decl.parent,
+                             generic_params=decl.generic_params)
         if decl.parent and decl.parent in self.interface_table:
             parent_info = self.interface_table[decl.parent]
             for mname, method in parent_info.methods.items():

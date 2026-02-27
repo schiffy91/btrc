@@ -57,6 +57,7 @@ class InterfaceInfo:
     name: str
     methods: dict[str, MethodSig] = field(default_factory=dict)
     parent: str = None
+    generic_params: list[str] = field(default_factory=list)
 
 
 @dataclass

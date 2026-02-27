@@ -48,18 +48,17 @@ def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
 
 
 def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
-    """Lower delete expr → destroy (which frees internally)."""
-    from .types import mangle_generic_type, is_collection_type
+    """Lower delete expr → destroy or free (class-table based)."""
+    from .types import mangle_generic_type, is_generic_class_type
     obj = _lower_expr(gen, node.expr)
     obj_type = gen.analyzed.node_types.get(id(node.expr))
-    if obj_type and is_collection_type(obj_type):
-        mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
-        return [IRExprStmt(
-            expr=IRCall(callee=f"{mangled}_free", args=[obj]))]
     if obj_type and obj_type.base in gen.analyzed.class_table:
         cls_info = gen.analyzed.class_table[obj_type.base]
         if obj_type.generic_args and cls_info.generic_params:
-            callee = f"{mangle_generic_type(obj_type.base, obj_type.generic_args)}_destroy"
+            mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
+            # Use free() if the class defines it, otherwise destroy()
+            dtor = "free" if "free" in cls_info.methods else "destroy"
+            callee = f"{mangled}_{dtor}"
         else:
             callee = f"{obj_type.base}_destroy"
         return [IRExprStmt(expr=IRCall(callee=callee, args=[obj]))]

@@ -3,7 +3,7 @@
  * Uses raw C for memory management (malloc/realloc/free).
  */
 
-class List<T> {
+class List<T> implements Iterable {
     public T* data;
     public int len;
     public int cap;
@@ -273,5 +273,81 @@ class List<T> {
 
     public string joinToString(string sep) {
         return self.join(sep);
+    }
+
+    /* Higher-order methods — use __fn_ptr<RetType, ParamTypes...> for
+     * function pointer parameters (lambdas compile to static functions). */
+
+    public List<T> filter(__fn_ptr<bool, T> pred) {
+        List<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            if (pred(self.data[i])) { result.push(self.data[i]); }
+        }
+        return result;
+    }
+
+    public int findIndex(__fn_ptr<bool, T> pred) {
+        for (int i = 0; i < self.len; i++) {
+            if (pred(self.data[i])) { return i; }
+        }
+        return -1;
+    }
+
+    public void forEach(__fn_ptr<void, T> fn) {
+        for (int i = 0; i < self.len; i++) {
+            fn(self.data[i]);
+        }
+    }
+
+    public List<T> map(__fn_ptr<T, T> fn) {
+        List<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            result.push(fn(self.data[i]));
+        }
+        return result;
+    }
+
+    public bool any(__fn_ptr<bool, T> pred) {
+        for (int i = 0; i < self.len; i++) {
+            if (pred(self.data[i])) { return true; }
+        }
+        return false;
+    }
+
+    public bool all(__fn_ptr<bool, T> pred) {
+        for (int i = 0; i < self.len; i++) {
+            if (!pred(self.data[i])) { return false; }
+        }
+        return true;
+    }
+
+    public T reduce(T init, __fn_ptr<T, T, T> fn) {
+        T acc = init;
+        for (int i = 0; i < self.len; i++) {
+            acc = fn(acc, self.data[i]);
+        }
+        return acc;
+    }
+
+    public List<T> copy() {
+        List<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            result.push(self.data[i]);
+        }
+        return result;
+    }
+
+    public void removeAt(int idx) {
+        self.remove(idx);
+    }
+
+    /* Iterable<T> protocol */
+
+    public int iterLen() {
+        return self.len;
+    }
+
+    public T iterGet(int i) {
+        return self.data[i];
     }
 }

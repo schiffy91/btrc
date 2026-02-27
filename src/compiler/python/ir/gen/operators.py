@@ -28,7 +28,8 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
     op = node.op
 
     # String concatenation: a + b → __btrc_str_track(__btrc_strcat(a, b))
-    if op == "+" and is_string_type(left_type):
+    # Only when BOTH sides are strings (string + int is pointer arithmetic)
+    if op == "+" and is_string_type(left_type) and is_string_type(right_type):
         gen.use_helper("__btrc_strcat")
         gen.use_helper("__btrc_str_track")
         cat = IRCall(callee="__btrc_strcat", args=[left, right],
@@ -37,7 +38,7 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
                       helper_ref="__btrc_str_track")
 
     # String comparison: a == b → strcmp(a, b) == 0
-    if op in ("==", "!=") and is_string_type(left_type):
+    if op in ("==", "!=") and is_string_type(left_type) and is_string_type(right_type):
         cmp = IRCall(callee="strcmp", args=[left, right])
         cmp_val = "0" if op == "==" else "0"
         cmp_op = "==" if op == "==" else "!="

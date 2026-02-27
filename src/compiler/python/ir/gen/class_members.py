@@ -9,7 +9,7 @@ from ..nodes import (
     CType, IRAssign, IRBinOp, IRBlock, IRCall, IRCast, IRExprStmt,
     IRFieldAccess, IRFunctionDef, IRIf, IRLiteral, IRParam, IRReturn, IRVar,
 )
-from .types import type_to_c, is_collection_type, mangle_generic_type
+from .types import type_to_c, is_generic_class_type, mangle_generic_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -27,14 +27,16 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
 
     # Recursively destroy owned pointer-type fields
     for fname, fd in cls_info.fields.items():
-        # Collection fields (List, Map, Set) → mangled_free()
-        if fd.type and is_collection_type(fd.type):
+        # Generic class fields → mangled_free() or mangled_destroy()
+        if fd.type and is_generic_class_type(fd.type, gen.analyzed.class_table):
             mangled = mangle_generic_type(fd.type.base, fd.type.generic_args)
+            field_cls = gen.analyzed.class_table.get(fd.type.base)
+            dtor_name = "free" if field_cls and "free" in field_cls.methods else "destroy"
             fa = IRFieldAccess(obj=IRVar(name="self"), field=fname, arrow=True)
             body_stmts.append(IRIf(
                 condition=IRBinOp(left=fa, op="!=", right=IRLiteral(text="NULL")),
                 then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=f"{mangled}_free",
+                    expr=IRCall(callee=f"{mangled}_{dtor_name}",
                                 args=[IRFieldAccess(obj=IRVar(name="self"),
                                                      field=fname, arrow=True)]))]),
             ))

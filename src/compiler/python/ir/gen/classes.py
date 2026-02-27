@@ -13,7 +13,7 @@ from ..nodes import (
     IRFunctionDef, IRLiteral, IRParam, IRRawExpr, IRReturn, IRStructDef,
     IRStructField, IRVar, IRVarDecl,
 )
-from .types import type_to_c, is_collection_type, mangle_generic_type
+from .types import type_to_c, is_generic_class_type, mangle_generic_type
 from .class_members import (
     emit_destructor as _emit_destructor,
     emit_method as _emit_method,
@@ -58,6 +58,10 @@ def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
     # Struct definition
     _emit_class_struct(gen, decl, cls_info)
 
+    # Forward-declare all methods (avoids ordering issues like
+    # destructor calling close() before close is defined)
+    _emit_method_forward_decls(gen, decl, cls_info)
+
     # Constructor: ClassName_init and ClassName_new
     _emit_constructor(gen, decl, cls_info)
 
@@ -81,24 +85,44 @@ def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
     gen.current_class_name = ""
 
 
+def _emit_method_forward_decls(gen: IRGenerator, decl: ClassDecl,
+                                cls_info: ClassInfo):
+    """Emit forward declarations for all class methods to avoid ordering issues."""
+    name = decl.name
+    fwd_lines = []
+    for member in decl.members:
+        if isinstance(member, MethodDecl) and member.name != decl.name and member.name != "__del__":
+            is_static = member.access == "class"
+            params = []
+            if not is_static:
+                params.append(f"{name}* self")
+            for p in member.params:
+                params.append(f"{type_to_c(p.type)} {p.name}")
+            ret = type_to_c(member.return_type) if member.return_type else "void"
+            fwd_lines.append(f"{ret} {name}_{member.name}({', '.join(params)});")
+    if fwd_lines:
+        gen.module.forward_decls.extend(fwd_lines)
+
+
 def _lower_field_init(gen: IRGenerator, field: FieldDecl):
     """Lower a field initializer, handling collection types properly."""
     from .expressions import lower_expr
     init = field.initializer
-    # Empty {} for collection-typed fields → collection_new()
+    ct = gen.analyzed.class_table
+    # Empty {} for generic-typed fields → TYPE_new()
     if isinstance(init, BraceInitializer) and not init.elements:
-        if field.type and is_collection_type(field.type):
+        if field.type and is_generic_class_type(field.type, ct):
             mangled = mangle_generic_type(field.type.base, field.type.generic_args)
             return IRCall(callee=f"{mangled}_new", args=[])
-    # Empty [] for List-typed fields → List_new() with correct element type
+    # Empty [] for generic-typed fields → TYPE_new()
     if isinstance(init, ListLiteral) and not init.elements:
-        if field.type and field.type.base == "List" and field.type.generic_args:
-            mangled = mangle_generic_type("List", field.type.generic_args)
+        if field.type and is_generic_class_type(field.type, ct):
+            mangled = mangle_generic_type(field.type.base, field.type.generic_args)
             return IRCall(callee=f"{mangled}_new", args=[])
-    # Empty {} for Map-typed fields → Map_new()
+    # Empty {} for generic-typed fields → TYPE_new()
     if isinstance(init, MapLiteral) and not init.entries:
-        if field.type and field.type.base == "Map" and field.type.generic_args:
-            mangled = mangle_generic_type("Map", field.type.generic_args)
+        if field.type and is_generic_class_type(field.type, ct):
+            mangled = mangle_generic_type(field.type.base, field.type.generic_args)
             return IRCall(callee=f"{mangled}_new", args=[])
     return lower_expr(gen, init)
 
