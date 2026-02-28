@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING
 from ...ast_nodes import (
     Block, BreakStmt, CForStmt, ContinueStmt, DeleteStmt, DoWhileStmt,
     ExprStmt, ForInStmt, ForInitExpr, ForInitVar, IfStmt, ElseBlock,
-    ElseIf, ParallelForStmt, ReturnStmt, SwitchStmt, ThrowStmt,
-    TryCatchStmt, VarDeclStmt, WhileStmt, TypeExpr, CallExpr, Identifier,
+    ElseIf, KeepStmt, ParallelForStmt, ReleaseStmt, ReturnStmt,
+    SwitchStmt, ThrowStmt, TryCatchStmt, VarDeclStmt, WhileStmt,
+    TypeExpr, CallExpr, Identifier, NewExpr,
 )
 from ..nodes import (
     CType, IRAssign, IRBlock, IRBreak, IRCase, IRContinue, IRDoWhile,
@@ -30,10 +31,15 @@ def lower_block(gen: IRGenerator, block: Block | None) -> IRBlock:
     """Lower a btrc Block to an IRBlock."""
     if block is None:
         return IRBlock()
+    gen.push_managed_scope()
     stmts = []
     for s in block.statements:
         ir_stmts = lower_stmt(gen, s)
         stmts.extend(ir_stmts)
+    # ARC: scope-exit release for managed vars (only if not already handled
+    # by return/break/continue inside this block)
+    managed = gen.pop_managed_scope()
+    stmts.extend(_emit_scope_release(managed))
     return IRBlock(stmts=stmts)
 
 
@@ -49,7 +55,12 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
 
     if isinstance(node, ReturnStmt):
         val = lower_expr(gen, node.value) if node.value else None
-        return [IRReturn(value=val)]
+        # ARC: release all managed vars before return, EXCEPT the returned var
+        returned_var = None
+        if node.value and isinstance(node.value, Identifier):
+            returned_var = node.value.name
+        release_stmts = _emit_return_release(gen, returned_var)
+        return release_stmts + [IRReturn(value=val)]
 
     if isinstance(node, IfStmt):
         return [_lower_if(gen, node)]
@@ -86,7 +97,16 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         return [IRContinue()]
 
     if isinstance(node, ExprStmt):
-        return [IRExprStmt(expr=lower_expr(gen, node.expr))]
+        from ...ast_nodes import AssignExpr
+        # ARC: field assignment implicit keep
+        if isinstance(node.expr, AssignExpr):
+            from .fields import get_field_assign_arc_stmts
+            pre, post = get_field_assign_arc_stmts(gen, node.expr)
+            if pre or post:
+                return pre + [IRExprStmt(expr=lower_expr(gen, node.expr))] + post
+        # ARC: emit rc++ for keep params before the call
+        pre_stmts = _emit_keep_for_call(gen, node.expr)
+        return pre_stmts + [IRExprStmt(expr=lower_expr(gen, node.expr))]
 
     if isinstance(node, DeleteStmt):
         return _lower_delete(gen, node)
@@ -96,6 +116,17 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
 
     if isinstance(node, ThrowStmt):
         return _lower_throw(gen, node)
+
+    if isinstance(node, KeepStmt):
+        # keep expr → expr->__rc++
+        expr = lower_expr(gen, node.expr)
+        return [IRExprStmt(expr=IRUnaryOp(
+            op="++", operand=IRFieldAccess(obj=expr, field="__rc", arrow=True),
+            prefix=False))]
+
+    if isinstance(node, ReleaseStmt):
+        # release expr → if (--expr->__rc <= 0) destroy(expr); expr = NULL;
+        return _lower_release(gen, node)
 
     return [IRRawC(text=f"/* unhandled stmt: {type(node).__name__} */")]
 
@@ -153,7 +184,125 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                 if cls_info and cls_info.generic_params:
                     mangled = mangle_generic_type(ctor_name, node.type.generic_args)
                     init = IRCall(callee=f"{mangled}_new", args=init.args)
-    return [IRVarDecl(c_type=CType(text=c_type), name=node.name, init=init)]
+    # ARC: emit rc++ for keep params if initializer is a call
+    pre_stmts = _emit_keep_for_call(gen, node.initializer)
+    result = pre_stmts + [IRVarDecl(c_type=CType(text=c_type), name=node.name, init=init)]
+
+    # ARC: track potentially-managed variables for later keep operations.
+    # Variables are only auto-managed at scope exit when `keep` has been
+    # applied (keep param, field assign, explicit keep). This is the
+    # "zero-cost when no keeps" optimization that ensures backwards compat.
+    # Registration happens in calls.py (keep params), fields.py (field assigns),
+    # and the KeepStmt handler above.
+
+    return result
+
+
+def _emit_keep_for_call(gen: IRGenerator, expr) -> list[IRStmt]:
+    """If expr is a CallExpr with `keep` params, emit rc++ for those args."""
+    from ...ast_nodes import CallExpr as CE, FieldAccessExpr as FAE
+    if not isinstance(expr, CE):
+        return []
+    from .calls import emit_keep_rc_increments
+    # We need the lowered args to emit rc++ on. Lower args separately.
+    ir_args = [lower_expr(gen, a) for a in expr.args]
+    # For method calls, the args in the IR don't include 'self' — that's
+    # prepended by the method call lowering. keep indices refer to the
+    # method's declared params (excluding self).
+    return emit_keep_rc_increments(gen, expr, ir_args)
+
+
+def _get_destroy_name(gen: IRGenerator, type_expr, cls_name: str) -> str:
+    """Get the appropriate destroy function name for a class type."""
+    from .types import is_generic_class_type, mangle_generic_type
+    ct = gen.analyzed.class_table
+    if type_expr.generic_args and is_generic_class_type(type_expr, ct):
+        mangled = mangle_generic_type(type_expr.base, type_expr.generic_args)
+        field_cls = ct.get(type_expr.base)
+        dtor = "free" if field_cls and "free" in field_cls.methods else "destroy"
+        return f"{mangled}_{dtor}"
+    return f"{cls_name}_destroy"
+
+
+def _emit_scope_release(managed: list[tuple[str, str]]) -> list[IRStmt]:
+    """Emit rc-- cleanup for all managed vars in a scope."""
+    stmts = []
+    for var_name, cls_name in reversed(managed):
+        # if (var != NULL) { if (--var->__rc <= 0) destroy(var); }
+        stmts.append(IRIf(
+            condition=IRBinOp(
+                left=IRVar(name=var_name), op="!=",
+                right=IRLiteral(text="NULL")),
+            then_block=IRBlock(stmts=[IRIf(
+                condition=IRBinOp(
+                    left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                        obj=IRVar(name=var_name), field="__rc", arrow=True),
+                        prefix=True),
+                    op="<=", right=IRLiteral(text="0")),
+                then_block=IRBlock(stmts=[IRExprStmt(
+                    expr=IRCall(callee=f"{cls_name}_destroy",
+                                args=[IRVar(name=var_name)]))]),
+            )]),
+        ))
+    return stmts
+
+
+def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:
+    """Emit rc-- for all managed vars across all scopes, except the returned var."""
+    stmts = []
+    all_managed = gen.get_all_managed_vars()
+    for var_name, cls_name in reversed(all_managed):
+        if var_name == returned_var:
+            continue  # Skip the returned variable — ownership transfers to caller
+        stmts.append(IRIf(
+            condition=IRBinOp(
+                left=IRVar(name=var_name), op="!=",
+                right=IRLiteral(text="NULL")),
+            then_block=IRBlock(stmts=[IRIf(
+                condition=IRBinOp(
+                    left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                        obj=IRVar(name=var_name), field="__rc", arrow=True),
+                        prefix=True),
+                    op="<=", right=IRLiteral(text="0")),
+                then_block=IRBlock(stmts=[IRExprStmt(
+                    expr=IRCall(callee=f"{cls_name}_destroy",
+                                args=[IRVar(name=var_name)]))]),
+            )]),
+        ))
+    return stmts
+
+
+def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
+    """Lower release expr → rc--; destroy at zero; expr = NULL."""
+    expr = lower_expr(gen, node.expr)
+    # Determine the destroy function
+    expr_type = gen.analyzed.node_types.get(id(node.expr))
+    if expr_type and expr_type.base in gen.analyzed.class_table:
+        from .types import is_generic_class_type, mangle_generic_type
+        ct = gen.analyzed.class_table
+        if expr_type.generic_args and is_generic_class_type(expr_type, ct):
+            mangled = mangle_generic_type(expr_type.base, expr_type.generic_args)
+            field_cls = ct.get(expr_type.base)
+            dtor = "free" if field_cls and "free" in field_cls.methods else "destroy"
+            destroy_fn = f"{mangled}_{dtor}"
+        else:
+            destroy_fn = f"{expr_type.base}_destroy"
+    else:
+        destroy_fn = "free"
+    stmts = [IRIf(
+        condition=IRBinOp(left=expr, op="!=", right=IRLiteral(text="NULL")),
+        then_block=IRBlock(stmts=[IRIf(
+            condition=IRBinOp(
+                left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                    obj=expr, field="__rc", arrow=True), prefix=True),
+                op="<=", right=IRLiteral(text="0")),
+            then_block=IRBlock(stmts=[IRExprStmt(
+                expr=IRCall(callee=destroy_fn, args=[expr]))]),
+        )]),
+    )]
+    # Set variable to NULL
+    stmts.append(IRAssign(target=expr, value=IRLiteral(text="NULL")))
+    return stmts
 
 
 def _quick_text(expr) -> str:

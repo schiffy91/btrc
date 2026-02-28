@@ -7,8 +7,8 @@ from ...ast_nodes import (
     CallExpr, FieldAccessExpr, Identifier,
 )
 from ..nodes import (
-    IRCall, IRCast, IRExpr, IRFieldAccess, IRLiteral,
-    IRSizeof, IRTernary,
+    IRCall, IRCast, IRExpr, IRExprStmt, IRFieldAccess, IRLiteral,
+    IRSizeof, IRStmt, IRTernary, IRUnaryOp,
 )
 from .types import is_string_type, format_spec_for_type
 
@@ -108,6 +108,76 @@ def _lower_constructor_call(gen: IRGenerator, class_name: str,
             # The caller will need to patch this in VarDecl context
             pass
     return IRCall(callee=f"{class_name}_new", args=ir_args)
+
+
+def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
+    """Return indices of parameters that have the `keep` annotation.
+
+    Works for regular function calls, constructor calls, and method calls.
+    """
+    if isinstance(node.callee, FieldAccessExpr):
+        # Method call: obj.method(args)
+        obj_type = gen.analyzed.node_types.get(id(node.callee.obj))
+        if obj_type and obj_type.base in gen.analyzed.class_table:
+            cls_info = gen.analyzed.class_table[obj_type.base]
+            method = cls_info.methods.get(node.callee.field)
+            if method and method.params:
+                return [i for i, p in enumerate(method.params) if p.keep]
+        # Static method call: ClassName.method(args)
+        if isinstance(node.callee.obj, Identifier):
+            cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
+            if cls_info:
+                method = cls_info.methods.get(node.callee.field)
+                if method and method.params:
+                    return [i for i, p in enumerate(method.params) if p.keep]
+        return []
+
+    if isinstance(node.callee, Identifier):
+        name = node.callee.name
+        # Constructor call: check constructor params
+        if name in gen.analyzed.class_table:
+            cls_info = gen.analyzed.class_table[name]
+            if cls_info.constructor and cls_info.constructor.params:
+                return [i for i, p in enumerate(cls_info.constructor.params) if p.keep]
+            return []
+        # Regular function
+        func_decl = gen.analyzed.function_table.get(name)
+        if func_decl and func_decl.params:
+            return [i for i, p in enumerate(func_decl.params) if p.keep]
+
+    return []
+
+
+def emit_keep_rc_increments(gen: IRGenerator, node: CallExpr,
+                            ir_args: list[IRExpr]) -> list[IRStmt]:
+    """Emit rc++ statements for args passed to `keep` params.
+
+    Also registers those args as managed vars if they are local identifiers.
+    Returns the list of IRStmt to emit before the call.
+    """
+    keep_indices = get_keep_param_indices(gen, node)
+    if not keep_indices:
+        return []
+
+    stmts: list[IRStmt] = []
+    for idx in keep_indices:
+        if idx >= len(ir_args):
+            continue
+        arg_ir = ir_args[idx]
+        # Emit arg->__rc++ (only for pointer/class args that have __rc)
+        stmts.append(IRExprStmt(expr=IRUnaryOp(
+            op="++",
+            operand=IRFieldAccess(obj=arg_ir, field="__rc", arrow=True),
+            prefix=False,
+        )))
+        # Register the source variable as managed if it's a local Identifier
+        if idx < len(node.args):
+            ast_arg = node.args[idx]
+            if isinstance(ast_arg, Identifier):
+                arg_type = gen.analyzed.node_types.get(id(ast_arg))
+                if arg_type and arg_type.base in gen.analyzed.class_table:
+                    gen.register_managed_var(ast_arg.name, arg_type.base)
+    return stmts
 
 
 def _lower_print(gen: IRGenerator, args: list) -> IRExpr:

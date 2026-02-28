@@ -41,6 +41,10 @@ class IRGenerator:
         # Current class context (for method lowering)
         self.current_class: ClassInfo | None = None
         self.current_class_name: str = ""
+        # ARC: managed variable tracking
+        # Stack of sets — each set contains (var_name, class_type_name) tuples
+        # for variables auto-managed in the current scope
+        self._managed_vars_stack: list[list[tuple[str, str]]] = []
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""
@@ -67,6 +71,30 @@ class IRGenerator:
     def use_helper(self, name: str):
         """Mark a runtime helper as used."""
         self._used_helpers.add(name)
+
+    # --- ARC managed variable tracking ---
+
+    def push_managed_scope(self):
+        """Push a new scope for managed variable tracking."""
+        self._managed_vars_stack.append([])
+
+    def pop_managed_scope(self) -> list[tuple[str, str]]:
+        """Pop the current managed scope, returning its managed vars."""
+        if self._managed_vars_stack:
+            return self._managed_vars_stack.pop()
+        return []
+
+    def register_managed_var(self, var_name: str, class_type: str):
+        """Register a variable as auto-managed in the current scope."""
+        if self._managed_vars_stack:
+            self._managed_vars_stack[-1].append((var_name, class_type))
+
+    def get_all_managed_vars(self) -> list[tuple[str, str]]:
+        """Get all managed vars across all active scopes (for return/break)."""
+        result = []
+        for scope in self._managed_vars_stack:
+            result.extend(scope)
+        return result
 
     # --- Module setup ---
 

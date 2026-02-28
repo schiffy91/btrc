@@ -8,8 +8,8 @@ from ...ast_nodes import (
     ThrowStmt, TryCatchStmt,
 )
 from ..nodes import (
-    CType, IRBlock, IRCase, IRExprStmt, IRIf, IRRawC, IRRawExpr,
-    IRStmt, IRSwitch, IRVarDecl, IRVar, IRCall,
+    CType, IRAssign, IRBlock, IRCase, IRExprStmt, IRIf, IRLiteral,
+    IRRawC, IRRawExpr, IRStmt, IRSwitch, IRVarDecl, IRVar, IRCall,
 )
 
 if TYPE_CHECKING:
@@ -48,7 +48,7 @@ def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
 
 
 def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
-    """Lower delete expr → destroy or free (class-table based)."""
+    """Lower delete expr → destroy or free (class-table based), then set NULL."""
     from .types import mangle_generic_type, is_generic_class_type
     obj = _lower_expr(gen, node.expr)
     obj_type = gen.analyzed.node_types.get(id(node.expr))
@@ -61,9 +61,13 @@ def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
             callee = f"{mangled}_{dtor}"
         else:
             callee = f"{obj_type.base}_destroy"
-        return [IRExprStmt(expr=IRCall(callee=callee, args=[obj]))]
-    # Non-class: just free
-    return [IRExprStmt(expr=IRCall(callee="free", args=[obj]))]
+        stmts = [IRExprStmt(expr=IRCall(callee=callee, args=[obj]))]
+    else:
+        # Non-class: just free
+        stmts = [IRExprStmt(expr=IRCall(callee="free", args=[obj]))]
+    # ARC: set variable to NULL after delete so scope-exit cleanup skips it
+    stmts.append(IRAssign(target=obj, value=IRLiteral(text="NULL")))
+    return stmts
 
 
 def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:

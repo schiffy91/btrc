@@ -8,8 +8,9 @@ from ...ast_nodes import (
     IndexExpr, SelfExpr,
 )
 from ..nodes import (
-    IRBinOp, IRCall, IRCast, IRExpr, IRFieldAccess,
-    IRIndex, IRLiteral, IRTernary, IRVar,
+    IRBinOp, IRBlock, IRCall, IRCast, IRExpr, IRExprStmt,
+    IRFieldAccess, IRIf, IRIndex, IRLiteral, IRStmt, IRTernary,
+    IRUnaryOp, IRVar,
 )
 from .types import is_string_type, is_generic_class_type, mangle_generic_type
 
@@ -87,6 +88,83 @@ def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
         mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
         return IRCall(callee=f"{mangled}_get", args=[obj, index])
     return IRIndex(obj=obj, index=index)
+
+
+def get_field_assign_arc_stmts(gen: IRGenerator, node: AssignExpr
+                                ) -> tuple[list[IRStmt], list[IRStmt]]:
+    """Return (pre_stmts, post_stmts) for ARC on field assignment.
+
+    When assigning `obj.field = value` where field is a class-type:
+    - pre_stmts: release old value (if old != NULL, --rc, destroy at zero)
+    - post_stmts: rc++ on new value, register source var as managed
+
+    Returns ([], []) if the field isn't a class type or value is null.
+    """
+    from ...ast_nodes import NullLiteral, NewExpr
+    from .expressions import lower_expr
+    if node.op != "=" or not isinstance(node.target, FieldAccessExpr):
+        return [], []
+    # Skip if assigning null — no ARC needed
+    if isinstance(node.value, NullLiteral):
+        return [], []
+    obj_type = gen.analyzed.node_types.get(id(node.target.obj))
+    if not obj_type or obj_type.base not in gen.analyzed.class_table:
+        return [], []
+    cls_info = gen.analyzed.class_table[obj_type.base]
+    field_name = node.target.field
+    # Look up the field type
+    fd = cls_info.fields.get(field_name)
+    if not fd or not fd.type:
+        return [], []
+    ft = fd.type
+    # Only class-instance fields need keep/release
+    if ft.base not in gen.analyzed.class_table:
+        return [], []
+
+    pre: list[IRStmt] = []
+    post: list[IRStmt] = []
+
+    obj_ir = lower_expr(gen, node.target.obj)
+    old_field = IRFieldAccess(obj=obj_ir, field=field_name, arrow=True)
+
+    # Determine destroy function for old value
+    if ft.generic_args and is_generic_class_type(ft, gen.analyzed.class_table):
+        mangled = mangle_generic_type(ft.base, ft.generic_args)
+        field_cls = gen.analyzed.class_table.get(ft.base)
+        dtor = "free" if field_cls and "free" in field_cls.methods else "destroy"
+        destroy_fn = f"{mangled}_{dtor}"
+    else:
+        destroy_fn = f"{ft.base}_destroy"
+
+    # PRE: release old field value
+    pre.append(IRIf(
+        condition=IRBinOp(left=old_field, op="!=", right=IRLiteral(text="NULL")),
+        then_block=IRBlock(stmts=[IRIf(
+            condition=IRBinOp(
+                left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                    obj=old_field, field="__rc", arrow=True), prefix=True),
+                op="<=", right=IRLiteral(text="0")),
+            then_block=IRBlock(stmts=[IRExprStmt(
+                expr=IRCall(callee=destroy_fn, args=[old_field]))]),
+        )]),
+    ))
+
+    # POST: rc++ on new value — skip if value is `new` (already rc=1 from ctor)
+    if not isinstance(node.value, NewExpr):
+        value_ir = lower_expr(gen, node.value)
+        post.append(IRExprStmt(expr=IRUnaryOp(
+            op="++",
+            operand=IRFieldAccess(obj=value_ir, field="__rc", arrow=True),
+            prefix=False,
+        )))
+
+    # Register the source variable as managed if it's a local Identifier
+    if isinstance(node.value, Identifier):
+        val_type = gen.analyzed.node_types.get(id(node.value))
+        if val_type and val_type.base in gen.analyzed.class_table:
+            gen.register_managed_var(node.value.name, val_type.base)
+
+    return pre, post
 
 
 def _lower_assign(gen: IRGenerator, node: AssignExpr) -> IRExpr:
