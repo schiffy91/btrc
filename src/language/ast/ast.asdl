@@ -2,8 +2,8 @@
 --
 -- This is the single source of truth for AST node types.
 -- Generated code:
---   spec/ast/asdl_python.py  -> src/compiler/python/ast_nodes.py
---   spec/ast/asdl_btrc.py    -> src/compiler/btrc/ast_nodes.btrc
+--   src/language/ast/asdl_python.py  -> src/compiler/python/ast_nodes.py
+--   src/language/ast/asdl_btrc.py   -> src/compiler/btrc/ast_nodes.btrc
 --
 -- ASDL modifier semantics:
 --   field        = required (exactly 1)
@@ -152,6 +152,7 @@ module Btrc {
          | TupleLiteral(expr* elements)
          | LambdaExpr(type_expr? return_type, param* params,
                       lambda_body body, capture* captures)
+         | SpawnExpr(expr fn)
          attributes(int line, int col)
 
     -- Expression sub-types

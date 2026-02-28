@@ -4,8 +4,8 @@ from ..tokens import TokenType
 from ..ast_nodes import (
     BoolLiteral, BraceInitializer, CharLiteral, FloatLiteral,
     Identifier, IntLiteral, ListLiteral, MapEntry, MapLiteral,
-    NewExpr, NullLiteral, SelfExpr, StringLiteral, SuperExpr,
-    TupleLiteral,
+    NewExpr, NullLiteral, SelfExpr, SpawnExpr, StringLiteral,
+    SuperExpr, TupleLiteral,
 )
 
 
@@ -60,6 +60,9 @@ class PrimaryMixin:
         if tok.type == TokenType.NEW:
             return self._parse_new_expr()
 
+        if tok.type == TokenType.SPAWN:
+            return self._parse_spawn_expr()
+
         # Verbose lambda: type function(params) { body }
         if self._is_type_start(tok) and self._is_verbose_lambda():
             return self._parse_verbose_lambda()
@@ -108,6 +111,13 @@ class PrimaryMixin:
                 args.append(self._parse_expr())
         self._expect(TokenType.RPAREN)
         return NewExpr(type=type_expr, args=args, line=tok.line, col=tok.col)
+
+    def _parse_spawn_expr(self) -> SpawnExpr:
+        tok = self._expect(TokenType.SPAWN)
+        self._expect(TokenType.LPAREN)
+        fn = self._parse_expr()
+        self._expect(TokenType.RPAREN)
+        return SpawnExpr(fn=fn, line=tok.line, col=tok.col)
 
     def _parse_list_literal(self) -> ListLiteral:
         tok = self._expect(TokenType.LBRACKET)

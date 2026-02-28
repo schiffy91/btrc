@@ -29,7 +29,7 @@
     -- btrc keywords
     abstract bool catch class delete extends false finally function
     implements in interface keep new null override parallel private public
-    release self string super throw true try var
+    release self spawn string super throw true try var
   }
 
   -- Operators and delimiters, ordered longest-first within each line.
@@ -358,6 +358,7 @@
                  | FSTRING_LIT
                  | "true" | "false" | "null" | "self" | "super"
                  | new_expr
+                 | spawn_expr
                  | lambda_expr
                  | paren_or_tuple
                  | list_literal
@@ -365,6 +366,9 @@
                  | IDENT ;
 
   new_expr       = "new" type_expr "(" arg_list ")" ;
+
+  spawn_expr     = "spawn" "(" lambda_expr ")"
+                   (* Returns Thread<T> where T is the return type of lambda *) ;
 
   lambda_expr    = arrow_lambda | verbose_lambda ;
 

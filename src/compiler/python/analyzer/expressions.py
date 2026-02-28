@@ -5,7 +5,7 @@ from ..ast_nodes import (
     CharLiteral, FieldAccessExpr, FloatLiteral, FStringExpr, FStringLiteral,
     Identifier, IndexExpr, IntLiteral, LambdaBlock, LambdaExpr, LambdaExprBody,
     ListLiteral, MapLiteral, NewExpr, NullLiteral, SizeofExpr, SizeofExprOp,
-    SizeofType, StringLiteral, SuperExpr, SelfExpr, TernaryExpr,
+    SizeofType, SpawnExpr, StringLiteral, SuperExpr, SelfExpr, TernaryExpr,
     TupleLiteral, TypeExpr, UnaryExpr,
 )
 from .core import SymbolInfo
@@ -102,6 +102,12 @@ class ExpressionsMixin:
             if expr.type.base in self.class_table:
                 cls = self.class_table[expr.type.base]
                 self._validate_constructor_args(cls, expr.args, expr.line, expr.col)
+        elif isinstance(expr, SpawnExpr):
+            self._analyze_expr(expr.fn)
+            # Infer Thread<T> where T is the return type of the spawned callable
+            ret_type = self._infer_spawn_return_type(expr.fn)
+            thread_type = TypeExpr(base="Thread", generic_args=[ret_type])
+            self._collect_generic_instances(thread_type)
 
         inferred = self._infer_type(expr)
         if inferred:
@@ -174,7 +180,18 @@ class ExpressionsMixin:
         for attr in ('left', 'right', 'operand', 'callee', 'obj', 'expr', 'value',
                      'target', 'condition', 'true_expr', 'false_expr', 'iterable',
                      'init', 'update', 'initializer', 'index', 'expression',
-                     'key', 'if_stmt', 'var_decl'):
+                     'key', 'if_stmt', 'var_decl', 'fn'):
             child = getattr(node, attr, None)
             if child is not None and hasattr(child, '__dict__'):
                 self._collect_identifiers(child, names)
+
+    def _infer_spawn_return_type(self, fn_expr) -> TypeExpr:
+        """Infer the return type of a spawned callable (usually a lambda)."""
+        if isinstance(fn_expr, LambdaExpr):
+            if fn_expr.return_type:
+                return fn_expr.return_type
+            return self._infer_lambda_return(fn_expr)
+        fn_type = self._infer_type(fn_expr)
+        if fn_type and fn_type.base == "__fn_ptr" and fn_type.generic_args:
+            return fn_type.generic_args[0]
+        return TypeExpr(base="void")

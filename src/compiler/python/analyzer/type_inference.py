@@ -3,9 +3,9 @@
 from ..ast_nodes import (
     AssignExpr, BinaryExpr, BoolLiteral, CallExpr, CastExpr,
     CharLiteral, FieldAccessExpr, FloatLiteral, Identifier,
-    IndexExpr, IntLiteral, LambdaExpr, ListLiteral, MapLiteral,
-    NewExpr, NullLiteral, ReturnStmt, SelfExpr, StringLiteral,
-    TernaryExpr, TupleLiteral, TypeExpr, UnaryExpr,
+    IndexExpr, IntLiteral, LambdaExpr, LambdaExprBody, ListLiteral,
+    MapLiteral, NewExpr, NullLiteral, ReturnStmt, SelfExpr, SpawnExpr,
+    StringLiteral, TernaryExpr, TupleLiteral, TypeExpr, UnaryExpr,
     LambdaBlock,
 )
 
@@ -89,6 +89,9 @@ class TypeInferenceMixin:
                     return TypeExpr(base="Map", generic_args=[key_type, val_type])
             return TypeExpr(base="Map",
                             generic_args=[TypeExpr(base="string"), TypeExpr(base="int")])
+        elif isinstance(expr, SpawnExpr):
+            ret_type = self._infer_spawn_return_type(expr.fn)
+            return TypeExpr(base="Thread", generic_args=[ret_type], pointer_depth=1)
         return None
 
     def _infer_field_access_type(self, expr):

@@ -472,6 +472,12 @@ class LambdaExpr:
     col: int = 0
 
 @dataclass
+class SpawnExpr:
+    fn: expr = None
+    line: int = 0
+    col: int = 0
+
+@dataclass
 class SizeofType:
     type: TypeExpr = None
 
@@ -513,7 +519,7 @@ class_member = Union[FieldDecl, MethodDecl, PropertyDecl]
 stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt]
 if_else = Union[ElseBlock, ElseIf]
 for_init = Union[ForInitVar, ForInitExpr]
-expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr]
+expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr, SpawnExpr]
 sizeof_operand = Union[SizeofType, SizeofExprOp]
 fstring_part = Union[FStringText, FStringExpr]
 lambda_body = Union[LambdaBlock, LambdaExprBody]
@@ -744,6 +750,9 @@ class NodeVisitor:
         return self.generic_visit(node)
 
     def visit_LambdaExpr(self, node: LambdaExpr):
+        return self.generic_visit(node)
+
+    def visit_SpawnExpr(self, node: SpawnExpr):
         return self.generic_visit(node)
 
     def visit_SizeofType(self, node: SizeofType):

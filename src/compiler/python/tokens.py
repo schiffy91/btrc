@@ -72,6 +72,7 @@ class TokenType(Enum):
     PUBLIC = auto()
     RELEASE = auto()
     SELF = auto()
+    SPAWN = auto()
     STRING = auto()
     SUPER = auto()
     THROW = auto()
