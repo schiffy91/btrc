@@ -9,7 +9,7 @@ description = "A language that transpiles to C"
 requires-python = ">=3.13"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "ruff>=0.1.0"]
+dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.1.0"]
 
 [project.scripts]
 btrcpy = "src.compiler.python.main:main"

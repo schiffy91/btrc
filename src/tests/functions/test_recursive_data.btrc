@@ -119,6 +119,7 @@ int main() {
     assert(head.next.next.next.next == null);
 
     list_free(head);
+    head = null;
 
     // ---- Binary search tree ----
     TreeNode root = new TreeNode(50);
@@ -143,6 +144,7 @@ int main() {
     assert(root.left.right.value == 40);
 
     tree_free(root);
+    root = null;
 
     print("PASS: test_recursive_data");
     return 0;

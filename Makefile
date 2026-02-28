@@ -11,10 +11,10 @@ build:
 	@echo "Built bin/btrcpy"
 
 test:
-	python3 -m pytest src/compiler/python/tests/ src/tests/runner.py -x -q
+	python3 -m pytest src/compiler/python/tests/ src/tests/runner.py -x -q -n auto
 
 test-btrc:
-	python3 -m pytest src/tests/runner.py -x -q
+	python3 -m pytest src/tests/runner.py -x -q -n auto
 
 generate-expected:
 	python3 src/tests/generate_expected.py

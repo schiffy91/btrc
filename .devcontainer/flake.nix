@@ -11,7 +11,7 @@
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
           packages = with pkgs; [
-            (python313.withPackages (ps: [ ps.pytest ]))
+            (python313.withPackages (ps: [ ps.pytest ps.pytest-xdist ]))
             ruff
             gcc
             gnumake
