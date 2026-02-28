@@ -58,6 +58,7 @@ python3 -m src.compiler.python.main hello.btrc -o hello.c
 | No string methods | `.len()`, `.contains()`, `.split()`, `.trim()`, `.toUpper()`, ... |
 | No properties | C#-style `get`/`set` properties |
 | Null pointer chaos | Optional chaining `?.` and null coalescing `??` |
+| Manual memory only | Automatic reference counting with `keep`/`release` |
 
 ## What You Keep From C
 
@@ -544,23 +545,20 @@ if (p != null) {
 
 ### Memory Management
 
-btrc gives you C-level control. No garbage collector -- you decide when memory is allocated and freed.
+btrc uses lightweight **automatic reference counting (ARC)** for memory management. Every class instance tracks how many references point to it. When the count reaches zero, the object is automatically destroyed. No garbage collector -- deterministic cleanup at scope boundaries.
 
-> **Safety model:** btrc inherits C's memory model. The compiler checks types and access control at compile time, but does not prevent use-after-free, double-free, dangling pointers, or buffer overflows. There is no borrow checker or lifetime analysis. If you need memory safety guarantees, use Rust. btrc is for programmers who want C's control with better syntax.
+> **Safety model:** btrc inherits C's memory model. The compiler checks types and access control at compile time. ARC handles common memory management automatically, but does not prevent all use-after-free or dangling pointer bugs. If you need full memory safety guarantees, use Rust. btrc is for programmers who want C's control with better ergonomics.
 
 ```
-// Stack allocation (automatic lifetime)
-Point p = Point(3, 4);
-
-// Heap allocation
+// Heap allocation -- refcount starts at 1
 Node n = new Node(99);
 n.val = 100;
-delete n;                    // frees memory + calls destructor
+delete n;                    // force destroy, set to NULL
 
 // Destructors for cleanup
 class Resource {
     public void __del__() {
-        // called automatically on delete
+        // called automatically when refcount reaches zero
     }
 }
 
@@ -573,6 +571,44 @@ int val = *ptr;
 int* buf = (int*)malloc(100 * sizeof(int));
 free(buf);
 ```
+
+#### ARC Keywords: `keep` and `release`
+
+| Keyword | Usage | Meaning |
+|---------|-------|---------|
+| `keep` | Function param: `store(keep T t)` | "I store this pointer" -- rc++ at call site |
+| `keep` | Function return: `keep T pop()` | "Caller takes ownership" -- caller auto-manages |
+| `keep` | Statement: `keep p;` | Explicit rc++ (keep alive past scope exit) |
+| `release` | Statement: `release p;` | rc--; destroy at zero; p = NULL |
+
+```
+// Container stores a reference -- keep param increments refcount
+class Container {
+    public Node item;
+    public void store(keep Node n) {
+        self.item = n;    // field assignment: release old, keep new
+    }
+}
+
+void example() {
+    var c = new Container();
+    var n = new Node(42);
+    c.store(n);              // rc++ at call site (keep param)
+    delete c;                // Container destructor releases item (rc--)
+    // n still alive -- rc was incremented by keep
+    delete n;                // force destroy
+}
+
+// Explicit keep/release for manual control
+var p = new Node(1);
+keep p;                      // rc++ (now 2)
+release p;                   // rc-- (now 1); p = NULL
+// Object still alive (rc > 0) but unreachable through p
+```
+
+**Zero-cost when unused:** When no `keep` is ever applied to a variable, the compiler skips all refcount operations. The generated C is identical to hand-written manual code. Existing code that uses `new`/`delete` works exactly as before.
+
+**Cycle detection:** For classes that can form reference cycles (A -> B -> A), the compiler includes a trial deletion cycle collector. Non-cyclable types pay zero overhead.
 
 ### Exception Handling
 
@@ -759,5 +795,6 @@ The extension auto-discovers the LSP server and Python interpreter. Configure `b
 Planned but not yet implemented:
 - **Self-hosting** -- rewrite the compiler in btrc itself (bootstrap cycle)
 - **Module system** -- currently relies on `#include "file.btrc"` textual inclusion
-- **Lifetime analysis** -- compile-time warnings for common memory errors
+- **ARC stdlib integration** -- `keep` annotations on container push/pop methods (requires type-conditional generic code generation)
+- **Weak references** -- `weak` keyword for intentional non-owning references (avoids cycles for known patterns like parent pointers)
 - **Incremental compilation** -- only recompile changed files
