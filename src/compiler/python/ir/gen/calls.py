@@ -181,6 +181,37 @@ def emit_keep_rc_increments(gen: IRGenerator, node: CallExpr,
     return stmts
 
 
+def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
+    """Check if a call targets a function/method with `keep` return type."""
+    if isinstance(node.callee, FieldAccessExpr):
+        # Method call: obj.method(args)
+        obj_type = gen.analyzed.node_types.get(id(node.callee.obj))
+        if obj_type and obj_type.base in gen.analyzed.class_table:
+            cls_info = gen.analyzed.class_table[obj_type.base]
+            method = cls_info.methods.get(node.callee.field)
+            if method:
+                return getattr(method, "keep_return", False)
+        # Static method call: ClassName.method(args)
+        if isinstance(node.callee.obj, Identifier):
+            cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
+            if cls_info:
+                method = cls_info.methods.get(node.callee.field)
+                if method:
+                    return getattr(method, "keep_return", False)
+        return False
+
+    if isinstance(node.callee, Identifier):
+        name = node.callee.name
+        # Constructor calls never have keep_return — they always return rc=1
+        if name in gen.analyzed.class_table:
+            return False
+        func_decl = gen.analyzed.function_table.get(name)
+        if func_decl:
+            return getattr(func_decl, "keep_return", False)
+
+    return False
+
+
 def _lower_print(gen: IRGenerator, args: list) -> IRExpr:
     """Lower print(...) to printf with appropriate format string."""
     from .expressions import lower_expr

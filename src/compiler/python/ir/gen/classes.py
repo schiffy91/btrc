@@ -90,19 +90,26 @@ def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
 
 
 def _emit_visitor(gen: IRGenerator, class_name: str, cls_info: ClassInfo):
-    """Emit ClassName_visit(self, fn) for cycle detection on cyclable classes."""
+    """Emit ClassName_visit(self, fn) for cycle detection on cyclable classes.
+
+    The visitor passes field ADDRESSES (void**) so the callback can either
+    read the value (for trial decrement) or NULL it (to break cycles).
+    Only visits cyclable-type fields -- non-cyclable fields can't form cycles.
+    """
     lines = []
     for fname, fd in cls_info.fields.items():
         if not fd.type:
             continue
-        if fd.type.base in gen.analyzed.class_table:
-            lines.append(f"    if (self->{fname}) fn(self->{fname});")
+        field_cls = gen.analyzed.class_table.get(fd.type.base)
+        if field_cls and field_cls.is_cyclable:
+            lines.append(
+                f"    if (self->{fname}) fn((void**)&self->{fname});")
     if not lines:
         return
     body = "\n".join(lines)
     text = (
         f"static void {class_name}_visit({class_name}* self, "
-        f"void (*fn)(void*)) {{\n{body}\n}}"
+        f"void (*fn)(void**)) {{\n{body}\n}}"
     )
     gen.module.raw_sections.append(text)
 

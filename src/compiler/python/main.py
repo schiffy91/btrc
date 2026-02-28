@@ -228,6 +228,22 @@ def main():
             print(f"error: {err}", file=sys.stderr)
         sys.exit(1)
 
+    # Display warnings (non-fatal)
+    for warn in analyzed.warnings:
+        parts = warn.rsplit(" at ", 1)
+        if len(parts) == 2:
+            loc = parts[1].split(":")
+            if len(loc) == 2:
+                try:
+                    line_no, col_no = int(loc[0]), int(loc[1])
+                    print(_format_error(source, filename, parts[0],
+                                        line_no, col_no).replace("error:", "warning:"),
+                          file=sys.stderr)
+                    continue
+                except ValueError:
+                    pass
+        print(f"warning: {warn}", file=sys.stderr)
+
     # Code generation: AST → IR → optimize → C text
     ir_module = generate_ir(analyzed, debug=args.debug, source_file=filename)
 

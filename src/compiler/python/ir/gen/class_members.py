@@ -29,6 +29,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     # ARC: release owned pointer-type fields (rc-- then destroy at zero)
     # Class types have pointer_depth=1 in analyzer (always heap-allocated).
     # Skip pointer_depth > 1 (double-pointers / raw arrays).
+    has_class_field_releases = False
     for fname, fd in cls_info.fields.items():
         if fd.type and fd.type.pointer_depth > 1:
             continue
@@ -38,10 +39,25 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
             field_cls = gen.analyzed.class_table.get(fd.type.base)
             dtor_name = "free" if field_cls and "free" in field_cls.methods else "destroy"
             body_stmts.append(_emit_field_release(fname, f"{mangled}_{dtor_name}"))
+            has_class_field_releases = True
         # Class instance fields → ClassName_destroy()
         elif fd.type and fd.type.base in gen.analyzed.class_table:
             body_stmts.append(_emit_field_release(fname, f"{fd.type.base}_destroy"))
+            has_class_field_releases = True
 
+    # ARC: mark as destroyed before freeing (for cascade-destroy tracking).
+    # Only needed for destructors that cascade (release class-type fields),
+    # since those can free objects whose local vars are still non-NULL.
+    # The __btrc_tracking flag is only set during phased scope release,
+    # so this is zero-cost when cycle detection is not active.
+    if has_class_field_releases:
+        gen.use_helper("__btrc_destroyed_tracking")
+        body_stmts.append(IRIf(
+            condition=IRVar(name="__btrc_tracking"),
+            then_block=IRBlock(stmts=[IRExprStmt(
+                expr=IRCall(callee="__btrc_mark_destroyed",
+                            helper_ref="__btrc_destroyed_tracking",
+                            args=[IRVar(name="self")]))])))
     # Free self at the end
     body_stmts.append(IRExprStmt(expr=IRCall(callee="free", args=[IRVar(name="self")])))
 

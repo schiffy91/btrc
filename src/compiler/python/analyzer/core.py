@@ -74,6 +74,7 @@ class AnalyzedProgram:
     interface_table: dict[str, InterfaceInfo] = field(default_factory=dict)
     rich_enum_table: dict[str, RichEnumDecl] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 class AnalyzerBase:
@@ -82,6 +83,7 @@ class AnalyzerBase:
         self.function_table: dict[str, FunctionDecl] = {}
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.errors: list[str] = []
+        self.warnings: list[str] = []
         self.scope: Scope = Scope()
         self.global_scope: Scope = self.scope
         self.current_class: ClassInfo | None = None
@@ -112,6 +114,7 @@ class AnalyzerBase:
             interface_table=self.interface_table,
             rich_enum_table=self.rich_enum_table,
             errors=self.errors,
+            warnings=self.warnings,
         )
 
     def _compute_cyclable_flags(self):
@@ -163,6 +166,9 @@ class AnalyzerBase:
 
     def _error(self, msg: str, line: int = 0, col: int = 0):
         self.errors.append(f"{msg} at {line}:{col}")
+
+    def _warning(self, msg: str, line: int = 0, col: int = 0):
+        self.warnings.append(f"{msg} at {line}:{col}")
 
     def _push_scope(self):
         self.scope = Scope(parent=self.scope)

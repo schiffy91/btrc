@@ -1,0 +1,137 @@
+/* ARC graph test: directed graph with auto-release and cycle detection */
+#include <assert.h>
+
+int node_count = 0;
+
+class GraphNode {
+    public int id;
+    public GraphNode next;
+
+    public GraphNode(int id) {
+        self.id = id;
+        self.next = null;
+        node_count++;
+    }
+
+    public void __del__() {
+        node_count--;
+    }
+}
+
+class Container {
+    public GraphNode held;
+
+    public Container() {
+        self.held = null;
+    }
+
+    public void store(keep GraphNode n) {
+        self.held = n;
+    }
+}
+
+int main() {
+    // ---- Phase 1: Auto-release linear chain ----
+    // new → auto-managed, scope-exit releases all, destructor cascades
+    assert(node_count == 0);
+    {
+        GraphNode n1 = new GraphNode(1);
+        GraphNode n2 = new GraphNode(2);
+        GraphNode n3 = new GraphNode(3);
+        assert(node_count == 3);
+
+        // Chain: n1 -> n2 -> n3 (field assigns → rc++ on targets)
+        n1.next = n2;   // n2.rc: 1(new) + 1(field) = 2
+        n2.next = n3;   // n3.rc: 1(new) + 1(field) = 2
+
+        assert(n1.next.id == 2);
+        assert(n1.next.next.id == 3);
+
+        // Scope exit (phased):
+        // Phase 1: --n3.rc(2→1), --n2.rc(2→1), --n1.rc(1→0)
+        // Phase 2: n1.rc==0 → destroy → cascade: --n2.rc(1→0) → destroy → --n3.rc(1→0) → destroy
+    }
+    assert(node_count == 0);
+
+    // ---- Phase 2: Delete + auto-release ----
+    {
+        GraphNode p = new GraphNode(10);
+        GraphNode q = new GraphNode(20);
+        assert(node_count == 2);
+
+        p.next = q;  // q.rc: 1(new) + 1(field) = 2
+        assert(p.next.id == 20);
+
+        // delete p: force destroy, p=NULL
+        // p destructor releases q: q.rc = 2 - 1 = 1
+        delete p;
+        assert(node_count == 1); // q still alive
+
+        // Scope exit: p=NULL(skip), q.rc=1 → Phase1: --q.rc(1→0), Phase2: destroy q
+    }
+    assert(node_count == 0);
+
+    // ---- Phase 3: keep param + auto-release ----
+    {
+        Container ctr = new Container();
+        GraphNode gn = new GraphNode(100);
+        assert(node_count == 1);
+
+        // store uses keep param → gn.rc++ at call site (gn registered as managed again)
+        // Inside store: self.held = gn → gn.rc++ (field assign)
+        ctr.store(gn);
+        // gn.rc: 1(new, managed) + 1(keep param, managed) + 1(field assign) = 3
+
+        assert(ctr.held.id == 100);
+
+        delete ctr;
+        // ctr destructor releases ctr.held (gn) → gn.rc = 3 - 1 = 2
+
+        // Scope exit: gn managed twice (new + keep), ctr=NULL(skip)
+        // Phase 1: --gn.rc(2→1), --gn.rc(1→0)
+        // Phase 2: gn.rc==0 → destroy gn
+    }
+    assert(node_count == 0);
+
+    // ---- Phase 4: Cycle detection (A → B → A) ----
+    {
+        GraphNode ca = new GraphNode(301);
+        GraphNode cb = new GraphNode(302);
+        assert(node_count == 2);
+
+        // Create a cycle: ca.next → cb, cb.next → ca
+        // Use field assignment (implicit keep: rc++)
+        ca.next = cb;   // cb.rc: 1(new) + 1(field) = 2
+        cb.next = ca;   // ca.rc: 1(new) + 1(field) = 2
+
+        assert(ca.next.id == 302);
+        assert(cb.next.id == 301);
+
+        // Scope exit (phased):
+        // Phase 1: --cb.rc(2→1), --ca.rc(2→1)
+        // Phase 2: both rc==1, neither destroyed
+        // Phase 3: both rc>0, both suspected
+        // Phase 4: cycle collector runs:
+        //   trial_dec ca's children: cb.trial_rc = 1-1 = 0
+        //   trial_dec cb's children: ca.trial_rc = 1-1 = 0
+        //   Both trial_rc==0 → cycle detected → collected!
+    }
+    assert(node_count == 0);
+
+    // ---- Phase 5: Non-cyclable chain with delete ----
+    {
+        GraphNode root = new GraphNode(400);
+        GraphNode child = new GraphNode(401);
+        assert(node_count == 2);
+
+        root.next = child;  // child.rc: 1(new) + 1(field) = 2
+
+        // Auto-release handles everything at scope exit:
+        // Phase 1: --child.rc(2→1), --root.rc(1→0)
+        // Phase 2: root.rc==0 → destroy root → cascade: --child.rc(1→0) → destroy child
+    }
+    assert(node_count == 0);
+
+    print("PASS: test_arc_graph");
+    return 0;
+}

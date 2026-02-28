@@ -146,6 +146,8 @@ class StatementsMixin:
                     stmt.type = inferred
                 if stmt.type.base in self.class_table and stmt.type.pointer_depth == 0:
                     stmt.type = self._upgrade_class_type(stmt.type)
+                # ARC aliasing warning: var q = p where p is a managed class-type var
+                self._check_alias_warning(stmt)
                 self._collect_generic_instances(stmt.type)
                 self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
                 return
@@ -248,3 +250,20 @@ class StatementsMixin:
         self.loop_depth -= 1
         self.break_depth -= 1
         self._pop_scope()
+
+    def _check_alias_warning(self, stmt: VarDeclStmt):
+        """Warn when a variable is initialized by aliasing a managed class-type var."""
+        if not isinstance(stmt.initializer, Identifier):
+            return
+        src_name = stmt.initializer.name
+        src_sym = self.scope.lookup(src_name)
+        if not src_sym or not src_sym.type:
+            return
+        # Only warn for class types (heap-allocated, reference-counted)
+        if src_sym.type.base not in self.class_table:
+            return
+        self._warning(
+            f"Aliasing managed variable '{src_name}' — "
+            f"'{stmt.name}' shares the same reference without incrementing refcount. "
+            f"Use 'keep {stmt.name};' if both variables should own the object",
+            stmt.line, stmt.col)

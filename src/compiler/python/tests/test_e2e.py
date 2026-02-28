@@ -223,7 +223,7 @@ class TestE2ENewDelete:
             int main() {
                 Node n = new Node(99);
                 printf("%d\\n", n.val);
-                free(n);
+                delete n;
                 return 0;
             }
         '''
@@ -320,7 +320,7 @@ class TestE2EDotSyntax:
             int main() {
                 Box b = new Box(42);
                 printf("%d\\n", b.get());
-                free(b);
+                delete b;
                 return 0;
             }
         '''

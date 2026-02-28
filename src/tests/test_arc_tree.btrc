@@ -1,0 +1,172 @@
+/* ARC tree test: binary search tree with refcounted nodes */
+#include <assert.h>
+
+int node_count = 0;
+
+class TreeNode {
+    public int value;
+    public TreeNode left;
+    public TreeNode right;
+
+    public TreeNode(int value) {
+        self.value = value;
+        self.left = null;
+        self.right = null;
+        node_count++;
+    }
+
+    public void __del__() {
+        node_count--;
+    }
+}
+
+class BST {
+    public TreeNode root;
+
+    public BST() {
+        self.root = null;
+    }
+
+    public void insert(keep TreeNode node) {
+        if (self.root == null) {
+            self.root = node;
+            return;
+        }
+        TreeNode cur = self.root;
+        while (cur != null) {
+            if (node.value < cur.value) {
+                if (cur.left == null) {
+                    cur.left = node;
+                    return;
+                }
+                cur = cur.left;
+            } else {
+                if (cur.right == null) {
+                    cur.right = node;
+                    return;
+                }
+                cur = cur.right;
+            }
+        }
+    }
+
+    public bool contains(int value) {
+        TreeNode cur = self.root;
+        while (cur != null) {
+            if (value == cur.value) {
+                return true;
+            } else if (value < cur.value) {
+                cur = cur.left;
+            } else {
+                cur = cur.right;
+            }
+        }
+        return false;
+    }
+
+    public int size() {
+        return self._countNodes(self.root);
+    }
+
+    private int _countNodes(TreeNode node) {
+        if (node == null) {
+            return 0;
+        }
+        return 1 + self._countNodes(node.left) + self._countNodes(node.right);
+    }
+
+    public void __del__() {
+        // Destructor: releases root field → cascading release of all nodes
+    }
+}
+
+// Factory: creates a new node
+TreeNode makeNode(int val) {
+    TreeNode n = new TreeNode(val);
+    return n;
+}
+
+int main() {
+    // ---- Phase 1: Build a BST ----
+    assert(node_count == 0);
+
+    BST tree = new BST();
+    TreeNode n50 = new TreeNode(50);
+    TreeNode n30 = new TreeNode(30);
+    TreeNode n70 = new TreeNode(70);
+    TreeNode n20 = new TreeNode(20);
+    TreeNode n40 = new TreeNode(40);
+    assert(node_count == 5);
+
+    tree.insert(n50);
+    tree.insert(n30);
+    tree.insert(n70);
+    tree.insert(n20);
+    tree.insert(n40);
+
+    // ---- Phase 2: Verify structure ----
+    assert(tree.root.value == 50);
+    assert(tree.root.left.value == 30);
+    assert(tree.root.right.value == 70);
+    assert(tree.root.left.left.value == 20);
+    assert(tree.root.left.right.value == 40);
+
+    assert(tree.contains(50) == true);
+    assert(tree.contains(30) == true);
+    assert(tree.contains(70) == true);
+    assert(tree.contains(20) == true);
+    assert(tree.contains(40) == true);
+    assert(tree.contains(99) == false);
+    assert(tree.contains(10) == false);
+
+    assert(tree.size() == 5);
+
+    // ---- Phase 3: Add more via factory function ----
+    TreeNode n10 = makeNode(10);
+    TreeNode n60 = makeNode(60);
+    assert(node_count == 7);
+
+    tree.insert(n10);
+    tree.insert(n60);
+    assert(tree.size() == 7);
+    assert(tree.contains(10) == true);
+    assert(tree.contains(60) == true);
+
+    // ---- Phase 4: Delete the tree → cascading destroy ----
+    // delete tree: BST destructor releases root.
+    // root (50) destructor releases left (30) and right (70).
+    // Each child destructor releases their children, etc.
+    // This tests the destructor chain with refcounting.
+    delete tree;
+    // Nodes still alive because local vars hold references (from keep at insert)
+    assert(node_count == 7);
+
+    // Clean up local refs
+    delete n50;
+    delete n30;
+    delete n70;
+    delete n20;
+    delete n40;
+    delete n10;
+    delete n60;
+    assert(node_count == 0);
+
+    // ---- Phase 5: Scope-exit cleanup via keep ----
+    {
+        BST t2 = new BST();
+        TreeNode a = new TreeNode(100);
+        TreeNode b = new TreeNode(200);
+        t2.insert(a);
+        t2.insert(b);
+        assert(node_count == 2);
+        assert(t2.size() == 2);
+        // Explicit cleanup in scope
+        delete t2;
+        delete a;
+        delete b;
+    }
+    assert(node_count == 0);
+
+    print("PASS: test_arc_tree");
+    return 0;
+}

@@ -42,7 +42,7 @@ def collect_helpers(gen: IRGenerator):
 
     # Emit helpers in category order, preserving dependency order
     category_order = ["alloc", "divmod", "string_pool", "string", "math",
-                      "trycatch", "hash", "collections"]
+                      "trycatch", "hash", "collections", "cycles"]
     for cat in category_order:
         if cat not in HELPERS:
             continue

@@ -193,14 +193,43 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     pre_stmts = _emit_keep_for_call(gen, node.initializer)
     result = pre_stmts + [IRVarDecl(c_type=CType(text=c_type), name=node.name, init=init)]
 
-    # ARC: track potentially-managed variables for later keep operations.
-    # Variables are only auto-managed at scope exit when `keep` has been
-    # applied (keep param, field assign, explicit keep). This is the
-    # "zero-cost when no keeps" optimization that ensures backwards compat.
-    # Registration happens in calls.py (keep params), fields.py (field assigns),
-    # and the KeepStmt handler above.
+    # ARC: auto-manage variables initialized with `new` or constructor calls.
+    # Per plan rule 1: new Foo() → alloc, rc = 1, auto-managed at declaring scope.
+    # Rule 2: Foo() (constructor call) → same as new.
+    # delete sets var = NULL, so scope exit safely skips deleted vars.
+    # Skip generic types: collections (Vector, Map, etc.) use explicit .free()
+    # which doesn't set the variable to NULL, so auto-management would double-free.
+    if (node.initializer and node.type
+            and node.type.base in gen.analyzed.class_table
+            and not node.type.generic_args):
+        cls_info = gen.analyzed.class_table.get(node.type.base)
+        # Only auto-manage non-generic classes (not generic templates)
+        if cls_info and not cls_info.generic_params:
+            arc_type = node.type.base
+            if isinstance(node.initializer, NewExpr):
+                gen.register_managed_var(node.name, arc_type)
+            elif (isinstance(node.initializer, CallExpr)
+                  and isinstance(node.initializer.callee, Identifier)
+                  and node.initializer.callee.name in gen.analyzed.class_table):
+                gen.register_managed_var(node.name, arc_type)
+            elif isinstance(node.initializer, CallExpr):
+                from .calls import has_keep_return
+                if has_keep_return(gen, node.initializer):
+                    ret_type = gen.analyzed.node_types.get(id(node.initializer))
+                    if (ret_type and ret_type.base in gen.analyzed.class_table
+                            and not ret_type.generic_args):
+                        gen.register_managed_var(node.name, ret_type.base)
 
     return result
+
+
+def _managed_type_name(gen: IRGenerator, type_expr) -> str:
+    """Get the correct type name for managed var tracking (mangled for generics)."""
+    from .types import is_generic_class_type, mangle_generic_type
+    ct = gen.analyzed.class_table
+    if type_expr.generic_args and is_generic_class_type(type_expr, ct):
+        return mangle_generic_type(type_expr.base, type_expr.generic_args)
+    return type_expr.base
 
 
 def _emit_keep_for_call(gen: IRGenerator, expr) -> list[IRStmt]:
@@ -229,85 +258,53 @@ def _get_destroy_name(gen: IRGenerator, type_expr, cls_name: str) -> str:
     return f"{cls_name}_destroy"
 
 
+def _destroy_fn_for_managed(gen: IRGenerator, cls_name: str) -> str:
+    """Get the correct destroy/free function name for a managed class type."""
+    ct = gen.analyzed.class_table
+    # If cls_name is already a mangled generic name (e.g., btrc_Box_int),
+    # check the base class for 'free' method
+    base_name = cls_name
+    for cname, cinfo in ct.items():
+        from .types import mangle_generic_type
+        if cinfo.generic_params:
+            # Check all concrete instances of this generic
+            instances = gen.analyzed.generic_instances.get(cname, [])
+            for args in instances:
+                mangled = mangle_generic_type(cname, list(args))
+                if mangled == cls_name:
+                    base_name = cname
+                    break
+    cinfo = ct.get(base_name)
+    if cinfo and "free" in cinfo.methods:
+        return f"{cls_name}_free"
+    return f"{cls_name}_destroy"
+
+
 def _emit_scope_release(managed: list[tuple[str, str]],
                         gen: IRGenerator | None = None) -> list[IRStmt]:
     """Emit rc-- cleanup for all managed vars in a scope.
 
-    For cyclable types (when gen is provided), rc > 0 after decrement
-    triggers the suspect buffer for cycle detection.
+    Uses a three-phase approach for cyclable types to avoid accessing
+    freed memory in the cycle collector:
+    1. Decrement rc for ALL managed vars
+    2. Destroy any with rc <= 0 (cascade may free others)
+    3. Suspect those still alive (rc > 0) for cycle collection
     """
+    has_cyclable = False
+    if gen:
+        for _, cls_name in managed:
+            cls_info = _lookup_cls_info(gen, cls_name)
+            if cls_info and cls_info.is_cyclable:
+                has_cyclable = True
+                break
+
+    if has_cyclable and gen:
+        return _emit_scope_release_phased(managed, gen)
+
+    # Simple path: no cyclable types, just rc-- and destroy
     stmts = []
-    has_suspects = False
     for var_name, cls_name in reversed(managed):
-        cls_info = gen.analyzed.class_table.get(cls_name) if gen else None
-        is_cyclable = cls_info and cls_info.is_cyclable if cls_info else False
-
-        if is_cyclable and gen:
-            # Cyclable: if rc <= 0, destroy. If rc > 0, suspect.
-            gen.use_helper("__btrc_suspect_buf")
-            gen.use_helper("__btrc_collect_cycles")
-            has_suspects = True
-            stmts.append(IRIf(
-                condition=IRBinOp(
-                    left=IRVar(name=var_name), op="!=",
-                    right=IRLiteral(text="NULL")),
-                then_block=IRBlock(stmts=[IRIf(
-                    condition=IRBinOp(
-                        left=IRUnaryOp(op="--", operand=IRFieldAccess(
-                            obj=IRVar(name=var_name), field="__rc", arrow=True),
-                            prefix=True),
-                        op="<=", right=IRLiteral(text="0")),
-                    then_block=IRBlock(stmts=[IRExprStmt(
-                        expr=IRCall(callee=f"{cls_name}_destroy",
-                                    args=[IRVar(name=var_name)]))]),
-                    else_block=IRBlock(stmts=[IRExprStmt(
-                        expr=IRCall(
-                            callee="__btrc_suspect",
-                            args=[
-                                IRVar(name=var_name),
-                                IRRawExpr(text=f"(__btrc_visit_fn){cls_name}_visit"),
-                                IRRawExpr(text=f"(__btrc_destroy_fn){cls_name}_destroy"),
-                            ]))]),
-                )]),
-            ))
-        else:
-            # Non-cyclable: simple rc-- and destroy at zero
-            stmts.append(IRIf(
-                condition=IRBinOp(
-                    left=IRVar(name=var_name), op="!=",
-                    right=IRLiteral(text="NULL")),
-                then_block=IRBlock(stmts=[IRIf(
-                    condition=IRBinOp(
-                        left=IRUnaryOp(op="--", operand=IRFieldAccess(
-                            obj=IRVar(name=var_name), field="__rc", arrow=True),
-                            prefix=True),
-                        op="<=", right=IRLiteral(text="0")),
-                    then_block=IRBlock(stmts=[IRExprStmt(
-                        expr=IRCall(callee=f"{cls_name}_destroy",
-                                    args=[IRVar(name=var_name)]))]),
-                )]),
-            ))
-
-    # After all releases, collect cycles if any suspects
-    if has_suspects and gen:
-        stmts.append(IRIf(
-            condition=IRBinOp(
-                left=IRVar(name="__btrc_suspect_count"), op=">",
-                right=IRLiteral(text="0")),
-            then_block=IRBlock(stmts=[IRExprStmt(
-                expr=IRCall(callee="__btrc_collect_cycles", args=[]))]),
-        ))
-
-    return stmts
-
-
-def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:
-    """Emit rc-- for all managed vars across all scopes, except the returned var."""
-    stmts = []
-    all_managed = gen.get_all_managed_vars()
-    for var_name, cls_name in reversed(all_managed):
-        if var_name == returned_var:
-            continue  # Skip the returned variable — ownership transfers to caller
+        destroy_fn = _destroy_fn_for_managed(gen, cls_name) if gen else f"{cls_name}_destroy"
         stmts.append(IRIf(
             condition=IRBinOp(
                 left=IRVar(name=var_name), op="!=",
@@ -319,7 +316,164 @@ def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRS
                         prefix=True),
                     op="<=", right=IRLiteral(text="0")),
                 then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=f"{cls_name}_destroy",
+                    expr=IRCall(callee=destroy_fn,
+                                args=[IRVar(name=var_name)]))]),
+            )]),
+        ))
+    return stmts
+
+
+def _lookup_cls_info(gen: IRGenerator, cls_name: str):
+    """Look up ClassInfo by name or mangled name."""
+    cls_info = gen.analyzed.class_table.get(cls_name)
+    if cls_info:
+        return cls_info
+    for cname, ci in gen.analyzed.class_table.items():
+        if cls_name.startswith("btrc_" + cname):
+            return ci
+    return None
+
+
+def _emit_scope_release_phased(managed: list[tuple[str, str]],
+                                gen: IRGenerator) -> list[IRStmt]:
+    """Three-phase scope release for scopes containing cyclable types.
+
+    Uses destroyed-object tracking to avoid reading freed memory:
+    cascade destruction (in Phase 2) may free objects whose local vars
+    are still non-NULL.  We gate Phase 2/3 reads with __btrc_is_destroyed()
+    which short-circuits before touching freed memory.
+    """
+    stmts = []
+    gen.use_helper("__btrc_suspect_buf")
+    gen.use_helper("__btrc_collect_cycles")
+    gen.use_helper("__btrc_destroyed_tracking")
+
+    # Enable cascade-destroy tracking
+    stmts.append(IRAssign(
+        target=IRVar(name="__btrc_tracking"),
+        value=IRLiteral(text="1")))
+    stmts.append(IRAssign(
+        target=IRVar(name="__btrc_destroyed_count"),
+        value=IRLiteral(text="0")))
+
+    # Phase 1: Decrement rc for ALL managed vars
+    for var_name, cls_name in reversed(managed):
+        stmts.append(IRIf(
+            condition=IRBinOp(
+                left=IRVar(name=var_name), op="!=",
+                right=IRLiteral(text="NULL")),
+            then_block=IRBlock(stmts=[IRExprStmt(
+                expr=IRUnaryOp(op="--", operand=IRFieldAccess(
+                    obj=IRVar(name=var_name), field="__rc", arrow=True),
+                    prefix=True))]),
+        ))
+
+    # Phase 2: Destroy those at rc == 0
+    # Guard with !__btrc_is_destroyed() to skip cascade-freed objects
+    # (short-circuit ensures var->__rc is never read on freed memory)
+    for var_name, cls_name in reversed(managed):
+        destroy_fn = _destroy_fn_for_managed(gen, cls_name)
+        stmts.append(IRIf(
+            condition=IRBinOp(
+                left=IRVar(name=var_name), op="!=",
+                right=IRLiteral(text="NULL")),
+            then_block=IRBlock(stmts=[IRIf(
+                condition=IRBinOp(
+                    left=IRCall(callee="__btrc_is_destroyed",
+                                args=[IRVar(name=var_name)]),
+                    op="==", right=IRLiteral(text="0")),
+                then_block=IRBlock(stmts=[IRIf(
+                    condition=IRBinOp(
+                        left=IRFieldAccess(
+                            obj=IRVar(name=var_name), field="__rc",
+                            arrow=True),
+                        op="<=", right=IRLiteral(text="0")),
+                    then_block=IRBlock(stmts=[
+                        IRExprStmt(expr=IRCall(
+                            callee=destroy_fn,
+                            args=[IRVar(name=var_name)])),
+                        IRAssign(
+                            target=IRVar(name=var_name),
+                            value=IRLiteral(text="NULL")),
+                    ]),
+                )]),
+            )]),
+        ))
+
+    # Phase 3: Suspect those still alive (rc > 0) for cycle collection
+    for var_name, cls_name in reversed(managed):
+        cls_info = _lookup_cls_info(gen, cls_name)
+        if not cls_info or not cls_info.is_cyclable:
+            continue
+        destroy_fn = _destroy_fn_for_managed(gen, cls_name)
+        stmts.append(IRIf(
+            condition=IRBinOp(
+                left=IRVar(name=var_name), op="!=",
+                right=IRLiteral(text="NULL")),
+            then_block=IRBlock(stmts=[IRIf(
+                condition=IRBinOp(
+                    left=IRCall(callee="__btrc_is_destroyed",
+                                args=[IRVar(name=var_name)]),
+                    op="==", right=IRLiteral(text="0")),
+                then_block=IRBlock(stmts=[IRIf(
+                    condition=IRBinOp(
+                        left=IRFieldAccess(
+                            obj=IRVar(name=var_name), field="__rc",
+                            arrow=True),
+                        op=">", right=IRLiteral(text="0")),
+                    then_block=IRBlock(stmts=[IRExprStmt(
+                        expr=IRCall(
+                            callee="__btrc_suspect",
+                            helper_ref="__btrc_suspect_buf",
+                            args=[
+                                IRVar(name=var_name),
+                                IRRawExpr(
+                                    text=f"(__btrc_visit_fn){cls_name}_visit"),
+                                IRRawExpr(
+                                    text=f"(__btrc_destroy_fn){destroy_fn}"),
+                            ]))]),
+                )]),
+            )]),
+        ))
+
+    # Phase 4: Collect cycles if any suspects
+    stmts.append(IRIf(
+        condition=IRBinOp(
+            left=IRVar(name="__btrc_suspect_count"), op=">",
+            right=IRLiteral(text="0")),
+        then_block=IRBlock(stmts=[IRExprStmt(
+            expr=IRCall(callee="__btrc_collect_cycles",
+                        helper_ref="__btrc_collect_cycles", args=[]))]),
+    ))
+
+    # Disable tracking
+    stmts.append(IRAssign(
+        target=IRVar(name="__btrc_tracking"),
+        value=IRLiteral(text="0")))
+
+    return stmts
+
+
+def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:
+    """Emit rc-- for all managed vars across all scopes, except the returned var."""
+    stmts = []
+    all_managed = gen.get_all_managed_vars()
+    for var_name, cls_name in reversed(all_managed):
+        if var_name == returned_var:
+            continue  # Skip the returned variable — ownership transfers to caller
+        destroy_fn = _destroy_fn_for_managed(gen, cls_name)
+        stmts.append(IRIf(
+            condition=IRBinOp(
+                left=IRVar(name=var_name), op="!=",
+                right=IRLiteral(text="NULL")),
+            then_block=IRBlock(stmts=[IRIf(
+                condition=IRBinOp(
+                    left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                        obj=IRVar(name=var_name), field="__rc", arrow=True),
+                        prefix=True),
+                    op="<=", right=IRLiteral(text="0")),
+                then_block=IRBlock(stmts=[IRExprStmt(
+                    expr=IRCall(callee=destroy_fn,
                                 args=[IRVar(name=var_name)]))]),
             )]),
         ))
