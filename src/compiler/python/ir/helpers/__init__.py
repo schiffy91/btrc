@@ -14,6 +14,7 @@ filled in with ``.format(...)`` for each monomorphised type.
 from .alloc import ALLOC
 from .collections import COLLECTIONS
 from .core import HelperDef
+from .cycles import CYCLES
 from .divmod import DIVMOD
 from .hash import HASH
 from .math import MATH
@@ -30,11 +31,13 @@ HELPERS: dict[str, dict[str, HelperDef]] = {
     "trycatch": TRYCATCH,
     "hash": HASH,
     "collections": COLLECTIONS,
+    "cycles": CYCLES,
 }
 
 __all__ = [
     "ALLOC",
     "COLLECTIONS",
+    "CYCLES",
     "DIVMOD",
     "HASH",
     "HELPERS",

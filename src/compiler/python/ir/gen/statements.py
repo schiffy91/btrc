@@ -39,7 +39,7 @@ def lower_block(gen: IRGenerator, block: Block | None) -> IRBlock:
     # ARC: scope-exit release for managed vars (only if not already handled
     # by return/break/continue inside this block)
     managed = gen.pop_managed_scope()
-    stmts.extend(_emit_scope_release(managed))
+    stmts.extend(_emit_scope_release(managed, gen))
     return IRBlock(stmts=stmts)
 
 
@@ -224,26 +224,75 @@ def _get_destroy_name(gen: IRGenerator, type_expr, cls_name: str) -> str:
     return f"{cls_name}_destroy"
 
 
-def _emit_scope_release(managed: list[tuple[str, str]]) -> list[IRStmt]:
-    """Emit rc-- cleanup for all managed vars in a scope."""
+def _emit_scope_release(managed: list[tuple[str, str]],
+                        gen: IRGenerator | None = None) -> list[IRStmt]:
+    """Emit rc-- cleanup for all managed vars in a scope.
+
+    For cyclable types (when gen is provided), rc > 0 after decrement
+    triggers the suspect buffer for cycle detection.
+    """
     stmts = []
+    has_suspects = False
     for var_name, cls_name in reversed(managed):
-        # if (var != NULL) { if (--var->__rc <= 0) destroy(var); }
+        cls_info = gen.analyzed.class_table.get(cls_name) if gen else None
+        is_cyclable = cls_info and cls_info.is_cyclable if cls_info else False
+
+        if is_cyclable and gen:
+            # Cyclable: if rc <= 0, destroy. If rc > 0, suspect.
+            gen.use_helper("__btrc_suspect_buf")
+            gen.use_helper("__btrc_collect_cycles")
+            has_suspects = True
+            stmts.append(IRIf(
+                condition=IRBinOp(
+                    left=IRVar(name=var_name), op="!=",
+                    right=IRLiteral(text="NULL")),
+                then_block=IRBlock(stmts=[IRIf(
+                    condition=IRBinOp(
+                        left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                            obj=IRVar(name=var_name), field="__rc", arrow=True),
+                            prefix=True),
+                        op="<=", right=IRLiteral(text="0")),
+                    then_block=IRBlock(stmts=[IRExprStmt(
+                        expr=IRCall(callee=f"{cls_name}_destroy",
+                                    args=[IRVar(name=var_name)]))]),
+                    else_block=IRBlock(stmts=[IRExprStmt(
+                        expr=IRCall(
+                            callee="__btrc_suspect",
+                            args=[
+                                IRVar(name=var_name),
+                                IRRawExpr(text=f"(__btrc_visit_fn){cls_name}_visit"),
+                                IRRawExpr(text=f"(__btrc_destroy_fn){cls_name}_destroy"),
+                            ]))]),
+                )]),
+            ))
+        else:
+            # Non-cyclable: simple rc-- and destroy at zero
+            stmts.append(IRIf(
+                condition=IRBinOp(
+                    left=IRVar(name=var_name), op="!=",
+                    right=IRLiteral(text="NULL")),
+                then_block=IRBlock(stmts=[IRIf(
+                    condition=IRBinOp(
+                        left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                            obj=IRVar(name=var_name), field="__rc", arrow=True),
+                            prefix=True),
+                        op="<=", right=IRLiteral(text="0")),
+                    then_block=IRBlock(stmts=[IRExprStmt(
+                        expr=IRCall(callee=f"{cls_name}_destroy",
+                                    args=[IRVar(name=var_name)]))]),
+                )]),
+            ))
+
+    # After all releases, collect cycles if any suspects
+    if has_suspects and gen:
         stmts.append(IRIf(
             condition=IRBinOp(
-                left=IRVar(name=var_name), op="!=",
-                right=IRLiteral(text="NULL")),
-            then_block=IRBlock(stmts=[IRIf(
-                condition=IRBinOp(
-                    left=IRUnaryOp(op="--", operand=IRFieldAccess(
-                        obj=IRVar(name=var_name), field="__rc", arrow=True),
-                        prefix=True),
-                    op="<=", right=IRLiteral(text="0")),
-                then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=f"{cls_name}_destroy",
-                                args=[IRVar(name=var_name)]))]),
-            )]),
+                left=IRVar(name="__btrc_suspect_count"), op=">",
+                right=IRLiteral(text="0")),
+            then_block=IRBlock(stmts=[IRExprStmt(
+                expr=IRCall(callee="__btrc_collect_cycles", args=[]))]),
         ))
+
     return stmts
 
 

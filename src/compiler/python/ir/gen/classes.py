@@ -68,6 +68,10 @@ def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
     # Destructor
     _emit_destructor(gen, decl, cls_info)
 
+    # ARC: visitor function for cyclable classes
+    if cls_info.is_cyclable:
+        _emit_visitor(gen, decl.name, cls_info)
+
     # Methods
     own_methods = set()
     for member in decl.members:
@@ -83,6 +87,24 @@ def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
 
     gen.current_class = None
     gen.current_class_name = ""
+
+
+def _emit_visitor(gen: IRGenerator, class_name: str, cls_info: ClassInfo):
+    """Emit ClassName_visit(self, fn) for cycle detection on cyclable classes."""
+    lines = []
+    for fname, fd in cls_info.fields.items():
+        if not fd.type:
+            continue
+        if fd.type.base in gen.analyzed.class_table:
+            lines.append(f"    if (self->{fname}) fn(self->{fname});")
+    if not lines:
+        return
+    body = "\n".join(lines)
+    text = (
+        f"static void {class_name}_visit({class_name}* self, "
+        f"void (*fn)(void*)) {{\n{body}\n}}"
+    )
+    gen.module.raw_sections.append(text)
 
 
 def _emit_method_forward_decls(gen: IRGenerator, decl: ClassDecl,
