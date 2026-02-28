@@ -4,6 +4,7 @@ from .core import HelperDef
 
 CYCLES = {
     "__btrc_destroyed_tracking": HelperDef(
+        depends_on=["__btrc_safe_realloc"],
         c_source=(
             "/* ARC cascade-destroy tracking: avoid reading freed memory */\n"
             "static int __btrc_tracking = 0;\n"
@@ -13,7 +14,7 @@ CYCLES = {
             "static void __btrc_mark_destroyed(void* ptr) {\n"
             "    if (__btrc_destroyed_count >= __btrc_destroyed_cap) {\n"
             "        __btrc_destroyed_cap = __btrc_destroyed_cap ? __btrc_destroyed_cap * 2 : 256;\n"
-            "        __btrc_destroyed = (void**)realloc(__btrc_destroyed, sizeof(void*) * __btrc_destroyed_cap);\n"
+            "        __btrc_destroyed = (void**)__btrc_safe_realloc(__btrc_destroyed, sizeof(void*) * __btrc_destroyed_cap);\n"
             "    }\n"
             "    __btrc_destroyed[__btrc_destroyed_count++] = ptr;\n"
             "}\n"
@@ -38,9 +39,9 @@ CYCLES = {
             "                           __btrc_destroy_fn destroy) {\n"
             "    if (__btrc_suspect_count >= __btrc_suspect_cap) {\n"
             "        __btrc_suspect_cap = __btrc_suspect_cap ? __btrc_suspect_cap * 2 : 256;\n"
-            "        __btrc_suspects = (void**)realloc(__btrc_suspects, sizeof(void*) * __btrc_suspect_cap);\n"
-            "        __btrc_visit_table = (__btrc_visit_fn*)realloc(__btrc_visit_table, sizeof(__btrc_visit_fn) * __btrc_suspect_cap);\n"
-            "        __btrc_destroy_table = (__btrc_destroy_fn*)realloc(__btrc_destroy_table, sizeof(__btrc_destroy_fn) * __btrc_suspect_cap);\n"
+            "        __btrc_suspects = (void**)__btrc_safe_realloc(__btrc_suspects, sizeof(void*) * __btrc_suspect_cap);\n"
+            "        __btrc_visit_table = (__btrc_visit_fn*)__btrc_safe_realloc(__btrc_visit_table, sizeof(__btrc_visit_fn) * __btrc_suspect_cap);\n"
+            "        __btrc_destroy_table = (__btrc_destroy_fn*)__btrc_safe_realloc(__btrc_destroy_table, sizeof(__btrc_destroy_fn) * __btrc_suspect_cap);\n"
             "    }\n"
             "    __btrc_suspects[__btrc_suspect_count] = obj;\n"
             "    __btrc_visit_table[__btrc_suspect_count] = visit;\n"
@@ -48,7 +49,7 @@ CYCLES = {
             "    __btrc_suspect_count++;\n"
             "}"
         ),
-        depends_on=["__btrc_destroyed_tracking"],
+        depends_on=["__btrc_destroyed_tracking", "__btrc_safe_realloc"],
     ),
     "__btrc_collect_cycles": HelperDef(
         c_source=(

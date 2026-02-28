@@ -99,6 +99,7 @@ class AnalyzerBase:
 
     def analyze(self, program: Program) -> AnalyzedProgram:
         self._register_declarations(program)
+        self._resolve_interface_parents(program)
         self._validate_inheritance(program)
         self._validate_interfaces(program)
         self._validate_overrides(program)

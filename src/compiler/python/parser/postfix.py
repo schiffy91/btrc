@@ -91,9 +91,6 @@ class PostfixMixin:
         """Lookahead to check if sizeof contains a type."""
         save = self.pos
         tok = self.tokens[self.pos]
-        if tok.type in TYPE_KEYWORDS and tok.type != TokenType.IDENT:
-            self.pos = save
-            return True
         if tok.type in TYPE_KEYWORDS:
             self.pos = save
             return True

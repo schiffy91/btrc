@@ -24,15 +24,23 @@ class RegistrationMixin:
             self._error(f"Duplicate interface name '{decl.name}'", decl.line, decl.col)
         info = InterfaceInfo(name=decl.name, parent=decl.parent,
                              generic_params=decl.generic_params)
-        if decl.parent and decl.parent in self.interface_table:
-            parent_info = self.interface_table[decl.parent]
-            for mname, method in parent_info.methods.items():
-                info.methods[mname] = method
-        elif decl.parent and decl.parent not in self.interface_table:
-            self._error(f"Parent interface '{decl.parent}' not found", decl.line, decl.col)
         for method in decl.methods:
             info.methods[method.name] = method
         self.interface_table[decl.name] = info
+
+    def _resolve_interface_parents(self, program):
+        """Second pass: inherit parent interface methods after all interfaces are registered."""
+        for decl in program.declarations:
+            if not isinstance(decl, InterfaceDecl) or not decl.parent:
+                continue
+            if decl.parent not in self.interface_table:
+                self._error(f"Parent interface '{decl.parent}' not found", decl.line, decl.col)
+                continue
+            info = self.interface_table[decl.name]
+            parent_info = self.interface_table[decl.parent]
+            for mname, method in parent_info.methods.items():
+                if mname not in info.methods:
+                    info.methods[mname] = method
 
     def _register_class(self, decl):
         if decl.name in self.class_table:

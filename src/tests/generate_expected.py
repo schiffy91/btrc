@@ -63,8 +63,11 @@ def generate_expected():
                 bin_path = c_path.replace(".c", "")
 
                 try:
+                    gcc_flags = ["gcc", c_path, "-o", bin_path, "-lm"]
+                    if "pthread.h" in c_source:
+                        gcc_flags.append("-lpthread")
                     result = subprocess.run(
-                        ["gcc", c_path, "-o", bin_path, "-lm"],
+                        gcc_flags,
                         capture_output=True, text=True, timeout=30,
                     )
                     if result.returncode != 0:

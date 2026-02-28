@@ -31,6 +31,7 @@ from .nodes import (
     IRAddressOf,
     IRDeref,
     IRRawC,
+    IRSpawnThread,
     IRStmtExpr,
 )
 
@@ -199,6 +200,9 @@ def _scan_raw_expr(expr, helper_names, used):
         _scan_raw_expr(expr.expr, helper_names, used)
     elif isinstance(expr, IRUnaryOp):
         _scan_raw_expr(expr.operand, helper_names, used)
+    elif isinstance(expr, IRSpawnThread):
+        if expr.capture_arg:
+            _scan_raw_expr(expr.capture_arg, helper_names, used)
     elif isinstance(expr, IRStmtExpr):
         for s in expr.stmts:
             _scan_raw_stmt(s, helper_names, used)
@@ -296,6 +300,9 @@ def _collect_from_expr(expr: IRExpr, used: set[str]):
         _collect_from_expr(expr.expr, used)
     elif isinstance(expr, IRDeref):
         _collect_from_expr(expr.expr, used)
+    elif isinstance(expr, IRSpawnThread):
+        if expr.capture_arg:
+            _collect_from_expr(expr.capture_arg, used)
     elif isinstance(expr, IRStmtExpr):
         for s in expr.stmts:
             _collect_from_stmt(s, used)

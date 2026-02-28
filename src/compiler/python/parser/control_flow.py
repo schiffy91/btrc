@@ -165,7 +165,7 @@ class ControlFlowMixin:
         self._expect(TokenType.CATCH)
         self._expect(TokenType.LPAREN)
         if self._is_type_start(self._peek()) and self._peek(1).type == TokenType.IDENT:
-            self._parse_type_expr()  # skip the type
+            self._parse_type_expr()  # optional type annotation (not stored in AST)
         catch_var = self._expect(TokenType.IDENT, "catch variable").value
         self._expect(TokenType.RPAREN)
         catch_block = self._parse_block()

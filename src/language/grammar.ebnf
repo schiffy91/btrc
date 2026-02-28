@@ -60,9 +60,8 @@
                 | /0[bB][01]+[uUlL]*/
                 | /0[oO][0-7]+[uUlL]*/
                 | /[0-9]+[uUlL]*/
-    FLOAT_LIT   = /[0-9]+\.[0-9]*([eE][+-]?[0-9]+)?[fF]?/
+    FLOAT_LIT   = /[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?[fF]?/
                 | /[0-9]+[eE][+-]?[0-9]+[fF]?/
-                | /\.[0-9]+([eE][+-]?[0-9]+)?[fF]?/
     STRING_LIT  = /"([^"\\]|\\.)*"/
     CHAR_LIT    = /'([^'\\]|\\.)*'/
     FSTRING_LIT = /f"..."/ -- brace-balanced sub-lexing; see lexer
@@ -241,12 +240,15 @@
             | while_stmt
             | do_while_stmt
             | for_stmt
+            | parallel_for_stmt
             | switch_stmt
             | break_stmt
             | continue_stmt
             | try_catch_stmt
             | throw_stmt
             | delete_stmt
+            | keep_stmt
+            | release_stmt
             | expr_stmt ;
 
   var_decl_stmt = ( "var" IDENT "=" expr
@@ -265,6 +267,8 @@
   continue_stmt   = "continue" ";" ;
   throw_stmt      = "throw" expr ";" ;
   delete_stmt     = "delete" expr ";" ;
+  keep_stmt       = "keep" expr ";" ;
+  release_stmt    = "release" expr ";" ;
   expr_stmt       = expr ";" ;
 
   for_stmt = "for" ( for_in_clause | c_for_clause ) ;

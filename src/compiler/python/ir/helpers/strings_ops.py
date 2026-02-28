@@ -62,6 +62,7 @@ STRING_OPS = {
         ),
     ),
     "__btrc_replace": HelperDef(
+        depends_on=["__btrc_safe_realloc"],
         c_source=(
             "static inline char* __btrc_replace(const char* s, const char* old, const char* rep) {\n"
             '    if (!s) return strdup("");\n'
@@ -75,11 +76,11 @@ STRING_OPS = {
             "    int rlen = 0, i = 0;\n"
             "    while (i < slen) {\n"
             "        if (i + oldlen <= slen && strncmp(s + i, old, oldlen) == 0) {\n"
-            "            while (rlen + replen >= cap) { cap *= 2; result = (char*)realloc(result, cap); }\n"
+            "            while (rlen + replen >= cap) { cap *= 2; result = (char*)__btrc_safe_realloc(result, cap); }\n"
             "            memcpy(result + rlen, rep, replen);\n"
             "            rlen += replen; i += oldlen;\n"
             "        } else {\n"
-            "            if (rlen + 1 >= cap) { cap *= 2; result = (char*)realloc(result, cap); }\n"
+            "            if (rlen + 1 >= cap) { cap *= 2; result = (char*)__btrc_safe_realloc(result, cap); }\n"
             "            result[rlen++] = s[i++];\n"
             "        }\n"
             "    }\n"
@@ -89,20 +90,21 @@ STRING_OPS = {
         ),
     ),
     "__btrc_split": HelperDef(
+        depends_on=["__btrc_safe_realloc"],
         c_source=(
             "static inline char** __btrc_split(const char* s, const char* delim) {\n"
-            "    if (!s || !delim) { char** r = (char**)malloc(sizeof(char*)); r[0] = NULL; return r; }\n"
+            "    if (!s || !delim) { char** r = (char**)__btrc_safe_realloc(NULL, sizeof(char*)); r[0] = NULL; return r; }\n"
             "    int dlen = (int)strlen(delim);\n"
             '    if (dlen == 0) { fprintf(stderr, "Empty delimiter in split()\\n"); exit(1); }\n'
             "    int cap = 8;\n"
-            "    char** result = (char**)malloc(sizeof(char*) * cap);\n"
+            "    char** result = (char**)__btrc_safe_realloc(NULL, sizeof(char*) * cap);\n"
             "    int count = 0;\n"
             "    const char* p = s;\n"
             "    while (*p) {\n"
             "        const char* found = strstr(p, delim);\n"
             "        int seglen = found ? (int)(found - p) : (int)strlen(p);\n"
-            "        if (count + 2 > cap) { cap *= 2; result = (char**)realloc(result, sizeof(char*) * cap); }\n"
-            "        result[count] = (char*)malloc(seglen + 1);\n"
+            "        if (count + 2 > cap) { cap *= 2; result = (char**)__btrc_safe_realloc(result, sizeof(char*) * cap); }\n"
+            "        result[count] = (char*)__btrc_safe_realloc(NULL, seglen + 1);\n"
             "        memcpy(result[count], p, seglen);\n"
             "        result[count][seglen] = '\\0';\n"
             "        count++;\n"
