@@ -211,7 +211,7 @@
       "patterns": [
         {
           "name": "keyword.control.btrc",
-          "match": "\\b(if|else|while|for|do|switch|case|default|break|continue|return|goto|in|try|catch|throw)\\b"
+          "match": "\\b(if|else|while|for|do|switch|case|default|break|continue|return|goto|in|try|catch|throw|release)\\b"
         },
         {
           "name": "storage.type.btrc",
@@ -219,7 +219,7 @@
         },
         {
           "name": "storage.modifier.btrc",
-          "match": "\\b(public|private|static|extern|const|volatile|register|auto|var|extends)\\b"
+          "match": "\\b(public|private|static|extern|const|volatile|register|auto|var|extends|keep)\\b"
         },
         {
           "name": "keyword.operator.new.btrc",

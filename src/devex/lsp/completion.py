@@ -64,6 +64,8 @@ _BTRC_KEYWORDS = [
     ("typedef", "Create a type alias"),
     ("sizeof", "Size of a type or expression in bytes"),
     ("parallel", "Mark a for loop for parallel execution"),
+    ("keep", "Marks a parameter as stored (rc++) or a return as transferring ownership"),
+    ("release", "Decrement reference count; free at zero; set variable to NULL"),
 ]
 
 

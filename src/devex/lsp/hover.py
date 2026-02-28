@@ -115,6 +115,10 @@ _KEYWORD_DOCS = {
     "parallel": "Marks a for loop for parallel execution.",
     "sizeof": "Returns the size of a type or expression in bytes.",
     "bool": "Boolean type: `true` or `false`.",
+    "keep": "Marks a parameter as stored (refcount incremented at call site) "
+            "or a return type as transferring ownership to the caller.",
+    "release": "Decrements the reference count. If the count reaches zero, "
+               "the object is destroyed and memory is freed. Sets the variable to NULL.",
 }
 
 # Auto-generate hover docs for types in _MEMBER_TABLES
