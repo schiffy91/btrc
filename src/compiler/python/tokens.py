@@ -1,6 +1,6 @@
 """Token type definitions for the btrc language.
 
-TokenType enum and keyword table are validated against spec/grammar.ebnf
+TokenType enum and keyword table are validated against src/language/grammar.ebnf
 at import time to ensure the grammar is the single source of truth.
 """
 

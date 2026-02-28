@@ -20,7 +20,7 @@ generate-expected:
 	python3 src/tests/generate_expected.py
 
 gen-builtins:
-	python3 spec/ast/gen_builtins.py
+	python3 src/language/ast/gen_builtins.py
 
 lint:
 	ruff check src/

@@ -1,6 +1,6 @@
 """EBNF grammar parser for the btrc language.
 
-Reads spec/grammar.ebnf and extracts:
+Reads src/language/grammar.ebnf and extracts:
   - keywords: the set of reserved keywords
   - operators: the list of operators/delimiters (sorted longest-first)
   - keyword_to_token: mapping from keyword string to TokenType name
@@ -179,12 +179,12 @@ def parse_file(filepath: str) -> GrammarInfo:
 
 
 def _find_grammar_file() -> str:
-    """Find spec/grammar.ebnf relative to this file's location."""
+    """Find src/language/grammar.ebnf relative to this file's location."""
     # This file is at src/compiler/python/ebnf.py
-    # Grammar is at spec/grammar.ebnf
+    # Grammar is at src/language/grammar.ebnf
     here = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    return os.path.join(project_root, "spec", "grammar.ebnf")
+    return os.path.join(project_root, "src", "language", "grammar.ebnf")
 
 
 # Module-level grammar info, loaded on first access

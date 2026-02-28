@@ -37,10 +37,10 @@ A self-hosted btrc compiler (same pipeline) is planned but not yet implemented.
 
 ```
 SHARED SPECS (single source of truth):
-  spec/grammar.ebnf              keywords, operators, syntax rules
-  spec/ast/ast.asdl              AST node types (Zephyr ASDL)
-  spec/ast/asdl_python.py        ASDL → Python dataclasses
-  spec/ast/asdl_btrc.py          ASDL → btrc classes
+  src/language/grammar.ebnf       keywords, operators, syntax rules
+  src/language/ast/ast.asdl       AST node types (Zephyr ASDL)
+  src/language/ast/asdl_python.py ASDL → Python dataclasses
+  src/language/ast/asdl_btrc.py   ASDL → btrc classes
 
 PIPELINE:
   source.btrc
@@ -61,14 +61,14 @@ PIPELINE:
 ### Stage-by-Stage
 
 #### Stage 1: Lexer
-- Reads keywords + operators from `spec/grammar.ebnf` via EBNF parser
+- Reads keywords + operators from `src/language/grammar.ebnf` via EBNF parser
 - Builds keyword lookup table and operator trie at init time
 - Tokenizes source into typed Token stream
 - NO hardcoded keyword or operator lists anywhere in the codebase
 
 #### Stage 2: Parser
 - Hand-written recursive descent, guided by grammar rules
-- Produces typed AST nodes generated from `spec/ast/ast.asdl`
+- Produces typed AST nodes generated from `src/language/ast/ast.asdl`
 - Handles disambiguation: generic `<` vs comparison, cast vs grouping,
   for-in vs C-for, tuple type vs paren group
 - ASDL wrapper types: ElseBlock/ElseIf, ForInitVar/ForInitExpr,
@@ -112,13 +112,13 @@ PIPELINE:
 
 ## Shared Specs
 
-### spec/grammar.ebnf
+### src/language/grammar.ebnf
 - @lexical: @keywords (57 keywords), @operators (48 operators sorted longest-first)
 - @syntax: grammar rules (human-readable spec, not parser-generator input)
 - EBNF parser extracts GrammarInfo: keyword set, operator list,
   keyword→token mapping, operator→token mapping
 
-### spec/ast/ast.asdl (Zephyr ASDL)
+### src/language/ast/ast.asdl (Zephyr ASDL)
 - ~50 AST node types with typed fields
 - Sum types: decl, stmt, expr, class_member, if_else, for_init, etc.
 - Product types: Program, ClassDecl, BinaryExpr, etc.
@@ -144,7 +144,7 @@ src/compiler/python/
   tokens.py                     Token + TokenType enum
   lexer.py                      grammar-driven tokenizer
   lexer_literals.py             number/string literal parsing
-  ast_nodes.py                  GENERATED from spec/ast/ast.asdl
+  ast_nodes.py                  GENERATED from src/language/ast/ast.asdl
   main.py                       pipeline entry point + CLI
 
   parser/                        recursive descent parser (mixin-based)

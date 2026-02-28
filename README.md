@@ -24,7 +24,7 @@ int main() {
 
 As LLMs make programming more accessible, code itself becomes less about typing and more about taste — what you choose to build, how you choose to build it, what tradeoffs you find beautiful. Programming is becoming an art. btrc is an art project.
 
-The design question: *what if you could write C with modern syntax and get readable C output you can inspect?* The compiler is spec-driven — a formal [EBNF grammar](spec/grammar.ebnf) defines every keyword and operator, an [algebraic AST spec](spec/ast/ast.asdl) defines every node type, and the pipeline walks through six stages from source to native binary. The generated C is something a human could have written. You can read it, debug it, link it against anything.
+The design question: *what if you could write C with modern syntax and get readable C output you can inspect?* The compiler is spec-driven — a formal [EBNF grammar](src/language/grammar.ebnf) defines every keyword and operator, an [algebraic AST spec](src/language/ast/ast.asdl) defines every node type, and the pipeline walks through six stages from source to native binary. The generated C is something a human could have written. You can read it, debug it, link it against anything.
 
 It's a transpiler, not a new compiler backend — you get gcc compatibility for free but inherit C's limitations. There is no borrow checker, no lifetime analysis, and no memory safety beyond what C provides. Exception handling uses `setjmp`/`longjmp` and does not automatically free allocations on throw. If you need a production systems language with safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/).
 
@@ -657,11 +657,11 @@ int main() {
 
 ## Compilation Pipeline
 
-btrc compiles through six stages. Two formal specs drive the front-end: [`spec/grammar.ebnf`](spec/grammar.ebnf) defines all keywords, operators, and syntax rules; [`spec/ast/ast.asdl`](spec/ast/ast.asdl) defines all AST node types using [Zephyr ASDL](https://www.cs.princeton.edu/~appel/papers/asdl97.pdf). A structured IR separates lowering from emission.
+btrc compiles through six stages. Two formal specs drive the front-end: [`src/language/grammar.ebnf`](src/language/grammar.ebnf) defines all keywords, operators, and syntax rules; [`src/language/ast/ast.asdl`](src/language/ast/ast.asdl) defines all AST node types using [Zephyr ASDL](https://www.cs.princeton.edu/~appel/papers/asdl97.pdf). A structured IR separates lowering from emission.
 
 ```
-  spec/grammar.ebnf          (single source of truth: keywords, operators, syntax)
-  spec/ast/ast.asdl          (single source of truth: AST node types)
+  src/language/grammar.ebnf  (single source of truth: keywords, operators, syntax)
+  src/language/ast/ast.asdl  (single source of truth: AST node types)
          │
   .btrc source
          │
@@ -687,23 +687,23 @@ The generated C is self-contained -- no runtime library, no special headers. It 
 ## Project Structure
 
 ```
-spec/
-  grammar.ebnf                 # Formal EBNF grammar (lexical + syntactic rules)
-  ast/
-    ast.asdl                   # Algebraic AST spec (Zephyr ASDL)
-    asdl_parser.py             # ASDL file parser
-    asdl_python.py             # ASDL → Python dataclasses
-    asdl_btrc.py               # ASDL → btrc classes
-    gen_builtins.py            # stdlib .btrc → LSP builtins (make gen-builtins)
-
 src/
+  language/
+    grammar.ebnf               # Formal EBNF grammar (lexical + syntactic rules)
+    ast/
+      ast.asdl                 # Algebraic AST spec (Zephyr ASDL)
+      asdl_parser.py           # ASDL file parser
+      asdl_python.py           # ASDL → Python dataclasses
+      asdl_btrc.py             # ASDL → btrc classes
+      gen_builtins.py          # stdlib .btrc → LSP builtins (make gen-builtins)
+
   compiler/
     python/                    # Compiler (Python)
       ebnf.py                  # EBNF parser → GrammarInfo
       tokens.py                # Token + TokenType (grammar-driven)
       lexer.py                 # Grammar-driven lexer
       lexer_literals.py        # Number/string literal parsing
-      ast_nodes.py             # GENERATED from spec/ast/ast.asdl
+      ast_nodes.py             # GENERATED from src/language/ast/ast.asdl
       main.py                  # Pipeline entry point + CLI
       parser/                  # Recursive descent parser (mixin-based)
       analyzer/                # Type checking, scopes, generics (mixin-based)

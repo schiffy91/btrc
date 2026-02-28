@@ -1,6 +1,6 @@
 """Single source of truth for built-in type members in the btrc language.
 
-Auto-generated from stdlib .btrc files by spec/ast/gen_builtins.py.
+Auto-generated from stdlib .btrc files by src/language/ast/gen_builtins.py.
 DO NOT EDIT BY HAND — edit the stdlib source or the generator instead.
 
 Used by completion, hover, and signature help providers to avoid

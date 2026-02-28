@@ -1,6 +1,6 @@
 """Lexer for the btrc language.
 
-Grammar-driven: keyword and operator tables are built from spec/grammar.ebnf
+Grammar-driven: keyword and operator tables are built from src/language/grammar.ebnf
 via the ebnf module. Literal parsing (numbers, strings, f-strings) is
 hand-coded for robustness, with the grammar's @literals serving as the spec.
 """

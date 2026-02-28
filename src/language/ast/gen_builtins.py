@@ -10,14 +10,14 @@ String instance methods are language intrinsics (not defined in any .btrc
 file — they're lowered to C helpers in the IR gen) and are defined inline
 in the INTRINSIC_STRING_MEMBERS table below.
 
-Usage: python spec/ast/gen_builtins.py
+Usage: python src/language/ast/gen_builtins.py
 """
 
 import os
 import sys
 import textwrap
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ROOT)
 
 from src.compiler.python.lexer import Lexer
@@ -392,7 +392,7 @@ def main():
     out = []
     out.append('"""Single source of truth for built-in type members in the btrc language.')
     out.append("")
-    out.append("Auto-generated from stdlib .btrc files by spec/ast/gen_builtins.py.")
+    out.append("Auto-generated from stdlib .btrc files by src/language/ast/gen_builtins.py.")
     out.append("DO NOT EDIT BY HAND — edit the stdlib source or the generator instead.")
     out.append("")
     out.append("Used by completion, hover, and signature help providers to avoid")
