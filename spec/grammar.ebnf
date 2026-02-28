@@ -28,8 +28,8 @@
 
     -- btrc keywords
     abstract bool catch class delete extends false finally function
-    implements in interface new null override parallel private public
-    self string super throw true try var
+    implements in interface keep new null override parallel private public
+    release self string super throw true try var
   }
 
   -- Operators and delimiters, ordered longest-first within each line.

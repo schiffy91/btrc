@@ -47,6 +47,7 @@ class FunctionDecl:
     params: list[Param] = field(default_factory=list)
     body: Optional[Block] = None
     is_gpu: bool = False
+    keep_return: bool = False
     line: int = 0
     col: int = 0
 
@@ -94,6 +95,7 @@ class Param:
     type: TypeExpr = None
     name: str = ""
     default: Optional[expr] = None
+    keep: bool = False
     line: int = 0
     col: int = 0
 
@@ -115,6 +117,7 @@ class MethodDecl:
     body: Optional[Block] = None
     is_gpu: bool = False
     is_abstract: bool = False
+    keep_return: bool = False
     line: int = 0
     col: int = 0
 
@@ -135,6 +138,7 @@ class MethodSig:
     return_type: TypeExpr = None
     name: str = ""
     params: list[Param] = field(default_factory=list)
+    keep_return: bool = False
     line: int = 0
     col: int = 0
 
@@ -261,6 +265,18 @@ class TryCatchStmt:
 
 @dataclass
 class ThrowStmt:
+    expr: expr = None
+    line: int = 0
+    col: int = 0
+
+@dataclass
+class KeepStmt:
+    expr: expr = None
+    line: int = 0
+    col: int = 0
+
+@dataclass
+class ReleaseStmt:
     expr: expr = None
     line: int = 0
     col: int = 0
@@ -494,7 +510,7 @@ class Capture:
 
 decl = Union[PreprocessorDirective, ClassDecl, InterfaceDecl, FunctionDecl, StructDecl, EnumDecl, RichEnumDecl, TypedefDecl]
 class_member = Union[FieldDecl, MethodDecl, PropertyDecl]
-stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt]
+stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt]
 if_else = Union[ElseBlock, ElseIf]
 for_init = Union[ForInitVar, ForInitExpr]
 expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr]
@@ -632,6 +648,12 @@ class NodeVisitor:
         return self.generic_visit(node)
 
     def visit_ThrowStmt(self, node: ThrowStmt):
+        return self.generic_visit(node)
+
+    def visit_KeepStmt(self, node: KeepStmt):
+        return self.generic_visit(node)
+
+    def visit_ReleaseStmt(self, node: ReleaseStmt):
         return self.generic_visit(node)
 
     def visit_ElseBlock(self, node: ElseBlock):

@@ -30,7 +30,8 @@ module Btrc {
          | InterfaceDecl(identifier name, method_sig* methods,
                          identifier? parent, identifier* generic_params)
          | FunctionDecl(type_expr return_type, identifier name,
-                        param* params, block? body, bool is_gpu)
+                        param* params, block? body, bool is_gpu,
+                        bool keep_return)
          | StructDecl(identifier name, field_def* fields)
          | EnumDecl(identifier name, enum_value* values)
          | RichEnumDecl(identifier name, rich_enum_variant* variants)
@@ -43,14 +44,15 @@ module Btrc {
 
     type_expr = TypeExpr(identifier base, type_expr* generic_args,
                          int pointer_depth, bool is_array,
-                         expr? array_size)
+                         expr? array_size, bool is_const)
                 attributes(int line, int col)
 
     -- ================================================================
     -- Parameters and helpers
     -- ================================================================
 
-    param = Param(type_expr type, identifier name, expr? default)
+    param = Param(type_expr type, identifier name, expr? default,
+                   bool keep)
             attributes(int line, int col)
 
     -- Class members
@@ -58,7 +60,8 @@ module Btrc {
                              identifier name, expr? initializer)
                  | MethodDecl(string access, type_expr return_type,
                               identifier name, param* params,
-                              block? body, bool is_gpu, bool is_abstract)
+                              block? body, bool is_gpu, bool is_abstract,
+                              bool keep_return)
                  | PropertyDecl(string access, type_expr type,
                                 identifier name, bool has_getter,
                                 bool has_setter, block? getter_body,
@@ -67,7 +70,7 @@ module Btrc {
 
     -- Interface method signature (method with no body)
     method_sig = MethodSig(type_expr return_type, identifier name,
-                           param* params)
+                           param* params, bool keep_return)
                  attributes(int line, int col)
 
     -- Enum helpers
@@ -103,6 +106,8 @@ module Btrc {
          | TryCatchStmt(block try_block, identifier catch_var,
                         block catch_block, block? finally_block)
          | ThrowStmt(expr expr)
+         | KeepStmt(expr expr)
+         | ReleaseStmt(expr expr)
          attributes(int line, int col)
 
     -- Statement sub-types

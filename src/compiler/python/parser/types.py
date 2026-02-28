@@ -170,6 +170,10 @@ class TypesMixin:
 
     def _parse_param(self) -> Param:
         tok = self._peek()
+        has_keep = False
+        if self._check(TokenType.KEEP):
+            has_keep = True
+            self._advance()
         type_expr = self._parse_type_expr()
         name = self._expect(TokenType.IDENT, "parameter name").value
         if self._check(TokenType.LBRACKET):
@@ -186,4 +190,4 @@ class TypesMixin:
         if self._match(TokenType.EQ):
             default = self._parse_expr()
         return Param(type=type_expr, name=name, default=default,
-                     line=tok.line, col=tok.col)
+                     keep=has_keep, line=tok.line, col=tok.col)

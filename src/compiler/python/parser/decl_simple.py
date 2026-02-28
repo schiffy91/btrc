@@ -110,7 +110,8 @@ class SimpleDeclarationsMixin:
 
     # ---- Function or variable declaration ----
 
-    def _parse_function_or_var_decl(self, is_gpu: bool = False):
+    def _parse_function_or_var_decl(self, is_gpu: bool = False, *,
+                                     keep_return: bool = False):
         """Disambiguate function vs variable at top level."""
         start = self._peek()
 
@@ -136,10 +137,12 @@ class SimpleDeclarationsMixin:
             if self._match(TokenType.SEMICOLON):
                 return FunctionDecl(return_type=type_expr, name=name, params=params,
                                     body=None, is_gpu=is_gpu,
+                                    keep_return=keep_return,
                                     line=start.line, col=start.col)
             body = self._parse_block()
             return FunctionDecl(return_type=type_expr, name=name, params=params,
                                 body=body, is_gpu=is_gpu,
+                                keep_return=keep_return,
                                 line=start.line, col=start.col)
         else:
             if is_gpu:

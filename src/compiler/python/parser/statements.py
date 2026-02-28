@@ -1,7 +1,10 @@
 """Statement dispatch, variable declaration detection and parsing."""
 
 from ..tokens import TokenType, TYPE_KEYWORDS
-from ..ast_nodes import Block, BreakStmt, ContinueStmt, DeleteStmt, VarDeclStmt
+from ..ast_nodes import (
+    Block, BreakStmt, ContinueStmt, DeleteStmt, KeepStmt, ReleaseStmt,
+    VarDeclStmt,
+)
 
 
 class StatementsMixin:
@@ -50,6 +53,16 @@ class StatementsMixin:
             expr = self._parse_expr()
             self._expect(TokenType.SEMICOLON)
             return DeleteStmt(expr=expr, line=tok.line, col=tok.col)
+        if tok.type == TokenType.RELEASE:
+            self._advance()
+            expr = self._parse_expr()
+            self._expect(TokenType.SEMICOLON)
+            return ReleaseStmt(expr=expr, line=tok.line, col=tok.col)
+        if tok.type == TokenType.KEEP:
+            self._advance()
+            expr = self._parse_expr()
+            self._expect(TokenType.SEMICOLON)
+            return KeepStmt(expr=expr, line=tok.line, col=tok.col)
 
         if self._is_var_decl_start():
             return self._parse_var_decl_stmt()

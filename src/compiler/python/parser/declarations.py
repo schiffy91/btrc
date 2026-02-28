@@ -16,20 +16,25 @@ class DeclarationsMixin:
             return self._parse_preprocessor()
 
         is_gpu = False
+        keep_return = False
         if tok.type == TokenType.AT_GPU:
             is_gpu = True
             self._advance()
             tok = self._peek()
+        if tok.type == TokenType.KEEP:
+            keep_return = True
+            self._advance()
+            tok = self._peek()
 
-        if tok.type == TokenType.INTERFACE and not is_gpu:
+        if tok.type == TokenType.INTERFACE and not is_gpu and not keep_return:
             return self._parse_interface_decl()
 
-        if tok.type == TokenType.ABSTRACT and not is_gpu:
+        if tok.type == TokenType.ABSTRACT and not is_gpu and not keep_return:
             next_tok = self._peek(1)
             if next_tok.type == TokenType.CLASS:
                 return self._parse_class_decl(is_abstract=True)
 
-        if tok.type == TokenType.CLASS and not is_gpu:
+        if tok.type == TokenType.CLASS and not is_gpu and not keep_return:
             next_tok = self._peek(1)
             if next_tok.type == TokenType.IDENT:
                 after = self._peek(2)
@@ -37,7 +42,7 @@ class DeclarationsMixin:
                                   TokenType.IMPLEMENTS):
                     return self._parse_class_decl()
 
-        if tok.type == TokenType.STRUCT and not is_gpu:
+        if tok.type == TokenType.STRUCT and not is_gpu and not keep_return:
             next_tok = self._peek(1)
             if next_tok.type == TokenType.IDENT:
                 after = self._peek(2)
@@ -46,17 +51,17 @@ class DeclarationsMixin:
             elif next_tok.type == TokenType.LBRACE:
                 return self._parse_struct_decl()
 
-        if tok.type == TokenType.ENUM and not is_gpu:
+        if tok.type == TokenType.ENUM and not is_gpu and not keep_return:
             next_tok = self._peek(1)
             if next_tok.type == TokenType.CLASS:
                 return self._parse_rich_enum_decl()
             return self._parse_enum_decl()
 
-        if tok.type == TokenType.TYPEDEF and not is_gpu:
+        if tok.type == TokenType.TYPEDEF and not is_gpu and not keep_return:
             return self._parse_typedef_decl()
 
         if self._is_type_start(tok):
-            return self._parse_function_or_var_decl(is_gpu)
+            return self._parse_function_or_var_decl(is_gpu, keep_return=keep_return)
 
         raise self._error(f"Unexpected token '{tok.value}' at top level")
 
@@ -126,6 +131,11 @@ class DeclarationsMixin:
             is_gpu = True
             self._advance()
 
+        keep_return = False
+        if self._check(TokenType.KEEP):
+            keep_return = True
+            self._advance()
+
         type_expr = self._parse_type_expr()
 
         # Constructor: if next is '(' instead of IDENT, the "type" is the name
@@ -133,7 +143,8 @@ class DeclarationsMixin:
             name = type_expr.base
             return self._parse_method_rest(access, type_expr, name, is_gpu,
                                            tok.line, tok.col,
-                                           is_abstract=is_abstract_method)
+                                           is_abstract=is_abstract_method,
+                                           keep_return=keep_return)
 
         name_tok = self._expect(TokenType.IDENT, "member name")
         name = name_tok.value
@@ -141,7 +152,8 @@ class DeclarationsMixin:
         if self._check(TokenType.LPAREN):
             return self._parse_method_rest(access, type_expr, name, is_gpu,
                                            tok.line, tok.col,
-                                           is_abstract=is_abstract_method)
+                                           is_abstract=is_abstract_method,
+                                           keep_return=keep_return)
         elif self._check(TokenType.LBRACE) and self._is_property_start():
             return self._parse_property(access, type_expr, name, tok.line, tok.col)
         else:
@@ -153,7 +165,8 @@ class DeclarationsMixin:
                              initializer=init, line=tok.line, col=tok.col)
 
     def _parse_method_rest(self, access, return_type, name, is_gpu, line, col,
-                           is_abstract: bool = False) -> MethodDecl:
+                           is_abstract: bool = False,
+                           keep_return: bool = False) -> MethodDecl:
         self._expect(TokenType.LPAREN)
         params = self._parse_param_list()
         self._expect(TokenType.RPAREN)
@@ -164,7 +177,8 @@ class DeclarationsMixin:
             body = self._parse_block()
         return MethodDecl(access=access, return_type=return_type, name=name,
                           params=params, body=body, is_gpu=is_gpu,
-                          is_abstract=is_abstract, line=line, col=col)
+                          is_abstract=is_abstract, keep_return=keep_return,
+                          line=line, col=col)
 
     # ---- Struct declaration ----
 
@@ -216,6 +230,10 @@ class DeclarationsMixin:
         self._expect(TokenType.LBRACE)
         methods = []
         while not self._check(TokenType.RBRACE) and not self._at_end():
+            sig_keep = False
+            if self._check(TokenType.KEEP):
+                sig_keep = True
+                self._advance()
             ret_type = self._parse_type_expr()
             mname = self._expect(TokenType.IDENT, "method name").value
             self._expect(TokenType.LPAREN)
@@ -223,7 +241,8 @@ class DeclarationsMixin:
             self._expect(TokenType.RPAREN)
             self._expect(TokenType.SEMICOLON)
             methods.append(MethodSig(return_type=ret_type, name=mname,
-                                     params=params, line=tok.line, col=tok.col))
+                                     params=params, keep_return=sig_keep,
+                                     line=tok.line, col=tok.col))
         self._expect(TokenType.RBRACE)
         return InterfaceDecl(name=name, methods=methods, parent=parent,
                              generic_params=generic_params,
