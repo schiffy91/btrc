@@ -131,6 +131,9 @@ def _emit_class_struct(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     """Emit the struct definition for a class."""
     fields: list[IRStructField] = []
 
+    # ARC: refcount as the first field (before everything else)
+    fields.append(IRStructField(c_type=CType(text="int"), name="__rc"))
+
     # Parent fields (if inheriting)
     if cls_info.parent and cls_info.parent in gen.analyzed.class_table:
         parent = gen.analyzed.class_table[cls_info.parent]
@@ -164,6 +167,12 @@ def _emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     # _init function: takes self pointer + ctor params
     init_params = [IRParam(c_type=CType(text=f"{name}*"), name="self")] + ctor_params
     init_body_stmts = []
+
+    # ARC: set refcount to 1
+    init_body_stmts.append(IRAssign(
+        target=IRFieldAccess(obj=IRVar(name="self"), field="__rc", arrow=True),
+        value=IRLiteral(text="1"),
+    ))
 
     # Initialize fields with defaults
     for member in decl.members:

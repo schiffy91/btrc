@@ -117,8 +117,8 @@ def _emit_user_generic_instance(gen: IRGenerator, base_name: str,
     if fwd not in gen.module.forward_decls:
         gen.module.forward_decls.append(fwd)
 
-    # Emit struct with resolved types
-    fields = []
+    # Emit struct with resolved types (ARC: __rc as first field)
+    fields = [IRStructField(c_type=CType(text="int"), name="__rc")]
     for name, fd in cls_info.fields.items():
         resolved = _resolve_type(fd.type, type_map)
         fields.append(IRStructField(c_type=CType(text=type_to_c(resolved)), name=name))
@@ -170,8 +170,12 @@ def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
             f"static {ret_c} {mangled}_{mname}({', '.join(m_params)});")
 
     methods = "\n".join(fwd_decls) + "\n"
+    # ARC: build destructor body with rc-aware field release
+    dtor_body = _build_generic_destructor_body(cls_info, type_map, mangled, gen)
+
     methods += f"""
 static void {mangled}_init({', '.join(init_params)}) {{
+    self->__rc = 1;
 {init_body}}}
 static {mangled}* {mangled}_new({', '.join(ctor_params) if ctor_params else 'void'}) {{
     {mangled}* self = ({mangled}*)malloc(sizeof({mangled}));
@@ -179,7 +183,9 @@ static {mangled}* {mangled}_new({', '.join(ctor_params) if ctor_params else 'voi
     {mangled}_init(self{(''.join(', ' + p.name for p in ctor.params)) if ctor else ''});
     return self;
 }}
-static void {mangled}_destroy({mangled}* self) {{ free(self); }}
+static void {mangled}_destroy({mangled}* self) {{
+{dtor_body}    free(self);
+}}
 """
     # Emit methods — two-phase: emit all, then filter out incompatible ones
     emitted = {}
@@ -221,3 +227,44 @@ static void {mangled}_destroy({mangled}* self) {{ free(self); }}
             gen.use_helper(h)
 
     gen.module.raw_sections.append(methods_text)
+
+
+def _build_generic_destructor_body(cls_info, type_map, mangled, gen):
+    """Build the destructor body with ARC-aware field release.
+
+    For each class-type field: if (field) { if (--field->__rc <= 0) destroy(field); }
+    For other fields: nothing (primitives don't need cleanup).
+    """
+    lines = []
+    # Check for user-defined __del__ method
+    dtor = cls_info.methods.get("__del__")
+    if dtor and dtor.body:
+        emitter = _UserGenericEmitter(type_map, mangled,
+                                       lambda t: type_to_c(_resolve_type(t, type_map)),
+                                       gen=gen)
+        lines.append(emitter.emit_stmts(dtor.body.statements))
+
+    for fname, fd in cls_info.fields.items():
+        if not fd.type:
+            continue
+        resolved = _resolve_type(fd.type, type_map)
+        # Only release class instance fields (pointer_depth == 0).
+        # Fields with pointer_depth > 0 are raw arrays/double-pointers, not managed.
+        if resolved.pointer_depth > 0:
+            continue
+        # Generic class field → mangled destroy/free
+        if resolved.generic_args and resolved.base in gen.analyzed.class_table:
+            target = mangle_generic_type(resolved.base, resolved.generic_args)
+            field_cls = gen.analyzed.class_table.get(resolved.base)
+            dtor_name = "free" if field_cls and "free" in field_cls.methods else "destroy"
+            lines.append(
+                f"    if (self->{fname}) {{ "
+                f"if (--self->{fname}->__rc <= 0) "
+                f"{target}_{dtor_name}(self->{fname}); }}\n")
+        # Plain class field → ClassName_destroy
+        elif resolved.base in gen.analyzed.class_table:
+            lines.append(
+                f"    if (self->{fname}) {{ "
+                f"if (--self->{fname}->__rc <= 0) "
+                f"{resolved.base}_destroy(self->{fname}); }}\n")
+    return "".join(lines)

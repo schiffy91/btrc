@@ -7,7 +7,8 @@ from ...ast_nodes import ClassDecl, MethodDecl, PropertyDecl, NewExpr
 from ...analyzer import ClassInfo
 from ..nodes import (
     CType, IRAssign, IRBinOp, IRBlock, IRCall, IRCast, IRExprStmt,
-    IRFieldAccess, IRFunctionDef, IRIf, IRLiteral, IRParam, IRReturn, IRVar,
+    IRFieldAccess, IRFunctionDef, IRIf, IRLiteral, IRParam, IRReturn,
+    IRUnaryOp, IRVar,
 )
 from .types import type_to_c, is_generic_class_type, mangle_generic_type
 
@@ -25,31 +26,21 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
         from .statements import lower_block
         body_stmts = lower_block(gen, dtor.body).stmts
 
-    # Recursively destroy owned pointer-type fields
+    # ARC: release owned pointer-type fields (rc-- then destroy at zero)
+    # Class types have pointer_depth=1 in analyzer (always heap-allocated).
+    # Skip pointer_depth > 1 (double-pointers / raw arrays).
     for fname, fd in cls_info.fields.items():
+        if fd.type and fd.type.pointer_depth > 1:
+            continue
         # Generic class fields → mangled_free() or mangled_destroy()
         if fd.type and is_generic_class_type(fd.type, gen.analyzed.class_table):
             mangled = mangle_generic_type(fd.type.base, fd.type.generic_args)
             field_cls = gen.analyzed.class_table.get(fd.type.base)
             dtor_name = "free" if field_cls and "free" in field_cls.methods else "destroy"
-            fa = IRFieldAccess(obj=IRVar(name="self"), field=fname, arrow=True)
-            body_stmts.append(IRIf(
-                condition=IRBinOp(left=fa, op="!=", right=IRLiteral(text="NULL")),
-                then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=f"{mangled}_{dtor_name}",
-                                args=[IRFieldAccess(obj=IRVar(name="self"),
-                                                     field=fname, arrow=True)]))]),
-            ))
+            body_stmts.append(_emit_field_release(fname, f"{mangled}_{dtor_name}"))
         # Class instance fields → ClassName_destroy()
         elif fd.type and fd.type.base in gen.analyzed.class_table:
-            fa = IRFieldAccess(obj=IRVar(name="self"), field=fname, arrow=True)
-            body_stmts.append(IRIf(
-                condition=IRBinOp(left=fa, op="!=", right=IRLiteral(text="NULL")),
-                then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=f"{fd.type.base}_destroy",
-                                args=[IRFieldAccess(obj=IRVar(name="self"),
-                                                     field=fname, arrow=True)]))]),
-            ))
+            body_stmts.append(_emit_field_release(fname, f"{fd.type.base}_destroy"))
 
     # Free self at the end
     body_stmts.append(IRExprStmt(expr=IRCall(callee="free", args=[IRVar(name="self")])))
@@ -157,6 +148,26 @@ def emit_inherited_methods(gen: IRGenerator, decl: ClassDecl,
                 body=body,
             ))
         parent_name = parent_info.parent
+
+
+def _emit_field_release(field_name: str, destroy_fn: str) -> IRIf:
+    """Emit: if (self->field) { if (--self->field->__rc <= 0) destroy(field); }"""
+    fa = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
+    return IRIf(
+        condition=IRBinOp(left=fa, op="!=", right=IRLiteral(text="NULL")),
+        then_block=IRBlock(stmts=[IRIf(
+            condition=IRBinOp(
+                left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                    obj=IRFieldAccess(obj=IRVar(name="self"),
+                                      field=field_name, arrow=True),
+                    field="__rc", arrow=True), prefix=True),
+                op="<=", right=IRLiteral(text="0")),
+            then_block=IRBlock(stmts=[IRExprStmt(
+                expr=IRCall(callee=destroy_fn,
+                            args=[IRFieldAccess(obj=IRVar(name="self"),
+                                                 field=field_name, arrow=True)]))]),
+        )]),
+    )
 
 
 def lower_new_expr(gen: IRGenerator, node: NewExpr):
