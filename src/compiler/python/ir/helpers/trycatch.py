@@ -6,10 +6,10 @@ TRYCATCH = {
     "__btrc_trycatch_globals": HelperDef(
         c_source=(
             "/* btrc try/catch runtime (dynamic) */\n"
-            "static int __btrc_try_cap = 16;\n"
-            "static jmp_buf* __btrc_try_stack = NULL;\n"
-            "static int __btrc_try_top = -1;\n"
-            'static char __btrc_error_msg[1024] = "";'
+            "static __thread int __btrc_try_cap = 16;\n"
+            "static __thread jmp_buf* __btrc_try_stack = NULL;\n"
+            "static __thread int __btrc_try_top = -1;\n"
+            'static __thread char __btrc_error_msg[1024] = "";'
         ),
     ),
     "__btrc_cleanup_types": HelperDef(
@@ -17,9 +17,9 @@ TRYCATCH = {
             "/* Cleanup stack: tracks heap resources to free on exception */\n"
             "typedef void (*__btrc_cleanup_fn)(void*);\n"
             "typedef struct { void* ptr; __btrc_cleanup_fn fn; int try_level; } __btrc_cleanup_entry;\n"
-            "static int __btrc_cleanup_cap = 64;\n"
-            "static __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\n"
-            "static int __btrc_cleanup_top = -1;"
+            "static __thread int __btrc_cleanup_cap = 64;\n"
+            "static __thread __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\n"
+            "static __thread int __btrc_cleanup_top = -1;"
         ),
         depends_on=["__btrc_trycatch_globals"],
     ),
@@ -49,6 +49,17 @@ TRYCATCH = {
             "    while (__btrc_cleanup_top >= 0 && __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {\n"
             "        __btrc_cleanup_entry e = __btrc_cleanup_stack[__btrc_cleanup_top--];\n"
             "        if (e.fn && e.ptr) e.fn(e.ptr);\n"
+            "    }\n"
+            "}"
+        ),
+        depends_on=["__btrc_cleanup_types"],
+    ),
+    "__btrc_discard_cleanups": HelperDef(
+        c_source=(
+            "static inline void __btrc_discard_cleanups(int level) {\n"
+            "    while (__btrc_cleanup_top >= 0 &&\n"
+            "           __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {\n"
+            "        __btrc_cleanup_top--;\n"
             "    }\n"
             "}"
         ),

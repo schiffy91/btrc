@@ -292,6 +292,13 @@ class IRRawExpr(IRExpr):
 
 
 @dataclass
+class IRStmtExpr(IRExpr):
+    """GCC statement expression: ({ stmt; stmt; result; })"""
+    stmts: list = field(default_factory=list)
+    result: 'IRExpr' = None
+
+
+@dataclass
 class IRSpawnThread(IRExpr):
     """Spawn a thread: __btrc_thread_spawn(fn_ptr, capture_arg)."""
     fn_ptr: str = ""       # C function name (from lambda lowering)

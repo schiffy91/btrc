@@ -1,5 +1,7 @@
 """Type utilities: method return type tables, compatibility checking."""
 
+from __future__ import annotations
+
 from ..ast_nodes import TypeExpr
 
 

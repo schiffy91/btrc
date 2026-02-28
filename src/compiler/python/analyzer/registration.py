@@ -110,12 +110,16 @@ class RegistrationMixin:
                     self._error(f"Interface '{iface_name}' not found", decl.line, decl.col)
                     continue
                 iface = self.interface_table[iface_name]
-                for mname in iface.methods:
+                for mname, iface_method in iface.methods.items():
                     if mname not in cls.methods:
                         self._error(
                             f"Class '{decl.name}' does not implement interface method "
                             f"'{mname}' from '{iface_name}'",
                             decl.line, decl.col)
+                    else:
+                        self._check_signature_compat(
+                            decl.name, cls.methods[mname], iface_method,
+                            f"interface '{iface_name}'")
             if cls.parent and cls.parent in self.class_table and not cls.is_abstract:
                 parent = self.class_table[cls.parent]
                 if parent.is_abstract:
@@ -127,3 +131,56 @@ class RegistrationMixin:
                                 f"Class '{decl.name}' must implement abstract method "
                                 f"'{mname}' from '{cls.parent}'",
                                 decl.line, decl.col)
+
+    def _validate_overrides(self, program):
+        """Validate that method overrides have compatible signatures."""
+        for decl in program.declarations:
+            if not isinstance(decl, ClassDecl) or not decl.parent:
+                continue
+            parent_cls = self.class_table.get(decl.parent)
+            if not parent_cls:
+                continue
+            for member in decl.members:
+                if not isinstance(member, MethodDecl):
+                    continue
+                if member.name == decl.name:  # skip constructor
+                    continue
+                parent_method = parent_cls.methods.get(member.name)
+                if not parent_method:
+                    continue
+                self._check_signature_compat(
+                    decl.name, member, parent_method,
+                    f"parent class '{decl.parent}'")
+
+    def _check_signature_compat(self, class_name, impl, expected, source):
+        """Check that impl method signature is compatible with expected."""
+        name = impl.name
+        line = getattr(impl, 'line', 0)
+        col = getattr(impl, 'col', 0)
+        # Check return type
+        impl_ret = getattr(impl, 'return_type', None)
+        exp_ret = getattr(expected, 'return_type', None)
+        if (exp_ret and impl_ret
+                and exp_ret.base and impl_ret.base
+                and not self._types_compatible(exp_ret, impl_ret)):
+            self._error(
+                f"Override '{name}' in '{class_name}' has incompatible "
+                f"return type '{impl_ret.base}' (expected '{exp_ret.base}' "
+                f"from {source})", line, col)
+        # Check parameter count
+        impl_params = getattr(impl, 'params', [])
+        exp_params = getattr(expected, 'params', [])
+        if len(impl_params) != len(exp_params):
+            self._error(
+                f"Override '{name}' in '{class_name}' has "
+                f"{len(impl_params)} parameter(s) (expected "
+                f"{len(exp_params)} from {source})", line, col)
+        else:
+            for i, (ep, ip) in enumerate(zip(exp_params, impl_params)):
+                if (ep.type and ip.type
+                        and not self._types_compatible(ep.type, ip.type)):
+                    self._error(
+                        f"Override '{name}' param {i+1} in '{class_name}' "
+                        f"has incompatible type '{ip.type.base}' "
+                        f"(expected '{ep.type.base}' from {source})",
+                        line, col)

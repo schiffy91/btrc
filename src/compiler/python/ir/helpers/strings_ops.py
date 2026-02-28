@@ -58,10 +58,12 @@ STRING_OPS = {
     "__btrc_replace": HelperDef(
         c_source=(
             "static inline char* __btrc_replace(const char* s, const char* old, const char* rep) {\n"
+            '    if (!s) return strdup("");\n'
+            '    if (!old || !old[0]) return strdup(s);\n'
+            '    if (!rep) rep = "";\n'
             "    int slen = (int)strlen(s);\n"
             "    int oldlen = (int)strlen(old);\n"
             "    int replen = (int)strlen(rep);\n"
-            "    if (oldlen == 0) return strdup(s);\n"
             "    int cap = slen * 2 + 1;\n"
             "    char* result = (char*)malloc(cap);\n"
             "    int rlen = 0, i = 0;\n"
@@ -111,6 +113,9 @@ STRING_OPS = {
             '    if (count < 0) { fprintf(stderr, "repeat count must be non-negative\\n"); exit(1); }\n'
             "    if (count == 0) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
             "    int slen = (int)strlen(s);\n"
+            "    if (slen > 0 && count > (INT_MAX - 1) / slen) {\n"
+            '        fprintf(stderr, "btrc: string repeat overflow\\n"); exit(1);\n'
+            "    }\n"
             "    char* result = (char*)malloc((size_t)slen * count + 1);\n"
             "    for (int i = 0; i < count; i++) memcpy(result + i * slen, s, slen);\n"
             "    result[slen * count] = '\\0';\n"
@@ -299,9 +304,9 @@ STRING_OPS = {
             "static inline char* __btrc_join(char** items, int count, const char* sep) {\n"
             "    if (count == 0) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
             "    int seplen = (int)strlen(sep);\n"
-            "    int total = 0;\n"
-            "    for (int i = 0; i < count; i++) total += (int)strlen(items[i]);\n"
-            "    total += seplen * (count - 1);\n"
+            "    size_t total = 0;\n"
+            "    for (int i = 0; i < count; i++) total += strlen(items[i]);\n"
+            "    total += (size_t)seplen * (count - 1);\n"
             "    char* r = (char*)malloc(total + 1);\n"
             "    int pos = 0;\n"
             "    for (int i = 0; i < count; i++) {\n"

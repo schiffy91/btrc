@@ -1,0 +1,36 @@
+// Test basic super constructor: child class initializes parent fields
+class Animal {
+    public string name;
+
+    public Animal(string n) {
+        self.name = n;
+    }
+
+    public string speak() {
+        return "...";
+    }
+}
+
+class Dog extends Animal {
+    public string breed;
+
+    public Dog(string n, string b) {
+        self.name = n;
+        self.breed = b;
+    }
+
+    public string speak() {
+        return "Woof";
+    }
+}
+
+int main() {
+    Dog d = Dog("Rex", "Labrador");
+    if (d.name == "Rex" && d.breed == "Labrador") {
+        print("PASS super_basic_constructor");
+    }
+    if (d.speak() == "Woof") {
+        print("PASS super_basic_override");
+    }
+    return 0;
+}

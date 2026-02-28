@@ -64,7 +64,7 @@ class FunctionsMixin:
                     array_size=type_expr.array_size,
                     line=type_expr.line, col=type_expr.col)
         if type_expr.base in self.class_table:
-            if type_expr.pointer_depth > 0:
+            if type_expr.pointer_depth > 0 and not type_expr.is_nullable:
                 self._error(
                     f"Redundant pointer for class type '{type_expr.base}' — "
                     f"classes are always heap-allocated. "
@@ -74,6 +74,7 @@ class FunctionsMixin:
                 base=type_expr.base, generic_args=upgraded_args,
                 pointer_depth=1, is_array=type_expr.is_array,
                 array_size=type_expr.array_size,
+                is_nullable=type_expr.is_nullable,
                 line=type_expr.line, col=type_expr.col)
         return type_expr
 

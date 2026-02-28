@@ -80,7 +80,12 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
                                    field=cap.name, arrow=True),
             ))
 
-    # Lambda body
+    # Lambda body — isolate managed scope since the lambda is a separate
+    # C function and must not inherit the parent's ARC-managed variables.
+    saved_managed = gen._managed_vars_stack
+    saved_try_depth = gen.in_try_depth
+    gen._managed_vars_stack = []
+    gen.in_try_depth = 0
     if isinstance(node.body, LambdaBlock) and node.body.body:
         from .statements import lower_block
         block = lower_block(gen, node.body.body)
@@ -89,6 +94,8 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
         from .expressions import lower_expr
         expr = lower_expr(gen, node.body.expression)
         body_stmts.append(IRReturn(value=expr))
+    gen._managed_vars_stack = saved_managed
+    gen.in_try_depth = saved_try_depth
 
     gen.module.function_defs.append(IRFunctionDef(
         name=fn_name,

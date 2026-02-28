@@ -40,6 +40,7 @@ from .nodes import (
     IRAddressOf,
     IRDeref,
     IRRawExpr,
+    IRStmtExpr,
     IRSpawnThread,
 )
 
@@ -306,11 +307,34 @@ class CEmitter:
         elif isinstance(expr, IRRawExpr):
             return expr.text
 
+        elif isinstance(expr, IRStmtExpr):
+            parts = [self._stmt_text(s) for s in expr.stmts]
+            parts.append(f"{self._expr(expr.result)};")
+            return "({ " + " ".join(parts) + " })"
+
         elif isinstance(expr, IRSpawnThread):
             arg = self._expr(expr.capture_arg) if expr.capture_arg else "NULL"
             return f"__btrc_thread_spawn((void*(*)(void*)){expr.fn_ptr}, {arg})"
 
         return f"/* unknown expr: {type(expr).__name__} */"
+
+    # --- Statement expression helpers ---
+
+    def _stmt_text(self, stmt):
+        """Render a single IRStmt as inline text for use inside statement expressions."""
+        if isinstance(stmt, IRVarDecl):
+            if stmt.init:
+                return f"{stmt.c_type.text} {stmt.name} = {self._expr(stmt.init)};"
+            return f"{stmt.c_type.text} {stmt.name};"
+        elif isinstance(stmt, IRExprStmt):
+            return f"{self._expr(stmt.expr)};"
+        elif isinstance(stmt, IRAssign):
+            return f"{self._expr(stmt.target)} = {self._expr(stmt.value)};"
+        elif isinstance(stmt, IRIf):
+            cond = self._expr(stmt.condition)
+            body = " ".join(self._stmt_text(s) for s in stmt.then_block.stmts)
+            return f"if ({cond}) {{ {body} }}"
+        return "/* unknown stmt */;"
 
     # --- Output helpers ---
 

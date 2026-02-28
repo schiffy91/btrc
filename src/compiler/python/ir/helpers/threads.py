@@ -20,10 +20,12 @@ THREADS = {
             "\n"
             "static __btrc_thread_t* __btrc_thread_spawn(void* (*fn)(void*), void* arg) {\n"
             "    __btrc_thread_t* t = (__btrc_thread_t*)malloc(sizeof(__btrc_thread_t));\n"
+            '    if (!t) { fprintf(stderr, "btrc: thread alloc failed\\n"); exit(1); }\n'
             "    t->fn = fn;\n"
             "    t->arg = arg;\n"
             "    t->result = NULL;\n"
-            "    pthread_create(&t->handle, NULL, __btrc_thread_wrapper, t);\n"
+            "    int err = pthread_create(&t->handle, NULL, __btrc_thread_wrapper, t);\n"
+            '    if (err != 0) { fprintf(stderr, "btrc: pthread_create failed\\n"); free(t); exit(1); }\n'
             "    return t;\n"
             "}"
         ),
@@ -54,7 +56,8 @@ THREADS = {
             "\n"
             "static __btrc_mutex_val_t* __btrc_mutex_val_create(void* initial) {\n"
             "    __btrc_mutex_val_t* m = (__btrc_mutex_val_t*)malloc(sizeof(__btrc_mutex_val_t));\n"
-            "    pthread_mutex_init(&m->lock, NULL);\n"
+            '    if (!m) { fprintf(stderr, "btrc: mutex alloc failed\\n"); exit(1); }\n'
+            '    if (pthread_mutex_init(&m->lock, NULL) != 0) { fprintf(stderr, "btrc: mutex init failed\\n"); free(m); exit(1); }\n'
             "    m->value = initial;\n"
             "    return m;\n"
             "}"

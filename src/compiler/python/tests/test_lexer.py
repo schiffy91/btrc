@@ -419,6 +419,28 @@ class TestErrors:
 
 # --- F-strings ---
 
+class TestInvalidLiterals:
+    def test_hex_no_digits(self):
+        with pytest.raises(LexerError):
+            lex("0x;")
+
+    def test_binary_no_digits(self):
+        with pytest.raises(LexerError):
+            lex("0b;")
+
+    def test_octal_no_digits(self):
+        with pytest.raises(LexerError):
+            lex("0o;")
+
+    def test_float_incomplete_exponent(self):
+        with pytest.raises(LexerError):
+            lex("1e;")
+
+    def test_float_incomplete_exponent_sign(self):
+        with pytest.raises(LexerError):
+            lex("1e+;")
+
+
 class TestFStrings:
     def test_fstring_basic(self):
         tokens = lex('f"hello {name}"')

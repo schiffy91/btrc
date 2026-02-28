@@ -5,8 +5,10 @@ from .core import HelperDef
 MATH = {
     "__btrc_math_factorial": HelperDef(
         c_source=(
-            "static inline int __btrc_math_factorial(int n) {\n"
-            "    int r = 1;\n"
+            "static inline long long __btrc_math_factorial(int n) {\n"
+            '    if (n < 0) { fprintf(stderr, "btrc: factorial of negative number\\n"); exit(1); }\n'
+            '    if (n > 20) { fprintf(stderr, "btrc: factorial overflow (n=%d)\\n", n); exit(1); }\n'
+            "    long long r = 1;\n"
             "    for (int i = 2; i <= n; i++) r *= i;\n"
             "    return r;\n"
             "}"

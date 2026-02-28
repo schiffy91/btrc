@@ -1,7 +1,9 @@
 """Type inference: _infer_type, _infer_lambda_return, _get_element_type."""
 
+from __future__ import annotations
+
 from ..ast_nodes import (
-    AssignExpr, BinaryExpr, BoolLiteral, CallExpr, CastExpr,
+    AssignExpr, BinaryExpr, BoolLiteral, BraceInitializer, CallExpr, CastExpr,
     CharLiteral, FieldAccessExpr, FloatLiteral, Identifier,
     IndexExpr, IntLiteral, LambdaExpr, LambdaExprBody, ListLiteral,
     MapLiteral, NewExpr, NullLiteral, ReturnStmt, SelfExpr, SpawnExpr,
@@ -25,7 +27,7 @@ class TypeInferenceMixin:
         elif isinstance(expr, BoolLiteral):
             return TypeExpr(base="bool")
         elif isinstance(expr, NullLiteral):
-            return TypeExpr(base="void", pointer_depth=1)
+            return TypeExpr(base="void", pointer_depth=1, is_nullable=True)
         elif isinstance(expr, Identifier):
             sym = self.scope.lookup(expr.name)
             if sym:
@@ -92,6 +94,11 @@ class TypeInferenceMixin:
         elif isinstance(expr, SpawnExpr):
             ret_type = self._infer_spawn_return_type(expr.fn)
             return TypeExpr(base="Thread", generic_args=[ret_type], pointer_depth=1)
+        elif isinstance(expr, BraceInitializer):
+            if expr.elements:
+                first_type = self._infer_type(expr.elements[0])
+                return first_type
+            return None
         return None
 
     def _infer_field_access_type(self, expr):

@@ -87,6 +87,7 @@ class TypeExpr:
     is_array: bool = False
     array_size: Optional[expr] = None
     is_const: bool = False
+    is_nullable: bool = False
     line: int = 0
     col: int = 0
 

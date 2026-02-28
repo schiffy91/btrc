@@ -19,7 +19,7 @@ from .types import type_to_c, mangle_generic_type, is_concrete_instance
 
 _STANDARD_INCLUDES = [
     "stdio.h", "stdlib.h", "string.h", "stdbool.h", "stdint.h",
-    "ctype.h", "math.h", "assert.h",
+    "ctype.h", "math.h", "assert.h", "limits.h",
 ]
 
 
@@ -45,6 +45,8 @@ class IRGenerator:
         # Stack of sets — each set contains (var_name, class_type_name) tuples
         # for variables auto-managed in the current scope
         self._managed_vars_stack: list[list[tuple[str, str]]] = []
+        # Exception safety: tracks nesting depth of try blocks
+        self.in_try_depth: int = 0
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""

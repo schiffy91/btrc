@@ -31,6 +31,7 @@ from .nodes import (
     IRAddressOf,
     IRDeref,
     IRRawC,
+    IRStmtExpr,
 )
 
 
@@ -160,6 +161,8 @@ def _scan_raw_expr(expr, helper_names, used):
             if name in expr.text:
                 used.add(name)
     elif isinstance(expr, IRCall):
+        if expr.callee in helper_names:
+            used.add(expr.callee)
         for arg in expr.args:
             _scan_raw_expr(arg, helper_names, used)
     elif isinstance(expr, IRBinOp):
@@ -171,6 +174,11 @@ def _scan_raw_expr(expr, helper_names, used):
         _scan_raw_expr(expr.false_expr, helper_names, used)
     elif isinstance(expr, IRCast):
         _scan_raw_expr(expr.expr, helper_names, used)
+    elif isinstance(expr, IRStmtExpr):
+        for s in expr.stmts:
+            _scan_raw_stmt(s, helper_names, used)
+        if expr.result:
+            _scan_raw_expr(expr.result, helper_names, used)
 
 
 def _collect_helper_refs(block: IRBlock, used: set[str]):
@@ -257,3 +265,8 @@ def _collect_from_expr(expr: IRExpr, used: set[str]):
         _collect_from_expr(expr.expr, used)
     elif isinstance(expr, IRDeref):
         _collect_from_expr(expr.expr, used)
+    elif isinstance(expr, IRStmtExpr):
+        for s in expr.stmts:
+            _collect_from_stmt(s, used)
+        if expr.result:
+            _collect_from_expr(expr.result, used)

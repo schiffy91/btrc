@@ -57,6 +57,7 @@ def read_char(lex: Lexer):
 
 def read_number(lex: Lexer):
     """Read an integer or float literal (decimal, hex, binary, octal)."""
+    from .lexer import LexerError
     line, col = lex.line, lex.col
     start = lex.pos
     is_float = False
@@ -65,6 +66,9 @@ def read_number(lex: Lexer):
     if lex._peek() == '0' and lex._peek(1) in ('x', 'X'):
         lex._advance()  # 0
         lex._advance()  # x
+        if not _is_hex_digit(lex._peek()):
+            raise LexerError("Invalid hex literal: no digits after '0x'",
+                             line, col)
         while lex.pos < len(lex.source) and _is_hex_digit(lex._peek()):
             lex._advance()
         _consume_int_suffix(lex)
@@ -75,6 +79,9 @@ def read_number(lex: Lexer):
     if lex._peek() == '0' and lex._peek(1) in ('b', 'B'):
         lex._advance()  # 0
         lex._advance()  # b
+        if lex._peek() not in ('0', '1'):
+            raise LexerError("Invalid binary literal: no digits after '0b'",
+                             line, col)
         while lex.pos < len(lex.source) and lex._peek() in ('0', '1'):
             lex._advance()
         _consume_int_suffix(lex)
@@ -85,6 +92,9 @@ def read_number(lex: Lexer):
     if lex._peek() == '0' and lex._peek(1) in ('o', 'O'):
         lex._advance()  # 0
         lex._advance()  # o
+        if lex._peek() not in '01234567':
+            raise LexerError("Invalid octal literal: no digits after '0o'",
+                             line, col)
         while lex.pos < len(lex.source) and lex._peek() in '01234567':
             lex._advance()
         _consume_int_suffix(lex)
@@ -108,6 +118,9 @@ def read_number(lex: Lexer):
         lex._advance()
         if lex._peek() in ('+', '-'):
             lex._advance()
+        if not lex._peek().isdigit():
+            raise LexerError("Invalid float literal: no digits in exponent",
+                             line, col)
         while lex.pos < len(lex.source) and lex._peek().isdigit():
             lex._advance()
 
@@ -164,15 +177,24 @@ def read_fstring(lex: Lexer, line: int, col: int):
 
 
 def _consume_int_suffix(lex: Lexer):
-    """Consume optional integer suffixes: u/U, l/L, ll/LL."""
+    """Consume optional integer suffixes: u, l, ll, ul, ull, lu, llu."""
     if lex._peek() in ('u', 'U'):
         lex._advance()
-    if lex._peek() in ('l', 'L'):
+        # After u: optional l or ll
+        if lex._peek() in ('l', 'L'):
+            lex._advance()
+            if lex._peek() in ('l', 'L'):
+                lex._advance()
+    elif lex._peek() in ('l', 'L'):
         lex._advance()
         if lex._peek() in ('l', 'L'):
             lex._advance()
-    elif lex._peek() in ('u', 'U'):
-        lex._advance()
+            # After ll: optional u
+            if lex._peek() in ('u', 'U'):
+                lex._advance()
+        elif lex._peek() in ('u', 'U'):
+            # After l: optional u
+            lex._advance()
 
 
 def _is_hex_digit(ch: str) -> bool:

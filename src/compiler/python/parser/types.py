@@ -83,12 +83,15 @@ class TypesMixin:
             pointer_depth += 1
 
         # Nullable: T? is sugar for T* (adds one pointer level)
+        is_nullable = False
         if self._match(TokenType.QUESTION):
             pointer_depth += 1
+            is_nullable = True
 
         return TypeExpr(base=base, generic_args=generic_args,
                         pointer_depth=pointer_depth, is_array=is_array,
-                        is_const=has_const, line=line, col=col)
+                        is_const=has_const, is_nullable=is_nullable,
+                        line=line, col=col)
 
     def _is_tuple_type_start(self) -> bool:
         """Check if ( starts a tuple type like (int, int)."""

@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING
 
 from ...ast_nodes import LambdaBlock, LambdaExpr, LambdaExprBody
 from ..nodes import (
-    CType, IRBlock, IRCast, IRFieldAccess, IRFunctionDef, IRLiteral,
-    IRParam, IRRawExpr, IRReturn, IRStructDef, IRStructField, IRVar,
-    IRVarDecl,
+    CType, IRAssign, IRBlock, IRCall, IRCast, IRExprStmt, IRFieldAccess,
+    IRFunctionDef, IRIf, IRLiteral, IRParam, IRRawExpr, IRReturn,
+    IRSpawnThread, IRStmtExpr, IRStructDef, IRStructField, IRUnaryOp,
+    IRVar, IRVarDecl,
 )
 from .types import type_to_c
 
@@ -27,8 +28,8 @@ if TYPE_CHECKING:
 _PRIMITIVE_TYPES = {"int", "float", "double", "char", "bool", "short", "long"}
 
 
-def lower_spawn(gen: IRGenerator, node) -> IRRawExpr:
-    """Lower a SpawnExpr to a GCC statement expression that spawns a thread.
+def lower_spawn(gen: IRGenerator, node):
+    """Lower a SpawnExpr to IR that spawns a thread.
 
     Returns __btrc_thread_t* — the opaque thread handle.
     """
@@ -44,7 +45,7 @@ def lower_spawn(gen: IRGenerator, node) -> IRRawExpr:
         from .expressions import lower_expr
         fn_expr = lower_expr(gen, fn)
         fn_text = fn_expr.text if hasattr(fn_expr, 'text') else fn_expr.name
-        return IRRawExpr(text=f"__btrc_thread_spawn((void*(*)(void*)){fn_text}, NULL)")
+        return IRSpawnThread(fn_ptr=fn_text, capture_arg=None)
 
     # Determine return type of the lambda
     ret_c_type = _infer_lambda_ret_type(gen, fn)
@@ -76,18 +77,53 @@ def lower_spawn(gen: IRGenerator, node) -> IRRawExpr:
 
     # Build the spawn expression
     if has_captures:
-        # Use GCC statement expression to allocate + populate capture struct
-        parts = [f"{env_name}* __se{spawn_id} = ({env_name}*)malloc(sizeof({env_name}))"]
+        # Use IRStmtExpr to allocate + populate capture struct
+        se_var = f"__se{spawn_id}"
+        stmts = [
+            # env_name* __seN = (env_name*)malloc(sizeof(env_name))
+            IRVarDecl(
+                c_type=CType(text=f"{env_name}*"), name=se_var,
+                init=IRCast(
+                    target_type=CType(text=f"{env_name}*"),
+                    expr=IRCall(callee="malloc", args=[
+                        IRCall(callee="sizeof", args=[IRLiteral(text=env_name)]),
+                    ]),
+                ),
+            ),
+        ]
         for cap in fn.captures:
-            parts.append(f"__se{spawn_id}->{cap.name} = {cap.name}")
-        parts.append(
-            f"__btrc_thread_spawn((void*(*)(void*)){wrapper_name}, (void*)__se{spawn_id})"
+            # __seN->cap_name = cap_name
+            stmts.append(IRAssign(
+                target=IRFieldAccess(
+                    obj=IRVar(name=se_var), field=cap.name, arrow=True),
+                value=IRVar(name=cap.name),
+            ))
+            # ARC: increment rc for captured class instances so they survive
+            # until the thread completes (paired with rc-- in wrapper cleanup)
+            if cap.type and cap.type.base in gen.analyzed.class_table:
+                stmts.append(IRIf(
+                    condition=IRVar(name=cap.name),
+                    then_block=IRBlock(stmts=[IRExprStmt(
+                        expr=IRUnaryOp(
+                            op="++",
+                            operand=IRFieldAccess(
+                                obj=IRVar(name=cap.name),
+                                field="__rc", arrow=True),
+                            prefix=False,
+                        ),
+                    )]),
+                ))
+
+        spawn_call = IRSpawnThread(
+            fn_ptr=wrapper_name,
+            capture_arg=IRCast(
+                target_type=CType(text="void*"),
+                expr=IRVar(name=se_var),
+            ),
         )
-        return IRRawExpr(text="({ " + "; ".join(parts) + "; })")
+        return IRStmtExpr(stmts=stmts, result=spawn_call)
     else:
-        return IRRawExpr(
-            text=f"__btrc_thread_spawn((void*(*)(void*)){wrapper_name}, NULL)"
-        )
+        return IRSpawnThread(fn_ptr=wrapper_name, capture_arg=None)
 
 
 def _infer_lambda_ret_type(gen: IRGenerator, fn: LambdaExpr) -> str:
@@ -105,6 +141,7 @@ def _infer_lambda_ret_type(gen: IRGenerator, fn: LambdaExpr) -> str:
 
 def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
     """Build the body of the pthread wrapper function."""
+    from ..nodes import IRCall, IRExprStmt, IRIf, IRBinOp, IRUnaryOp
     body_stmts = []
 
     # Unpack captures
@@ -120,22 +157,78 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
                 init=IRFieldAccess(obj=IRVar(name="__env"), field=cap.name, arrow=True),
             ))
 
-    # Lambda body
+    # Build cleanup stmts for captures (ARC release + free env)
+    cleanup_stmts = _build_capture_cleanup(gen, fn, has_captures)
+
+    # Lambda body — isolate managed scope so captures from outer scope
+    # don't get released inside the wrapper function
+    saved_managed = gen._managed_vars_stack
+    gen._managed_vars_stack = []
     if isinstance(fn.body, LambdaBlock) and fn.body.body:
         from .statements import lower_block
         block = lower_block(gen, fn.body.body)
-        for stmt in block.stmts:
-            body_stmts.append(_rewrite_return(stmt, ret_c_type))
+        # Rewrite body: box returns, insert cleanup before final return
+        lowered = [_rewrite_return(s, ret_c_type) for s in block.stmts]
+        if cleanup_stmts and lowered and isinstance(lowered[-1], IRReturn):
+            final_ret = lowered.pop()
+            body_stmts.extend(lowered)
+            # Save result, cleanup, return
+            body_stmts.append(IRVarDecl(
+                c_type=CType(text="void*"), name="__result",
+                init=final_ret.value or IRLiteral(text="NULL")))
+            body_stmts.extend(cleanup_stmts)
+            body_stmts.append(IRReturn(value=IRVar(name="__result")))
+        else:
+            body_stmts.extend(lowered)
     elif isinstance(fn.body, LambdaExprBody) and fn.body.expression:
         from .expressions import lower_expr
         expr = lower_expr(gen, fn.body.expression)
-        body_stmts.append(IRReturn(value=_box_result(expr, ret_c_type)))
+        if cleanup_stmts:
+            body_stmts.append(IRVarDecl(
+                c_type=CType(text="void*"), name="__result",
+                init=_box_result(expr, ret_c_type)))
+            body_stmts.extend(cleanup_stmts)
+            body_stmts.append(IRReturn(value=IRVar(name="__result")))
+        else:
+            body_stmts.append(IRReturn(value=_box_result(expr, ret_c_type)))
 
-    # Ensure void wrappers return NULL
+    gen._managed_vars_stack = saved_managed
+
+    # Ensure void wrappers return NULL (with cleanup first)
     if ret_c_type == "void":
+        body_stmts.extend(cleanup_stmts)
         body_stmts.append(IRReturn(value=IRLiteral(text="NULL")))
 
     return body_stmts
+
+
+def _build_capture_cleanup(gen, fn, has_captures):
+    """Build cleanup stmts: ARC release for class captures + free env struct."""
+    from ..nodes import IRCall, IRExprStmt, IRIf, IRBinOp, IRUnaryOp
+    if not has_captures:
+        return []
+    stmts = []
+    for cap in fn.captures:
+        if cap.type and cap.type.base in gen.analyzed.class_table:
+            destroy_fn = f"{cap.type.base}_destroy"
+            # if (cap != NULL) { if (--cap->__rc <= 0) destroy(cap); }
+            stmts.append(IRIf(
+                condition=IRBinOp(left=IRVar(name=cap.name), op="!=",
+                                  right=IRLiteral(text="NULL")),
+                then_block=IRBlock(stmts=[IRIf(
+                    condition=IRBinOp(
+                        left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                            obj=IRVar(name=cap.name), field="__rc", arrow=True),
+                            prefix=True),
+                        op="<=", right=IRLiteral(text="0")),
+                    then_block=IRBlock(stmts=[IRExprStmt(
+                        expr=IRCall(callee=destroy_fn,
+                                    args=[IRVar(name=cap.name)]))]),
+                )]),
+            ))
+    stmts.append(IRExprStmt(expr=IRCall(callee="free",
+                                         args=[IRVar(name="__env")])))
+    return stmts
 
 
 def _box_result(expr, ret_c_type: str):

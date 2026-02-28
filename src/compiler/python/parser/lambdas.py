@@ -56,7 +56,7 @@ class LambdasMixin:
         self._expect(TokenType.RPAREN)
         body = LambdaBlock(body=self._parse_block())
         return LambdaExpr(return_type=return_type, params=params, body=body,
-                          line=tok.line, col=tok.col)
+                          captures=[], line=tok.line, col=tok.col)
 
     def _is_arrow_lambda(self) -> bool:
         """Check if '(' starts an arrow lambda: (type name, ...) => ..."""
@@ -106,7 +106,7 @@ class LambdasMixin:
             expr = self._parse_expr()
             body = LambdaExprBody(expression=expr)
         return LambdaExpr(return_type=None, params=params, body=body,
-                          line=tok.line, col=tok.col)
+                          captures=[], line=tok.line, col=tok.col)
 
     # ---- F-string parsing ----
 

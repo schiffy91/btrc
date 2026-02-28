@@ -90,7 +90,17 @@ def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
     ), helper_refs=["__btrc_trycatch_globals", "__btrc_throw"]))
 
     # if (setjmp(...) == 0) { try block } else { catch block }
+    gen.in_try_depth += 1
     try_body = lower_block(gen, node.try_block)
+    gen.in_try_depth -= 1
+    # Normal exit: discard cleanup registrations (scope release already freed them)
+    # then decrement try level
+    if gen._used_helpers & {"__btrc_register_cleanup"}:
+        gen.use_helper("__btrc_discard_cleanups")
+        try_body.stmts.append(IRExprStmt(expr=IRCall(
+            callee="__btrc_discard_cleanups",
+            args=[IRVar(name="__btrc_try_top")],
+            helper_ref="__btrc_discard_cleanups")))
     try_body.stmts.append(IRRawC(text="__btrc_try_top--;"))
     catch_body = lower_block(gen, node.catch_block)
     if node.catch_var:

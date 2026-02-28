@@ -17,7 +17,7 @@
             gnumake
 
             # Dev tools
-            git jq gh
+            git jq gh nodejs_22
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap  # sandbox (Linux only)
           ];

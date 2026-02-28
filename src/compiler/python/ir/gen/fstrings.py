@@ -7,7 +7,10 @@ from ...ast_nodes import (
     CallExpr, FStringExpr, FStringLiteral, FStringText,
     FieldAccessExpr, StringLiteral, TypeExpr,
 )
-from ..nodes import IRCall, IRExpr, IRLiteral, IRRawExpr, IRVar
+from ..nodes import (
+    CType, IRBinOp, IRCall, IRCast, IRExpr, IRExprStmt, IRLiteral,
+    IRStmtExpr, IRVar, IRVarDecl,
+)
 from .types import format_spec_for_type, is_string_type
 
 if TYPE_CHECKING:
@@ -73,7 +76,7 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
     if not args:
         return IRLiteral(text=f'"{fmt_str}"')
 
-    # Build the snprintf expression sequence as a compound statement
+    # Build the snprintf expression sequence as a structured IRStmtExpr
     # ({int __len = snprintf(NULL, 0, "fmt", args);
     #   char* __buf = __btrc_str_track((char*)malloc(__len + 1));
     #   snprintf(__buf, __len + 1, "fmt", args); __buf;})
@@ -81,36 +84,31 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
     len_var = f"{tmp}_len"
     buf_var = f"{tmp}_buf"
 
-    from .statements import _quick_text
-    args_text = ", ".join(_quick_text(a) for a in args)
+    fmt_literal = IRLiteral(text=f'"{fmt_str}"')
+    snprintf_measure_args = [IRLiteral(text="NULL"), IRLiteral(text="0"),
+                             fmt_literal] + args
+    len_plus_1 = IRBinOp(left=IRVar(name=len_var), op="+",
+                         right=IRLiteral(text="1"))
 
-    # Emit as a GCC statement expression
-    text = (
-        f"({{ int {len_var} = snprintf(NULL, 0, \"{fmt_str}\", {args_text}); "
-        f"char* {buf_var} = __btrc_str_track((char*)malloc({len_var} + 1)); "
-        f"snprintf({buf_var}, {len_var} + 1, \"{fmt_str}\", {args_text}); "
-        f"{buf_var}; }})"
-    )
-    return IRRawExpr(text=text)
+    stmts = [
+        # int __len = snprintf(NULL, 0, "fmt", args...);
+        IRVarDecl(
+            c_type=CType(text="int"), name=len_var,
+            init=IRCall(callee="snprintf", args=snprintf_measure_args),
+        ),
+        # char* __buf = __btrc_str_track((char*)malloc(__len + 1));
+        IRVarDecl(
+            c_type=CType(text="char*"), name=buf_var,
+            init=IRCall(callee="__btrc_str_track", args=[
+                IRCast(target_type=CType(text="char*"),
+                       expr=IRCall(callee="malloc", args=[len_plus_1])),
+            ]),
+        ),
+        # snprintf(__buf, __len + 1, "fmt", args...);
+        IRExprStmt(expr=IRCall(
+            callee="snprintf",
+            args=[IRVar(name=buf_var), len_plus_1, fmt_literal] + args,
+        )),
+    ]
 
-
-def _expr_text(expr: IRExpr) -> str:
-    """Get text representation for use in format strings."""
-    if isinstance(expr, IRLiteral):
-        return expr.text
-    if isinstance(expr, IRVar):
-        return expr.name
-    if isinstance(expr, IRRawExpr):
-        return expr.text
-    # For complex expressions like ternaries, we need parens
-    from ..nodes import IRTernary
-    if isinstance(expr, IRTernary):
-        c = _expr_text(expr.condition)
-        t = _expr_text(expr.true_expr)
-        f = _expr_text(expr.false_expr)
-        return f"({c} ? {t} : {f})"
-    from ..nodes import IRCall
-    if isinstance(expr, IRCall):
-        args = ", ".join(_expr_text(a) for a in expr.args)
-        return f"{expr.callee}({args})"
-    return "/* complex */"
+    return IRStmtExpr(stmts=stmts, result=IRVar(name=buf_var))

@@ -8,7 +8,7 @@ from ..nodes import (
     IRAddressOf, IRBinOp, IRCall, IRDeref, IRExpr,
     IRLiteral, IRTernary, IRUnaryOp,
 )
-from .types import is_string_type, is_numeric_type
+from .types import is_string_type, is_numeric_type, mangle_generic_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -81,7 +81,11 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
             cls_info = gen.analyzed.class_table[left_type.base]
             magic = op_map[op]
             if magic in cls_info.methods:
-                return IRCall(callee=f"{left_type.base}_{magic}",
+                if left_type.generic_args:
+                    cls_c_name = mangle_generic_type(left_type.base, left_type.generic_args)
+                else:
+                    cls_c_name = left_type.base
+                return IRCall(callee=f"{cls_c_name}_{magic}",
                               args=[left, right])
 
     return IRBinOp(left=left, op=op, right=right)
@@ -102,6 +106,10 @@ def _lower_unary(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
         if operand_type and operand_type.base in gen.analyzed.class_table:
             cls_info = gen.analyzed.class_table[operand_type.base]
             if "__neg__" in cls_info.methods:
-                return IRCall(callee=f"{operand_type.base}___neg__",
+                if operand_type.generic_args:
+                    cls_c_name = mangle_generic_type(operand_type.base, operand_type.generic_args)
+                else:
+                    cls_c_name = operand_type.base
+                return IRCall(callee=f"{cls_c_name}___neg__",
                               args=[operand])
     return IRUnaryOp(op=op, operand=operand, prefix=node.prefix)

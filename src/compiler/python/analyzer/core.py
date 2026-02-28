@@ -101,6 +101,7 @@ class AnalyzerBase:
         self._register_declarations(program)
         self._validate_inheritance(program)
         self._validate_interfaces(program)
+        self._validate_overrides(program)
         self._compute_cyclable_flags()
         for decl in program.declarations:
             self._analyze_decl(decl)

@@ -79,6 +79,26 @@ class ValidationMixin:
     def _analyze_field_access(self, expr):
         self._analyze_expr(expr.obj)
         obj_type = self._infer_type(expr.obj)
+        # Nullable safety: warn on non-optional access on nullable types
+        if (obj_type and getattr(obj_type, 'is_nullable', False)
+                and not getattr(expr, 'optional', False)):
+            self._warning(
+                f"Non-optional access '.{expr.field}' on nullable type "
+                f"'{obj_type.base}?' — use '?.{expr.field}' or check for null",
+                expr.line, expr.col)
+        # Built-in Thread<T> and Mutex<T> method validation
+        if obj_type and obj_type.base == "Thread":
+            valid = {"join"}
+            if expr.field not in valid:
+                self._error(f"Thread<T> has no method '{expr.field}'",
+                            expr.line, expr.col)
+            return
+        if obj_type and obj_type.base == "Mutex":
+            valid = {"get", "set", "destroy"}
+            if expr.field not in valid:
+                self._error(f"Mutex<T> has no method '{expr.field}'",
+                            expr.line, expr.col)
+            return
         if obj_type and obj_type.base in self.class_table:
             cls = self.class_table[obj_type.base]
             if expr.field in cls.properties:

@@ -168,6 +168,20 @@ class StatementsMixin:
             while self.pos < len(self.tokens) and self.tokens[self.pos].type == TokenType.STAR:
                 self.pos += 1
 
+            # Skip nullable marker `?` only when it's clearly a type suffix,
+            # not a ternary operator. Disambiguate: `Type? name =` vs `x ? a : b`
+            if (self.pos < len(self.tokens)
+                    and self.tokens[self.pos].type == TokenType.QUESTION):
+                q_next = self.pos + 1
+                q_after = self.pos + 2
+                if (q_next < len(self.tokens)
+                        and self.tokens[q_next].type == TokenType.IDENT
+                        and q_after < len(self.tokens)
+                        and self.tokens[q_after].type in (
+                            TokenType.EQ, TokenType.SEMICOLON,
+                            TokenType.LBRACKET)):
+                    self.pos += 1  # skip `?` — it's a nullable type
+
             result = (self.pos < len(self.tokens) and
                       self.tokens[self.pos].type == TokenType.IDENT)
             self.pos = save

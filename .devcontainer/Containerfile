@@ -1,45 +1,42 @@
-FROM nixos/nix:latest AS base
+FROM nixos/nix:latest
 
-ARG TZ
-ENV TZ="${TZ:-America/Los_Angeles}"
+# Nix: enable flakes, single-user mode (no nixbld group in container)
+RUN echo 'experimental-features = nix-command flakes' >> /etc/nix/nix.conf && \
+    echo 'sandbox = false' >> /etc/nix/nix.conf && \
+    echo 'build-users-group =' >> /etc/nix/nix.conf
 
-# Enable flakes
-RUN mkdir -p /etc/nix && \
-    echo 'experimental-features = nix-command flakes' > /etc/nix/nix.conf && \
-    echo 'sandbox = false' >> /etc/nix/nix.conf
-
-# Create non-root user
+# Create non-root user declaratively (nixos/nix has no FHS)
 ARG USERNAME=dev
-RUN nix-env -iA nixpkgs.shadow && \
-    useradd -m -s /bin/bash $USERNAME && \
-    mkdir -p /etc/sudoers.d && \
-    echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME && \
-    chmod 0440 /etc/sudoers.d/$USERNAME
+RUN mkdir -p /bin /home/$USERNAME && \
+    ln -sf "$(which bash)" /bin/bash && \
+    printf 'root:x:0:0:root:/root:/bin/bash\n%s:x:1000:1000::/home/%s:/bin/bash\n' \
+      "$USERNAME" "$USERNAME" > /etc/passwd && \
+    printf 'root:x:0:\n%s:x:1000:\n' "$USERNAME" > /etc/group && \
+    printf 'root:!:::::::\n%s:!:::::::\n' "$USERNAME" > /etc/shadow && \
+    chown -R 1000:1000 /home/$USERNAME
 
-# Persist command history
-RUN mkdir -p /commandhistory && \
+# Workspace and history
+RUN mkdir -p /workspace /commandhistory && \
     touch /commandhistory/.bash_history && \
-    chown -R $USERNAME /commandhistory
-
-ENV DEVCONTAINER=true
-
-# Create workspace and config dirs
-RUN mkdir -p /workspace /config/claude && \
-    chown -R $USERNAME:$USERNAME /workspace /config && \
-    ln -sf /config/claude /home/$USERNAME/.claude
-
+    chown -R 1000:1000 /workspace /commandhistory
 WORKDIR /workspace
 
-# Copy flake and pre-build dev shell
-COPY --chown=$USERNAME:$USERNAME flake.nix /workspace/flake.nix
-RUN nix develop --command echo "dev shell ready"
+# Pre-build dev shell (largest layer — cached across rebuilds)
+COPY flake.nix /workspace/
+RUN nix develop --command true
 
-# Install Claude Code
+# Claude Code (install to /usr/local so it's on PATH outside nix dev shell)
 ARG CLAUDE_CODE_VERSION=latest
-RUN nix-env -iA nixpkgs.nodejs_20 && \
-    npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+RUN nix develop --command bash -c \
+    "npm config set prefix /usr/local && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+ENV PATH="/usr/local/bin:$PATH"
+
+# Transfer nix ownership to dev user (single-user nix requires owner access)
+RUN chown -R 1000:1000 /nix /usr/local
 
 USER $USERNAME
+ENV DEVCONTAINER=true
 
-# Auto-enter Nix dev shell
-RUN echo 'if [[ -z "$IN_NIX_SHELL" ]] && [[ -f /workspace/flake.nix ]] && command -v nix &>/dev/null; then exec nix develop /workspace --command bash; fi' >> /home/$USERNAME/.bashrc
+# Auto-enter dev shell on login
+RUN printf 'if [[ -z "$IN_NIX_SHELL" && -f /workspace/flake.nix ]] && command -v nix &>/dev/null; then\n  exec nix develop /workspace --command bash\nfi\n' \
+    >> /home/$USERNAME/.bashrc

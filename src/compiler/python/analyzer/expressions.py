@@ -1,12 +1,12 @@
 """Expression analysis, lambda analysis, and identifier collection."""
 
 from ..ast_nodes import (
-    AssignExpr, BinaryExpr, BoolLiteral, CallExpr, Capture, CastExpr,
-    CharLiteral, FieldAccessExpr, FloatLiteral, FStringExpr, FStringLiteral,
-    Identifier, IndexExpr, IntLiteral, LambdaBlock, LambdaExpr, LambdaExprBody,
-    ListLiteral, MapLiteral, NewExpr, NullLiteral, SizeofExpr, SizeofExprOp,
-    SizeofType, SpawnExpr, StringLiteral, SuperExpr, SelfExpr, TernaryExpr,
-    TupleLiteral, TypeExpr, UnaryExpr,
+    AssignExpr, BinaryExpr, BoolLiteral, BraceInitializer, CallExpr, Capture,
+    CastExpr, CharLiteral, FieldAccessExpr, FloatLiteral, FStringExpr,
+    FStringLiteral, Identifier, IndexExpr, IntLiteral, LambdaBlock, LambdaExpr,
+    LambdaExprBody, ListLiteral, MapLiteral, NewExpr, NullLiteral, SizeofExpr,
+    SizeofExprOp, SizeofType, SpawnExpr, StringLiteral, SuperExpr, SelfExpr,
+    TernaryExpr, TupleLiteral, TypeExpr, UnaryExpr,
 )
 from .core import SymbolInfo
 
@@ -108,6 +108,9 @@ class ExpressionsMixin:
             ret_type = self._infer_spawn_return_type(expr.fn)
             thread_type = TypeExpr(base="Thread", generic_args=[ret_type])
             self._collect_generic_instances(thread_type)
+        elif isinstance(expr, BraceInitializer):
+            for el in expr.elements:
+                self._analyze_expr(el)
 
         inferred = self._infer_type(expr)
         if inferred:

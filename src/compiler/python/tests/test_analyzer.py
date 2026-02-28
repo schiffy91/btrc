@@ -2750,3 +2750,226 @@ class TestAbstractClasses:
         '''
         errs = errors(src)
         assert any("Cannot instantiate abstract class" in e for e in errs)
+
+
+class TestMethodOverrideValidation:
+    def test_compatible_override_no_error(self):
+        src = '''
+            class Base {
+                public int compute() { return 1; }
+            }
+            class Derived extends Base {
+                public int compute() { return 2; }
+            }
+        '''
+        assert no_errors(src)
+
+    def test_incompatible_return_type(self):
+        src = '''
+            class Base {
+                public int compute() { return 1; }
+            }
+            class Derived extends Base {
+                public string compute() { return "bad"; }
+            }
+        '''
+        assert has_error(src, "incompatible return type")
+
+    def test_wrong_param_count(self):
+        src = '''
+            class Base {
+                public int add(int a, int b) { return a + b; }
+            }
+            class Derived extends Base {
+                public int add(int a) { return a; }
+            }
+        '''
+        assert has_error(src, "parameter")
+
+    def test_incompatible_param_type(self):
+        src = '''
+            class Base {
+                public void process(int x) { }
+            }
+            class Derived extends Base {
+                public void process(string x) { }
+            }
+        '''
+        assert has_error(src, "incompatible type")
+
+    def test_new_method_no_error(self):
+        """A new method (not an override) should not be validated."""
+        src = '''
+            class Base {
+                public int compute() { return 1; }
+            }
+            class Derived extends Base {
+                public string format() { return "ok"; }
+            }
+        '''
+        assert no_errors(src)
+
+    def test_numeric_type_compatible(self):
+        """Numeric types are compatible with each other."""
+        src = '''
+            class Base {
+                public int compute() { return 1; }
+            }
+            class Derived extends Base {
+                public float compute() { return 1.0; }
+            }
+        '''
+        assert no_errors(src)
+
+
+class TestNullableSafety:
+    def test_nullable_non_optional_access_warns(self):
+        """Using .field on a nullable type should produce a warning."""
+        src = '''
+            class Box {
+                public int val;
+                public Box(int v) { self.val = v; }
+            }
+            int main() {
+                Box? b = new Box(1);
+                int x = b.val;
+                return x;
+            }
+        '''
+        result = analyze(src)
+        assert any("Non-optional access" in w for w in result.warnings)
+
+    def test_optional_chaining_no_warning(self):
+        """Using ?.field on a nullable type should NOT warn."""
+        src = '''
+            class Box {
+                public int val;
+                public Box(int v) { self.val = v; }
+            }
+            int main() {
+                Box? b = new Box(1);
+                int x = b?.val;
+                return x;
+            }
+        '''
+        result = analyze(src)
+        assert not any("Non-optional access" in w for w in result.warnings)
+
+    def test_non_nullable_no_warning(self):
+        """Using .field on a non-nullable type should NOT warn."""
+        src = '''
+            class Box {
+                public int val;
+                public Box(int v) { self.val = v; }
+            }
+            int main() {
+                Box b = new Box(1);
+                int x = b.val;
+                return x;
+            }
+        '''
+        result = analyze(src)
+        assert not any("Non-optional access" in w for w in result.warnings)
+
+    def test_parser_nullable_flag(self):
+        """int? should set is_nullable = True on TypeExpr."""
+        src = 'int? x;'
+        result = analyze(src)
+        # The declaration should parse without errors
+        assert not result.errors
+
+
+class TestBraceInitializer:
+    """Test that brace initializers are properly analyzed."""
+
+    def test_empty_brace_analyzed(self):
+        """Empty {} should not crash the analyzer."""
+        src = '''
+            int main() {
+                Map<string, int> m = {};
+                return 0;
+            }
+        '''
+        assert no_errors(src)
+
+    def test_brace_with_elements(self):
+        """Brace initializer with elements should analyze each element."""
+        src = '''
+            int main() {
+                int x = 1;
+                int y = 2;
+                Vector<int> v = {x, y};
+                return 0;
+            }
+        '''
+        assert no_errors(src)
+
+
+class TestThreadMutexValidation:
+    """Test Thread and Mutex method validation."""
+
+    def test_thread_join_valid(self):
+        """Calling .join() on Thread<T> should be valid."""
+        src = '''
+            int main() {
+                Thread<int> t = spawn(() => { return 42; });
+                int result = t.join();
+                return 0;
+            }
+        '''
+        assert no_errors(src)
+
+    def test_thread_invalid_method(self):
+        """Calling an invalid method on Thread<T> should produce an error."""
+        src = '''
+            int main() {
+                Thread<int> t = spawn(() => { return 42; });
+                t.start();
+                return 0;
+            }
+        '''
+        assert has_error(src, "Thread<T> has no method 'start'")
+
+    def test_mutex_get_valid(self):
+        """Calling .get() on Mutex<T> should be valid."""
+        src = '''
+            int main() {
+                Mutex<int> m = Mutex(0);
+                int v = m.get();
+                return 0;
+            }
+        '''
+        assert no_errors(src)
+
+    def test_mutex_set_valid(self):
+        """Calling .set() on Mutex<T> should be valid."""
+        src = '''
+            int main() {
+                Mutex<int> m = Mutex(0);
+                m.set(42);
+                return 0;
+            }
+        '''
+        assert no_errors(src)
+
+    def test_mutex_destroy_valid(self):
+        """Calling .destroy() on Mutex<T> should be valid."""
+        src = '''
+            int main() {
+                Mutex<int> m = Mutex(0);
+                m.destroy();
+                return 0;
+            }
+        '''
+        assert no_errors(src)
+
+    def test_mutex_invalid_method(self):
+        """Calling an invalid method on Mutex<T> should produce an error."""
+        src = '''
+            int main() {
+                Mutex<int> m = Mutex(0);
+                m.lock();
+                return 0;
+            }
+        '''
+        assert has_error(src, "Mutex<T> has no method 'lock'")

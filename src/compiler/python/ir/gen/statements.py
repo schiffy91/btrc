@@ -136,6 +136,25 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
     return [IRRawC(text=f"/* unhandled stmt: {type(node).__name__} */")]
 
 
+def _maybe_register_cleanup(gen: IRGenerator, var_name: str,
+                             cls_name: str, stmts: list[IRStmt]):
+    """If inside a try block, register an ARC cleanup for exception safety.
+
+    When an exception is thrown (longjmp), normal scope-exit release is skipped.
+    The cleanup stack ensures managed vars are released even on throw.
+    On normal exit, cleanups are discarded (scope release already freed them).
+    """
+    if gen.in_try_depth <= 0:
+        return
+    destroy_fn = _destroy_fn_for_managed(gen, cls_name)
+    gen.use_helper("__btrc_register_cleanup")
+    stmts.append(IRExprStmt(expr=IRCall(
+        callee="__btrc_register_cleanup",
+        args=[IRVar(name=var_name),
+              IRRawExpr(text=f"(__btrc_cleanup_fn){destroy_fn}")],
+        helper_ref="__btrc_register_cleanup")))
+
+
 def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     from ...ast_nodes import BraceInitializer, CallExpr, Identifier, TypeExpr as TE
     from .types import is_generic_class_type, mangle_generic_type
@@ -208,10 +227,12 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
             arc_type = node.type.base
             if isinstance(node.initializer, NewExpr):
                 gen.register_managed_var(node.name, arc_type)
+                _maybe_register_cleanup(gen, node.name, arc_type, result)
             elif (isinstance(node.initializer, CallExpr)
                   and isinstance(node.initializer.callee, Identifier)
                   and node.initializer.callee.name in gen.analyzed.class_table):
                 gen.register_managed_var(node.name, arc_type)
+                _maybe_register_cleanup(gen, node.name, arc_type, result)
             elif isinstance(node.initializer, CallExpr):
                 from .calls import has_keep_return
                 if has_keep_return(gen, node.initializer):
@@ -219,6 +240,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                     if (ret_type and ret_type.base in gen.analyzed.class_table
                             and not ret_type.generic_args):
                         gen.register_managed_var(node.name, ret_type.base)
+                        _maybe_register_cleanup(gen, node.name, ret_type.base, result)
 
     return result
 
