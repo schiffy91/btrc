@@ -40,7 +40,6 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
     # String comparison: a == b → strcmp(a, b) == 0
     if op in ("==", "!=") and is_string_type(left_type) and is_string_type(right_type):
         cmp = IRCall(callee="strcmp", args=[left, right])
-        cmp_val = "0" if op == "==" else "0"
         cmp_op = "==" if op == "==" else "!="
         return IRBinOp(left=cmp, op=cmp_op, right=IRLiteral(text="0"))
 

@@ -2,10 +2,13 @@
 
 from .core import HelperDef
 
+_NULL_RET_EMPTY = '    if (!s) { char* r = (char*)malloc(1); r[0] = \'\\0\'; return r; }\n'
+
 STRING_OPS = {
     "__btrc_substring": HelperDef(
         c_source=(
             "static inline char* __btrc_substring(const char* s, int start, int len) {\n"
+            + _NULL_RET_EMPTY +
             "    int slen = (int)strlen(s);\n"
             "    if (start < 0) start = 0;\n"
             "    if (start > slen) start = slen;\n"
@@ -21,6 +24,7 @@ STRING_OPS = {
     "__btrc_trim": HelperDef(
         c_source=(
             "static inline char* __btrc_trim(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    while (*s && isspace((unsigned char)*s)) s++;\n"
             "    if (*s == '\\0') { char* r = (char*)malloc(1); r[0]='\\0'; return r; }\n"
             "    const char* end = s + strlen(s) - 1;\n"
@@ -36,6 +40,7 @@ STRING_OPS = {
     "__btrc_toUpper": HelperDef(
         c_source=(
             "static inline char* __btrc_toUpper(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    char* result = (char*)malloc(len + 1);\n"
             "    for (int i = 0; i < len; i++) result[i] = (char)toupper((unsigned char)s[i]);\n"
@@ -47,6 +52,7 @@ STRING_OPS = {
     "__btrc_toLower": HelperDef(
         c_source=(
             "static inline char* __btrc_toLower(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    char* result = (char*)malloc(len + 1);\n"
             "    for (int i = 0; i < len; i++) result[i] = (char)tolower((unsigned char)s[i]);\n"
@@ -85,6 +91,7 @@ STRING_OPS = {
     "__btrc_split": HelperDef(
         c_source=(
             "static inline char** __btrc_split(const char* s, const char* delim) {\n"
+            "    if (!s || !delim) { char** r = (char**)malloc(sizeof(char*)); r[0] = NULL; return r; }\n"
             "    int dlen = (int)strlen(delim);\n"
             '    if (dlen == 0) { fprintf(stderr, "Empty delimiter in split()\\n"); exit(1); }\n'
             "    int cap = 8;\n"
@@ -110,6 +117,7 @@ STRING_OPS = {
     "__btrc_repeat": HelperDef(
         c_source=(
             "static inline char* __btrc_repeat(const char* s, int count) {\n"
+            + _NULL_RET_EMPTY +
             '    if (count < 0) { fprintf(stderr, "repeat count must be non-negative\\n"); exit(1); }\n'
             "    if (count == 0) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
             "    int slen = (int)strlen(s);\n"
@@ -126,6 +134,7 @@ STRING_OPS = {
     "__btrc_reverse": HelperDef(
         c_source=(
             "static inline char* __btrc_reverse(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    char* r = (char*)malloc(len + 1);\n"
             "    for (int i = 0; i < len; i++) r[i] = s[len - 1 - i];\n"
@@ -137,6 +146,8 @@ STRING_OPS = {
     "__btrc_removePrefix": HelperDef(
         c_source=(
             "static inline char* __btrc_removePrefix(const char* s, const char* prefix) {\n"
+            + _NULL_RET_EMPTY +
+            "    if (!prefix) return strdup(s);\n"
             "    int plen = (int)strlen(prefix);\n"
             "    if (strncmp(s, prefix, plen) == 0) {\n"
             "        int rlen = (int)strlen(s) - plen;\n"
@@ -151,6 +162,8 @@ STRING_OPS = {
     "__btrc_removeSuffix": HelperDef(
         c_source=(
             "static inline char* __btrc_removeSuffix(const char* s, const char* suffix) {\n"
+            + _NULL_RET_EMPTY +
+            "    if (!suffix) return strdup(s);\n"
             "    int slen = (int)strlen(s);\n"
             "    int suflen = (int)strlen(suffix);\n"
             "    if (slen >= suflen && strcmp(s + slen - suflen, suffix) == 0) {\n"
@@ -167,6 +180,7 @@ STRING_OPS = {
     "__btrc_capitalize": HelperDef(
         c_source=(
             "static inline char* __btrc_capitalize(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    char* r = (char*)malloc(len + 1);\n"
             "    for (int i = 0; i < len; i++) r[i] = tolower((unsigned char)s[i]);\n"
@@ -179,6 +193,7 @@ STRING_OPS = {
     "__btrc_title": HelperDef(
         c_source=(
             "static inline char* __btrc_title(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    char* r = (char*)malloc(len + 1);\n"
             "    int cap_next = 1;\n"
@@ -195,6 +210,7 @@ STRING_OPS = {
     "__btrc_swapCase": HelperDef(
         c_source=(
             "static inline char* __btrc_swapCase(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    char* r = (char*)malloc(len + 1);\n"
             "    for (int i = 0; i < len; i++) {\n"
@@ -210,6 +226,7 @@ STRING_OPS = {
     "__btrc_padLeft": HelperDef(
         c_source=(
             "static inline char* __btrc_padLeft(const char* s, int width, char fill) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    if (len >= width) { char* r = (char*)malloc(len + 1); memcpy(r, s, len); r[len] = '\\0'; return r; }\n"
             "    char* r = (char*)malloc(width + 1);\n"
@@ -224,6 +241,7 @@ STRING_OPS = {
     "__btrc_padRight": HelperDef(
         c_source=(
             "static inline char* __btrc_padRight(const char* s, int width, char fill) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    if (len >= width) { char* r = (char*)malloc(len + 1); memcpy(r, s, len); r[len] = '\\0'; return r; }\n"
             "    char* r = (char*)malloc(width + 1);\n"
@@ -237,6 +255,7 @@ STRING_OPS = {
     "__btrc_center": HelperDef(
         c_source=(
             "static inline char* __btrc_center(const char* s, int width, char fill) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    if (len >= width) { char* r = (char*)malloc(len + 1); memcpy(r, s, len); r[len] = '\\0'; return r; }\n"
             "    char* r = (char*)malloc(width + 1);\n"
@@ -253,6 +272,7 @@ STRING_OPS = {
     "__btrc_lstrip": HelperDef(
         c_source=(
             "static inline char* __btrc_lstrip(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    while (*s && isspace((unsigned char)*s)) s++;\n"
             "    char* r = (char*)malloc(strlen(s) + 1);\n"
             "    { int __n = (int)strlen(s); memcpy(r, s, __n); r[__n] = '\\0'; }\n"
@@ -263,6 +283,7 @@ STRING_OPS = {
     "__btrc_rstrip": HelperDef(
         c_source=(
             "static inline char* __btrc_rstrip(const char* s) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    while (len > 0 && isspace((unsigned char)s[len - 1])) len--;\n"
             "    char* r = (char*)malloc(len + 1);\n"
@@ -275,6 +296,7 @@ STRING_OPS = {
     "__btrc_zfill": HelperDef(
         c_source=(
             "static inline char* __btrc_zfill(const char* s, int width) {\n"
+            + _NULL_RET_EMPTY +
             "    int len = (int)strlen(s);\n"
             "    if (len >= width) return strdup(s);\n"
             "    char* r = (char*)malloc(width + 1);\n"
@@ -291,6 +313,9 @@ STRING_OPS = {
     "__btrc_strcat": HelperDef(
         c_source=(
             "static inline char* __btrc_strcat(const char* a, const char* b) {\n"
+            '    if (!a && !b) { char* r = (char*)malloc(1); r[0] = \'\\0\'; return r; }\n'
+            "    if (!a) return strdup(b);\n"
+            "    if (!b) return strdup(a);\n"
             "    int la = (int)strlen(a), lb = (int)strlen(b);\n"
             "    char* r = (char*)malloc(la + lb + 1);\n"
             "    memcpy(r, a, la);\n"
@@ -302,7 +327,8 @@ STRING_OPS = {
     "__btrc_join": HelperDef(
         c_source=(
             "static inline char* __btrc_join(char** items, int count, const char* sep) {\n"
-            "    if (count == 0) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
+            "    if (count == 0 || !items) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
+            "    if (!sep) sep = \"\";\n"
             "    int seplen = (int)strlen(sep);\n"
             "    size_t total = 0;\n"
             "    for (int i = 0; i < count; i++) total += strlen(items[i]);\n"

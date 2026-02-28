@@ -6,6 +6,7 @@ STRING_QUERY = {
     "__btrc_charAt": HelperDef(
         c_source=(
             "static inline char __btrc_charAt(const char* s, int idx) {\n"
+            "    if (!s) { fprintf(stderr, \"String index on NULL\\n\"); exit(1); }\n"
             "    int len = (int)strlen(s);\n"
             '    if (idx < 0 || idx >= len) { fprintf(stderr, "String index out of bounds: %d (length %d)\\n", idx, len); exit(1); }\n'
             "    return s[idx];\n"
@@ -15,6 +16,7 @@ STRING_QUERY = {
     "__btrc_indexOf": HelperDef(
         c_source=(
             "static inline int __btrc_indexOf(const char* s, const char* sub) {\n"
+            "    if (!s || !sub) return -1;\n"
             "    char* p = strstr(s, sub);\n"
             "    return p ? (int)(p - s) : -1;\n"
             "}"
@@ -23,6 +25,7 @@ STRING_QUERY = {
     "__btrc_lastIndexOf": HelperDef(
         c_source=(
             "static inline int __btrc_lastIndexOf(const char* s, const char* sub) {\n"
+            "    if (!s || !sub) return -1;\n"
             "    int slen = (int)strlen(s);\n"
             "    int sublen = (int)strlen(sub);\n"
             "    if (sublen == 0) return slen;\n"
@@ -36,6 +39,7 @@ STRING_QUERY = {
     "__btrc_isEmpty": HelperDef(
         c_source=(
             "static inline bool __btrc_isEmpty(const char* s) {\n"
+            "    if (!s) return true;\n"
             "    return s[0] == '\\0';\n"
             "}"
         ),
@@ -43,6 +47,7 @@ STRING_QUERY = {
     "__btrc_startsWith": HelperDef(
         c_source=(
             "static inline bool __btrc_startsWith(const char* s, const char* prefix) {\n"
+            "    if (!s || !prefix) return false;\n"
             "    return strncmp(s, prefix, strlen(prefix)) == 0;\n"
             "}"
         ),
@@ -50,6 +55,7 @@ STRING_QUERY = {
     "__btrc_endsWith": HelperDef(
         c_source=(
             "static inline bool __btrc_endsWith(const char* s, const char* suffix) {\n"
+            "    if (!s || !suffix) return false;\n"
             "    int slen = (int)strlen(s);\n"
             "    int suflen = (int)strlen(suffix);\n"
             "    if (suflen > slen) return false;\n"
@@ -60,6 +66,7 @@ STRING_QUERY = {
     "__btrc_strContains": HelperDef(
         c_source=(
             "static inline bool __btrc_strContains(const char* s, const char* sub) {\n"
+            "    if (!s || !sub) return false;\n"
             "    return strstr(s, sub) != NULL;\n"
             "}"
         ),
@@ -67,6 +74,7 @@ STRING_QUERY = {
     "__btrc_count": HelperDef(
         c_source=(
             "static inline int __btrc_count(const char* s, const char* sub) {\n"
+            "    if (!s || !sub) return 0;\n"
             "    int count = 0;\n"
             "    int sublen = (int)strlen(sub);\n"
             "    if (sublen == 0) return 0;\n"
@@ -79,6 +87,7 @@ STRING_QUERY = {
     "__btrc_find": HelperDef(
         c_source=(
             "static inline int __btrc_find(const char* s, const char* sub, int start) {\n"
+            "    if (!s || !sub) return -1;\n"
             "    int len = (int)strlen(s);\n"
             "    if (start < 0 || start >= len) return -1;\n"
             "    const char* found = strstr(s + start, sub);\n"

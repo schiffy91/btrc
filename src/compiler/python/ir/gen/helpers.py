@@ -48,13 +48,10 @@ def collect_helpers(gen: IRGenerator):
         if cat not in HELPERS:
             continue
         for name, hdef in HELPERS[cat].items():
-            if name in needed or cat in needed_cats and name in name_to_info:
-                # Only include if the specific helper is needed, or its
-                # category is needed and it's a dependency
-                if name in needed:
-                    gen.module.helper_decls.append(IRHelperDecl(
-                        category=cat,
-                        name=name,
-                        c_source=hdef.c_source,
-                        depends_on=hdef.depends_on,
-                    ))
+            if name in needed:
+                gen.module.helper_decls.append(IRHelperDecl(
+                    category=cat,
+                    name=name,
+                    c_source=hdef.c_source,
+                    depends_on=hdef.depends_on,
+                ))

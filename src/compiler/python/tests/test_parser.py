@@ -1453,3 +1453,52 @@ class TestParseErrors:
     def test_parse_error_missing_rparen(self):
         with pytest.raises(ParseError):
             parse('void foo( { }')
+
+    def test_unmatched_lbrace(self):
+        with pytest.raises(ParseError):
+            parse('void foo() {')
+
+    def test_missing_class_body(self):
+        with pytest.raises(ParseError):
+            parse('class Foo')
+
+    def test_missing_function_name(self):
+        with pytest.raises(ParseError):
+            parse('void (int x) { }')
+
+    def test_missing_if_condition_paren(self):
+        with pytest.raises(ParseError):
+            parse('void f() { if true { } }')
+
+    def test_missing_while_condition(self):
+        with pytest.raises(ParseError):
+            parse('void f() { while { } }')
+
+    def test_empty_param_list_with_comma(self):
+        with pytest.raises(ParseError):
+            parse('void foo(,) { }')
+
+    def test_missing_catch_after_try(self):
+        with pytest.raises(ParseError):
+            parse('void f() { try { } }')
+
+    def test_missing_switch_brace(self):
+        with pytest.raises(ParseError):
+            parse('void f() { switch (x) case 1: break; }')
+
+    def test_invalid_member_access(self):
+        with pytest.raises(ParseError):
+            parse('void f() { x.; }')
+
+    def test_unterminated_string(self):
+        from src.compiler.python.lexer import LexerError
+        with pytest.raises((ParseError, LexerError)):
+            parse('string s = "hello;')
+
+    def test_missing_return_type(self):
+        with pytest.raises(ParseError):
+            parse('foo() { }')
+
+    def test_unclosed_paren_in_expr(self):
+        with pytest.raises(ParseError):
+            parse('void f() { int x = (1 + 2; }')

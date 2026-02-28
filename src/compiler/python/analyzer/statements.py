@@ -2,10 +2,10 @@
 
 from ..ast_nodes import (
     Block, BreakStmt, CallExpr, CForStmt, ContinueStmt, DeleteStmt,
-    DoWhileStmt, ElseBlock, ElseIf, ExprStmt, ForInStmt, ForInitExpr,
-    ForInitVar, Identifier, IfStmt, KeepStmt, ListLiteral, MapLiteral,
-    ParallelForStmt, ReleaseStmt, ReturnStmt, SwitchStmt, ThrowStmt,
-    TryCatchStmt, TypeExpr, VarDeclStmt, WhileStmt,
+    DoWhileStmt, ElseBlock, ElseIf, ExprStmt, FieldAccessExpr, ForInStmt,
+    ForInitExpr, ForInitVar, Identifier, IfStmt, KeepStmt, ListLiteral,
+    MapLiteral, ParallelForStmt, ReleaseStmt, ReturnStmt, SwitchStmt,
+    ThrowStmt, TryCatchStmt, TypeExpr, VarDeclStmt, WhileStmt,
 )
 from .core import SymbolInfo
 
@@ -117,8 +117,11 @@ class StatementsMixin:
                 enum_values = set(self.enum_table[val_type.base])
                 covered = set()
                 for case in stmt.cases:
-                    if case.value and isinstance(case.value, Identifier):
-                        covered.add(case.value.name)
+                    if case.value:
+                        if isinstance(case.value, Identifier):
+                            covered.add(case.value.name)
+                        elif isinstance(case.value, FieldAccessExpr):
+                            covered.add(case.value.field)
                 missing = enum_values - covered
                 if missing:
                     names = ", ".join(sorted(missing))

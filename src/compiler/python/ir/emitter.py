@@ -179,30 +179,7 @@ class CEmitter(_ExprEmitterMixin):
                 self._indent += 1
                 self._emit_block_contents(stmt.then_block)
                 self._indent -= 1
-            if stmt.else_block and stmt.else_block.stmts:
-                # Check if else block is a single if statement (else if)
-                if (len(stmt.else_block.stmts) == 1
-                        and isinstance(stmt.else_block.stmts[0], IRIf)):
-                    inner = stmt.else_block.stmts[0]
-                    self._line(f"}} else if ({self._expr(inner.condition)}) {{")
-                    if inner.then_block:
-                        self._indent += 1
-                        self._emit_block_contents(inner.then_block)
-                        self._indent -= 1
-                    if inner.else_block and inner.else_block.stmts:
-                        self._line("} else {")
-                        self._indent += 1
-                        self._emit_block_contents(inner.else_block)
-                        self._indent -= 1
-                    self._line("}")
-                else:
-                    self._line("} else {")
-                    self._indent += 1
-                    self._emit_block_contents(stmt.else_block)
-                    self._indent -= 1
-                    self._line("}")
-            else:
-                self._line("}")
+            self._emit_else_tail(stmt)
 
         elif isinstance(stmt, IRWhile):
             self._line(f"while ({self._expr(stmt.condition)}) {{")
@@ -270,6 +247,28 @@ class CEmitter(_ExprEmitterMixin):
             for raw_line in stmt.text.split("\n"):
                 if raw_line.strip():
                     self._line(raw_line)
+
+    def _emit_else_tail(self, stmt: IRIf):
+        """Emit the else / else-if tail of an IRIf, recursing for chains."""
+        if not stmt.else_block or not stmt.else_block.stmts:
+            self._line("}")
+            return
+        # else-if: single IRIf inside the else block
+        if (len(stmt.else_block.stmts) == 1
+                and isinstance(stmt.else_block.stmts[0], IRIf)):
+            inner = stmt.else_block.stmts[0]
+            self._line(f"}} else if ({self._expr(inner.condition)}) {{")
+            if inner.then_block:
+                self._indent += 1
+                self._emit_block_contents(inner.then_block)
+                self._indent -= 1
+            self._emit_else_tail(inner)
+        else:
+            self._line("} else {")
+            self._indent += 1
+            self._emit_block_contents(stmt.else_block)
+            self._indent -= 1
+            self._line("}")
 
     # --- Output helpers ---
 

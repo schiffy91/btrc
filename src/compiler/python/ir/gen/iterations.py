@@ -7,8 +7,8 @@ from ...ast_nodes import (
     CForStmt, ForInitExpr, ForInitVar, CallExpr, Identifier,
 )
 from ..nodes import (
-    CType, IRAssign, IRBinOp, IRBlock, IRCall, IRExprStmt, IRFor, IRIndex,
-    IRLiteral, IRStmt, IRTernary, IRUnaryOp, IRVarDecl, IRVar,
+    CType, IRAssign, IRBinOp, IRBlock, IRCall, IRExprStmt, IRFieldAccess,
+    IRFor, IRIndex, IRLiteral, IRStmt, IRTernary, IRUnaryOp, IRVarDecl, IRVar,
 )
 from .types import type_to_c, mangle_generic_type
 
@@ -43,20 +43,34 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     if iter_type and iter_type.base == "string":
         return _lower_string_for_in(gen, node, ir_iter, var_name)
 
-    # Fallback: assume list-like with .len and .data
+    # Fallback: assume list-like with ->len and ->data[i]
+    # Use a temp variable so the iterable is only evaluated once and
+    # we always have a named variable for field access (fixes broken
+    # codegen when ir_iter is not a simple IRVar).
     idx = gen.fresh_temp("__i")
+    tmp_iter = gen.fresh_temp("__iter")
+    iter_c_type = "void*"
+    if iter_type:
+        iter_c_type = type_to_c(iter_type)
+        if not iter_c_type.endswith("*"):
+            iter_c_type += "*"
     body_block = lower_block(gen, node.body)
     body_block.stmts.insert(0, IRVarDecl(
         c_type=CType(text="int"), name=var_name,
-        init=IRIndex(obj=ir_iter, index=IRVar(name=idx))))
-    return [IRFor(
-        init=IRVarDecl(c_type=CType(text="int"), name=idx,
-                       init=IRLiteral(text="0")),
-        condition=IRBinOp(left=IRVar(name=idx), op="<",
-                          right=IRVar(name=f"{_var_name_from_expr(ir_iter)}_len")),
-        update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
-        body=body_block,
-    )]
+        init=IRIndex(obj=IRVar(name=tmp_iter), index=IRVar(name=idx))))
+    return [
+        IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter),
+        IRFor(
+            init=IRVarDecl(c_type=CType(text="int"), name=idx,
+                           init=IRLiteral(text="0")),
+            condition=IRBinOp(
+                left=IRVar(name=idx), op="<",
+                right=IRFieldAccess(
+                    obj=IRVar(name=tmp_iter), field="len", arrow=True)),
+            update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
+            body=body_block,
+        ),
+    ]
 
 
 def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info,

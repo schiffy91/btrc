@@ -166,7 +166,7 @@ class ExpressionsMixin:
             names.add(node.name)
             return
         for attr in ('declarations', 'members', 'statements', 'body', 'then_block',
-                     'else_block', 'args', 'elements', 'entries', 'cases'):
+                     'else_block', 'args', 'elements', 'entries', 'cases', 'parts'):
             child = getattr(node, attr, None)
             if child is None:
                 continue

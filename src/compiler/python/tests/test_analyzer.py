@@ -2973,3 +2973,54 @@ class TestThreadMutexValidation:
             }
         '''
         assert has_error(src, "Mutex<T> has no method 'lock'")
+
+
+# --- Interface & Abstract compliance ---
+
+class TestInterfaceCompliance:
+    def test_interface_method_implemented(self):
+        src = '''
+            interface Printable { string toString(); }
+            class Foo implements Printable {
+                public string toString() { return "foo"; }
+            }
+        '''
+        assert no_errors(src)
+
+    def test_interface_method_missing(self):
+        src = '''
+            interface Printable { string toString(); }
+            class Foo implements Printable { }
+        '''
+        assert has_error(src, "does not implement")
+
+    def test_abstract_method_implemented(self):
+        src = '''
+            abstract class Shape {
+                public abstract double area();
+            }
+            class Circle extends Shape {
+                public double r;
+                public Circle(double r) { self.r = r; }
+                public double area() { return 3.14 * self.r * self.r; }
+            }
+        '''
+        assert no_errors(src)
+
+    def test_abstract_method_missing(self):
+        src = '''
+            abstract class Shape {
+                public abstract double area();
+            }
+            class Circle extends Shape { public double r; }
+        '''
+        assert has_error(src, "abstract")
+
+    def test_abstract_class_instantiation(self):
+        src = '''
+            abstract class Shape {
+                public abstract double area();
+            }
+            void test() { Shape s = Shape(); }
+        '''
+        assert has_error(src, "Cannot instantiate abstract")
