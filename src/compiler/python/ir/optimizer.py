@@ -138,17 +138,31 @@ def _scan_raw_stmt(stmt, helper_names, used):
             _scan_raw_exprs(stmt.then_block, helper_names, used)
         if stmt.else_block:
             _scan_raw_exprs(stmt.else_block, helper_names, used)
+    elif isinstance(stmt, IRAssign):
+        if stmt.target:
+            _scan_raw_expr(stmt.target, helper_names, used)
+        if stmt.value:
+            _scan_raw_expr(stmt.value, helper_names, used)
     elif isinstance(stmt, (IRWhile, IRDoWhile)):
+        if stmt.condition:
+            _scan_raw_expr(stmt.condition, helper_names, used)
         if stmt.body:
             _scan_raw_exprs(stmt.body, helper_names, used)
-    elif isinstance(stmt, IRFor) and stmt.body:
-        _scan_raw_exprs(stmt.body, helper_names, used)
-        # Also scan init/condition/update strings
-        for text in [stmt.init, stmt.condition, stmt.update]:
-            if text:
-                for name in helper_names:
-                    if name in text:
-                        used.add(name)
+    elif isinstance(stmt, IRSwitch):
+        if stmt.value:
+            _scan_raw_expr(stmt.value, helper_names, used)
+        for case in stmt.cases:
+            for s in case.body:
+                _scan_raw_stmt(s, helper_names, used)
+    elif isinstance(stmt, IRFor):
+        if stmt.init:
+            _scan_raw_stmt(stmt.init, helper_names, used)
+        if stmt.condition:
+            _scan_raw_expr(stmt.condition, helper_names, used)
+        if stmt.update:
+            _scan_raw_expr(stmt.update, helper_names, used)
+        if stmt.body:
+            _scan_raw_exprs(stmt.body, helper_names, used)
 
 
 def _scan_raw_expr(expr, helper_names, used):
@@ -174,6 +188,17 @@ def _scan_raw_expr(expr, helper_names, used):
         _scan_raw_expr(expr.false_expr, helper_names, used)
     elif isinstance(expr, IRCast):
         _scan_raw_expr(expr.expr, helper_names, used)
+    elif isinstance(expr, IRFieldAccess):
+        _scan_raw_expr(expr.obj, helper_names, used)
+    elif isinstance(expr, IRIndex):
+        _scan_raw_expr(expr.obj, helper_names, used)
+        _scan_raw_expr(expr.index, helper_names, used)
+    elif isinstance(expr, IRAddressOf):
+        _scan_raw_expr(expr.expr, helper_names, used)
+    elif isinstance(expr, IRDeref):
+        _scan_raw_expr(expr.expr, helper_names, used)
+    elif isinstance(expr, IRUnaryOp):
+        _scan_raw_expr(expr.operand, helper_names, used)
     elif isinstance(expr, IRStmtExpr):
         for s in expr.stmts:
             _scan_raw_stmt(s, helper_names, used)
@@ -220,6 +245,12 @@ def _collect_from_stmt(stmt: IRStmt, used: set[str]):
         if stmt.condition:
             _collect_from_expr(stmt.condition, used)
     elif isinstance(stmt, IRFor):
+        if stmt.init:
+            _collect_from_stmt(stmt.init, used)
+        if stmt.condition:
+            _collect_from_expr(stmt.condition, used)
+        if stmt.update:
+            _collect_from_expr(stmt.update, used)
         if stmt.body:
             _collect_helper_refs(stmt.body, used)
     elif isinstance(stmt, IRSwitch):

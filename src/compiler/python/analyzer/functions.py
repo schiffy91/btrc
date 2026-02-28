@@ -185,16 +185,28 @@ class FunctionsMixin:
                 if stmt.else_block is not None and self._has_return_in_if(stmt):
                     return True
             if isinstance(stmt, SwitchStmt):
-                for case in stmt.cases:
-                    for case_stmt in case.body:
-                        if isinstance(case_stmt, (ReturnStmt, ThrowStmt)):
-                            return True
-                        if isinstance(case_stmt, Block) and self._has_return(case_stmt):
-                            return True
-                        if (isinstance(case_stmt, IfStmt)
-                                and case_stmt.else_block is not None):
-                            if self._has_return_in_if(case_stmt):
-                                return True
+                has_default = any(case.value is None for case in stmt.cases)
+                if has_default:
+                    all_cases_return = True
+                    for case in stmt.cases:
+                        case_returns = False
+                        for case_stmt in case.body:
+                            if isinstance(case_stmt, (ReturnStmt, ThrowStmt)):
+                                case_returns = True
+                                break
+                            if isinstance(case_stmt, Block) and self._has_return(case_stmt):
+                                case_returns = True
+                                break
+                            if (isinstance(case_stmt, IfStmt)
+                                    and case_stmt.else_block is not None):
+                                if self._has_return_in_if(case_stmt):
+                                    case_returns = True
+                                    break
+                        if not case_returns:
+                            all_cases_return = False
+                            break
+                    if all_cases_return:
+                        return True
             if isinstance(stmt, WhileStmt) and isinstance(stmt.condition, BoolLiteral):
                 if stmt.condition.value and stmt.body and self._has_return(stmt.body):
                     return True

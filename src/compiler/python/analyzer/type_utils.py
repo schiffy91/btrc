@@ -58,7 +58,7 @@ class TypeUtilsMixin:
                     if not self._types_compatible(t_arg, s_arg):
                         return False
             return True
-        numeric = {"int", "float", "double", "char"}
+        numeric = {"int", "float", "double", "char", "long", "short", "byte", "uint"}
         if target.base in numeric and source.base in numeric:
             return True
         if target.base == "string" and source.base == "char" and source.pointer_depth >= 1:

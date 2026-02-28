@@ -83,7 +83,7 @@ class Math {
     }
 
     class int lcm(int a, int b) {
-        return Math.abs(a * b) / Math.gcd(a, b);
+        return Math.abs(a) / Math.gcd(a, b) * Math.abs(b);
     }
 
     /* Fibonacci */

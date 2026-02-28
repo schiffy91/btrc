@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from ..ast_nodes import (
     AssignExpr, BinaryExpr, BoolLiteral, BraceInitializer, CallExpr, CastExpr,
-    CharLiteral, FieldAccessExpr, FloatLiteral, Identifier,
+    CharLiteral, FStringLiteral, FieldAccessExpr, FloatLiteral, Identifier,
     IndexExpr, IntLiteral, LambdaExpr, LambdaExprBody, ListLiteral,
-    MapLiteral, NewExpr, NullLiteral, ReturnStmt, SelfExpr, SpawnExpr,
-    StringLiteral, TernaryExpr, TupleLiteral, TypeExpr, UnaryExpr,
+    MapLiteral, NewExpr, NullLiteral, ReturnStmt, SelfExpr, SizeofExpr,
+    SpawnExpr, StringLiteral, TernaryExpr, TupleLiteral, TypeExpr, UnaryExpr,
     LambdaBlock,
 )
 
@@ -26,6 +26,10 @@ class TypeInferenceMixin:
             return TypeExpr(base="char")
         elif isinstance(expr, BoolLiteral):
             return TypeExpr(base="bool")
+        elif isinstance(expr, FStringLiteral):
+            return TypeExpr(base="string")
+        elif isinstance(expr, SizeofExpr):
+            return TypeExpr(base="int")
         elif isinstance(expr, NullLiteral):
             return TypeExpr(base="void", pointer_depth=1, is_nullable=True)
         elif isinstance(expr, Identifier):
@@ -205,6 +209,10 @@ class TypeInferenceMixin:
                     t = self._infer_type(stmt.value)
                     if t:
                         return t
+        elif isinstance(expr.body, LambdaExprBody):
+            t = self._infer_type(expr.body.expression)
+            if t:
+                return t
         return TypeExpr(base="int")
 
     def _get_element_type(self, iter_type, line, col):

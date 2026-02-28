@@ -2,7 +2,7 @@
 
 **Modern syntax. C output. No magic.**
 
-btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, collections, threads, automatic reference counting, exception handling, and a standard library -- while staying compatible with C. The generated C is readable and self-contained: no runtime library, no garbage collector, no virtual machine. Small inline helpers handle strings, collections, threading, and exceptions, but nothing is linked separately. You can inspect, debug, and link the output against anything.
+btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, collections, threads, automatic reference counting, exception handling, and a standard library -- all while staying compatible with C. The generated C is readable and self-contained: no runtime library, no garbage collector, no virtual machine. Small inline helpers handle strings, collections, threading, and exceptions, but nothing is linked separately. You can inspect, debug, and link the output against anything. It even comes with a VSCode extension.
 
 ```
 interface Animal {
@@ -34,18 +34,23 @@ class Pair<A, B> {
 }
 
 int main() {
-    Dog rex = Dog("Rex");
-    Cat luna = Cat("Luna");
-
-    print(f"{rex.name} says {rex.speak()}");
-    print(f"{luna.name} says {luna.speak()}");
-
+    var rex = Dog("Rex");
     rex.learnTrick();
-    rex.learnTrick();
+    print(f"{rex.name} knows {rex.tricks} tricks and says {rex.speak()}");
+
+    var luna = Cat("Luna");
+    luna.learnTrick();
+    print(f"{luna.name} knows {luna.tricks} tricks and says {luna.speak()}");
+
+    Vector<Pet> pets = [rex, luna];
+    var dogs = pets.filter(bool function(Pet pet) {
+        return 
+    });
+
     Pair<string, int> info = Pair(rex.name, rex.tricks);
     print(f"{info.first} knows {info.second} trick(s)");
 
-    Vector<string> names = ["Rex", "Bella", "Luna", "Max"];
+    
 
     var bNames = names.filter(bool function(string n) {
         return n.startsWith("B");
@@ -64,11 +69,15 @@ int main() {
 
 ## Why btrc?
 
-As LLMs make programming more accessible, code itself becomes less about typing and more about taste -- what you choose to build, how you choose to build it, what tradeoffs you find beautiful. Programming is becoming an art. btrc is an art project.
+As AI makes programming more accessible, code itself will become an abstraction layer that – over time – people in tech will spend less of their time looking at. Soon enough, we'll all be focused on what we choose to build, how we build it, what tradeoffs we find palatable. Much like hand-crafted tools, hand-crafted programming will become more of an artisnal craft. In that spirit, btrc is an art project where I explore a language I always wanted – but never had the time to build…but now do with the help of AI.
 
-The design question: *what if you could write C with modern syntax and get readable C output you can inspect?* The compiler is spec-driven -- a formal [EBNF grammar](src/language/grammar.ebnf) defines every keyword and operator, an [algebraic AST spec](src/language/ast/ast.asdl) defines every node type, and the pipeline walks through six stages from source to native binary. The generated C is something a human could have written. You can read it, debug it, link it against anything.
+The fundemental question I've had for years is what if treated C as assembly language? I imagine I could make a more ergonomic language than C++. 
 
-It's a transpiler, not a new compiler backend -- you get gcc compatibility for free but inherit C's limitations. There is no borrow checker or lifetime analysis. ARC handles most memory management automatically and cleans up on exceptions, but does not prevent all use-after-free bugs. If you need a production systems language with full safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/).
+I've written a language with a formal [EBNF grammar](src/language/grammar.ebnf), which mathematically defines every keyword and operator, an [algebraic AST spec](src/language/ast/ast.asdl) defines every node type, and compiler pipeline consumes both, walking through six stages from source to native binary. Instead of outputting an intermediate language like LLVM or assembly code directly, it outputs C code. The C code should resemble something that a human could have written. You can read it, debug it, link it against anything. It's just C.
+
+So btrc is really a transpiler – not a new compiler backend. You get gcc compatibility for free – but inherit C's limitations. So there is no borrow checker or lifetime analysis. I did implement a very simple Automatic Reference Management (ARC) that handles most memory management use cases automatically – it even handles cycles and and cleans up on exceptions – but does not prevent all use-after-free bugs. Just like C, you can still shoot yourself in the foot. But what's life without a little bit of fun.
+
+If you need a production systems language with full safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/). Don't use a random guy's funky art project on the internet.
 
 ## Quick Start
 
@@ -77,7 +86,7 @@ It's a transpiler, not a new compiler backend -- you get gcc compatibility for f
 make build
 
 # Compile a program
-./bin/btrc hello.btrc -o hello.c
+./bin/btrcpy hello.btrc -o hello.c
 gcc hello.c -o hello -lm -lpthread
 ./hello
 
@@ -91,6 +100,7 @@ python3 -m src.compiler.python.main hello.btrc -o hello.c
 |---|---|
 | No classes | Full OOP: classes, inheritance, interfaces, abstract classes, properties |
 | No generics | Monomorphized generics (`Vector<T>`, `Map<K,V>`, user-defined) |
+| No memory management | ARC (Automatic Reference Counting) |
 | No type inference | `var x = 42;` just works |
 | `printf` formatting | f-strings: `f"x = {x + 1}"` |
 | No collections | `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>` with rich APIs |

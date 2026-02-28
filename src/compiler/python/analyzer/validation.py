@@ -7,6 +7,16 @@ from ..ast_nodes import (
 
 class ValidationMixin:
 
+    def _normalize_type_key(self, t: TypeExpr) -> tuple:
+        """Create a position-independent key for a TypeExpr (strips line/col)."""
+        generic_args = tuple(
+            self._normalize_type_key(a) for a in (t.generic_args or [])
+        )
+        return (t.base, generic_args, t.pointer_depth,
+                getattr(t, 'is_nullable', False),
+                getattr(t, 'is_array', False),
+                getattr(t, 'array_size', None))
+
     def _analyze_call(self, expr):
         self._analyze_expr(expr.callee)
         for arg in expr.args:
@@ -164,8 +174,12 @@ class ValidationMixin:
                         getattr(type_expr, 'line', 0), getattr(type_expr, 'col', 0))
             if key not in self.generic_instances:
                 self.generic_instances[key] = []
-            existing = [t for t in self.generic_instances[key]]
-            if args_tuple not in existing:
+            normalized_new = tuple(self._normalize_type_key(a) for a in args_tuple)
+            already_exists = any(
+                tuple(self._normalize_type_key(a) for a in existing_args) == normalized_new
+                for existing_args in self.generic_instances[key]
+            )
+            if not already_exists:
                 self.generic_instances[key].append(args_tuple)
             # Register transitive deps from method return types
             if key in self.class_table:

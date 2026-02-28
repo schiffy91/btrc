@@ -2,12 +2,12 @@
  * A type representing either success (Ok) or failure (Err).
  *
  * Usage:
- *   Result<int, string> r = Result.ok(42);
+ *   Result<int, string> r = new Result<int, string>(true, 42, "");
  *   if (r.isOk()) {
  *       print(r.unwrap());
  *   }
  *
- *   Result<int, string> e = Result.err("not found");
+ *   Result<int, string> e = new Result<int, string>(false, 0, "not found");
  *   if (e.isErr()) {
  *       print(e.unwrapErr());
  *   }

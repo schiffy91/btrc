@@ -248,7 +248,7 @@ it will be a faithful port of the Python compiler in btrc, following the same
 
 ### Test Categories
 
-#### 1. Python Unit Tests (per-stage, ~467 tests)
+#### 1. Python Unit Tests (per-stage, ~490 tests)
 ```
 src/compiler/python/tests/
   test_lexer.py           tokenize snippets → check tokens
@@ -256,7 +256,7 @@ src/compiler/python/tests/
   test_analyzer.py        analyze snippets → check types/errors
 ```
 
-#### 2. Language Tests (280 .btrc files, organized by topic)
+#### 2. Language Tests (292 .btrc files, organized by topic)
 ```
 src/tests/
   runner.py                test runner (pytest parametrized)
@@ -283,8 +283,8 @@ Each subdirectory has:
 ### Makefile Targets
 ```
 make build          Create bin/btrcpy wrapper script
-make test           Python unit tests + 280 btrc language tests
-make test-btrc      Just the 280 btrc language tests
+make test           Python unit tests + 292 btrc language tests
+make test-btrc      Just the 292 btrc language tests
 make lint           Lint with ruff
 make format         Format with ruff
 make clean          Remove build artifacts
@@ -299,5 +299,5 @@ make clean          Remove build artifacts
 3. **Grammar is the single source of truth.** No hardcoded keywords/operators.
 4. **AST types come from ASDL.** Never hand-edit generated files.
 5. **Files ~200 lines max.** Decompose into packages.
-6. **All 747 tests must pass.** No "pre-existing failures."
+6. **All 782 tests must pass.** No "pre-existing failures."
 7. **Don't cut corners when context runs low.** Save state and stop.

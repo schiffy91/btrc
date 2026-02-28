@@ -272,11 +272,70 @@ def _uses_trycatch(decl) -> bool:
 
 
 def _block_uses_trycatch(block) -> bool:
-    from ...ast_nodes import TryCatchStmt, ThrowStmt, Block
+    from ...ast_nodes import (
+        TryCatchStmt, ThrowStmt, Block, IfStmt, WhileStmt, DoWhileStmt,
+        ForInStmt, CForStmt, SwitchStmt, ElseBlock, ElseIf,
+    )
     if block is None:
         return False
     if isinstance(block, Block):
         for s in block.statements:
             if isinstance(s, (TryCatchStmt, ThrowStmt)):
                 return True
+            if isinstance(s, IfStmt):
+                if _block_uses_trycatch(s.then_block):
+                    return True
+                if s.else_block:
+                    if isinstance(s.else_block, ElseBlock):
+                        if _block_uses_trycatch(s.else_block.body):
+                            return True
+                    elif isinstance(s.else_block, ElseIf):
+                        if _stmt_uses_trycatch(s.else_block.if_stmt):
+                            return True
+            elif isinstance(s, (WhileStmt, DoWhileStmt, ForInStmt, CForStmt)):
+                if _block_uses_trycatch(s.body):
+                    return True
+            elif isinstance(s, SwitchStmt):
+                for case in s.cases:
+                    for cs in case.body:
+                        if isinstance(cs, (TryCatchStmt, ThrowStmt)):
+                            return True
+                        if _stmt_uses_trycatch(cs):
+                            return True
+            elif isinstance(s, TryCatchStmt):
+                if _block_uses_trycatch(s.try_block):
+                    return True
+                if _block_uses_trycatch(s.catch_block):
+                    return True
+                if _block_uses_trycatch(s.finally_block):
+                    return True
+    return False
+
+
+def _stmt_uses_trycatch(s) -> bool:
+    """Check if a single statement (or nested if) uses try/catch."""
+    from ...ast_nodes import (
+        TryCatchStmt, ThrowStmt, IfStmt, WhileStmt, DoWhileStmt,
+        ForInStmt, CForStmt, SwitchStmt, ElseBlock, ElseIf,
+    )
+    if isinstance(s, (TryCatchStmt, ThrowStmt)):
+        return True
+    if isinstance(s, IfStmt):
+        if _block_uses_trycatch(s.then_block):
+            return True
+        if s.else_block:
+            if isinstance(s.else_block, ElseBlock):
+                if _block_uses_trycatch(s.else_block.body):
+                    return True
+            elif isinstance(s.else_block, ElseIf):
+                if _stmt_uses_trycatch(s.else_block.if_stmt):
+                    return True
+    elif isinstance(s, (WhileStmt, DoWhileStmt, ForInStmt, CForStmt)):
+        if _block_uses_trycatch(s.body):
+            return True
+    elif isinstance(s, SwitchStmt):
+        for case in s.cases:
+            for cs in case.body:
+                if _stmt_uses_trycatch(cs):
+                    return True
     return False

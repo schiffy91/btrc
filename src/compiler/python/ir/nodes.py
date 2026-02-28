@@ -31,6 +31,7 @@ class IRModule:
     includes: list[str] = field(default_factory=list)         # e.g., ["stdio.h", "stdlib.h"]
     forward_decls: list[str] = field(default_factory=list)    # forward struct/function declarations
     helper_decls: list[IRHelperDecl] = field(default_factory=list)  # runtime helpers
+    enum_defs: list[IREnumDef] = field(default_factory=list)  # C enum typedefs
     struct_defs: list[IRStructDef] = field(default_factory=list)
     vtable_defs: list[str] = field(default_factory=list)      # vtable struct/instance text
     global_vars: list[str] = field(default_factory=list)       # global variable declarations
@@ -53,6 +54,21 @@ class IRHelperDecl:
     name: str
     c_source: str
     depends_on: list[str] = field(default_factory=list)
+
+
+# --- Enum definitions ---
+
+@dataclass
+class IREnumValue:
+    """A value in a C enum."""
+    name: str
+    value: str = ""  # C expression text for explicit value, empty for auto
+
+@dataclass
+class IREnumDef:
+    """C enum typedef: typedef enum { ... } Name;"""
+    name: str
+    values: list[IREnumValue] = field(default_factory=list)
 
 
 # --- Struct definitions ---
@@ -148,9 +164,9 @@ class IRDoWhile(IRStmt):
 @dataclass
 class IRFor(IRStmt):
     """C-style for loop: `for (init; cond; update) { body }`"""
-    init: str = ""       # pre-rendered C text for init
-    condition: str = ""  # pre-rendered C text for condition
-    update: str = ""     # pre-rendered C text for update
+    init: IRStmt = None         # var decl or expr stmt (None for empty init)
+    condition: IRExpr = None    # loop condition (None for infinite loop)
+    update: IRExpr = None       # update expression (None for no update)
     body: IRBlock = None
 
 

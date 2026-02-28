@@ -1,10 +1,14 @@
-"""Enum lowering: EnumDecl, RichEnumDecl → C enums and tagged unions."""
+"""Enum lowering: EnumDecl, RichEnumDecl → structured IR nodes."""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import EnumDecl, RichEnumDecl
-from ..nodes import IRStructDef, IRStructField, CType
+from ..nodes import (
+    CType, IRAssign, IRBlock, IRCase, IREnumDef, IREnumValue,
+    IRFieldAccess, IRFunctionDef, IRLiteral, IRParam, IRReturn,
+    IRStructDef, IRStructField, IRSwitch, IRVar, IRVarDecl,
+)
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -20,55 +24,76 @@ def emit_enum_decls(gen: IRGenerator):
 
 
 def _emit_enum(gen: IRGenerator, decl: EnumDecl):
-    """Emit a simple enum as a C enum + toString function."""
+    """Emit a simple enum as IREnumDef + toString IRFunctionDef."""
+    # Build enum definition
     values = []
     for i, v in enumerate(decl.values):
         if v.value is not None:
             from .expressions import lower_expr
-            val_text = _expr_text(lower_expr(gen, v.value))
-            values.append(f"    {decl.name}_{v.name} = {val_text}")
+            from .statements import _quick_text
+            val_text = _quick_text(lower_expr(gen, v.value))
+            values.append(IREnumValue(
+                name=f"{decl.name}_{v.name}", value=val_text))
         else:
-            values.append(f"    {decl.name}_{v.name} = {i}")
-    body = ",\n".join(values)
-    gen.module.raw_sections.append(f"typedef enum {{\n{body}\n}} {decl.name};")
+            values.append(IREnumValue(
+                name=f"{decl.name}_{v.name}", value=str(i)))
+    gen.module.enum_defs.append(IREnumDef(name=decl.name, values=values))
 
-    # Generate toString function
-    cases = []
-    for v in decl.values:
-        cases.append(f'        case {decl.name}_{v.name}: return "{v.name}";')
-    cases_text = "\n".join(cases)
-    gen.module.raw_sections.append(
-        f"static const char* {decl.name}_toString({decl.name} val) {{\n"
-        f"    switch (val) {{\n{cases_text}\n"
-        f'        default: return "unknown";\n'
-        f"    }}\n}}")
+    # Generate toString function as IRFunctionDef
+    cases = [
+        IRCase(
+            value=IRLiteral(text=f"{decl.name}_{v.name}"),
+            body=[IRReturn(value=IRLiteral(text=f'"{v.name}"'))])
+        for v in decl.values
+    ]
+    cases.append(IRCase(
+        value=None,
+        body=[IRReturn(value=IRLiteral(text='"unknown"'))]))
+
+    gen.module.function_defs.append(IRFunctionDef(
+        name=f"{decl.name}_toString",
+        return_type=CType(text="const char*"),
+        params=[IRParam(c_type=CType(text=decl.name), name="val")],
+        is_static=True,
+        body=IRBlock(stmts=[
+            IRSwitch(value=IRVar(name="val"), cases=cases),
+        ]),
+    ))
 
 
 def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
-    """Emit a rich enum as a tagged union."""
+    """Emit a rich enum as tag IREnumDef + data structs + tagged union + ctors."""
     name = decl.name
 
-    # Tag enum
-    tag_values = [f"    {name}_{v.name}_TAG = {i}" for i, v in enumerate(decl.variants)]
-    tag_body = ",\n".join(tag_values)
-    gen.module.raw_sections.append(f"typedef enum {{\n{tag_body}\n}} {name}_Tag;")
+    # Tag enum → IREnumDef
+    tag_values = [
+        IREnumValue(name=f"{name}_{v.name}_TAG", value=str(i))
+        for i, v in enumerate(decl.variants)
+    ]
+    gen.module.enum_defs.append(IREnumDef(
+        name=f"{name}_Tag", values=tag_values))
 
-    # Data structs for each variant with parameters
+    # Data structs for each variant with parameters → IRStructDef + typedef
     for v in decl.variants:
         if v.params:
-            fields = []
-            for p in v.params:
-                from .types import type_to_c
-                fields.append(f"    {type_to_c(p.type)} {p.name};")
-            field_text = "\n".join(fields)
-            gen.module.raw_sections.append(
-                f"typedef struct {{\n{field_text}\n}} {name}_{v.name}_Data;")
+            from .types import type_to_c
+            struct_name = f"{name}_{v.name}_Data"
+            gen.module.forward_decls.append(
+                f"typedef struct {struct_name} {struct_name};")
+            fields = [
+                IRStructField(c_type=CType(text=type_to_c(p.type)), name=p.name)
+                for p in v.params
+            ]
+            gen.module.struct_defs.append(IRStructDef(
+                name=struct_name, fields=fields))
 
-    # Main struct with tag + union
+    # Main struct with tag + union → raw_sections
+    # (IRStructDef doesn't support unions; keep as raw C text)
     union_fields = []
     for v in decl.variants:
         if v.params:
-            union_fields.append(f"        {name}_{v.name}_Data {v.name};")
+            union_fields.append(
+                f"        {name}_{v.name}_Data {v.name};")
     if union_fields:
         union_text = "\n".join(union_fields)
         gen.module.raw_sections.append(
@@ -80,41 +105,71 @@ def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
         gen.module.raw_sections.append(
             f"typedef struct {{\n    {name}_Tag tag;\n}} {name};")
 
-    # Constructor functions for each variant
+    # Constructor functions → IRFunctionDef
     for v in decl.variants:
         from .types import type_to_c
         if v.params:
-            params = [f"{type_to_c(p.type)} {p.name}" for p in v.params]
-            assigns = [f"    c.data.{v.name}.{p.name} = {p.name};" for p in v.params]
-            gen.module.raw_sections.append(
-                f"static {name} {name}_{v.name}({', '.join(params)}) {{\n"
-                f"    {name} c; c.tag = {name}_{v.name}_TAG;\n"
-                f"{''.join(a + chr(10) for a in assigns)}"
-                f"    return c;\n}}")
+            params = [
+                IRParam(c_type=CType(text=type_to_c(p.type)), name=p.name)
+                for p in v.params
+            ]
+            body_stmts = [
+                IRVarDecl(c_type=CType(text=name), name="c", init=None),
+                IRAssign(
+                    target=IRFieldAccess(
+                        obj=IRVar(name="c"), field="tag", arrow=False),
+                    value=IRLiteral(text=f"{name}_{v.name}_TAG")),
+            ]
+            for p in v.params:
+                body_stmts.append(IRAssign(
+                    target=IRFieldAccess(
+                        obj=IRFieldAccess(
+                            obj=IRFieldAccess(
+                                obj=IRVar(name="c"),
+                                field="data", arrow=False),
+                            field=v.name, arrow=False),
+                        field=p.name, arrow=False),
+                    value=IRVar(name=p.name)))
+            body_stmts.append(IRReturn(value=IRVar(name="c")))
         else:
-            gen.module.raw_sections.append(
-                f"static {name} {name}_{v.name}(void) {{\n"
-                f"    {name} c; c.tag = {name}_{v.name}_TAG;\n"
-                f"    return c;\n}}")
+            params = []
+            body_stmts = [
+                IRVarDecl(c_type=CType(text=name), name="c", init=None),
+                IRAssign(
+                    target=IRFieldAccess(
+                        obj=IRVar(name="c"), field="tag", arrow=False),
+                    value=IRLiteral(text=f"{name}_{v.name}_TAG")),
+                IRReturn(value=IRVar(name="c")),
+            ]
 
-    # Generate toString function
-    cases = []
-    for v in decl.variants:
-        cases.append(f'        case {name}_{v.name}_TAG: return "{v.name}";')
-    cases_text = "\n".join(cases)
-    gen.module.raw_sections.append(
-        f"static const char* {name}_toString({name} val) {{\n"
-        f"    switch (val.tag) {{\n{cases_text}\n"
-        f'        default: return "unknown";\n'
-        f"    }}\n}}")
+        gen.module.function_defs.append(IRFunctionDef(
+            name=f"{name}_{v.name}",
+            return_type=CType(text=name),
+            params=params,
+            is_static=True,
+            body=IRBlock(stmts=body_stmts),
+        ))
 
+    # Generate toString function as IRFunctionDef
+    cases = [
+        IRCase(
+            value=IRLiteral(text=f"{name}_{v.name}_TAG"),
+            body=[IRReturn(value=IRLiteral(text=f'"{v.name}"'))])
+        for v in decl.variants
+    ]
+    cases.append(IRCase(
+        value=None,
+        body=[IRReturn(value=IRLiteral(text='"unknown"'))]))
 
-def _expr_text(expr) -> str:
-    from ..nodes import IRLiteral, IRVar, IRRawExpr
-    if isinstance(expr, IRLiteral):
-        return expr.text
-    if isinstance(expr, IRVar):
-        return expr.name
-    if isinstance(expr, IRRawExpr):
-        return expr.text
-    return "0"
+    gen.module.function_defs.append(IRFunctionDef(
+        name=f"{name}_toString",
+        return_type=CType(text="const char*"),
+        params=[IRParam(c_type=CType(text=name), name="val")],
+        is_static=True,
+        body=IRBlock(stmts=[
+            IRSwitch(
+                value=IRFieldAccess(
+                    obj=IRVar(name="val"), field="tag", arrow=False),
+                cases=cases),
+        ]),
+    ))

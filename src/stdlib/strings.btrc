@@ -46,6 +46,7 @@ class Strings {
     class string replace(string s, string old, string replacement) {
         int slen = (int)strlen(s);
         int oldlen = (int)strlen(old);
+        if (oldlen == 0) { return strdup(s); }
         int replen = (int)strlen(replacement);
         int cap = slen * 2 + 1;
         char* result = (char*)malloc(cap);

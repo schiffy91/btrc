@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 from ...ast_nodes import BinaryExpr, UnaryExpr
 from ..nodes import (
     IRAddressOf, IRBinOp, IRCall, IRDeref, IRExpr,
-    IRLiteral, IRTernary, IRUnaryOp,
+    IRLiteral, IRStmtExpr, IRTernary, IRUnaryOp, IRVar, IRVarDecl, CType,
 )
-from .types import is_string_type, is_numeric_type, mangle_generic_type
+from .types import is_string_type, is_numeric_type, mangle_generic_type, type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -60,12 +60,21 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
         return IRCall(callee="__btrc_mod_int", args=[left, right],
                       helper_ref="__btrc_mod_int")
 
-    # Null coalescing: a ?? b → (a != NULL ? a : b)
+    # Null coalescing: a ?? b → ({ T __tmp = a; __tmp != NULL ? __tmp : b; })
+    # Uses a temp variable to avoid evaluating left twice (e.g., if it's a call)
     if op == "??":
-        return IRTernary(
-            condition=IRBinOp(left=left, op="!=", right=IRLiteral(text="NULL")),
-            true_expr=left,
-            false_expr=right,
+        tmp = gen.fresh_temp("__nc")
+        left_type_expr = gen.analyzed.node_types.get(id(node.left))
+        c_type = type_to_c(left_type_expr) if left_type_expr else "void*"
+        tmp_var = IRVar(name=tmp)
+        return IRStmtExpr(
+            stmts=[IRVarDecl(c_type=CType(text=c_type), name=tmp, init=left)],
+            result=IRTernary(
+                condition=IRBinOp(left=tmp_var, op="!=",
+                                  right=IRLiteral(text="NULL")),
+                true_expr=tmp_var,
+                false_expr=right,
+            ),
         )
 
     # Operator overloading on class types: a + b → ClassName___add__(a, b)

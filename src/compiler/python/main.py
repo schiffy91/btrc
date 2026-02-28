@@ -132,9 +132,15 @@ def resolve_includes(source: str, source_path: str, included: Optional[Set[str]]
 def _dump_ir(module):
     """Print a canonical IR dump for debugging."""
     from .ir.nodes import IRModule
-    print(f"# IRModule: {len(module.struct_defs)} structs, "
+    print(f"# IRModule: {len(module.enum_defs)} enums, "
+          f"{len(module.struct_defs)} structs, "
           f"{len(module.function_defs)} functions, "
           f"{len(module.helper_decls)} helpers")
+    for enum in module.enum_defs:
+        vals = ", ".join(
+            f"{v.name}={v.value}" if v.value else v.name
+            for v in enum.values)
+        print(f"enum {enum.name} {{ {vals} }}")
     for struct in module.struct_defs:
         fields = ", ".join(f"{f.c_type} {f.name}" for f in struct.fields)
         print(f"struct {struct.name} {{ {fields} }}")

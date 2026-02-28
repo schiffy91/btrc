@@ -195,9 +195,12 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
     gen._managed_vars_stack = saved_managed
 
     # Ensure void wrappers return NULL (with cleanup first)
+    # Only append if the body doesn't already end with a return (which would
+    # have had cleanup inserted by the _rewrite_return path above).
     if ret_c_type == "void":
-        body_stmts.extend(cleanup_stmts)
-        body_stmts.append(IRReturn(value=IRLiteral(text="NULL")))
+        if not body_stmts or not isinstance(body_stmts[-1], IRReturn):
+            body_stmts.extend(cleanup_stmts)
+            body_stmts.append(IRReturn(value=IRLiteral(text="NULL")))
 
     return body_stmts
 

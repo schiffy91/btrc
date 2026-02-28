@@ -7,43 +7,17 @@ from ....ast_nodes import TypeExpr
 from ...nodes import CType, IRStructDef, IRStructField
 from ..types import type_to_c, mangle_generic_type
 from .core import _resolve_type
-from .user_emitter import _UserGenericEmitter
+from .user_methods import _emit_user_generic_methods
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator
-
-# Runtime helpers to register when referenced in emitted code
-_KNOWN_HELPERS = {"__btrc_safe_realloc", "__btrc_safe_calloc"}
-
-
-def _is_type_incompatible(body_text: str, first_arg_c: str) -> bool:
-    """Check if emitted method body uses ops incompatible with the type.
-
-    C doesn't have templates — all static functions must type-check even if
-    unused.  This skips methods like sum() for pointer types (pointer + pointer
-    is invalid) and join() for non-string types (strlen on non-string).
-    """
-    is_pointer = first_arg_c.endswith("*")
-    if not is_pointer:
-        # strlen/memcpy on non-string element data (join/joinToString)
-        if "strlen(self->" in body_text or "memcpy(" in body_text:
-            return True
-    if is_pointer:
-        # ptr + ptr is invalid C (sum-like methods use T + T arithmetic)
-        if "+ self->data[" in body_text:
-            return True
-        # strlen/strncmp/memcpy on non-string pointer types
-        if first_arg_c != "char*":
-            if "strlen(self->" in body_text or "memcpy(" in body_text:
-                return True
-    return False
 
 
 def _register_transitive_generic_deps(gen: IRGenerator, cls_info,
                                        type_map: dict[str, TypeExpr]):
     """Scan resolved field types for generic class references and register them.
 
-    When List<string> has a field of type ListNode<T>, resolving T→string
+    When List<string> has a field of type ListNode<T>, resolving T->string
     gives ListNode<string>. This must be registered as a new generic instance
     so the while-changed loop in core.py emits it.
     """
@@ -126,145 +100,3 @@ def _emit_user_generic_instance(gen: IRGenerator, base_name: str,
 
     # Emit constructor, destructor, and methods
     _emit_user_generic_methods(gen, base_name, mangled, args, type_map, cls_info)
-
-
-def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
-                                args: list[TypeExpr],
-                                type_map: dict[str, TypeExpr],
-                                cls_info):
-    """Emit constructor + methods for a user-defined generic class instance."""
-    from ..types import type_to_c as ttc
-
-    first_arg_c = ttc(args[0]) if args else "int"
-    emitter = _UserGenericEmitter(type_map, mangled, ttc, gen=gen)
-
-    ctor = cls_info.constructor
-    ctor_params = []
-    if ctor:
-        for p in ctor.params:
-            ctor_params.append(f"{emitter.resolve_c(p.type)} {p.name}")
-
-    # Constructor: init + new
-    init_params = [f"{mangled}* self"] + ctor_params
-    init_body = ""
-    if ctor and ctor.body:
-        init_body = emitter.emit_stmts(ctor.body.statements)
-    if not init_body.strip():
-        init_body = "    (void)self;\n"
-
-    # Collect forward declarations for all methods to avoid order issues
-    fwd_decls = []
-    fwd_decls.append(f"static void {mangled}_init({', '.join(init_params)});")
-    fwd_decls.append(
-        f"static {mangled}* {mangled}_new("
-        f"{', '.join(ctor_params) if ctor_params else 'void'});")
-    fwd_decls.append(f"static void {mangled}_destroy({mangled}* self);")
-    for mname, method in cls_info.methods.items():
-        if mname == "__del__" or mname == base_name:
-            continue
-        ret_c = emitter.resolve_c(method.return_type) if method.return_type else "void"
-        m_params = [f"{mangled}* self"]
-        for p in method.params:
-            m_params.append(f"{emitter.resolve_c(p.type)} {p.name}")
-        fwd_decls.append(
-            f"static {ret_c} {mangled}_{mname}({', '.join(m_params)});")
-
-    methods = "\n".join(fwd_decls) + "\n"
-    # ARC: build destructor body with rc-aware field release
-    dtor_body = _build_generic_destructor_body(cls_info, type_map, mangled, gen)
-
-    methods += f"""
-static void {mangled}_init({', '.join(init_params)}) {{
-    self->__rc = 1;
-{init_body}}}
-static {mangled}* {mangled}_new({', '.join(ctor_params) if ctor_params else 'void'}) {{
-    {mangled}* self = ({mangled}*)malloc(sizeof({mangled}));
-    memset(self, 0, sizeof({mangled}));
-    {mangled}_init(self{(''.join(', ' + p.name for p in ctor.params)) if ctor else ''});
-    return self;
-}}
-static void {mangled}_destroy({mangled}* self) {{
-{dtor_body}    free(self);
-}}
-"""
-    # Emit methods — two-phase: emit all, then filter out incompatible ones
-    emitted = {}
-    skipped = set()
-    for mname, method in cls_info.methods.items():
-        if mname == "__del__" or mname == base_name:
-            continue
-        emitter.reset_var_types(method.params)
-        ret_c = emitter.resolve_c(method.return_type) if method.return_type else "void"
-        m_params = [f"{mangled}* self"]
-        for p in method.params:
-            m_params.append(f"{emitter.resolve_c(p.type)} {p.name}")
-        m_body = emitter.emit_stmts(method.body.statements) if method.body else ""
-        if not m_body.strip():
-            m_body = "    (void)self;\n"
-        if _is_type_incompatible(m_body, first_arg_c):
-            skipped.add(mname)
-            continue
-        emitted[mname] = (
-            f"static {ret_c} {mangled}_{mname}"
-            f"({', '.join(m_params)}) {{\n{m_body}}}\n"
-        )
-
-    # Second pass: skip methods that call skipped methods
-    for mname, text in list(emitted.items()):
-        for sk in skipped:
-            if f"{mangled}_{sk}(" in text:
-                del emitted[mname]
-                break
-
-    for text in emitted.values():
-        methods += text
-
-    methods_text = methods.strip()
-
-    # Register any runtime helpers referenced in the emitted code
-    for h in _KNOWN_HELPERS:
-        if h in methods_text:
-            gen.use_helper(h)
-
-    gen.module.raw_sections.append(methods_text)
-
-
-def _build_generic_destructor_body(cls_info, type_map, mangled, gen):
-    """Build the destructor body with ARC-aware field release.
-
-    For each class-type field: if (field) { if (--field->__rc <= 0) destroy(field); }
-    For other fields: nothing (primitives don't need cleanup).
-    """
-    lines = []
-    # Check for user-defined __del__ method
-    dtor = cls_info.methods.get("__del__")
-    if dtor and dtor.body:
-        emitter = _UserGenericEmitter(type_map, mangled,
-                                       lambda t: type_to_c(_resolve_type(t, type_map)),
-                                       gen=gen)
-        lines.append(emitter.emit_stmts(dtor.body.statements))
-
-    for fname, fd in cls_info.fields.items():
-        if not fd.type:
-            continue
-        resolved = _resolve_type(fd.type, type_map)
-        # Only release class instance fields (pointer_depth == 0).
-        # Fields with pointer_depth > 0 are raw arrays/double-pointers, not managed.
-        if resolved.pointer_depth > 0:
-            continue
-        # Generic class field → mangled destroy/free
-        if resolved.generic_args and resolved.base in gen.analyzed.class_table:
-            target = mangle_generic_type(resolved.base, resolved.generic_args)
-            field_cls = gen.analyzed.class_table.get(resolved.base)
-            dtor_name = "free" if field_cls and "free" in field_cls.methods else "destroy"
-            lines.append(
-                f"    if (self->{fname}) {{ "
-                f"if (--self->{fname}->__rc <= 0) "
-                f"{target}_{dtor_name}(self->{fname}); }}\n")
-        # Plain class field → ClassName_destroy
-        elif resolved.base in gen.analyzed.class_table:
-            lines.append(
-                f"    if (self->{fname}) {{ "
-                f"if (--self->{fname}->__rc <= 0) "
-                f"{resolved.base}_destroy(self->{fname}); }}\n")
-    return "".join(lines)

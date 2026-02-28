@@ -7,8 +7,8 @@ from ...ast_nodes import (
     CForStmt, ForInitExpr, ForInitVar, CallExpr, Identifier,
 )
 from ..nodes import (
-    CType, IRBlock, IRCall, IRFor, IRRawC, IRStmt,
-    IRVarDecl, IRVar,
+    CType, IRAssign, IRBinOp, IRBlock, IRCall, IRExprStmt, IRFor, IRIndex,
+    IRLiteral, IRStmt, IRTernary, IRUnaryOp, IRVarDecl, IRVar,
 )
 from .types import type_to_c, mangle_generic_type
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     """Lower for-in to C-style for loop."""
-    from .statements import lower_block, _quick_text
+    from .statements import lower_block
     iterable = node.iterable
     var_name = node.var_name
     var_name2 = getattr(node, 'var_name2', None)
@@ -46,14 +46,15 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     # Fallback: assume list-like with .len and .data
     idx = gen.fresh_temp("__i")
     body_block = lower_block(gen, node.body)
-    it = _quick_text(ir_iter)
     body_block.stmts.insert(0, IRVarDecl(
         c_type=CType(text="int"), name=var_name,
-        init=IRRawC(text=f"{it}[{idx}]")))
+        init=IRIndex(obj=ir_iter, index=IRVar(name=idx))))
     return [IRFor(
-        init=f"int {idx} = 0",
-        condition=f"{idx} < {it}_len",
-        update=f"{idx}++",
+        init=IRVarDecl(c_type=CType(text="int"), name=idx,
+                       init=IRLiteral(text="0")),
+        condition=IRBinOp(left=IRVar(name=idx), op="<",
+                          right=IRVar(name=f"{_var_name_from_expr(ir_iter)}_len")),
+        update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
         body=body_block,
     )]
 
@@ -61,10 +62,9 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
 def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info,
                             var_name, var_name2) -> list[IRStmt]:
     """Lower for-in via Iterable protocol (iterLen/iterGet/iterValueAt)."""
-    from .statements import lower_block, _quick_text
+    from .statements import lower_block
 
     mangled = mangle_generic_type(iter_type.base, iter_type.generic_args)
-    it = _quick_text(ir_iter)
 
     idx = gen.fresh_temp("__i")
     n_var = gen.fresh_temp("__n")
@@ -95,29 +95,34 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info,
         IRVarDecl(c_type=CType(text="int"), name=n_var,
                   init=IRCall(callee=f"{mangled}_iterLen",
                               args=[ir_iter])),
-        IRFor(init=f"int {idx} = 0",
-              condition=f"{idx} < {n_var}",
-              update=f"{idx}++",
+        IRFor(init=IRVarDecl(c_type=CType(text="int"), name=idx,
+                             init=IRLiteral(text="0")),
+              condition=IRBinOp(left=IRVar(name=idx), op="<",
+                                right=IRVar(name=n_var)),
+              update=IRUnaryOp(op="++", operand=IRVar(name=idx),
+                               prefix=False),
               body=body_block),
     ]
 
 
 def _lower_string_for_in(gen, node, ir_iter, var_name) -> list[IRStmt]:
     """Lower for c in str to char-by-char iteration."""
-    from .statements import lower_block, _quick_text
+    from .statements import lower_block
 
     idx = gen.fresh_temp("__i")
     body_block = lower_block(gen, node.body)
-    it = _quick_text(ir_iter)
-    from ..nodes import IRIndex
     char_decl = IRVarDecl(
         c_type=CType(text="char"), name=var_name,
         init=IRIndex(obj=ir_iter, index=IRVar(name=idx)))
     body_block.stmts.insert(0, char_decl)
     return [IRFor(
-        init=f"int {idx} = 0",
-        condition=f"{it}[{idx}] != '\\0'",
-        update=f"{idx}++",
+        init=IRVarDecl(c_type=CType(text="int"), name=idx,
+                       init=IRLiteral(text="0")),
+        condition=IRBinOp(
+            left=IRIndex(obj=ir_iter, index=IRVar(name=idx)),
+            op="!=",
+            right=IRLiteral(text="'\\0'")),
+        update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
         body=body_block,
     )]
 
@@ -125,55 +130,71 @@ def _lower_string_for_in(gen, node, ir_iter, var_name) -> list[IRStmt]:
 def _lower_range_for(gen: IRGenerator, var_name: str,
                      args: list, body) -> list[IRStmt]:
     """Lower for x in range(...) to a C for loop."""
-    from .statements import lower_block, _quick_text
+    from .statements import lower_block
     body_block = lower_block(gen, body)
     if len(args) == 1:
-        end = _quick_text(_lower_expr(gen, args[0]))
-        return [IRFor(init=f"int {var_name} = 0",
-                      condition=f"{var_name} < {end}",
-                      update=f"{var_name}++",
-                      body=body_block)]
-    elif len(args) == 2:
-        start = _quick_text(_lower_expr(gen, args[0]))
-        end = _quick_text(_lower_expr(gen, args[1]))
-        return [IRFor(init=f"int {var_name} = {start}",
-                      condition=f"{var_name} < {end}",
-                      update=f"{var_name}++",
-                      body=body_block)]
-    elif len(args) >= 3:
-        start = _quick_text(_lower_expr(gen, args[0]))
-        end = _quick_text(_lower_expr(gen, args[1]))
-        step = _quick_text(_lower_expr(gen, args[2]))
+        end = _lower_expr(gen, args[0])
         return [IRFor(
-            init=f"int {var_name} = {start}",
-            condition=f"({step} > 0 ? {var_name} < {end} : {var_name} > {end})",
-            update=f"{var_name} += {step}",
+            init=IRVarDecl(c_type=CType(text="int"), name=var_name,
+                           init=IRLiteral(text="0")),
+            condition=IRBinOp(left=IRVar(name=var_name), op="<", right=end),
+            update=IRUnaryOp(op="++", operand=IRVar(name=var_name),
+                             prefix=False),
             body=body_block)]
-    return [IRFor(init=f"int {var_name} = 0",
-                  condition=f"{var_name} < 0",
-                  update=f"{var_name}++",
-                  body=body_block)]
+    elif len(args) == 2:
+        start = _lower_expr(gen, args[0])
+        end = _lower_expr(gen, args[1])
+        return [IRFor(
+            init=IRVarDecl(c_type=CType(text="int"), name=var_name,
+                           init=start),
+            condition=IRBinOp(left=IRVar(name=var_name), op="<", right=end),
+            update=IRUnaryOp(op="++", operand=IRVar(name=var_name),
+                             prefix=False),
+            body=body_block)]
+    elif len(args) >= 3:
+        start = _lower_expr(gen, args[0])
+        end = _lower_expr(gen, args[1])
+        step = _lower_expr(gen, args[2])
+        return [IRFor(
+            init=IRVarDecl(c_type=CType(text="int"), name=var_name,
+                           init=start),
+            condition=IRTernary(
+                condition=IRBinOp(left=step, op=">",
+                                  right=IRLiteral(text="0")),
+                true_expr=IRBinOp(left=IRVar(name=var_name), op="<",
+                                  right=end),
+                false_expr=IRBinOp(left=IRVar(name=var_name), op=">",
+                                   right=end)),
+            update=IRBinOp(left=IRVar(name=var_name), op="+=", right=step),
+            body=body_block)]
+    return [IRFor(
+        init=IRVarDecl(c_type=CType(text="int"), name=var_name,
+                       init=IRLiteral(text="0")),
+        condition=IRBinOp(left=IRVar(name=var_name), op="<",
+                          right=IRLiteral(text="0")),
+        update=IRUnaryOp(op="++", operand=IRVar(name=var_name),
+                         prefix=False),
+        body=body_block)]
 
 
 def _lower_c_for(gen: IRGenerator, node: CForStmt) -> IRFor:
     """Lower a C-style for statement."""
-    from .statements import lower_block, _quick_text
-    init_text = ""
+    from .statements import lower_block
+    init_node = None
     if node.init:
         if isinstance(node.init, ForInitVar):
             vd = node.init.var_decl
             c_type = type_to_c(vd.type) if vd.type else "int"
-            if vd.initializer:
-                init_text = f"{c_type} {vd.name} = {_quick_text(_lower_expr(gen, vd.initializer))}"
-            else:
-                init_text = f"{c_type} {vd.name}"
+            init_expr = _lower_expr(gen, vd.initializer) if vd.initializer else None
+            init_node = IRVarDecl(c_type=CType(text=c_type), name=vd.name,
+                                  init=init_expr)
         elif isinstance(node.init, ForInitExpr):
-            init_text = _quick_text(_lower_expr(gen, node.init.expression))
+            init_node = IRExprStmt(expr=_lower_expr(gen, node.init.expression))
 
-    cond_text = _quick_text(_lower_expr(gen, node.condition)) if node.condition else "1"
-    update_text = _quick_text(_lower_expr(gen, node.update)) if node.update else ""
+    cond_node = _lower_expr(gen, node.condition) if node.condition else IRLiteral(text="1")
+    update_node = _lower_expr(gen, node.update) if node.update else None
 
-    return IRFor(init=init_text, condition=cond_text, update=update_text,
+    return IRFor(init=init_node, condition=cond_node, update=update_node,
                  body=lower_block(gen, node.body))
 
 
@@ -181,3 +202,10 @@ def _lower_expr(gen, node):
     """Convenience wrapper to avoid circular import at module level."""
     from .expressions import lower_expr
     return lower_expr(gen, node)
+
+
+def _var_name_from_expr(expr) -> str:
+    """Extract the variable name from an IRVar, for fallback iteration."""
+    if isinstance(expr, IRVar):
+        return expr.name
+    return ""
