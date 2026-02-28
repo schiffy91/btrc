@@ -3,9 +3,9 @@
 from ..ast_nodes import (
     Block, BreakStmt, CallExpr, CForStmt, ContinueStmt, DeleteStmt,
     DoWhileStmt, ElseBlock, ElseIf, ExprStmt, ForInStmt, ForInitExpr,
-    ForInitVar, Identifier, IfStmt, ListLiteral, MapLiteral,
-    ParallelForStmt, ReturnStmt, SwitchStmt, ThrowStmt, TryCatchStmt,
-    TypeExpr, VarDeclStmt, WhileStmt,
+    ForInitVar, Identifier, IfStmt, KeepStmt, ListLiteral, MapLiteral,
+    ParallelForStmt, ReleaseStmt, ReturnStmt, SwitchStmt, ThrowStmt,
+    TryCatchStmt, TypeExpr, VarDeclStmt, WhileStmt,
 )
 from .core import SymbolInfo
 
@@ -85,6 +85,10 @@ class StatementsMixin:
             self._analyze_block(stmt.catch_block)
             self._pop_scope()
         elif isinstance(stmt, ThrowStmt):
+            self._analyze_expr(stmt.expr)
+        elif isinstance(stmt, KeepStmt):
+            self._analyze_expr(stmt.expr)
+        elif isinstance(stmt, ReleaseStmt):
             self._analyze_expr(stmt.expr)
         elif isinstance(stmt, BreakStmt):
             if self.break_depth == 0:

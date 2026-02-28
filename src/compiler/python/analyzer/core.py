@@ -27,6 +27,9 @@ class ClassInfo:
     parent: str = None
     interfaces: list[str] = field(default_factory=list)
     is_abstract: bool = False
+    # ARC: true if this class can participate in reference cycles
+    # (has class-type fields that could transitively reference self)
+    is_cyclable: bool = False
 
 
 @dataclass
@@ -96,6 +99,7 @@ class AnalyzerBase:
         self._register_declarations(program)
         self._validate_inheritance(program)
         self._validate_interfaces(program)
+        self._compute_cyclable_flags()
         for decl in program.declarations:
             self._analyze_decl(decl)
         return AnalyzedProgram(
@@ -109,6 +113,53 @@ class AnalyzerBase:
             rich_enum_table=self.rich_enum_table,
             errors=self.errors,
         )
+
+    def _compute_cyclable_flags(self):
+        """Mark classes that can participate in reference cycles.
+
+        A class is cyclable if it has class-type fields that could
+        transitively reference the class itself. This is computed via a
+        fixed-point algorithm: start with classes that directly reference
+        themselves, then propagate to classes that reference cyclable classes.
+        """
+        # Build adjacency: class → set of class types referenced in its fields
+        refs: dict[str, set[str]] = {}
+        for name, ci in self.class_table.items():
+            field_types: set[str] = set()
+            for _fn, fd in ci.fields.items():
+                if fd.type and fd.type.base in self.class_table:
+                    field_types.add(fd.type.base)
+                # Generic type parameter could be anything — can't know statically
+                if fd.type and fd.type.generic_args:
+                    for ga in fd.type.generic_args:
+                        if ga.base in self.class_table:
+                            field_types.add(ga.base)
+            refs[name] = field_types
+
+        # Fixed-point: mark classes that can reach themselves
+        cyclable: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for name in refs:
+                if name in cyclable:
+                    continue
+                # Can this class reach itself through field references?
+                visited: set[str] = set()
+                stack = list(refs.get(name, set()))
+                while stack:
+                    cur = stack.pop()
+                    if cur in visited:
+                        continue
+                    visited.add(cur)
+                    if cur == name:
+                        cyclable.add(name)
+                        changed = True
+                        break
+                    stack.extend(refs.get(cur, set()))
+
+        for name in cyclable:
+            self.class_table[name].is_cyclable = True
 
     def _error(self, msg: str, line: int = 0, col: int = 0):
         self.errors.append(f"{msg} at {line}:{col}")
