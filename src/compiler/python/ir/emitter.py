@@ -40,6 +40,7 @@ from .nodes import (
     IRAddressOf,
     IRDeref,
     IRRawExpr,
+    IRSpawnThread,
 )
 
 
@@ -304,6 +305,10 @@ class CEmitter:
 
         elif isinstance(expr, IRRawExpr):
             return expr.text
+
+        elif isinstance(expr, IRSpawnThread):
+            arg = self._expr(expr.capture_arg) if expr.capture_arg else "NULL"
+            return f"__btrc_thread_spawn((void*(*)(void*)){expr.fn_ptr}, {arg})"
 
         return f"/* unknown expr: {type(expr).__name__} */"
 

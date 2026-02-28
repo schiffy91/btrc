@@ -32,6 +32,10 @@ def type_to_c(t: TypeExpr | None) -> str:
     if base == "__fn_ptr" and t.generic_args:
         return fn_ptr_typedef_name(t)
 
+    # Thread<T> → __btrc_thread_t* (opaque handle, no class struct)
+    if base == "Thread" and t.generic_args:
+        return "__btrc_thread_t*"
+
     # Const qualifier prefix
     prefix = "const " if getattr(t, 'is_const', False) else ""
 

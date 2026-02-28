@@ -127,8 +127,11 @@ class IRGenerator:
                     params = "void"
                 func_fwd_decls.append(f"{ret_type} {decl.name}({params});")
         # Forward declarations for concrete generic instances (skip T, K, V)
+        # Skip Thread<T> — it maps to __btrc_thread_t*, not a struct
         seen = set()
         for base_name, instances in self.analyzed.generic_instances.items():
+            if base_name == "Thread":
+                continue
             for args in instances:
                 if not is_concrete_instance(args):
                     continue

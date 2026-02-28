@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier, TypeExpr
 from ..nodes import (
-    IRAddressOf, IRCall, IRExpr, IRFieldAccess, IRLiteral, IRVar,
+    IRAddressOf, IRCall, IRExpr, IRFieldAccess, IRLiteral, IRRawExpr, IRVar,
 )
 from .types import (
     is_string_type, mangle_generic_type, type_to_c,
@@ -138,6 +138,10 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     if method_name == "toString":
         return _lower_to_string(gen, obj, obj_type, args)
 
+    # Thread<T> methods: .join() → __btrc_thread_join with unboxing
+    if obj_type and obj_type.base == "Thread" and obj_type.generic_args:
+        return _lower_thread_method(gen, obj, method_name, obj_type)
+
     # Class method: obj.method(args) → ClassName_method(obj, args)
     if obj_type and obj_type.base in gen.analyzed.class_table:
         cls_info = gen.analyzed.class_table[obj_type.base]
@@ -205,6 +209,32 @@ def _lower_to_string(gen: IRGenerator, obj: IRExpr, obj_type, args) -> IRExpr:
     call = IRCall(callee=helper, args=[obj], helper_ref=helper)
     return IRCall(callee="__btrc_str_track", args=[call],
                   helper_ref="__btrc_str_track")
+
+
+_THREAD_PRIMITIVE_TYPES = {"int", "float", "double", "char", "bool", "short", "long"}
+
+
+def _lower_thread_method(gen, obj, method_name, obj_type):
+    """Lower Thread<T> method calls (.join())."""
+    if method_name == "join":
+        gen.use_helper("__btrc_thread_join")
+        ret_type = obj_type.generic_args[0] if obj_type.generic_args else None
+        join_call = IRCall(
+            callee="__btrc_thread_join", args=[obj],
+            helper_ref="__btrc_thread_join",
+        )
+        if ret_type is None or ret_type.base == "void":
+            return join_call
+        c_type = type_to_c(ret_type)
+        obj_text = _obj_text(obj)
+        if ret_type.base in _THREAD_PRIMITIVE_TYPES and not ret_type.generic_args:
+            # Primitive: (int)(intptr_t)__btrc_thread_join(obj)
+            return IRRawExpr(text=f"({c_type})(intptr_t)__btrc_thread_join({obj_text})")
+        else:
+            # Pointer type: (T*)__btrc_thread_join(obj)
+            return IRRawExpr(text=f"({c_type})__btrc_thread_join({obj_text})")
+    # Unknown Thread method — fallback
+    return IRCall(callee=f"__btrc_thread_{method_name}", args=[obj])
 
 
 def _obj_text(expr: IRExpr) -> str:

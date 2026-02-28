@@ -12,11 +12,11 @@ from ...ast_nodes import (
     CastExpr, CharLiteral, FieldAccessExpr, FloatLiteral, FStringLiteral,
     Identifier, IndexExpr, IntLiteral, LambdaExpr, ListLiteral, MapLiteral,
     NewExpr, NullLiteral, SelfExpr, SizeofExpr, SizeofExprOp, SizeofType,
-    StringLiteral, SuperExpr, TernaryExpr, TupleLiteral, UnaryExpr,
+    SpawnExpr, StringLiteral, SuperExpr, TernaryExpr, TupleLiteral, UnaryExpr,
 )
 from ..nodes import (
     IRCall, IRCast, IRExpr, IRLiteral, IRRawExpr, IRSizeof,
-    IRTernary, IRVar,
+    IRSpawnThread, IRTernary, IRVar,
 )
 from .types import type_to_c, is_generic_class_type
 
@@ -120,6 +120,10 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
 
     if isinstance(node, TupleLiteral):
         return _lower_tuple(gen, node)
+
+    if isinstance(node, SpawnExpr):
+        from .threads import lower_spawn
+        return lower_spawn(gen, node)
 
     if isinstance(node, BraceInitializer):
         if not node.elements:

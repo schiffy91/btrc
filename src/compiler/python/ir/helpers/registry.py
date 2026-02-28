@@ -9,6 +9,7 @@ from .hash import HASH
 from .math import MATH
 from .string_pool import STRING_POOL
 from .strings import STRING
+from .threads import THREADS
 from .trycatch import TRYCATCH
 
 HELPERS: dict[str, dict[str, HelperDef]] = {
@@ -21,9 +22,11 @@ HELPERS: dict[str, dict[str, HelperDef]] = {
     "hash": HASH,
     "collections": COLLECTIONS,
     "cycles": CYCLES,
+    "threads": THREADS,
 }
 
 __all__ = [
     "ALLOC", "COLLECTIONS", "CYCLES", "DIVMOD", "HASH",
-    "HELPERS", "HelperDef", "MATH", "STRING", "STRING_POOL", "TRYCATCH",
+    "HELPERS", "HelperDef", "MATH", "STRING", "STRING_POOL",
+    "THREADS", "TRYCATCH",
 ]

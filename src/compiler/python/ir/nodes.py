@@ -289,3 +289,10 @@ class IRDeref(IRExpr):
 class IRRawExpr(IRExpr):
     """Escape hatch: pre-rendered C expression text."""
     text: str = ""
+
+
+@dataclass
+class IRSpawnThread(IRExpr):
+    """Spawn a thread: __btrc_thread_spawn(fn_ptr, capture_arg)."""
+    fn_ptr: str = ""       # C function name (from lambda lowering)
+    capture_arg: IRExpr = None  # Capture struct pointer (or NULL)
