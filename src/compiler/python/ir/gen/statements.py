@@ -117,6 +117,11 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
     if isinstance(node, ThrowStmt):
         return _lower_throw(gen, node)
 
+    if isinstance(node, Block):
+        # Bare block statement: { ... }
+        blk = lower_block(gen, node)
+        return blk.stmts
+
     if isinstance(node, KeepStmt):
         # keep expr → expr->__rc++
         expr = lower_expr(gen, node.expr)

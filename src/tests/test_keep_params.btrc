@@ -1,0 +1,57 @@
+/* Test keep on function parameters: rc++ at call site */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Holder {
+    public Obj stored;
+
+    public Holder() {
+        self.stored = null;
+    }
+
+    public void store(keep Obj o) {
+        self.stored = o;
+    }
+}
+
+int main() {
+    // Test 1: keep param causes rc++ at call site
+    Holder h = new Holder();
+    Obj o = new Obj(1);
+    assert(alive == 1);
+
+    // store(keep Obj o) → rc++ at call site, then o stored in field
+    h.store(o);
+    assert(h.stored.id == 1);
+
+    // delete the holder — releases stored field (rc--)
+    delete h;
+    // o's rc was: 1 (new) + 1 (keep param) + 1 (field assign) = 3
+    // Then: field assign released old (null, skip), rc++ from field assign
+    // Actually: keep param → rc=2, field assign → release old (null), assign, rc++=3
+    // Holder destructor: --stored->rc, if <=0 destroy. rc goes 3->2, skip
+    // But o itself: managed at scope exit, rc-- → 2->1, skip
+    // So o should still be alive
+    assert(alive == 1);
+
+    // Explicitly delete o
+    delete o;
+    assert(alive == 0);
+
+    print("PASS: test_keep_params");
+    return 0;
+}

@@ -158,11 +158,9 @@ def get_field_assign_arc_stmts(gen: IRGenerator, node: AssignExpr
             prefix=False,
         )))
 
-    # Register the source variable as managed if it's a local Identifier
-    if isinstance(node.value, Identifier):
-        val_type = gen.analyzed.node_types.get(id(node.value))
-        if val_type and val_type.base in gen.analyzed.class_table:
-            gen.register_managed_var(node.value.name, val_type.base)
+    # NOTE: We do NOT register the source variable as managed here.
+    # Managed var registration happens at the CALL SITE via keep params,
+    # not inside the method where the field assignment occurs.
 
     return pre, post
 

@@ -1,0 +1,68 @@
+/* Test ARC basics: constructor rc=1, destructor field release, keep/release */
+#include <assert.h>
+
+int node_count = 0;
+
+class Node {
+    public int id;
+    public int value;
+
+    public Node(int id, int value) {
+        self.id = id;
+        self.value = value;
+        node_count++;
+    }
+
+    public void __del__() {
+        node_count--;
+    }
+}
+
+class Container {
+    public Node item;
+
+    public Container() {
+        self.item = null;
+    }
+}
+
+int main() {
+    // Test 1: basic new + delete
+    Node n = new Node(1, 42);
+    assert(n.value == 42);
+    assert(node_count == 1);
+    delete n;
+    assert(node_count == 0);
+    // After delete, n is NULL
+    assert(n == null);
+
+    // Test 2: Container with Node field — delete container releases field
+    Container c = new Container();
+    c.item = new Node(2, 99);
+    assert(c.item.value == 99);
+    assert(node_count == 1);
+    delete c;
+    // Container destructor releases its item field via rc--
+    // Since the inner node's rc was 1 (from new), --rc = 0, so it's destroyed
+    assert(node_count == 0);
+
+    // Test 3: keep and release statements
+    Node k = new Node(3, 77);
+    assert(node_count == 1);
+    keep k;   // rc goes from 1 to 2
+    release k; // rc goes from 2 to 1, not destroyed; k = NULL
+    assert(k == null);
+    // node still alive (rc=1 after release decremented from 2 to 1)
+    assert(node_count == 1);
+    // The node is leaked since we can't access it anymore — expected behavior
+    // when keep is used without proper pairing
+
+    // Test 4: delete with __del__ called
+    Node d = new Node(4, 55);
+    assert(node_count == 2); // leaked node + new node
+    delete d;
+    assert(node_count == 1); // only leaked node remains
+
+    print("PASS: test_arc_basic");
+    return 0;
+}
