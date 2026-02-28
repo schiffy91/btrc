@@ -20,7 +20,8 @@ from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.main import resolve_includes, get_stdlib_source
+from src.compiler.python.main import resolve_includes
+from src.compiler.python.cache import get_stdlib_source_cached
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 
@@ -46,7 +47,7 @@ def test_btrc_file(btrc_file):
     source = resolve_includes(source, btrc_path)
 
     # Auto-include stdlib types (skip classes already defined in source)
-    stdlib_source = get_stdlib_source(source)
+    stdlib_source = get_stdlib_source_cached(source)
     if stdlib_source:
         source = stdlib_source + "\n" + source
 
