@@ -36,6 +36,10 @@ def type_to_c(t: TypeExpr | None) -> str:
     if base == "Thread" and t.generic_args:
         return "__btrc_thread_t*"
 
+    # Mutex<T> → __btrc_mutex_val_t* (opaque handle)
+    if base == "Mutex" and t.generic_args:
+        return "__btrc_mutex_val_t*"
+
     # Const qualifier prefix
     prefix = "const " if getattr(t, 'is_const', False) else ""
 

@@ -45,42 +45,49 @@ THREADS = {
         ),
         depends_on=["__btrc_thread_spawn"],
     ),
-    "__btrc_mutex_create": HelperDef(
+    "__btrc_mutex_val_create": HelperDef(
         c_source=(
             "typedef struct {\n"
             "    pthread_mutex_t lock;\n"
-            "} __btrc_mutex_t;\n"
+            "    void* value;\n"
+            "} __btrc_mutex_val_t;\n"
             "\n"
-            "static __btrc_mutex_t* __btrc_mutex_create(void) {\n"
-            "    __btrc_mutex_t* m = (__btrc_mutex_t*)malloc(sizeof(__btrc_mutex_t));\n"
+            "static __btrc_mutex_val_t* __btrc_mutex_val_create(void* initial) {\n"
+            "    __btrc_mutex_val_t* m = (__btrc_mutex_val_t*)malloc(sizeof(__btrc_mutex_val_t));\n"
             "    pthread_mutex_init(&m->lock, NULL);\n"
+            "    m->value = initial;\n"
             "    return m;\n"
             "}"
         ),
     ),
-    "__btrc_mutex_lock": HelperDef(
+    "__btrc_mutex_val_get": HelperDef(
         c_source=(
-            "static void __btrc_mutex_lock(__btrc_mutex_t* m) {\n"
+            "static void* __btrc_mutex_val_get(__btrc_mutex_val_t* m) {\n"
             "    pthread_mutex_lock(&m->lock);\n"
+            "    void* v = m->value;\n"
+            "    pthread_mutex_unlock(&m->lock);\n"
+            "    return v;\n"
             "}"
         ),
-        depends_on=["__btrc_mutex_create"],
+        depends_on=["__btrc_mutex_val_create"],
     ),
-    "__btrc_mutex_unlock": HelperDef(
+    "__btrc_mutex_val_set": HelperDef(
         c_source=(
-            "static void __btrc_mutex_unlock(__btrc_mutex_t* m) {\n"
+            "static void __btrc_mutex_val_set(__btrc_mutex_val_t* m, void* val) {\n"
+            "    pthread_mutex_lock(&m->lock);\n"
+            "    m->value = val;\n"
             "    pthread_mutex_unlock(&m->lock);\n"
             "}"
         ),
-        depends_on=["__btrc_mutex_create"],
+        depends_on=["__btrc_mutex_val_create"],
     ),
-    "__btrc_mutex_destroy": HelperDef(
+    "__btrc_mutex_val_destroy": HelperDef(
         c_source=(
-            "static void __btrc_mutex_destroy(__btrc_mutex_t* m) {\n"
+            "static void __btrc_mutex_val_destroy(__btrc_mutex_val_t* m) {\n"
             "    pthread_mutex_destroy(&m->lock);\n"
             "    free(m);\n"
             "}"
         ),
-        depends_on=["__btrc_mutex_create"],
+        depends_on=["__btrc_mutex_val_create"],
     ),
 }

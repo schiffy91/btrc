@@ -129,6 +129,14 @@ class TypeInferenceMixin:
 
     def _infer_call_type(self, expr):
         if isinstance(expr.callee, Identifier):
+            # Mutex(val) → Mutex<T> where T = type of val
+            if expr.callee.name == "Mutex" and expr.args:
+                arg_type = self._infer_type(expr.args[0])
+                if arg_type:
+                    return TypeExpr(base="Mutex", generic_args=[arg_type],
+                                    pointer_depth=1)
+                return TypeExpr(base="Mutex", generic_args=[TypeExpr(base="int")],
+                                pointer_depth=1)
             if expr.callee.name in self.class_table:
                 return TypeExpr(base=expr.callee.name, pointer_depth=1)
             if expr.callee.name in self.function_table:
@@ -142,6 +150,15 @@ class TypeInferenceMixin:
             if obj_type and (obj_type.base == "string" or
                              (obj_type.base == "char" and obj_type.pointer_depth >= 1)):
                 return self._string_method_return_type(expr.callee.field)
+            # Thread<T>.join() → T, Mutex<T>.get() → T
+            if obj_type and obj_type.base == "Thread" and obj_type.generic_args:
+                if expr.callee.field == "join":
+                    return obj_type.generic_args[0]
+            if obj_type and obj_type.base == "Mutex" and obj_type.generic_args:
+                if expr.callee.field == "get":
+                    return obj_type.generic_args[0]
+                if expr.callee.field in ("set", "destroy"):
+                    return TypeExpr(base="void")
             if obj_type and obj_type.base in self.class_table:
                 cls = self.class_table[obj_type.base]
                 if expr.callee.field in cls.methods:

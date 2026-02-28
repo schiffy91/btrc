@@ -31,7 +31,7 @@ RUN mkdir -p /workspace /config/claude && \
 WORKDIR /workspace
 
 # Copy flake and pre-build dev shell
-COPY --chown=$USERNAME:$USERNAME .devcontainer/flake.nix /workspace/flake.nix
+COPY --chown=$USERNAME:$USERNAME flake.nix /workspace/flake.nix
 RUN nix develop --command echo "dev shell ready"
 
 # Install Claude Code

@@ -8,7 +8,7 @@ from ...ast_nodes import (
 )
 from ..nodes import (
     IRCall, IRCast, IRExpr, IRExprStmt, IRFieldAccess, IRLiteral,
-    IRSizeof, IRStmt, IRTernary, IRUnaryOp,
+    IRRawExpr, IRSizeof, IRStmt, IRTernary, IRUnaryOp,
 )
 from .types import is_string_type, format_spec_for_type
 
@@ -29,6 +29,10 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     if isinstance(node.callee, Identifier):
         name = node.callee.name
         args = [lower_expr(gen, a) for a in node.args]
+
+        # Mutex(val) constructor → __btrc_mutex_val_create(boxed_val)
+        if name == "Mutex":
+            return _lower_mutex_constructor(gen, node.args, args)
 
         # Constructor call: ClassName(args) where ClassName is a known class
         if name in gen.analyzed.class_table:
@@ -261,3 +265,28 @@ def _lower_print(gen: IRGenerator, args: list) -> IRExpr:
     fmt_str = " ".join(parts) + "\\n"
     return IRCall(callee="printf",
                   args=[IRLiteral(text=f'"{fmt_str}"')] + ir_args)
+
+
+_MUTEX_PRIMITIVE_TYPES = {"int", "float", "double", "char", "bool", "short", "long"}
+
+
+def _lower_mutex_constructor(gen, ast_args, ir_args):
+    """Lower Mutex(val) → __btrc_mutex_val_create(boxed_val)."""
+    gen.use_helper("__btrc_mutex_val_create")
+    if "pthread.h" not in gen.module.includes:
+        gen.module.includes.append("pthread.h")
+    if not ast_args:
+        return IRCall(callee="__btrc_mutex_val_create",
+                      args=[IRLiteral(text="NULL")],
+                      helper_ref="__btrc_mutex_val_create")
+    # Box the initial value
+    arg_type = gen.analyzed.node_types.get(id(ast_args[0]))
+    from .expressions import lower_expr
+    val = lower_expr(gen, ast_args[0])
+    if arg_type and arg_type.base in _MUTEX_PRIMITIVE_TYPES and not arg_type.generic_args:
+        boxed = IRCast(target_type="void*",
+                       expr=IRCast(target_type="intptr_t", expr=val))
+    else:
+        boxed = IRCast(target_type="void*", expr=val)
+    return IRCall(callee="__btrc_mutex_val_create", args=[boxed],
+                  helper_ref="__btrc_mutex_val_create")

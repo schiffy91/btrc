@@ -142,6 +142,10 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     if obj_type and obj_type.base == "Thread" and obj_type.generic_args:
         return _lower_thread_method(gen, obj, method_name, obj_type)
 
+    # Mutex<T> methods: .get(), .set(), .destroy()
+    if obj_type and obj_type.base == "Mutex" and obj_type.generic_args:
+        return _lower_mutex_method(gen, obj, method_name, obj_type, args)
+
     # Class method: obj.method(args) → ClassName_method(obj, args)
     if obj_type and obj_type.base in gen.analyzed.class_table:
         cls_info = gen.analyzed.class_table[obj_type.base]
@@ -216,6 +220,7 @@ _THREAD_PRIMITIVE_TYPES = {"int", "float", "double", "char", "bool", "short", "l
 
 def _lower_thread_method(gen, obj, method_name, obj_type):
     """Lower Thread<T> method calls (.join())."""
+    from ..nodes import IRCast
     if method_name == "join":
         gen.use_helper("__btrc_thread_join")
         ret_type = obj_type.generic_args[0] if obj_type.generic_args else None
@@ -226,15 +231,49 @@ def _lower_thread_method(gen, obj, method_name, obj_type):
         if ret_type is None or ret_type.base == "void":
             return join_call
         c_type = type_to_c(ret_type)
-        obj_text = _obj_text(obj)
         if ret_type.base in _THREAD_PRIMITIVE_TYPES and not ret_type.generic_args:
-            # Primitive: (int)(intptr_t)__btrc_thread_join(obj)
-            return IRRawExpr(text=f"({c_type})(intptr_t)__btrc_thread_join({obj_text})")
+            return IRCast(target_type=c_type,
+                          expr=IRCast(target_type="intptr_t", expr=join_call))
         else:
-            # Pointer type: (T*)__btrc_thread_join(obj)
-            return IRRawExpr(text=f"({c_type})__btrc_thread_join({obj_text})")
+            return IRCast(target_type=c_type, expr=join_call)
     # Unknown Thread method — fallback
     return IRCall(callee=f"__btrc_thread_{method_name}", args=[obj])
+
+
+def _lower_mutex_method(gen, obj, method_name, obj_type, args):
+    """Lower Mutex<T> method calls (.get(), .set(), .destroy())."""
+    from ..nodes import IRCast
+    val_type = obj_type.generic_args[0] if obj_type.generic_args else None
+    if method_name == "get":
+        gen.use_helper("__btrc_mutex_val_get")
+        get_call = IRCall(callee="__btrc_mutex_val_get", args=[obj],
+                          helper_ref="__btrc_mutex_val_get")
+        if val_type and val_type.base in _THREAD_PRIMITIVE_TYPES and not val_type.generic_args:
+            c_type = type_to_c(val_type)
+            return IRCast(target_type=c_type,
+                          expr=IRCast(target_type="intptr_t", expr=get_call))
+        elif val_type:
+            c_type = type_to_c(val_type)
+            return IRCast(target_type=c_type, expr=get_call)
+        return get_call
+    if method_name == "set":
+        gen.use_helper("__btrc_mutex_val_set")
+        if args:
+            if val_type and val_type.base in _THREAD_PRIMITIVE_TYPES and not val_type.generic_args:
+                boxed = IRCast(target_type="void*",
+                               expr=IRCast(target_type="intptr_t", expr=args[0]))
+            else:
+                boxed = IRCast(target_type="void*", expr=args[0])
+            return IRCall(callee="__btrc_mutex_val_set", args=[obj, boxed],
+                          helper_ref="__btrc_mutex_val_set")
+        return IRCall(callee="__btrc_mutex_val_set", args=[obj] + args,
+                      helper_ref="__btrc_mutex_val_set")
+    if method_name == "destroy":
+        gen.use_helper("__btrc_mutex_val_destroy")
+        return IRCall(callee="__btrc_mutex_val_destroy", args=[obj],
+                      helper_ref="__btrc_mutex_val_destroy")
+    # Unknown Mutex method — fallback
+    return IRCall(callee=f"__btrc_mutex_val_{method_name}", args=[obj] + args)
 
 
 def _obj_text(expr: IRExpr) -> str:
