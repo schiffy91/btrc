@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    int a = 1;
+    print(a << 4);
+    printf("PASS: test_left_shift\n");
+    return 0;
+}

@@ -1,0 +1,2 @@
+fruit: BANANA
+PASS: test_enum_toString_in_fstring

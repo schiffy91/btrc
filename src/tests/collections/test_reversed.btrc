@@ -1,0 +1,11 @@
+#include <stdio.h>
+int main() {
+    Vector<int> a = [1, 2, 3, 4, 5];
+    Vector<int> r = a.reversed();
+    print(r.get(0));
+    print(r.get(4));
+    // original unchanged
+    print(a.get(0));
+    printf("PASS: test_reversed\n");
+    return 0;
+}

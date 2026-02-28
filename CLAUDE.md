@@ -222,7 +222,6 @@ src/compiler/python/
     test_lexer.py                tokenize snippets → check tokens
     test_parser.py               parse snippets → check AST structure
     test_analyzer.py             analyze snippets → check types/errors
-    test_e2e.py                  full pipeline → gcc → run → check output
 ```
 
 ---
@@ -249,31 +248,45 @@ it will be a faithful port of the Python compiler in btrc, following the same
 
 ### Test Categories
 
-#### 1. Python Unit Tests (per-stage, ~650 tests)
+#### 1. Python Unit Tests (per-stage, ~467 tests)
 ```
 src/compiler/python/tests/
   test_lexer.py           tokenize snippets → check tokens
   test_parser.py          parse snippets → check AST structure
   test_analyzer.py        analyze snippets → check types/errors
-  test_e2e.py             full pipeline → gcc → run → check output
 ```
 
-#### 2. End-to-End Tests (99 .btrc files)
+#### 2. Language Tests (280 .btrc files, organized by topic)
 ```
-for each src/tests/test_*.btrc:
-  transpile → C (Python compiler)
-  gcc → binary
-  run → assert exit 0 + "PASS" in stdout
+src/tests/
+  runner.py                test runner (pytest parametrized)
+  generate_expected.py     regenerate golden files
+
+  basics/                  types, vars, print, nullable, casting, sizeof, etc.
+  control_flow/            if/for/while/switch/try-catch, range, includes
+  classes/                 classes, inheritance, interfaces, abstract, operators
+  collections/             Vector, Map, Set, Array, indexing, iteration
+  strings/                 string methods, fstrings, zfill, conversions
+  functions/               default params, lambdas, forward decl, recursion
+  generics/                user generics, Result<T,E>
+  enums/                   simple enums, rich enums, toString
+  tuples/                  tuple creation, access, multi-element
+  memory/                  ARC: keep/release, cycle detection, auto-release
+  stdlib/                  Math, DateTime, Random
+  algorithms/              quicksort, BST, hash table, linked list (pure C)
+
+Each subdirectory has:
+  test_*.btrc              test files (compile → gcc → run → assert PASS)
+  expected/                golden .stdout files for output comparison
 ```
 
 ### Makefile Targets
 ```
 make build          Create bin/btrcpy wrapper script
-make test           Python unit tests + 99 btrc e2e tests
-make test-btrc      Just the 99 btrc e2e tests
+make test           Python unit tests + 280 btrc language tests
+make test-btrc      Just the 280 btrc language tests
 make lint           Lint with ruff
 make format         Format with ruff
-make bench          Run performance benchmarks
 make clean          Remove build artifacts
 ```
 
@@ -286,5 +299,5 @@ make clean          Remove build artifacts
 3. **Grammar is the single source of truth.** No hardcoded keywords/operators.
 4. **AST types come from ASDL.** Never hand-edit generated files.
 5. **Files ~200 lines max.** Decompose into packages.
-6. **All 99 btrc tests must pass.** No "pre-existing failures."
+6. **All 747 tests must pass.** No "pre-existing failures."
 7. **Don't cut corners when context runs low.** Save state and stop.

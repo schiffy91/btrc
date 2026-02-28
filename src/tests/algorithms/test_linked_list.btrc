@@ -1,0 +1,37 @@
+#include <stdio.h>
+#include <stdlib.h>
+struct Node {
+    int val;
+    struct Node* next;
+};
+struct Node* insert(struct Node* head, int val) {
+    struct Node* n = (struct Node*)malloc(sizeof(struct Node));
+    n->val = val;
+    n->next = head;
+    return n;
+}
+void print_list(struct Node* head) {
+    struct Node* cur = head;
+    while (cur != NULL) {
+        printf("%d ", cur->val);
+        cur = cur->next;
+    }
+    printf("\n");
+}
+void free_list(struct Node* head) {
+    while (head != NULL) {
+        struct Node* tmp = head;
+        head = head->next;
+        free(tmp);
+    }
+}
+int main() {
+    struct Node* list = NULL;
+    for (int i = 1; i <= 5; i++) {
+        list = insert(list, i);
+    }
+    print_list(list);
+    free_list(list);
+    printf("PASS: test_linked_list\n");
+    return 0;
+}

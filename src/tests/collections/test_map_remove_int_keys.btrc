@@ -1,0 +1,16 @@
+#include <stdio.h>
+int main() {
+    Map<int, int> m = {1: 10, 2: 20, 3: 30, 4: 40};
+    m.remove(2);
+    m.remove(4);
+    printf("%d\n", m.len);
+    printf("%d\n", m.has(1));
+    printf("%d\n", m.has(2));
+    printf("%d\n", m.has(3));
+    printf("%d\n", m.has(4));
+    printf("%d\n", m.get(1));
+    printf("%d\n", m.get(3));
+    m.free();
+    printf("PASS: test_map_remove_int_keys\n");
+    return 0;
+}

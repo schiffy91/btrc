@@ -1,0 +1,9 @@
+#include <stdio.h>
+enum Fruit { APPLE, BANANA, CHERRY };
+int main() {
+    Fruit f = BANANA;
+    string msg = f"fruit: {f.toString()}";
+    print(msg);
+    printf("PASS: test_enum_toString_in_fstring\n");
+    return 0;
+}

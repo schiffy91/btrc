@@ -1,0 +1,58 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define HT_CAP 64
+struct HT_Entry { char* key; int value; int used; };
+struct HashTable { struct HT_Entry entries[HT_CAP]; };
+unsigned int ht_hash(const char* key) {
+    unsigned int h = 0;
+    while (*key) { h = h * 31 + (unsigned char)*key++; }
+    return h % HT_CAP;
+}
+void ht_set(struct HashTable* ht, const char* key, int value) {
+    unsigned int idx = ht_hash(key);
+    for (int i = 0; i < HT_CAP; i++) {
+        unsigned int pos = (idx + i) % HT_CAP;
+        if (!ht->entries[pos].used || strcmp(ht->entries[pos].key, key) == 0) {
+            if (!ht->entries[pos].used) {
+                ht->entries[pos].key = strdup(key);
+            }
+            ht->entries[pos].value = value;
+            ht->entries[pos].used = 1;
+            return;
+        }
+    }
+}
+int ht_get(struct HashTable* ht, const char* key) {
+    unsigned int idx = ht_hash(key);
+    for (int i = 0; i < HT_CAP; i++) {
+        unsigned int pos = (idx + i) % HT_CAP;
+        if (!ht->entries[pos].used) { return -1; }
+        if (strcmp(ht->entries[pos].key, key) == 0) {
+            return ht->entries[pos].value;
+        }
+    }
+    return -1;
+}
+void ht_free(struct HashTable* ht) {
+    for (int i = 0; i < HT_CAP; i++) {
+        if (ht->entries[i].used) { free(ht->entries[i].key); }
+    }
+}
+int main() {
+    struct HashTable ht;
+    memset(&ht, 0, sizeof(struct HashTable));
+    ht_set(&ht, "alpha", 1);
+    ht_set(&ht, "beta", 2);
+    ht_set(&ht, "gamma", 3);
+    ht_set(&ht, "delta", 4);
+    printf("%d %d %d %d\n",
+        ht_get(&ht, "alpha"), ht_get(&ht, "beta"),
+        ht_get(&ht, "gamma"), ht_get(&ht, "delta"));
+    ht_set(&ht, "beta", 20);
+    printf("%d\n", ht_get(&ht, "beta"));
+    printf("%d\n", ht_get(&ht, "missing"));
+    ht_free(&ht);
+    printf("PASS: test_hash_table\n");
+    return 0;
+}

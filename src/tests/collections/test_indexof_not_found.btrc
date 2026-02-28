@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [10, 20, 30];
+    print(nums.indexOf(99));
+    nums.free();
+    printf("PASS: test_indexof_not_found\n");
+    return 0;
+}

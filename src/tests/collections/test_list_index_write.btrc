@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [1, 2, 3];
+    nums[1] = 99;
+    printf("%d\n", nums[1]);
+    nums.free();
+    printf("PASS: test_list_index_write\n");
+    return 0;
+}

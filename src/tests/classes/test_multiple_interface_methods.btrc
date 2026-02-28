@@ -1,0 +1,19 @@
+#include <stdio.h>
+interface Describable {
+    string name();
+    int age();
+}
+class Person implements Describable {
+    public string _name;
+    public int _age;
+    public Person(string n, int a) { self._name = n; self._age = a; }
+    public string name() { return self._name; }
+    public int age() { return self._age; }
+}
+int main() {
+    Person p = Person("Alice", 30);
+    print(p.name());
+    print(p.age());
+    printf("PASS: test_multiple_interface_methods\n");
+    return 0;
+}

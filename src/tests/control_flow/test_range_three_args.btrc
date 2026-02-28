@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    for i in range(0, 10, 3) {
+        print(i);
+    }
+    printf("PASS: test_range_three_args\n");
+    return 0;
+}

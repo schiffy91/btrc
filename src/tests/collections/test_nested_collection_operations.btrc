@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    Vector<int> a = [1, 2, 3, 4, 5];
+    a.reverse();
+    a.remove(0);
+    print(a.get(0));
+    print(a.len);
+    printf("PASS: test_nested_collection_operations\n");
+    return 0;
+}

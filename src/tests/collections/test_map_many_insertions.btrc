@@ -1,0 +1,17 @@
+#include <stdio.h>
+int main() {
+    Map<int, int> m = {0: 0};
+    for (int i = 1; i < 100; i++) {
+        m.put(i, i * i);
+    }
+    int ok = 1;
+    for (int i = 0; i < 100; i++) {
+        if (m.get(i) != i * i) {
+            ok = 0;
+        }
+    }
+    printf("%d %d\n", m.len, ok);
+    m.free();
+    printf("PASS: test_map_many_insertions\n");
+    return 0;
+}

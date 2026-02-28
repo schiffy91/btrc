@@ -1,0 +1,10 @@
+#include <stdio.h>
+(int, float, int) make_triple(int x) {
+    return (x, (float)x * 1.5f, x * 2);
+}
+int main() {
+    (int, float, int) t = make_triple(4);
+    printf("%d %.1f %d\n", t._0, t._1, t._2);
+    printf("PASS: test_tuple_three_elements\n");
+    return 0;
+}

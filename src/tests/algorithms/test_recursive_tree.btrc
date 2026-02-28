@@ -1,0 +1,48 @@
+#include <stdio.h>
+#include <stdlib.h>
+struct TreeNode {
+    int val;
+    struct TreeNode* left;
+    struct TreeNode* right;
+};
+struct TreeNode* new_node(int val) {
+    struct TreeNode* n = (struct TreeNode*)malloc(sizeof(struct TreeNode));
+    n->val = val;
+    n->left = NULL;
+    n->right = NULL;
+    return n;
+}
+struct TreeNode* bst_insert(struct TreeNode* root, int val) {
+    if (root == NULL) { return new_node(val); }
+    if (val < root->val) { root->left = bst_insert(root->left, val); }
+    else { root->right = bst_insert(root->right, val); }
+    return root;
+}
+void inorder(struct TreeNode* root) {
+    if (root == NULL) { return; }
+    inorder(root->left);
+    printf("%d ", root->val);
+    inorder(root->right);
+}
+void free_tree(struct TreeNode* root) {
+    if (root == NULL) { return; }
+    free_tree(root->left);
+    free_tree(root->right);
+    free(root);
+}
+int main() {
+    struct TreeNode* root = NULL;
+    root = bst_insert(root, 5);
+    root = bst_insert(root, 3);
+    root = bst_insert(root, 7);
+    root = bst_insert(root, 1);
+    root = bst_insert(root, 4);
+    root = bst_insert(root, 6);
+    root = bst_insert(root, 8);
+    root = bst_insert(root, 2);
+    inorder(root);
+    printf("\n");
+    free_tree(root);
+    printf("PASS: test_recursive_tree\n");
+    return 0;
+}

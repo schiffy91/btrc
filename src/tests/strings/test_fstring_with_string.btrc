@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    string name = "world";
+    print(f"hello {name}");
+    printf("PASS: test_fstring_with_string\n");
+    return 0;
+}

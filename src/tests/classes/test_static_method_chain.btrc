@@ -1,0 +1,14 @@
+#include <stdio.h>
+class Counter {
+    class int add(int a, int b) {
+        return a + b;
+    }
+    class int negate(int x) {
+        return -x;
+    }
+}
+int main() {
+    print(Counter.negate(Counter.add(3, 7)));
+    printf("PASS: test_static_method_chain\n");
+    return 0;
+}

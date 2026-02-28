@@ -1,0 +1,25 @@
+#include <stdio.h>
+class Animal {
+    public string name;
+    public Animal(string name) {
+        self.name = name;
+    }
+    public string speak() {
+        return "...";
+    }
+}
+class Dog extends Animal {
+    public Dog(string name) {
+        self.name = name;
+    }
+    public string speak() {
+        return "Woof";
+    }
+}
+int main() {
+    Dog d = Dog("Rex");
+    print(d.name);
+    print(d.speak());
+    printf("PASS: test_basic_inheritance\n");
+    return 0;
+}

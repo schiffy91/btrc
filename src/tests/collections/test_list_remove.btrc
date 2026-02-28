@@ -1,0 +1,12 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [10, 20, 30, 40];
+    nums.remove(1);
+    for x in nums {
+        printf("%d ", x);
+    }
+    printf("\n");
+    nums.free();
+    printf("PASS: test_list_remove\n");
+    return 0;
+}

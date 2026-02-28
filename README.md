@@ -696,8 +696,6 @@ spec/
     asdl_btrc.py               # ASDL → btrc classes
     gen_builtins.py            # stdlib .btrc → LSP builtins (make gen-builtins)
 
-benchmarks/                    # Performance benchmarks (.btrc programs + runner)
-
 src/
   compiler/
     python/                    # Compiler (Python)
@@ -716,7 +714,7 @@ src/
         gen/                   # AST → IR lowering (classes, generics, lambdas, ...)
           generics/            # Monomorphization (lists, maps, sets, user types)
         helpers/               # Runtime helper C source text (strings, alloc, ...)
-      tests/                   # Unit tests (lexer, parser, analyzer, e2e)
+      tests/                   # Python unit tests (lexer, parser, analyzer)
   stdlib/                      # Standard library (auto-included btrc source)
     vector.btrc                # Vector<T> (dynamic array)
     list.btrc                  # List<T> (doubly-linked list)
@@ -732,7 +730,21 @@ src/
     io.btrc                    # File I/O
     console.btrc               # Console output
     random.btrc                # Random numbers
-  tests/                       # Language test suite (99 .btrc test programs)
+  tests/                       # Language test suite (280 .btrc files by topic)
+    runner.py                  # Pytest runner (recursive scan + compile + run)
+    generate_expected.py       # Regenerate golden .stdout files
+    basics/                    # Types, vars, print, nullable, casting, sizeof
+    control_flow/              # if/for/while/switch/try-catch, range, includes
+    classes/                   # Classes, inheritance, interfaces, abstract
+    collections/               # Vector, Map, Set, Array, indexing, iteration
+    strings/                   # String methods, fstrings, zfill
+    functions/                 # Default params, lambdas, forward decl, recursion
+    generics/                  # User-defined generics, Result<T,E>
+    enums/                     # Simple enums, rich enums, toString
+    tuples/                    # Tuple creation, access, multi-element
+    memory/                    # ARC: keep/release, cycle detection, auto-release
+    stdlib/                    # Math, DateTime, Random
+    algorithms/                # Quicksort, BST, hash table (pure C)
   devex/
     ext/                       # VS Code extension (syntax highlighting + LSP client)
     lsp/                       # Language server (completions, diagnostics, hover, go-to-def)
@@ -742,8 +754,8 @@ src/
 
 ```bash
 make build              # Create bin/btrcpy wrapper script
-make test               # Run compiler unit tests + btrc test suite (~751 tests)
-make test-btrc          # Run just the 99 btrc end-to-end tests
+make test               # Run all tests (~747: 467 unit + 280 language)
+make test-btrc          # Run just the 280 btrc language tests
 make lint               # Lint with ruff
 make format             # Format with ruff
 
@@ -755,9 +767,10 @@ make clean              # Remove build artifacts
 
 ### Requirements
 
-- Python 3 + pip
+- Python 3.13+ (via Nix or manual install)
 - gcc
 - pytest (for tests)
+- ruff (for linting)
 - pygls + lsprotocol (for LSP)
 - Node.js + npm (for VS Code extension)
 

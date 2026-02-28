@@ -1,0 +1,6 @@
+#include <stdio.h>
+int main() {
+    print("hello");
+    printf("PASS: test_print_hello\n");
+    return 0;
+}

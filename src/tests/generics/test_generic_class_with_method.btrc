@@ -1,0 +1,14 @@
+#include <stdio.h>
+class Container<T> {
+    public T item;
+    public Container(T val) { self.item = val; }
+    public void set(T val) { self.item = val; }
+    public T get() { return self.item; }
+}
+int main() {
+    Container<int> c = Container(1);
+    c.set(99);
+    print(c.get());
+    printf("PASS: test_generic_class_with_method\n");
+    return 0;
+}

@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    int age = 25;
+    string msg = f"Age is {age}";
+    printf("%s\n", msg);
+    printf("PASS: test_fstring_as_variable\n");
+    return 0;
+}

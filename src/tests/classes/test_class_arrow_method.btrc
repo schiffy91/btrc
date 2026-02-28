@@ -1,0 +1,13 @@
+#include <stdio.h>
+class Box {
+    public int val;
+    public Box(int v) { self.val = v; }
+    public int get() { return self.val; }
+}
+int main() {
+    Box b = new Box(42);
+    printf("%d\n", b.get());
+    delete b;
+    printf("PASS: test_class_arrow_method\n");
+    return 0;
+}

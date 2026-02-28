@@ -7,7 +7,7 @@ __pycache__/
 *.dSYM/
 
 # Generated C files from btrc test compilation
-src/tests/*.c
+src/tests/**/*.c
 .DS_Store
 
 # LSP server venv

@@ -1,0 +1,19 @@
+#include <stdio.h>
+class Rect {
+    public int w;
+    public int h;
+    public Rect(int w = 100, int h = 50) {
+        self.w = w;
+        self.h = h;
+    }
+}
+int main() {
+    Rect a = Rect(10, 20);
+    Rect b = Rect(10);
+    Rect c = Rect();
+    print(a.w, a.h);
+    print(b.w, b.h);
+    print(c.w, c.h);
+    printf("PASS: test_constructor_defaults\n");
+    return 0;
+}

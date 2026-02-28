@@ -1,0 +1,25 @@
+#include <stdio.h>
+struct Vec2 { float x; float y; };
+struct Rect {
+    struct Vec2 origin;
+    struct Vec2 size;
+};
+float area(struct Rect* r) {
+    return r->size.x * r->size.y;
+}
+int main() {
+    struct Rect rects[3];
+    for (int i = 0; i < 3; i++) {
+        rects[i].origin.x = 0.0f;
+        rects[i].origin.y = 0.0f;
+        rects[i].size.x = (float)(i + 1) * 10.0f;
+        rects[i].size.y = (float)(i + 1) * 5.0f;
+    }
+    float total = 0.0f;
+    for (int i = 0; i < 3; i++) {
+        total += area(&rects[i]);
+    }
+    printf("%.0f\n", total);
+    printf("PASS: test_struct_composition\n");
+    return 0;
+}

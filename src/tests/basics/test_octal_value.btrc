@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    int x = 0o10;
+    print(x);
+    printf("PASS: test_octal_value\n");
+    return 0;
+}

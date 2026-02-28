@@ -1,0 +1,16 @@
+#include <stdio.h>
+class Store {
+    public Map<string, int> inventory = {};
+
+    public void stock(string item, int qty) {
+        self.inventory.put(item, qty);
+    }
+}
+int main() {
+    Store s = new Store();
+    s.stock("apples", 50);
+    s.stock("bananas", 30);
+    print(s.inventory.len);
+    printf("PASS: test_pointer_map_field\n");
+    return 0;
+}

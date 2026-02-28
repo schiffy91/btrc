@@ -1,80 +1,45 @@
-FROM node:20
+FROM nixos/nix:latest AS base
 
 ARG TZ
-ENV TZ="$TZ"
+ENV TZ="${TZ:-America/Los_Angeles}"
 
-ARG CLAUDE_CODE_VERSION=latest
+# Enable flakes
+RUN mkdir -p /etc/nix && \
+    echo 'experimental-features = nix-command flakes' > /etc/nix/nix.conf && \
+    echo 'sandbox = false' >> /etc/nix/nix.conf
 
-# Generic dev tools, networking, and build essentials.
-# Project-specific packages go in container.sh (reads from project.json).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core dev tools
-    less git procps sudo fzf zsh man-db unzip gnupg2 openssh-client gh nano vim jq \
-    # Networking & firewall
-    iptables ipset iproute2 dnsutils aggregate \
-    # Build essentials
-    build-essential file pkg-config libssl-dev \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Create non-root user
+ARG USERNAME=dev
+RUN nix-env -iA nixpkgs.shadow && \
+    useradd -m -s /bin/bash $USERNAME && \
+    mkdir -p /etc/sudoers.d && \
+    echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME && \
+    chmod 0440 /etc/sudoers.d/$USERNAME
 
-# Ensure default node user has access to /usr/local/share
-RUN mkdir -p /usr/local/share/npm-global && \
-    chown -R node:node /usr/local/share
+# Persist command history
+RUN mkdir -p /commandhistory && \
+    touch /commandhistory/.bash_history && \
+    chown -R $USERNAME /commandhistory
 
-ARG USERNAME=node
-
-# Persist bash history
-RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-    && mkdir /commandhistory \
-    && touch /commandhistory/.bash_history \
-    && chown -R $USERNAME /commandhistory
-
-# Set `DEVCONTAINER` environment variable to help with orientation
 ENV DEVCONTAINER=true
 
-# Create workspace, config, and VS Code server directories with correct ownership.
-# .vscode-server must exist before Podman mounts the extensions volume inside it,
-# otherwise Podman creates the parent as root and VS Code can't write bin/ or data/.
-RUN mkdir -p /workspace /home/node/.claude /home/node/.vscode-server/extensions && \
-    chown -R node:node /workspace /home/node/.claude /home/node/.vscode-server
+# Create workspace and config dirs
+RUN mkdir -p /workspace /config/claude && \
+    chown -R $USERNAME:$USERNAME /workspace /config && \
+    ln -sf /config/claude /home/$USERNAME/.claude
 
 WORKDIR /workspace
 
-ARG GIT_DELTA_VERSION=0.18.2
-RUN ARCH=$(dpkg --print-architecture) && \
-    wget "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
-    sudo dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
-    rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
+# Copy flake and pre-build dev shell
+COPY --chown=$USERNAME:$USERNAME .devcontainer/flake.nix /workspace/flake.nix
+RUN nix develop --command echo "dev shell ready"
 
-# Give node user passwordless sudo (needed for container.sh to install project deps)
-RUN echo "node ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/node && \
-    chmod 0440 /etc/sudoers.d/node
+# Install Claude Code
+ARG CLAUDE_CODE_VERSION=latest
+RUN nix-env -iA nixpkgs.nodejs_20 && \
+    npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
-# Set up non-root user
-USER node
+USER $USERNAME
 
-# Install global packages
-ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-ENV PATH=$PATH:/usr/local/share/npm-global/bin
-
-# Set the default shell to zsh rather than sh
-ENV SHELL=/bin/zsh
-
-# Set the default editor and visual
-ENV EDITOR=nano
-ENV VISUAL=nano
-
-# Default powerline10k theme
-ARG ZSH_IN_DOCKER_VERSION=1.2.0
-RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v${ZSH_IN_DOCKER_VERSION}/zsh-in-docker.sh)" -- \
-    -p git \
-    -p fzf \
-    -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
-    -a "source /usr/share/doc/fzf/examples/completion.zsh" \
-    -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-    -x
-
-# Source SSH agent env (written by container.sh start when 1Password socket is available)
-RUN echo '[ -f ~/.ssh_agent_env ] && source ~/.ssh_agent_env' >> /home/node/.zshrc
-
-# Install Claude
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+# Auto-enter Nix dev shell
+RUN echo 'if [[ -z "$IN_NIX_SHELL" ]] && [[ -f /workspace/flake.nix ]] && command -v nix &>/dev/null; then exec nix develop /workspace --command bash; fi' >> /home/$USERNAME/.bashrc

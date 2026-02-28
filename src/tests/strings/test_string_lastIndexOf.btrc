@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    string s = "abcabc";
+    print(s.lastIndexOf("abc"));
+    print(s.lastIndexOf("xyz"));
+    printf("PASS: test_string_lastIndexOf\n");
+    return 0;
+}

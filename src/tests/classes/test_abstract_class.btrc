@@ -1,0 +1,17 @@
+#include <stdio.h>
+abstract class Shape {
+    public abstract double area();
+    public string kind() { return "shape"; }
+}
+class Circle extends Shape {
+    public double r;
+    public Circle(double r) { self.r = r; }
+    public double area() { return 3.14 * self.r * self.r; }
+}
+int main() {
+    Circle c = Circle(1.0);
+    print(c.area());
+    print(c.kind());
+    printf("PASS: test_abstract_class\n");
+    return 0;
+}

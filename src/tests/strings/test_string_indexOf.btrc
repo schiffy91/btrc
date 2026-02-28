@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    string s = "hello world";
+    print(s.indexOf("world"));
+    print(s.indexOf("xyz"));
+    printf("PASS: test_string_indexOf\n");
+    return 0;
+}

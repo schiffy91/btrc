@@ -1,0 +1,11 @@
+#include <stdio.h>
+(int, int) divmod(int a, int b) {
+    return (a / b, a % b);
+}
+int main() {
+    (int, int) result = divmod(17, 5);
+    print(result._0);
+    print(result._1);
+    printf("PASS: test_tuple_return\n");
+    return 0;
+}

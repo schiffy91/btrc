@@ -1,0 +1,3 @@
+ok
+error: negative value
+PASS: test_try_catch_function_throw

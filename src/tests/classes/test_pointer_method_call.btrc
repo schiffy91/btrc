@@ -1,0 +1,21 @@
+#include <stdio.h>
+class Bag {
+    public Vector<int> items = [];
+
+    public void add(int x) {
+        self.items.push(x);
+    }
+
+    public int count() {
+        return self.items.len;
+    }
+}
+int main() {
+    Bag b = new Bag();
+    b.add(10);
+    b.add(20);
+    b.add(30);
+    print(b.count());
+    printf("PASS: test_pointer_method_call\n");
+    return 0;
+}

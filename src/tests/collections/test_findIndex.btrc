@@ -1,0 +1,9 @@
+#include <stdio.h>
+bool isEven(int x) { return x % 2 == 0; }
+int main() {
+    Vector<int> a = [1, 3, 4, 7, 8];
+    int idx = a.findIndex(isEven);
+    print(idx);
+    printf("PASS: test_findIndex\n");
+    return 0;
+}

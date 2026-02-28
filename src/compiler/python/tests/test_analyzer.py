@@ -2735,3 +2735,18 @@ class TestTypeMismatchMessages:
             }
         '''
         assert no_errors(src)
+
+
+class TestAbstractClasses:
+    def test_abstract_cannot_instantiate(self):
+        src = '''
+            abstract class Base {
+                public abstract int value();
+            }
+            int main() {
+                Base b = Base();
+                return 0;
+            }
+        '''
+        errs = errors(src)
+        assert any("Cannot instantiate abstract class" in e for e in errs)

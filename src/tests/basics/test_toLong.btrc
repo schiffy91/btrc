@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    string s = "99999";
+    long n = s.toLong();
+    print(n);
+    printf("PASS: test_toLong\n");
+    return 0;
+}

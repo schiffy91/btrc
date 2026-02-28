@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    int a = 3;
+    int b = 4;
+    int c = a + b;
+    print(f"{a} + {b} = {c}");
+    printf("PASS: test_fstring_multi_expr\n");
+    return 0;
+}

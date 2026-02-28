@@ -1,4 +1,4 @@
-.PHONY: build test test-btrc generate-expected gen-builtins lint format install-ext package-ext clean bench
+.PHONY: build test test-btrc generate-expected gen-builtins lint format install-ext package-ext clean
 
 build:
 	@mkdir -p bin
@@ -11,10 +11,10 @@ build:
 	@echo "Built bin/btrcpy"
 
 test:
-	python3 -m pytest src/compiler/python/tests/ src/tests/test_btrc_runner.py -x -q
+	python3 -m pytest src/compiler/python/tests/ src/tests/runner.py -x -q
 
 test-btrc:
-	python3 -m pytest src/tests/test_btrc_runner.py -x -q
+	python3 -m pytest src/tests/runner.py -x -q
 
 generate-expected:
 	python3 src/tests/generate_expected.py
@@ -27,9 +27,6 @@ lint:
 
 format:
 	ruff format src/
-
-bench:
-	bash benchmarks/run.sh
 
 install-ext:
 	cd src/devex/ext && npm install && npm run install-ext

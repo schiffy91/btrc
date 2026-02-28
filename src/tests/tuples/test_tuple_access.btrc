@@ -1,0 +1,10 @@
+#include <stdio.h>
+(int, int) swap(int a, int b) {
+    return (b, a);
+}
+int main() {
+    (int, int) t = swap(10, 20);
+    print(t._0, t._1);
+    printf("PASS: test_tuple_access\n");
+    return 0;
+}

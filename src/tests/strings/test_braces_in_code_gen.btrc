@@ -1,0 +1,8 @@
+#include <stdio.h>
+int main() {
+    string name = "test";
+    string code = f"void {name}() {{}}";
+    print(code);
+    printf("PASS: test_braces_in_code_gen\n");
+    return 0;
+}

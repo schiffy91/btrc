@@ -1,0 +1,13 @@
+#include <stdio.h>
+enum class Color {
+    RGB(int r, int g, int b),
+    Named(string name)
+}
+int main() {
+    Color c = Color.RGB(255, 0, 0);
+    if (c.tag == Color.RGB) {
+        print(c.data.RGB.r);
+    }
+    printf("PASS: test_rich_enum_basic\n");
+    return 0;
+}

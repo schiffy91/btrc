@@ -1,0 +1,15 @@
+#include <stdio.h>
+interface Greeter {
+    string greet();
+}
+class Dog implements Greeter {
+    public string name;
+    public Dog(string name) { self.name = name; }
+    public string greet() { return "Woof"; }
+}
+int main() {
+    Dog d = Dog("Rex");
+    print(d.greet());
+    printf("PASS: test_basic_interface\n");
+    return 0;
+}

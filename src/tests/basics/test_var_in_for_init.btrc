@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    int sum = 0;
+    for (var i = 0; i < 5; i++) {
+        sum += i;
+    }
+    printf("%d\n", sum);
+    printf("PASS: test_var_in_for_init\n");
+    return 0;
+}

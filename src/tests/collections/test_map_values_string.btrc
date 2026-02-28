@@ -1,0 +1,14 @@
+#include <stdio.h>
+int main() {
+    Map<string, int> m = {"x": 100, "y": 200};
+    Vector<int> v = m.values();
+    v.sort();
+    for x in v {
+        printf("%d ", x);
+    }
+    printf("\n");
+    v.free();
+    m.free();
+    printf("PASS: test_map_values_string\n");
+    return 0;
+}

@@ -1,0 +1,2 @@
+upper: HELLO
+PASS: test_fstring_with_string_method

@@ -1,0 +1,10 @@
+#include <stdio.h>
+int main() {
+    Map<string, int> ages = {"alice": 30, "bob": 25};
+    printf("%d\n", ages.get("alice"));
+    ages.put("carol", 35);
+    printf("%d\n", ages.get("carol"));
+    ages.free();
+    printf("PASS: test_map_dot_methods\n");
+    return 0;
+}

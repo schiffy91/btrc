@@ -1,0 +1,13 @@
+#include <stdio.h>
+int main() {
+    Map<int, int> m = {};
+    m.put(10, 100);
+    m.put(20, 200);
+    int sum = 0;
+    for k in m {
+        sum = sum + k;
+    }
+    print(sum);
+    printf("PASS: test_map_iteration_keys_only\n");
+    return 0;
+}

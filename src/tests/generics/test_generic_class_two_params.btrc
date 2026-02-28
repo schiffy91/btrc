@@ -1,0 +1,15 @@
+#include <stdio.h>
+class Pair<A, B> {
+    public A first;
+    public B second;
+    public Pair(A a, B b) { self.first = a; self.second = b; }
+    public A getFirst() { return self.first; }
+    public B getSecond() { return self.second; }
+}
+int main() {
+    Pair<string, int> p = Pair("x", 42);
+    print(p.getFirst());
+    print(p.getSecond());
+    printf("PASS: test_generic_class_two_params\n");
+    return 0;
+}

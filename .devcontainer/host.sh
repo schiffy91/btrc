@@ -8,6 +8,12 @@
 CREDS_DIR="${HOME}/.claude-devcontainer"
 mkdir -p "$CREDS_DIR"
 
+# --- Podman housekeeping ---
+# Prune unused images/containers to prevent the VM disk from filling up.
+if command -v podman &>/dev/null; then
+    podman system prune -a -f >/dev/null 2>&1 || true
+fi
+
 # --- Claude Code credentials ---
 if [[ "$(uname)" == "Darwin" ]] && command -v security &>/dev/null; then
     # macOS: extract OAuth token from Keychain

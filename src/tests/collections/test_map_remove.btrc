@@ -1,0 +1,14 @@
+#include <stdio.h>
+int main() {
+    Map<string, int> m = {"alice": 30, "bob": 25, "carol": 35};
+    printf("%d\n", m.len);
+    m.remove("bob");
+    printf("%d\n", m.len);
+    printf("%d\n", m.has("bob"));
+    printf("%d\n", m.has("alice"));
+    printf("%d\n", m.get("alice"));
+    printf("%d\n", m.get("carol"));
+    m.free();
+    printf("PASS: test_map_remove\n");
+    return 0;
+}

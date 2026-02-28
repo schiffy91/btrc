@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    string s = "abcde";
+    printf("%c\n", s.charAt(2));
+    printf("PASS: test_string_charAt\n");
+    return 0;
+}

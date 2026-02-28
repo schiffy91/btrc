@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [10, 20, 30];
+    print(nums.contains(20));
+    print(nums.contains(99));
+    nums.free();
+    printf("PASS: test_list_contains\n");
+    return 0;
+}

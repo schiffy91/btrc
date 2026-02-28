@@ -1,0 +1,9 @@
+#include <stdio.h>
+string format_pair(int a, int b) {
+    return f"{a} and {b}";
+}
+int main() {
+    printf("%s\n", format_pair(3, 7));
+    printf("PASS: test_fstring_return_from_function\n");
+    return 0;
+}

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "btrc"
 version = "0.1.0"
 description = "A language that transpiles to C"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.1.0"]
@@ -19,8 +19,22 @@ testpaths = ["src/compiler/python/tests", "src/tests"]
 pythonpath = ["."]
 
 [tool.ruff]
-src = ["src"]
-line-length = 100
+target-version = "py313"
+line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",
+    "E701",
+    "SIM108",
+    "UP015",
+    "B905",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.pyright]
+extraPaths = ["."]
+pythonVersion = "3.13"

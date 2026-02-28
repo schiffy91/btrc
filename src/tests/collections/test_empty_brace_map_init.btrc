@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    Map<string, int> m = {};
+    m.put("a", 1);
+    m.put("b", 2);
+    print(m.len);
+    printf("PASS: test_empty_brace_map_init\n");
+    return 0;
+}

@@ -12,18 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Build and test in devcontainer
+        uses: devcontainers/ci@v0.3
         with:
-          python-version: "3.11"
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y gcc
-
-      - name: Install Python dependencies
-        run: pip install pytest ruff
-
-      - name: Lint
-        run: make lint
-
-      - name: Run tests
-        run: make test
+          runCmd: |
+            make lint
+            make test

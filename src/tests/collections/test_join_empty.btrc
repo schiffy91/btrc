@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    Vector<string> words = [];
+    string result = words.join(",");
+    printf("[%s]\n", result);
+    words.free();
+    printf("PASS: test_join_empty\n");
+    return 0;
+}

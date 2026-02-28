@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [1, 2, 3];
+    print(f"size: {nums.size()}");
+    printf("PASS: test_fstring_with_list_size\n");
+    return 0;
+}

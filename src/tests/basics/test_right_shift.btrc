@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    int a = 256;
+    print(a >> 4);
+    printf("PASS: test_right_shift\n");
+    return 0;
+}

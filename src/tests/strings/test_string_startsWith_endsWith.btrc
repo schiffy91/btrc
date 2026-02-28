@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    string s = "hello world";
+    print(s.startsWith("hello"));
+    print(s.endsWith("world"));
+    print(s.startsWith("world"));
+    printf("PASS: test_string_startsWith_endsWith\n");
+    return 0;
+}

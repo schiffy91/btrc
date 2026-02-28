@@ -1,0 +1,12 @@
+#include <stdio.h>
+int main() {
+    Map<string, int> m = {"a": 1, "b": 2};
+    m.remove("a");
+    printf("%d\n", m.has("a"));
+    m.put("a", 99);
+    printf("%d\n", m.has("a"));
+    printf("%d\n", m.get("a"));
+    m.free();
+    printf("PASS: test_map_remove_then_reinsert\n");
+    return 0;
+}

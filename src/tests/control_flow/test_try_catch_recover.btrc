@@ -1,0 +1,11 @@
+#include <stdio.h>
+int main() {
+    try {
+        throw "something went wrong";
+    } catch (e) {
+        print(e);
+    }
+    print("recovered");
+    printf("PASS: test_try_catch\n");
+    return 0;
+}

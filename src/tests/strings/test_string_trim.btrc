@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    string s = "  hello  ";
+    string t = s.trim();
+    print(t);
+    print(t.len());
+    printf("PASS: test_string_trim\n");
+    return 0;
+}

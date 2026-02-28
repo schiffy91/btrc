@@ -1,0 +1,14 @@
+#include <stdio.h>
+class Box<T> {
+    public T value;
+    public Box(T val) { self.value = val; }
+    public T get() { return self.value; }
+}
+int main() {
+    Box<int> a = Box(10);
+    Box<string> b = Box("hello");
+    print(a.get());
+    print(b.get());
+    printf("PASS: test_generic_class_multiple_instantiations\n");
+    return 0;
+}

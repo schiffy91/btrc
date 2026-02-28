@@ -1,0 +1,4 @@
+val=0
+val=1
+val=2
+PASS: test_range_in_fstring

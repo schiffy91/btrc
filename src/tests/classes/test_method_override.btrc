@@ -1,0 +1,24 @@
+#include <stdio.h>
+class Base {
+    public int value;
+    public Base(int v) {
+        self.value = v;
+    }
+    public int compute() {
+        return self.value;
+    }
+}
+class Derived extends Base {
+    public Derived(int v) {
+        self.value = v;
+    }
+    public int compute() {
+        return self.value * 2;
+    }
+}
+int main() {
+    Derived d = Derived(5);
+    print(d.compute());
+    printf("PASS: test_method_override\n");
+    return 0;
+}

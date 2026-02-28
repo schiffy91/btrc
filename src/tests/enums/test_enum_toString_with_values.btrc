@@ -1,0 +1,8 @@
+#include <stdio.h>
+enum Level { LOW = 1, MEDIUM = 5, HIGH = 10 };
+int main() {
+    Level lv = HIGH;
+    print(lv.toString());
+    printf("PASS: test_enum_toString_with_values\n");
+    return 0;
+}

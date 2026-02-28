@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main() {
+    double x = sqrt(4.0);
+    printf("%g\n", x);
+    printf("PASS: test_auto_include_math\n");
+    return 0;
+}

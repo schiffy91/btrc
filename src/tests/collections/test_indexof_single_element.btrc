@@ -1,0 +1,9 @@
+#include <stdio.h>
+int main() {
+    Vector<int> nums = [42];
+    print(nums.indexOf(42));
+    print(nums.lastIndexOf(42));
+    nums.free();
+    printf("PASS: test_indexof_single_element\n");
+    return 0;
+}

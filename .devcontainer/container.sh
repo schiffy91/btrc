@@ -2,43 +2,45 @@
 set -euo pipefail
 
 # =============================================================================
-# Devcontainer lifecycle script. Called by devcontainer.json:
-#   postCreateCommand:  bash .devcontainer/container.sh setup
-#   postStartCommand:   bash .devcontainer/container.sh start
+# Devcontainer lifecycle script. Called by:
+#   Containerfile RUN:    bash /tmp/container.sh build   (baked into image)
+#   postCreateCommand:    bash .devcontainer/container.sh setup
+#   postStartCommand:     bash .devcontainer/container.sh start
 #
-# All project-specific configuration lives in .devcontainer/project.json.
-# This script reads it via jq — no per-project edits needed here.
+# All project-specific configuration lives in devcontainer.json under
+# customizations.project. This script reads it via jq — no per-project
+# edits needed here.
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_JSON="${SCRIPT_DIR}/project.json"
+CONFIG_JSON="${SCRIPT_DIR}/devcontainer.json"
+JQ_PREFIX=".customizations.project"
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │  PROJECT-SPECIFIC — reads from project.json                                │
+# │  PROJECT-SPECIFIC — reads from devcontainer.json customizations.project     │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 project_setup() {
-    if [ ! -f "$PROJECT_JSON" ]; then
-        echo "WARNING: project.json not found, skipping project setup"
+    if [ ! -f "$CONFIG_JSON" ]; then
+        echo "WARNING: devcontainer.json not found, skipping project setup"
         return
     fi
 
-    # Run each setup command from project.json
     local count
-    count=$(jq -r '.setupCommands | length' "$PROJECT_JSON")
+    count=$(jq -r "${JQ_PREFIX}.setupCommands | length" "$CONFIG_JSON")
     for ((i = 0; i < count; i++)); do
         local cmd
-        cmd=$(jq -r ".setupCommands[$i]" "$PROJECT_JSON")
+        cmd=$(jq -r "${JQ_PREFIX}.setupCommands[$i]" "$CONFIG_JSON")
         echo "Running: $cmd"
         eval "$cmd"
     done
 
     # Build local extensions (npm install + package as .vsix)
     local ext_count
-    ext_count=$(jq -r '.localExtensions | length // 0' "$PROJECT_JSON")
+    ext_count=$(jq -r "${JQ_PREFIX}.localExtensions | length // 0" "$CONFIG_JSON")
     for ((i = 0; i < ext_count; i++)); do
         local ext_path
-        ext_path=$(jq -r ".localExtensions[$i]" "$PROJECT_JSON")
+        ext_path=$(jq -r "${JQ_PREFIX}.localExtensions[$i]" "$CONFIG_JSON")
         local abs_path="/workspace/${ext_path}"
         if [ -d "$abs_path" ] && [ -f "$abs_path/package.json" ]; then
             echo "Building local extension: $ext_path"
@@ -53,10 +55,10 @@ project_firewall_domains() {
     # Return project-specific domains to whitelist (one per line).
     # Generic infra domains (npm, Anthropic, VS Code, GitHub) are in
     # FIREWALL_ALLOWED_DOMAINS in devcontainer.json — no need to repeat them.
-    if [ ! -f "$PROJECT_JSON" ]; then
+    if [ ! -f "$CONFIG_JSON" ]; then
         return
     fi
-    jq -r '.firewallDomains[]? // empty' "$PROJECT_JSON"
+    jq -r "${JQ_PREFIX}.firewallDomains[]? // empty" "$CONFIG_JSON"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -64,6 +66,24 @@ project_firewall_domains() {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 # --- Lifecycle entry points ---------------------------------------------------
+
+build() {
+    # Runs during `docker build` (Containerfile RUN). Commands are baked into the
+    # image so container creation is fast. eval preserves PATH changes (e.g.
+    # sourcing cargo env) across iterations.
+    if [ ! -f "$CONFIG_JSON" ]; then
+        echo "WARNING: devcontainer.json not found, skipping build commands"
+        return
+    fi
+    local count
+    count=$(jq -r "${JQ_PREFIX}.buildCommands | length // 0" "$CONFIG_JSON")
+    for ((i = 0; i < count; i++)); do
+        local cmd
+        cmd=$(jq -r "${JQ_PREFIX}.buildCommands[$i]" "$CONFIG_JSON")
+        echo "Running: $cmd"
+        eval "$cmd"
+    done
+}
 
 setup() {
     project_setup
@@ -80,15 +100,15 @@ start() {
 install_local_extensions() {
     # Install .vsix files built during setup. Runs during postStartCommand
     # when the VS Code CLI is available.
-    if [ ! -f "$PROJECT_JSON" ]; then
+    if [ ! -f "$CONFIG_JSON" ]; then
         return
     fi
 
     local ext_count
-    ext_count=$(jq -r '.localExtensions | length // 0' "$PROJECT_JSON")
+    ext_count=$(jq -r "${JQ_PREFIX}.localExtensions | length // 0" "$CONFIG_JSON")
     for ((i = 0; i < ext_count; i++)); do
         local ext_path
-        ext_path=$(jq -r ".localExtensions[$i]" "$PROJECT_JSON")
+        ext_path=$(jq -r "${JQ_PREFIX}.localExtensions[$i]" "$CONFIG_JSON")
         local abs_path="/workspace/${ext_path}"
         # Find any .vsix file in the extension directory
         local vsix
@@ -104,24 +124,24 @@ install_local_extensions() {
 
 restore_credentials() {
     # Claude Code
-    cp /tmp/claude-host-creds/.credentials.json /home/node/.claude/.credentials.json 2>/dev/null || true
-    chmod 600 /home/node/.claude/.credentials.json 2>/dev/null || true
+    cp /tmp/claude-host-creds/.credentials.json "$HOME/.claude/.credentials.json" 2>/dev/null || true
+    chmod 600 "$HOME/.claude/.credentials.json" 2>/dev/null || true
 
     # GitHub CLI
     if [ -f /tmp/claude-host-creds/gh/hosts.yml ]; then
-        mkdir -p /home/node/.config/gh 2>/dev/null || true
-        cp /tmp/claude-host-creds/gh/hosts.yml /home/node/.config/gh/hosts.yml 2>/dev/null || true
-        chmod 600 /home/node/.config/gh/hosts.yml 2>/dev/null || true
+        mkdir -p "$HOME/.config/gh" 2>/dev/null || true
+        cp /tmp/claude-host-creds/gh/hosts.yml "$HOME/.config/gh/hosts.yml" 2>/dev/null || true
+        chmod 600 "$HOME/.config/gh/hosts.yml" 2>/dev/null || true
     fi
 
     # SSH agent (1Password) — host.sh bind-mounts the socket to a fixed path.
     # Write SSH_AUTH_SOCK into the shell profile so every terminal picks it up.
     if [ -S /run/host-ssh-agent.sock ]; then
-        echo 'export SSH_AUTH_SOCK=/run/host-ssh-agent.sock' > /home/node/.ssh_agent_env
+        echo 'export SSH_AUTH_SOCK=/run/host-ssh-agent.sock' > "$HOME/.ssh_agent_env"
         # Also set for the current postStartCommand scope
         export SSH_AUTH_SOCK=/run/host-ssh-agent.sock
     else
-        rm -f /home/node/.ssh_agent_env
+        rm -f "$HOME/.ssh_agent_env"
     fi
 
     # Configure git to use SSH for GitHub (works with 1Password agent or any SSH key)
@@ -146,9 +166,9 @@ _do_firewall() {
     local IFS=$'\n\t'
     local ALLOWED_DOMAINS=("$@")
 
-    # 1. Extract Docker DNS info BEFORE any flushing
-    local DOCKER_DNS_RULES
-    DOCKER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
+    # 1. Extract container DNS info BEFORE any flushing
+    local CONTAINER_DNS_RULES
+    CONTAINER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
 
     # Flush existing rules and delete existing ipsets
     iptables -F
@@ -159,14 +179,14 @@ _do_firewall() {
     iptables -t mangle -X
     ipset destroy allowed-domains 2>/dev/null || true
 
-    # 2. Selectively restore ONLY internal Docker DNS resolution
-    if [ -n "$DOCKER_DNS_RULES" ]; then
-        echo "Restoring Docker DNS rules..."
+    # 2. Selectively restore ONLY internal container DNS resolution
+    if [ -n "$CONTAINER_DNS_RULES" ]; then
+        echo "Restoring container DNS rules..."
         iptables -t nat -N DOCKER_OUTPUT 2>/dev/null || true
         iptables -t nat -N DOCKER_POSTROUTING 2>/dev/null || true
-        echo "$DOCKER_DNS_RULES" | xargs -L 1 iptables -t nat
+        echo "$CONTAINER_DNS_RULES" | xargs -L 1 iptables -t nat
     else
-        echo "No Docker DNS rules to restore"
+        echo "No container DNS rules to restore"
     fi
 
     # Allow DNS, SSH, and localhost before any restrictions
@@ -209,7 +229,7 @@ _do_firewall() {
     for domain in "${ALLOWED_DOMAINS[@]}"; do
         [ -z "$domain" ] && continue
         echo "Resolving $domain..."
-        ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
+        ips=$(dig +noall +answer +time=5 +tries=1 A "$domain" 2>/dev/null | awk '$4 == "A" {print $5}') || true
         if [ -z "$ips" ]; then
             echo "WARNING: Failed to resolve $domain (skipping)"
             continue
@@ -271,8 +291,9 @@ _do_firewall() {
 # --- Dispatcher ---------------------------------------------------------------
 
 case "${1:-}" in
+    build)     build ;;
     setup)     setup ;;
     start)     start ;;
     _firewall) shift; _do_firewall "$@" ;;
-    *)         echo "Usage: $0 {setup|start}" >&2; exit 1 ;;
+    *)         echo "Usage: $0 {build|setup|start}" >&2; exit 1 ;;
 esac

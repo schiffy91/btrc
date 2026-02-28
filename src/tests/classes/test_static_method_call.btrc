@@ -1,0 +1,15 @@
+#include <stdio.h>
+class Utils {
+    class int twice(int x) {
+        return x * 2;
+    }
+    class int square(int x) {
+        return x * x;
+    }
+}
+int main() {
+    print(Utils.twice(5));
+    print(Utils.square(4));
+    printf("PASS: test_static_method_call\n");
+    return 0;
+}

@@ -4,9 +4,7 @@
     "dockerfile": "Containerfile",
     "args": {
       "TZ": "${localEnv:TZ:America/Los_Angeles}",
-      "CLAUDE_CODE_VERSION": "latest",
-      "GIT_DELTA_VERSION": "0.18.2",
-      "ZSH_IN_DOCKER_VERSION": "1.2.0"
+      "CLAUDE_CODE_VERSION": "latest"
     }
   },
   "runArgs": [
@@ -17,40 +15,41 @@
     "vscode": {
       "extensions": [
         "anthropic.claude-code",
-        "GitHub.vscode-github-actions",
-        "ms-python.python",
-        "ms-python.vscode-pylance",
-        "charliermarsh.ruff"
+        "ms-python.python"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "zsh",
-        "terminal.integrated.profiles.linux": {
-          "bash": {
-            "path": "bash",
-            "icon": "terminal-bash"
-          },
-          "zsh": {
-            "path": "zsh"
-          }
-        },
-        "python.defaultInterpreterPath": "/usr/bin/python3",
-        "btrc.pythonPath": "/usr/bin/python3"
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "python3"
       }
+    },
+    "project": {
+      "buildCommands": [],
+      "setupCommands": [
+        "nix develop --command bash -c 'echo ready'"
+      ],
+      "localExtensions": [
+        "src/devex/ext"
+      ],
+      "firewallDomains": [
+        "cache.nixos.org",
+        "nix-community.cachix.org",
+        "channels.nixos.org",
+        "releases.nixos.org",
+        "api.anthropic.com"
+      ]
     }
   },
   "initializeCommand": "bash .devcontainer/host.sh",
-  "remoteUser": "node",
+  "remoteUser": "dev",
   "mounts": [
-    "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
-    "source=claude-code-credentials,target=/home/node/.claude,type=volume",
-    "source=devcontainer-vscode-extensions-${devcontainerId},target=/home/node/.vscode-server/extensions,type=volume",
-    "source=${localEnv:HOME}/.claude-devcontainer,target=/tmp/claude-host-creds,type=bind,readonly"
+    "source=btrc-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=btrc-credentials,target=/config/claude,type=volume",
+    "source=${localEnv:HOME}/.claude-devcontainer,target=/tmp/claude-host-creds,type=bind,readonly",
+    "source=btrc-nix-store,target=/nix,type=volume"
   ],
   "containerEnv": {
-    "NODE_OPTIONS": "--max-old-space-size=4096",
-    "CLAUDE_CONFIG_DIR": "/home/node/.claude",
-    "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
-    "FIREWALL_ALLOWED_DOMAINS": "registry.npmjs.org api.anthropic.com sentry.io statsig.anthropic.com statsig.com marketplace.visualstudio.com vscode.blob.core.windows.net update.code.visualstudio.com github.com api.github.com pypi.org files.pythonhosted.org"
+    "CLAUDE_CONFIG_DIR": "/config/claude",
+    "FIREWALL_ALLOWED_DOMAINS": "registry.npmjs.org api.anthropic.com sentry.io statsig.anthropic.com statsig.com marketplace.visualstudio.com gallerycdn.vsassets.io gallery.vsassets.io vscode.blob.core.windows.net update.code.visualstudio.com github.com api.github.com cache.nixos.org channels.nixos.org releases.nixos.org nix-community.cachix.org"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
