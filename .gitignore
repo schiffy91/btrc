@@ -6,6 +6,9 @@ __pycache__/
 *.o
 *.dSYM/
 
+# Compilation cache
+.btrc-cache/
+
 # Generated C files from btrc test compilation
 src/tests/**/*.c
 .DS_Store

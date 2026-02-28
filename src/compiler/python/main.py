@@ -17,6 +17,7 @@ from .analyzer.analyzer import Analyzer
 from .ir.optimizer import optimize
 from .ir.emitter import CEmitter
 from .ir.gen.generator import generate_ir
+from .disk_cache import get_cached, store as cache_store
 
 
 def _format_error(source: str, filename: str, message: str,
@@ -156,6 +157,8 @@ def main():
                            help="Print IR representation (before optimization)")
     argparser.add_argument("--emit-optimized-ir", action="store_true",
                            help="Print IR representation (after optimization)")
+    argparser.add_argument("--no-cache", action="store_true",
+                           help="Disable on-disk compilation cache")
 
     args = argparser.parse_args()
 
@@ -176,6 +179,23 @@ def main():
         source = stdlib_source + "\n" + source
 
     filename = os.path.basename(args.input)
+
+    # Check disk cache (only for default compilation, not debug/emit modes)
+    use_cache = not args.no_cache and not any([
+        args.emit_tokens, args.emit_ast, args.emit_ir,
+        args.emit_optimized_ir, args.debug
+    ])
+    if use_cache:
+        cached = get_cached(source)
+        if cached is not None:
+            if args.output:
+                out_path = args.output
+            else:
+                out_path = os.path.splitext(args.input)[0] + ".c"
+            with open(out_path, "w") as f:
+                f.write(cached)
+            print(f"Transpiled {args.input} → {out_path} (cached)")
+            return
 
     # Lexing
     try:
@@ -260,6 +280,10 @@ def main():
         return
 
     c_source = CEmitter().emit(ir_module)
+
+    # Store in disk cache
+    if use_cache:
+        cache_store(source, c_source)
 
     # Output
     if args.output:

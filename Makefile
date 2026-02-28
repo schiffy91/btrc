@@ -35,4 +35,4 @@ package-ext:
 	cd src/devex/ext && npm install && npm run package
 
 clean:
-	rm -rf bin/ src/devex/ext/out/ src/devex/ext/node_modules/ src/devex/ext/*.vsix
+	rm -rf bin/ .btrc-cache/ src/devex/ext/out/ src/devex/ext/node_modules/ src/devex/ext/*.vsix
