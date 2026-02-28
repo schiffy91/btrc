@@ -13,8 +13,10 @@ from urllib.parse import urlparse, unquote
 from lsprotocol import types as lsp
 
 from src.compiler.python.lexer import Lexer, LexerError
-from src.compiler.python.parser import Parser, ParseError
-from src.compiler.python.analyzer import Analyzer, AnalyzedProgram
+from src.compiler.python.parser.parser import Parser
+from src.compiler.python.parser.core import ParseError
+from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.core import AnalyzedProgram
 from src.compiler.python.ast_nodes import Program
 from src.compiler.python.tokens import Token
 from src.compiler.python.main import resolve_includes

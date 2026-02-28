@@ -38,9 +38,9 @@ A self-hosted btrc compiler (same pipeline) is planned but not yet implemented.
 ```
 SHARED SPECS (single source of truth):
   spec/grammar.ebnf              keywords, operators, syntax rules
-  spec/ast.asdl                  AST node types (Zephyr ASDL)
-  tools/asdl_python.py           ASDL → Python dataclasses
-  tools/asdl_btrc.py             ASDL → btrc classes
+  spec/ast/ast.asdl              AST node types (Zephyr ASDL)
+  spec/ast/asdl_python.py        ASDL → Python dataclasses
+  spec/ast/asdl_btrc.py          ASDL → btrc classes
 
 PIPELINE:
   source.btrc
@@ -68,7 +68,7 @@ PIPELINE:
 
 #### Stage 2: Parser
 - Hand-written recursive descent, guided by grammar rules
-- Produces typed AST nodes generated from `spec/ast.asdl`
+- Produces typed AST nodes generated from `spec/ast/ast.asdl`
 - Handles disambiguation: generic `<` vs comparison, cast vs grouping,
   for-in vs C-for, tuple type vs paren group
 - ASDL wrapper types: ElseBlock/ElseIf, ForInitVar/ForInitExpr,
@@ -118,7 +118,7 @@ PIPELINE:
 - EBNF parser extracts GrammarInfo: keyword set, operator list,
   keyword→token mapping, operator→token mapping
 
-### spec/ast.asdl (Zephyr ASDL)
+### spec/ast/ast.asdl (Zephyr ASDL)
 - ~50 AST node types with typed fields
 - Sum types: decl, stmt, expr, class_member, if_else, for_init, etc.
 - Product types: Program, ClassDecl, BinaryExpr, etc.
@@ -133,22 +133,22 @@ PIPELINE:
 ### File Size Rule
 
 **~200 lines per file, max 300.** If a file exceeds this, decompose it into
-a package with sub-modules. Use `__init__.py` to re-export the public API.
+a package with sub-modules. No `__init__.py` files — use explicit module paths
+(e.g., `from .parser.parser import Parser` not `from .parser import Parser`).
 
 ### File Structure
 
 ```
 src/compiler/python/
-  __init__.py                    re-exports Lexer, Parser, Analyzer
   ebnf.py                       EBNF grammar parser → GrammarInfo
   tokens.py                     Token + TokenType enum
   lexer.py                      grammar-driven tokenizer
   lexer_literals.py             number/string literal parsing
-  ast_nodes.py                  GENERATED from spec/ast.asdl
+  ast_nodes.py                  GENERATED from spec/ast/ast.asdl
   main.py                       pipeline entry point + CLI
 
   parser/                        recursive descent parser (mixin-based)
-    __init__.py                  assembles Parser from mixins
+    parser.py                    assembles Parser from mixins
     core.py                      ParserBase class, state, token helpers
     types.py                     type expression + param parsing
     declarations.py              class, struct, enum decls
@@ -161,7 +161,7 @@ src/compiler/python/
     lambdas.py                   verbose + arrow lambda parsing
 
   analyzer/                      semantic analysis (mixin-based)
-    __init__.py                  assembles Analyzer from mixins
+    analyzer.py                  assembles Analyzer from mixins
     core.py                      data structures (ClassInfo, Scope, SymbolInfo)
     registration.py              pass 1: register declarations
     statements.py                statement analysis
@@ -172,14 +172,12 @@ src/compiler/python/
     validation.py                access control, inheritance checks
 
   ir/                            IR pipeline
-    __init__.py                  re-exports generate_ir, optimize, CEmitter
     nodes.py                     IR node dataclass definitions
     optimizer.py                 dead helper elimination
     emitter.py                   IR → C text (simple tree walk)
 
     gen/                         IR generation (AST → IR lowering)
-      __init__.py                re-exports generate_ir
-      generator.py               main class, module-level structure
+      generator.py               main class + generate_ir() entry point
       classes.py                 class/struct lowering
       class_members.py           field/method/property lowering
       enums.py                   enum lowering (simple + rich)
@@ -198,7 +196,6 @@ src/compiler/python/
       types.py                   type-related IR generation
       helpers.py                 runtime helper registration
       generics/                  monomorphization
-        __init__.py              re-exports
         core.py                  generic infrastructure
         lists.py                 List<T> specialization
         maps.py                  Map<K,V> specialization
@@ -206,7 +203,7 @@ src/compiler/python/
         user.py                  user-defined generic classes
 
     helpers/                     runtime helper C source text
-      __init__.py                re-exports HELPERS dict
+      registry.py                aggregates all helpers into HELPERS dict
       core.py                    helper infrastructure
       alloc.py                   safe alloc wrappers
       divmod.py                  division/modulo safety
@@ -219,6 +216,7 @@ src/compiler/python/
       trycatch.py                setjmp/longjmp infrastructure
       hash.py                    hash functions for Map/Set
       collections.py             generic collection function templates
+      cycles.py                  ARC cycle detection helpers
 
   tests/
     test_lexer.py                tokenize snippets → check tokens
@@ -260,7 +258,7 @@ src/compiler/python/tests/
   test_e2e.py             full pipeline → gcc → run → check output
 ```
 
-#### 2. End-to-End Tests (90 .btrc files)
+#### 2. End-to-End Tests (99 .btrc files)
 ```
 for each src/tests/test_*.btrc:
   transpile → C (Python compiler)
@@ -271,8 +269,8 @@ for each src/tests/test_*.btrc:
 ### Makefile Targets
 ```
 make build          Create bin/btrcpy wrapper script
-make test           Python unit tests + 90 btrc e2e tests
-make test-btrc      Just the 90 btrc e2e tests
+make test           Python unit tests + 99 btrc e2e tests
+make test-btrc      Just the 99 btrc e2e tests
 make lint           Lint with ruff
 make format         Format with ruff
 make bench          Run performance benchmarks
@@ -288,5 +286,5 @@ make clean          Remove build artifacts
 3. **Grammar is the single source of truth.** No hardcoded keywords/operators.
 4. **AST types come from ASDL.** Never hand-edit generated files.
 5. **Files ~200 lines max.** Decompose into packages.
-6. **All 90 tests must pass.** No "pre-existing failures."
+6. **All 99 btrc tests must pass.** No "pre-existing failures."
 7. **Don't cut corners when context runs low.** Save state and stop.

@@ -14,7 +14,7 @@ from typing import Optional
 from lsprotocol import types as lsp
 
 from src.compiler.python.tokens import Token, TokenType
-from src.compiler.python.analyzer import ClassInfo
+from src.compiler.python.analyzer.core import ClassInfo
 
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.definition import _resolve_object_class, DefinitionMap

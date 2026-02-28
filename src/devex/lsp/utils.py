@@ -12,7 +12,7 @@ from typing import Optional
 from lsprotocol import types as lsp
 
 from src.compiler.python.tokens import Token, TokenType
-from src.compiler.python.analyzer import ClassInfo
+from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.ast_nodes import (
     Block,
     ClassDecl,

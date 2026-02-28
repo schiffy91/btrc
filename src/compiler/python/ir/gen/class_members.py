@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import ClassDecl, MethodDecl, PropertyDecl, NewExpr
-from ...analyzer import ClassInfo
+from ...analyzer.core import ClassInfo
 from ..nodes import (
     CType, IRAssign, IRBinOp, IRBlock, IRCall, IRCast, IRExprStmt,
     IRFieldAccess, IRFunctionDef, IRIf, IRLiteral, IRParam, IRReturn,

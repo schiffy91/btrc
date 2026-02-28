@@ -4,7 +4,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..nodes import IRHelperDecl
-from ..helpers import HELPERS, HelperDef
+from ..helpers.registry import HELPERS
+from ..helpers.core import HelperDef
 
 if TYPE_CHECKING:
     from .generator import IRGenerator

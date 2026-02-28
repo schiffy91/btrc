@@ -1,6 +1,6 @@
 """AST node definitions for the btrc language.
 
-Auto-generated from spec/ast.asdl by tools/asdl_python.py.
+Auto-generated from spec/ast/ast.asdl by spec/ast/asdl_python.py.
 DO NOT EDIT BY HAND.
 """
 

@@ -1,4 +1,4 @@
-"""Parser package: assembles Parser from mixins, re-exports public API."""
+"""Parser assembly: combines all parsing mixins into the final Parser class."""
 
 from .core import ParserBase, ParseError
 from .types import TypesMixin

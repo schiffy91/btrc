@@ -7,7 +7,7 @@ from ...ast_nodes import (
     BraceInitializer, ClassDecl, FieldDecl, ListLiteral, MapLiteral,
     MethodDecl, PropertyDecl, StructDecl, TypeExpr,
 )
-from ...analyzer import ClassInfo
+from ...analyzer.core import ClassInfo
 from ..nodes import (
     CType, IRAssign, IRBlock, IRCall, IRCast, IRExprStmt, IRFieldAccess,
     IRFunctionDef, IRLiteral, IRParam, IRRawExpr, IRReturn, IRStructDef,

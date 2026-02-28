@@ -2,7 +2,7 @@
 """Generate btrc AST node definitions from an ASDL specification.
 
 Usage:
-    python3 tools/asdl_btrc.py spec/ast.asdl > src/compiler/btrc/ast_nodes.btrc
+    python3 spec/ast/asdl_btrc.py spec/ast/ast.asdl > src/compiler/btrc/ast_nodes.btrc
 
 Produces:
     - enum NodeKind with a value for each constructor
@@ -81,7 +81,7 @@ def generate(module: Module) -> str:
 
     lines.append("/* btrc AST node definitions.")
     lines.append(" *")
-    lines.append(" * Auto-generated from spec/ast.asdl by tools/asdl_btrc.py.")
+    lines.append(" * Auto-generated from spec/ast/ast.asdl by spec/ast/asdl_btrc.py.")
     lines.append(" * DO NOT EDIT BY HAND.")
     lines.append(" */")
     lines.append("")

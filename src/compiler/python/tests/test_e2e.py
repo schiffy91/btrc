@@ -9,9 +9,9 @@ import os
 
 import pytest
 from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser import Parser
-from src.compiler.python.analyzer import Analyzer
-from src.compiler.python.ir.gen import IRGenerator
+from src.compiler.python.parser.parser import Parser
+from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize as optimize_module
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.main import get_stdlib_source

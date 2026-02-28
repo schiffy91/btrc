@@ -1,8 +1,8 @@
 """Tests for the btrc semantic analyzer."""
 
 from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser import Parser
-from src.compiler.python.analyzer import Analyzer
+from src.compiler.python.parser.parser import Parser
+from src.compiler.python.analyzer.analyzer import Analyzer
 
 
 def analyze(source: str):

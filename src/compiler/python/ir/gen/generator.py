@@ -9,7 +9,7 @@ from ...ast_nodes import (
     ClassDecl, EnumDecl, FunctionDecl, InterfaceDecl, Param,
     PreprocessorDirective, RichEnumDecl, StructDecl, TypedefDecl, TypeExpr,
 )
-from ...analyzer import AnalyzedProgram, ClassInfo
+from ...analyzer.core import AnalyzedProgram, ClassInfo
 from ..nodes import (
     CType, IRBlock, IRFunctionDef, IRHelperDecl, IRModule, IRParam,
     IRStructDef, IRStructField, IRRawC,
@@ -151,7 +151,7 @@ class IRGenerator:
 
     def _emit_generic_collections(self):
         """Emit monomorphized generic collection types."""
-        from .generics import emit_generic_instances
+        from .generics.core import emit_generic_instances
         emit_generic_instances(self)
 
     def _emit_enums(self):
@@ -245,6 +245,16 @@ class IRGenerator:
                 seen[mangled] = list(t.generic_args)
         for arg in t.generic_args:
             self._collect_tuple_types(arg, seen)
+
+
+def generate_ir(analyzed: AnalyzedProgram, *,
+                debug: bool = False, source_file: str = "") -> IRModule:
+    """Generate an IR module from an analyzed program.
+
+    This is the main entry point for the IR generation pipeline.
+    """
+    gen = IRGenerator(analyzed, debug=debug, source_file=source_file)
+    return gen.generate()
 
 
 def _uses_trycatch(decl) -> bool:

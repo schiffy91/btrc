@@ -144,7 +144,7 @@ class LambdasMixin:
                 from ..lexer import Lexer
                 sub_tokens = Lexer(expr_src + ";").tokenize()
                 # Late import to avoid circular dependency
-                from . import Parser
+                from .parser import Parser
                 sub_parser = Parser(sub_tokens)
                 expr_node = sub_parser._parse_expr()
                 parts.append(FStringExpr(expression=expr_node))

@@ -2,7 +2,8 @@
 
 import pytest
 from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser import Parser, ParseError
+from src.compiler.python.parser.parser import Parser
+from src.compiler.python.parser.core import ParseError
 from src.compiler.python.ast_nodes import (
     AssignExpr,
     BinaryExpr,

@@ -1,4 +1,4 @@
-"""Analyzer package: assembles Analyzer from mixins, re-exports public API."""
+"""Analyzer assembly: combines all analysis mixins into the final Analyzer class."""
 
 from .core import (
     AnalyzerBase, AnalyzerError, AnalyzedProgram,

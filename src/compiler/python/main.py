@@ -11,10 +11,12 @@ import re
 from typing import Optional, Set
 
 from .lexer import Lexer, LexerError
-from .parser import Parser, ParseError
-from .analyzer import Analyzer
-from .ir import optimize, CEmitter
-from .ir.gen import generate_ir
+from .parser.parser import Parser
+from .parser.core import ParseError
+from .analyzer.analyzer import Analyzer
+from .ir.optimizer import optimize
+from .ir.emitter import CEmitter
+from .ir.gen.generator import generate_ir
 
 
 def _format_error(source: str, filename: str, message: str,

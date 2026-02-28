@@ -24,7 +24,7 @@ int main() {
 
 As LLMs make programming more accessible, code itself becomes less about typing and more about taste — what you choose to build, how you choose to build it, what tradeoffs you find beautiful. Programming is becoming an art. btrc is an art project.
 
-The design question: *what if you could write C with modern syntax and get readable C output you can inspect?* The compiler is spec-driven — a formal [EBNF grammar](spec/grammar.ebnf) defines every keyword and operator, an [algebraic AST spec](spec/ast.asdl) defines every node type, and the pipeline walks through six stages from source to native binary. The generated C is something a human could have written. You can read it, debug it, link it against anything.
+The design question: *what if you could write C with modern syntax and get readable C output you can inspect?* The compiler is spec-driven — a formal [EBNF grammar](spec/grammar.ebnf) defines every keyword and operator, an [algebraic AST spec](spec/ast/ast.asdl) defines every node type, and the pipeline walks through six stages from source to native binary. The generated C is something a human could have written. You can read it, debug it, link it against anything.
 
 It's a transpiler, not a new compiler backend — you get gcc compatibility for free but inherit C's limitations. There is no borrow checker, no lifetime analysis, and no memory safety beyond what C provides. Exception handling uses `setjmp`/`longjmp` and does not automatically free allocations on throw. If you need a production systems language with safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/).
 
@@ -657,11 +657,11 @@ int main() {
 
 ## Compilation Pipeline
 
-btrc compiles through six stages. Two formal specs drive the front-end: [`spec/grammar.ebnf`](spec/grammar.ebnf) defines all keywords, operators, and syntax rules; [`spec/ast.asdl`](spec/ast.asdl) defines all AST node types using [Zephyr ASDL](https://www.cs.princeton.edu/~appel/papers/asdl97.pdf). A structured IR separates lowering from emission.
+btrc compiles through six stages. Two formal specs drive the front-end: [`spec/grammar.ebnf`](spec/grammar.ebnf) defines all keywords, operators, and syntax rules; [`spec/ast/ast.asdl`](spec/ast/ast.asdl) defines all AST node types using [Zephyr ASDL](https://www.cs.princeton.edu/~appel/papers/asdl97.pdf). A structured IR separates lowering from emission.
 
 ```
   spec/grammar.ebnf          (single source of truth: keywords, operators, syntax)
-  spec/ast.asdl              (single source of truth: AST node types)
+  spec/ast/ast.asdl          (single source of truth: AST node types)
          │
   .btrc source
          │
@@ -689,13 +689,12 @@ The generated C is self-contained -- no runtime library, no special headers. It 
 ```
 spec/
   grammar.ebnf                 # Formal EBNF grammar (lexical + syntactic rules)
-  ast.asdl                     # Algebraic AST spec (Zephyr ASDL)
-
-tools/
-  asdl_parser.py               # ASDL file parser
-  asdl_python.py               # ASDL → Python dataclasses
-  asdl_btrc.py                 # ASDL → btrc classes
-  gen_builtins.py              # stdlib .btrc → LSP builtins (make gen-builtins)
+  ast/
+    ast.asdl                   # Algebraic AST spec (Zephyr ASDL)
+    asdl_parser.py             # ASDL file parser
+    asdl_python.py             # ASDL → Python dataclasses
+    asdl_btrc.py               # ASDL → btrc classes
+    gen_builtins.py            # stdlib .btrc → LSP builtins (make gen-builtins)
 
 benchmarks/                    # Performance benchmarks (.btrc programs + runner)
 
@@ -706,7 +705,7 @@ src/
       tokens.py                # Token + TokenType (grammar-driven)
       lexer.py                 # Grammar-driven lexer
       lexer_literals.py        # Number/string literal parsing
-      ast_nodes.py             # GENERATED from spec/ast.asdl
+      ast_nodes.py             # GENERATED from spec/ast/ast.asdl
       main.py                  # Pipeline entry point + CLI
       parser/                  # Recursive descent parser (mixin-based)
       analyzer/                # Type checking, scopes, generics (mixin-based)
@@ -719,7 +718,10 @@ src/
         helpers/               # Runtime helper C source text (strings, alloc, ...)
       tests/                   # Unit tests (lexer, parser, analyzer, e2e)
   stdlib/                      # Standard library (auto-included btrc source)
-    list.btrc                  # List<T>
+    vector.btrc                # Vector<T> (dynamic array)
+    list.btrc                  # List<T> (doubly-linked list)
+    iterable.btrc              # Iterable<T> interface
+    array.btrc                 # Array<T> (fixed-size)
     map.btrc                   # Map<K,V>
     set.btrc                   # Set<T>
     strings.btrc               # String utilities
@@ -730,7 +732,7 @@ src/
     io.btrc                    # File I/O
     console.btrc               # Console output
     random.btrc                # Random numbers
-  tests/                       # Language test suite (90 .btrc test programs)
+  tests/                       # Language test suite (99 .btrc test programs)
   devex/
     ext/                       # VS Code extension (syntax highlighting + LSP client)
     lsp/                       # Language server (completions, diagnostics, hover, go-to-def)
@@ -740,8 +742,8 @@ src/
 
 ```bash
 make build              # Create bin/btrcpy wrapper script
-make test               # Run compiler unit tests + btrc test suite (~740 tests)
-make test-btrc          # Run just the 90 btrc end-to-end tests
+make test               # Run compiler unit tests + btrc test suite (~751 tests)
+make test-btrc          # Run just the 99 btrc end-to-end tests
 make lint               # Lint with ruff
 make format             # Format with ruff
 
@@ -795,6 +797,5 @@ The extension auto-discovers the LSP server and Python interpreter. Configure `b
 Planned but not yet implemented:
 - **Self-hosting** -- rewrite the compiler in btrc itself (bootstrap cycle)
 - **Module system** -- currently relies on `#include "file.btrc"` textual inclusion
-- **ARC stdlib integration** -- `keep` annotations on container push/pop methods (requires type-conditional generic code generation)
 - **Weak references** -- `weak` keyword for intentional non-owning references (avoids cycles for known patterns like parent pointers)
 - **Incremental compilation** -- only recompile changed files
