@@ -5,66 +5,62 @@
 btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, collections, threads, automatic reference counting, exception handling, and a standard library -- all while staying compatible with C. The generated C is readable and self-contained: no runtime library, no garbage collector, no virtual machine. Small inline helpers handle strings, collections, threading, and exceptions, but nothing is linked separately. You can inspect, debug, and link the output against anything. It even comes with a VSCode extension.
 
 ```
-interface Animal {
-    string speak();
+interface Printable {
+    string toString();
 }
 
-abstract class Pet {
-    public string name;
-    public abstract string speak();
+class Task implements Printable {
+    public string title;
+    public bool done;
+
+    public Task(string title) {
+        self.title = title;
+        self.done = false;
+    }
+
+    public string toString() {
+        string status = self.done ? "done" : "todo";
+        return f"[{status}] {self.title}";
+    }
 }
 
-class Dog extends Pet implements Animal {
-    private int _tricks = 0;
-    public Dog(string name) { self.name = name; }
-    public string speak() { return "Woof!"; }
-    public int tricks { get { return self._tricks; } }
-    public void learnTrick() { self._tricks++; }
-}
+class TaskList<T> {
+    public Vector<T> items = [];
 
-class Cat extends Pet implements Animal {
-    public Cat(string name) { self.name = name; }
-    public string speak() { return "Meow!"; }
-}
-
-class Pair<A, B> {
-    public A first;
-    public B second;
-    public Pair(A a, B b) { self.first = a; self.second = b; }
+    public void add(T item) { self.items.push(item); }
+    public int count()      { return self.items.len; }
 }
 
 int main() {
-    var rex = Dog("Rex");
-    rex.learnTrick();
-    print(f"{rex.name} knows {rex.tricks} tricks and says {rex.speak()}");
+    var list = TaskList<Task>();
+    list.add(Task("Write compiler"));
+    list.add(Task("Add generics"));
+    list.add(Task("Ship it"));
 
-    var luna = Cat("Luna");
-    luna.learnTrick();
-    print(f"{luna.name} knows {luna.tricks} tricks and says {luna.speak()}");
+    list.items[0].done = true;
 
-    Vector<Pet> pets = [rex, luna];
-    var dogs = pets.filter(bool function(Pet pet) {
-        return 
+    var pending = list.items.filter(bool function(Task t) {
+        return !t.done;
     });
 
-    Pair<string, int> info = Pair(rex.name, rex.tricks);
-    print(f"{info.first} knows {info.second} trick(s)");
-
-    
-
-    var bNames = names.filter(bool function(string n) {
-        return n.startsWith("B");
-    });
-
-    for name in bNames {
-        print(f"  starts with B: {name}");
+    print(f"{pending.len} of {list.count()} tasks remaining:");
+    for task in pending {
+        print(f"  {task.toString()}");
     }
 
-    Dog? found = null;
-    print(found?.name ?? "no match");
+    Task? next = pending.len > 0 ? pending[0] : null;
+    print(f"up next: {next?.title ?? "nothing"}");
 
     return 0;
 }
+```
+
+```
+$ btrcpy todo.btrc -o todo.c && gcc todo.c -o todo -lm && ./todo
+2 of 3 tasks remaining:
+  [todo] Add generics
+  [todo] Ship it
+up next: Add generics
 ```
 
 ## Why btrc?
