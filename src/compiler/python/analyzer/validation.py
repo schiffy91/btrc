@@ -1,7 +1,9 @@
 """Call validation, field access checking, self validation, and generics."""
 
 from ..ast_nodes import (
-    CallExpr, FieldAccessExpr, Identifier, SelfExpr, TypeExpr,
+    FieldAccessExpr,
+    Identifier,
+    TypeExpr,
 )
 
 

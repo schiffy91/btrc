@@ -1,6 +1,7 @@
 """Tests for the btrc lexer."""
 
 import pytest
+
 from src.compiler.python.lexer import Lexer, LexerError
 from src.compiler.python.tokens import TokenType
 

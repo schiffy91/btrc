@@ -6,8 +6,8 @@ signature help for .btrc files by reusing the compiler's lexer, parser,
 and analyzer.
 """
 
-import sys
 import logging
+import sys
 from pathlib import Path
 
 # Add project root to sys.path so we can import src.compiler.python
@@ -15,17 +15,17 @@ PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from lsprotocol import types as lsp  # noqa: E402
-from pygls.lsp.server import LanguageServer  # noqa: E402
+from lsprotocol import types as lsp
+from pygls.lsp.server import LanguageServer
 
-from src.devex.lsp.diagnostics import AnalysisResult, compute_diagnostics  # noqa: E402
-from src.devex.lsp.symbols import get_document_symbols  # noqa: E402
-from src.devex.lsp.hover import get_hover_info  # noqa: E402
-from src.devex.lsp.definition import get_definition  # noqa: E402
-from src.devex.lsp.completion import get_completions  # noqa: E402
-from src.devex.lsp.signature_help import get_signature_help  # noqa: E402
-from src.devex.lsp.references import get_references, get_rename_edits, prepare_rename  # noqa: E402
-from src.devex.lsp.semantic_tokens import get_semantic_tokens, LEGEND  # noqa: E402
+from src.devex.lsp.completion import get_completions
+from src.devex.lsp.definition import get_definition
+from src.devex.lsp.diagnostics import AnalysisResult, compute_diagnostics
+from src.devex.lsp.hover import get_hover_info
+from src.devex.lsp.references import get_references, get_rename_edits, prepare_rename
+from src.devex.lsp.semantic_tokens import LEGEND, get_semantic_tokens
+from src.devex.lsp.signature_help import get_signature_help
+from src.devex.lsp.symbols import get_document_symbols
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger("btrc-lsp")

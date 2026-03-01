@@ -5,34 +5,33 @@ Currently implements:
 """
 
 from __future__ import annotations
+
 from .nodes import (
-    IRModule,
-    IRHelperDecl,
-    IRFunctionDef,
-    IRBlock,
-    IRStmt,
-    IRExpr,
-    IRCall,
-    IRVarDecl,
-    IRAssign,
-    IRReturn,
-    IRIf,
-    IRWhile,
-    IRDoWhile,
-    IRFor,
-    IRSwitch,
-    IRExprStmt,
-    IRBinOp,
-    IRUnaryOp,
-    IRFieldAccess,
-    IRCast,
-    IRTernary,
-    IRIndex,
     IRAddressOf,
+    IRAssign,
+    IRBinOp,
+    IRBlock,
+    IRCall,
+    IRCast,
     IRDeref,
+    IRDoWhile,
+    IRExpr,
+    IRExprStmt,
+    IRFieldAccess,
+    IRFor,
+    IRIf,
+    IRIndex,
+    IRModule,
     IRRawC,
+    IRReturn,
     IRSpawnThread,
+    IRStmt,
     IRStmtExpr,
+    IRSwitch,
+    IRTernary,
+    IRUnaryOp,
+    IRVarDecl,
+    IRWhile,
 )
 
 
@@ -114,14 +113,12 @@ def _eliminate_dead_helpers(module: IRModule):
 
 def _scan_raw_exprs(block: IRBlock, helper_names: set[str], used: set[str]):
     """Scan for helper names in IRRawExpr text within a block."""
-    from .nodes import IRRawExpr
     for stmt in block.stmts:
         _scan_raw_stmt(stmt, helper_names, used)
 
 
 def _scan_raw_stmt(stmt, helper_names, used):
     """Scan statement for IRRawExpr/IRRawC references."""
-    from .nodes import IRRawExpr
     if isinstance(stmt, IRRawC):
         # IRRawC text may reference helper globals
         for name in helper_names:
@@ -194,9 +191,7 @@ def _scan_raw_expr(expr, helper_names, used):
     elif isinstance(expr, IRIndex):
         _scan_raw_expr(expr.obj, helper_names, used)
         _scan_raw_expr(expr.index, helper_names, used)
-    elif isinstance(expr, IRAddressOf):
-        _scan_raw_expr(expr.expr, helper_names, used)
-    elif isinstance(expr, IRDeref):
+    elif isinstance(expr, (IRAddressOf, IRDeref)):
         _scan_raw_expr(expr.expr, helper_names, used)
     elif isinstance(expr, IRUnaryOp):
         _scan_raw_expr(expr.operand, helper_names, used)
@@ -296,9 +291,7 @@ def _collect_from_expr(expr: IRExpr, used: set[str]):
     elif isinstance(expr, IRIndex):
         _collect_from_expr(expr.obj, used)
         _collect_from_expr(expr.index, used)
-    elif isinstance(expr, IRAddressOf):
-        _collect_from_expr(expr.expr, used)
-    elif isinstance(expr, IRDeref):
+    elif isinstance(expr, (IRAddressOf, IRDeref)):
         _collect_from_expr(expr.expr, used)
     elif isinstance(expr, IRSpawnThread):
         if expr.capture_arg:

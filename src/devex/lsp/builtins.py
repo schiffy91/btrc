@@ -10,7 +10,6 @@ maintaining separate (and inevitably divergent) copies of the same data.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -355,7 +354,7 @@ def get_members_for_type(type_name: str) -> list[BuiltinMember]:
     return _MEMBER_TABLES.get(type_name, [])
 
 
-def get_member(type_name: str, member_name: str) -> Optional[BuiltinMember]:
+def get_member(type_name: str, member_name: str) -> BuiltinMember | None:
     """Look up a specific member on a built-in type."""
     for m in _MEMBER_TABLES.get(type_name, []):
         if m.name == member_name:
@@ -363,7 +362,7 @@ def get_member(type_name: str, member_name: str) -> Optional[BuiltinMember]:
     return None
 
 
-def get_hover_markdown(type_name: str, member_name: str) -> Optional[str]:
+def get_hover_markdown(type_name: str, member_name: str) -> str | None:
     """Generate a markdown hover string for a built-in type member."""
     m = get_member(type_name, member_name)
     if m is None:
@@ -376,7 +375,7 @@ def get_hover_markdown(type_name: str, member_name: str) -> Optional[str]:
 
 def get_signature_params(
     type_name: str, method_name: str
-) -> Optional[list[tuple[str, str]]]:
+) -> list[tuple[str, str]] | None:
     """Return the parameter list for a built-in type method, or None."""
     m = get_member(type_name, method_name)
     if m is None or m.kind == "field":
@@ -384,14 +383,14 @@ def get_signature_params(
     return m.params
 
 
-def get_stdlib_methods(class_name: str) -> Optional[list[BuiltinMember]]:
+def get_stdlib_methods(class_name: str) -> list[BuiltinMember] | None:
     """Return the list of static methods for a stdlib class, or None."""
     return STDLIB_STATIC_METHODS.get(class_name)
 
 
 def get_stdlib_signature(
     class_name: str, method_name: str
-) -> Optional[list[tuple[str, str]]]:
+) -> list[tuple[str, str]] | None:
     """Return the parameter list for a stdlib static method, or None."""
     methods = STDLIB_STATIC_METHODS.get(class_name)
     if methods is None:

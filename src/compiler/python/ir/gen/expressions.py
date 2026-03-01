@@ -5,20 +5,50 @@ Operator, call, field access, and assignment lowering are in sub-modules.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    AssignExpr, BinaryExpr, BoolLiteral, BraceInitializer, CallExpr,
-    CastExpr, CharLiteral, FieldAccessExpr, FloatLiteral, FStringLiteral,
-    Identifier, IndexExpr, IntLiteral, LambdaExpr, ListLiteral, MapLiteral,
-    NewExpr, NullLiteral, SelfExpr, SizeofExpr, SizeofExprOp, SizeofType,
-    SpawnExpr, StringLiteral, SuperExpr, TernaryExpr, TupleLiteral, UnaryExpr,
+    AssignExpr,
+    BinaryExpr,
+    BoolLiteral,
+    BraceInitializer,
+    CallExpr,
+    CastExpr,
+    CharLiteral,
+    FieldAccessExpr,
+    FloatLiteral,
+    FStringLiteral,
+    Identifier,
+    IndexExpr,
+    IntLiteral,
+    LambdaExpr,
+    ListLiteral,
+    MapLiteral,
+    NewExpr,
+    NullLiteral,
+    SelfExpr,
+    SizeofExpr,
+    SizeofExprOp,
+    SizeofType,
+    SpawnExpr,
+    StringLiteral,
+    SuperExpr,
+    TernaryExpr,
+    TupleLiteral,
+    UnaryExpr,
 )
 from ..nodes import (
-    IRCall, IRCast, IRExpr, IRLiteral, IRRawExpr, IRSizeof,
-    IRSpawnThread, IRTernary, IRVar,
+    IRCall,
+    IRCast,
+    IRExpr,
+    IRLiteral,
+    IRRawExpr,
+    IRSizeof,
+    IRTernary,
+    IRVar,
 )
-from .types import type_to_c, is_generic_class_type
+from .types import is_generic_class_type, type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -99,7 +129,7 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
                          false_expr=lower_expr(gen, node.false_expr))
 
     if isinstance(node, NewExpr):
-        from .classes import lower_new_expr
+        from .class_members import lower_new_expr
         return lower_new_expr(gen, node)
 
     if isinstance(node, ListLiteral):
@@ -162,8 +192,8 @@ def _lower_sizeof(gen: IRGenerator, node: SizeofExpr) -> IRExpr:
 
 def _lower_tuple(gen: IRGenerator, node: TupleLiteral) -> IRExpr:
     """Lower tuple literal to C struct initializer."""
-    from .types import mangle_tuple_type
     from .statements import _quick_text
+    from .types import mangle_tuple_type
     elems = [lower_expr(gen, e) for e in node.elements]
     node_type = gen.analyzed.node_types.get(id(node))
     if node_type and node_type.generic_args:
@@ -184,4 +214,4 @@ def _expr_text(expr: IRExpr) -> str:
     if isinstance(expr, IRRawExpr):
         return expr.text
     # Fallback — the emitter will handle complex expressions
-    return f"/* complex expr */"
+    return "/* complex expr */"

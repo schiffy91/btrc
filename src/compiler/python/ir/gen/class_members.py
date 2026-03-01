@@ -1,16 +1,29 @@
 """Class member lowering: destructor, methods, properties, inheritance."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import ClassDecl, MethodDecl, PropertyDecl, NewExpr
 from ...analyzer.core import ClassInfo
+from ...ast_nodes import ClassDecl, MethodDecl, NewExpr, PropertyDecl
 from ..nodes import (
-    CType, IRAssign, IRBinOp, IRBlock, IRCall, IRCast, IRExprStmt,
-    IRFieldAccess, IRFunctionDef, IRIf, IRLiteral, IRParam, IRReturn,
-    IRUnaryOp, IRVar,
+    CType,
+    IRAssign,
+    IRBinOp,
+    IRBlock,
+    IRCall,
+    IRCast,
+    IRExprStmt,
+    IRFieldAccess,
+    IRFunctionDef,
+    IRIf,
+    IRLiteral,
+    IRParam,
+    IRReturn,
+    IRUnaryOp,
+    IRVar,
 )
-from .types import type_to_c, is_generic_class_type, mangle_generic_type
+from .types import is_generic_class_type, mangle_generic_type, type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator

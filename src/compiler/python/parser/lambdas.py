@@ -1,10 +1,14 @@
 """Lambda expression and f-string parsing."""
 
-from ..tokens import TokenType, TYPE_KEYWORDS
 from ..ast_nodes import (
-    FStringExpr, FStringLiteral, FStringText,
-    LambdaBlock, LambdaExpr, LambdaExprBody,
+    FStringExpr,
+    FStringLiteral,
+    FStringText,
+    LambdaBlock,
+    LambdaExpr,
+    LambdaExprBody,
 )
+from ..tokens import TYPE_KEYWORDS, TokenType
 
 
 class LambdasMixin:

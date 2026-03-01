@@ -12,50 +12,48 @@ Supports jumping to definitions for:
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional
 
 from lsprotocol import types as lsp
 
-from src.compiler.python.tokens import Token, TokenType
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.ast_nodes import (
     Block,
+    CaseClause,
+    CForStmt,
     ClassDecl,
+    DoWhileStmt,
     ElseBlock,
     ElseIf,
-    FunctionDecl,
+    EnumDecl,
     FieldDecl,
     ForInitVar,
+    ForInStmt,
+    FunctionDecl,
+    IfStmt,
     MethodDecl,
+    ParallelForStmt,
+    Param,
+    Program,
     PropertyDecl,
     StructDecl,
-    EnumDecl,
-    TypedefDecl,
-    Param,
-    VarDeclStmt,
-    ForInStmt,
-    CForStmt,
-    ParallelForStmt,
-    TryCatchStmt,
-    IfStmt,
-    WhileStmt,
-    DoWhileStmt,
     SwitchStmt,
-    CaseClause,
-    Program,
+    TryCatchStmt,
+    TypedefDecl,
+    VarDeclStmt,
+    WhileStmt,
 )
-
+from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
-    find_token_at_position,
-    find_token_index,
     body_range,
     find_enclosing_class,
-    resolve_variable_type,
+    find_token_at_position,
+    find_token_index,
     resolve_chain_type,
+    resolve_variable_type,
 )
-
 
 # ---------------------------------------------------------------------------
 # Variable definition entry (scope-aware)
@@ -114,9 +112,9 @@ class DefinitionMap:
                 dmap.typedef_defs[decl.alias] = (decl.line, decl.col)
         return dmap
 
-    def find_var(self, name: str, cursor_line: int) -> Optional[tuple[int, int]]:
+    def find_var(self, name: str, cursor_line: int) -> tuple[int, int] | None:
         """Find the closest variable definition for *name* visible at *cursor_line*."""
-        best: Optional[VarDef] = None
+        best: VarDef | None = None
         for vd in self.var_defs:
             if vd.name != name:
                 continue
@@ -280,7 +278,7 @@ def _btrc_to_lsp_position(line: int, col: int) -> lsp.Position:
 def get_definition(
     result: AnalysisResult,
     position: lsp.Position,
-) -> Optional[lsp.Location]:
+) -> lsp.Location | None:
     """Return the definition location for the symbol at the given position."""
     if not result.tokens or not result.ast:
         return None
@@ -357,7 +355,7 @@ def _try_member_definition(
     token: Token,
     class_table: dict[str, ClassInfo],
     dmap: DefinitionMap,
-) -> Optional[lsp.Location]:
+) -> lsp.Location | None:
     """Try to resolve a go-to-definition for a member access."""
     if not result.tokens:
         return None
@@ -411,7 +409,7 @@ def _resolve_object_class(
     obj_token: Token,
     result: AnalysisResult,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Determine the class name of the object referenced by obj_token."""
     if obj_token.value in class_table:
         return obj_token.value

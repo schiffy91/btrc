@@ -1,26 +1,52 @@
 """Class lowering: ClassDecl → IRStructDef + constructor IRFunctionDefs."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import (
-    BraceInitializer, ClassDecl, FieldDecl, ListLiteral, MapLiteral,
-    MethodDecl, PropertyDecl, StructDecl, TypeExpr,
-)
 from ...analyzer.core import ClassInfo
-from ..nodes import (
-    CType, IRAssign, IRBlock, IRCall, IRCast, IRExprStmt, IRFieldAccess,
-    IRFunctionDef, IRLiteral, IRParam, IRRawExpr, IRReturn, IRStructDef,
-    IRStructField, IRVar, IRVarDecl,
+from ...ast_nodes import (
+    BraceInitializer,
+    ClassDecl,
+    FieldDecl,
+    ListLiteral,
+    MapLiteral,
+    MethodDecl,
+    PropertyDecl,
+    StructDecl,
+    TypeExpr,
 )
-from .types import type_to_c, is_generic_class_type, mangle_generic_type
+from ..nodes import (
+    CType,
+    IRAssign,
+    IRBlock,
+    IRCall,
+    IRCast,
+    IRExprStmt,
+    IRFieldAccess,
+    IRFunctionDef,
+    IRLiteral,
+    IRParam,
+    IRRawExpr,
+    IRReturn,
+    IRStructDef,
+    IRStructField,
+    IRVar,
+    IRVarDecl,
+)
 from .class_members import (
     emit_destructor as _emit_destructor,
-    emit_method as _emit_method,
-    emit_property as _emit_property,
-    emit_inherited_methods as _emit_inherited_methods,
-    lower_new_expr,
 )
+from .class_members import (
+    emit_inherited_methods as _emit_inherited_methods,
+)
+from .class_members import (
+    emit_method as _emit_method,
+)
+from .class_members import (
+    emit_property as _emit_property,
+)
+from .types import is_generic_class_type, mangle_generic_type, type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -28,7 +54,7 @@ if TYPE_CHECKING:
 
 def emit_struct_decl(gen: IRGenerator, decl: StructDecl):
     """Emit a plain struct (not class) definition."""
-    from .expressions import lower_expr, _expr_text
+    from .expressions import _expr_text, lower_expr
     fields = []
     for f in decl.fields:
         if f.type and f.type.is_array and f.type.array_size:

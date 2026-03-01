@@ -70,9 +70,7 @@ class TypeUtilsMixin:
         if target.base in self.class_table and source.base in self.class_table:
             return self._is_subclass(source.base, target.base)
         all_known = numeric | {"string", "bool", "void"}
-        if target.base in all_known and source.base in all_known:
-            return False
-        return True
+        return not (target.base in all_known and source.base in all_known)
 
     def _is_subclass(self, child: str, parent: str) -> bool:
         """Check if child class extends parent (directly or transitively)."""

@@ -1,16 +1,28 @@
 """Call lowering: function calls, constructors, print → IR."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    CallExpr, FieldAccessExpr, Identifier,
+    CallExpr,
+    FieldAccessExpr,
+    Identifier,
 )
 from ..nodes import (
-    IRCall, IRCast, IRExpr, IRExprStmt, IRFieldAccess, IRLiteral,
-    IRRawExpr, IRSizeof, IRStmt, IRTernary, IRUnaryOp,
+    IRCall,
+    IRCast,
+    IRExpr,
+    IRExprStmt,
+    IRFieldAccess,
+    IRLiteral,
+    IRRawExpr,
+    IRSizeof,
+    IRStmt,
+    IRTernary,
+    IRUnaryOp,
 )
-from .types import is_string_type, format_spec_for_type
+from .types import format_spec_for_type, is_string_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -18,7 +30,7 @@ if TYPE_CHECKING:
 
 def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     """Lower a function/method call."""
-    from .expressions import lower_expr, _expr_text
+    from .expressions import _expr_text, lower_expr
 
     # Method call: obj.method(args)
     if isinstance(node.callee, FieldAccessExpr):
@@ -228,15 +240,15 @@ def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
 
 def _lower_print(gen: IRGenerator, args: list) -> IRExpr:
     """Lower print(...) to printf with appropriate format string."""
+    from ...ast_nodes import CallExpr, FieldAccessExpr, FStringLiteral, StringLiteral
     from .expressions import lower_expr
-    from ...ast_nodes import FStringLiteral, StringLiteral, CallExpr, FieldAccessExpr
 
     if not args:
         return IRCall(callee="printf", args=[IRLiteral(text='"\\n"')])
 
     parts = []
     ir_args = []
-    for i, arg in enumerate(args):
+    for _, arg in enumerate(args):
         ir_arg = lower_expr(gen, arg)
         arg_type = gen.analyzed.node_types.get(id(arg))
         fmt = format_spec_for_type(arg_type)

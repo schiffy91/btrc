@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ...ast_nodes import TypeExpr
 
-
 # Primitive btrc types → C type strings
 _PRIMITIVE_MAP = {
     "int": "int",
@@ -162,10 +161,7 @@ def is_concrete_type(t: TypeExpr) -> bool:
         # Single uppercase letter → likely a type parameter
         return False
     # Check generic args recursively
-    for arg in t.generic_args:
-        if not is_concrete_type(arg):
-            return False
-    return True
+    return all(is_concrete_type(arg) for arg in t.generic_args)
 
 
 def is_concrete_instance(args: tuple) -> bool:

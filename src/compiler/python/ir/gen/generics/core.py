@@ -1,10 +1,11 @@
 """Core generic monomorphization: dispatch + shared helpers."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
-from ..types import mangle_generic_type, is_concrete_instance
+from ..types import is_concrete_instance, mangle_generic_type
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator

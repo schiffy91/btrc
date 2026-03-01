@@ -1,10 +1,16 @@
 """Top-level dispatch and class/struct/interface declaration parsing."""
 
-from ..tokens import TokenType
 from ..ast_nodes import (
-    ClassDecl, FieldDecl, InterfaceDecl, MethodDecl, MethodSig,
-    PreprocessorDirective, StructDecl, FieldDef, VarDeclStmt,
+    ClassDecl,
+    FieldDecl,
+    FieldDef,
+    InterfaceDecl,
+    MethodDecl,
+    MethodSig,
+    PreprocessorDirective,
+    StructDecl,
 )
+from ..tokens import TokenType
 
 
 class DeclarationsMixin:

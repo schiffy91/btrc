@@ -5,14 +5,18 @@ ARC auto-management) and the ``keep`` param rc++ emission before calls.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    CallExpr, Identifier, NewExpr, VarDeclStmt,
+    CallExpr,
+    Identifier,
+    NewExpr,
+    VarDeclStmt,
 )
-from ..nodes import CType, IRAddressOf, IRCall, IRExprStmt, IRRawExpr, IRStmt, IRVar, IRVarDecl
-from .types import type_to_c
+from ..nodes import CType, IRCall, IRExprStmt, IRRawExpr, IRStmt, IRVar, IRVarDecl
 from .expressions import lower_expr
+from .types import type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -47,7 +51,8 @@ def _maybe_register_cleanup(gen: IRGenerator, var_name: str,
 
 
 def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
-    from ...ast_nodes import BraceInitializer, CallExpr, Identifier, TypeExpr as TE
+    from ...ast_nodes import BraceInitializer
+    from ...ast_nodes import TypeExpr as TE
     from .types import is_generic_class_type, mangle_generic_type
 
     # Handle array types: int arr[5] or int nums[]
@@ -73,17 +78,9 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         # Empty brace initializer on generic class types -> TYPE_new()
         if (isinstance(node.initializer, BraceInitializer)
                 and not node.initializer.elements
-                and node.type and is_generic_class_type(node.type, ct)):
-            mangled = mangle_generic_type(node.type.base, node.type.generic_args)
-            init = IRCall(callee=f"{mangled}_new", args=[])
-        # Empty [] on generic-typed variable -> TYPE_new()
-        elif (isinstance(node.initializer, ListLiteral)
+                and node.type and is_generic_class_type(node.type, ct)) or (isinstance(node.initializer, ListLiteral)
               and not node.initializer.elements
-              and node.type and is_generic_class_type(node.type, ct)):
-            mangled = mangle_generic_type(node.type.base, node.type.generic_args)
-            init = IRCall(callee=f"{mangled}_new", args=[])
-        # Empty {} on generic-typed variable -> TYPE_new()
-        elif (isinstance(node.initializer, MapLiteral)
+              and node.type and is_generic_class_type(node.type, ct)) or (isinstance(node.initializer, MapLiteral)
               and not node.initializer.entries
               and node.type and is_generic_class_type(node.type, ct)):
             mangled = mangle_generic_type(node.type.base, node.type.generic_args)
@@ -147,10 +144,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         # Only auto-manage non-generic classes (not generic templates)
         if cls_info and not cls_info.generic_params:
             arc_type = node.type.base
-            if isinstance(node.initializer, NewExpr):
-                gen.register_managed_var(node.name, arc_type)
-                _maybe_register_cleanup(gen, node.name, arc_type, result)
-            elif (isinstance(node.initializer, CallExpr)
+            if isinstance(node.initializer, NewExpr) or (isinstance(node.initializer, CallExpr)
                   and isinstance(node.initializer.callee, Identifier)
                   and node.initializer.callee.name in gen.analyzed.class_table):
                 gen.register_managed_var(node.name, arc_type)
@@ -178,7 +172,7 @@ def _managed_type_name(gen: IRGenerator, type_expr) -> str:
 
 def _emit_keep_for_call(gen: IRGenerator, expr) -> list[IRStmt]:
     """If expr is a CallExpr with `keep` params, emit rc++ for those args."""
-    from ...ast_nodes import CallExpr as CE, FieldAccessExpr as FAE
+    from ...ast_nodes import CallExpr as CE
     if not isinstance(expr, CE):
         return []
     from .calls import emit_keep_rc_increments

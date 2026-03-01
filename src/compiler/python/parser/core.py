@@ -1,6 +1,5 @@
 """Parser core: token manipulation, error handling, and parse() entry point."""
 
-from typing import Optional
 
 from ..tokens import Token, TokenType
 
@@ -43,7 +42,7 @@ class ParserBase:
     def _check(self, *types: TokenType) -> bool:
         return self._peek().type in types
 
-    def _match(self, *types: TokenType) -> Optional[Token]:
+    def _match(self, *types: TokenType) -> Token | None:
         if self._peek().type in types:
             return self._advance()
         return None

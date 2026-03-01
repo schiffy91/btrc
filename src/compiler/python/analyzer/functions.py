@@ -1,10 +1,24 @@
 """Declaration, class, method, property, and function analysis."""
 
 from ..ast_nodes import (
-    BoolLiteral, ClassDecl, EnumDecl, FieldDecl, FunctionDecl,
-    IfStmt, MethodDecl, PropertyDecl, ReturnStmt, RichEnumDecl,
-    SwitchStmt, ThrowStmt, TypeExpr, VarDeclStmt, WhileStmt,
-    Block, ElseBlock, ElseIf,
+    Block,
+    BoolLiteral,
+    ClassDecl,
+    ElseBlock,
+    ElseIf,
+    EnumDecl,
+    FieldDecl,
+    FunctionDecl,
+    IfStmt,
+    MethodDecl,
+    PropertyDecl,
+    ReturnStmt,
+    RichEnumDecl,
+    SwitchStmt,
+    ThrowStmt,
+    TypeExpr,
+    VarDeclStmt,
+    WhileStmt,
 )
 from .core import SymbolInfo
 

@@ -1,13 +1,33 @@
 """Statement emission and IR-to-text helpers for user-defined generics."""
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
 from ...nodes import (
-    CType, IRAssign, IRBinOp, IRBlock, IRBreak, IRCall, IRCast,
-    IRContinue, IRDoWhile, IRExpr, IRExprStmt, IRFieldAccess, IRFor,
-    IRIf, IRIndex, IRLiteral, IRReturn, IRSizeof, IRStmt, IRStmtExpr,
-    IRTernary, IRUnaryOp, IRVar, IRVarDecl, IRWhile,
+    CType,
+    IRAssign,
+    IRBinOp,
+    IRBlock,
+    IRBreak,
+    IRCall,
+    IRCast,
+    IRContinue,
+    IRDoWhile,
+    IRExpr,
+    IRExprStmt,
+    IRFieldAccess,
+    IRFor,
+    IRIf,
+    IRIndex,
+    IRLiteral,
+    IRReturn,
+    IRSizeof,
+    IRStmt,
+    IRStmtExpr,
+    IRTernary,
+    IRUnaryOp,
+    IRVar,
+    IRVarDecl,
+    IRWhile,
 )
 
 
@@ -20,9 +40,17 @@ class _UserGenericStmtMixin:
 
     def _stmt(self, s) -> list[IRStmt]:
         from ....ast_nodes import (
-            ReturnStmt, ExprStmt, IfStmt, VarDeclStmt,
-            CForStmt, ForInStmt, WhileStmt, DoWhileStmt,
-            BreakStmt, ContinueStmt, DeleteStmt,
+            BreakStmt,
+            CForStmt,
+            ContinueStmt,
+            DeleteStmt,
+            DoWhileStmt,
+            ExprStmt,
+            ForInStmt,
+            IfStmt,
+            ReturnStmt,
+            VarDeclStmt,
+            WhileStmt,
         )
 
         if isinstance(s, ReturnStmt):
@@ -109,7 +137,7 @@ class _UserGenericStmtMixin:
         return self._expr(s.initializer)
 
     def _if_stmt(self, s) -> IRIf:
-        from ....ast_nodes import Block, ElseIf, ElseBlock
+        from ....ast_nodes import Block, ElseBlock, ElseIf
         cond = self._expr(s.condition)
         then_stmts = []
         if s.then_block:
@@ -132,7 +160,7 @@ class _UserGenericStmtMixin:
                     else_block=else_block)
 
     def _cfor_stmt(self, s) -> IRFor:
-        from ....ast_nodes import ForInitVar, ForInitExpr
+        from ....ast_nodes import ForInitExpr, ForInitVar
         init_node = None
         if s.init:
             if isinstance(s.init, ForInitVar):

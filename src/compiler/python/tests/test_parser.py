@@ -1,9 +1,7 @@
 """Tests for the btrc parser."""
 
 import pytest
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser.parser import Parser
-from src.compiler.python.parser.core import ParseError
+
 from src.compiler.python.ast_nodes import (
     AssignExpr,
     BinaryExpr,
@@ -59,11 +57,13 @@ from src.compiler.python.ast_nodes import (
     TryCatchStmt,
     TupleLiteral,
     TypedefDecl,
-    TypeExpr,
     UnaryExpr,
     VarDeclStmt,
     WhileStmt,
 )
+from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.core import ParseError
+from src.compiler.python.parser.parser import Parser
 
 
 def parse(source: str) -> Program:

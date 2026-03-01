@@ -1,12 +1,24 @@
 """Primary expression parsing: literals, identifiers, new, list, map, brace."""
 
-from ..tokens import TokenType
 from ..ast_nodes import (
-    BoolLiteral, BraceInitializer, CharLiteral, FloatLiteral,
-    Identifier, IntLiteral, ListLiteral, MapEntry, MapLiteral,
-    NewExpr, NullLiteral, SelfExpr, SpawnExpr, StringLiteral,
-    SuperExpr, TupleLiteral,
+    BoolLiteral,
+    BraceInitializer,
+    CharLiteral,
+    FloatLiteral,
+    Identifier,
+    IntLiteral,
+    ListLiteral,
+    MapEntry,
+    MapLiteral,
+    NewExpr,
+    NullLiteral,
+    SelfExpr,
+    SpawnExpr,
+    StringLiteral,
+    SuperExpr,
+    TupleLiteral,
 )
+from ..tokens import TokenType
 
 
 class PrimaryMixin:

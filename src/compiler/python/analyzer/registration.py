@@ -1,8 +1,12 @@
 """Pass 1: Register declarations and validate inheritance/interfaces."""
 
 from ..ast_nodes import (
-    ClassDecl, FieldDecl, FunctionDecl, InterfaceDecl,
-    MethodDecl, PropertyDecl,
+    ClassDecl,
+    FieldDecl,
+    FunctionDecl,
+    InterfaceDecl,
+    MethodDecl,
+    PropertyDecl,
 )
 from .core import ClassInfo, InterfaceInfo
 

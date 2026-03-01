@@ -11,12 +11,12 @@ Produces:
 """
 
 from __future__ import annotations
-import sys
+
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from asdl_parser import parse_file, Module, Type, Constructor, Field
-
+from asdl_parser import Constructor, Field, Module, Type, parse_file
 
 # ASDL built-in types -> btrc type mapping
 _TYPE_MAP = {
@@ -48,15 +48,7 @@ def _btrc_default(field: Field) -> str:
     if field.seq:
         return "[]"
     elif field.opt:
-        if base == "int":
-            return "-1"
-        elif base == "float":
-            return "0.0"
-        elif base == "bool":
-            return "false"
-        elif base == "string":
-            return '""'
-        return "null"
+        return {"int": "-1", "float": "0.0", "bool": "false", "string": '""'}.get(base, "null")
     else:
         defaults = {
             "string": '""',
@@ -116,10 +108,10 @@ def generate(module: Module) -> str:
             lines.append("")
 
     # Emit class for each constructor
-    for constructor, attrs, parent_type in all_constructors:
+    for constructor, attrs, _parent_type in all_constructors:
         all_fields = constructor.fields + attrs
         lines.append(f"class {constructor.name} {{")
-        lines.append(f"    public int kind;")
+        lines.append("    public int kind;")
         for f in all_fields:
             bt = _btrc_type(f)
             default = _btrc_default(f)
@@ -167,9 +159,7 @@ def _to_screaming_snake(name: str) -> str:
     for i, ch in enumerate(name):
         if ch.isupper() and i > 0:
             prev = name[i - 1]
-            if prev.islower() or prev.isdigit():
-                result.append("_")
-            elif (i + 1 < len(name) and name[i + 1].islower()
+            if prev.islower() or prev.isdigit() or (i + 1 < len(name) and name[i + 1].islower()
                   and prev.isupper()):
                 result.append("_")
         result.append(ch.upper())

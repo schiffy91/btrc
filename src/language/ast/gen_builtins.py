@@ -20,8 +20,6 @@ import textwrap
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ROOT)
 
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser.parser import Parser
 from src.compiler.python.ast_nodes import (
     ClassDecl,
     FieldDecl,
@@ -29,6 +27,8 @@ from src.compiler.python.ast_nodes import (
     PropertyDecl,
     TypeExpr,
 )
+from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 
 STDLIB_DIR = os.path.join(ROOT, "src", "stdlib")
 OUTPUT = os.path.join(ROOT, "src", "devex", "lsp", "builtins.py")
@@ -273,9 +273,7 @@ def _is_hidden_field(member: FieldDecl) -> bool:
     """Auto-detect implementation-internal fields."""
     if member.name in _ALWAYS_HIDDEN_FIELDS:
         return True
-    if member.type and member.type.pointer_depth > 0:
-        return True
-    return False
+    return bool(member.type and member.type.pointer_depth > 0)
 
 
 def extract_members(

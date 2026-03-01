@@ -14,10 +14,9 @@ ASDL grammar (simplified):
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional
-import re
 
+import re
+from dataclasses import dataclass, field
 
 # --- Data model ---
 
@@ -86,7 +85,7 @@ class ASDLParser:
         self.tokens = tokens
         self.pos = 0
 
-    def _peek(self) -> Optional[str]:
+    def _peek(self) -> str | None:
         if self.pos < len(self.tokens):
             return self.tokens[self.pos]
         return None

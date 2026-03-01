@@ -6,26 +6,27 @@ during IR generation. The emitter just formats.
 """
 
 from __future__ import annotations
+
 from .emitter_exprs import _ExprEmitterMixin
 from .nodes import (
-    IRModule,
-    IREnumDef,
-    IRStructDef,
-    IRFunctionDef,
-    IRBlock,
-    IRStmt,
-    IRVarDecl,
     IRAssign,
-    IRReturn,
-    IRIf,
-    IRWhile,
-    IRDoWhile,
-    IRFor,
-    IRSwitch,
-    IRExprStmt,
-    IRRawC,
+    IRBlock,
     IRBreak,
     IRContinue,
+    IRDoWhile,
+    IREnumDef,
+    IRExprStmt,
+    IRFor,
+    IRFunctionDef,
+    IRIf,
+    IRModule,
+    IRRawC,
+    IRReturn,
+    IRStmt,
+    IRStructDef,
+    IRSwitch,
+    IRVarDecl,
+    IRWhile,
 )
 
 

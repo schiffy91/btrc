@@ -1,14 +1,25 @@
 """Operator lowering: binary and unary expressions → IR."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import BinaryExpr, UnaryExpr
 from ..nodes import (
-    IRAddressOf, IRBinOp, IRCall, IRDeref, IRExpr,
-    IRLiteral, IRStmtExpr, IRTernary, IRUnaryOp, IRVar, IRVarDecl, CType,
+    CType,
+    IRAddressOf,
+    IRBinOp,
+    IRCall,
+    IRDeref,
+    IRExpr,
+    IRLiteral,
+    IRStmtExpr,
+    IRTernary,
+    IRUnaryOp,
+    IRVar,
+    IRVarDecl,
 )
-from .types import is_string_type, is_numeric_type, mangle_generic_type, type_to_c
+from .types import is_numeric_type, is_string_type, mangle_generic_type, type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator

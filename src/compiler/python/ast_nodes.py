@@ -5,9 +5,9 @@ DO NOT EDIT BY HAND.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional, Union
 
+from dataclasses import dataclass, field
+from typing import Union
 
 
 @dataclass
@@ -25,7 +25,7 @@ class ClassDecl:
     name: str = ""
     generic_params: list[str] = field(default_factory=list)
     members: list[class_member] = field(default_factory=list)
-    parent: Optional[str] = None
+    parent: str | None = None
     interfaces: list[str] = field(default_factory=list)
     is_abstract: bool = False
     line: int = 0
@@ -35,7 +35,7 @@ class ClassDecl:
 class InterfaceDecl:
     name: str = ""
     methods: list[MethodSig] = field(default_factory=list)
-    parent: Optional[str] = None
+    parent: str | None = None
     generic_params: list[str] = field(default_factory=list)
     line: int = 0
     col: int = 0
@@ -45,7 +45,7 @@ class FunctionDecl:
     return_type: TypeExpr = None
     name: str = ""
     params: list[Param] = field(default_factory=list)
-    body: Optional[Block] = None
+    body: Block | None = None
     is_gpu: bool = False
     keep_return: bool = False
     line: int = 0
@@ -85,7 +85,7 @@ class TypeExpr:
     generic_args: list[TypeExpr] = field(default_factory=list)
     pointer_depth: int = 0
     is_array: bool = False
-    array_size: Optional[expr] = None
+    array_size: expr | None = None
     is_const: bool = False
     is_nullable: bool = False
     line: int = 0
@@ -95,7 +95,7 @@ class TypeExpr:
 class Param:
     type: TypeExpr = None
     name: str = ""
-    default: Optional[expr] = None
+    default: expr | None = None
     keep: bool = False
     line: int = 0
     col: int = 0
@@ -105,7 +105,7 @@ class FieldDecl:
     access: str = ""
     type: TypeExpr = None
     name: str = ""
-    initializer: Optional[expr] = None
+    initializer: expr | None = None
     line: int = 0
     col: int = 0
 
@@ -115,7 +115,7 @@ class MethodDecl:
     return_type: TypeExpr = None
     name: str = ""
     params: list[Param] = field(default_factory=list)
-    body: Optional[Block] = None
+    body: Block | None = None
     is_gpu: bool = False
     is_abstract: bool = False
     keep_return: bool = False
@@ -129,8 +129,8 @@ class PropertyDecl:
     name: str = ""
     has_getter: bool = False
     has_setter: bool = False
-    getter_body: Optional[Block] = None
-    setter_body: Optional[Block] = None
+    getter_body: Block | None = None
+    setter_body: Block | None = None
     line: int = 0
     col: int = 0
 
@@ -146,7 +146,7 @@ class MethodSig:
 @dataclass
 class EnumValue:
     name: str = ""
-    value: Optional[expr] = None
+    value: expr | None = None
 
 @dataclass
 class RichEnumVariant:
@@ -166,15 +166,15 @@ class Block:
 
 @dataclass
 class VarDeclStmt:
-    type: Optional[TypeExpr] = None
+    type: TypeExpr | None = None
     name: str = ""
-    initializer: Optional[expr] = None
+    initializer: expr | None = None
     line: int = 0
     col: int = 0
 
 @dataclass
 class ReturnStmt:
-    value: Optional[expr] = None
+    value: expr | None = None
     line: int = 0
     col: int = 0
 
@@ -182,7 +182,7 @@ class ReturnStmt:
 class IfStmt:
     condition: expr = None
     then_block: Block = None
-    else_block: Optional[if_else] = None
+    else_block: if_else | None = None
     line: int = 0
     col: int = 0
 
@@ -203,7 +203,7 @@ class DoWhileStmt:
 @dataclass
 class ForInStmt:
     var_name: str = ""
-    var_name2: Optional[str] = None
+    var_name2: str | None = None
     iterable: expr = None
     body: Block = None
     line: int = 0
@@ -211,9 +211,9 @@ class ForInStmt:
 
 @dataclass
 class CForStmt:
-    init: Optional[for_init] = None
-    condition: Optional[expr] = None
-    update: Optional[expr] = None
+    init: for_init | None = None
+    condition: expr | None = None
+    update: expr | None = None
     body: Block = None
     line: int = 0
     col: int = 0
@@ -260,7 +260,7 @@ class TryCatchStmt:
     try_block: Block = None
     catch_var: str = ""
     catch_block: Block = None
-    finally_block: Optional[Block] = None
+    finally_block: Block | None = None
     line: int = 0
     col: int = 0
 
@@ -300,7 +300,7 @@ class ForInitExpr:
 
 @dataclass
 class CaseClause:
-    value: Optional[expr] = None
+    value: expr | None = None
     body: list[stmt] = field(default_factory=list)
     line: int = 0
     col: int = 0
@@ -465,7 +465,7 @@ class TupleLiteral:
 
 @dataclass
 class LambdaExpr:
-    return_type: Optional[TypeExpr] = None
+    return_type: TypeExpr | None = None
     params: list[Param] = field(default_factory=list)
     body: lambda_body = None
     captures: list[Capture] = field(default_factory=list)

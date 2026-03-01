@@ -12,12 +12,12 @@ Produces:
 """
 
 from __future__ import annotations
-import sys
+
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from asdl_parser import parse_file, Module, Type, Constructor, Field
-
+from asdl_parser import Constructor, Field, Module, Type, parse_file
 
 # ASDL built-in types -> Python type mapping
 _BUILTIN_MAP = {
@@ -124,7 +124,7 @@ def generate(module: Module) -> str:
             all_constructors.append((c, t.attributes, t))
 
     # Emit dataclasses
-    for constructor, attrs, parent_type in all_constructors:
+    for constructor, attrs, _parent_type in all_constructors:
         lines.append("")
         lines.append("@dataclass")
         lines.append(f"class {constructor.name}:")

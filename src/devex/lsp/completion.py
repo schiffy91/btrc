@@ -4,7 +4,6 @@ Provides keyword, type, member access, static method, and snippet completions.
 """
 
 import re
-from typing import Optional
 
 from lsprotocol import types as lsp
 
@@ -13,21 +12,19 @@ from src.compiler.python.ast_nodes import (
     FieldDecl,
     MethodDecl,
 )
-
-from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.builtins import (
+    _MEMBER_TABLES,
+    STDLIB_STATIC_METHODS,
     BuiltinMember,
     get_members_for_type,
-    STDLIB_STATIC_METHODS,
-    _MEMBER_TABLES,
 )
+from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
-    type_repr,
-    get_text_before_cursor,
     find_enclosing_class_from_source,
+    get_text_before_cursor,
     resolve_variable_type,
+    type_repr,
 )
-
 
 # ---------------------------------------------------------------------------
 # Keyword completions
@@ -410,7 +407,7 @@ def _resolve_var_type(
     result: AnalysisResult,
     var_name: str,
     cursor_line: int,
-) -> Optional[str]:
+) -> str | None:
     """Resolve variable type, handling 'self' specially."""
     if not result.ast:
         return None

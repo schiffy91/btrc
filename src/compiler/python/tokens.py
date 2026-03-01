@@ -4,8 +4,8 @@ TokenType enum and keyword table are validated against src/language/grammar.ebnf
 at import time to ensure the grammar is the single source of truth.
 """
 
-from enum import Enum, auto
 from dataclasses import dataclass
+from enum import Enum, auto
 
 
 class TokenType(Enum):
@@ -161,12 +161,12 @@ def _build_keyword_table() -> dict[str, TokenType]:
         token_name = gi.keyword_to_token[kw]
         try:
             table[kw] = TokenType[token_name]
-        except KeyError:
+        except KeyError as err:
             raise RuntimeError(
                 f"Grammar keyword {kw!r} maps to TokenType.{token_name} "
                 f"which does not exist in the TokenType enum. "
                 f"Add it to tokens.py."
-            )
+            ) from err
     return table
 
 
@@ -179,12 +179,12 @@ def _build_operator_table() -> dict[str, TokenType]:
         token_name = gi.op_to_token[op]
         try:
             table[op] = TokenType[token_name]
-        except KeyError:
+        except KeyError as err:
             raise RuntimeError(
                 f"Grammar operator {op!r} maps to TokenType.{token_name} "
                 f"which does not exist in the TokenType enum. "
                 f"Add it to tokens.py."
-            )
+            ) from err
     return table
 
 

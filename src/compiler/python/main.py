@@ -4,20 +4,20 @@
 Usage: python main.py <input.btrc> [-o output.c] [--emit-ast] [--emit-tokens]
 """
 
-import sys
-import os
 import argparse
+import os
 import re
-from typing import Optional, Set
+import sys
 
-from .lexer import Lexer, LexerError
-from .parser.parser import Parser
-from .parser.core import ParseError
 from .analyzer.analyzer import Analyzer
-from .ir.optimizer import optimize
+from .disk_cache import get_cached
+from .disk_cache import store as cache_store
 from .ir.emitter import CEmitter
 from .ir.gen.generator import generate_ir
-from .disk_cache import get_cached, store as cache_store
+from .ir.optimizer import optimize
+from .lexer import Lexer, LexerError
+from .parser.core import ParseError
+from .parser.parser import Parser
 
 
 def _format_error(source: str, filename: str, message: str,
@@ -96,7 +96,7 @@ def get_stdlib_source(user_source: str = "") -> str:
     return "\n".join(parts)
 
 
-def resolve_includes(source: str, source_path: str, included: Optional[Set[str]] = None) -> str:
+def resolve_includes(source: str, source_path: str, included: set[str] | None = None) -> str:
     """Recursively resolve #include "file.btrc" directives by textual inclusion."""
     if included is None:
         included = set()
@@ -136,7 +136,6 @@ def resolve_includes(source: str, source_path: str, included: Optional[Set[str]]
 
 def _dump_ir(module):
     """Print a canonical IR dump for debugging."""
-    from .ir.nodes import IRModule
     print(f"# IRModule: {len(module.enum_defs)} enums, "
           f"{len(module.struct_defs)} structs, "
           f"{len(module.function_defs)} functions, "

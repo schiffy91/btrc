@@ -1,7 +1,7 @@
 """Expression parsing: precedence climbing from assignment to unary."""
 
-from ..tokens import TokenType
 from ..ast_nodes import AssignExpr, BinaryExpr, TernaryExpr, UnaryExpr
+from ..tokens import TokenType
 
 
 class ExpressionsMixin:

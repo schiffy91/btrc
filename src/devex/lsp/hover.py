@@ -4,44 +4,42 @@ Shows type information when hovering over identifiers, keywords,
 class names, and method calls.
 """
 
-from typing import Optional
 
 from lsprotocol import types as lsp
 
-from src.compiler.python.tokens import Token, TokenType
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.ast_nodes import (
     Block,
+    CallExpr,
+    CaseClause,
+    CForStmt,
     ClassDecl,
+    DoWhileStmt,
     ElseBlock,
     ElseIf,
     FieldDecl,
     ForInitVar,
-    FunctionDecl,
-    MethodDecl,
-    VarDeclStmt,
     ForInStmt,
-    CForStmt,
-    ParallelForStmt,
-    TryCatchStmt,
-    IfStmt,
-    WhileStmt,
-    DoWhileStmt,
-    SwitchStmt,
-    CaseClause,
-    CallExpr,
+    FunctionDecl,
     Identifier,
+    IfStmt,
+    MethodDecl,
     NewExpr,
+    ParallelForStmt,
+    SwitchStmt,
+    TryCatchStmt,
+    VarDeclStmt,
+    WhileStmt,
 )
-
+from src.compiler.python.tokens import Token, TokenType
+from src.devex.lsp.builtins import _MEMBER_TABLES, get_hover_markdown
 from src.devex.lsp.diagnostics import AnalysisResult
-from src.devex.lsp.builtins import get_hover_markdown, _MEMBER_TABLES
 from src.devex.lsp.utils import (
-    type_repr,
+    body_range,
     find_token_at_position,
     find_token_index,
-    body_range,
     resolve_chain_type,
+    type_repr,
 )
 
 
@@ -140,7 +138,7 @@ del _tn, _members, _methods, _fields, _parts, _preview, _suffix
 
 def get_hover_info(
     result: AnalysisResult, position: lsp.Position
-) -> Optional[lsp.Hover]:
+) -> lsp.Hover | None:
     """Return hover information for the token at the given position."""
     if not result.tokens:
         return None
@@ -149,7 +147,7 @@ def get_hover_info(
     if token is None:
         return None
 
-    content: Optional[str] = None
+    content: str | None = None
     class_table = result.analyzed.class_table if result.analyzed else {}
 
     # Check if it's a class name
@@ -181,7 +179,7 @@ def _try_member_hover(
     result: AnalysisResult,
     token: Token,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Try to resolve hover for a member access (obj.field or obj.method)."""
     if not result.tokens:
         return None
@@ -238,7 +236,7 @@ def _try_variable_hover(
     result: AnalysisResult,
     token: Token,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Try to resolve hover for a local variable, parameter, or loop variable."""
     if not result.ast:
         return None
@@ -268,7 +266,7 @@ def _find_var_hover_in_decl(
     cursor_line: int,
     decl,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Search a top-level declaration for a variable/param matching *name*."""
     if isinstance(decl, ClassDecl):
         for i, member in enumerate(decl.members):
@@ -288,10 +286,10 @@ def _check_callable(
     name: str,
     cursor_line: int,
     node,
-    class_name: Optional[str],
+    class_name: str | None,
     class_table: dict[str, ClassInfo],
-    scope_end_override: Optional[int] = None,
-) -> Optional[str]:
+    scope_end_override: int | None = None,
+) -> str | None:
     """Check parameters and body of a function/method for *name*."""
     if not isinstance(node, (FunctionDecl, MethodDecl)):
         return None
@@ -326,12 +324,12 @@ def _scan_block_for_var(
     name: str,
     cursor_line: int,
     block: Block,
-    class_name: Optional[str],
+    class_name: str | None,
     func_name: str,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Scan statements in a block for a variable declaration matching *name*."""
-    best: Optional[str] = None
+    best: str | None = None
     for stmt in block.statements:
         result = _check_stmt_for_var(
             name, cursor_line, stmt, class_name, func_name, class_table
@@ -345,10 +343,10 @@ def _check_stmt_for_var(
     name: str,
     cursor_line: int,
     stmt,
-    class_name: Optional[str],
+    class_name: str | None,
     func_name: str,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Check a single statement for a variable declaration."""
     if isinstance(stmt, VarDeclStmt):
         if stmt.name == name and stmt.line <= cursor_line:

@@ -1,15 +1,27 @@
 """Lambda lowering: LambdaExpr → static function + capture struct."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    LambdaBlock, LambdaExpr, LambdaExprBody, TypeExpr,
+    LambdaBlock,
+    LambdaExpr,
+    LambdaExprBody,
 )
 from ..nodes import (
-    CType, IRBlock, IRCall, IRCast, IRExprStmt, IRFieldAccess,
-    IRFunctionDef, IRLiteral, IRParam, IRRawExpr, IRReturn,
-    IRStructDef, IRStructField, IRVar, IRVarDecl,
+    CType,
+    IRBlock,
+    IRCast,
+    IRFieldAccess,
+    IRFunctionDef,
+    IRParam,
+    IRRawExpr,
+    IRReturn,
+    IRStructDef,
+    IRStructField,
+    IRVar,
+    IRVarDecl,
 )
 from .types import type_to_c
 

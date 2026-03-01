@@ -9,19 +9,16 @@ Provides rich token classification beyond what TextMate grammars can do:
 """
 
 from __future__ import annotations
-from typing import Optional
 
 from lsprotocol import types as lsp
 
-from src.compiler.python.tokens import Token, TokenType
 from src.compiler.python.ast_nodes import (
     ClassDecl,
     EnumDecl,
     StructDecl,
 )
-
+from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.diagnostics import AnalysisResult
-
 
 # LSP Semantic Token Types (order matters — index is the type ID)
 TOKEN_TYPES = [
@@ -255,7 +252,7 @@ class SemanticTokenCollector:
 # ---------------------------------------------------------------------------
 
 
-def get_semantic_tokens(result: AnalysisResult) -> Optional[lsp.SemanticTokens]:
+def get_semantic_tokens(result: AnalysisResult) -> lsp.SemanticTokens | None:
     """Compute semantic tokens for the entire document."""
     if not result.tokens or not result.ast:
         return None

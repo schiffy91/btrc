@@ -6,25 +6,52 @@ lives in arc.py; control-flow lowering lives in control_flow.py.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    Block, BreakStmt, CForStmt, ContinueStmt, DeleteStmt, DoWhileStmt,
-    ExprStmt, ForInStmt, ForInitExpr, ForInitVar, IfStmt, ElseBlock,
-    ElseIf, KeepStmt, ParallelForStmt, ReleaseStmt, ReturnStmt,
-    SwitchStmt, ThrowStmt, TryCatchStmt, VarDeclStmt, WhileStmt,
-    TypeExpr, CallExpr, Identifier, NewExpr,
+    Block,
+    BreakStmt,
+    CForStmt,
+    ContinueStmt,
+    DeleteStmt,
+    DoWhileStmt,
+    ExprStmt,
+    ForInStmt,
+    Identifier,
+    IfStmt,
+    KeepStmt,
+    ParallelForStmt,
+    ReleaseStmt,
+    ReturnStmt,
+    SwitchStmt,
+    ThrowStmt,
+    TryCatchStmt,
+    VarDeclStmt,
+    WhileStmt,
 )
 from ..nodes import (
-    CType, IRAssign, IRBlock, IRBreak, IRCase, IRContinue, IRDoWhile,
-    IRExprStmt, IRFor, IRIf, IRRawC, IRRawExpr, IRReturn, IRStmt,
-    IRSwitch, IRUnaryOp, IRVarDecl, IRVar, IRWhile, IRCall, IRLiteral,
-    IRBinOp, IRFieldAccess, IRIndex,
+    IRBinOp,
+    IRBlock,
+    IRBreak,
+    IRCall,
+    IRContinue,
+    IRDoWhile,
+    IRExprStmt,
+    IRFieldAccess,
+    IRIndex,
+    IRLiteral,
+    IRRawC,
+    IRRawExpr,
+    IRReturn,
+    IRStmt,
+    IRUnaryOp,
+    IRVar,
+    IRWhile,
 )
-from .types import type_to_c
+from .arc import _emit_return_release, _emit_scope_release, _lower_release
 from .expressions import lower_expr
-from .variables import _lower_var_decl, _emit_keep_for_call
-from .arc import _emit_scope_release, _emit_return_release, _lower_release
+from .variables import _emit_keep_for_call, _lower_var_decl
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -49,8 +76,13 @@ def lower_block(gen: IRGenerator, block: Block | None) -> IRBlock:
 def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
     """Lower a single AST statement to one or more IRStmts."""
     from .control_flow import (
-        _lower_if, _lower_for_in, _lower_c_for, _lower_switch,
-        _lower_delete, _lower_try_catch, _lower_throw,
+        _lower_c_for,
+        _lower_delete,
+        _lower_for_in,
+        _lower_if,
+        _lower_switch,
+        _lower_throw,
+        _lower_try_catch,
     )
 
     if isinstance(node, VarDeclStmt):
@@ -142,9 +174,14 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
 def _quick_text(expr) -> str:
     """Render an IR expression as inline C text for use in for-loop headers."""
     from ..nodes import (
-        IRLiteral, IRVar, IRRawExpr, IRRawC, IRBinOp, IRUnaryOp,
-        IRCall, IRFieldAccess, IRIndex, IRCast, IRTernary,
-        IRAddressOf, IRDeref, IRSizeof,
+        IRAddressOf,
+        IRCast,
+        IRDeref,
+        IRFieldAccess,
+        IRRawC,
+        IRSizeof,
+        IRTernary,
+        IRUnaryOp,
     )
     if expr is None:
         return ""

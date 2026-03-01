@@ -9,17 +9,14 @@ Supports finding references for:
 """
 
 from __future__ import annotations
-from typing import Optional
 
 from lsprotocol import types as lsp
 
-from src.compiler.python.tokens import Token, TokenType
 from src.compiler.python.analyzer.core import ClassInfo
-
+from src.compiler.python.tokens import Token, TokenType
+from src.devex.lsp.definition import DefinitionMap, _resolve_object_class
 from src.devex.lsp.diagnostics import AnalysisResult
-from src.devex.lsp.definition import _resolve_object_class, DefinitionMap
 from src.devex.lsp.utils import find_token_at_position, find_token_index
-
 
 # ---------------------------------------------------------------------------
 # Reference collection
@@ -52,7 +49,7 @@ def _classify_symbol(
     result: AnalysisResult,
     class_table: dict[str, ClassInfo],
     dmap: DefinitionMap,
-) -> tuple[str, Optional[str], Optional[str]]:
+) -> tuple[str, str | None, str | None]:
     """Classify the symbol under cursor.
 
     Returns (kind, class_name, member_name) where kind is one of:
@@ -274,7 +271,7 @@ def get_rename_edits(
     result: AnalysisResult,
     position: lsp.Position,
     new_name: str,
-) -> Optional[lsp.WorkspaceEdit]:
+) -> lsp.WorkspaceEdit | None:
     """Return workspace edits to rename the symbol at position."""
     if not result.tokens or not result.ast:
         return None
@@ -306,7 +303,7 @@ def get_rename_edits(
 def prepare_rename(
     result: AnalysisResult,
     position: lsp.Position,
-) -> Optional[lsp.Range]:
+) -> lsp.Range | None:
     """Check if rename is possible at position and return the symbol range."""
     if not result.tokens:
         return None

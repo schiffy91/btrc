@@ -1,13 +1,27 @@
 """Enum lowering: EnumDecl, RichEnumDecl → structured IR nodes."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import EnumDecl, RichEnumDecl
 from ..nodes import (
-    CType, IRAssign, IRBlock, IRCase, IREnumDef, IREnumValue,
-    IRFieldAccess, IRFunctionDef, IRLiteral, IRParam, IRReturn,
-    IRStructDef, IRStructField, IRSwitch, IRVar, IRVarDecl,
+    CType,
+    IRAssign,
+    IRBlock,
+    IRCase,
+    IREnumDef,
+    IREnumValue,
+    IRFieldAccess,
+    IRFunctionDef,
+    IRLiteral,
+    IRParam,
+    IRReturn,
+    IRStructDef,
+    IRStructField,
+    IRSwitch,
+    IRVar,
+    IRVarDecl,
 )
 
 if TYPE_CHECKING:

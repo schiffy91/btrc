@@ -1,17 +1,30 @@
 """F-string lowering: FStringLiteral → snprintf measuring + allocation + formatting."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    CallExpr, FStringExpr, FStringLiteral, FStringText,
-    FieldAccessExpr, StringLiteral, TypeExpr,
+    CallExpr,
+    FieldAccessExpr,
+    FStringExpr,
+    FStringLiteral,
+    FStringText,
+    StringLiteral,
 )
 from ..nodes import (
-    CType, IRBinOp, IRCall, IRCast, IRExpr, IRExprStmt, IRLiteral,
-    IRStmtExpr, IRVar, IRVarDecl,
+    CType,
+    IRBinOp,
+    IRCall,
+    IRCast,
+    IRExpr,
+    IRExprStmt,
+    IRLiteral,
+    IRStmtExpr,
+    IRVar,
+    IRVarDecl,
 )
-from .types import format_spec_for_type, is_string_type
+from .types import format_spec_for_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator

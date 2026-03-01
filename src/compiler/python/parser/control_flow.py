@@ -1,12 +1,25 @@
 """Control flow statement parsing: if, while, for, switch, try/catch, etc."""
 
-from ..tokens import TokenType
 from ..ast_nodes import (
-    CaseClause, CForStmt, DoWhileStmt, ElseBlock, ElseIf, ExprStmt,
-    ForInitExpr, ForInitVar, ForInStmt, IfStmt, ParallelForStmt,
-    ReturnStmt, SwitchStmt, ThrowStmt, TryCatchStmt, VarDeclStmt,
+    CaseClause,
+    CForStmt,
+    DoWhileStmt,
+    ElseBlock,
+    ElseIf,
+    ExprStmt,
+    ForInitExpr,
+    ForInitVar,
+    ForInStmt,
+    IfStmt,
+    ParallelForStmt,
+    ReturnStmt,
+    SwitchStmt,
+    ThrowStmt,
+    TryCatchStmt,
+    VarDeclStmt,
     WhileStmt,
 )
+from ..tokens import TokenType
 
 
 class ControlFlowMixin:

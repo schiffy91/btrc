@@ -8,10 +8,8 @@ which is especially beneficial when running tests in parallel with pytest-xdist.
 from __future__ import annotations
 
 import os
-import re
 
-from .main import _get_stdlib_dir, _discover_stdlib_files, _CLASS_NAME_RE
-
+from .main import _CLASS_NAME_RE, _discover_stdlib_files, _get_stdlib_dir
 
 # Cache: frozenset of user class names → (stdlib_source, stdlib_tokens)
 _stdlib_source_cache: dict[frozenset[str], str] = {}

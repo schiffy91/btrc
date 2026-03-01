@@ -1,16 +1,21 @@
 """Analyzer assembly: combines all analysis mixins into the final Analyzer class."""
 
 from .core import (
-    AnalyzerBase, AnalyzerError, AnalyzedProgram,
-    ClassInfo, InterfaceInfo, Scope, SymbolInfo,
+    AnalyzedProgram,
+    AnalyzerBase,
+    AnalyzerError,
+    ClassInfo,
+    InterfaceInfo,
+    Scope,
+    SymbolInfo,
 )
-from .registration import RegistrationMixin
-from .functions import FunctionsMixin
-from .statements import StatementsMixin
 from .expressions import ExpressionsMixin
-from .validation import ValidationMixin
+from .functions import FunctionsMixin
+from .registration import RegistrationMixin
+from .statements import StatementsMixin
 from .type_inference import TypeInferenceMixin
 from .type_utils import TypeUtilsMixin
+from .validation import ValidationMixin
 
 
 class Analyzer(
@@ -28,6 +33,11 @@ class Analyzer(
 
 
 __all__ = [
-    "Analyzer", "AnalyzerError", "AnalyzedProgram",
-    "ClassInfo", "InterfaceInfo", "Scope", "SymbolInfo",
+    "AnalyzedProgram",
+    "Analyzer",
+    "AnalyzerError",
+    "ClassInfo",
+    "InterfaceInfo",
+    "Scope",
+    "SymbolInfo",
 ]

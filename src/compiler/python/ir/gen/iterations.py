@@ -1,16 +1,32 @@
 """Iteration lowering: for-in, range-for, and C-style for loops."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    CForStmt, ForInitExpr, ForInitVar, CallExpr, Identifier,
+    CallExpr,
+    CForStmt,
+    ForInitExpr,
+    ForInitVar,
+    Identifier,
 )
 from ..nodes import (
-    CType, IRAssign, IRBinOp, IRBlock, IRCall, IRExprStmt, IRFieldAccess,
-    IRFor, IRIndex, IRLiteral, IRStmt, IRTernary, IRUnaryOp, IRVarDecl, IRVar,
+    CType,
+    IRBinOp,
+    IRCall,
+    IRExprStmt,
+    IRFieldAccess,
+    IRFor,
+    IRIndex,
+    IRLiteral,
+    IRStmt,
+    IRTernary,
+    IRUnaryOp,
+    IRVar,
+    IRVarDecl,
 )
-from .types import type_to_c, mangle_generic_type
+from .types import mangle_generic_type, type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator

@@ -1,22 +1,40 @@
 """Control flow statement lowering: if, switch, delete, try/catch, throw."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    DeleteStmt, ElseBlock, ElseIf, IfStmt, SwitchStmt,
-    ThrowStmt, TryCatchStmt,
+    DeleteStmt,
+    ElseBlock,
+    ElseIf,
+    IfStmt,
+    SwitchStmt,
+    ThrowStmt,
+    TryCatchStmt,
 )
 from ..nodes import (
-    CType, IRAssign, IRBlock, IRCase, IRExprStmt, IRIf, IRLiteral,
-    IRRawC, IRRawExpr, IRStmt, IRSwitch, IRVarDecl, IRVar, IRCall,
+    CType,
+    IRAssign,
+    IRBlock,
+    IRCall,
+    IRCase,
+    IRExprStmt,
+    IRIf,
+    IRLiteral,
+    IRRawC,
+    IRRawExpr,
+    IRStmt,
+    IRSwitch,
+    IRVar,
+    IRVarDecl,
 )
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
 
 # Re-export iteration lowering so statements.py can import from one place
-from .iterations import _lower_for_in, _lower_range_for, _lower_c_for  # noqa: F401
+from .iterations import _lower_c_for, _lower_for_in, _lower_range_for  # noqa: F401
 
 
 def _lower_if(gen: IRGenerator, node: IfStmt) -> IRIf:
@@ -49,7 +67,7 @@ def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
 
 def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
     """Lower delete expr → destroy or free (class-table based), then set NULL."""
-    from .types import mangle_generic_type, is_generic_class_type
+    from .types import mangle_generic_type
     obj = _lower_expr(gen, node.expr)
     obj_type = gen.analyzed.node_types.get(id(node.expr))
     if obj_type and obj_type.base in gen.analyzed.class_table:

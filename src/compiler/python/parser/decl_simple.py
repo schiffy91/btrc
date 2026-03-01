@@ -1,10 +1,16 @@
 """Simple declaration parsing: enum, rich enum, typedef, property, function/var."""
 
-from ..tokens import TokenType
 from ..ast_nodes import (
-    EnumDecl, EnumValue, FunctionDecl, PropertyDecl,
-    RichEnumDecl, RichEnumVariant, TypedefDecl, VarDeclStmt,
+    EnumDecl,
+    EnumValue,
+    FunctionDecl,
+    PropertyDecl,
+    RichEnumDecl,
+    RichEnumVariant,
+    TypedefDecl,
+    VarDeclStmt,
 )
+from ..tokens import TokenType
 
 
 class SimpleDeclarationsMixin:

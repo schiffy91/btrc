@@ -1,12 +1,13 @@
 """Literal tokenization: strings, chars, numbers, f-strings."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from .tokens import TokenType
 
 if TYPE_CHECKING:
-    from .lexer import Lexer, LexerError
+    from .lexer import Lexer
 
 
 def read_string(lex: Lexer):

@@ -5,11 +5,22 @@ release, and explicit ``release`` statement lowering.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ..nodes import (
-    IRAssign, IRBinOp, IRBlock, IRCall, IRExprStmt, IRFieldAccess, IRIf,
-    IRLiteral, IRRawExpr, IRStmt, IRUnaryOp, IRVar,
+    IRAssign,
+    IRBinOp,
+    IRBlock,
+    IRCall,
+    IRExprStmt,
+    IRFieldAccess,
+    IRIf,
+    IRLiteral,
+    IRRawExpr,
+    IRStmt,
+    IRUnaryOp,
+    IRVar,
 )
 from .expressions import lower_expr
 
@@ -129,7 +140,7 @@ def _emit_scope_release_phased(managed: list[tuple[str, str]],
         value=IRLiteral(text="0")))
 
     # Phase 1: Decrement rc for ALL managed vars
-    for var_name, cls_name in reversed(managed):
+    for var_name, _cls_name in reversed(managed):
         stmts.append(IRIf(
             condition=IRBinOp(
                 left=IRVar(name=var_name), op="!=",

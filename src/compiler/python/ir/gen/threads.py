@@ -10,14 +10,30 @@ Thread<T> at the C level is just __btrc_thread_t* — no class struct.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import LambdaBlock, LambdaExpr, LambdaExprBody
 from ..nodes import (
-    CType, IRAssign, IRBlock, IRCall, IRCast, IRExprStmt, IRFieldAccess,
-    IRFunctionDef, IRIf, IRLiteral, IRParam, IRRawExpr, IRReturn,
-    IRSpawnThread, IRStmtExpr, IRStructDef, IRStructField, IRUnaryOp,
-    IRVar, IRVarDecl,
+    CType,
+    IRAssign,
+    IRBlock,
+    IRCall,
+    IRCast,
+    IRExprStmt,
+    IRFieldAccess,
+    IRFunctionDef,
+    IRIf,
+    IRLiteral,
+    IRParam,
+    IRReturn,
+    IRSpawnThread,
+    IRStmtExpr,
+    IRStructDef,
+    IRStructField,
+    IRUnaryOp,
+    IRVar,
+    IRVarDecl,
 )
 from .types import type_to_c
 
@@ -141,7 +157,6 @@ def _infer_lambda_ret_type(gen: IRGenerator, fn: LambdaExpr) -> str:
 
 def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
     """Build the body of the pthread wrapper function."""
-    from ..nodes import IRCall, IRExprStmt, IRIf, IRBinOp, IRUnaryOp
     body_stmts = []
 
     # Unpack captures
@@ -210,7 +225,7 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
 
 def _build_capture_cleanup(gen, fn, has_captures):
     """Build cleanup stmts: ARC release for class captures + free env struct."""
-    from ..nodes import IRCall, IRExprStmt, IRIf, IRBinOp, IRUnaryOp
+    from ..nodes import IRBinOp, IRCall, IRExprStmt, IRIf, IRUnaryOp
     if not has_captures:
         return []
     stmts = []

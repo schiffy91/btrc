@@ -1,10 +1,16 @@
 """Postfix operators, cast detection, and sizeof parsing."""
 
-from ..tokens import TokenType, TYPE_KEYWORDS
 from ..ast_nodes import (
-    CallExpr, CastExpr, FieldAccessExpr, IndexExpr,
-    SizeofExpr, SizeofExprOp, SizeofType, UnaryExpr,
+    CallExpr,
+    CastExpr,
+    FieldAccessExpr,
+    IndexExpr,
+    SizeofExpr,
+    SizeofExprOp,
+    SizeofType,
+    UnaryExpr,
 )
+from ..tokens import TYPE_KEYWORDS, TokenType
 
 
 class PostfixMixin:

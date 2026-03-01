@@ -1,16 +1,23 @@
 """Method call lowering: obj.method(args) → appropriate C call."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier, TypeExpr
+from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier
 from ..nodes import (
-    IRAddressOf, IRCall, IRCast, IRExpr, IRFieldAccess, IRLiteral, IRRawExpr, IRVar,
-)
-from .types import (
-    is_string_type, mangle_generic_type, type_to_c,
+    IRCall,
+    IRCast,
+    IRExpr,
+    IRLiteral,
+    IRVar,
 )
 from .expressions import lower_expr
+from .types import (
+    is_string_type,
+    mangle_generic_type,
+    type_to_c,
+)
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -78,7 +85,7 @@ _STRING_CONVERSION_METHODS = {
 
 def _lower_string_special(gen, obj, method_name, args):
     """Handle special string methods that don't map to helpers."""
-    from ..nodes import IRCast, IRBinOp
+    from ..nodes import IRBinOp
     if method_name == "equals":
         # s.equals(t) → strcmp(s, t) == 0
         cmp = IRCall(callee="strcmp", args=[obj] + args)
@@ -93,7 +100,6 @@ def _lower_string_special(gen, obj, method_name, args):
 
 def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     """Lower obj.method(args) to the appropriate C call."""
-    from ..nodes import IRCast
     assert isinstance(node.callee, FieldAccessExpr)
     obj_node = node.callee.obj
     method_name = node.callee.field
@@ -227,7 +233,6 @@ _THREAD_PRIMITIVE_TYPES = {"int", "float", "double", "char", "bool", "short", "l
 
 def _lower_thread_method(gen, obj, method_name, obj_type):
     """Lower Thread<T> method calls (.join())."""
-    from ..nodes import IRCast
     if method_name == "join":
         gen.use_helper("__btrc_thread_join")
         ret_type = obj_type.generic_args[0] if obj_type.generic_args else None
@@ -249,7 +254,6 @@ def _lower_thread_method(gen, obj, method_name, obj_type):
 
 def _lower_mutex_method(gen, obj, method_name, obj_type, args):
     """Lower Mutex<T> method calls (.get(), .set(), .destroy())."""
-    from ..nodes import IRCast
     val_type = obj_type.generic_args[0] if obj_type.generic_args else None
     if method_name == "get":
         gen.use_helper("__btrc_mutex_val_get")

@@ -1,11 +1,18 @@
 """Collection literal lowering: ListLiteral, MapLiteral → IR."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import ListLiteral, MapLiteral, TypeExpr
+from ...ast_nodes import ListLiteral, MapLiteral
 from ..nodes import (
-    CType, IRCall, IRExpr, IRExprStmt, IRStmtExpr, IRVar, IRVarDecl,
+    CType,
+    IRCall,
+    IRExpr,
+    IRExprStmt,
+    IRStmtExpr,
+    IRVar,
+    IRVarDecl,
 )
 from .types import mangle_generic_type
 

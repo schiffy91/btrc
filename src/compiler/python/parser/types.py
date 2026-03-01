@@ -1,7 +1,7 @@
 """Type expression and parameter parsing."""
 
-from ..tokens import TokenType, TYPE_KEYWORDS
-from ..ast_nodes import TypeExpr, Param
+from ..ast_nodes import Param, TypeExpr
+from ..tokens import TYPE_KEYWORDS, TokenType
 
 
 class TypesMixin:
@@ -14,9 +14,7 @@ class TypesMixin:
             return True
         if tok.type == TokenType.IDENT:
             return True
-        if tok.type == TokenType.LPAREN and self._is_tuple_type_start():
-            return True
-        return False
+        return tok.type == TokenType.LPAREN and self._is_tuple_type_start()
 
     def _parse_type_expr(self) -> TypeExpr:
         tok = self._peek()

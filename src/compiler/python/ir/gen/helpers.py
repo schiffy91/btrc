@@ -1,11 +1,12 @@
 """Runtime helper collection: determine which helpers the IR module needs."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from ..nodes import IRHelperDecl
-from ..helpers.registry import HELPERS
 from ..helpers.core import HelperDef
+from ..helpers.registry import HELPERS
+from ..nodes import IRHelperDecl
 
 if TYPE_CHECKING:
     from .generator import IRGenerator

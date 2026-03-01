@@ -1,12 +1,39 @@
 """Expression analysis, lambda analysis, and identifier collection."""
 
 from ..ast_nodes import (
-    AssignExpr, BinaryExpr, BoolLiteral, BraceInitializer, CallExpr, Capture,
-    CastExpr, CharLiteral, FieldAccessExpr, FloatLiteral, FStringExpr,
-    FStringLiteral, Identifier, IndexExpr, IntLiteral, LambdaBlock, LambdaExpr,
-    LambdaExprBody, ListLiteral, MapLiteral, NewExpr, NullLiteral, SizeofExpr,
-    SizeofExprOp, SizeofType, SpawnExpr, StringLiteral, SuperExpr, SelfExpr,
-    TernaryExpr, TupleLiteral, TypeExpr, UnaryExpr,
+    AssignExpr,
+    BinaryExpr,
+    BoolLiteral,
+    BraceInitializer,
+    CallExpr,
+    Capture,
+    CastExpr,
+    CharLiteral,
+    FieldAccessExpr,
+    FloatLiteral,
+    FStringExpr,
+    FStringLiteral,
+    Identifier,
+    IndexExpr,
+    IntLiteral,
+    LambdaBlock,
+    LambdaExpr,
+    LambdaExprBody,
+    ListLiteral,
+    MapLiteral,
+    NewExpr,
+    NullLiteral,
+    SelfExpr,
+    SizeofExpr,
+    SizeofExprOp,
+    SizeofType,
+    SpawnExpr,
+    StringLiteral,
+    SuperExpr,
+    TernaryExpr,
+    TupleLiteral,
+    TypeExpr,
+    UnaryExpr,
 )
 from .core import SymbolInfo
 
@@ -18,9 +45,7 @@ class ExpressionsMixin:
             return
 
         if isinstance(expr, (IntLiteral, FloatLiteral, StringLiteral,
-                             CharLiteral, BoolLiteral, NullLiteral)):
-            pass
-        elif isinstance(expr, Identifier):
+                             CharLiteral, BoolLiteral, NullLiteral, Identifier)):
             pass
         elif isinstance(expr, SelfExpr):
             self._validate_self(expr)

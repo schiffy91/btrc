@@ -9,8 +9,8 @@ happens during IR generation. The C emitter is a simple tree walk.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
 
+from dataclasses import dataclass, field
 
 # --- C type representation ---
 
@@ -312,7 +312,7 @@ class IRRawExpr(IRExpr):
 class IRStmtExpr(IRExpr):
     """GCC statement expression: ({ stmt; stmt; result; })"""
     stmts: list = field(default_factory=list)
-    result: 'IRExpr' = None
+    result: IRExpr = None
 
 
 @dataclass

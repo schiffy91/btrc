@@ -1,10 +1,15 @@
 """Statement dispatch, variable declaration detection and parsing."""
 
-from ..tokens import TokenType, TYPE_KEYWORDS
 from ..ast_nodes import (
-    Block, BreakStmt, ContinueStmt, DeleteStmt, KeepStmt, ReleaseStmt,
+    Block,
+    BreakStmt,
+    ContinueStmt,
+    DeleteStmt,
+    KeepStmt,
+    ReleaseStmt,
     VarDeclStmt,
 )
+from ..tokens import TYPE_KEYWORDS, TokenType
 
 
 class StatementsMixin:

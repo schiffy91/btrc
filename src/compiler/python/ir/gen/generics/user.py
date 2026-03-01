@@ -1,11 +1,12 @@
 """User-defined generic class monomorphization: struct + methods."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
 from ...nodes import CType, IRStructDef, IRStructField
-from ..types import type_to_c, mangle_generic_type
+from ..types import mangle_generic_type, type_to_c
 from .core import _resolve_type
 from .user_methods import _emit_user_generic_methods
 

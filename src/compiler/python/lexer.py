@@ -5,9 +5,9 @@ via the ebnf module. Literal parsing (numbers, strings, f-strings) is
 hand-coded for robustness, with the grammar's @literals serving as the spec.
 """
 
-from .tokens import Token, TokenType, KEYWORDS, OPERATORS
 from .ebnf import get_grammar_info
-from .lexer_literals import read_string, read_char, read_number, read_fstring
+from .lexer_literals import read_char, read_fstring, read_number, read_string
+from .tokens import KEYWORDS, OPERATORS, Token, TokenType
 
 
 class LexerError(Exception):

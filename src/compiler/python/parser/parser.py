@@ -1,15 +1,15 @@
 """Parser assembly: combines all parsing mixins into the final Parser class."""
 
-from .core import ParserBase, ParseError
-from .types import TypesMixin
-from .declarations import DeclarationsMixin
-from .decl_simple import SimpleDeclarationsMixin
-from .statements import StatementsMixin
 from .control_flow import ControlFlowMixin
+from .core import ParseError, ParserBase
+from .decl_simple import SimpleDeclarationsMixin
+from .declarations import DeclarationsMixin
 from .expressions import ExpressionsMixin
+from .lambdas import LambdasMixin
 from .postfix import PostfixMixin
 from .primary import PrimaryMixin
-from .lambdas import LambdasMixin
+from .statements import StatementsMixin
+from .types import TypesMixin
 
 
 class Parser(
@@ -28,4 +28,4 @@ class Parser(
     pass
 
 
-__all__ = ["Parser", "ParseError"]
+__all__ = ["ParseError", "Parser"]

@@ -1,15 +1,29 @@
 """Method emission for user-defined generic class instances."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
 from ...nodes import (
-    CType, IRAssign, IRBinOp, IRBlock, IRCall, IRCast, IRExprStmt,
-    IRFieldAccess, IRFunctionDef, IRIf, IRLiteral, IRParam, IRReturn,
-    IRUnaryOp, IRVar, IRVarDecl,
+    CType,
+    IRAssign,
+    IRBinOp,
+    IRBlock,
+    IRCall,
+    IRCast,
+    IRExprStmt,
+    IRFieldAccess,
+    IRFunctionDef,
+    IRIf,
+    IRLiteral,
+    IRParam,
+    IRReturn,
+    IRUnaryOp,
+    IRVar,
+    IRVarDecl,
 )
-from ..types import type_to_c, mangle_generic_type
+from ..types import mangle_generic_type, type_to_c
 from .core import _resolve_type
 from .user_emitter import _UserGenericEmitter
 from .user_emitter_stmts import _ir_stmts_to_text

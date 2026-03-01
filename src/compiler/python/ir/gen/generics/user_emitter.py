@@ -1,21 +1,37 @@
 """Mini AST-to-IR emitter for user-defined generic method bodies."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
+from ...nodes import (
+    CType,
+    IRBinOp,
+    IRCall,
+    IRCast,
+    IRExpr,
+    IRExprStmt,
+    IRFieldAccess,
+    IRIndex,
+    IRLiteral,
+    IRSizeof,
+    IRStmt,
+    IRStmtExpr,
+    IRTernary,
+    IRUnaryOp,
+    IRVar,
+    IRVarDecl,
+)
 from .core import _resolve_type
 from .user_emitter_stmts import (
+    _ir_expr_to_text,
+    _ir_stmt_to_text,
+    _ir_stmts_to_text,
     _UserGenericStmtMixin,
-    _ir_expr_to_text, _ir_stmt_to_text, _ir_stmts_to_text,
-)
-from ...nodes import (
-    CType, IRCall, IRCast, IRExprStmt, IRExpr, IRFieldAccess, IRIndex,
-    IRLiteral, IRBinOp, IRSizeof, IRStmt, IRStmtExpr, IRTernary,
-    IRUnaryOp, IRVar, IRVarDecl,
 )
 
 if TYPE_CHECKING:
-    from ..generator import IRGenerator
+    pass
 
 # Re-export IR-to-text helpers so existing importers don't break
 __all__ = [
@@ -66,11 +82,26 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
     # ------------------------------------------------------------------
     def _expr(self, e) -> IRExpr:
         from ....ast_nodes import (
-            FieldAccessExpr, SelfExpr, Identifier, IntLiteral, FloatLiteral,
-            BoolLiteral, NullLiteral, StringLiteral, CharLiteral,
-            UnaryExpr, BinaryExpr, TernaryExpr, CallExpr, AssignExpr,
-            IndexExpr, CastExpr, SizeofExpr, ListLiteral, MapLiteral,
+            AssignExpr,
+            BinaryExpr,
+            BoolLiteral,
+            CallExpr,
+            CastExpr,
+            CharLiteral,
+            FieldAccessExpr,
+            FloatLiteral,
+            Identifier,
+            IndexExpr,
+            IntLiteral,
+            ListLiteral,
+            MapLiteral,
             NewExpr,
+            NullLiteral,
+            SelfExpr,
+            SizeofExpr,
+            StringLiteral,
+            TernaryExpr,
+            UnaryExpr,
         )
 
         if isinstance(e, FieldAccessExpr) and isinstance(e.obj, SelfExpr):
@@ -126,7 +157,7 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
         return IRLiteral(text="0")
 
     def _sizeof(self, operand) -> IRExpr:
-        from ....ast_nodes import SizeofType, SizeofExprOp
+        from ....ast_nodes import SizeofExprOp, SizeofType
         if isinstance(operand, SizeofType):
             return IRSizeof(operand=self.resolve_c(operand.type))
         if isinstance(operand, SizeofExprOp):
@@ -177,7 +208,7 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
         return IRCall(callee=f"{mangled}_new", args=args)
 
     def _call(self, e) -> IRExpr:
-        from ....ast_nodes import Identifier, FieldAccessExpr, SelfExpr
+        from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
         args = [self._expr(x) for x in e.args]
 
         if isinstance(e.callee, Identifier):

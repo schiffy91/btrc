@@ -1,10 +1,11 @@
 """Function lowering: FunctionDecl → IRFunctionDef."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import FunctionDecl, TypeExpr
-from ..nodes import CType, IRBlock, IRFunctionDef, IRParam
+from ...ast_nodes import FunctionDecl
+from ..nodes import CType, IRFunctionDef, IRParam
 from .types import type_to_c
 
 if TYPE_CHECKING:

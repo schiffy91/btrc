@@ -7,19 +7,18 @@ and converts errors into LSP Diagnostic objects.
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Optional
-from urllib.parse import urlparse, unquote
+from urllib.parse import unquote, urlparse
 
 from lsprotocol import types as lsp
 
-from src.compiler.python.lexer import Lexer, LexerError
-from src.compiler.python.parser.parser import Parser
-from src.compiler.python.parser.core import ParseError
 from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.analyzer.core import AnalyzedProgram
 from src.compiler.python.ast_nodes import Program
-from src.compiler.python.tokens import Token
+from src.compiler.python.lexer import Lexer, LexerError
 from src.compiler.python.main import resolve_includes
+from src.compiler.python.parser.core import ParseError
+from src.compiler.python.parser.parser import Parser
+from src.compiler.python.tokens import Token
 
 # Regex to parse analyzer error strings: "message at line:col"
 _ANALYZER_ERROR_RE = re.compile(r"^(.+) at (\d+):(\d+)$")
@@ -32,9 +31,9 @@ class AnalysisResult:
     uri: str
     source: str
     diagnostics: list[lsp.Diagnostic] = field(default_factory=list)
-    tokens: Optional[list[Token]] = None
-    ast: Optional[Program] = None
-    analyzed: Optional[AnalyzedProgram] = None
+    tokens: list[Token] | None = None
+    ast: Program | None = None
+    analyzed: AnalyzedProgram | None = None
 
 
 def uri_to_path(uri: str) -> str:

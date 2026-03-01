@@ -5,17 +5,21 @@ Walks AnalyzedProgram → IRModule. All lowering happens here and in sub-modules
 
 from __future__ import annotations
 
-from ...ast_nodes import (
-    ClassDecl, EnumDecl, FunctionDecl, InterfaceDecl, Param,
-    PreprocessorDirective, RichEnumDecl, StructDecl, TypedefDecl, TypeExpr,
-)
 from ...analyzer.core import AnalyzedProgram, ClassInfo
-from ..nodes import (
-    CType, IRBlock, IRFunctionDef, IRHelperDecl, IRModule, IRParam,
-    IRStructDef, IRStructField, IRRawC,
+from ...ast_nodes import (
+    ClassDecl,
+    FunctionDecl,
+    PreprocessorDirective,
+    StructDecl,
+    TypeExpr,
 )
-from .types import type_to_c, mangle_generic_type, is_concrete_instance
-
+from ..nodes import (
+    CType,
+    IRModule,
+    IRStructDef,
+    IRStructField,
+)
+from .types import is_concrete_instance, mangle_generic_type, type_to_c
 
 _STANDARD_INCLUDES = [
     "stdio.h", "stdlib.h", "string.h", "stdbool.h", "stdint.h",
@@ -122,10 +126,7 @@ class IRGenerator:
         # Phase 1: Type forward declarations (struct/class/generic)
         func_fwd_decls = []
         for decl in self.analyzed.program.declarations:
-            if isinstance(decl, ClassDecl) and not decl.generic_params:
-                self.module.forward_decls.append(
-                    f"typedef struct {decl.name} {decl.name};")
-            elif isinstance(decl, StructDecl):
+            if (isinstance(decl, ClassDecl) and not decl.generic_params) or isinstance(decl, StructDecl):
                 self.module.forward_decls.append(
                     f"typedef struct {decl.name} {decl.name};")
             elif isinstance(decl, FunctionDecl) and decl.body and decl.name != "main":
@@ -273,7 +274,6 @@ def generate_ir(analyzed: AnalyzedProgram, *,
 
 def _uses_trycatch(decl) -> bool:
     """Check if a declaration uses try/catch (simple scan)."""
-    from ...ast_nodes import TryCatchStmt, ThrowStmt, Block
     if isinstance(decl, (ClassDecl, FunctionDecl)):
         return _block_uses_trycatch(getattr(decl, 'body', None))
     return False
@@ -281,8 +281,17 @@ def _uses_trycatch(decl) -> bool:
 
 def _block_uses_trycatch(block) -> bool:
     from ...ast_nodes import (
-        TryCatchStmt, ThrowStmt, Block, IfStmt, WhileStmt, DoWhileStmt,
-        ForInStmt, CForStmt, SwitchStmt, ElseBlock, ElseIf,
+        Block,
+        CForStmt,
+        DoWhileStmt,
+        ElseBlock,
+        ElseIf,
+        ForInStmt,
+        IfStmt,
+        SwitchStmt,
+        ThrowStmt,
+        TryCatchStmt,
+        WhileStmt,
     )
     if block is None:
         return False
@@ -323,8 +332,16 @@ def _block_uses_trycatch(block) -> bool:
 def _stmt_uses_trycatch(s) -> bool:
     """Check if a single statement (or nested if) uses try/catch."""
     from ...ast_nodes import (
-        TryCatchStmt, ThrowStmt, IfStmt, WhileStmt, DoWhileStmt,
-        ForInStmt, CForStmt, SwitchStmt, ElseBlock, ElseIf,
+        CForStmt,
+        DoWhileStmt,
+        ElseBlock,
+        ElseIf,
+        ForInStmt,
+        IfStmt,
+        SwitchStmt,
+        ThrowStmt,
+        TryCatchStmt,
+        WhileStmt,
     )
     if isinstance(s, (TryCatchStmt, ThrowStmt)):
         return True

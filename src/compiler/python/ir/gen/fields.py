@@ -1,18 +1,34 @@
 """Field access, indexing, and assignment lowering → IR."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    AssignExpr, BraceInitializer, FieldAccessExpr, Identifier,
-    IndexExpr, SelfExpr,
+    AssignExpr,
+    BraceInitializer,
+    FieldAccessExpr,
+    Identifier,
+    IndexExpr,
+    SelfExpr,
 )
 from ..nodes import (
-    IRBinOp, IRBlock, IRCall, IRCast, IRExpr, IRExprStmt,
-    IRFieldAccess, IRIf, IRIndex, IRLiteral, IRStmt, IRTernary,
-    IRUnaryOp, IRVar,
+    IRBinOp,
+    IRBlock,
+    IRCall,
+    IRCast,
+    IRExpr,
+    IRExprStmt,
+    IRFieldAccess,
+    IRIf,
+    IRIndex,
+    IRLiteral,
+    IRStmt,
+    IRTernary,
+    IRUnaryOp,
+    IRVar,
 )
-from .types import is_string_type, is_generic_class_type, mangle_generic_type
+from .types import is_generic_class_type, is_string_type, mangle_generic_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -100,7 +116,7 @@ def get_field_assign_arc_stmts(gen: IRGenerator, node: AssignExpr
 
     Returns ([], []) if the field isn't a class type or value is null.
     """
-    from ...ast_nodes import NullLiteral, NewExpr
+    from ...ast_nodes import NewExpr, NullLiteral
     from .expressions import lower_expr
     if node.op != "=" or not isinstance(node.target, FieldAccessExpr):
         return [], []

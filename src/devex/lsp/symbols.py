@@ -9,17 +9,16 @@ from lsprotocol import types as lsp
 
 from src.compiler.python.ast_nodes import (
     ClassDecl,
-    EnumValue,
-    FunctionDecl,
-    StructDecl,
     EnumDecl,
-    TypedefDecl,
+    EnumValue,
     FieldDecl,
+    FunctionDecl,
     MethodDecl,
+    StructDecl,
+    TypedefDecl,
 )
-
 from src.devex.lsp.diagnostics import AnalysisResult
-from src.devex.lsp.utils import type_repr, find_closing_brace_line
+from src.devex.lsp.utils import find_closing_brace_line, type_repr
 
 
 def _pos(line: int, col: int) -> lsp.Position:

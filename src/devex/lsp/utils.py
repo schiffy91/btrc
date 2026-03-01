@@ -7,32 +7,27 @@ signature_help, and symbols.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from lsprotocol import types as lsp
 
-from src.compiler.python.tokens import Token, TokenType
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.ast_nodes import (
     Block,
+    CallExpr,
     ClassDecl,
     ElseBlock,
     ElseIf,
     FieldDecl,
-    ForInitVar,
     FunctionDecl,
-    MethodDecl,
-    VarDeclStmt,
-    SwitchStmt,
-    CallExpr,
     Identifier,
+    MethodDecl,
     NewExpr,
     Program,
+    SwitchStmt,
+    VarDeclStmt,
 )
-
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.builtins import _MEMBER_TABLES, get_member
-
+from src.devex.lsp.diagnostics import AnalysisResult
 
 # ---------------------------------------------------------------------------
 # Formatting
@@ -53,7 +48,7 @@ def type_repr(type_expr) -> str:
 
 def find_token_at_position(
     tokens: list[Token], position: lsp.Position
-) -> Optional[Token]:
+) -> Token | None:
     """Find the token that covers the given 0-based LSP position."""
     target_line = position.line + 1
     target_col = position.character + 1
@@ -69,7 +64,7 @@ def find_token_at_position(
     return None
 
 
-def find_token_index(tokens: list[Token], token: Token) -> Optional[int]:
+def find_token_index(tokens: list[Token], token: Token) -> int | None:
     """Find the index of a token in the token list (by identity)."""
     for i, t in enumerate(tokens):
         if t is token:
@@ -79,12 +74,12 @@ def find_token_index(tokens: list[Token], token: Token) -> Optional[int]:
 
 def find_token_before_position(
     tokens: list[Token], position: lsp.Position
-) -> Optional[Token]:
+) -> Token | None:
     """Find the last token before the given 0-based LSP position."""
     target_line = position.line + 1
     target_col = position.character + 1
 
-    best: Optional[Token] = None
+    best: Token | None = None
     for tok in tokens:
         if tok.type == TokenType.EOF:
             continue
@@ -119,7 +114,7 @@ def get_line_text(source: str, line: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def find_closing_brace_line(source_lines: list[str], start_line: int) -> Optional[int]:
+def find_closing_brace_line(source_lines: list[str], start_line: int) -> int | None:
     """Find the line of the closing brace matching the first opening brace."""
     depth = 0
     found_open = False
@@ -135,7 +130,7 @@ def find_closing_brace_line(source_lines: list[str], start_line: int) -> Optiona
     return None
 
 
-def body_range(body: Optional[Block], fallback_start: int) -> tuple[int, int]:
+def body_range(body: Block | None, fallback_start: int) -> tuple[int, int]:
     """Compute the line range [start, end] of a Block node."""
     if not body or not body.statements:
         return (fallback_start, fallback_start + 1000)
@@ -184,7 +179,7 @@ def _deepest_line(node) -> int:
     return best
 
 
-def find_enclosing_class(ast: Program, line: int) -> Optional[str]:
+def find_enclosing_class(ast: Program, line: int) -> str | None:
     """Find which class declaration encloses the given 1-based line number."""
     if not ast:
         return None
@@ -208,7 +203,7 @@ def find_enclosing_class_from_source(
     ast: Program,
     source: str,
     cursor_line: int,
-) -> Optional[str]:
+) -> str | None:
     """Find the class enclosing the given 0-based cursor line using brace scanning."""
     if not ast:
         return None
@@ -238,7 +233,7 @@ def resolve_variable_type(
     name: str,
     ast: Program,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Determine the class/type name for a variable by scanning the AST.
 
     Looks at VarDeclStmt nodes to find declarations like:
@@ -257,7 +252,7 @@ def _scan_for_var_type(
     var_name: str,
     node,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Recursively scan AST nodes for a VarDeclStmt that declares var_name."""
     if isinstance(node, VarDeclStmt):
         if node.name == var_name:
@@ -325,7 +320,7 @@ def resolve_chain_type(
     tokens: list[Token],
     end_idx: int,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Walk backwards through a chained access (a.b.c) and resolve the base type."""
     idx = end_idx
     chain: list[str] = [tokens[idx].value]
@@ -340,7 +335,7 @@ def resolve_chain_type(
     chain.reverse()
 
     root = chain[0]
-    current_type: Optional[str] = None
+    current_type: str | None = None
 
     if root in class_table:
         current_type = root
@@ -365,7 +360,7 @@ def resolve_member_type(
     owner_type: str,
     member_name: str,
     class_table: dict[str, ClassInfo],
-) -> Optional[str]:
+) -> str | None:
     """Resolve the base type of a member access on a given type."""
     cname = owner_type
     while cname and cname in class_table:

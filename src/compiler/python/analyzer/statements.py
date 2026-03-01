@@ -1,11 +1,34 @@
 """Statement analysis: block, dispatch, var_decl, for loops, control flow."""
 
 from ..ast_nodes import (
-    Block, BreakStmt, CallExpr, CForStmt, ContinueStmt, DeleteStmt,
-    DoWhileStmt, ElseBlock, ElseIf, ExprStmt, FieldAccessExpr, ForInStmt,
-    ForInitExpr, ForInitVar, Identifier, IfStmt, KeepStmt, ListLiteral,
-    MapLiteral, ParallelForStmt, ReleaseStmt, ReturnStmt, SwitchStmt,
-    ThrowStmt, TryCatchStmt, TypeExpr, VarDeclStmt, WhileStmt,
+    Block,
+    BreakStmt,
+    CallExpr,
+    CForStmt,
+    ContinueStmt,
+    DeleteStmt,
+    DoWhileStmt,
+    ElseBlock,
+    ElseIf,
+    ExprStmt,
+    FieldAccessExpr,
+    ForInitExpr,
+    ForInitVar,
+    ForInStmt,
+    Identifier,
+    IfStmt,
+    KeepStmt,
+    ListLiteral,
+    MapLiteral,
+    ParallelForStmt,
+    ReleaseStmt,
+    ReturnStmt,
+    SwitchStmt,
+    ThrowStmt,
+    TryCatchStmt,
+    TypeExpr,
+    VarDeclStmt,
+    WhileStmt,
 )
 from .core import SymbolInfo
 
@@ -71,9 +94,7 @@ class StatementsMixin:
             self._analyze_c_for(stmt)
         elif isinstance(stmt, SwitchStmt):
             self._analyze_switch(stmt)
-        elif isinstance(stmt, ExprStmt):
-            self._analyze_expr(stmt.expr)
-        elif isinstance(stmt, DeleteStmt):
+        elif isinstance(stmt, (ExprStmt, DeleteStmt)):
             self._analyze_expr(stmt.expr)
         elif isinstance(stmt, Block):
             self._analyze_block(stmt)
@@ -86,11 +107,7 @@ class StatementsMixin:
             self._pop_scope()
             if stmt.finally_block:
                 self._analyze_block(stmt.finally_block)
-        elif isinstance(stmt, ThrowStmt):
-            self._analyze_expr(stmt.expr)
-        elif isinstance(stmt, KeepStmt):
-            self._analyze_expr(stmt.expr)
-        elif isinstance(stmt, ReleaseStmt):
+        elif isinstance(stmt, (ThrowStmt, KeepStmt, ReleaseStmt)):
             self._analyze_expr(stmt.expr)
         elif isinstance(stmt, BreakStmt):
             if self.break_depth == 0:

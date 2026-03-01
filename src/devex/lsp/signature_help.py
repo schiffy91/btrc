@@ -12,7 +12,6 @@ Supports:
 """
 
 import re
-from typing import Optional
 
 from lsprotocol import types as lsp
 
@@ -21,19 +20,17 @@ from src.compiler.python.ast_nodes import (
     FunctionDecl,
     MethodDecl,
 )
-
-from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.builtins import (
+    BUILTIN_FUNCTION_SIGNATURES,
     get_signature_params,
     get_stdlib_signature,
-    BUILTIN_FUNCTION_SIGNATURES,
 )
+from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
-    type_repr,
     find_enclosing_class_from_source,
     resolve_variable_type,
+    type_repr,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -83,7 +80,7 @@ def _count_active_parameter(source: str, position: lsp.Position) -> int:
     return commas
 
 
-def _find_call_context(source: str, position: lsp.Position) -> Optional[str]:
+def _find_call_context(source: str, position: lsp.Position) -> str | None:
     """Find the function/method name for the call surrounding the cursor."""
     lines = source.split("\n")
     if position.line < 0 or position.line >= len(lines):
@@ -137,7 +134,7 @@ def _make_signature(
     label: str,
     params: list[lsp.ParameterInformation],
     active_param: int,
-    documentation: Optional[str] = None,
+    documentation: str | None = None,
 ) -> lsp.SignatureHelp:
     sig = lsp.SignatureInformation(
         label=label,
@@ -157,7 +154,7 @@ def _signature_from_param_list(
     return_type: str,
     param_list: list[tuple[str, str]],
     active_param: int,
-    context: Optional[str] = None,
+    context: str | None = None,
 ) -> lsp.SignatureHelp:
     params_str = ", ".join(f"{pt} {pn}" for pt, pn in param_list)
     label = f"{func_name}({params_str})"
@@ -207,7 +204,7 @@ def _signature_from_method_decl(
 def get_signature_help(
     result: AnalysisResult,
     position: lsp.Position,
-) -> Optional[lsp.SignatureHelp]:
+) -> lsp.SignatureHelp | None:
     """Compute signature help for the given cursor position."""
     if not result.source:
         return None
@@ -260,7 +257,7 @@ def _resolve_constructor(
     class_name: str,
     class_table: dict[str, ClassInfo],
     active_param: int,
-) -> Optional[lsp.SignatureHelp]:
+) -> lsp.SignatureHelp | None:
     if class_name not in class_table:
         return None
     info = class_table[class_name]
@@ -280,7 +277,7 @@ def _resolve_member_call(
     position: lsp.Position,
     class_table: dict[str, ClassInfo],
     active_param: int,
-) -> Optional[lsp.SignatureHelp]:
+) -> lsp.SignatureHelp | None:
     """Resolve signature for a member method call."""
 
     # 1. Check if obj_name is a class name (static method)
@@ -323,7 +320,7 @@ def _resolve_var_type(
     result: AnalysisResult,
     var_name: str,
     cursor_line: int,
-) -> Optional[str]:
+) -> str | None:
     """Resolve variable type, handling 'self' specially."""
     if not result.ast:
         return None
@@ -338,7 +335,7 @@ def _resolve_method_on_type(
     method_name: str,
     class_table: dict[str, ClassInfo],
     active_param: int,
-) -> Optional[lsp.SignatureHelp]:
+) -> lsp.SignatureHelp | None:
     """Resolve a method signature given a base type name."""
 
     # Built-in type methods

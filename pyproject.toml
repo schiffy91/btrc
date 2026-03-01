@@ -25,11 +25,15 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 ignore = [
-    "E501",
-    "E701",
-    "SIM108",
-    "UP015",
-    "B905",
+    "E402",   # scripts use sys.path.insert() before imports — unavoidable
+    "E501",   # line-length already set to 120; remaining cases are strings/comments
+    "E701",   # compact one-liners (e.g. `if x: return`) used idiomatically throughout
+    "SIM102", # nested ifs are often more readable than long `and` chains in parser/analyzer
+    "SIM108", # ternary expressions less readable for multi-line conditions
+    "UP007",  # Optional[X] is more explicit than X | None; used consistently in codebase
+    "UP015",  # open("r") vs open() — explicit mode is clearer
+    "B905",   # zip(strict=True) not needed — lengths are always matched by construction
+    "RUF005", # [a] + list is clearer intent than [a, *list] for concatenation patterns
 ]
 
 [tool.ruff.lint.isort]

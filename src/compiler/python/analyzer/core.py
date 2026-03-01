@@ -1,11 +1,18 @@
 """Analyzer core: data structures, scope management, and orchestration."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from ..ast_nodes import (
-    ClassDecl, FieldDecl, FunctionDecl, InterfaceDecl, MethodDecl,
-    MethodSig, Program, PropertyDecl, RichEnumDecl, TypeExpr,
+    FieldDecl,
+    FunctionDecl,
+    MethodDecl,
+    MethodSig,
+    Program,
+    PropertyDecl,
+    RichEnumDecl,
+    TypeExpr,
 )
 
 
