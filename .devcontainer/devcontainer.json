@@ -8,7 +8,8 @@
     "vscode": {
       "extensions": [
         "anthropic.claude-code",
-        "ms-python.python"
+        "ms-python.python",
+        "jnoortheen.nix-ide"
       ],
       "settings": {
         "python.defaultInterpreterPath": "python3",
@@ -16,7 +17,9 @@
       }
     }
   },
-  "forwardPorts": [],
+  "forwardPorts": [
+    3000
+  ],
   "image": "btrc-devcontainer:latest",
   "initializeCommand": ".devcontainer/host.sh",
   "mounts": [

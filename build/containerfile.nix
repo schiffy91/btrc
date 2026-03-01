@@ -7,7 +7,7 @@ in
   containerfile = ''
     FROM docker.io/nixos/nix:latest
     RUN echo 'experimental-features = nix-command flakes' >> /etc/nix/nix.conf
-    RUN nix profile install nixpkgs#gnused nixpkgs#gawk nixpkgs#glibc.bin
+    RUN nix profile add nixpkgs#gnused nixpkgs#gawk nixpkgs#glibc.bin
     # FHS compat: VS Code Remote needs glibc dynamic linker + libstdc++
     RUN set -e; \
         B=$(dirname "$(dirname "$(readlink -f "$(command -v ldconfig)")")"); \

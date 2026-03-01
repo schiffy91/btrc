@@ -19,7 +19,7 @@
         initialShellCmd = "pwd";
         packages = pkgs: with pkgs; [
             (python314.withPackages (ps: [ ps.pytest ps.pytest-xdist ]))
-            ruff gcc gnumake git jq gh nodejs_22
+            ruff gcc gnumake git jq gh nodejs_22 nixd
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ bubblewrap ];
         scripts = pkgs: {
           setup-gpu = (import ./build/gpu.nix {

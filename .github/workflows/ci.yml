@@ -14,5 +14,6 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
-      - run: nix develop --command make lint
-      - run: nix develop --command make test
+      - run: make devcontainer
+      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make lint
+      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make test
