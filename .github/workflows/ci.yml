@@ -15,5 +15,6 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - run: make devcontainer
+      - run: chmod -R a+w .
       - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make NIX= lint
       - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make NIX= test

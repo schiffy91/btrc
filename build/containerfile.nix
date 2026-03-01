@@ -28,7 +28,7 @@ in
     RUN nix develop ${cfg.workspace} --command true
     RUN nix print-dev-env ${cfg.workspace} > ${home}/.nix-devshell.sh
     COPY --chown=${uid}:${uid} .devcontainer/bashrc ${home}/.bashrc
-    RUN printf '#!/bin/bash\n. "${home}/.nix-devshell.sh" 2>/dev/null\ngit config --global safe.directory ${cfg.workspace}\nexec "$@"\n' > ${home}/entrypoint.sh && \
+    RUN printf '#!/bin/bash\n. "${home}/.nix-devshell.sh" 2>/dev/null\ngit config --global safe.directory ${cfg.workspace} 2>/dev/null || true\nexec "$@"\n' > ${home}/entrypoint.sh && \
         chmod +x ${home}/entrypoint.sh
     ENV HOME="${home}" DEVCONTAINER=true LANG=C.UTF-8
     ENTRYPOINT ["${home}/entrypoint.sh"]
