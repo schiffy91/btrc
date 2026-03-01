@@ -62,7 +62,7 @@ devcontainer: ## Generate .devcontainer/ and build image
 	install -m 755 .devcontainer/.result/container.sh .devcontainer/container.sh; \
 	rm -f .devcontainer/.result; \
 	podman build -f .devcontainer/Containerfile -t btrc-devcontainer:latest .; \
-	podman image prune --all --force; \
+	podman image prune --force; \
 	echo "Done. Image: btrc-devcontainer:latest"
 
 clean: ## Remove all build artifacts
