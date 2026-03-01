@@ -15,5 +15,5 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - run: make devcontainer
-      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make lint
-      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make test
+      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest bash -c 'source ~/.bashrc && make lint'
+      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest bash -c 'source ~/.bashrc && make test'
