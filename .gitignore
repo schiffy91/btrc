@@ -26,3 +26,9 @@ src/devex/lsp/.venv/
 src/devex/ext/out/
 src/devex/ext/node_modules/
 src/devex/ext/*.vsix
+
+# Devcontainer
+.devcontainer/
+
+# GPU
+src/stdlib/gpu/build/libbtrc_gpu.a
