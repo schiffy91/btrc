@@ -472,3 +472,53 @@ class TestFStrings:
         tokens = lex('f"{a} + {b} = {c}"')
         assert tokens[0].type == TokenType.FSTRING_LIT
         assert tokens[0].value == "{a} + {b} = {c}"
+
+
+class TestTripleQuoteStrings:
+    def test_basic_multiline(self):
+        tokens = lex('"""hello\nworld"""')
+        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].value == '"hello\\nworld"'
+
+    def test_single_line(self):
+        tokens = lex('"""hello"""')
+        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].value == '"hello"'
+
+    def test_empty(self):
+        tokens = lex('""""""')
+        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].value == '""'
+
+    def test_embedded_double_quote(self):
+        tokens = lex('"""he said "hi" there"""')
+        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].value == '"he said "hi" there"'
+
+    def test_embedded_two_double_quotes(self):
+        tokens = lex('"""a""b"""')
+        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].value == '"a""b"'
+
+    def test_multiple_newlines(self):
+        tokens = lex('"""a\nb\nc"""')
+        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].value == '"a\\nb\\nc"'
+
+    def test_preserves_escapes(self):
+        tokens = lex('"""hello\\tworld"""')
+        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].value == '"hello\\tworld"'
+
+    def test_unterminated(self):
+        with pytest.raises(LexerError):
+            lex('"""hello')
+
+    def test_in_expression(self):
+        tokens = lex('var s = """hello\nworld""";')
+        assert tokens[0].type == TokenType.VAR
+        assert tokens[1].type == TokenType.IDENT
+        assert tokens[2].type == TokenType.EQ
+        assert tokens[3].type == TokenType.STRING_LIT
+        assert tokens[3].value == '"hello\\nworld"'
+        assert tokens[4].type == TokenType.SEMICOLON

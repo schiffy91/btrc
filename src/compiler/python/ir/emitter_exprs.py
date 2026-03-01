@@ -34,6 +34,27 @@ class _ExprEmitterMixin:
     is defined here and used recursively).
     """
 
+    def _cond_expr(self, expr: IRExpr) -> str:
+        """Emit an expression for use as a condition in if/while/do-while.
+
+        Strips redundant outer parentheses since the caller already wraps
+        in parens (e.g. ``if (...)``).  This avoids ``if ((x == 0))``
+        which triggers ``-Wparentheses-equality``.
+        """
+        result = self._expr(expr)
+        if result.startswith('(') and result.endswith(')'):
+            depth = 0
+            for i, ch in enumerate(result):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                if depth == 0 and i < len(result) - 1:
+                    break
+            else:
+                result = result[1:-1]
+        return result
+
     def _expr(self, expr: IRExpr) -> str:
         if expr is None:
             return "/* null expr */"

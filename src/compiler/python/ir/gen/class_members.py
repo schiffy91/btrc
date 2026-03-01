@@ -24,6 +24,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     body_stmts = []
     if dtor and dtor.body:
         from .statements import lower_block
+        gen._func_var_decls = []
         body_stmts = lower_block(gen, dtor.body).stmts
 
     # ARC: release owned pointer-type fields (rc-- then destroy at zero)
@@ -84,6 +85,7 @@ def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
     body = IRBlock()
     if method.body:
         from .statements import lower_block
+        gen._func_var_decls = []
         body = lower_block(gen, method.body)
 
     gen.module.function_defs.append(IRFunctionDef(
@@ -103,6 +105,7 @@ def emit_property(gen: IRGenerator, decl: ClassDecl, prop: PropertyDecl):
     if prop.has_getter:
         if prop.getter_body:
             from .statements import lower_block
+            gen._func_var_decls = []
             body = lower_block(gen, prop.getter_body)
         else:
             body = IRBlock(stmts=[IRReturn(
@@ -118,6 +121,7 @@ def emit_property(gen: IRGenerator, decl: ClassDecl, prop: PropertyDecl):
     if prop.has_setter:
         if prop.setter_body:
             from .statements import lower_block
+            gen._func_var_decls = []
             body = lower_block(gen, prop.setter_body)
         else:
             body = IRBlock(stmts=[IRAssign(

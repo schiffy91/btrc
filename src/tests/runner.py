@@ -71,6 +71,31 @@ def test_btrc_file(btrc_file):
         gcc_flags = ["gcc", c_path, "-o", bin_path, "-lm"]
         if "pthread.h" in c_source:
             gcc_flags.append("-lpthread")
+        # Add GPU libraries if WebGPU is used
+        if "btrc_gpu.h" in c_source:
+            gpu_build = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu", "build")
+            gpu_dir = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu")
+            if not os.path.exists(os.path.join(gpu_build, "libbtrc_gpu.a")):
+                pytest.skip("GPU runtime not built (run scripts/setup-gpu.sh)")
+            gcc_flags.extend([f"-I{gpu_dir}", f"-L{gpu_build}", "-lbtrc_gpu"])
+            import platform
+            if platform.system() == "Darwin":
+                import subprocess as _sp
+                wgpu_prefix = _sp.check_output(
+                    ["brew", "--prefix", "wgpu-native"], text=True).strip()
+                glfw_prefix = _sp.check_output(
+                    ["brew", "--prefix", "glfw"], text=True).strip()
+                gcc_flags.extend([
+                    f"-I{wgpu_prefix}/include", f"-L{wgpu_prefix}/lib",
+                    "-lwgpu_native",
+                    f"-I{glfw_prefix}/include", f"-L{glfw_prefix}/lib",
+                    "-lglfw",
+                    "-framework", "Metal", "-framework", "QuartzCore",
+                    "-framework", "Cocoa", "-framework", "IOKit",
+                    "-framework", "CoreVideo",
+                ])
+            else:
+                gcc_flags.extend(["-lwgpu_native", "-lglfw", "-lpthread"])
         compile_result = subprocess.run(
             gcc_flags,
             capture_output=True, text=True, timeout=30

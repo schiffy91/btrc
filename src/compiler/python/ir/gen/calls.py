@@ -55,6 +55,16 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
                                   expr=IRCall(callee="strlen", args=args))
                 return IRFieldAccess(obj=args[0], field="len", arrow=True)
 
+        # Captured lambda call: bypass function pointer, call impl directly
+        # with the capture environment as the last argument.
+        env_info = gen._fn_ptr_envs.get(name)
+        if env_info:
+            fn_name, env_var = env_info
+            args.append(IRCast(
+                target_type="void*",
+                expr=IRRawExpr(text=f"&{env_var}")))
+            return IRCall(callee=fn_name, args=args)
+
         # Fill in default parameter values if call has fewer args than params
         args = _fill_defaults(gen, name, node.args, args)
 

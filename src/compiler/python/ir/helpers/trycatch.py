@@ -16,7 +16,7 @@ TRYCATCH = {
         c_source=(
             "/* Cleanup stack: tracks heap resources to free on exception */\n"
             "typedef void (*__btrc_cleanup_fn)(void*);\n"
-            "typedef struct { void* ptr; __btrc_cleanup_fn fn; int try_level; } __btrc_cleanup_entry;\n"
+            "typedef struct { void** ptr_ref; __btrc_cleanup_fn fn; int try_level; } __btrc_cleanup_entry;\n"
             "static __thread int __btrc_cleanup_cap = 64;\n"
             "static __thread __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\n"
             "static __thread int __btrc_cleanup_top = -1;"
@@ -25,7 +25,7 @@ TRYCATCH = {
     ),
     "__btrc_register_cleanup": HelperDef(
         c_source=(
-            "static inline void __btrc_register_cleanup(void* ptr, __btrc_cleanup_fn fn) {\n"
+            "static inline void __btrc_register_cleanup(void** ptr_ref, __btrc_cleanup_fn fn) {\n"
             "    if (!__btrc_cleanup_stack) {\n"
             "        __btrc_cleanup_stack = (__btrc_cleanup_entry*)malloc(sizeof(__btrc_cleanup_entry) * __btrc_cleanup_cap);\n"
             "    }\n"
@@ -36,7 +36,7 @@ TRYCATCH = {
             '        if (!__btrc_cleanup_stack) { fprintf(stderr, "btrc: cleanup stack OOM\\n"); exit(1); }\n'
             "    }\n"
             "    __btrc_cleanup_top++;\n"
-            "    __btrc_cleanup_stack[__btrc_cleanup_top].ptr = ptr;\n"
+            "    __btrc_cleanup_stack[__btrc_cleanup_top].ptr_ref = ptr_ref;\n"
             "    __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;\n"
             "    __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;\n"
             "}"
@@ -48,7 +48,7 @@ TRYCATCH = {
             "static inline void __btrc_run_cleanups(int level) {\n"
             "    while (__btrc_cleanup_top >= 0 && __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {\n"
             "        __btrc_cleanup_entry e = __btrc_cleanup_stack[__btrc_cleanup_top--];\n"
-            "        if (e.fn && e.ptr) e.fn(e.ptr);\n"
+            "        if (e.fn && e.ptr_ref && *e.ptr_ref) { e.fn(*e.ptr_ref); *e.ptr_ref = NULL; }\n"
             "    }\n"
             "}"
         ),

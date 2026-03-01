@@ -47,6 +47,14 @@ class IRGenerator:
         self._managed_vars_stack: list[list[tuple[str, str]]] = []
         # Exception safety: tracks nesting depth of try blocks
         self.in_try_depth: int = 0
+        # setjmp/longjmp volatile: tracks IRVarDecls in current function
+        # so _lower_try_catch can retroactively mark preceding ones volatile
+        self._func_var_decls: list = []
+        # Lambda capture environment tracking:
+        # Maps fn_ptr variable name → env variable name
+        self._fn_ptr_envs: dict[str, str] = {}
+        # Last lambda ID assigned (for linking lambda to var decl)
+        self._last_lambda_id: int = 0
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""

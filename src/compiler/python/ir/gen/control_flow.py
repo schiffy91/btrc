@@ -77,6 +77,12 @@ def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
     gen.use_helper("__btrc_throw")
     stmts: list[IRStmt] = []
 
+    # setjmp/longjmp volatile rule: any local variable declared before this
+    # try/catch (at any scope in the current function) has indeterminate
+    # value after longjmp unless declared volatile (C11 7.13.2.1)
+    for vd in gen._func_var_decls:
+        vd.is_volatile = True
+
     # Emit raw setjmp boilerplate
     stmts.append(IRRawC(text=(
         "if (!__btrc_try_stack) {\n"

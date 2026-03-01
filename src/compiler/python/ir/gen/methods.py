@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier, TypeExpr
 from ..nodes import (
-    IRAddressOf, IRCall, IRExpr, IRFieldAccess, IRLiteral, IRRawExpr, IRVar,
+    IRAddressOf, IRCall, IRCast, IRExpr, IRFieldAccess, IRLiteral, IRRawExpr, IRVar,
 )
 from .types import (
     is_string_type, mangle_generic_type, type_to_c,
@@ -134,9 +134,16 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     if is_string_type(obj_type) and method_name in ("length", "len", "byteLen"):
         return IRCast(target_type="int", expr=IRCall(callee="strlen", args=[obj]))
 
-    # toString on numeric types
+    # toString: if the class defines its own, use class dispatch; else built-in
     if method_name == "toString":
-        return _lower_to_string(gen, obj, obj_type, args)
+        if obj_type and obj_type.base in gen.analyzed.class_table:
+            cls_info = gen.analyzed.class_table[obj_type.base]
+            if "toString" in cls_info.methods:
+                pass  # fall through to class method dispatch below
+            else:
+                return _lower_to_string(gen, obj, obj_type, args)
+        else:
+            return _lower_to_string(gen, obj, obj_type, args)
 
     # Thread<T> methods: .join() → __btrc_thread_join with unboxing
     if obj_type and obj_type.base == "Thread" and obj_type.generic_args:

@@ -116,7 +116,7 @@ def _emit_visitor(gen: IRGenerator, class_name: str, cls_info: ClassInfo):
 
 def _emit_method_forward_decls(gen: IRGenerator, decl: ClassDecl,
                                 cls_info: ClassInfo):
-    """Emit forward declarations for all class methods to avoid ordering issues."""
+    """Emit forward declarations for own + inherited methods."""
     name = decl.name
     fwd_lines = []
     for member in decl.members:
@@ -129,6 +129,22 @@ def _emit_method_forward_decls(gen: IRGenerator, decl: ClassDecl,
                 params.append(f"{type_to_c(p.type)} {p.name}")
             ret = type_to_c(member.return_type) if member.return_type else "void"
             fwd_lines.append(f"{ret} {name}_{member.name}({', '.join(params)});")
+    # Also forward-declare inherited method wrappers so own methods can call them
+    own_names = {m.name for m in decl.members if isinstance(m, MethodDecl)}
+    parent_name = cls_info.parent
+    seen = set(own_names)
+    while parent_name and parent_name in gen.analyzed.class_table:
+        parent_info = gen.analyzed.class_table[parent_name]
+        for mname, method in parent_info.methods.items():
+            if mname in seen or mname == "__del__" or mname == parent_name:
+                continue
+            seen.add(mname)
+            params = [f"{name}* self"]
+            for p in method.params:
+                params.append(f"{type_to_c(p.type)} {p.name}")
+            ret = type_to_c(method.return_type) if method.return_type else "void"
+            fwd_lines.append(f"{ret} {name}_{mname}({', '.join(params)});")
+        parent_name = parent_info.parent
     if fwd_lines:
         gen.module.forward_decls.extend(fwd_lines)
 
@@ -215,6 +231,7 @@ def _emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     # Constructor body (user code)
     if ctor and ctor.body:
         from .statements import lower_block
+        gen._func_var_decls = []
         user_block = lower_block(gen, ctor.body)
         init_body_stmts.extend(user_block.stmts)
 

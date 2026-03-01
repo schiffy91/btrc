@@ -59,12 +59,6 @@ class CEmitter(_ExprEmitterMixin):
             self._raw(helper.c_source)
             self._line("")
 
-        # Forward declarations
-        for fwd in module.forward_decls:
-            self._line(fwd)
-        if module.forward_decls:
-            self._line("")
-
         # Preprocessor defines (must come before struct defs that use them)
         define_sections = [s for s in module.raw_sections if s.startswith("#define")]
         other_sections = [s for s in module.raw_sections if not s.startswith("#define")]
@@ -72,9 +66,15 @@ class CEmitter(_ExprEmitterMixin):
             self._raw(section)
             self._line("")
 
-        # Enum definitions (before structs, since struct fields may reference enums)
+        # Enum definitions (before forward decls, since functions may reference enum types)
         for enum in module.enum_defs:
             self._emit_enum_def(enum)
+
+        # Forward declarations
+        for fwd in module.forward_decls:
+            self._line(fwd)
+        if module.forward_decls:
+            self._line("")
 
         # Struct definitions
         for struct in module.struct_defs:
@@ -159,10 +159,25 @@ class CEmitter(_ExprEmitterMixin):
 
     def _emit_stmt(self, stmt: IRStmt):
         if isinstance(stmt, IRVarDecl):
-            if stmt.init:
-                self._line(f"{stmt.c_type} {stmt.name} = {self._expr(stmt.init)};")
+            if stmt.is_volatile:
+                ct = str(stmt.c_type)
+                # For pointer types, volatile must go after the * to make
+                # the pointer itself volatile (not the pointed-to data).
+                # e.g. Item* volatile it (volatile pointer to Item)
+                # vs   volatile Item* it (pointer to volatile Item)
+                if ct.endswith("*"):
+                    vol_type = f"{ct} volatile"
+                else:
+                    vol_type = f"volatile {ct}"
+                if stmt.init:
+                    self._line(f"{vol_type} {stmt.name} = {self._expr(stmt.init)};")
+                else:
+                    self._line(f"{vol_type} {stmt.name};")
             else:
-                self._line(f"{stmt.c_type} {stmt.name};")
+                if stmt.init:
+                    self._line(f"{stmt.c_type} {stmt.name} = {self._expr(stmt.init)};")
+                else:
+                    self._line(f"{stmt.c_type} {stmt.name};")
 
         elif isinstance(stmt, IRAssign):
             self._line(f"{self._expr(stmt.target)} = {self._expr(stmt.value)};")
@@ -174,7 +189,7 @@ class CEmitter(_ExprEmitterMixin):
                 self._line("return;")
 
         elif isinstance(stmt, IRIf):
-            self._line(f"if ({self._expr(stmt.condition)}) {{")
+            self._line(f"if ({self._cond_expr(stmt.condition)}) {{")
             if stmt.then_block:
                 self._indent += 1
                 self._emit_block_contents(stmt.then_block)
@@ -182,7 +197,7 @@ class CEmitter(_ExprEmitterMixin):
             self._emit_else_tail(stmt)
 
         elif isinstance(stmt, IRWhile):
-            self._line(f"while ({self._expr(stmt.condition)}) {{")
+            self._line(f"while ({self._cond_expr(stmt.condition)}) {{")
             if stmt.body:
                 self._indent += 1
                 self._emit_block_contents(stmt.body)
@@ -195,7 +210,7 @@ class CEmitter(_ExprEmitterMixin):
                 self._indent += 1
                 self._emit_block_contents(stmt.body)
                 self._indent -= 1
-            self._line(f"}} while ({self._expr(stmt.condition)});")
+            self._line(f"}} while ({self._cond_expr(stmt.condition)});")
 
         elif isinstance(stmt, IRFor):
             init_text = ""
@@ -257,7 +272,7 @@ class CEmitter(_ExprEmitterMixin):
         if (len(stmt.else_block.stmts) == 1
                 and isinstance(stmt.else_block.stmts[0], IRIf)):
             inner = stmt.else_block.stmts[0]
-            self._line(f"}} else if ({self._expr(inner.condition)}) {{")
+            self._line(f"}} else if ({self._cond_expr(inner.condition)}) {{")
             if inner.then_block:
                 self._indent += 1
                 self._emit_block_contents(inner.then_block)

@@ -124,6 +124,7 @@ class IRVarDecl(IRStmt):
     c_type: CType
     name: str
     init: IRExpr = None
+    is_volatile: bool = False
 
 
 @dataclass

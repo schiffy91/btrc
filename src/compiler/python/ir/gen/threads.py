@@ -163,7 +163,9 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
     # Lambda body — isolate managed scope so captures from outer scope
     # don't get released inside the wrapper function
     saved_managed = gen._managed_vars_stack
+    saved_func_var_decls = gen._func_var_decls
     gen._managed_vars_stack = []
+    gen._func_var_decls = []
     if isinstance(fn.body, LambdaBlock) and fn.body.body:
         from .statements import lower_block
         block = lower_block(gen, fn.body.body)
@@ -193,6 +195,7 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
             body_stmts.append(IRReturn(value=_box_result(expr, ret_c_type)))
 
     gen._managed_vars_stack = saved_managed
+    gen._func_var_decls = saved_func_var_decls
 
     # Ensure void wrappers return NULL (with cleanup first)
     # Only append if the body doesn't already end with a return (which would

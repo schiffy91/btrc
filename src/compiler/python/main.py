@@ -116,9 +116,14 @@ def resolve_includes(source: str, source_path: str, included: Optional[Set[str]]
             include_path = m.group(1)
             full_path = os.path.join(source_dir, include_path)
             if not os.path.exists(full_path):
-                print(f"Error: Include file '{include_path}' not found "
-                      f"(resolved to '{full_path}')", file=sys.stderr)
-                sys.exit(1)
+                # Fallback: search in stdlib directory
+                stdlib_path = os.path.join(_get_stdlib_dir(), include_path)
+                if os.path.exists(stdlib_path):
+                    full_path = stdlib_path
+                else:
+                    print(f"Error: Include file '{include_path}' not found "
+                          f"(resolved to '{full_path}')", file=sys.stderr)
+                    sys.exit(1)
             with open(full_path, 'r') as f:
                 included_source = f.read()
             resolved = resolve_includes(included_source, full_path, included)

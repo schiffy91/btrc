@@ -1,31 +1,33 @@
 {
-  "name": "btrc",
-  "build": {
-    "dockerfile": "Containerfile",
-    "context": "..",
-    "args": { "CLAUDE_CODE_VERSION": "latest" }
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/dev/.claude",
+    "CREDENTIALS_DIR": "/tmp/credentials",
+    "LD_LIBRARY_PATH": "/usr/lib/nix-fhs"
   },
-  "remoteUser": "dev",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
-  "workspaceFolder": "/workspace",
   "customizations": {
     "vscode": {
-      "extensions": ["anthropic.claude-code", "ms-python.python"],
+      "extensions": [
+        "anthropic.claude-code",
+        "ms-python.python"
+      ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash",
-        "python.defaultInterpreterPath": "python3"
+        "python.defaultInterpreterPath": "python3",
+        "terminal.integrated.defaultProfile.linux": "bash"
       }
     }
   },
+  "forwardPorts": [],
+  "image": "btrc-devcontainer:latest",
+  "initializeCommand": ".devcontainer/host.sh",
   "mounts": [
-    "source=btrc-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
-    "source=btrc-nix-store,target=/nix,type=volume",
-    "source=btrc-claude-config,target=/home/dev/.claude,type=volume",
-    "source=${localEnv:HOME}/.claude-devcontainer,target=/tmp/claude-host-creds,type=bind,readonly"
+    "source=${localWorkspaceFolderBasename}-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=${localWorkspaceFolderBasename}-claude-config,target=/home/dev/.claude,type=volume",
+    "source=${localEnv:HOME}/.devcontainer-credentials,target=/tmp/credentials,type=bind,readonly"
   ],
-  "containerEnv": {
-    "CLAUDE_CONFIG_DIR": "/home/dev/.claude"
-  },
-  "initializeCommand": "bash -c 'D=\"$HOME/.claude-devcontainer\" && mkdir -p \"$D/gh\" && (security find-generic-password -s \"Claude Code-credentials\" -a \"$USER\" -w > \"$D/.credentials.json\" 2>/dev/null || true) && (gh auth token -h github.com > /dev/null 2>&1 && printf \"github.com:\\n  oauth_token: %s\\n  user: %s\\n  git_protocol: https\\n\" \"$(gh auth token -h github.com 2>/dev/null)\" \"$(gh api user --jq .login 2>/dev/null)\" > \"$D/gh/hosts.yml\" || true)'",
-  "postStartCommand": "mkdir -p \"$HOME/.claude\" \"$HOME/.config/gh\" && cp /tmp/claude-host-creds/.credentials.json \"$HOME/.claude/.credentials.json\" 2>/dev/null; chmod 600 \"$HOME/.claude/.credentials.json\" 2>/dev/null; cp /tmp/claude-host-creds/gh/hosts.yml \"$HOME/.config/gh/hosts.yml\" 2>/dev/null; true"
+  "name": "${localWorkspaceFolderBasename}",
+  "postCreateCommand": "nix develop /workspace --command bash -c 'npm config set prefix /home/dev/.local && npm install -g @anthropic-ai/claude-code@latest'",
+  "postStartCommand": ".devcontainer/container.sh",
+  "remoteUser": "dev",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated"
 }

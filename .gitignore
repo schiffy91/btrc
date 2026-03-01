@@ -16,6 +16,9 @@ src/tests/**/*.c
 # LSP server venv
 src/devex/lsp/.venv/
 
+# Generated devcontainer (make devcontainer)
+.devcontainer/
+
 # Claude Code
 .claude/
 

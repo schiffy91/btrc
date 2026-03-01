@@ -1,0 +1,38 @@
+/* Minimal WebGPU triangle in btrc
+ *
+ * Build:
+ *   python3 -m src.compiler.python.main examples/gpu/triangle.btrc -o triangle.c
+ *   make -C examples/gpu triangle
+ */
+#include "gpu/gpu.btrc"
+
+int main() {
+    var win = GPUWindow("btrc Triangle", 800, 600);
+    var gpu = GPU(win);
+
+    var shader = gpu.createShader("""
+        @vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+            var pos = array<vec2f, 3>(
+                vec2f( 0.0,  0.5),
+                vec2f(-0.5, -0.5),
+                vec2f( 0.5, -0.5)
+            );
+            return vec4f(pos[i], 0.0, 1.0);
+        }
+
+        @fragment fn fs_main() -> @location(0) vec4f {
+            return vec4f(1.0, 0.0, 0.0, 1.0);
+        }
+    """);
+    var pipeline = gpu.createPipeline(shader);
+
+    while (win.isOpen()) {
+        win.poll();
+        if (gpu.beginFrame(0.0, 0.0, 0.0)) {
+            gpu.draw(pipeline, 3);
+            gpu.endFrame();
+        }
+    }
+
+    return 0;
+}

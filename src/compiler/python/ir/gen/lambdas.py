@@ -43,7 +43,9 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
     params = []
     for p in node.params:
         params.append(IRParam(c_type=CType(text=type_to_c(p.type)), name=p.name))
-    # Add void* env parameter only when there are captures
+    # Add void* env parameter only when there are captures.
+    # The typedef doesn't include void*, so captured lambdas are called
+    # directly by name (bypassing the function pointer) with the env arg.
     if has_captures:
         params.append(IRParam(c_type=CType(text="void*"), name="__btrc_env"))
 
@@ -65,11 +67,11 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
     # Build body
     body_stmts = []
 
-    # Unpack captures from env
+    # Unpack captures from env (use struct keyword for C compatibility)
     if has_captures:
         body_stmts.append(IRVarDecl(
-            c_type=CType(text=f"{env_name}*"), name="__env",
-            init=IRCast(target_type=f"{env_name}*",
+            c_type=CType(text=f"struct {env_name}*"), name="__env",
+            init=IRCast(target_type=f"struct {env_name}*",
                         expr=IRVar(name="__btrc_env")),
         ))
         for cap in node.captures:
@@ -84,8 +86,10 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
     # C function and must not inherit the parent's ARC-managed variables.
     saved_managed = gen._managed_vars_stack
     saved_try_depth = gen.in_try_depth
+    saved_func_var_decls = gen._func_var_decls
     gen._managed_vars_stack = []
     gen.in_try_depth = 0
+    gen._func_var_decls = []
     if isinstance(node.body, LambdaBlock) and node.body.body:
         from .statements import lower_block
         block = lower_block(gen, node.body.body)
@@ -96,6 +100,7 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
         body_stmts.append(IRReturn(value=expr))
     gen._managed_vars_stack = saved_managed
     gen.in_try_depth = saved_try_depth
+    gen._func_var_decls = saved_func_var_decls
 
     gen.module.function_defs.append(IRFunctionDef(
         name=fn_name,
@@ -104,6 +109,9 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
         body=IRBlock(stmts=body_stmts),
         is_static=True,
     ))
+
+    # Track lambda ID for capture struct allocation in _lower_var_decl
+    gen._last_lambda_id = lambda_id
 
     # Return reference to the function
     return IRRawExpr(text=fn_name)

@@ -114,10 +114,10 @@ def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
                 for p in v.params
             ]
             body_stmts = [
-                IRVarDecl(c_type=CType(text=name), name="c", init=None),
+                IRVarDecl(c_type=CType(text=name), name="__result", init=None),
                 IRAssign(
                     target=IRFieldAccess(
-                        obj=IRVar(name="c"), field="tag", arrow=False),
+                        obj=IRVar(name="__result"), field="tag", arrow=False),
                     value=IRLiteral(text=f"{name}_{v.name}_TAG")),
             ]
             for p in v.params:
@@ -125,21 +125,21 @@ def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
                     target=IRFieldAccess(
                         obj=IRFieldAccess(
                             obj=IRFieldAccess(
-                                obj=IRVar(name="c"),
+                                obj=IRVar(name="__result"),
                                 field="data", arrow=False),
                             field=v.name, arrow=False),
                         field=p.name, arrow=False),
                     value=IRVar(name=p.name)))
-            body_stmts.append(IRReturn(value=IRVar(name="c")))
+            body_stmts.append(IRReturn(value=IRVar(name="__result")))
         else:
             params = []
             body_stmts = [
-                IRVarDecl(c_type=CType(text=name), name="c", init=None),
+                IRVarDecl(c_type=CType(text=name), name="__result", init=None),
                 IRAssign(
                     target=IRFieldAccess(
-                        obj=IRVar(name="c"), field="tag", arrow=False),
+                        obj=IRVar(name="__result"), field="tag", arrow=False),
                     value=IRLiteral(text=f"{name}_{v.name}_TAG")),
-                IRReturn(value=IRVar(name="c")),
+                IRReturn(value=IRVar(name="__result")),
             ]
 
         gen.module.function_defs.append(IRFunctionDef(

@@ -27,6 +27,7 @@ def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
         return
 
     from .statements import lower_block
+    gen._func_var_decls = []
     body = lower_block(gen, decl.body)
 
     # Special handling for main: ensure it returns int

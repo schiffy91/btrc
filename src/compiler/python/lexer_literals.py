@@ -10,10 +10,42 @@ if TYPE_CHECKING:
 
 
 def read_string(lex: Lexer):
-    """Read a double-quoted string literal."""
+    """Read a double-quoted or triple-quoted string literal."""
     from .lexer import LexerError
     line, col = lex.line, lex.col
     lex._advance()  # skip opening "
+
+    # Triple-quoted string: """..."""
+    if lex._peek() == '"' and lex._peek(1) == '"':
+        lex._advance()  # skip second "
+        lex._advance()  # skip third "
+        chars: list[str] = []
+        while lex.pos < len(lex.source):
+            if lex._peek() == '"' and lex._peek(1) == '"' and lex._peek(2) == '"':
+                lex._advance()
+                lex._advance()
+                lex._advance()
+                value = '"' + ''.join(chars) + '"'
+                lex._emit(TokenType.STRING_LIT, value, line, col)
+                return
+            ch = lex._advance()
+            if ch == '\n':
+                chars.append('\\')
+                chars.append('n')
+            elif ch == '\r':
+                chars.append('\\')
+                chars.append('n')
+                if lex._peek() == '\n':
+                    lex._advance()
+            elif ch == '\\':
+                chars.append(ch)
+                if lex.pos < len(lex.source):
+                    chars.append(lex._advance())
+            else:
+                chars.append(ch)
+        raise LexerError("Unterminated triple-quoted string", line, col)
+
+    # Regular single-line string
     chars: list[str] = []
     while lex.pos < len(lex.source):
         ch = lex._peek()
