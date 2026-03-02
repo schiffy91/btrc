@@ -76,6 +76,14 @@
 
   -- Preprocessor directives are passed through as single tokens.
   @preprocessor = /^#[^\n]*/
+
+  -- Annotations: decorators that modify declarations.
+  -- The lexer reads "@" followed by an identifier and emits a single
+  -- AT_<NAME> token. Only annotations listed here are recognized.
+
+  @annotations {
+    gpu    -- marks a function as a GPU compute kernel
+  }
 }
 
 -- ================================================================
@@ -127,7 +135,7 @@
   access_modifier = "public" | "private" | "class"
                   (* "class" is used for static methods *) ;
 
-  member_body = [ "abstract" ] method_or_field_or_property ;
+  member_body = [ "@gpu" ] [ "abstract" ] method_or_field_or_property ;
 
   method_or_field_or_property
               = type_expr IDENT method_rest        (* method: has ( *)
@@ -184,7 +192,7 @@
   -- Function declaration
   -- ----------------------------------------------------------------
 
-  function_decl = type_expr IDENT "(" param_list ")" ( block | ";" ) ;
+  function_decl = [ "@gpu" ] [ "keep" ] type_expr IDENT "(" param_list ")" ( block | ";" ) ;
 
   -- ----------------------------------------------------------------
   -- Type expressions

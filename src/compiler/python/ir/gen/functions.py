@@ -14,6 +14,12 @@ if TYPE_CHECKING:
 
 def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
     """Lower a top-level FunctionDecl to an IRFunctionDef or forward decl."""
+    # @gpu functions are lowered to WGSL kernels, not C functions
+    if decl.is_gpu:
+        from .gpu import emit_gpu_kernel
+        emit_gpu_kernel(gen, decl)
+        return
+
     ret_type = type_to_c(decl.return_type) if decl.return_type else "void"
     params = []
     for p in decl.params:

@@ -24,6 +24,14 @@ class ValidationMixin:
         for arg in expr.args:
             self._analyze_expr(arg)
 
+        # Validate gpu_id() builtin
+        if isinstance(expr.callee, Identifier) and expr.callee.name == "gpu_id":
+            if not self.in_gpu_function:
+                self._error("gpu_id() can only be called inside @gpu functions",
+                            expr.line, expr.col)
+            if len(expr.args) > 0:
+                self._error("gpu_id() takes no arguments", expr.line, expr.col)
+
         if isinstance(expr.callee, Identifier) and expr.callee.name in self.class_table:
             cls = self.class_table[expr.callee.name]
             if cls.is_abstract:

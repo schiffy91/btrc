@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+float[] absArray(float[] a) {
+    int i = gpu_id();
+    return abs(a[i]);
+}
+
+int main() {
+    int x = -5;
+    if (x < 0) {
+        x = -x;
+    }
+    assert(x == 5);
+    print("PASS: test_gpu_math_abs");
+    return 0;
+}

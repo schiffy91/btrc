@@ -1,0 +1,24 @@
+#include <assert.h>
+
+@gpu
+float[] matRowSum(float[] matrix, int cols) {
+    int row = gpu_id();
+    float sum = 0.0;
+    for (int col = 0; col < cols; col++) {
+        int idx = row * cols + col;
+        sum = sum + matrix[idx];
+    }
+    return sum;
+}
+
+int main() {
+    int sum = 0;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            sum = sum + 1;
+        }
+    }
+    assert(sum == 9);
+    print("PASS: test_gpu_nested_for");
+    return 0;
+}

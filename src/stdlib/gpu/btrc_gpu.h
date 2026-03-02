@@ -40,4 +40,31 @@ bool btrc_gpu_begin_frame(void* gpu, float r, float g, float b, float a);
 void btrc_gpu_draw(void* gpu, void* pipeline, int vertex_count);
 void btrc_gpu_end_frame(void* gpu);
 
+/* ---- Headless compute ---- */
+void* btrc_gpu_init_compute(void);
+
+/* ---- Buffers ---- */
+void* btrc_gpu_create_buffer(void* gpu, int size, int usage);
+void  btrc_gpu_write_buffer(void* gpu, void* buf, void* data, int size);
+void  btrc_gpu_read_buffer(void* gpu, void* buf, void* dst, int size);
+void  btrc_gpu_buffer_destroy(void* buf);
+
+/* ---- Compute pipeline ---- */
+void* btrc_gpu_create_compute_pipeline(void* gpu, void* shader, char* entry);
+void  btrc_gpu_compute_pipeline_destroy(void* pipeline);
+
+/* ---- Bind group ---- */
+void* btrc_gpu_create_bind_group(void* gpu, void* pipeline,
+                                  void** buffers, int count);
+void  btrc_gpu_bind_group_destroy(void* bg);
+
+/* ---- Dispatch ---- */
+void  btrc_gpu_dispatch(void* gpu, void* pipeline, void* bg, int workgroups_x);
+
+/* ---- Buffer usage flags ---- */
+#define BTRC_GPU_STORAGE  0x80
+#define BTRC_GPU_UNIFORM  0x40
+#define BTRC_GPU_COPY_DST 0x08
+#define BTRC_GPU_COPY_SRC 0x04
+
 #endif /* BTRC_GPU_H */

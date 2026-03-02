@@ -1,0 +1,14 @@
+#include <assert.h>
+
+@gpu
+float[] negate(float[] a) {
+    int i = gpu_id();
+    return -a[i];
+}
+
+int main() {
+    int x = -5;
+    assert(x == -5);
+    print("PASS: test_gpu_unary_ops");
+    return 0;
+}

@@ -163,6 +163,9 @@ class TypeInferenceMixin:
 
     def _infer_call_type(self, expr):
         if isinstance(expr.callee, Identifier):
+            # gpu_id() → int
+            if expr.callee.name == "gpu_id":
+                return TypeExpr(base="int")
             # Mutex(val) → Mutex<T> where T = type of val
             if expr.callee.name == "Mutex" and expr.args:
                 arg_type = self._infer_type(expr.args[0])

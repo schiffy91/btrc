@@ -24,6 +24,8 @@ class GrammarInfo:
     operators: list[str] = field(default_factory=list)  # sorted longest-first
     keyword_to_token: dict[str, str] = field(default_factory=dict)
     op_to_token: dict[str, str] = field(default_factory=dict)
+    annotations: set[str] = field(default_factory=set)  # e.g. {"gpu"}
+    annotation_to_token: dict[str, str] = field(default_factory=dict)
 
 
 # Character → TokenType name component (single source for deriving operator names)
@@ -75,6 +77,14 @@ def _keyword_to_token_name(kw: str) -> str:
     e.g. "class" -> "CLASS", "if" -> "IF"
     """
     return kw.upper()
+
+
+def _annotation_to_token_name(name: str) -> str:
+    """Convert an annotation name to its TokenType enum name.
+
+    e.g. "gpu" -> "AT_GPU"
+    """
+    return f"AT_{name.upper()}"
 
 
 def _extract_brace_block(text: str, marker: str) -> str | None:
@@ -168,6 +178,16 @@ def parse_grammar(text: str) -> GrammarInfo:
         operators.sort(key=lambda x: (-len(x), x))
         info.operators = operators
         info.op_to_token = {op: _op_to_token_name(op) for op in operators}
+
+    # Extract @annotations { ... }
+    ann_body = _extract_brace_block(lexical_body, "@annotations")
+    if ann_body is not None:
+        ann_body = re.sub(r'--[^\n]*', '', ann_body)
+        annotations = re.findall(r'[a-zA-Z_]\w*', ann_body)
+        info.annotations = set(annotations)
+        info.annotation_to_token = {
+            ann: _annotation_to_token_name(ann) for ann in annotations
+        }
 
     return info
 

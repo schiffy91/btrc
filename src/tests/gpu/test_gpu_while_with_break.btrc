@@ -1,0 +1,31 @@
+#include <assert.h>
+
+@gpu
+int[] firstGreater(float[] a, float threshold) {
+    int i = gpu_id();
+    int count = 0;
+    int j = 0;
+    while (j < 100) {
+        if (a[j] > threshold) {
+            break;
+        }
+        count = count + 1;
+        j = j + 1;
+    }
+    return count;
+}
+
+int main() {
+    int count = 0;
+    int j = 0;
+    while (j < 10) {
+        if (j == 5) {
+            break;
+        }
+        count = count + 1;
+        j = j + 1;
+    }
+    assert(count == 5);
+    print("PASS: test_gpu_while_with_break");
+    return 0;
+}

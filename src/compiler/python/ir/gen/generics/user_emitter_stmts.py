@@ -104,36 +104,38 @@ class _UserGenericStmtMixin:
                 if isinstance(s.initializer, ListLiteral):
                     if not s.initializer.elements:
                         return IRCall(callee=f"{target}_new", args=[])
+                    tmp = self._fresh_temp("__list")
                     stmts = [
                         IRVarDecl(c_type=CType(text=f"{target}*"),
-                                  name="__tmp",
+                                  name=tmp,
                                   init=IRCall(callee=f"{target}_new",
                                               args=[])),
                     ]
                     for x in s.initializer.elements:
                         stmts.append(IRExprStmt(
                             expr=IRCall(callee=f"{target}_push",
-                                        args=[IRVar(name="__tmp"),
+                                        args=[IRVar(name=tmp),
                                               self._expr(x)])))
                     return IRStmtExpr(stmts=stmts,
-                                      result=IRVar(name="__tmp"))
+                                      result=IRVar(name=tmp))
                 if isinstance(s.initializer, MapLiteral):
                     if not s.initializer.entries:
                         return IRCall(callee=f"{target}_new", args=[])
+                    tmp = self._fresh_temp("__map")
                     stmts = [
                         IRVarDecl(c_type=CType(text=f"{target}*"),
-                                  name="__tmp",
+                                  name=tmp,
                                   init=IRCall(callee=f"{target}_new",
                                               args=[])),
                     ]
                     for entry in s.initializer.entries:
                         stmts.append(IRExprStmt(
                             expr=IRCall(callee=f"{target}_put",
-                                        args=[IRVar(name="__tmp"),
+                                        args=[IRVar(name=tmp),
                                               self._expr(entry.key),
                                               self._expr(entry.value)])))
                     return IRStmtExpr(stmts=stmts,
-                                      result=IRVar(name="__tmp"))
+                                      result=IRVar(name=tmp))
         return self._expr(s.initializer)
 
     def _if_stmt(self, s) -> IRIf:
@@ -266,11 +268,9 @@ def _ir_expr_to_text(expr: IRExpr) -> str:
     if isinstance(expr, IRIndex):
         return f"{_ir_expr_to_text(expr.obj)}[{_ir_expr_to_text(expr.index)}]"
     if isinstance(expr, IRStmtExpr):
-        parts = []
-        for s in expr.stmts:
-            parts.append(_ir_stmt_to_text(s))
-        parts.append(f" {_ir_expr_to_text(expr.result)};")
-        return "({" + "".join(parts) + " })"
+        # For text rendering, just show the result expression
+        # (stmts are hoisted by the emitter at emission time)
+        return _ir_expr_to_text(expr.result)
     return "0"
 
 

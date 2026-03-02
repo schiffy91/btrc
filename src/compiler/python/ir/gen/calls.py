@@ -42,6 +42,11 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         name = node.callee.name
         args = [lower_expr(gen, a) for a in node.args]
 
+        # @gpu function call → IRGpuDispatch
+        from .gpu import is_gpu_function, lower_gpu_call
+        if is_gpu_function(gen, name):
+            return lower_gpu_call(gen, name, node.args, args)
+
         # Mutex(val) constructor → __btrc_mutex_val_create(boxed_val)
         if name == "Mutex":
             return _lower_mutex_constructor(gen, node.args, args)

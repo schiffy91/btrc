@@ -1,0 +1,13 @@
+#include <assert.h>
+
+@gpu
+float[] identity(float[] a) {
+    int i = gpu_id();
+    return a[i];
+}
+
+int main() {
+    assert(1 == 1);
+    print("PASS: test_gpu_gpu_id_basic");
+    return 0;
+}

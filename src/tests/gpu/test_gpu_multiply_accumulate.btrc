@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+float[] multiplyAccumulate(float[] a, float[] b, float[] c) {
+    int i = gpu_id();
+    return a[i] * b[i] + c[i];
+}
+
+int main() {
+    float a = 3.0;
+    float b = 4.0;
+    float c = 5.0;
+    float result = a * b + c;
+    assert(result == 17.0);
+    print("PASS: test_gpu_multiply_accumulate");
+    return 0;
+}

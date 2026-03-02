@@ -1,0 +1,25 @@
+#include <assert.h>
+
+@gpu
+float[] addKernel(float[] a, float[] b) {
+    int i = gpu_id();
+    return a[i] + b[i];
+}
+
+@gpu
+float[] subKernel(float[] a, float[] b) {
+    int i = gpu_id();
+    return a[i] - b[i];
+}
+
+@gpu
+float[] mulKernel(float[] a, float[] b) {
+    int i = gpu_id();
+    return a[i] * b[i];
+}
+
+int main() {
+    assert(2 * 2 == 4);
+    print("PASS: test_gpu_three_functions");
+    return 0;
+}

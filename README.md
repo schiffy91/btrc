@@ -2,8 +2,9 @@
 
 **Modern syntax. C output. No magic.**
 
-btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, collections, threads, automatic reference counting, exception handling, and a standard library -- all while staying compatible with C. The generated C is readable and self-contained: no runtime library, no garbage collector, no virtual machine. Small inline helpers handle strings, collections, threading, and exceptions, but nothing is linked separately. You can inspect, debug, and link the output against anything. It even comes with a VSCode extension.
+btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, collections, threads, gpu, automatic reference counting, exception handling, and a standard library -- all while staying compatible with C. The generated C is readable and self-contained: no runtime library, no garbage collector, no virtual machine. Small inline helpers handle strings, collections, threading, and exceptions, but nothing is linked separately. You can inspect, debug, and link the output against anything. It even comes with a VSCode extension.
 
+<!-- keep in sync with examples/todo/todo.btrc -->
 ```
 interface Printable {
     string toString();
@@ -24,32 +25,44 @@ class Task implements Printable {
     }
 }
 
-class TaskList<T> {
-    public Vector<T> items = [];
+class Board {
+    public Vector<string> titles = [];
+    public Map<string, bool> status = {};
 
-    public void add(T item) { self.items.push(item); }
-    public int count()      { return self.items.len; }
+    public void add(string title) {
+        self.titles.push(title);
+        self.status.put(title, false);
+    }
+
+    public void complete(string title) {
+        self.status.put(title, true);
+    }
+
+    public int pending() {
+        int count = 0;
+        for title, done in self.status {
+            if (!done) { count++; }
+        }
+        return count;
+    }
 }
 
 int main() {
-    var list = TaskList<Task>();
-    list.add(Task("Write compiler"));
-    list.add(Task("Add generics"));
-    list.add(Task("Ship it"));
+    var board = Board();
+    board.add("Write lexer");
+    board.add("Write parser");
+    board.add("Bootstrap");
 
-    list.items[0].done = true;
+    board.complete("Write lexer");
 
-    var pending = list.items.filter(bool function(Task t) {
-        return !t.done;
-    });
+    print(f"{board.pending()} of {board.titles.len} tasks remaining:");
 
-    print(f"{pending.len} of {list.count()} tasks remaining:");
-    for task in pending {
-        print(f"  {task.toString()}");
+    for title in board.titles {
+        if (!board.status.get(title)) {
+            Task task = Task(title);
+            print(f"  {task.toString()}");
+        }
     }
-
-    Task? next = pending.len > 0 ? pending[0] : null;
-    print(f"up next: {next?.title ?? "nothing"}");
 
     return 0;
 }
@@ -58,27 +71,27 @@ int main() {
 ```
 $ btrcpy todo.btrc -o todo.c && gcc todo.c -o todo -lm && ./todo
 2 of 3 tasks remaining:
-  [todo] Add generics
-  [todo] Ship it
-up next: Add generics
+  [todo] Write parser
+  [todo] Bootstrap
 ```
 
 ## Why btrc?
 
-As AI makes programming more accessible, code itself will become an abstraction layer that – over time – people in tech will spend less of their time looking at. Soon enough, we'll all be focused on what we choose to build, how we build it, what tradeoffs we find palatable. Much like hand-crafted tools, hand-crafted programming will become more of an artisnal craft. In that spirit, btrc is an art project where I explore a language I always wanted – but never had the time to build…but now do with the help of AI.
+As AI makes programming more accessible, code itself will become an abstraction layer that people spend less time writing and reading. Soon we'll all be focused on what problems to solve, how to solve them, and what tradeoffs we find palatable. Details like code will probably become abstraction layers we rarely look into. Much like hand-crafted tools, hand-crafted code will become more of an artisanal craft. In that spirit, btrc is basically an art project where I explore a language I always wanted – but never had the time to buil.d Now, with the help of AI, I can do it. Ironic, I know.
 
-The fundemental question I've had for years is what if treated C as assembly language? I imagine I could make a more ergonomic language than C++. 
+The fundemental question I've had for years is what if treated C as cross-platform assembly language? I imagine I could make a more ergonomic language than C++. And I imagine it could be very useful since C works just about anywhere, and compilers are really good at optimizing it.
 
-I've written a language with a formal [EBNF grammar](src/language/grammar.ebnf), which mathematically defines every keyword and operator, an [algebraic AST spec](src/language/ast/ast.asdl) defines every node type, and compiler pipeline consumes both, walking through six stages from source to native binary. Instead of outputting an intermediate language like LLVM or assembly code directly, it outputs C code. The C code should resemble something that a human could have written. You can read it, debug it, link it against anything. It's just C.
+So I've made a language with a formal [EBNF grammar](src/language/grammar.ebnf), which mathematically defines every keyword and operator, an [algebraic AST spec](src/language/ast/ast.asdl) defines every node type, and compiler pipeline consumes both, walking through six stages from source to native binary. However, instead of outputting an intermediate language like LLVM or assembly code directly, it outputs C code. I don't expect folks will want to look at the C code outside of debugging errors, but it should resemble something that a human could have written (with a lot more underscores). You should be read it, debug it, and link it against anything. It's just C.
 
-So btrc is really a transpiler – not a new compiler backend. You get gcc compatibility for free – but inherit C's limitations. So there is no borrow checker or lifetime analysis. I did implement a very simple Automatic Reference Management (ARC) that handles most memory management use cases automatically – it even handles cycles and and cleans up on exceptions – but does not prevent all use-after-free bugs. Just like C, you can still shoot yourself in the foot. But what's life without a little bit of fun.
+So btrc is really a transpiler – not a new compiler backend. You get gcc compatibility for free – but inherit C's limitations. So there is no borrow checker or lifetime analysis. I did implement a very simple Automatic Reference Manager (ARC) that handles most memory management automatically (it even handles cycles and cleans up allocations on exceptions!) – but it does not prevent all use-after-free bugs. Just like C, you can still shoot yourself in the foot.
 
-If you need a production systems language with full safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/). Don't use a random guy's funky art project on the internet.
+If you need a production systems language with full safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/). Don't use a random guy's funky art project on the internet. Plus, btrc definitely has bugs.
 
 ## Quick Start
 
 ```bash
 # Build the compiler
+make devcontainer # builds up by VSCode
 make build
 
 # Compile a program
@@ -669,6 +682,50 @@ counter.destroy();
 
 Captured class instances are ARC-safe -- the compiler increments the reference count at spawn time and decrements it when the thread completes. Under the hood, `spawn` creates a POSIX pthread.
 
+### GPU Compute
+
+btrc can transpile `@gpu` functions to WGSL compute shaders and generate all WebGPU boilerplate at call sites. Array parameters become GPU storage buffers, scalar parameters become uniforms, and `gpu_id()` maps to the global invocation index.
+
+```
+@gpu
+float[] sgdStep(float[] weights, float[] gradients, float lr) {
+    int i = gpu_id();
+    return weights[i] - lr * gradients[i];
+}
+
+int main() {
+    // Training data: y = 2x + 3
+    float[] x = [1.0, 2.0, 3.0, 4.0, 5.0];
+    float[] y = [5.0, 7.0, 9.0, 11.0, 13.0];
+    float[] w = [0.0, 0.0];  // [slope, intercept]
+
+    float lr = 0.01;
+
+    for (int epoch = 0; epoch < 200; epoch++) {
+        // Forward pass + gradient computation (CPU)
+        float[] grads = [0.0, 0.0];
+        for (int i = 0; i < 5; i++) {
+            float pred = w[0] * x[i] + w[1];
+            float err = pred - y[i];
+            grads[0] = grads[0] + 2.0 * err * x[i] / 5.0;
+            grads[1] = grads[1] + 2.0 * err / 5.0;
+        }
+
+        // Weight update (GPU)
+        w = sgdStep(w, grads, lr);
+
+        if (epoch % 50 == 0) {
+            print(f"epoch {epoch}: w0={w[0]} w1={w[1]}");
+        }
+    }
+
+    print(f"Final: y = {w[0]}x + {w[1]}");
+    return 0;
+}
+```
+
+The `@gpu` function compiles to a WGSL compute shader. At the call site, the compiler generates all WebGPU boilerplate: buffer creation, data upload, shader compilation, compute pipeline setup, dispatch, and readback. The call looks like a normal function call. See [`examples/sgd/`](examples/sgd/) for the full example.
+
 ### C Interop
 
 btrc understands most C syntax. You can mix btrc and C freely in the same file.
@@ -882,16 +939,17 @@ src/
 ## Build & Test
 
 ```bash
-make build              # Create bin/btrcpy wrapper script
-make test               # Run all 764 tests (477 unit + 288 language)
-make test-btrc          # Run just the 288 btrc language tests
-make lint               # Lint with ruff
-make format             # Format with ruff
-
-make gen-builtins       # Regenerate LSP builtins from stdlib sources
-make install-ext        # Install VS Code extension
-make package-ext        # Package VS Code extension
-make clean              # Remove build artifacts
+make build                # Create bin/btrcpy wrapper script
+make test                 # Run all tests (unit + language, gcc -std=c11)
+make test-btrc            # Run language tests only (gcc -std=c11)
+make test-c11             # Strict C11 compliance: gcc + clang at -O0 through -O3
+make test-generate-goldens # Regenerate golden .stdout files
+make stubs-generate       # Regenerate built-in type stubs
+make extension            # Package VS Code extension (.vsix)
+make extension-install    # Install VS Code extension (dev)
+make examples             # Build and run examples
+make devcontainer         # Generate .devcontainer/ and build image
+make clean                # Remove build artifacts
 ```
 
 ### Requirements

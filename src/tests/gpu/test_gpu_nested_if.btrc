@@ -1,0 +1,35 @@
+#include <assert.h>
+
+@gpu
+int[] categorize(float[] a) {
+    int i = gpu_id();
+    float val = a[i];
+    if (val >= 0.0) {
+        if (val > 100.0) {
+            return 2;
+        } else {
+            return 1;
+        }
+    } else {
+        if (val < -100.0) {
+            return -2;
+        } else {
+            return -1;
+        }
+    }
+}
+
+int main() {
+    int x = 50;
+    int result = 0;
+    if (x >= 0) {
+        if (x > 100) {
+            result = 2;
+        } else {
+            result = 1;
+        }
+    }
+    assert(result == 1);
+    print("PASS: test_gpu_nested_if");
+    return 0;
+}

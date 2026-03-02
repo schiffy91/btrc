@@ -1,0 +1,18 @@
+#include <assert.h>
+
+@gpu
+float[] negateArray(float[] a) {
+    int i = gpu_id();
+    return -a[i];
+}
+
+int main() {
+    float x = 5.0;
+    float neg = -x;
+    assert(neg == -5.0);
+    float y = -3.0;
+    float negY = -y;
+    assert(negY == 3.0);
+    print("PASS: test_gpu_negation");
+    return 0;
+}

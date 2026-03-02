@@ -1,0 +1,21 @@
+#include <assert.h>
+
+int factorial(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+@gpu
+float[] scale(float[] a, float factor) {
+    int i = gpu_id();
+    return a[i] * factor;
+}
+
+int main() {
+    assert(factorial(5) == 120);
+    assert(factorial(0) == 1);
+    print("PASS: test_gpu_with_helper_func");
+    return 0;
+}

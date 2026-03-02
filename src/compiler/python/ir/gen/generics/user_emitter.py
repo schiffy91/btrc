@@ -54,6 +54,13 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
         self._gen = gen
         # Track variable types for cross-type method call mangling
         self._var_types = {}
+        # Unique temp counter (avoids name collisions without GCC scoping)
+        self._temp_counter = 0
+
+    def _fresh_temp(self, prefix: str = "__tmp") -> str:
+        """Generate a unique temporary variable name."""
+        self._temp_counter += 1
+        return f"{prefix}_{self._temp_counter}"
 
     def resolve_c(self, t):
         return self._ttc(_resolve_type(t, self.type_map))
@@ -168,32 +175,33 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
         """Emit [] as TYPE_new() + TYPE_push() calls."""
         if not e.elements:
             return IRCall(callee=f"{self.mangled}_new", args=[])
-        # Non-empty: use statement expression
+        tmp = self._fresh_temp("__list")
         stmts = [
-            IRVarDecl(c_type=CType(text=f"{self.mangled}*"), name="__tmp",
+            IRVarDecl(c_type=CType(text=f"{self.mangled}*"), name=tmp,
                       init=IRCall(callee=f"{self.mangled}_new", args=[])),
         ]
         for x in e.elements:
             stmts.append(IRExprStmt(
                 expr=IRCall(callee=f"{self.mangled}_push",
-                            args=[IRVar(name="__tmp"), self._expr(x)])))
-        return IRStmtExpr(stmts=stmts, result=IRVar(name="__tmp"))
+                            args=[IRVar(name=tmp), self._expr(x)])))
+        return IRStmtExpr(stmts=stmts, result=IRVar(name=tmp))
 
     def _map_literal(self, e) -> IRExpr:
         """Emit {} as TYPE_new() + TYPE_put() calls."""
         if not e.entries:
             return IRCall(callee=f"{self.mangled}_new", args=[])
+        tmp = self._fresh_temp("__map")
         stmts = [
-            IRVarDecl(c_type=CType(text=f"{self.mangled}*"), name="__tmp",
+            IRVarDecl(c_type=CType(text=f"{self.mangled}*"), name=tmp,
                       init=IRCall(callee=f"{self.mangled}_new", args=[])),
         ]
         for entry in e.entries:
             stmts.append(IRExprStmt(
                 expr=IRCall(callee=f"{self.mangled}_put",
-                            args=[IRVar(name="__tmp"),
+                            args=[IRVar(name=tmp),
                                   self._expr(entry.key),
                                   self._expr(entry.value)])))
-        return IRStmtExpr(stmts=stmts, result=IRVar(name="__tmp"))
+        return IRStmtExpr(stmts=stmts, result=IRVar(name=tmp))
 
     def _new_expr(self, e) -> IRExpr:
         """Emit new Type(args) as mangled_new(args)."""

@@ -1,0 +1,13 @@
+#include <assert.h>
+
+@gpu
+float[] vectorSub(float[] a, float[] b) {
+    int i = gpu_id();
+    return a[i] - b[i];
+}
+
+int main() {
+    assert(100 - 1 == 99);
+    print("PASS: test_gpu_subtract");
+    return 0;
+}

@@ -1,0 +1,13 @@
+#include <assert.h>
+
+@gpu
+int[] intAdd(int[] a, int[] b) {
+    int i = gpu_id();
+    return a[i] + b[i];
+}
+
+int main() {
+    assert(2 * 3 == 6);
+    print("PASS: test_gpu_basic_int_array");
+    return 0;
+}

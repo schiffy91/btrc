@@ -8,6 +8,7 @@ during IR generation. The emitter just formats.
 from __future__ import annotations
 
 from .emitter_exprs import _ExprEmitterMixin
+from .emitter_gpu import _GpuEmitterMixin
 from .nodes import (
     IRAssign,
     IRBlock,
@@ -18,6 +19,7 @@ from .nodes import (
     IRExprStmt,
     IRFor,
     IRFunctionDef,
+    IRGpuKernel,
     IRIf,
     IRModule,
     IRRawC,
@@ -30,7 +32,7 @@ from .nodes import (
 )
 
 
-class CEmitter(_ExprEmitterMixin):
+class CEmitter(_GpuEmitterMixin, _ExprEmitterMixin):
     """Emits C source text from an IRModule."""
 
     def __init__(self):
@@ -96,6 +98,10 @@ class CEmitter(_ExprEmitterMixin):
         for section in other_sections:
             self._raw(section)
             self._line("")
+
+        # GPU kernel WGSL string constants
+        for kernel in module.gpu_kernels:
+            self._emit_gpu_kernel(kernel)
 
         # Function definitions
         for func in module.function_defs:
@@ -257,6 +263,9 @@ class CEmitter(_ExprEmitterMixin):
 
         elif isinstance(stmt, IRContinue):
             self._line("continue;")
+
+        elif isinstance(stmt, IRGpuKernel):
+            self._emit_gpu_kernel(stmt)
 
         elif isinstance(stmt, IRRawC):
             # Raw C text -- emit each line with current indentation

@@ -80,7 +80,7 @@ class TokenType(Enum):
     TRY = auto()
     VAR = auto()
 
-    # Annotation
+    # Annotations (validated against grammar @annotations section)
     AT_GPU = auto()
 
     # Operators
@@ -188,11 +188,32 @@ def _build_operator_table() -> dict[str, TokenType]:
     return table
 
 
+def _build_annotation_table() -> dict[str, TokenType]:
+    """Build annotation lookup table, validated against the grammar."""
+    from .ebnf import get_grammar_info
+    gi = get_grammar_info()
+    table: dict[str, TokenType] = {}
+    for ann in gi.annotations:
+        token_name = gi.annotation_to_token[ann]
+        try:
+            table[ann] = TokenType[token_name]
+        except KeyError as err:
+            raise RuntimeError(
+                f"Grammar annotation {ann!r} maps to TokenType.{token_name} "
+                f"which does not exist in the TokenType enum. "
+                f"Add it to tokens.py."
+            ) from err
+    return table
+
+
 # Keyword lookup table: string -> TokenType (validated against grammar)
 KEYWORDS: dict[str, TokenType] = _build_keyword_table()
 
 # Operator lookup table: string -> TokenType (validated against grammar)
 OPERATORS: dict[str, TokenType] = _build_operator_table()
+
+# Annotation lookup table: string -> TokenType (validated against grammar)
+ANNOTATIONS: dict[str, TokenType] = _build_annotation_table()
 
 # Set of token types that represent type keywords (used by parser for disambiguation)
 TYPE_KEYWORDS: set[TokenType] = {

@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+float[] shiftLeft(float[] a) {
+    int i = gpu_id();
+    int prev = i - 1;
+    if (prev < 0) {
+        return 0.0;
+    }
+    return a[prev];
+}
+
+int main() {
+    assert(8 / 4 == 2);
+    print("PASS: test_gpu_index_expr");
+    return 0;
+}

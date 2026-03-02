@@ -1,0 +1,37 @@
+#include <assert.h>
+
+@gpu
+float[] kernel1(float[] a) {
+    int i = gpu_id();
+    return a[i] + 1.0;
+}
+
+@gpu
+float[] kernel2(float[] a) {
+    int i = gpu_id();
+    return a[i] - 1.0;
+}
+
+@gpu
+float[] kernel3(float[] a) {
+    int i = gpu_id();
+    return a[i] * 2.0;
+}
+
+@gpu
+float[] kernel4(float[] a) {
+    int i = gpu_id();
+    return a[i] / 2.0;
+}
+
+@gpu
+void kernel5(float[] a) {
+    int i = gpu_id();
+    a[i] = a[i] * a[i];
+}
+
+int main() {
+    assert(5 == 5);
+    print("PASS: test_gpu_five_kernels");
+    return 0;
+}

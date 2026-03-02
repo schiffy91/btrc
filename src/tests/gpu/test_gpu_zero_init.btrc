@@ -1,0 +1,18 @@
+#include <assert.h>
+
+@gpu
+void zeroInit(float[] a) {
+    int i = gpu_id();
+    a[i] = 0.0;
+}
+
+int main() {
+    float x = 42.0;
+    x = 0.0;
+    assert(x == 0.0);
+    float y = -7.5;
+    y = 0.0;
+    assert(y == 0.0);
+    print("PASS: test_gpu_zero_init");
+    return 0;
+}

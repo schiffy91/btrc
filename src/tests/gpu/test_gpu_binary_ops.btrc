@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+float[] mathOps(float[] a, float[] b) {
+    int i = gpu_id();
+    float sum = a[i] + b[i];
+    float diff = a[i] - b[i];
+    float prod = a[i] * b[i];
+    float quot = a[i] / b[i];
+    return sum + diff + prod + quot;
+}
+
+int main() {
+    assert(10 % 3 == 1);
+    print("PASS: test_gpu_binary_ops");
+    return 0;
+}

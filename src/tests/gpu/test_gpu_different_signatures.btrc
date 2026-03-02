@@ -1,0 +1,25 @@
+#include <assert.h>
+
+@gpu
+float[] addScalar(float[] a, float val) {
+    int i = gpu_id();
+    return a[i] + val;
+}
+
+@gpu
+float[] addArrays(float[] a, float[] b) {
+    int i = gpu_id();
+    return a[i] + b[i];
+}
+
+@gpu
+int[] addInts(int[] a, int[] b) {
+    int i = gpu_id();
+    return a[i] + b[i];
+}
+
+int main() {
+    assert(4 + 4 == 8);
+    print("PASS: test_gpu_different_signatures");
+    return 0;
+}

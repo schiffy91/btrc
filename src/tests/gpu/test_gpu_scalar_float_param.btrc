@@ -1,0 +1,14 @@
+#include <assert.h>
+
+@gpu
+float[] scaleArray(float[] a, float factor) {
+    int i = gpu_id();
+    return a[i] * factor;
+}
+
+int main() {
+    float f = 3.14f;
+    assert(f > 3.0f);
+    print("PASS: test_gpu_scalar_float_param");
+    return 0;
+}

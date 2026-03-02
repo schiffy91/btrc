@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+float[] conditionalNegate(float[] a, bool negate) {
+    int i = gpu_id();
+    if (negate) {
+        return -a[i];
+    }
+    return a[i];
+}
+
+int main() {
+    bool b = true;
+    assert(b);
+    print("PASS: test_gpu_scalar_bool_param");
+    return 0;
+}

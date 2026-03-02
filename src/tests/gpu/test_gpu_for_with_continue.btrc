@@ -1,0 +1,27 @@
+#include <assert.h>
+
+@gpu
+float[] sumEvens(float[] a, int count) {
+    int i = gpu_id();
+    float sum = 0.0;
+    for (int j = 0; j < count; j++) {
+        if (j % 2 != 0) {
+            continue;
+        }
+        sum = sum + a[j];
+    }
+    return sum;
+}
+
+int main() {
+    int sum = 0;
+    for (int i = 0; i < 10; i++) {
+        if (i % 2 != 0) {
+            continue;
+        }
+        sum = sum + i;
+    }
+    assert(sum == 20);
+    print("PASS: test_gpu_for_with_continue");
+    return 0;
+}

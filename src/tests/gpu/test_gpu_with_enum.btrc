@@ -1,0 +1,23 @@
+#include <assert.h>
+
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right
+};
+
+@gpu
+int[] addOne(int[] a) {
+    int i = gpu_id();
+    return a[i] + 1;
+}
+
+int main() {
+    int d = Up;
+    assert(d == 0);
+    int d2 = Right;
+    assert(d2 == 3);
+    print("PASS: test_gpu_with_enum");
+    return 0;
+}

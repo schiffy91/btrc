@@ -1,0 +1,31 @@
+#include <assert.h>
+
+class Shape {
+    public int sides;
+    public Shape(int sides) {
+        self.sides = sides;
+    }
+    public int getSides() {
+        return self.sides;
+    }
+}
+
+class Triangle extends Shape {
+    public Triangle() {
+        self.sides = 3;
+    }
+}
+
+@gpu
+float[] doubleValues(float[] a) {
+    int i = gpu_id();
+    return a[i] * 2.0;
+}
+
+int main() {
+    Triangle t = Triangle();
+    assert(t.getSides() == 3);
+    delete t;
+    print("PASS: test_gpu_with_inheritance");
+    return 0;
+}

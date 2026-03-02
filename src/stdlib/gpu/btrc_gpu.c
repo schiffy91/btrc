@@ -426,3 +426,264 @@ void btrc_gpu_end_frame(void* gpu_) {
     gpu->frame_view    = NULL;
     gpu->frame_texture = NULL;
 }
+
+/* ================================================================
+ * Headless compute (no window/surface needed)
+ * ================================================================ */
+
+void* btrc_gpu_init_compute(void) {
+    GPU_* gpu = (GPU_*)calloc(1, sizeof(GPU_));
+    gpu->window = NULL;
+    gpu->surface = NULL;
+
+    WGPUInstanceDescriptor inst_desc = { 0 };
+    gpu->instance = wgpuCreateInstance(&inst_desc);
+    if (!gpu->instance) {
+        fprintf(stderr, "[btrc-gpu] wgpuCreateInstance failed\n");
+        exit(1);
+    }
+
+    WGPURequestAdapterOptions adapter_opts = {
+        .featureLevel = WGPUFeatureLevel_Core,
+    };
+    wgpuInstanceRequestAdapter(
+        gpu->instance, &adapter_opts,
+        (WGPURequestAdapterCallbackInfo){
+            .mode = WGPUCallbackMode_AllowSpontaneous,
+            .callback = on_adapter,
+            .userdata1 = gpu,
+        });
+    if (!gpu->adapter) {
+        fprintf(stderr, "[btrc-gpu] no suitable GPU adapter found\n");
+        exit(1);
+    }
+
+    wgpuAdapterRequestDevice(
+        gpu->adapter, NULL,
+        (WGPURequestDeviceCallbackInfo){
+            .mode = WGPUCallbackMode_AllowSpontaneous,
+            .callback = on_device,
+            .userdata1 = gpu,
+        });
+    if (!gpu->device) {
+        fprintf(stderr, "[btrc-gpu] device request failed\n");
+        exit(1);
+    }
+
+    gpu->queue = wgpuDeviceGetQueue(gpu->device);
+    return gpu;
+}
+
+/* ================================================================
+ * Buffers
+ * ================================================================ */
+
+void* btrc_gpu_create_buffer(void* gpu_, int size, int usage) {
+    GPU_* gpu = (GPU_*)gpu_;
+    WGPUBufferUsageFlags wgpu_usage = 0;
+    if (usage & 0x80) wgpu_usage |= WGPUBufferUsage_Storage;
+    if (usage & 0x40) wgpu_usage |= WGPUBufferUsage_Uniform;
+    if (usage & 0x08) wgpu_usage |= WGPUBufferUsage_CopyDst;
+    if (usage & 0x04) wgpu_usage |= WGPUBufferUsage_CopySrc;
+
+    WGPUBufferDescriptor desc = {
+        .size            = (uint64_t)size,
+        .usage           = wgpu_usage,
+        .mappedAtCreation = false,
+    };
+    WGPUBuffer buf = wgpuDeviceCreateBuffer(gpu->device, &desc);
+    if (!buf) {
+        fprintf(stderr, "[btrc-gpu] buffer creation failed\n");
+        exit(1);
+    }
+    return (void*)buf;
+}
+
+void btrc_gpu_write_buffer(void* gpu_, void* buf, void* data, int size) {
+    GPU_* gpu = (GPU_*)gpu_;
+    wgpuQueueWriteBuffer(gpu->queue, (WGPUBuffer)buf, 0, data, (size_t)size);
+}
+
+typedef struct {
+    bool done;
+    WGPUBufferMapAsyncStatus status;
+} MapCallbackData_;
+
+static void on_buffer_map(WGPUBufferMapAsyncStatus status,
+                          void* ud1, void* ud2) {
+    (void)ud2;
+    MapCallbackData_* data = (MapCallbackData_*)ud1;
+    data->status = status;
+    data->done = true;
+}
+
+void btrc_gpu_read_buffer(void* gpu_, void* buf_, void* dst, int size) {
+    GPU_* gpu = (GPU_*)gpu_;
+    WGPUBuffer src_buf = (WGPUBuffer)buf_;
+
+    /* Create a staging buffer for readback */
+    WGPUBufferDescriptor staging_desc = {
+        .size  = (uint64_t)size,
+        .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead,
+    };
+    WGPUBuffer staging = wgpuDeviceCreateBuffer(gpu->device, &staging_desc);
+
+    /* Copy source → staging */
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(gpu->device, NULL);
+    wgpuCommandEncoderCopyBufferToBuffer(enc, src_buf, 0, staging, 0,
+                                          (uint64_t)size);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, NULL);
+    wgpuQueueSubmit(gpu->queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd);
+    wgpuCommandEncoderRelease(enc);
+
+    /* Map staging buffer and poll until done */
+    MapCallbackData_ cb_data = { .done = false };
+    wgpuBufferMapAsync(staging, WGPUMapMode_Read, 0, (size_t)size,
+                       (WGPUBufferMapCallbackInfo){
+                           .mode = WGPUCallbackMode_AllowSpontaneous,
+                           .callback = on_buffer_map,
+                           .userdata1 = &cb_data,
+                       });
+
+    while (!cb_data.done) {
+        wgpuInstanceProcessEvents(gpu->instance);
+    }
+
+    if (cb_data.status == WGPUBufferMapAsyncStatus_Success) {
+        const void* mapped = wgpuBufferGetConstMappedRange(staging, 0, (size_t)size);
+        if (mapped) {
+            memcpy(dst, mapped, (size_t)size);
+        }
+        wgpuBufferUnmap(staging);
+    } else {
+        fprintf(stderr, "[btrc-gpu] buffer map failed: status=%d\n",
+                cb_data.status);
+    }
+    wgpuBufferRelease(staging);
+}
+
+void btrc_gpu_buffer_destroy(void* buf) {
+    if (buf) wgpuBufferRelease((WGPUBuffer)buf);
+}
+
+/* ================================================================
+ * Compute Pipeline
+ * ================================================================ */
+
+typedef struct {
+    WGPUComputePipeline pipeline;
+} GPUComputePipeline_;
+
+void* btrc_gpu_create_compute_pipeline(void* gpu_, void* shader_,
+                                        char* entry) {
+    GPU_* gpu = (GPU_*)gpu_;
+    GPUShader_* shader = (GPUShader_*)shader_;
+
+    WGPUComputePipelineDescriptor desc = {
+        .compute = {
+            .module     = shader->module,
+            .entryPoint = { .data = entry, .length = strlen(entry) },
+        },
+    };
+    WGPUComputePipeline cp = wgpuDeviceCreateComputePipeline(gpu->device, &desc);
+    if (!cp) {
+        fprintf(stderr, "[btrc-gpu] compute pipeline creation failed\n");
+        exit(1);
+    }
+
+    GPUComputePipeline_* p = (GPUComputePipeline_*)calloc(
+        1, sizeof(GPUComputePipeline_));
+    p->pipeline = cp;
+    return p;
+}
+
+void btrc_gpu_compute_pipeline_destroy(void* p_) {
+    GPUComputePipeline_* p = (GPUComputePipeline_*)p_;
+    if (!p) return;
+    if (p->pipeline) wgpuComputePipelineRelease(p->pipeline);
+    free(p);
+}
+
+/* ================================================================
+ * Bind Group
+ * ================================================================ */
+
+typedef struct {
+    WGPUBindGroup group;
+} GPUBindGroup_;
+
+void* btrc_gpu_create_bind_group(void* gpu_, void* pipeline_,
+                                  void** buffers, int count) {
+    GPU_* gpu = (GPU_*)gpu_;
+    GPUComputePipeline_* pipeline = (GPUComputePipeline_*)pipeline_;
+
+    /* Get bind group layout from pipeline */
+    WGPUBindGroupLayout layout =
+        wgpuComputePipelineGetBindGroupLayout(pipeline->pipeline, 0);
+
+    /* Build entries */
+    WGPUBindGroupEntry* entries = (WGPUBindGroupEntry*)calloc(
+        (size_t)count, sizeof(WGPUBindGroupEntry));
+    for (int i = 0; i < count; i++) {
+        WGPUBuffer buf = (WGPUBuffer)buffers[i];
+        entries[i] = (WGPUBindGroupEntry){
+            .binding = (uint32_t)i,
+            .buffer  = buf,
+            .offset  = 0,
+            .size    = wgpuBufferGetSize(buf),
+        };
+    }
+
+    WGPUBindGroupDescriptor desc = {
+        .layout     = layout,
+        .entryCount = (size_t)count,
+        .entries    = entries,
+    };
+    WGPUBindGroup bg = wgpuDeviceCreateBindGroup(gpu->device, &desc);
+    free(entries);
+    wgpuBindGroupLayoutRelease(layout);
+
+    if (!bg) {
+        fprintf(stderr, "[btrc-gpu] bind group creation failed\n");
+        exit(1);
+    }
+
+    GPUBindGroup_* g = (GPUBindGroup_*)calloc(1, sizeof(GPUBindGroup_));
+    g->group = bg;
+    return g;
+}
+
+void btrc_gpu_bind_group_destroy(void* bg_) {
+    GPUBindGroup_* bg = (GPUBindGroup_*)bg_;
+    if (!bg) return;
+    if (bg->group) wgpuBindGroupRelease(bg->group);
+    free(bg);
+}
+
+/* ================================================================
+ * Dispatch
+ * ================================================================ */
+
+void btrc_gpu_dispatch(void* gpu_, void* pipeline_, void* bg_,
+                        int workgroups_x) {
+    GPU_* gpu = (GPU_*)gpu_;
+    GPUComputePipeline_* pipeline = (GPUComputePipeline_*)pipeline_;
+    GPUBindGroup_* bg = (GPUBindGroup_*)bg_;
+
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(gpu->device, NULL);
+    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(enc, NULL);
+
+    wgpuComputePassEncoderSetPipeline(pass, pipeline->pipeline);
+    wgpuComputePassEncoderSetBindGroup(pass, 0, bg->group, 0, NULL);
+    wgpuComputePassEncoderDispatchWorkgroups(
+        pass, (uint32_t)workgroups_x, 1, 1);
+
+    wgpuComputePassEncoderEnd(pass);
+    wgpuComputePassEncoderRelease(pass);
+
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, NULL);
+    wgpuQueueSubmit(gpu->queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd);
+    wgpuCommandEncoderRelease(enc);
+}

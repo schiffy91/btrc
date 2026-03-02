@@ -124,3 +124,34 @@ class GPU {
         }
     }
 }
+
+/* ---- Headless compute (for @gpu functions and manual compute) ---- */
+void* btrc_gpu_init_compute();
+void* btrc_gpu_create_buffer(void* gpu, int size, int usage);
+void  btrc_gpu_write_buffer(void* gpu, void* buf, void* data, int size);
+void  btrc_gpu_read_buffer(void* gpu, void* buf, void* dst, int size);
+void  btrc_gpu_buffer_destroy(void* buf);
+void* btrc_gpu_create_compute_pipeline(void* gpu, void* shader, string entry);
+void  btrc_gpu_compute_pipeline_destroy(void* pipeline);
+void* btrc_gpu_create_bind_group(void* gpu, void* pipeline,
+                                  void** buffers, int count);
+void  btrc_gpu_bind_group_destroy(void* bg);
+void  btrc_gpu_dispatch(void* gpu, void* pipeline, void* bg, int workgroups);
+
+class GPUCompute {
+    public void* _handle;
+
+    public GPUCompute() {
+        self._handle = btrc_gpu_init_compute();
+    }
+
+    public GPUShader createShader(string wgsl) {
+        return GPUShader(btrc_gpu_create_shader(self._handle, wgsl));
+    }
+
+    public void __del__() {
+        if (self._handle != null) {
+            btrc_gpu_destroy(self._handle);
+        }
+    }
+}

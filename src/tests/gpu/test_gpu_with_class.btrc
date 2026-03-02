@@ -1,0 +1,30 @@
+#include <assert.h>
+
+class Counter {
+    public int count;
+    public Counter() {
+        self.count = 0;
+    }
+    public void increment() {
+        self.count = self.count + 1;
+    }
+    public int getCount() {
+        return self.count;
+    }
+}
+
+@gpu
+float[] vectorAdd(float[] a, float[] b) {
+    int i = gpu_id();
+    return a[i] + b[i];
+}
+
+int main() {
+    Counter c = new Counter();
+    c.increment();
+    c.increment();
+    assert(c.getCount() == 2);
+    delete c;
+    print("PASS: test_gpu_with_class");
+    return 0;
+}

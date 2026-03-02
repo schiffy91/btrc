@@ -25,6 +25,11 @@ from src.compiler.python.parser.parser import Parser
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 
+# Compiler and flags configurable via environment.
+# Defaults: gcc with C11 standard (no compiler-specific extensions).
+BTRC_CC = os.environ.get("BTRC_CC", "gcc")
+BTRC_CFLAGS = os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic").split()
+
 
 def get_btrc_test_files():
     """Recursively find all test_*.btrc files in subdirectories."""
@@ -67,8 +72,8 @@ def test_btrc_file(btrc_file):
     bin_path = c_path.replace(".c", "")
 
     try:
-        # Add -lpthread if threading is used
-        gcc_flags = ["gcc", c_path, "-o", bin_path, "-lm"]
+        # Compile with configurable C compiler and C11 flags
+        gcc_flags = [BTRC_CC] + BTRC_CFLAGS + [c_path, "-o", bin_path, "-lm"]
         if "pthread.h" in c_source:
             gcc_flags.append("-lpthread")
         # Add GPU libraries if WebGPU is used

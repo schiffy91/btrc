@@ -1,0 +1,25 @@
+#include <assert.h>
+
+@gpu
+float[] clamp(float[] a, float low, float high) {
+    int i = gpu_id();
+    if (a[i] < low) {
+        return low;
+    } else if (a[i] > high) {
+        return high;
+    } else {
+        return a[i];
+    }
+}
+
+int main() {
+    int x = 15;
+    if (x < 0) {
+        x = 0;
+    } else if (x > 10) {
+        x = 10;
+    }
+    assert(x == 10);
+    print("PASS: test_gpu_multiple_returns");
+    return 0;
+}

@@ -1,0 +1,15 @@
+#include <assert.h>
+
+@gpu
+float[] selectMax(float[] a, float[] b) {
+    int i = gpu_id();
+    float result = a[i] > b[i] ? a[i] : b[i];
+    return result;
+}
+
+int main() {
+    int bigger = 10 > 5 ? 10 : 5;
+    assert(bigger == 10);
+    print("PASS: test_gpu_ternary");
+    return 0;
+}

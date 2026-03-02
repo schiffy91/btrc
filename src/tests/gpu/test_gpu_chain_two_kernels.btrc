@@ -1,0 +1,23 @@
+#include <assert.h>
+
+@gpu
+float[] scaleArray(float[] a, float factor) {
+    int i = gpu_id();
+    return a[i] * factor;
+}
+
+@gpu
+float[] addArrays(float[] a, float[] b) {
+    int i = gpu_id();
+    return a[i] + b[i];
+}
+
+int main() {
+    int a = 5;
+    int scaled = a * 3;
+    int result = scaled + 10;
+    assert(scaled == 15);
+    assert(result == 25);
+    print("PASS: test_gpu_chain_two_kernels");
+    return 0;
+}

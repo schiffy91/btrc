@@ -1,0 +1,16 @@
+#include <assert.h>
+
+@gpu
+int[] moduloFilter(int[] a, int divisor) {
+    int i = gpu_id();
+    return a[i] % divisor;
+}
+
+int main() {
+    assert(10 % 3 == 1);
+    assert(15 % 4 == 3);
+    assert(20 % 5 == 0);
+    assert(7 % 2 == 1);
+    print("PASS: test_gpu_modulo_op");
+    return 0;
+}

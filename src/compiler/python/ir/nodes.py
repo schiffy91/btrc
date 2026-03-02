@@ -36,6 +36,7 @@ class IRModule:
     vtable_defs: list[str] = field(default_factory=list)      # vtable struct/instance text
     global_vars: list[str] = field(default_factory=list)       # global variable declarations
     function_defs: list[IRFunctionDef] = field(default_factory=list)
+    gpu_kernels: list[IRGpuKernel] = field(default_factory=list)  # @gpu WGSL kernels
     raw_sections: list[str] = field(default_factory=list)      # pre-rendered C text sections
 
 
@@ -310,7 +311,11 @@ class IRRawExpr(IRExpr):
 
 @dataclass
 class IRStmtExpr(IRExpr):
-    """GCC statement expression: ({ stmt; stmt; result; })"""
+    """Statement expression: evaluate setup stmts, then produce result.
+
+    The emitter hoists the stmts before the enclosing statement and uses
+    only the result in expression position. Produces standard C11.
+    """
     stmts: list = field(default_factory=list)
     result: IRExpr = None
 
@@ -320,3 +325,49 @@ class IRSpawnThread(IRExpr):
     """Spawn a thread: __btrc_thread_spawn(fn_ptr, capture_arg)."""
     fn_ptr: str = ""       # C function name (from lambda lowering)
     capture_arg: IRExpr = None  # Capture struct pointer (or NULL)
+
+
+# --- GPU compute ---
+
+@dataclass
+class IRGpuBuffer:
+    """Metadata for a GPU buffer parameter."""
+    name: str = ""
+    elem_type: str = ""   # "f32", "i32"
+    access: str = "read"  # "read", "read_write"
+    binding: int = 0
+
+
+@dataclass
+class IRGpuKernel(IRStmt):
+    """A GPU compute kernel (WGSL source + metadata).
+
+    Emitted as a static C string constant containing the WGSL shader.
+    """
+    name: str = ""
+    wgsl_source: str = ""
+    workgroup_size: int = 64
+    param_buffers: list[IRGpuBuffer] = field(default_factory=list)
+    output_buffer: IRGpuBuffer = None  # None for void-returning kernels
+    uniform_params: list[tuple] = field(default_factory=list)  # (name, wgsl_type) pairs
+
+
+@dataclass
+class IRGpuDispatch(IRExpr):
+    """GPU kernel dispatch at a call site.
+
+    Extends IRExpr so it can be used in expression contexts
+    (e.g. `float[] result = vectorAdd(a, b)`).
+    The emitter hoists buffer creation, upload, dispatch, readback, and
+    cleanup as statements before the enclosing statement, then returns
+    the result variable name. Produces standard C11.
+    """
+    kernel_name: str = ""
+    args: list[IRExpr] = field(default_factory=list)
+    result_var: str = ""         # C variable to store readback result ("" for void)
+    result_elem_type: str = ""   # "float", "int" — C element type
+    array_len_expr: IRExpr = None  # expression for dispatch size (first array arg's length)
+    param_buffers: list[IRGpuBuffer] = field(default_factory=list)
+    output_buffer: IRGpuBuffer = None
+    uniform_params: list[tuple] = field(default_factory=list)
+    workgroup_size: int = 64

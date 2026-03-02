@@ -166,6 +166,11 @@ class FunctionsMixin:
         prev_return_type = self.current_return_type
         self.current_return_type = func.return_type
 
+        # Validate @gpu function constraints
+        if func.is_gpu:
+            from .gpu import validate_gpu_function
+            validate_gpu_function(self, func)
+
         for param in func.params:
             param.type = self._upgrade_class_type(param.type)
         func.return_type = self._upgrade_class_type(func.return_type)

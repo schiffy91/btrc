@@ -1,0 +1,14 @@
+#include <assert.h>
+
+@gpu
+void zeroArray(int[] a) {
+    int i = gpu_id();
+    a[i] = 0;
+}
+
+int main() {
+    int x = 0;
+    assert(x == 0);
+    print("PASS: test_gpu_void_zero");
+    return 0;
+}

@@ -7,7 +7,7 @@ hand-coded for robustness, with the grammar's @literals serving as the spec.
 
 from .ebnf import get_grammar_info
 from .lexer_literals import read_char, read_fstring, read_number, read_string
-from .tokens import KEYWORDS, OPERATORS, Token, TokenType
+from .tokens import ANNOTATIONS, KEYWORDS, OPERATORS, Token, TokenType
 
 
 class LexerError(Exception):
@@ -139,7 +139,7 @@ class Lexer:
         value = self.source[start:self.pos]
         self._emit(TokenType.PREPROCESSOR, value, line, col)
 
-    # --- Annotation ---
+    # --- Annotation (grammar-driven via @annotations section) ---
 
     def _read_annotation(self):
         line, col = self.line, self.col
@@ -148,8 +148,9 @@ class Lexer:
         while self.pos < len(self.source) and (self._peek().isalnum() or self._peek() == '_'):
             self._advance()
         name = self.source[start:self.pos]
-        if name == "gpu":
-            self._emit(TokenType.AT_GPU, "@gpu", line, col)
+        token_type = ANNOTATIONS.get(name)
+        if token_type is not None:
+            self._emit(token_type, f"@{name}", line, col)
         else:
             raise LexerError(f"Unknown annotation '@{name}'", line, col)
 

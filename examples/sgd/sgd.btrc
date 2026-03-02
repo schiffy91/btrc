@@ -1,0 +1,41 @@
+/* GPU-accelerated Stochastic Gradient Descent
+ * Fits y = 2x + 3 using SGD with GPU weight updates.
+ */
+
+#include <gpu.btrc>
+
+@gpu
+float[] sgdStep(float[] weights, float[] gradients, float lr) {
+    int i = gpu_id();
+    return weights[i] - lr * gradients[i];
+}
+
+int main() {
+    // Training data: y = 2x + 3
+    float[] x = [1.0, 2.0, 3.0, 4.0, 5.0];
+    float[] y = [5.0, 7.0, 9.0, 11.0, 13.0];
+    float[] w = [0.0, 0.0];  // [slope, intercept]
+
+    float lr = 0.01;
+
+    for (int epoch = 0; epoch < 200; epoch++) {
+        // Forward pass + gradient computation (CPU)
+        float[] grads = [0.0, 0.0];
+        for (int i = 0; i < 5; i++) {
+            float pred = w[0] * x[i] + w[1];
+            float err = pred - y[i];
+            grads[0] = grads[0] + 2.0 * err * x[i] / 5.0;
+            grads[1] = grads[1] + 2.0 * err / 5.0;
+        }
+
+        // Weight update (GPU)
+        w = sgdStep(w, grads, lr);
+
+        if (epoch % 50 == 0) {
+            print(f"epoch {epoch}: w0={w[0]} w1={w[1]}");
+        }
+    }
+
+    print(f"Final: y = {w[0]}x + {w[1]}");
+    return 0;
+}

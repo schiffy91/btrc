@@ -1,0 +1,18 @@
+#include <assert.h>
+
+@gpu
+float[] squareElements(float[] a) {
+    int i = gpu_id();
+    return a[i] * a[i];
+}
+
+int main() {
+    int x = 7;
+    int squared = x * x;
+    assert(squared == 49);
+    int y = -3;
+    int squaredY = y * y;
+    assert(squaredY == 9);
+    print("PASS: test_gpu_square");
+    return 0;
+}

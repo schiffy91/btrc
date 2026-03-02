@@ -1,0 +1,17 @@
+#include <assert.h>
+
+@gpu
+float[] linearTransform(float[] x, float a, float b) {
+    int i = gpu_id();
+    return a * x[i] + b;
+}
+
+int main() {
+    float x = 5.0;
+    float a = 2.0;
+    float b = 3.0;
+    float result = a * x + b;
+    assert(result == 13.0);
+    print("PASS: test_gpu_linear_transform");
+    return 0;
+}

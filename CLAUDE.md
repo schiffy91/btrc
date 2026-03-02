@@ -175,6 +175,8 @@ src/compiler/python/
     nodes.py                     IR node dataclass definitions
     optimizer.py                 dead helper elimination
     emitter.py                   IR → C text (simple tree walk)
+    emitter_exprs.py             expression emission mixin
+    emitter_gpu.py               GPU kernel + dispatch emission mixin
 
     gen/                         IR generation (AST → IR lowering)
       generator.py               main class + generate_ir() entry point
@@ -195,6 +197,8 @@ src/compiler/python/
       lambdas.py                 lambda lifting + capture structs
       types.py                   type-related IR generation
       helpers.py                 runtime helper registration
+      gpu.py                     @gpu kernel IR generation
+      gpu_wgsl.py                btrc AST → WGSL text
       generics/                  monomorphization
         core.py                  generic infrastructure
         lists.py                 List<T> specialization
@@ -282,12 +286,17 @@ Each subdirectory has:
 
 ### Makefile Targets
 ```
-make build          Create bin/btrcpy wrapper script
-make test           Python unit tests + 292 btrc language tests
-make test-btrc      Just the 292 btrc language tests
-make lint           Lint with ruff
-make format         Format with ruff
-make clean          Remove build artifacts
+make build                Create bin/btrcpy wrapper script
+make test                 Run all tests (unit + language, gcc -std=c11)
+make test-btrc            Run language tests only (gcc -std=c11)
+make test-c11             Strict C11: gcc + clang at -O0 through -O3
+make test-generate-goldens  Regenerate golden .stdout files
+make stubs-generate       Regenerate built-in type stubs
+make extension            Package VSCode extension (.vsix)
+make extension-install    Install VSCode extension (dev)
+make examples             Build and run examples
+make devcontainer         Generate .devcontainer/ and build image
+make clean                Remove build artifacts
 ```
 
 ---

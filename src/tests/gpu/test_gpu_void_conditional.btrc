@@ -1,0 +1,25 @@
+#include <assert.h>
+
+@gpu
+void clampInPlace(float[] a, float lo, float hi) {
+    int i = gpu_id();
+    if (a[i] < lo) {
+        a[i] = lo;
+    }
+    if (a[i] > hi) {
+        a[i] = hi;
+    }
+}
+
+int main() {
+    int val = 5;
+    if (val < 0) {
+        val = 0;
+    }
+    if (val > 10) {
+        val = 10;
+    }
+    assert(val == 5);
+    print("PASS: test_gpu_void_conditional");
+    return 0;
+}

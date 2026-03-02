@@ -1,0 +1,60 @@
+interface Printable {
+    string toString();
+}
+
+class Task implements Printable {
+    public string title;
+    public bool done;
+
+    public Task(string title) {
+        self.title = title;
+        self.done = false;
+    }
+
+    public string toString() {
+        string status = self.done ? "done" : "todo";
+        return f"[{status}] {self.title}";
+    }
+}
+
+class Board {
+    public Vector<string> titles = [];
+    public Map<string, bool> status = {};
+
+    public void add(string title) {
+        self.titles.push(title);
+        self.status.put(title, false);
+    }
+
+    public void complete(string title) {
+        self.status.put(title, true);
+    }
+
+    public int pending() {
+        int count = 0;
+        for title, done in self.status {
+            if (!done) { count++; }
+        }
+        return count;
+    }
+}
+
+int main() {
+    var board = Board();
+    board.add("Write lexer");
+    board.add("Write parser");
+    board.add("Bootstrap");
+
+    board.complete("Write lexer");
+
+    print(f"{board.pending()} of {board.titles.len} tasks remaining:");
+
+    for title in board.titles {
+        if (!board.status.get(title)) {
+            Task task = Task(title);
+            print(f"  {task.toString()}");
+        }
+    }
+
+    return 0;
+}
