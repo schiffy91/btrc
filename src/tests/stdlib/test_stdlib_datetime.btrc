@@ -1,6 +1,5 @@
 /* Test stdlib datetime: DateTime, Timer */
 #include <assert.h>
-#include <string.h>
 #include "../../stdlib/datetime.btrc"
 
 int main() {
@@ -21,18 +20,15 @@ int main() {
 
     // format()
     string formatted = dt.format();
-    assert(strcmp(formatted, "2025-06-15 10:30:45") == 0);
-    free(formatted);
+    assert(formatted.equals("2025-06-15 10:30:45"));
 
     // dateString()
     string ds = dt.dateString();
-    assert(strcmp(ds, "2025-06-15") == 0);
-    free(ds);
+    assert(ds.equals("2025-06-15"));
 
     // timeString()
     string ts = dt.timeString();
-    assert(strcmp(ts, "10:30:45") == 0);
-    free(ts);
+    assert(ts.equals("10:30:45"));
 
     // DateTime.now() returns sane values
     DateTime now = DateTime.now();

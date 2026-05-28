@@ -44,19 +44,19 @@ class DateTime {
         snprintf(buf, 64, "%04d-%02d-%02d %02d:%02d:%02d",
             self.year, self.month, self.day,
             self.hour, self.minute, self.second);
-        return __btrc_strdup(buf);
+        return Strings.copy(buf);
     }
 
     public string dateString() {
         char buf[32];
         snprintf(buf, 32, "%04d-%02d-%02d", self.year, self.month, self.day);
-        return __btrc_strdup(buf);
+        return Strings.copy(buf);
     }
 
     public string timeString() {
         char buf[32];
         snprintf(buf, 32, "%02d:%02d:%02d", self.hour, self.minute, self.second);
-        return __btrc_strdup(buf);
+        return Strings.copy(buf);
     }
 }
 

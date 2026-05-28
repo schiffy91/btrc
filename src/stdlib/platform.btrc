@@ -1,0 +1,58 @@
+/* btrc standard library — Platform
+ * Small platform probes and constants.
+ *
+ * The current implementation is POSIX-first because btrc's compiler and test
+ * harness currently target Unix-like systems. The API leaves room for Windows
+ * support without renaming higher-level shell abstractions.
+ */
+
+#include <unistd.h>
+
+class UnixPlatform {
+    class int pid() {
+        return (int)getpid();
+    }
+
+    class int euid() {
+        return (int)geteuid();
+    }
+}
+
+class Platform {
+    class bool isUnix() {
+        return true;
+    }
+
+    class bool isWindows() {
+        return false;
+    }
+
+    class string pathSeparator() {
+        return "/";
+    }
+
+    class int pid() {
+        return UnixPlatform.pid();
+    }
+
+    class int euid() {
+        return UnixPlatform.euid();
+    }
+
+    class bool isRoot() {
+        return Platform.euid() == 0;
+    }
+}
+
+class Environment {
+    class string get(string name, string fallback) {
+        string value = getenv(name);
+        if (value == null || value.isEmpty()) { return fallback; }
+        return Strings.copy(value);
+    }
+
+    class bool has(string name) {
+        string value = getenv(name);
+        return value != null && !value.isEmpty();
+    }
+}

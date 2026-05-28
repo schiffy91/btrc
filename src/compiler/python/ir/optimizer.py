@@ -196,6 +196,7 @@ def _scan_raw_expr(expr, helper_names, used):
     elif isinstance(expr, IRUnaryOp):
         _scan_raw_expr(expr.operand, helper_names, used)
     elif isinstance(expr, IRSpawnThread):
+        used.add("__btrc_thread_spawn")
         if expr.capture_arg:
             _scan_raw_expr(expr.capture_arg, helper_names, used)
     elif isinstance(expr, IRStmtExpr):
@@ -294,6 +295,7 @@ def _collect_from_expr(expr: IRExpr, used: set[str]):
     elif isinstance(expr, (IRAddressOf, IRDeref)):
         _collect_from_expr(expr.expr, used)
     elif isinstance(expr, IRSpawnThread):
+        used.add("__btrc_thread_spawn")
         if expr.capture_arg:
             _collect_from_expr(expr.capture_arg, used)
     elif isinstance(expr, IRStmtExpr):

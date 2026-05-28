@@ -1,0 +1,72 @@
+/* btrc standard library — Unix terminal helpers
+ * PTY-backed helpers live here so application code can stay object-oriented.
+ */
+
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/select.h>
+#include <pwd.h>
+#include <signal.h>
+#include <unistd.h>
+#include <time.h>
+
+extern int forkpty(int* amaster, char* name, void* termp, void* winp);
+
+class UnixPamPassword {
+    class bool change(string user, string oldPassword, string newPassword) {
+        struct passwd* pw = getpwnam(user);
+        if (pw == NULL) { return false; }
+
+        int fd = -1;
+        pid_t pid = forkpty(&fd, NULL, NULL, NULL);
+        if (pid < 0) { return false; }
+
+        if (pid == 0) {
+            setgid(pw->pw_gid);
+            setuid(pw->pw_uid);
+            setenv("HOME", pw->pw_dir, 1);
+            setenv("USER", user, 1);
+            setenv("LOGNAME", user, 1);
+            setenv("PATH", "/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin", 1);
+            execlp("passwd", "passwd", (char*)NULL);
+            _exit(127);
+        }
+
+        char* responses[3];
+        responses[0] = oldPassword;
+        responses[1] = newPassword;
+        responses[2] = newPassword;
+        int response = 0;
+        time_t deadline = time(NULL) + 30;
+        char buffer[4096];
+
+        while (time(NULL) < deadline && response < 3) {
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(fd, &readfds);
+            struct timeval timeout;
+            timeout.tv_sec = 5;
+            timeout.tv_usec = 0;
+            int ready = select(fd + 1, &readfds, NULL, NULL, &timeout);
+            if (ready < 0) { break; }
+            if (ready == 0) { continue; }
+            ssize_t n = read(fd, buffer, sizeof(buffer));
+            if (n <= 0) { break; }
+            bool prompt = false;
+            for (ssize_t i = 0; i < n; i++) {
+                if (buffer[i] == ':') { prompt = true; }
+            }
+            if (prompt) {
+                write(fd, responses[response], strlen(responses[response]));
+                write(fd, "\n", 1);
+                response++;
+                usleep(200000);
+            }
+        }
+
+        close(fd);
+        int status = 0;
+        waitpid(pid, &status, 0);
+        return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    }
+}

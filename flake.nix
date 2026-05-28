@@ -28,6 +28,16 @@
       systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
       eachSystem = fn: nixpkgs.lib.genAttrs systems (system: fn (import nixpkgs { inherit system; }));
     in {
+      apps = eachSystem (pkgs: let
+        system = pkgs.stdenv.hostPlatform.system;
+      in {
+        btrc = {
+          type = "app";
+          program = "${self.packages.${system}.btrcpy}/bin/btrcpy";
+        };
+        btrcpy = self.apps.${system}.btrc;
+        default = self.apps.${system}.btrc;
+      });
       devShells = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
       in {
@@ -40,7 +50,19 @@
               " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo";
         };
       });
-      packages = eachSystem (pkgs: {
+      packages = eachSystem (pkgs: let
+        btrcpy = pkgs.writeShellApplication {
+          name = "btrcpy";
+          runtimeInputs = [ pkgs.python314 ];
+          text = ''
+            export PYTHONPATH="${self}''${PYTHONPATH:+:$PYTHONPATH}"
+            exec ${pkgs.python314}/bin/python3 -m src.compiler.python.main "$@"
+          '';
+        };
+      in {
+        inherit btrcpy;
+        btrc = btrcpy;
+        default = btrcpy;
         devcontainer = pkgs.linkFarm "${cfg.name}-devcontainer" # nix build .#devcontainer — generates .devcontainer/ files
           (lib.mapAttrsToList (name: content: {
             inherit name;

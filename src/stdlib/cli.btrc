@@ -1,0 +1,78 @@
+/* btrc standard library — CLI argument helpers */
+
+class CliArgs {
+    public string program;
+    public Vector<string> values;
+
+    public CliArgs(int argc, char** argv) {
+        self.program = argc > 0 ? Strings.copy(argv[0]) : "";
+        self.values = [];
+        for (int i = 1; i < argc; i++) {
+            self.values.push(Strings.copy(argv[i]));
+        }
+    }
+
+    public int count() {
+        return self.values.len;
+    }
+
+    public string get(int index) {
+        return self.values.get(index);
+    }
+
+    public string command() {
+        if (self.values.len == 0) { return ""; }
+        return self.values.get(0);
+    }
+
+    public bool has(string flag) {
+        for value in self.values {
+            if (value.equals(flag)) { return true; }
+        }
+        return false;
+    }
+
+    public string valueAfter(string flag, string fallback) {
+        for (int i = 0; i < self.values.len - 1; i++) {
+            if (self.values.get(i).equals(flag)) {
+                return self.values.get(i + 1);
+            }
+        }
+        return fallback;
+    }
+
+    public bool commandIs(string name) {
+        return self.command().equals(name);
+    }
+
+    public string valueAfterPrefix(string prefix, string fallback) {
+        for value in self.values {
+            if (value.startsWith(prefix)) {
+                return value.substring(prefix.len(), value.len() - prefix.len());
+            }
+        }
+        return fallback;
+    }
+}
+
+class CliCommand {
+    public string name;
+    public Vector<string> aliases;
+
+    public CliCommand(string name) {
+        self.name = name;
+        self.aliases = [];
+    }
+
+    public void alias(string name) {
+        self.aliases.push(name);
+    }
+
+    public bool matches(string value) {
+        if (self.name.equals(value)) { return true; }
+        for alias in self.aliases {
+            if (alias.equals(value)) { return true; }
+        }
+        return false;
+    }
+}

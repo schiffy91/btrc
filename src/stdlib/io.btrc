@@ -38,7 +38,7 @@ class File {
             if (len > 0 && buf[len - 1] == '\n') {
                 buf[len - 1] = '\0';
             }
-            return __btrc_strdup(buf);
+            return Strings.copy(buf);
         }
         return "";
     }
@@ -52,7 +52,7 @@ class File {
             if (len > 0 && buf[len - 1] == '\n') {
                 buf[len - 1] = '\0';
             }
-            lines.push(__btrc_strdup(buf));
+            lines.push(Strings.copy(buf));
         }
         return lines;
     }

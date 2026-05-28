@@ -14,7 +14,7 @@ import hashlib
 import os
 
 # Version stamp — bump when compiler output changes for the same input
-_CACHE_VERSION = "3"
+_CACHE_VERSION = "8"
 
 _CACHE_DIR = ".btrc-cache"
 

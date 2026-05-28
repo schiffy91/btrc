@@ -48,7 +48,9 @@ class _UserGenericStmtMixin:
             ExprStmt,
             ForInStmt,
             IfStmt,
+            KeepStmt,
             ReturnStmt,
+            ReleaseStmt,
             VarDeclStmt,
             WhileStmt,
         )
@@ -74,10 +76,71 @@ class _UserGenericStmtMixin:
             return [IRBreak()]
         if isinstance(s, ContinueStmt):
             return [IRContinue()]
+        if isinstance(s, KeepStmt):
+            return self._keep_stmt(s)
+        if isinstance(s, ReleaseStmt):
+            return self._release_stmt(s)
         if isinstance(s, DeleteStmt):
             return [IRExprStmt(
                 expr=IRCall(callee="free", args=[self._expr(s.expr)]))]
         return []
+
+    def _expr_type(self, e):
+        from ....ast_nodes import FieldAccessExpr, Identifier, IndexExpr, SelfExpr
+        if isinstance(e, Identifier):
+            return self._var_types.get(e.name)
+        if isinstance(e, IndexExpr):
+            obj = e.obj
+            if (isinstance(obj, FieldAccessExpr) and
+                    isinstance(obj.obj, SelfExpr) and
+                    obj.field == "data" and "T" in self.type_map):
+                return self.type_map["T"]
+        return None
+
+    def _class_destroy_fn(self, resolved):
+        if not self._gen or not resolved:
+            return None
+        cls = self._gen.analyzed.class_table.get(resolved.base)
+        if not cls:
+            return None
+        if getattr(resolved, "generic_args", None):
+            from ..types import mangle_generic_type
+            target = mangle_generic_type(resolved.base, resolved.generic_args)
+            dtor = "free" if "free" in cls.methods else "destroy"
+            return f"{target}_{dtor}"
+        if cls.generic_params:
+            return None
+        return f"{resolved.base}_destroy"
+
+    def _keep_stmt(self, s) -> list[IRStmt]:
+        resolved = self._expr_type(s.expr)
+        if not self._class_destroy_fn(resolved):
+            return []
+        expr = self._expr(s.expr)
+        return [IRExprStmt(expr=IRUnaryOp(
+            op="++", operand=IRFieldAccess(obj=expr, field="__rc", arrow=True),
+            prefix=False))]
+
+    def _release_stmt(self, s) -> list[IRStmt]:
+        resolved = self._expr_type(s.expr)
+        destroy_fn = self._class_destroy_fn(resolved)
+        if not destroy_fn:
+            return []
+        expr = self._expr(s.expr)
+        return [IRIf(
+            condition=expr,
+            then_block=IRBlock(stmts=[IRIf(
+                condition=IRBinOp(
+                    left=IRUnaryOp(
+                        op="--",
+                        operand=IRFieldAccess(obj=expr, field="__rc", arrow=True),
+                        prefix=True),
+                    op="<=",
+                    right=IRLiteral(text="0")),
+                then_block=IRBlock(stmts=[IRExprStmt(
+                    expr=IRCall(callee=destroy_fn, args=[expr]))]),
+            )]),
+        )]
 
     def _var_decl(self, s) -> list[IRStmt]:
         c_type = self.resolve_c(s.type)

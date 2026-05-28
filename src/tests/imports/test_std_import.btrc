@@ -1,0 +1,10 @@
+import std.{json, toml}
+
+int main() {
+    JsonObject obj = JsonObject();
+    obj.setString("format", "json");
+    assert(obj.getString("format", "").equals("json"));
+    assert(Toml.value("name = \"btrc\"").equals("btrc"));
+    print("PASS: test_std_import");
+    return 0;
+}

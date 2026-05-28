@@ -62,10 +62,10 @@ STRING_OPS = {
         ),
     ),
     "__btrc_replace": HelperDef(
-        depends_on=["__btrc_safe_realloc"],
+        depends_on=["__btrc_safe_realloc", "__btrc_strdup"],
         c_source=(
             "static inline char* __btrc_replace(const char* s, const char* old, const char* rep) {\n"
-            '    if (!s) return __btrc_strdup("");\n'
+            + _NULL_RET_EMPTY +
             '    if (!old || !old[0]) return __btrc_strdup(s);\n'
             '    if (!rep) rep = "";\n'
             "    int slen = (int)strlen(s);\n"
@@ -146,6 +146,7 @@ STRING_OPS = {
         ),
     ),
     "__btrc_removePrefix": HelperDef(
+        depends_on=["__btrc_strdup"],
         c_source=(
             "static inline char* __btrc_removePrefix(const char* s, const char* prefix) {\n"
             + _NULL_RET_EMPTY +
@@ -162,6 +163,7 @@ STRING_OPS = {
         ),
     ),
     "__btrc_removeSuffix": HelperDef(
+        depends_on=["__btrc_strdup"],
         c_source=(
             "static inline char* __btrc_removeSuffix(const char* s, const char* suffix) {\n"
             + _NULL_RET_EMPTY +
@@ -296,6 +298,7 @@ STRING_OPS = {
         ),
     ),
     "__btrc_zfill": HelperDef(
+        depends_on=["__btrc_strdup"],
         c_source=(
             "static inline char* __btrc_zfill(const char* s, int width) {\n"
             + _NULL_RET_EMPTY +
@@ -313,6 +316,7 @@ STRING_OPS = {
         ),
     ),
     "__btrc_strcat": HelperDef(
+        depends_on=["__btrc_strdup"],
         c_source=(
             "static inline char* __btrc_strcat(const char* a, const char* b) {\n"
             '    if (!a && !b) { char* r = (char*)malloc(1); r[0] = \'\\0\'; return r; }\n'

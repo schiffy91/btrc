@@ -2,7 +2,7 @@
 
 **Modern syntax & features. C output. No magic.**
 
-btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, collections, threads, GPU compute, automatic reference counting, exception handling, and a standard library -- all while staying compatible with C. The generated C is strict C11: no compiler extensions, no runtime library, no garbage collector, no virtual machine. Small inline helpers handle strings, collections, threading, and exceptions, but nothing is linked separately. You can inspect, debug, and link the output with any C11 compiler. It comes with a VS Code extension, a language server, and 930 tests.
+btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, imports, collections, threads, GPU compute, automatic reference counting, exception handling, and a growing standard library -- all while staying compatible with C. The generated C is strict C11: no compiler extensions, no runtime library, no garbage collector, no virtual machine. Small inline helpers handle strings, collections, threading, and exceptions, but nothing is linked separately. You can inspect, debug, and link the output with any C11 compiler. It comes with a VS Code extension, a language server, and hundreds of compiler/language tests.
 
 And no – it's not actually better than C, but I like the name, which I ripped off from [btrfs](https://en.wikipedia.org/wiki/Btrfs).
 
@@ -59,6 +59,7 @@ Plus, btrc *definitely* has bugs.
 # Option 1: Nix (recommended — all dependencies handled)
 nix develop
 make build
+nix run .#btrc -- hello.btrc -o hello.c
 
 # Option 2: Devcontainer (VS Code)
 make devcontainer    # build container image
@@ -72,9 +73,17 @@ make build
 gcc hello.c -o hello -lm
 ./hello
 
+# Compile with explicit imports only
+./bin/btrcpy --no-stdlib tool.btrc -o tool.c
+nix run .#btrc -- --no-stdlib tool.btrc -o tool.c
+
 # Or use the Python compiler directly
 python3 -m src.compiler.python.main hello.btrc -o hello.c
 ```
+
+The flake exports the compiler as `packages.<system>.btrcpy`,
+`packages.<system>.btrc`, and `apps.<system>.btrc`, so downstream flakes can
+depend on BTRC directly instead of shelling into this repository.
 
 ## What You Get Over C
 
@@ -85,6 +94,7 @@ python3 -m src.compiler.python.main hello.btrc -o hello.c
 | No memory management | ARC (Automatic Reference Counting) |
 | No type inference | `var x = 42;` just works |
 | `printf` formatting | f-strings: `f"x = {x + 1}"` |
+| Ad hoc include order | `import std.{json, process}`, `import ./src/**`, plus old `#include` compatibility |
 | No collections | `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>` with rich APIs |
 | No lambdas | Arrow lambdas: `(int x) => x * 2` |
 | No exceptions | `try`/`catch`/`finally` with ARC-safe cleanup on throw |
@@ -94,6 +104,51 @@ python3 -m src.compiler.python.main hello.btrc -o hello.c
 | No GPU compute | `@gpu` functions transpile to WGSL shaders with auto-generated WebGPU boilerplate |
 | Null pointer chaos | Nullable types (`T?`), optional chaining `?.`, null coalescing `??` |
 | Manual memory only | Automatic reference counting with `keep`/`release` + cycle detection |
+
+## Imports and Stdlib
+
+The compiler still supports C-style `#include "file.btrc"` for compatibility,
+but new code should prefer `import`. Imports are textual today, but they give
+programs a cleaner and more declarative way to state dependency order while the
+module system matures.
+
+```
+import std.{cli, fs, json, process, toml, ui}
+import std.*
+import ./src/core/*
+import ./src/**
+```
+
+Supported forms are:
+
+- `std.name` for one standard-library module
+- `std.{a, b, c}` for a small ordered set
+- `std.*` or `std.**` for the discovered standard library
+- relative files such as `./helpers/message.btrc`
+- directory globs with `./dir/*`
+- recursive directory globs with `./dir/**`
+
+Use `--no-stdlib` when building programs that vendor or explicitly import the
+stdlib themselves. This is useful for downstream projects that need deterministic
+include ordering or a checked-in stdlib snapshot.
+
+The current stdlib surfaces are intentionally practical:
+
+- `Strings` for object-oriented string helpers, conversion, splitting, joining,
+  padding, and comparisons
+- `Command`, `CommandResult`, `UnixShell`, `ShellWords`, and `ProcessPipe` for
+  chainable shell/process orchestration
+- `FileSystem`, `PathTools`, `Directory`, and `FileStatus` for filesystem work
+- `JsonObject` and `TomlDocument` for small declarative config files
+- `CliArgs`, `CliCommand`, and `CliRouter` for simple CLIs
+- `UiDocument`, `Window`, `Tray`, `DaemonSpec`, and related daemon/UI models for
+  lightweight native-app scaffolding
+- `Platform`, `Environment`, and `Terminal` for OS/runtime integration
+
+Low-level stdlib internals may call C APIs because that is how btrc exposes
+platform primitives. Application and test code should use the object-oriented
+wrappers instead of reaching for `strcmp`, `__btrc_strdup`, manual shell string
+assembly, or raw path manipulation.
 
 ## What You Keep From C
 

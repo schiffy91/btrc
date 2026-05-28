@@ -1,0 +1,95 @@
+/* btrc standard library — daemon specs and simple Unix supervision
+ * The stdlib keeps daemon intent declarative. Platform-specific service
+ * managers can consume DaemonSpec without changing app code.
+ */
+
+class DaemonSpec {
+    public string name;
+    public Command command;
+    public string pidFile;
+    public string logFile;
+    public string workingDirectory;
+    public bool autoRestart;
+
+    public DaemonSpec(string name, Command command) {
+        self.name = name;
+        self.command = command;
+        self.pidFile = f"/tmp/{name}.pid";
+        self.logFile = f"/tmp/{name}.log";
+        self.workingDirectory = "";
+        self.autoRestart = false;
+    }
+
+    public DaemonSpec pid(string path) {
+        self.pidFile = path;
+        return self;
+    }
+
+    public DaemonSpec log(string path) {
+        self.logFile = path;
+        return self;
+    }
+
+    public DaemonSpec cwd(string path) {
+        self.workingDirectory = path;
+        return self;
+    }
+
+    public DaemonSpec restart(bool enabled) {
+        self.autoRestart = enabled;
+        return self;
+    }
+
+    public string renderStartCommand() {
+        string rendered = self.command.render();
+        string prefix = self.workingDirectory.isEmpty() ? "" : f"cd {UnixShell.quote(self.workingDirectory)} && ";
+        return f"{prefix}nohup {rendered} >> {UnixShell.quote(self.logFile)} 2>&1 & echo $! > {UnixShell.quote(self.pidFile)}";
+    }
+}
+
+class DaemonController {
+    public UnixShell shell;
+
+    public DaemonController() {
+        self.shell = UnixShell();
+    }
+
+    public ExecResult start(DaemonSpec spec) {
+        return self.shell.runRaw(spec.renderStartCommand(), true, true, "");
+    }
+
+    public ExecResult stop(DaemonSpec spec) {
+        string command = f"if [ -f {UnixShell.quote(spec.pidFile)} ]; then kill $(cat {UnixShell.quote(spec.pidFile)}) && rm -f {UnixShell.quote(spec.pidFile)}; fi";
+        return self.shell.runRaw(command, true, false, "");
+    }
+
+    public ExecResult status(DaemonSpec spec) {
+        string command = f"test -f {UnixShell.quote(spec.pidFile)} && kill -0 $(cat {UnixShell.quote(spec.pidFile)})";
+        return self.shell.runRaw(command, true, false, "");
+    }
+}
+
+class AppSpec {
+    public string name;
+    public string version;
+
+    public AppSpec(string name) {
+        self.name = name;
+        self.version = "0.0.0";
+    }
+
+    public AppSpec withVersion(string version) {
+        self.version = version;
+        return self;
+    }
+}
+
+class DaemonApp extends AppSpec {
+    public DaemonSpec daemon;
+
+    public DaemonApp(string name, DaemonSpec daemon) {
+        self.name = name;
+        self.version = "0.0.0";
+        self.daemon = daemon;
+    }
+}

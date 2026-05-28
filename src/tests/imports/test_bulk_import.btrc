@@ -1,0 +1,7 @@
+import ./helpers/**
+
+int main() {
+    assert(ImportedMessage.value().equals("bulk-import-ok"));
+    print("PASS: test_bulk_import");
+    return 0;
+}

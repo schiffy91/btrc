@@ -22,6 +22,7 @@ from ..nodes import (
 from .types import is_concrete_instance, mangle_generic_type, type_to_c
 
 _STANDARD_INCLUDES = [
+    "#define _DEFAULT_SOURCE",
     "stdio.h", "stdlib.h", "string.h", "stdbool.h", "stdint.h",
     "ctype.h", "math.h", "assert.h", "limits.h",
 ]
@@ -129,6 +130,9 @@ class IRGenerator:
             if (isinstance(decl, ClassDecl) and not decl.generic_params) or isinstance(decl, StructDecl):
                 self.module.forward_decls.append(
                     f"typedef struct {decl.name} {decl.name};")
+                if isinstance(decl, ClassDecl) and not decl.generic_params:
+                    self.module.forward_decls.append(
+                        f"void {decl.name}_destroy({decl.name}* self);")
             elif isinstance(decl, FunctionDecl) and decl.body and decl.name != "main":
                 # Defer function forward decls until after tuple struct defs
                 ret_type = type_to_c(decl.return_type) if decl.return_type else "void"
@@ -217,8 +221,6 @@ class IRGenerator:
 
     def _emit_helpers(self):
         """Register all used runtime helpers as IRHelperDecl entries."""
-        # __btrc_strdup is always needed — stdlib uses it as C11-portable strdup
-        self.use_helper("__btrc_strdup")
         from .helpers import collect_helpers
         collect_helpers(self)
 

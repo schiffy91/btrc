@@ -1,0 +1,187 @@
+int main(int argc, char** argv) {
+    assert(Platform.isUnix());
+    assert(!Platform.isWindows());
+    assert(Platform.pathSeparator().equals("/"));
+    assert(Platform.pid() > 0);
+    assert(UnixPlatform.pid() == Platform.pid());
+    assert(Environment.get("__BTRC_TEST_MISSING__", "fallback").equals("fallback"));
+
+    ProcessStatus okStatus = ProcessStatus(0);
+    assert(okStatus.ok());
+    ProcessStatus failedStatus = ProcessStatus(7);
+    assert(failedStatus.code() == 7);
+    assert(!failedStatus.ok());
+
+    assert(UnixShell.quote("simple").equals("simple"));
+    string quoted = UnixShell.quote("hello world");
+    assert(quoted.equals("'hello world'"));
+    Vector<string> split = Strings.split("alpha beta gamma", " ");
+    assert(split.len == 3);
+    assert(split.get(0).equals("alpha"));
+    assert(split.get(2).equals("gamma"));
+    assert(Strings.removePrefix("--arg=name=value", "--arg=").equals("name=value"));
+    assert(Strings.removePrefix("plain", "--arg=").equals("plain"));
+
+    UnixShell shell = UnixShell();
+    ExecResult result = shell.run("printf btrc");
+    assert(result.ok());
+    assert(result.stdout().equals("btrc"));
+
+    UnixPipe pipe = UnixProcess.pipe("printf pipe");
+    assert(pipe.ok());
+    assert(pipe.readAll().equals("pipe"));
+    assert(pipe.close().ok());
+
+    Command cmd = Command("printf")
+        .arg("hello world")
+        .check(true)
+        .capture(true);
+    ExecResult cmdResult = shell.runCommand(cmd);
+    assert(cmdResult.ok());
+    assert(cmdResult.stdout().equals("hello world"));
+
+    Command envCmd = Command("sh")
+        .arg("-c")
+        .arg("printf '%s' \"$BTRC_ENV_VALUE\"")
+        .envVar("BTRC_ENV_VALUE", "hello world")
+        .check(true)
+        .capture(true);
+    ExecResult envResult = shell.runCommand(envCmd);
+    assert(envResult.ok());
+    assert(envResult.stdout().equals("hello world"));
+
+    ExecResult failed = shell.runUnchecked("exit 7");
+    assert(!failed.ok());
+    assert(failed.code == 7);
+
+    PowerShell ps = PowerShell();
+    ExecResult unsupported = ps.run("Write-Output nope");
+    assert(!unsupported.ok());
+    assert(unsupported.stderr().equals("PowerShell support is TODO"));
+
+    UiNode root = Ui.div()
+        .id("root")
+        .child(Ui.button("Save & Close"))
+        .child(Ui.input("path", "/tmp/a b"));
+    UiDocument document = Ui.document("Demo <App>", root)
+        .style("body { color: red; }");
+    string html = document.renderHtml();
+    assert(html.contains("&lt;App&gt;"));
+    assert(html.contains("Save &amp; Close"));
+    assert(html.contains("name='path'"));
+    UiDocument rawDocument = Ui.document("Raw", Ui.rawHtml("<main><strong>Native</strong></main>"));
+    assert(rawDocument.renderHtml().contains("<strong>Native</strong>"));
+    assert(!rawDocument.renderHtml().contains("&lt;strong&gt;"));
+
+    NativeUiBackend linuxUi = LinuxUiBuilder.native();
+    assert(linuxUi.name.equals("linux"));
+    assert(linuxUi.notifyCommand("Title", "Body").render().contains("notify-send"));
+    assert(linuxUi.alertCommand("Title", "Body").render().contains("zenity"));
+    NativeUiBackend macUi = MacUiBuilder.native();
+    assert(macUi.notifyCommand("Title", "Body").render().contains("osascript"));
+    assert(NativeUi.applescriptString("a \"quote\"").contains("\\\"quote\\\""));
+
+    Thread<int> uiThread = UiRuntime.runCommandAsync(Command("printf").arg("ui"));
+    assert(uiThread.join() == 0);
+
+    Tray tray = Tray("NixOS")
+        .tip("System controls")
+        .item("Upgrade", "nixosctl upgrade")
+        .add(TrayItem("Disabled", "noop").disabled());
+    assert(tray.items.len == 2);
+    assert(tray.items.get(1).renderLabel().contains("disabled"));
+
+    State<int> counter = new State<int>(1);
+    int seenVersion = counter.version;
+    counter.set(2);
+    assert(counter.get() == 2);
+    assert(counter.changedSince(seenVersion));
+
+    Signal signal = Signal();
+    signal.emit("ready");
+    assert(signal.hasEvents());
+    assert(signal.latest().equals("ready"));
+    signal.clear();
+    assert(!signal.hasEvents());
+
+    DaemonSpec daemon = DaemonSpec("demo", Command("printf").arg("hi"))
+        .pid("/tmp/demo.pid")
+        .log("/tmp/demo.log")
+        .cwd("/tmp");
+    string startCommand = daemon.renderStartCommand();
+    assert(startCommand.contains("nohup printf hi"));
+    assert(startCommand.contains("/tmp/demo.pid"));
+    DaemonApp daemonApp = DaemonApp("demo", daemon);
+    assert(daemonApp.name.equals("demo"));
+    assert(daemonApp.daemon.name.equals("demo"));
+
+    string path = "/tmp/btrc_stdlib_system_helpers.txt";
+    FileSystem.writeText(path, "contents");
+    FileStatus status = FileStatus(path);
+    assert(status.exists());
+    assert(status.isFile());
+    assert(FileSystem.exists(path));
+    assert(FileSystem.isFile(path));
+    assert(!FileSystem.isDir(path));
+    assert(FileSystem.readText(path).equals("contents"));
+    assert(PathTools.basename("/tmp/example.txt").equals("example.txt"));
+    assert(PathTools.dirname("/tmp/example.txt").equals("/tmp"));
+    assert(PathTools.join("/tmp", "example.txt").equals("/tmp/example.txt"));
+    FileSystem.removeRecursive(path);
+    assert(!FileSystem.exists(path));
+
+    string tempDir = FileSystem.tempDir("btrc-stdlib-fs");
+    assert(tempDir.len() > 0);
+    assert(FileSystem.isDir(tempDir));
+    string linkTarget = PathTools.join(tempDir, "target.txt");
+    string linkPath = PathTools.join(tempDir, "target.link");
+    FileSystem.writeText(linkTarget, "link target");
+    assert(FileSystem.symlink(linkTarget, linkPath) == 0);
+    assert(FileSystem.isSymlink(linkPath));
+    assert(FileSystem.readLink(linkPath).equals(linkTarget));
+    FileSystem.removeRecursive(tempDir);
+    assert(!FileSystem.exists(tempDir));
+
+    Directory tmp = Directory("/tmp");
+    Vector<string> entries = tmp.entries();
+    assert(entries.len >= 0);
+
+    assert(Pattern.matches("*.nix", "host.nix"));
+    assert(!Pattern.matches("*.nix", "host.btrc"));
+
+    CliArgs args = CliArgs(argc, argv);
+    assert(args.count() == argc - 1);
+    assert(!args.has("--missing"));
+    assert(args.valueAfter("--missing", "fallback").equals("fallback"));
+    assert(args.valueAfterPrefix("--missing=", "fallback").equals("fallback"));
+    assert(!args.commandIs("__missing__"));
+
+    JsonObject obj = JsonObject();
+    obj.setString("host_path", "modules/hosts/x86_64/VM-TEST.nix");
+    obj.setString("target", "Standard-Boot");
+    obj.setBool("enabled", true);
+    obj.setInt("generation", 42);
+    assert(obj.has("target"));
+    assert(obj.getString("target", "").equals("Standard-Boot"));
+    assert(obj.getBool("enabled", false));
+    assert(obj.getInt("generation", 0) == 42);
+
+    string encoded = obj.stringify();
+    assert(encoded.contains("\"target\""));
+    assert(encoded.contains("\"Standard-Boot\""));
+
+    JsonObject parsed = JsonObject.parse("{\"host_path\":\"modules/hosts/x86_64/VM-TEST.nix\",\"target\":\"Standard-Boot\",\"enabled\":true,\"generation\":42}");
+    assert(parsed.getString("host_path", "").equals("modules/hosts/x86_64/VM-TEST.nix"));
+    assert(parsed.getString("target", "").equals("Standard-Boot"));
+    assert(parsed.getBool("enabled", false));
+    assert(parsed.getInt("generation", 0) == 42);
+
+    string jsonPath = "/tmp/btrc_stdlib_system.json";
+    parsed.writeFile(jsonPath);
+    JsonObject loaded = JsonObject.readFile(jsonPath);
+    assert(loaded.getString("target", "").equals("Standard-Boot"));
+    FileSystem.removeRecursive(jsonPath);
+
+    print("PASS: test_stdlib_system");
+    return 0;
+}

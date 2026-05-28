@@ -41,9 +41,15 @@ def _format_error(source: str, filename: str, message: str,
 
 
 _BTRC_INCLUDE_RE = re.compile(r'^\s*#include\s+[<"]([^>"]+\.btrc)[>"]\s*$')
+_BTRC_IMPORT_RE = re.compile(r'^\s*import\s+(.+?)\s*;?\s*$')
 
 # Regex to extract class names from btrc source (for skip-if-redefined)
-_CLASS_NAME_RE = re.compile(r'^\s*class\s+(\w+)', re.MULTILINE)
+_CLASS_NAME_RE = re.compile(
+    r'^\s*(?:abstract\s+)?class\s+(\w+)(?:\s*<[^>\n]+>)?\s*'
+    r'(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?'
+    r'(?:implements\s+\w+(?:\s*,\s*\w+)*\s*)?\{',
+    re.MULTILINE,
+)
 
 
 def _get_stdlib_dir() -> str:
@@ -57,14 +63,25 @@ def _discover_stdlib_files() -> list[str]:
     """Scan src/stdlib/ and return .btrc filenames in include order.
 
     vector.btrc comes first (Map/Set/List/Array may depend on Vector),
-    then list.btrc (depends on ListNode + Vector), then rest alphabetically.
+    then list.btrc (depends on ListNode + Vector), then strings.btrc
+    because higher-level stdlib modules use Strings.copy(). Process/fs come
+    before app-level modules that construct shell and filesystem helpers.
     """
     stdlib_dir = _get_stdlib_dir()
     if not os.path.isdir(stdlib_dir):
         return []
     files = sorted(f for f in os.listdir(stdlib_dir) if f.endswith(".btrc"))
-    # vector.btrc first, list.btrc second (uses Vector), then rest alphabetical
-    priority = ["vector.btrc", "list.btrc"]
+    # Foundation modules first, then the rest alphabetically.
+    priority = [
+        "vector.btrc",
+        "list.btrc",
+        "strings.btrc",
+        "platform.btrc",
+        "process.btrc",
+        "fs.btrc",
+        "daemon.btrc",
+        "ui.btrc",
+    ]
     ordered = [f for f in priority if f in files]
     ordered += [f for f in files if f not in priority]
     return ordered
@@ -96,8 +113,137 @@ def get_stdlib_source(user_source: str = "") -> str:
     return "\n".join(parts)
 
 
+def _find_stdlib_file(include_path: str) -> str | None:
+    """Find a stdlib file by root-relative path or basename in subdirectories."""
+    stdlib_dir = _get_stdlib_dir()
+    stdlib_path = os.path.join(stdlib_dir, include_path)
+    if os.path.exists(stdlib_path):
+        return stdlib_path
+
+    fname = os.path.basename(include_path)
+    for entry in os.listdir(stdlib_dir):
+        sub = os.path.join(stdlib_dir, entry)
+        if os.path.isdir(sub):
+            candidate = os.path.join(sub, fname)
+            if os.path.exists(candidate):
+                return candidate
+    return None
+
+
+def _resolve_include_path(include_path: str, source_dir: str) -> str:
+    full_path = os.path.join(source_dir, include_path)
+    if os.path.exists(full_path):
+        return full_path
+
+    stdlib_path = _find_stdlib_file(include_path)
+    if stdlib_path is not None:
+        return stdlib_path
+
+    print(f"error: include file '{include_path}' not found\n"
+          f"  searched: {source_dir}\n"
+          f"  searched: {_get_stdlib_dir()}",
+          file=sys.stderr)
+    sys.exit(1)
+
+
+def _strip_import_quotes(spec: str) -> str:
+    spec = spec.strip()
+    if spec.endswith(";"):
+        spec = spec[:-1].strip()
+    if len(spec) >= 2 and spec[0] in ('"', "'") and spec[-1] == spec[0]:
+        return spec[1:-1]
+    return spec
+
+
+def _expand_brace_import(spec: str) -> list[str]:
+    start = spec.find("{")
+    end = spec.find("}", start + 1)
+    if start < 0 or end < 0:
+        return [spec]
+    prefix = spec[:start]
+    suffix = spec[end + 1:]
+    result = []
+    for item in spec[start + 1:end].split(","):
+        name = item.strip()
+        if name:
+            result.append(prefix + name + suffix)
+    return result
+
+
+def _stdlib_import_paths(spec: str) -> list[str]:
+    stdlib_dir = _get_stdlib_dir()
+    if spec in ("std.*", "std.**"):
+        return [os.path.join(stdlib_dir, fname) for fname in _discover_stdlib_files()]
+    if not spec.startswith("std."):
+        return []
+
+    name = spec.removeprefix("std.")
+    if not name.endswith(".btrc"):
+        name = f"{name}.btrc"
+    path = _find_stdlib_file(name)
+    if path is None:
+        print(f"error: stdlib import '{spec}' not found\n"
+              f"  searched: {stdlib_dir}",
+              file=sys.stderr)
+        sys.exit(1)
+    return [path]
+
+
+def _relative_import_paths(spec: str, source_dir: str) -> list[str]:
+    recursive = spec.endswith("/**")
+    direct_glob = spec.endswith("/*")
+    if recursive or direct_glob:
+        base = spec[:-3] if recursive else spec[:-2]
+        root = base if os.path.isabs(base) else os.path.join(source_dir, base)
+        if not os.path.isdir(root):
+            print(f"error: import directory '{spec}' not found\n"
+                  f"  searched: {root}",
+                  file=sys.stderr)
+            sys.exit(1)
+        matches: list[str] = []
+        if recursive:
+            for current, _dirs, files in os.walk(root):
+                for fname in files:
+                    if fname.endswith((".btrc", ".c")):
+                        matches.append(os.path.join(current, fname))
+        else:
+            for fname in os.listdir(root):
+                path = os.path.join(root, fname)
+                if os.path.isfile(path) and fname.endswith((".btrc", ".c")):
+                    matches.append(path)
+        return sorted(matches)
+
+    if os.path.isdir(spec if os.path.isabs(spec) else os.path.join(source_dir, spec)):
+        root = spec if os.path.isabs(spec) else os.path.join(source_dir, spec)
+        return sorted(
+            os.path.join(root, fname)
+            for fname in os.listdir(root)
+            if fname.endswith((".btrc", ".c")) and os.path.isfile(os.path.join(root, fname))
+        )
+
+    path = spec if os.path.isabs(spec) else os.path.join(source_dir, spec)
+    if os.path.exists(path):
+        return [path]
+    return [_resolve_include_path(spec, source_dir)]
+
+
+def _import_paths(spec: str, source_dir: str) -> list[str]:
+    paths: list[str] = []
+    for expanded in _expand_brace_import(_strip_import_quotes(spec)):
+        paths.extend(_stdlib_import_paths(expanded) or _relative_import_paths(expanded, source_dir))
+    return paths
+
+
 def resolve_includes(source: str, source_path: str, included: set[str] | None = None) -> str:
-    """Recursively resolve #include "file.btrc" directives by textual inclusion."""
+    """Recursively resolve btrc includes/imports by textual inclusion.
+
+    Supported import forms:
+      import std.{cli, fs, process}
+      import std.*
+      import ./file.btrc
+      import ./directory/*
+      import ./directory/**
+    """
     if included is None:
         included = set()
 
@@ -114,37 +260,25 @@ def resolve_includes(source: str, source_path: str, included: set[str] | None = 
         m = _BTRC_INCLUDE_RE.match(line)
         if m:
             include_path = m.group(1)
-            full_path = os.path.join(source_dir, include_path)
-            if not os.path.exists(full_path):
-                # Fallback: search in stdlib directory (root and subdirectories)
-                stdlib_dir = _get_stdlib_dir()
-                stdlib_path = os.path.join(stdlib_dir, include_path)
-                if os.path.exists(stdlib_path):
-                    full_path = stdlib_path
-                else:
-                    # Search stdlib subdirectories: e.g. gpu.btrc → gpu/gpu.btrc
-                    found = False
-                    fname = os.path.basename(include_path)
-                    for entry in os.listdir(stdlib_dir):
-                        sub = os.path.join(stdlib_dir, entry)
-                        if os.path.isdir(sub):
-                            candidate = os.path.join(sub, fname)
-                            if os.path.exists(candidate):
-                                full_path = candidate
-                                found = True
-                                break
-                    if not found:
-                        print(f"error: include file '{include_path}' not found\n"
-                              f"  searched: {source_dir}\n"
-                              f"  searched: {stdlib_dir}",
-                              file=sys.stderr)
-                        sys.exit(1)
+            full_path = _resolve_include_path(include_path, source_dir)
             with open(full_path, 'r') as f:
                 included_source = f.read()
             resolved = resolve_includes(included_source, full_path, included)
             result.append(resolved)
-        else:
-            result.append(line)
+            continue
+
+        m = _BTRC_IMPORT_RE.match(line)
+        if m:
+            for full_path in _import_paths(m.group(1), source_dir):
+                if full_path.endswith(".c"):
+                    result.append(f'#include "{os.path.abspath(full_path)}"')
+                    continue
+                with open(full_path, 'r') as f:
+                    included_source = f.read()
+                result.append(resolve_includes(included_source, full_path, included))
+            continue
+
+        result.append(line)
 
     return '\n'.join(result)
 
@@ -176,6 +310,8 @@ def main():
     argparser.add_argument("--emit-ast", action="store_true", help="Print AST")
     argparser.add_argument("--no-runtime", action="store_true",
                            help="Don't include runtime headers in output")
+    argparser.add_argument("--no-stdlib", action="store_true",
+                           help="Don't auto-include stdlib .btrc files; use explicit includes only")
     argparser.add_argument("--debug", action="store_true",
                            help="Emit #line directives for source-level debugging")
     argparser.add_argument("--emit-ir", action="store_true",
@@ -199,9 +335,10 @@ def main():
     source = resolve_includes(source, args.input)
 
     # Auto-include all stdlib types (skip classes user already defines)
-    stdlib_source = get_stdlib_source(source)
-    if stdlib_source:
-        source = stdlib_source + "\n" + source
+    if not args.no_stdlib:
+        stdlib_source = get_stdlib_source(source)
+        if stdlib_source:
+            source = stdlib_source + "\n" + source
 
     filename = os.path.basename(args.input)
 

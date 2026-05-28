@@ -1,0 +1,36 @@
+/* Vector<T> owns class elements it stores. */
+#include <assert.h>
+
+int live_items = 0;
+
+class OwnedItem {
+    public int id;
+
+    public OwnedItem(int id) {
+        self.id = id;
+        live_items++;
+    }
+
+    public void __del__() {
+        live_items--;
+    }
+}
+
+Vector<OwnedItem> makeItems() {
+    Vector<OwnedItem> items = [];
+    OwnedItem item = new OwnedItem(7);
+    items.push(item);
+    assert(live_items == 1);
+    return items;
+}
+
+int main() {
+    Vector<OwnedItem> items = makeItems();
+    assert(items.len == 1);
+    assert(items.get(0).id == 7);
+    assert(live_items == 1);
+    items.free();
+    assert(live_items == 0);
+    print("PASS: test_vector_object_ownership");
+    return 0;
+}

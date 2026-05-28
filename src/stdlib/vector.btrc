@@ -15,6 +15,7 @@ class Vector<T> implements Iterable {
     }
 
     public void push(T val) {
+        keep val;
         if (self.len >= self.cap) {
             self.cap = self.cap == 0 ? 4 : self.cap * 2;
             self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
@@ -36,10 +37,15 @@ class Vector<T> implements Iterable {
 
     public void set(int i, T val) {
         if (i < 0 || i >= self.len) { fprintf(stderr, "Vector index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
+        release self.data[i];
+        keep val;
         self.data[i] = val;
     }
 
     public void free() {
+        for (int i = 0; i < self.len; i++) {
+            release self.data[i];
+        }
         free(self.data);
         self.data = null;
         self.len = 0;
@@ -48,6 +54,7 @@ class Vector<T> implements Iterable {
 
     public void remove(int idx) {
         if (idx < 0 || idx >= self.len) { fprintf(stderr, "Vector remove index out of bounds: %d (len=%d)\n", idx, self.len); exit(1); }
+        release self.data[idx];
         for (int i = idx; i < self.len - 1; i++) {
             self.data[i] = self.data[i + 1];
         }
@@ -78,11 +85,16 @@ class Vector<T> implements Iterable {
     }
 
     public void clear() {
+        for (int i = 0; i < self.len; i++) {
+            release self.data[i];
+        }
         self.len = 0;
     }
 
     public void fill(T val) {
         for (int i = 0; i < self.len; i++) {
+            release self.data[i];
+            keep val;
             self.data[i] = val;
         }
     }
@@ -137,6 +149,7 @@ class Vector<T> implements Iterable {
 
     public void insert(int idx, T val) {
         if (idx < 0 || idx > self.len) { fprintf(stderr, "Vector insert index out of bounds: %d (size %d)\n", idx, self.len); exit(1); }
+        keep val;
         if (self.len >= self.cap) {
             self.cap = self.cap == 0 ? 4 : self.cap * 2;
             self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
@@ -186,6 +199,8 @@ class Vector<T> implements Iterable {
             if (!__btrc_eq(self.data[i], val)) {
                 self.data[j] = self.data[i];
                 j++;
+            } else {
+                release self.data[i];
             }
         }
         self.len = j;

@@ -1,0 +1,68 @@
+/* btrc standard library — small TOML helpers.
+ * Covers common app config shapes: sections, arrays of tables, and quoted
+ * scalar key/value fields. Full TOML type coverage can grow here over time.
+ */
+
+class Toml {
+    class string stripInlineComment(string raw) {
+        bool inString = false;
+        bool escaped = false;
+        int len = raw.len();
+        for (int i = 0; i < len; i++) {
+            char c = raw[i];
+            if (inString) {
+                if (!escaped && c == (char)34) { inString = false; }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                inString = true;
+                escaped = false;
+                continue;
+            }
+            if (c == '#') {
+                return raw.substring(0, i).trim();
+            }
+        }
+        return raw.trim();
+    }
+
+    class string unquote(string raw) {
+        string value = raw.trim();
+        if (value.startsWith("\"") && value.endsWith("\"") && value.len() >= 2) {
+            return value.substring(1, value.len() - 2);
+        }
+        if (value.startsWith("'") && value.endsWith("'") && value.len() >= 2) {
+            return value.substring(1, value.len() - 2);
+        }
+        return value;
+    }
+
+    class string key(string line) {
+        string cleaned = Toml.stripInlineComment(line);
+        int pos = Strings.find(cleaned, "=", 0);
+        if (pos < 0) { return ""; }
+        return Toml.unquote(cleaned.substring(0, pos).trim());
+    }
+
+    class string value(string line) {
+        string cleaned = Toml.stripInlineComment(line);
+        int pos = Strings.find(cleaned, "=", 0);
+        if (pos < 0) { return ""; }
+        return Toml.unquote(cleaned.substring(pos + 1, cleaned.len() - pos - 1).trim());
+    }
+
+    class string sectionName(string line) {
+        string cleaned = Toml.stripInlineComment(line);
+        if (!cleaned.startsWith("[") || !cleaned.endsWith("]")) { return ""; }
+        if (cleaned.startsWith("[[")) { return ""; }
+        return cleaned.substring(1, cleaned.len() - 2).trim();
+    }
+
+    class string tableArrayName(string line) {
+        string cleaned = Toml.stripInlineComment(line);
+        if (!cleaned.startsWith("[[") || !cleaned.endsWith("]]")) { return ""; }
+        return cleaned.substring(2, cleaned.len() - 4).trim();
+    }
+}

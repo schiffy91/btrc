@@ -70,7 +70,7 @@ def test_btrc_file(btrc_file):
     with tempfile.NamedTemporaryFile(suffix=".c", delete=False, mode="w") as f:
         f.write(c_source)
         c_path = f.name
-    bin_path = c_path.replace(".c", "")
+    bin_path = c_path.removesuffix(".c")
 
     try:
         # Compile with configurable C compiler and C11 flags

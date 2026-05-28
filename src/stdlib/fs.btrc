@@ -1,0 +1,234 @@
+/* btrc standard library — File system helpers
+ * POSIX implementation with an object-oriented API.
+ */
+
+#define _DARWIN_C_SOURCE
+#include <dirent.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+extern char* mkdtemp(char* templatePath);
+
+class FileStatus {
+    public string path;
+    public int mode;
+    public int linkMode;
+    public bool found;
+    public bool linkFound;
+
+    public FileStatus(string path) {
+        self.path = path;
+        struct stat st;
+        self.found = stat(path, &st) == 0;
+        self.mode = self.found ? (int)st.st_mode : 0;
+        struct stat lst;
+        self.linkFound = lstat(path, &lst) == 0;
+        self.linkMode = self.linkFound ? (int)lst.st_mode : 0;
+    }
+
+    public bool exists() {
+        return self.found;
+    }
+
+    public bool isDir() {
+        return self.found && S_ISDIR(self.mode);
+    }
+
+    public bool isFile() {
+        return self.found && S_ISREG(self.mode);
+    }
+
+    public bool isSymlink() {
+        return self.linkFound && S_ISLNK(self.linkMode);
+    }
+}
+
+class Directory {
+    public string path;
+
+    public Directory(string path) {
+        self.path = path;
+    }
+
+    public Vector<string> entries() {
+        Vector<string> result = [];
+        DIR* dir = opendir(self.path);
+        if (dir == NULL) { return result; }
+        struct dirent* entry = readdir(dir);
+        while (entry != NULL) {
+            string name = entry->d_name;
+            if (!name.equals(".") && !name.equals("..")) {
+                result.push(Strings.copy(name));
+            }
+            entry = readdir(dir);
+        }
+        closedir(dir);
+        return result;
+    }
+}
+
+class UnixFileSystem {
+    class int statusCode(int raw) {
+        if (raw == -1) { return 127; }
+        if (raw > 255) { return raw / 256; }
+        return raw;
+    }
+
+    class int chmodPath(string path, int mode) {
+        return chmod(path, (mode_t)mode);
+    }
+
+    class int mkdirPath(string path, int mode) {
+        return mkdir(path, (mode_t)mode);
+    }
+
+    class int runShell(string command) {
+        return UnixFileSystem.statusCode(system(command));
+    }
+
+    class int mkdirp(string path) {
+        string quoted = PathTools.shellQuote(path);
+        return UnixFileSystem.runShell(f"mkdir -p {quoted}");
+    }
+
+    class int removeRecursive(string path) {
+        string quoted = PathTools.shellQuote(path);
+        return UnixFileSystem.runShell(f"rm -rf {quoted}");
+    }
+
+    class int symlinkPath(string target, string linkPath) {
+        return symlink(target, linkPath);
+    }
+
+    class string readLink(string path) {
+        char buffer[4096];
+        ssize_t length = readlink(path, buffer, 4095);
+        if (length < 0) { return ""; }
+        buffer[length] = '\0';
+        return Strings.copy(buffer);
+    }
+
+    class string tempDir(string prefix) {
+        string base = Environment.get("TMPDIR", "/tmp");
+        string templatePath = PathTools.join(base, prefix + ".XXXXXX");
+        char* raw = Strings.copy(templatePath);
+        char* result = mkdtemp(raw);
+        if (result == NULL) { return ""; }
+        return Strings.copy(result);
+    }
+}
+
+class PathTools {
+    class string shellQuote(string raw) {
+        return ShellWords.quote(raw);
+    }
+
+    class string basename(string path) {
+        int len = (int)strlen(path);
+        if (len == 0) { return ""; }
+        int end = len - 1;
+        while (end > 0 && path[end] == '/') { end--; }
+        int start = end;
+        while (start > 0 && path[start - 1] != '/') { start--; }
+        int outLen = end - start + 1;
+        char* result = (char*)malloc(outLen + 1);
+        memcpy(result, path + start, outLen);
+        result[outLen] = '\0';
+        return result;
+    }
+
+    class string dirname(string path) {
+        int len = (int)strlen(path);
+        if (len == 0) { return "."; }
+        int end = len - 1;
+        while (end > 0 && path[end] == '/') { end--; }
+        while (end > 0 && path[end] != '/') { end--; }
+        if (end == 0) {
+            if (path[0] == '/') { return "/"; }
+            return ".";
+        }
+        char* result = (char*)malloc(end + 1);
+        memcpy(result, path, end);
+        result[end] = '\0';
+        return result;
+    }
+
+    class string join(string left, string right) {
+        if ((int)strlen(left) == 0) { return Strings.copy(right); }
+        if ((int)strlen(right) == 0) { return Strings.copy(left); }
+        if (left[(int)strlen(left) - 1] == '/') {
+            return f"{left}{right}";
+        }
+        return f"{left}/{right}";
+    }
+}
+
+class FileSystem {
+    class bool exists(string path) {
+        FileStatus status = FileStatus(path);
+        bool result = status.exists();
+        return result;
+    }
+
+    class bool isDir(string path) {
+        FileStatus status = FileStatus(path);
+        bool result = status.isDir();
+        return result;
+    }
+
+    class bool isFile(string path) {
+        FileStatus status = FileStatus(path);
+        bool result = status.isFile();
+        return result;
+    }
+
+    class bool isSymlink(string path) {
+        FileStatus status = FileStatus(path);
+        bool result = status.isSymlink();
+        return result;
+    }
+
+    class int chmod(string path, int mode) {
+        return UnixFileSystem.chmodPath(path, mode);
+    }
+
+    class int mkdir(string path, int mode) {
+        return UnixFileSystem.mkdirPath(path, mode);
+    }
+
+    class int mkdirp(string path) {
+        return UnixFileSystem.mkdirp(path);
+    }
+
+    class int removeRecursive(string path) {
+        return UnixFileSystem.removeRecursive(path);
+    }
+
+    class int symlink(string target, string linkPath) {
+        return UnixFileSystem.symlinkPath(target, linkPath);
+    }
+
+    class string readLink(string path) {
+        return UnixFileSystem.readLink(path);
+    }
+
+    class string tempDir(string prefix) {
+        return UnixFileSystem.tempDir(prefix);
+    }
+
+    class Vector<string> listDir(string path) {
+        Directory dir = Directory(path);
+        Vector<string> result = dir.entries();
+        return result;
+    }
+
+    class string readText(string path) {
+        return Path.readAll(path);
+    }
+
+    class void writeText(string path, string content) {
+        Path.writeAll(path, content);
+    }
+}

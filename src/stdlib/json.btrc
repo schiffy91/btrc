@@ -1,0 +1,181 @@
+/* btrc standard library — small flat JSON object helper
+ * This is intentionally modest: it covers string/bool/int fields used by
+ * config files and command metadata. Nested JSON can be layered on later.
+ */
+
+class JsonObject {
+    public Map<string, string> values;
+    public Map<string, bool> quoted;
+
+    public JsonObject() {
+        self.values = {};
+        self.quoted = {};
+    }
+
+    class string escape(string text) {
+        if (text == null) { return ""; }
+        string escaped = Strings.replace(text, "\\", "\\\\");
+        escaped = Strings.replace(escaped, "\"", "\\\"");
+        escaped = Strings.replace(escaped, "\n", "\\n");
+        return escaped;
+    }
+
+    class string unescape(string text) {
+        string result = "";
+        bool escaped = false;
+        for i in range(text.len()) {
+            string current = text.substring(i, 1);
+            if (escaped) {
+                if (current.equals("n")) { result += "\n"; }
+                else if (current.equals("r")) { result += "\r"; }
+                else if (current.equals("t")) { result += "\t"; }
+                else { result += current; }
+                escaped = false;
+                continue;
+            }
+            if (current.equals("\\")) {
+                escaped = true;
+                continue;
+            }
+            result += current;
+        }
+        if (escaped) { result += "\\"; }
+        return result;
+    }
+
+    public void setString(string key, string value) {
+        self.values.put(key, value);
+        self.quoted.put(key, true);
+    }
+
+    public void setRaw(string key, string value) {
+        self.values.put(key, value);
+        self.quoted.put(key, false);
+    }
+
+    public void setBool(string key, bool value) {
+        self.values.put(key, value ? "true" : "false");
+        self.quoted.put(key, false);
+    }
+
+    public void setInt(string key, int value) {
+        self.values.put(key, Strings.fromInt(value));
+        self.quoted.put(key, false);
+    }
+
+    public bool has(string key) {
+        return self.values.has(key);
+    }
+
+    public string getString(string key, string fallback) {
+        if (!self.values.has(key)) { return fallback; }
+        return self.values.get(key);
+    }
+
+    public bool getBool(string key, bool fallback) {
+        if (!self.values.has(key)) { return fallback; }
+        string value = self.values.get(key);
+        if (value.equals("true")) { return true; }
+        if (value.equals("false")) { return false; }
+        return fallback;
+    }
+
+    public int getInt(string key, int fallback) {
+        if (!self.values.has(key)) { return fallback; }
+        return Strings.toInt(self.values.get(key));
+    }
+
+    public string stringify() {
+        Vector<string> fields = [];
+        for key, value in self.values {
+            string escapedKey = JsonObject.escape(key);
+            string field = "\"" + escapedKey + "\":";
+            if (self.quoted.getOrDefault(key, true)) {
+                string escapedValue = JsonObject.escape(value);
+                field += "\"" + escapedValue + "\"";
+            } else {
+                field += value;
+            }
+            fields.push(field);
+        }
+        return "{" + fields.join(",") + "}";
+    }
+
+    class int skipSpaces(string text, int i) {
+        int len = (int)strlen(text);
+        while (i < len && (text[i] == ' ' || text[i] == '\n' || text[i] == '\t' || text[i] == '\r')) {
+            i++;
+        }
+        return i;
+    }
+
+    class string slice(string text, int start, int end) {
+        int len = end - start;
+        char* result = (char*)malloc(len + 1);
+        memcpy(result, text + start, len);
+        result[len] = '\0';
+        return result;
+    }
+
+    class int stringEnd(string text, int start) {
+        int len = text.len();
+        bool escaped = false;
+        int i = start;
+        while (i < len) {
+            if (!escaped && text[i] == (char)34) { return i; }
+            escaped = !escaped && text[i] == '\\';
+            if (text[i] != '\\') { escaped = false; }
+            i++;
+        }
+        return len;
+    }
+
+    class JsonObject parse(string text) {
+        JsonObject obj = JsonObject();
+        int len = (int)strlen(text);
+        int i = 0;
+        while (i < len) {
+            i = JsonObject.skipSpaces(text, i);
+            if (i >= len) { break; }
+            if (text[i] != (char)34) {
+                i++;
+                continue;
+            }
+            i++;
+            int keyStart = i;
+            i = JsonObject.stringEnd(text, keyStart);
+            string key = JsonObject.unescape(JsonObject.slice(text, keyStart, i));
+            i++;
+            i = JsonObject.skipSpaces(text, i);
+            if (i < len && text[i] == ':') { i++; }
+            i = JsonObject.skipSpaces(text, i);
+            if (i >= len) { break; }
+            if (text[i] == (char)34) {
+                i++;
+                int valueStart = i;
+                i = JsonObject.stringEnd(text, valueStart);
+                string value = JsonObject.unescape(JsonObject.slice(text, valueStart, i));
+                obj.setString(key, value);
+                i++;
+            } else {
+                int valueStart = i;
+                while (i < len && text[i] != ',' && text[i] != '}') { i++; }
+                int valueEnd = i;
+                while (valueEnd > valueStart && (text[valueEnd - 1] == ' ' || text[valueEnd - 1] == '\n' || text[valueEnd - 1] == '\t' || text[valueEnd - 1] == '\r')) {
+                    valueEnd--;
+                }
+                string value = JsonObject.slice(text, valueStart, valueEnd);
+                obj.setRaw(key, value);
+            }
+        }
+        return obj;
+    }
+
+    class JsonObject readFile(string path) {
+        return JsonObject.parse(Path.readAll(path));
+    }
+
+    public void writeFile(string path) {
+        Path.writeAll(path, self.stringify());
+    }
+}

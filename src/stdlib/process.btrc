@@ -1,0 +1,318 @@
+/* btrc standard library — Process execution
+ * Cross-platform API shape with UnixShell implemented first.
+ *
+ * UnixShell intentionally names the POSIX implementation. PowerShell is a
+ * placeholder so callers can branch explicitly when Windows support arrives.
+ */
+
+#include <errno.h>
+#include <sys/wait.h>
+
+extern FILE* popen(const char* command, const char* mode);
+extern int pclose(FILE* stream);
+
+class ProcessStatus {
+    public int raw;
+
+    public ProcessStatus(int raw) {
+        self.raw = raw;
+    }
+
+    public int code() {
+        if (self.raw == -1) { return 127; }
+        if (self.raw > 255) { return self.raw / 256; }
+        return self.raw;
+    }
+
+    public bool ok() {
+        return self.code() == 0;
+    }
+}
+
+class UnixPipe {
+    private FILE* handle;
+    public string command;
+
+    public UnixPipe(string command) {
+        self.command = command;
+        self.handle = popen(command, "r");
+    }
+
+    public bool ok() {
+        return self.handle != NULL;
+    }
+
+    public string readAll() {
+        if (!self.ok()) { return ""; }
+        int cap = 4096;
+        int len = 0;
+        char* buffer = (char*)malloc(cap);
+        int ch = fgetc(self.handle);
+        while (ch != EOF) {
+            if (len + 2 >= cap) {
+                cap = cap * 2;
+                buffer = (char*)realloc(buffer, cap);
+            }
+            buffer[len] = (char)ch;
+            len++;
+            ch = fgetc(self.handle);
+        }
+        buffer[len] = '\0';
+        return buffer;
+    }
+
+    public ProcessStatus close() {
+        if (!self.ok()) { return ProcessStatus(-1); }
+        int raw = pclose(self.handle);
+        self.handle = NULL;
+        return ProcessStatus(raw);
+    }
+
+    public void __del__() {
+        if (self.handle != NULL) {
+            pclose(self.handle);
+            self.handle = NULL;
+        }
+    }
+}
+
+class UnixProcess {
+    class ProcessStatus system(string command) {
+        return ProcessStatus(system(command));
+    }
+
+    class UnixPipe pipe(string command) {
+        return UnixPipe(command);
+    }
+}
+
+class ShellWords {
+    class bool isSafeArgChar(char c) {
+        if (c >= 'a' && c <= 'z') { return true; }
+        if (c >= 'A' && c <= 'Z') { return true; }
+        if (c >= '0' && c <= '9') { return true; }
+        return c == '_' || c == '-' || c == '.' || c == '/' || c == ':' || c == '=' || c == ',' || c == '+';
+    }
+
+    class bool isSafeArg(string raw) {
+        int len = raw.len();
+        if (len == 0) { return false; }
+        for ch in raw {
+            if (!ShellWords.isSafeArgChar(ch)) { return false; }
+        }
+        return true;
+    }
+
+    class string quote(string raw) {
+        if (ShellWords.isSafeArg(raw)) { return Strings.copy(raw); }
+        string escaped = Strings.replace(raw, "'", "'\\''");
+        return "'" + escaped + "'";
+    }
+
+    class string redact(string text, string sensitive) {
+        if (sensitive.isEmpty()) { return text; }
+        return Strings.replace(text, sensitive, "***");
+    }
+}
+
+class ExecResult {
+    public int code;
+    public string out;
+    public string err;
+    public string command;
+
+    public ExecResult(int code, string out, string err, string command) {
+        self.code = code;
+        self.out = out;
+        self.err = err;
+        self.command = command;
+    }
+
+    public bool ok() {
+        return self.code == 0;
+    }
+
+    public string stdout() {
+        return self.out;
+    }
+
+    public string stderr() {
+        return self.err;
+    }
+}
+
+class Command {
+    public string executable;
+    public Vector<string> args;
+    public Vector<string> env;
+    public bool useSudo;
+    public bool captureOutput;
+    public bool checkStatus;
+    public bool mergeStderr;
+    public string sensitive;
+
+    public Command(string executable) {
+        self.executable = executable;
+        self.args = [];
+        self.env = [];
+        self.useSudo = false;
+        self.captureOutput = true;
+        self.checkStatus = true;
+        self.mergeStderr = true;
+        self.sensitive = "";
+    }
+
+    public Command arg(string value) {
+        self.args.push(value);
+        return self;
+    }
+
+    public Command flag(string name, string value) {
+        self.args.push(name);
+        self.args.push(value);
+        return self;
+    }
+
+    public Command envVar(string name, string value) {
+        self.env.push(f"{name}={value}");
+        return self;
+    }
+
+    public Command sudo(bool enabled) {
+        self.useSudo = enabled;
+        return self;
+    }
+
+    public Command capture(bool enabled) {
+        self.captureOutput = enabled;
+        return self;
+    }
+
+    public Command check(bool enabled) {
+        self.checkStatus = enabled;
+        return self;
+    }
+
+    public Command mergeError(bool enabled) {
+        self.mergeStderr = enabled;
+        return self;
+    }
+
+    public Command redact(string value) {
+        self.sensitive = value;
+        return self;
+    }
+
+    public string renderEnv(string item) {
+        int split = Strings.find(item, "=", 0);
+        if (split <= 0) {
+            return ShellWords.quote(item);
+        }
+        string name = item.substring(0, split);
+        string value = item.substring(split + 1, item.len() - split - 1);
+        return name + "=" + ShellWords.quote(value);
+    }
+
+    public string render() {
+        Vector<string> parts = [];
+        for item in self.env {
+            parts.push(self.renderEnv(item));
+        }
+        if (self.useSudo) {
+            parts.push("sudo");
+        }
+        parts.push(ShellWords.quote(self.executable));
+        for item in self.args {
+            parts.push(ShellWords.quote(item));
+        }
+        if (self.mergeStderr) {
+            parts.push("2>&1");
+        }
+        return parts.join(" ");
+    }
+
+}
+
+class UnixShell {
+    public bool logCommands;
+    public string chrootPath;
+
+    public UnixShell() {
+        self.logCommands = false;
+        self.chrootPath = "";
+    }
+
+    class string quote(string raw) {
+        return ShellWords.quote(raw);
+    }
+
+    class string redactText(string text, string sensitive) {
+        return ShellWords.redact(text, sensitive);
+    }
+
+    class int statusCode(int rawStatus) {
+        ProcessStatus status = ProcessStatus(rawStatus);
+        int code = status.code();
+        return code;
+    }
+
+    public void chroot(string path) {
+        self.chrootPath = path;
+    }
+
+    public void clearChroot() {
+        self.chrootPath = "";
+    }
+
+    public ExecResult run(string command) {
+        return self.runRaw(command, true, true, "");
+    }
+
+    public ExecResult runUnchecked(string command) {
+        return self.runRaw(command, true, false, "");
+    }
+
+    public ExecResult runCommand(Command command) {
+        return self.runRaw(command.render(), command.captureOutput, command.checkStatus, command.sensitive);
+    }
+
+    public ExecResult runRaw(string command, bool captureOutput, bool checkStatus, string sensitive) {
+        string rendered = command;
+        if ((int)strlen(self.chrootPath) > 0) {
+            rendered = f"nixos-enter --root {ShellWords.quote(self.chrootPath)} --command {ShellWords.quote(command)}";
+        }
+        if (self.logCommands) {
+            string visible = UnixShell.redactText(rendered, sensitive);
+            fprintf(stderr, "LOG: %s\n", visible);
+        }
+        if (!captureOutput) {
+            ProcessStatus status = UnixProcess.system(rendered);
+            int code = status.code();
+            if (checkStatus && code != 0) {
+                fprintf(stderr, "Command failed (%d): %s\n", code, UnixShell.redactText(rendered, sensitive));
+            }
+            return ExecResult(code, "", "", rendered);
+        }
+
+        UnixPipe pipe = UnixProcess.pipe(rendered);
+        if (!pipe.ok()) {
+            return ExecResult(127, "", "popen failed", rendered);
+        }
+        string output = pipe.readAll();
+        ProcessStatus status = pipe.close();
+        int code = status.code();
+        if (checkStatus && code != 0) {
+            fprintf(stderr, "Command failed (%d): %s\n", code, UnixShell.redactText(rendered, sensitive));
+        }
+        return ExecResult(code, output, "", rendered);
+    }
+}
+
+class PowerShell {
+    public PowerShell() {
+    }
+
+    public ExecResult run(string command) {
+        return ExecResult(127, "", "PowerShell support is TODO", command);
+    }
+}
