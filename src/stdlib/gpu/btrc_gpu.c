@@ -467,8 +467,16 @@ void* btrc_gpu_init_compute(void) {
         exit(1);
     }
 
+    /* Request the adapter's full supported limits so large (image-sized)
+     * storage buffers are allowed — the default maxStorageBufferBindingSize
+     * (128 MB) is too small for full-resolution photo buffers. */
+    WGPULimits limits = { 0 };
+    WGPUDeviceDescriptor dev_desc = { 0 };
+    if (wgpuAdapterGetLimits(gpu->adapter, &limits) == WGPUStatus_Success) {
+        dev_desc.requiredLimits = &limits;
+    }
     wgpuAdapterRequestDevice(
-        gpu->adapter, NULL,
+        gpu->adapter, &dev_desc,
         (WGPURequestDeviceCallbackInfo){
             .mode = WGPUCallbackMode_AllowSpontaneous,
             .callback = on_device,
