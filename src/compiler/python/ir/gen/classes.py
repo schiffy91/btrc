@@ -148,6 +148,18 @@ def _emit_method_forward_decls(gen: IRGenerator, decl: ClassDecl,
 
     name = decl.name
     fwd_lines = []
+
+    # Forward-declare the constructor (X_init / X_new) so that a method of
+    # *another* class can construct X regardless of which class is emitted
+    # first. Mirrors the signatures produced by _emit_constructor exactly.
+    ctor = cls_info.constructor
+    ctor_param_decls = []
+    if ctor:
+        for p in ctor.params:
+            ctor_param_decls.append(f"{type_to_c(p.type)} {p.name}")
+    fwd_lines.append(f"void {name}_init({params_text([f'{name}* self'] + ctor_param_decls)});")
+    fwd_lines.append(f"{name}* {name}_new({params_text(ctor_param_decls)});")
+
     for member in decl.members:
         if isinstance(member, MethodDecl) and member.name != decl.name and member.name != "__del__":
             is_static = member.access == "class"

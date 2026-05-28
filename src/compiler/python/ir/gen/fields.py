@@ -50,6 +50,13 @@ def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
             and node.field in ("len", "length", "size")):
         return IRFieldAccess(obj=obj, field="len", arrow=True)
 
+    # Simple enum value: CfaPattern.RGGB → CfaPattern_RGGB (namespaced access,
+    # the qualified counterpart of bare `RGGB`).
+    if (isinstance(node.obj, Identifier)
+            and node.obj.name in gen.analyzed.enum_table
+            and node.field in gen.analyzed.enum_table[node.obj.name]):
+        return IRLiteral(text=f"{node.obj.name}_{node.field}")
+
     # Rich enum variant tag: Color.RGB → Color_RGB_TAG
     if isinstance(node.obj, Identifier) and node.obj.name in gen.analyzed.rich_enum_table:
         return IRVar(name=f"{node.obj.name}_{node.field}_TAG")
