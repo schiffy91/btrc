@@ -155,14 +155,24 @@ def lower_gpu_call(gen: IRGenerator, func_name: str,
     """
     kernel = gen._gpu_kernels[func_name]
 
-    # Determine array length from first array argument
+    # Determine the dispatch length and per-buffer data pointers. A heap
+    # collection (Array<T> / Vector<T>) carries its own length and data pointer,
+    # so we use `arg->len` / `arg->data`; a bare C array uses sizeof. This lets
+    # @gpu kernels operate on runtime-sized buffers, not just stack arrays.
     array_len_expr = None
     for i, _param in enumerate(kernel.param_buffers):
-        if i < len(ir_args):
-            # Use the first array param's length for dispatch size
-            array_len_expr = IRRawExpr(
-                text=f"(sizeof({_ir_expr_text(ir_args[i])}) / sizeof({_ir_expr_text(ir_args[i])}[0]))")
+        if i >= len(ir_args):
             break
+        txt = _ir_expr_text(ir_args[i])
+        t = gen.analyzed.node_types.get(id(ast_args[i])) if i < len(ast_args) else None
+        is_coll = bool(t is not None and getattr(t, "generic_args", None)
+                       and t.base in ("Array", "Vector"))
+        if is_coll:
+            ir_args[i] = IRRawExpr(text=f"({txt})->data")
+            if array_len_expr is None:
+                array_len_expr = IRRawExpr(text=f"({txt})->len")
+        elif array_len_expr is None:
+            array_len_expr = IRRawExpr(text=f"(sizeof({txt}) / sizeof({txt}[0]))")
 
     # Determine result type
     result_elem_type = ""

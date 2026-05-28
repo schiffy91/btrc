@@ -44,11 +44,15 @@ class _GpuEmitterMixin:
         self._line("static void* __gpu = NULL;")
         self._line("if (!__gpu) { __gpu = btrc_gpu_init_compute(); }")
 
-        # 2. Get array length from first array arg
-        first_arr = (self._expr(dispatch.args[0])
-                     if dispatch.args else "NULL")
-        self._line(f"int __gpu_len = sizeof({first_arr})"
-                   f" / sizeof({first_arr}[0]);")
+        # 2. Dispatch length: prefer the lowered length expression (handles
+        #    runtime-sized Array<T>/Vector<T> via ->len), else sizeof a C array.
+        if dispatch.array_len_expr is not None:
+            self._line(f"int __gpu_len = {self._expr(dispatch.array_len_expr)};")
+        else:
+            first_arr = (self._expr(dispatch.args[0])
+                         if dispatch.args else "NULL")
+            self._line(f"int __gpu_len = sizeof({first_arr})"
+                       f" / sizeof({first_arr}[0]);")
 
         # 3. Create buffers for array params
         for i, buf in enumerate(dispatch.param_buffers):
