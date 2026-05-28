@@ -143,6 +143,9 @@ def _emit_visitor(gen: IRGenerator, class_name: str, cls_info: ClassInfo):
 def _emit_method_forward_decls(gen: IRGenerator, decl: ClassDecl,
                                 cls_info: ClassInfo):
     """Emit forward declarations for own + inherited methods."""
+    def params_text(params: list[str]) -> str:
+        return ", ".join(params) if params else "void"
+
     name = decl.name
     fwd_lines = []
     for member in decl.members:
@@ -154,7 +157,7 @@ def _emit_method_forward_decls(gen: IRGenerator, decl: ClassDecl,
             for p in member.params:
                 params.append(f"{type_to_c(p.type)} {p.name}")
             ret = type_to_c(member.return_type) if member.return_type else "void"
-            fwd_lines.append(f"{ret} {name}_{member.name}({', '.join(params)});")
+            fwd_lines.append(f"{ret} {name}_{member.name}({params_text(params)});")
     # Also forward-declare inherited method wrappers so own methods can call them
     own_names = {m.name for m in decl.members if isinstance(m, MethodDecl)}
     parent_name = cls_info.parent
@@ -169,7 +172,7 @@ def _emit_method_forward_decls(gen: IRGenerator, decl: ClassDecl,
             for p in method.params:
                 params.append(f"{type_to_c(p.type)} {p.name}")
             ret = type_to_c(method.return_type) if method.return_type else "void"
-            fwd_lines.append(f"{ret} {name}_{mname}({', '.join(params)});")
+            fwd_lines.append(f"{ret} {name}_{mname}({params_text(params)});")
         parent_name = parent_info.parent
     if fwd_lines:
         gen.module.forward_decls.extend(fwd_lines)
@@ -295,5 +298,4 @@ def _emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
         params=ctor_params[:],  # Same params as ctor (no self)
         body=IRBlock(stmts=new_body_stmts),
     ))
-
 
