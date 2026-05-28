@@ -124,13 +124,12 @@ class WgslEmitter:
                     self._indent -= 1
                     self._line("}")
                 elif hasattr(stmt.else_block, 'if_stmt'):
-                    self._lines[-1] = self._lines[-1]  # keep last line
-                    inner = stmt.else_block.if_stmt
-                    self._line(f"}} else if ({self._expr(inner.condition)}) {{")
+                    # else-if: recurse on the inner `if` so its own else /
+                    # else-if chain is preserved (the previous code emitted only
+                    # the inner then-block and silently dropped its else).
+                    self._line("} else {")
                     self._indent += 1
-                    if inner.then_block:
-                        for s in inner.then_block.statements:
-                            self._emit_stmt(s)
+                    self._emit_stmt(stmt.else_block.if_stmt)
                     self._indent -= 1
                     self._line("}")
             else:
