@@ -11,6 +11,14 @@ from .nodes import IRGpuDispatch, IRGpuKernel
 class _GpuEmitterMixin:
     """Mixin providing GPU compute emission for CEmitter."""
 
+    def _buffer_len(self, dispatch, i):
+        """Element count for param buffer i (arrays may differ in size; e.g. a
+        demosaic out buffer is 3x the bayer input). Falls back to dispatch len."""
+        bls = getattr(dispatch, "buffer_lens", None)
+        if bls and i < len(bls) and bls[i] is not None:
+            return self._expr(bls[i])
+        return "__gpu_len"
+
     def _emit_gpu_kernel(self, kernel: IRGpuKernel):
         """Emit a GPU kernel's WGSL source as a static C string constant.
 
@@ -65,6 +73,7 @@ class _GpuEmitterMixin:
         for i, buf in enumerate(dispatch.param_buffers):
             arg_e = (self._expr(dispatch.args[i])
                      if i < len(dispatch.args) else "NULL")
+            blen = self._buffer_len(dispatch, i)
             usage_r = "BTRC_GPU_STORAGE | BTRC_GPU_COPY_DST"
             usage_rw = ("BTRC_GPU_STORAGE | BTRC_GPU_COPY_DST"
                         " | BTRC_GPU_COPY_SRC")
@@ -72,10 +81,10 @@ class _GpuEmitterMixin:
             c_elem = _wgsl_to_c(buf.elem_type)
             self._line(
                 f"void* __buf_{buf.name} = btrc_gpu_create_buffer("
-                f"__gpu, __gpu_len * sizeof({c_elem}), {usage});")
+                f"__gpu, {blen} * sizeof({c_elem}), {usage});")
             self._line(
                 f"btrc_gpu_write_buffer(__gpu, __buf_{buf.name}, "
-                f"{arg_e}, __gpu_len * sizeof({c_elem}));")
+                f"{arg_e}, {blen} * sizeof({c_elem}));")
 
         # 4. Output buffer.
         if has_output:
@@ -155,10 +164,11 @@ class _GpuEmitterMixin:
                 if buf.access == "read_write":
                     arg_e = (self._expr(dispatch.args[i])
                              if i < len(dispatch.args) else "NULL")
+                    blen = self._buffer_len(dispatch, i)
                     c_elem = _wgsl_to_c(buf.elem_type)
                     self._line(
                         f"btrc_gpu_read_buffer(__gpu, __buf_{buf.name}"
-                        f", {arg_e}, __gpu_len * sizeof({c_elem}));")
+                        f", {arg_e}, {blen} * sizeof({c_elem}));")
 
         # 10. Cleanup
         for buf in dispatch.param_buffers:

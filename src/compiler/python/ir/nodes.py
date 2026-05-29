@@ -367,6 +367,7 @@ class IRGpuDispatch(IRExpr):
     result_var: str = ""         # C variable to store readback result ("" for void)
     result_elem_type: str = ""   # "float", "int" — C element type
     array_len_expr: IRExpr = None  # expression for dispatch size (first array arg's length)
+    buffer_lens: list = field(default_factory=list)  # per-param-buffer element count (None → dispatch len)
     param_buffers: list[IRGpuBuffer] = field(default_factory=list)
     output_buffer: IRGpuBuffer = None
     uniform_params: list[tuple] = field(default_factory=list)
