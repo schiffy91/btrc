@@ -1,0 +1,67 @@
+/* Headless behavioral test for the native system tray binding.
+ *
+ * Exercises the SystemTray builder + the portable Tray data model it wraps, and
+ * the C-binding lifecycle (create → show → pump → take_command → destroy). On a
+ * host with a GUI session this realizes a real native menu-bar / SNI item; on
+ * headless CI show() returns false and we assert the graceful-degradation path.
+ * Either way the run is deterministic and prints PASS.
+ */
+#include "tray/tray.btrc"
+
+int main() {
+    /* The quit sentinel is a stable, documented token. */
+    assert(TraySignal.quit().equals("__quit__"));
+
+    /* Builder mirrors Tray and populates the portable model. */
+    SystemTray tray = SystemTray("btrc")
+        .tip("native tray test")
+        .icon("/no/such/icon.png")
+        .item("Open", "echo open")
+        .add(TrayItem("Disabled", "noop").disabled())
+        .item("Quit", TraySignal.quit());
+
+    assert(tray.model.title.equals("btrc"));
+    assert(tray.model.tooltip.equals("native tray test"));
+    assert(tray.model.iconPath.equals("/no/such/icon.png"));
+    assert(tray.model.items.len == 3);
+    assert(tray.model.items.get(0).label.equals("Open"));
+    assert(tray.model.items.get(0).enabled);
+    assert(!tray.model.items.get(1).enabled);
+    assert(tray.model.items.get(2).command.equals("__quit__"));
+
+    /* fromTray adopts an existing portable Tray unchanged. */
+    Tray portable = Tray("Adopted").item("A", "echo a");
+    SystemTray adopted = SystemTray.fromTray(portable);
+    assert(adopted.model.title.equals("Adopted"));
+    assert(adopted.model.items.len == 1);
+
+    /* Native lifecycle. Before show(), no native handle exists. */
+    assert(!tray.available());
+    bool shown = tray.show();
+    if (shown) {
+        /* Real native item realized (GUI session present). */
+        assert(tray.available());
+        assert(tray.realized);
+        /* Pump a few non-blocking iterations; no user clicks occur in a test,
+         * so the loop stays alive and no command is taken. */
+        int k = 0;
+        while (k < 3) {
+            bool alive = tray.pump(0);
+            assert(alive);
+            k = k + 1;
+        }
+        /* Requesting quit makes the next pump report not-alive. */
+        tray.quit();
+        assert(!tray.pump(0));
+        print("native tray: realized and pumped");
+    } else {
+        /* Headless host: degrade cleanly, no crash. */
+        assert(!tray.available());
+        assert(!tray.realized);
+        assert(!tray.pump(0));
+        print("native tray: headless (no GUI session)");
+    }
+
+    print("PASS: test_tray_native");
+    return 0;
+}

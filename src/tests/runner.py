@@ -77,6 +77,40 @@ def test_btrc_file(btrc_file):
         gcc_flags = [BTRC_CC] + BTRC_CFLAGS + [c_path, "-o", bin_path, "-lm"]
         if "pthread.h" in c_source:
             gcc_flags.append("-lpthread")
+        # Add the native system-tray shim if the tray module is used. The shim
+        # is platform-specific (Objective-C/Cocoa on macOS, D-Bus on Linux); it
+        # links cleanly on macOS with clang and is skipped elsewhere so headless
+        # CI and the strict gcc -pedantic matrix stay green.
+        if "btrc_tray.h" in c_source:
+            import platform
+            tray_dir = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "tray")
+            if platform.system() == "Darwin":
+                # Objective-C + ARC + Cocoa; clang only (gcc can't build Cocoa).
+                cc_name = os.path.basename(BTRC_CC)
+                if "clang" not in cc_name and cc_name not in ("cc",):
+                    pytest.skip("tray shim needs clang on macOS")
+                shim = os.path.join(tray_dir, "btrc_tray_macos.m")
+                # Drop -pedantic for the mixed Obj-C/C link (Obj-C isn't C11).
+                gcc_flags = [
+                    BTRC_CC, "-fobjc-arc", "-std=c11",
+                    f"-I{tray_dir}", c_path, shim,
+                    "-framework", "Cocoa", "-lm", "-o", bin_path,
+                ]
+                if "pthread.h" in c_source:
+                    gcc_flags.append("-lpthread")
+            else:
+                import shutil
+                import subprocess as _sp
+                if not shutil.which("pkg-config") or _sp.run(
+                    ["pkg-config", "--exists", "dbus-1"]
+                ).returncode != 0:
+                    pytest.skip("tray shim needs dbus-1 (pkg-config) on Linux")
+                shim = os.path.join(tray_dir, "btrc_tray_linux.c")
+                cflags = _sp.check_output(
+                    ["pkg-config", "--cflags", "dbus-1"], text=True).split()
+                libs = _sp.check_output(
+                    ["pkg-config", "--libs", "dbus-1"], text=True).split()
+                gcc_flags.extend([f"-I{tray_dir}", shim, *cflags, *libs])
         # Add GPU libraries if WebGPU is used
         if "btrc_gpu.h" in c_source:
             gpu_build = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu", "build")

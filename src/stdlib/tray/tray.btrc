@@ -1,0 +1,155 @@
+/* btrc standard library — native system tray / menu bar.
+ *
+ * A REAL, OS-native status item: a clickable menu-bar icon (macOS) or
+ * StatusNotifierItem (Linux/Wayland) with a native drop-down menu. Selecting an
+ * item runs that item's command through the existing Command/UnixShell stdlib.
+ * Dependency-free: macOS uses the system Cocoa framework, Linux uses base D-Bus.
+ *
+ * This reuses the portable Tray/TrayItem data model from ui.btrc; SystemTray is
+ * the native renderer (the way GuiWindow renders a Surface). The OS draws the
+ * icon + menu natively (GPU-composited by the window server).
+ *
+ * NOT auto-included (needs a compiled native shim). Use:
+ *     #include "tray/tray.btrc"
+ * Build the shim alongside your program, e.g. on macOS:
+ *     <transpiled>.c src/stdlib/tray/btrc_tray_macos.m -framework Cocoa
+ * on Linux (needs a D-Bus dev lib, a base system package):
+ *     <transpiled>.c src/stdlib/tray/btrc_tray_linux.c $(pkg-config --cflags --libs dbus-1)
+ *
+ *   SystemTray("App")
+ *       .icon("/path/icon.png")
+ *       .item("Open", "open https://example.com")
+ *       .item("Quit", "__quit__")          // "__quit__" stops the loop
+ *       .run();                             // show + pump until quit
+ */
+
+#include <btrc_tray.h>
+
+/* ---- C runtime prototypes (native tray backend) ---- */
+void* btrc_tray_create(string title);
+void  btrc_tray_set_icon(void* tray, string icon_path);
+void  btrc_tray_set_tooltip(void* tray, string tooltip);
+int   btrc_tray_add_item(void* tray, string label, string command, bool enabled);
+void  btrc_tray_add_separator(void* tray);
+void  btrc_tray_set_menu(void* tray);
+bool  btrc_tray_show(void* tray);
+bool  btrc_tray_run_iteration(void* tray, int timeout_ms);
+string btrc_tray_take_command(void* tray);
+bool  btrc_tray_should_quit(void* tray);
+void  btrc_tray_request_quit(void* tray);
+void  btrc_tray_destroy(void* tray);
+
+/* The command string that, when an item carries it, stops SystemTray.run(). */
+class TraySignal {
+    class string quit() { return "__quit__"; }
+}
+
+/* Native status item. Builds on the portable Tray model: it holds a Tray for
+ * the icon/tooltip/items, then realizes them as a real OS menu-bar item. */
+class SystemTray {
+    public Tray model;        /* portable data model (ui.btrc) */
+    public void* handle;      /* opaque native NSStatusItem / SNI handle */
+    public bool realized;     /* true once a native item was created + shown */
+    public UnixShell shell;   /* runs activated item commands */
+
+    public SystemTray(string title) {
+        self.model = Tray(title);
+        self.handle = null;
+        self.realized = false;
+        self.shell = UnixShell();
+    }
+
+    /* Adopt an already-built portable Tray (icon/tooltip/items preserved). */
+    class SystemTray fromTray(Tray tray) {
+        SystemTray t = SystemTray(tray.title);
+        t.model = tray;
+        return t;
+    }
+
+    /* ---- Fluent builders (mirror Tray) ---- */
+    public SystemTray icon(string path) {
+        self.model.icon(path);
+        return self;
+    }
+
+    public SystemTray tip(string text) {
+        self.model.tip(text);
+        return self;
+    }
+
+    public SystemTray item(string label, string command) {
+        self.model.item(label, command);
+        return self;
+    }
+
+    public SystemTray add(TrayItem item) {
+        self.model.add(item);
+        return self;
+    }
+
+    /* True when a native tray backend is present (a display/session exists). */
+    public bool available() {
+        return self.handle != null;
+    }
+
+    /* Realize the native menu-bar item from the model. Returns true if a real
+     * OS status item became visible; false on a headless host (no display). */
+    public bool show() {
+        if (self.realized) { return self.available(); }
+        self.handle = btrc_tray_create(self.model.title);
+        if (self.handle == null) { return false; }
+        if (!self.model.iconPath.isEmpty()) {
+            btrc_tray_set_icon(self.handle, self.model.iconPath);
+        }
+        btrc_tray_set_tooltip(self.handle, self.model.tooltip);
+        for entry in self.model.items {
+            btrc_tray_add_item(self.handle, entry.label, entry.command, entry.enabled);
+        }
+        btrc_tray_set_menu(self.handle);
+        bool ok = btrc_tray_show(self.handle);
+        self.realized = ok;
+        return ok;
+    }
+
+    /* Pump the native event loop once (timeoutMs: 0 poll, <0 block) and, if an
+     * item was activated, run its command via UnixShell. Returns false once the
+     * tray should quit (a "__quit__" item, or btrc_tray_request_quit). */
+    public bool pump(int timeoutMs) {
+        if (self.handle == null) { return false; }
+        bool alive = btrc_tray_run_iteration(self.handle, timeoutMs);
+        string command = btrc_tray_take_command(self.handle);
+        if (command != null) {
+            if (command.equals(TraySignal.quit())) {
+                btrc_tray_request_quit(self.handle);
+                return false;
+            }
+            self.shell.runRaw(command, false, false, "");
+        }
+        return alive && !btrc_tray_should_quit(self.handle);
+    }
+
+    /* Show, then block pumping the loop (running activated commands) until the
+     * user quits. The native menu is driven on the calling thread; on macOS run
+     * this from main(). */
+    public void run() {
+        if (!self.show()) { return; }
+        bool alive = true;
+        while (alive) {
+            alive = self.pump(-1);
+        }
+    }
+
+    /* Ask the loop to stop at the next pump. */
+    public void quit() {
+        if (self.handle != null) {
+            btrc_tray_request_quit(self.handle);
+        }
+    }
+
+    public void __del__() {
+        if (self.handle != null) {
+            btrc_tray_destroy(self.handle);
+            self.handle = null;
+        }
+    }
+}
