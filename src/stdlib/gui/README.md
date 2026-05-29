@@ -8,10 +8,12 @@ logic lives in btrc, and it's threaded by default.
 
 | File | Role |
 |------|------|
-| `btrc_gui.h` / `btrc_gui.c` | Portable software framebuffer (`Surface`): clear, fill/blend rect, 8×8 bitmap-font text, pixel readback, PPM dump. **No display required** — runs and is testable headlessly. |
+| `btrc_gui.h` / `btrc_gui.c` | Portable software framebuffer (`Surface`): clear, fill/blend rect, UTF-8 bitmap-font text, in-place resize, pixel readback, PPM dump, pluggable font backend. **No display required** — runs and is testable headlessly. |
 | `gui.btrc` | btrc bindings + immediate-mode widgets (`Color`, `Surface`, `GuiInput`, `Theme`, `Gui`, `GuiApp`). |
-| `btrc_gui_window.h` / `.c` | Optional native window backend (GLFW + GL blit). |
-| `window.btrc` | btrc bindings for the window backend (`GuiWindow`). |
+| `view.btrc` | Declarative UI: a `View` tree with flexbox-style layout, events-as-data (`GuiEvents`), and a one-call `Ui.frame(...)`. |
+| `btrc_gui_window.h` / `.c` | Optional native window backend (resizable GLFW window, GPU-texture present). |
+| `window.btrc` | btrc bindings for the window backend (`GuiWindow`, incl. `width`/`height`/`fit`). |
+| `btrc_gui_font.h` / `.c`, `font.btrc` | Optional FreeType backend (`Font`) for scalable, anti-aliased, full-Unicode text. |
 
 Not auto-included (it's in a subfolder and needs a compiled shim). Opt in with
 `#include "gui/gui.btrc"` and build with `make gui`.
@@ -53,6 +55,38 @@ ui.surface.savePpm("out.ppm");
 each returns the interaction for the current frame. Style via `Theme` (light by
 default; `Theme.dark()` provided).
 
+## Declarative UI (View tree)
+
+For richer layouts, `view.btrc` adds a declarative layer: describe the UI as a
+tree of `View`s and frame it in one call. Layout is flexbox-style (rows/columns
+with `padding`, `gap`, and `grow`); interactions come back as data keyed by a
+stable `id` (Elm-style — no closures).
+
+```btrc
+#include "gui/gui.btrc"
+#include "gui/view.btrc"
+
+View ui() {
+    return View.column().pad(16).withGap(8).kids([
+        View.text("Notes — héllo"),            // UTF-8 throughout
+        View.button("Save", "save"),
+        View.spacer(),                          // grows to fill
+        View.row().withGap(8).kids([
+            View.button("Quit", "quit"),
+        ]),
+    ]);
+}
+
+GuiEvents e = Ui.frame(surface, input, theme, ui());  // measure → layout → render
+if (e.wasClicked("save")) { /* ... */ }
+```
+
+`Ui.frame` measures the tree, lays it out to the surface bounds, renders it, and
+returns a `GuiEvents` you query by id (`wasClicked`, `wasToggled`). Builders:
+`column`, `row`, `box`, `text`, `button`, `checkbox`, `spacer`; fluent setters:
+`pad`, `withGap`, `grows`, `bgColor`, `fgColor`, `scaleText`, `sized`, `child`,
+`kids`.
+
 ## Threaded by default
 
 `GuiApp` bundles a `Surface`, a `Gui`, and a thread-safe `alive` flag. The
@@ -71,17 +105,56 @@ Thread<int> t = spawn(() => {
 t.join();
 ```
 
-## Font
+## Fonts (UTF-8 + scalable)
 
-The bundled 8×8 font is authored bit-by-bit (5×7 glyphs in an 8×8 cell) and
-covers digits, A–Z and common punctuation; lowercase maps to uppercase and
-unknown characters render as a box.
+Text is **UTF-8 throughout** — `draw_text` and `text_width` decode codepoints,
+so multi-byte characters measure and render as single glyphs.
+
+Two backends:
+
+- **Bitmap (default, zero-dependency).** A bundled 8×8 font (5×7 glyphs in an
+  8×8 cell) covering digits, A–Z and common punctuation; lowercase maps to
+  uppercase and non-ASCII codepoints render as a box.
+- **FreeType (optional, scalable).** `font.btrc` adds a `Font` that loads a
+  TTF/OTF and renders anti-aliased, full-Unicode glyphs at any pixel size.
+  Loading a font installs it as the active backend, so **all** text — both
+  immediate-mode and declarative — switches over with no other code changes:
+
+  ```btrc
+  #include "gui/gui.btrc"
+  #include "gui/font.btrc"
+
+  Font f = Font("/path/DejaVuSans.ttf", 18);
+  if (f.ok()) { f.use(); }     // every subsequent draw uses it
+  // Font.useBitmap();         // restore the built-in font
+  ```
+
+  The core renderer stays dependency-free: the FreeType module plugs in through
+  a function-pointer hook (`btrc_gui_install_font_backend`), and `make gui`
+  builds it only when FreeType headers are present.
+
+## Dynamic resizing
+
+The window is resizable. `Surface.resize(w, h)` reallocates the pixel buffer in
+place, and `GuiWindow` exposes the live framebuffer size (`width()`, `height()`)
+plus `fit(surface)` to match a surface to the window each frame — the
+declarative layout then reflows to the new bounds automatically:
+
+```btrc
+while (win.isOpen()) {
+    win.poll(input);
+    win.fit(surface);                          // track window size
+    GuiEvents e = Ui.frame(surface, input, theme, ui());
+    win.present(surface);
+}
+```
 
 ## Build
 
 ```
-make gui            # software renderer (always) + window backend (if GLFW present)
-make examples-gui   # build + run the headless example/test
+make gui            # software renderer (always) + window backend (if GLFW)
+                    #   + FreeType font backend (if FreeType present)
+make examples-gui   # build + run the headless examples/tests (demo, declarative, font)
 ```
 
 ## Caveats

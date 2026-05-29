@@ -21,6 +21,8 @@ void  btrc_gui_window_poll(void* win);
 int   btrc_gui_window_mouse_x(void* win);
 int   btrc_gui_window_mouse_y(void* win);
 bool  btrc_gui_window_mouse_down(void* win);
+int   btrc_gui_window_fb_width(void* win);
+int   btrc_gui_window_fb_height(void* win);
 /* Blit a btrc_gui surface (passed as its opaque handle) to the window. */
 void  btrc_gui_window_present(void* win, void* surface);
 void  btrc_gui_window_close(void* win);

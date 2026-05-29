@@ -65,7 +65,32 @@ static const uint8_t G_upper[26][8] = {
 static const uint8_t G_box[8]   = {0x1F,0x11,0x11,0x11,0x11,0x11,0x1F,0x00};
 static const uint8_t G_blank[8] = {0,0,0,0,0,0,0,0};
 
-static const uint8_t* glyph_for(unsigned char c) {
+/* Decode the next UTF-8 codepoint at *pp, advancing the pointer. Returns -1 at
+ * end of string and U+FFFD (0xFFFD) for malformed sequences. */
+static int utf8_next(const char** pp) {
+    const unsigned char* p = (const unsigned char*)*pp;
+    unsigned char c = *p;
+    if (c == 0) { return -1; }
+    int cp;
+    int n;
+    if (c < 0x80) { cp = c; n = 1; }
+    else if ((c >> 5) == 0x6) { cp = c & 0x1F; n = 2; }
+    else if ((c >> 4) == 0xE) { cp = c & 0x0F; n = 3; }
+    else if ((c >> 3) == 0x1E) { cp = c & 0x07; n = 4; }
+    else { *pp = (const char*)(p + 1); return 0xFFFD; }
+    for (int i = 1; i < n; i++) {
+        if ((p[i] & 0xC0) != 0x80) { *pp = (const char*)(p + 1); return 0xFFFD; }
+        cp = (cp << 6) | (p[i] & 0x3F);
+    }
+    *pp = (const char*)(p + n);
+    return cp;
+}
+
+/* The bundled bitmap font covers ASCII; non-ASCII codepoints render as a box.
+ * A FreeType font (see btrc_gui_font.c) provides full Unicode glyphs. */
+static const uint8_t* glyph_for(int cp) {
+    if (cp < 0 || cp > 127) { return G_box; }
+    unsigned char c = (unsigned char)cp;
     if (c >= 'a' && c <= 'z') { c = (unsigned char)(c - 32); }
     if (c >= '0' && c <= '9') { return G_digit[c - '0']; }
     if (c >= 'A' && c <= 'Z') { return G_upper[c - 'A']; }
@@ -124,6 +149,17 @@ int   btrc_gui_surface_width(void* sv)  { btrc_surface* s=(btrc_surface*)sv; ret
 int   btrc_gui_surface_height(void* sv) { btrc_surface* s=(btrc_surface*)sv; return s ? s->h : 0; }
 void* btrc_gui_surface_pixels(void* sv) { btrc_surface* s=(btrc_surface*)sv; return s ? (void*)s->px : NULL; }
 
+void btrc_gui_surface_resize(void* sv, int width, int height) {
+    btrc_surface* s = (btrc_surface*)sv;
+    if (!s || width <= 0 || height <= 0) { return; }
+    if (s->w == width && s->h == height) { return; }
+    uint32_t* np = (uint32_t*)realloc(s->px, (size_t)width * (size_t)height * sizeof(uint32_t));
+    if (!np) { return; }
+    s->px = np;
+    s->w = width;
+    s->h = height;
+}
+
 void btrc_gui_clear(void* sv, uint32_t rgba) {
     btrc_surface* s = (btrc_surface*)sv;
     if (!s) { return; }
@@ -161,6 +197,17 @@ void btrc_gui_blend_rect(void* sv, int x, int y, int w, int h, uint32_t rgba) {
     }
 }
 
+/* ---- pluggable font backend (installed by e.g. btrc_gui_font.c) ---- */
+static void* g_font = NULL;
+static btrc_font_draw_fn g_font_draw = NULL;
+static btrc_font_width_fn g_font_width = NULL;
+static btrc_font_height_fn g_font_height = NULL;
+
+void btrc_gui_install_font_backend(btrc_font_draw_fn d, btrc_font_width_fn w, btrc_font_height_fn h) {
+    g_font_draw = d; g_font_width = w; g_font_height = h;
+}
+void btrc_gui_set_font(void* font) { g_font = font; }
+
 static void draw_glyph(btrc_surface* s, int x, int y, const uint8_t* g, uint32_t rgba, int scale) {
     for (int row = 0; row < 8; row++) {
         uint8_t bits = g[row];
@@ -179,27 +226,34 @@ static void draw_glyph(btrc_surface* s, int x, int y, const uint8_t* g, uint32_t
 void btrc_gui_draw_text(void* sv, int x, int y, char* text, uint32_t rgba, int scale) {
     btrc_surface* s = (btrc_surface*)sv;
     if (!s || !text) { return; }
+    if (g_font && g_font_draw) { g_font_draw(sv, g_font, x, y, text, rgba); return; }
     if (scale < 1) { scale = 1; }
     int cx = x, cy = y;
-    for (char* p = text; *p; p++) {
-        if (*p == '\n') { cx = x; cy += 8 * scale; continue; }
-        draw_glyph(s, cx, cy, glyph_for((unsigned char)*p), rgba, scale);
+    const char* p = text;
+    int cp;
+    while ((cp = utf8_next(&p)) >= 0) {
+        if (cp == '\n') { cx = x; cy += 8 * scale; continue; }
+        draw_glyph(s, cx, cy, glyph_for(cp), rgba, scale);
         cx += 8 * scale;
     }
 }
 
 int btrc_gui_text_width(char* text, int scale) {
     if (!text) { return 0; }
+    if (g_font && g_font_width) { return g_font_width(g_font, text); }
     if (scale < 1) { scale = 1; }
     int max = 0, cur = 0;
-    for (char* p = text; *p; p++) {
-        if (*p == '\n') { if (cur > max) { max = cur; } cur = 0; }
+    const char* p = text;
+    int cp;
+    while ((cp = utf8_next(&p)) >= 0) {
+        if (cp == '\n') { if (cur > max) { max = cur; } cur = 0; }
         else { cur += 8 * scale; }
     }
     return cur > max ? cur : max;
 }
 
 int btrc_gui_text_height(int scale) {
+    if (g_font && g_font_height) { return g_font_height(g_font); }
     if (scale < 1) { scale = 1; }
     return 8 * scale;
 }

@@ -24,6 +24,8 @@ void  btrc_gui_window_poll(void* win);
 int   btrc_gui_window_mouse_x(void* win);
 int   btrc_gui_window_mouse_y(void* win);
 bool  btrc_gui_window_mouse_down(void* win);
+int   btrc_gui_window_fb_width(void* win);
+int   btrc_gui_window_fb_height(void* win);
 void  btrc_gui_window_present(void* win, void* surface);
 void  btrc_gui_window_close(void* win);
 
@@ -47,6 +49,15 @@ class GuiWindow {
         input.mouseY = btrc_gui_window_mouse_y(self.handle);
         input.mouseDown = btrc_gui_window_mouse_down(self.handle);
         input.mousePressed = input.mouseDown && !wasDown;
+    }
+
+    public int width() { return btrc_gui_window_fb_width(self.handle); }
+    public int height() { return btrc_gui_window_fb_height(self.handle); }
+
+    /* Resize a surface to match the window's framebuffer. Call each frame for
+     * responsive resizing — the declarative layout reflows to the new size. */
+    public void fit(Surface s) {
+        s.resize(self.width(), self.height());
     }
 
     public void present(Surface s) {

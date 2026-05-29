@@ -21,6 +21,7 @@ void*        btrc_gui_surface_create(int width, int height);
 void         btrc_gui_surface_destroy(void* s);
 int          btrc_gui_surface_width(void* s);
 int          btrc_gui_surface_height(void* s);
+void         btrc_gui_surface_resize(void* s, int width, int height);
 void         btrc_gui_clear(void* s, unsigned int rgba);
 void         btrc_gui_fill_rect(void* s, int x, int y, int w, int h, unsigned int rgba);
 void         btrc_gui_blend_rect(void* s, int x, int y, int w, int h, unsigned int rgba);
@@ -62,6 +63,7 @@ class Surface {
 
     public int width() { return btrc_gui_surface_width(self.handle); }
     public int height() { return btrc_gui_surface_height(self.handle); }
+    public void resize(int w, int h) { btrc_gui_surface_resize(self.handle, w, h); }
 
     public void clear(Color c) { btrc_gui_clear(self.handle, c.packed()); }
     public void fillRect(int x, int y, int w, int h, Color c) {

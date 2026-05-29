@@ -1,0 +1,43 @@
+/* btrc standard library — scalable Unicode fonts (FreeType-backed).
+ *
+ * Optional, opt-in. Loading a Font installs it as the active text backend, so
+ * ALL text rendering — the immediate-mode Gui AND the declarative View tree —
+ * switches to anti-aliased, full-Unicode glyphs with no other code changes.
+ * Font.useBitmap() restores the built-in 8x8 font.
+ *
+ * Requires gui.btrc. Build:  make gui   (needs FreeType; auto-skipped if absent)
+ *
+ *   Font font = Font("/usr/share/fonts/DejaVuSans.ttf", 18);
+ *   if (font.ok()) { font.use(); }
+ *   // ... render frames; all text is now scalable + Unicode ...
+ */
+#include <btrc_gui_font.h>
+
+void* btrc_gui_font_load(string path, int pixelSize);
+void  btrc_gui_font_destroy(void* font);
+void  btrc_gui_set_font(void* font);
+
+class Font {
+    public void* handle;
+
+    /* Load a TTF/OTF face at a pixel size. Check ok() before use(). */
+    public Font(string path, int pixelSize) {
+        self.handle = btrc_gui_font_load(path, pixelSize);
+    }
+
+    public bool ok() { return self.handle != null; }
+
+    /* Make this font active for all subsequent text rendering and metrics. */
+    public void use() { btrc_gui_set_font(self.handle); }
+
+    /* Restore the built-in bitmap font for all text. */
+    class void useBitmap() { btrc_gui_set_font(null); }
+
+    public void __del__() {
+        if (self.handle != null) {
+            btrc_gui_set_font(null);
+            btrc_gui_font_destroy(self.handle);
+            self.handle = null;
+        }
+    }
+}

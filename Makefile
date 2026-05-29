@@ -44,6 +44,12 @@ gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 		ar rcs "$$D/build/libbtrc_gui_window.a" "$$D/build/btrc_gui_window.o" && \
 		echo "Built: $$D/build/libbtrc_gui_window.a (GLFW window backend)"' \
 		|| echo "GUI window backend skipped (missing GLFW/GL headers)"
+	@$(NIX) bash -c '\
+		D=src/stdlib/gui && \
+		$$CC $$FONT_CFLAGS -std=c11 -I"$$D" -O2 -c "$$D/btrc_gui_font.c" -o "$$D/build/btrc_gui_font.o" 2>/dev/null && \
+		ar rcs "$$D/build/libbtrc_gui_font.a" "$$D/build/btrc_gui_font.o" && \
+		echo "Built: $$D/build/libbtrc_gui_font.a (FreeType scalable fonts)"' \
+		|| echo "GUI font backend skipped (missing FreeType headers)"
 
 stubs-generate: ## Regenerate built-in type stubs
 	$(NIX) python3 src/language/ast/gen_builtins.py

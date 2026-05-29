@@ -35,7 +35,7 @@ void* btrc_gui_window_open(char* title, int width, int height) {
         if (!glfwInit()) { return NULL; }
         g_glfw_inited = 1;
     }
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     GLFWwindow* w = glfwCreateWindow(width, height, title ? title : "btrc", NULL, NULL);
     if (!w) { return NULL; }
     glfwMakeContextCurrent(w);
@@ -77,6 +77,17 @@ void btrc_gui_window_poll(void* winv) {
 int  btrc_gui_window_mouse_x(void* winv)   { btrc_window* bw=(btrc_window*)winv; return bw ? bw->mouse_x : -1; }
 int  btrc_gui_window_mouse_y(void* winv)   { btrc_window* bw=(btrc_window*)winv; return bw ? bw->mouse_y : -1; }
 bool btrc_gui_window_mouse_down(void* winv){ btrc_window* bw=(btrc_window*)winv; return bw ? bw->mouse_down : false; }
+
+int btrc_gui_window_fb_width(void* winv) {
+    btrc_window* bw = (btrc_window*)winv;
+    if (!bw) { return 0; }
+    int w = 0, h = 0; glfwGetFramebufferSize(bw->win, &w, &h); return w;
+}
+int btrc_gui_window_fb_height(void* winv) {
+    btrc_window* bw = (btrc_window*)winv;
+    if (!bw) { return 0; }
+    int w = 0, h = 0; glfwGetFramebufferSize(bw->win, &w, &h); return h;
+}
 
 void btrc_gui_window_present(void* winv, void* surface) {
     btrc_window* bw = (btrc_window*)winv;
