@@ -1,0 +1,53 @@
+/* Exercises statement lowering inside monomorphized generic methods:
+ * C-style for, while, do-while, if/else, break, continue, and a local
+ * list-literal var decl with for-in — across two instantiations (int and
+ * string). The type parameter is used in fields/simple methods; the control
+ * flow uses concrete types (every method is re-emitted per instantiation). */
+#include <assert.h>
+#include <string.h>
+
+class Calc<T> {
+    public T seed;
+    public Calc(T s) { self.seed = s; }
+    public T value() { return self.seed; }
+
+    /* C-style for + if/else + continue + break + while + do-while */
+    public int compute(int limit) {
+        int total = 0;
+        for (int i = 0; i < limit; i = i + 1) {
+            if (i % 2 != 0) { continue; }
+            if (i > 100) { break; }
+            total = total + i;
+        }
+        int j = 0;
+        while (j < 3) { total = total + j; j = j + 1; }
+        int k = 0;
+        do { total = total + 1; k = k + 1; } while (k < 2);
+        return total;
+    }
+
+    /* nested loops + early return inside a generic method */
+    public int grid(int n) {
+        for (int a = 0; a < n; a = a + 1) {
+            for (int b = 0; b < n; b = b + 1) {
+                if (a * b == 6) { return a + b; }
+            }
+        }
+        return -1;
+    }
+}
+
+int main() {
+    Calc<int> ci = Calc(7);
+    assert(ci.value() == 7);
+    assert(ci.compute(5) == 11);   /* (0+2+4) + (0+1+2) + (1+1) */
+    assert(ci.grid(5) == 5);       /* a=2,b=3 → 2*3==6 → 5 */
+
+    Calc<string> cs = Calc("hi");
+    assert(strcmp(cs.value(), "hi") == 0);
+    assert(cs.compute(5) == 11);
+    assert(cs.grid(5) == 5);
+
+    print("PASS: test_generic_control_flow");
+    return 0;
+}

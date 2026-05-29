@@ -46,9 +46,13 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
 
     for part in node.parts:
         if isinstance(part, FStringText):
-            # Escape special chars for printf
-            text = part.text.replace("%", "%%").replace("\\", "\\\\")
-            text = text.replace('"', '\\"').replace('\n', '\\n')
+            # part.text holds escape sequences in source form (e.g. "\n", "\t",
+            # "\\", "\"") exactly as written, plus literal characters. These are
+            # passed through verbatim into the C format-string literal so the C
+            # compiler unescapes them — the same treatment regular string
+            # literals receive. Only '%' must be doubled so printf reads it as a
+            # literal percent.
+            text = part.text.replace("%", "%%")
             fmt_parts.append(text)
         elif isinstance(part, FStringExpr):
             from .expressions import lower_expr

@@ -47,12 +47,13 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
     """Emits IR nodes from AST nodes within a monomorphized generic class."""
 
     def __init__(self, type_map, mangled, type_to_c_fn, *,
-                 gen=None):
+                 gen=None, cls_info=None):
         self.type_map = type_map
         self.mangled = mangled
         self._ttc = type_to_c_fn
         self._gen = gen
-        # Track variable types for cross-type method call mangling
+        self._cls_info = cls_info  # the generic class being monomorphized
+        # Track variable types for method-call mangling on local variables
         self._var_types = {}
         # Unique temp counter (avoids name collisions without GCC scoping)
         self._temp_counter = 0
@@ -153,6 +154,14 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
         if isinstance(e, CallExpr):
             return self._call(e)
         if isinstance(e, AssignExpr):
+            # A collection literal takes its type from the assignment target,
+            # e.g. self.items = []  inside Ring<int>  →  btrc_Vector_int_new().
+            if isinstance(e.value, (ListLiteral, MapLiteral)):
+                target = self._mangle_type(self._resolve_expr_type(e.target))
+                if target:
+                    return IRBinOp(
+                        left=self._expr(e.target), op=e.op,
+                        right=self._collection_literal(target, e.value))
             return IRBinOp(left=self._expr(e.target), op=e.op,
                            right=self._expr(e.value))
         if isinstance(e, ListLiteral):
@@ -171,37 +180,37 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
             return IRSizeof(operand=_ir_expr_to_text(self._expr(operand.expr)))
         return IRSizeof(operand="int")
 
-    def _list_literal(self, e) -> IRExpr:
-        """Emit [] as TYPE_new() + TYPE_push() calls."""
-        if not e.elements:
-            return IRCall(callee=f"{self.mangled}_new", args=[])
-        tmp = self._fresh_temp("__list")
-        stmts = [
-            IRVarDecl(c_type=CType(text=f"{self.mangled}*"), name=tmp,
-                      init=IRCall(callee=f"{self.mangled}_new", args=[])),
-        ]
-        for x in e.elements:
-            stmts.append(IRExprStmt(
-                expr=IRCall(callee=f"{self.mangled}_push",
-                            args=[IRVar(name=tmp), self._expr(x)])))
+    def _collection_literal(self, target: str, lit) -> IRExpr:
+        """Build a list/map literal as target_new() (+ target_push/put calls).
+
+        `target` is the mangled collection type the literal flows into (driven
+        by the declared/assigned type, not the enclosing class)."""
+        from ....ast_nodes import ListLiteral
+        ctor = IRCall(callee=f"{target}_new", args=[])
+        is_list = isinstance(lit, ListLiteral)
+        items = lit.elements if is_list else lit.entries
+        if not items:
+            return ctor
+        tmp = self._fresh_temp("__list" if is_list else "__map")
+        stmts = [IRVarDecl(c_type=CType(text=f"{target}*"), name=tmp, init=ctor)]
+        if is_list:
+            for x in lit.elements:
+                stmts.append(IRExprStmt(expr=IRCall(
+                    callee=f"{target}_push",
+                    args=[IRVar(name=tmp), self._expr(x)])))
+        else:
+            for entry in lit.entries:
+                stmts.append(IRExprStmt(expr=IRCall(
+                    callee=f"{target}_put",
+                    args=[IRVar(name=tmp), self._expr(entry.key),
+                          self._expr(entry.value)])))
         return IRStmtExpr(stmts=stmts, result=IRVar(name=tmp))
 
+    def _list_literal(self, e) -> IRExpr:
+        return self._collection_literal(self.mangled, e)
+
     def _map_literal(self, e) -> IRExpr:
-        """Emit {} as TYPE_new() + TYPE_put() calls."""
-        if not e.entries:
-            return IRCall(callee=f"{self.mangled}_new", args=[])
-        tmp = self._fresh_temp("__map")
-        stmts = [
-            IRVarDecl(c_type=CType(text=f"{self.mangled}*"), name=tmp,
-                      init=IRCall(callee=f"{self.mangled}_new", args=[])),
-        ]
-        for entry in e.entries:
-            stmts.append(IRExprStmt(
-                expr=IRCall(callee=f"{self.mangled}_put",
-                            args=[IRVar(name=tmp),
-                                  self._expr(entry.key),
-                                  self._expr(entry.value)])))
-        return IRStmtExpr(stmts=stmts, result=IRVar(name=tmp))
+        return self._collection_literal(self.mangled, e)
 
     def _new_expr(self, e) -> IRExpr:
         """Emit new Type(args) as mangled_new(args)."""
@@ -242,33 +251,16 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
                     callee=f"{self.mangled}_{e.callee.field}",
                     args=[IRVar(name="self")] + args)
 
-            # Cross-type method call: check if the object has a known type
-            obj_name = self._get_obj_name(e.callee.obj)
-            if obj_name and obj_name in self._var_types:
-                target = self._mangle_for_var(obj_name)
-                if target:
-                    obj = self._expr(e.callee.obj)
-                    return IRCall(
-                        callee=f"{target}_{e.callee.field}",
-                        args=[obj] + args)
-
-            # Fallback: bare function name
+            # Method call on a typed receiver (a local variable, self.field,
+            # etc.): resolve the receiver's type and dispatch to the
+            # monomorphized method — e.g. self.items.push(x) inside Ring<int>
+            # becomes btrc_Vector_int_push(self->items, x).
+            target = self._mangle_type(self._resolve_expr_type(e.callee.obj))
             obj = self._expr(e.callee.obj)
+            if target:
+                return IRCall(callee=f"{target}_{e.callee.field}",
+                              args=[obj] + args)
+            # Fallback: bare function name
             return IRCall(callee=e.callee.field, args=[obj] + args)
 
         return IRCall(callee="/* unknown call */", args=args)
-
-    def _get_obj_name(self, e) -> str | None:
-        """Extract variable name from an expression, if it's an Identifier."""
-        from ....ast_nodes import Identifier
-        if isinstance(e, Identifier):
-            return e.name
-        return None
-
-    def _mangle_for_var(self, var_name: str) -> str | None:
-        """Get the mangled type name for a tracked variable."""
-        from ..types import mangle_generic_type
-        var_type = self._var_types.get(var_name)
-        if var_type and var_type.generic_args:
-            return mangle_generic_type(var_type.base, var_type.generic_args)
-        return None

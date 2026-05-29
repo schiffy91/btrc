@@ -130,9 +130,11 @@ def _emit_visitor(gen: IRGenerator, class_name: str, cls_info: ClassInfo):
         if field_cls and field_cls.is_cyclable:
             lines.append(
                 f"    if (self->{fname}) fn((void**)&self->{fname});")
-    if not lines:
-        return
-    body = "\n".join(lines)
+    # A cyclable class must always get a visitor even when it has no directly
+    # cyclable-class fields — it may be cyclable only through a generic
+    # collection (e.g. Vector<Self>). The ARC cycle collector references
+    # {class}_visit unconditionally, so emitting nothing would dangle.
+    body = "\n".join(lines) if lines else "    (void)self;\n    (void)fn;"
     text = (
         f"static void {class_name}_visit({class_name}* self, "
         f"void (*fn)(void**)) {{\n{body}\n}}"

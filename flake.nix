@@ -18,10 +18,11 @@
         claudeCode = { enable = true; version = "latest"; };
         initialShellCmd = "echo make help && make help";
         packages = pkgs: with pkgs; [
-          (python314.withPackages (ps: [ ps.pytest ps.pytest-xdist ]))
-            ruff gcc clang gnumake git jq gh nodejs_22 nixd wgpu-native glfw
+          (python314.withPackages (ps: [ ps.pytest ps.pytest-xdist ps.pygls ps.lsprotocol ]))
+            ruff gcc clang gnumake git jq gh nodejs_22 nixd wgpu-native glfw freetype
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
+            pkg-config dbus.dev   # native system-tray (StatusNotifierItem) shim
           ];
       };
       files = import ./build { inherit cfg lib; };
@@ -48,6 +49,8 @@
           GPU_LDFLAGS = "-L${pkgs.wgpu-native}/lib -lwgpu_native -L${pkgs.glfw}/lib -lglfw"
             + lib.optionalString isDarwin
               " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo";
+          FONT_CFLAGS = "-I${pkgs.freetype.dev}/include/freetype2";
+          FONT_LDFLAGS = "-L${pkgs.freetype}/lib -lfreetype";
         };
       });
       packages = eachSystem (pkgs: let

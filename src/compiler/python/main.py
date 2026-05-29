@@ -5,11 +5,16 @@ Usage: python main.py <input.btrc> [-o output.c] [--emit-ast] [--emit-tokens]
 """
 
 import argparse
+import hashlib
 import os
+import pickle
 import re
 import sys
+import time
 
+from . import pkg
 from .analyzer.analyzer import Analyzer
+from .ast_nodes import Program
 from .disk_cache import get_cached
 from .disk_cache import store as cache_store
 from .ir.emitter import CEmitter
@@ -18,6 +23,40 @@ from .ir.optimizer import optimize
 from .lexer import Lexer, LexerError
 from .parser.core import ParseError
 from .parser.parser import Parser
+
+# Bump when the lexer/parser/AST changes so cached stdlib ASTs are invalidated.
+_STDLIB_AST_VERSION = "1"
+
+
+def _cached_stdlib_decls(stdlib_source: str) -> list:
+    """Parse the stdlib once and cache its AST declarations on disk.
+
+    The stdlib is large and identical across programs, so re-lexing/re-parsing
+    it every compile dominates build time. This caches the parsed declarations
+    keyed by the exact stdlib source (which already reflects any user overrides),
+    so subsequent builds skip straight to the user's code. Each CLI invocation
+    is a fresh process, so the unpickled AST is never shared/mutated across runs.
+    """
+    key = hashlib.sha256(
+        f"astv{_STDLIB_AST_VERSION}\n{stdlib_source}".encode("utf-8")
+    ).hexdigest()
+    cache_dir = os.path.join(os.getcwd(), ".btrc-cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    path = os.path.join(cache_dir, f"stdlib-{key}.ast")
+    if os.path.exists(path):
+        try:
+            with open(path, "rb") as f:
+                return pickle.load(f)
+        except Exception:
+            pass  # corrupt/incompatible cache — reparse below
+    tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
+    decls = Parser(tokens).parse().declarations
+    try:
+        with open(path, "wb") as f:
+            pickle.dump(decls, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        pass
+    return decls
 
 
 def _format_error(source: str, filename: str, message: str,
@@ -38,6 +77,13 @@ def _format_error(source: str, filename: str, message: str,
         f" {line} | {source_line}\n"
         f" {pad} | {caret}"
     )
+
+
+def _syntax_error_exit(source: str, filename: str, e):
+    """Print a lexer/parser error with source context, then exit(1)."""
+    raw_msg = str(e).rsplit(" at ", 1)[0] if " at " in str(e) else str(e)
+    print(_format_error(source, filename, raw_msg, e.line, e.col), file=sys.stderr)
+    sys.exit(1)
 
 
 _BTRC_INCLUDE_RE = re.compile(r'^\s*#include\s+[<"]([^>"]+\.btrc)[>"]\s*$')
@@ -230,7 +276,11 @@ def _relative_import_paths(spec: str, source_dir: str) -> list[str]:
 def _import_paths(spec: str, source_dir: str) -> list[str]:
     paths: list[str] = []
     for expanded in _expand_brace_import(_strip_import_quotes(spec)):
-        paths.extend(_stdlib_import_paths(expanded) or _relative_import_paths(expanded, source_dir))
+        paths.extend(
+            _stdlib_import_paths(expanded)
+            or pkg.package_import_paths(expanded)
+            or _relative_import_paths(expanded, source_dir)
+        )
     return paths
 
 
@@ -283,6 +333,17 @@ def resolve_includes(source: str, source_path: str, included: set[str] | None = 
     return '\n'.join(result)
 
 
+def _print_profile(prof: dict, source_len: int) -> None:
+    """Print a per-phase timing breakdown to stderr."""
+    total = sum(prof.values()) or 1e-9
+    print("--- btrc profile ---", file=sys.stderr)
+    for label, secs in prof.items():
+        pct = 100.0 * secs / total
+        print(f"  {label:<18} {secs * 1000:8.2f} ms  {pct:5.1f}%", file=sys.stderr)
+    print(f"  {'total':<18} {total * 1000:8.2f} ms  ({source_len} chars resolved)",
+          file=sys.stderr)
+
+
 def _dump_ir(module):
     """Print a canonical IR dump for debugging."""
     print(f"# IRModule: {len(module.enum_defs)} enums, "
@@ -320,8 +381,16 @@ def main():
                            help="Print IR representation (after optimization)")
     argparser.add_argument("--no-cache", action="store_true",
                            help="Disable on-disk compilation cache")
+    argparser.add_argument("--profile", action="store_true",
+                           help="Print a per-phase timing breakdown to stderr")
+    argparser.add_argument("--fetch", action="store_true",
+                           help="Re-resolve package dependencies and rewrite btrc.lock")
 
     args = argparser.parse_args()
+    prof: dict[str, float] = {}
+
+    # Resolve package dependencies (btrc.toml) governing this input, if any.
+    pkg.configure_for(args.input, refresh=args.fetch)
 
     # Read input
     try:
@@ -332,13 +401,20 @@ def main():
         sys.exit(1)
 
     # Resolve #include "file.btrc" directives
-    source = resolve_includes(source, args.input)
+    _t = time.perf_counter()
+    user_source = resolve_includes(source, args.input)
+    prof["resolve_includes"] = time.perf_counter() - _t
 
-    # Auto-include all stdlib types (skip classes user already defines)
+    # Auto-include stdlib types (skipping classes the user redefines). Kept
+    # separate from user_source so the (large, identical) stdlib can be parsed
+    # from cache; `source` is the concatenation used for the disk-cache key and
+    # the non-cached fallback path.
+    stdlib_source = ""
     if not args.no_stdlib:
-        stdlib_source = get_stdlib_source(source)
-        if stdlib_source:
-            source = stdlib_source + "\n" + source
+        _t = time.perf_counter()
+        stdlib_source = get_stdlib_source(user_source)
+        prof["stdlib_include"] = time.perf_counter() - _t
+    source = (stdlib_source + "\n" + user_source) if stdlib_source else user_source
 
     filename = os.path.basename(args.input)
 
@@ -359,31 +435,53 @@ def main():
             print(f"Transpiled {args.input} → {out_path} (cached)")
             return
 
-    # Lexing
-    try:
-        lexer = Lexer(source, filename)
-        tokens = lexer.tokenize()
-    except LexerError as e:
-        # Extract the message without "at line:col" suffix
-        raw_msg = str(e).rsplit(" at ", 1)[0] if " at " in str(e) else str(e)
-        print(_format_error(source, filename, raw_msg, e.line, e.col),
-              file=sys.stderr)
-        sys.exit(1)
+    # Precompiled-stdlib fast path: parse only the user source and merge a
+    # cached parse of the stdlib. Disabled for token/AST dumps and --debug
+    # (which need exact source positions over the concatenated text).
+    use_ast_cache = (
+        bool(stdlib_source) and not args.no_cache
+        and not args.emit_tokens and not args.emit_ast and not args.debug
+    )
 
-    if args.emit_tokens:
-        for tok in tokens:
-            print(tok)
-        return
+    if use_ast_cache:
+        _t = time.perf_counter()
+        try:
+            tokens = Lexer(user_source, filename).tokenize()
+        except LexerError as e:
+            _syntax_error_exit(user_source, filename, e)
+        prof["lex"] = time.perf_counter() - _t
 
-    # Parsing
-    try:
-        parser = Parser(tokens)
-        program = parser.parse()
-    except ParseError as e:
-        raw_msg = str(e).rsplit(" at ", 1)[0] if " at " in str(e) else str(e)
-        print(_format_error(source, filename, raw_msg, e.line, e.col),
-              file=sys.stderr)
-        sys.exit(1)
+        _t = time.perf_counter()
+        try:
+            user_program = Parser(tokens).parse()
+            stdlib_decls = _cached_stdlib_decls(stdlib_source)
+        except ParseError as e:
+            _syntax_error_exit(user_source, filename, e)
+        program = Program(declarations=stdlib_decls + user_program.declarations)
+        prof["parse"] = time.perf_counter() - _t
+    else:
+        # Lexing
+        _t = time.perf_counter()
+        try:
+            lexer = Lexer(source, filename)
+            tokens = lexer.tokenize()
+        except LexerError as e:
+            _syntax_error_exit(source, filename, e)
+        prof["lex"] = time.perf_counter() - _t
+
+        if args.emit_tokens:
+            for tok in tokens:
+                print(tok)
+            return
+
+        # Parsing
+        _t = time.perf_counter()
+        try:
+            parser = Parser(tokens)
+            program = parser.parse()
+        except ParseError as e:
+            _syntax_error_exit(source, filename, e)
+        prof["parse"] = time.perf_counter() - _t
 
     if args.emit_ast:
         import pprint
@@ -391,8 +489,10 @@ def main():
         return
 
     # Analysis
+    _t = time.perf_counter()
     analyzer = Analyzer()
     analyzed = analyzer.analyze(program)
+    prof["analyze"] = time.perf_counter() - _t
 
     if analyzed.errors:
         for err in analyzed.errors:
@@ -429,23 +529,32 @@ def main():
         print(f"warning: {warn}", file=sys.stderr)
 
     # Code generation: AST → IR → optimize → C text
+    _t = time.perf_counter()
     ir_module = generate_ir(analyzed, debug=args.debug, source_file=filename)
+    prof["ir_gen"] = time.perf_counter() - _t
 
     if args.emit_ir:
         _dump_ir(ir_module)
         return
 
+    _t = time.perf_counter()
     ir_module = optimize(ir_module)
+    prof["optimize"] = time.perf_counter() - _t
 
     if args.emit_optimized_ir:
         _dump_ir(ir_module)
         return
 
+    _t = time.perf_counter()
     c_source = CEmitter().emit(ir_module)
+    prof["emit"] = time.perf_counter() - _t
 
     # Store in disk cache
     if use_cache:
         cache_store(source, c_source)
+
+    if args.profile:
+        _print_profile(prof, len(source))
 
     # Output
     if args.output:
@@ -460,5 +569,5 @@ def main():
     print(f"Transpiled {args.input} → {out_path}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

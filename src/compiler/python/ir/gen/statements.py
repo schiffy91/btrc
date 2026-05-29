@@ -31,6 +31,7 @@ from ...ast_nodes import (
     WhileStmt,
 )
 from ..nodes import (
+    CType,
     IRBinOp,
     IRBlock,
     IRBreak,
@@ -47,6 +48,7 @@ from ..nodes import (
     IRStmt,
     IRUnaryOp,
     IRVar,
+    IRVarDecl,
     IRWhile,
 )
 from .arc import _emit_return_release, _emit_scope_release, _lower_release
@@ -89,13 +91,25 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         return _lower_var_decl(gen, node)
 
     if isinstance(node, ReturnStmt):
-        val = lower_expr(gen, node.value) if node.value else None
-        # ARC: release all managed vars before return, EXCEPT the returned var
-        returned_var = None
-        if node.value and isinstance(node.value, Identifier):
-            returned_var = node.value.name
-        release_stmts = _emit_return_release(gen, returned_var)
-        return release_stmts + [IRReturn(value=val)]
+        if node.value is None:
+            return _emit_return_release(gen, None) + [IRReturn(value=None)]
+        if isinstance(node.value, Identifier):
+            # Returning a bare local transfers ownership to the caller, so it is
+            # excluded from the scope release rather than being decref'd.
+            val = lower_expr(gen, node.value)
+            release_stmts = _emit_return_release(gen, node.value.name)
+            return release_stmts + [IRReturn(value=val)]
+        # Returning a non-trivial expression: evaluate it into a temp BEFORE the
+        # scope release so the expression can safely reference managed locals.
+        # (Previously the locals were released first, freeing objects that the
+        # return expression still used — a use-after-free, e.g. `return o.f()`.)
+        # __auto_type infers the temp's type from the value, like the existing
+        # __typeof__-based helpers elsewhere in codegen.
+        val = lower_expr(gen, node.value)
+        tmp = gen.fresh_temp("__btrc_ret")
+        decl = IRVarDecl(c_type=CType(text="__auto_type"), name=tmp, init=val)
+        release_stmts = _emit_return_release(gen, None)
+        return [decl] + release_stmts + [IRReturn(value=IRVar(name=tmp))]
 
     if isinstance(node, IfStmt):
         return [_lower_if(gen, node)]

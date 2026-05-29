@@ -1,0 +1,221 @@
+/* btrc standard library — declarative GUI (View tree)
+ *
+ * A modern, declarative layer over the immediate-mode renderer: you describe
+ * the UI as a tree (View = f(state)) and the runtime lays it out (flexbox),
+ * renders it, and hands back events keyed by widget id — no stored callbacks
+ * (Elm-style messages), which keeps it simple and btrc-flavored.
+ *
+ * Requires gui.btrc. Not auto-included.
+ *
+ *   View ui = View.column().pad(16).withGap(8).kids([
+ *       View.text("Count: " + Strings.fromInt(state.count)),
+ *       View.button("Increment", "inc"),
+ *   ]);
+ *   GuiEvents ev = Ui.frame(surface, input, theme, ui);
+ *   if (ev.clicked.equals("inc")) { state.count++; }
+ *
+ * The layout reflows to the surface size each frame, so resizing the window
+ * (and resizing the surface to match) is automatically responsive.
+ */
+
+class View {
+    public string kind;     /* column | row | text | button | checkbox | spacer | box */
+    public string text;
+    public string id;
+    public Vector<View> children;
+    public int padding;
+    public int gap;
+    public bool grow;        /* expand along the parent's main axis */
+    public bool hasBg;
+    public Color bg;
+    public bool hasFg;
+    public Color fg;
+    public int scale;        /* text scale */
+    public bool checked;     /* checkbox state */
+    public int fixedW;       /* 0 = auto/stretch */
+    public int fixedH;
+    /* computed by layout */
+    public int mW;
+    public int mH;
+    public int x;
+    public int y;
+    public int w;
+    public int h;
+
+    public View(string kind) {
+        self.kind = kind;
+        self.text = "";
+        self.id = "";
+        self.children = [];
+        self.padding = 0;
+        self.gap = 8;
+        self.grow = false;
+        self.hasBg = false;
+        self.hasFg = false;
+        self.scale = 2;
+        self.checked = false;
+        self.fixedW = 0;
+        self.fixedH = 0;
+        self.mW = 0; self.mH = 0; self.x = 0; self.y = 0; self.w = 0; self.h = 0;
+    }
+
+    public View pad(int p) { self.padding = p; return self; }
+    public View withGap(int g) { self.gap = g; return self; }
+    public View grows() { self.grow = true; return self; }
+    public View bgColor(Color c) { self.bg = c; self.hasBg = true; return self; }
+    public View fgColor(Color c) { self.fg = c; self.hasFg = true; return self; }
+    public View scaleText(int s) { self.scale = s; return self; }
+    public View sized(int w, int h) { self.fixedW = w; self.fixedH = h; return self; }
+    public View child(View c) { self.children.push(c); return self; }
+    public View kids(Vector<View> cs) {
+        for c in cs { self.children.push(c); }
+        return self;
+    }
+
+    /* ── fluent builders (static) ── */
+    class View column() { return View("column"); }
+    class View row() { return View("row"); }
+    class View box() { return View("box"); }
+    class View text(string t) { View v = View("text"); v.text = t; return v; }
+    class View button(string label, string id) {
+        View v = View("button"); v.text = label; v.id = id; return v;
+    }
+    class View checkbox(string label, string id, bool checked) {
+        View v = View("checkbox"); v.text = label; v.id = id; v.checked = checked; return v;
+    }
+    class View spacer() { View v = View("spacer"); v.grow = true; return v; }
+}
+
+/* Events produced by a frame (no callbacks — explicit data). */
+class GuiEvents {
+    public string clicked;          /* id of the button clicked this frame, or "" */
+    public Vector<string> toggled;  /* ids of checkboxes toggled this frame */
+
+    public GuiEvents() {
+        self.clicked = "";
+        self.toggled = [];
+    }
+
+    public bool wasClicked(string id) { return self.clicked.equals(id); }
+    public bool wasToggled(string id) {
+        for t in self.toggled { if (t.equals(id)) { return true; } }
+        return false;
+    }
+}
+
+class Ui {
+    class bool hit(GuiInput input, int x, int y, int w, int h) {
+        return input.mouseX >= x && input.mouseX < x + w
+            && input.mouseY >= y && input.mouseY < y + h;
+    }
+
+    /* Intrinsic size pass (bottom-up). */
+    class void measure(View v) {
+        if (v.kind.equals("text")) {
+            v.mW = btrc_gui_text_width(v.text, v.scale) + 2 * v.padding;
+            v.mH = btrc_gui_text_height(v.scale) + 2 * v.padding;
+        } else if (v.kind.equals("button")) {
+            v.mW = btrc_gui_text_width(v.text, v.scale) + 2 * v.padding + 20;
+            v.mH = btrc_gui_text_height(v.scale) + 2 * v.padding + 12;
+        } else if (v.kind.equals("checkbox")) {
+            int box = btrc_gui_text_height(v.scale);
+            v.mW = box + 8 + btrc_gui_text_width(v.text, v.scale) + 2 * v.padding;
+            v.mH = box + 2 * v.padding;
+        } else if (v.kind.equals("spacer")) {
+            v.mW = 0; v.mH = 0;
+        } else {
+            for c in v.children { Ui.measure(c); }
+            int n = v.children.len;
+            int main = 0;
+            int cross = 0;
+            for c in v.children {
+                if (v.kind.equals("row")) {
+                    main = main + c.mW;
+                    if (c.mH > cross) { cross = c.mH; }
+                } else {
+                    main = main + c.mH;
+                    if (c.mW > cross) { cross = c.mW; }
+                }
+            }
+            if (n > 1) { main = main + v.gap * (n - 1); }
+            if (v.kind.equals("row")) {
+                v.mW = main + 2 * v.padding; v.mH = cross + 2 * v.padding;
+            } else {
+                v.mH = main + 2 * v.padding; v.mW = cross + 2 * v.padding;
+            }
+        }
+        if (v.fixedW > 0) { v.mW = v.fixedW; }
+        if (v.fixedH > 0) { v.mH = v.fixedH; }
+    }
+
+    /* Assign rectangles (top-down), distributing slack to grow children. */
+    class void layout(View v, int x, int y, int w, int h) {
+        v.x = x; v.y = y; v.w = w; v.h = h;
+        int n = v.children.len;
+        if (n == 0) { return; }
+        int innerX = x + v.padding;
+        int innerY = y + v.padding;
+        int innerW = w - 2 * v.padding;
+        int innerH = h - 2 * v.padding;
+        bool isRow = v.kind.equals("row");
+
+        int fixed = 0;
+        int grows = 0;
+        for c in v.children {
+            if (c.grow) { grows++; }
+            else { fixed = fixed + (isRow ? c.mW : c.mH); }
+        }
+        int gaps = n > 1 ? v.gap * (n - 1) : 0;
+        int avail = (isRow ? innerW : innerH) - fixed - gaps;
+        if (avail < 0) { avail = 0; }
+        int per = grows > 0 ? avail / grows : 0;
+
+        int cursor = isRow ? innerX : innerY;
+        for c in v.children {
+            int mainSize = c.grow ? per : (isRow ? c.mW : c.mH);
+            if (isRow) {
+                Ui.layout(c, cursor, innerY, mainSize, innerH);
+            } else {
+                Ui.layout(c, innerX, cursor, innerW, mainSize);
+            }
+            cursor = cursor + mainSize + v.gap;
+        }
+    }
+
+    class void render(Surface s, GuiInput input, Theme theme, View v, GuiEvents ev) {
+        if (v.hasBg) { s.fillRect(v.x, v.y, v.w, v.h, v.bg); }
+
+        if (v.kind.equals("text")) {
+            Color c = v.hasFg ? v.fg : theme.text;
+            s.text(v.x + v.padding, v.y + v.padding, v.text, c, v.scale);
+        } else if (v.kind.equals("button")) {
+            bool hovered = Ui.hit(input, v.x, v.y, v.w, v.h);
+            Color fill = hovered ? theme.accent : theme.panel;
+            Color fg = hovered ? theme.accentText : theme.text;
+            s.fillRect(v.x, v.y, v.w, v.h, fill);
+            int tw = btrc_gui_text_width(v.text, v.scale);
+            int th = btrc_gui_text_height(v.scale);
+            s.text(v.x + (v.w - tw) / 2, v.y + (v.h - th) / 2, v.text, fg, v.scale);
+            if (hovered && input.mousePressed && !v.id.isEmpty()) { ev.clicked = v.id; }
+        } else if (v.kind.equals("checkbox")) {
+            int box = btrc_gui_text_height(v.scale);
+            bool hovered = Ui.hit(input, v.x, v.y, v.w, v.h);
+            s.fillRect(v.x, v.y, box, box, theme.border);
+            if (v.checked) { s.fillRect(v.x + 3, v.y + 3, box - 6, box - 6, theme.accent); }
+            s.text(v.x + box + 8, v.y, v.text, theme.text, v.scale);
+            if (hovered && input.mousePressed && !v.id.isEmpty()) { ev.toggled.push(v.id); }
+        }
+
+        for c in v.children { Ui.render(s, input, theme, c, ev); }
+    }
+
+    /* One declarative frame: measure → layout to the surface → render → events. */
+    class GuiEvents frame(Surface s, GuiInput input, Theme theme, View root) {
+        Ui.measure(root);
+        Ui.layout(root, 0, 0, s.width(), s.height());
+        s.clear(theme.bg);
+        GuiEvents ev = GuiEvents();
+        Ui.render(s, input, theme, root, ev);
+        return ev;
+    }
+}

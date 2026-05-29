@@ -37,6 +37,7 @@ from src.compiler.python.ast_nodes import (
     Param,
     Program,
     PropertyDecl,
+    RichEnumDecl,
     StructDecl,
     SwitchStmt,
     TryCatchStmt,
@@ -106,6 +107,14 @@ class DefinitionMap:
                     _collect_vars_in_block(dmap, decl.body, scope_start, scope_end)
             elif isinstance(decl, EnumDecl):
                 dmap.enum_defs[decl.name] = (decl.line, decl.col)
+                # Map each value name too, so cmd-clicking a use of a value
+                # (e.g. RED) jumps to the enum declaration.
+                for v in decl.values:
+                    dmap.enum_defs.setdefault(v.name, (decl.line, decl.col))
+            elif isinstance(decl, RichEnumDecl):
+                dmap.enum_defs[decl.name] = (decl.line, decl.col)
+                for variant in decl.variants:
+                    dmap.enum_defs.setdefault(variant.name, (decl.line, decl.col))
             elif isinstance(decl, StructDecl):
                 dmap.struct_defs[decl.name] = (decl.line, decl.col)
             elif isinstance(decl, TypedefDecl):

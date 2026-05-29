@@ -18,6 +18,7 @@ examples/todo/todo
 examples/game/game
 examples/triangle/triangle
 examples/sgd/sgd
+examples/tray/tray_demo
 
 # macOS
 .DS_Store
@@ -38,3 +39,16 @@ src/devex/ext/*.vsix
 
 # GPU runtime
 src/stdlib/gpu/build/
+
+# GUI runtime
+src/stdlib/gui/build/
+
+# Benchmark generated C + binaries
+bench/*.c
+bench/fib
+bench/loop
+bench/vector
+bench/strings
+
+# GUI example binary
+examples/gui/gui_demo

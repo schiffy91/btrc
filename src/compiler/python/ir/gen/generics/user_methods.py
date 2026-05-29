@@ -81,7 +81,8 @@ def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
     from ..types import type_to_c as ttc
 
     first_arg_c = ttc(args[0]) if args else "int"
-    emitter = _UserGenericEmitter(type_map, mangled, ttc, gen=gen)
+    emitter = _UserGenericEmitter(type_map, mangled, ttc, gen=gen,
+                                  cls_info=cls_info)
 
     ctor = cls_info.constructor
     ctor_params_ir = []
@@ -255,7 +256,7 @@ def _build_generic_destructor_stmts(cls_info, type_map, mangled, gen):
     if dtor and dtor.body:
         emitter = _UserGenericEmitter(type_map, mangled,
                                        lambda t: type_to_c(_resolve_type(t, type_map)),
-                                       gen=gen)
+                                       gen=gen, cls_info=cls_info)
         stmts.extend(emitter.emit_stmts(dtor.body.statements))
 
     for fname, fd in cls_info.fields.items():

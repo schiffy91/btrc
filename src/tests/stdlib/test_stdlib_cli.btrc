@@ -1,0 +1,27 @@
+/* CliArgs flag/command/value lookup and CliCommand alias matching. */
+#include <assert.h>
+
+int main() {
+    /* Start empty (argc=0) and populate values directly to simulate argv. */
+    CliArgs a = CliArgs(0, null);
+    a.values.push("build");
+    a.values.push("--name");
+    a.values.push("lorem");
+    a.values.push("--level=3");
+
+    assert(a.count() == 4);
+    assert(a.get(0).equals("build"));
+    assert(a.command().equals("build"));
+    assert(a.commandIs("build") && !a.commandIs("run"));
+    assert(a.has("--name") && !a.has("--missing"));
+    assert(a.valueAfter("--name", "?").equals("lorem"));
+    assert(a.valueAfter("--missing", "def").equals("def"));
+    assert(a.valueAfterPrefix("--level=", "0").equals("3"));
+
+    CliCommand cmd = CliCommand("build");
+    cmd.alias("b");
+    assert(cmd.matches("build") && cmd.matches("b") && !cmd.matches("run"));
+
+    print("PASS: test_stdlib_cli");
+    return 0;
+}

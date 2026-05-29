@@ -1,0 +1,33 @@
+/* JsonObject: typed setters/getters, stringify→parse round-trip, escaping. */
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    JsonObject o = JsonObject();
+    o.setString("name", "Ada");
+    o.setInt("age", 36);
+    o.setBool("admin", true);
+
+    assert(o.has("name"));
+    assert(!o.has("missing"));
+    assert(strcmp(o.getString("name", "?"), "Ada") == 0);
+    assert(o.getInt("age", 0) == 36);
+    assert(o.getBool("admin", false) == true);
+    assert(o.getInt("missing", -1) == -1);          /* fallback */
+    assert(o.getBool("missing", true) == true);      /* fallback */
+
+    /* stringify → parse round-trip preserves values */
+    JsonObject p = JsonObject.parse(o.stringify());
+    assert(strcmp(p.getString("name", "?"), "Ada") == 0);
+    assert(p.getInt("age", 0) == 36);
+    assert(p.getBool("admin", false) == true);
+
+    /* quotes and backslashes survive escape → stringify → parse → unescape */
+    JsonObject e = JsonObject();
+    e.setString("path", "a\"b\\c");
+    JsonObject q = JsonObject.parse(e.stringify());
+    assert(strcmp(q.getString("path", "?"), "a\"b\\c") == 0);
+
+    print("PASS: test_stdlib_json");
+    return 0;
+}
