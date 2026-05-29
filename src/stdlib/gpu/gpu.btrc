@@ -165,6 +165,7 @@ class GPU {
 }
 
 /* ---- Headless compute (for @gpu functions and manual compute) ---- */
+bool  btrc_gpu_available();
 void* btrc_gpu_init_compute();
 void* btrc_gpu_create_buffer(void* gpu, int size, int usage);
 void  btrc_gpu_write_buffer(void* gpu, void* buf, void* data, int size);

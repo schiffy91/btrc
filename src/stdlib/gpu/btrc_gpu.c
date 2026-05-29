@@ -448,8 +448,9 @@ void* btrc_gpu_init_compute(void) {
     WGPUInstanceDescriptor inst_desc = { 0 };
     gpu->instance = wgpuCreateInstance(&inst_desc);
     if (!gpu->instance) {
-        fprintf(stderr, "[btrc-gpu] wgpuCreateInstance failed\n");
-        exit(1);
+        /* Non-fatal: callers probe via btrc_gpu_available() and fall back to CPU. */
+        free(gpu);
+        return NULL;
     }
 
     WGPURequestAdapterOptions adapter_opts = {
@@ -463,8 +464,8 @@ void* btrc_gpu_init_compute(void) {
             .userdata1 = gpu,
         });
     if (!gpu->adapter) {
-        fprintf(stderr, "[btrc-gpu] no suitable GPU adapter found\n");
-        exit(1);
+        free(gpu);
+        return NULL;
     }
 
     /* Request the adapter's full supported limits so large (image-sized)
@@ -483,12 +484,28 @@ void* btrc_gpu_init_compute(void) {
             .userdata1 = gpu,
         });
     if (!gpu->device) {
-        fprintf(stderr, "[btrc-gpu] device request failed\n");
-        exit(1);
+        free(gpu);
+        return NULL;
     }
 
     gpu->queue = wgpuDeviceGetQueue(gpu->device);
     return gpu;
+}
+
+/* Non-fatal probe: 1 if a compute GPU is usable, 0 otherwise (or if the env var
+ * BTRC_NO_GPU is set). Cached. Lets @gpu kernels fall back to a CPU loop. */
+int btrc_gpu_available(void) {
+    static int cached = -1;
+    if (cached >= 0) return cached;
+    if (getenv("BTRC_NO_GPU")) { cached = 0; return cached; }
+    void* probe = btrc_gpu_init_compute();
+    if (probe) {
+        btrc_gpu_destroy(probe);
+        cached = 1;
+    } else {
+        cached = 0;
+    }
+    return cached;
 }
 
 /* ================================================================

@@ -40,6 +40,11 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     # Regular function call
     if isinstance(node.callee, Identifier):
         name = node.callee.name
+
+        # Inside a @gpu CPU-fallback loop, gpu_id() is the loop index.
+        if name == "gpu_id" and getattr(gen, "_gpu_cpu_index", None):
+            return IRRawExpr(text=gen._gpu_cpu_index)
+
         args = [lower_expr(gen, a) for a in node.args]
 
         # @gpu function call → IRGpuDispatch

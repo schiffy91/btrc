@@ -40,6 +40,14 @@ class _GpuEmitterMixin:
         total_bindings = (n_bufs + (1 if has_output else 0)
                           + (1 if has_uniforms else 0))
 
+        # 0. CPU fallback: when no GPU is present, run the kernel's CPU loop.
+        cpu_fb = getattr(dispatch, "cpu_fallback", "")
+        cpu_args = ", ".join(self._expr(a) for a in dispatch.args) if cpu_fb else ""
+        cpu_len = (self._expr(dispatch.array_len_expr)
+                   if (cpu_fb and dispatch.array_len_expr is not None) else "0")
+        if cpu_fb:
+            self._line("if (btrc_gpu_available()) {")
+
         # 1. Lazy GPU singleton init
         self._line("static void* __gpu = NULL;")
         self._line("if (!__gpu) { __gpu = btrc_gpu_init_compute(); }")
@@ -165,6 +173,11 @@ class _GpuEmitterMixin:
         self._line("btrc_gpu_bind_group_destroy(__bg);")
         self._line("btrc_gpu_compute_pipeline_destroy(__pipeline);")
         self._line("btrc_gpu_shader_destroy(__shader);")
+
+        if cpu_fb:
+            self._line("} else {")
+            self._line(f"{cpu_fb}({cpu_args}, {cpu_len});")
+            self._line("}")
 
         # Return result variable (or void expression)
         if assign_target:
