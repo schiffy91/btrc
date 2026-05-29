@@ -36,9 +36,8 @@ class _GpuEmitterMixin:
         ws = dispatch.workgroup_size
         n_bufs = len(dispatch.param_buffers)
         has_output = dispatch.output_buffer is not None
-        has_uniforms = len(dispatch.uniform_params) > 0
-        total_bindings = (n_bufs + (1 if has_output else 0)
-                          + (1 if has_uniforms else 0))
+        # The dispatch uniform (scalars + __gpu_off/__gpu_n) is always bound.
+        total_bindings = n_bufs + (1 if has_output else 0) + 1
 
         # 0. CPU fallback: when no GPU is present, run the kernel's CPU loop.
         cpu_fb = getattr(dispatch, "cpu_fallback", "")
@@ -62,7 +61,7 @@ class _GpuEmitterMixin:
             self._line(f"int __gpu_len = sizeof({first_arr})"
                        f" / sizeof({first_arr}[0]);")
 
-        # 3. Create buffers for array params
+        # 3. Create + upload storage buffers (full size, once).
         for i, buf in enumerate(dispatch.param_buffers):
             arg_e = (self._expr(dispatch.args[i])
                      if i < len(dispatch.args) else "NULL")
@@ -78,7 +77,7 @@ class _GpuEmitterMixin:
                 f"btrc_gpu_write_buffer(__gpu, __buf_{buf.name}, "
                 f"{arg_e}, __gpu_len * sizeof({c_elem}));")
 
-        # 4. Create output buffer (if function returns an array)
+        # 4. Output buffer.
         if has_output:
             c_elem = _wgsl_to_c(dispatch.output_buffer.elem_type)
             self._line(
@@ -87,27 +86,24 @@ class _GpuEmitterMixin:
                 f"BTRC_GPU_STORAGE | BTRC_GPU_COPY_DST"
                 f" | BTRC_GPU_COPY_SRC);")
 
-        # 5. Create uniform buffer (if there are scalar params)
-        if has_uniforms:
-            uniform_fields = " ".join(
-                f"{_wgsl_to_c(utype)} {uname};"
-                for uname, utype in dispatch.uniform_params)
-            self._line(f"struct {{ {uniform_fields} }} __uniforms;")
-            uniform_start = n_bufs
-            for j, (uname, _) in enumerate(dispatch.uniform_params):
-                arg_idx = uniform_start + j
-                if arg_idx < len(dispatch.args):
-                    arg_e = self._expr(dispatch.args[arg_idx])
-                    self._line(f"__uniforms.{uname} = {arg_e};")
-            self._line(
-                "void* __buf_uniforms = btrc_gpu_create_buffer("
-                "__gpu, sizeof(__uniforms), "
-                "BTRC_GPU_UNIFORM | BTRC_GPU_COPY_DST);")
-            self._line(
-                "btrc_gpu_write_buffer(__gpu, __buf_uniforms, "
-                "&__uniforms, sizeof(__uniforms));")
+        # 5. Uniform buffer: user scalars + dispatch offset/length.
+        uniform_fields = " ".join(
+            f"{_wgsl_to_c(utype)} {uname};"
+            for uname, utype in dispatch.uniform_params)
+        self._line(f"struct {{ {uniform_fields} int __gpu_off; int __gpu_n; }} __uniforms;")
+        uniform_start = n_bufs
+        for j, (uname, _) in enumerate(dispatch.uniform_params):
+            arg_idx = uniform_start + j
+            if arg_idx < len(dispatch.args):
+                arg_e = self._expr(dispatch.args[arg_idx])
+                self._line(f"__uniforms.{uname} = {arg_e};")
+        self._line("__uniforms.__gpu_n = __gpu_len;")
+        self._line(
+            "void* __buf_uniforms = btrc_gpu_create_buffer("
+            "__gpu, sizeof(__uniforms), "
+            "BTRC_GPU_UNIFORM | BTRC_GPU_COPY_DST);")
 
-        # 6. Compile shader and create compute pipeline
+        # 6. Compile shader + pipeline (once).
         self._line(
             f"void* __shader = btrc_gpu_create_shader("
             f"__gpu, (char*){kname}_wgsl);")
@@ -115,7 +111,7 @@ class _GpuEmitterMixin:
             'void* __pipeline = btrc_gpu_create_compute_pipeline('
             '__gpu, __shader, "main");')
 
-        # 7. Create bind group
+        # 7. Bind group (once).
         self._line(f"void* __bindings[{total_bindings}];")
         bind_idx = 0
         for buf in dispatch.param_buffers:
@@ -124,23 +120,24 @@ class _GpuEmitterMixin:
         if has_output:
             self._line(f"__bindings[{bind_idx}] = __buf_output;")
             bind_idx += 1
-        if has_uniforms:
-            self._line(f"__bindings[{bind_idx}] = __buf_uniforms;")
-            bind_idx += 1
+        self._line(f"__bindings[{bind_idx}] = __buf_uniforms;")
         self._line(
             f"void* __bg = btrc_gpu_create_bind_group("
             f"__gpu, __pipeline, __bindings, {total_bindings});")
 
-        # 8. Dispatch
-        self._line(
-            f"int __workgroups = (__gpu_len + {ws - 1}) / {ws};")
-        self._line(
-            "btrc_gpu_dispatch(__gpu, __pipeline, __bg, __workgroups);")
+        # 8. Dispatch in chunks bounded by the 1D workgroup limit (65535).
+        self._line(f"int __chunk = {65535 * ws};")
+        self._line("for (int __off = 0; __off < __gpu_len; __off += __chunk) {")
+        self._line("__uniforms.__gpu_off = __off;")
+        self._line("btrc_gpu_write_buffer(__gpu, __buf_uniforms, &__uniforms, sizeof(__uniforms));")
+        self._line("int __wn = __gpu_len - __off; if (__wn > __chunk) { __wn = __chunk; }")
+        self._line(f"int __workgroups = (__wn + {ws - 1}) / {ws};")
+        self._line("btrc_gpu_dispatch(__gpu, __pipeline, __bg, __workgroups);")
+        self._line("}")
 
-        # 9. Readback
+        # 9. Readback (once, full buffers).
         assign_target = getattr(dispatch, 'assign_target', '')
         if has_output and assign_target:
-            # Readback directly into the assignment target (memcpy)
             c_elem = (dispatch.result_elem_type
                       or _wgsl_to_c(dispatch.output_buffer.elem_type))
             self._line(
@@ -168,8 +165,7 @@ class _GpuEmitterMixin:
             self._line(f"btrc_gpu_buffer_destroy(__buf_{buf.name});")
         if has_output:
             self._line("btrc_gpu_buffer_destroy(__buf_output);")
-        if has_uniforms:
-            self._line("btrc_gpu_buffer_destroy(__buf_uniforms);")
+        self._line("btrc_gpu_buffer_destroy(__buf_uniforms);")
         self._line("btrc_gpu_bind_group_destroy(__bg);")
         self._line("btrc_gpu_compute_pipeline_destroy(__pipeline);")
         self._line("btrc_gpu_shader_destroy(__shader);")
