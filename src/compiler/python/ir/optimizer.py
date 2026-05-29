@@ -70,7 +70,14 @@ def _eliminate_dead_functions(module: IRModule):
         if isinstance(blob, str):
             _scan_text_for_names(blob, names, referenced)
 
-    keep = {n for n in names if n == "main" or n == "btrc_main" or n in referenced}
+    # `*_visit` / `*_destroy` are per-class ARC lifecycle functions referenced by
+    # emitter-generated cycle-collector code (e.g. __btrc_suspect(v, T_visit,
+    # T_destroy)) that doesn't exist in the IR yet, so they must never be pruned.
+    def _is_root(n):
+        return (n == "main" or n == "btrc_main" or n in referenced
+                or n.endswith("_visit") or n.endswith("_destroy"))
+
+    keep = {n for n in names if _is_root(n)}
     module.function_defs = [f for f in funcs if f.name in keep]
 
     # Drop the forward declarations of removed functions too, otherwise a
