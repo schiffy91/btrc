@@ -22,6 +22,7 @@
             ruff gcc clang gnumake git jq gh nodejs_22 nixd wgpu-native glfw freetype
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
+            pkg-config dbus.dev   # native system-tray (StatusNotifierItem) shim
           ];
       };
       files = import ./build { inherit cfg lib; };

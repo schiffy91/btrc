@@ -18,6 +18,7 @@ examples/todo/todo
 examples/game/game
 examples/triangle/triangle
 examples/sgd/sgd
+examples/tray/tray_demo
 
 # macOS
 .DS_Store
