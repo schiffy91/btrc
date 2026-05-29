@@ -85,16 +85,39 @@ class _UserGenericStmtMixin:
                 expr=IRCall(callee="free", args=[self._expr(s.expr)]))]
         return []
 
-    def _expr_type(self, e):
+    def _resolve_expr_type(self, e):
+        """Resolve the (type-substituted) TypeExpr of an AST expression.
+
+        Covers the receivers we can name inside a monomorphized method: local
+        variables, `self.<field>` (via the class's field types), and indexing
+        into the collection's own `self.data` backing store. Returns None when
+        the type is unknown (the caller falls back to a bare call)."""
         from ....ast_nodes import FieldAccessExpr, Identifier, IndexExpr, SelfExpr
         if isinstance(e, Identifier):
             return self._var_types.get(e.name)
+        if isinstance(e, FieldAccessExpr) and isinstance(e.obj, SelfExpr):
+            cls_info = getattr(self, "_cls_info", None)
+            if cls_info and e.field in cls_info.fields and cls_info.fields[e.field].type:
+                return self._resolve(cls_info.fields[e.field].type)
+            return None
         if isinstance(e, IndexExpr):
             obj = e.obj
             if (isinstance(obj, FieldAccessExpr) and
                     isinstance(obj.obj, SelfExpr) and
                     obj.field == "data" and "T" in self.type_map):
                 return self.type_map["T"]
+        return None
+
+    def _mangle_type(self, t):
+        """Mangled C name for a resolved class/collection type, or None."""
+        from ..types import mangle_generic_type
+        if not t:
+            return None
+        if getattr(t, "generic_args", None):
+            return mangle_generic_type(t.base, t.generic_args)
+        if self._gen and t.base in self._gen.analyzed.class_table:
+            if not self._gen.analyzed.class_table[t.base].generic_params:
+                return t.base
         return None
 
     def _class_destroy_fn(self, resolved):
@@ -113,7 +136,7 @@ class _UserGenericStmtMixin:
         return f"{resolved.base}_destroy"
 
     def _keep_stmt(self, s) -> list[IRStmt]:
-        resolved = self._expr_type(s.expr)
+        resolved = self._resolve_expr_type(s.expr)
         if not self._class_destroy_fn(resolved):
             return []
         expr = self._expr(s.expr)
@@ -122,7 +145,7 @@ class _UserGenericStmtMixin:
             prefix=False))]
 
     def _release_stmt(self, s) -> list[IRStmt]:
-        resolved = self._expr_type(s.expr)
+        resolved = self._resolve_expr_type(s.expr)
         destroy_fn = self._class_destroy_fn(resolved)
         if not destroy_fn:
             return []
@@ -155,50 +178,13 @@ class _UserGenericStmtMixin:
         return [IRVarDecl(c_type=CType(text=c_type), name=s.name)]
 
     def _var_init_expr(self, s) -> IRExpr:
-        """Emit the initializer for a variable, handling typed literals."""
+        """Emit a variable initializer, routing a typed collection literal to
+        its declared collection type (e.g. Vector<int> xs = [1, 2, 3])."""
         from ....ast_nodes import ListLiteral, MapLiteral
-        from ..types import mangle_generic_type
-
         if s.type and isinstance(s.initializer, (ListLiteral, MapLiteral)):
-            resolved = self._resolve(s.type)
-            if resolved.generic_args:
-                target = mangle_generic_type(resolved.base,
-                                             resolved.generic_args)
-                if isinstance(s.initializer, ListLiteral):
-                    if not s.initializer.elements:
-                        return IRCall(callee=f"{target}_new", args=[])
-                    tmp = self._fresh_temp("__list")
-                    stmts = [
-                        IRVarDecl(c_type=CType(text=f"{target}*"),
-                                  name=tmp,
-                                  init=IRCall(callee=f"{target}_new",
-                                              args=[])),
-                    ]
-                    for x in s.initializer.elements:
-                        stmts.append(IRExprStmt(
-                            expr=IRCall(callee=f"{target}_push",
-                                        args=[IRVar(name=tmp),
-                                              self._expr(x)])))
-                    return IRStmtExpr(stmts=stmts,
-                                      result=IRVar(name=tmp))
-                if isinstance(s.initializer, MapLiteral):
-                    if not s.initializer.entries:
-                        return IRCall(callee=f"{target}_new", args=[])
-                    tmp = self._fresh_temp("__map")
-                    stmts = [
-                        IRVarDecl(c_type=CType(text=f"{target}*"),
-                                  name=tmp,
-                                  init=IRCall(callee=f"{target}_new",
-                                              args=[])),
-                    ]
-                    for entry in s.initializer.entries:
-                        stmts.append(IRExprStmt(
-                            expr=IRCall(callee=f"{target}_put",
-                                        args=[IRVar(name=tmp),
-                                              self._expr(entry.key),
-                                              self._expr(entry.value)])))
-                    return IRStmtExpr(stmts=stmts,
-                                      result=IRVar(name=tmp))
+            target = self._mangle_type(self._resolve(s.type))
+            if target:
+                return self._collection_literal(target, s.initializer)
         return self._expr(s.initializer)
 
     def _if_stmt(self, s) -> IRIf:
@@ -278,6 +264,53 @@ class _UserGenericStmtMixin:
             return [IRFor(init=init_node, condition=cond_node,
                           update=upd_node,
                           body=IRBlock(stmts=body_stmts))]
+
+        # Iterate a collection via the Iterable protocol (iterLen/iterGet),
+        # mirroring the non-generic lowering — e.g. `for x in items` where
+        # items is a Vector<T>/Map<K,V> field or local inside the method.
+        iter_type = self._resolve_expr_type(s.iterable)
+        if iter_type and getattr(iter_type, "generic_args", None) and self._gen:
+            cls = self._gen.analyzed.class_table.get(iter_type.base)
+            if cls and "iterLen" in cls.methods and "iterGet" in cls.methods:
+                from ..types import mangle_generic_type
+                mangled = mangle_generic_type(iter_type.base,
+                                              iter_type.generic_args)
+                it = self._fresh_temp("__iter")
+                n = self._fresh_temp("__n")
+                idx = self._fresh_temp("__i")
+                iter_c = self._ttc(iter_type)
+                if not iter_c.endswith("*"):
+                    iter_c += "*"
+                body_stmts = self.emit_stmts(s.body.statements)
+                # element binding: T x = TYPE_iterGet(it, i);
+                body_stmts.insert(0, IRVarDecl(
+                    c_type=CType(text=self._ttc(iter_type.generic_args[0])),
+                    name=s.var_name,
+                    init=IRCall(callee=f"{mangled}_iterGet",
+                                args=[IRVar(name=it), IRVar(name=idx)])))
+                # optional value binding for two-variable map iteration
+                var2 = getattr(s, "var_name2", None)
+                if (var2 and "iterValueAt" in cls.methods and
+                        len(iter_type.generic_args) > 1):
+                    body_stmts.insert(1, IRVarDecl(
+                        c_type=CType(text=self._ttc(iter_type.generic_args[1])),
+                        name=var2,
+                        init=IRCall(callee=f"{mangled}_iterValueAt",
+                                    args=[IRVar(name=it), IRVar(name=idx)])))
+                return [
+                    IRVarDecl(c_type=CType(text=iter_c), name=it,
+                              init=self._expr(s.iterable)),
+                    IRVarDecl(c_type=CType(text="int"), name=n,
+                              init=IRCall(callee=f"{mangled}_iterLen",
+                                          args=[IRVar(name=it)])),
+                    IRFor(init=IRVarDecl(c_type=CType(text="int"), name=idx,
+                                         init=IRLiteral(text="0")),
+                          condition=IRBinOp(left=IRVar(name=idx), op="<",
+                                            right=IRVar(name=n)),
+                          update=IRUnaryOp(op="++", operand=IRVar(name=idx),
+                                           prefix=False),
+                          body=IRBlock(stmts=body_stmts)),
+                ]
         return []
 
     def _while_stmt(self, s) -> IRWhile:
