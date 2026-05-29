@@ -12,10 +12,19 @@ from typing import TYPE_CHECKING
 
 from ...ast_nodes import FunctionDecl
 from ..nodes import (
+    CType,
+    IRBinOp,
+    IRBlock,
+    IRFor,
+    IRFunctionDef,
     IRGpuBuffer,
     IRGpuDispatch,
     IRGpuKernel,
+    IRLiteral,
+    IRParam,
     IRRawExpr,
+    IRVar,
+    IRVarDecl,
 )
 from .gpu_wgsl import WgslEmitter, btrc_type_to_wgsl_elem
 
@@ -94,6 +103,51 @@ def emit_gpu_kernel(gen: IRGenerator, decl: FunctionDecl) -> None:
     if not hasattr(gen.module, 'gpu_kernels'):
         gen.module.gpu_kernels = []
     gen.module.gpu_kernels.append(kernel)
+
+
+def emit_gpu_cpu_fallback(gen: IRGenerator, decl: FunctionDecl) -> None:
+    """Emit a CPU-loop fallback for a void @gpu kernel.
+
+    `void f(params)` → `void f__gpucpu(params, int __gpu_n)` whose body runs the
+    kernel body once per index with gpu_id() bound to the loop variable. Used by
+    the dispatch site when no GPU is available. Array-returning kernels are left
+    GPU-only.
+    """
+    ret = decl.return_type
+    if ret is not None and ret.base != "void":
+        return
+    if decl.body is None:
+        return
+    from .statements import lower_block
+    from .types import type_to_c
+
+    fname = decl.name + "__gpucpu"
+    params = [IRParam(c_type=CType(text=type_to_c(p.type)), name=p.name)
+              for p in decl.params]
+    params.append(IRParam(c_type=CType(text="int"), name="__gpu_n"))
+
+    prev_idx = getattr(gen, "_gpu_cpu_index", None)
+    prev_decls = getattr(gen, "_func_var_decls", None)
+    gen._gpu_cpu_index = "__gid"
+    gen._func_var_decls = []
+    body = lower_block(gen, decl.body)
+    gen._gpu_cpu_index = prev_idx
+    gen._func_var_decls = prev_decls
+
+    loop = IRFor(
+        init=IRVarDecl(c_type=CType(text="int"), name="__gid", init=IRLiteral(text="0")),
+        condition=IRBinOp(left=IRVar(name="__gid"), op="<", right=IRVar(name="__gpu_n")),
+        update=IRRawExpr(text="__gid++"),
+        body=body,
+    )
+    param_str = ", ".join(f"{p.c_type} {p.name}" for p in params)
+    gen.module.forward_decls.append(f"void {fname}({param_str});")
+    gen.module.function_defs.append(IRFunctionDef(
+        name=fname,
+        return_type=CType(text="void"),
+        params=params,
+        body=IRBlock(stmts=[loop]),
+    ))
 
 
 def _generate_wgsl(name: str, param_buffers: list[IRGpuBuffer],
@@ -180,6 +234,12 @@ def lower_gpu_call(gen: IRGenerator, func_name: str,
     if kernel.output_buffer:
         result_elem_type = _wgsl_to_c_type(kernel.output_buffer.elem_type)
 
+    # Void (in-place) kernels get a CPU-loop fallback used when no GPU is present.
+    cpu_fallback = "" if kernel.output_buffer else f"{func_name}__gpucpu"
+    # The reference lives only in emitted text, invisible to the dead-function
+    # optimizer; the trailing "(" makes its generic string scan keep the fn.
+    cpu_fallback_keep = f"{cpu_fallback}(" if cpu_fallback else ""
+
     return IRGpuDispatch(
         kernel_name=func_name,
         args=ir_args,
@@ -190,6 +250,8 @@ def lower_gpu_call(gen: IRGenerator, func_name: str,
         output_buffer=kernel.output_buffer,
         uniform_params=kernel.uniform_params,
         workgroup_size=kernel.workgroup_size,
+        cpu_fallback=cpu_fallback,
+        cpu_fallback_keep=cpu_fallback_keep,
     )
 
 

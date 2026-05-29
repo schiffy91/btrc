@@ -372,3 +372,5 @@ class IRGpuDispatch(IRExpr):
     uniform_params: list[tuple] = field(default_factory=list)
     workgroup_size: int = 64
     assign_target: str = ""      # If set, readback into this var via memcpy
+    cpu_fallback: str = ""       # name of the CPU-loop fallback fn (void kernels)
+    cpu_fallback_keep: str = ""  # "<fn>(" — makes the dead-fn optimizer see the ref
