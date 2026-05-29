@@ -1,0 +1,32 @@
+/* Filesystem: PathTools path math + a real temp-dir write/read/exists/cleanup
+ * round-trip through the FileSystem facade. */
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    /* PathTools — pure path manipulation */
+    assert(PathTools.basename("/a/b/c.txt").equals("c.txt"));
+    assert(PathTools.dirname("/a/b/c.txt").equals("/a/b"));
+    assert(PathTools.join("/a", "b").equals("/a/b"));
+    assert(PathTools.join("/a/", "b").equals("/a/b"));   /* no double slash */
+
+    /* status of well-known paths */
+    assert(FileSystem.exists("/"));
+    assert(FileSystem.isDir("/"));
+    assert(!FileSystem.isFile("/"));
+    assert(!FileSystem.exists("/no_such_path_btrc_xyz_123"));
+
+    /* round-trip in a fresh temp dir, then clean it up */
+    string dir = FileSystem.tempDir("btrc_fs_test");
+    assert(FileSystem.isDir(dir));
+    string f = PathTools.join(dir, "data.txt");
+    FileSystem.writeText(f, "hello fs");
+    assert(FileSystem.exists(f) && FileSystem.isFile(f));
+    assert(FileSystem.readText(f).equals("hello fs"));
+
+    FileSystem.removeRecursive(dir);
+    assert(!FileSystem.exists(dir));
+
+    print("PASS: test_stdlib_fs");
+    return 0;
+}
