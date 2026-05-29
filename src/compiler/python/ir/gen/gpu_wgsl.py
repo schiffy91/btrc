@@ -102,7 +102,7 @@ class WgslEmitter:
         elif isinstance(stmt, ReturnStmt):
             if stmt.value and self._has_output:
                 val = self._expr(stmt.value)
-                self._line(f"_output[gid.x] = {val};")
+                self._line(f"_output[btrc_gid] = {val};")
                 self._line("return;")
             else:
                 self._line("return;")
@@ -219,7 +219,7 @@ class WgslEmitter:
             if isinstance(expr.callee, Identifier):
                 name = expr.callee.name
                 if name == "gpu_id":
-                    return "i32(gid.x)"
+                    return "btrc_gid"
                 # Map btrc math functions to WGSL builtins
                 wgsl_builtins = {
                     "abs": "abs", "min": "min", "max": "max",

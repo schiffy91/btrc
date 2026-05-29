@@ -169,22 +169,27 @@ def _generate_wgsl(name: str, param_buffers: list[IRGpuBuffer],
             f"@group(0) @binding({output_buffer.binding}) "
             f"var<storage, read_write> _output: array<{output_buffer.elem_type}>;")
 
-    # Uniform declarations (scalars packed into a uniform buffer)
-    if uniform_params:
-        lines.append("")
-        lines.append("struct Uniforms {")
-        for uname, utype in uniform_params:
-            lines.append(f"    {uname}: {utype},")
-        lines.append("}")
-        uniform_binding = (output_buffer.binding + 1) if output_buffer else (
-            param_buffers[-1].binding + 1 if param_buffers else 0)
-        lines.append(
-            f"@group(0) @binding({uniform_binding}) "
-            f"var<uniform> uniforms: Uniforms;")
+    # Uniform buffer: user scalars + dispatch offset/length. Always present so a
+    # kernel can be dispatched in chunks larger than the 1D workgroup limit —
+    # __gpu_off shifts the global index, __gpu_n bounds it.
+    lines.append("")
+    lines.append("struct Uniforms {")
+    for uname, utype in uniform_params:
+        lines.append(f"    {uname}: {utype},")
+    lines.append("    btrc_off: i32,")
+    lines.append("    btrc_n: i32,")
+    lines.append("}")
+    uniform_binding = (output_buffer.binding + 1) if output_buffer else (
+        param_buffers[-1].binding + 1 if param_buffers else 0)
+    lines.append(
+        f"@group(0) @binding({uniform_binding}) "
+        f"var<uniform> uniforms: Uniforms;")
 
     lines.append("")
     lines.append(f"@compute @workgroup_size({_WORKGROUP_SIZE})")
     lines.append("fn main(@builtin(global_invocation_id) gid: vec3<u32>) {")
+    lines.append("    let btrc_gid: i32 = i32(gid.x) + uniforms.btrc_off;")
+    lines.append("    if (btrc_gid >= uniforms.btrc_n) { return; }")
 
     # Emit function body as WGSL
     array_params = [buf.name for buf in param_buffers]
