@@ -1,0 +1,32 @@
+/* Array<T>: fixed-size array — get/set/fill/contains/indexOf/swap/reverse and
+ * for-in via the Iterable protocol. */
+#include <assert.h>
+
+int main() {
+    Array<int> a = Array(5);
+    for (int i = 0; i < 5; i++) { a.set(i, i * 10); }   /* [0,10,20,30,40] */
+
+    assert(a.size() == 5);
+    assert(!a.isEmpty());
+    assert(a.get(2) == 20);
+    assert(a.contains(30) && !a.contains(99));
+    assert(a.indexOf(40) == 4 && a.indexOf(99) == -1);
+
+    a.swap(0, 4);                                        /* [40,10,20,30,0] */
+    assert(a.get(0) == 40 && a.get(4) == 0);
+    a.reverse();                                         /* [0,30,20,10,40] */
+    assert(a.get(0) == 0 && a.get(4) == 40);
+
+    int sum = 0;
+    for x in a { sum = sum + x; }
+    assert(sum == 100);                                  /* 0+10+20+30+40 */
+
+    a.fill(7);
+    assert(a.get(0) == 7 && a.get(4) == 7);
+
+    a.free();
+    assert(a.isEmpty());
+
+    print("PASS: test_stdlib_array");
+    return 0;
+}
