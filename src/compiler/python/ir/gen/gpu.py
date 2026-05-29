@@ -219,19 +219,24 @@ def lower_gpu_call(gen: IRGenerator, func_name: str,
     # so we use `arg->len` / `arg->data`; a bare C array uses sizeof. This lets
     # @gpu kernels operate on runtime-sized buffers, not just stack arrays.
     array_len_expr = None
+    buffer_lens: list = []   # per-buffer element count (arrays may differ in size)
     for i, _param in enumerate(kernel.param_buffers):
         if i >= len(ir_args):
-            break
+            buffer_lens.append(None)
+            continue
         txt = _ir_expr_text(ir_args[i])
         t = gen.analyzed.node_types.get(id(ast_args[i])) if i < len(ast_args) else None
         is_coll = bool(t is not None and getattr(t, "generic_args", None)
                        and t.base in ("Array", "Vector"))
         if is_coll:
+            buffer_lens.append(IRRawExpr(text=f"({txt})->len"))
             ir_args[i] = IRRawExpr(text=f"({txt})->data")
             if array_len_expr is None:
                 array_len_expr = IRRawExpr(text=f"({txt})->len")
-        elif array_len_expr is None:
-            array_len_expr = IRRawExpr(text=f"(sizeof({txt}) / sizeof({txt}[0]))")
+        else:
+            buffer_lens.append(None)
+            if array_len_expr is None:
+                array_len_expr = IRRawExpr(text=f"(sizeof({txt}) / sizeof({txt}[0]))")
 
     # Determine result type
     result_elem_type = ""
@@ -251,6 +256,7 @@ def lower_gpu_call(gen: IRGenerator, func_name: str,
         result_var=result_var,
         result_elem_type=result_elem_type,
         array_len_expr=array_len_expr,
+        buffer_lens=buffer_lens,
         param_buffers=kernel.param_buffers,
         output_buffer=kernel.output_buffer,
         uniform_params=kernel.uniform_params,
