@@ -50,6 +50,20 @@ def _maybe_register_cleanup(gen: IRGenerator, var_name: str,
         helper_ref="__btrc_register_cleanup")))
 
 
+def _is_subclass(gen: IRGenerator, sub: str, base: str) -> bool:
+    """True if `base` is a (transitive) parent class of `sub`."""
+    ct = gen.analyzed.class_table
+    seen = set()
+    cur = sub
+    while cur and cur not in seen:
+        if cur == base:
+            return True
+        seen.add(cur)
+        info = ct.get(cur)
+        cur = info.parent if info else None
+    return False
+
+
 def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     from ...ast_nodes import BraceInitializer
     from ...ast_nodes import TypeExpr as TE
@@ -106,6 +120,15 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                 if cls_info and cls_info.generic_params:
                     mangled = mangle_generic_type(ctor_name, node.type.generic_args)
                     init = IRCall(callee=f"{mangled}_new", args=init.args)
+
+        # Upcast: storing a subclass instance in a base-class variable needs an
+        # explicit cast — sibling struct pointers are otherwise incompatible C.
+        if (node.type and node.type.base in ct and not node.type.generic_args):
+            init_type = gen.analyzed.node_types.get(id(node.initializer))
+            if (init_type and init_type.base != node.type.base
+                    and _is_subclass(gen, init_type.base, node.type.base)):
+                from ..nodes import IRCast
+                init = IRCast(target_type=c_type, expr=init)
     # ARC: emit rc++ for keep params if initializer is a call
     pre_stmts = _emit_keep_for_call(gen, node.initializer)
     var_decl = IRVarDecl(c_type=CType(text=c_type), name=node.name, init=init)
