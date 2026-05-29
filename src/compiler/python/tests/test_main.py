@@ -2,6 +2,8 @@
 resolution, stdlib selection, error formatting, and IR dumping."""
 
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -139,6 +141,34 @@ def test_profile(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "btrc profile" in err
     assert "total" in err
+
+
+# --------------------------------------------------------------------------
+# true end-to-end: source → CLI → C → compile → run
+# --------------------------------------------------------------------------
+
+def test_cli_end_to_end_compiles_and_runs(tmp_path, monkeypatch, capsys):
+    """The whole pipeline: drive main() to emit C, compile it with a real C
+    compiler, run the binary, and assert its computed output — proving the CLI
+    produces a correct, runnable program (not just that a .c file is written)."""
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if cc is None:
+        pytest.skip("no C compiler available")
+    monkeypatch.chdir(tmp_path)
+    prog = (
+        "int fib(int n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); }\n"
+        'int main() { if (fib(10) != 55) { return 1; } print("E2E_OK"); return 0; }\n'
+    )
+    src = write(tmp_path / "e2e.btrc", prog)
+    out_c = str(tmp_path / "e2e.c")
+    run_main(monkeypatch, [src, "-o", out_c])
+    assert "Transpiled" in capsys.readouterr().out
+
+    binp = str(tmp_path / "e2e_bin")
+    subprocess.run([cc, "-std=c11", out_c, "-o", binp, "-lm", "-lpthread"], check=True)
+    result = subprocess.run([binp], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "E2E_OK" in result.stdout
 
 
 # --------------------------------------------------------------------------

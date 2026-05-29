@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from src.compiler.python import ast_nodes, ebnf, pkg
+from src.compiler.python import ebnf, pkg
 
 
 # --------------------------------------------------------------------------
@@ -66,23 +66,6 @@ def test_get_grammar_info_loads_real_grammar():
     info = ebnf.get_grammar_info()
     assert "class" in info.keywords
     assert ebnf.get_grammar_info() is info  # cached on subsequent calls
-
-
-# --------------------------------------------------------------------------
-# generated AST NodeVisitor
-# --------------------------------------------------------------------------
-
-def test_node_visitor_covers_all_visit_methods():
-    v = ast_nodes.NodeVisitor()
-    methods = [m for m in dir(v) if m.startswith("visit_")]
-    assert len(methods) > 20
-    for name in methods:
-        assert getattr(v, name)(None) is None  # each delegates to generic_visit
-
-
-def test_node_visitor_dispatch():
-    prog = ast_nodes.Program(declarations=[])
-    assert ast_nodes.NodeVisitor().visit(prog) is None  # → visit_Program
 
 
 # --------------------------------------------------------------------------

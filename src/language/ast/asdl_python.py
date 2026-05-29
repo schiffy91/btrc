@@ -170,30 +170,6 @@ def generate(module: Module) -> str:
             lines.append(f"{t.name} = {cls_name}")
     lines.append("")
 
-    # Emit NodeVisitor
-    lines.append("")
-    lines.append("# --- Visitor ---")
-    lines.append("")
-    lines.append("class NodeVisitor:")
-    lines.append(
-        '    """Base class for AST visitors. Override visit_* methods."""')
-    lines.append("")
-    lines.append("    def visit(self, node):")
-    lines.append('        method = f"visit_{type(node).__name__}"')
-    lines.append("        visitor = getattr(self, method, self.generic_visit)")
-    lines.append("        return visitor(node)")
-    lines.append("")
-    lines.append("    def generic_visit(self, node):")
-    lines.append("        pass")
-    lines.append("")
-
-    for constructor, _attrs, _parent in all_constructors:
-        lines.append(
-            f"    def visit_{constructor.name}"
-            f"(self, node: {constructor.name}):")
-        lines.append("        return self.generic_visit(node)")
-        lines.append("")
-
     return "\n".join(lines)
 
 
