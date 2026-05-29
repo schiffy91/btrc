@@ -1,0 +1,345 @@
+/* btrc standard library — HTTP
+ *
+ * A small HTTP/1.1 stack with no external dependencies:
+ *   - HttpServer: a BSD-socket server (libc only). The caller owns the accept
+ *     loop and routing, so it stays backend-agnostic.
+ *   - HttpClient: an HTTPS-capable client that shells out to `curl` (TLS for
+ *     free, which raw sockets can't do), via the process stdlib.
+ *
+ * Auto-included. Sockets are libc-only; the client requires `curl` on PATH.
+ */
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <string.h>
+#include <signal.h>
+
+class HttpRequest {
+    public string method;
+    public string path;     /* path without query string */
+    public string query;    /* raw query string, may be "" */
+    public Map<string, string> headers;  /* header names lower-cased */
+    public string body;
+
+    public HttpRequest() {
+        self.method = "GET";
+        self.path = "/";
+        self.query = "";
+        self.headers = {};
+        self.body = "";
+    }
+
+    public string header(string name) {
+        return self.headers.getOrDefault(name.toLower(), "");
+    }
+
+    public bool isGet() { return self.method.equals("GET"); }
+    public bool isPost() { return self.method.equals("POST"); }
+}
+
+class HttpResponse {
+    public int status;
+    public string contentType;
+    public string body;
+    public Vector<string> extraHeaders;
+
+    public HttpResponse(int status, string contentType, string body) {
+        self.status = status;
+        self.contentType = contentType;
+        self.body = body;
+        self.extraHeaders = [];
+    }
+
+    public HttpResponse addHeader(string line) {
+        self.extraHeaders.push(line);
+        return self;
+    }
+
+    class HttpResponse text(string body) {
+        return HttpResponse(200, "text/plain; charset=utf-8", body);
+    }
+    class HttpResponse html(string body) {
+        return HttpResponse(200, "text/html; charset=utf-8", body);
+    }
+    class HttpResponse json(string body) {
+        return HttpResponse(200, "application/json; charset=utf-8", body);
+    }
+    class HttpResponse js(string body) {
+        return HttpResponse(200, "application/javascript; charset=utf-8", body);
+    }
+    class HttpResponse css(string body) {
+        return HttpResponse(200, "text/css; charset=utf-8", body);
+    }
+    class HttpResponse notFound() {
+        return HttpResponse(404, "text/plain; charset=utf-8", "Not Found");
+    }
+    class HttpResponse error(int code, string message) {
+        return HttpResponse(code, "text/plain; charset=utf-8", message);
+    }
+}
+
+class HttpServer {
+    public int fd;
+    public int port;
+    public bool bindAny;   /* bind 0.0.0.0 instead of 127.0.0.1 */
+
+    public HttpServer(int port) {
+        self.port = port;
+        self.fd = -1;
+        self.bindAny = false;
+    }
+
+    public bool start() {
+        signal(SIGPIPE, SIG_IGN);
+        int s = socket(AF_INET, SOCK_STREAM, 0);
+        if (s < 0) { return false; }
+        int yes = 1;
+        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons((unsigned short)self.port);
+        if (self.bindAny) {
+            addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        } else {
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        }
+        if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) { close(s); return false; }
+        if (listen(s, 64) < 0) { close(s); return false; }
+        self.fd = s;
+        return true;
+    }
+
+    public int acceptConn() {
+        struct sockaddr_in cli;
+        socklen_t clilen = sizeof(cli);
+        int c = accept(self.fd, (struct sockaddr*)&cli, &clilen);
+        if (c >= 0) {
+            struct timeval tv;
+            tv.tv_sec = 15;
+            tv.tv_usec = 0;
+            setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        }
+        return c;
+    }
+
+    public void closeConn(int c) {
+        close(c);
+    }
+
+    class int headerContentLength(string head, int headerEnd) {
+        string lower = head.substring(0, headerEnd).toLower();
+        int idx = Strings.find(lower, "content-length:", 0);
+        if (idx < 0) { return 0; }
+        int i = idx + 15;
+        int len = lower.len();
+        while (i < len && lower[i] == ' ') { i++; }
+        int val = 0;
+        while (i < len && lower[i] >= '0' && lower[i] <= '9') {
+            val = val * 10 + (lower[i] - '0');
+            i++;
+        }
+        return val;
+    }
+
+    public string readRequestRaw(int c) {
+        string data = "";
+        char buf[8193];
+        bool haveHeaders = false;
+        int headerEnd = -1;
+        int contentLen = 0;
+        while (true) {
+            int n = (int)recv(c, buf, 8192, 0);
+            if (n <= 0) { break; }
+            buf[n] = '\0';
+            data = data + Strings.copy(buf);
+            if (!haveHeaders) {
+                int he = Strings.find(data, "\r\n\r\n", 0);
+                if (he >= 0) {
+                    haveHeaders = true;
+                    headerEnd = he;
+                    contentLen = HttpServer.headerContentLength(data, he);
+                }
+            }
+            if (haveHeaders) {
+                int bodyStart = headerEnd + 4;
+                int have = data.len() - bodyStart;
+                if (have >= contentLen) { break; }
+            }
+        }
+        return data;
+    }
+
+    public HttpRequest readRequest(int c) {
+        return self.parse(self.readRequestRaw(c));
+    }
+
+    public HttpRequest parse(string raw) {
+        HttpRequest req = HttpRequest();
+        if (raw.len() == 0) { return req; }
+        int he = Strings.find(raw, "\r\n\r\n", 0);
+        string head = he >= 0 ? raw.substring(0, he) : raw;
+        if (he >= 0) {
+            int bodyStart = he + 4;
+            req.body = raw.substring(bodyStart, raw.len() - bodyStart);
+        }
+        Vector<string> lines = Strings.split(head, "\r\n");
+        if (lines.len > 0) {
+            Vector<string> parts = Strings.split(lines.get(0), " ");
+            if (parts.len >= 2) {
+                req.method = parts.get(0);
+                string target = parts.get(1);
+                int q = Strings.find(target, "?", 0);
+                if (q >= 0) {
+                    req.path = target.substring(0, q);
+                    req.query = target.substring(q + 1, target.len() - (q + 1));
+                } else {
+                    req.path = target;
+                }
+            }
+        }
+        for (int i = 1; i < lines.len; i++) {
+            string line = lines.get(i);
+            int colon = Strings.find(line, ":", 0);
+            if (colon > 0) {
+                string name = line.substring(0, colon).trim().toLower();
+                string value = line.substring(colon + 1, line.len() - (colon + 1)).trim();
+                req.headers.put(name, value);
+            }
+        }
+        return req;
+    }
+
+    public string reason(int status) {
+        if (status == 200) { return "OK"; }
+        if (status == 201) { return "Created"; }
+        if (status == 204) { return "No Content"; }
+        if (status == 400) { return "Bad Request"; }
+        if (status == 401) { return "Unauthorized"; }
+        if (status == 403) { return "Forbidden"; }
+        if (status == 404) { return "Not Found"; }
+        if (status == 405) { return "Method Not Allowed"; }
+        if (status == 500) { return "Internal Server Error"; }
+        return "OK";
+    }
+
+    public void sendAll(int c, string data) {
+        char* p = data;
+        int total = (int)strlen(data);
+        int sent = 0;
+        while (sent < total) {
+            int n = (int)send(c, p + sent, total - sent, 0);
+            if (n <= 0) { break; }
+            sent = sent + n;
+        }
+    }
+
+    public void respond(int c, HttpResponse resp) {
+        int blen = (int)strlen(resp.body);
+        string r = self.reason(resp.status);
+        string head = f"HTTP/1.1 {resp.status} {r}\r\nContent-Type: {resp.contentType}\r\nContent-Length: {blen}\r\nCache-Control: no-store\r\nConnection: close\r\n";
+        for h in resp.extraHeaders {
+            head = head + h + "\r\n";
+        }
+        head = head + "\r\n";
+        self.sendAll(c, head + resp.body);
+    }
+}
+
+class HttpClientResponse {
+    public int status;
+    public string body;
+    public string error;
+
+    public HttpClientResponse(int status, string body, string error) {
+        self.status = status;
+        self.body = body;
+        self.error = error;
+    }
+
+    public bool ok() {
+        return self.status >= 200 && self.status < 300;
+    }
+}
+
+class HttpClient {
+    public int timeoutSecs;
+
+    public HttpClient() {
+        self.timeoutSecs = 120;
+    }
+
+    public HttpClient timeout(int secs) {
+        self.timeoutSecs = secs;
+        return self;
+    }
+
+    public HttpClientResponse request(string method, string url,
+                                      Vector<string> headers, string body) {
+        string dir = FileSystem.tempDir("btrchttp");
+        if (dir.isEmpty()) {
+            return HttpClientResponse(0, "", "could not create temp dir");
+        }
+        string outFile = PathTools.join(dir, "resp.bin");
+        string bodyFile = PathTools.join(dir, "req.bin");
+        bool hasBody = !body.isEmpty();
+        if (hasBody) {
+            FileSystem.writeText(bodyFile, body);
+        }
+
+        Command cmd = Command("curl")
+            .arg("-sS")
+            .arg("--max-time").arg(Strings.fromInt(self.timeoutSecs))
+            .arg("-X").arg(method)
+            .arg("-o").arg(outFile)
+            .arg("-w").arg("%{http_code}");
+        for h in headers {
+            cmd.arg("-H").arg(h);
+        }
+        if (hasBody) {
+            cmd.arg("--data-binary").arg("@" + bodyFile);
+        }
+        cmd.arg(url).capture(true).check(false).mergeError(false);
+
+        ExecResult result = UnixShell().runCommand(cmd);
+        int status = Strings.toInt(result.stdout().trim());
+
+        string respBody = "";
+        if (FileSystem.exists(outFile)) {
+            respBody = FileSystem.readText(outFile);
+        }
+        string err = "";
+        if (status == 0) {
+            err = f"curl failed (exit {result.code})";
+        }
+        FileSystem.removeRecursive(dir);
+        return HttpClientResponse(status, respBody, err);
+    }
+
+    public HttpClientResponse post(string url, Vector<string> headers, string body) {
+        return self.request("POST", url, headers, body);
+    }
+
+    public HttpClientResponse get(string url, Vector<string> headers) {
+        return self.request("GET", url, headers, "");
+    }
+}
+
+/* Open a URL (or file) in the platform's default browser — handy for serving a
+ * local web UI and popping it open as a desktop-feeling app. */
+class Browser {
+    class void open(string url) {
+        ExecResult u = UnixShell().runUnchecked("uname -s");
+        string kernel = u.stdout().trim();
+        string opener = "xdg-open";
+        if (kernel.equals("Darwin")) { opener = "open"; }
+        if (kernel.contains("MINGW") || kernel.contains("MSYS") || kernel.contains("CYGWIN")) {
+            opener = "start";
+        }
+        Command cmd = Command(opener).arg(url).capture(false).check(false).mergeError(false);
+        UnixShell().runCommand(cmd);
+    }
+}

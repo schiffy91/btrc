@@ -7,19 +7,23 @@
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: all cpu gpu todo game triangle sgd clean
+.PHONY: all cpu gpu todo game triangle sgd gui clean
 
 GPU_LIB := ../src/stdlib/gpu/build/libbtrc_gpu.a
 
 all: cpu gpu
 
-cpu: todo
+cpu: todo gui
 
 gpu: game triangle sgd
 
 todo: ## Build the todo example
 	@echo "=== todo ==="
 	@$(MAKE) -C todo
+
+gui: ## Build + run the headless GUI example (offscreen, no display needed)
+	@echo "=== gui ==="
+	@$(MAKE) -C gui
 
 game: ## Build the 3D engine game
 	@if [ -f "$(GPU_LIB)" ]; then \
@@ -47,3 +51,4 @@ clean:
 	@$(MAKE) -C game clean 2>/dev/null || true
 	@$(MAKE) -C triangle clean 2>/dev/null || true
 	@$(MAKE) -C sgd clean 2>/dev/null || true
+	@$(MAKE) -C gui clean 2>/dev/null || true

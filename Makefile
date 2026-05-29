@@ -1,7 +1,7 @@
-.PHONY: all help build gpu stubs-generate \
+.PHONY: all help build gpu gui stubs-generate \
         test test-unit test-btrc test-c11 test-generate-goldens \
         lint format format-check \
-        examples examples-todo examples-game examples-triangle examples-sgd \
+        examples examples-todo examples-game examples-triangle examples-sgd examples-gui bench \
         extension extension-install \
         devcontainer clean
 
@@ -10,7 +10,7 @@ NIX         := nix develop --command
 PYTEST      := python3 -m pytest
 PYTEST_ARGS := -x -q -n auto
 
-all: build gpu stubs-generate test lint examples extension extension-install devcontainer ## Everything
+all: build gpu gui stubs-generate test lint examples extension extension-install devcontainer ## Everything
 
 build: ## Create bin/btrcpy wrapper script
 	@mkdir -p bin
@@ -31,6 +31,19 @@ gpu: ## Build GPU runtime library (skips if deps missing)
 		ar rcs "$$D/build/libbtrc_gpu.a" "$$D/build/btrc_gpu.o" && \
 		echo "Built: $$D/build/libbtrc_gpu.a"' \
 	|| echo "GPU runtime skipped (missing X11/GLFW/wgpu headers)"
+
+gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
+	@$(NIX) bash -c '\
+		D=src/stdlib/gui && mkdir -p "$$D/build" && \
+		$$CC -std=c11 -O2 -c "$$D/btrc_gui.c" -o "$$D/build/btrc_gui.o" && \
+		ar rcs "$$D/build/libbtrc_gui.a" "$$D/build/btrc_gui.o" && \
+		echo "Built: $$D/build/libbtrc_gui.a (software renderer)"'
+	@$(NIX) bash -c '\
+		D=src/stdlib/gui && \
+		$$CC $$GPU_CFLAGS -DGL_SILENCE_DEPRECATION -I"$$D" -O2 -c "$$D/btrc_gui_window.c" -o "$$D/build/btrc_gui_window.o" 2>/dev/null && \
+		ar rcs "$$D/build/libbtrc_gui_window.a" "$$D/build/btrc_gui_window.o" && \
+		echo "Built: $$D/build/libbtrc_gui_window.a (GLFW window backend)"' \
+		|| echo "GUI window backend skipped (missing GLFW/GL headers)"
 
 stubs-generate: ## Regenerate built-in type stubs
 	$(NIX) python3 src/language/ast/gen_builtins.py
@@ -85,6 +98,12 @@ examples-triangle: ## Build the GPU triangle example (requires make gpu)
 
 examples-sgd: ## Build the GPU SGD example (requires make gpu)
 	$(NIX) $(MAKE) -C examples sgd
+
+examples-gui: ## Build + run the headless GUI example
+	$(NIX) $(MAKE) -C examples gui
+
+bench: ## Build + run the benchmark suite (times transpile + compile + run)
+	$(NIX) $(MAKE) -C bench
 
 # ─── VSCode Extension ───────────────────────────────────────────────────────
 

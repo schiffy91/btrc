@@ -38,3 +38,16 @@ src/devex/ext/*.vsix
 
 # GPU runtime
 src/stdlib/gpu/build/
+
+# GUI runtime
+src/stdlib/gui/build/
+
+# Benchmark generated C + binaries
+bench/*.c
+bench/fib
+bench/loop
+bench/vector
+bench/strings
+
+# GUI example binary
+examples/gui/gui_demo

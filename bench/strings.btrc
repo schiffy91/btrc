@@ -1,0 +1,11 @@
+// String-heavy: build and join 100k segments. Exercises the string pool +
+// allocation-heavy join path.
+int main() {
+    Vector<string> parts = [];
+    for i in range(100000) {
+        parts.push("segment");
+    }
+    string joined = Strings.join(parts, ",");
+    print(f"len={joined.len()}");
+    return 0;
+}

@@ -1,0 +1,33 @@
+// Regression: escape sequences inside f-strings must be processed the same as
+// in regular string literals (previously f-strings emitted them literally).
+#include <assert.h>
+
+int main() {
+    string a = "x\r\ny";
+    string b = f"x\r\ny";
+    assert(a.len() == 4);
+    assert(b.len() == 4);
+    assert((int)b[0] == 120); // 'x'
+    assert((int)b[1] == 13);  // \r
+    assert((int)b[2] == 10);  // \n
+    assert((int)b[3] == 121); // 'y'
+
+    string t = f"tab\tend";
+    assert((int)t[3] == 9);   // \t
+
+    string q = f"say \"hi\"";
+    assert(q.len() == 8);     // s a y SP " h i "
+    assert((int)q[4] == 34);  // "
+
+    string bs = f"a\\b";
+    assert(bs.len() == 3);
+    assert((int)bs[1] == 92); // backslash
+
+    // interpolation still works alongside escapes
+    int n = 3;
+    string mixed = f"n={n}\ttwice={n + n}";
+    assert((int)mixed[3] == 9); // tab after "n=3"
+
+    print("PASS: test_fstring_escapes");
+    return 0;
+}

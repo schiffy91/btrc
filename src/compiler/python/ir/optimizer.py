@@ -1,10 +1,16 @@
 """IR optimizer for the btrc compiler.
 
 Currently implements:
+- Dead function elimination: removes functions whose name is never referenced
+  (e.g. unused monomorphized generic methods). Sound by construction — a
+  function is kept if its name appears anywhere as a call, spawned thread
+  function pointer, variable reference, or in any raw/vtable/global text.
 - Dead helper elimination: removes runtime helpers not referenced by any function
 """
 
 from __future__ import annotations
+
+import dataclasses
 
 from .nodes import (
     IRAddressOf,
@@ -30,6 +36,7 @@ from .nodes import (
     IRSwitch,
     IRTernary,
     IRUnaryOp,
+    IRVar,
     IRVarDecl,
     IRWhile,
 )
@@ -37,8 +44,79 @@ from .nodes import (
 
 def optimize(module: IRModule) -> IRModule:
     """Run all optimization passes on an IR module."""
+    _eliminate_dead_functions(module)
     _eliminate_dead_helpers(module)
     return module
+
+
+def _eliminate_dead_functions(module: IRModule):
+    """Remove function definitions whose name is never referenced.
+
+    Sound by construction: a name is collected as referenced if it appears as a
+    call target, a spawned-thread function pointer, a variable, or as a substring
+    of any raw/vtable/global/text fragment. `forward_decls` is intentionally NOT
+    scanned (it lists every function's prototype). `main` is always kept.
+    """
+    funcs = module.function_defs
+    if len(funcs) <= 1:
+        return
+    names = {f.name for f in funcs}
+
+    referenced: set[str] = set()
+    for func in funcs:
+        if func.body:
+            _collect_func_refs(func.body, names, referenced)
+    for blob in (*module.raw_sections, *module.vtable_defs, *module.global_vars):
+        if isinstance(blob, str):
+            _scan_text_for_names(blob, names, referenced)
+
+    keep = {n for n in names if n == "main" or n == "btrc_main" or n in referenced}
+    module.function_defs = [f for f in funcs if f.name in keep]
+
+    # Drop the forward declarations of removed functions too, otherwise a
+    # dangling prototype (e.g. `Thread* Foo(...)`) keeps a type alive whose
+    # defining helper is then dead-eliminated, leaving an undefined reference.
+    removed = names - keep
+    if removed:
+        needles = tuple(f" {r}(" for r in removed)
+        module.forward_decls = [
+            fd for fd in module.forward_decls
+            if not any(nd in fd for nd in needles)
+        ]
+
+
+def _scan_text_for_names(text: str, names: set[str], out: set[str]):
+    """Add any function name that occurs as a substring of `text`."""
+    for n in names:
+        if n in text:
+            out.add(n)
+
+
+def _collect_func_refs(node, names: set[str], out: set[str]):
+    """Generically walk an IR dataclass collecting referenced function names."""
+    if not dataclasses.is_dataclass(node):
+        return
+    if isinstance(node, IRCall) and isinstance(node.callee, str) and node.callee in names:
+        out.add(node.callee)
+    if isinstance(node, IRSpawnThread) and node.fn_ptr:
+        out.add(node.fn_ptr)
+    if isinstance(node, IRVar) and node.name in names:
+        out.add(node.name)
+    for fld in dataclasses.fields(node):
+        v = getattr(node, fld.name)
+        if isinstance(v, str):
+            # `callee`/`text`/literal strings may hold function-pointer exprs or
+            # inline C that reference functions indirectly.
+            if fld.name in ("callee", "text") or "(" in v:
+                _scan_text_for_names(v, names, out)
+        elif dataclasses.is_dataclass(v):
+            _collect_func_refs(v, names, out)
+        elif isinstance(v, list):
+            for item in v:
+                if dataclasses.is_dataclass(item):
+                    _collect_func_refs(item, names, out)
+                elif isinstance(item, str):
+                    _scan_text_for_names(item, names, out)
 
 
 def _eliminate_dead_helpers(module: IRModule):
