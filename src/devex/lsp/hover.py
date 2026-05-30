@@ -353,6 +353,12 @@ def _check_stmt_for_var(
             type_str = _infer_var_type(stmt, class_table)
             return f"```btrc\n{type_str} {name}\n```\nLocal variable"
 
+    elif isinstance(stmt, Block):
+        # a bare nested block, e.g. a `case` body wrapped in `{ ... }`
+        return _scan_block_for_var(
+            name, cursor_line, stmt, class_name, func_name, class_table
+        )
+
     elif isinstance(stmt, ForInStmt):
         if stmt.line <= cursor_line:
             if stmt.var_name == name:
