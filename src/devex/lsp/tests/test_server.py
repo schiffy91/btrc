@@ -120,3 +120,36 @@ def test_did_close_clears_cache(monkeypatch):
     srv.did_close(lsp.DidCloseTextDocumentParams(text_document=_ident()))
     assert URI not in srv._analysis_cache
     assert URI not in srv._good_analysis_cache
+
+
+def test_did_change_revalidates_from_workspace(monkeypatch):
+    _seed(monkeypatch)
+    srv._analysis_cache.pop(URI, None)
+    srv.did_change(lsp.DidChangeTextDocumentParams(
+        text_document=lsp.VersionedTextDocumentIdentifier(uri=URI, version=2),
+        content_changes=[]))
+    assert URI in srv._analysis_cache  # re-read from (stubbed) workspace + analyzed
+
+
+def test_did_save_revalidates_from_workspace(monkeypatch):
+    _seed(monkeypatch)
+    srv._analysis_cache.pop(URI, None)
+    srv.did_save(lsp.DidSaveTextDocumentParams(text_document=_ident()))
+    assert URI in srv._analysis_cache
+
+
+def test_definition_falls_back_to_last_good(monkeypatch):
+    _seed(monkeypatch)                                   # good SAMPLE cached
+    srv._validate_document(URI, "class { broken")        # transient parse error
+    # current analysis has no AST → _get_best_result returns the last good one
+    loc = srv.goto_definition(lsp.TextDocumentPositionParams(
+        text_document=_ident(), position=pos_of(SAMPLE, "p.getX", offset=2)))
+    assert loc is not None and loc.range.start.line == 7
+
+
+def test_completion_falls_back_to_last_good(monkeypatch):
+    _seed(monkeypatch)
+    srv._validate_document(URI, "class { broken")        # analyzed is None now
+    items = srv.completion(lsp.CompletionParams(
+        text_document=_ident(), position=pos_of(SAMPLE, "p.getX", offset=2)))
+    assert any(it.label == "getX" for it in items)

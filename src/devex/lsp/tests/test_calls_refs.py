@@ -81,3 +81,10 @@ def test_rename_method_edits_decl_and_call():
     lines = {e.range.start.line for e in all_edits}
     assert {3, 10} <= lines                      # method decl + the call site
     assert all(e.new_text == "sum" for e in all_edits)
+
+
+def test_stdlib_static_method_signature():
+    # signature help inside a stdlib static-method call (Strings.repeat)
+    src = 'int main() { string s = Strings.repeat("ab", 3); return s.len() > 0 ? 0 : 1; }\n'
+    s = get_signature_help(analyze(src), pos_of(src, 'repeat("ab"', offset=7))
+    assert s is not None and s.signatures

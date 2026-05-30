@@ -77,6 +77,12 @@ def test_member_completion_includes_inherited():
     assert {"speak", "name", "legCount", "legs"} <= names
 
 
+def test_hover_on_generic_builtin_member():
+    # hovering a Vector<int> member resolves via the built-in member catalog
+    t = hover_text(get_hover_info(analyze(SRC), pos_of(SRC, "nums.push", offset=5)))
+    assert "push" in t
+
+
 def test_member_completion_on_generic_builtin():
     items = get_completions(analyze(SRC), pos_of(SRC, "nums.push", offset=5))
     names = {i.label for i in items}
