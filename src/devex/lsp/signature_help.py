@@ -357,8 +357,11 @@ def _resolve_method_on_type(
             if isinstance(mdecl, MethodDecl):
                 return _signature_from_method_decl(type_base, mdecl, active_param)
 
-        cinfo = info
-        while cinfo and cinfo.parent and cinfo.parent in class_table:
+        # Parent chain — defensive only: the analyzer flattens inherited
+        # methods into each subclass, so the direct lookup above already finds
+        # inherited methods.
+        cinfo = info  # pragma: no cover
+        while cinfo and cinfo.parent and cinfo.parent in class_table:  # pragma: no cover
             parent = class_table[cinfo.parent]
             if method_name in parent.methods:
                 mdecl = parent.methods[method_name]

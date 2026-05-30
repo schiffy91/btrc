@@ -12,8 +12,39 @@ from src.devex.lsp.utils import (
     find_enclosing_class_from_source,
     find_token_index,
     get_text_before_cursor,
+    resolve_member_type,
+    resolve_variable_type,
     type_repr,
 )
+
+
+_CHAIN = (
+    "class Inner { public int v; public Inner(int v) { self.v = v; }\n"
+    "              public int get() { return self.v; } }\n"
+    "class Outer { public Inner inner; public Outer() { self.inner = Inner(1); }\n"
+    "              public Inner make() { return self.inner; } }\n"
+    "int main() { Outer o = Outer(); return o.make().get(); }\n"
+)
+
+
+def test_resolve_member_type_field_method_builtin_unknown():
+    ct = analyze(_CHAIN).analyzed.class_table
+    assert resolve_member_type("Outer", "inner", ct) == "Inner"   # field type
+    assert resolve_member_type("Outer", "make", ct) == "Inner"    # method return type
+    assert resolve_member_type("string", "len", ct) is not None   # builtin member
+    assert resolve_member_type("Nope", "x", ct) is None           # unknown owner
+    assert resolve_member_type("Outer", "ghost", ct) is None      # member not found
+
+
+def test_resolve_variable_type_decl_forms():
+    src = ("class Box { public int v; public Box(int v) { self.v = v; } }\n"
+           "Box mk() { return Box(1); }\n"
+           "int run(Box p) { var a = Box(2); var b = new Box(3); var c = mk(); return 0; }\n")
+    r = analyze(src)
+    ast, ct = r.ast, r.analyzed.class_table
+    assert resolve_variable_type("a", ast, ct) == "Box"   # constructor call
+    assert resolve_variable_type("b", ast, ct) == "Box"   # new expression
+    assert resolve_variable_type("p", ast, ct) == "Box"   # parameter type
 
 
 def test_type_repr_none_is_void():
