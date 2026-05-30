@@ -65,4 +65,51 @@ class Toml {
         if (!cleaned.startsWith("[[") || !cleaned.endsWith("]]")) { return ""; }
         return cleaned.substring(2, cleaned.len() - 4).trim();
     }
+
+    /* Every key/value line inside [section] collected into a map. Scanning stops
+     * at the next [section] or [[array-of-tables]] header. Missing keys are
+     * simply absent — read them with map.getOrDefault(key, fallback). */
+    class Map<string, string> sectionMap(string content, string section) {
+        Map<string, string> result = {};
+        bool inSection = false;
+        for line in Strings.split(content, "\n") {
+            string trimmed = line.trim();
+            string name = Toml.sectionName(trimmed);
+            if (name.equals(section)) { inSection = true; continue; }
+            if (!name.isEmpty() || !Toml.tableArrayName(trimmed).isEmpty()) { inSection = false; continue; }
+            if (!inSection) { continue; }
+            string field = Toml.key(trimmed);
+            if (!field.isEmpty()) { result.put(field, Toml.value(trimmed)); }
+        }
+        return result;
+    }
+
+    /* Each [[table]] occurrence as one key/value map, in document order. A fresh
+     * [[table]] header, any [section], or a different [[array-of-tables]] closes
+     * the current block. Empty blocks are kept; the caller decides what counts. */
+    class Vector<Map<string, string>> tableArrayBlocks(string content, string table) {
+        Vector<Map<string, string>> blocks = [];
+        Map<string, string> current = {};
+        bool inTable = false;
+        for line in Strings.split(content, "\n") {
+            string trimmed = line.trim();
+            string name = Toml.tableArrayName(trimmed);
+            if (name.equals(table)) {
+                if (inTable) { blocks.push(current); }
+                current = {};
+                inTable = true;
+                continue;
+            }
+            if (!Toml.sectionName(trimmed).isEmpty() || !name.isEmpty()) {
+                if (inTable) { blocks.push(current); }
+                inTable = false;
+                continue;
+            }
+            if (!inTable) { continue; }
+            string field = Toml.key(trimmed);
+            if (!field.isEmpty()) { current.put(field, Toml.value(trimmed)); }
+        }
+        if (inTable) { blocks.push(current); }
+        return blocks;
+    }
 }

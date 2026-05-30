@@ -1,0 +1,30 @@
+/* Toml.sectionMap + Toml.tableArrayBlocks — section and array-of-tables scans. */
+#include <assert.h>
+
+int main() {
+    string doc = "[displays]\nDP-1 = \"Left\"\nHDMI-1 = \"Right\"\n\n[[layout]]\ndisplay = \"DP-1\"\nposition = \"left-of\"\n\n[[layout]]\ndisplay = \"HDMI-1\"\nposition = \"right-of\"\nrelative_to = \"DP-1\"\n\n[other]\nignored = \"yes\"\n";
+
+    // sectionMap: key/value pairs of [displays], with a fallback for misses.
+    Map<string, string> displays = Toml.sectionMap(doc, "displays");
+    assert(displays.getOrDefault("DP-1", "").equals("Left"));
+    assert(displays.getOrDefault("HDMI-1", "").equals("Right"));
+    assert(displays.getOrDefault("missing", "fallback").equals("fallback"));
+
+    // tableArrayBlocks: one map per [[layout]] occurrence, in order.
+    Vector<Map<string, string>> layout = Toml.tableArrayBlocks(doc, "layout");
+    assert(layout.len == 2);
+    assert(layout.get(0).getOrDefault("display", "").equals("DP-1"));
+    assert(layout.get(0).getOrDefault("position", "").equals("left-of"));
+    assert(layout.get(1).getOrDefault("display", "").equals("HDMI-1"));
+    assert(layout.get(1).getOrDefault("relative_to", "").equals("DP-1"));
+
+    // A [section] ends the array — the trailing [other] never bleeds in.
+    assert(layout.get(1).getOrDefault("ignored", "none").equals("none"));
+
+    // No matching table-array yields an empty vector.
+    Vector<Map<string, string>> audio = Toml.tableArrayBlocks(doc, "audio");
+    assert(audio.len == 0);
+
+    print("PASS");
+    return 0;
+}
