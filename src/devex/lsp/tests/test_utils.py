@@ -1,0 +1,77 @@
+"""Direct contract tests for the shared resolution helpers in utils.py."""
+
+from lsprotocol import types as lsp
+
+from src.compiler.python.ast_nodes import TypeExpr
+from src.compiler.python.tokens import Token, TokenType
+from src.devex.lsp.tests.lsphelp import analyze
+from src.devex.lsp.utils import (
+    body_range,
+    find_closing_brace_line,
+    find_enclosing_class,
+    find_enclosing_class_from_source,
+    find_token_index,
+    get_text_before_cursor,
+    type_repr,
+)
+
+
+def test_type_repr_none_is_void():
+    assert type_repr(None) == "void"
+    assert "int" in type_repr(TypeExpr(base="int"))
+
+
+def test_find_token_index_missing_returns_none():
+    r = analyze("int main() { return 0; }\n")
+    fake = Token(type=TokenType.IDENT, value="nope", line=999, col=1)
+    assert find_token_index(r.tokens, fake) is None
+
+
+def test_get_text_before_cursor_out_of_range():
+    assert get_text_before_cursor("a\nb\n", lsp.Position(line=99, character=0)) == ""
+
+
+def test_find_closing_brace_line_match_and_unbalanced():
+    assert find_closing_brace_line(["class X {", "    int y;", "}"], 0) == 2
+    assert find_closing_brace_line(["class X {", "    int y;"], 0) is None
+
+
+def test_find_enclosing_class_inside_outside_and_none():
+    src = ("class A {\n"
+           "    public int m() { return 1; }\n"
+           "}\n"
+           "int top() { return 0; }\n")
+    r = analyze(src)
+    assert find_enclosing_class(r.ast, 2) == "A"     # 1-based line inside A
+    assert find_enclosing_class(r.ast, 4) is None    # top() is not in a class
+    assert find_enclosing_class(None, 1) is None
+
+
+def test_find_enclosing_class_from_source_inside_outside_and_none():
+    src = "class A {\n    public int m() { return 1; }\n}\n"
+    r = analyze(src)
+    assert find_enclosing_class_from_source(r.ast, src, 1) == "A"   # 0-based
+    assert find_enclosing_class_from_source(r.ast, src, 3) is None
+    assert find_enclosing_class_from_source(None, "", 0) is None
+
+
+def test_body_range_empty_body_uses_fallback():
+    r = analyze("void f() { }\nint main() { return 0; }\n")
+    fn = r.ast.declarations[0]
+    start, end = body_range(fn.body, fn.line)
+    assert end - start >= 1000   # empty body → wide fallback range
+
+
+def test_body_range_walks_elseif_and_switch():
+    src = ("int f(int x) {\n"
+           "    if (x > 0) { x = 1; }\n"
+           "    else if (x < 0) { x = 2; }\n"
+           "    else { x = 3; }\n"
+           "    switch (x) { case 1: x = 10; break; default: x = 0; break; }\n"
+           "    int last = x;\n"
+           "    return last;\n"
+           "}\n")
+    r = analyze(src)
+    fn = r.ast.declarations[0]
+    start, end = body_range(fn.body, fn.line)
+    assert end >= 7   # the deepest statement (return last) is on line 7 (1-based)

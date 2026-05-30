@@ -384,11 +384,6 @@ def get_signature_params(
     return m.params
 
 
-def get_stdlib_methods(class_name: str) -> Optional[list[BuiltinMember]]:
-    """Return the list of static methods for a stdlib class, or None."""
-    return STDLIB_STATIC_METHODS.get(class_name)
-
-
 def get_stdlib_signature(
     class_name: str, method_name: str
 ) -> Optional[list[tuple[str, str]]]:

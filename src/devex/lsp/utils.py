@@ -72,22 +72,6 @@ def find_token_index(tokens: list[Token], token: Token) -> int | None:
     return None
 
 
-def find_token_before_position(
-    tokens: list[Token], position: lsp.Position
-) -> Token | None:
-    """Find the last token before the given 0-based LSP position."""
-    target_line = position.line + 1
-    target_col = position.character + 1
-
-    best: Token | None = None
-    for tok in tokens:
-        if tok.type == TokenType.EOF:
-            continue
-        if tok.line < target_line or (tok.line == target_line and tok.col < target_col):
-            best = tok
-    return best
-
-
 # ---------------------------------------------------------------------------
 # Text helpers
 # ---------------------------------------------------------------------------
@@ -98,14 +82,6 @@ def get_text_before_cursor(source: str, position: lsp.Position) -> str:
     lines = source.split("\n")
     if 0 <= position.line < len(lines):
         return lines[position.line][: position.character]
-    return ""
-
-
-def get_line_text(source: str, line: int) -> str:
-    """Get the text of a specific 0-based line."""
-    lines = source.split("\n")
-    if 0 <= line < len(lines):
-        return lines[line]
     return ""
 
 
