@@ -85,10 +85,17 @@ def test_btrc_file(btrc_file):
             import platform
             tray_dir = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "tray")
             if platform.system() == "Darwin":
-                # Objective-C + ARC + Cocoa; clang only (gcc can't build Cocoa).
-                cc_name = os.path.basename(BTRC_CC)
-                if "clang" not in cc_name and cc_name not in ("cc",):
-                    pytest.skip("tray shim needs clang on macOS")
+                # Objective-C + ARC + Cocoa need clang (gcc can't build Cocoa).
+                # Probe the actual compiler — `cc` is clang on a stock macOS but
+                # gcc inside the Nix devshell, so a name check isn't enough.
+                import subprocess as _sp
+                try:
+                    _ver = _sp.run([BTRC_CC, "--version"], capture_output=True,
+                                   text=True).stdout.lower()
+                except OSError:
+                    _ver = ""
+                if "clang" not in _ver:
+                    pytest.skip("tray shim needs clang (Objective-C/Cocoa) on macOS")
                 shim = os.path.join(tray_dir, "btrc_tray_macos.m")
                 # Drop -pedantic for the mixed Obj-C/C link (Obj-C isn't C11).
                 gcc_flags = [
