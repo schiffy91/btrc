@@ -191,6 +191,9 @@ def _collect_vars_in_stmt(dmap: DefinitionMap, stmt, scope_start: int, scope_end
                     scope_end=scope_end,
                 )
             )
+    elif isinstance(stmt, Block):
+        # a bare nested block, e.g. a `case` body wrapped in `{ ... }`
+        _collect_vars_in_block(dmap, stmt, scope_start, scope_end)
     elif isinstance(stmt, ForInStmt):
         if stmt.var_name and stmt.line:
             dmap.var_defs.append(
