@@ -136,6 +136,12 @@ class ExecResult {
         return self.out;
     }
 
+    // Captured stdout with surrounding whitespace removed — the common
+    // "run a command and read one value" idiom.
+    public string trimmed() {
+        return self.out.trim();
+    }
+
     public string stderr() {
         return self.err;
     }
@@ -274,6 +280,11 @@ class UnixShell {
 
     public ExecResult runCommand(Command command) {
         return self.runRaw(command.render(), command.captureOutput, command.checkStatus, command.sensitive);
+    }
+
+    // Run a Command and return its trimmed stdout in one call.
+    public string capture(Command command) {
+        return self.runCommand(command).trimmed();
     }
 
     public ExecResult runRaw(string command, bool captureOutput, bool checkStatus, string sensitive) {

@@ -1,0 +1,11 @@
+/* ExecResult.trimmed() + UnixShell.capture() — the run-and-trim idiom. */
+#include <assert.h>
+
+int main() {
+    UnixShell sh = UnixShell();
+    assert(sh.runUnchecked("printf '  hi  '").trimmed().equals("hi"));
+    assert(sh.capture(Command("printf").arg("world")).equals("world"));
+    assert(sh.runUnchecked("printf 'x'").trimmed().equals("x"));
+    print("PASS");
+    return 0;
+}
