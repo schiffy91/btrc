@@ -10,6 +10,23 @@ import {
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
 
+/** Resolve an executable on PATH (sync), returning its full path or undefined. */
+function which(cmd: string): string | undefined {
+    const exts = process.platform === 'win32' ? ['.exe', '.cmd', ''] : [''];
+    for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+        if (!dir) { continue; }
+        for (const ext of exts) {
+            const candidate = path.join(dir, cmd + ext);
+            try {
+                if (fs.existsSync(candidate)) { return candidate; }
+            } catch {
+                // ignore unreadable PATH entries
+            }
+        }
+    }
+    return undefined;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('btrc Language Server');
     context.subscriptions.push(outputChannel);
@@ -51,20 +68,50 @@ export function activate(context: vscode.ExtensionContext) {
         return;
     }
 
-    // Prefer the venv Python if it exists (cross-platform)
+    // Decide how to launch the server. Precedence:
+    //   1. an explicitly-configured btrc.pythonPath
+    //   2. a local venv at src/devex/lsp/.venv
+    //   3. the Nix dev shell (flake.nix) — gives the pinned Python 3.13+ with
+    //      pygls/lsprotocol already installed, so no manual venv is needed
+    //   4. the default `python3` on PATH
     const isWindows = process.platform === 'win32';
     const venvPython = isWindows
         ? path.join(projectRoot, 'src', 'devex', 'lsp', '.venv', 'Scripts', 'python.exe')
         : path.join(projectRoot, 'src', 'devex', 'lsp', '.venv', 'bin', 'python3');
-    const pythonPath = fs.existsSync(venvPython) ? venvPython : configuredPython;
 
-    outputChannel.appendLine(`Using Python: ${pythonPath}`);
+    const pythonInspect = config.inspect<string>('pythonPath');
+    const pythonExplicit = !!(pythonInspect && (
+        pythonInspect.workspaceFolderValue ??
+        pythonInspect.workspaceValue ??
+        pythonInspect.globalValue));
+    const useNix = config.get<boolean>('useNixDevShell', true);
+    const nixBin = which('nix');
+    const flakePath = path.join(projectRoot, 'flake.nix');
+
+    let command: string;
+    let args: string[];
+    if (pythonExplicit) {
+        command = configuredPython;
+        args = [serverScript];
+    } else if (fs.existsSync(venvPython)) {
+        command = venvPython;
+        args = [serverScript];
+    } else if (useNix && nixBin && fs.existsSync(flakePath)) {
+        // Run the server inside the project's Nix dev shell.
+        command = nixBin;
+        args = ['develop', projectRoot, '--command', 'python3', serverScript];
+    } else {
+        command = configuredPython;
+        args = [serverScript];
+    }
+
+    outputChannel.appendLine(`Launch: ${command} ${args.join(' ')}`);
     outputChannel.appendLine(`Server script: ${serverScript}`);
     outputChannel.appendLine(`Project root: ${projectRoot}`);
 
     const serverOptions: ServerOptions = {
-        command: pythonPath,
-        args: [serverScript],
+        command,
+        args,
         options: {
             cwd: projectRoot,
         },

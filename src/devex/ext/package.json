@@ -51,6 +51,11 @@
           "default": "",
           "description": "Absolute path to the btrc LSP server script (server.py). When set, the extension uses this directly instead of searching for it."
         },
+        "btrc.useNixDevShell": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the project has a flake.nix and `nix` is on PATH, run the language server inside the Nix dev shell (which provides the pinned Python 3.13+ with pygls/lsprotocol). A local src/devex/lsp/.venv or an explicit btrc.pythonPath takes precedence, so no manual venv is needed."
+        },
         "btrc.trace.server": {
           "type": "string",
           "enum": [
