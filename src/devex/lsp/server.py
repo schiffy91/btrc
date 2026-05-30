@@ -12,7 +12,7 @@ from pathlib import Path
 
 # Add project root to sys.path so we can import src.compiler.python
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
-if PROJECT_ROOT not in sys.path:
+if PROJECT_ROOT not in sys.path:  # pragma: no cover - import-time bootstrap
     sys.path.insert(0, PROJECT_ROOT)
 
 from lsprotocol import types as lsp
@@ -251,5 +251,5 @@ def semantic_tokens_full(params: lsp.SemanticTokensParams):
     return None
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - stdio entry point for a real client
     server.start_io()
