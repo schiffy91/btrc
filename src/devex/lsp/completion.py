@@ -22,6 +22,7 @@ from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
     find_enclosing_class_from_source,
     get_text_before_cursor,
+    resolve_member_type,
     resolve_variable_type,
     type_repr,
 )
@@ -330,23 +331,14 @@ def get_completions(
     text_before = get_text_before_cursor(result.source, position)
     class_table = result.analyzed.class_table if result.analyzed else {}
 
-    # Dot-triggered completions: member access or static methods
-    dot_match = re.search(r"(\w+)\.\s*$", text_before)
-    if dot_match:
-        obj_name = dot_match.group(1)
-        return _dot_completions(result, obj_name, position, class_table)
-
-    # Optional-chaining triggered completions: obj?.member
-    opt_match = re.search(r"(\w+)\?\.\s*$", text_before)
-    if opt_match:
-        obj_name = opt_match.group(1)
-        return _dot_completions(result, obj_name, position, class_table)
-
-    # Arrow triggered completions: obj->member
-    arrow_match = re.search(r"(\w+)->\s*$", text_before)
-    if arrow_match:
-        obj_name = arrow_match.group(1)
-        return _dot_completions(result, obj_name, position, class_table)
+    # Member-access completions on a (possibly chained) receiver ending in one
+    # of . / ?. / -> , e.g. `obj.`, `obj?.`, `obj->`, or a chain `o.inner.`.
+    chain_match = re.search(
+        r"([A-Za-z_]\w*(?:\s*(?:\?\.|->|\.)\s*[A-Za-z_]\w*)*)\s*(?:\?\.|->|\.)\s*$",
+        text_before,
+    )
+    if chain_match:
+        return _dot_completions(result, chain_match.group(1), position, class_table)
 
     # General completions: keywords + types + snippets + class names
     items: list[lsp.CompletionItem] = []
@@ -372,33 +364,44 @@ def get_completions(
 
 def _dot_completions(
     result: AnalysisResult,
-    obj_name: str,
+    receiver: str,
     position: lsp.Position,
     class_table: dict[str, ClassInfo],
 ) -> list[lsp.CompletionItem]:
-    """Resolve completions after a dot (member access or static methods)."""
+    """Completions after . / ?. / -> on a receiver, which may be a chain.
 
-    # 1. Check if obj_name is a known class name (static method access)
-    if obj_name in class_table:
-        info = class_table[obj_name]
-        items = _class_member_items(obj_name, info)
-        stdlib_methods = STDLIB_STATIC_METHODS.get(obj_name)
+    A single segment that names a class gives static-method completions; a
+    variable (or chain) is resolved to its type — walking each member hop via
+    resolve_member_type — and that type's members are offered.
+    """
+    parts = re.split(r"\s*(?:\?\.|->|\.)\s*", receiver.strip())
+    head, hops = parts[0], parts[1:]
+
+    # Single-segment class name → static-method access.
+    if not hops:
+        if head in class_table:
+            info = class_table[head]
+            items = _class_member_items(head, info)
+            stdlib_methods = STDLIB_STATIC_METHODS.get(head)
+            if stdlib_methods:
+                existing_labels = {item.label for item in items}
+                for item in _static_method_items(head, stdlib_methods):
+                    if item.label not in existing_labels:
+                        items.append(item)
+            return items
+        stdlib_methods = STDLIB_STATIC_METHODS.get(head)
         if stdlib_methods:
-            existing_labels = {item.label for item in items}
-            for item in _static_method_items(obj_name, stdlib_methods):
-                if item.label not in existing_labels:
-                    items.append(item)
-        return items
+            return _static_method_items(head, stdlib_methods)
 
-    # Check stdlib static methods for classes not in the class_table
-    stdlib_methods = STDLIB_STATIC_METHODS.get(obj_name)
-    if stdlib_methods:
-        return _static_method_items(obj_name, stdlib_methods)
+    # Resolve the head's type (class-as-value or variable), then walk member hops.
+    cur_type = head if head in class_table else _resolve_var_type(result, head, position.line)
+    for hop in hops:
+        if not cur_type:
+            return []
+        cur_type = resolve_member_type(cur_type, hop, class_table)
 
-    # 2. Resolve the type of the variable
-    var_type = _resolve_var_type(result, obj_name, position.line)
-    if var_type is not None:
-        return _members_for_type(var_type, class_table)
+    if cur_type is not None:
+        return _members_for_type(cur_type, class_table)
 
     return []
 
