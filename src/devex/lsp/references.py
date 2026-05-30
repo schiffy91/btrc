@@ -81,6 +81,16 @@ def _classify_symbol(
                             return ("field", parent, name)
                         parent = pc.parent
 
+    # Cursor on a member *declaration* (the field/method name in a class body):
+    # classify it as that member so find-references/rename span all accesses,
+    # not just same-named locals. Member decls live on their own line.
+    for (cls, mem), (dline, _dcol) in dmap.method_defs.items():
+        if mem == name and dline == token.line:
+            return ("method", cls, name)
+    for (cls, mem), (dline, _dcol) in dmap.field_defs.items():
+        if mem == name and dline == token.line:
+            return ("field", cls, name)
+
     # Check class name
     if name in dmap.class_defs:
         return ("class", name, None)
