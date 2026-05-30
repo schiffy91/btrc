@@ -138,9 +138,14 @@ def _find_function_references(
     matching = _collect_all_tokens_matching(tokens, name)
     def_loc = dmap.function_defs.get(name)
 
+    # The declaration is recorded at the return-type column, not the name
+    # token's, so match by line and skip the first name token on that line.
+    decl_skipped = False
     for tok in matching:
         loc = (tok.line, tok.col)
-        if not include_declaration and def_loc and loc == def_loc:
+        if (not include_declaration and def_loc and not decl_skipped
+                and tok.line == def_loc[0]):
+            decl_skipped = True
             continue
         refs.append(loc)
     return refs

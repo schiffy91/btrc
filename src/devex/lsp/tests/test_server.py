@@ -153,3 +153,39 @@ def test_completion_falls_back_to_last_good(monkeypatch):
     items = srv.completion(lsp.CompletionParams(
         text_document=_ident(), position=pos_of(SAMPLE, "p.getX", offset=2)))
     assert any(it.label == "getX" for it in items)
+
+
+_ORIGIN = lsp.Position(line=0, character=0)
+
+
+def test_read_handlers_return_empty_without_cached_document(monkeypatch):
+    _seed(monkeypatch)
+    srv._analysis_cache.clear()
+    srv._good_analysis_cache.clear()
+    pp = lsp.TextDocumentPositionParams(text_document=_ident(), position=_ORIGIN)
+    assert srv.goto_definition(pp) is None
+    assert srv.hover(lsp.HoverParams(text_document=_ident(), position=_ORIGIN)) is None
+    assert srv.document_symbol(lsp.DocumentSymbolParams(text_document=_ident())) == []
+    assert srv.find_references(lsp.ReferenceParams(
+        text_document=_ident(), position=_ORIGIN,
+        context=lsp.ReferenceContext(include_declaration=True))) == []
+    assert srv.prepare_rename_handler(lsp.PrepareRenameParams(
+        text_document=_ident(), position=_ORIGIN)) is None
+    assert srv.rename(lsp.RenameParams(
+        text_document=_ident(), position=_ORIGIN, new_name="x")) is None
+    assert srv.semantic_tokens_full(lsp.SemanticTokensParams(
+        text_document=_ident())) is None
+
+
+def test_completion_and_signature_compute_when_uncached(monkeypatch):
+    # caches empty but the workspace still has the source → handlers compute it
+    _seed(monkeypatch)
+    srv._analysis_cache.clear()
+    srv._good_analysis_cache.clear()
+    items = srv.completion(lsp.CompletionParams(
+        text_document=_ident(), position=pos_of(SAMPLE, "p.getX", offset=2)))
+    assert any(it.label == "getX" for it in items)
+    srv._analysis_cache.clear()
+    sig = srv.signature_help(lsp.SignatureHelpParams(
+        text_document=_ident(), position=pos_of(SAMPLE, "add(self.x", offset=4)))
+    assert sig is not None and sig.signatures
