@@ -2,6 +2,8 @@
  * Random number generation inspired by Python's random module.
  */
 
+import std.vector;
+
 class Random {
     private bool seeded;
 

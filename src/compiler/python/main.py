@@ -17,6 +17,7 @@ from .analyzer.analyzer import Analyzer
 from .ast_nodes import Program
 from .disk_cache import get_cached
 from .disk_cache import store as cache_store
+from .import_visibility import check_visibility
 from .ir.emitter import CEmitter
 from .ir.gen.generator import generate_ir
 from .ir.optimizer import optimize
@@ -38,7 +39,7 @@ def _cached_stdlib_decls(stdlib_source: str) -> list:
     is a fresh process, so the unpickled AST is never shared/mutated across runs.
     """
     key = hashlib.sha256(
-        f"astv{_STDLIB_AST_VERSION}\n{stdlib_source}".encode("utf-8")
+        f"astv{_STDLIB_AST_VERSION}\n{stdlib_source}".encode()
     ).hexdigest()
     cache_dir = os.path.join(os.getcwd(), ".btrc-cache")
     os.makedirs(cache_dir, exist_ok=True)
@@ -155,8 +156,16 @@ def get_stdlib_source(user_source: str = "") -> str:
         file_classes = set(_CLASS_NAME_RE.findall(content))
         if file_classes & user_classes:
             continue
-        parts.append(content)
+        parts.append(_strip_btrc_imports(content))
     return "\n".join(parts)
+
+
+def _strip_btrc_imports(source: str) -> str:
+    """Drop btrc import lines from auto-stdlib concatenation."""
+    return "\n".join(
+        line for line in source.split("\n")
+        if not _BTRC_IMPORT_RE.match(line)
+    )
 
 
 def _find_stdlib_file(include_path: str) -> str | None:
@@ -284,6 +293,50 @@ def _import_paths(spec: str, source_dir: str) -> list[str]:
     return paths
 
 
+def _resolve_traced(source: str, source_path: str, included: set[str],
+                    graph: dict[str, set[str]]) -> list[tuple[str, str]]:
+    """Recursively resolve includes/imports, tracking per-line provenance and the
+    include graph.
+
+    Returns a list of ``(line_text, abs_source_file)`` for every line of the
+    resolved output, in order. Populates ``graph``: ``abs_file -> set of abs files
+    it directly imports``. The ``included`` set guards circular includes (a file's
+    lines appear once); every import *edge* is still recorded in the graph.
+    """
+    abs_path = os.path.abspath(source_path)
+    source_dir = os.path.dirname(abs_path)
+    graph.setdefault(abs_path, set())
+    if abs_path in included:
+        return []  # Circular / repeat include guard (edge already recorded by caller)
+    included.add(abs_path)
+
+    out: list[tuple[str, str]] = []
+    for line in source.split('\n'):
+        m = _BTRC_INCLUDE_RE.match(line)
+        if m:
+            full_path = os.path.abspath(_resolve_include_path(m.group(1), source_dir))
+            graph[abs_path].add(full_path)
+            with open(full_path, 'r') as f:
+                out.extend(_resolve_traced(f.read(), full_path, included, graph))
+            continue
+
+        m = _BTRC_IMPORT_RE.match(line)
+        if m:
+            for full_path in _import_paths(m.group(1), source_dir):
+                abs_full = os.path.abspath(full_path)
+                graph[abs_path].add(abs_full)
+                if full_path.endswith(".c"):
+                    out.append((f'#include "{abs_full}"', abs_path))
+                    continue
+                with open(full_path, 'r') as f:
+                    out.extend(_resolve_traced(f.read(), full_path, included, graph))
+            continue
+
+        out.append((line, abs_path))
+
+    return out
+
+
 def resolve_includes(source: str, source_path: str, included: set[str] | None = None) -> str:
     """Recursively resolve btrc includes/imports by textual inclusion.
 
@@ -294,43 +347,24 @@ def resolve_includes(source: str, source_path: str, included: set[str] | None = 
       import ./directory/*
       import ./directory/**
     """
-    if included is None:
-        included = set()
+    traced = _resolve_traced(source, source_path,
+                             set() if included is None else included, {})
+    return '\n'.join(text for text, _ in traced)
 
-    source_dir = os.path.dirname(os.path.abspath(source_path))
-    abs_path = os.path.abspath(source_path)
 
-    if abs_path in included:
-        return ""  # Circular include guard
-    included.add(abs_path)
+def resolve_includes_traced(source: str, source_path: str):
+    """Like resolve_includes, but also return per-line provenance and the include
+    graph, for import-visibility enforcement.
 
-    lines = source.split('\n')
-    result = []
-    for line in lines:
-        m = _BTRC_INCLUDE_RE.match(line)
-        if m:
-            include_path = m.group(1)
-            full_path = _resolve_include_path(include_path, source_dir)
-            with open(full_path, 'r') as f:
-                included_source = f.read()
-            resolved = resolve_includes(included_source, full_path, included)
-            result.append(resolved)
-            continue
-
-        m = _BTRC_IMPORT_RE.match(line)
-        if m:
-            for full_path in _import_paths(m.group(1), source_dir):
-                if full_path.endswith(".c"):
-                    result.append(f'#include "{os.path.abspath(full_path)}"')
-                    continue
-                with open(full_path, 'r') as f:
-                    included_source = f.read()
-                result.append(resolve_includes(included_source, full_path, included))
-            continue
-
-        result.append(line)
-
-    return '\n'.join(result)
+    Returns ``(resolved_source, provenance, graph)`` where ``provenance[i]`` is the
+    absolute source file that produced line ``i + 1`` of ``resolved_source``, and
+    ``graph`` maps each abs file to the set of abs files it directly imports.
+    """
+    graph: dict[str, set[str]] = {}
+    traced = _resolve_traced(source, source_path, set(), graph)
+    resolved = '\n'.join(text for text, _ in traced)
+    provenance = [src for _, src in traced]
+    return resolved, provenance, graph
 
 
 def _print_profile(prof: dict, source_len: int) -> None:
@@ -432,6 +466,8 @@ def main():
                            help="Don't include runtime headers in output")
     argparser.add_argument("--no-stdlib", action="store_true",
                            help="Don't auto-include stdlib .btrc files; use explicit includes only")
+    argparser.add_argument("--strict-imports", action="store_true",
+                           help="Require every file to import the top-level symbols it references")
     argparser.add_argument("--debug", action="store_true",
                            help="Emit #line directives for source-level debugging")
     argparser.add_argument("--emit-ir", action="store_true",
@@ -469,9 +505,13 @@ def main():
         print(f"Error: File '{args.input}' not found", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve #include "file.btrc" directives
+    # Resolve #include/import directives
     _t = time.perf_counter()
-    user_source = resolve_includes(source, args.input)
+    if args.strict_imports:
+        user_source, provenance, graph = resolve_includes_traced(source, args.input)
+    else:
+        user_source = resolve_includes(source, args.input)
+        provenance, graph = [], {}
     prof["resolve_includes"] = time.perf_counter() - _t
 
     # Auto-include stdlib types (skipping classes the user redefines). Kept
@@ -479,7 +519,7 @@ def main():
     # from cache; `source` is the concatenation used for the disk-cache key and
     # the non-cached fallback path.
     stdlib_source = ""
-    if not args.no_stdlib:
+    if not args.no_stdlib and not args.strict_imports:
         _t = time.perf_counter()
         stdlib_source = get_stdlib_source(user_source)
         prof["stdlib_include"] = time.perf_counter() - _t
@@ -490,12 +530,13 @@ def main():
     # Check disk cache (only for default compilation, not debug/emit modes).
     # --stdlib produces different output for the same source (program-only,
     # partitioned against the archive), so it must not share the default cache.
+    cache_source = f"strict-imports\0{source}" if args.strict_imports else source
     use_cache = not args.no_cache and args.stdlib is None and not any([
         args.emit_tokens, args.emit_ast, args.emit_ir,
         args.emit_optimized_ir, args.debug
     ])
     if use_cache:
-        cached = get_cached(source)
+        cached = get_cached(cache_source)
         if cached is not None:
             if args.output:
                 out_path = args.output
@@ -512,6 +553,7 @@ def main():
     use_ast_cache = (
         bool(stdlib_source) and not args.no_cache
         and not args.emit_tokens and not args.emit_ast and not args.debug
+        and not args.strict_imports
     )
 
     if use_ast_cache:
@@ -553,6 +595,13 @@ def main():
         except ParseError as e:
             _syntax_error_exit(source, filename, e)
         prof["parse"] = time.perf_counter() - _t
+
+    if args.strict_imports:
+        errors = check_visibility(program, provenance, graph)
+        if errors:
+            for msg, line, col in errors:
+                print(_format_error(source, filename, msg, line, col), file=sys.stderr)
+            sys.exit(1)
 
     if args.emit_ast:
         import pprint
@@ -628,7 +677,7 @@ def main():
 
     # Store in disk cache
     if use_cache:
-        cache_store(source, c_source)
+        cache_store(cache_source, c_source)
 
     if args.profile:
         _print_profile(prof, len(source))

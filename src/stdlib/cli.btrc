@@ -1,5 +1,8 @@
 /* btrc standard library — CLI argument helpers */
 
+import std.strings;
+import std.vector;
+
 class CliArgs {
     public string program;
     public Vector<string> values;

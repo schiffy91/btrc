@@ -3,6 +3,9 @@
  * Uses raw C for memory management (malloc/free).
  */
 
+import std.iterable;
+import std.vector;
+
 class ListNode<T> {
     public T value;
     public ListNode<T> next;

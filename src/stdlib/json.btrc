@@ -3,6 +3,11 @@
  * config files and command metadata. Nested JSON can be layered on later.
  */
 
+import std.io;
+import std.map;
+import std.strings;
+import std.vector;
+
 class JsonObject {
     public Map<string, string> values;
     public Map<string, bool> quoted;

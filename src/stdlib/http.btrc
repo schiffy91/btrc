@@ -8,6 +8,12 @@
  *
  * Auto-included. Sockets are libc-only; the client requires `curl` on PATH.
  */
+import std.fs;
+import std.map;
+import std.process;
+import std.strings;
+import std.vector;
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>

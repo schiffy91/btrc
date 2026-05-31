@@ -6,6 +6,8 @@
  * support without renaming higher-level shell abstractions.
  */
 
+import std.strings;
+
 #include <unistd.h>
 
 class UnixPlatform {

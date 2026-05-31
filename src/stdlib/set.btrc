@@ -7,6 +7,9 @@
  * rehashing (no tombstones) to maintain probe-chain integrity.
  */
 
+import std.iterable;
+import std.vector;
+
 class Set<T> implements Iterable {
     public T* keys;
     public bool* occupied;

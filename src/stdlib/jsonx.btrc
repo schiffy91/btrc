@@ -5,6 +5,8 @@
  * value out of an arbitrarily nested JSON document (handles escapes). Auto-included.
  */
 
+import std.strings;
+
 class Json {
     class string esc(string s) {
         if (s == null) { return ""; }

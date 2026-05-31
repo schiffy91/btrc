@@ -3,6 +3,8 @@
  * Uses raw C for memory management (malloc/realloc/free).
  */
 
+import std.iterable;
+
 class Vector<T> implements Iterable {
     public T* data;
     public int len;

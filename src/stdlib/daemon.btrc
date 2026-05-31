@@ -3,6 +3,8 @@
  * managers can consume DaemonSpec without changing app code.
  */
 
+import std.process;
+
 class DaemonSpec {
     public string name;
     public Command command;

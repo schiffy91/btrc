@@ -7,6 +7,9 @@
  * rehashing (no tombstones) to maintain probe-chain integrity.
  */
 
+import std.iterable;
+import std.vector;
+
 class Map<K, V> implements Iterable {
     public K* keys;
     public V* values;

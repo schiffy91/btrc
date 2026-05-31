@@ -1,6 +1,8 @@
 /* btrc standard library — DateTime
  * Date and time utilities inspired by Python's datetime module.
  */
+import std.strings;
+
 #include <time.h>
 
 class DateTime {

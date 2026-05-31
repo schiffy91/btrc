@@ -2,6 +2,9 @@
  * Object-oriented file I/O inspired by Python's open() and file objects.
  */
 
+import std.strings;
+import std.vector;
+
 class File {
     private FILE* handle;
     private string path;

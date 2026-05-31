@@ -2,6 +2,12 @@
  * POSIX implementation with an object-oriented API.
  */
 
+import std.io;
+import std.platform;
+import std.process;
+import std.strings;
+import std.vector;
+
 #define _DARWIN_C_SOURCE
 #include <dirent.h>
 #include <sys/types.h>

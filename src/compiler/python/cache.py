@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import os
 
-from .main import _CLASS_NAME_RE, _discover_stdlib_files, _get_stdlib_dir
+from .main import (
+    _CLASS_NAME_RE,
+    _discover_stdlib_files,
+    _get_stdlib_dir,
+    _strip_btrc_imports,
+)
 
 # Cache: frozenset of user class names → (stdlib_source, stdlib_tokens)
 _stdlib_source_cache: dict[frozenset[str], str] = {}
@@ -42,7 +47,7 @@ def get_stdlib_source_cached(user_source: str = "") -> str:
         file_classes = set(_CLASS_NAME_RE.findall(content))
         if file_classes & user_classes:
             continue
-        parts.append(content)
+        parts.append(_strip_btrc_imports(content))
 
     result = "\n".join(parts)
     _stdlib_source_cache[user_classes] = result

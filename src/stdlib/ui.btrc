@@ -3,6 +3,11 @@
  * platform backend. Native GTK/AppKit/WinUI backends can share this model.
  */
 
+import std.fs;
+import std.process;
+import std.strings;
+import std.vector;
+
 class Html {
     class string escape(string raw) {
         string text = Strings.replace(raw, "&", "&amp;");

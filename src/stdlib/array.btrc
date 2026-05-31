@@ -4,6 +4,8 @@
  * Uses raw C for memory management (malloc/free).
  */
 
+import std.iterable;
+
 class Array<T> implements Iterable {
     public T* data;
     public int len;

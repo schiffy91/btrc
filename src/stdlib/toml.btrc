@@ -3,6 +3,10 @@
  * scalar key/value fields. Full TOML type coverage can grow here over time.
  */
 
+import std.map;
+import std.strings;
+import std.vector;
+
 class Toml {
     class string stripInlineComment(string raw) {
         bool inString = false;

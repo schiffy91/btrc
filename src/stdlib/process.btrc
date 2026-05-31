@@ -5,6 +5,9 @@
  * placeholder so callers can branch explicitly when Windows support arrives.
  */
 
+import std.strings;
+import std.vector;
+
 #include <errno.h>
 #include <sys/wait.h>
 

@@ -1,5 +1,7 @@
 /* btrc standard library — Pattern matching */
 
+import std.vector;
+
 #include <fnmatch.h>
 
 class UnixPattern {
