@@ -275,6 +275,7 @@ def _emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     if ctor and ctor.body:
         from .statements import lower_block
         gen._func_var_decls = []
+        gen.current_return_c_type = "void"
         user_block = lower_block(gen, ctor.body)
         init_body_stmts.extend(user_block.stmts)
 

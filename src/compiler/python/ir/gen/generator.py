@@ -60,6 +60,11 @@ class IRGenerator:
         self._fn_ptr_envs: dict[str, str] = {}
         # Last lambda ID assigned (for linking lambda to var decl)
         self._last_lambda_id: int = 0
+        # C return type of the function/method currently being lowered. Used to
+        # declare the ARC return temp with a concrete type (never __auto_type).
+        # Set at every function-body lowering entry point; "int" is a safe
+        # default (matches main's implicit return).
+        self.current_return_c_type: str = "int"
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""

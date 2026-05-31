@@ -35,14 +35,16 @@ def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
         gen.module.forward_decls.append(f"{ret_type} {decl.name}({param_str});")
         return
 
-    from .statements import lower_block
-    gen._func_var_decls = []
-    body = lower_block(gen, decl.body)
-
-    # Special handling for main: ensure it returns int
+    # Special handling for main: ensure it returns int. Done BEFORE lowering so
+    # the return-type context (used to type the ARC return temp) is correct.
     name = decl.name
     if name == "main" and ret_type == "void":
         ret_type = "int"
+
+    from .statements import lower_block
+    gen._func_var_decls = []
+    gen.current_return_c_type = ret_type
+    body = lower_block(gen, decl.body)
 
     gen.module.function_defs.append(IRFunctionDef(
         name=name,

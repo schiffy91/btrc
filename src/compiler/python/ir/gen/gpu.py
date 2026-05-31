@@ -128,11 +128,14 @@ def emit_gpu_cpu_fallback(gen: IRGenerator, decl: FunctionDecl) -> None:
 
     prev_idx = getattr(gen, "_gpu_cpu_index", None)
     prev_decls = getattr(gen, "_func_var_decls", None)
+    prev_ret = gen.current_return_c_type
     gen._gpu_cpu_index = "__gid"
     gen._func_var_decls = []
+    gen.current_return_c_type = type_to_c(decl.return_type) if decl.return_type else "void"
     body = lower_block(gen, decl.body)
     gen._gpu_cpu_index = prev_idx
     gen._func_var_decls = prev_decls
+    gen.current_return_c_type = prev_ret
 
     loop = IRFor(
         init=IRVarDecl(c_type=CType(text="int"), name="__gid", init=IRLiteral(text="0")),

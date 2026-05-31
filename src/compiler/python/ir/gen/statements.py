@@ -103,11 +103,14 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         # scope release so the expression can safely reference managed locals.
         # (Previously the locals were released first, freeing objects that the
         # return expression still used — a use-after-free, e.g. `return o.f()`.)
-        # __auto_type infers the temp's type from the value, like the existing
-        # __typeof__-based helpers elsewhere in codegen.
+        # The temp takes the function's declared C return type: a portable
+        # concrete type (never the GNU __auto_type extension) and, being the
+        # return slot's own type, an exact match for the value even where the
+        # expression's inferred type would differ — e.g. a class value vs. its
+        # always-pointer representation, or an implicit int->float widening.
         val = lower_expr(gen, node.value)
         tmp = gen.fresh_temp("__btrc_ret")
-        decl = IRVarDecl(c_type=CType(text="__auto_type"), name=tmp, init=val)
+        decl = IRVarDecl(c_type=CType(text=gen.current_return_c_type), name=tmp, init=val)
         release_stmts = _emit_return_release(gen, None)
         return [decl] + release_stmts + [IRReturn(value=IRVar(name=tmp))]
 
