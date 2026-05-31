@@ -161,7 +161,7 @@ def _build_keyword_table() -> dict[str, TokenType]:
         token_name = gi.keyword_to_token[kw]
         try:
             table[kw] = TokenType[token_name]
-        except KeyError as err:
+        except KeyError as err:  # pragma: no cover - guards against grammar/TokenType drift; unreachable while ebnf.py and the enum stay in sync (verified at import)
             raise RuntimeError(
                 f"Grammar keyword {kw!r} maps to TokenType.{token_name} "
                 f"which does not exist in the TokenType enum. "
@@ -179,7 +179,7 @@ def _build_operator_table() -> dict[str, TokenType]:
         token_name = gi.op_to_token[op]
         try:
             table[op] = TokenType[token_name]
-        except KeyError as err:
+        except KeyError as err:  # pragma: no cover - guards against grammar/TokenType drift; unreachable while ebnf.py and the enum stay in sync (verified at import)
             raise RuntimeError(
                 f"Grammar operator {op!r} maps to TokenType.{token_name} "
                 f"which does not exist in the TokenType enum. "
@@ -197,7 +197,7 @@ def _build_annotation_table() -> dict[str, TokenType]:
         token_name = gi.annotation_to_token[ann]
         try:
             table[ann] = TokenType[token_name]
-        except KeyError as err:
+        except KeyError as err:  # pragma: no cover - guards against grammar/TokenType drift; unreachable while ebnf.py and the enum stay in sync (verified at import)
             raise RuntimeError(
                 f"Grammar annotation {ann!r} maps to TokenType.{token_name} "
                 f"which does not exist in the TokenType enum. "

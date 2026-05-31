@@ -261,4 +261,4 @@ class WgslEmitter:
             inner = self._expr(expr.expr)
             return f"{target}({inner})"
 
-        return f"/* unhandled: {type(expr).__name__} */"
+        return f"/* unhandled: {type(expr).__name__} */"  # pragma: no cover - the analyzer validates @gpu bodies to the supported subset before codegen, so unsupported expression nodes never reach here

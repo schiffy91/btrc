@@ -168,7 +168,7 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
         elems = ", ".join(_expr_text(lower_expr(gen, e)) for e in node.elements)
         return IRRawExpr(text=f"{{{elems}}}")
 
-    return IRLiteral(text=f"/* unhandled expr: {type(node).__name__} */")
+    return IRLiteral(text=f"/* unhandled expr: {type(node).__name__} */")  # pragma: no cover - every expression node the parser produces is handled above; defensive fallback
 
 
 def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:

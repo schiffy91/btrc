@@ -193,7 +193,7 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         # release expr -> if (--expr->__rc <= 0) destroy(expr); expr = NULL;
         return _lower_release(gen, node)
 
-    return [IRRawC(text=f"/* unhandled stmt: {type(node).__name__} */")]
+    return [IRRawC(text=f"/* unhandled stmt: {type(node).__name__} */")]  # pragma: no cover - every statement node the parser produces is handled above; defensive fallback
 
 
 def _quick_text(expr) -> str:
