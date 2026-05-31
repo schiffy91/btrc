@@ -1,14 +1,12 @@
 """Shared helpers for btrc LSP tests.
 
 Tests drive the real feature functions over real source through the same
-compiler the server uses (compute_diagnostics → lexer/parser/analyzer), then
-assert concrete positions/strings — no mocking, no theatre.
+compiler front-end the server uses, then assert concrete positions/strings.
 """
 
 from lsprotocol import types as lsp
 
 from src.devex.lsp.diagnostics import compute_diagnostics
-
 
 # A small well-formed program covering the symbol kinds features must handle.
 SAMPLE = """\

@@ -31,6 +31,7 @@ from ...ast_nodes import (
     VarDeclStmt,
     WhileStmt,
 )
+from .errors import unsupported_node
 
 # btrc type → WGSL type
 _TYPE_MAP = {
@@ -233,8 +234,7 @@ class WgslEmitter:
                     return f"{wgsl_builtins[name]}({args})"
                 args = ", ".join(self._expr(a) for a in expr.args)
                 return f"{name}({args})"
-            args = ", ".join(self._expr(a) for a in expr.args)
-            return f"/* unsupported call */({args})"
+            raise unsupported_node("WGSL call expression", expr.callee)
 
         if isinstance(expr, IndexExpr):
             obj = self._expr(expr.obj)
@@ -261,4 +261,4 @@ class WgslEmitter:
             inner = self._expr(expr.expr)
             return f"{target}({inner})"
 
-        return f"/* unhandled: {type(expr).__name__} */"  # pragma: no cover - the analyzer validates @gpu bodies to the supported subset before codegen, so unsupported expression nodes never reach here
+        raise unsupported_node("WGSL expression", expr)

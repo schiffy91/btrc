@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from .main import (
+from .frontend import (
     _defined_stdlib_names,
     _discover_stdlib_files,
     _get_stdlib_dir,

@@ -2,12 +2,14 @@
 headers. Each IR expression form is rendered directly; specific node shapes are
 hard to force into a for-header from source, so exercise the renderer directly."""
 
+import pytest
+
+from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.statements import _quick_text
 from src.compiler.python.ir.nodes import (
     IRAddressOf,
     IRBinOp,
     IRCall,
-    IRCast,
     IRDeref,
     IRFieldAccess,
     IRIndex,
@@ -52,7 +54,6 @@ def test_quick_text_ternary_addr_deref_sizeof():
     assert _quick_text(IRSizeof(operand="int")) == "sizeof(int)"
 
 
-def test_quick_text_unknown_falls_back():
-    # An IR node _quick_text doesn't render inline → a labelled fallback comment.
-    out = _quick_text(IRReturn(value=IRLiteral(text="0")))
-    assert "unknown" in out or "/*" in out
+def test_quick_text_unknown_raises():
+    with pytest.raises(CodegenError, match="unsupported IR expression node: IRReturn"):
+        _quick_text(IRReturn(value=IRLiteral(text="0")))

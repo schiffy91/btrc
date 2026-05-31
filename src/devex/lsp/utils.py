@@ -297,8 +297,14 @@ def resolve_chain_type(
     end_idx: int,
     class_table: dict[str, ClassInfo],
 ) -> str | None:
-    """Walk backwards through a chained access (a.b.c) and resolve the base type."""
-    idx = end_idx
+    """Walk backwards through a chained access and resolve the base type.
+
+    ``end_idx`` may point at either an identifier (``obj.field``) or the closing
+    paren of a call segment (``obj.method().field``).
+    """
+    idx = _skip_call_to_callee(tokens, end_idx)
+    if idx is None or tokens[idx].type != TokenType.IDENT:
+        return None
     chain: list[str] = [tokens[idx].value]
 
     while idx >= 2:
@@ -306,6 +312,10 @@ def resolve_chain_type(
         if prev.value not in (".", "->", "?."):
             break
         idx -= 2
+        skipped = _skip_call_to_callee(tokens, idx)
+        if skipped is None or tokens[skipped].type != TokenType.IDENT:
+            return None
+        idx = skipped
         chain.append(tokens[idx].value)
 
     chain.reverse()
@@ -330,6 +340,26 @@ def resolve_chain_type(
         current_type = resolved
 
     return current_type
+
+
+def _skip_call_to_callee(tokens: list[Token], idx: int) -> int | None:
+    """Return the callee token index when *idx* is a call's closing paren."""
+    if idx < 0 or idx >= len(tokens):
+        return None
+    if tokens[idx].value != ")":
+        return idx
+
+    depth = 1
+    idx -= 1
+    while idx >= 0:
+        if tokens[idx].value == ")":
+            depth += 1
+        elif tokens[idx].value == "(":
+            depth -= 1
+            if depth == 0:
+                return idx - 1 if idx > 0 else None
+        idx -= 1
+    return None
 
 
 def resolve_member_type(

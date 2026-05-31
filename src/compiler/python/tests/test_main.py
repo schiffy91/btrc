@@ -9,6 +9,7 @@ import sys
 
 import pytest
 
+from src.compiler.python import frontend as fe
 from src.compiler.python import main as m
 
 # --------------------------------------------------------------------------
@@ -476,19 +477,19 @@ def test_cached_stdlib_decls_write_failure(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise OSError("disk full")
 
-    monkeypatch.setattr(m.pickle, "dump", boom)
+    monkeypatch.setattr(fe.pickle, "dump", boom)
     decls = m._cached_stdlib_decls(
         "class TinyW { public int x; public TinyW(int x) { self.x = x; } }\n")
     assert decls
 
 
 def test_discover_stdlib_files_missing_dir(monkeypatch):
-    monkeypatch.setattr(m, "_get_stdlib_dir", lambda: "/no/such/stdlib/dir")
+    monkeypatch.setattr(fe, "_get_stdlib_dir", lambda: "/no/such/stdlib/dir")
     assert m._discover_stdlib_files() == []
 
 
 def test_get_stdlib_source_missing_listed_file(monkeypatch):
-    monkeypatch.setattr(m, "_discover_stdlib_files", lambda: ["does_not_exist.btrc"])
+    monkeypatch.setattr(fe, "_discover_stdlib_files", lambda: ["does_not_exist.btrc"])
     assert m.get_stdlib_source("") == ""  # listed-but-absent file skipped
 
 

@@ -42,7 +42,6 @@ from ..nodes import (
     IRFieldAccess,
     IRIndex,
     IRLiteral,
-    IRRawC,
     IRRawExpr,
     IRReturn,
     IRStmt,
@@ -52,6 +51,7 @@ from ..nodes import (
     IRWhile,
 )
 from .arc import _emit_return_release, _emit_scope_release, _lower_release
+from .errors import unsupported_node
 from .expressions import lower_expr
 from .variables import _emit_keep_for_call, _lower_var_decl
 
@@ -193,7 +193,7 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         # release expr -> if (--expr->__rc <= 0) destroy(expr); expr = NULL;
         return _lower_release(gen, node)
 
-    return [IRRawC(text=f"/* unhandled stmt: {type(node).__name__} */")]  # pragma: no cover - every statement node the parser produces is handled above; defensive fallback
+    raise unsupported_node("statement", node)
 
 
 def _quick_text(expr) -> str:
@@ -242,4 +242,4 @@ def _quick_text(expr) -> str:
         return f"(*{_quick_text(expr.expr)})"
     if isinstance(expr, IRSizeof):
         return f"sizeof({expr.operand})"
-    return f"/* unknown: {type(expr).__name__} */"
+    raise unsupported_node("IR expression", expr)

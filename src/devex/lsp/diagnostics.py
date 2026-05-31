@@ -1,27 +1,26 @@
-"""Diagnostic computation for btrc documents.
+"""Diagnostic computation for btrc documents."""
 
-Runs the compiler pipeline (lexer -> parser -> analyzer) on source text
-and converts errors into LSP Diagnostic objects.
-"""
-
-import os
 import re
 from dataclasses import dataclass, field
 from urllib.parse import unquote, urlparse
 
 from lsprotocol import types as lsp
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python import frontend as _frontend
 from src.compiler.python.analyzer.core import AnalyzedProgram
 from src.compiler.python.ast_nodes import Program
-from src.compiler.python.lexer import Lexer, LexerError
-from src.compiler.python.main import resolve_includes
+from src.compiler.python.frontend import (
+    FrontendVisibilityError,
+    IncludeResolutionError,
+    compile_frontend,
+)
+from src.compiler.python.lexer import LexerError
 from src.compiler.python.parser.core import ParseError
-from src.compiler.python.parser.parser import Parser
 from src.compiler.python.tokens import Token
 
 # Regex to parse analyzer error strings: "message at line:col"
 _ANALYZER_ERROR_RE = re.compile(r"^(.+) at (\d+):(\d+)$")
+Analyzer = _frontend.Analyzer
 
 
 @dataclass
@@ -67,41 +66,33 @@ def _make_diagnostic(
 
 
 def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
-    """Run the compiler pipeline and return diagnostics."""
+    """Run the compiler front-end and return diagnostics."""
     result = AnalysisResult(uri=uri, source=source)
     file_path = uri_to_path(uri)
-    filename = os.path.basename(file_path)
 
-    # Resolve #include directives (best-effort)
     try:
-        resolved_source = resolve_includes(source, file_path)
-    except (SystemExit, Exception):
-        resolved_source = source
-
-    # Lexing
-    try:
-        lexer = Lexer(resolved_source, filename)
-        tokens = lexer.tokenize()
-        result.tokens = tokens
+        frontend = compile_frontend(source, file_path)
+        result.tokens = frontend.tokens
+        result.ast = frontend.user_program or frontend.program
+        result.analyzed = frontend.analyzed
     except LexerError as e:
         result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e)))
         return result
-
-    # Parsing
-    try:
-        parser = Parser(tokens)
-        program = parser.parse()
-        result.ast = program
     except ParseError as e:
         result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e)))
         return result
+    except FrontendVisibilityError as e:
+        for msg, line, col in e.errors:
+            result.diagnostics.append(_make_diagnostic(line, col, msg))
+        return result
+    except IncludeResolutionError as e:
+        result.diagnostics.append(_make_diagnostic(1, 1, str(e)))
+        return result
+    except (SystemExit, Exception) as e:
+        result.diagnostics.append(_make_diagnostic(1, 1, str(e)))
+        return result
 
-    # Semantic analysis
-    analyzer = Analyzer()
-    analyzed = analyzer.analyze(program)
-    result.analyzed = analyzed
-
-    for err_str in analyzed.errors:
+    for err_str in result.analyzed.errors:
         m = _ANALYZER_ERROR_RE.match(err_str)
         if m:
             msg, line_s, col_s = m.group(1), m.group(2), m.group(3)

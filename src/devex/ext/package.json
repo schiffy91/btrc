@@ -12,6 +12,9 @@
     "Programming Languages"
   ],
   "icon": "icons/btrc.png",
+  "activationEvents": [
+    "onLanguage:btrc"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [

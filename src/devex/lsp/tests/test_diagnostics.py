@@ -16,6 +16,18 @@ def test_clean_source_has_no_diagnostics():
     assert r.ast is not None and r.analyzed is not None
 
 
+def test_diagnostics_use_compiler_stdlib_context():
+    r = analyze("int main() { Vector<int> xs = []; xs.push(1); return xs.len; }\n")
+    assert r.diagnostics == []
+    assert r.analyzed is not None
+    assert "Vector" in r.analyzed.class_table
+
+
+def test_missing_import_reports_resolution_error():
+    r = analyze("import ./missing.btrc;\nint main() { return 0; }\n")
+    assert any("not found" in m for m in _msgs(r))
+
+
 def test_lexer_error_reported_with_location():
     r = analyze('int main() {\n string s = "unterminated;\n return 0; }\n')
     assert r.diagnostics, "expected a lexer diagnostic"

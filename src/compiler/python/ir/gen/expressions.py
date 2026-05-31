@@ -48,6 +48,7 @@ from ..nodes import (
     IRTernary,
     IRVar,
 )
+from .errors import unsupported_node
 from .types import is_generic_class_type, type_to_c
 
 if TYPE_CHECKING:
@@ -168,7 +169,7 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
         elems = ", ".join(_expr_text(lower_expr(gen, e)) for e in node.elements)
         return IRRawExpr(text=f"{{{elems}}}")
 
-    return IRLiteral(text=f"/* unhandled expr: {type(node).__name__} */")  # pragma: no cover - every expression node the parser produces is handled above; defensive fallback
+    raise unsupported_node("expression", node)
 
 
 def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
@@ -207,11 +208,42 @@ def _lower_tuple(gen: IRGenerator, node: TupleLiteral) -> IRExpr:
 
 def _expr_text(expr: IRExpr) -> str:
     """Quick helper to get text representation of simple expressions."""
+    from ..nodes import (
+        IRAddressOf,
+        IRBinOp,
+        IRDeref,
+        IRFieldAccess,
+        IRIndex,
+        IRUnaryOp,
+    )
     if isinstance(expr, IRLiteral):
         return expr.text
     if isinstance(expr, IRVar):
         return expr.name
     if isinstance(expr, IRRawExpr):
         return expr.text
-    # Fallback — the emitter will handle complex expressions
-    return "/* complex expr */"
+    if isinstance(expr, IRBinOp):
+        return f"({_expr_text(expr.left)} {expr.op} {_expr_text(expr.right)})"
+    if isinstance(expr, IRUnaryOp):
+        if expr.prefix:
+            return f"({expr.op}{_expr_text(expr.operand)})"
+        return f"({_expr_text(expr.operand)}{expr.op})"
+    if isinstance(expr, IRCall):
+        args = ", ".join(_expr_text(arg) for arg in expr.args)
+        return f"{expr.callee}({args})"
+    if isinstance(expr, IRFieldAccess):
+        op = "->" if expr.arrow else "."
+        return f"{_expr_text(expr.obj)}{op}{expr.field}"
+    if isinstance(expr, IRIndex):
+        return f"{_expr_text(expr.obj)}[{_expr_text(expr.index)}]"
+    if isinstance(expr, IRCast):
+        return f"(({expr.target_type}){_expr_text(expr.expr)})"
+    if isinstance(expr, IRTernary):
+        return f"({_expr_text(expr.condition)} ? {_expr_text(expr.true_expr)} : {_expr_text(expr.false_expr)})"
+    if isinstance(expr, IRAddressOf):
+        return f"(&{_expr_text(expr.expr)})"
+    if isinstance(expr, IRDeref):
+        return f"(*{_expr_text(expr.expr)})"
+    if isinstance(expr, IRSizeof):
+        return f"sizeof({expr.operand})"
+    raise unsupported_node("inline expression", expr)
