@@ -97,6 +97,15 @@ _CLASS_NAME_RE = re.compile(
     r'(?:implements\s+\w+(?:\s*,\s*\w+)*\s*)?\{',
     re.MULTILINE,
 )
+_INTERFACE_NAME_RE = re.compile(
+    r'^\s*interface\s+(\w+)(?:\s*<[^>\n]+>)?\s*'
+    r'(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?\{',
+    re.MULTILINE,
+)
+
+
+def _defined_stdlib_names(source: str) -> set[str]:
+    return set(_CLASS_NAME_RE.findall(source)) | set(_INTERFACE_NAME_RE.findall(source))
 
 
 def _get_stdlib_dir() -> str:
@@ -143,7 +152,7 @@ def get_stdlib_source(user_source: str = "") -> str:
             defines, that stdlib file is skipped entirely.
     """
     stdlib_dir = _get_stdlib_dir()
-    user_classes = set(_CLASS_NAME_RE.findall(user_source))
+    user_names = _defined_stdlib_names(user_source)
 
     parts = []
     for fname in _discover_stdlib_files():
@@ -153,8 +162,8 @@ def get_stdlib_source(user_source: str = "") -> str:
         with open(fpath, 'r') as f:
             content = f.read()
         # Skip if any class in this file is already defined by user
-        file_classes = set(_CLASS_NAME_RE.findall(content))
-        if file_classes & user_classes:
+        file_names = _defined_stdlib_names(content)
+        if file_names & user_names:
             continue
         parts.append(_strip_btrc_imports(content))
     return "\n".join(parts)

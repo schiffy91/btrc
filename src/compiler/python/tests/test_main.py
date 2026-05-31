@@ -1,6 +1,7 @@
 """Tests for the compiler driver (main.py): CLI flags, include/import
 resolution, stdlib selection, error formatting, and IR dumping."""
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -9,7 +10,6 @@ import sys
 import pytest
 
 from src.compiler.python import main as m
-
 
 # --------------------------------------------------------------------------
 # helpers
@@ -430,6 +430,11 @@ def test_get_stdlib_source_skips_redefined():
     assert len(skipped) < len(full)
 
 
+def test_get_stdlib_source_skips_redefined_interface():
+    skipped = m.get_stdlib_source("interface Iterable<T> { bool hasNext(); }\n")
+    assert "interface Iterable" not in skipped
+
+
 def test_find_stdlib_file_subdir():
     # gui/gui.btrc lives in a subdirectory; basename lookup should find it.
     path = m._find_stdlib_file("gui.btrc")
@@ -505,10 +510,9 @@ def test_import_relative_ghost(tmp_path, capsys):
 
 def test_cached_stdlib_decls_corrupt_cache(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    import hashlib
     stdlib_src = "class Tiny2 { public int x; public Tiny2(int x) { self.x = x; } }\n"
     key = hashlib.sha256(
-        f"astv{m._STDLIB_AST_VERSION}\n{stdlib_src}".encode("utf-8")
+        f"astv{m._STDLIB_AST_VERSION}\n{stdlib_src}".encode()
     ).hexdigest()
     cache_dir = tmp_path / ".btrc-cache"
     cache_dir.mkdir()

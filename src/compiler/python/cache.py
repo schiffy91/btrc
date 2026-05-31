@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 from .main import (
-    _CLASS_NAME_RE,
+    _defined_stdlib_names,
     _discover_stdlib_files,
     _get_stdlib_dir,
     _strip_btrc_imports,
@@ -36,19 +36,19 @@ def get_stdlib_source_cached(user_source: str = "") -> str:
     Caches by the set of user-defined class names, since that determines
     which stdlib files are skipped.
     """
-    user_classes = frozenset(_CLASS_NAME_RE.findall(user_source))
+    user_names = frozenset(_defined_stdlib_names(user_source))
 
-    if user_classes in _stdlib_source_cache:
-        return _stdlib_source_cache[user_classes]
+    if user_names in _stdlib_source_cache:
+        return _stdlib_source_cache[user_names]
 
     parts = []
     for fname in _discover_stdlib_files():
         content = _read_stdlib_file(fname)
-        file_classes = set(_CLASS_NAME_RE.findall(content))
-        if file_classes & user_classes:
+        file_names = _defined_stdlib_names(content)
+        if file_names & user_names:
             continue
         parts.append(_strip_btrc_imports(content))
 
     result = "\n".join(parts)
-    _stdlib_source_cache[user_classes] = result
+    _stdlib_source_cache[user_names] = result
     return result
