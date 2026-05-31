@@ -1,0 +1,66 @@
+/* UI / HTML rendering layer (ui.btrc).
+ *
+ * Covers the pure, deterministic rendering surface: HTML escaping, the UiNode
+ * builder (attributes, id/class, text vs raw, children, void elements), and the
+ * full UiDocument page render. The native window/browser bits (Window, HtmlView
+ * file output, Browser.open) are side-effecting and are left to examples.
+ *
+ * Assertions track ui.btrc's actual output exactly: attributes are single-quoted
+ * (id='x'), void elements render bare (<br>, no self-closing slash), and the
+ * document is a single line beginning with the lowercase <!doctype html>. */
+#include <assert.h>
+
+int main() {
+    // --- Html.escape: &, ", <, > (single quotes are NOT escaped) ---
+    assert(Html.escape("a & b").equals("a &amp; b"));
+    assert(Html.escape("<x>").equals("&lt;x&gt;"));
+    assert(Html.escape("say \"hi\"").equals("say &quot;hi&quot;"));
+    assert(Html.escape("plain").equals("plain"));
+
+    // --- UiNode: a leaf element with escaped text content ---
+    UiNode p = UiNode("p").text("1 < 2");
+    assert(p.renderHtml().equals("<p>1 &lt; 2</p>"));
+
+    // --- attributes: single-quoted; id/class are attr() shortcuts; value escaped ---
+    UiNode div = UiNode("div").id("main").className("box").attr("data-x", "<v>");
+    assert(div.renderHtml().equals(
+        "<div id='main' class='box' data-x='&lt;v&gt;'></div>"));
+
+    // --- raw() bypasses escaping (for trusted markup) ---
+    UiNode rawNode = UiNode("span").raw("<b>bold</b>");
+    assert(rawNode.renderHtml().equals("<span><b>bold</b></span>"));
+
+    // --- void elements render bare with no closing tag ---
+    UiNode br = UiNode("br");
+    assert(br.isVoidElement());
+    assert(br.renderHtml().equals("<br>"));
+    UiNode img = UiNode("img").attr("src", "a.png");
+    assert(img.renderHtml().equals("<img src='a.png'>"));
+    assert(!UiNode("div").isVoidElement());
+
+    // --- nesting: children render in order, inside the parent ---
+    UiNode list = UiNode("ul")
+        .child(UiNode("li").text("one"))
+        .child(UiNode("li").text("two"));
+    assert(list.renderHtml().equals("<ul><li>one</li><li>two</li></ul>"));
+
+    // --- text + children combine (text first, then children) ---
+    UiNode mixed = UiNode("p").text("hi ").child(UiNode("em").text("there"));
+    assert(mixed.renderHtml().equals("<p>hi <em>there</em></p>"));
+
+    // --- UiDocument: single-line page with escaped title and optional CSS ---
+    UiNode body = UiNode("h1").text("Welcome");
+    UiDocument doc = UiDocument("My <App>", body).style("h1 { color: red; }");
+    string html = doc.renderHtml();
+    assert(html.contains("<!doctype html>"));
+    assert(html.contains("<title>My &lt;App&gt;</title>"));   // title escaped
+    assert(html.contains("<style>h1 { color: red; }</style>"));
+    assert(html.contains("<body><h1>Welcome</h1></body>"));
+
+    // A document with no CSS omits the <style> block.
+    UiDocument bare = UiDocument("Plain", UiNode("p").text("x"));
+    assert(!bare.renderHtml().contains("<style>"));
+
+    print("PASS");
+    return 0;
+}
