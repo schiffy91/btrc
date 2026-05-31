@@ -1,10 +1,16 @@
 """IR optimizer for the btrc compiler.
 
 Currently implements:
-- Dead function elimination: removes functions whose name is never referenced
-  (e.g. unused monomorphized generic methods). Sound by construction — a
-  function is kept if its name appears anywhere as a call, spawned thread
-  function pointer, variable reference, or in any raw/vtable/global text.
+- Dead function elimination: keeps only functions *reachable* from the program
+  roots, via a transitive walk of the call/reference graph. Roots are the entry
+  points (`main`/`btrc_main`) and every function named in raw text the emitter
+  emits verbatim (cycle-collector tables, vtables, global initializers).
+  Reachability — rather than a flat "referenced anywhere" scan — is essential:
+  clusters of mutually referencing dead code (e.g. the auto-included stdlib's
+  monomorphized collections, whose methods call one another) keep each other
+  alive under a flat scan but are correctly pruned when nothing reachable enters
+  the cluster. This is what lets a one-line program emit a handful of functions
+  instead of the entire stdlib.
 - Dead helper elimination: removes runtime helpers not referenced by any function
 """
 
@@ -50,34 +56,62 @@ def optimize(module: IRModule) -> IRModule:
 
 
 def _eliminate_dead_functions(module: IRModule):
-    """Remove function definitions whose name is never referenced.
+    """Keep only functions reachable from the program roots.
 
-    Sound by construction: a name is collected as referenced if it appears as a
-    call target, a spawned-thread function pointer, a variable, or as a substring
-    of any raw/vtable/global/text fragment. `forward_decls` is intentionally NOT
-    scanned (it lists every function's prototype). `main` is always kept.
+    A function survives iff it is reachable, through the call/reference graph,
+    from a root. Roots are:
+      - the entry points `main` / `btrc_main`;
+      - every function whose name appears in raw text the emitter emits verbatim
+        (`raw_sections`, `vtable_defs`, `global_vars`) — e.g. inheritance vtables
+        and the ARC cycle-collector dispatch text reference their target
+        functions only by name from these blobs.
+
+    Soundness: each kept function's body is scanned for the names it references
+    (call targets, spawned-thread function pointers, variable references, and any
+    function name embedded in `callee`/`text`/inline-C fragments — the same
+    reference forms the emitter can produce), and those are enqueued. We never
+    follow references *out of* dead functions, so a cluster of mutually
+    referencing dead code is pruned as a whole. `forward_decls` is intentionally
+    NOT treated as a root source (it lists every function's prototype).
+
+    ARC note: per-class `*_destroy` lifecycle functions are NOT blanket roots.
+    Every `*_destroy` that can run is referenced from *reachable* code — a scope-
+    release / `delete` / field-release `IRCall(callee="X_destroy")`, or the cycle
+    collector's `(__btrc_destroy_fn)X_destroy` raw expression embedded in phased
+    scope-release — so reachability keeps exactly the ones a run can reach and
+    prunes the rest. (`*_visit` functions are emitted into `raw_sections`, not
+    `function_defs`, so they are never elimination candidates in the first place.)
     """
     funcs = module.function_defs
     if len(funcs) <= 1:
         return
     names = {f.name for f in funcs}
+    by_name = {f.name: f for f in funcs}
 
-    referenced: set[str] = set()
-    for func in funcs:
-        if func.body:
-            _collect_func_refs(func.body, names, referenced)
+    roots: set[str] = set()
+    for n in names:
+        if n in ("main", "btrc_main"):
+            roots.add(n)
     for blob in (*module.raw_sections, *module.vtable_defs, *module.global_vars):
         if isinstance(blob, str):
-            _scan_text_for_names(blob, names, referenced)
+            _scan_text_for_names(blob, names, roots)
 
-    # `*_visit` / `*_destroy` are per-class ARC lifecycle functions referenced by
-    # emitter-generated cycle-collector code (e.g. __btrc_suspect(v, T_visit,
-    # T_destroy)) that doesn't exist in the IR yet, so they must never be pruned.
-    def _is_root(n):
-        return (n == "main" or n == "btrc_main" or n in referenced
-                or n.endswith("_visit") or n.endswith("_destroy"))
+    # Transitive reachability via worklist: each kept function is scanned exactly
+    # once for the function names it references; newly discovered names are
+    # enqueued until the reachable set stabilizes.
+    keep: set[str] = set(roots)
+    worklist = list(roots)
+    while worklist:
+        func = by_name.get(worklist.pop())
+        if func is None or func.body is None:
+            continue
+        refs: set[str] = set()
+        _collect_func_refs(func.body, names, refs)
+        for r in refs:
+            if r not in keep:
+                keep.add(r)
+                worklist.append(r)
 
-    keep = {n for n in names if _is_root(n)}
     module.function_defs = [f for f in funcs if f.name in keep]
 
     # Drop the forward declarations of removed functions too, otherwise a
