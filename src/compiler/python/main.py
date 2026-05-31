@@ -363,9 +363,27 @@ def _dump_ir(module):
         print(f"fn {func.name}({params}) -> {func.return_type}")
 
 
+class _PrintStdlibDir(argparse.Action):
+    """--stdlib-dir: print the bundled stdlib path and exit, like --version.
+
+    Lets tooling locate the compiler's stdlib (e.g. to diff a vendored copy)
+    without knowing where the package keeps it, the way `gcc -print-file-name`
+    or `rustc --print sysroot` report their own data dirs.
+    """
+
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, default=argparse.SUPPRESS, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(os.path.abspath(_get_stdlib_dir()))
+        parser.exit()
+
+
 def main():
     argparser = argparse.ArgumentParser(description="btrc transpiler")
     argparser.add_argument("input", help="Input .btrc file")
+    argparser.add_argument("--stdlib-dir", action=_PrintStdlibDir,
+                           help="Print the bundled stdlib directory and exit")
     argparser.add_argument("-o", "--output", help="Output .c file (default: <input>.c)")
     argparser.add_argument("--emit-tokens", action="store_true", help="Print token stream")
     argparser.add_argument("--emit-ast", action="store_true", help="Print AST")
