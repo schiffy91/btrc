@@ -1,0 +1,7 @@
+// Baseline: the smallest possible program. Almost the entire auto-included
+// stdlib is unreachable, so this is the headline test for dead-function
+// elimination — funcs_before -> funcs_after should collapse to a handful.
+int main() {
+    print("hello");
+    return 0;
+}

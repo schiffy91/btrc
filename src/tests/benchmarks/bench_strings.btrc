@@ -1,0 +1,27 @@
+// String-heavy: f-strings (lowered to snprintf sequences) and the string-method
+// helper family (contains/indexOf/substring/case/trim/split/join). Stresses the
+// f-string lowering and string runtime-helper selection.
+string describe(string name, int age) {
+    return f"{name} is {age} years old";
+}
+
+int main() {
+    string s = "The quick brown fox";
+    print(s.toUpper());
+    print(s.toLower());
+    print(s.len());
+    print(s.contains("quick"));
+    print(s.indexOf("brown"));
+    print(s.substring(4, 5));
+    print(s.replace("quick", "slow"));
+
+    List<string> words = s.split(" ");
+    print(words.size());
+    print(words.join("-"));
+
+    print(describe("btrc", 1));
+
+    string padded = "  hi  ";
+    print(padded.trim());
+    return 0;
+}
