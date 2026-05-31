@@ -77,6 +77,26 @@ class VarDef:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_name_pos(
+    tokens: list[Token] | None, line: int, col: int, name: str
+) -> tuple[int, int]:
+    """Position of the *name* identifier token at or after (line, col).
+
+    A declaration node records the position of its leading keyword or type
+    (e.g. ``class``/``int``), but editors expect go-to-definition and find-
+    references to operate on the *name*. Scan forward to the first token that
+    spells *name*; fall back to the node position when tokens are unavailable.
+    """
+    if not tokens:
+        return (line, col)
+    for tok in tokens:
+        if (tok.line, tok.col) < (line, col):
+            continue
+        if tok.value == name:
+            return (tok.line, tok.col)
+    return (line, col)
+
+
 class DefinitionMap:
     """Maps symbol names to their definition locations."""
 
@@ -92,33 +112,47 @@ class DefinitionMap:
         self.var_defs: list[VarDef] = []
 
     @classmethod
-    def from_ast(cls, ast: Program) -> DefinitionMap:
-        """Walk the AST to build a definition map."""
+    def from_ast(cls, ast: Program, tokens: list[Token] | None = None) -> DefinitionMap:
+        """Walk the AST to build a definition map.
+
+        *tokens*, when supplied, lets each definition resolve to its name token
+        rather than the leading keyword/type position recorded on the node.
+        """
         dmap = cls()
         for decl in ast.declarations:
             if isinstance(decl, ClassDecl):
-                dmap.class_defs[decl.name] = (decl.line, decl.col)
-                _collect_class_members(dmap, decl)
+                dmap.class_defs[decl.name] = _resolve_name_pos(
+                    tokens, decl.line, decl.col, decl.name
+                )
+                _collect_class_members(dmap, decl, tokens)
             elif isinstance(decl, FunctionDecl):
-                dmap.function_defs[decl.name] = (decl.line, decl.col)
+                dmap.function_defs[decl.name] = _resolve_name_pos(
+                    tokens, decl.line, decl.col, decl.name
+                )
                 scope_start, scope_end = body_range(decl.body, decl.line)
                 _collect_params(dmap, decl.params, scope_start, scope_end)
                 if decl.body:
                     _collect_vars_in_block(dmap, decl.body, scope_start, scope_end)
             elif isinstance(decl, EnumDecl):
-                dmap.enum_defs[decl.name] = (decl.line, decl.col)
+                name_pos = _resolve_name_pos(tokens, decl.line, decl.col, decl.name)
+                dmap.enum_defs[decl.name] = name_pos
                 # Map each value name too, so cmd-clicking a use of a value
                 # (e.g. RED) jumps to the enum declaration.
                 for v in decl.values:
-                    dmap.enum_defs.setdefault(v.name, (decl.line, decl.col))
+                    dmap.enum_defs.setdefault(v.name, name_pos)
             elif isinstance(decl, RichEnumDecl):
-                dmap.enum_defs[decl.name] = (decl.line, decl.col)
+                name_pos = _resolve_name_pos(tokens, decl.line, decl.col, decl.name)
+                dmap.enum_defs[decl.name] = name_pos
                 for variant in decl.variants:
-                    dmap.enum_defs.setdefault(variant.name, (decl.line, decl.col))
+                    dmap.enum_defs.setdefault(variant.name, name_pos)
             elif isinstance(decl, StructDecl):
-                dmap.struct_defs[decl.name] = (decl.line, decl.col)
+                dmap.struct_defs[decl.name] = _resolve_name_pos(
+                    tokens, decl.line, decl.col, decl.name
+                )
             elif isinstance(decl, TypedefDecl):
-                dmap.typedef_defs[decl.alias] = (decl.line, decl.col)
+                dmap.typedef_defs[decl.alias] = _resolve_name_pos(
+                    tokens, decl.line, decl.col, decl.alias
+                )
         return dmap
 
     def find_var(self, name: str, cursor_line: int) -> tuple[int, int] | None:
@@ -138,19 +172,27 @@ class DefinitionMap:
         return None
 
 
-def _collect_class_members(dmap: DefinitionMap, cls: ClassDecl):
+def _collect_class_members(
+    dmap: DefinitionMap, cls: ClassDecl, tokens: list[Token] | None = None
+):
     """Collect all member definitions from a class declaration."""
     for member in cls.members:
         if isinstance(member, FieldDecl):
-            dmap.field_defs[(cls.name, member.name)] = (member.line, member.col)
+            dmap.field_defs[(cls.name, member.name)] = _resolve_name_pos(
+                tokens, member.line, member.col, member.name
+            )
         elif isinstance(member, MethodDecl):
-            dmap.method_defs[(cls.name, member.name)] = (member.line, member.col)
+            dmap.method_defs[(cls.name, member.name)] = _resolve_name_pos(
+                tokens, member.line, member.col, member.name
+            )
             scope_start, scope_end = body_range(member.body, member.line)
             _collect_params(dmap, member.params, scope_start, scope_end)
             if member.body:
                 _collect_vars_in_block(dmap, member.body, scope_start, scope_end)
         elif isinstance(member, PropertyDecl):
-            dmap.property_defs[(cls.name, member.name)] = (member.line, member.col)
+            dmap.property_defs[(cls.name, member.name)] = _resolve_name_pos(
+                tokens, member.line, member.col, member.name
+            )
 
 
 def _collect_params(
@@ -300,7 +342,7 @@ def get_definition(
         return None
 
     class_table = result.analyzed.class_table if result.analyzed else {}
-    dmap = DefinitionMap.from_ast(result.ast)
+    dmap = DefinitionMap.from_ast(result.ast, result.tokens)
     cursor_line = token.line  # 1-based
 
     # 1. Member access: obj.member / obj->member / obj?.member
@@ -369,11 +411,11 @@ def _try_member_definition(
     dmap: DefinitionMap,
 ) -> lsp.Location | None:
     """Try to resolve a go-to-definition for a member access."""
-    if not result.tokens:
+    if not result.tokens:  # pragma: no cover - get_definition already returns when tokens are absent before calling this
         return None
 
     token_idx = find_token_index(result.tokens, token)
-    if token_idx is None or token_idx < 2:
+    if token_idx is None or token_idx < 2:  # pragma: no cover - the token comes from this list (never None) and a member access needs a receiver + dot before it (idx >= 2)
         return None
 
     prev = result.tokens[token_idx - 1]
@@ -429,4 +471,4 @@ def _resolve_object_class(
         return find_enclosing_class(result.ast, obj_token.line)
     if result.ast:
         return resolve_variable_type(obj_token.value, result.ast, class_table)
-    return None
+    return None  # pragma: no cover - reached only with no AST, but the callers run under get_references which already requires result.ast

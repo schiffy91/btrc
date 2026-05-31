@@ -254,7 +254,7 @@ def get_references(
         return []
 
     class_table = result.analyzed.class_table if result.analyzed else {}
-    dmap = DefinitionMap.from_ast(result.ast)
+    dmap = DefinitionMap.from_ast(result.ast, result.tokens)
     name = token.value
 
     kind, class_name, member_name = _classify_symbol(
@@ -299,7 +299,7 @@ def get_rename_edits(
 
     # Get all references including the declaration
     locations = get_references(result, position, include_declaration=True)
-    if not locations:
+    if not locations:  # pragma: no cover - an identifier token always matches at least its own occurrence, so the reference list is never empty here
         return None
 
     old_name = token.value

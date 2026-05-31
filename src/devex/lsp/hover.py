@@ -121,7 +121,7 @@ _KEYWORD_DOCS = {
 
 # Auto-generate hover docs for types in _MEMBER_TABLES
 for _tn, _members in _MEMBER_TABLES.items():
-    if _tn in _KEYWORD_DOCS:
+    if _tn in _KEYWORD_DOCS:  # pragma: no cover - no _MEMBER_TABLES type currently overlaps _KEYWORD_DOCS; guard preserves any hand-written doc
         continue
     _methods = [m.name for m in _members if m.kind == "method"]
     _fields = [m.name for m in _members if m.kind == "field"]
@@ -181,7 +181,7 @@ def _try_member_hover(
     class_table: dict[str, ClassInfo],
 ) -> str | None:
     """Try to resolve hover for a member access (obj.field or obj.method)."""
-    if not result.tokens:
+    if not result.tokens:  # pragma: no cover - get_hover_info already returns when tokens are absent, so this is only reached with tokens present
         return None
 
     token_idx = find_token_index(result.tokens, token)
@@ -291,7 +291,7 @@ def _check_callable(
     scope_end_override: int | None = None,
 ) -> str | None:
     """Check parameters and body of a function/method for *name*."""
-    if not isinstance(node, (FunctionDecl, MethodDecl)):
+    if not isinstance(node, (FunctionDecl, MethodDecl)):  # pragma: no cover - the only caller (_find_var_hover_in_decl) passes nothing but MethodDecl/FunctionDecl
         return None
 
     scope_start = node.line
@@ -317,7 +317,7 @@ def _check_callable(
         return _scan_block_for_var(
             name, cursor_line, node.body, class_name, node.name, class_table
         )
-    return None
+    return None  # pragma: no cover - btrc requires a body on every function/method (a body-less declaration fails to parse), so node.body is always present here
 
 
 def _scan_block_for_var(
@@ -455,7 +455,7 @@ def _infer_var_type(stmt: VarDeclStmt, class_table: dict[str, ClassInfo]) -> str
     if isinstance(stmt.initializer, CallExpr):
         callee = stmt.initializer.callee
         if isinstance(callee, Identifier):
-            if callee.name in class_table:
+            if callee.name in class_table:  # pragma: no cover - identical to the fallback below; only distinguishable when stmt.type is unset (degraded) yet class_table is populated, which the single-pass pipeline never produces
                 return callee.name
             return callee.name
     if isinstance(stmt.initializer, NewExpr):

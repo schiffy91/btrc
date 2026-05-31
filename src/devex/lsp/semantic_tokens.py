@@ -160,7 +160,7 @@ class SemanticTokenCollector:
             if name in self.struct_names:
                 if prev and prev.type == TokenType.STRUCT:
                     self._add(tok, "struct", "declaration")
-                else:
+                else:  # pragma: no cover - btrc requires the `struct` keyword at every struct-type usage, so a struct name never appears without a preceding STRUCT token
                     self._add(tok, "type")
                 return
 
@@ -174,8 +174,11 @@ class SemanticTokenCollector:
                 if name in self.function_names:
                     self._add(tok, "function")
                     return
-                # Could be a constructor call for a class
-                if name in self.class_names:
+                # Could be a constructor call for a class.
+                # Unreachable: any class name is already classified by the
+                # `name in self.class_names` branch above, which returns before
+                # control can fall through to this point.
+                if name in self.class_names:  # pragma: no cover
                     self._add(tok, "type")
                     return
                 # Unknown function call (built-in like print, range, etc.)
@@ -203,7 +206,7 @@ class SemanticTokenCollector:
     def _add(self, tok: Token, type_name: str, *modifiers: str):
         """Add a semantic token."""
         type_idx = _TYPE_INDEX.get(type_name)
-        if type_idx is None:
+        if type_idx is None:  # pragma: no cover - every call site passes a name registered in _TYPE_INDEX
             return
         mod_bits = _mod_bits(*modifiers) if modifiers else 0
         self.raw_tokens.append(
