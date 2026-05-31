@@ -99,7 +99,7 @@ class ExpressionsMixin:
             if isinstance(expr.operand, SizeofType):
                 self._collect_generic_instances(expr.operand.type)
             elif isinstance(expr.operand, SizeofExprOp):
-                self._analyze_expr(expr.operand.expression)
+                self._analyze_expr(expr.operand.expr)
         elif isinstance(expr, ListLiteral):
             for el in expr.elements:
                 self._analyze_expr(el)
