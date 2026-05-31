@@ -99,19 +99,27 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
             val = lower_expr(gen, node.value)
             release_stmts = _emit_return_release(gen, node.value.name)
             return release_stmts + [IRReturn(value=val)]
-        # Returning a non-trivial expression: evaluate it into a temp BEFORE the
-        # scope release so the expression can safely reference managed locals.
-        # (Previously the locals were released first, freeing objects that the
-        # return expression still used — a use-after-free, e.g. `return o.f()`.)
-        # The temp takes the function's declared C return type: a portable
-        # concrete type (never the GNU __auto_type extension) and, being the
-        # return slot's own type, an exact match for the value even where the
-        # expression's inferred type would differ — e.g. a class value vs. its
-        # always-pointer representation, or an implicit int->float widening.
+        # Returning a non-trivial expression.
         val = lower_expr(gen, node.value)
-        tmp = gen.fresh_temp("__btrc_ret")
-        decl = IRVarDecl(c_type=CType(text=gen.current_return_c_type), name=tmp, init=val)
         release_stmts = _emit_return_release(gen, None)
+        if not release_stmts:
+            # Nothing to release: a plain `return expr;` is correct and needs no
+            # temp. This is the common case (most functions have no managed
+            # locals) and keeps the output minimal.
+            return [IRReturn(value=val)]
+        # Managed locals must be released AFTER the value is computed (so the
+        # expression may still reference them) but BEFORE returning — otherwise
+        # the release frees objects the return expression still uses (a
+        # use-after-free, e.g. `return o.field` where `o` is scope-managed). So
+        # stash the value in a temp, release, then return the temp. The temp uses
+        # the function's concrete C return type (gen.current_return_c_type, set at
+        # every body-lowering entry point): never __auto_type (a GNU extension
+        # banned by the strict-C11 rule), and never the expression's analyzer type
+        # (which drops pointer depth — a method returning `ExecResult` is C type
+        # `ExecResult*`, so that would emit `ExecResult t = <ExecResult*>`).
+        tmp = gen.fresh_temp("__btrc_ret")
+        decl = IRVarDecl(c_type=CType(text=gen.current_return_c_type),
+                         name=tmp, init=val)
         return [decl] + release_stmts + [IRReturn(value=IRVar(name=tmp))]
 
     if isinstance(node, IfStmt):

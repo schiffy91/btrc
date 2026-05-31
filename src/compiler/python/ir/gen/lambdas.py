@@ -99,10 +99,10 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
     saved_managed = gen._managed_vars_stack
     saved_try_depth = gen.in_try_depth
     saved_func_var_decls = gen._func_var_decls
+    saved_return_c_type = gen.current_return_c_type
     gen._managed_vars_stack = []
     gen.in_try_depth = 0
     gen._func_var_decls = []
-    saved_return_c_type = gen.current_return_c_type
     gen.current_return_c_type = ret_type
     if isinstance(node.body, LambdaBlock) and node.body.body:
         from .statements import lower_block

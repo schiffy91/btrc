@@ -51,31 +51,57 @@ def test_no_gnu_extensions_in_simple_program():
         assert not re.search(pat, c), f"emitted C contains GNU extension {pat!r}:\n{c}"
 
 
-def test_return_temp_uses_concrete_int_type():
-    """A non-trivial int return lowers to an `int` temp, never `__auto_type`.
-
-    The temp exists to evaluate the return value before ARC scope-release runs
-    (avoiding use-after-free); it must be declared with the function's real
-    return type to stay strict C11.
-    """
+def test_return_without_managed_locals_needs_no_temp():
+    """A non-trivial return in a function with no ARC-managed locals lowers to a
+    plain `return expr;` — no temp is needed, so none is emitted."""
     src = """
     int doubler(int x) { return x * 2; }
     int main() { return doubler(21); }
     """
     c = emit_c(src)
     assert "__auto_type" not in c
-    # The return temp for `x * 2` is declared `int`.
-    assert re.search(r"\bint __btrc_ret_\d+ = ", c), c
+    assert "__btrc_ret" not in c, "no temp should be emitted when nothing to release"
+    assert "return (x * 2);" in c
 
 
-def test_return_temp_uses_concrete_string_type():
-    """A non-trivial string return lowers to a `char*` temp, not `__auto_type`."""
+def test_return_temp_with_managed_local_uses_concrete_type():
+    """When a function HAS an ARC-managed local, the return value is stashed in a
+    temp (so the local can be released after the value is computed). That temp
+    must use the function's concrete C return type — never `__auto_type` (a GNU
+    extension) and never the expression's analyzer type (which drops pointer
+    depth: a class type `Box` is C type `Box*`).
+    """
     src = """
-    string greet(string n) { return n; }
-    int main() { string g = greet("x"); return 0; }
+    class Box { public int v; public Box(int v) { self.v = v; } public int get() { return self.v; } }
+    int compute() {
+        Box b = new Box(21);   // managed local -> released at scope exit
+        return b.get() * 2;    // non-trivial return -> needs a temp
+    }
+    int main() { return compute(); }
     """
     c = emit_c(src)
     assert "__auto_type" not in c
+    # A temp IS emitted here, and it is typed `int` (compute's return type).
+    assert re.search(r"\bint __btrc_ret_\d+ = ", c), c
+
+
+def test_return_pointer_temp_uses_pointer_type():
+    """A method returning a class type returns a C pointer; when a temp is needed
+    (managed local present) it must be the pointer type, not the bare struct."""
+    src = """
+    class Box { public int v; public Box(int v) { self.v = v; } }
+    class Factory {
+        public Box make() {
+            Box scratch = new Box(1);   // managed local forces a return temp
+            return new Box(scratch.v + 1);
+        }
+    }
+    int main() { Factory f = new Factory(); Box b = f.make(); return 0; }
+    """
+    c = emit_c(src)
+    assert "__auto_type" not in c
+    # If a return temp is emitted for make(), it is `Box*` (pointer), never `Box`.
+    assert not re.search(r"\bBox __btrc_ret_\d+ = ", c), c
 
 
 def test_void_return_emits_bare_return():

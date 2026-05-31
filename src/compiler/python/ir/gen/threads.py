@@ -182,8 +182,6 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
     saved_return_c_type = gen.current_return_c_type
     gen._managed_vars_stack = []
     gen._func_var_decls = []
-    # The thread body's `return` statements yield the thread function's own
-    # type, not whatever the enclosing context last set.
     gen.current_return_c_type = ret_c_type
     if isinstance(fn.body, LambdaBlock) and fn.body.body:
         from .statements import lower_block

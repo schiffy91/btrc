@@ -149,7 +149,7 @@ class StatementsMixin:
 
     def _analyze_var_decl(self, stmt):
         if stmt.type is None:
-            if stmt.initializer is None:
+            if stmt.initializer is None:  # pragma: no cover - the parser rejects a `var` declaration without an initializer, so it never reaches the analyzer
                 self._error(f"'var' declaration of '{stmt.name}' requires an initializer",
                             stmt.line, stmt.col)
                 stmt.type = TypeExpr(base="int")
