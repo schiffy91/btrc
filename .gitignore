@@ -6,6 +6,12 @@ __pycache__/
 *.o
 *.dSYM/
 
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.json
+
 # Compilation cache
 .btrc-cache/
 
