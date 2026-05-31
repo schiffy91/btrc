@@ -32,6 +32,23 @@ from .nodes import (
 )
 
 
+def _brace_section_prototype(section: str) -> str | None:
+    """Reduce a single-function raw-section definition to its prototype, so the
+    header can declare it. ``RET name(params) { ... }`` -> ``RET name(params);``.
+    Returns None for raw sections that are not a single function definition
+    (e.g. data initializers), which belong only in the archive .c.
+    """
+    brace = section.find("{")
+    if brace < 0:
+        return None
+    signature = section[:brace].rstrip()
+    # Must look like a function signature (a parameter list, no statement body
+    # before the brace) and not an aggregate initializer (`= {`).
+    if "(" not in signature or signature.endswith("="):
+        return None
+    return signature + ";"
+
+
 class CEmitter(_GpuEmitterMixin, _ExprEmitterMixin):
     """Emits C source text from an IRModule."""
 
@@ -104,6 +121,121 @@ class CEmitter(_GpuEmitterMixin, _ExprEmitterMixin):
             self._emit_gpu_kernel(kernel)
 
         # Function definitions
+        for func in module.function_defs:
+            self._emit_function(func)
+
+        return "\n".join(self._lines) + "\n"
+
+    def emit_header(self, module: IRModule, shared_decls: dict | None = None) -> str:
+        """Emit the public C header of a precompiled archive (``btrc_stdlib.h``).
+
+        This is the single source of *declarations* for everything that links the
+        archive — both the archive's own ``.c`` and every program that references
+        it ``#include`` it. It carries: include guard, system includes, #defines,
+        the runtime helpers (``static inline`` bodies, which also bring their
+        typedefs such as ``__btrc_thread_t``), enum typedefs, forward
+        declarations, struct definitions, and the generic-instance prototypes
+        (lifted out of ``raw_sections``). Helpers with process-global state that
+        must be a single instance (``shared_decls``) appear here as ``extern``
+        declarations only — defined once in the archive ``.c``.
+        """
+        shared_decls = shared_decls or {}
+        self._lines = []
+        self._indent = 0
+
+        self._line("#ifndef BTRC_STDLIB_H")
+        self._line("#define BTRC_STDLIB_H")
+        self._line("")
+
+        for inc in module.includes:
+            if inc.startswith("#"):
+                self._line(inc)
+            else:
+                self._line(f"#include <{inc}>")
+        if module.includes:
+            self._line("")
+
+        for section in [s for s in module.raw_sections if s.startswith("#define")]:
+            self._raw(section)
+            self._line("")
+
+        # Runtime helpers: full body for ordinary (file-local) helpers; an
+        # extern declaration for shared-state ones (defined in the archive .c).
+        for helper in module.helper_decls:
+            if helper.name in shared_decls:
+                self._raw(shared_decls[helper.name])
+            else:
+                self._raw(helper.c_source)
+            self._line("")
+
+        for enum in module.enum_defs:
+            self._emit_enum_def(enum)
+
+        for fwd in module.forward_decls:
+            self._line(fwd)
+        if module.forward_decls:
+            self._line("")
+
+        for struct in module.struct_defs:
+            self._emit_struct(struct)
+
+        # Non-#define raw sections are declarations here: generic-instance
+        # prototypes and type-dependent macros pass through; a function body
+        # (e.g. a cycle-collector visitor) is reduced to its prototype.
+        for section in module.raw_sections:
+            if section.startswith("#define"):
+                continue
+            if "{" in section:
+                proto = _brace_section_prototype(section)
+                if proto:
+                    self._line(proto)
+            else:
+                self._raw(section)
+                self._line("")
+
+        self._line("#endif")
+        return "\n".join(self._lines) + "\n"
+
+    def emit_impl(self, module: IRModule, header_include: str,
+                  shared_names: set | None = None) -> str:
+        """Emit the archive implementation (``btrc_stdlib.c``): only the
+        *definitions* that must exist exactly once. Includes the header for all
+        declarations, then emits shared-state helper definitions, globals,
+        raw-section function definitions, vtable instances, GPU kernels, and
+        function bodies. Ordinary helpers, types, and prototypes come from the
+        header, so they are not repeated here.
+        """
+        shared_names = shared_names or set()
+        self._lines = []
+        self._indent = 0
+
+        self._line(f'#include "{header_include}"')
+        self._line("")
+
+        for helper in module.helper_decls:
+            if helper.name in shared_names:
+                self._raw(helper.c_source)
+                self._line("")
+
+        for gvar in module.global_vars:
+            self._line(gvar)
+        if module.global_vars:
+            self._line("")
+
+        # Only raw sections that are definitions (have a body); prototypes and
+        # macros already live in the header.
+        for section in module.raw_sections:
+            if not section.startswith("#define") and "{" in section:
+                self._raw(section)
+                self._line("")
+
+        for vtable in module.vtable_defs:
+            self._raw(vtable)
+            self._line("")
+
+        for kernel in module.gpu_kernels:
+            self._emit_gpu_kernel(kernel)
+
         for func in module.function_defs:
             self._emit_function(func)
 

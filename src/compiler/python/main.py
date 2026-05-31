@@ -379,11 +379,52 @@ class _PrintStdlibDir(argparse.Action):
         parser.exit()
 
 
+def _build_stdlib_archive(out_dir: str) -> None:
+    """Compile the entire stdlib into a linkable archive in ``out_dir``.
+
+    Runs the normal front-end over every stdlib source, but deliberately skips
+    dead-code elimination: an archive is a complete library, not a program, so
+    nothing is "unreachable". Consumers prune what they don't use at link time
+    (``-ffunction-sections`` / ``--gc-sections``).
+    """
+    from .stdlib_archive import build_archive
+
+    stdlib_source = get_stdlib_source("")
+    if not stdlib_source.strip():
+        print("error: no stdlib sources found", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
+        program = Parser(tokens).parse()
+    except LexerError as e:
+        _syntax_error_exit(stdlib_source, "<stdlib>", e)
+    except ParseError as e:
+        _syntax_error_exit(stdlib_source, "<stdlib>", e)
+
+    analyzed = Analyzer().analyze(program)
+    if analyzed.errors:
+        for err in analyzed.errors:
+            print(f"error: {err}", file=sys.stderr)
+        sys.exit(1)
+
+    ir_module = generate_ir(analyzed, debug=False, source_file="<stdlib>")
+    build_archive(out_dir, ir_module)
+    print(f"Built stdlib archive → {out_dir}")
+
+
 def main():
     argparser = argparse.ArgumentParser(description="btrc transpiler")
-    argparser.add_argument("input", help="Input .btrc file")
+    argparser.add_argument("input", nargs="?", help="Input .btrc file")
     argparser.add_argument("--stdlib-dir", action=_PrintStdlibDir,
                            help="Print the bundled stdlib directory and exit")
+    argparser.add_argument("--build-stdlib", metavar="DIR",
+                           help="Compile the stdlib into a linkable archive "
+                                "(btrc_stdlib.h/.c/.manifest) in DIR and exit")
+    argparser.add_argument("--stdlib", metavar="DIR",
+                           help="Reference a prebuilt stdlib archive in DIR: emit "
+                                "program-only C that #includes btrc_stdlib.h and "
+                                "links the archive, instead of inlining the stdlib")
     argparser.add_argument("-o", "--output", help="Output .c file (default: <input>.c)")
     argparser.add_argument("--emit-tokens", action="store_true", help="Print token stream")
     argparser.add_argument("--emit-ast", action="store_true", help="Print AST")
@@ -406,6 +447,16 @@ def main():
 
     args = argparser.parse_args()
     prof: dict[str, float] = {}
+
+    # --build-stdlib: compile the whole stdlib into a linkable archive and exit.
+    # No input program; deliberately skips dead-code elimination so the archive
+    # is a complete library (binaries prune unused code at link time).
+    if args.build_stdlib is not None:
+        _build_stdlib_archive(args.build_stdlib)
+        return
+
+    if not args.input:
+        argparser.error("the following arguments are required: input")
 
     # Resolve package dependencies (btrc.toml) governing this input, if any.
     pkg.configure_for(args.input, refresh=args.fetch)
@@ -436,8 +487,10 @@ def main():
 
     filename = os.path.basename(args.input)
 
-    # Check disk cache (only for default compilation, not debug/emit modes)
-    use_cache = not args.no_cache and not any([
+    # Check disk cache (only for default compilation, not debug/emit modes).
+    # --stdlib produces different output for the same source (program-only,
+    # partitioned against the archive), so it must not share the default cache.
+    use_cache = not args.no_cache and args.stdlib is None and not any([
         args.emit_tokens, args.emit_ast, args.emit_ir,
         args.emit_optimized_ir, args.debug
     ])
@@ -562,6 +615,12 @@ def main():
     if args.emit_optimized_ir:
         _dump_ir(ir_module)
         return
+
+    # --stdlib: drop everything the prebuilt archive already provides, leaving
+    # program-only C that #includes btrc_stdlib.h and links the archive.
+    if args.stdlib is not None:
+        from .stdlib_archive import load_manifest, partition_for_archive
+        partition_for_archive(ir_module, load_manifest(args.stdlib))
 
     _t = time.perf_counter()
     c_source = CEmitter().emit(ir_module)
