@@ -1,0 +1,74 @@
+/* std.graph: graph JSON parsing, CLI args, and dependency traversal. */
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    string dir = FileSystem.tempDir("btrc-graph-test");
+    string graphPath = PathTools.join(dir, "graph.json");
+    Path.writeAll(
+        graphPath,
+        "{"
+        + "\"name\":\"demo\","
+        + "\"workspaceRoot\":\"..\","
+        + "\"default\":[\"final\"],"
+        + "\"nodes\":["
+        + "{\"id\":\"seed\",\"spec\":\"seed.json\"},"
+        + "{\"id\":\"build\",\"spec\":\"build.json\",\"after\":[\"seed\"],\"args\":{\"arch\":\"x86_64\"}},"
+        + "{\"id\":\"final\",\"spec\":\"final.json\",\"after\":[\"build\"]}"
+        + "]"
+        + "}"
+    );
+
+    ExecutionGraph graph = GraphParser.readFile(graphPath);
+    assert(graph.name.equals("demo"));
+    assert(graph.nodes.len == 3);
+    assert(graph.defaultTargets().len == 1);
+    assert(graph.defaultTargets().get(0).equals("final"));
+    assert(graph.node("build").after.get(0).equals("seed"));
+    assert(graph.node("build").args.get("arch").equals("x86_64"));
+    assert(graph.resolvedSpecPath(graph.node("seed")).endsWith("seed.json"));
+
+    CliArgs cli = CliArgs(0, null);
+    cli.values.push("final");
+    cli.values.push("--arg");
+    cli.values.push("force=true");
+    cli.values.push("--arg=arch=aarch64");
+    cli.values.push("ignored");
+
+    Map<string, string> parsedArgs = GraphCli.args(cli, 0);
+    Vector<string> targets = GraphCli.targets(cli, 0);
+    assert(parsedArgs.get("force").equals("true"));
+    assert(parsedArgs.get("arch").equals("aarch64"));
+    assert(targets.len == 2);
+    assert(targets.get(0).equals("final"));
+    assert(targets.get(1).equals("ignored"));
+
+    GraphTraversal traversal = GraphTraversal(graph);
+    Vector<string> order = traversal.order(["final"]);
+    assert(traversal.ok());
+    assert(order.len == 3);
+    assert(order.get(0).equals("seed"));
+    assert(order.get(1).equals("build"));
+    assert(order.get(2).equals("final"));
+    assert(traversal.done.contains("seed"));
+    assert(traversal.done.contains("build"));
+    assert(traversal.done.contains("final"));
+
+    Path.writeAll(
+        graphPath,
+        "{"
+        + "\"nodes\":["
+        + "{\"id\":\"a\",\"spec\":\"a.json\",\"after\":[\"b\"]},"
+        + "{\"id\":\"b\",\"spec\":\"b.json\",\"after\":[\"a\"]}"
+        + "]"
+        + "}"
+    );
+    ExecutionGraph cyclic = GraphParser.readFile(graphPath);
+    GraphTraversal cycle = GraphTraversal(cyclic);
+    cycle.order(["a"]);
+    assert(!cycle.ok());
+    assert(cycle.error.contains("Cycle in graph"));
+
+    print("PASS: test_stdlib_graph");
+    return 0;
+}

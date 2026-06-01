@@ -1,0 +1,414 @@
+/* btrc standard library — graph-based execution helpers
+ *
+ * This module keeps the graph mechanics generic: JSON graph parsing, CLI
+ * target/arg parsing, status listing, and dependency traversal. Callers keep
+ * domain-specific readiness checks and node execution in their own runners.
+ */
+
+import std.cli;
+import std.console;
+import std.fs;
+import std.json;
+import std.map;
+import std.strings;
+import std.vector;
+
+class GraphJson {
+    class int skipSpaces(string text, int i) {
+        int len = text.len();
+        while (i < len && (text[i] == ' ' || text[i] == '\n' || text[i] == '\t' || text[i] == '\r')) {
+            i++;
+        }
+        return i;
+    }
+
+    class int keyPosition(string text, string key) {
+        return Strings.find(text, "\"" + key + "\"", 0);
+    }
+
+    class string parseStringValue(string text, int i, string fallback) {
+        int len = text.len();
+        i = GraphJson.skipSpaces(text, i);
+        if (i >= len || text[i] != (char)34) { return fallback; }
+        i++;
+        int start = i;
+        bool escaped = false;
+        while (i < len) {
+            if (!escaped && text[i] == (char)34) {
+                return JsonObject.unescape(JsonObject.slice(text, start, i));
+            }
+            escaped = !escaped && text[i] == '\\';
+            if (text[i] != '\\') { escaped = false; }
+            i++;
+        }
+        return fallback;
+    }
+
+    class string field(string text, string key, string fallback) {
+        int pos = GraphJson.keyPosition(text, key);
+        if (pos < 0) { return fallback; }
+        int colon = Strings.find(text, ":", pos);
+        if (colon < 0) { return fallback; }
+        int i = GraphJson.skipSpaces(text, colon + 1);
+        int len = text.len();
+        if (i < len && text[i] == (char)34) {
+            return GraphJson.parseStringValue(text, i, fallback);
+        }
+        int start = i;
+        while (i < len && text[i] != ',' && text[i] != '}' && text[i] != ']') {
+            i++;
+        }
+        string raw = JsonObject.slice(text, start, i).trim();
+        if (raw.isEmpty()) { return fallback; }
+        return raw;
+    }
+
+    class int intField(string text, string key, int fallback) {
+        string raw = GraphJson.field(text, key, "");
+        if (raw.isEmpty()) { return fallback; }
+        return Strings.toInt(raw);
+    }
+
+    class string objectField(string text, string key) {
+        int pos = GraphJson.keyPosition(text, key);
+        if (pos < 0) { return ""; }
+        int colon = Strings.find(text, ":", pos);
+        if (colon < 0) { return ""; }
+        int i = GraphJson.skipSpaces(text, colon + 1);
+        int len = text.len();
+        if (i >= len || text[i] != '{') { return ""; }
+        int depth = 0;
+        bool inString = false;
+        bool escaped = false;
+        for (int j = i; j < len; j++) {
+            char c = text[j];
+            if (inString) {
+                if (!escaped && c == (char)34) { inString = false; }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                inString = true;
+                escaped = false;
+                continue;
+            }
+            if (c == '{') {
+                depth++;
+                continue;
+            }
+            if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return JsonObject.slice(text, i, j + 1);
+                }
+            }
+        }
+        return "";
+    }
+
+    class Vector<string> stringArray(string text, string key) {
+        Vector<string> result = [];
+        int pos = GraphJson.keyPosition(text, key);
+        if (pos < 0) { return result; }
+        int arrayStart = Strings.find(text, "[", pos);
+        if (arrayStart < 0) { return result; }
+        int len = text.len();
+        bool inString = false;
+        bool escaped = false;
+        int start = -1;
+        for (int i = arrayStart + 1; i < len; i++) {
+            char c = text[i];
+            if (inString) {
+                if (!escaped && c == (char)34) {
+                    result.push(JsonObject.unescape(JsonObject.slice(text, start, i)));
+                    inString = false;
+                    start = -1;
+                }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                inString = true;
+                escaped = false;
+                start = i + 1;
+                continue;
+            }
+            if (c == ']') { break; }
+        }
+        return result;
+    }
+
+    class Vector<string> objectArray(string text, string key) {
+        Vector<string> result = [];
+        int pos = GraphJson.keyPosition(text, key);
+        if (pos < 0) { return result; }
+        int arrayStart = Strings.find(text, "[", pos);
+        if (arrayStart < 0) { return result; }
+        int len = text.len();
+        int depth = 0;
+        int start = -1;
+        bool inString = false;
+        bool escaped = false;
+        for (int i = arrayStart + 1; i < len; i++) {
+            char c = text[i];
+            if (inString) {
+                if (!escaped && c == (char)34) { inString = false; }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                inString = true;
+                escaped = false;
+                continue;
+            }
+            if (c == '{') {
+                if (depth == 0) { start = i; }
+                depth++;
+                continue;
+            }
+            if (c == '}') {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    result.push(JsonObject.slice(text, start, i + 1));
+                    start = -1;
+                }
+                continue;
+            }
+            if (c == ']' && depth == 0) { break; }
+        }
+        return result;
+    }
+
+    class Map<string, string> objectMap(string objectText) {
+        Map<string, string> result = {};
+        if (objectText.isEmpty()) { return result; }
+        JsonObject parsed = JsonObject.parse(objectText);
+        for key, value in parsed.values {
+            result.put(key, value);
+        }
+        return result;
+    }
+
+    class Map<string, string> argsObject(string text) {
+        return GraphJson.objectMap(GraphJson.objectField(text, "args"));
+    }
+
+    class string expand(string text, Map<string, string> args) {
+        string result = Strings.copy(text);
+        for key, value in args {
+            result = Strings.replace(result, "{{" + key + "}}", value);
+        }
+        for key, value in args {
+            result = Strings.replace(result, "${" + key + "}", value);
+        }
+        return result;
+    }
+
+    class void putArgPair(Map<string, string> result, string pair) {
+        int pos = Strings.find(pair, "=", 0);
+        if (pos <= 0) {
+            Console.error("error 0:0 Expected --arg key=value");
+            exit(1);
+        }
+        result.put(JsonObject.slice(pair, 0, pos), JsonObject.slice(pair, pos + 1, pair.len()));
+    }
+}
+
+class GraphNode {
+    public string id;
+    public string specPath;
+    public Vector<string> after;
+    public Map<string, string> args;
+
+    public GraphNode() {
+        self.id = "";
+        self.specPath = "";
+        self.after = [];
+        self.args = {};
+    }
+}
+
+class ExecutionGraph {
+    public string name;
+    public string path;
+    public string baseDir;
+    public string workspaceRoot;
+    public Vector<string> defaults;
+    public Vector<GraphNode> nodes;
+
+    public ExecutionGraph() {
+        self.name = "graph";
+        self.path = "";
+        self.baseDir = ".";
+        self.workspaceRoot = ".";
+        self.defaults = [];
+        self.nodes = [];
+    }
+
+    public string resolvePath(string base, string value) {
+        if (value.startsWith("/")) { return value; }
+        if (FileSystem.exists(value)) { return value; }
+        return PathTools.join(base, value);
+    }
+
+    public string resolvedWorkspaceRoot() {
+        return self.resolvePath(self.baseDir, self.workspaceRoot);
+    }
+
+    public string resolvedSpecPath(GraphNode node) {
+        return self.resolvePath(self.baseDir, node.specPath);
+    }
+
+    public GraphNode node(string id) {
+        for item in self.nodes {
+            if (item.id.equals(id)) { return item; }
+        }
+        Console.error("error 0:0 Unknown graph node: " + id);
+        exit(1);
+        return GraphNode();
+    }
+
+    public Vector<string> defaultTargets() {
+        if (!self.defaults.isEmpty()) { return self.defaults; }
+        Vector<string> result = [];
+        for item in self.nodes {
+            result.push(item.id);
+        }
+        return result;
+    }
+}
+
+class GraphParser {
+    class GraphNode node(string objectText) {
+        GraphNode node = GraphNode();
+        node.id = GraphJson.field(objectText, "id", "");
+        node.specPath = GraphJson.field(objectText, "spec", "");
+        node.after = GraphJson.stringArray(objectText, "after");
+        node.args = GraphJson.argsObject(objectText);
+        if (node.id.isEmpty()) {
+            Console.error("error 0:0 Graph node is missing id");
+            exit(1);
+        }
+        if (node.specPath.isEmpty()) {
+            Console.error("error 0:0 Graph node " + node.id + " is missing spec");
+            exit(1);
+        }
+        return node;
+    }
+
+    class ExecutionGraph readFile(string path) {
+        string text = Path.readAll(path);
+        ExecutionGraph graph = ExecutionGraph();
+        graph.path = path;
+        graph.baseDir = PathTools.dirname(path);
+        graph.name = GraphJson.field(text, "name", graph.name);
+        graph.workspaceRoot = GraphJson.field(text, "workspaceRoot", graph.workspaceRoot);
+        graph.defaults = GraphJson.stringArray(text, "default");
+        for objectText in GraphJson.objectArray(text, "nodes") {
+            graph.nodes.push(GraphParser.node(objectText));
+        }
+        if (graph.nodes.isEmpty()) {
+            Console.error("error 0:0 Graph has no nodes: " + path);
+            exit(1);
+        }
+        return graph;
+    }
+}
+
+class GraphCli {
+    class Map<string, string> args(CliArgs args, int startIndex) {
+        Map<string, string> result = {};
+        for (int i = startIndex; i < args.count(); i++) {
+            string value = args.get(i);
+            if (value.equals("--arg")) {
+                if (i + 1 >= args.count()) {
+                    Console.error("error 0:0 Expected --arg key=value");
+                    exit(1);
+                }
+                GraphJson.putArgPair(result, args.get(i + 1));
+                i++;
+                continue;
+            }
+            if (value.startsWith("--arg=")) {
+                GraphJson.putArgPair(result, Strings.removePrefix(value, "--arg="));
+            }
+        }
+        return result;
+    }
+
+    class Vector<string> targets(CliArgs args, int startIndex) {
+        Vector<string> result = [];
+        for (int i = startIndex; i < args.count(); i++) {
+            string value = args.get(i);
+            if (value.equals("--arg")) {
+                i++;
+                continue;
+            }
+            if (value.startsWith("--arg=")) { continue; }
+            result.push(value);
+        }
+        return result;
+    }
+}
+
+class GraphReport {
+    class void list(ExecutionGraph graph) {
+        for node in graph.nodes {
+            string parents = node.after.isEmpty() ? "root" : node.after.join(",");
+            Console.log(node.id + " <- " + parents + " :: " + graph.resolvedSpecPath(node));
+        }
+    }
+}
+
+class GraphTraversal {
+    public ExecutionGraph graph;
+    public Vector<string> done;
+    public Vector<string> visiting;
+    public Vector<string> ordered;
+    public string error;
+
+    public GraphTraversal(ExecutionGraph graph) {
+        self.graph = graph;
+        self.done = [];
+        self.visiting = [];
+        self.ordered = [];
+        self.error = "";
+    }
+
+    public int visit(string id) {
+        if (self.done.contains(id)) { return 0; }
+        if (self.visiting.contains(id)) {
+            self.error = "Cycle in graph at " + id;
+            return 1;
+        }
+        self.visiting.push(id);
+        GraphNode node = self.graph.node(id);
+        for parent in node.after {
+            int parentResult = self.visit(parent);
+            if (parentResult != 0) {
+                self.visiting.removeAll(id);
+                return parentResult;
+            }
+        }
+        self.done.push(id);
+        self.ordered.push(id);
+        self.visiting.removeAll(id);
+        return 0;
+    }
+
+    public Vector<string> order(Vector<string> targets) {
+        Vector<string> selected = targets.isEmpty() ? self.graph.defaultTargets() : targets;
+        for id in selected {
+            int result = self.visit(id);
+            if (result != 0) { return self.ordered; }
+        }
+        return self.ordered;
+    }
+
+    public bool ok() {
+        return self.error.isEmpty();
+    }
+}
