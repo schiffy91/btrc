@@ -184,3 +184,250 @@ class JsonObject {
         Path.writeAll(path, self.stringify());
     }
 }
+
+class JsonText {
+    class int skipSpaces(string text, int i) {
+        int len = text.len();
+        while (i < len && (text[i] == ' ' || text[i] == '\n' || text[i] == '\t' || text[i] == '\r')) {
+            i++;
+        }
+        return i;
+    }
+
+    class int keyPosition(string text, string key) {
+        int len = text.len();
+        int depth = 0;
+        bool inString = false;
+        bool escaped = false;
+        for (int i = 0; i < len; i++) {
+            char c = text[i];
+            if (inString) {
+                if (!escaped && c == (char)34) { inString = false; }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                if (depth == 1) {
+                    int keyStart = i + 1;
+                    int keyEnd = JsonObject.stringEnd(text, keyStart);
+                    string candidate = JsonObject.unescape(JsonObject.slice(text, keyStart, keyEnd));
+                    int after = JsonText.skipSpaces(text, keyEnd + 1);
+                    if (after < len && text[after] == ':' && candidate.equals(key)) {
+                        return i;
+                    }
+                    i = keyEnd;
+                    continue;
+                }
+                inString = true;
+                escaped = false;
+                continue;
+            }
+            if (c == '{' || c == '[') {
+                depth++;
+                continue;
+            }
+            if (c == '}' || c == ']') {
+                depth--;
+            }
+        }
+        return -1;
+    }
+
+    class int valueStart(string text, string key) {
+        int keyPos = JsonText.keyPosition(text, key);
+        if (keyPos < 0) { return -1; }
+        int keyEnd = JsonObject.stringEnd(text, keyPos + 1);
+        int colon = JsonText.skipSpaces(text, keyEnd + 1);
+        if (colon >= text.len() || text[colon] != ':') { return -1; }
+        return JsonText.skipSpaces(text, colon + 1);
+    }
+
+    class string parseStringValue(string text, int i, string fallback) {
+        int len = text.len();
+        i = JsonText.skipSpaces(text, i);
+        if (i >= len || text[i] != (char)34) { return fallback; }
+        i++;
+        int start = i;
+        int end = JsonObject.stringEnd(text, start);
+        return JsonObject.unescape(JsonObject.slice(text, start, end));
+    }
+
+    class string field(string text, string key, string fallback) {
+        int i = JsonText.valueStart(text, key);
+        if (i < 0) { return fallback; }
+        int len = text.len();
+        if (i < len && text[i] == (char)34) {
+            return JsonText.parseStringValue(text, i, fallback);
+        }
+        int start = i;
+        while (i < len && text[i] != ',' && text[i] != '}' && text[i] != ']') {
+            i++;
+        }
+        string raw = JsonObject.slice(text, start, i).trim();
+        if (raw.isEmpty()) { return fallback; }
+        return raw;
+    }
+
+    class int intField(string text, string key, int fallback) {
+        string raw = JsonText.field(text, key, "");
+        if (raw.isEmpty()) { return fallback; }
+        return Strings.toInt(raw);
+    }
+
+    class string objectField(string text, string key) {
+        int i = JsonText.valueStart(text, key);
+        int len = text.len();
+        if (i < 0 || i >= len || text[i] != '{') { return ""; }
+        int depth = 0;
+        bool inString = false;
+        bool escaped = false;
+        for (int j = i; j < len; j++) {
+            char c = text[j];
+            if (inString) {
+                if (!escaped && c == (char)34) { inString = false; }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                inString = true;
+                escaped = false;
+                continue;
+            }
+            if (c == '{') {
+                depth++;
+                continue;
+            }
+            if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return JsonObject.slice(text, i, j + 1);
+                }
+            }
+        }
+        return "";
+    }
+
+    class Vector<string> stringArray(string text, string key) {
+        Vector<string> result = [];
+        int i = JsonText.valueStart(text, key);
+        int len = text.len();
+        if (i < 0 || i >= len || text[i] != '[') { return result; }
+        int depth = 0;
+        bool inString = false;
+        bool escaped = false;
+        int start = -1;
+        for (int j = i + 1; j < len; j++) {
+            char c = text[j];
+            if (inString) {
+                if (!escaped && c == (char)34) {
+                    if (depth == 0 && start >= 0) {
+                        result.push(JsonObject.unescape(JsonObject.slice(text, start, j)));
+                    }
+                    inString = false;
+                    start = -1;
+                }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                inString = true;
+                escaped = false;
+                start = j + 1;
+                continue;
+            }
+            if (c == '{' || c == '[') {
+                depth++;
+                continue;
+            }
+            if (c == '}') {
+                depth--;
+                continue;
+            }
+            if (c == ']') {
+                if (depth == 0) { break; }
+                depth--;
+            }
+        }
+        return result;
+    }
+
+    class Vector<string> objectArray(string text, string key) {
+        Vector<string> result = [];
+        int i = JsonText.valueStart(text, key);
+        int len = text.len();
+        if (i < 0 || i >= len || text[i] != '[') { return result; }
+        int depth = 0;
+        int start = -1;
+        bool inString = false;
+        bool escaped = false;
+        for (int j = i + 1; j < len; j++) {
+            char c = text[j];
+            if (inString) {
+                if (!escaped && c == (char)34) { inString = false; }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                inString = true;
+                escaped = false;
+                continue;
+            }
+            if (c == ']') {
+                if (depth == 0) { break; }
+                depth--;
+                continue;
+            }
+            if (c == '{' || c == '[') {
+                if (depth == 0 && c == '{') { start = j; }
+                depth++;
+                continue;
+            }
+            if (c == '}') {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    result.push(JsonObject.slice(text, start, j + 1));
+                    start = -1;
+                }
+            }
+        }
+        return result;
+    }
+
+    class Map<string, string> objectMap(string objectText) {
+        Map<string, string> result = {};
+        if (objectText.isEmpty()) { return result; }
+        JsonObject parsed = JsonObject.parse(objectText);
+        for key, value in parsed.values {
+            result.put(key, value);
+        }
+        return result;
+    }
+
+    class Map<string, string> argsObject(string text) {
+        return JsonText.objectMap(JsonText.objectField(text, "args"));
+    }
+
+    class string expand(string text, Map<string, string> args) {
+        string result = Strings.copy(text);
+        for key, value in args {
+            result = Strings.replace(result, "{{" + key + "}}", value);
+        }
+        for key, value in args {
+            result = Strings.replace(result, "${" + key + "}", value);
+        }
+        return result;
+    }
+
+    class void putArgPair(Map<string, string> result, string pair) {
+        int pos = Strings.find(pair, "=", 0);
+        if (pos <= 0) {
+            fprintf(stderr, "error 0:0 Expected --arg key=value\n");
+            exit(1);
+        }
+        result.put(JsonObject.slice(pair, 0, pos), JsonObject.slice(pair, pos + 1, pair.len()));
+    }
+}

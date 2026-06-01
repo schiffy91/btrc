@@ -28,6 +28,14 @@ int main() {
     JsonObject q = JsonObject.parse(e.stringify());
     assert(strcmp(q.getString("path", "?"), "a\"b\\c") == 0);
 
+    string nested = "{\"nodes\":[{\"name\":\"inner\",\"args\":{\"state\":\"nested\"}}],\"name\":\"outer\",\"args\":{\"name\":\"arg\"},\"default\":[\"final\"]}";
+    assert(JsonText.field(nested, "name", "?").equals("outer"));
+    assert(JsonText.argsObject(nested).get("name").equals("arg"));
+    assert(JsonText.stringArray(nested, "default").get(0).equals("final"));
+    Vector<string> nodes = JsonText.objectArray(nested, "nodes");
+    assert(nodes.len == 1);
+    assert(JsonText.field(nodes.get(0), "name", "?").equals("inner"));
+
     print("PASS: test_stdlib_json");
     return 0;
 }

@@ -53,6 +53,10 @@ int main() {
     assert(traversal.done.contains("seed"));
     assert(traversal.done.contains("build"));
     assert(traversal.done.contains("final"));
+    Vector<string> secondOrder = traversal.order(["build"]);
+    assert(secondOrder.len == 2);
+    assert(secondOrder.get(0).equals("seed"));
+    assert(secondOrder.get(1).equals("build"));
 
     Path.writeAll(
         graphPath,
