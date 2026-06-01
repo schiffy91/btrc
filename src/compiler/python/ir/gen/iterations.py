@@ -70,10 +70,17 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
         iter_c_type = type_to_c(iter_type)
         if not iter_c_type.endswith("*"):
             iter_c_type += "*"
+    if iter_type and iter_type.generic_args:
+        elem_c = _iter_value_c(gen, iter_type.generic_args[0])
+    else:
+        elem_c = "int"
+
+    data_expr = IRFieldAccess(
+        obj=IRVar(name=tmp_iter), field="data", arrow=True)
     body_block = lower_block(gen, node.body)
     body_block.stmts.insert(0, IRVarDecl(
-        c_type=CType(text="int"), name=var_name,
-        init=IRIndex(obj=IRVar(name=tmp_iter), index=IRVar(name=idx))))
+        c_type=CType(text=elem_c), name=var_name,
+        init=IRIndex(obj=data_expr, index=IRVar(name=idx))))
     return [
         IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter),
         IRFor(
@@ -100,12 +107,14 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info,
     n_var = gen.fresh_temp("__n")
     body_block = lower_block(gen, node.body)
 
-    # Element type from first generic arg
-    elem_c = type_to_c(iter_type.generic_args[0]) if iter_type.generic_args else "int"
+    # Element type from first generic arg. Class values are reference types in
+    # btrc, and generic methods are monomorphized with pointer return types for
+    # class arguments, so the loop binding must match the concrete iterGet ABI.
+    elem_c = _iter_value_c(gen, iter_type.generic_args[0]) if iter_type.generic_args else "int"
 
     # Two-variable iteration (e.g., for k, v in map): also call iterValueAt
     if var_name2 and "iterValueAt" in cls_info.methods and len(iter_type.generic_args) > 1:
-        v_c = type_to_c(iter_type.generic_args[1])
+        v_c = _iter_value_c(gen, iter_type.generic_args[1])
         v_decl = IRVarDecl(
             c_type=CType(text=v_c), name=var_name2,
             init=IRCall(callee=f"{mangled}_iterValueAt",
@@ -133,6 +142,13 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info,
                                prefix=False),
               body=body_block),
     ]
+
+
+def _iter_value_c(gen: IRGenerator, t) -> str:
+    c_type = type_to_c(t)
+    if t and t.base in gen.analyzed.class_table and not c_type.endswith("*"):
+        return f"{c_type}*"
+    return c_type
 
 
 def _lower_string_for_in(gen, node, ir_iter, var_name) -> list[IRStmt]:

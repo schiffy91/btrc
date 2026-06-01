@@ -49,8 +49,8 @@ class _UserGenericStmtMixin:
             ForInStmt,
             IfStmt,
             KeepStmt,
-            ReturnStmt,
             ReleaseStmt,
+            ReturnStmt,
             VarDeclStmt,
             WhileStmt,
         )
@@ -284,7 +284,7 @@ class _UserGenericStmtMixin:
                 body_stmts = self.emit_stmts(s.body.statements)
                 # element binding: T x = TYPE_iterGet(it, i);
                 body_stmts.insert(0, IRVarDecl(
-                    c_type=CType(text=self._ttc(iter_type.generic_args[0])),
+                    c_type=CType(text=self.iter_value_c(iter_type.generic_args[0])),
                     name=s.var_name,
                     init=IRCall(callee=f"{mangled}_iterGet",
                                 args=[IRVar(name=it), IRVar(name=idx)])))
@@ -293,7 +293,7 @@ class _UserGenericStmtMixin:
                 if (var2 and "iterValueAt" in cls.methods and
                         len(iter_type.generic_args) > 1):
                     body_stmts.insert(1, IRVarDecl(
-                        c_type=CType(text=self._ttc(iter_type.generic_args[1])),
+                        c_type=CType(text=self.iter_value_c(iter_type.generic_args[1])),
                         name=var2,
                         init=IRCall(callee=f"{mangled}_iterValueAt",
                                     args=[IRVar(name=it), IRVar(name=idx)])))

@@ -66,6 +66,14 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
     def resolve_c(self, t):
         return self._ttc(_resolve_type(t, self.type_map))
 
+    def iter_value_c(self, t):
+        resolved = self._resolve(t)
+        c_type = self._ttc(resolved)
+        if (self._gen and resolved and resolved.base in self._gen.analyzed.class_table
+                and not c_type.endswith("*")):
+            return f"{c_type}*"
+        return c_type
+
     def _resolve(self, t):
         """Resolve a TypeExpr through the type map."""
         return _resolve_type(t, self.type_map)

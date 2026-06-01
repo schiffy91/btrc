@@ -11,6 +11,22 @@ def test_vector_construction_and_methods():
     assert "btrc_Vector_int" in c
 
 
+def test_for_in_user_class_vector_binds_pointer_type():
+    c = emit_c("class Item { public int v; public Item(int v) { self.v = v; } }\n"
+               "class Vector<T> { public T* data; public int len; public int cap;\n"
+               "    public Vector() { self.data = null; self.len = 0; self.cap = 0; }\n"
+               "    public int iterLen() { return self.len; }\n"
+               "    public T iterGet(int i) { return self.data[i]; } }\n"
+               "class Holder { public Vector<Item> items;\n"
+               "    public Holder() { self.items = new Vector<Item>(); }\n"
+               "    public int total() { int total = 0;\n"
+               "        for item in self.items { total = total + item.v; }\n"
+               "        return total; } }\n"
+               "int main() { Holder h = Holder(); return h.total(); }")
+    assert "Item* item = btrc_Vector_Item_iterGet" in c
+    assert "item->v" in c
+
+
 def test_map_construction_and_methods():
     c = emit_c('int main() { Map<string, int> m = new Map<string, int>(); m.put("a", 1);\n'
                '             return m.size(); }')
