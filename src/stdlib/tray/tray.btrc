@@ -23,6 +23,9 @@
  *       .run();                             // show + pump until quit
  */
 
+import std.process;
+import std.ui;
+
 #include <btrc_tray.h>
 
 /* ---- C runtime prototypes (native tray backend) ---- */
