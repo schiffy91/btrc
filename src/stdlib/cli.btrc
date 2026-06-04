@@ -1,5 +1,6 @@
 /* btrc standard library — CLI argument helpers */
 
+import std.console;
 import std.strings;
 import std.vector;
 
@@ -77,5 +78,68 @@ class CliCommand {
             if (alias.equals(value)) { return true; }
         }
         return false;
+    }
+}
+
+class CliHelp {
+    public int width;
+    public Vector<string> lines;
+
+    public CliHelp() {
+        self.width = 30;
+        self.lines = [];
+    }
+
+    public CliHelp withWidth(int width) {
+        self.width = width;
+        return self;
+    }
+
+    public string padding() {
+        return Strings.repeat(" ", self.width);
+    }
+
+    public CliHelp line(string text) {
+        self.lines.push(text);
+        return self;
+    }
+
+    public CliHelp blank() {
+        self.lines.push("");
+        return self;
+    }
+
+    public CliHelp section(string title) {
+        self.blank();
+        self.line(f"{title}:");
+        return self;
+    }
+
+    public CliHelp item(string signature, string description) {
+        if (signature.len() >= self.width) {
+            self.line(f"  {signature}");
+            if (!description.isEmpty()) {
+                string indent = self.padding();
+                self.line(f"{indent}{description}");
+            }
+            return self;
+        }
+        string padded = Strings.padRight(signature, self.width, ' ');
+        self.line(f"  {padded}{description}");
+        return self;
+    }
+
+    public CliHelp continuation(string text) {
+        string indent = self.padding();
+        self.line(f"{indent}{text}");
+        return self;
+    }
+
+    public string render() {
+        return self.lines.join("\n");
+    }
+
+    public void print() {
+        Console.log(self.render());
     }
 }

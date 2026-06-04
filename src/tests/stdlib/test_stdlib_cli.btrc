@@ -1,4 +1,4 @@
-/* CliArgs flag/command/value lookup and CliCommand alias matching. */
+/* CliArgs flag/command/value lookup, CliCommand aliases, and CliHelp rendering. */
 #include <assert.h>
 
 int main() {
@@ -21,6 +21,20 @@ int main() {
     CliCommand cmd = CliCommand("build");
     cmd.alias("b");
     assert(cmd.matches("build") && cmd.matches("b") && !cmd.matches("run"));
+
+    CliHelp help = CliHelp().withWidth(12);
+    help.line("Usage: app")
+        .section("Commands")
+        .item("run", "Run it")
+        .item("very-long-command", "wraps")
+        .continuation("more detail");
+    string rendered = help.render();
+    assert(rendered.contains("Usage: app"));
+    assert(rendered.contains("Commands:"));
+    assert(rendered.contains("  run         Run it"));
+    assert(rendered.contains("  very-long-command"));
+    assert(rendered.contains("            wraps"));
+    assert(rendered.contains("            more detail"));
 
     print("PASS: test_stdlib_cli");
     return 0;
