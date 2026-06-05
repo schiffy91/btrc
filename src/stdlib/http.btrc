@@ -296,7 +296,7 @@ class HttpClient {
             FileSystem.writeText(bodyFile, body);
         }
 
-        Command cmd = Command("curl")
+        var cmd = Command("curl")
             .arg("-sS")
             .arg("--max-time").arg(Strings.fromInt(self.timeoutSecs))
             .arg("-X").arg(method)
@@ -308,9 +308,9 @@ class HttpClient {
         if (hasBody) {
             cmd.arg("--data-binary").arg("@" + bodyFile);
         }
-        cmd.arg(url).capture(true).check(false).mergeError(false);
+        cmd.arg(url);
 
-        ExecResult result = UnixShell().runCommand(cmd);
+        var result = UnixShell().run(cmd, stderr=CommandOutput.stream(), logFailure=false);
         int status = Strings.toInt(result.stdout().trim());
 
         string respBody = "";
@@ -338,14 +338,14 @@ class HttpClient {
  * local web UI and popping it open as a desktop-feeling app. */
 class Browser {
     class void open(string url) {
-        ExecResult u = UnixShell().runUnchecked("uname -s");
+        var u = UnixShell().run("uname -s", logFailure=false);
         string kernel = u.stdout().trim();
         string opener = "xdg-open";
         if (kernel.equals("Darwin")) { opener = "open"; }
         if (kernel.contains("MINGW") || kernel.contains("MSYS") || kernel.contains("CYGWIN")) {
             opener = "start";
         }
-        Command cmd = Command(opener).arg(url).capture(false).check(false).mergeError(false);
-        UnixShell().runCommand(cmd);
+        var cmd = Command(opener).arg(url);
+        UnixShell().run(cmd, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
     }
 }

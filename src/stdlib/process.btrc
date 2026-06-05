@@ -5,11 +5,14 @@
  * placeholder so callers can branch explicitly when Windows support arrives.
  */
 
+import std.io;
+import std.platform;
 import std.strings;
 import std.vector;
 
 #include <errno.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 extern FILE* popen(const char* command, const char* mode);
 extern int pclose(FILE* stream);
@@ -118,6 +121,20 @@ class ShellWords {
     }
 }
 
+class CommandOutput {
+    class string collect() { return "collect"; }
+    class string stream() { return "stream"; }
+    class string combine() { return "combine"; }
+    class string suppress() { return "suppress"; }
+
+    class bool valid(string mode) {
+        return mode.equals(CommandOutput.collect())
+            || mode.equals(CommandOutput.stream())
+            || mode.equals(CommandOutput.combine())
+            || mode.equals(CommandOutput.suppress());
+    }
+}
+
 class ExecResult {
     public int code;
     public string out;
@@ -152,63 +169,28 @@ class ExecResult {
 
 class Command {
     public string executable;
-    public Vector<string> args;
-    public Vector<string> env;
-    public bool useSudo;
-    public bool captureOutput;
-    public bool checkStatus;
-    public bool mergeStderr;
-    public string sensitive;
+    public Vector<string> arguments;
 
     public Command(string executable) {
         self.executable = executable;
-        self.args = [];
-        self.env = [];
-        self.useSudo = false;
-        self.captureOutput = true;
-        self.checkStatus = true;
-        self.mergeStderr = true;
-        self.sensitive = "";
+        self.arguments = [];
     }
 
     public Command arg(string value) {
-        self.args.push(value);
+        self.arguments.push(value);
+        return self;
+    }
+
+    public Command args(Vector<string> values) {
+        for value in values {
+            self.arguments.push(value);
+        }
         return self;
     }
 
     public Command flag(string name, string value) {
-        self.args.push(name);
-        self.args.push(value);
-        return self;
-    }
-
-    public Command envVar(string name, string value) {
-        self.env.push(f"{name}={value}");
-        return self;
-    }
-
-    public Command sudo(bool enabled) {
-        self.useSudo = enabled;
-        return self;
-    }
-
-    public Command capture(bool enabled) {
-        self.captureOutput = enabled;
-        return self;
-    }
-
-    public Command check(bool enabled) {
-        self.checkStatus = enabled;
-        return self;
-    }
-
-    public Command mergeError(bool enabled) {
-        self.mergeStderr = enabled;
-        return self;
-    }
-
-    public Command redact(string value) {
-        self.sensitive = value;
+        self.arguments.push(name);
+        self.arguments.push(value);
         return self;
     }
 
@@ -224,18 +206,9 @@ class Command {
 
     public string render() {
         Vector<string> parts = [];
-        for item in self.env {
-            parts.push(self.renderEnv(item));
-        }
-        if (self.useSudo) {
-            parts.push("sudo");
-        }
         parts.push(ShellWords.quote(self.executable));
-        for item in self.args {
+        for item in self.arguments {
             parts.push(ShellWords.quote(item));
-        }
-        if (self.mergeStderr) {
-            parts.push("2>&1");
         }
         return parts.join(" ");
     }
@@ -245,10 +218,12 @@ class Command {
 class UnixShell {
     public bool logCommands;
     public string chrootPath;
+    public int tempId;
 
     public UnixShell() {
         self.logCommands = false;
         self.chrootPath = "";
+        self.tempId = 0;
     }
 
     class string quote(string raw) {
@@ -265,6 +240,10 @@ class UnixShell {
         return code;
     }
 
+    class void logError(string message) {
+        fprintf(stderr, "%s\n", message);
+    }
+
     public void chroot(string path) {
         self.chrootPath = path;
     }
@@ -273,52 +252,125 @@ class UnixShell {
         self.chrootPath = "";
     }
 
-    public ExecResult run(string command, bool capture = true, bool check = true, string sensitive = "") {
-        string rendered = command;
-        if ((int)strlen(self.chrootPath) > 0) {
-            rendered = f"nixos-enter --root {ShellWords.quote(self.chrootPath)} --command {ShellWords.quote(command)}";
-        }
-        if (self.logCommands) {
-            string visible = UnixShell.redactText(rendered, sensitive);
-            fprintf(stderr, "LOG: %s\n", visible);
-        }
-        if (!capture) {
-            ProcessStatus status = UnixProcess.system(rendered);
-            int code = status.code();
-            if (check && code != 0) {
-                fprintf(stderr, "Command failed (%d): %s\n", code, UnixShell.redactText(rendered, sensitive));
+    public string tempPath(string name) {
+        self.tempId++;
+        return f"/tmp/btrc-process-{Platform.pid()}-{self.tempId}.{name}";
+    }
+
+    public string renderEnv(Vector<string> env) {
+        Vector<string> parts = [];
+        for item in env {
+            int split = Strings.find(item, "=", 0);
+            if (split <= 0) {
+                parts.push(ShellWords.quote(item));
+            } else {
+                string name = item.substring(0, split);
+                string value = item.substring(split + 1, item.len() - split - 1);
+                parts.push(name + "=" + ShellWords.quote(value));
             }
-            return ExecResult(code, "", "", rendered);
+        }
+        return parts.join(" ");
+    }
+
+    public string withContext(string command, string cwd, Vector<string> env, bool sudo, string chroot) {
+        string rendered = command;
+        string envPrefix = self.renderEnv(env);
+        if (!envPrefix.isEmpty()) {
+            rendered = f"{envPrefix} {rendered}";
+        }
+        if (sudo) {
+            rendered = f"sudo {rendered}";
+        }
+        if (!cwd.isEmpty()) {
+            rendered = f"cd {ShellWords.quote(cwd)} && {rendered}";
+        }
+        string root = chroot.isEmpty() ? self.chrootPath : chroot;
+        if (!root.isEmpty()) {
+            rendered = f"nixos-enter --root {ShellWords.quote(root)} --command {ShellWords.quote(rendered)}";
+        }
+        return rendered;
+    }
+
+    public string withRedirections(string rendered, string stdout, string stderr, string outFile, string errFile) {
+        string command = rendered;
+        if (stdout.equals(CommandOutput.collect())) {
+            command = f"{command} > {ShellWords.quote(outFile)}";
+        } else if (stdout.equals(CommandOutput.suppress())) {
+            command = f"{command} > /dev/null";
+        }
+        if (stderr.equals(CommandOutput.combine())) {
+            command = f"{command} 2>&1";
+        } else if (stderr.equals(CommandOutput.collect())) {
+            command = f"{command} 2> {ShellWords.quote(errFile)}";
+        } else if (stderr.equals(CommandOutput.suppress())) {
+            command = f"{command} 2>/dev/null";
+        }
+        return command;
+    }
+
+    public ExecResult run(string command,
+                          string stdout = "collect",
+                          string stderr = "combine",
+                          bool logCommand = false,
+                          bool logFailure = true,
+                          bool throwOnFailure = false,
+                          string redactSubstring = "",
+                          string cwd = "",
+                          Vector<string> env = [],
+                          bool sudo = false,
+                          string chroot = "") {
+        if (!CommandOutput.valid(stdout)) { throw f"invalid stdout mode: {stdout}"; }
+        if (!CommandOutput.valid(stderr)) { throw f"invalid stderr mode: {stderr}"; }
+        if (stdout.equals(CommandOutput.combine())) { throw "stdout cannot use CommandOutput.combine"; }
+
+        string rendered = self.withContext(command, cwd, env, sudo, chroot);
+        string outFile = self.tempPath("stdout");
+        string errFile = self.tempPath("stderr");
+        string executed = self.withRedirections(rendered, stdout, stderr, outFile, errFile);
+
+        if (self.logCommands || logCommand) {
+            string visible = UnixShell.redactText(executed, redactSubstring);
+            UnixShell.logError(f"LOG: {visible}");
         }
 
-        UnixPipe pipe = UnixProcess.pipe(rendered);
-        if (!pipe.ok()) {
-            return ExecResult(127, "", "popen failed", rendered);
-        }
-        string output = pipe.readAll();
-        ProcessStatus status = pipe.close();
+        ProcessStatus status = UnixProcess.system(executed);
         int code = status.code();
-        if (check && code != 0) {
-            fprintf(stderr, "Command failed (%d): %s\n", code, UnixShell.redactText(rendered, sensitive));
+        string output = stdout.equals(CommandOutput.collect()) ? Path.readAll(outFile) : "";
+        string error = stderr.equals(CommandOutput.collect()) ? Path.readAll(errFile) : "";
+        unlink(outFile);
+        unlink(errFile);
+
+        if ((logFailure || throwOnFailure) && code != 0) {
+            UnixShell.logError(f"Command failed ({code}): {UnixShell.redactText(rendered, redactSubstring)}");
         }
-        return ExecResult(code, output, "", rendered);
+        if (throwOnFailure && code != 0) {
+            throw f"Command failed ({code}): {UnixShell.redactText(rendered, redactSubstring)}";
+        }
+        return ExecResult(code, output, error, rendered);
     }
 
-    public ExecResult runUnchecked(string command) {
-        return self.run(command, check=false);
-    }
-
-    public ExecResult runCommand(Command command) {
-        return self.run(command.render(), capture=command.captureOutput, check=command.checkStatus, sensitive=command.sensitive);
-    }
-
-    // Run a Command and return its trimmed stdout in one call.
-    public string capture(Command command) {
-        return self.runCommand(command).trimmed();
-    }
-
-    public ExecResult runRaw(string command, bool capture = true, bool check = true, string sensitive = "") {
-        return self.run(command, capture=capture, check=check, sensitive=sensitive);
+    public ExecResult run(Command command,
+                          string stdout = "collect",
+                          string stderr = "combine",
+                          bool logCommand = false,
+                          bool logFailure = true,
+                          bool throwOnFailure = false,
+                          string redactSubstring = "",
+                          string cwd = "",
+                          Vector<string> env = [],
+                          bool sudo = false,
+                          string chroot = "") {
+        return self.run(command.render(),
+            stdout=stdout,
+            stderr=stderr,
+            logCommand=logCommand,
+            logFailure=logFailure,
+            throwOnFailure=throwOnFailure,
+            redactSubstring=redactSubstring,
+            cwd=cwd,
+            env=env,
+            sudo=sudo,
+            chroot=chroot);
     }
 }
 
@@ -326,7 +378,17 @@ class PowerShell {
     public PowerShell() {
     }
 
-    public ExecResult run(string command) {
+    public ExecResult run(string command,
+                          string stdout = "collect",
+                          string stderr = "combine",
+                          bool logCommand = false,
+                          bool logFailure = true,
+                          bool throwOnFailure = false,
+                          string redactSubstring = "",
+                          string cwd = "",
+                          Vector<string> env = [],
+                          bool sudo = false,
+                          string chroot = "") {
         return ExecResult(127, "", "PowerShell support is TODO", command);
     }
 }

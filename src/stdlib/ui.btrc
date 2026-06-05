@@ -233,14 +233,15 @@ class HtmlUiBackend {
 
     public Command openCommand(string path) {
         return Command(self.opener)
-            .arg(path)
-            .capture(false)
-            .check(false);
+            .arg(path);
     }
 
     public ExecResult openFile(string path) {
-        UnixShell shell = UnixShell();
-        return shell.runCommand(self.openCommand(path));
+        var shell = UnixShell();
+        return shell.run(self.openCommand(path),
+            stdout=CommandOutput.stream(),
+            stderr=CommandOutput.stream(),
+            logFailure=false);
     }
 
     public ExecResult openWindow(Window window, string path) {
@@ -276,23 +277,17 @@ class NativeUiBackend {
                 + " with title " + NativeUi.applescriptString(title);
             return Command("osascript")
                 .arg("-e")
-                .arg(script)
-                .capture(false)
-                .check(false);
+                .arg(script);
         }
         if (self.isLinux()) {
             return Command("notify-send")
                 .arg(title)
-                .arg(body)
-                .capture(false)
-                .check(false);
+                .arg(body);
         }
         return Command("powershell")
             .arg("-NoProfile")
             .arg("-Command")
-            .arg("Write-Error 'Native notifications are TODO for Windows'")
-            .capture(false)
-            .check(false);
+            .arg("Write-Error 'Native notifications are TODO for Windows'");
     }
 
     public Command alertCommand(string title, string body) {
@@ -302,9 +297,7 @@ class NativeUiBackend {
                 + " buttons {\"OK\"} default button \"OK\"";
             return Command("osascript")
                 .arg("-e")
-                .arg(script)
-                .capture(false)
-                .check(false);
+                .arg(script);
         }
         if (self.isLinux()) {
             return Command("zenity")
@@ -312,24 +305,26 @@ class NativeUiBackend {
                 .arg("--title")
                 .arg(title)
                 .arg("--text")
-                .arg(body)
-                .capture(false)
-                .check(false);
+                .arg(body);
         }
         return Command("powershell")
             .arg("-NoProfile")
             .arg("-Command")
-            .arg("Write-Error 'Native dialogs are TODO for Windows'")
-            .capture(false)
-            .check(false);
+            .arg("Write-Error 'Native dialogs are TODO for Windows'");
     }
 
     public ExecResult notify(string title, string body) {
-        return UnixShell().runCommand(self.notifyCommand(title, body));
+        return UnixShell().run(self.notifyCommand(title, body),
+            stdout=CommandOutput.stream(),
+            stderr=CommandOutput.stream(),
+            logFailure=false);
     }
 
     public ExecResult alert(string title, string body) {
-        return UnixShell().runCommand(self.alertCommand(title, body));
+        return UnixShell().run(self.alertCommand(title, body),
+            stdout=CommandOutput.stream(),
+            stderr=CommandOutput.stream(),
+            logFailure=false);
     }
 
     public ExecResult openFile(string path) {
@@ -411,7 +406,7 @@ class NativeUi {
     }
 
     class NativeUiBackend detect() {
-        ExecResult result = UnixShell().runUnchecked("uname -s");
+        var result = UnixShell().run("uname -s", logFailure=false);
         string kernel = result.stdout().trim();
         if (kernel.equals("Darwin")) { return MacUiBuilder.native(); }
         if (kernel.contains("MINGW") || kernel.contains("MSYS") || kernel.contains("CYGWIN")) {
@@ -424,7 +419,7 @@ class NativeUi {
 class UiRuntime {
     class Thread<int> runCommandAsync(Command command) {
         return spawn(() => {
-            ExecResult result = UnixShell().runCommand(command);
+            var result = UnixShell().run(command);
             return result.code;
         });
     }
