@@ -10,7 +10,6 @@ import re
 
 from src.compiler.python.tests.test_codegen import emit_c
 
-
 # --------------------------------------------------------------------------- #
 # GPU: kernel emission (WGSL) + dispatch (C runtime calls)
 # --------------------------------------------------------------------------- #

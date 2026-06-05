@@ -6,7 +6,7 @@ symbols + tokens, include-error diagnostics, and builtin signatures."""
 from src.devex.lsp.completion import get_completions
 from src.devex.lsp.definition import get_definition
 from src.devex.lsp.hover import get_hover_info
-from src.devex.lsp.references import get_references, get_rename_edits, prepare_rename
+from src.devex.lsp.references import get_references, get_rename_edits
 from src.devex.lsp.semantic_tokens import get_semantic_tokens
 from src.devex.lsp.signature_help import get_signature_help
 from src.devex.lsp.tests.lsphelp import analyze, hover_text, pos_of

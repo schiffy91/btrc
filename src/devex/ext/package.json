@@ -54,6 +54,11 @@
           "default": "",
           "description": "Absolute path to the btrc LSP server script (server.py). When set, the extension uses this directly instead of searching for it."
         },
+        "btrc.serverCommand": {
+          "type": "string",
+          "default": "btrc-lsp",
+          "description": "Command or absolute path for the btrc language server. The Nix package exports `btrc-lsp`, which provides the Python dependencies required for diagnostics, go-to-definition, hover, completion, and signature help."
+        },
         "btrc.useNixDevShell": {
           "type": "boolean",
           "default": true,
@@ -73,9 +78,10 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run esbuild-base",
+    "vscode:prepublish": "npm run prepare-lsp && npm run esbuild-base",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "compile": "npm run esbuild-base",
+    "prepare-lsp": "python3 scripts/prepare_lsp_package.py",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
     "package": "vsce package --out btrc.vsix --allow-missing-repository",
     "install-ext": "npm run package && code --install-extension btrc.vsix --force"

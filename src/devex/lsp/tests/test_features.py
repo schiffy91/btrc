@@ -14,7 +14,6 @@ from src.devex.lsp.signature_help import get_signature_help
 from src.devex.lsp.symbols import get_document_symbols
 from src.devex.lsp.tests.lsphelp import SAMPLE, analyze, hover_text, pos_of
 
-
 # ----------------------------------------------------------------- hover
 
 def test_hover_method_shows_name():

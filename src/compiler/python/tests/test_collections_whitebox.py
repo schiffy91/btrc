@@ -2,13 +2,13 @@
 A bare typed list/map literal lowers to a Vector/Map constructor call; drive the
 lowering functions directly on literal nodes from an analyzed program."""
 
+from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.ast_nodes import (
     FunctionDecl,
     ListLiteral,
     MapLiteral,
     VarDeclStmt,
 )
-from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.ir.gen.collections import lower_list_literal, lower_map_literal
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.lexer import Lexer

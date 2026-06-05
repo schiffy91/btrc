@@ -299,7 +299,8 @@ class UnixShell {
     }
 
     public string withRedirections(string rendered, string stdout, string stderr, string outFile, string errFile) {
-        string command = rendered;
+        // Group first so user-supplied redirections keep their own ordering.
+        string command = f"( {rendered} )";
         if (stdout.equals(CommandOutput.collect())) {
             command = f"{command} > {ShellWords.quote(outFile)}";
         } else if (stdout.equals(CommandOutput.suppress())) {

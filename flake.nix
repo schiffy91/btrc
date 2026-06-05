@@ -38,6 +38,10 @@
         };
         btrcpy = self.apps.${system}.btrc;
         default = self.apps.${system}.btrc;
+        btrc-lsp = {
+          type = "app";
+          program = "${self.packages.${system}.btrc-lsp}/bin/btrc-lsp";
+        };
       });
       devShells = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
@@ -54,6 +58,7 @@
         };
       });
       packages = eachSystem (pkgs: let
+        lspPython = pkgs.python314.withPackages (ps: [ ps.pygls ps.lsprotocol ]);
         btrcpy = pkgs.writeShellApplication {
           name = "btrcpy";
           runtimeInputs = [ pkgs.python314 ];
@@ -62,8 +67,16 @@
             exec ${pkgs.python314}/bin/python3 -m src.compiler.python.main "$@"
           '';
         };
+        btrc-lsp = pkgs.writeShellApplication {
+          name = "btrc-lsp";
+          runtimeInputs = [ lspPython ];
+          text = ''
+            export PYTHONPATH="${self}''${PYTHONPATH:+:$PYTHONPATH}"
+            exec python3 -m src.devex.lsp.server "$@"
+          '';
+        };
       in {
-        inherit btrcpy;
+        inherit btrcpy btrc-lsp;
         btrc = btrcpy;
         default = btrcpy;
         devcontainer = pkgs.linkFarm "${cfg.name}-devcontainer" # nix build .#devcontainer — generates .devcontainer/ files

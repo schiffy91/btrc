@@ -2,9 +2,8 @@
 receiver (scan-all-classes fallback), constructor and builtin signatures."""
 
 from src.devex.lsp.definition import get_definition
-from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.signature_help import get_signature_help
-from src.devex.lsp.tests.lsphelp import analyze, hover_text, pos_of
+from src.devex.lsp.tests.lsphelp import analyze, pos_of
 
 # `x` is undefined, so its type can't be resolved — but getX exists on Point,
 # exercising the "scan every class for the member" fallback.

@@ -65,6 +65,20 @@ def _make_diagnostic(
     )
 
 
+def _append_analyzer_messages(
+    result: AnalysisResult,
+    messages: list[str],
+    severity: lsp.DiagnosticSeverity,
+) -> None:
+    for message in messages:
+        m = _ANALYZER_ERROR_RE.match(message)
+        if m:
+            msg, line_s, col_s = m.group(1), m.group(2), m.group(3)
+            result.diagnostics.append(_make_diagnostic(int(line_s), int(col_s), msg, severity))
+        else:
+            result.diagnostics.append(_make_diagnostic(1, 1, message, severity))
+
+
 def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
     """Run the compiler front-end and return diagnostics."""
     result = AnalysisResult(uri=uri, source=source)
@@ -92,12 +106,7 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
         result.diagnostics.append(_make_diagnostic(1, 1, str(e)))
         return result
 
-    for err_str in result.analyzed.errors:
-        m = _ANALYZER_ERROR_RE.match(err_str)
-        if m:
-            msg, line_s, col_s = m.group(1), m.group(2), m.group(3)
-            result.diagnostics.append(_make_diagnostic(int(line_s), int(col_s), msg))
-        else:
-            result.diagnostics.append(_make_diagnostic(1, 1, err_str))
+    _append_analyzer_messages(result, result.analyzed.errors, lsp.DiagnosticSeverity.Error)
+    _append_analyzer_messages(result, result.analyzed.warnings, lsp.DiagnosticSeverity.Warning)
 
     return result

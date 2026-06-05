@@ -17,7 +17,6 @@ from src.devex.lsp.utils import (
     type_repr,
 )
 
-
 _CHAIN = (
     "class Inner { public int v; public Inner(int v) { self.v = v; }\n"
     "              public int get() { return self.v; } }\n"
@@ -104,5 +103,5 @@ def test_body_range_walks_elseif_and_switch():
            "}\n")
     r = analyze(src)
     fn = r.ast.declarations[0]
-    start, end = body_range(fn.body, fn.line)
+    _start, end = body_range(fn.body, fn.line)
     assert end >= 7   # the deepest statement (return last) is on line 7 (1-based)

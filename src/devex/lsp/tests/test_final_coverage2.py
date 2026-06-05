@@ -9,7 +9,6 @@ from src.devex.lsp.references import get_references
 from src.devex.lsp.signature_help import get_signature_help
 from src.devex.lsp.tests.lsphelp import analyze, hover_text, pos_of
 
-
 # ---- signature resolution branches -----------------------------------------
 
 def test_signature_static_method_via_class_name():

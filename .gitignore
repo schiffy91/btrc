@@ -11,6 +11,7 @@ __pycache__/
 .coverage.*
 htmlcov/
 coverage.json
+coverage.xml
 
 # Compilation cache
 .btrc-cache/
@@ -41,6 +42,7 @@ src/devex/lsp/.venv/
 # VS Code extension build artifacts
 src/devex/ext/out/
 src/devex/ext/node_modules/
+src/devex/ext/server/
 src/devex/ext/*.vsix
 
 # GPU runtime

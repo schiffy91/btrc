@@ -2,7 +2,7 @@
 enum/union/tuple type spellings, array-sized parameters, `keep` params, and the
 `<` generic-vs-comparison disambiguation."""
 
-from src.compiler.python.ast_nodes import FunctionDecl, Param
+from src.compiler.python.ast_nodes import FunctionDecl
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 

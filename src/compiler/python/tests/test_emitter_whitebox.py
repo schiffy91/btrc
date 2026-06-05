@@ -13,12 +13,12 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRGpuKernel,
     IRLiteral,
+    IRModule,
     IRReturn,
     IRStructDef,
     IRStructField,
     IRVar,
     IRVarDecl,
-    IRModule,
 )
 
 

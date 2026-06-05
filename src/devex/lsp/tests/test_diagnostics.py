@@ -51,6 +51,15 @@ def test_analyzer_error_reported_with_message_and_line():
     assert any(d.range.start.line == 1 for d in r.diagnostics)  # b.x access on line 1
 
 
+def test_analyzer_warning_reported_with_warning_severity():
+    src = ("class Box { public int x; public Box() { self.x = 0; } }\n"
+           "int main() { Box? b = new Box(); return b.x; }\n")
+    r = analyze(src)
+    warnings = [d for d in r.diagnostics if d.severity == lsp.DiagnosticSeverity.Warning]
+    assert any("Non-optional access" in d.message for d in warnings)
+    assert any(d.range.start.line == 1 for d in warnings)
+
+
 def test_diagnostic_range_is_well_formed():
     r = analyze("int main() { return undefinedThing(); }\n")
     # Whether or not this is an error, any emitted diagnostic must have a sane range.

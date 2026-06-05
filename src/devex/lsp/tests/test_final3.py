@@ -13,7 +13,6 @@ from src.devex.lsp.semantic_tokens import get_semantic_tokens
 from src.devex.lsp.signature_help import get_signature_help
 from src.devex.lsp.tests.lsphelp import analyze, pos_of
 
-
 INH = """\
 class Animal {
     public string name;

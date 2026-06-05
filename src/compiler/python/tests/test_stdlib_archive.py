@@ -6,7 +6,6 @@ archive) produces byte-identical output to the same program compiled inline,
 while emitting far less C.
 """
 
-import os
 import shutil
 import subprocess
 import sys
@@ -86,7 +85,10 @@ def test_partition_drops_archive_symbols():
     """partition_for_archive removes exactly what the manifest provides and
     prepends the header include."""
     from src.compiler.python.ir.nodes import (
-        IRFunctionDef, IRStructDef, IRModule, CType,
+        CType,
+        IRFunctionDef,
+        IRModule,
+        IRStructDef,
     )
 
     class _H:  # minimal helper stand-in
@@ -182,6 +184,8 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     assert "tags=2" in ref_out.stdout and "eq=true" in ref_out.stdout
 
     # And the reference TU is dramatically smaller (stdlib not inlined).
-    inline_lines = len(open(inline_c).read().splitlines())
-    ref_lines = len(open(ref_c).read().splitlines())
+    with open(inline_c) as f:
+        inline_lines = len(f.read().splitlines())
+    with open(ref_c) as f:
+        ref_lines = len(f.read().splitlines())
     assert ref_lines < inline_lines / 2
