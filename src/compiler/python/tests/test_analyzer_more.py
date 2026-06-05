@@ -92,3 +92,13 @@ def test_function_all_switch_paths_return():
     int main() { return classify(1); }
     """
     assert errors(src) == []
+
+
+def test_unknown_named_argument_is_error():
+    src = "int f(int value) { return value; }\nint main() { return f(vlaue=1); }"
+    assert _has(errors(src), "no parameter named")
+
+
+def test_positional_after_named_argument_is_error():
+    src = "int f(int a, int b) { return a + b; }\nint main() { return f(a=1, 2); }"
+    assert _has(errors(src), "positional argument follows named argument")

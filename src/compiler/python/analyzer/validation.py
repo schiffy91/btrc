@@ -37,12 +37,13 @@ class ValidationMixin:
             if cls.is_abstract:
                 self._error(f"Cannot instantiate abstract class '{cls.name}'",
                             expr.line, expr.col)
-            self._validate_constructor_args(cls, expr.args, expr.line, expr.col)
+            self._validate_constructor_args(cls, expr.args, expr.arg_names,
+                                            expr.line, expr.col)
         elif isinstance(expr.callee, Identifier) and expr.callee.name in self.function_table:
             func = self.function_table[expr.callee.name]
             if func.body is not None:
                 self._validate_call_arity(func.name, func.params, expr.args,
-                                          expr.line, expr.col)
+                                          expr.arg_names, expr.line, expr.col)
         elif isinstance(expr.callee, FieldAccessExpr):
             obj_type = self._infer_type(expr.callee.obj)
             if obj_type and obj_type.base in self.class_table:
@@ -52,7 +53,7 @@ class ValidationMixin:
                     method = cls.methods[method_name]
                     self._validate_call_arity(
                         f"{cls.name}.{method_name}", method.params, expr.args,
-                        expr.line, expr.col)
+                        expr.arg_names, expr.line, expr.col)
 
         # Register generic return types from method calls (e.g. Map.keys() → List<K>)
         if isinstance(expr.callee, FieldAccessExpr):
@@ -68,8 +69,18 @@ class ValidationMixin:
                         if resolved and resolved.generic_args:
                             self._collect_generic_instances(resolved)
 
-    def _validate_call_arity(self, name, params, args, line, col):
+    def _arg_names(self, args, arg_names):
+        names = list(arg_names or [])
+        while len(names) < len(args):
+            names.append("")
+        return names
+
+    def _validate_call_arity(self, name, params, args, arg_names, line, col):
         """Validate argument count for function/method calls."""
+        names = self._arg_names(args, arg_names)
+        if any(names):
+            self._validate_named_call(name, params, args, names, line, col)
+            return
         required = sum(1 for p in params if p.default is None)
         max_args = len(params)
         if len(args) < required:
@@ -79,7 +90,42 @@ class ValidationMixin:
             self._error(f"'{name}()' expects at most {max_args} argument(s) "
                         f"but got {len(args)}", line, col)
 
-    def _validate_constructor_args(self, cls, args, line, col):
+    def _validate_named_call(self, name, params, args, names, line, col):
+        param_names = [p.name for p in params]
+        supplied = set()
+        positional_index = 0
+        saw_named = False
+        for arg_name in names:
+            if arg_name:
+                saw_named = True
+                if arg_name not in param_names:
+                    self._error(f"'{name}()' has no parameter named '{arg_name}'",
+                                line, col)
+                    continue
+                param_index = param_names.index(arg_name)
+                if param_index in supplied:
+                    self._error(f"'{name}()' got argument '{arg_name}' more than once",
+                                line, col)
+                supplied.add(param_index)
+                continue
+
+            if saw_named:
+                self._error(f"'{name}()' positional argument follows named argument",
+                            line, col)
+                continue
+            if positional_index >= len(params):
+                self._error(f"'{name}()' expects at most {len(params)} argument(s) "
+                            f"but got {len(args)}", line, col)
+                continue
+            supplied.add(positional_index)
+            positional_index += 1
+
+        for param_index, param in enumerate(params):
+            if param_index not in supplied and param.default is None:
+                self._error(f"'{name}()' missing required argument '{param.name}'",
+                            line, col)
+
+    def _validate_constructor_args(self, cls, args, arg_names, line, col):
         """Validate argument count for constructor calls."""
         if cls.constructor is None:
             if len(args) > 0:
@@ -87,6 +133,10 @@ class ValidationMixin:
                             f"{len(args)} argument(s)", line, col)
             return
         params = cls.constructor.params
+        names = self._arg_names(args, arg_names)
+        if any(names):
+            self._validate_named_call(cls.name, params, args, names, line, col)
+            return
         required = sum(1 for p in params if p.default is None)
         max_args = len(params)
         if len(args) < required:

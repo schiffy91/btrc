@@ -118,13 +118,9 @@ class PostfixMixin:
 
             if tok.type == TokenType.LPAREN:
                 self._advance()
-                args = []
-                if not self._check(TokenType.RPAREN):
-                    args.append(self._parse_expr())
-                    while self._match(TokenType.COMMA):
-                        args.append(self._parse_expr())
+                args, arg_names = self._parse_arg_list()
                 self._expect(TokenType.RPAREN)
-                expr = CallExpr(callee=expr, args=args,
+                expr = CallExpr(callee=expr, args=args, arg_names=arg_names,
                                 line=expr.line, col=expr.col)
 
             elif tok.type == TokenType.LBRACKET:

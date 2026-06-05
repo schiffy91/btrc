@@ -65,6 +65,19 @@ def test_default_arguments_omitted():
     assert "f(" in c
 
 
+def test_method_named_arguments_reordered_and_defaulted():
+    c = emit_c("""
+    class Runner {
+        public int run(int a, int b = 2, int c = 3) { return a + b + c; }
+    }
+    int main() {
+        Runner r = new Runner();
+        return r.run(1, c=4);
+    }
+    """)
+    assert "Runner_run(r, 1, 2, 4)" in c
+
+
 def test_print_string_uses_percent_s():
     c = emit_c('int main() { string s = "hi"; print(s); return 0; }')
     assert "%s" in c

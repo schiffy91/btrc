@@ -12,6 +12,7 @@ from ..nodes import (
     IRLiteral,
     IRVar,
 )
+from .arguments import arg_names_for, lower_arg_values, order_args_for_params
 from .expressions import lower_expr
 from .types import (
     is_string_type,
@@ -106,16 +107,22 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
 
     # Rich enum constructor: Color.RGB(255, 0, 0) → Color_RGB(255, 0, 0)
     if isinstance(obj_node, Identifier) and obj_node.name in gen.analyzed.rich_enum_table:
-        args = [lower_expr(gen, a) for a in node.args]
+        args = lower_arg_values(gen, node.args)
         return IRCall(callee=f"{obj_node.name}_{method_name}", args=args)
 
     # Static method call: ClassName.method(args) → ClassName_method(args)
     if isinstance(obj_node, Identifier) and obj_node.name in gen.analyzed.class_table:
-        args = [lower_expr(gen, a) for a in node.args]
+        args = lower_arg_values(gen, node.args)
+        cls_info = gen.analyzed.class_table[obj_node.name]
+        method = cls_info.methods.get(method_name)
+        if method:
+            args = order_args_for_params(
+                gen, method.params, node.args,
+                arg_names_for(node, len(node.args)), args)
         return IRCall(callee=f"{obj_node.name}_{method_name}", args=args)
 
     obj = lower_expr(gen, obj_node)
-    args = [lower_expr(gen, a) for a in node.args]
+    args = lower_arg_values(gen, node.args)
     obj_type = gen.analyzed.node_types.get(id(obj_node))
 
     # String methods (helper-backed)
@@ -170,6 +177,11 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         # Check if it's a property getter called as method
         if method_name in cls_info.properties:
             return IRCall(callee=f"{callee_prefix}_get_{method_name}", args=[obj])
+        method = cls_info.methods.get(method_name)
+        if method:
+            args = order_args_for_params(
+                gen, method.params, node.args,
+                arg_names_for(node, len(node.args)), args)
         return IRCall(
             callee=f"{callee_prefix}_{method_name}",
             args=[obj] + args,

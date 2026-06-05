@@ -11,6 +11,13 @@ def test_default_arguments_filled_at_call_site():
     assert "add" in c
 
 
+def test_named_arguments_reordered_and_defaulted():
+    c = emit_c("int f(int a, int b = 2, int c = 3) { return a + b + c; }\n"
+               "int main() { return f(1, c=4) + f(c=5, a=6, b=7); }")
+    assert "f(1, 2, 4)" in c
+    assert "f(6, 7, 5)" in c
+
+
 def test_print_formats_by_argument_type():
     c = emit_c('int main() {\n'
                '    string s = "hi"; int n = 42; double d = 3.5; bool b = true;\n'

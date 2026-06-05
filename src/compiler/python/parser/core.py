@@ -1,5 +1,6 @@
 """Parser core: token manipulation, error handling, and parse() entry point."""
 
+from __future__ import annotations
 
 from ..tokens import Token, TokenType
 
@@ -60,6 +61,29 @@ class ParserBase:
     def _error(self, msg: str) -> ParseError:
         tok = self._peek()
         return ParseError(msg, tok.line, tok.col)
+
+    def _parse_arg_list(self) -> tuple[list, list[str]]:
+        """Parse call/constructor arguments plus optional names.
+
+        `foo(a, b = 1)` records args as [a, 1] and arg_names as ["", "b"].
+        Parenthesized assignment expressions still work as positional args:
+        `foo((b = 1))`.
+        """
+        args = []
+        arg_names = []
+        if self._check(TokenType.RPAREN):
+            return args, arg_names
+
+        while True:
+            name = ""
+            if self._check(TokenType.IDENT) and self._peek(1).type == TokenType.EQ:
+                name = self._advance().value
+                self._advance()
+            args.append(self._parse_expr())
+            arg_names.append(name)
+            if not self._match(TokenType.COMMA):
+                break
+        return args, arg_names
 
     # ---- Helpers for >> splitting in generic context ----
 

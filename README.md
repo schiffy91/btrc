@@ -254,6 +254,14 @@ string greet(string name, string prefix = "Hello") {
 greet("world");          // "Hello, world!"
 greet("world", "Hey");   // "Hey, world!"
 
+// Named arguments
+int mix(int a, int b = 2, int c = 3) {
+    return a + b * 10 + c * 100;
+}
+
+mix(1, c=4);             // same as mix(1, 2, 4)
+mix(c=5, a=6, b=7);      // same as mix(6, 7, 5)
+
 // Forward declarations (mutual recursion)
 bool is_even(int n);
 bool is_odd(int n) { return n == 0 ? false : is_even(n - 1); }

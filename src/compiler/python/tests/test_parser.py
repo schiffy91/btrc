@@ -505,6 +505,13 @@ class TestExpressions:
         assert isinstance(e.callee, Identifier)
         assert e.callee.name == "foo"
         assert len(e.args) == 2
+        assert e.arg_names == ["", ""]
+
+    def test_parse_named_function_call_args(self):
+        e = parse_expr('foo(1, check = false)')
+        assert isinstance(e, CallExpr)
+        assert e.arg_names == ["", "check"]
+        assert isinstance(e.args[1], BoolLiteral)
 
     def test_parse_function_call_no_args(self):
         e = parse_expr('foo()')
@@ -516,6 +523,11 @@ class TestExpressions:
         assert isinstance(e, CallExpr)
         assert isinstance(e.callee, FieldAccessExpr)
         assert e.callee.field == "method"
+
+    def test_parse_named_constructor_args(self):
+        e = parse_expr('new Box(value = 7)')
+        assert isinstance(e, NewExpr)
+        assert e.arg_names == ["value"]
 
     def test_parse_chained_method(self):
         e = parse_expr('a.b().c()')

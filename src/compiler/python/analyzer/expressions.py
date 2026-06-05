@@ -138,7 +138,8 @@ class ExpressionsMixin:
                 self._analyze_expr(arg)
             if expr.type.base in self.class_table:
                 cls = self.class_table[expr.type.base]
-                self._validate_constructor_args(cls, expr.args, expr.line, expr.col)
+                self._validate_constructor_args(cls, expr.args, expr.arg_names,
+                                                expr.line, expr.col)
         elif isinstance(expr, SpawnExpr):
             self._analyze_expr(expr.fn)
             # Infer Thread<T> where T is the return type of the spawned callable

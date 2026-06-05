@@ -30,7 +30,7 @@ from .parser.parser import Parser
 from .tokens import Token
 
 # Bump when the lexer/parser/AST changes so cached stdlib ASTs are invalidated.
-_STDLIB_AST_VERSION = "1"
+_STDLIB_AST_VERSION = "2"
 
 _BTRC_INCLUDE_RE = re.compile(r'^\s*#include\s+[<"]([^>"]+\.btrc)[>"]\s*$')
 _BTRC_IMPORT_RE = re.compile(r'^\s*import\s+(.+?)\s*;?\s*$')

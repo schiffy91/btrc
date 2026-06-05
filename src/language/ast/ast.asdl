@@ -136,7 +136,7 @@ module Btrc {
          | SuperExpr
          | BinaryExpr(expr left, string op, expr right)
          | UnaryExpr(string op, expr operand, bool prefix)
-         | CallExpr(expr callee, expr* args)
+         | CallExpr(expr callee, expr* args, identifier* arg_names)
          | IndexExpr(expr obj, expr index)
          | FieldAccessExpr(expr obj, identifier field,
                            bool arrow, bool optional)
@@ -149,7 +149,7 @@ module Btrc {
          | MapLiteral(map_entry* entries)
          | BraceInitializer(expr* elements)
          | FStringLiteral(fstring_part* parts)
-         | NewExpr(type_expr type, expr* args)
+         | NewExpr(type_expr type, expr* args, identifier* arg_names)
          | TupleLiteral(expr* elements)
          | LambdaExpr(type_expr? return_type, param* params,
                       lambda_body body, capture* captures)

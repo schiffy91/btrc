@@ -116,13 +116,10 @@ class PrimaryMixin:
         tok = self._expect(TokenType.NEW)
         type_expr = self._parse_type_expr()
         self._expect(TokenType.LPAREN)
-        args = []
-        if not self._check(TokenType.RPAREN):
-            args.append(self._parse_expr())
-            while self._match(TokenType.COMMA):
-                args.append(self._parse_expr())
+        args, arg_names = self._parse_arg_list()
         self._expect(TokenType.RPAREN)
-        return NewExpr(type=type_expr, args=args, line=tok.line, col=tok.col)
+        return NewExpr(type=type_expr, args=args, arg_names=arg_names,
+                       line=tok.line, col=tok.col)
 
     def _parse_spawn_expr(self) -> SpawnExpr:
         tok = self._expect(TokenType.SPAWN)

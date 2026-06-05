@@ -404,6 +404,7 @@
   map_entries    = map_entry { "," map_entry } [ "," ] ;
   map_entry      = expr ":" expr ;
 
-  arg_list       = [ expr { "," expr } ] ;
+  arg_list       = [ arg { "," arg } ] ;
+  arg            = [ IDENT "=" ] expr       (* named argument; positional args must precede named args *) ;
   expr_list      = expr { "," expr } ;
 }

@@ -22,6 +22,12 @@ from ..nodes import (
     IRTernary,
     IRUnaryOp,
 )
+from .arguments import (
+    arg_names_for,
+    lower_arg_values,
+    order_args_for_params,
+    param_index_for_written_arg,
+)
 from .types import format_spec_for_type, is_string_type
 
 if TYPE_CHECKING:
@@ -45,7 +51,7 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         if name == "gpu_id" and getattr(gen, "_gpu_cpu_index", None):
             return IRRawExpr(text=gen._gpu_cpu_index)
 
-        args = [lower_expr(gen, a) for a in node.args]
+        args = lower_arg_values(gen, node.args)
 
         # @gpu function call → IRGpuDispatch
         from .gpu import is_gpu_function, lower_gpu_call
@@ -58,7 +64,8 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
 
         # Constructor call: ClassName(args) where ClassName is a known class
         if name in gen.analyzed.class_table:
-            return _lower_constructor_call(gen, name, node.args)
+            return _lower_constructor_call(gen, name, node.args,
+                                           arg_names_for(node, len(node.args)))
 
         # Built-in functions
         if name == "print":
@@ -88,55 +95,38 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             return IRCall(callee=fn_name, args=args)
 
         # Fill in default parameter values if call has fewer args than params
-        args = _fill_defaults(gen, name, node.args, args)
+        args = _fill_defaults(gen, name, node.args,
+                              arg_names_for(node, len(node.args)), args)
 
         return IRCall(callee=name, args=args)
 
     # Generic/complex callee
-    args = [lower_expr(gen, a) for a in node.args]
+    args = lower_arg_values(gen, node.args)
     callee_text = _expr_text(lower_expr(gen, node.callee))
     return IRCall(callee=callee_text, args=args)
 
 
 def _fill_defaults(gen: IRGenerator, name: str, ast_args: list,
+                    arg_names: list[str],
                     ir_args: list[IRExpr]) -> list[IRExpr]:
     """Fill in default parameter values for function calls with missing args."""
-    from .expressions import lower_expr
-
     func_decl = gen.analyzed.function_table.get(name)
     if not func_decl or not func_decl.params:
         return ir_args
-    if len(ir_args) >= len(func_decl.params):
-        return ir_args
-    # Fill missing args with defaults
-    result = list(ir_args)
-    for i in range(len(ir_args), len(func_decl.params)):
-        param = func_decl.params[i]
-        if param.default is not None:
-            result.append(lower_expr(gen, param.default))
-        else:
-            result.append(IRLiteral(text="0"))
-    return result
+    return order_args_for_params(gen, func_decl.params, ast_args, arg_names,
+                                 ir_args)
 
 
 def _lower_constructor_call(gen: IRGenerator, class_name: str,
-                            args: list) -> IRExpr:
+                            args: list, arg_names: list[str] | None = None) -> IRExpr:
     """Lower ClassName(args) → ClassName_new(args) or btrc_ClassName_T_new(args)."""
-    from .expressions import lower_expr
-
-    ir_args = [lower_expr(gen, a) for a in args]
+    ir_args = lower_arg_values(gen, args)
     cls_info = gen.analyzed.class_table.get(class_name)
     if cls_info:
         # Fill constructor defaults
         if cls_info.constructor and cls_info.constructor.params:
-            ctor_params = cls_info.constructor.params
-            if len(ir_args) < len(ctor_params):
-                for i in range(len(ir_args), len(ctor_params)):
-                    p = ctor_params[i]
-                    if p.default is not None:
-                        ir_args.append(lower_expr(gen, p.default))
-                    else:
-                        ir_args.append(IRLiteral(text="0"))
+            ir_args = order_args_for_params(
+                gen, cls_info.constructor.params, args, arg_names or [], ir_args)
         # Generic class: need to find mangled name
         if cls_info.generic_params:
             # Try to infer from context (node_types may have the resolved type)
@@ -197,8 +187,13 @@ def emit_keep_rc_increments(gen: IRGenerator, node: CallExpr,
         return []
 
     stmts: list[IRStmt] = []
-    for idx in keep_indices:
-        if idx >= len(node.args) or idx >= len(ir_args):
+    params = params_for_call(gen, node)
+    names = arg_names_for(node, len(node.args))
+    for idx in range(len(node.args)):
+        if idx >= len(ir_args):
+            continue
+        param_index = param_index_for_written_arg(params, idx, names)
+        if param_index not in keep_indices:
             continue
         ast_arg = node.args[idx]
         arg_type = gen.analyzed.node_types.get(id(ast_arg))
@@ -215,6 +210,36 @@ def emit_keep_rc_increments(gen: IRGenerator, node: CallExpr,
         if isinstance(ast_arg, Identifier):
             gen.register_managed_var(ast_arg.name, arg_type.base)
     return stmts
+
+
+def params_for_call(gen: IRGenerator, node: CallExpr) -> list:
+    if isinstance(node.callee, FieldAccessExpr):
+        obj_type = gen.analyzed.node_types.get(id(node.callee.obj))
+        if obj_type and obj_type.base in gen.analyzed.class_table:
+            cls_info = gen.analyzed.class_table[obj_type.base]
+            method = cls_info.methods.get(node.callee.field)
+            if method:
+                return method.params
+        if isinstance(node.callee.obj, Identifier):
+            cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
+            if cls_info:
+                method = cls_info.methods.get(node.callee.field)
+                if method:
+                    return method.params
+        return []
+
+    if isinstance(node.callee, Identifier):
+        name = node.callee.name
+        if name in gen.analyzed.class_table:
+            cls_info = gen.analyzed.class_table[name]
+            if cls_info.constructor:
+                return cls_info.constructor.params
+            return []
+        func_decl = gen.analyzed.function_table.get(name)
+        if func_decl:
+            return func_decl.params
+
+    return []
 
 
 def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:

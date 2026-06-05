@@ -209,9 +209,14 @@ def _emit_field_release(field_name: str, destroy_fn: str) -> IRIf:
 
 def lower_new_expr(gen: IRGenerator, node: NewExpr):
     """Lower new ClassName(args) → ClassName_new(args)."""
-    from .expressions import lower_expr
+    from .arguments import arg_names_for, lower_arg_values, order_args_for_params
     type_name = node.type.base
     if node.type.generic_args:
         type_name = mangle_generic_type(node.type.base, node.type.generic_args)
-    args = [lower_expr(gen, a) for a in node.args]
+    args = lower_arg_values(gen, node.args)
+    cls_info = gen.analyzed.class_table.get(node.type.base)
+    if cls_info and cls_info.constructor:
+        args = order_args_for_params(
+            gen, cls_info.constructor.params, node.args,
+            arg_names_for(node, len(node.args)), args)
     return IRCall(callee=f"{type_name}_new", args=args)

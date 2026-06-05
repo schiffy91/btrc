@@ -273,16 +273,16 @@ class UnixShell {
         self.chrootPath = "";
     }
 
-    public ExecResult run(string command) {
-        return self.runRaw(command, true, true, "");
+    public ExecResult run(string command, bool capture = true, bool check = true, string sensitive = "") {
+        return self.runRaw(command, capture=capture, check=check, sensitive=sensitive);
     }
 
     public ExecResult runUnchecked(string command) {
-        return self.runRaw(command, true, false, "");
+        return self.run(command, check=false);
     }
 
     public ExecResult runCommand(Command command) {
-        return self.runRaw(command.render(), command.captureOutput, command.checkStatus, command.sensitive);
+        return self.run(command.render(), capture=command.captureOutput, check=command.checkStatus, sensitive=command.sensitive);
     }
 
     // Run a Command and return its trimmed stdout in one call.
@@ -290,7 +290,7 @@ class UnixShell {
         return self.runCommand(command).trimmed();
     }
 
-    public ExecResult runRaw(string command, bool captureOutput, bool checkStatus, string sensitive) {
+    public ExecResult runRaw(string command, bool capture = true, bool check = true, string sensitive = "") {
         string rendered = command;
         if ((int)strlen(self.chrootPath) > 0) {
             rendered = f"nixos-enter --root {ShellWords.quote(self.chrootPath)} --command {ShellWords.quote(command)}";
@@ -299,10 +299,10 @@ class UnixShell {
             string visible = UnixShell.redactText(rendered, sensitive);
             fprintf(stderr, "LOG: %s\n", visible);
         }
-        if (!captureOutput) {
+        if (!capture) {
             ProcessStatus status = UnixProcess.system(rendered);
             int code = status.code();
-            if (checkStatus && code != 0) {
+            if (check && code != 0) {
                 fprintf(stderr, "Command failed (%d): %s\n", code, UnixShell.redactText(rendered, sensitive));
             }
             return ExecResult(code, "", "", rendered);
@@ -315,7 +315,7 @@ class UnixShell {
         string output = pipe.readAll();
         ProcessStatus status = pipe.close();
         int code = status.code();
-        if (checkStatus && code != 0) {
+        if (check && code != 0) {
             fprintf(stderr, "Command failed (%d): %s\n", code, UnixShell.redactText(rendered, sensitive));
         }
         return ExecResult(code, output, "", rendered);

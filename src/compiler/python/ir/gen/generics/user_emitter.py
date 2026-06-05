@@ -230,11 +230,18 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
         else:
             mangled = resolved.base
         args = [self._expr(a) for a in e.args]
+        if self._gen and resolved.base in self._gen.analyzed.class_table:
+            cls = self._gen.analyzed.class_table[resolved.base]
+            if cls.constructor:
+                args = self._order_args_for_params(
+                    cls.constructor.params, e.args,
+                    getattr(e, "arg_names", []) or [], args)
         return IRCall(callee=f"{mangled}_new", args=args)
 
     def _call(self, e) -> IRExpr:
         from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
         args = [self._expr(x) for x in e.args]
+        arg_names = getattr(e, "arg_names", []) or []
 
         if isinstance(e.callee, Identifier):
             name = e.callee.name
@@ -244,6 +251,9 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
             # Constructor calls: Set(), Map(), etc.
             if self._gen and name in self._gen.analyzed.class_table:
                 cls = self._gen.analyzed.class_table[name]
+                if cls.constructor:
+                    args = self._order_args_for_params(
+                        cls.constructor.params, e.args, arg_names, args)
                 if cls.generic_params:
                     return IRCall(callee=f"{self.mangled}_new", args=args)
             # Register known runtime helpers
@@ -251,13 +261,30 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
                 "__btrc_safe_realloc", "__btrc_safe_calloc",
             ):
                 self._gen.use_helper(name)
+            if self._gen and name in self._gen.analyzed.function_table:
+                func = self._gen.analyzed.function_table[name]
+                args = self._order_args_for_params(
+                    func.params, e.args, arg_names, args)
             return IRCall(callee=name, args=args)
 
         if isinstance(e.callee, FieldAccessExpr):
             if isinstance(e.callee.obj, SelfExpr):
+                if self._cls_info:
+                    method = self._cls_info.methods.get(e.callee.field)
+                    if method:
+                        args = self._order_args_for_params(
+                            method.params, e.args, arg_names, args)
                 return IRCall(
                     callee=f"{self.mangled}_{e.callee.field}",
                     args=[IRVar(name="self")] + args)
+            if self._gen and isinstance(e.callee.obj, Identifier):
+                obj_type = self._var_types.get(e.callee.obj.name)
+                if obj_type and obj_type.base in self._gen.analyzed.class_table:
+                    cls = self._gen.analyzed.class_table[obj_type.base]
+                    method = cls.methods.get(e.callee.field)
+                    if method:
+                        args = self._order_args_for_params(
+                            method.params, e.args, arg_names, args)
 
             # Method call on a typed receiver (a local variable, self.field,
             # etc.): resolve the receiver's type and dispatch to the
@@ -272,3 +299,37 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
             return IRCall(callee=e.callee.field, args=[obj] + args)
 
         return IRCall(callee="/* unknown call */", args=args)
+
+    def _order_args_for_params(self, params, ast_args, arg_names, ir_args):
+        if not params:
+            return ir_args
+        names = list(arg_names)
+        while len(names) < len(ast_args):
+            names.append("")
+        if not any(names):
+            result = list(ir_args)
+            for index in range(len(result), len(params)):
+                default = params[index].default
+                result.append(self._expr(default) if default is not None
+                              else IRLiteral(text="0"))
+            return result
+
+        param_indices = {param.name: index for index, param in enumerate(params)}
+        result = [None] * len(params)
+        positional_index = 0
+        for index, arg in enumerate(ir_args):
+            name = names[index]
+            if name:
+                param_index = param_indices.get(name)
+                if param_index is not None:
+                    result[param_index] = arg
+                continue
+            if positional_index < len(params):
+                result[positional_index] = arg
+                positional_index += 1
+        for index, param in enumerate(params):
+            if result[index] is None:
+                default = param.default
+                result[index] = (self._expr(default) if default is not None
+                                 else IRLiteral(text="0"))
+        return [arg for arg in result if arg is not None]
