@@ -135,6 +135,13 @@ class CommandOutput {
     }
 }
 
+class CommandEnvironment {
+    class Vector<string> empty() {
+        Vector<string> env = [];
+        return env;
+    }
+}
+
 class ExecResult {
     public int code;
     public string out;
@@ -316,7 +323,7 @@ class UnixShell {
                           bool throwOnFailure = false,
                           string redactSubstring = "",
                           string cwd = "",
-                          Vector<string> env = [],
+                          Vector<string> env = CommandEnvironment.empty(),
                           bool sudo = false,
                           string chroot = "") {
         if (!CommandOutput.valid(stdout)) { throw f"invalid stdout mode: {stdout}"; }
@@ -363,7 +370,7 @@ class PowerShell {
                           bool throwOnFailure = false,
                           string redactSubstring = "",
                           string cwd = "",
-                          Vector<string> env = [],
+                          Vector<string> env = CommandEnvironment.empty(),
                           bool sudo = false,
                           string chroot = "") {
         return ExecResult(127, "", "PowerShell support is TODO", command);
