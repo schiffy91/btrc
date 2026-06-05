@@ -9,7 +9,9 @@ from ...analyzer.core import AnalyzedProgram, ClassInfo
 from ...ast_nodes import (
     ClassDecl,
     FunctionDecl,
+    MethodDecl,
     PreprocessorDirective,
+    PropertyDecl,
     StructDecl,
     TypeExpr,
 )
@@ -283,8 +285,18 @@ def generate_ir(analyzed: AnalyzedProgram, *,
 
 def _uses_trycatch(decl) -> bool:
     """Check if a declaration uses try/catch (simple scan)."""
-    if isinstance(decl, (ClassDecl, FunctionDecl)):
+    if isinstance(decl, FunctionDecl):
         return _block_uses_trycatch(getattr(decl, 'body', None))
+    if isinstance(decl, ClassDecl):
+        for member in decl.members:
+            if isinstance(member, MethodDecl):
+                if _block_uses_trycatch(member.body):
+                    return True
+            elif isinstance(member, PropertyDecl):
+                if _block_uses_trycatch(member.getter_body):
+                    return True
+                if _block_uses_trycatch(member.setter_body):
+                    return True
     return False
 
 

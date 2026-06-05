@@ -27,6 +27,21 @@ def test_trycatch_nested_in_every_control_structure():
     assert "setjmp" in c or "longjmp" in c or "__btrc_try" in c
 
 
+def test_throw_in_class_method_adds_setjmp_include():
+    src = """
+    class Failer {
+        public void fail() { throw "x"; }
+    }
+    int main() {
+        Failer f = new Failer();
+        f.fail();
+        return 0;
+    }
+    """
+    c = emit_c(src)
+    assert "#include <setjmp.h>" in c
+
+
 def test_arc_cleanup_for_generic_typed_field():
     # A class whose field is a generic collection needs the mangled
     # destroy/free name in its destructor.
