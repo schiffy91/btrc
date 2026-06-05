@@ -349,29 +349,6 @@ class UnixShell {
         return ExecResult(code, output, error, rendered);
     }
 
-    public ExecResult run(Command command,
-                          string stdout = "collect",
-                          string stderr = "combine",
-                          bool logCommand = false,
-                          bool logFailure = true,
-                          bool throwOnFailure = false,
-                          string redactSubstring = "",
-                          string cwd = "",
-                          Vector<string> env = [],
-                          bool sudo = false,
-                          string chroot = "") {
-        return self.run(command.render(),
-            stdout=stdout,
-            stderr=stderr,
-            logCommand=logCommand,
-            logFailure=logFailure,
-            throwOnFailure=throwOnFailure,
-            redactSubstring=redactSubstring,
-            cwd=cwd,
-            env=env,
-            sudo=sudo,
-            chroot=chroot);
-    }
 }
 
 class PowerShell {

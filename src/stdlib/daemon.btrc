@@ -62,12 +62,12 @@ class DaemonController {
 
     public ExecResult stop(DaemonSpec spec) {
         string command = f"if [ -f {UnixShell.quote(spec.pidFile)} ]; then kill $(cat {UnixShell.quote(spec.pidFile)}) && rm -f {UnixShell.quote(spec.pidFile)}; fi";
-        return self.shell.run(command, check=false);
+        return self.shell.run(command, logFailure=false);
     }
 
     public ExecResult status(DaemonSpec spec) {
         string command = f"test -f {UnixShell.quote(spec.pidFile)} && kill -0 $(cat {UnixShell.quote(spec.pidFile)})";
-        return self.shell.run(command, check=false);
+        return self.shell.run(command, logFailure=false);
     }
 }
 

@@ -4,7 +4,7 @@
 int main() {
     UnixShell sh = UnixShell();
     assert(sh.run("printf '  hi  '", logFailure=false).trimmed().equals("hi"));
-    assert(sh.run(Command("printf").arg("world")).trimmed().equals("world"));
+    assert(sh.run(Command("printf").arg("world").render()).trimmed().equals("world"));
     assert(sh.run("printf 'x'").trimmed().equals("x"));
     assert(sh.run("false", logFailure=false).code == 1);
     assert(sh.run("printf 'quiet'", stdout=CommandOutput.stream()).code == 0);

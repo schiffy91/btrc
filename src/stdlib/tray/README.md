@@ -64,7 +64,7 @@ When the user selects a menu item, the native shim records that item's
 through the existing stdlib:
 
 ```btrc
-self.shell.run(command, capture=false, check=false);   // UnixShell
+self.shell.run(command, stdout=CommandOutput.stream(), logFailure=false);   // UnixShell
 ```
 
 so command execution, quoting, and process handling all reuse `Command` /

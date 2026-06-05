@@ -310,7 +310,7 @@ class HttpClient {
         }
         cmd.arg(url);
 
-        var result = UnixShell().run(cmd, stderr=CommandOutput.stream(), logFailure=false);
+        var result = UnixShell().run(cmd.render(), stderr=CommandOutput.stream(), logFailure=false);
         int status = Strings.toInt(result.stdout().trim());
 
         string respBody = "";
@@ -346,6 +346,6 @@ class Browser {
             opener = "start";
         }
         var cmd = Command(opener).arg(url);
-        UnixShell().run(cmd, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
+        UnixShell().run(cmd.render(), stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
     }
 }
