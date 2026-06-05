@@ -274,23 +274,6 @@ class UnixShell {
     }
 
     public ExecResult run(string command, bool capture = true, bool check = true, string sensitive = "") {
-        return self.runRaw(command, capture=capture, check=check, sensitive=sensitive);
-    }
-
-    public ExecResult runUnchecked(string command) {
-        return self.run(command, check=false);
-    }
-
-    public ExecResult runCommand(Command command) {
-        return self.run(command.render(), capture=command.captureOutput, check=command.checkStatus, sensitive=command.sensitive);
-    }
-
-    // Run a Command and return its trimmed stdout in one call.
-    public string capture(Command command) {
-        return self.runCommand(command).trimmed();
-    }
-
-    public ExecResult runRaw(string command, bool capture = true, bool check = true, string sensitive = "") {
         string rendered = command;
         if ((int)strlen(self.chrootPath) > 0) {
             rendered = f"nixos-enter --root {ShellWords.quote(self.chrootPath)} --command {ShellWords.quote(command)}";
@@ -319,6 +302,23 @@ class UnixShell {
             fprintf(stderr, "Command failed (%d): %s\n", code, UnixShell.redactText(rendered, sensitive));
         }
         return ExecResult(code, output, "", rendered);
+    }
+
+    public ExecResult runUnchecked(string command) {
+        return self.run(command, check=false);
+    }
+
+    public ExecResult runCommand(Command command) {
+        return self.run(command.render(), capture=command.captureOutput, check=command.checkStatus, sensitive=command.sensitive);
+    }
+
+    // Run a Command and return its trimmed stdout in one call.
+    public string capture(Command command) {
+        return self.runCommand(command).trimmed();
+    }
+
+    public ExecResult runRaw(string command, bool capture = true, bool check = true, string sensitive = "") {
+        return self.run(command, capture=capture, check=check, sensitive=sensitive);
     }
 }
 

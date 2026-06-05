@@ -8,7 +8,7 @@ int main() {
     assert(sh.run("printf 'x'").trimmed().equals("x"));
     assert(sh.run("false", check=false).code == 1);
     assert(sh.run("printf 'quiet'", capture=false).code == 0);
-    assert(sh.runRaw("printf 'raw'", check=true).trimmed().equals("raw"));
+    assert(sh.run("printf 'raw'", check=true).trimmed().equals("raw"));
     print("PASS");
     return 0;
 }
