@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..nodes import IRExpr, IRLiteral
+from .stringable import coerce_to_string_param
 
 
 def arg_names_for(node, count: int) -> list[str]:
@@ -43,14 +44,20 @@ def order_args_for_params(gen, params: list, ast_args: list,
 
     if not any(names):
         result = list(ir_args)
+        ast_result = list(ast_args)
         for index in range(len(result), len(params)):
             default = params[index].default
             result.append(lower_expr(gen, default) if default is not None
                           else IRLiteral(text="0"))
-        return result
+            ast_result.append(default)
+        return [
+            coerce_to_string_param(gen, params[index].type, ast_result[index], result[index])
+            for index in range(len(result))
+        ]
 
     param_indices = {param.name: index for index, param in enumerate(params)}
     result: list[IRExpr | None] = [None] * len(params)
+    ast_result: list[object | None] = [None] * len(params)
     positional_index = 0
     for index, arg in enumerate(ir_args):
         name = names[index]
@@ -58,9 +65,11 @@ def order_args_for_params(gen, params: list, ast_args: list,
             param_index = param_indices.get(name)
             if param_index is not None:
                 result[param_index] = arg
+                ast_result[param_index] = ast_args[index]
             continue
         if positional_index < len(params):
             result[positional_index] = arg
+            ast_result[positional_index] = ast_args[index]
             positional_index += 1
 
     for index, param in enumerate(params):
@@ -68,7 +77,12 @@ def order_args_for_params(gen, params: list, ast_args: list,
             result[index] = (lower_expr(gen, param.default)
                              if param.default is not None
                              else IRLiteral(text="0"))
-    return [arg for arg in result if arg is not None]
+            ast_result[index] = param.default
+    return [
+        coerce_to_string_param(gen, params[index].type, ast_result[index], arg)
+        for index, arg in enumerate(result)
+        if arg is not None
+    ]
 
 
 def param_index_for_written_arg(params: list, arg_position: int,

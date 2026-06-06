@@ -38,8 +38,13 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     if dtor and dtor.body:
         from .statements import lower_block
         gen._func_var_decls = []
+        previous_return_type = gen.current_return_type
+        previous_return_c_type = gen.current_return_c_type
         gen.current_return_c_type = "void"
+        gen.current_return_type = None
         body_stmts = lower_block(gen, dtor.body).stmts
+        gen.current_return_type = previous_return_type
+        gen.current_return_c_type = previous_return_c_type
 
     # ARC: release owned pointer-type fields (rc-- then destroy at zero)
     # Class types have pointer_depth=1 in analyzer (always heap-allocated).
@@ -100,8 +105,13 @@ def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
     if method.body:
         from .statements import lower_block
         gen._func_var_decls = []
+        previous_return_type = gen.current_return_type
+        previous_return_c_type = gen.current_return_c_type
         gen.current_return_c_type = ret_type
+        gen.current_return_type = method.return_type
         body = lower_block(gen, method.body)
+        gen.current_return_type = previous_return_type
+        gen.current_return_c_type = previous_return_c_type
 
     gen.module.function_defs.append(IRFunctionDef(
         name=f"{name}_{method.name}",
@@ -121,8 +131,13 @@ def emit_property(gen: IRGenerator, decl: ClassDecl, prop: PropertyDecl):
         if prop.getter_body:
             from .statements import lower_block
             gen._func_var_decls = []
+            previous_return_type = gen.current_return_type
+            previous_return_c_type = gen.current_return_c_type
             gen.current_return_c_type = prop_type
+            gen.current_return_type = prop.type
             body = lower_block(gen, prop.getter_body)
+            gen.current_return_type = previous_return_type
+            gen.current_return_c_type = previous_return_c_type
         else:
             body = IRBlock(stmts=[IRReturn(
                 value=IRFieldAccess(obj=IRVar(name="self"),
@@ -138,8 +153,13 @@ def emit_property(gen: IRGenerator, decl: ClassDecl, prop: PropertyDecl):
         if prop.setter_body:
             from .statements import lower_block
             gen._func_var_decls = []
+            previous_return_type = gen.current_return_type
+            previous_return_c_type = gen.current_return_c_type
             gen.current_return_c_type = "void"
+            gen.current_return_type = None
             body = lower_block(gen, prop.setter_body)
+            gen.current_return_type = previous_return_type
+            gen.current_return_c_type = previous_return_c_type
         else:
             body = IRBlock(stmts=[IRAssign(
                 target=IRFieldAccess(obj=IRVar(name="self"),

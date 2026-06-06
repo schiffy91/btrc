@@ -41,7 +41,8 @@ export function activate(context: vscode.ExtensionContext) {
     // repository without hand-maintaining a venv.
     let command: string | undefined;
     let args: string[] = [];
-    let cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? context.extensionPath;
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    let cwd = workspaceRoot ?? context.extensionPath;
     let serverScript: string | undefined;
     let projectRoot: string | undefined;
     let launchSource = 'unresolved';
@@ -63,9 +64,21 @@ export function activate(context: vscode.ExtensionContext) {
         serverScript = configuredServerPath;
         projectRoot = path.resolve(path.dirname(serverScript), '..', '..', '..');
         launchSource = 'serverPath';
-    } else if (!command) {
+    }
+
+    if (!command && !serverScript && workspaceRoot && configuredServerCommand) {
+        const direnv = which('direnv');
+        if (direnv && fs.existsSync(path.join(workspaceRoot, '.envrc'))) {
+            command = direnv;
+            args = ['exec', workspaceRoot, configuredServerCommand];
+            cwd = workspaceRoot;
+            launchSource = 'direnv';
+        }
+    }
+
+    if (!command && !serverScript) {
         const candidates = [
-            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+            workspaceRoot,
             path.resolve(context.extensionPath, '..', '..', '..'),
             path.join(context.extensionPath, 'server'),
         ];

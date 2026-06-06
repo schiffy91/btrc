@@ -67,6 +67,7 @@ class IRGenerator:
         # Set at every function-body lowering entry point; "int" is a safe
         # default (matches main's implicit return).
         self.current_return_c_type: str = "int"
+        self.current_return_type: TypeExpr | None = TypeExpr(base="int")
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""

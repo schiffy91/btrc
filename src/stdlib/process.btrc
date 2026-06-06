@@ -175,11 +175,11 @@ class ExecResult {
 }
 
 class Command {
-    public string executable;
+    public string command;
     public Vector<string> arguments;
 
-    public Command(string executable) {
-        self.executable = executable;
+    public Command(string command) {
+        self.command = command;
         self.arguments = [];
     }
 
@@ -213,11 +213,15 @@ class Command {
 
     public string render() {
         Vector<string> parts = [];
-        parts.push(ShellWords.quote(self.executable));
+        parts.push(self.command);
         for item in self.arguments {
             parts.push(ShellWords.quote(item));
         }
         return parts.join(" ");
+    }
+
+    public string toString() {
+        return self.render();
     }
 
 }
@@ -330,6 +334,9 @@ class UnixShell {
         if (!CommandOutput.valid(stdout)) { throw f"invalid stdout mode: {stdout}"; }
         if (!CommandOutput.valid(stderr)) { throw f"invalid stderr mode: {stderr}"; }
         if (stdout.equals(CommandOutput.combine())) { throw "stdout cannot use CommandOutput.combine"; }
+        if (stderr.equals(CommandOutput.combine()) && !stdout.equals(CommandOutput.collect())) {
+            throw "stderr can only combine with collected stdout";
+        }
 
         string rendered = self.withContext(command, cwd, env, sudo, chroot);
         string outFile = self.tempPath("stdout");

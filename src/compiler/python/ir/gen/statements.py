@@ -53,6 +53,7 @@ from ..nodes import (
 from .arc import _emit_return_release, _emit_scope_release, _lower_release
 from .errors import unsupported_node
 from .expressions import lower_expr
+from .stringable import coerce_value_to_string
 from .variables import _emit_keep_for_call, _lower_var_decl
 
 if TYPE_CHECKING:
@@ -94,13 +95,26 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         if node.value is None:
             return _emit_return_release(gen, None) + [IRReturn(value=None)]
         if isinstance(node.value, Identifier):
+            val = lower_expr(gen, node.value)
+            value_type = gen.analyzed.node_types.get(id(node.value))
+            coerced = coerce_value_to_string(gen, gen.current_return_type,
+                                             value_type, val)
+            if coerced is not val:
+                release_stmts = _emit_return_release(gen, None)
+                if not release_stmts:
+                    return [IRReturn(value=coerced)]
+                tmp = gen.fresh_temp("__btrc_ret")
+                decl = IRVarDecl(c_type=CType(text=gen.current_return_c_type),
+                                 name=tmp, init=coerced)
+                return [decl] + release_stmts + [IRReturn(value=IRVar(name=tmp))]
             # Returning a bare local transfers ownership to the caller, so it is
             # excluded from the scope release rather than being decref'd.
-            val = lower_expr(gen, node.value)
             release_stmts = _emit_return_release(gen, node.value.name)
             return release_stmts + [IRReturn(value=val)]
         # Returning a non-trivial expression.
         val = lower_expr(gen, node.value)
+        value_type = gen.analyzed.node_types.get(id(node.value))
+        val = coerce_value_to_string(gen, gen.current_return_type, value_type, val)
         release_stmts = _emit_return_release(gen, None)
         if not release_stmts:
             # Nothing to release: a plain `return expr;` is correct and needs no

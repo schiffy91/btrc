@@ -238,7 +238,7 @@ class HtmlUiBackend {
 
     public ExecResult openFile(string path) {
         var shell = UnixShell();
-        return shell.run(self.openCommand(path).render(),
+        return shell.run(self.openCommand(path),
             stdout=CommandOutput.stream(),
             stderr=CommandOutput.stream(),
             logFailure=false);
@@ -314,14 +314,14 @@ class NativeUiBackend {
     }
 
     public ExecResult notify(string title, string body) {
-        return UnixShell().run(self.notifyCommand(title, body).render(),
+        return UnixShell().run(self.notifyCommand(title, body),
             stdout=CommandOutput.stream(),
             stderr=CommandOutput.stream(),
             logFailure=false);
     }
 
     public ExecResult alert(string title, string body) {
-        return UnixShell().run(self.alertCommand(title, body).render(),
+        return UnixShell().run(self.alertCommand(title, body),
             stdout=CommandOutput.stream(),
             stderr=CommandOutput.stream(),
             logFailure=false);
@@ -419,7 +419,7 @@ class NativeUi {
 class UiRuntime {
     class Thread<int> runCommandAsync(Command command) {
         return spawn(() => {
-            var result = UnixShell().run(command.render());
+            var result = UnixShell().run(command);
             return result.code;
         });
     }

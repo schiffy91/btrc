@@ -43,8 +43,13 @@ def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
 
     from .statements import lower_block
     gen._func_var_decls = []
+    previous_return_type = gen.current_return_type
+    previous_return_c_type = gen.current_return_c_type
     gen.current_return_c_type = ret_type
+    gen.current_return_type = decl.return_type
     body = lower_block(gen, decl.body)
+    gen.current_return_type = previous_return_type
+    gen.current_return_c_type = previous_return_c_type
 
     gen.module.function_defs.append(IRFunctionDef(
         name=name,

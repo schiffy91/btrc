@@ -16,6 +16,7 @@ from ...ast_nodes import (
 )
 from ..nodes import CType, IRCall, IRExprStmt, IRRawExpr, IRStmt, IRVar, IRVarDecl
 from .expressions import lower_expr
+from .stringable import coerce_value_to_string
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -110,6 +111,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
             init = IRCall(callee=f"{mangled}_new", args=[])
         else:
             init = lower_expr(gen, node.initializer)
+            init_type = gen.analyzed.node_types.get(id(node.initializer))
             # Fix generic constructor calls: Box(42) -> btrc_Box_int_new(42)
             if (isinstance(init, IRCall) and node.type
                     and node.type.generic_args
@@ -120,6 +122,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                 if cls_info and cls_info.generic_params:
                     mangled = mangle_generic_type(ctor_name, node.type.generic_args)
                     init = IRCall(callee=f"{mangled}_new", args=init.args)
+            init = coerce_value_to_string(gen, node.type, init_type, init)
 
         # Upcast: storing a subclass instance in a base-class variable needs an
         # explicit cast — sibling struct pointers are otherwise incompatible C.

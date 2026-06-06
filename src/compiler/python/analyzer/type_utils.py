@@ -65,6 +65,11 @@ class TypeUtilsMixin:
             return True
         if source.base == "string" and target.base == "char" and target.pointer_depth >= 1:
             return True
+        if target.base == "string" and source.base in self.class_table:
+            method = self.class_table[source.base].methods.get("toString")
+            return bool(method and not method.params
+                        and method.return_type
+                        and method.return_type.base == "string")
         if source.base == "null" or (source.base == "void" and source.pointer_depth > 0):
             return target.pointer_depth > 0 or target.base == "string"
         if target.base in self.class_table and source.base in self.class_table:

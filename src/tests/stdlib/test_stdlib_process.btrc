@@ -1,13 +1,23 @@
 /* ExecResult.trimmed() + UnixShell.run() — the run-and-trim idiom. */
 #include <assert.h>
 
+string rendered(Command command) {
+    return command;
+}
+
 int main() {
     UnixShell sh = UnixShell();
     assert(sh.run("printf '  hi  '", logFailure=false).trimmed().equals("hi"));
-    assert(sh.run(Command("printf").arg("world").render()).trimmed().equals("world"));
+    assert(Command("printf direct").render().equals("printf direct"));
+    string commandText = Command("printf direct");
+    assert(commandText.equals("printf direct"));
+    assert(rendered(Command("printf direct")).equals("printf direct"));
+    assert(f"{Command("printf direct")}".equals("printf direct"));
+    assert(sh.run(Command("printf direct")).trimmed().equals("direct"));
+    assert(sh.run(Command("printf").arg("world")).trimmed().equals("world"));
     assert(sh.run("printf 'x'").trimmed().equals("x"));
     assert(sh.run("false", logFailure=false).code == 1);
-    assert(sh.run("printf 'quiet'", stdout=CommandOutput.stream()).code == 0);
+    assert(sh.run("printf 'quiet'", stdout=CommandOutput.stream(), stderr=CommandOutput.stream()).code == 0);
     assert(sh.run("printf 'err' >&2", stderr=CommandOutput.collect()).stderr().equals("err"));
     assert(sh.run("printf 'raw'", logFailure=true).trimmed().equals("raw"));
     print("PASS");

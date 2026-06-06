@@ -43,9 +43,8 @@ class DaemonSpec {
     }
 
     public string renderStartCommand() {
-        string rendered = self.command.render();
         string prefix = self.workingDirectory.isEmpty() ? "" : f"cd {UnixShell.quote(self.workingDirectory)} && ";
-        return f"{prefix}nohup {rendered} >> {UnixShell.quote(self.logFile)} 2>&1 & echo $! > {UnixShell.quote(self.pidFile)}";
+        return f"{prefix}nohup {self.command} >> {UnixShell.quote(self.logFile)} 2>&1 & echo $! > {UnixShell.quote(self.pidFile)}";
     }
 }
 

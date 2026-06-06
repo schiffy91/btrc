@@ -34,14 +34,14 @@ int main(int argc, char** argv) {
 
     Command cmd = Command("printf")
         .arg("hello world");
-    ExecResult cmdResult = shell.run(cmd.render());
+    ExecResult cmdResult = shell.run(cmd);
     assert(cmdResult.ok());
     assert(cmdResult.stdout().equals("hello world"));
 
     Command envCmd = Command("sh")
         .arg("-c")
         .arg("printf '%s' \"$BTRC_ENV_VALUE\"");
-    ExecResult envResult = shell.run(envCmd.render(), env=["BTRC_ENV_VALUE=hello world"]);
+    ExecResult envResult = shell.run(envCmd, env=["BTRC_ENV_VALUE=hello world"]);
     assert(envResult.ok());
     assert(envResult.stdout().equals("hello world"));
 

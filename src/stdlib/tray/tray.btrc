@@ -126,7 +126,7 @@ class SystemTray {
                 btrc_tray_request_quit(self.handle);
                 return false;
             }
-            self.shell.run(command, stdout=CommandOutput.stream(), logFailure=false);
+            self.shell.run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
         }
         return alive && !btrc_tray_should_quit(self.handle);
     }

@@ -100,22 +100,28 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRRawExpr:
     saved_try_depth = gen.in_try_depth
     saved_func_var_decls = gen._func_var_decls
     saved_return_c_type = gen.current_return_c_type
+    saved_return_type = gen.current_return_type
     gen._managed_vars_stack = []
     gen.in_try_depth = 0
     gen._func_var_decls = []
     gen.current_return_c_type = ret_type
+    gen.current_return_type = node.return_type
     if isinstance(node.body, LambdaBlock) and node.body.body:
         from .statements import lower_block
         block = lower_block(gen, node.body.body)
         body_stmts.extend(block.stmts)
     elif isinstance(node.body, LambdaExprBody) and node.body.expression:
         from .expressions import lower_expr
+        from .stringable import coerce_value_to_string
         expr = lower_expr(gen, node.body.expression)
+        expr_type = gen.analyzed.node_types.get(id(node.body.expression))
+        expr = coerce_value_to_string(gen, node.return_type, expr_type, expr)
         body_stmts.append(IRReturn(value=expr))
     gen._managed_vars_stack = saved_managed
     gen.in_try_depth = saved_try_depth
     gen._func_var_decls = saved_func_var_decls
     gen.current_return_c_type = saved_return_c_type
+    gen.current_return_type = saved_return_type
 
     gen.module.function_defs.append(IRFunctionDef(
         name=fn_name,

@@ -24,6 +24,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
+from .stringable import has_to_string, to_string_call
 from .types import format_spec_for_type
 
 if TYPE_CHECKING:
@@ -59,6 +60,10 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
             ir_arg = lower_expr(gen, part.expression)
             arg_type = gen.analyzed.node_types.get(id(part.expression))
             fmt = format_spec_for_type(arg_type)
+
+            if has_to_string(gen.analyzed, arg_type):
+                ir_arg = to_string_call(gen, arg_type, ir_arg)
+                fmt = "%s"
 
             # Force %s for string-producing expressions when type untracked
             if arg_type is None:

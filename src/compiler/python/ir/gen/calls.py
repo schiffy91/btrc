@@ -277,6 +277,7 @@ def _lower_print(gen: IRGenerator, args: list) -> IRExpr:
     """Lower print(...) to printf with appropriate format string."""
     from ...ast_nodes import CallExpr, FieldAccessExpr, FStringLiteral, StringLiteral
     from .expressions import lower_expr
+    from .stringable import has_to_string, to_string_call
 
     if not args:
         return IRCall(callee="printf", args=[IRLiteral(text='"\\n"')])
@@ -287,6 +288,10 @@ def _lower_print(gen: IRGenerator, args: list) -> IRExpr:
         ir_arg = lower_expr(gen, arg)
         arg_type = gen.analyzed.node_types.get(id(arg))
         fmt = format_spec_for_type(arg_type)
+
+        if has_to_string(gen.analyzed, arg_type):
+            ir_arg = to_string_call(gen, arg_type, ir_arg)
+            fmt = "%s"
 
         # Force %s for known string-producing expressions when type is untracked
         if arg_type is None:
