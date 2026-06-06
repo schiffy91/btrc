@@ -24,10 +24,10 @@ Linkage notes:
 * Runtime helpers are ``static``/``static inline`` (file-local), so duplicating
   them per-TU causes no link conflict. The only ones that must be a *single*
   instance are those with process-global mutable state that crosses the
-  archive/program boundary — the destroyed-pointer guard. We emit those once in
-  the archive (extern) and declare them in the header. The string temp-pool is
-  an accumulate-until-exit arena (never flushed), so a per-TU copy is
-  behaviourally identical and is intentionally left duplicated.
+  archive/program boundary — the destroyed-pointer guard and try/catch stacks.
+  We emit those once in the archive (extern) and declare them in the header. The
+  string temp-pool is an accumulate-until-exit arena (never flushed), so a per-TU
+  copy is behaviourally identical and is intentionally left duplicated.
 """
 
 from __future__ import annotations
@@ -44,6 +44,19 @@ MANIFEST_NAME = "btrc_stdlib.manifest"
 # the archive and every program that links it. Maps helper name -> the extern
 # declarations the header publishes (the archive defines them, sans `static`).
 _SHARED_STATE_HELPERS = {
+    "__btrc_trycatch_globals": (
+        "extern __thread int __btrc_try_cap;\n"
+        "extern __thread jmp_buf* __btrc_try_stack;\n"
+        "extern __thread int __btrc_try_top;\n"
+        "extern __thread char __btrc_error_msg[1024];"
+    ),
+    "__btrc_cleanup_types": (
+        "typedef void (*__btrc_cleanup_fn)(void*);\n"
+        "typedef struct { void** ptr_ref; __btrc_cleanup_fn fn; int try_level; } __btrc_cleanup_entry;\n"
+        "extern __thread int __btrc_cleanup_cap;\n"
+        "extern __thread __btrc_cleanup_entry* __btrc_cleanup_stack;\n"
+        "extern __thread int __btrc_cleanup_top;"
+    ),
     # Double-free / use-after-destroy guard: an object freed in one TU must be
     # seen as destroyed by every other TU, so this table cannot be per-TU.
     "__btrc_destroyed_tracking": (
@@ -54,6 +67,14 @@ _SHARED_STATE_HELPERS = {
         "extern int __btrc_destroyed_cap;\n"
         "void __btrc_mark_destroyed(void* ptr);\n"
         "int __btrc_is_destroyed(void* ptr);"
+    ),
+}
+
+_SHARED_STATE_IMPLS = {
+    "__btrc_cleanup_types": (
+        "__thread int __btrc_cleanup_cap = 64;\n"
+        "__thread __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\n"
+        "__thread int __btrc_cleanup_top = -1;"
     ),
 }
 
@@ -137,7 +158,8 @@ def transform_archive_module(module) -> list[str]:
     shared_present = []
     for helper in module.helper_decls:
         if helper.name in _SHARED_STATE_HELPERS:
-            helper.c_source = _externize_toplevel(helper.c_source)
+            helper.c_source = _SHARED_STATE_IMPLS.get(
+                helper.name, _externize_toplevel(helper.c_source))
             shared_present.append(helper.name)
     return shared_present
 

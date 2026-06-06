@@ -50,6 +50,22 @@ int main() {
 }
 """
 
+ARCHIVE_THROW_PROG = """
+import std.cli;
+
+int main() {
+    var arguments = CliArgs(0, null);
+    var caught = false;
+    try {
+        arguments.require(3, "missing");
+    } catch (string error) {
+        caught = error.equals("missing");
+    }
+    print(caught ? "caught" : "missed");
+    return caught ? 0 : 1;
+}
+"""
+
 
 # --------------------------------------------------------------------------
 # unit tests — pure logic, no compiler/cc needed
@@ -189,3 +205,32 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     with open(ref_c) as f:
         ref_lines = len(f.read().splitlines())
     assert ref_lines < inline_lines / 2
+
+
+def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if cc is None:
+        pytest.skip("no C compiler available")
+
+    std = tmp_path / "std"
+    run_main(monkeypatch, ["--build-stdlib", str(std)])
+    capsys.readouterr()
+    subprocess.run(
+        [cc, "-std=c11", "-O1", "-ffunction-sections", "-fdata-sections",
+         "-c", str(std / sa.IMPL_NAME), "-o", str(std / "btrc_stdlib.o")],
+        check=True, cwd=str(std))
+    subprocess.run(["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")],
+                   check=True)
+
+    prog = tmp_path / "throw.btrc"
+    prog.write_text(ARCHIVE_THROW_PROG)
+    ref_c = str(tmp_path / "throw.c")
+    run_main(monkeypatch, ["--no-cache", "--stdlib", str(std), str(prog), "-o", ref_c])
+    capsys.readouterr()
+    ref_bin = str(tmp_path / "throw_bin")
+    subprocess.run([cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"),
+                    "-o", ref_bin, "-lm", "-lpthread"], check=True)
+    ref_out = subprocess.run([ref_bin], capture_output=True, text=True)
+
+    assert ref_out.returncode == 0, ref_out.stderr
+    assert ref_out.stdout.strip() == "caught"
