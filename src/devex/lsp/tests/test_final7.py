@@ -359,7 +359,8 @@ def test_find_enclosing_class_via_self_member_definition():
            "}\n"
            "int main() { Counter c = Counter(); return c.bump(); }\n")
     loc = get_definition(analyze(src), pos_of(src, "self.n + step", offset=5))
-    assert loc is None or loc.range.start.line == 1
+    assert loc is not None
+    assert loc.range.start.line == 1
 
 
 # --------------------------------------------------------------------------- #

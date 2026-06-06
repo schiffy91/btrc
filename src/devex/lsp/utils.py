@@ -37,11 +37,28 @@ from src.devex.lsp.diagnostics import AnalysisResult
 # ---------------------------------------------------------------------------
 
 
-def type_repr(type_expr) -> str:
+def type_repr(type_expr, class_table: dict[str, ClassInfo] | None = None) -> str:
     """Format a TypeExpr as a string."""
     if type_expr is None:
         return "void"
-    return repr(type_expr)
+
+    base = getattr(type_expr, "base", None) or "void"
+    result = base
+    generic_args = getattr(type_expr, "generic_args", None) or []
+    if generic_args:
+        args = ", ".join(type_repr(arg, class_table) for arg in generic_args)
+        result += f"<{args}>"
+    pointer_depth = getattr(type_expr, "pointer_depth", 0)
+    if class_table and base in class_table and pointer_depth == 1:
+        pointer_depth = 0
+    result += "*" * pointer_depth
+    if getattr(type_expr, "is_array", False):
+        result += "[]"
+    if getattr(type_expr, "is_nullable", False):
+        result += "?"
+    if getattr(type_expr, "is_const", False):
+        result = f"const {result}"
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +372,7 @@ def resolve_chain_type(
     paren of a call segment (``obj.method().field``).
     """
     idx = _skip_call_to_callee(tokens, end_idx)
-    if idx is None or tokens[idx].type != TokenType.IDENT:
+    if idx is None or not _is_chain_identifier(tokens[idx]):
         return None
     chain: list[str] = [tokens[idx].value]
 
@@ -365,7 +382,7 @@ def resolve_chain_type(
             break
         idx -= 2
         skipped = _skip_call_to_callee(tokens, idx)
-        if skipped is None or tokens[skipped].type != TokenType.IDENT:
+        if skipped is None or not _is_chain_identifier(tokens[skipped]):
             return None
         idx = skipped
         chain.append(tokens[idx].value)
@@ -392,6 +409,10 @@ def resolve_chain_type(
         current_type = resolved
 
     return current_type
+
+
+def _is_chain_identifier(token: Token) -> bool:
+    return token.type in (TokenType.IDENT, TokenType.SELF)
 
 
 def _skip_call_to_callee(tokens: list[Token], idx: int) -> int | None:

@@ -48,7 +48,16 @@ def test_resolve_variable_type_decl_forms():
 
 def test_type_repr_none_is_void():
     assert type_repr(None) == "void"
-    assert "int" in type_repr(TypeExpr(base="int"))
+    assert type_repr(TypeExpr(base="int")) == "int"
+    assert type_repr(
+        TypeExpr(
+            base="Map",
+            generic_args=[TypeExpr(base="string"), TypeExpr(base="int")],
+            pointer_depth=1,
+            is_const=True,
+            is_nullable=True,
+        )
+    ) == "const Map<string, int>*?"
 
 
 def test_find_token_index_missing_returns_none():

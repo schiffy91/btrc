@@ -44,7 +44,11 @@ from src.devex.lsp.utils import (
 )
 
 
-def _format_class_info(name: str, info: ClassInfo) -> str:
+def _format_class_info(
+    name: str,
+    info: ClassInfo,
+    class_table: dict[str, ClassInfo],
+) -> str:
     """Format hover content for a class."""
     lines = [f"```btrc\nclass {name}"]
     if info.generic_params:
@@ -57,7 +61,7 @@ def _format_class_info(name: str, info: ClassInfo) -> str:
         lines.append("\n**Fields:**")
         for fname, fdecl in info.fields.items():
             access = fdecl.access if isinstance(fdecl, FieldDecl) else "public"
-            ftype = type_repr(fdecl.type) if isinstance(fdecl, FieldDecl) else "?"
+            ftype = type_repr(fdecl.type, class_table) if isinstance(fdecl, FieldDecl) else "?"
             lines.append(f"- `{access} {ftype} {fname}`")
 
     if info.methods:
@@ -65,33 +69,43 @@ def _format_class_info(name: str, info: ClassInfo) -> str:
         for mname, mdecl in info.methods.items():
             if isinstance(mdecl, MethodDecl):
                 params = ", ".join(
-                    f"{type_repr(p.type)} {p.name}" for p in mdecl.params
+                    f"{type_repr(p.type, class_table)} {p.name}" for p in mdecl.params
                 )
-                ret = type_repr(mdecl.return_type)
+                ret = type_repr(mdecl.return_type, class_table)
                 access = mdecl.access
                 lines.append(f"- `{access} {ret} {mname}({params})`")
 
     if info.constructor and isinstance(info.constructor, MethodDecl):
         params = ", ".join(
-            f"{type_repr(p.type)} {p.name}" for p in info.constructor.params
+            f"{type_repr(p.type, class_table)} {p.name}" for p in info.constructor.params
         )
         lines.append(f"\n**Constructor:** `{name}({params})`")
 
     return "\n".join(lines)
 
 
-def _format_method_info(class_name: str, method_name: str, mdecl: MethodDecl) -> str:
+def _format_method_info(
+    class_name: str,
+    method_name: str,
+    mdecl: MethodDecl,
+    class_table: dict[str, ClassInfo],
+) -> str:
     """Format hover content for a method."""
-    params = ", ".join(f"{type_repr(p.type)} {p.name}" for p in mdecl.params)
-    ret = type_repr(mdecl.return_type)
+    params = ", ".join(f"{type_repr(p.type, class_table)} {p.name}" for p in mdecl.params)
+    ret = type_repr(mdecl.return_type, class_table)
     access = mdecl.access
     static = " (static)" if access == "class" else ""
     return f"```btrc\n{access} {ret} {method_name}({params})\n```\nMethod of `{class_name}`{static}"
 
 
-def _format_field_info(class_name: str, field_name: str, fdecl: FieldDecl) -> str:
+def _format_field_info(
+    class_name: str,
+    field_name: str,
+    fdecl: FieldDecl,
+    class_table: dict[str, ClassInfo],
+) -> str:
     """Format hover content for a field."""
-    ftype = type_repr(fdecl.type)
+    ftype = type_repr(fdecl.type, class_table)
     return f"```btrc\n{fdecl.access} {ftype} {field_name}\n```\nField of `{class_name}`"
 
 
@@ -156,7 +170,7 @@ def get_hover_info(
 
     # Check if it's a class name
     if token.value in class_table:
-        content = _format_class_info(token.value, class_table[token.value])
+        content = _format_class_info(token.value, class_table[token.value], class_table)
 
     # Check if it's a keyword/type with documentation
     elif token.value in _KEYWORD_DOCS:
@@ -221,11 +235,11 @@ def _try_member_hover(
         if member_name in cinfo.methods:
             mdecl = cinfo.methods[member_name]
             if isinstance(mdecl, MethodDecl):
-                return _format_method_info(cname, member_name, mdecl)
+                return _format_method_info(cname, member_name, mdecl, class_table)
         if member_name in cinfo.fields:
             fdecl = cinfo.fields[member_name]
             if isinstance(fdecl, FieldDecl):
-                return _format_field_info(cname, member_name, fdecl)
+                return _format_field_info(cname, member_name, fdecl, class_table)
         cname = cinfo.parent
 
     return None
@@ -309,7 +323,7 @@ def _check_callable(
 
     for p in node.params:
         if p.name == name:
-            type_str = type_repr(p.type)
+            type_str = type_repr(p.type, class_table)
             ctx = (
                 f"Parameter of `{class_name}.{node.name}`"
                 if class_name
@@ -455,7 +469,7 @@ def _check_stmt_for_var(
 def _infer_var_type(stmt: VarDeclStmt, class_table: dict[str, ClassInfo]) -> str:
     """Infer a type string for a VarDeclStmt."""
     if stmt.type:
-        return type_repr(stmt.type)
+        return type_repr(stmt.type, class_table)
     if isinstance(stmt.initializer, CallExpr):
         callee = stmt.initializer.callee
         if isinstance(callee, Identifier):
@@ -464,5 +478,5 @@ def _infer_var_type(stmt: VarDeclStmt, class_table: dict[str, ClassInfo]) -> str
             return callee.name
     if isinstance(stmt.initializer, NewExpr):
         if stmt.initializer.type:
-            return type_repr(stmt.initializer.type)
+            return type_repr(stmt.initializer.type, class_table)
     return "var"

@@ -54,6 +54,44 @@ def test_hover_maps_document_position_after_import(tmp_path):
     assert "class Imported" in hover_text(hover)
 
 
+def test_self_member_resolution_after_import_stays_in_local_class(tmp_path):
+    lib = tmp_path / "lib.btrc"
+    lib.write_text(
+        "class Imported {\n"
+        "    public int value;\n"
+        "    public Imported(int value) { self.value = value; }\n"
+        "}\n"
+    )
+    main = tmp_path / "main.btrc"
+    source = (
+        "import ./lib.btrc;\n"
+        "class Payload {\n"
+        "    public string name;\n"
+        "    public Payload(string name) { self.name = name; }\n"
+        "}\n"
+        "class Local {\n"
+        "    public Payload value;\n"
+        "    public Local(Payload value) { self.value = value; }\n"
+        "    public Payload get() { return self.value; }\n"
+        "}\n"
+    )
+    main.write_text(source)
+    result = analyze(source, uri=main.as_uri())
+
+    loc = get_definition(result, pos_of(source, "return self.value", offset=12))
+    hover = hover_text(
+        get_hover_info(result, pos_of(source, "return self.value", offset=12))
+    )
+
+    assert loc is not None
+    assert loc.uri == main.as_uri()
+    assert loc.range.start.line == 6
+    assert "Field of `Local`" in hover
+    assert "TypeExpr(" not in hover
+    assert "Payload value" in hover
+    assert "Payload* value" not in hover
+
+
 def test_references_and_rename_group_cross_file_locations(tmp_path):
     lib, main, source = _write_import_case(tmp_path)
     result = analyze(source, uri=main.as_uri())
