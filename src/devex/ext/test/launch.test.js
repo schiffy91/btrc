@@ -101,7 +101,7 @@ test('absolute serverCommand is respected directly', () => {
     assert.deepEqual(launch.args, []);
 });
 
-test('default serverCommand uses bundled server before workspace shell machinery', () => {
+test('default serverCommand prefers workspace direnv before bundled server', () => {
     const launch = resolveServerLaunch(context([
         '/workspace/.envrc',
         '/workspace/shell.nix',
@@ -113,15 +113,9 @@ test('default serverCommand uses bundled server before workspace shell machinery
         '/bin/nix',
     ]));
 
-    assert.equal(launch.source, 'bundledServer');
-    assert.equal(launch.command, '/bin/nix');
-    assert.deepEqual(launch.args, [
-        'develop',
-        '/extension/server',
-        '--command',
-        'python3',
-        '/extension/server/src/devex/lsp/server.py',
-    ]);
+    assert.equal(launch.source, 'direnv');
+    assert.equal(launch.command, '/bin/direnv');
+    assert.deepEqual(launch.args, ['exec', '/workspace', 'btrc-lsp']);
 });
 
 test('source-tree server falls back to project nix dev shell', () => {

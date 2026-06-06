@@ -172,17 +172,12 @@ export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunc
         }
     }
 
-    if (context.config.serverCommandExplicit) {
-        const workspaceLaunch = workspaceCommandLaunch(context, workspaceRoot, command);
-        if (workspaceLaunch) { return workspaceLaunch; }
-    }
+    const workspaceLaunch = workspaceCommandLaunch(context, workspaceRoot, command);
+    if (workspaceLaunch) { return workspaceLaunch; }
 
     if (localServer) {
         return pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
     }
-
-    const workspaceLaunch = workspaceCommandLaunch(context, workspaceRoot, command);
-    if (workspaceLaunch) { return workspaceLaunch; }
 
     const commandCandidate = command ? resolveCommand(context, command) : undefined;
     if (commandCandidate) {
