@@ -139,6 +139,20 @@ class UnixFileSystem {
         return Strings.copy(buffer);
     }
 
+    class string currentDirectory() {
+        char buffer[4096];
+        char* result = getcwd(buffer, 4096);
+        if (result == NULL) { return ""; }
+        return Strings.copy(buffer);
+    }
+
+    class string realPath(string path) {
+        char buffer[4096];
+        char* result = realpath(path, buffer);
+        if (result == NULL) { return ""; }
+        return Strings.copy(buffer);
+    }
+
     class string tempDir(string prefix) {
         string base = Environment.get("TMPDIR", "/tmp");
         string templatePath = PathTools.join(base, prefix + ".XXXXXX");
@@ -192,6 +206,14 @@ class PathTools {
         }
         return f"{left}/{right}";
     }
+
+    class string absolute(string path) {
+        string resolved = UnixFileSystem.realPath(path);
+        if (!resolved.isEmpty()) { return resolved; }
+        if (path.isEmpty()) { return UnixFileSystem.currentDirectory(); }
+        if (path[0] == '/') { return Strings.copy(path); }
+        return PathTools.join(UnixFileSystem.currentDirectory(), path);
+    }
 }
 
 class FileSystem {
@@ -241,6 +263,14 @@ class FileSystem {
 
     class string readLink(string path) {
         return UnixFileSystem.readLink(path);
+    }
+
+    class string currentDirectory() {
+        return UnixFileSystem.currentDirectory();
+    }
+
+    class string absolutePath(string path) {
+        return PathTools.absolute(path);
     }
 
     class string tempDir(string prefix) {

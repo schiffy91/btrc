@@ -9,6 +9,9 @@ int main() {
     assert(PathTools.dirname("/a/b/c.txt").equals("/a/b"));
     assert(PathTools.join("/a", "b").equals("/a/b"));
     assert(PathTools.join("/a/", "b").equals("/a/b"));   /* no double slash */
+    assert(FileSystem.currentDirectory().startsWith("/"));
+    assert(PathTools.absolute(".").equals(FileSystem.currentDirectory()));
+    assert(FileSystem.absolutePath(".").equals(FileSystem.currentDirectory()));
 
     /* status of well-known paths */
     assert(FileSystem.exists("/"));
@@ -27,6 +30,9 @@ int main() {
     string nested = PathTools.join(dir, "nested dir/child");
     assert(FileSystem.mkdirp(nested) == 0);
     assert(FileSystem.isDir(nested));
+    var parent = PathTools.absolute(PathTools.join(nested, ".."));
+    var expectedParent = PathTools.absolute(PathTools.join(dir, "nested dir"));
+    assert(parent.equals(expectedParent));
     string leadingDash = PathTools.join(nested, "-literal");
     FileSystem.writeText(leadingDash, "dash");
     assert(FileSystem.readText(leadingDash).equals("dash"));
