@@ -353,8 +353,8 @@ class UnixShell {
     }
 
     public ExecResult run(string command,
-                          string stdout = "collect",
-                          string stderr = "combine",
+                          string stdout = CommandOutput.collect(),
+                          string stderr = CommandOutput.combine(),
                           bool logCommand = false,
                           bool logFailure = true,
                           bool throwOnFailure = false,
@@ -371,13 +371,13 @@ class UnixShell {
             throw "stderr can only combine with collected stdout";
         }
 
-        string rendered = self.withContext(command, cwd, env, sudo, chroot);
-        string outFile = self.tempPath("stdout");
-        string errFile = self.tempPath("stderr");
+        var rendered = self.withContext(command, cwd, env, sudo, chroot);
+        var outFile = self.tempPath("stdout");
+        var errFile = self.tempPath("stderr");
         if (outFile.isEmpty() || errFile.isEmpty()) {
             throw "failed to create temporary process files";
         }
-        string stdinFile = "";
+        var stdinFile = "";
         if (!stdin.isEmpty()) {
             stdinFile = self.tempPath("stdin");
             if (stdinFile.isEmpty()) {
@@ -388,17 +388,17 @@ class UnixShell {
             Path.writeAll(stdinFile, stdin);
             chmod(stdinFile, 384);
         }
-        string executed = self.withRedirections(rendered, stdout, stderr, outFile, errFile, stdinFile);
+        var executed = self.withRedirections(rendered, stdout, stderr, outFile, errFile, stdinFile);
 
         if (self.logCommands || logCommand) {
-            string visible = UnixShell.redactText(executed, redactSubstring);
+            var visible = UnixShell.redactText(executed, redactSubstring);
             UnixShell.logError(f"LOG: {visible}");
         }
 
-        ProcessStatus status = UnixProcess.system(executed);
-        int code = status.code();
-        string output = stdout.equals(CommandOutput.collect()) ? Path.readAll(outFile) : "";
-        string error = stderr.equals(CommandOutput.collect()) ? Path.readAll(errFile) : "";
+        var status = UnixProcess.system(executed);
+        var code = status.code();
+        var output = stdout.equals(CommandOutput.collect()) ? Path.readAll(outFile) : "";
+        var error = stderr.equals(CommandOutput.collect()) ? Path.readAll(errFile) : "";
         unlink(outFile);
         unlink(errFile);
         if (!stdinFile.isEmpty()) {
@@ -421,8 +421,8 @@ class PowerShell {
     }
 
     public ExecResult run(string command,
-                          string stdout = "collect",
-                          string stderr = "combine",
+                          string stdout = CommandOutput.collect(),
+                          string stderr = CommandOutput.combine(),
                           bool logCommand = false,
                           bool logFailure = true,
                           bool throwOnFailure = false,
