@@ -1,8 +1,3 @@
-/* btrc standard library — small flat JSON object helper
- * This is intentionally modest: it covers string/bool/int fields used by
- * config files and command metadata. Nested JSON can be layered on later.
- */
-
 import std.io;
 import std.map;
 import std.strings;
@@ -19,7 +14,7 @@ class JsonObject {
 
     class string escape(string text) {
         if (text == null) { return ""; }
-        string escaped = Strings.replace(text, "\\", "\\\\");
+        var escaped = Strings.replace(text, "\\", "\\\\");
         escaped = Strings.replace(escaped, "\"", "\\\"");
         escaped = Strings.replace(escaped, "\n", "\\n");
         escaped = Strings.replace(escaped, "\r", "\\r");
@@ -28,26 +23,7 @@ class JsonObject {
     }
 
     class string unescape(string text) {
-        string result = "";
-        bool escaped = false;
-        for i in range(text.len()) {
-            string current = text.substring(i, 1);
-            if (escaped) {
-                if (current.equals("n")) { result += "\n"; }
-                else if (current.equals("r")) { result += "\r"; }
-                else if (current.equals("t")) { result += "\t"; }
-                else { result += current; }
-                escaped = false;
-                continue;
-            }
-            if (current.equals("\\")) {
-                escaped = true;
-                continue;
-            }
-            result += current;
-        }
-        if (escaped) { result += "\\"; }
-        return result;
+        return JsonText.unescape(text);
     }
 
     public void setString(string key, string value) {
@@ -81,7 +57,7 @@ class JsonObject {
 
     public bool getBool(string key, bool fallback) {
         if (!self.values.has(key)) { return fallback; }
-        string value = self.values.get(key);
+        var value = self.values.get(key);
         if (value.equals("true")) { return true; }
         if (value.equals("false")) { return false; }
         return fallback;
@@ -89,18 +65,18 @@ class JsonObject {
 
     public int getInt(string key, int fallback) {
         if (!self.values.has(key)) { return fallback; }
-        string raw = self.values.get(key);
-        if (!JsonObject.isInt(raw)) { return fallback; }
+        var raw = self.values.get(key);
+        if (!JsonText.isInt(raw)) { return fallback; }
         return Strings.toInt(raw);
     }
 
     public string stringify() {
         Vector<string> fields = [];
         for key, value in self.values {
-            string escapedKey = JsonObject.escape(key);
-            string field = "\"" + escapedKey + "\":";
+            var escapedKey = JsonObject.escape(key);
+            var field = "\"" + escapedKey + "\":";
             if (self.quoted.getOrDefault(key, true)) {
-                string escapedValue = JsonObject.escape(value);
+                var escapedValue = JsonObject.escape(value);
                 field += "\"" + escapedValue + "\"";
             } else {
                 field += value;
@@ -111,42 +87,19 @@ class JsonObject {
     }
 
     class int skipSpaces(string text, int i) {
-        int len = (int)strlen(text);
-        while (i < len && (text[i] == ' ' || text[i] == '\n' || text[i] == '\t' || text[i] == '\r')) {
-            i++;
-        }
-        return i;
+        return JsonText.skipSpaces(text, i);
     }
 
     class bool isInt(string text) {
-        string raw = text.trim();
-        if (raw.isEmpty()) { return false; }
-        int start = 0;
-        if (raw[0] == '-' || raw[0] == '+') {
-            if (raw.len() == 1) { return false; }
-            start = 1;
-        }
-        for (int i = start; i < raw.len(); i++) {
-            if (raw[i] < '0' || raw[i] > '9') { return false; }
-        }
-        return true;
+        return JsonText.isInt(text);
     }
 
     class string slice(string text, int start, int end) {
-        return text.substring(start, end - start);
+        return JsonText.slice(text, start, end);
     }
 
     class int stringEnd(string text, int start) {
-        int len = text.len();
-        bool escaped = false;
-        int i = start;
-        while (i < len) {
-            if (!escaped && text[i] == (char)34) { return i; }
-            escaped = !escaped && text[i] == '\\';
-            if (text[i] != '\\') { escaped = false; }
-            i++;
-        }
-        return len;
+        return JsonText.stringEnd(text, start);
     }
 
     class JsonObject parse(string text) {
@@ -154,7 +107,7 @@ class JsonObject {
         var len = (int)strlen(text);
         var i = 0;
         while (i < len) {
-            i = JsonObject.skipSpaces(text, i);
+            i = JsonText.skipSpaces(text, i);
             if (i >= len) { break; }
             if (text[i] != (char)34) {
                 i++;
@@ -162,18 +115,18 @@ class JsonObject {
             }
             i++;
             var keyStart = i;
-            i = JsonObject.stringEnd(text, keyStart);
-            var key = JsonObject.unescape(JsonObject.slice(text, keyStart, i));
+            i = JsonText.stringEnd(text, keyStart);
+            var key = JsonText.unescape(JsonText.slice(text, keyStart, i));
             i++;
-            i = JsonObject.skipSpaces(text, i);
+            i = JsonText.skipSpaces(text, i);
             if (i < len && text[i] == ':') { i++; }
-            i = JsonObject.skipSpaces(text, i);
+            i = JsonText.skipSpaces(text, i);
             if (i >= len) { break; }
             if (text[i] == (char)34) {
                 i++;
                 var valueStart = i;
-                i = JsonObject.stringEnd(text, valueStart);
-                var value = JsonObject.unescape(JsonObject.slice(text, valueStart, i));
+                i = JsonText.stringEnd(text, valueStart);
+                var value = JsonText.unescape(JsonText.slice(text, valueStart, i));
                 json.setString(key, value);
                 i++;
             } else {
@@ -183,7 +136,7 @@ class JsonObject {
                 while (valueEnd > valueStart && (text[valueEnd - 1] == ' ' || text[valueEnd - 1] == '\n' || text[valueEnd - 1] == '\t' || text[valueEnd - 1] == '\r')) {
                     valueEnd--;
                 }
-                var value = JsonObject.slice(text, valueStart, valueEnd);
+                var value = JsonText.slice(text, valueStart, valueEnd);
                 json.setRaw(key, value);
             }
         }
@@ -200,19 +153,73 @@ class JsonObject {
 }
 
 class JsonText {
+    class string slice(string text, int start, int end) {
+        return text.substring(start, end - start);
+    }
+
+    class string unescape(string text) {
+        var result = "";
+        var escaped = false;
+        for i in range(text.len()) {
+            var current = text.substring(i, 1);
+            if (escaped) {
+                if (current.equals("n")) { result += "\n"; }
+                else if (current.equals("r")) { result += "\r"; }
+                else if (current.equals("t")) { result += "\t"; }
+                else { result += current; }
+                escaped = false;
+                continue;
+            }
+            if (current.equals("\\")) {
+                escaped = true;
+                continue;
+            }
+            result += current;
+        }
+        if (escaped) { result += "\\"; }
+        return result;
+    }
+
+    class int stringEnd(string text, int start) {
+        var len = text.len();
+        var escaped = false;
+        var i = start;
+        while (i < len) {
+            if (!escaped && text[i] == (char)34) { return i; }
+            escaped = !escaped && text[i] == '\\';
+            if (text[i] != '\\') { escaped = false; }
+            i++;
+        }
+        return len;
+    }
+
     class int skipSpaces(string text, int i) {
-        int len = text.len();
+        var len = text.len();
         while (i < len && (text[i] == ' ' || text[i] == '\n' || text[i] == '\t' || text[i] == '\r')) {
             i++;
         }
         return i;
     }
 
+    class bool isInt(string text) {
+        var raw = text.trim();
+        if (raw.isEmpty()) { return false; }
+        var start = 0;
+        if (raw[0] == '-' || raw[0] == '+') {
+            if (raw.len() == 1) { return false; }
+            start = 1;
+        }
+        for (int i = start; i < raw.len(); i++) {
+            if (raw[i] < '0' || raw[i] > '9') { return false; }
+        }
+        return true;
+    }
+
     class int keyPosition(string text, string key) {
-        int len = text.len();
-        int depth = 0;
-        bool inString = false;
-        bool escaped = false;
+        var len = text.len();
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
         for (int i = 0; i < len; i++) {
             char c = text[i];
             if (inString) {
@@ -223,10 +230,10 @@ class JsonText {
             }
             if (c == (char)34) {
                 if (depth == 1) {
-                    int keyStart = i + 1;
-                    int keyEnd = JsonObject.stringEnd(text, keyStart);
-                    string candidate = JsonObject.unescape(JsonObject.slice(text, keyStart, keyEnd));
-                    int after = JsonText.skipSpaces(text, keyEnd + 1);
+                    var keyStart = i + 1;
+                    var keyEnd = JsonText.stringEnd(text, keyStart);
+                    var candidate = JsonText.unescape(JsonText.slice(text, keyStart, keyEnd));
+                    var after = JsonText.skipSpaces(text, keyEnd + 1);
                     if (after < len && text[after] == ':' && candidate.equals(key)) {
                         return i;
                     }
@@ -249,54 +256,54 @@ class JsonText {
     }
 
     class int valueStart(string text, string key) {
-        int keyPos = JsonText.keyPosition(text, key);
+        var keyPos = JsonText.keyPosition(text, key);
         if (keyPos < 0) { return -1; }
-        int keyEnd = JsonObject.stringEnd(text, keyPos + 1);
-        int colon = JsonText.skipSpaces(text, keyEnd + 1);
+        var keyEnd = JsonText.stringEnd(text, keyPos + 1);
+        var colon = JsonText.skipSpaces(text, keyEnd + 1);
         if (colon >= text.len() || text[colon] != ':') { return -1; }
         return JsonText.skipSpaces(text, colon + 1);
     }
 
     class string parseStringValue(string text, int i, string fallback) {
-        int len = text.len();
+        var len = text.len();
         i = JsonText.skipSpaces(text, i);
         if (i >= len || text[i] != (char)34) { return fallback; }
         i++;
-        int start = i;
-        int end = JsonObject.stringEnd(text, start);
-        return JsonObject.unescape(JsonObject.slice(text, start, end));
+        var start = i;
+        var end = JsonText.stringEnd(text, start);
+        return JsonText.unescape(JsonText.slice(text, start, end));
     }
 
     class string field(string text, string key, string fallback) {
-        int i = JsonText.valueStart(text, key);
+        var i = JsonText.valueStart(text, key);
         if (i < 0) { return fallback; }
-        int len = text.len();
+        var len = text.len();
         if (i < len && text[i] == (char)34) {
             return JsonText.parseStringValue(text, i, fallback);
         }
-        int start = i;
+        var start = i;
         while (i < len && text[i] != ',' && text[i] != '}' && text[i] != ']') {
             i++;
         }
-        string raw = JsonObject.slice(text, start, i).trim();
+        var raw = JsonText.slice(text, start, i).trim();
         if (raw.isEmpty()) { return fallback; }
         return raw;
     }
 
     class int intField(string text, string key, int fallback) {
-        string raw = JsonText.field(text, key, "");
+        var raw = JsonText.field(text, key, "");
         if (raw.isEmpty()) { return fallback; }
-        if (!JsonObject.isInt(raw)) { return fallback; }
+        if (!JsonText.isInt(raw)) { return fallback; }
         return Strings.toInt(raw);
     }
 
     class string objectField(string text, string key) {
-        int i = JsonText.valueStart(text, key);
-        int len = text.len();
+        var i = JsonText.valueStart(text, key);
+        var len = text.len();
         if (i < 0 || i >= len || text[i] != '{') { return ""; }
-        int depth = 0;
-        bool inString = false;
-        bool escaped = false;
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
         for (int j = i; j < len; j++) {
             char c = text[j];
             if (inString) {
@@ -317,7 +324,7 @@ class JsonText {
             if (c == '}') {
                 depth--;
                 if (depth == 0) {
-                    return JsonObject.slice(text, i, j + 1);
+                    return JsonText.slice(text, i, j + 1);
                 }
             }
         }
@@ -346,19 +353,19 @@ class JsonText {
 
     class Vector<string> stringArray(string text, string key) {
         Vector<string> result = [];
-        int i = JsonText.valueStart(text, key);
-        int len = text.len();
+        var i = JsonText.valueStart(text, key);
+        var len = text.len();
         if (i < 0 || i >= len || text[i] != '[') { return result; }
-        int depth = 0;
-        bool inString = false;
-        bool escaped = false;
-        int start = -1;
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        var start = -1;
         for (int j = i + 1; j < len; j++) {
             char c = text[j];
             if (inString) {
                 if (!escaped && c == (char)34) {
                     if (depth == 0 && start >= 0) {
-                        result.push(JsonObject.unescape(JsonObject.slice(text, start, j)));
+                        result.push(JsonText.unescape(JsonText.slice(text, start, j)));
                     }
                     inString = false;
                     start = -1;
@@ -391,13 +398,13 @@ class JsonText {
 
     class Vector<string> objectArray(string text, string key) {
         Vector<string> result = [];
-        int i = JsonText.valueStart(text, key);
-        int len = text.len();
+        var i = JsonText.valueStart(text, key);
+        var len = text.len();
         if (i < 0 || i >= len || text[i] != '[') { return result; }
-        int depth = 0;
-        int start = -1;
-        bool inString = false;
-        bool escaped = false;
+        var depth = 0;
+        var start = -1;
+        var inString = false;
+        var escaped = false;
         for (int j = i + 1; j < len; j++) {
             char c = text[j];
             if (inString) {
@@ -424,7 +431,7 @@ class JsonText {
             if (c == '}') {
                 depth--;
                 if (depth == 0 && start >= 0) {
-                    result.push(JsonObject.slice(text, start, j + 1));
+                    result.push(JsonText.slice(text, start, j + 1));
                     start = -1;
                 }
             }
@@ -435,7 +442,7 @@ class JsonText {
     class Map<string, string> objectMap(string objectText) {
         Map<string, string> result = {};
         if (objectText.isEmpty()) { return result; }
-        JsonObject parsed = JsonObject.parse(objectText);
+        var parsed = JsonObject.parse(objectText);
         for key, value in parsed.values {
             result.put(key, value);
         }
@@ -458,11 +465,11 @@ class JsonText {
     }
 
     class void putArgPair(Map<string, string> result, string pair) {
-        int pos = Strings.find(pair, "=", 0);
+        var pos = Strings.find(pair, "=", 0);
         if (pos <= 0) {
             fprintf(stderr, "error 0:0 Expected --arg key=value\n");
             exit(1);
         }
-        result.put(JsonObject.slice(pair, 0, pos), JsonObject.slice(pair, pos + 1, pair.len()));
+        result.put(JsonText.slice(pair, 0, pos), JsonText.slice(pair, pos + 1, pair.len()));
     }
 }
