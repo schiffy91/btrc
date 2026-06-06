@@ -864,6 +864,13 @@ class TestTryCatch:
         assert isinstance(stmt, TryCatchStmt)
         assert stmt.catch_var == "e"
 
+    def test_parse_try_finally(self):
+        stmt = parse_stmt('try { foo(); } finally { bar(); }')
+        assert isinstance(stmt, TryCatchStmt)
+        assert stmt.catch_var == ""
+        assert stmt.catch_block is None
+        assert isinstance(stmt.finally_block, Block)
+
     def test_parse_throw(self):
         stmt = parse_stmt('throw "error message";')
         assert isinstance(stmt, ThrowStmt)

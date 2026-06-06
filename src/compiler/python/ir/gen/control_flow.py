@@ -94,6 +94,9 @@ def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
     gen.use_helper("__btrc_trycatch_globals")
     gen.use_helper("__btrc_throw")
     stmts: list[IRStmt] = []
+    finally_only = node.catch_block is None and node.finally_block is not None
+    pending_name = gen.fresh_temp("__btrc_finally_pending") if finally_only else ""
+    error_name = gen.fresh_temp("__btrc_finally_error") if finally_only else ""
 
     # setjmp/longjmp volatile rule: any local variable declared before this
     # try/catch (at any scope in the current function) has indeterminate
@@ -126,11 +129,21 @@ def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
             args=[IRVar(name="__btrc_try_top")],
             helper_ref="__btrc_discard_cleanups")))
     try_body.stmts.append(IRRawC(text="__btrc_try_top--;"))
-    catch_body = lower_block(gen, node.catch_block)
-    if node.catch_var:
-        catch_body.stmts.insert(0, IRVarDecl(
-            c_type=CType(text="const char*"), name=node.catch_var,
-            init=IRVar(name="__btrc_error_msg")))
+    if finally_only:
+        stmts.append(IRRawC(text=f"bool {pending_name} = false;\nchar {error_name}[1024] = \"\";"))
+        catch_body = IRBlock(stmts=[
+            IRRawC(text=(
+                f"{pending_name} = true;\n"
+                f"strncpy({error_name}, __btrc_error_msg, 1023);\n"
+                f"{error_name}[1023] = '\\0';"
+            ))
+        ])
+    else:
+        catch_body = lower_block(gen, node.catch_block)
+        if node.catch_var:
+            catch_body.stmts.insert(0, IRVarDecl(
+                c_type=CType(text="const char*"), name=node.catch_var,
+                init=IRVar(name="__btrc_error_msg")))
 
     stmts.append(IRIf(
         condition=IRRawExpr(text="setjmp(__btrc_try_stack[__btrc_try_top]) == 0"),
@@ -141,6 +154,16 @@ def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
     if node.finally_block:
         finally_stmts = lower_block(gen, node.finally_block)
         stmts.extend(finally_stmts.stmts)
+        if finally_only:
+            stmts.append(IRIf(
+                condition=IRVar(name=pending_name),
+                then_block=IRBlock(stmts=[
+                    IRExprStmt(expr=IRCall(
+                        callee="__btrc_throw",
+                        args=[IRVar(name=error_name)],
+                        helper_ref="__btrc_throw"))
+                ]),
+            ))
 
     return stmts
 

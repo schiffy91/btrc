@@ -1,0 +1,23 @@
+#include <assert.h>
+
+int main() {
+    int value = 0;
+    bool caught = false;
+
+    try {
+        try {
+            value = 1;
+            throw "boom";
+        } finally {
+            value = 2;
+        }
+    } catch (string error) {
+        caught = true;
+        assert(error.equals("boom"));
+    }
+
+    assert(caught);
+    assert(value == 2);
+    print("PASS: test_try_finally");
+    return 0;
+}

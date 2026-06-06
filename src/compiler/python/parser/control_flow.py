@@ -175,16 +175,20 @@ class ControlFlowMixin:
     def _parse_try_catch(self) -> TryCatchStmt:
         tok = self._expect(TokenType.TRY)
         try_block = self._parse_block()
-        self._expect(TokenType.CATCH)
-        self._expect(TokenType.LPAREN)
-        if self._is_type_start(self._peek()) and self._peek(1).type == TokenType.IDENT:
-            self._parse_type_expr()  # optional type annotation (not stored in AST)
-        catch_var = self._expect(TokenType.IDENT, "catch variable").value
-        self._expect(TokenType.RPAREN)
-        catch_block = self._parse_block()
+        catch_var = ""
+        catch_block = None
+        if self._match(TokenType.CATCH):
+            self._expect(TokenType.LPAREN)
+            if self._is_type_start(self._peek()) and self._peek(1).type == TokenType.IDENT:
+                self._parse_type_expr()  # optional type annotation (not stored in AST)
+            catch_var = self._expect(TokenType.IDENT, "catch variable").value
+            self._expect(TokenType.RPAREN)
+            catch_block = self._parse_block()
         finally_block = None
         if self._match(TokenType.FINALLY):
             finally_block = self._parse_block()
+        if catch_block is None and finally_block is None:
+            raise self._error("Expected 'catch' or 'finally' after try block")
         return TryCatchStmt(try_block=try_block, catch_var=catch_var,
                             catch_block=catch_block, finally_block=finally_block,
                             line=tok.line, col=tok.col)

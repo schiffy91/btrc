@@ -100,11 +100,12 @@ class StatementsMixin:
             self._analyze_block(stmt)
         elif isinstance(stmt, TryCatchStmt):
             self._analyze_block(stmt.try_block)
-            self._push_scope()
-            self.scope.define(stmt.catch_var,
-                              SymbolInfo(stmt.catch_var, TypeExpr(base="string"), "variable"))
-            self._analyze_block(stmt.catch_block)
-            self._pop_scope()
+            if stmt.catch_block:
+                self._push_scope()
+                self.scope.define(stmt.catch_var,
+                                  SymbolInfo(stmt.catch_var, TypeExpr(base="string"), "variable"))
+                self._analyze_block(stmt.catch_block)
+                self._pop_scope()
             if stmt.finally_block:
                 self._analyze_block(stmt.finally_block)
         elif isinstance(stmt, (ThrowStmt, KeepStmt, ReleaseStmt)):
