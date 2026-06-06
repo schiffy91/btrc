@@ -148,29 +148,29 @@ int main(int argc, char** argv) {
     assert(args.valueAfterPrefix("--missing=", "fallback").equals("fallback"));
     assert(!args.commandIs("__missing__"));
 
-    JsonObject obj = JsonObject();
-    obj.setString("host_path", "modules/hosts/x86_64/VM-TEST.nix");
-    obj.setString("target", "Standard-Boot");
-    obj.setBool("enabled", true);
-    obj.setInt("generation", 42);
-    assert(obj.has("target"));
-    assert(obj.getString("target", "").equals("Standard-Boot"));
-    assert(obj.getBool("enabled", false));
-    assert(obj.getInt("generation", 0) == 42);
+    var json = JsonObject();
+    json.setString("host_path", "modules/hosts/x86_64/VM-TEST.nix");
+    json.setString("target", "Standard-Boot");
+    json.setBool("enabled", true);
+    json.setInt("generation", 42);
+    assert(json.has("target"));
+    assert(json.getString("target", "").equals("Standard-Boot"));
+    assert(json.getBool("enabled", false));
+    assert(json.getInt("generation", 0) == 42);
 
-    string encoded = obj.stringify();
+    var encoded = json.stringify();
     assert(encoded.contains("\"target\""));
     assert(encoded.contains("\"Standard-Boot\""));
 
-    JsonObject parsed = JsonObject.parse("{\"host_path\":\"modules/hosts/x86_64/VM-TEST.nix\",\"target\":\"Standard-Boot\",\"enabled\":true,\"generation\":42}");
+    var parsed = JsonObject.parse("{\"host_path\":\"modules/hosts/x86_64/VM-TEST.nix\",\"target\":\"Standard-Boot\",\"enabled\":true,\"generation\":42}");
     assert(parsed.getString("host_path", "").equals("modules/hosts/x86_64/VM-TEST.nix"));
     assert(parsed.getString("target", "").equals("Standard-Boot"));
     assert(parsed.getBool("enabled", false));
     assert(parsed.getInt("generation", 0) == 42);
 
-    string jsonPath = "/tmp/btrc_stdlib_system.json";
+    var jsonPath = "/tmp/btrc_stdlib_system.json";
     parsed.writeFile(jsonPath);
-    JsonObject loaded = JsonObject.readFile(jsonPath);
+    var loaded = JsonObject.readFile(jsonPath);
     assert(loaded.getString("target", "").equals("Standard-Boot"));
     FileSystem.removeRecursive(jsonPath);
 

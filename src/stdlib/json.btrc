@@ -150,9 +150,9 @@ class JsonObject {
     }
 
     class JsonObject parse(string text) {
-        JsonObject obj = JsonObject();
-        int len = (int)strlen(text);
-        int i = 0;
+        var json = JsonObject();
+        var len = (int)strlen(text);
+        var i = 0;
         while (i < len) {
             i = JsonObject.skipSpaces(text, i);
             if (i >= len) { break; }
@@ -161,9 +161,9 @@ class JsonObject {
                 continue;
             }
             i++;
-            int keyStart = i;
+            var keyStart = i;
             i = JsonObject.stringEnd(text, keyStart);
-            string key = JsonObject.unescape(JsonObject.slice(text, keyStart, i));
+            var key = JsonObject.unescape(JsonObject.slice(text, keyStart, i));
             i++;
             i = JsonObject.skipSpaces(text, i);
             if (i < len && text[i] == ':') { i++; }
@@ -171,23 +171,23 @@ class JsonObject {
             if (i >= len) { break; }
             if (text[i] == (char)34) {
                 i++;
-                int valueStart = i;
+                var valueStart = i;
                 i = JsonObject.stringEnd(text, valueStart);
-                string value = JsonObject.unescape(JsonObject.slice(text, valueStart, i));
-                obj.setString(key, value);
+                var value = JsonObject.unescape(JsonObject.slice(text, valueStart, i));
+                json.setString(key, value);
                 i++;
             } else {
-                int valueStart = i;
+                var valueStart = i;
                 while (i < len && text[i] != ',' && text[i] != '}') { i++; }
-                int valueEnd = i;
+                var valueEnd = i;
                 while (valueEnd > valueStart && (text[valueEnd - 1] == ' ' || text[valueEnd - 1] == '\n' || text[valueEnd - 1] == '\t' || text[valueEnd - 1] == '\r')) {
                     valueEnd--;
                 }
-                string value = JsonObject.slice(text, valueStart, valueEnd);
-                obj.setRaw(key, value);
+                var value = JsonObject.slice(text, valueStart, valueEnd);
+                json.setRaw(key, value);
             }
         }
-        return obj;
+        return json;
     }
 
     class JsonObject readFile(string path) {
