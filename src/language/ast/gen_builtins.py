@@ -264,6 +264,10 @@ def parse_file(filename: str) -> dict[str, ClassDecl]:
     path = os.path.join(STDLIB_DIR, filename)
     with open(path) as f:
         source = f.read()
+    source = "\n".join(
+        "" if line.strip().startswith("import ") else line
+        for line in source.splitlines()
+    )
     tokens = Lexer(source, filename).tokenize()
     program = Parser(tokens).parse()
     return {d.name: d for d in program.declarations if isinstance(d, ClassDecl)}

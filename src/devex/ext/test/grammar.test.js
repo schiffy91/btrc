@@ -36,3 +36,19 @@ test('f-string interpolation scopes variable identifiers', async () => {
     assert(label.scopes.includes('meta.interpolation.btrc'));
     assert(label.scopes.includes('variable.other.readwrite.btrc'));
 });
+
+test('f-string escaped braces are not interpolation', async () => {
+    const grammar = await loadGrammar();
+    const line = 'var command = f"printf {{label}} {label}";';
+
+    const tokens = grammar.tokenizeLine(line).tokens;
+    const escapedStart = line.indexOf('{{label}}');
+    const escapedEnd = escapedStart + '{{label}}'.length;
+    const escapedTokens = tokens.filter((token) => token.startIndex >= escapedStart && token.endIndex <= escapedEnd);
+    const liveLabel = tokens.find((token) => line.slice(token.startIndex, token.endIndex) === 'label' && token.startIndex > escapedEnd);
+
+    assert(escapedTokens.length > 0);
+    assert(escapedTokens.every((token) => !token.scopes.includes('meta.interpolation.btrc')));
+    assert(liveLabel);
+    assert(liveLabel.scopes.includes('meta.interpolation.btrc'));
+});

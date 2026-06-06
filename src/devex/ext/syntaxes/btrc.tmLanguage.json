@@ -145,9 +145,13 @@
           "match": "\\\\(?:[abfnrtv\\\\\"'0]|[0-7]{1,3}|x[0-9a-fA-F]{1,2})"
         },
         {
+          "name": "constant.character.escape.btrc",
+          "match": "\\{\\{|\\}\\}"
+        },
+        {
           "name": "meta.interpolation.btrc",
-          "begin": "\\{",
-          "end": "\\}",
+          "begin": "\\{(?!\\{)",
+          "end": "(?<!\\})\\}",
           "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.btrc" } },
           "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.btrc" } },
           "patterns": [

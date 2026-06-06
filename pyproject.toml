@@ -17,7 +17,7 @@ btrcpy = "src.compiler.python.main:main"
 btrc-lsp = "src.devex.lsp.server:main"
 
 [tool.pytest.ini_options]
-testpaths = ["src/compiler/python/tests", "src/tests"]
+testpaths = ["src/compiler/python/tests", "src/devex/lsp/tests", "src/tests"]
 pythonpath = ["."]
 
 [tool.ruff]

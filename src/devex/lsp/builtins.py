@@ -181,6 +181,15 @@ SET_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("iterGet", "T", "method", [("int", "n")], "iterGet"),
 ]
 
+# Generated from src/stdlib/state.btrc
+STATE_MEMBERS: list[BuiltinMember] = [
+    BuiltinMember("value", "T", "field", doc="value"),
+    BuiltinMember("version", "int", "field", doc="version"),
+    BuiltinMember("get", "T", "method", [], "get"),
+    BuiltinMember("set", "State<T>", "method", [("T", "value")], "set"),
+    BuiltinMember("changedSince", "bool", "method", [("int", "seenVersion")], "changedSince"),
+]
+
 # Generated from src/stdlib/vector.btrc
 VECTOR_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("len", "int", "field", doc="len"),
@@ -237,6 +246,7 @@ _MEMBER_TABLES: dict[str, list[BuiltinMember]] = {
     "Map": MAP_MEMBERS,
     "Result": RESULT_MEMBERS,
     "Set": SET_MEMBERS,
+    "State": STATE_MEMBERS,
     "Vector": VECTOR_MEMBERS,
 }
 
@@ -253,10 +263,78 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("write", "void", "method", [("string", "msg")], "write"),
         BuiltinMember("writeLine", "void", "method", [("string", "msg")], "writeLine"),
     ],
+    "UnixFileSystem": [
+        BuiltinMember("chmodPath", "int", "method", [("string", "path"), ("int", "mode")], "chmodPath"),
+        BuiltinMember("mkdirPath", "int", "method", [("string", "path"), ("int", "mode")], "mkdirPath"),
+        BuiltinMember("mkdirOne", "int", "method", [("string", "path"), ("int", "mode")], "mkdirOne"),
+        BuiltinMember("mkdirp", "int", "method", [("string", "path")], "mkdirp"),
+        BuiltinMember("removeRecursive", "int", "method", [("string", "path")], "removeRecursive"),
+        BuiltinMember("symlinkPath", "int", "method", [("string", "target"), ("string", "linkPath")], "symlinkPath"),
+        BuiltinMember("readLink", "string", "method", [("string", "path")], "readLink"),
+        BuiltinMember("tempDir", "string", "method", [("string", "prefix")], "tempDir"),
+    ],
+    "PathTools": [
+        BuiltinMember("shellQuote", "string", "method", [("string", "raw")], "shellQuote"),
+        BuiltinMember("basename", "string", "method", [("string", "path")], "basename"),
+        BuiltinMember("dirname", "string", "method", [("string", "path")], "dirname"),
+        BuiltinMember("join", "string", "method", [("string", "left"), ("string", "right")], "join"),
+    ],
+    "FileSystem": [
+        BuiltinMember("exists", "bool", "method", [("string", "path")], "exists"),
+        BuiltinMember("isDir", "bool", "method", [("string", "path")], "isDir"),
+        BuiltinMember("isFile", "bool", "method", [("string", "path")], "isFile"),
+        BuiltinMember("isSymlink", "bool", "method", [("string", "path")], "isSymlink"),
+        BuiltinMember("chmod", "int", "method", [("string", "path"), ("int", "mode")], "chmod"),
+        BuiltinMember("mkdir", "int", "method", [("string", "path"), ("int", "mode")], "mkdir"),
+        BuiltinMember("mkdirp", "int", "method", [("string", "path")], "mkdirp"),
+        BuiltinMember("removeRecursive", "int", "method", [("string", "path")], "removeRecursive"),
+        BuiltinMember("symlink", "int", "method", [("string", "target"), ("string", "linkPath")], "symlink"),
+        BuiltinMember("readLink", "string", "method", [("string", "path")], "readLink"),
+        BuiltinMember("tempDir", "string", "method", [("string", "prefix")], "tempDir"),
+        BuiltinMember("listDir", "Vector<string>", "method", [("string", "path")], "listDir"),
+        BuiltinMember("readText", "string", "method", [("string", "path")], "readText"),
+        BuiltinMember("writeText", "void", "method", [("string", "path"), ("string", "content")], "writeText"),
+    ],
+    "GraphParser": [
+        BuiltinMember("node", "GraphNode", "method", [("string", "objectText")], "node"),
+        BuiltinMember("readFile", "ExecutionGraph", "method", [("string", "path")], "readFile"),
+    ],
+    "GraphCli": [
+        BuiltinMember("args", "Map<string, string>", "method", [("CliArgs", "args"), ("int", "startIndex")], "args"),
+        BuiltinMember("targets", "Vector<string>", "method", [("CliArgs", "args"), ("int", "startIndex")], "targets"),
+    ],
+    "GraphReport": [
+        BuiltinMember("list", "void", "method", [("ExecutionGraph", "graph")], "list"),
+    ],
+    "Browser": [
+        BuiltinMember("open", "void", "method", [("string", "url")], "open"),
+    ],
     "Path": [
         BuiltinMember("exists", "bool", "method", [("string", "path")], "exists"),
         BuiltinMember("readAll", "string", "method", [("string", "path")], "readAll"),
         BuiltinMember("writeAll", "void", "method", [("string", "path"), ("string", "content")], "writeAll"),
+    ],
+    "JsonText": [
+        BuiltinMember("skipSpaces", "int", "method", [("string", "text"), ("int", "i")], "skipSpaces"),
+        BuiltinMember("keyPosition", "int", "method", [("string", "text"), ("string", "key")], "keyPosition"),
+        BuiltinMember("valueStart", "int", "method", [("string", "text"), ("string", "key")], "valueStart"),
+        BuiltinMember("parseStringValue", "string", "method", [("string", "text"), ("int", "i"), ("string", "fallback")], "parseStringValue"),
+        BuiltinMember("field", "string", "method", [("string", "text"), ("string", "key"), ("string", "fallback")], "field"),
+        BuiltinMember("intField", "int", "method", [("string", "text"), ("string", "key"), ("int", "fallback")], "intField"),
+        BuiltinMember("objectField", "string", "method", [("string", "text"), ("string", "key")], "objectField"),
+        BuiltinMember("stringArray", "Vector<string>", "method", [("string", "text"), ("string", "key")], "stringArray"),
+        BuiltinMember("objectArray", "Vector<string>", "method", [("string", "text"), ("string", "key")], "objectArray"),
+        BuiltinMember("objectMap", "Map<string, string>", "method", [("string", "objectText")], "objectMap"),
+        BuiltinMember("argsObject", "Map<string, string>", "method", [("string", "text")], "argsObject"),
+        BuiltinMember("expand", "string", "method", [("string", "text"), ("Map<string, string>", "args")], "expand"),
+        BuiltinMember("putArgPair", "void", "method", [("Map<string, string>", "result"), ("string", "pair")], "putArgPair"),
+    ],
+    "Json": [
+        BuiltinMember("esc", "string", "method", [("string", "s")], "esc"),
+        BuiltinMember("str", "string", "method", [("string", "s")], "str"),
+        BuiltinMember("getString", "string", "method", [("string", "json"), ("string", "key")], "getString"),
+        BuiltinMember("getStringAfter", "string", "method", [("string", "json"), ("string", "anchor"), ("string", "key")], "getStringAfter"),
+        BuiltinMember("getStringFrom", "string", "method", [("string", "json"), ("string", "key"), ("int", "from")], "getStringFrom"),
     ],
     "Math": [
         BuiltinMember("PI", "float", "method", [], "PI"),
@@ -302,10 +380,59 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("sign", "int", "method", [("int", "x")], "sign"),
         BuiltinMember("fsign", "float", "method", [("float", "x")], "fsign"),
     ],
+    "UnixPattern": [
+        BuiltinMember("matches", "bool", "method", [("string", "pattern"), ("string", "text")], "matches"),
+    ],
+    "Pattern": [
+        BuiltinMember("matches", "bool", "method", [("string", "pattern"), ("string", "text")], "matches"),
+        BuiltinMember("anyMatches", "bool", "method", [("Vector<string>", "patterns"), ("string", "text")], "anyMatches"),
+    ],
+    "UnixPlatform": [
+        BuiltinMember("pid", "int", "method", [], "pid"),
+        BuiltinMember("euid", "int", "method", [], "euid"),
+    ],
+    "Platform": [
+        BuiltinMember("isUnix", "bool", "method", [], "isUnix"),
+        BuiltinMember("isWindows", "bool", "method", [], "isWindows"),
+        BuiltinMember("pathSeparator", "string", "method", [], "pathSeparator"),
+        BuiltinMember("pid", "int", "method", [], "pid"),
+        BuiltinMember("euid", "int", "method", [], "euid"),
+        BuiltinMember("isRoot", "bool", "method", [], "isRoot"),
+    ],
+    "Environment": [
+        BuiltinMember("get", "string", "method", [("string", "name"), ("string", "fallback")], "get"),
+        BuiltinMember("has", "bool", "method", [("string", "name")], "has"),
+    ],
+    "UnixProcess": [
+        BuiltinMember("system", "ProcessStatus", "method", [("string", "command")], "system"),
+        BuiltinMember("pipe", "UnixPipe", "method", [("string", "command")], "pipe"),
+    ],
+    "ShellWords": [
+        BuiltinMember("isEnvNameStart", "bool", "method", [("char", "c")], "isEnvNameStart"),
+        BuiltinMember("isEnvNameChar", "bool", "method", [("char", "c")], "isEnvNameChar"),
+        BuiltinMember("isEnvName", "bool", "method", [("string", "name")], "isEnvName"),
+        BuiltinMember("isSafeArgChar", "bool", "method", [("char", "c")], "isSafeArgChar"),
+        BuiltinMember("isSafeArg", "bool", "method", [("string", "raw")], "isSafeArg"),
+        BuiltinMember("quote", "string", "method", [("string", "raw")], "quote"),
+        BuiltinMember("redact", "string", "method", [("string", "text"), ("string", "sensitive")], "redact"),
+        BuiltinMember("envAssignment", "string", "method", [("string", "item")], "envAssignment"),
+    ],
+    "CommandOutput": [
+        BuiltinMember("collect", "string", "method", [], "collect"),
+        BuiltinMember("stream", "string", "method", [], "stream"),
+        BuiltinMember("combine", "string", "method", [], "combine"),
+        BuiltinMember("suppress", "string", "method", [], "suppress"),
+        BuiltinMember("valid", "bool", "method", [("string", "mode")], "valid"),
+    ],
+    "CommandEnvironment": [
+        BuiltinMember("empty", "Vector<string>", "method", [], "empty"),
+    ],
     "Strings": [
+        BuiltinMember("copy", "string", "method", [("string", "s")], "copy"),
         BuiltinMember("repeat", "string", "method", [("string", "s"), ("int", "count")], "repeat"),
         BuiltinMember("join", "string", "method", [("Vector<string>", "items"), ("string", "sep")], "join"),
         BuiltinMember("replace", "string", "method", [("string", "s"), ("string", "old"), ("string", "replacement")], "replace"),
+        BuiltinMember("split", "Vector<string>", "method", [("string", "s"), ("string", "delim")], "split"),
         BuiltinMember("isDigit", "bool", "method", [("char", "c")], "isDigit"),
         BuiltinMember("isAlpha", "bool", "method", [("char", "c")], "isAlpha"),
         BuiltinMember("isAlnum", "bool", "method", [("char", "c")], "isAlnum"),
@@ -315,6 +442,8 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("count", "int", "method", [("string", "s"), ("string", "sub")], "count"),
         BuiltinMember("find", "int", "method", [("string", "s"), ("string", "sub"), ("int", "start")], "find"),
         BuiltinMember("rfind", "int", "method", [("string", "s"), ("string", "sub")], "rfind"),
+        BuiltinMember("compare", "int", "method", [("string", "left"), ("string", "right")], "compare"),
+        BuiltinMember("lessThan", "bool", "method", [("string", "left"), ("string", "right")], "lessThan"),
         BuiltinMember("capitalize", "string", "method", [("string", "s")], "capitalize"),
         BuiltinMember("title", "string", "method", [("string", "s")], "title"),
         BuiltinMember("swapCase", "string", "method", [("string", "s")], "swapCase"),
@@ -323,11 +452,62 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("center", "string", "method", [("string", "s"), ("int", "width"), ("char", "fill")], "center"),
         BuiltinMember("lstrip", "string", "method", [("string", "s")], "lstrip"),
         BuiltinMember("rstrip", "string", "method", [("string", "s")], "rstrip"),
+        BuiltinMember("removePrefix", "string", "method", [("string", "s"), ("string", "prefix")], "removePrefix"),
         BuiltinMember("fromInt", "string", "method", [("int", "n")], "fromInt"),
         BuiltinMember("fromFloat", "string", "method", [("float", "f")], "fromFloat"),
         BuiltinMember("isDigitStr", "bool", "method", [("string", "s")], "isDigitStr"),
         BuiltinMember("isAlphaStr", "bool", "method", [("string", "s")], "isAlphaStr"),
         BuiltinMember("isBlank", "bool", "method", [("string", "s")], "isBlank"),
+    ],
+    "Terminal": [
+        BuiltinMember("readLine", "string", "method", [], "readLine"),
+        BuiltinMember("prompt", "string", "method", [("string", "label")], "prompt"),
+        BuiltinMember("promptPassword", "string", "method", [("string", "label")], "promptPassword"),
+    ],
+    "UnixPamPassword": [
+        BuiltinMember("change", "bool", "method", [("string", "user"), ("string", "oldPassword"), ("string", "newPassword")], "change"),
+    ],
+    "Toml": [
+        BuiltinMember("stripInlineComment", "string", "method", [("string", "raw")], "stripInlineComment"),
+        BuiltinMember("unquote", "string", "method", [("string", "raw")], "unquote"),
+        BuiltinMember("key", "string", "method", [("string", "line")], "key"),
+        BuiltinMember("value", "string", "method", [("string", "line")], "value"),
+        BuiltinMember("sectionName", "string", "method", [("string", "line")], "sectionName"),
+        BuiltinMember("tableArrayName", "string", "method", [("string", "line")], "tableArrayName"),
+        BuiltinMember("sectionMap", "Map<string, string>", "method", [("string", "content"), ("string", "section")], "sectionMap"),
+        BuiltinMember("tableArrayBlocks", "Vector<Map<string, string>>", "method", [("string", "content"), ("string", "table")], "tableArrayBlocks"),
+    ],
+    "Html": [
+        BuiltinMember("escape", "string", "method", [("string", "raw")], "escape"),
+    ],
+    "LinuxUiBuilder": [
+        BuiltinMember("html", "HtmlUiBackend", "method", [], "html"),
+        BuiltinMember("native", "NativeUiBackend", "method", [], "native"),
+    ],
+    "MacUiBuilder": [
+        BuiltinMember("html", "HtmlUiBackend", "method", [], "html"),
+        BuiltinMember("native", "NativeUiBackend", "method", [], "native"),
+    ],
+    "WindowsUiBuilder": [
+        BuiltinMember("html", "HtmlUiBackend", "method", [], "html"),
+        BuiltinMember("native", "NativeUiBackend", "method", [], "native"),
+    ],
+    "Ui": [
+        BuiltinMember("node", "UiNode", "method", [("string", "tag")], "node"),
+        BuiltinMember("text", "UiNode", "method", [("string", "value")], "text"),
+        BuiltinMember("rawHtml", "UiNode", "method", [("string", "value")], "rawHtml"),
+        BuiltinMember("div", "UiNode", "method", [], "div"),
+        BuiltinMember("button", "UiNode", "method", [("string", "label")], "button"),
+        BuiltinMember("input", "UiNode", "method", [("string", "name"), ("string", "value")], "input"),
+        BuiltinMember("document", "UiDocument", "method", [("string", "title"), ("UiNode", "body")], "document"),
+    ],
+    "NativeUi": [
+        BuiltinMember("applescriptString", "string", "method", [("string", "raw")], "applescriptString"),
+        BuiltinMember("detect", "NativeUiBackend", "method", [], "detect"),
+    ],
+    "UiRuntime": [
+        BuiltinMember("runCommandAsync", "Thread<int>", "method", [("Command", "command")], "runCommandAsync"),
+        BuiltinMember("notifyAsync", "Thread<int>", "method", [("NativeUiBackend", "backend"), ("string", "title"), ("string", "body")], "notifyAsync"),
     ],
 }
 
@@ -382,6 +562,11 @@ def get_signature_params(
     if m is None or m.kind == "field":
         return None
     return m.params
+
+
+def get_stdlib_methods(class_name: str) -> Optional[list[BuiltinMember]]:
+    """Return the list of static methods for a stdlib class, or None."""
+    return STDLIB_STATIC_METHODS.get(class_name)
 
 
 def get_stdlib_signature(
