@@ -289,44 +289,44 @@ class HttpClient {
 
     public HttpClientResponse request(string method, string url,
                                       Vector<string> headers, string body) {
-        string dir = FileSystem.tempDir("btrchttp");
+        var dir = FileSystem.tempDir("btrchttp");
         if (dir.isEmpty()) {
             return HttpClientResponse(0, "", "could not create temp dir");
         }
-        string outFile = PathTools.join(dir, "resp.bin");
-        string bodyFile = PathTools.join(dir, "req.bin");
-        bool hasBody = !body.isEmpty();
+        var outFile = PathTools.join(dir, "resp.bin");
+        var bodyFile = PathTools.join(dir, "req.bin");
+        var hasBody = !body.isEmpty();
         if (hasBody) {
             FileSystem.writeText(bodyFile, body);
         }
 
-        var cmd = Command("curl")
+        var command = Command("curl")
             .arg("-sS")
             .arg("--max-time").arg(Strings.fromInt(self.timeoutSecs))
             .arg("-X").arg(method)
             .arg("-o").arg(outFile)
             .arg("-w").arg("%{http_code}");
         for h in headers {
-            cmd.arg("-H").arg(h);
+            command.arg("-H").arg(h);
         }
         if (hasBody) {
-            cmd.arg("--data-binary").arg("@" + bodyFile);
+            command.arg("--data-binary").arg("@" + bodyFile);
         }
-        cmd.arg(url);
+        command.arg(url);
 
-        var result = UnixShell().run(cmd, stderr=CommandOutput.stream(), logFailure=false);
-        int status = Strings.toInt(result.stdout().trim());
+        var result = UnixShell().run(command, stderr=CommandOutput.stream(), logFailure=false);
+        var status = Strings.toInt(result.stdout().trim());
 
-        string respBody = "";
+        var responseBody = "";
         if (FileSystem.exists(outFile)) {
-            respBody = FileSystem.readText(outFile);
+            responseBody = FileSystem.readText(outFile);
         }
-        string err = "";
+        var error = "";
         if (status == 0) {
-            err = f"curl failed (exit {result.code})";
+            error = f"curl failed (exit {result.code})";
         }
         FileSystem.removeRecursive(dir);
-        return HttpClientResponse(status, respBody, err);
+        return HttpClientResponse(status, responseBody, error);
     }
 
     public HttpClientResponse post(string url, Vector<string> headers, string body) {
@@ -338,18 +338,16 @@ class HttpClient {
     }
 }
 
-/* Open a URL (or file) in the platform's default browser — handy for serving a
- * local web UI and popping it open as a desktop-feeling app. */
 class Browser {
     class void open(string url) {
         var u = UnixShell().run("uname -s", logFailure=false);
-        string kernel = u.stdout().trim();
-        string opener = "xdg-open";
+        var kernel = u.stdout().trim();
+        var opener = "xdg-open";
         if (kernel.equals("Darwin")) { opener = "open"; }
         if (kernel.contains("MINGW") || kernel.contains("MSYS") || kernel.contains("CYGWIN")) {
             opener = "start";
         }
-        var cmd = Command(opener).arg(url);
-        UnixShell().run(cmd, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
+        var command = Command(opener).arg(url);
+        UnixShell().run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
     }
 }
