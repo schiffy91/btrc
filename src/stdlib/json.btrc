@@ -324,6 +324,26 @@ class JsonText {
         return "";
     }
 
+    class string objectPath(string text, Vector<string> path) {
+        var current = text;
+        for key in path {
+            current = JsonText.objectField(current, key);
+            if (current.isEmpty()) { return ""; }
+        }
+        return current;
+    }
+
+    class string fieldPath(string text, Vector<string> path, string fallback) {
+        if (path.len == 0) { return fallback; }
+        if (path.len == 1) { return JsonText.field(text, path.get(0), fallback); }
+        var current = text;
+        for (int i = 0; i + 1 < path.len; i++) {
+            current = JsonText.objectField(current, path.get(i));
+            if (current.isEmpty()) { return fallback; }
+        }
+        return JsonText.field(current, path.get(path.len - 1), fallback);
+    }
+
     class Vector<string> stringArray(string text, string key) {
         Vector<string> result = [];
         int i = JsonText.valueStart(text, key);
