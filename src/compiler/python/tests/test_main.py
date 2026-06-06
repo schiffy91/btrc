@@ -114,13 +114,6 @@ def test_no_stdlib(tmp_path, monkeypatch, capsys):
     assert os.path.exists(tmp_path / "n.c")
 
 
-def test_no_runtime(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
-    src = write(tmp_path / "nr.btrc", BARE)
-    run_main(monkeypatch, [src, "--no-runtime", "-o", str(tmp_path / "nr.c")])
-    assert os.path.exists(tmp_path / "nr.c")
-
-
 def test_debug_line_directives(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "dbg.btrc", HELLO)

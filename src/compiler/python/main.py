@@ -162,8 +162,6 @@ def main():
     argparser.add_argument("-o", "--output", help="Output .c file (default: <input>.c)")
     argparser.add_argument("--emit-tokens", action="store_true", help="Print token stream")
     argparser.add_argument("--emit-ast", action="store_true", help="Print AST")
-    argparser.add_argument("--no-runtime", action="store_true",
-                           help="Don't include runtime headers in output")
     argparser.add_argument("--no-stdlib", action="store_true",
                            help="Don't auto-include stdlib .btrc files; use explicit includes only")
     argparser.add_argument("--strict-imports", action="store_true",
