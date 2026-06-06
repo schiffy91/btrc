@@ -44,6 +44,10 @@ int main() {
     assert(JsonText.objectPath(nested, ["args"]).contains("\"name\""));
     assert(JsonText.fieldPath(nested, ["args", "name"], "?").equals("arg"));
     assert(JsonText.fieldPath(nested, ["missing", "name"], "?").equals("?"));
+    assert(Json.str("a\"b\\c").equals("\"a\\\"b\\\\c\""));
+    assert(Json.getString("{\"content\":\"hi\\nthere\"}", "content").equals("hi\nthere"));
+    assert(Json.getStringAfter("{\"message\":{\"content\":\"nested\"}}", "message", "content").equals("nested"));
+    assert(Json.getString("{\"content\": false}", "content").equals(""));
 
     print("PASS: test_stdlib_json");
     return 0;

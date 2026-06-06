@@ -294,9 +294,9 @@ class UnixShell {
 
     public string tempPath(string name) {
         self.tempId++;
-        string base = Environment.get("TMPDIR", "/tmp");
-        string separator = base.endsWith("/") ? "" : "/";
-        string templatePath = f"{base}{separator}btrc-process-{Platform.pid()}-{self.tempId}.{name}.XXXXXX";
+        var base = Environment.get("TMPDIR", "/tmp");
+        var separator = base.endsWith("/") ? "" : "/";
+        var templatePath = f"{base}{separator}btrc-process-{Platform.pid()}-{self.tempId}.{name}.XXXXXX";
         char* raw = Strings.copy(templatePath);
         int fd = mkstemp(raw);
         if (fd < 0) { return ""; }

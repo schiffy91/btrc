@@ -1,24 +1,11 @@
-/* btrc standard library — JSON helpers (escaping + value extraction).
- *
- * Complements the flat JsonObject: `Json.str` builds escaped JSON string
- * literals for hand-assembling payloads, and `Json.getString*` scans a string
- * value out of an arbitrarily nested JSON document (handles escapes). Auto-included.
- */
-
+import std.json;
 import std.strings;
 
 class Json {
     class string esc(string s) {
-        if (s == null) { return ""; }
-        string r = Strings.replace(s, "\\", "\\\\");
-        r = Strings.replace(r, "\"", "\\\"");
-        r = Strings.replace(r, "\n", "\\n");
-        r = Strings.replace(r, "\r", "\\r");
-        r = Strings.replace(r, "\t", "\\t");
-        return r;
+        return JsonObject.escape(s);
     }
 
-    /* A quoted, escaped JSON string literal. */
     class string str(string s) {
         return "\"" + Json.esc(s) + "\"";
     }
@@ -27,47 +14,22 @@ class Json {
         return Json.getStringFrom(json, key, 0);
     }
 
-    /* Find `anchor` first, then the next occurrence of `key` after it. Useful
-     * for nested responses, e.g. anchor "message" then key "content". */
     class string getStringAfter(string json, string anchor, string key) {
-        int a = Strings.find(json, anchor, 0);
-        if (a < 0) { return ""; }
-        return Json.getStringFrom(json, key, a);
+        var anchorPosition = Strings.find(json, anchor, 0);
+        if (anchorPosition < 0) { return ""; }
+        return Json.getStringFrom(json, key, anchorPosition);
     }
 
     class string getStringFrom(string json, string key, int from) {
-        string needle = "\"" + key + "\"";
-        int k = Strings.find(json, needle, from);
-        if (k < 0) { return ""; }
-        int i = k + needle.len();
-        int len = json.len();
-        while (i < len && (json[i] == ' ' || json[i] == ':' || json[i] == '\t' || json[i] == '\n' || json[i] == '\r')) {
-            i++;
-        }
-        if (i >= len || json[i] != '"') { return ""; }
+        var needle = "\"" + key + "\"";
+        var keyPosition = Strings.find(json, needle, from);
+        if (keyPosition < 0) { return ""; }
+        var i = JsonText.skipSpaces(json, keyPosition + needle.len());
+        if (i >= json.len() || json[i] != ':') { return ""; }
+        i = JsonText.skipSpaces(json, i + 1);
+        if (i >= json.len() || json[i] != (char)34) { return ""; }
         i++;
-        string out = "";
-        while (i < len) {
-            char c = json[i];
-            if (c == '\\') {
-                i++;
-                if (i >= len) { break; }
-                char n = json[i];
-                if (n == 'n') { out = out + "\n"; }
-                else if (n == 'r') { out = out + "\r"; }
-                else if (n == 't') { out = out + "\t"; }
-                else if (n == '"') { out = out + "\""; }
-                else if (n == '\\') { out = out + "\\"; }
-                else if (n == '/') { out = out + "/"; }
-                else { out = out + json.substring(i, 1); }
-                i++;
-            } else if (c == '"') {
-                break;
-            } else {
-                out = out + json.substring(i, 1);
-                i++;
-            }
-        }
-        return out;
+        var end = JsonText.stringEnd(json, i);
+        return JsonText.unescape(JsonText.slice(json, i, end));
     }
 }

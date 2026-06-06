@@ -154,8 +154,8 @@ class UnixFileSystem {
     }
 
     class string tempDir(string prefix) {
-        string base = Environment.get("TMPDIR", "/tmp");
-        string templatePath = PathTools.join(base, prefix + ".XXXXXX");
+        var base = Environment.get("TMPDIR", "/tmp");
+        var templatePath = PathTools.join(base, prefix + ".XXXXXX");
         char* raw = Strings.copy(templatePath);
         char* result = mkdtemp(raw);
         if (result == NULL) { return ""; }
