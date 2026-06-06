@@ -102,11 +102,11 @@ class CliCommandLine {
     }
 
     class CliCommandLine parseFrom(CliArgs args, int startIndex) {
-        CliCommandLine parsed = CliCommandLine();
-        bool operandsOnly = false;
-        int index = startIndex;
+        var parsed = CliCommandLine();
+        var operandsOnly = false;
+        var index = startIndex;
         while (index < args.count()) {
-            string value = args.get(index);
+            var value = args.get(index);
             if (operandsOnly) {
                 parsed.operands.push(value);
                 index++;
@@ -118,10 +118,10 @@ class CliCommandLine {
                 continue;
             }
             if (value.startsWith("--")) {
-                int split = Strings.find(value, "=", 0);
+                var split = Strings.find(value, "=", 0);
                 if (split >= 0) {
-                    string name = value.substring(0, split);
-                    string optionValue = value.substring(split + 1, value.len() - split - 1);
+                    var name = value.substring(0, split);
+                    var optionValue = value.substring(split + 1, value.len() - split - 1);
                     parsed.addOption(name, optionValue);
                     index++;
                     continue;
@@ -229,18 +229,18 @@ class CliHelp {
         if (signature.len() >= self.width) {
             self.line(f"  {signature}");
             if (!description.isEmpty()) {
-                string indent = self.padding();
+                var indent = self.padding();
                 self.line(f"{indent}{description}");
             }
             return self;
         }
-        string padded = Strings.padRight(signature, self.width, ' ');
+        var padded = Strings.padRight(signature, self.width, ' ');
         self.line(f"  {padded}{description}");
         return self;
     }
 
     public CliHelp continuation(string text) {
-        string indent = self.padding();
+        var indent = self.padding();
         self.line(f"{indent}{text}");
         return self;
     }
