@@ -8,7 +8,7 @@ int main(int argc, char** argv) {
 
     ProcessStatus okStatus = ProcessStatus(0);
     assert(okStatus.ok());
-    ProcessStatus failedStatus = ProcessStatus(7);
+    ProcessStatus failedStatus = ProcessStatus(1792);
     assert(failedStatus.code() == 7);
     assert(!failedStatus.ok());
 
@@ -55,6 +55,9 @@ int main(int argc, char** argv) {
     ExecResult failed = shell.run("exit 7", logFailure=false);
     assert(!failed.ok());
     assert(failed.code == 7);
+    ExecResult killed = shell.run("kill -TERM $$", logFailure=false);
+    assert(!killed.ok());
+    assert(killed.code == 143);
 
     PowerShell ps = PowerShell();
     ExecResult unsupported = ps.run("Write-Output nope");

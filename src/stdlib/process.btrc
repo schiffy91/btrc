@@ -28,7 +28,8 @@ class ProcessStatus {
 
     public int code() {
         if (self.raw == -1) { return 127; }
-        if (self.raw > 255) { return self.raw / 256; }
+        if (WIFEXITED(self.raw)) { return WEXITSTATUS(self.raw); }
+        if (WIFSIGNALED(self.raw)) { return 128 + WTERMSIG(self.raw); }
         return self.raw;
     }
 
