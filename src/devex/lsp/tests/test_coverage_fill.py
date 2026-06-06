@@ -5,9 +5,9 @@ class-name completion, builtin-member hover, and references edge cases."""
 from src.devex.lsp.completion import get_completions
 from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.references import get_references, prepare_rename
-from src.devex.lsp.semantic_tokens import TOKEN_TYPES, get_semantic_tokens
+from src.devex.lsp.semantic_tokens import get_semantic_tokens
 from src.devex.lsp.symbols import get_document_symbols
-from src.devex.lsp.tests.lsphelp import analyze, hover_text, pos_of
+from src.devex.lsp.tests.lsphelp import analyze, decoded_semantic_tokens, hover_text, pos_of
 
 # Source exercising struct / typedef / generic class / inheritance.
 TYPES = """\
@@ -37,19 +37,6 @@ int main() {
     return d + alias;
 }
 """
-
-
-def decoded_semantic_tokens(source, data):
-    line = 0
-    col = 0
-    lines = source.split("\n")
-    decoded = []
-    for i in range(0, len(data), 5):
-        delta_line, delta_col, length, token_type, modifiers = data[i:i + 5]
-        line += delta_line
-        col = col + delta_col if delta_line == 0 else delta_col
-        decoded.append((lines[line][col:col + length], TOKEN_TYPES[token_type], modifiers))
-    return decoded
 
 
 def test_semantic_tokens_struct_generic_typedef():

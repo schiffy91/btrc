@@ -7,6 +7,7 @@ compiler front-end the server uses, then assert concrete positions/strings.
 from lsprotocol import types as lsp
 
 from src.devex.lsp.diagnostics import compute_diagnostics
+from src.devex.lsp.semantic_tokens import TOKEN_TYPES
 
 # A small well-formed program covering the symbol kinds features must handle.
 SAMPLE = """\
@@ -45,6 +46,25 @@ def hover_text(hover) -> str:
     if isinstance(c, list):
         return " ".join(getattr(x, "value", str(x)) for x in c)
     return str(c)
+
+
+def decoded_semantic_tokens(source: str, data: list[int], with_position: bool = False):
+    line = 0
+    col = 0
+    lines = source.split("\n")
+    decoded = []
+    for i in range(0, len(data), 5):
+        delta_line, delta_col, length, token_type, modifiers = data[i:i + 5]
+        line += delta_line
+        col = col + delta_col if delta_line == 0 else delta_col
+        assert line < len(lines)
+        token = lines[line][col:col + length]
+        kind = TOKEN_TYPES[token_type]
+        if with_position:
+            decoded.append((line, col, token, kind, modifiers))
+        else:
+            decoded.append((token, kind, modifiers))
+    return decoded
 
 
 def pos_of(source: str, needle: str, occurrence: int = 1, offset: int = 0) -> lsp.Position:

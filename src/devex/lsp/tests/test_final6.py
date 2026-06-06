@@ -9,7 +9,7 @@ from lsprotocol import types as lsp
 from src.devex.lsp.completion import get_completions
 from src.devex.lsp.semantic_tokens import get_semantic_tokens
 from src.devex.lsp.signature_help import get_signature_help
-from src.devex.lsp.tests.lsphelp import SAMPLE, analyze, pos_of
+from src.devex.lsp.tests.lsphelp import SAMPLE, analyze, decoded_semantic_tokens, pos_of
 
 srv = importlib.import_module("src.devex.lsp.server")
 URI = "file:///t.btrc"
@@ -19,12 +19,16 @@ def test_semantic_tokens_new_constructor_and_generic():
     src = ("enum Color { RED, GREEN };\n"
            "class Box<T> { public T v; public Box(T v) { self.v = v; } }\n"
            "int main() {\n"
-           "    Box<int> b = new Box(5);\n"   # `new Box` and `Box(` → type tokens
+           "    Box<int> b = new Box(5);\n"
            "    Color c = RED;\n"
            "    return 0;\n"
            "}\n")
     toks = get_semantic_tokens(analyze(src))
     assert toks is not None and len(toks.data) > 0
+    decoded = decoded_semantic_tokens(src, toks.data)
+    assert ("Box", "type", 0) in decoded
+    assert ("Color", "type", 0) in decoded
+    assert ("RED", "enumMember", 0) in decoded
 
 
 def test_completion_stdlib_class_dedup():

@@ -139,34 +139,23 @@ class SemanticTokenCollector:
         name = tok.value
 
         if tok.type == TokenType.IDENT:
-            # Check context: what comes before and after this token?
             prev = self.tokens[idx - 1] if idx > 0 else None
             next_tok = self.tokens[idx + 1] if idx + 1 < len(self.tokens) else None
 
-            # Member access: preceded by . or -> or ?.
             if prev and prev.value in (".", "->", "?."):
-                # Is it a method call? (followed by '(')
                 if next_tok and next_tok.value == "(":
                     self._add(tok, "method")
                 else:
                     self._add(tok, "property")
                 return
 
-            # Constructor call: preceded by 'new'
-            if prev and prev.type == TokenType.NEW and name in self.class_names:
-                self._add(tok, "type")
-                return
-
-            # Class name used as type (in declarations, extends, generics)
             if name in self.class_names:
-                # Check if this is the class declaration itself
                 if prev and prev.type == TokenType.CLASS:
                     self._add(tok, "class", "declaration")
                 else:
                     self._add(tok, "type")
                 return
 
-            # Enum name
             if name in self.enum_names:
                 if prev and prev.type == TokenType.ENUM:
                     self._add(tok, "enum", "declaration")
@@ -178,11 +167,10 @@ class SemanticTokenCollector:
             if name in self.struct_names:
                 if prev and prev.type == TokenType.STRUCT:
                     self._add(tok, "struct", "declaration")
-                else:  # pragma: no cover - btrc requires the `struct` keyword at every struct-type usage, so a struct name never appears without a preceding STRUCT token
+                else:
                     self._add(tok, "type")
                 return
 
-            # Generic type parameter (T, K, V, etc.)
             if name in self.generic_params:
                 self._add(tok, "typeParameter")
                 return
@@ -195,24 +183,13 @@ class SemanticTokenCollector:
                 self._add(tok, "enumMember")
                 return
 
-            # Function call: followed by '('
             if next_tok and next_tok.value == "(":
                 if name in self.function_names:
                     self._add(tok, "function")
                     return
-                # Could be a constructor call for a class.
-                # Unreachable: any class name is already classified by the
-                # `name in self.class_names` branch above, which returns before
-                # control can fall through to this point.
-                if name in self.class_names:  # pragma: no cover
-                    self._add(tok, "type")
-                    return
-                # Unknown function call (built-in like print, range, etc.)
                 self._add(tok, "function", "defaultLibrary")
                 return
 
-            # Function declaration: return_type IDENT (
-            # Already handled by TextMate grammar mostly, skip
             if name in self.variable_names:
                 self._add(tok, "variable")
                 return
