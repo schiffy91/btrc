@@ -78,11 +78,8 @@ def _classify_symbol(
                         return ("method", target_class, name)
                     if name in cinfo.fields:
                         return ("field", target_class, name)
-                    # Parent chain — defensive only: the analyzer flattens
-                    # inherited members into each subclass's methods/fields, so
-                    # the direct checks above already match inherited members.
-                    parent = cinfo.parent  # pragma: no cover
-                    while parent and parent in class_table:  # pragma: no cover
+                    parent = cinfo.parent
+                    while parent and parent in class_table:
                         pc = class_table[parent]
                         if name in pc.methods:
                             return ("method", parent, name)
