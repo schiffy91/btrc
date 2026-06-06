@@ -421,13 +421,6 @@ def _try_member_definition(
     member_name = token.value
 
     target_class = resolve_chain_type(result, tokens, token_idx - 2, class_table)
-
-    if target_class is None:
-        for cname, cinfo in class_table.items():
-            if member_name in cinfo.methods or member_name in cinfo.fields:
-                target_class = cname
-                break
-
     if target_class is None:
         return None
 

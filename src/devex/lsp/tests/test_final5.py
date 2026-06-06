@@ -1,12 +1,12 @@
-"""More reachable edge paths: member hover/definition on an unresolvable
-receiver (scan-all-classes fallback), constructor and builtin signatures."""
+"""More reachable edge paths: unresolved member receivers, constructors,
+and builtin signatures."""
 
 from src.devex.lsp.definition import get_definition
 from src.devex.lsp.signature_help import get_signature_help
 from src.devex.lsp.tests.lsphelp import analyze, pos_of
 
-# `x` is undefined, so its type can't be resolved — but getX exists on Point,
-# exercising the "scan every class for the member" fallback.
+# `x` is undefined, so its type can't be resolved. Cmd-click should not guess
+# that Point.getX is the target just because the member name matches.
 UNRESOLVED = ("class Point {\n"
               "    public int x;\n"
               "    public Point(int x) { self.x = x; }\n"
@@ -17,7 +17,7 @@ UNRESOLVED = ("class Point {\n"
 
 def test_definition_member_on_unresolvable_receiver():
     loc = get_definition(analyze(UNRESOLVED), pos_of(UNRESOLVED, "x.getX", offset=2))
-    assert loc is None or loc.range.start.line == 3   # Point.getX
+    assert loc is None
 
 
 def test_constructor_signature_with_params():

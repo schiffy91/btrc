@@ -27,6 +27,14 @@ int main() {
     e.setString("path", "a\"b\\c");
     JsonObject q = JsonObject.parse(e.stringify());
     assert(strcmp(q.getString("path", "?"), "a\"b\\c") == 0);
+    e.setString("control", "a\tb\rc");
+    JsonObject controls = JsonObject.parse(e.stringify());
+    assert(strcmp(controls.getString("control", "?"), "a\tb\rc") == 0);
+    assert(controls.stringify().contains("\\t"));
+    assert(controls.stringify().contains("\\r"));
+    assert(JsonObject.parse("{\"n\":\"oops\"}").getInt("n", -7) == -7);
+    assert(JsonText.intField("{\"n\":\"\"}", "n", -8) == -8);
+    assert(JsonText.intField("{\"n\":\"oops\"}", "n", -9) == -9);
 
     string nested = "{\"nodes\":[{\"name\":\"inner\",\"args\":{\"state\":\"nested\"}}],\"name\":\"outer\",\"args\":{\"name\":\"arg\"},\"default\":[\"final\"]}";
     assert(JsonText.field(nested, "name", "?").equals("outer"));

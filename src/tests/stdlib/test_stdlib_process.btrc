@@ -8,6 +8,10 @@ string rendered(Command command) {
 int main() {
     UnixShell sh = UnixShell();
     assert(sh.run("printf '  hi  '", logFailure=false).trimmed().equals("hi"));
+    assert(ProcessStatus(0).ok());
+    assert(UnixProcess.system("exit 7").code() == 7);
+    assert(!UnixProcess.system("exit 7").ok());
+    assert(UnixProcess.system("kill -TERM $$").code() == 143);
     assert(Command("printf direct").render().equals("printf direct"));
     string commandText = Command("printf direct");
     assert(commandText.equals("printf direct"));
@@ -17,6 +21,8 @@ int main() {
     assert(sh.run(Command("printf").arg("world")).trimmed().equals("world"));
     assert(sh.run("printf 'x'").trimmed().equals("x"));
     assert(sh.run("false", logFailure=false).code == 1);
+    assert(sh.run("exit 7", logFailure=false).code == 7);
+    assert(sh.run("kill -TERM $$", logFailure=false).code == 143);
     assert(sh.run("printf 'quiet'", stdout=CommandOutput.stream(), stderr=CommandOutput.stream()).code == 0);
     assert(sh.run("printf 'err' >&2", stderr=CommandOutput.collect()).stderr().equals("err"));
     assert(sh.run("printf 'raw'", logFailure=true).trimmed().equals("raw"));

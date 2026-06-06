@@ -245,12 +245,11 @@ def test_hover_member_near_file_start_is_none():
     assert get_hover_info(_lexonly(".field"), pos_of(".field", "field")) is None
 
 
-def test_hover_member_on_unresolved_receiver_scans_classes():
+def test_hover_member_on_unresolved_receiver_is_none():
     src = ("class Point { public int x; public Point() { self.x = 0; }\n"
            "              public int getX() { return self.x; } }\n"
            "int main() { return mystery.getX(); }\n")
-    t = hover_text(get_hover_info(analyze(src), pos_of(src, "mystery.getX", offset=8)))
-    assert "getX" in t or t == ""
+    assert get_hover_info(analyze(src), pos_of(src, "mystery.getX", offset=8)) is None
 
 
 def test_hover_unknown_member_returns_none():

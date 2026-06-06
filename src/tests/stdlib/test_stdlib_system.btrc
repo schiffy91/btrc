@@ -6,12 +6,6 @@ int main(int argc, char** argv) {
     assert(UnixPlatform.pid() == Platform.pid());
     assert(Environment.get("__BTRC_TEST_MISSING__", "fallback").equals("fallback"));
 
-    ProcessStatus okStatus = ProcessStatus(0);
-    assert(okStatus.ok());
-    ProcessStatus failedStatus = ProcessStatus(1792);
-    assert(failedStatus.code() == 7);
-    assert(!failedStatus.ok());
-
     assert(UnixShell.quote("simple").equals("simple"));
     string quoted = UnixShell.quote("hello world");
     assert(quoted.equals("'hello world'"));
@@ -51,13 +45,6 @@ int main(int argc, char** argv) {
         envRejected = 1;
     }
     assert(envRejected == 1);
-
-    ExecResult failed = shell.run("exit 7", logFailure=false);
-    assert(!failed.ok());
-    assert(failed.code == 7);
-    ExecResult killed = shell.run("kill -TERM $$", logFailure=false);
-    assert(!killed.ok());
-    assert(killed.code == 143);
 
     PowerShell ps = PowerShell();
     ExecResult unsupported = ps.run("Write-Output nope");

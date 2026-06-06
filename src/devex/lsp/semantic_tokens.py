@@ -15,7 +15,9 @@ from lsprotocol import types as lsp
 from src.compiler.python.ast_nodes import (
     ClassDecl,
     EnumDecl,
+    RichEnumDecl,
     StructDecl,
+    TypedefDecl,
 )
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
@@ -94,7 +96,9 @@ class SemanticTokenCollector:
         self.class_names: set[str] = set(self.class_table.keys())
         self.function_names: set[str] = set(self.function_table.keys())
         self.enum_names: set[str] = set()
+        self.enum_member_names: set[str] = set()
         self.struct_names: set[str] = set()
+        self.typedef_names: set[str] = set()
         self.generic_params: set[str] = set()
         self.variable_names: set[str] = set()
 
@@ -104,8 +108,16 @@ class SemanticTokenCollector:
             for decl in self.ast.declarations:
                 if isinstance(decl, EnumDecl):
                     self.enum_names.add(decl.name)
+                    for value in decl.values:
+                        self.enum_member_names.add(value.name)
+                elif isinstance(decl, RichEnumDecl):
+                    self.enum_names.add(decl.name)
+                    for variant in decl.variants:
+                        self.enum_member_names.add(variant.name)
                 elif isinstance(decl, StructDecl):
                     self.struct_names.add(decl.name)
+                elif isinstance(decl, TypedefDecl):
+                    self.typedef_names.add(decl.alias)
                 elif isinstance(decl, ClassDecl):
                     for gp in decl.generic_params:
                         self.generic_params.add(gp)
@@ -173,6 +185,14 @@ class SemanticTokenCollector:
             # Generic type parameter (T, K, V, etc.)
             if name in self.generic_params:
                 self._add(tok, "typeParameter")
+                return
+
+            if name in self.typedef_names:
+                self._add(tok, "type")
+                return
+
+            if name in self.enum_member_names:
+                self._add(tok, "enumMember")
                 return
 
             # Function call: followed by '('

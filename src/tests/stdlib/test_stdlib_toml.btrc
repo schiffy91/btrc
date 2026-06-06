@@ -9,6 +9,8 @@ int main() {
     assert(displays.getOrDefault("DP-1", "").equals("Left"));
     assert(displays.getOrDefault("HDMI-1", "").equals("Right"));
     assert(displays.getOrDefault("missing", "fallback").equals("fallback"));
+    assert(Toml.value("token = 'a#b' # ok").equals("a#b"));
+    assert(Toml.value("token = \"a#b\" # ok").equals("a#b"));
 
     // tableArrayBlocks: one map per [[layout]] occurrence, in order.
     Vector<Map<string, string>> layout = Toml.tableArrayBlocks(doc, "layout");

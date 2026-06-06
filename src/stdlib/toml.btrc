@@ -11,18 +11,24 @@ class Toml {
     class string stripInlineComment(string raw) {
         bool inString = false;
         bool escaped = false;
+        char quote = (char)0;
         int len = raw.len();
         for (int i = 0; i < len; i++) {
             char c = raw[i];
             if (inString) {
-                if (!escaped && c == (char)34) { inString = false; }
+                if (quote == (char)39) {
+                    if (c == quote) { inString = false; }
+                    continue;
+                }
+                if (!escaped && c == quote) { inString = false; }
                 escaped = !escaped && c == '\\';
                 if (c != '\\') { escaped = false; }
                 continue;
             }
-            if (c == (char)34) {
+            if (c == (char)34 || c == (char)39) {
                 inString = true;
                 escaped = false;
+                quote = c;
                 continue;
             }
             if (c == '#') {

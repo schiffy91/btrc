@@ -22,6 +22,8 @@ class JsonObject {
         string escaped = Strings.replace(text, "\\", "\\\\");
         escaped = Strings.replace(escaped, "\"", "\\\"");
         escaped = Strings.replace(escaped, "\n", "\\n");
+        escaped = Strings.replace(escaped, "\r", "\\r");
+        escaped = Strings.replace(escaped, "\t", "\\t");
         return escaped;
     }
 
@@ -87,7 +89,9 @@ class JsonObject {
 
     public int getInt(string key, int fallback) {
         if (!self.values.has(key)) { return fallback; }
-        return Strings.toInt(self.values.get(key));
+        string raw = self.values.get(key);
+        if (!JsonObject.isInt(raw)) { return fallback; }
+        return Strings.toInt(raw);
     }
 
     public string stringify() {
@@ -112,6 +116,20 @@ class JsonObject {
             i++;
         }
         return i;
+    }
+
+    class bool isInt(string text) {
+        string raw = text.trim();
+        if (raw.isEmpty()) { return false; }
+        int start = 0;
+        if (raw[0] == '-' || raw[0] == '+') {
+            if (raw.len() == 1) { return false; }
+            start = 1;
+        }
+        for (int i = start; i < raw.len(); i++) {
+            if (raw[i] < '0' || raw[i] > '9') { return false; }
+        }
+        return true;
     }
 
     class string slice(string text, int start, int end) {
@@ -272,6 +290,7 @@ class JsonText {
     class int intField(string text, string key, int fallback) {
         string raw = JsonText.field(text, key, "");
         if (raw.isEmpty()) { return fallback; }
+        if (!JsonObject.isInt(raw)) { return fallback; }
         return Strings.toInt(raw);
     }
 

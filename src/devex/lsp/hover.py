@@ -213,13 +213,6 @@ def _try_member_hover(
     member_name = token.value
 
     target_type = resolve_chain_type(result, tokens, token_idx - 2, class_table)
-
-    if target_type is None:
-        for cname, cinfo in class_table.items():
-            if member_name in cinfo.methods or member_name in cinfo.fields:
-                target_type = cname
-                break
-
     if target_type is None:
         return None
 
