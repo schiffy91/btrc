@@ -19,6 +19,11 @@ export function activate(context: vscode.ExtensionContext) {
         pythonInspect.workspaceFolderValue ??
         pythonInspect.workspaceValue ??
         pythonInspect.globalValue));
+    const serverCommandInspect = config.inspect<string>('serverCommand');
+    const serverCommandExplicit = !!(serverCommandInspect && (
+        serverCommandInspect.workspaceFolderValue ??
+        serverCommandInspect.workspaceValue ??
+        serverCommandInspect.globalValue));
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     const launch = resolveServerLaunch({
@@ -28,6 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
             pythonPath: config.get<string>('pythonPath', 'python3'),
             serverPath: config.get<string>('serverPath', ''),
             serverCommand: config.get<string>('serverCommand', 'btrc-lsp').trim(),
+            serverCommandExplicit,
             useNixDevShell: config.get<boolean>('useNixDevShell', true),
             pythonExplicit,
         },

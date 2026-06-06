@@ -5,6 +5,7 @@ export interface BtrcLaunchConfig {
     pythonPath: string;
     serverPath: string;
     serverCommand: string;
+    serverCommandExplicit: boolean;
     useNixDevShell: boolean;
     pythonExplicit: boolean;
 }
@@ -112,10 +113,51 @@ function pythonLaunch(
     return { command: context.config.pythonPath, args: [serverScript], cwd: projectRoot, source, serverScript, projectRoot };
 }
 
+function workspaceCommandLaunch(
+    context: BtrcLaunchContext,
+    workspaceRoot: string | undefined,
+    command: string,
+): BtrcServerLaunch | undefined {
+    if (!workspaceRoot || !command) { return undefined; }
+
+    const direnv = commandPath(context, 'direnv');
+    if (direnv && pathExists(context, path.join(workspaceRoot, '.envrc'))) {
+        return {
+            command: direnv,
+            args: ['exec', workspaceRoot, command],
+            cwd: workspaceRoot,
+            source: 'direnv',
+        };
+    }
+
+    const nixShell = commandPath(context, 'nix-shell');
+    const nix = commandPath(context, 'nix');
+    const shellNix = path.join(workspaceRoot, 'shell.nix');
+    const workspaceFlake = path.join(workspaceRoot, 'flake.nix');
+    if (nixShell && pathExists(context, shellNix)) {
+        return {
+            command: nixShell,
+            args: [shellNix, '--run', command],
+            cwd: workspaceRoot,
+            source: 'workspaceShellNix',
+        };
+    }
+    if (nix && pathExists(context, workspaceFlake)) {
+        return {
+            command: nix,
+            args: ['develop', workspaceRoot, '--command', command],
+            cwd: workspaceRoot,
+            source: 'workspaceFlake',
+        };
+    }
+    return undefined;
+}
+
 export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunch | undefined {
     const workspaceRoot = context.workspaceRoot;
     const command = context.config.serverCommand.trim();
     const defaultCwd = workspaceRoot ?? context.extensionPath;
+    const localServer = sourceTreeServer(context);
 
     if (context.config.serverPath && pathExists(context, context.config.serverPath)) {
         const serverScript = context.config.serverPath;
@@ -123,54 +165,28 @@ export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunc
         return pythonLaunch(context, serverScript, projectRoot, 'serverPath');
     }
 
-    if (path.isAbsolute(command)) {
+    if (context.config.serverCommandExplicit && path.isAbsolute(command)) {
         const absoluteCommand = resolveCommand(context, command);
         if (absoluteCommand) {
             return { command: absoluteCommand, args: [], cwd: defaultCwd, source: 'serverCommand' };
         }
     }
 
-    if (workspaceRoot && command) {
-        const direnv = commandPath(context, 'direnv');
-        if (direnv && pathExists(context, path.join(workspaceRoot, '.envrc'))) {
-            return {
-                command: direnv,
-                args: ['exec', workspaceRoot, command],
-                cwd: workspaceRoot,
-                source: 'direnv',
-            };
-        }
-
-        const nixShell = commandPath(context, 'nix-shell');
-        const nix = commandPath(context, 'nix');
-        const shellNix = path.join(workspaceRoot, 'shell.nix');
-        const workspaceFlake = path.join(workspaceRoot, 'flake.nix');
-        if (nixShell && pathExists(context, shellNix)) {
-            return {
-                command: nixShell,
-                args: [shellNix, '--run', command],
-                cwd: workspaceRoot,
-                source: 'workspaceShellNix',
-            };
-        }
-        if (nix && pathExists(context, workspaceFlake)) {
-            return {
-                command: nix,
-                args: ['develop', workspaceRoot, '--command', command],
-                cwd: workspaceRoot,
-                source: 'workspaceFlake',
-            };
-        }
+    if (context.config.serverCommandExplicit) {
+        const workspaceLaunch = workspaceCommandLaunch(context, workspaceRoot, command);
+        if (workspaceLaunch) { return workspaceLaunch; }
     }
 
-    const commandCandidate = resolveCommand(context, command);
-    if (commandCandidate) {
-        return { command: commandCandidate, args: [], cwd: defaultCwd, source: 'serverCommand' };
-    }
-
-    const localServer = sourceTreeServer(context);
     if (localServer) {
         return pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
+    }
+
+    const workspaceLaunch = workspaceCommandLaunch(context, workspaceRoot, command);
+    if (workspaceLaunch) { return workspaceLaunch; }
+
+    const commandCandidate = command ? resolveCommand(context, command) : undefined;
+    if (commandCandidate) {
+        return { command: commandCandidate, args: [], cwd: defaultCwd, source: 'serverCommand' };
     }
 
     return undefined;
