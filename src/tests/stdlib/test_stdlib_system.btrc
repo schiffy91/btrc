@@ -44,6 +44,13 @@ int main(int argc, char** argv) {
     ExecResult envResult = shell.run(envCmd, env=["BTRC_ENV_VALUE=hello world"]);
     assert(envResult.ok());
     assert(envResult.stdout().equals("hello world"));
+    int envRejected = 0;
+    try {
+        shell.run("true", env=["BTRC-BAD=value"], logFailure=false);
+    } catch (string e) {
+        envRejected = 1;
+    }
+    assert(envRejected == 1);
 
     ExecResult failed = shell.run("exit 7", logFailure=false);
     assert(!failed.ok());

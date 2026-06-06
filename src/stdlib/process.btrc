@@ -95,6 +95,25 @@ class UnixProcess {
 }
 
 class ShellWords {
+    class bool isEnvNameStart(char c) {
+        if (c >= 'a' && c <= 'z') { return true; }
+        if (c >= 'A' && c <= 'Z') { return true; }
+        return c == '_';
+    }
+
+    class bool isEnvNameChar(char c) {
+        return ShellWords.isEnvNameStart(c) || (c >= '0' && c <= '9');
+    }
+
+    class bool isEnvName(string name) {
+        if (name.isEmpty()) { return false; }
+        if (!ShellWords.isEnvNameStart(name[0])) { return false; }
+        for ch in name {
+            if (!ShellWords.isEnvNameChar(ch)) { return false; }
+        }
+        return true;
+    }
+
     class bool isSafeArgChar(char c) {
         if (c >= 'a' && c <= 'z') { return true; }
         if (c >= 'A' && c <= 'Z') { return true; }
@@ -120,6 +139,19 @@ class ShellWords {
     class string redact(string text, string sensitive) {
         if (sensitive.isEmpty()) { return text; }
         return Strings.replace(text, sensitive, "***");
+    }
+
+    class string envAssignment(string item) {
+        int split = Strings.find(item, "=", 0);
+        if (split <= 0) {
+            throw f"invalid environment assignment: {item}";
+        }
+        string name = item.substring(0, split);
+        if (!ShellWords.isEnvName(name)) {
+            throw f"invalid environment variable name: {name}";
+        }
+        string value = item.substring(split + 1, item.len() - split - 1);
+        return name + "=" + ShellWords.quote(value);
     }
 }
 
@@ -204,13 +236,7 @@ class Command {
     }
 
     public string renderEnv(string item) {
-        int split = Strings.find(item, "=", 0);
-        if (split <= 0) {
-            return ShellWords.quote(item);
-        }
-        string name = item.substring(0, split);
-        string value = item.substring(split + 1, item.len() - split - 1);
-        return name + "=" + ShellWords.quote(value);
+        return ShellWords.envAssignment(item);
     }
 
     public string render() {
@@ -280,14 +306,7 @@ class UnixShell {
     public string renderEnv(Vector<string> env) {
         Vector<string> parts = [];
         for item in env {
-            int split = Strings.find(item, "=", 0);
-            if (split <= 0) {
-                parts.push(ShellWords.quote(item));
-            } else {
-                string name = item.substring(0, split);
-                string value = item.substring(split + 1, item.len() - split - 1);
-                parts.push(name + "=" + ShellWords.quote(value));
-            }
+            parts.push(ShellWords.envAssignment(item));
         }
         return parts.join(" ");
     }
