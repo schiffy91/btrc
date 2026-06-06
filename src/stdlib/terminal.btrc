@@ -1,7 +1,6 @@
-/* btrc standard library — Unix terminal helpers
- * PTY-backed helpers live here so application code can stay object-oriented.
- */
+/* btrc standard library — Unix terminal helpers */
 
+#include <termios.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/select.h>
@@ -10,7 +9,49 @@
 #include <unistd.h>
 #include <time.h>
 
+import std.strings;
+
 extern int forkpty(int* amaster, char* name, void* termp, void* winp);
+
+class Terminal {
+    class string readLine() {
+        char buffer[4096];
+        if (fgets(buffer, 4096, stdin) == NULL) { return ""; }
+        int length = (int)strlen(buffer);
+        if (length > 0 && buffer[length - 1] == '\n') {
+            buffer[length - 1] = '\0';
+        }
+        return Strings.copy(buffer);
+    }
+
+    class string prompt(string label) {
+        fprintf(stderr, "%s", label);
+        fflush(stderr);
+        return Terminal.readLine();
+    }
+
+    class string promptPassword(string label) {
+        fprintf(stderr, "%s", label);
+        fflush(stderr);
+
+        struct termios previous;
+        struct termios hidden;
+        bool restore = false;
+        if (tcgetattr(STDIN_FILENO, &previous) == 0) {
+            hidden = previous;
+            hidden.c_lflag = hidden.c_lflag & ~ECHO;
+            restore = tcsetattr(STDIN_FILENO, TCSANOW, &hidden) == 0;
+        }
+
+        var value = Terminal.readLine();
+        if (restore) {
+            tcsetattr(STDIN_FILENO, TCSANOW, &previous);
+        }
+        fprintf(stderr, "\n");
+        fflush(stderr);
+        return value;
+    }
+}
 
 class UnixPamPassword {
     class bool change(string user, string oldPassword, string newPassword) {

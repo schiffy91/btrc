@@ -1,0 +1,14 @@
+#include <assert.h>
+
+int main() {
+    string path = "/tmp/btrc-terminal-test-input.txt";
+    Path.writeAll(path, "plain\nsecret\n");
+    FILE* input = freopen(path, "r", stdin);
+    assert(input != NULL);
+
+    assert(Terminal.prompt("plain: ").equals("plain"));
+    assert(Terminal.promptPassword("secret: ").equals("secret"));
+
+    print("PASS: test_stdlib_terminal");
+    return 0;
+}

@@ -45,6 +45,15 @@ int main() {
     assert(repeatedParsed.values("--arg").len == 2);
     assert(repeatedParsed.values("--arg").get(1).equals("two=2"));
 
+    CliArgs negative = CliArgs(0, null);
+    negative.values.push("--limit");
+    negative.values.push("-1");
+    negative.values.push("--verbose");
+    CliCommandLine negativeParsed = CliCommandLine.parse(negative);
+    assert(negativeParsed.option("--limit").equals("-1"));
+    assert(negativeParsed.flag("--verbose"));
+    assert(negativeParsed.operandCount() == 0);
+
     CliCommand cmd = CliCommand("build");
     cmd.alias("b");
     assert(cmd.matches("build") && cmd.matches("b") && !cmd.matches("run"));
