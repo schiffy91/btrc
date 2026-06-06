@@ -30,6 +30,29 @@ def _copy_if_exists(source: Path, target: Path) -> None:
     shutil.copy2(source, target)
 
 
+def _write_server_flake(target: Path) -> None:
+    target.write_text(
+        """{
+  description = "Bundled btrc language server";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  outputs = { nixpkgs, ... }:
+    let
+      systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
+      eachSystem = fn: nixpkgs.lib.genAttrs systems (system: fn (import nixpkgs { inherit system; }));
+    in {
+      devShells = eachSystem (pkgs: {
+        default = pkgs.mkShell {
+          packages = [
+            (pkgs.python314.withPackages (ps: [ ps.pygls ps.lsprotocol ]))
+          ];
+        };
+      });
+    };
+}
+"""
+    )
+
+
 def prepare(ext_dir: Path, repo_root: Path) -> Path:
     bundle_root = ext_dir / "server"
     if bundle_root.exists():
@@ -41,6 +64,7 @@ def prepare(ext_dir: Path, repo_root: Path) -> Path:
 
     _copy_if_exists(repo_root / "src" / "__init__.py", bundle_root / "src" / "__init__.py")
     _copy_if_exists(repo_root / "src" / "devex" / "__init__.py", bundle_root / "src" / "devex" / "__init__.py")
+    _write_server_flake(bundle_root / "flake.nix")
 
     (bundle_root / "README.txt").write_text(
         "Bundled btrc language-server payload.\n"

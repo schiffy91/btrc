@@ -28,8 +28,7 @@ from src.devex.lsp.builtins import (
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
     document_position_to_resolved,
-    find_enclosing_class,
-    resolve_variable_type,
+    resolve_chain_type,
     type_repr,
 )
 
@@ -44,11 +43,7 @@ def _count_active_parameter(source: str, position: lsp.Position) -> int:
     if position.line < 0 or position.line >= len(lines):
         return 0
 
-    full_text_before = (
-        "\n".join(lines[: position.line])
-        + "\n"
-        + lines[position.line][: position.character]
-    )
+    full_text_before = "\n".join(lines[: position.line]) + "\n" + lines[position.line][: position.character]
 
     depth = 0
     commas = 0
@@ -87,11 +82,7 @@ def _find_call_context(source: str, position: lsp.Position) -> str | None:
     if position.line < 0 or position.line >= len(lines):
         return None
 
-    full_text_before = (
-        "\n".join(lines[: position.line])
-        + "\n"
-        + lines[position.line][: position.character]
-    )
+    full_text_before = "\n".join(lines[: position.line]) + "\n" + lines[position.line][: position.character]
 
     depth = 0
     in_string = False
@@ -115,9 +106,7 @@ def _find_call_context(source: str, position: lsp.Position) -> str | None:
         elif ch == "(":
             if depth == 0:
                 text_before_paren = full_text_before[:i].rstrip()
-                m = re.search(
-                    r"((?:new\s+)?[\w]+(?:(?:\.|->|\?\.)[\w]+)?)\s*$", text_before_paren
-                )
+                m = re.search(r"((?:new\s+)?[\w]+(?:(?:\.|->|\?\.)[\w]+)?)\s*$", text_before_paren)
                 if m:
                     return m.group(1).strip()
                 return None
@@ -125,6 +114,43 @@ def _find_call_context(source: str, position: lsp.Position) -> str | None:
         i -= 1
 
     return None
+
+
+def _before_or_at(line: int, col: int, position: lsp.Position) -> bool:
+    token_line = line - 1
+    token_col = col - 1
+    if token_line < position.line:
+        return True
+    return token_line == position.line and token_col < position.character
+
+
+def _active_call_callee_index(result: AnalysisResult, position: lsp.Position) -> int | None:
+    if not result.tokens:
+        return None
+    resolved = document_position_to_resolved(result, position)
+    stack: list[int] = []
+    for index, token in enumerate(result.tokens):
+        if not _before_or_at(token.line, token.col, resolved):
+            break
+        if token.value == "(":
+            stack.append(index)
+        elif token.value == ")" and stack:
+            stack.pop()
+    if not stack:
+        return None
+    callee_index = stack[-1] - 1
+    return callee_index if callee_index >= 0 else None
+
+
+def _simple_receiver_name(tokens, end_idx: int) -> str | None:
+    if end_idx < 0 or end_idx >= len(tokens):
+        return None
+    token = tokens[end_idx]
+    if token.value == ")":
+        return None
+    if end_idx >= 2 and tokens[end_idx - 1].value in (".", "->", "?."):
+        return None
+    return token.value
 
 
 def _make_param_info(ptype: str, pname: str) -> lsp.ParameterInformation:
@@ -187,14 +213,8 @@ def _signature_from_method_decl(
     else:
         ret = type_repr(mdecl.return_type)
         label_name = mdecl.name
-    context = (
-        f"Method of {class_name}"
-        if not is_constructor
-        else f"Constructor of {class_name}"
-    )
-    return _signature_from_param_list(
-        label_name, ret, param_list, active_param, context=context
-    )
+    context = f"Method of {class_name}" if not is_constructor else f"Constructor of {class_name}"
+    return _signature_from_param_list(label_name, ret, param_list, active_param, context=context)
 
 
 # ---------------------------------------------------------------------------
@@ -227,14 +247,19 @@ def get_signature_help(
         class_name = new_match.group(1)
         return _resolve_constructor(class_name, class_table, active_param)
 
-    # Handle "obj.method", "obj?.method", "obj->method"
-    member_match = re.match(r"^(\w+)(?:\.|->|\?\.)(\w+)$", call_context_clean)
-    if member_match:
-        obj_name = member_match.group(1)
-        method_name = member_match.group(2)
-        return _resolve_member_call(
-            result, obj_name, method_name, position, class_table, active_param
-        )
+    callee_index = _active_call_callee_index(result, position)
+    if callee_index is not None and callee_index >= 2:
+        tokens = result.tokens
+        method_token = tokens[callee_index]
+        access = tokens[callee_index - 1]
+        if access.value in (".", "->", "?."):
+            return _resolve_member_call(
+                result,
+                callee_index - 2,
+                method_token.value,
+                class_table,
+                active_param,
+            )
 
     # Handle plain function or constructor call
     func_name = call_context_clean.strip()
@@ -247,9 +272,7 @@ def get_signature_help(
 
     if func_name in BUILTIN_FUNCTION_SIGNATURES:
         ret, params = BUILTIN_FUNCTION_SIGNATURES[func_name]
-        return _signature_from_param_list(
-            func_name, ret, params, active_param, context="Built-in function"
-        )
+        return _signature_from_param_list(func_name, ret, params, active_param, context="Built-in function")
 
     return None
 
@@ -263,76 +286,35 @@ def _resolve_constructor(
         return None
     info = class_table[class_name]
     if info.constructor and isinstance(info.constructor, MethodDecl):
-        return _signature_from_method_decl(
-            class_name, info.constructor, active_param, is_constructor=True
-        )
-    return _signature_from_param_list(
-        class_name, class_name, [], active_param, context=f"Constructor of {class_name}"
-    )
+        return _signature_from_method_decl(class_name, info.constructor, active_param, is_constructor=True)
+    return _signature_from_param_list(class_name, class_name, [], active_param, context=f"Constructor of {class_name}")
 
 
 def _resolve_member_call(
     result: AnalysisResult,
-    obj_name: str,
+    receiver_end_idx: int,
     method_name: str,
-    position: lsp.Position,
     class_table: dict[str, ClassInfo],
     active_param: int,
 ) -> lsp.SignatureHelp | None:
-    """Resolve signature for a member method call."""
+    tokens = result.tokens
 
-    # 1. Check if obj_name is a class name (static method)
-    if obj_name in class_table:
-        info = class_table[obj_name]
-        if method_name in info.methods:
-            mdecl = info.methods[method_name]
-            if isinstance(mdecl, MethodDecl):
-                return _signature_from_method_decl(obj_name, mdecl, active_param)
+    receiver_name = _simple_receiver_name(tokens, receiver_end_idx)
+    if receiver_name is not None:
+        stdlib_params = get_stdlib_signature(receiver_name, method_name)
+        if stdlib_params is not None:
+            return _signature_from_param_list(
+                f"{receiver_name}.{method_name}",
+                "",
+                stdlib_params,
+                active_param,
+                context=f"Static method of {receiver_name}",
+            )
 
-    # 2. Check stdlib static methods
-    stdlib_params = get_stdlib_signature(obj_name, method_name)
-    if stdlib_params is not None:
-        return _signature_from_param_list(
-            f"{obj_name}.{method_name}",
-            "",
-            stdlib_params,
-            active_param,
-            context=f"Static method of {obj_name}",
-        )
-
-    # 3. Resolve the variable type and look up methods on that type
-    var_type = _resolve_var_type(result, obj_name, position.line)
-    if var_type is not None:
-        sig = _resolve_method_on_type(var_type, method_name, class_table, active_param)
-        if sig:
-            return sig
-
-    # 4. Fallback: search all classes for a method with this name
-    for cname, cinfo in class_table.items():
-        if method_name in cinfo.methods:
-            mdecl = cinfo.methods[method_name]
-            if isinstance(mdecl, MethodDecl):
-                return _signature_from_method_decl(cname, mdecl, active_param)
-
-    return None
-
-
-def _resolve_var_type(
-    result: AnalysisResult,
-    var_name: str,
-    cursor_line: int,
-) -> str | None:
-    """Resolve variable type, handling 'self' specially."""
-    if not result.ast:
+    receiver_type = resolve_chain_type(result, tokens, receiver_end_idx, class_table)
+    if receiver_type is None:
         return None
-    resolved_line = document_position_to_resolved(
-        result,
-        lsp.Position(line=cursor_line, character=0),
-    ).line + 1
-    if var_name == "self":
-        return find_enclosing_class(result.ast, resolved_line)
-    class_table = result.analyzed.class_table if result.analyzed else {}
-    return resolve_variable_type(var_name, result.ast, class_table, resolved_line)
+    return _resolve_method_on_type(receiver_type, method_name, class_table, active_param)
 
 
 def _resolve_method_on_type(
@@ -371,9 +353,7 @@ def _resolve_method_on_type(
             if method_name in parent.methods:
                 mdecl = parent.methods[method_name]
                 if isinstance(mdecl, MethodDecl):
-                    return _signature_from_method_decl(
-                        cinfo.parent, mdecl, active_param
-                    )
+                    return _signature_from_method_decl(cinfo.parent, mdecl, active_param)
             cinfo = parent
 
     return None

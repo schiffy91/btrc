@@ -14,12 +14,13 @@ from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.tokens import Token, TokenType
-from src.devex.lsp.definition import DefinitionMap, _resolve_object_class
+from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
     document_position_to_resolved,
     find_token_at_position,
     find_token_index,
+    resolve_chain_type,
     result_location,
 )
 
@@ -69,8 +70,7 @@ def _classify_symbol(
     if token_idx is not None and token_idx >= 2:
         prev = tokens[token_idx - 1]
         if prev.value in (".", "->", "?."):
-            obj_token = tokens[token_idx - 2]
-            target_class = _resolve_object_class(obj_token, result, class_table)
+            target_class = resolve_chain_type(result, tokens, token_idx - 2, class_table)
             if target_class:
                 cinfo = class_table.get(target_class)
                 if cinfo:
@@ -152,8 +152,7 @@ def _find_function_references(
     decl_skipped = False
     for tok in matching:
         loc = (tok.line, tok.col)
-        if (not include_declaration and def_loc and not decl_skipped
-                and tok.line == def_loc[0]):
+        if not include_declaration and def_loc and not decl_skipped and tok.line == def_loc[0]:
             decl_skipped = True
             continue
         refs.append(loc)
@@ -208,12 +207,9 @@ def _find_member_references(
         if prev.value not in (".", "->", "?."):
             continue
 
-        obj_token = tokens[tok_idx - 2]
-        target_class = _resolve_object_class(obj_token, result, class_table)
+        target_class = resolve_chain_type(result, tokens, tok_idx - 2, class_table)
 
-        # Accept if we resolved to one of the valid classes, or if we couldn't resolve
-        # (fallback — better to include than miss)
-        if target_class is None or target_class in valid_classes:
+        if target_class in valid_classes:
             refs.append(loc)
 
     return refs
@@ -267,9 +263,7 @@ def get_references(
     dmap = DefinitionMap.from_ast(result.ast, result.tokens)
     name = token.value
 
-    kind, class_name, member_name = _classify_symbol(
-        token, result.tokens, result, class_table, dmap
-    )
+    kind, class_name, member_name = _classify_symbol(token, result.tokens, result, class_table, dmap)
 
     if kind == "class":
         locs = _find_class_references(name, result.tokens, dmap, include_declaration)
@@ -289,9 +283,7 @@ def get_references(
     else:
         locs = _find_variable_references(name, result.tokens)
 
-    return [
-        _result_ref_location(result, line, col, len(name)) for line, col in locs
-    ]
+    return [_result_ref_location(result, line, col, len(name)) for line, col in locs]
 
 
 def get_rename_edits(
@@ -325,9 +317,7 @@ def get_rename_edits(
                 character=loc.range.start.character + len(old_name),
             ),
         )
-        changes.setdefault(loc.uri, []).append(
-            lsp.TextEdit(range=edit_range, new_text=new_name)
-        )
+        changes.setdefault(loc.uri, []).append(lsp.TextEdit(range=edit_range, new_text=new_name))
 
     return lsp.WorkspaceEdit(changes=changes)
 

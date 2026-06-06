@@ -7,6 +7,7 @@ launcher path that starts the Python server.
 
 import importlib.util
 import json
+import tomllib
 from pathlib import Path
 
 EXT_DIR = Path(__file__).resolve().parents[2] / "ext"
@@ -34,6 +35,11 @@ def test_extension_manifest_activates_btrc_language_and_assets_exist():
     assert config["btrc.serverCommand"]["default"] == "btrc-lsp"
     assert "btrc-lsp" in config["btrc.serverCommand"]["description"]
 
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    assert project["project"]["scripts"]["btrc-lsp"] == "src.devex.lsp.server:main"
+    assert "pygls>=1.3.0" in project["project"]["dependencies"]
+    assert "lsprotocol>=2023.0.0" in project["project"]["dependencies"]
+
 
 def test_textmate_grammar_covers_compiler_keywords():
     grammar_text = (EXT_DIR / "syntaxes" / "btrc.tmLanguage.json").read_text()
@@ -59,9 +65,7 @@ def test_textmate_grammar_colors_variables_inside_expressions():
     grammar = json.loads((EXT_DIR / "syntaxes" / "btrc.tmLanguage.json").read_text())
     variables = grammar["repository"]["variables"]
     expression_includes = [
-        entry["include"]
-        for entry in grammar["repository"]["expression"]["patterns"]
-        if "include" in entry
+        entry["include"] for entry in grammar["repository"]["expression"]["patterns"] if "include" in entry
     ]
 
     assert variables["captures"]["1"]["name"] == "variable.other.readwrite.btrc"
@@ -99,6 +103,9 @@ def test_extension_packaging_stages_lsp_payload(tmp_path):
     assert (bundle_root / "src" / "devex" / "lsp" / "server.py").exists()
     assert (bundle_root / "src" / "compiler" / "python" / "frontend.py").exists()
     assert (bundle_root / "src" / "stdlib" / "process.btrc").exists()
+    bundled_flake = (bundle_root / "flake.nix").read_text()
+    assert "Bundled btrc language server" in bundled_flake
+    assert "ps.pygls ps.lsprotocol" in bundled_flake
     assert not (bundle_root / "src" / "devex" / "lsp" / "tests").exists()
 
 

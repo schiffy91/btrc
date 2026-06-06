@@ -60,6 +60,9 @@ int main() {
     string head = "GET / HTTP/1.1\r\nContent-Length: 42\r\n\r\n";
     int he = Strings.find(head, "\r\n\r\n", 0);
     assert(HttpServer.headerContentLength(head, he) == 42);
+    string headPrefixed = "GET / HTTP/1.1\r\nX-Content-Length: 999\r\nContent-Length: 7\r\n\r\n";
+    int prefixedEnd = Strings.find(headPrefixed, "\r\n\r\n", 0);
+    assert(HttpServer.headerContentLength(headPrefixed, prefixedEnd) == 7);
     // No Content-Length header -> 0.
     string head2 = "GET / HTTP/1.1\r\nHost: a\r\n\r\n";
     int he2 = Strings.find(head2, "\r\n\r\n", 0);

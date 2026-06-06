@@ -46,9 +46,7 @@ def _validate_document(uri: str, source: str):
     # Keep a copy of the last successful analysis for completion fallback
     if result.analyzed and result.ast:
         _good_analysis_cache[uri] = result
-    server.text_document_publish_diagnostics(
-        lsp.PublishDiagnosticsParams(uri=uri, diagnostics=result.diagnostics)
-    )
+    server.text_document_publish_diagnostics(lsp.PublishDiagnosticsParams(uri=uri, diagnostics=result.diagnostics))
 
 
 def _get_best_result(uri: str) -> AnalysisResult | None:
@@ -93,9 +91,7 @@ def did_close(params: lsp.DidCloseTextDocumentParams):
     uri = params.text_document.uri
     _analysis_cache.pop(uri, None)
     _good_analysis_cache.pop(uri, None)
-    server.text_document_publish_diagnostics(
-        lsp.PublishDiagnosticsParams(uri=uri, diagnostics=[])
-    )
+    server.text_document_publish_diagnostics(lsp.PublishDiagnosticsParams(uri=uri, diagnostics=[]))
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DOCUMENT_SYMBOL)
@@ -122,9 +118,7 @@ def goto_definition(params: lsp.TextDocumentPositionParams):
     return None
 
 
-@server.feature(
-    lsp.TEXT_DOCUMENT_COMPLETION, lsp.CompletionOptions(trigger_characters=[".", ">"])
-)
+@server.feature(lsp.TEXT_DOCUMENT_COMPLETION, lsp.CompletionOptions(trigger_characters=[".", ">"]))
 def completion(params: lsp.CompletionParams):
     uri = params.text_document.uri
 
@@ -255,5 +249,9 @@ def semantic_tokens_full(params: lsp.SemanticTokensParams):
     return None
 
 
-if __name__ == "__main__":  # pragma: no cover - stdio entry point for a real client
+def main():  # pragma: no cover - stdio entry point for a real client
     server.start_io()
+
+
+if __name__ == "__main__":  # pragma: no cover - stdio entry point for a real client
+    main()

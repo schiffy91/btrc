@@ -137,18 +137,22 @@ class HttpServer {
     }
 
     class int headerContentLength(string head, int headerEnd) {
-        string lower = head.substring(0, headerEnd).toLower();
-        int idx = Strings.find(lower, "content-length:", 0);
-        if (idx < 0) { return 0; }
-        int i = idx + 15;
-        int len = lower.len();
-        while (i < len && lower[i] == ' ') { i++; }
-        int val = 0;
-        while (i < len && lower[i] >= '0' && lower[i] <= '9') {
-            val = val * 10 + (lower[i] - '0');
-            i++;
+        string headerText = head.substring(0, headerEnd);
+        for line in Strings.split(headerText, "\r\n") {
+            int colon = Strings.find(line, ":", 0);
+            if (colon <= 0) { continue; }
+            string name = line.substring(0, colon).trim().toLower();
+            if (!name.equals("content-length")) { continue; }
+            string value = line.substring(colon + 1, line.len() - (colon + 1)).trim();
+            int i = 0;
+            int val = 0;
+            while (i < value.len() && value[i] >= '0' && value[i] <= '9') {
+                val = val * 10 + (value[i] - '0');
+                i++;
+            }
+            return val;
         }
-        return val;
+        return 0;
     }
 
     public string readRequestRaw(int c) {
