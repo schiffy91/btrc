@@ -25,6 +25,11 @@ class CliArgs {
         return self.values.get(index);
     }
 
+    public string require(int index, string message) {
+        if (index < 0 || index >= self.values.len) { throw message; }
+        return self.values.get(index);
+    }
+
     public string command() {
         if (self.values.len == 0) { return ""; }
         return self.values.get(0);

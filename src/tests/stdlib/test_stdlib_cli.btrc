@@ -13,6 +13,7 @@ int main() {
 
     assert(arguments.count() == 7);
     assert(arguments.get(0).equals("build"));
+    assert(arguments.require(1, "missing").equals("--name"));
     assert(arguments.command().equals("build"));
     assert(arguments.commandIs("build") && !arguments.commandIs("run"));
     assert(arguments.has("--name") && !arguments.has("--missing"));
@@ -33,6 +34,14 @@ int main() {
     assert(parsed.values("--name").get(0).equals("lorem"));
     assert(parsed.option("--missing", "fallback").equals("fallback"));
     assert(parsed.operand(9, "fallback").equals("fallback"));
+
+    var missingRaised = false;
+    try {
+        arguments.require(99, "required");
+    } catch (string error) {
+        missingRaised = error.equals("required");
+    }
+    assert(missingRaised);
 
     var repeated = CliArgs(0, null);
     repeated.values.push("run");
