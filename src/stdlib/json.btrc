@@ -133,11 +133,7 @@ class JsonObject {
     }
 
     class string slice(string text, int start, int end) {
-        int len = end - start;
-        char* result = (char*)malloc(len + 1);
-        memcpy(result, text + start, len);
-        result[len] = '\0';
-        return result;
+        return text.substring(start, end - start);
     }
 
     class int stringEnd(string text, int start) {
