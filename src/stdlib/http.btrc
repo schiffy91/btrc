@@ -300,17 +300,16 @@ class HttpClient {
             FileSystem.writeText(bodyFile, body);
         }
 
-        var command = Command("curl")
-            .arg("-sS")
-            .arg("--max-time").arg(Strings.fromInt(self.timeoutSecs))
-            .arg("-X").arg(method)
-            .arg("-o").arg(outFile)
-            .arg("-w").arg("%{http_code}");
+        var command = Command("curl -sS")
+            .flag("--max-time", Strings.fromInt(self.timeoutSecs))
+            .flag("-X", method)
+            .flag("-o", outFile)
+            .flag("-w", "%{http_code}");
         for h in headers {
-            command.arg("-H").arg(h);
+            command.flag("-H", h);
         }
         if (hasBody) {
-            command.arg("--data-binary").arg("@" + bodyFile);
+            command.flag("--data-binary", "@" + bodyFile);
         }
         command.arg(url);
 

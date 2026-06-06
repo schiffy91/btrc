@@ -281,8 +281,7 @@ class NativeUiBackend {
         if (self.isMac()) {
             string script = "display notification " + NativeUi.applescriptString(body)
                 + " with title " + NativeUi.applescriptString(title);
-            return Command("osascript")
-                .arg("-e")
+            return Command("osascript -e")
                 .arg(script);
         }
         if (self.isLinux()) {
@@ -298,17 +297,13 @@ class NativeUiBackend {
             string script = "display dialog " + NativeUi.applescriptString(body)
                 + " with title " + NativeUi.applescriptString(title)
                 + " buttons {\"OK\"} default button \"OK\"";
-            return Command("osascript")
-                .arg("-e")
+            return Command("osascript -e")
                 .arg(script);
         }
         if (self.isLinux()) {
-            return Command("zenity")
-                .arg("--info")
-                .arg("--title")
-                .arg(title)
-                .arg("--text")
-                .arg(body);
+            return Command("zenity --info")
+                .flag("--title", title)
+                .flag("--text", body);
         }
         return self.unsupportedWindowsCommand("dialogs");
     }
