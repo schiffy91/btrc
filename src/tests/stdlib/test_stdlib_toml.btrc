@@ -2,10 +2,33 @@
 #include <assert.h>
 
 int main() {
-    string doc = "[displays]\nDP-1 = \"Left\"\nHDMI-1 = \"Right\"\n\n[[layout]]\ndisplay = \"DP-1\"\nposition = \"left-of\"\n\n[[layout]]\ndisplay = \"HDMI-1\"\nposition = \"right-of\"\nrelative_to = \"DP-1\"\n\n[other]\nignored = \"yes\"\n";
+    string doc =
+        "name = \"desktop\"\n" +
+        "profile = 'work#main' # comment\n" +
+        "\n" +
+        "[displays]\n" +
+        "DP-1 = \"Left\"\n" +
+        "HDMI-1 = \"Right\"\n" +
+        "\n" +
+        "[[layout]]\n" +
+        "display = \"DP-1\"\n" +
+        "position = \"left-of\"\n" +
+        "\n" +
+        "[[layout]]\n" +
+        "display = \"HDMI-1\"\n" +
+        "position = \"right-of\"\n" +
+        "relative_to = \"DP-1\"\n" +
+        "\n" +
+        "[other]\n" +
+        "ignored = \"yes\"\n";
+
+    var root = Toml.rootMap(doc);
+    assert(root.getOrDefault("name", "").equals("desktop"));
+    assert(root.getOrDefault("profile", "").equals("work#main"));
+    assert(root.getOrDefault("DP-1", "missing").equals("missing"));
 
     // sectionMap: key/value pairs of [displays], with a fallback for misses.
-    Map<string, string> displays = Toml.sectionMap(doc, "displays");
+    var displays = Toml.sectionMap(doc, "displays");
     assert(displays.getOrDefault("DP-1", "").equals("Left"));
     assert(displays.getOrDefault("HDMI-1", "").equals("Right"));
     assert(displays.getOrDefault("missing", "fallback").equals("fallback"));
@@ -13,7 +36,7 @@ int main() {
     assert(Toml.value("token = \"a#b\" # ok").equals("a#b"));
 
     // tableArrayBlocks: one map per [[layout]] occurrence, in order.
-    Vector<Map<string, string>> layout = Toml.tableArrayBlocks(doc, "layout");
+    var layout = Toml.tableArrayBlocks(doc, "layout");
     assert(layout.len == 2);
     assert(layout.get(0).getOrDefault("display", "").equals("DP-1"));
     assert(layout.get(0).getOrDefault("position", "").equals("left-of"));
@@ -24,7 +47,7 @@ int main() {
     assert(layout.get(1).getOrDefault("ignored", "none").equals("none"));
 
     // No matching table-array yields an empty vector.
-    Vector<Map<string, string>> audio = Toml.tableArrayBlocks(doc, "audio");
+    var audio = Toml.tableArrayBlocks(doc, "audio");
     assert(audio.len == 0);
 
     print("PASS");

@@ -76,6 +76,17 @@ class Toml {
         return cleaned.substring(2, cleaned.len() - 4).trim();
     }
 
+    class Map<string, string> rootMap(string content) {
+        Map<string, string> result = {};
+        for line in Strings.split(content, "\n") {
+            string trimmed = line.trim();
+            if (!Toml.sectionName(trimmed).isEmpty() || !Toml.tableArrayName(trimmed).isEmpty()) { break; }
+            string field = Toml.key(trimmed);
+            if (!field.isEmpty()) { result.put(field, Toml.value(trimmed)); }
+        }
+        return result;
+    }
+
     /* Every key/value line inside [section] collected into a map. Scanning stops
      * at the next [section] or [[array-of-tables]] header. Missing keys are
      * simply absent — read them with map.getOrDefault(key, fallback). */
