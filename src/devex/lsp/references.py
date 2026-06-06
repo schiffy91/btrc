@@ -65,7 +65,6 @@ def _classify_symbol(
     """
     name = token.value
 
-    # Check if it's a member access: preceded by . or -> or ?.
     token_idx = find_token_index(tokens, token)
     if token_idx is not None and token_idx >= 2:
         prev = tokens[token_idx - 1]
@@ -299,9 +298,8 @@ def get_rename_edits(
     if token is None or token.type != TokenType.IDENT:
         return None
 
-    # Get all references including the declaration
     locations = get_references(result, position, include_declaration=True)
-    if not locations:  # pragma: no cover - an identifier token always matches at least its own occurrence, so the reference list is never empty here
+    if not locations:
         return None
 
     old_name = token.value

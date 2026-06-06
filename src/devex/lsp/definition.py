@@ -407,11 +407,11 @@ def _try_member_definition(
     dmap: DefinitionMap,
 ) -> lsp.Location | None:
     """Try to resolve a go-to-definition for a member access."""
-    if not tokens:  # pragma: no cover - get_definition already returns when tokens are absent before calling this
+    if not tokens:
         return None
 
     token_idx = find_token_index(tokens, token)
-    if token_idx is None or token_idx < 2:  # pragma: no cover - the token comes from this list (never None) and a member access needs a receiver + dot before it (idx >= 2)
+    if token_idx is None or token_idx < 2:
         return None
 
     prev = tokens[token_idx - 1]
@@ -460,4 +460,4 @@ def _resolve_object_class(
         return find_enclosing_class(result.ast, obj_token.line)
     if result.ast:
         return resolve_variable_type(obj_token.value, result.ast, class_table, obj_token.line)
-    return None  # pragma: no cover - reached only with no AST, but the callers run under get_references which already requires result.ast
+    return None

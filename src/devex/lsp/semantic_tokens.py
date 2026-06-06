@@ -212,7 +212,7 @@ class SemanticTokenCollector:
     def _add(self, tok: Token, type_name: str, *modifiers: str):
         """Add a semantic token."""
         type_idx = _TYPE_INDEX.get(type_name)
-        if type_idx is None:  # pragma: no cover - every call site passes a name registered in _TYPE_INDEX
+        if type_idx is None:
             return
         location = self._document_position(tok)
         if location is None:
