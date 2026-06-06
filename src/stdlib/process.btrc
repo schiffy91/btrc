@@ -432,6 +432,6 @@ class PowerShell {
                           Vector<string> env = CommandEnvironment.empty(),
                           bool sudo = false,
                           string chroot = "") {
-        return ExecResult(127, "", "PowerShell support is TODO", command);
+        return ExecResult(127, "", "PowerShell support is not implemented", command);
     }
 }

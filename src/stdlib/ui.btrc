@@ -272,6 +272,11 @@ class NativeUiBackend {
         return self.name.equals("windows");
     }
 
+    public Command unsupportedWindowsCommand(string feature) {
+        return Command("powershell -NoProfile -Command")
+            .arg(f"Write-Error 'Native {feature} are not implemented for Windows'");
+    }
+
     public Command notifyCommand(string title, string body) {
         if (self.isMac()) {
             string script = "display notification " + NativeUi.applescriptString(body)
@@ -285,10 +290,7 @@ class NativeUiBackend {
                 .arg(title)
                 .arg(body);
         }
-        return Command("powershell")
-            .arg("-NoProfile")
-            .arg("-Command")
-            .arg("Write-Error 'Native notifications are TODO for Windows'");
+        return self.unsupportedWindowsCommand("notifications");
     }
 
     public Command alertCommand(string title, string body) {
@@ -308,10 +310,7 @@ class NativeUiBackend {
                 .arg("--text")
                 .arg(body);
         }
-        return Command("powershell")
-            .arg("-NoProfile")
-            .arg("-Command")
-            .arg("Write-Error 'Native dialogs are TODO for Windows'");
+        return self.unsupportedWindowsCommand("dialogs");
     }
 
     public ExecResult notify(string title, string body) {

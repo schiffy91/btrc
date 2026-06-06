@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
     var ps = PowerShell();
     var unsupported = ps.run("Write-Output nope");
     assert(!unsupported.ok());
-    assert(unsupported.stderr().equals("PowerShell support is TODO"));
+    assert(unsupported.stderr().equals("PowerShell support is not implemented"));
 
     UiNode root = Ui.div()
         .id("root")
