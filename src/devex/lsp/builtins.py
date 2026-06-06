@@ -71,7 +71,7 @@ STRING_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("toFloat", "float", "method", [], "Parse as float"),
     BuiltinMember("toDouble", "double", "method", [], "Parse as double"),
     BuiltinMember("toLong", "long", "method", [], "Parse as long"),
-    BuiltinMember("toBool", "bool", "method", [], "Parse as bool (false for empty, \"false\", \"0\")"),
+    BuiltinMember("toBool", "bool", "method", [], 'Parse as bool (false for empty, "false", "0")'),
     BuiltinMember("zfill", "string", "method", [("int", "width")], "Left-pad with zeros (preserves sign)"),
 ]
 
@@ -271,6 +271,8 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("removeRecursive", "int", "method", [("string", "path")], "removeRecursive"),
         BuiltinMember("symlinkPath", "int", "method", [("string", "target"), ("string", "linkPath")], "symlinkPath"),
         BuiltinMember("readLink", "string", "method", [("string", "path")], "readLink"),
+        BuiltinMember("currentDirectory", "string", "method", [], "currentDirectory"),
+        BuiltinMember("realPath", "string", "method", [("string", "path")], "realPath"),
         BuiltinMember("tempDir", "string", "method", [("string", "prefix")], "tempDir"),
     ],
     "PathTools": [
@@ -278,6 +280,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("basename", "string", "method", [("string", "path")], "basename"),
         BuiltinMember("dirname", "string", "method", [("string", "path")], "dirname"),
         BuiltinMember("join", "string", "method", [("string", "left"), ("string", "right")], "join"),
+        BuiltinMember("absolute", "string", "method", [("string", "path")], "absolute"),
     ],
     "FileSystem": [
         BuiltinMember("exists", "bool", "method", [("string", "path")], "exists"),
@@ -290,6 +293,8 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("removeRecursive", "int", "method", [("string", "path")], "removeRecursive"),
         BuiltinMember("symlink", "int", "method", [("string", "target"), ("string", "linkPath")], "symlink"),
         BuiltinMember("readLink", "string", "method", [("string", "path")], "readLink"),
+        BuiltinMember("currentDirectory", "string", "method", [], "currentDirectory"),
+        BuiltinMember("absolutePath", "string", "method", [("string", "path")], "absolutePath"),
         BuiltinMember("tempDir", "string", "method", [("string", "prefix")], "tempDir"),
         BuiltinMember("listDir", "Vector<string>", "method", [("string", "path")], "listDir"),
         BuiltinMember("readText", "string", "method", [("string", "path")], "readText"),
@@ -318,23 +323,51 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("skipSpaces", "int", "method", [("string", "text"), ("int", "i")], "skipSpaces"),
         BuiltinMember("keyPosition", "int", "method", [("string", "text"), ("string", "key")], "keyPosition"),
         BuiltinMember("valueStart", "int", "method", [("string", "text"), ("string", "key")], "valueStart"),
-        BuiltinMember("parseStringValue", "string", "method", [("string", "text"), ("int", "i"), ("string", "fallback")], "parseStringValue"),
-        BuiltinMember("field", "string", "method", [("string", "text"), ("string", "key"), ("string", "fallback")], "field"),
-        BuiltinMember("intField", "int", "method", [("string", "text"), ("string", "key"), ("int", "fallback")], "intField"),
+        BuiltinMember(
+            "parseStringValue",
+            "string",
+            "method",
+            [("string", "text"), ("int", "i"), ("string", "fallback")],
+            "parseStringValue",
+        ),
+        BuiltinMember(
+            "field", "string", "method", [("string", "text"), ("string", "key"), ("string", "fallback")], "field"
+        ),
+        BuiltinMember(
+            "intField", "int", "method", [("string", "text"), ("string", "key"), ("int", "fallback")], "intField"
+        ),
         BuiltinMember("objectField", "string", "method", [("string", "text"), ("string", "key")], "objectField"),
-        BuiltinMember("stringArray", "Vector<string>", "method", [("string", "text"), ("string", "key")], "stringArray"),
-        BuiltinMember("objectArray", "Vector<string>", "method", [("string", "text"), ("string", "key")], "objectArray"),
+        BuiltinMember(
+            "stringArray", "Vector<string>", "method", [("string", "text"), ("string", "key")], "stringArray"
+        ),
+        BuiltinMember(
+            "objectArray", "Vector<string>", "method", [("string", "text"), ("string", "key")], "objectArray"
+        ),
         BuiltinMember("objectMap", "Map<string, string>", "method", [("string", "objectText")], "objectMap"),
         BuiltinMember("argsObject", "Map<string, string>", "method", [("string", "text")], "argsObject"),
         BuiltinMember("expand", "string", "method", [("string", "text"), ("Map<string, string>", "args")], "expand"),
-        BuiltinMember("putArgPair", "void", "method", [("Map<string, string>", "result"), ("string", "pair")], "putArgPair"),
+        BuiltinMember(
+            "putArgPair", "void", "method", [("Map<string, string>", "result"), ("string", "pair")], "putArgPair"
+        ),
     ],
     "Json": [
         BuiltinMember("esc", "string", "method", [("string", "s")], "esc"),
         BuiltinMember("str", "string", "method", [("string", "s")], "str"),
         BuiltinMember("getString", "string", "method", [("string", "json"), ("string", "key")], "getString"),
-        BuiltinMember("getStringAfter", "string", "method", [("string", "json"), ("string", "anchor"), ("string", "key")], "getStringAfter"),
-        BuiltinMember("getStringFrom", "string", "method", [("string", "json"), ("string", "key"), ("int", "from")], "getStringFrom"),
+        BuiltinMember(
+            "getStringAfter",
+            "string",
+            "method",
+            [("string", "json"), ("string", "anchor"), ("string", "key")],
+            "getStringAfter",
+        ),
+        BuiltinMember(
+            "getStringFrom",
+            "string",
+            "method",
+            [("string", "json"), ("string", "key"), ("int", "from")],
+            "getStringFrom",
+        ),
     ],
     "Math": [
         BuiltinMember("PI", "float", "method", [], "PI"),
@@ -385,7 +418,9 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     ],
     "Pattern": [
         BuiltinMember("matches", "bool", "method", [("string", "pattern"), ("string", "text")], "matches"),
-        BuiltinMember("anyMatches", "bool", "method", [("Vector<string>", "patterns"), ("string", "text")], "anyMatches"),
+        BuiltinMember(
+            "anyMatches", "bool", "method", [("Vector<string>", "patterns"), ("string", "text")], "anyMatches"
+        ),
     ],
     "UnixPlatform": [
         BuiltinMember("pid", "int", "method", [], "pid"),
@@ -431,7 +466,9 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("copy", "string", "method", [("string", "s")], "copy"),
         BuiltinMember("repeat", "string", "method", [("string", "s"), ("int", "count")], "repeat"),
         BuiltinMember("join", "string", "method", [("Vector<string>", "items"), ("string", "sep")], "join"),
-        BuiltinMember("replace", "string", "method", [("string", "s"), ("string", "old"), ("string", "replacement")], "replace"),
+        BuiltinMember(
+            "replace", "string", "method", [("string", "s"), ("string", "old"), ("string", "replacement")], "replace"
+        ),
         BuiltinMember("split", "Vector<string>", "method", [("string", "s"), ("string", "delim")], "split"),
         BuiltinMember("isDigit", "bool", "method", [("char", "c")], "isDigit"),
         BuiltinMember("isAlpha", "bool", "method", [("char", "c")], "isAlpha"),
@@ -448,7 +485,9 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("title", "string", "method", [("string", "s")], "title"),
         BuiltinMember("swapCase", "string", "method", [("string", "s")], "swapCase"),
         BuiltinMember("padLeft", "string", "method", [("string", "s"), ("int", "width"), ("char", "fill")], "padLeft"),
-        BuiltinMember("padRight", "string", "method", [("string", "s"), ("int", "width"), ("char", "fill")], "padRight"),
+        BuiltinMember(
+            "padRight", "string", "method", [("string", "s"), ("int", "width"), ("char", "fill")], "padRight"
+        ),
         BuiltinMember("center", "string", "method", [("string", "s"), ("int", "width"), ("char", "fill")], "center"),
         BuiltinMember("lstrip", "string", "method", [("string", "s")], "lstrip"),
         BuiltinMember("rstrip", "string", "method", [("string", "s")], "rstrip"),
@@ -465,7 +504,13 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("promptPassword", "string", "method", [("string", "label")], "promptPassword"),
     ],
     "UnixPamPassword": [
-        BuiltinMember("change", "bool", "method", [("string", "user"), ("string", "oldPassword"), ("string", "newPassword")], "change"),
+        BuiltinMember(
+            "change",
+            "bool",
+            "method",
+            [("string", "user"), ("string", "oldPassword"), ("string", "newPassword")],
+            "change",
+        ),
     ],
     "Toml": [
         BuiltinMember("stripInlineComment", "string", "method", [("string", "raw")], "stripInlineComment"),
@@ -474,8 +519,17 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("value", "string", "method", [("string", "line")], "value"),
         BuiltinMember("sectionName", "string", "method", [("string", "line")], "sectionName"),
         BuiltinMember("tableArrayName", "string", "method", [("string", "line")], "tableArrayName"),
-        BuiltinMember("sectionMap", "Map<string, string>", "method", [("string", "content"), ("string", "section")], "sectionMap"),
-        BuiltinMember("tableArrayBlocks", "Vector<Map<string, string>>", "method", [("string", "content"), ("string", "table")], "tableArrayBlocks"),
+        BuiltinMember("rootMap", "Map<string, string>", "method", [("string", "content")], "rootMap"),
+        BuiltinMember(
+            "sectionMap", "Map<string, string>", "method", [("string", "content"), ("string", "section")], "sectionMap"
+        ),
+        BuiltinMember(
+            "tableArrayBlocks",
+            "Vector<Map<string, string>>",
+            "method",
+            [("string", "content"), ("string", "table")],
+            "tableArrayBlocks",
+        ),
     ],
     "Html": [
         BuiltinMember("escape", "string", "method", [("string", "raw")], "escape"),
@@ -507,7 +561,13 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     ],
     "UiRuntime": [
         BuiltinMember("runCommandAsync", "Thread<int>", "method", [("Command", "command")], "runCommandAsync"),
-        BuiltinMember("notifyAsync", "Thread<int>", "method", [("NativeUiBackend", "backend"), ("string", "title"), ("string", "body")], "notifyAsync"),
+        BuiltinMember(
+            "notifyAsync",
+            "Thread<int>",
+            "method",
+            [("NativeUiBackend", "backend"), ("string", "title"), ("string", "body")],
+            "notifyAsync",
+        ),
     ],
 }
 
@@ -532,12 +592,28 @@ BUILTIN_FUNCTION_SIGNATURES: dict[str, tuple[str, list[tuple[str, str]]]] = {
 
 def get_members_for_type(type_name: str) -> list[BuiltinMember]:
     """Return the list of built-in members for a type, or empty list."""
-    return _MEMBER_TABLES.get(type_name, [])
+    return _MEMBER_TABLES.get(base_type_name(type_name), [])
+
+
+def base_type_name(type_name: str) -> str:
+    """Return the member-table owner name for a possibly generic type."""
+    raw = type_name.strip()
+    while raw.endswith("?") or raw.endswith("*"):
+        raw = raw[:-1].strip()
+    depth = 0
+    for index, char in enumerate(raw):
+        if char == "<":
+            if depth == 0:
+                return raw[:index].strip()
+            depth += 1
+        elif char == ">":
+            depth -= 1
+    return raw
 
 
 def get_member(type_name: str, member_name: str) -> Optional[BuiltinMember]:
     """Look up a specific member on a built-in type."""
-    for m in _MEMBER_TABLES.get(type_name, []):
+    for m in get_members_for_type(type_name):
         if m.name == member_name:
             return m
     return None
@@ -554,9 +630,7 @@ def get_hover_markdown(type_name: str, member_name: str) -> Optional[str]:
     return f"```btrc\n{m.return_type} {m.name}({params_str})\n```\n{m.doc}"
 
 
-def get_signature_params(
-    type_name: str, method_name: str
-) -> Optional[list[tuple[str, str]]]:
+def get_signature_params(type_name: str, method_name: str) -> Optional[list[tuple[str, str]]]:
     """Return the parameter list for a built-in type method, or None."""
     m = get_member(type_name, method_name)
     if m is None or m.kind == "field":
@@ -569,9 +643,7 @@ def get_stdlib_methods(class_name: str) -> Optional[list[BuiltinMember]]:
     return STDLIB_STATIC_METHODS.get(class_name)
 
 
-def get_stdlib_signature(
-    class_name: str, method_name: str
-) -> Optional[list[tuple[str, str]]]:
+def get_stdlib_signature(class_name: str, method_name: str) -> Optional[list[tuple[str, str]]]:
     """Return the parameter list for a stdlib static method, or None."""
     methods = STDLIB_STATIC_METHODS.get(class_name)
     if methods is None:

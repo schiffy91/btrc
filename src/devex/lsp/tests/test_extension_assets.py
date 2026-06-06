@@ -102,6 +102,7 @@ def test_extension_packaging_stages_lsp_payload(tmp_path):
 
     assert (bundle_root / "src" / "devex" / "lsp" / "server.py").exists()
     assert (bundle_root / "src" / "compiler" / "python" / "frontend.py").exists()
+    assert (bundle_root / "src" / "language" / "grammar.ebnf").exists()
     assert (bundle_root / "src" / "stdlib" / "process.btrc").exists()
     bundled_flake = (bundle_root / "flake.nix").read_text()
     assert "Bundled btrc language server" in bundled_flake

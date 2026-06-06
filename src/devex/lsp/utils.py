@@ -29,7 +29,7 @@ from src.compiler.python.ast_nodes import (
     VarDeclStmt,
 )
 from src.compiler.python.tokens import Token, TokenType
-from src.devex.lsp.builtins import _MEMBER_TABLES, get_member
+from src.devex.lsp.builtins import _MEMBER_TABLES, base_type_name, get_member
 from src.devex.lsp.diagnostics import AnalysisResult
 
 # ---------------------------------------------------------------------------
@@ -66,9 +66,7 @@ def type_repr(type_expr, class_table: dict[str, ClassInfo] | None = None) -> str
 # ---------------------------------------------------------------------------
 
 
-def find_token_at_position(
-    tokens: list[Token], position: lsp.Position
-) -> Token | None:
+def find_token_at_position(tokens: list[Token], position: lsp.Position) -> Token | None:
     """Find the token that covers the given 0-based LSP position."""
     target_line = position.line + 1
     target_col = position.character + 1
@@ -156,7 +154,7 @@ def _fstring_expression_end(content: str, start: int) -> int | None:
                 quote = None
             i += 1
             continue
-        if ch in ("\"", "'"):
+        if ch in ('"', "'"):
             quote = ch
         elif ch == "{":
             depth += 1
@@ -205,11 +203,7 @@ def result_location(
         source_line = original_line
 
     start = lsp.Position(line=max(0, source_line - 1), character=max(0, col - 1))
-    end = (
-        lsp.Position(line=start.line, character=start.character + length)
-        if length
-        else start
-    )
+    end = lsp.Position(line=start.line, character=start.character + length) if length else start
     return lsp.Location(uri=uri, range=lsp.Range(start=start, end=end))
 
 
@@ -351,10 +345,19 @@ def find_enclosing_class_from_source(
 # ---------------------------------------------------------------------------
 
 # Primitive types + auto-discovered types from _MEMBER_TABLES
-_PRIMITIVE_TYPES = frozenset({
-    "int", "float", "double", "long", "short",
-    "char", "bool", "void", "unsigned",
-})
+_PRIMITIVE_TYPES = frozenset(
+    {
+        "int",
+        "float",
+        "double",
+        "long",
+        "short",
+        "char",
+        "bool",
+        "void",
+        "unsigned",
+    }
+)
 BUILTIN_TYPES = _PRIMITIVE_TYPES | frozenset(_MEMBER_TABLES.keys())
 
 
@@ -375,11 +378,7 @@ def resolve_variable_type(
     for decl in ast.declarations:
         _scan_for_var_types(name, decl, class_table, candidates)
     if cursor_line is not None:
-        candidates = [
-            (line, type_name)
-            for line, type_name in candidates
-            if line <= cursor_line
-        ]
+        candidates = [(line, type_name) for line, type_name in candidates if line <= cursor_line]
     if not candidates:
         return None
     return max(candidates, key=lambda candidate: candidate[0])[1]
@@ -433,9 +432,7 @@ def _scan_for_var_types(
 
 
 def _var_decl_type(node: VarDeclStmt, class_table: dict[str, ClassInfo]) -> str | None:
-    if node.type and (
-        node.type.base in class_table or node.type.base in BUILTIN_TYPES
-    ):
+    if node.type and (node.type.base in class_table or node.type.base in BUILTIN_TYPES):
         return node.type.base
     if isinstance(node.initializer, CallExpr):
         callee = node.initializer.callee
@@ -443,8 +440,7 @@ def _var_decl_type(node: VarDeclStmt, class_table: dict[str, ClassInfo]) -> str 
             return callee.name
     if isinstance(node.initializer, NewExpr):
         if node.initializer.type and (
-            node.initializer.type.base in class_table
-            or node.initializer.type.base in BUILTIN_TYPES
+            node.initializer.type.base in class_table or node.initializer.type.base in BUILTIN_TYPES
         ):
             return node.initializer.type.base
     return None
@@ -461,25 +457,25 @@ def resolve_chain_type(
     ``end_idx`` may point at either an identifier (``obj.field``) or the closing
     paren of a call segment (``obj.method().field``).
     """
-    idx = _skip_call_to_callee(tokens, end_idx)
+    idx, was_call = _chain_segment(tokens, end_idx)
     if idx is None or not _is_chain_identifier(tokens[idx]):
         return None
-    chain: list[str] = [tokens[idx].value]
+    chain: list[tuple[str, bool]] = [(tokens[idx].value, was_call)]
 
     while idx >= 2:
         prev = tokens[idx - 1]
         if prev.value not in (".", "->", "?."):
             break
         idx -= 2
-        skipped = _skip_call_to_callee(tokens, idx)
+        skipped, was_call = _chain_segment(tokens, idx)
         if skipped is None or not _is_chain_identifier(tokens[skipped]):
             return None
         idx = skipped
-        chain.append(tokens[idx].value)
+        chain.append((tokens[idx].value, was_call))
 
     chain.reverse()
 
-    root = chain[0]
+    root = chain[0][0]
     current_type: str | None = None
 
     if root in class_table:
@@ -492,8 +488,13 @@ def resolve_chain_type(
     if current_type is None:
         return None
 
-    for member in chain[1:]:
-        resolved = resolve_member_type(current_type, member, class_table)
+    for member, called in chain[1:]:
+        resolved = resolve_member_type(
+            current_type,
+            member,
+            class_table,
+            prefer_method=called,
+        )
         if resolved is None:
             return None
         current_type = resolved
@@ -503,6 +504,14 @@ def resolve_chain_type(
 
 def _is_chain_identifier(token: Token) -> bool:
     return token.type in (TokenType.IDENT, TokenType.SELF)
+
+
+def _chain_segment(tokens: list[Token], idx: int) -> tuple[int | None, bool]:
+    if idx < 0 or idx >= len(tokens):
+        return None, False
+    if tokens[idx].value != ")":
+        return idx, False
+    return _skip_call_to_callee(tokens, idx), True
 
 
 def _skip_call_to_callee(tokens: list[Token], idx: int) -> int | None:
@@ -529,16 +538,22 @@ def resolve_member_type(
     owner_type: str,
     member_name: str,
     class_table: dict[str, ClassInfo],
+    *,
+    prefer_method: bool = False,
 ) -> str | None:
     """Resolve the base type of a member access on a given type."""
     cname = owner_type
     while cname and cname in class_table:
         cinfo = class_table[cname]
+        if prefer_method and member_name in cinfo.methods:
+            mdecl = cinfo.methods[member_name]
+            if isinstance(mdecl, MethodDecl) and mdecl.return_type:
+                return mdecl.return_type.base
         if member_name in cinfo.fields:
             fdecl = cinfo.fields[member_name]
             if isinstance(fdecl, FieldDecl) and fdecl.type:
                 return fdecl.type.base
-        if member_name in cinfo.methods:
+        if not prefer_method and member_name in cinfo.methods:
             mdecl = cinfo.methods[member_name]
             if isinstance(mdecl, MethodDecl) and mdecl.return_type:
                 return mdecl.return_type.base
@@ -547,5 +562,5 @@ def resolve_member_type(
     # Check built-in type members (string, List, Map, Set, Array, etc.)
     m = get_member(owner_type, member_name)
     if m:
-        return m.return_type
+        return base_type_name(m.return_type)
     return None

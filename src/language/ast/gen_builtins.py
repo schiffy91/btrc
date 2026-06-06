@@ -54,14 +54,9 @@ def _classify_stdlib():
         classes = parse_file(fname)
         for cname, cls in classes.items():
             has_generic = bool(cls.generic_params)
-            methods_raw = [
-                m for m in cls.members
-                if isinstance(m, MethodDecl) and m.name != cname
-            ]
+            methods_raw = [m for m in cls.members if isinstance(m, MethodDecl) and m.name != cname]
             static_methods = [m for m in methods_raw if m.access == "class"]
-            instance_methods = [
-                m for m in methods_raw if m.access in ("public", "private")
-            ]
+            instance_methods = [m for m in methods_raw if m.access in ("public", "private")]
 
             if has_generic and instance_methods:
                 # Collection type (List, Map, Set, Array, Result, etc.)
@@ -76,6 +71,7 @@ def _classify_stdlib():
             # handled by analyzer's class_table at LSP time
 
     return collection_data, static_data
+
 
 # ---------------------------------------------------------------------------
 # String instance methods — language intrinsics (not in any .btrc file)
@@ -264,10 +260,7 @@ def parse_file(filename: str) -> dict[str, ClassDecl]:
     path = os.path.join(STDLIB_DIR, filename)
     with open(path) as f:
         source = f.read()
-    source = "\n".join(
-        "" if line.strip().startswith("import ") else line
-        for line in source.splitlines()
-    )
+    source = "\n".join("" if line.strip().startswith("import ") else line for line in source.splitlines())
     tokens = Lexer(source, filename).tokenize()
     program = Parser(tokens).parse()
     return {d.name: d for d in program.declarations if isinstance(d, ClassDecl)}
@@ -307,9 +300,7 @@ def extract_members(
                 continue
             params = [(type_repr(p.type), p.name) for p in member.params]
             is_static = member.access == "class"
-            methods.append(
-                (member.name, type_repr(member.return_type), params, is_static)
-            )
+            methods.append((member.name, type_repr(member.return_type), params, is_static))
         elif isinstance(member, PropertyDecl) and member.access == "public":
             if member.name not in _ALWAYS_HIDDEN_FIELDS:
                 fields.append((member.name, type_repr(member.type)))
@@ -346,15 +337,13 @@ def generate_collection_members(
         )
     for name, ret, params, _is_static in methods:
         lines.append(
-            f'    BuiltinMember("{name}", "{ret}", "method", '
-            f'{fmt_params(params)}, "{name}"),',
+            f'    BuiltinMember("{name}", "{ret}", "method", {fmt_params(params)}, "{name}"),',
         )
     # IR-gen intrinsic methods (forEach, filter, etc.)
     for name, ret, _kind, params, doc in intrinsics:
         doc_escaped = doc.replace('"', '\\"')
         lines.append(
-            f'    BuiltinMember("{name}", "{ret}", "method", '
-            f'{fmt_params(params)}, "{doc_escaped}"),',
+            f'    BuiltinMember("{name}", "{ret}", "method", {fmt_params(params)}, "{doc_escaped}"),',
         )
     lines.append("]")
     return "\n".join(lines)
@@ -367,8 +356,7 @@ def generate_intrinsic_members(var_name: str, entries: list[tuple]) -> str:
         name, ret, kind, params, doc = entry
         doc_escaped = doc.replace('"', '\\"')
         lines.append(
-            f'    BuiltinMember("{name}", "{ret}", "{kind}", '
-            f'{fmt_params(params)}, "{doc_escaped}"),',
+            f'    BuiltinMember("{name}", "{ret}", "{kind}", {fmt_params(params)}, "{doc_escaped}"),',
         )
     lines.append("]")
     return "\n".join(lines)
@@ -379,8 +367,7 @@ def generate_static_methods(class_name: str, methods: list[tuple]) -> str:
     lines = [f'    "{class_name}": [']
     for name, ret, params, _is_static in methods:
         lines.append(
-            f'        BuiltinMember("{name}", "{ret}", "method", '
-            f'{fmt_params(params)}, "{name}"),',
+            f'        BuiltinMember("{name}", "{ret}", "method", {fmt_params(params)}, "{name}"),',
         )
     lines.append("    ],")
     return "\n".join(lines)
@@ -416,9 +403,7 @@ def main():
     out.append("    name: str")
     out.append("    return_type: str")
     out.append('    kind: str  # "field" or "method"')
-    out.append(
-        '    params: list[tuple[str, str]] = field(default_factory=list)  # [(type, name)]'
-    )
+    out.append("    params: list[tuple[str, str]] = field(default_factory=list)  # [(type, name)]")
     out.append('    doc: str = ""')
     out.append("")
     out.append("")
@@ -439,9 +424,7 @@ def main():
         var_name = f"{type_name.upper()}_MEMBERS"
         out.append(f"# Generated from src/stdlib/{type_name.lower()}.btrc")
         intrinsics = INTRINSIC_COLLECTION_MEMBERS.get(type_name, [])
-        out.append(
-            generate_collection_members(var_name, fields, methods, intrinsics)
-        )
+        out.append(generate_collection_members(var_name, fields, methods, intrinsics))
         out.append("")
 
     # Member table lookup
@@ -468,13 +451,8 @@ def main():
     out.append("")
 
     # Built-in function signatures
-    out.append(
-        "# Built-in free function signatures: "
-        "name -> (return_type, [(param_type, param_name)])"
-    )
-    out.append(
-        "BUILTIN_FUNCTION_SIGNATURES: dict[str, tuple[str, list[tuple[str, str]]]] = {"
-    )
+    out.append("# Built-in free function signatures: name -> (return_type, [(param_type, param_name)])")
+    out.append("BUILTIN_FUNCTION_SIGNATURES: dict[str, tuple[str, list[tuple[str, str]]]] = {")
     for fname, (ret, params) in INTRINSIC_FUNCTIONS.items():
         out.append(f'    "{fname}": ("{ret}", {fmt_params(params)}),')
     out.append("}")
@@ -493,12 +471,28 @@ def main():
         textwrap.dedent("""\
         def get_members_for_type(type_name: str) -> list[BuiltinMember]:
             \"\"\"Return the list of built-in members for a type, or empty list.\"\"\"
-            return _MEMBER_TABLES.get(type_name, [])
+            return _MEMBER_TABLES.get(base_type_name(type_name), [])
+
+
+        def base_type_name(type_name: str) -> str:
+            \"\"\"Return the member-table owner name for a possibly generic type.\"\"\"
+            raw = type_name.strip()
+            while raw.endswith("?") or raw.endswith("*"):
+                raw = raw[:-1].strip()
+            depth = 0
+            for index, char in enumerate(raw):
+                if char == "<":
+                    if depth == 0:
+                        return raw[:index].strip()
+                    depth += 1
+                elif char == ">":
+                    depth -= 1
+            return raw
 
 
         def get_member(type_name: str, member_name: str) -> Optional[BuiltinMember]:
             \"\"\"Look up a specific member on a built-in type.\"\"\"
-            for m in _MEMBER_TABLES.get(type_name, []):
+            for m in get_members_for_type(type_name):
                 if m.name == member_name:
                     return m
             return None
@@ -553,10 +547,7 @@ def main():
     # Print summary
     print(f"  STRING_MEMBERS: {len(INTRINSIC_STRING_MEMBERS)} members (intrinsic)")
     for type_name, (fields, methods) in collection_data.items():
-        print(
-            f"  {type_name.upper()}_MEMBERS: {len(fields)} fields + "
-            f"{len(methods)} methods (from stdlib)"
-        )
+        print(f"  {type_name.upper()}_MEMBERS: {len(fields)} fields + {len(methods)} methods (from stdlib)")
     for class_name, methods in static_data.items():
         print(f"  STDLIB_STATIC_METHODS[{class_name}]: {len(methods)} methods (from stdlib)")
     print(f"  BUILTIN_FUNCTION_SIGNATURES: {len(INTRINSIC_FUNCTIONS)} functions (intrinsic)")

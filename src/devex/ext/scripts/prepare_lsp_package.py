@@ -60,6 +60,7 @@ def prepare(ext_dir: Path, repo_root: Path) -> Path:
 
     _copy_tree(repo_root / "src" / "compiler", bundle_root / "src" / "compiler")
     _copy_tree(repo_root / "src" / "stdlib", bundle_root / "src" / "stdlib")
+    _copy_tree(repo_root / "src" / "language", bundle_root / "src" / "language")
     _copy_tree(repo_root / "src" / "devex" / "lsp", bundle_root / "src" / "devex" / "lsp")
 
     _copy_if_exists(repo_root / "src" / "__init__.py", bundle_root / "src" / "__init__.py")

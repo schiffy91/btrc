@@ -23,6 +23,8 @@ from src.devex.lsp.utils import (
     document_position_to_resolved,
     find_enclosing_class,
     get_text_before_cursor,
+    navigation_tokens,
+    resolve_chain_type,
     resolve_member_type,
     resolve_variable_type,
     type_repr,
@@ -88,9 +90,7 @@ _PRIMITIVE_TYPES = [
 
 # Auto-generate type entries from _MEMBER_TABLES (string is already above)
 _BTRC_TYPES = list(_PRIMITIVE_TYPES) + [
-    (name, f"Built-in type: {name}")
-    for name in _MEMBER_TABLES
-    if name not in {t[0] for t in _PRIMITIVE_TYPES}
+    (name, f"Built-in type: {name}") for name in _MEMBER_TABLES if name not in {t[0] for t in _PRIMITIVE_TYPES}
 ]
 
 
@@ -298,9 +298,7 @@ def _class_member_items(class_name: str, info: ClassInfo) -> list[lsp.Completion
     return items
 
 
-def _static_method_items(
-    class_name: str, methods: list[BuiltinMember]
-) -> list[lsp.CompletionItem]:
+def _static_method_items(class_name: str, methods: list[BuiltinMember]) -> list[lsp.CompletionItem]:
     """Build completion items for stdlib static methods."""
     items = []
     for m in methods:
@@ -331,6 +329,10 @@ def get_completions(
     """Compute completion items for the given cursor position."""
     text_before = get_text_before_cursor(result.source, position)
     class_table = result.analyzed.class_table if result.analyzed else {}
+
+    token_items = _dot_completions_from_tokens(result, position, class_table)
+    if token_items is not None:
+        return token_items
 
     # Member-access completions on a (possibly chained) receiver ending in one
     # of . / ?. / -> , e.g. `obj.`, `obj?.`, `obj->`, or a chain `o.inner.`.
@@ -363,6 +365,67 @@ def get_completions(
     return items
 
 
+def _dot_completions_from_tokens(
+    result: AnalysisResult,
+    position: lsp.Position,
+    class_table: dict[str, ClassInfo],
+) -> list[lsp.CompletionItem] | None:
+    if not result.tokens:
+        return None
+
+    tokens = navigation_tokens(result.tokens)
+    resolved_position = document_position_to_resolved(result, position)
+    access_idx = _access_token_before_cursor(tokens, resolved_position)
+    if access_idx is None or access_idx < 1:
+        return None
+
+    owner_idx = access_idx - 1
+    owner = tokens[owner_idx]
+    if owner.value in class_table or owner.value in STDLIB_STATIC_METHODS:
+        return _static_completions(owner.value, class_table)
+
+    owner_type = resolve_chain_type(result, tokens, owner_idx, class_table)
+    if owner_type is None:
+        return []
+    return _members_for_type(owner_type, class_table)
+
+
+def _access_token_before_cursor(tokens, position: lsp.Position) -> int | None:
+    line = position.line + 1
+    col = position.character + 1
+    last_idx = None
+    last_end = -1
+    for index, token in enumerate(tokens):
+        if token.line != line:
+            continue
+        start = token.col
+        end = token.col + len(token.value)
+        if start < col < end:
+            return None
+        if end <= col and end > last_end:
+            last_idx = index
+            last_end = end
+    if last_idx is None or tokens[last_idx].value not in (".", "?.", "->"):
+        return None
+    return last_idx
+
+
+def _static_completions(
+    class_name: str,
+    class_table: dict[str, ClassInfo],
+) -> list[lsp.CompletionItem]:
+    items: list[lsp.CompletionItem] = []
+    if class_name in class_table:
+        items.extend(_class_member_items(class_name, class_table[class_name]))
+    stdlib_methods = STDLIB_STATIC_METHODS.get(class_name)
+    if stdlib_methods:
+        existing_labels = {item.label for item in items}
+        for item in _static_method_items(class_name, stdlib_methods):
+            if item.label not in existing_labels:
+                items.append(item)
+    return items
+
+
 def _dot_completions(
     result: AnalysisResult,
     receiver: str,
@@ -380,19 +443,9 @@ def _dot_completions(
 
     # Single-segment class name → static-method access.
     if not hops:
-        if head in class_table:
-            info = class_table[head]
-            items = _class_member_items(head, info)
-            stdlib_methods = STDLIB_STATIC_METHODS.get(head)
-            if stdlib_methods:
-                existing_labels = {item.label for item in items}
-                for item in _static_method_items(head, stdlib_methods):
-                    if item.label not in existing_labels:
-                        items.append(item)
+        items = _static_completions(head, class_table)
+        if items:
             return items
-        stdlib_methods = STDLIB_STATIC_METHODS.get(head)
-        if stdlib_methods:
-            return _static_method_items(head, stdlib_methods)
 
     # Resolve the head's type (class-as-value or variable), then walk member hops.
     cur_type = head if head in class_table else _resolve_var_type(result, head, position.line)
@@ -415,10 +468,13 @@ def _resolve_var_type(
     """Resolve variable type, handling 'self' specially."""
     if not result.ast:
         return None
-    resolved_line = document_position_to_resolved(
-        result,
-        lsp.Position(line=cursor_line, character=0),
-    ).line + 1
+    resolved_line = (
+        document_position_to_resolved(
+            result,
+            lsp.Position(line=cursor_line, character=0),
+        ).line
+        + 1
+    )
     if var_name == "self":
         return find_enclosing_class(result.ast, resolved_line)
     class_table = result.analyzed.class_table if result.analyzed else {}

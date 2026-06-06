@@ -68,3 +68,62 @@ def test_completion_after_chain():
     items = get_completions(analyze(SRC), pos_of(SRC, "o.inner.value", offset=8))
     names = {i.label for i in items}
     assert {"value", "get"} <= names
+
+
+GENERIC_BUILTIN_SRC = """\
+int main() {
+    string text = "a,b";
+    int splitCount = text.split(",").len;
+    Map<string, int> lookup = {};
+    int keyCount = lookup.keys().len;
+    return splitCount + keyCount;
+}
+"""
+
+
+def _completion_names(source, needle, offset):
+    position = pos_of(source, needle, offset=offset)
+    return {item.label for item in get_completions(analyze(source), position)}
+
+
+def test_completion_after_string_split_call_returns_vector_members():
+    names = _completion_names(
+        GENERIC_BUILTIN_SRC,
+        'text.split(",").len',
+        len('text.split(",").'),
+    )
+    assert {"len", "get", "join"} <= names
+
+
+def test_completion_after_map_keys_call_returns_vector_members():
+    names = _completion_names(
+        GENERIC_BUILTIN_SRC,
+        "lookup.keys().len",
+        len("lookup.keys()."),
+    )
+    assert {"len", "get", "join"} <= names
+
+
+def test_definition_after_generic_builtin_call_maps_to_stdlib_member():
+    loc = get_definition(
+        analyze(GENERIC_BUILTIN_SRC),
+        pos_of(GENERIC_BUILTIN_SRC, "lookup.keys().len", offset=len("lookup.keys().")),
+    )
+
+    assert loc is not None
+    assert loc.uri.endswith("/src/stdlib/vector.btrc")
+
+
+def test_hover_after_generic_builtin_call_uses_vector_member():
+    text = hover_text(
+        get_hover_info(
+            analyze(GENERIC_BUILTIN_SRC),
+            pos_of(
+                GENERIC_BUILTIN_SRC,
+                'text.split(",").len',
+                offset=len('text.split(",").'),
+            ),
+        )
+    )
+
+    assert "int" in text and "len" in text
