@@ -286,14 +286,6 @@ class CEmitter(_GpuEmitterMixin, _ExprEmitterMixin):
         for stmt in block.stmts:
             self._emit_stmt(stmt)
 
-    def _emit_block(self, block: IRBlock):  # pragma: no cover - no callers; the emitter inlines block contents via _emit_block_contents everywhere
-        """Emit a block with braces."""
-        self._line("{")
-        self._indent += 1
-        self._emit_block_contents(block)
-        self._indent -= 1
-        self._line("}")
-
     # --- Statement emission ---
 
     def _emit_stmt(self, stmt: IRStmt):

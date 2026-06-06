@@ -153,7 +153,7 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             cls_info = gen.analyzed.class_table[obj_type.base]
             if "toString" in cls_info.methods:
                 pass  # fall through to class method dispatch below
-            else:  # pragma: no cover - the analyzer rejects toString() on a class that doesn't define it, so a class type never reaches the built-in lowering
+            else:
                 return _lower_to_string(gen, obj, obj_type, args)
         else:
             return _lower_to_string(gen, obj, obj_type, args)

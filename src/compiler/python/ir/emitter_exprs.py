@@ -115,4 +115,4 @@ class _ExprEmitterMixin:
         elif isinstance(expr, IRGpuDispatch):
             return self._emit_gpu_dispatch_expr(expr)
 
-        return f"/* unknown expr: {type(expr).__name__} */"  # pragma: no cover - every IR expression node the generator produces is handled above; defensive fallback
+        return f"/* unknown expr: {type(expr).__name__} */"
