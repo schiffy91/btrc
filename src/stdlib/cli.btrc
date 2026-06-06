@@ -1,6 +1,7 @@
 /* btrc standard library — CLI argument helpers */
 
 import std.console;
+import std.map;
 import std.strings;
 import std.vector;
 
@@ -78,6 +79,107 @@ class CliCommand {
             if (alias.equals(value)) { return true; }
         }
         return false;
+    }
+}
+
+class CliCommandLine {
+    public Vector<string> operands;
+    public Map<string, string> options;
+    public Vector<string> optionNames;
+    public Vector<string> optionValues;
+    public Vector<string> errors;
+
+    public CliCommandLine() {
+        self.operands = [];
+        self.options = {};
+        self.optionNames = [];
+        self.optionValues = [];
+        self.errors = [];
+    }
+
+    class CliCommandLine parse(CliArgs args) {
+        return CliCommandLine.parseFrom(args, 0);
+    }
+
+    class CliCommandLine parseFrom(CliArgs args, int startIndex) {
+        CliCommandLine parsed = CliCommandLine();
+        bool operandsOnly = false;
+        int index = startIndex;
+        while (index < args.count()) {
+            string value = args.get(index);
+            if (operandsOnly) {
+                parsed.operands.push(value);
+                index++;
+                continue;
+            }
+            if (value.equals("--")) {
+                operandsOnly = true;
+                index++;
+                continue;
+            }
+            if (value.startsWith("--")) {
+                int split = Strings.find(value, "=", 0);
+                if (split >= 0) {
+                    string name = value.substring(0, split);
+                    string optionValue = value.substring(split + 1, value.len() - split - 1);
+                    parsed.addOption(name, optionValue);
+                    index++;
+                    continue;
+                }
+                if (index + 1 < args.count() && !args.get(index + 1).startsWith("-")) {
+                    parsed.addOption(value, args.get(index + 1));
+                    index = index + 2;
+                    continue;
+                }
+                parsed.addOption(value, "true");
+                index++;
+                continue;
+            }
+            parsed.operands.push(value);
+            index++;
+        }
+        return parsed;
+    }
+
+    public void addOption(string name, string value) {
+        self.options.put(name, value);
+        self.optionNames.push(name);
+        self.optionValues.push(value);
+    }
+
+    public bool ok() {
+        return self.errors.len == 0;
+    }
+
+    public int operandCount() {
+        return self.operands.len;
+    }
+
+    public string operand(int index, string fallback = "") {
+        if (index < 0 || index >= self.operands.len) { return fallback; }
+        return self.operands.get(index);
+    }
+
+    public bool has(string name) {
+        return self.options.has(name);
+    }
+
+    public string option(string name, string fallback = "") {
+        return self.options.getOrDefault(name, fallback);
+    }
+
+    public bool flag(string name) {
+        return self.options.getOrDefault(name, "false").equals("true");
+    }
+
+    public Vector<string> values(string name) {
+        Vector<string> result = [];
+        for (int i = 0; i < self.optionNames.len; i++) {
+            if (self.optionNames.get(i).equals(name)) {
+                result.push(self.optionValues.get(i));
+            }
+        }
+        return result;
     }
 }
 

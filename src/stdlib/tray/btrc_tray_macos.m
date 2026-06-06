@@ -30,6 +30,7 @@
     NSMenu*       menu;
     NSMutableArray<NSString*>* commands;  /* command string per menu item */
     char*         pendingCommand;         /* last activated command (C-owned) */
+    char*         returnedCommand;        /* last command returned to C caller */
     BOOL          shouldQuit;
 }
 - (void)onItem:(id)sender;
@@ -43,6 +44,7 @@
         self->menu = nil;
         self->commands = [[NSMutableArray alloc] init];
         self->pendingCommand = NULL;
+        self->returnedCommand = NULL;
         self->shouldQuit = NO;
     }
     return self;
@@ -204,7 +206,13 @@ bool btrc_tray_run_iteration(void* tray, int timeout_ms) {
 char* btrc_tray_take_command(void* tray) {
     if (!tray) { return NULL; }
     BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
-    return t->pendingCommand;  /* C-owned; valid until the next activation */
+    if (t->returnedCommand) {
+        free(t->returnedCommand);
+        t->returnedCommand = NULL;
+    }
+    t->returnedCommand = t->pendingCommand;
+    t->pendingCommand = NULL;
+    return t->returnedCommand;
 }
 
 bool btrc_tray_should_quit(void* tray) {
@@ -230,6 +238,10 @@ void btrc_tray_destroy(void* tray) {
         if (t->pendingCommand) {
             free(t->pendingCommand);
             t->pendingCommand = NULL;
+        }
+        if (t->returnedCommand) {
+            free(t->returnedCommand);
+            t->returnedCommand = NULL;
         }
         t->menu = nil;
         t->commands = nil;

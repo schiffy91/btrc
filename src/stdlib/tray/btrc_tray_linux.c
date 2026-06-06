@@ -46,6 +46,7 @@ typedef struct {
     btrc_item       items[BTRC_TRAY_MAX_ITEMS];
     int             item_count;
     char*           pending_command; /* last activated command (C-owned) */
+    char*           returned_command;
     bool            should_quit;
     bool            registered;
     int             revision;        /* dbusmenu layout revision */
@@ -431,7 +432,10 @@ bool btrc_tray_run_iteration(void* tray, int timeout_ms) {
 char* btrc_tray_take_command(void* tray) {
     if (!tray) { return NULL; }
     btrc_tray* t = (btrc_tray*)tray;
-    return t->pending_command;   /* C-owned; valid until next activation */
+    free(t->returned_command);
+    t->returned_command = t->pending_command;
+    t->pending_command = NULL;
+    return t->returned_command;
 }
 
 bool btrc_tray_should_quit(void* tray) {
@@ -461,5 +465,6 @@ void btrc_tray_destroy(void* tray) {
     free(t->tooltip);
     free(t->icon_path);
     free(t->pending_command);
+    free(t->returned_command);
     free(t);
 }

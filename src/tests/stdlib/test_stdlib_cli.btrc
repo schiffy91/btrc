@@ -8,8 +8,11 @@ int main() {
     a.values.push("--name");
     a.values.push("lorem");
     a.values.push("--level=3");
+    a.values.push("--dry-run");
+    a.values.push("--");
+    a.values.push("--literal");
 
-    assert(a.count() == 4);
+    assert(a.count() == 7);
     assert(a.get(0).equals("build"));
     assert(a.command().equals("build"));
     assert(a.commandIs("build") && !a.commandIs("run"));
@@ -17,6 +20,30 @@ int main() {
     assert(a.valueAfter("--name", "?").equals("lorem"));
     assert(a.valueAfter("--missing", "def").equals("def"));
     assert(a.valueAfterPrefix("--level=", "0").equals("3"));
+
+    CliCommandLine parsed = CliCommandLine.parse(a);
+    assert(parsed.ok());
+    assert(parsed.operandCount() == 2);
+    assert(parsed.operand(0).equals("build"));
+    assert(parsed.operand(1).equals("--literal"));
+    assert(parsed.has("--name"));
+    assert(parsed.option("--name").equals("lorem"));
+    assert(parsed.option("--level").equals("3"));
+    assert(parsed.flag("--dry-run"));
+    assert(parsed.values("--name").len == 1);
+    assert(parsed.values("--name").get(0).equals("lorem"));
+    assert(parsed.option("--missing", "fallback").equals("fallback"));
+    assert(parsed.operand(9, "fallback").equals("fallback"));
+
+    CliArgs repeated = CliArgs(0, null);
+    repeated.values.push("run");
+    repeated.values.push("--arg");
+    repeated.values.push("one=1");
+    repeated.values.push("--arg=two=2");
+    CliCommandLine repeatedParsed = CliCommandLine.parseFrom(repeated, 1);
+    assert(repeatedParsed.operandCount() == 0);
+    assert(repeatedParsed.values("--arg").len == 2);
+    assert(repeatedParsed.values("--arg").get(1).equals("two=2"));
 
     CliCommand cmd = CliCommand("build");
     cmd.alias("b");

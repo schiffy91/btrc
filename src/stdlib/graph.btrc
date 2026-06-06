@@ -116,36 +116,16 @@ class GraphParser {
 class GraphCli {
     class Map<string, string> args(CliArgs args, int startIndex) {
         Map<string, string> result = {};
-        for (int i = startIndex; i < args.count(); i++) {
-            string value = args.get(i);
-            if (value.equals("--arg")) {
-                if (i + 1 >= args.count()) {
-                    Console.error("error 0:0 Expected --arg key=value");
-                    exit(1);
-                }
-                JsonText.putArgPair(result, args.get(i + 1));
-                i++;
-                continue;
-            }
-            if (value.startsWith("--arg=")) {
-                JsonText.putArgPair(result, Strings.removePrefix(value, "--arg="));
-            }
+        CliCommandLine parsed = CliCommandLine.parseFrom(args, startIndex);
+        for value in parsed.values("--arg") {
+            JsonText.putArgPair(result, value);
         }
         return result;
     }
 
     class Vector<string> targets(CliArgs args, int startIndex) {
-        Vector<string> result = [];
-        for (int i = startIndex; i < args.count(); i++) {
-            string value = args.get(i);
-            if (value.equals("--arg")) {
-                i++;
-                continue;
-            }
-            if (value.startsWith("--arg=")) { continue; }
-            result.push(value);
-        }
-        return result;
+        CliCommandLine parsed = CliCommandLine.parseFrom(args, startIndex);
+        return parsed.operands;
     }
 }
 

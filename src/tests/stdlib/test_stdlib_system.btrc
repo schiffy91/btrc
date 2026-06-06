@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     string html = document.renderHtml();
     assert(html.contains("&lt;App&gt;"));
     assert(html.contains("Save &amp; Close"));
-    assert(html.contains("name='path'"));
+    assert(html.contains("name=\"path\""));
     UiDocument rawDocument = Ui.document("Raw", Ui.rawHtml("<main><strong>Native</strong></main>"));
     assert(rawDocument.renderHtml().contains("<strong>Native</strong>"));
     assert(!rawDocument.renderHtml().contains("&lt;strong&gt;"));

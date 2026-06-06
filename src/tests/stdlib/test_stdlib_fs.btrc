@@ -24,6 +24,13 @@ int main() {
     assert(FileSystem.exists(f) && FileSystem.isFile(f));
     assert(FileSystem.readText(f).equals("hello fs"));
 
+    string nested = PathTools.join(dir, "nested dir/child");
+    assert(FileSystem.mkdirp(nested) == 0);
+    assert(FileSystem.isDir(nested));
+    string leadingDash = PathTools.join(nested, "-literal");
+    FileSystem.writeText(leadingDash, "dash");
+    assert(FileSystem.readText(leadingDash).equals("dash"));
+    assert(FileSystem.removeRecursive("/") != 0);
     FileSystem.removeRecursive(dir);
     assert(!FileSystem.exists(dir));
 

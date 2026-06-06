@@ -12,6 +12,7 @@ class Html {
     class string escape(string raw) {
         string text = Strings.replace(raw, "&", "&amp;");
         text = Strings.replace(text, "\"", "&quot;");
+        text = Strings.replace(text, "'", "&#39;");
         text = Strings.replace(text, "<", "&lt;");
         text = Strings.replace(text, ">", "&gt;");
         return text;
@@ -46,7 +47,7 @@ class UiNode {
     }
 
     public UiNode attr(string name, string value) {
-        self.attributes.push(f"{name}='{Html.escape(value)}'");
+        self.attributes.push(f"{name}=\"{Html.escape(value)}\"");
         return self;
     }
 

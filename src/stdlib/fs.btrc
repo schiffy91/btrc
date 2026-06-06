@@ -76,12 +76,6 @@ class Directory {
 }
 
 class UnixFileSystem {
-    class int statusCode(int raw) {
-        if (raw == -1) { return 127; }
-        if (raw > 255) { return raw / 256; }
-        return raw;
-    }
-
     class int chmodPath(string path, int mode) {
         return chmod(path, (mode_t)mode);
     }
@@ -90,18 +84,47 @@ class UnixFileSystem {
         return mkdir(path, (mode_t)mode);
     }
 
-    class int runShell(string command) {
-        return UnixFileSystem.statusCode(system(command));
+    class int mkdirOne(string path, int mode) {
+        if (path.isEmpty() || FileSystem.isDir(path)) { return 0; }
+        if (FileSystem.exists(path)) { return -1; }
+        int created = UnixFileSystem.mkdirPath(path, mode);
+        if (created == 0 || FileSystem.isDir(path)) { return 0; }
+        return created;
     }
 
     class int mkdirp(string path) {
-        string quoted = PathTools.shellQuote(path);
-        return UnixFileSystem.runShell(f"mkdir -p {quoted}");
+        if (path.isEmpty()) { return -1; }
+        if (FileSystem.isDir(path)) { return 0; }
+        int mode = 493;
+        for (int i = 1; i < path.len(); i++) {
+            if (path[i] == '/') {
+                string parent = path.substring(0, i);
+                if (!parent.isEmpty() && UnixFileSystem.mkdirOne(parent, mode) != 0) {
+                    return -1;
+                }
+            }
+        }
+        return UnixFileSystem.mkdirOne(path, mode);
     }
 
     class int removeRecursive(string path) {
-        string quoted = PathTools.shellQuote(path);
-        return UnixFileSystem.runShell(f"rm -rf {quoted}");
+        if (path.isEmpty() || path.equals("/")) { return -1; }
+        FileStatus status = FileStatus(path);
+        if (!status.exists() && !status.isSymlink()) { return 0; }
+        if (status.isSymlink() || status.isFile()) {
+            return unlink(path);
+        }
+        if (!status.isDir()) {
+            return unlink(path);
+        }
+        Directory dir = Directory(path);
+        Vector<string> entries = dir.entries();
+        for entry in entries {
+            string child = PathTools.join(path, entry);
+            int removed = UnixFileSystem.removeRecursive(child);
+            if (removed != 0) { return removed; }
+        }
+        return rmdir(path);
     }
 
     class int symlinkPath(string target, string linkPath) {
