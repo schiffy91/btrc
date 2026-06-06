@@ -18,6 +18,7 @@ def test_extension_manifest_activates_btrc_language_and_assets_exist():
     package = json.loads((EXT_DIR / "package.json").read_text())
 
     assert "onLanguage:btrc" in package["activationEvents"]
+    assert package["contributes"]["configurationDefaults"]["[btrc]"]["editor.semanticHighlighting.enabled"] is True
 
     language = package["contributes"]["languages"][0]
     assert language["id"] == "btrc"

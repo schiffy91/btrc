@@ -41,6 +41,11 @@
         "path": "./syntaxes/btrc.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "[btrc]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
     "configuration": {
       "title": "btrc",
       "properties": {
