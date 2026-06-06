@@ -21,6 +21,7 @@ function context(files, overrides = {}) {
             HOME: '/home/alex',
             USER: 'alex',
             PATH: ['/bin', '/profile/bin'].join(path.delimiter),
+            ...overrides.env,
         },
         exists: (candidate) => existing.has(candidate),
     };
@@ -53,6 +54,19 @@ test('relative serverCommand prefers workspace direnv before PATH', () => {
     assert.equal(launch.command, '/bin/direnv');
     assert.deepEqual(launch.args, ['exec', '/workspace', 'btrc-lsp']);
     assert.equal(launch.cwd, '/workspace');
+});
+
+test('relative serverCommand finds direnv when VS Code has a sparse PATH', () => {
+    const launch = resolveServerLaunch(context([
+        '/workspace/.envrc',
+        '/opt/homebrew/bin/direnv',
+    ], {
+        env: { PATH: '' },
+    }));
+
+    assert.equal(launch.source, 'direnv');
+    assert.equal(launch.command, '/opt/homebrew/bin/direnv');
+    assert.deepEqual(launch.args, ['exec', '/workspace', 'btrc-lsp']);
 });
 
 test('relative serverCommand prefers workspace shell.nix before PATH', () => {
