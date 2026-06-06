@@ -11,6 +11,7 @@ int main() {
         + "\"name\":\"demo\","
         + "\"workspaceRoot\":\"..\","
         + "\"default\":[\"final\"],"
+        + "\"required\":[\"seed\",\"final\"],"
         + "\"nodes\":["
         + "{\"id\":\"seed\",\"spec\":\"seed.json\"},"
         + "{\"id\":\"build\",\"spec\":\"build.json\",\"after\":[\"seed\"],\"args\":{\"arch\":\"x86_64\"}},"
@@ -24,6 +25,9 @@ int main() {
     assert(graph.nodes.len == 3);
     assert(graph.defaultTargets().len == 1);
     assert(graph.defaultTargets().get(0).equals("final"));
+    assert(graph.required.len == 2);
+    assert(graph.required.get(0).equals("seed"));
+    assert(graph.required.get(1).equals("final"));
     assert(graph.node("build").after.get(0).equals("seed"));
     assert(graph.node("build").args.get("arch").equals("x86_64"));
     assert(graph.resolvedSpecPath(graph.node("seed")).endsWith("seed.json"));
