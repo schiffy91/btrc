@@ -49,11 +49,13 @@ from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
     body_range,
+    document_position_to_resolved,
     find_enclosing_class,
     find_token_at_position,
     find_token_index,
     resolve_chain_type,
     resolve_variable_type,
+    result_location,
 )
 
 # ---------------------------------------------------------------------------
@@ -324,11 +326,6 @@ def _collect_vars_in_stmt(dmap: DefinitionMap, stmt, scope_start: int, scope_end
 # ---------------------------------------------------------------------------
 
 
-def _btrc_to_lsp_position(line: int, col: int) -> lsp.Position:
-    """Convert 1-based btrc line/col to 0-based LSP position."""
-    return lsp.Position(line=max(0, line - 1), character=max(0, col - 1))
-
-
 def get_definition(
     result: AnalysisResult,
     position: lsp.Position,
@@ -337,7 +334,8 @@ def get_definition(
     if not result.tokens or not result.ast:
         return None
 
-    token = find_token_at_position(result.tokens, position)
+    resolved_position = document_position_to_resolved(result, position)
+    token = find_token_at_position(result.tokens, resolved_position)
     if token is None or token.type != TokenType.IDENT:
         return None
 
@@ -354,54 +352,49 @@ def get_definition(
     if token.value in dmap.class_defs:
         def_line, def_col = dmap.class_defs[token.value]
         if token.line != def_line or token.col != def_col:
-            return _make_location(result.uri, def_line, def_col, len(token.value))
+            return _make_result_location(result, def_line, def_col, len(token.value))
 
     # 3. Function name reference
     if token.value in dmap.function_defs:
         def_line, def_col = dmap.function_defs[token.value]
         if token.line != def_line or token.col != def_col:
-            return _make_location(result.uri, def_line, def_col, len(token.value))
+            return _make_result_location(result, def_line, def_col, len(token.value))
 
     # 4. Enum name reference
     if token.value in dmap.enum_defs:
         def_line, def_col = dmap.enum_defs[token.value]
         if token.line != def_line or token.col != def_col:
-            return _make_location(result.uri, def_line, def_col, len(token.value))
+            return _make_result_location(result, def_line, def_col, len(token.value))
 
     # 5. Struct name reference
     if token.value in dmap.struct_defs:
         def_line, def_col = dmap.struct_defs[token.value]
         if token.line != def_line or token.col != def_col:
-            return _make_location(result.uri, def_line, def_col, len(token.value))
+            return _make_result_location(result, def_line, def_col, len(token.value))
 
     # 6. Typedef alias reference
     if token.value in dmap.typedef_defs:
         def_line, def_col = dmap.typedef_defs[token.value]
         if token.line != def_line or token.col != def_col:
-            return _make_location(result.uri, def_line, def_col, len(token.value))
+            return _make_result_location(result, def_line, def_col, len(token.value))
 
     # 7. Local variable / parameter / loop variable / catch variable
     var_loc = dmap.find_var(token.value, cursor_line)
     if var_loc:
         def_line, def_col = var_loc
         if token.line != def_line or token.col != def_col:
-            return _make_location(result.uri, def_line, def_col, len(token.value))
+            return _make_result_location(result, def_line, def_col, len(token.value))
 
     return None
 
 
-def _make_location(uri: str, line: int, col: int, length: int = 0) -> lsp.Location:
-    """Create an LSP Location from a btrc 1-based line/col."""
-    start = _btrc_to_lsp_position(line, col)
-    end = (
-        lsp.Position(line=start.line, character=start.character + length)
-        if length
-        else start
-    )
-    return lsp.Location(
-        uri=uri,
-        range=lsp.Range(start=start, end=end),
-    )
+def _make_result_location(
+    result: AnalysisResult,
+    line: int,
+    col: int,
+    length: int = 0,
+) -> lsp.Location:
+    return result_location(result, line, col, length)
 
 
 def _try_member_definition(
@@ -442,13 +435,13 @@ def _try_member_definition(
         key = (current_class, member_name)
         if key in dmap.method_defs:
             def_line, def_col = dmap.method_defs[key]
-            return _make_location(result.uri, def_line, def_col, name_len)
+            return _make_result_location(result, def_line, def_col, name_len)
         if key in dmap.field_defs:
             def_line, def_col = dmap.field_defs[key]
-            return _make_location(result.uri, def_line, def_col, name_len)
+            return _make_result_location(result, def_line, def_col, name_len)
         if key in dmap.property_defs:
             def_line, def_col = dmap.property_defs[key]
-            return _make_location(result.uri, def_line, def_col, name_len)
+            return _make_result_location(result, def_line, def_col, name_len)
 
         cinfo = class_table.get(current_class)
         if cinfo and cinfo.parent and cinfo.parent in class_table:

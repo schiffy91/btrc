@@ -57,6 +57,7 @@ class FrontendSource:
     source: str
     stdlib_source: str = ""
     provenance: list[str] = field(default_factory=list)
+    source_positions: list[tuple[str, int]] = field(default_factory=list)
     graph: dict[str, set[str]] = field(default_factory=dict)
     strict_imports: bool = False
 
@@ -82,6 +83,7 @@ class FrontendResult:
     analyzed: AnalyzedProgram
     user_program: Program | None = None
     provenance: list[str] = field(default_factory=list)
+    source_positions: list[tuple[str, int]] = field(default_factory=list)
     graph: dict[str, set[str]] = field(default_factory=dict)
 
 
@@ -324,7 +326,7 @@ def _import_paths(spec: str, source_dir: str) -> list[str]:
 
 
 def _resolve_traced(source: str, source_path: str, included: set[str],
-                    graph: dict[str, set[str]]) -> list[tuple[str, str]]:
+                    graph: dict[str, set[str]]) -> list[tuple[str, str, int]]:
     """Recursively resolve includes/imports, preserving line provenance."""
     abs_path = os.path.abspath(source_path)
     source_dir = os.path.dirname(abs_path)
@@ -333,8 +335,8 @@ def _resolve_traced(source: str, source_path: str, included: set[str],
         return []  # circular/repeat include guard; caller still recorded the edge
     included.add(abs_path)
 
-    out: list[tuple[str, str]] = []
-    for line in source.split("\n"):
+    out: list[tuple[str, str, int]] = []
+    for line_number, line in enumerate(source.split("\n"), start=1):
         m = _BTRC_INCLUDE_RE.match(line)
         if m:
             full_path = os.path.abspath(_resolve_include_path(m.group(1), source_dir))
@@ -349,15 +351,43 @@ def _resolve_traced(source: str, source_path: str, included: set[str],
                 abs_full = os.path.abspath(full_path)
                 graph[abs_path].add(abs_full)
                 if full_path.endswith(".c"):
-                    out.append((f'#include "{abs_full}"', abs_path))
+                    out.append((f'#include "{abs_full}"', abs_path, line_number))
                     continue
                 with open(full_path) as f:
                     out.extend(_resolve_traced(f.read(), full_path, included, graph))
             continue
 
-        out.append((line, abs_path))
+        out.append((line, abs_path, line_number))
 
     return out
+
+
+def _resolve_includes_mapped(
+    source: str,
+    source_path: str,
+    included: set[str] | None = None,
+    *,
+    exit_on_error: bool = True,
+) -> tuple[str, list[str], list[tuple[str, int]], dict[str, set[str]]]:
+    """Resolve imports with both file and original-line mapping."""
+    graph: dict[str, set[str]] = {}
+    try:
+        traced = _resolve_traced(
+            source,
+            source_path,
+            set() if included is None else included,
+            graph,
+        )
+    except IncludeResolutionError as e:
+        if not exit_on_error:
+            raise
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    resolved = "\n".join(text for text, _, _ in traced)
+    provenance = [src for _, src, _ in traced]
+    source_positions = [(src, line) for _, src, line in traced]
+    return resolved, provenance, source_positions, graph
 
 
 def resolve_includes(
@@ -377,14 +407,18 @@ def resolve_includes(
       import ./directory/**
     """
     try:
-        traced = _resolve_traced(source, source_path,
-                                 set() if included is None else included, {})
+        resolved, _, _, _ = _resolve_includes_mapped(
+            source,
+            source_path,
+            included,
+            exit_on_error=False,
+        )
     except IncludeResolutionError as e:
         if not exit_on_error:
             raise
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
-    return "\n".join(text for text, _ in traced)
+    return resolved
 
 
 def resolve_includes_traced(
@@ -394,16 +428,11 @@ def resolve_includes_traced(
     exit_on_error: bool = True,
 ):
     """Like resolve_includes, but include provenance and the import graph."""
-    graph: dict[str, set[str]] = {}
-    try:
-        traced = _resolve_traced(source, source_path, set(), graph)
-    except IncludeResolutionError as e:
-        if not exit_on_error:
-            raise
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
-    resolved = "\n".join(text for text, _ in traced)
-    provenance = [src for _, src in traced]
+    resolved, provenance, _, graph = _resolve_includes_mapped(
+        source,
+        source_path,
+        exit_on_error=exit_on_error,
+    )
     return resolved, provenance, graph
 
 
@@ -417,13 +446,11 @@ def resolve_frontend_source(
 ) -> FrontendSource:
     """Resolve includes/imports and compose the stdlib according to CLI rules."""
     start = time.perf_counter()
-    if strict_imports:
-        user_source, provenance, graph = resolve_includes_traced(
-            source, source_path, exit_on_error=False
-        )
-    else:
-        user_source = resolve_includes(source, source_path, exit_on_error=False)
-        provenance, graph = [], {}
+    user_source, provenance, source_positions, graph = _resolve_includes_mapped(
+        source,
+        source_path,
+        exit_on_error=False,
+    )
     _timed(profile, "resolve_includes", start)
 
     stdlib_source = ""
@@ -438,6 +465,7 @@ def resolve_frontend_source(
         source=full_source,
         stdlib_source=stdlib_source,
         provenance=provenance,
+        source_positions=source_positions,
         graph=graph,
         strict_imports=strict_imports,
     )
@@ -548,5 +576,6 @@ def compile_frontend(
         analyzed=analyzed,
         user_program=parsed.user_program,
         provenance=frontend_source.provenance,
+        source_positions=frontend_source.source_positions,
         graph=frontend_source.graph,
     )

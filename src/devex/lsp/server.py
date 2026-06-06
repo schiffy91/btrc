@@ -147,6 +147,7 @@ def completion(params: lsp.CompletionParams):
                 tokens=good.tokens,
                 ast=good.ast,
                 analyzed=good.analyzed,
+                source_positions=good.source_positions,
             )
 
     if not result and current_source:
@@ -163,6 +164,7 @@ def completion(params: lsp.CompletionParams):
                 tokens=result.tokens,
                 ast=result.ast,
                 analyzed=result.analyzed,
+                source_positions=result.source_positions,
             )
         return get_completions(result, params.position)
     return []
@@ -192,6 +194,7 @@ def signature_help(params: lsp.SignatureHelpParams):
                 tokens=good.tokens,
                 ast=good.ast,
                 analyzed=good.analyzed,
+                source_positions=good.source_positions,
             )
 
     if not result and current_source:
@@ -208,6 +211,7 @@ def signature_help(params: lsp.SignatureHelpParams):
                 tokens=result.tokens,
                 ast=result.ast,
                 analyzed=result.analyzed,
+                source_positions=result.source_positions,
             )
         return get_signature_help(result, params.position)
     return None

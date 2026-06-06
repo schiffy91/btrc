@@ -33,6 +33,7 @@ class AnalysisResult:
     tokens: list[Token] | None = None
     ast: Program | None = None
     analyzed: AnalyzedProgram | None = None
+    source_positions: list[tuple[str, int]] = field(default_factory=list)
 
 
 def uri_to_path(uri: str) -> str:
@@ -74,9 +75,58 @@ def _append_analyzer_messages(
         m = _ANALYZER_ERROR_RE.match(message)
         if m:
             msg, line_s, col_s = m.group(1), m.group(2), m.group(3)
-            result.diagnostics.append(_make_diagnostic(int(line_s), int(col_s), msg, severity))
+            mapped = _map_source_position(result, int(line_s), int(col_s))
+            if mapped is not None:
+                line, col = mapped
+                result.diagnostics.append(_make_diagnostic(line, col, msg, severity))
         else:
             result.diagnostics.append(_make_diagnostic(1, 1, message, severity))
+
+
+def _map_source_position(
+    result: AnalysisResult,
+    line: int,
+    col: int,
+) -> tuple[int, int] | None:
+    """Map a compiler-resolved line back to this document's original line.
+
+    Imported-file diagnostics are not published on the importing document; the
+    imported document gets its own diagnostics when opened.
+    """
+    if not result.source_positions:
+        return (line, col)
+    if line < 1 or line > len(result.source_positions):
+        return (line, col)
+
+    source_file, source_line = result.source_positions[line - 1]
+    if source_file != uri_to_path(result.uri):
+        return None
+    return (source_line, col)
+
+
+def _load_source_positions(source: str, file_path: str) -> list[tuple[str, int]]:
+    try:
+        frontend_source = _frontend.resolve_frontend_source(
+            source,
+            file_path,
+            include_stdlib=False,
+        )
+    except Exception:
+        return []
+    return frontend_source.source_positions
+
+
+def _append_mapped_diagnostic(
+    result: AnalysisResult,
+    line: int,
+    col: int,
+    message: str,
+    severity: lsp.DiagnosticSeverity = lsp.DiagnosticSeverity.Error,
+) -> None:
+    mapped = _map_source_position(result, line, col)
+    if mapped is None:
+        return
+    result.diagnostics.append(_make_diagnostic(mapped[0], mapped[1], message, severity))
 
 
 def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
@@ -89,11 +139,14 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
         result.tokens = frontend.tokens
         result.ast = frontend.user_program or frontend.program
         result.analyzed = frontend.analyzed
+        result.source_positions = frontend.source_positions
     except LexerError as e:
-        result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e)))
+        result.source_positions = _load_source_positions(source, file_path)
+        _append_mapped_diagnostic(result, e.line, e.col, str(e))
         return result
     except ParseError as e:
-        result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e)))
+        result.source_positions = _load_source_positions(source, file_path)
+        _append_mapped_diagnostic(result, e.line, e.col, str(e))
         return result
     except FrontendVisibilityError as e:
         for msg, line, col in e.errors:

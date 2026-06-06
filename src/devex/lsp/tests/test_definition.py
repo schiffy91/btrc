@@ -65,3 +65,18 @@ def test_no_definition_on_keyword():
     r = analyze(SRC)
     # cursor on the `return` keyword (line 15) has no definition
     assert get_definition(r, pos_of(SRC, "return v", offset=0)) is None
+
+
+def test_imported_function_resolves_to_imported_file_uri(tmp_path):
+    lib = tmp_path / "lib.btrc"
+    lib.write_text("int helper() { return 1; }\n")
+    main = tmp_path / "main.btrc"
+    source = "import ./lib.btrc;\nint main() { return helper(); }\n"
+    main.write_text(source)
+
+    result = analyze(source, uri=main.as_uri())
+    loc = get_definition(result, pos_of(source, "helper();", offset=1))
+
+    assert loc is not None
+    assert loc.uri == lib.as_uri()
+    assert loc.range.start.line == 0

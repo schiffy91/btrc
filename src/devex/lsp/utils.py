@@ -7,6 +7,9 @@ signature_help, and symbols.
 
 from __future__ import annotations
 
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
@@ -62,6 +65,55 @@ def find_token_at_position(
         if tok.col <= target_col < tok_end_col:
             return tok
     return None
+
+
+def document_position_to_resolved(
+    result: AnalysisResult,
+    position: lsp.Position,
+) -> lsp.Position:
+    """Map an editor position in the open document to resolved-source space."""
+    if not result.source_positions:
+        return position
+
+    document_path = _uri_path(result.uri)
+    target_line = position.line + 1
+    for resolved_index, (source_file, source_line) in enumerate(
+        result.source_positions,
+        start=1,
+    ):
+        if source_file == document_path and source_line == target_line:
+            return lsp.Position(
+                line=resolved_index - 1,
+                character=position.character,
+            )
+    return position
+
+
+def result_location(
+    result: AnalysisResult,
+    line: int,
+    col: int,
+    length: int = 0,
+) -> lsp.Location:
+    """Create a location, mapping resolved compiler lines to source files."""
+    uri = result.uri
+    source_line = line
+    if result.source_positions and 1 <= line <= len(result.source_positions):
+        source_file, original_line = result.source_positions[line - 1]
+        uri = Path(source_file).resolve().as_uri()
+        source_line = original_line
+
+    start = lsp.Position(line=max(0, source_line - 1), character=max(0, col - 1))
+    end = (
+        lsp.Position(line=start.line, character=start.character + length)
+        if length
+        else start
+    )
+    return lsp.Location(uri=uri, range=lsp.Range(start=start, end=end))
+
+
+def _uri_path(uri: str) -> str:
+    return unquote(urlparse(uri).path)
 
 
 def find_token_index(tokens: list[Token], token: Token) -> int | None:

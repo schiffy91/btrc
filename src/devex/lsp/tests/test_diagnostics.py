@@ -60,6 +60,19 @@ def test_analyzer_warning_reported_with_warning_severity():
     assert any(d.range.start.line == 1 for d in warnings)
 
 
+def test_diagnostic_line_maps_after_import_expansion(tmp_path):
+    lib = tmp_path / "lib.btrc"
+    lib.write_text("class Box { private int x; public Box() { self.x = 0; } }\n")
+    main = tmp_path / "main.btrc"
+    source = "import ./lib.btrc;\nint main() { Box b = Box(); return b.x; }\n"
+    main.write_text(source)
+
+    r = analyze(source, uri=main.as_uri())
+
+    assert any("private" in m for m in _msgs(r))
+    assert any(d.range.start.line == 1 for d in r.diagnostics)
+
+
 def test_diagnostic_range_is_well_formed():
     r = analyze("int main() { return undefinedThing(); }\n")
     # Whether or not this is an error, any emitted diagnostic must have a sane range.

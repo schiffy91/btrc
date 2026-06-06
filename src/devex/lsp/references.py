@@ -16,7 +16,12 @@ from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.definition import DefinitionMap, _resolve_object_class
 from src.devex.lsp.diagnostics import AnalysisResult
-from src.devex.lsp.utils import find_token_at_position, find_token_index
+from src.devex.lsp.utils import (
+    document_position_to_resolved,
+    find_token_at_position,
+    find_token_index,
+    result_location,
+)
 
 # ---------------------------------------------------------------------------
 # Reference collection
@@ -31,11 +36,13 @@ def _collect_all_tokens_matching(
     return [tok for tok in tokens if tok.type == TokenType.IDENT and tok.value == name]
 
 
-def _btrc_to_lsp_location(uri: str, line: int, col: int, name_len: int) -> lsp.Location:
-    """Create an LSP Location from btrc 1-based line/col with end column."""
-    start = lsp.Position(line=max(0, line - 1), character=max(0, col - 1))
-    end = lsp.Position(line=max(0, line - 1), character=max(0, col - 1 + name_len))
-    return lsp.Location(uri=uri, range=lsp.Range(start=start, end=end))
+def _result_ref_location(
+    result: AnalysisResult,
+    line: int,
+    col: int,
+    name_len: int,
+) -> lsp.Location:
+    return result_location(result, line, col, name_len)
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +256,10 @@ def get_references(
     if not result.tokens or not result.ast:
         return []
 
-    token = find_token_at_position(result.tokens, position)
+    token = find_token_at_position(
+        result.tokens,
+        document_position_to_resolved(result, position),
+    )
     if token is None or token.type != TokenType.IDENT:
         return []
 
@@ -280,7 +290,7 @@ def get_references(
         locs = _find_variable_references(name, result.tokens)
 
     return [
-        _btrc_to_lsp_location(result.uri, line, col, len(name)) for line, col in locs
+        _result_ref_location(result, line, col, len(name)) for line, col in locs
     ]
 
 
@@ -293,7 +303,10 @@ def get_rename_edits(
     if not result.tokens or not result.ast:
         return None
 
-    token = find_token_at_position(result.tokens, position)
+    token = find_token_at_position(
+        result.tokens,
+        document_position_to_resolved(result, position),
+    )
     if token is None or token.type != TokenType.IDENT:
         return None
 
@@ -303,7 +316,7 @@ def get_rename_edits(
         return None
 
     old_name = token.value
-    changes: list[lsp.TextEdit] = []
+    changes: dict[str, list[lsp.TextEdit]] = {}
     for loc in locations:
         edit_range = lsp.Range(
             start=loc.range.start,
@@ -312,9 +325,11 @@ def get_rename_edits(
                 character=loc.range.start.character + len(old_name),
             ),
         )
-        changes.append(lsp.TextEdit(range=edit_range, new_text=new_name))
+        changes.setdefault(loc.uri, []).append(
+            lsp.TextEdit(range=edit_range, new_text=new_name)
+        )
 
-    return lsp.WorkspaceEdit(changes={result.uri: changes})
+    return lsp.WorkspaceEdit(changes=changes)
 
 
 def prepare_rename(
@@ -325,7 +340,10 @@ def prepare_rename(
     if not result.tokens:
         return None
 
-    token = find_token_at_position(result.tokens, position)
+    token = find_token_at_position(
+        result.tokens,
+        document_position_to_resolved(result, position),
+    )
     if token is None or token.type != TokenType.IDENT:
         return None
 
@@ -369,8 +387,4 @@ def prepare_rename(
     if token.value in keywords:
         return None
 
-    start = lsp.Position(line=max(0, token.line - 1), character=max(0, token.col - 1))
-    end = lsp.Position(
-        line=max(0, token.line - 1), character=max(0, token.col - 1 + len(token.value))
-    )
-    return lsp.Range(start=start, end=end)
+    return result_location(result, token.line, token.col, len(token.value)).range

@@ -36,6 +36,7 @@ from src.devex.lsp.builtins import _MEMBER_TABLES, get_hover_markdown
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
     body_range,
+    document_position_to_resolved,
     find_token_at_position,
     find_token_index,
     resolve_chain_type,
@@ -143,7 +144,10 @@ def get_hover_info(
     if not result.tokens:
         return None
 
-    token = find_token_at_position(result.tokens, position)
+    token = find_token_at_position(
+        result.tokens,
+        document_position_to_resolved(result, position),
+    )
     if token is None:
         return None
 
