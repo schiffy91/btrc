@@ -70,16 +70,19 @@ def test_textmate_grammar_colors_variables_inside_expressions():
 
 def test_extension_launcher_starts_real_lsp_server():
     extension = (EXT_DIR / "src" / "extension.ts").read_text()
+    launch = (EXT_DIR / "src" / "launch.ts").read_text()
 
     assert "LanguageClient" in extension
+    assert "resolveServerLaunch" in extension
     assert "serverCommand" in extension
-    assert "btrc-lsp" in extension
-    assert "src', 'devex', 'lsp', 'server.py" in extension
-    assert "context.extensionPath, 'server'" in extension
-    assert "nix" in extension and "develop" in extension
-    assert "nix-shell" in extension and "workspaceShellNix" in extension
-    assert "workspaceFlake" in extension
-    assert "btrc.serverPath" in extension
+    assert "btrc-lsp" in (EXT_DIR / "package.json").read_text()
+    assert "src', 'devex', 'lsp', 'server.py" in launch
+    assert "context.extensionPath, 'server'" in launch
+    assert "nix" in launch and "develop" in launch
+    assert "nix-shell" in launch and "workspaceShellNix" in launch
+    assert "workspaceFlake" in launch
+    assert "serverPath" in launch
+    assert (EXT_DIR / "test" / "launch.test.js").exists()
 
 
 def test_extension_packaging_stages_lsp_payload(tmp_path):

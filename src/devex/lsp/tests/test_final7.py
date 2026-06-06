@@ -336,7 +336,13 @@ def test_resolve_chain_static_root():
            "          public int go() { return 1; } }\n"
            "int main() { A a = A(); return a.go(); }\n")
     a = analyze(src)
-    a_idx = next(i for i, t in enumerate(a.tokens) if t.value == "A" and t.line == 3)
+    pos = lsputils.document_position_to_resolved(a, pos_of(src, "A a"))
+    a_idx = next(
+        i for i, t in enumerate(a.tokens)
+        if t.value == "A"
+        and t.line == pos.line + 1
+        and t.col == pos.character + 1
+    )
     assert lsputils.resolve_chain_type(a, a.tokens, a_idx, a.analyzed.class_table) == "A"
 
 

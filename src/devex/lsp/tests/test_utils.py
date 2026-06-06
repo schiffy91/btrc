@@ -3,6 +3,8 @@
 from lsprotocol import types as lsp
 
 from src.compiler.python.ast_nodes import TypeExpr
+from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.tests.lsphelp import analyze
 from src.devex.lsp.utils import (
@@ -24,6 +26,10 @@ _CHAIN = (
     "              public Inner make() { return self.inner; } }\n"
     "int main() { Outer o = Outer(); return o.make().get(); }\n"
 )
+
+
+def _ast(source: str):
+    return Parser(Lexer(source, "x").tokenize()).parse()
 
 
 def test_resolve_member_type_field_method_builtin_unknown():
@@ -80,23 +86,23 @@ def test_find_enclosing_class_inside_outside_and_none():
            "    public int m() { return 1; }\n"
            "}\n"
            "int top() { return 0; }\n")
-    r = analyze(src)
-    assert find_enclosing_class(r.ast, 2) == "A"     # 1-based line inside A
-    assert find_enclosing_class(r.ast, 4) is None    # top() is not in a class
+    ast = _ast(src)
+    assert find_enclosing_class(ast, 2) == "A"     # 1-based line inside A
+    assert find_enclosing_class(ast, 4) is None    # top() is not in a class
     assert find_enclosing_class(None, 1) is None
 
 
 def test_find_enclosing_class_from_source_inside_outside_and_none():
     src = "class A {\n    public int m() { return 1; }\n}\n"
-    r = analyze(src)
-    assert find_enclosing_class_from_source(r.ast, src, 1) == "A"   # 0-based
-    assert find_enclosing_class_from_source(r.ast, src, 3) is None
+    ast = _ast(src)
+    assert find_enclosing_class_from_source(ast, src, 1) == "A"   # 0-based
+    assert find_enclosing_class_from_source(ast, src, 3) is None
     assert find_enclosing_class_from_source(None, "", 0) is None
 
 
 def test_body_range_empty_body_uses_fallback():
-    r = analyze("void f() { }\nint main() { return 0; }\n")
-    fn = r.ast.declarations[0]
+    ast = _ast("void f() { }\nint main() { return 0; }\n")
+    fn = ast.declarations[0]
     start, end = body_range(fn.body, fn.line)
     assert end - start >= 1000   # empty body → wide fallback range
 
@@ -110,7 +116,7 @@ def test_body_range_walks_elseif_and_switch():
            "    int last = x;\n"
            "    return last;\n"
            "}\n")
-    r = analyze(src)
-    fn = r.ast.declarations[0]
+    ast = _ast(src)
+    fn = ast.declarations[0]
     _start, end = body_range(fn.body, fn.line)
     assert end >= 7   # the deepest statement (return last) is on line 7 (1-based)

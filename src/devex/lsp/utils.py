@@ -362,6 +362,7 @@ def resolve_variable_type(
     name: str,
     ast: Program,
     class_table: dict[str, ClassInfo],
+    cursor_line: int | None = None,
 ) -> str | None:
     """Determine the class/type name for a variable by scanning the AST.
 
@@ -370,52 +371,45 @@ def resolve_variable_type(
         var x = new ClassName(...)      -> ClassName
         ClassName x = ...               -> ClassName
     """
+    candidates: list[tuple[int, str]] = []
     for decl in ast.declarations:
-        result = _scan_for_var_type(name, decl, class_table)
-        if result:
-            return result
-    return None
+        _scan_for_var_types(name, decl, class_table, candidates)
+    if cursor_line is not None:
+        candidates = [
+            (line, type_name)
+            for line, type_name in candidates
+            if line <= cursor_line
+        ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[0])[1]
 
 
-def _scan_for_var_type(
+def _scan_for_var_types(
     var_name: str,
     node,
     class_table: dict[str, ClassInfo],
-) -> str | None:
+    candidates: list[tuple[int, str]],
+) -> None:
     """Recursively scan AST nodes for a VarDeclStmt that declares var_name."""
     if isinstance(node, VarDeclStmt):
         if node.name == var_name:
-            if node.type and (
-                node.type.base in class_table or node.type.base in BUILTIN_TYPES
-            ):
-                return node.type.base
-            if isinstance(node.initializer, CallExpr):
-                callee = node.initializer.callee
-                if isinstance(callee, Identifier) and callee.name in class_table:
-                    return callee.name
-            if isinstance(node.initializer, NewExpr):
-                if node.initializer.type and (
-                    node.initializer.type.base in class_table
-                    or node.initializer.type.base in BUILTIN_TYPES
-                ):
-                    return node.initializer.type.base
-        return None
+            type_name = _var_decl_type(node, class_table)
+            if type_name:
+                candidates.append((node.line, type_name))
+        return
 
     if isinstance(node, ClassDecl):
         for member in node.members:
-            result = _scan_for_var_type(var_name, member, class_table)
-            if result:
-                return result
+            _scan_for_var_types(var_name, member, class_table, candidates)
     elif isinstance(node, (FunctionDecl, MethodDecl)):
         for p in node.params:
             if p.name == var_name and p.type:
                 if p.type.base in class_table or p.type.base in BUILTIN_TYPES:
-                    return p.type.base
+                    candidates.append((p.line, p.type.base))
         if node.body:
             for stmt in node.body.statements:
-                result = _scan_for_var_type(var_name, stmt, class_table)
-                if result:
-                    return result
+                _scan_for_var_types(var_name, stmt, class_table, candidates)
     elif hasattr(node, "then_block") or hasattr(node, "body"):
         for attr_name in (
             "then_block",
@@ -431,16 +425,28 @@ def _scan_for_var_type(
             if isinstance(child, ElseBlock) and child.body:
                 child = child.body
             elif isinstance(child, ElseIf) and child.if_stmt:
-                result = _scan_for_var_type(var_name, child.if_stmt, class_table)
-                if result:
-                    return result
+                _scan_for_var_types(var_name, child.if_stmt, class_table, candidates)
                 continue
             if hasattr(child, "statements"):
                 for stmt in child.statements:
-                    result = _scan_for_var_type(var_name, stmt, class_table)
-                    if result:
-                        return result
+                    _scan_for_var_types(var_name, stmt, class_table, candidates)
 
+
+def _var_decl_type(node: VarDeclStmt, class_table: dict[str, ClassInfo]) -> str | None:
+    if node.type and (
+        node.type.base in class_table or node.type.base in BUILTIN_TYPES
+    ):
+        return node.type.base
+    if isinstance(node.initializer, CallExpr):
+        callee = node.initializer.callee
+        if isinstance(callee, Identifier) and callee.name in class_table:
+            return callee.name
+    if isinstance(node.initializer, NewExpr):
+        if node.initializer.type and (
+            node.initializer.type.base in class_table
+            or node.initializer.type.base in BUILTIN_TYPES
+        ):
+            return node.initializer.type.base
     return None
 
 
@@ -481,7 +487,7 @@ def resolve_chain_type(
     elif root == "self" and result.ast:
         current_type = find_enclosing_class(result.ast, tokens[idx].line)
     elif result.ast:
-        current_type = resolve_variable_type(root, result.ast, class_table)
+        current_type = resolve_variable_type(root, result.ast, class_table, tokens[idx].line)
 
     if current_type is None:
         return None

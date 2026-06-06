@@ -466,5 +466,5 @@ def _resolve_object_class(
     if obj_token.value == "self":
         return find_enclosing_class(result.ast, obj_token.line)
     if result.ast:
-        return resolve_variable_type(obj_token.value, result.ast, class_table)
+        return resolve_variable_type(obj_token.value, result.ast, class_table, obj_token.line)
     return None  # pragma: no cover - reached only with no AST, but the callers run under get_references which already requires result.ast

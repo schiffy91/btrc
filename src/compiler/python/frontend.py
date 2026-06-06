@@ -63,6 +63,12 @@ class FrontendSource:
 
 
 @dataclass
+class StdlibSource:
+    source: str
+    source_positions: list[tuple[str, int]]
+
+
+@dataclass
 class FrontendParseResult:
     """Lexer/parser output. ``program`` is absent for token-only requests."""
 
@@ -175,10 +181,27 @@ def _discover_stdlib_files() -> list[str]:
 
 def get_stdlib_source(user_source: str = "") -> str:
     """Read stdlib sources, skipping classes/interfaces already defined by user."""
+    return get_stdlib_source_mapped(user_source).source
+
+
+def _stdlib_file_source(content: str, path: str) -> tuple[list[str], list[tuple[str, int]]]:
+    lines = []
+    source_positions = []
+    for line_number, line in enumerate(content.split("\n"), start=1):
+        if _BTRC_IMPORT_RE.match(line):
+            continue
+        lines.append(line)
+        source_positions.append((path, line_number))
+    return lines, source_positions
+
+
+def get_stdlib_source_mapped(user_source: str = "") -> StdlibSource:
+    """Read stdlib sources, skipping classes/interfaces already defined by user."""
     stdlib_dir = _get_stdlib_dir()
     user_names = _defined_stdlib_names(user_source)
 
-    parts = []
+    lines = []
+    source_positions = []
     for fname in _discover_stdlib_files():
         fpath = os.path.join(stdlib_dir, fname)
         if not os.path.exists(fpath):
@@ -188,8 +211,10 @@ def get_stdlib_source(user_source: str = "") -> str:
         file_names = _defined_stdlib_names(content)
         if file_names & user_names:
             continue
-        parts.append(_strip_btrc_imports(content))
-    return "\n".join(parts)
+        file_lines, file_positions = _stdlib_file_source(content, fpath)
+        lines.extend(file_lines)
+        source_positions.extend(file_positions)
+    return StdlibSource(source="\n".join(lines), source_positions=source_positions)
 
 
 def _strip_btrc_imports(source: str) -> str:
@@ -442,6 +467,7 @@ def resolve_frontend_source(
     *,
     include_stdlib: bool = True,
     strict_imports: bool = False,
+    map_stdlib_positions: bool = False,
     profile: dict[str, float] | None = None,
 ) -> FrontendSource:
     """Resolve includes/imports and compose the stdlib according to CLI rules."""
@@ -454,9 +480,15 @@ def resolve_frontend_source(
     _timed(profile, "resolve_includes", start)
 
     stdlib_source = ""
+    stdlib_positions: list[tuple[str, int]] = []
     if include_stdlib and not strict_imports:
         start = time.perf_counter()
-        stdlib_source = get_stdlib_source(user_source)
+        if map_stdlib_positions:
+            stdlib = get_stdlib_source_mapped(user_source)
+            stdlib_source = stdlib.source
+            stdlib_positions = stdlib.source_positions
+        else:
+            stdlib_source = get_stdlib_source(user_source)
         _timed(profile, "stdlib_include", start)
 
     full_source = (stdlib_source + "\n" + user_source) if stdlib_source else user_source
@@ -465,7 +497,7 @@ def resolve_frontend_source(
         source=full_source,
         stdlib_source=stdlib_source,
         provenance=provenance,
-        source_positions=source_positions,
+        source_positions=stdlib_positions + source_positions,
         graph=graph,
         strict_imports=strict_imports,
     )
@@ -545,6 +577,7 @@ def compile_frontend(
     include_stdlib: bool = True,
     strict_imports: bool = False,
     use_ast_cache: bool = True,
+    map_stdlib_positions: bool = False,
     debug: bool = False,
     profile: dict[str, float] | None = None,
 ) -> FrontendResult:
@@ -555,6 +588,7 @@ def compile_frontend(
         source_path,
         include_stdlib=include_stdlib,
         strict_imports=strict_imports,
+        map_stdlib_positions=map_stdlib_positions,
         profile=profile,
     )
     parsed = lex_parse_frontend_source(

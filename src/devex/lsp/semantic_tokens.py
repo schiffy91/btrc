@@ -18,7 +18,9 @@ from src.compiler.python.ast_nodes import (
     StructDecl,
 )
 from src.compiler.python.tokens import Token, TokenType
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.definition import DefinitionMap
+from src.devex.lsp.diagnostics import AnalysisResult, uri_to_path
+from src.devex.lsp.utils import navigation_tokens
 
 # LSP Semantic Token Types (order matters — index is the type ID)
 TOKEN_TYPES = [
@@ -79,9 +81,12 @@ class SemanticTokenCollector:
     """Walks tokens + AST to assign semantic token types."""
 
     def __init__(self, result: AnalysisResult):
-        self.tokens = result.tokens or []
+        self.result = result
+        self.tokens = navigation_tokens(result.tokens or [])
         self.ast = result.ast
         self.analyzed = result.analyzed
+        self.source_positions = result.source_positions
+        self.document_path = uri_to_path(result.uri)
         self.class_table = result.analyzed.class_table if result.analyzed else {}
         self.function_table = result.analyzed.function_table if result.analyzed else {}
 
@@ -91,10 +96,11 @@ class SemanticTokenCollector:
         self.enum_names: set[str] = set()
         self.struct_names: set[str] = set()
         self.generic_params: set[str] = set()
-        self.param_names: set[str] = set()  # current scope params
+        self.variable_names: set[str] = set()
 
-        # Collect enum/struct names from AST
         if self.ast:
+            dmap = DefinitionMap.from_ast(self.ast, result.tokens)
+            self.variable_names = {var.name for var in dmap.var_defs}
             for decl in self.ast.declarations:
                 if isinstance(decl, EnumDecl):
                     self.enum_names.add(decl.name)
@@ -187,6 +193,9 @@ class SemanticTokenCollector:
 
             # Function declaration: return_type IDENT (
             # Already handled by TextMate grammar mostly, skip
+            if name in self.variable_names:
+                self._add(tok, "variable")
+                return
 
         # Built-in types that are keywords
         if tok.type in (
@@ -208,16 +217,30 @@ class SemanticTokenCollector:
         type_idx = _TYPE_INDEX.get(type_name)
         if type_idx is None:  # pragma: no cover - every call site passes a name registered in _TYPE_INDEX
             return
+        location = self._document_position(tok)
+        if location is None:
+            return
+        line, col = location
         mod_bits = _mod_bits(*modifiers) if modifiers else 0
         self.raw_tokens.append(
             (
-                tok.line,  # 1-based
-                tok.col,  # 1-based
+                line,  # 1-based
+                col,  # 1-based
                 len(tok.value),
                 type_idx,
                 mod_bits,
             )
         )
+
+    def _document_position(self, tok: Token) -> tuple[int, int] | None:
+        if not self.source_positions:
+            return (tok.line, tok.col)
+        if tok.line < 1 or tok.line > len(self.source_positions):
+            return None
+        source_file, source_line = self.source_positions[tok.line - 1]
+        if source_file != self.document_path:
+            return None
+        return (source_line, tok.col)
 
     def _encode(self) -> list[int]:
         """Encode raw tokens into LSP delta-encoded format.

@@ -20,7 +20,8 @@ from src.devex.lsp.builtins import (
 )
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
-    find_enclosing_class_from_source,
+    document_position_to_resolved,
+    find_enclosing_class,
     get_text_before_cursor,
     resolve_member_type,
     resolve_variable_type,
@@ -414,10 +415,14 @@ def _resolve_var_type(
     """Resolve variable type, handling 'self' specially."""
     if not result.ast:
         return None
+    resolved_line = document_position_to_resolved(
+        result,
+        lsp.Position(line=cursor_line, character=0),
+    ).line + 1
     if var_name == "self":
-        return find_enclosing_class_from_source(result.ast, result.source, cursor_line)
+        return find_enclosing_class(result.ast, resolved_line)
     class_table = result.analyzed.class_table if result.analyzed else {}
-    return resolve_variable_type(var_name, result.ast, class_table)
+    return resolve_variable_type(var_name, result.ast, class_table, resolved_line)
 
 
 def _members_for_type(

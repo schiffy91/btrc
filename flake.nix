@@ -58,6 +58,34 @@
         };
       });
       packages = eachSystem (pkgs: let
+        extensionVersion = "0.1.0";
+        extensionSource = lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            let
+              relativePath = lib.removePrefix "${toString ./.}/" (toString path);
+              relativePrefix = lib.optionalString (relativePath != "") "${relativePath}/";
+              pathPrefix = if type == "directory" then relativePrefix else relativePath;
+              generated = lib.any (prefix: lib.hasPrefix prefix pathPrefix) [
+                "src/devex/ext/btrc.vsix"
+                "src/devex/ext/node_modules/"
+                "src/devex/ext/out/"
+                "src/devex/ext/server/"
+              ];
+              prefixes = [
+                "src/compiler/"
+                "src/devex/ext/"
+                "src/devex/lsp/"
+                "src/stdlib/"
+              ];
+              needed = lib.any (prefix: lib.hasPrefix prefix pathPrefix) prefixes
+                || lib.elem relativePath [
+                  "src/__init__.py"
+                  "src/devex/__init__.py"
+                ];
+              parent = type == "directory" && lib.any (prefix: lib.hasPrefix relativePrefix prefix) prefixes;
+            in (needed || parent) && !generated;
+        };
         lspPython = pkgs.python314.withPackages (ps: [ ps.pygls ps.lsprotocol ]);
         btrcpy = pkgs.writeShellApplication {
           name = "btrcpy";
@@ -75,8 +103,39 @@
             exec python3 -m src.devex.lsp.server "$@"
           '';
         };
+        btrc-vscode = pkgs.buildNpmPackage {
+          pname = "vscode-extension-btrc";
+          version = extensionVersion;
+          src = extensionSource;
+          sourceRoot = "source/src/devex/ext";
+          npmDepsHash = "sha256-M0yBu2D/qn2sqMyS3XpkFHCXNKzwhsB4bLfz1luFLD8=";
+          npmInstallFlags = [ "--ignore-scripts" ];
+          npmRebuildFlags = [ "--ignore-scripts" ];
+          nodejs = pkgs.nodejs_22;
+          nativeBuildInputs = [ pkgs.esbuild pkgs.python314 ];
+          buildPhase = ''
+            runHook preBuild
+            python3 scripts/prepare_lsp_package.py
+            esbuild ./src/extension.ts ./src/launch.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            extension="$out/share/vscode/extensions/btrc-dev.btrc"
+            mkdir -p "$extension"
+            cp package.json language-configuration.json LICENSE "$extension"/
+            cp -R icons out server syntaxes "$extension"/
+            runHook postInstall
+          '';
+          passthru = {
+            vscodeExtPublisher = "btrc-dev";
+            vscodeExtName = "btrc";
+            vscodeExtUniqueId = "btrc-dev.btrc";
+          };
+        };
       in {
-        inherit btrcpy btrc-lsp;
+        inherit btrcpy btrc-lsp btrc-vscode;
+        btrc-vscode-extension = btrc-vscode;
         btrc = btrcpy;
         default = btrcpy;
         devcontainer = pkgs.linkFarm "${cfg.name}-devcontainer" # nix build .#devcontainer — generates .devcontainer/ files

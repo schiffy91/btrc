@@ -109,7 +109,8 @@ def _load_source_positions(source: str, file_path: str) -> list[tuple[str, int]]
         frontend_source = _frontend.resolve_frontend_source(
             source,
             file_path,
-            include_stdlib=False,
+            include_stdlib=True,
+            map_stdlib_positions=True,
         )
     except Exception:
         return []
@@ -135,7 +136,12 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
     file_path = uri_to_path(uri)
 
     try:
-        frontend = compile_frontend(source, file_path)
+        frontend = compile_frontend(
+            source,
+            file_path,
+            use_ast_cache=False,
+            map_stdlib_positions=True,
+        )
         result.tokens = frontend.tokens
         result.ast = frontend.user_program or frontend.program
         result.analyzed = frontend.analyzed

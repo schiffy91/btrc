@@ -1,125 +1,39 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
 } from 'vscode-languageclient/node';
+import { resolveServerLaunch } from './launch';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
-
-/** Resolve an executable on PATH (sync), returning its full path or undefined. */
-function which(cmd: string): string | undefined {
-    const exts = process.platform === 'win32' ? ['.exe', '.cmd', ''] : [''];
-    const extraDirs = [
-        path.join(process.env.HOME || '', '.nix-profile', 'bin'),
-        path.join('/etc', 'profiles', 'per-user', process.env.USER || '', 'bin'),
-        '/run/current-system/sw/bin',
-        '/nix/var/nix/profiles/default/bin',
-        '/opt/homebrew/bin',
-        '/usr/local/bin',
-    ];
-    const dirs = [...new Set([...(process.env.PATH || '').split(path.delimiter), ...extraDirs])];
-    for (const dir of dirs) {
-        if (!dir) { continue; }
-        for (const ext of exts) {
-            const candidate = path.join(dir, cmd + ext);
-            try {
-                if (fs.existsSync(candidate)) { return candidate; }
-            } catch {
-                // ignore unreadable PATH entries
-            }
-        }
-    }
-    return undefined;
-}
 
 export function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('btrc Language Server');
     context.subscriptions.push(outputChannel);
 
     const config = vscode.workspace.getConfiguration('btrc');
-    const configuredPython = config.get<string>('pythonPath', 'python3');
-    const configuredServerPath = config.get<string>('serverPath', '');
-    const configuredServerCommand = config.get<string>('serverCommand', 'btrc-lsp').trim();
-
-    // Prefer the packaged executable when it is available. It brings the Python
-    // dependencies with it, so diagnostics and navigation work outside this
-    // repository without hand-maintaining a venv.
-    let command: string | undefined;
-    let args: string[] = [];
+    const pythonInspect = config.inspect<string>('pythonPath');
+    const pythonExplicit = !!(pythonInspect && (
+        pythonInspect.workspaceFolderValue ??
+        pythonInspect.workspaceValue ??
+        pythonInspect.globalValue));
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    let cwd = workspaceRoot ?? context.extensionPath;
-    let serverScript: string | undefined;
-    let projectRoot: string | undefined;
-    let launchSource = 'unresolved';
 
-    const commandCandidate = configuredServerCommand
-        ? (path.isAbsolute(configuredServerCommand)
-            ? configuredServerCommand
-            : which(configuredServerCommand))
-        : undefined;
-    if (commandCandidate && fs.existsSync(commandCandidate)) {
-        command = commandCandidate;
-        launchSource = 'serverCommand';
-    }
+    const launch = resolveServerLaunch({
+        extensionPath: context.extensionPath,
+        workspaceRoot,
+        config: {
+            pythonPath: config.get<string>('pythonPath', 'python3'),
+            serverPath: config.get<string>('serverPath', ''),
+            serverCommand: config.get<string>('serverCommand', 'btrc-lsp').trim(),
+            useNixDevShell: config.get<boolean>('useNixDevShell', true),
+            pythonExplicit,
+        },
+    });
 
-    // Resolve the LSP server script. Prefer the explicit setting
-    // (btrc.serverPath) so devcontainers can declare it once. Fall back to
-    // source-tree detection for development, then the packaged server payload.
-    if (!command && configuredServerPath && fs.existsSync(configuredServerPath)) {
-        serverScript = configuredServerPath;
-        projectRoot = path.resolve(path.dirname(serverScript), '..', '..', '..');
-        launchSource = 'serverPath';
-    }
-
-    if (!command && !serverScript && workspaceRoot && configuredServerCommand) {
-        const direnv = which('direnv');
-        if (direnv && fs.existsSync(path.join(workspaceRoot, '.envrc'))) {
-            command = direnv;
-            args = ['exec', workspaceRoot, configuredServerCommand];
-            cwd = workspaceRoot;
-            launchSource = 'direnv';
-        } else {
-            const nixShell = which('nix-shell');
-            const nix = which('nix');
-            const shellNix = path.join(workspaceRoot, 'shell.nix');
-            const workspaceFlake = path.join(workspaceRoot, 'flake.nix');
-            if (nixShell && fs.existsSync(shellNix)) {
-                command = nixShell;
-                args = [shellNix, '--run', configuredServerCommand];
-                cwd = workspaceRoot;
-                launchSource = 'workspaceShellNix';
-            } else if (nix && fs.existsSync(workspaceFlake)) {
-                command = nix;
-                args = ['develop', workspaceRoot, '--command', configuredServerCommand];
-                cwd = workspaceRoot;
-                launchSource = 'workspaceFlake';
-            }
-        }
-    }
-
-    if (!command && !serverScript) {
-        const candidates = [
-            workspaceRoot,
-            path.resolve(context.extensionPath, '..', '..', '..'),
-            path.join(context.extensionPath, 'server'),
-        ];
-        for (const candidate of candidates) {
-            if (!candidate) { continue; }
-            const probe = path.join(candidate, 'src', 'devex', 'lsp', 'server.py');
-            if (fs.existsSync(probe)) {
-                serverScript = probe;
-                projectRoot = candidate;
-                launchSource = candidate.endsWith(`${path.sep}server`) ? 'bundledServer' : 'sourceTree';
-                break;
-            }
-        }
-    }
-
-    if (!command && (!serverScript || !projectRoot)) {
+    if (!launch) {
         vscode.window.showErrorMessage(
             'btrc language server not found. Install `btrc-lsp`, set "btrc.serverCommand", ' +
             'set "btrc.serverPath", or open the btrc project folder.'
@@ -127,55 +41,17 @@ export function activate(context: vscode.ExtensionContext) {
         return;
     }
 
-    // Decide how to launch the server. Precedence:
-    //   1. an explicitly-configured btrc.pythonPath
-    //   2. a local venv at src/devex/lsp/.venv
-    //   3. the Nix dev shell (flake.nix) — gives the pinned Python 3.13+ with
-    //      pygls/lsprotocol already installed, so no manual venv is needed
-    //   4. the default `python3` on PATH
-    const isWindows = process.platform === 'win32';
-    const venvPython = isWindows
-        ? path.join(projectRoot, 'src', 'devex', 'lsp', '.venv', 'Scripts', 'python.exe')
-        : path.join(projectRoot, 'src', 'devex', 'lsp', '.venv', 'bin', 'python3');
-
-    const pythonInspect = config.inspect<string>('pythonPath');
-    const pythonExplicit = !!(pythonInspect && (
-        pythonInspect.workspaceFolderValue ??
-        pythonInspect.workspaceValue ??
-        pythonInspect.globalValue));
-    const useNix = config.get<boolean>('useNixDevShell', true);
-    const nixBin = which('nix');
-    const flakePath = path.join(projectRoot, 'flake.nix');
-
-    if (!command && serverScript && projectRoot) {
-        cwd = projectRoot;
-        if (pythonExplicit) {
-            command = configuredPython;
-            args = [serverScript];
-        } else if (fs.existsSync(venvPython)) {
-            command = venvPython;
-            args = [serverScript];
-        } else if (useNix && nixBin && fs.existsSync(flakePath)) {
-            // Run the server inside the project's Nix dev shell.
-            command = nixBin;
-            args = ['develop', projectRoot, '--command', 'python3', serverScript];
-        } else {
-            command = configuredPython;
-            args = [serverScript];
-        }
-    }
-
-    outputChannel.appendLine(`Launch: ${command} ${args.join(' ')}`);
-    outputChannel.appendLine(`Launch source: ${launchSource}`);
-    if (serverScript) { outputChannel.appendLine(`Server script: ${serverScript}`); }
-    if (projectRoot) { outputChannel.appendLine(`Project root: ${projectRoot}`); }
-    outputChannel.appendLine(`Working directory: ${cwd}`);
+    outputChannel.appendLine(`Launch: ${launch.command} ${launch.args.join(' ')}`);
+    outputChannel.appendLine(`Launch source: ${launch.source}`);
+    if (launch.serverScript) { outputChannel.appendLine(`Server script: ${launch.serverScript}`); }
+    if (launch.projectRoot) { outputChannel.appendLine(`Project root: ${launch.projectRoot}`); }
+    outputChannel.appendLine(`Working directory: ${launch.cwd}`);
 
     const serverOptions: ServerOptions = {
-        command,
-        args,
+        command: launch.command,
+        args: launch.args,
         options: {
-            cwd,
+            cwd: launch.cwd,
         },
     };
 
