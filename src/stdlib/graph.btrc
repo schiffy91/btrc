@@ -10,7 +10,7 @@ import std.console;
 import std.fs;
 import std.json;
 import std.map;
-import std.strings;
+import std.set;
 import std.vector;
 
 class GraphNode {
@@ -63,7 +63,7 @@ class ExecutionGraph {
         for item in self.nodes {
             if (item.id.equals(id)) { return item; }
         }
-        Console.error("error 0:0 Unknown graph node: " + id);
+        Console.error(f"error 0:0 Unknown graph node: {id}");
         exit(1);
         return GraphNode();
     }
@@ -76,43 +76,13 @@ class ExecutionGraph {
         }
         return result;
     }
-}
 
-class GraphParser {
-    class GraphNode node(string objectText) {
-        GraphNode node = GraphNode();
-        node.id = JsonText.field(objectText, "id", "");
-        node.specPath = JsonText.field(objectText, "spec", "");
-        node.after = JsonText.stringArray(objectText, "after");
-        node.args = JsonText.argsObject(objectText);
-        if (node.id.isEmpty()) {
-            Console.error("error 0:0 Graph node is missing id");
-            exit(1);
-        }
-        if (node.specPath.isEmpty()) {
-            Console.error("error 0:0 Graph node " + node.id + " is missing spec");
-            exit(1);
-        }
-        return node;
+    public string validationError() {
+        return GraphValidation.error(self);
     }
 
-    class ExecutionGraph readFile(string path) {
-        string text = Path.readAll(path);
-        ExecutionGraph graph = ExecutionGraph();
-        graph.path = path;
-        graph.baseDir = PathTools.dirname(path);
-        graph.name = JsonText.field(text, "name", graph.name);
-        graph.workspaceRoot = JsonText.field(text, "workspaceRoot", graph.workspaceRoot);
-        graph.defaults = JsonText.stringArray(text, "default");
-        graph.required = JsonText.stringArray(text, "required");
-        for objectText in JsonText.objectArray(text, "nodes") {
-            graph.nodes.push(GraphParser.node(objectText));
-        }
-        if (graph.nodes.isEmpty()) {
-            Console.error("error 0:0 Graph has no nodes: " + path);
-            exit(1);
-        }
-        return graph;
+    public bool valid() {
+        return self.validationError().isEmpty();
     }
 }
 
@@ -135,8 +105,8 @@ class GraphCli {
 class GraphReport {
     class void list(ExecutionGraph graph) {
         for node in graph.nodes {
-            string parents = node.after.isEmpty() ? "root" : node.after.join(",");
-            Console.log(node.id + " <- " + parents + " :: " + graph.resolvedSpecPath(node));
+            var parents = node.after.isEmpty() ? "root" : node.after.join(",");
+            Console.log(f"{node.id} <- {parents} :: {graph.resolvedSpecPath(node)}");
         }
     }
 }
@@ -192,5 +162,85 @@ class GraphTraversal {
 
     public bool ok() {
         return self.error.isEmpty();
+    }
+}
+
+class GraphValidation {
+    class Vector<string> nodeIds(ExecutionGraph graph) {
+        Vector<string> result = [];
+        for node in graph.nodes {
+            result.push(node.id);
+        }
+        return result;
+    }
+
+    class string error(ExecutionGraph graph) {
+        if (graph.nodes.isEmpty()) {
+            return f"Graph has no nodes: {graph.path}";
+        }
+        Set<string> seen = {};
+        for node in graph.nodes {
+            if (node.id.isEmpty()) { return "Graph node is missing id"; }
+            if (node.specPath.isEmpty()) { return f"Graph node {node.id} is missing spec"; }
+            if (seen.contains(node.id)) { return f"Duplicate graph node id: {node.id}"; }
+            seen.add(node.id);
+        }
+        for node in graph.nodes {
+            for parent in node.after {
+                if (!seen.contains(parent)) {
+                    return f"Graph node {node.id} depends on missing node: {parent}";
+                }
+            }
+        }
+        for target in graph.defaults {
+            if (!seen.contains(target)) { return f"Graph default target is missing: {target}"; }
+        }
+        for target in graph.required {
+            if (!seen.contains(target)) { return f"Graph required target is missing: {target}"; }
+        }
+
+        var traversal = GraphTraversal(graph);
+        traversal.order(GraphValidation.nodeIds(graph));
+        if (!traversal.ok()) { return traversal.error; }
+        return "";
+    }
+}
+
+class GraphParser {
+    class GraphNode node(string objectText) {
+        var node = GraphNode();
+        node.id = JsonText.field(objectText, "id", "");
+        node.specPath = JsonText.field(objectText, "spec", "");
+        node.after = JsonText.stringArray(objectText, "after");
+        node.args = JsonText.argsObject(objectText);
+        if (node.id.isEmpty()) {
+            Console.error("error 0:0 Graph node is missing id");
+            exit(1);
+        }
+        if (node.specPath.isEmpty()) {
+            Console.error(f"error 0:0 Graph node {node.id} is missing spec");
+            exit(1);
+        }
+        return node;
+    }
+
+    class ExecutionGraph readFile(string path) {
+        var text = Path.readAll(path);
+        var graph = ExecutionGraph();
+        graph.path = path;
+        graph.baseDir = PathTools.dirname(path);
+        graph.name = JsonText.field(text, "name", graph.name);
+        graph.workspaceRoot = JsonText.field(text, "workspaceRoot", graph.workspaceRoot);
+        graph.defaults = JsonText.stringArray(text, "default");
+        graph.required = JsonText.stringArray(text, "required");
+        for objectText in JsonText.objectArray(text, "nodes") {
+            graph.nodes.push(GraphParser.node(objectText));
+        }
+        var error = graph.validationError();
+        if (!error.isEmpty()) {
+            Console.error(f"error 0:0 {error}");
+            exit(1);
+        }
+        return graph;
     }
 }
