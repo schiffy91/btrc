@@ -11,6 +11,7 @@ import std.strings;
 import std.vector;
 
 #include <errno.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -302,9 +303,12 @@ class UnixShell {
         return rendered;
     }
 
-    public string withRedirections(string rendered, string stdout, string stderr, string outFile, string errFile) {
+    public string withRedirections(string rendered, string stdout, string stderr, string outFile, string errFile, string stdinFile) {
         // Group first so user-supplied redirections keep their own ordering.
         string command = f"( {rendered} )";
+        if (!stdinFile.isEmpty()) {
+            command = f"{command} < {ShellWords.quote(stdinFile)}";
+        }
         if (stdout.equals(CommandOutput.collect())) {
             command = f"{command} > {ShellWords.quote(outFile)}";
         } else if (stdout.equals(CommandOutput.suppress())) {
@@ -327,6 +331,7 @@ class UnixShell {
                           bool logFailure = true,
                           bool throwOnFailure = false,
                           string redactSubstring = "",
+                          string stdin = "",
                           string cwd = "",
                           Vector<string> env = CommandEnvironment.empty(),
                           bool sudo = false,
@@ -341,7 +346,13 @@ class UnixShell {
         string rendered = self.withContext(command, cwd, env, sudo, chroot);
         string outFile = self.tempPath("stdout");
         string errFile = self.tempPath("stderr");
-        string executed = self.withRedirections(rendered, stdout, stderr, outFile, errFile);
+        string stdinFile = "";
+        if (!stdin.isEmpty()) {
+            stdinFile = self.tempPath("stdin");
+            Path.writeAll(stdinFile, stdin);
+            chmod(stdinFile, 384);
+        }
+        string executed = self.withRedirections(rendered, stdout, stderr, outFile, errFile, stdinFile);
 
         if (self.logCommands || logCommand) {
             string visible = UnixShell.redactText(executed, redactSubstring);
@@ -354,6 +365,9 @@ class UnixShell {
         string error = stderr.equals(CommandOutput.collect()) ? Path.readAll(errFile) : "";
         unlink(outFile);
         unlink(errFile);
+        if (!stdinFile.isEmpty()) {
+            unlink(stdinFile);
+        }
 
         if ((logFailure || throwOnFailure) && code != 0) {
             UnixShell.logError(f"Command failed ({code}): {UnixShell.redactText(rendered, redactSubstring)}");
@@ -377,6 +391,7 @@ class PowerShell {
                           bool logFailure = true,
                           bool throwOnFailure = false,
                           string redactSubstring = "",
+                          string stdin = "",
                           string cwd = "",
                           Vector<string> env = CommandEnvironment.empty(),
                           bool sudo = false,

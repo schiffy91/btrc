@@ -53,6 +53,7 @@ from src.devex.lsp.utils import (
     find_enclosing_class,
     find_token_at_position,
     find_token_index,
+    navigation_tokens,
     resolve_chain_type,
     resolve_variable_type,
     result_location,
@@ -335,7 +336,8 @@ def get_definition(
         return None
 
     resolved_position = document_position_to_resolved(result, position)
-    token = find_token_at_position(result.tokens, resolved_position)
+    tokens = navigation_tokens(result.tokens)
+    token = find_token_at_position(tokens, resolved_position)
     if token is None or token.type != TokenType.IDENT:
         return None
 
@@ -344,7 +346,7 @@ def get_definition(
     cursor_line = token.line  # 1-based
 
     # 1. Member access: obj.member / obj->member / obj?.member
-    loc = _try_member_definition(result, token, class_table, dmap)
+    loc = _try_member_definition(result, tokens, token, class_table, dmap)
     if loc:
         return loc
 
@@ -399,25 +401,26 @@ def _make_result_location(
 
 def _try_member_definition(
     result: AnalysisResult,
+    tokens: list[Token],
     token: Token,
     class_table: dict[str, ClassInfo],
     dmap: DefinitionMap,
 ) -> lsp.Location | None:
     """Try to resolve a go-to-definition for a member access."""
-    if not result.tokens:  # pragma: no cover - get_definition already returns when tokens are absent before calling this
+    if not tokens:  # pragma: no cover - get_definition already returns when tokens are absent before calling this
         return None
 
-    token_idx = find_token_index(result.tokens, token)
+    token_idx = find_token_index(tokens, token)
     if token_idx is None or token_idx < 2:  # pragma: no cover - the token comes from this list (never None) and a member access needs a receiver + dot before it (idx >= 2)
         return None
 
-    prev = result.tokens[token_idx - 1]
+    prev = tokens[token_idx - 1]
     if prev.value not in (".", "->", "?."):
         return None
 
     member_name = token.value
 
-    target_class = resolve_chain_type(result, result.tokens, token_idx - 2, class_table)
+    target_class = resolve_chain_type(result, tokens, token_idx - 2, class_table)
 
     if target_class is None:
         for cname, cinfo in class_table.items():

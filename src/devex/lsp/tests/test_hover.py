@@ -58,3 +58,16 @@ def test_hover_none_without_tokens():
     from src.devex.lsp.tests.lsphelp import analyze as a
     r = a("   \n")
     assert get_hover_info(r, pos_of("   \n", " ", offset=0)) is None
+
+
+def test_hover_inside_fstring_interpolation():
+    source = """\
+int main() {
+    string label = "Name";
+    string command = f"printf {label} >&2";
+    return 0;
+}
+"""
+    t = hover_text(get_hover_info(analyze(source), pos_of(source, "{label}", offset=2)))
+
+    assert "string" in t and "label" in t

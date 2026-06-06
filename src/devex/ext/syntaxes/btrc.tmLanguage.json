@@ -26,6 +26,7 @@
     { "include": "#function-call" },
     { "include": "#member-access" },
     { "include": "#user-type" },
+    { "include": "#variables" },
     { "include": "#punctuation" }
   ],
   "repository": {
@@ -441,6 +442,13 @@
       }
     },
 
+    "variables": {
+      "match": "\\b([a-z_][a-zA-Z0-9_]*)\\b",
+      "captures": {
+        "1": { "name": "variable.other.readwrite.btrc" }
+      }
+    },
+
     "punctuation": {
       "patterns": [
         { "match": "\\{", "name": "punctuation.section.block.begin.btrc" },
@@ -473,6 +481,7 @@
         { "include": "#function-call" },
         { "include": "#member-access" },
         { "include": "#user-type" },
+        { "include": "#variables" },
         { "include": "#punctuation" }
       ]
     }

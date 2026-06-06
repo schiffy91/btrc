@@ -13,7 +13,16 @@ let outputChannel: vscode.OutputChannel;
 /** Resolve an executable on PATH (sync), returning its full path or undefined. */
 function which(cmd: string): string | undefined {
     const exts = process.platform === 'win32' ? ['.exe', '.cmd', ''] : [''];
-    for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+    const extraDirs = [
+        path.join(process.env.HOME || '', '.nix-profile', 'bin'),
+        path.join('/etc', 'profiles', 'per-user', process.env.USER || '', 'bin'),
+        '/run/current-system/sw/bin',
+        '/nix/var/nix/profiles/default/bin',
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+    ];
+    const dirs = [...new Set([...(process.env.PATH || '').split(path.delimiter), ...extraDirs])];
+    for (const dir of dirs) {
         if (!dir) { continue; }
         for (const ext of exts) {
             const candidate = path.join(dir, cmd + ext);
@@ -73,6 +82,22 @@ export function activate(context: vscode.ExtensionContext) {
             args = ['exec', workspaceRoot, configuredServerCommand];
             cwd = workspaceRoot;
             launchSource = 'direnv';
+        } else {
+            const nixShell = which('nix-shell');
+            const nix = which('nix');
+            const shellNix = path.join(workspaceRoot, 'shell.nix');
+            const workspaceFlake = path.join(workspaceRoot, 'flake.nix');
+            if (nixShell && fs.existsSync(shellNix)) {
+                command = nixShell;
+                args = [shellNix, '--run', configuredServerCommand];
+                cwd = workspaceRoot;
+                launchSource = 'workspaceShellNix';
+            } else if (nix && fs.existsSync(workspaceFlake)) {
+                command = nix;
+                args = ['develop', workspaceRoot, '--command', configuredServerCommand];
+                cwd = workspaceRoot;
+                launchSource = 'workspaceFlake';
+            }
         }
     }
 

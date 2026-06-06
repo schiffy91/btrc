@@ -20,6 +20,8 @@ int main() {
     assert(sh.run("printf 'quiet'", stdout=CommandOutput.stream(), stderr=CommandOutput.stream()).code == 0);
     assert(sh.run("printf 'err' >&2", stderr=CommandOutput.collect()).stderr().equals("err"));
     assert(sh.run("printf 'raw'", logFailure=true).trimmed().equals("raw"));
+    assert(sh.run("cat", stdin="secret input").stdout().equals("secret input"));
+    assert(sh.run("cat", stdin="line\n").stdout().equals("line\n"));
     print("PASS");
     return 0;
 }

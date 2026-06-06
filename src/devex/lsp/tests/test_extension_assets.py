@@ -55,6 +55,19 @@ def test_textmate_grammar_covers_compiler_keywords():
         assert keyword in grammar_text
 
 
+def test_textmate_grammar_colors_variables_inside_expressions():
+    grammar = json.loads((EXT_DIR / "syntaxes" / "btrc.tmLanguage.json").read_text())
+    variables = grammar["repository"]["variables"]
+    expression_includes = [
+        entry["include"]
+        for entry in grammar["repository"]["expression"]["patterns"]
+        if "include" in entry
+    ]
+
+    assert variables["captures"]["1"]["name"] == "variable.other.readwrite.btrc"
+    assert "#variables" in expression_includes
+
+
 def test_extension_launcher_starts_real_lsp_server():
     extension = (EXT_DIR / "src" / "extension.ts").read_text()
 
@@ -64,6 +77,8 @@ def test_extension_launcher_starts_real_lsp_server():
     assert "src', 'devex', 'lsp', 'server.py" in extension
     assert "context.extensionPath, 'server'" in extension
     assert "nix" in extension and "develop" in extension
+    assert "nix-shell" in extension and "workspaceShellNix" in extension
+    assert "workspaceFlake" in extension
     assert "btrc.serverPath" in extension
 
 

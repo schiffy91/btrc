@@ -39,6 +39,7 @@ from src.devex.lsp.utils import (
     document_position_to_resolved,
     find_token_at_position,
     find_token_index,
+    navigation_tokens,
     resolve_chain_type,
     type_repr,
 )
@@ -158,10 +159,8 @@ def get_hover_info(
     if not result.tokens:
         return None
 
-    token = find_token_at_position(
-        result.tokens,
-        document_position_to_resolved(result, position),
-    )
+    tokens = navigation_tokens(result.tokens)
+    token = find_token_at_position(tokens, document_position_to_resolved(result, position))
     if token is None:
         return None
 
@@ -178,7 +177,7 @@ def get_hover_info(
 
     # Check if it's a method or field being accessed (look at preceding tokens)
     elif token.type == TokenType.IDENT:
-        content = _try_member_hover(result, token, class_table)
+        content = _try_member_hover(result, tokens, token, class_table)
         if content is None:
             content = _try_variable_hover(result, token, class_table)
 
@@ -195,24 +194,25 @@ def get_hover_info(
 
 def _try_member_hover(
     result: AnalysisResult,
+    tokens: list[Token],
     token: Token,
     class_table: dict[str, ClassInfo],
 ) -> str | None:
     """Try to resolve hover for a member access (obj.field or obj.method)."""
-    if not result.tokens:  # pragma: no cover - get_hover_info already returns when tokens are absent, so this is only reached with tokens present
+    if not tokens:  # pragma: no cover - get_hover_info already returns when tokens are absent, so this is only reached with tokens present
         return None
 
-    token_idx = find_token_index(result.tokens, token)
+    token_idx = find_token_index(tokens, token)
     if token_idx is None or token_idx < 2:
         return None
 
-    prev = result.tokens[token_idx - 1]
+    prev = tokens[token_idx - 1]
     if prev.value not in (".", "->", "?."):
         return None
 
     member_name = token.value
 
-    target_type = resolve_chain_type(result, result.tokens, token_idx - 2, class_table)
+    target_type = resolve_chain_type(result, tokens, token_idx - 2, class_table)
 
     if target_type is None:
         for cname, cinfo in class_table.items():

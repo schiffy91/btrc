@@ -80,3 +80,35 @@ def test_imported_function_resolves_to_imported_file_uri(tmp_path):
     assert loc is not None
     assert loc.uri == lib.as_uri()
     assert loc.range.start.line == 0
+
+
+def test_definition_inside_fstring_interpolation_resolves_stdlib_member():
+    source = """\
+import std.*;
+
+int main() {
+    string path = "/tmp";
+    string command = f"stat {UnixShell.quote(path)}";
+    return 0;
+}
+"""
+    result = analyze(source)
+    loc = get_definition(result, pos_of(source, "UnixShell.quote", offset=10))
+
+    assert loc is not None
+    assert loc.uri.endswith("/src/stdlib/process.btrc")
+
+
+def test_definition_inside_fstring_interpolation_resolves_local_variable():
+    source = """\
+int main() {
+    string label = "Name";
+    string command = f"printf {label} >&2";
+    return 0;
+}
+"""
+    result = analyze(source)
+    loc = get_definition(result, pos_of(source, "{label}", offset=2))
+
+    assert loc is not None
+    assert loc.range.start.line == 1

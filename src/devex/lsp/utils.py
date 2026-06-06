@@ -84,6 +84,90 @@ def find_token_at_position(
     return None
 
 
+def navigation_tokens(tokens: list[Token]) -> list[Token]:
+    expanded: list[Token] = []
+    for token in tokens:
+        if token.type == TokenType.FSTRING_LIT:
+            expanded.extend(_fstring_expression_tokens(token))
+        expanded.append(token)
+    return expanded
+
+
+def _fstring_expression_tokens(token: Token) -> list[Token]:
+    from src.compiler.python.lexer import Lexer, LexerError
+
+    result: list[Token] = []
+    content = token.value
+    for start, end in _fstring_expression_spans(content):
+        expression = content[start:end]
+        line_offset = content[:start].count("\n")
+        if line_offset == 0:
+            base_col = token.col + 2 + start
+        else:
+            base_col = len(content[:start].rsplit("\n", 1)[-1]) + 1
+        try:
+            inner_tokens = Lexer(expression, "<fstring>").tokenize()
+        except LexerError:
+            continue
+        for inner in inner_tokens:
+            if inner.type == TokenType.EOF:
+                continue
+            result.append(
+                Token(
+                    inner.type,
+                    inner.value,
+                    token.line + line_offset + inner.line - 1,
+                    base_col + inner.col - 1 if inner.line == 1 else inner.col,
+                )
+            )
+    return result
+
+
+def _fstring_expression_spans(content: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i < len(content):
+        if content[i] == "{" and not (i + 1 < len(content) and content[i + 1] == "{"):
+            end = _fstring_expression_end(content, i + 1)
+            if end is not None:
+                spans.append((i + 1, end))
+                i = end + 1
+                continue
+        if content[i] == "}" and i + 1 < len(content) and content[i + 1] == "}":
+            i += 2
+        else:
+            i += 1
+    return spans
+
+
+def _fstring_expression_end(content: str, start: int) -> int | None:
+    depth = 1
+    i = start
+    quote: str | None = None
+    escaped = False
+    while i < len(content):
+        ch = content[i]
+        if quote:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("\"", "'"):
+            quote = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
 def document_position_to_resolved(
     result: AnalysisResult,
     position: lsp.Position,
