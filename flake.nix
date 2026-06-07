@@ -76,6 +76,7 @@
                 "src/compiler/"
                 "src/devex/ext/"
                 "src/devex/lsp/"
+                "src/language/"
                 "src/stdlib/"
               ];
               needed = lib.any (prefix: lib.hasPrefix prefix pathPrefix) prefixes
@@ -108,7 +109,7 @@
           version = extensionVersion;
           src = extensionSource;
           sourceRoot = "source/src/devex/ext";
-          npmDepsHash = "sha256-M0yBu2D/qn2sqMyS3XpkFHCXNKzwhsB4bLfz1luFLD8=";
+          npmDepsHash = "sha256-TRNrVae4L6YZG7GHxfSRSq4/x5KtgntL1rbW3RQPT04=";
           npmInstallFlags = [ "--ignore-scripts" ];
           npmRebuildFlags = [ "--ignore-scripts" ];
           nodejs = pkgs.nodejs_22;
