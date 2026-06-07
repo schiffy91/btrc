@@ -26,9 +26,13 @@
           ];
       };
       files = import ./build { inherit cfg lib; };
+      btrcLib = {
+        buildProgram = import ./build/program.nix { inherit self lib; };
+      };
       systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
       eachSystem = fn: nixpkgs.lib.genAttrs systems (system: fn (import nixpkgs { inherit system; }));
     in {
+      lib = btrcLib;
       apps = eachSystem (pkgs: let
         system = pkgs.stdenv.hostPlatform.system;
       in {
@@ -55,6 +59,15 @@
               " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo";
           FONT_CFLAGS = "-I${pkgs.freetype.dev}/include/freetype2";
           FONT_LDFLAGS = "-L${pkgs.freetype}/lib -lfreetype";
+        };
+      });
+      checks = eachSystem (pkgs: {
+        build-program = btrcLib.buildProgram {
+          inherit pkgs;
+          name = "btrc-build-program-check";
+          src = ./.;
+          entry = "src/tests/imports/test_std_import.btrc";
+          extraLibs = [ "-lm" "-lpthread" ];
         };
       });
       packages = eachSystem (pkgs: let
