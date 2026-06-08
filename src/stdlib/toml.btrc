@@ -4,6 +4,7 @@
  */
 
 import std.map;
+import std.json;
 import std.strings;
 import std.vector;
 
@@ -41,7 +42,7 @@ class Toml {
     class string unquote(string raw) {
         string value = raw.trim();
         if (value.startsWith("\"") && value.endsWith("\"") && value.len() >= 2) {
-            return value.substring(1, value.len() - 2);
+            return JsonText.unescape(value.substring(1, value.len() - 2));
         }
         if (value.startsWith("'") && value.endsWith("'") && value.len() >= 2) {
             return value.substring(1, value.len() - 2);

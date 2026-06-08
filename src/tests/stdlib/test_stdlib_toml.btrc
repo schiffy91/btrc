@@ -9,6 +9,8 @@ int main() {
         "[displays]\n" +
         "DP-1 = \"Left\"\n" +
         "HDMI-1 = \"Right\"\n" +
+        "escaped = \"quote\\\"backslash\\\\tab\\tline\\n\"\n" +
+        "literal = 'quote\"backslash\\tab\\n'\n" +
         "\n" +
         "[[layout]]\n" +
         "display = \"DP-1\"\n" +
@@ -31,6 +33,8 @@ int main() {
     var displays = Toml.sectionMap(doc, "displays");
     assert(displays.getOrDefault("DP-1", "").equals("Left"));
     assert(displays.getOrDefault("HDMI-1", "").equals("Right"));
+    assert(displays.getOrDefault("escaped", "").equals("quote\"backslash\\tab\tline\n"));
+    assert(displays.getOrDefault("literal", "").equals("quote\"backslash\\tab\\n"));
     assert(displays.getOrDefault("missing", "fallback").equals("fallback"));
     assert(Toml.value("token = 'a#b' # ok").equals("a#b"));
     assert(Toml.value("token = \"a#b\" # ok").equals("a#b"));
