@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     """Lower for-in to C-style for loop."""
-    from .statements import lower_block
+    from .statements import _lower_loop_body
     iterable = node.iterable
     var_name = node.var_name
     var_name2 = getattr(node, 'var_name2', None)
@@ -77,7 +77,7 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
 
     data_expr = IRFieldAccess(
         obj=IRVar(name=tmp_iter), field="data", arrow=True)
-    body_block = lower_block(gen, node.body)
+    body_block = _lower_loop_body(gen, node.body)
     body_block.stmts.insert(0, IRVarDecl(
         c_type=CType(text=elem_c), name=var_name,
         init=IRIndex(obj=data_expr, index=IRVar(name=idx))))
@@ -99,13 +99,13 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
 def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info,
                             var_name, var_name2) -> list[IRStmt]:
     """Lower for-in via Iterable protocol (iterLen/iterGet/iterValueAt)."""
-    from .statements import lower_block
+    from .statements import _lower_loop_body
 
     mangled = mangle_generic_type(iter_type.base, iter_type.generic_args)
 
     idx = gen.fresh_temp("__i")
     n_var = gen.fresh_temp("__n")
-    body_block = lower_block(gen, node.body)
+    body_block = _lower_loop_body(gen, node.body)
 
     # Element type from first generic arg. Class values are reference types in
     # btrc, and generic methods are monomorphized with pointer return types for
@@ -153,10 +153,10 @@ def _iter_value_c(gen: IRGenerator, t) -> str:
 
 def _lower_string_for_in(gen, node, ir_iter, var_name) -> list[IRStmt]:
     """Lower for c in str to char-by-char iteration."""
-    from .statements import lower_block
+    from .statements import _lower_loop_body
 
     idx = gen.fresh_temp("__i")
-    body_block = lower_block(gen, node.body)
+    body_block = _lower_loop_body(gen, node.body)
     char_decl = IRVarDecl(
         c_type=CType(text="char"), name=var_name,
         init=IRIndex(obj=ir_iter, index=IRVar(name=idx)))
@@ -176,8 +176,8 @@ def _lower_string_for_in(gen, node, ir_iter, var_name) -> list[IRStmt]:
 def _lower_range_for(gen: IRGenerator, var_name: str,
                      args: list, body) -> list[IRStmt]:
     """Lower for x in range(...) to a C for loop."""
-    from .statements import lower_block
-    body_block = lower_block(gen, body)
+    from .statements import _lower_loop_body
+    body_block = _lower_loop_body(gen, body)
     if len(args) == 1:
         end = _lower_expr(gen, args[0])
         return [IRFor(
@@ -225,7 +225,7 @@ def _lower_range_for(gen: IRGenerator, var_name: str,
 
 def _lower_c_for(gen: IRGenerator, node: CForStmt) -> IRFor:
     """Lower a C-style for statement."""
-    from .statements import lower_block
+    from .statements import _lower_loop_body
     init_node = None
     if node.init:
         if isinstance(node.init, ForInitVar):
@@ -241,7 +241,7 @@ def _lower_c_for(gen: IRGenerator, node: CForStmt) -> IRFor:
     update_node = _lower_expr(gen, node.update) if node.update else None
 
     return IRFor(init=init_node, condition=cond_node, update=update_node,
-                 body=lower_block(gen, node.body))
+                 body=_lower_loop_body(gen, node.body))
 
 
 def _lower_expr(gen, node):

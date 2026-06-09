@@ -12,9 +12,15 @@ class ListNode<T> {
     public ListNode<T> prev;
 
     public ListNode(T val) {
+        keep val;
         self.value = val;
         self.next = null;
         self.prev = null;
+    }
+
+    public void free() {
+        release self.value;
+        free(self);
     }
 }
 
@@ -62,6 +68,7 @@ class List<T> implements Iterable {
     public T popBack() {
         if (self.tail == null) { fprintf(stderr, "List popBack from empty list\n"); exit(1); }
         T val = self.tail.value;
+        keep val;
         ListNode<T> old = self.tail;
         if (self.tail.prev != null) {
             self.tail = self.tail.prev;
@@ -78,6 +85,7 @@ class List<T> implements Iterable {
     public T popFront() {
         if (self.head == null) { fprintf(stderr, "List popFront from empty list\n"); exit(1); }
         T val = self.head.value;
+        keep val;
         ListNode<T> old = self.head;
         if (self.head.next != null) {
             self.head = self.head.next;
@@ -120,6 +128,8 @@ class List<T> implements Iterable {
         for (int i = 0; i < idx; i++) {
             cur = cur.next;
         }
+        keep val;
+        release cur.value;
         cur.value = val;
     }
 

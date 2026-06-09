@@ -50,7 +50,12 @@ from ..nodes import (
     IRVarDecl,
     IRWhile,
 )
-from .arc import _emit_return_release, _emit_scope_release, _lower_release
+from .arc import (
+    _emit_loop_exit_release,
+    _emit_return_release,
+    _emit_scope_release,
+    _lower_release,
+)
 from .errors import unsupported_node
 from .expressions import lower_expr
 from .stringable import coerce_value_to_string
@@ -142,12 +147,12 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
     if isinstance(node, WhileStmt):
         return [IRWhile(
             condition=lower_expr(gen, node.condition),
-            body=lower_block(gen, node.body),
+            body=_lower_loop_body(gen, node.body),
         )]
 
     if isinstance(node, DoWhileStmt):
         return [IRDoWhile(
-            body=lower_block(gen, node.body),
+            body=_lower_loop_body(gen, node.body),
             condition=lower_expr(gen, node.condition),
         )]
 
@@ -165,10 +170,10 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         return [_lower_switch(gen, node)]
 
     if isinstance(node, BreakStmt):
-        return [IRBreak()]
+        return _emit_loop_exit_release(gen) + [IRBreak()]
 
     if isinstance(node, ContinueStmt):
-        return [IRContinue()]
+        return _emit_loop_exit_release(gen) + [IRContinue()]
 
     if isinstance(node, ExprStmt):
         from ...ast_nodes import AssignExpr
@@ -208,6 +213,14 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         return _lower_release(gen, node)
 
     raise unsupported_node("statement", node)
+
+
+def _lower_loop_body(gen: IRGenerator, body: Block | None) -> IRBlock:
+    gen.push_loop_scope()
+    try:
+        return lower_block(gen, body)
+    finally:
+        gen.pop_loop_scope()
 
 
 def _quick_text(expr) -> str:

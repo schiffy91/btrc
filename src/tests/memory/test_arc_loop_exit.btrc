@@ -1,0 +1,56 @@
+/* ARC cleanup on break/continue from loop bodies. */
+#include <assert.h>
+
+int alive = 0;
+
+class Resource {
+    public int id;
+
+    public Resource(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+int main() {
+    while (true) {
+        Resource r = new Resource(1);
+        assert(alive == 1);
+        break;
+    }
+    assert(alive == 0);
+
+    for (int i = 0; i < 3; i++) {
+        Resource r = new Resource(i);
+        assert(alive == 1);
+        continue;
+    }
+    assert(alive == 0);
+
+    for i in range(4) {
+        Resource r = new Resource(i);
+        assert(alive == 1);
+        if (i == 2) {
+            break;
+        }
+    }
+    assert(alive == 0);
+
+    Resource outer = new Resource(99);
+    assert(alive == 1);
+    while (true) {
+        Resource inner = new Resource(100);
+        assert(alive == 2);
+        break;
+    }
+    assert(alive == 1);
+    delete outer;
+    assert(alive == 0);
+
+    print("PASS: test_arc_loop_exit");
+    return 0;
+}

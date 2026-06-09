@@ -26,7 +26,7 @@ from ...nodes import (
 from ..types import mangle_generic_type, type_to_c
 from .core import _resolve_type
 from .user_emitter import _UserGenericEmitter
-from .user_emitter_stmts import _ir_stmts_to_text
+from .user_ir_text import _ir_stmts_to_text
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator
@@ -95,6 +95,7 @@ def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
     # Constructor body stmts
     init_body_stmts = []
     if ctor and ctor.body:
+        emitter.reset_var_types(ctor.params)
         init_body_stmts = emitter.emit_stmts(ctor.body.statements)
     # If body is empty, add (void)self to avoid unused parameter warning
     if not init_body_stmts:

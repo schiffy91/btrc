@@ -23,11 +23,11 @@ from ...nodes import (
     IRVarDecl,
 )
 from .core import _resolve_type
-from .user_emitter_stmts import (
+from .user_emitter_stmts import _UserGenericStmtMixin
+from .user_ir_text import (
     _ir_expr_to_text,
     _ir_stmt_to_text,
     _ir_stmts_to_text,
-    _UserGenericStmtMixin,
 )
 
 if TYPE_CHECKING:
@@ -139,6 +139,8 @@ class _UserGenericEmitter(_UserGenericStmtMixin):
             return IRLiteral(text="true" if e.value else "false")
         if isinstance(e, NullLiteral):
             return IRLiteral(text="NULL")
+        if isinstance(e, SelfExpr):
+            return IRVar(name="self")
         if isinstance(e, StringLiteral):
             return IRLiteral(text=e.value)  # already includes quotes
         if isinstance(e, CharLiteral):

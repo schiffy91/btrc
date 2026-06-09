@@ -39,8 +39,8 @@ class Vector<T> implements Iterable {
 
     public void set(int i, T val) {
         if (i < 0 || i >= self.len) { fprintf(stderr, "Vector index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
-        release self.data[i];
         keep val;
+        release self.data[i];
         self.data[i] = val;
     }
 
@@ -95,8 +95,8 @@ class Vector<T> implements Iterable {
 
     public void fill(T val) {
         for (int i = 0; i < self.len; i++) {
-            release self.data[i];
             keep val;
+            release self.data[i];
             self.data[i] = val;
         }
     }

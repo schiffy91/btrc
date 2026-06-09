@@ -52,6 +52,9 @@ class IRGenerator:
         # Stack of sets — each set contains (var_name, class_type_name) tuples
         # for variables auto-managed in the current scope
         self._managed_vars_stack: list[list[tuple[str, str]]] = []
+        # Loop body scope markers for break/continue ARC cleanup. Each marker
+        # is the managed-scope stack depth just before lowering a loop body.
+        self._loop_scope_depths: list[int] = []
         # Exception safety: tracks nesting depth of try blocks
         self.in_try_depth: int = 0
         # setjmp/longjmp volatile: tracks IRVarDecls in current function
@@ -116,6 +119,24 @@ class IRGenerator:
         """Get all managed vars across all active scopes (for return/break)."""
         result = []
         for scope in self._managed_vars_stack:
+            result.extend(scope)
+        return result
+
+    def push_loop_scope(self):
+        """Mark the scope depth that belongs outside the current loop body."""
+        self._loop_scope_depths.append(len(self._managed_vars_stack))
+
+    def pop_loop_scope(self):
+        """Remove the current loop-body scope marker."""
+        if self._loop_scope_depths:
+            self._loop_scope_depths.pop()
+
+    def get_loop_managed_vars(self) -> list[tuple[str, str]]:
+        """Get managed vars that a break/continue must release."""
+        if not self._loop_scope_depths:
+            return []
+        result = []
+        for scope in self._managed_vars_stack[self._loop_scope_depths[-1]:]:
             result.extend(scope)
         return result
 

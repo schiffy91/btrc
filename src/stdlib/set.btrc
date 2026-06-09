@@ -33,7 +33,7 @@ class Set<T> implements Iterable {
         self.occupied = (bool*)__btrc_safe_calloc(self.cap, sizeof(bool));
         for (int i = 0; i < oldCap; i++) {
             if (oldOccupied[i]) {
-                self.add(oldKeys[i]);
+                self.addMoved(oldKeys[i]);
             }
         }
         free(oldKeys);
@@ -42,11 +42,27 @@ class Set<T> implements Iterable {
 
     public void add(T key) {
         if (self.len * 4 >= self.cap * 3) { self.resize(); }
+        self.addRetained(key);
+    }
+
+    private void addMoved(T key) {
         var index = __btrc_hash(key) % self.cap;
         while (self.occupied[index]) {
             if (__btrc_eq(self.keys[index], key)) { return; }
             index = (index + 1) % self.cap;
         }
+        self.keys[index] = key;
+        self.occupied[index] = true;
+        self.len++;
+    }
+
+    private void addRetained(T key) {
+        var index = __btrc_hash(key) % self.cap;
+        while (self.occupied[index]) {
+            if (__btrc_eq(self.keys[index], key)) { return; }
+            index = (index + 1) % self.cap;
+        }
+        keep key;
         self.keys[index] = key;
         self.occupied[index] = true;
         self.len++;
@@ -69,6 +85,7 @@ class Set<T> implements Iterable {
         var index = __btrc_hash(key) % self.cap;
         while (self.occupied[index]) {
             if (__btrc_eq(self.keys[index], key)) {
+                release self.keys[index];
                 self.occupied[index] = false;
                 self.len--;
                 var next = (index + 1) % self.cap;
@@ -76,7 +93,7 @@ class Set<T> implements Iterable {
                     T rehashedKey = self.keys[next];
                     self.occupied[next] = false;
                     self.len--;
-                    self.add(rehashedKey);
+                    self.addMoved(rehashedKey);
                     next = (next + 1) % self.cap;
                 }
                 return;
@@ -86,6 +103,11 @@ class Set<T> implements Iterable {
     }
 
     public void free() {
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) {
+                release self.keys[i];
+            }
+        }
         free(self.keys);
         free(self.occupied);
         self.keys = null;
@@ -95,7 +117,12 @@ class Set<T> implements Iterable {
     }
 
     public void clear() {
-        for (int i = 0; i < self.cap; i++) { self.occupied[i] = false; }
+        for (int i = 0; i < self.cap; i++) {
+            if (self.occupied[i]) {
+                release self.keys[i];
+                self.occupied[i] = false;
+            }
+        }
         self.len = 0;
     }
 

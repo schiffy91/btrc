@@ -263,6 +263,11 @@ def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRS
     return stmts
 
 
+def _emit_loop_exit_release(gen: IRGenerator) -> list[IRStmt]:
+    """Emit cleanup for managed vars owned by the current loop body."""
+    return _emit_scope_release(gen.get_loop_managed_vars(), gen)
+
+
 def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
     """Lower release expr -> rc--; destroy at zero; expr = NULL."""
     expr = lower_expr(gen, node.expr)
