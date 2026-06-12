@@ -102,7 +102,9 @@ def test_signature_self_method_inside_method():
 
 
 def test_active_call_degraded_no_tokens_is_none():
-    assert sighelp._active_call_callee_index(_notokens("x"), lsp.Position(line=0, character=0)) is None
+    # _active_call_callee_index now takes the token list directly so the
+    # mid-edit path can substitute re-lexed live-line tokens for stale ones.
+    assert sighelp._active_call_callee_index(_notokens("x").tokens, lsp.Position(line=0, character=0)) is None
 
 
 # --------------------------------------------------------------------------- #

@@ -101,6 +101,22 @@ test('absolute serverCommand is respected directly', () => {
     assert.deepEqual(launch.args, []);
 });
 
+test('explicit relative serverCommand resolves on PATH before local server fallback', () => {
+    // No direnv/.envrc/shell.nix/flake.nix: the explicitly configured command
+    // must win over a discovered bundled server instead of being ignored.
+    const launch = resolveServerLaunch(context([
+        '/extension/server/src/devex/lsp/server.py',
+        '/bin/btrc-lsp-dev',
+    ], {
+        config: { serverCommand: 'btrc-lsp-dev', serverCommandExplicit: true },
+    }));
+
+    assert.equal(launch.source, 'serverCommand');
+    assert.equal(launch.command, '/bin/btrc-lsp-dev');
+    assert.deepEqual(launch.args, []);
+    assert.equal(launch.cwd, '/workspace');
+});
+
 test('default serverCommand prefers workspace direnv before bundled server', () => {
     const launch = resolveServerLaunch(context([
         '/workspace/.envrc',
@@ -136,4 +152,35 @@ test('source-tree server falls back to project nix dev shell', () => {
         'python3',
         '/extension/server/src/devex/lsp/server.py',
     ]);
+});
+
+test('btrc checkout in workspace prefers live source tree over workspace flake', () => {
+    const launch = resolveServerLaunch(context([
+        '/workspace/src/devex/lsp/server.py',
+        '/workspace/flake.nix',
+        '/bin/nix',
+    ]));
+
+    assert.equal(launch.source, 'sourceTree');
+    assert.equal(launch.command, '/bin/nix');
+    assert.deepEqual(launch.args, [
+        'develop',
+        '/workspace',
+        '--command',
+        'python3',
+        '/workspace/src/devex/lsp/server.py',
+    ]);
+});
+
+test('explicit serverCommand still prefers workspace flake over live source tree', () => {
+    const launch = resolveServerLaunch(context([
+        '/workspace/src/devex/lsp/server.py',
+        '/workspace/flake.nix',
+        '/bin/nix',
+    ], {
+        config: { serverCommandExplicit: true },
+    }));
+
+    assert.equal(launch.source, 'workspaceFlake');
+    assert.deepEqual(launch.args, ['develop', '/workspace', '--command', 'btrc-lsp']);
 });

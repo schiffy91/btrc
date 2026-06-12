@@ -92,6 +92,14 @@ ARRAY_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("iterGet", "T", "method", [("int", "i")], "iterGet"),
 ]
 
+# Generated from src/stdlib/listnode.btrc
+LISTNODE_MEMBERS: list[BuiltinMember] = [
+    BuiltinMember("value", "T", "field", doc="value"),
+    BuiltinMember("next", "ListNode<T>", "field", doc="next"),
+    BuiltinMember("prev", "ListNode<T>", "field", doc="prev"),
+    BuiltinMember("free", "void", "method", [], "free"),
+]
+
 # Generated from src/stdlib/list.btrc
 LIST_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("head", "ListNode<T>", "field", doc="head"),
@@ -242,6 +250,7 @@ VECTOR_MEMBERS: list[BuiltinMember] = [
 _MEMBER_TABLES: dict[str, list[BuiltinMember]] = {
     "string": STRING_MEMBERS,
     "Array": ARRAY_MEMBERS,
+    "ListNode": LISTNODE_MEMBERS,
     "List": LIST_MEMBERS,
     "Map": MAP_MEMBERS,
     "Result": RESULT_MEMBERS,
@@ -324,13 +333,20 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("writeAll", "void", "method", [("string", "path"), ("string", "content")], "writeAll"),
     ],
     "JsonText": [
+        BuiltinMember("slice", "string", "method", [("string", "text"), ("int", "start"), ("int", "end")], "slice"),
+        BuiltinMember("unescape", "string", "method", [("string", "text")], "unescape"),
+        BuiltinMember("stringEnd", "int", "method", [("string", "text"), ("int", "start")], "stringEnd"),
+        BuiltinMember("balancedEnd", "int", "method", [("string", "text"), ("int", "start")], "balancedEnd"),
         BuiltinMember("skipSpaces", "int", "method", [("string", "text"), ("int", "i")], "skipSpaces"),
+        BuiltinMember("isInt", "bool", "method", [("string", "text")], "isInt"),
         BuiltinMember("keyPosition", "int", "method", [("string", "text"), ("string", "key")], "keyPosition"),
         BuiltinMember("valueStart", "int", "method", [("string", "text"), ("string", "key")], "valueStart"),
         BuiltinMember("parseStringValue", "string", "method", [("string", "text"), ("int", "i"), ("string", "fallback")], "parseStringValue"),
         BuiltinMember("field", "string", "method", [("string", "text"), ("string", "key"), ("string", "fallback")], "field"),
         BuiltinMember("intField", "int", "method", [("string", "text"), ("string", "key"), ("int", "fallback")], "intField"),
         BuiltinMember("objectField", "string", "method", [("string", "text"), ("string", "key")], "objectField"),
+        BuiltinMember("objectPath", "string", "method", [("string", "text"), ("Vector<string>", "path")], "objectPath"),
+        BuiltinMember("fieldPath", "string", "method", [("string", "text"), ("Vector<string>", "path"), ("string", "fallback")], "fieldPath"),
         BuiltinMember("stringArray", "Vector<string>", "method", [("string", "text"), ("string", "key")], "stringArray"),
         BuiltinMember("objectArray", "Vector<string>", "method", [("string", "text"), ("string", "key")], "objectArray"),
         BuiltinMember("objectMap", "Map<string, string>", "method", [("string", "objectText")], "objectMap"),

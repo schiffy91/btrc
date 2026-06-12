@@ -18,7 +18,7 @@ from src.devex.lsp.builtins import (
     BuiltinMember,
     get_members_for_type,
 )
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, line_changed_since_snapshot
 from src.devex.lsp.utils import (
     active_decls,
     find_enclosing_class,
@@ -372,6 +372,13 @@ def _dot_completions_from_tokens(
 ) -> list[lsp.CompletionItem] | None:
     if not result.tokens:
         return None
+    if line_changed_since_snapshot(result, position.line):
+        # Mid-edit: the snapshot tokens for this line describe the OLD text
+        # (e.g. `d.` rewritten to `c.` during the debounce window), so the
+        # receiver they name is wrong. Fall through to the regex path below,
+        # which reads the live line text and already handles chained
+        # receivers, resolving types against the same snapshot class_table.
+        return None
 
     tokens = nav_tokens(result)
     access_idx = _access_token_before_cursor(tokens, position)
@@ -478,14 +485,20 @@ def _members_for_type(
     type_base: str,
     class_table: dict[str, ClassInfo],
 ) -> list[lsp.CompletionItem]:
-    """Return member completion items for a given base type."""
-    # Built-in types
-    members = get_members_for_type(type_base)
-    if members:
-        return _builtin_member_items(members)
+    """Return member completion items for a given base type.
 
-    # User-defined class
+    The live class_table wins: it reflects the user's actual stdlib (possibly
+    shadowed or newer than this build). The static builtin tables fill in what
+    no .btrc file defines — string intrinsics and IR-gen collection intrinsics
+    (e.g. Map.forEach) — plus anything when the type is not in the table.
+    """
+    items: list[lsp.CompletionItem] = []
     if type_base in class_table:
-        return _class_member_items(type_base, class_table[type_base])
+        items.extend(_class_member_items(type_base, class_table[type_base]))
 
-    return []
+    existing = {item.label for item in items}
+    for item in _builtin_member_items(get_members_for_type(type_base)):
+        if item.label not in existing:
+            items.append(item)
+
+    return items

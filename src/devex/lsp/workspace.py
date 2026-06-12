@@ -11,6 +11,9 @@ from __future__ import annotations
 import hashlib
 import os
 import pickle
+import threading
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from src.compiler.python.ast_nodes import Program
@@ -44,10 +47,18 @@ class Workspace:
     imported files; otherwise units are read from disk.
     """
 
+    # One full stdlib AnalyzedProgram per distinct user-shadowed-name set is
+    # multi-MB; typing `class Strings {` mid-edit mints throwaway entries. A
+    # session flips between at most a couple of stable shadow sets (none + one
+    # per open file), so 4 covers real reuse while bounding memory.
+    _STDLIB_BASE_CACHE_MAX = 4
+
     def __init__(self):
         self._file_cache: dict[str, tuple[tuple, FileUnit]] = {}  # path -> (sig, unit)
         self._stdlib_units: list[FileUnit] | None = None
-        self._stdlib_base_cache: dict[frozenset, object] = {}  # included paths -> AnalyzedProgram
+        self._stdlib_lock = threading.Lock()  # one stdlib build/analysis at a time
+        # included paths -> AnalyzedProgram, LRU-capped (see _STDLIB_BASE_CACHE_MAX)
+        self._stdlib_base_cache: OrderedDict[frozenset, object] = OrderedDict()
         self.snapshot_cache: dict[str, tuple] = {}  # path -> (fingerprint, AnalysisResult)
         self.overlay_provider = None  # Callable[[str], str | None]
 
@@ -92,13 +103,20 @@ class Workspace:
     # -- stdlib units ---------------------------------------------------------
 
     def stdlib_units(self) -> list[FileUnit]:
-        if self._stdlib_units is None:
-            self._stdlib_units = [
-                self._load_stdlib_unit(os.path.join(_get_stdlib_dir(), fname))
-                for fname in _discover_stdlib_files()
-            ]
-            self._stdlib_units = [u for u in self._stdlib_units if u is not None]
-        return self._stdlib_units
+        # Fast path without the lock: assignment below is atomic and final.
+        units = self._stdlib_units
+        if units is not None:
+            return units
+        with self._stdlib_lock:
+            if self._stdlib_units is None:  # warmup + first didOpen race: build once
+                loaded = [
+                    self._load_stdlib_unit(os.path.join(_get_stdlib_dir(), fname))
+                    for fname in _discover_stdlib_files()
+                ]
+                # Single atomic assignment of the filtered list: a concurrent
+                # reader never observes None placeholders.
+                self._stdlib_units = [u for u in loaded if u is not None]
+            return self._stdlib_units
 
     def _load_stdlib_unit(self, path: str) -> FileUnit | None:
         try:
@@ -118,6 +136,7 @@ class Workspace:
             except Exception:
                 pass  # corrupt/incompatible: reparse below
         unit = parse_unit(path, source)
+        _prune_unit_cache(_cache_dir())
         slim = FileUnit(
             path=unit.path,
             source="",  # stdlib source not needed post-parse; keeps pickles small
@@ -219,12 +238,22 @@ class Workspace:
         return analyzer.analyze(Program(declarations=user_decls))
 
     def _stdlib_base(self, stdlib: list[FileUnit]):
-        """Analyze the (possibly user-filtered) stdlib once and cache the result."""
+        """Analyze the (possibly user-filtered) stdlib once and cache the result.
+
+        The cache is a small LRU: each entry is a full stdlib AnalyzedProgram,
+        so unbounded growth (one entry per transient shadow set while typing)
+        would leak multi-MB objects.
+        """
         from src.compiler.python.analyzer.analyzer import Analyzer
 
         key = frozenset(u.path for u in stdlib)
-        base = self._stdlib_base_cache.get(key)
-        if base is None:
+        # The whole build runs under the lock: the analyzer mutates the shared
+        # stdlib decls in place, so two concurrent builds would corrupt them.
+        with self._stdlib_lock:
+            base = self._stdlib_base_cache.get(key)
+            if base is not None:
+                self._stdlib_base_cache.move_to_end(key)
+                return base
             decls: list = []
             for u in stdlib:
                 decls.extend(u.decls)
@@ -233,12 +262,39 @@ class Workspace:
             except Exception:
                 return None
             self._stdlib_base_cache[key] = base
-        return base
+            while len(self._stdlib_base_cache) > self._STDLIB_BASE_CACHE_MAX:
+                self._stdlib_base_cache.popitem(last=False)
+            return base
 
 
 def _cache_dir() -> str:
     d = os.path.join(os.getcwd(), ".btrc-cache")
     os.makedirs(d, exist_ok=True)
     return d
+
+
+_UNIT_CACHE_MAX_AGE = 30 * 24 * 3600  # seconds; orphaned pickles outlive a version flip
+_pruned_dirs: set[str] = set()
+
+
+def _prune_unit_cache(cache_dir: str) -> None:
+    """Best-effort, once per process per dir: drop unit pickles older than 30 days."""
+    if cache_dir in _pruned_dirs:
+        return
+    _pruned_dirs.add(cache_dir)
+    cutoff = time.time() - _UNIT_CACHE_MAX_AGE
+    try:
+        names = os.listdir(cache_dir)
+    except OSError:
+        return
+    for name in names:
+        if not (name.startswith("lspunit-") and name.endswith(".pkl")):
+            continue
+        path = os.path.join(cache_dir, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+        except OSError:
+            pass  # raced/permission: stale entries are harmless
 
 

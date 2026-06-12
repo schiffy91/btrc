@@ -1,70 +1,43 @@
 """Find-all-references and rename provider for btrc.
 
 References are found by scanning the token streams of the active document and
-every imported unit (positions native per file). Variable references stay
-within the active document — locals don't cross files.
+every imported unit (positions native per file; finders live in
+reference_finders.py). The active stream is the f-string-expanded navigation
+stream, so identifiers interpolated in f-strings are real reference sites.
+Variable references stay within the active document and are scope-aware: a
+candidate token counts only when it resolves to the SAME definition
+(DefinitionMap.find_var_def identity) as the cursor token.
+
+Rename refuses (returns None) when the cursor variable cannot be resolved to
+a definition, and when the symbol's definition lives in the stdlib —
+references may list stdlib definition sites, but rename must never edit
+installed stdlib files on disk.
 """
 
 from __future__ import annotations
 
+import os
+
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
+from src.compiler.python.frontend import _get_stdlib_dir
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.reference_finders import (
+    find_function_references,
+    find_member_references,
+    find_name_references,
+    find_variable_references,
+)
 from src.devex.lsp.utils import (
-    active_decls,
     find_token_at_position,
     find_token_index,
+    nav_tokens,
     resolve_chain_type,
     result_location,
 )
-
-# ---------------------------------------------------------------------------
-# Token streams
-# ---------------------------------------------------------------------------
-
-
-def _token_streams(result: AnalysisResult) -> list[tuple[str | None, list[Token], list]]:
-    """(file, tokens, decls) per scannable unit; the active document first.
-
-    ``decls`` provide the scope context for chain resolution in that file.
-    """
-    streams: list[tuple[str | None, list[Token], list]] = [
-        (result.path or None, result.tokens or [], active_decls(result))
-    ]
-    for unit in result.units:
-        if result.path and unit.path == result.path:
-            continue
-        if unit.tokens:
-            streams.append((unit.path, unit.tokens, unit.decls))
-    return streams
-
-
-def _matching(tokens: list[Token], name: str) -> list[tuple[int, Token]]:
-    """(index, token) for identifier tokens spelling *name*."""
-    return [
-        (i, tok)
-        for i, tok in enumerate(tokens)
-        if tok.type == TokenType.IDENT and tok.value == name
-    ]
-
-
-def _is_member_access(tokens: list[Token], idx: int) -> bool:
-    return idx >= 1 and tokens[idx - 1].value in (".", "->", "?.")
-
-
-Ref = tuple  # (file | None, line, col)
-
-
-def _same_site(ref: Ref, def_loc: tuple[str | None, int, int] | None) -> bool:
-    if def_loc is None:
-        return False
-    rfile, rline, rcol = ref
-    dfile, dline, dcol = def_loc
-    return (rline, rcol) == (dline, dcol) and (rfile or None) == (dfile or None)
-
 
 # ---------------------------------------------------------------------------
 # Symbol kind detection at cursor
@@ -81,7 +54,8 @@ def _classify_symbol(
     """Classify the symbol under cursor.
 
     Returns (kind, class_name, member_name) where kind is one of:
-    'class', 'function', 'method', 'field', 'variable'
+    'class', 'enum', 'struct', 'typedef', 'function', 'method', 'field',
+    'variable'.
     """
     name = token.value
 
@@ -117,127 +91,64 @@ def _classify_symbol(
         if mem == name and (dfile or None, dline) == here:
             return ("field", cls, name)
 
-    # Check class name
     if name in dmap.class_defs:
         return ("class", name, None)
-
-    # Check function name
     if name in dmap.function_defs:
         return ("function", None, name)
+    if name in dmap.enum_defs:
+        return ("enum", None, name)
+    if name in dmap.struct_defs:
+        return ("struct", None, name)
+    if name in dmap.typedef_defs:
+        return ("typedef", None, name)
 
     # Default to variable
     return ("variable", None, name)
 
 
-# ---------------------------------------------------------------------------
-# Reference finders per symbol kind
-# ---------------------------------------------------------------------------
+def _definition_entry(
+    kind: str, class_name: str | None, name: str, dmap: DefinitionMap
+) -> tuple[str | None, int, int] | None:
+    """The (file, line, col) definition entry for a classified symbol."""
+    if kind == "class":
+        return dmap.class_defs.get(name)
+    if kind == "enum":
+        return dmap.enum_defs.get(name)
+    if kind == "struct":
+        return dmap.struct_defs.get(name)
+    if kind == "typedef":
+        return dmap.typedef_defs.get(name)
+    if kind == "function":
+        return dmap.function_defs.get(name)
+    if kind == "method" and class_name:
+        return dmap.method_defs.get((class_name, name))
+    if kind == "field" and class_name:
+        return dmap.field_defs.get((class_name, name))
+    return None
 
 
-def _find_name_references(
-    name: str,
-    result: AnalysisResult,
-    def_loc: tuple[str | None, int, int] | None,
-    include_declaration: bool,
-) -> list[Ref]:
-    """References to a top-level name (class/function/enum) across all units."""
-    refs: list[Ref] = []
-    for file, tokens, _decls in _token_streams(result):
-        for _i, tok in _matching(tokens, name):
-            ref = (file, tok.line, tok.col)
-            if not include_declaration and _same_site(ref, def_loc):
-                continue
-            refs.append(ref)
-    return refs
+def _is_stdlib_file(path: str | None) -> bool:
+    """True when *path* lives under the installed stdlib directory."""
+    if not path:
+        return False
+    stdlib_dir = os.path.abspath(_get_stdlib_dir())
+    return os.path.abspath(path).startswith(stdlib_dir + os.sep)
 
 
-def _find_function_references(
-    name: str,
-    result: AnalysisResult,
-    dmap: DefinitionMap,
-    include_declaration: bool,
-) -> list[Ref]:
-    """References to a function name across all units."""
-    refs: list[Ref] = []
-    def_loc = dmap.function_defs.get(name)
-    for file, tokens, _decls in _token_streams(result):
-        # The declaration is recorded at the name token; older parsers recorded
-        # the return-type column, so also match by line in the defining file.
-        decl_skipped = False
-        for _i, tok in _matching(tokens, name):
-            ref = (file, tok.line, tok.col)
-            if (
-                not include_declaration
-                and def_loc
-                and not decl_skipped
-                and (file or None) == (def_loc[0] or None)
-                and tok.line == def_loc[1]
-            ):
-                decl_skipped = True
-                continue
-            refs.append(ref)
-    return refs
-
-
-def _find_member_references(
-    class_name: str,
-    member_name: str,
-    kind: str,  # 'method' or 'field'
-    result: AnalysisResult,
-    class_table: dict[str, ClassInfo],
-    dmap: DefinitionMap,
-    include_declaration: bool,
-) -> list[Ref]:
-    """References to a class member (method or field) across all units."""
-    refs: list[Ref] = []
-
-    if kind == "method":
-        def_loc = dmap.method_defs.get((class_name, member_name))
-    else:
-        def_loc = dmap.field_defs.get((class_name, member_name))
-
-    if include_declaration and def_loc:
-        refs.append(def_loc)
-
-    # Collect all classes that have this member (including subclasses that inherit it)
-    valid_classes = {class_name}
-    for cname, cinfo in class_table.items():
-        parent = cinfo.parent
-        while parent:
-            if parent == class_name:
-                valid_classes.add(cname)
-                break
-            parent = class_table[parent].parent if parent in class_table else None
-
-    for file, tokens, decls in _token_streams(result):
-        for idx, tok in _matching(tokens, member_name):
-            if idx < 2 or not _is_member_access(tokens, idx):
-                continue
-            ref = (file, tok.line, tok.col)
-            if _same_site(ref, def_loc):
-                continue  # declaration handled above
-            target_class = resolve_chain_type(
-                result, tokens, idx - 2, class_table, decls=decls
-            )
-            if target_class in valid_classes:
-                refs.append(ref)
-
-    return refs
-
-
-def _find_variable_references(name: str, result: AnalysisResult) -> list[Ref]:
-    """References to a variable name within the active document.
-
-    Simple token-based approach: collect identifier tokens with the name,
-    excluding member accesses (those follow . / -> / ?.).
-    """
-    refs: list[Ref] = []
-    tokens = result.tokens or []
-    for idx, tok in _matching(tokens, name):
-        if _is_member_access(tokens, idx):
-            continue
-        refs.append((result.path or None, tok.line, tok.col))
-    return refs
+def _locate_symbol(result: AnalysisResult, position: lsp.Position):
+    """Resolve and classify the identifier at *position*, or None."""
+    if not result.tokens or not result.ast:
+        return None
+    tokens = nav_tokens(result)
+    token = find_token_at_position(tokens, position)
+    if token is None or token.type != TokenType.IDENT:
+        return None
+    class_table = result.analyzed.class_table if result.analyzed else {}
+    dmap = DefinitionMap.from_result(result)
+    kind, class_name, member_name = _classify_symbol(
+        token, tokens, result, class_table, dmap
+    )
+    return token, tokens, class_table, dmap, kind, class_name, member_name
 
 
 # ---------------------------------------------------------------------------
@@ -251,29 +162,20 @@ def get_references(
     include_declaration: bool = True,
 ) -> list[lsp.Location]:
     """Return all reference locations for the symbol at position."""
-    if not result.tokens or not result.ast:
+    sym = _locate_symbol(result, position)
+    if sym is None:
         return []
-
-    token = find_token_at_position(result.tokens, position)
-    if token is None or token.type != TokenType.IDENT:
-        return []
-
-    class_table = result.analyzed.class_table if result.analyzed else {}
-    dmap = DefinitionMap.from_result(result)
+    token, tokens, class_table, dmap, kind, class_name, member_name = sym
     name = token.value
 
-    kind, class_name, member_name = _classify_symbol(
-        token, result.tokens, result, class_table, dmap
-    )
-
-    if kind == "class":
-        refs = _find_name_references(
-            name, result, dmap.class_defs.get(name), include_declaration
+    if kind in ("class", "enum", "struct", "typedef"):
+        refs = find_name_references(
+            name, result, _definition_entry(kind, class_name, name, dmap), include_declaration
         )
     elif kind == "function":
-        refs = _find_function_references(name, result, dmap, include_declaration)
+        refs = find_function_references(name, result, dmap, include_declaration)
     elif kind in ("method", "field"):
-        refs = _find_member_references(
+        refs = find_member_references(
             class_name,
             member_name,
             kind,
@@ -283,12 +185,29 @@ def get_references(
             include_declaration,
         )
     else:
-        refs = _find_variable_references(name, result)
+        refs = find_variable_references(name, result, dmap, token, tokens)
 
     return [
         result_location(result, line, col, len(name), file=file)
         for file, line, col in refs
     ]
+
+
+def _rename_blocked(result: AnalysisResult, position: lsp.Position) -> bool:
+    """True when rename at *position* must be refused.
+
+    Refusals: unresolvable variables (no visible definition to anchor a
+    scope-correct rename) and symbols whose definition lives in the stdlib
+    (rename would edit installed stdlib files on disk).
+    """
+    sym = _locate_symbol(result, position)
+    if sym is None:
+        return True
+    token, _tokens, _class_table, dmap, kind, class_name, _member_name = sym
+    if kind == "variable":
+        return dmap.find_var_def(token.value, token.line, token.col) is None
+    entry = _definition_entry(kind, class_name, token.value, dmap)
+    return _is_stdlib_file(entry[0] if entry else None)
 
 
 def get_rename_edits(
@@ -300,8 +219,10 @@ def get_rename_edits(
     if not result.tokens or not result.ast:
         return None
 
-    token = find_token_at_position(result.tokens, position)
+    token = find_token_at_position(nav_tokens(result), position)
     if token is None or token.type != TokenType.IDENT:
+        return None
+    if _rename_blocked(result, position):
         return None
 
     locations = get_references(result, position, include_declaration=True)
@@ -323,6 +244,18 @@ def get_rename_edits(
     return lsp.WorkspaceEdit(changes=changes)
 
 
+# Keywords and reserved built-in names that can never be renamed.
+_RENAME_KEYWORDS = frozenset(
+    {
+        "if", "else", "while", "for", "in", "return", "class", "public",
+        "private", "void", "int", "float", "double", "string", "bool",
+        "char", "true", "false", "null", "new", "delete", "self", "break",
+        "continue", "switch", "case", "default", "try", "catch", "throw",
+        "do", "List", "Map", "Set",
+    }
+)
+
+
 def prepare_rename(
     result: AnalysisResult,
     position: lsp.Position,
@@ -331,48 +264,15 @@ def prepare_rename(
     if not result.tokens:
         return None
 
-    token = find_token_at_position(result.tokens, position)
+    tokens = nav_tokens(result) if result.ast else result.tokens
+    token = find_token_at_position(tokens, position)
     if token is None or token.type != TokenType.IDENT:
         return None
-
-    # Don't allow renaming keywords or built-in types
-    keywords = {
-        "if",
-        "else",
-        "while",
-        "for",
-        "in",
-        "return",
-        "class",
-        "public",
-        "private",
-        "void",
-        "int",
-        "float",
-        "double",
-        "string",
-        "bool",
-        "char",
-        "true",
-        "false",
-        "null",
-        "new",
-        "delete",
-        "self",
-        "break",
-        "continue",
-        "switch",
-        "case",
-        "default",
-        "try",
-        "catch",
-        "throw",
-        "do",
-        "List",
-        "Map",
-        "Set",
-    }
-    if token.value in keywords:
+    if token.value in _RENAME_KEYWORDS:
+        return None
+    # With an AST available, apply the same refusals as get_rename_edits so
+    # the editor never opens a rename box that the rename request will reject.
+    if result.ast and _rename_blocked(result, position):
         return None
 
     return result_location(result, token.line, token.col, len(token.value)).range

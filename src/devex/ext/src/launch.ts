@@ -182,11 +182,18 @@ export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunc
     const workspaceLaunch = workspaceCommandLaunch(context, workspaceRoot, command);
     if (workspaceLaunch) { return workspaceLaunch; }
 
+    // The user explicitly configured a server command: resolve it on PATH
+    // before falling back to a discovered local server, otherwise the
+    // explicit setting is silently ignored whenever a checkout/bundle exists.
+    const commandCandidate = command ? resolveCommand(context, command) : undefined;
+    if (context.config.serverCommandExplicit && commandCandidate) {
+        return { command: commandCandidate, args: [], cwd: defaultCwd, source: 'serverCommand' };
+    }
+
     if (localServer) {
         return pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
     }
 
-    const commandCandidate = command ? resolveCommand(context, command) : undefined;
     if (commandCandidate) {
         return { command: commandCandidate, args: [], cwd: defaultCwd, source: 'serverCommand' };
     }

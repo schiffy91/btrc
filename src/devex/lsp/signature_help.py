@@ -20,12 +20,14 @@ from src.compiler.python.ast_nodes import (
     FunctionDecl,
     MethodDecl,
 )
+from src.compiler.python.lexer import Lexer, LexerError
+from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.builtins import (
     BUILTIN_FUNCTION_SIGNATURES,
     get_signature_params,
     get_stdlib_signature,
 )
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, line_changed_since_snapshot
 from src.devex.lsp.utils import (
     resolve_chain_type,
     type_repr,
@@ -123,11 +125,11 @@ def _before_or_at(line: int, col: int, position: lsp.Position) -> bool:
     return token_line == position.line and token_col < position.character
 
 
-def _active_call_callee_index(result: AnalysisResult, position: lsp.Position) -> int | None:
-    if not result.tokens:
+def _active_call_callee_index(tokens: list[Token] | None, position: lsp.Position) -> int | None:
+    if not tokens:
         return None
     stack: list[int] = []
-    for index, token in enumerate(result.tokens):
+    for index, token in enumerate(tokens):
         if not _before_or_at(token.line, token.col, position):
             break
         if token.value == "(":
@@ -138,6 +140,33 @@ def _active_call_callee_index(result: AnalysisResult, position: lsp.Position) ->
         return None
     callee_index = stack[-1] - 1
     return callee_index if callee_index >= 0 else None
+
+
+def _tokens_for_position(result: AnalysisResult, position: lsp.Position) -> list[Token] | None:
+    """Tokens used to locate the call around the cursor.
+
+    While the user edits during the debounce window, the snapshot tokens for
+    the current line describe the OLD text (`d.bark(` rewritten to `c.purr(`
+    would resolve against the stale callee). On a line mismatch, re-lex just
+    the live line — the line number is known, columns are native to the line —
+    and use those tokens for receiver/access detection; types still resolve
+    against the snapshot's class_table. Calls spanning multiple lines fall
+    back to the plain-function text path while the edit is in flight.
+    """
+    if not line_changed_since_snapshot(result, position.line):
+        return result.tokens
+    lines = result.source.split("\n")
+    if not (0 <= position.line < len(lines)):
+        return None
+    try:
+        lexed = Lexer(lines[position.line], "<live-line>").tokenize()
+    except LexerError:
+        return None
+    return [
+        Token(t.type, t.value, position.line + 1, t.col)
+        for t in lexed
+        if t.type != TokenType.EOF
+    ]
 
 
 def _simple_receiver_name(tokens, end_idx: int) -> str | None:
@@ -245,14 +274,15 @@ def get_signature_help(
         class_name = new_match.group(1)
         return _resolve_constructor(class_name, class_table, active_param)
 
-    callee_index = _active_call_callee_index(result, position)
+    tokens = _tokens_for_position(result, position)
+    callee_index = _active_call_callee_index(tokens, position)
     if callee_index is not None and callee_index >= 2:
-        tokens = result.tokens
         method_token = tokens[callee_index]
         access = tokens[callee_index - 1]
         if access.value in (".", "->", "?."):
             return _resolve_member_call(
                 result,
+                tokens,
                 callee_index - 2,
                 method_token.value,
                 class_table,
@@ -290,12 +320,20 @@ def _resolve_constructor(
 
 def _resolve_member_call(
     result: AnalysisResult,
+    tokens: list[Token],
     receiver_end_idx: int,
     method_name: str,
     class_table: dict[str, ClassInfo],
     active_param: int,
 ) -> lsp.SignatureHelp | None:
-    tokens = result.tokens
+    # Live class_table first: it reflects the user's actual (possibly
+    # shadowed) stdlib. The static tables are a fallback for receivers the
+    # snapshot cannot resolve.
+    receiver_type = resolve_chain_type(result, tokens, receiver_end_idx, class_table)
+    if receiver_type is not None:
+        resolved = _resolve_method_on_type(receiver_type, method_name, class_table, active_param)
+        if resolved is not None:
+            return resolved
 
     receiver_name = _simple_receiver_name(tokens, receiver_end_idx)
     if receiver_name is not None:
@@ -308,11 +346,7 @@ def _resolve_member_call(
                 active_param,
                 context=f"Static method of {receiver_name}",
             )
-
-    receiver_type = resolve_chain_type(result, tokens, receiver_end_idx, class_table)
-    if receiver_type is None:
-        return None
-    return _resolve_method_on_type(receiver_type, method_name, class_table, active_param)
+    return None
 
 
 def _resolve_method_on_type(
@@ -321,20 +355,13 @@ def _resolve_method_on_type(
     class_table: dict[str, ClassInfo],
     active_param: int,
 ) -> lsp.SignatureHelp | None:
-    """Resolve a method signature given a base type name."""
+    """Resolve a method signature given a base type name.
 
-    # Built-in type methods
-    builtin_params = get_signature_params(type_base, method_name)
-    if builtin_params is not None:
-        return _signature_from_param_list(
-            f"{type_base}.{method_name}",
-            "",
-            builtin_params,
-            active_param,
-            context=f"Built-in {type_base} method",
-        )
-
-    # User-defined class methods (walk inheritance chain)
+    The live class_table wins over the static builtin tables; the latter only
+    cover what no .btrc file defines (string intrinsics, IR-gen collection
+    intrinsics) or types absent from the analyzed snapshot.
+    """
+    # User-defined or live stdlib class methods (walk inheritance chain)
     if type_base in class_table:
         info = class_table[type_base]
         if method_name in info.methods:
@@ -350,5 +377,16 @@ def _resolve_method_on_type(
                 if isinstance(mdecl, MethodDecl):
                     return _signature_from_method_decl(cinfo.parent, mdecl, active_param)
             cinfo = parent
+
+    # Built-in type methods (string intrinsics, collection intrinsics)
+    builtin_params = get_signature_params(type_base, method_name)
+    if builtin_params is not None:
+        return _signature_from_param_list(
+            f"{type_base}.{method_name}",
+            "",
+            builtin_params,
+            active_param,
+            context=f"Built-in {type_base} method",
+        )
 
     return None

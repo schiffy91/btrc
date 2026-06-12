@@ -22,70 +22,71 @@ if PROJECT_ROOT not in sys.path:  # pragma: no cover - import-time bootstrap
     sys.path.insert(0, PROJECT_ROOT)
 
 from lsprotocol import types as lsp
-from pygls.lsp.server import LanguageServer
 
 from src.devex.lsp.completion import get_completions
 from src.devex.lsp.definition import get_definition
-from src.devex.lsp.diagnostics import WORKSPACE, AnalysisResult, compute_diagnostics
+from src.devex.lsp.diagnostics import compute_diagnostics
 from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.references import get_references, get_rename_edits, prepare_rename
 from src.devex.lsp.semantic_tokens import LEGEND, get_semantic_tokens
+from src.devex.lsp.server_state import (
+    _analysis_cache,
+    _generations,
+    _get_best_result,
+    _good_analysis_cache,
+    _open_uris,
+    _result_with_current_source,
+    _state_lock,
+    _timers,
+    _validate_lock,
+    _warm_workspace,
+    server,
+)
 from src.devex.lsp.signature_help import get_signature_help
 from src.devex.lsp.symbols import get_document_symbols
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger("btrc-lsp")
 
-server = LanguageServer("btrc-lsp", "0.1.0")
-
-# Cache: uri -> AnalysisResult (latest, may have errors)
-_analysis_cache: dict[str, AnalysisResult] = {}
-
-# Cache: uri -> AnalysisResult (last successful analysis with AST + class_table)
-_good_analysis_cache: dict[str, AnalysisResult] = {}
-
 # Debounce window for didChange re-analysis. 0 validates inline (used by tests).
 DEBOUNCE_SECONDS = float(os.environ.get("BTRC_LSP_DEBOUNCE", "0.2"))
 
-_validate_lock = threading.Lock()  # single-flight: one pipeline run at a time
-_state_lock = threading.Lock()
-_generations: dict[str, int] = {}
-_timers: dict[str, threading.Timer] = {}
 
+def _validate_document(uri: str, source: str, generation: int | None = None):
+    """Run the compiler pipeline and publish diagnostics (synchronous).
 
-def _overlay_provider(path: str) -> str | None:
-    """Serve unsaved editor buffers when imported files are open in the editor."""
-    try:
-        documents = server.workspace.text_documents
-    except Exception:
-        return None
-    for uri, doc in documents.items():
-        from src.devex.lsp.diagnostics import uri_to_path
-
-        if os.path.abspath(uri_to_path(uri)) == path:
-            return doc.source
-    return None
-
-
-WORKSPACE.overlay_provider = _overlay_provider
-
-
-def _validate_document(uri: str, source: str):
-    """Run the compiler pipeline and publish diagnostics (synchronous)."""
+    *generation* is the document generation claimed at schedule time; direct
+    calls (didOpen, tests) claim a fresh one. Before caching and publishing,
+    the run re-checks under the state lock that it is still the current
+    generation and the document is still open — a newer edit or a didClose
+    that landed while the pipeline ran makes this result stale, and a stale
+    publish must never overwrite a newer one.
+    """
+    if generation is None:
+        with _state_lock:
+            _open_uris.add(uri)
+            _generations[uri] = _generations.get(uri, 0) + 1
+            generation = _generations[uri]
     with _validate_lock:
         result = compute_diagnostics(uri, source)
+    with _state_lock:
+        if _generations.get(uri) != generation or uri not in _open_uris:
+            return  # superseded mid-run or document closed: drop
         _analysis_cache[uri] = result
         # Keep a copy of the last successful analysis for feature fallback
         if result.analyzed and result.ast:
             _good_analysis_cache[uri] = result
-    server.text_document_publish_diagnostics(
-        lsp.PublishDiagnosticsParams(uri=uri, diagnostics=result.diagnostics)
-    )
+        # Publish under the lock so a didClose (which bumps the generation
+        # first) can never be outrun by this now-stale publish.
+        server.text_document_publish_diagnostics(
+            lsp.PublishDiagnosticsParams(uri=uri, diagnostics=result.diagnostics)
+        )
 
 
 def _schedule_validation(uri: str, source: str, delay: float):
     """Debounced validation: a newer edit supersedes any pending/running one."""
     with _state_lock:
+        _open_uris.add(uri)
         _generations[uri] = _generations.get(uri, 0) + 1
         generation = _generations[uri]
         old = _timers.pop(uri, None)
@@ -93,7 +94,7 @@ def _schedule_validation(uri: str, source: str, delay: float):
         old.cancel()
 
     if delay <= 0:
-        _validate_document(uri, source)
+        _validate_document(uri, source, generation=generation)
         return
 
     def run():
@@ -102,7 +103,7 @@ def _schedule_validation(uri: str, source: str, delay: float):
                 return  # superseded while waiting
             _timers.pop(uri, None)
         try:
-            _validate_document(uri, source)
+            _validate_document(uri, source, generation=generation)
         except Exception:  # pragma: no cover - defensive
             logger.exception("validation failed for %s", uri)
 
@@ -111,23 +112,6 @@ def _schedule_validation(uri: str, source: str, delay: float):
     with _state_lock:
         _timers[uri] = timer
     timer.start()
-
-
-def _get_best_result(uri: str) -> AnalysisResult | None:
-    """Return the best available analysis for *uri*.
-
-    Prefers the current (possibly broken) analysis when it has a valid AST.
-    Falls back to the last successful analysis so that features like
-    go-to-definition, hover, and find-references keep working while the
-    user is typing and the file has transient parse errors.
-    """
-    result = _analysis_cache.get(uri)
-    if result and result.ast and result.analyzed:
-        return result
-    good = _good_analysis_cache.get(uri)
-    if good:
-        return good
-    return result  # may still have tokens even without AST
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
@@ -158,6 +142,7 @@ def did_close(params: lsp.DidCloseTextDocumentParams):
     uri = params.text_document.uri
     with _state_lock:
         _generations[uri] = _generations.get(uri, 0) + 1  # cancel pending runs
+        _open_uris.discard(uri)  # in-flight runs must not repopulate caches
         timer = _timers.pop(uri, None)
     if timer:
         timer.cancel()
@@ -188,46 +173,6 @@ def goto_definition(params: lsp.TextDocumentPositionParams):
     if result:
         return get_definition(result, params.position)
     return None
-
-
-def _result_with_current_source(uri: str) -> AnalysisResult | None:
-    """Best analysis for *uri*, with `source` swapped to the live buffer.
-
-    Completion and signature help extract text around the cursor from
-    ``result.source``; while the user types, the live buffer is ahead of the
-    last analyzed snapshot.
-    """
-    doc = server.workspace.get_text_document(uri)
-    current_source = doc.source if doc else None
-
-    result = _analysis_cache.get(uri)
-    if result and not result.analyzed:
-        good = _good_analysis_cache.get(uri)
-        if good:
-            result = good
-
-    if not result and current_source:
-        result = compute_diagnostics(uri, current_source)
-        _analysis_cache[uri] = result
-
-    if not result:
-        return None
-
-    if current_source and result.source != current_source:
-        result = AnalysisResult(
-            uri=result.uri,
-            source=current_source,
-            diagnostics=result.diagnostics,
-            tokens=result.tokens,
-            ast=result.ast,
-            analyzed=result.analyzed,
-            source_positions=result.source_positions,
-            path=result.path,
-            units=result.units,
-            name_positions=result.name_positions,
-            _caches=result._caches,
-        )
-    return result
 
 
 @server.feature(lsp.TEXT_DOCUMENT_COMPLETION, lsp.CompletionOptions(trigger_characters=[".", ">"]))
@@ -285,14 +230,6 @@ def semantic_tokens_full(params: lsp.SemanticTokensParams):
     if result:
         return get_semantic_tokens(result)
     return None
-
-
-def _warm_workspace():  # pragma: no cover - startup optimization
-    """Pre-parse stdlib units so the first didOpen analysis is fast."""
-    try:
-        WORKSPACE.stdlib_units()
-    except Exception:
-        logger.exception("stdlib warmup failed")
 
 
 def main():  # pragma: no cover - stdio entry point for a real client

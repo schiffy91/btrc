@@ -24,6 +24,7 @@ from src.compiler.python.ast_nodes import (
     Identifier,
     MethodDecl,
     NewExpr,
+    Param,
     Program,
     SwitchStmt,
     VarDeclStmt,
@@ -66,20 +67,39 @@ def type_repr(type_expr, class_table: dict[str, ClassInfo] | None = None) -> str
 # ---------------------------------------------------------------------------
 
 
+def _is_wordish(token: Token) -> bool:
+    """Identifier/keyword-like token (the kind a caret can sit at the end of)."""
+    first = token.value[:1]
+    return first.isalpha() or first == "_"
+
+
 def find_token_at_position(tokens: list[Token], position: lsp.Position) -> Token | None:
-    """Find the token that covers the given 0-based LSP position."""
+    """Find the token at the given 0-based LSP position.
+
+    Containment is end-exclusive, but the editor caret most often sits
+    immediately AFTER the identifier: prefer a word-like token ending exactly
+    at the caret over punctuation starting at it, and return the ending token
+    when nothing contains the position (caret at end of line/word).
+    """
     target_line = position.line + 1
     target_col = position.character + 1
 
+    containing: Token | None = None
+    ending: Token | None = None
     for tok in tokens:
-        if tok.type == TokenType.EOF:
-            continue
-        if tok.line != target_line:
+        if tok.type == TokenType.EOF or tok.line != target_line:
             continue
         tok_end_col = tok.col + len(tok.value)
-        if tok.col <= target_col < tok_end_col:
-            return tok
-    return None
+        if containing is None and tok.col <= target_col < tok_end_col:
+            containing = tok
+        if ending is None and tok_end_col == target_col:
+            ending = tok
+
+    if containing is not None and _is_wordish(containing):
+        return containing
+    if ending is not None and _is_wordish(ending):
+        return ending
+    return containing if containing is not None else ending
 
 
 def nav_tokens(result: AnalysisResult) -> list[Token]:
@@ -192,7 +212,9 @@ def result_location(
 ) -> lsp.Location:
     """Create a location; positions are native to *file* (default: the document)."""
     if file and file != result.path:
-        uri = Path(file).resolve().as_uri()
+        # absolute(), NOT resolve(): resolving through symlinks splits document
+        # identity (/tmp vs /private/tmp) between the editor and the server.
+        uri = Path(file).absolute().as_uri()
     else:
         uri = result.uri
     start = lsp.Position(line=max(0, line - 1), character=max(0, col - 1))
@@ -266,11 +288,43 @@ def find_closing_brace_line(source_lines: list[str], start_line: int) -> int | N
     return None
 
 
-def body_range(body: Block | None, fallback_start: int) -> tuple[int, int]:
-    """Compute the line range [start, end] of a Block node."""
+def find_matching_brace_line(tokens: list[Token], line: int, col: int) -> int | None:
+    """Line of the ``}`` matching the first ``{`` token at/after 1-based (line, col).
+
+    Counts brace TOKENS only, so braces inside strings and comments can never
+    confuse the match (they are not tokens).
+    """
+    depth = 0
+    opened = False
+    for tok in tokens:
+        if tok.line < line or (tok.line == line and tok.col < col):
+            continue
+        if tok.type == TokenType.LBRACE:
+            depth += 1
+            opened = True
+        elif tok.type == TokenType.RBRACE and opened:
+            depth -= 1
+            if depth == 0:
+                return tok.line
+    return None
+
+
+def body_range(
+    body: Block | None, fallback_start: int, tokens: list[Token] | None = None
+) -> tuple[int, int]:
+    """Compute the line range [start, end] of a Block node.
+
+    With *tokens* the end is the block's real closing-brace line (token-space
+    brace matching). Without tokens (degraded AST-only callers) fall back to
+    the legacy deepest-statement heuristic with slop.
+    """
+    start = body.line if body is not None and body.line else fallback_start
+    if tokens and body is not None and body.line:
+        end = find_matching_brace_line(tokens, body.line, body.col)
+        if end is not None:
+            return (start, end)
     if not body or not body.statements:
         return (fallback_start, fallback_start + 1000)
-    start = body.line if body.line else fallback_start
     end = start
     for stmt in body.statements:
         line = _deepest_line(stmt)
@@ -394,15 +448,35 @@ def resolve_variable_type(
     ast: Program | list,
     class_table: dict[str, ClassInfo],
     cursor_line: int | None = None,
+    result: AnalysisResult | None = None,
+    cursor_col: int | None = None,
 ) -> str | None:
-    """Determine the class/type name for a variable by scanning the AST.
+    """Determine the class/type name for a variable.
 
-    Pass ``active_decls(result)`` — line filtering is only meaningful within
-    one file. Looks at VarDeclStmt nodes to find declarations like:
+    With *result*, resolution is scope-aware: the DefinitionMap picks the
+    innermost declaration visible at (cursor_line, cursor_col), so same-named
+    locals in other functions/blocks can never bleed through. Without it
+    (legacy callers), fall back to the flat AST scan over ``ast``:
         var x = ClassName(...)          -> ClassName
         var x = new ClassName(...)      -> ClassName
         ClassName x = ...               -> ClassName
     """
+    if result is not None and cursor_line is not None:
+        from src.devex.lsp.definition import DefinitionMap  # lazy: avoid cycle
+
+        dmap = DefinitionMap.from_result(result)
+        col = cursor_col if cursor_col is not None else 10**9
+        vd = dmap.find_var_def(name, cursor_line, col)
+        if vd is not None:
+            return _vardef_type_name(vd, class_table)
+        # Not a local/param: only top-level declarations are visible everywhere.
+        for decl in _decl_list(ast):
+            if isinstance(decl, VarDeclStmt) and decl.name == name:
+                type_name = _var_decl_type(decl, class_table)
+                if type_name:
+                    return type_name
+        return None
+
     candidates: list[tuple[int, str]] = []
     for decl in _decl_list(ast):
         _scan_for_var_types(name, decl, class_table, candidates)
@@ -411,6 +485,20 @@ def resolve_variable_type(
     if not candidates:
         return None
     return max(candidates, key=lambda candidate: candidate[0])[1]
+
+
+def _vardef_type_name(vd, class_table: dict[str, ClassInfo]) -> str | None:
+    """Type name for a scope-resolved VarDef (see definition.VarDef)."""
+    node = vd.node
+    if isinstance(node, VarDeclStmt):
+        return _var_decl_type(node, class_table)
+    if isinstance(node, Param):
+        if node.type and (node.type.base in class_table or node.type.base in BUILTIN_TYPES):
+            return node.type.base
+        return None
+    if vd.kind == "catch":
+        return "string"
+    return None
 
 
 def _scan_for_var_types(
@@ -514,7 +602,17 @@ def resolve_chain_type(
     elif root == "self" and scope_decls:
         current_type = find_enclosing_class(scope_decls, tokens[idx].line)
     elif scope_decls:
-        current_type = resolve_variable_type(root, scope_decls, class_table, tokens[idx].line)
+        # Scope-aware resolution only applies to the active document: var
+        # scopes are collected there, and token positions are native per file.
+        active = decls is None or decls is active_decls(result)
+        current_type = resolve_variable_type(
+            root,
+            scope_decls,
+            class_table,
+            tokens[idx].line,
+            result=result if active else None,
+            cursor_col=tokens[idx].col,
+        )
 
     if current_type is None:
         return None

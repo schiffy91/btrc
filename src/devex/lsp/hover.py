@@ -9,34 +9,17 @@ from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.ast_nodes import (
-    Block,
     CallExpr,
-    CaseClause,
-    CForStmt,
-    ClassDecl,
-    DoWhileStmt,
-    ElseBlock,
-    ElseIf,
     FieldDecl,
-    ForInitVar,
-    ForInStmt,
-    FunctionDecl,
     Identifier,
-    IfStmt,
     MethodDecl,
     NewExpr,
-    ParallelForStmt,
-    SwitchStmt,
-    TryCatchStmt,
     VarDeclStmt,
-    WhileStmt,
 )
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.builtins import _MEMBER_TABLES, get_hover_markdown
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
-    active_decls,
-    body_range,
     find_token_at_position,
     find_token_index,
     nav_tokens,
@@ -235,7 +218,7 @@ def _try_member_hover(
 
 
 # ---------------------------------------------------------------------------
-# Variable / parameter hover
+# Variable / parameter hover (scope-aware, via the DefinitionMap)
 # ---------------------------------------------------------------------------
 
 
@@ -244,214 +227,38 @@ def _try_variable_hover(
     token: Token,
     class_table: dict[str, ClassInfo],
 ) -> str | None:
-    """Try to resolve hover for a local variable, parameter, or loop variable."""
+    """Hover for the innermost variable definition visible at the cursor.
+
+    Scope resolution is shared with go-to-definition/references via
+    DefinitionMap.find_var_def — block ends are real closing-brace lines, so
+    a variable never hovers outside its function or after its block ends.
+    """
     if not result.ast:
         return None
 
-    name = token.value
-    cursor_line = token.line  # 1-based
+    from src.devex.lsp.definition import DefinitionMap
 
-    for decl in active_decls(result):
-        info = _find_var_hover_in_decl(name, cursor_line, decl, class_table)
-        if info:
-            return info
-    return None
-
-
-def _member_scope_end(decl: ClassDecl, member_idx: int) -> int:
-    """Compute the scope end for a class member."""
-    members = decl.members
-    for i in range(member_idx + 1, len(members)):
-        next_line = getattr(members[i], "line", 0)
-        if next_line > 0:
-            return next_line - 1
-    return getattr(members[member_idx], "line", 0) + 500
-
-
-def _find_var_hover_in_decl(
-    name: str,
-    cursor_line: int,
-    decl,
-    class_table: dict[str, ClassInfo],
-) -> str | None:
-    """Search a top-level declaration for a variable/param matching *name*."""
-    if isinstance(decl, ClassDecl):
-        for i, member in enumerate(decl.members):
-            if isinstance(member, MethodDecl):
-                scope_end = _member_scope_end(decl, i)
-                info = _check_callable(
-                    name, cursor_line, member, decl.name, class_table, scope_end
-                )
-                if info:
-                    return info
-    elif isinstance(decl, FunctionDecl):
-        return _check_callable(name, cursor_line, decl, None, class_table)
-    return None
-
-
-def _check_callable(
-    name: str,
-    cursor_line: int,
-    node,
-    class_name: str | None,
-    class_table: dict[str, ClassInfo],
-    scope_end_override: int | None = None,
-) -> str | None:
-    """Check parameters and body of a function/method for *name*."""
-    if not isinstance(node, (FunctionDecl, MethodDecl)):
+    dmap = DefinitionMap.from_result(result)
+    vd = dmap.find_var_def(token.value, token.line, token.col)
+    if vd is None:
         return None
 
-    scope_start = node.line
-    if scope_end_override is not None:
-        scope_end = scope_end_override
-    else:
-        _, scope_end = body_range(node.body, node.line)
-
-    if not (scope_start <= cursor_line <= scope_end):
-        return None
-
-    for p in node.params:
-        if p.name == name:
-            type_str = type_repr(p.type, class_table)
-            ctx = (
-                f"Parameter of `{class_name}.{node.name}`"
-                if class_name
-                else f"Parameter of `{node.name}`"
-            )
-            return f"```btrc\n{type_str} {name}\n```\n{ctx}"
-
-    if node.body:
-        return _scan_block_for_var(
-            name, cursor_line, node.body, class_name, node.name, class_table
-        )
-    return None
-
-
-def _scan_block_for_var(
-    name: str,
-    cursor_line: int,
-    block: Block,
-    class_name: str | None,
-    func_name: str,
-    class_table: dict[str, ClassInfo],
-) -> str | None:
-    """Scan statements in a block for a variable declaration matching *name*."""
-    best: str | None = None
-    for stmt in block.statements:
-        result = _check_stmt_for_var(
-            name, cursor_line, stmt, class_name, func_name, class_table
-        )
-        if result:
-            best = result
-    return best
-
-
-def _check_stmt_for_var(
-    name: str,
-    cursor_line: int,
-    stmt,
-    class_name: str | None,
-    func_name: str,
-    class_table: dict[str, ClassInfo],
-) -> str | None:
-    """Check a single statement for a variable declaration."""
-    if isinstance(stmt, VarDeclStmt):
-        if stmt.name == name and stmt.line <= cursor_line:
-            type_str = _infer_var_type(stmt, class_table)
-            return f"```btrc\n{type_str} {name}\n```\nLocal variable"
-
-    elif isinstance(stmt, Block):
-        # a bare nested block, e.g. a `case` body wrapped in `{ ... }`
-        return _scan_block_for_var(
-            name, cursor_line, stmt, class_name, func_name, class_table
-        )
-
-    elif isinstance(stmt, ForInStmt):
-        if stmt.line <= cursor_line:
-            if stmt.var_name == name:
-                return f"```btrc\nvar {name}\n```\nLoop variable"
-            if stmt.var_name2 == name:
-                return f"```btrc\nvar {name}\n```\nLoop variable (key)"
-        if stmt.body:
-            r = _scan_block_for_var(
-                name, cursor_line, stmt.body, class_name, func_name, class_table
-            )
-            if r:
-                return r
-
-    elif isinstance(stmt, ParallelForStmt):
-        if stmt.var_name == name and stmt.line <= cursor_line:
-            return f"```btrc\nvar {name}\n```\nParallel loop variable"
-        if stmt.body:
-            r = _scan_block_for_var(
-                name, cursor_line, stmt.body, class_name, func_name, class_table
-            )
-            if r:
-                return r
-
-    elif isinstance(stmt, CForStmt):
-        if isinstance(stmt.init, ForInitVar):
-            var_decl = stmt.init.var_decl
-            if isinstance(var_decl, VarDeclStmt):
-                if var_decl.name == name and var_decl.line <= cursor_line:
-                    type_str = _infer_var_type(var_decl, class_table)
-                    return f"```btrc\n{type_str} {name}\n```\nLoop variable"
-        if stmt.body:
-            r = _scan_block_for_var(
-                name, cursor_line, stmt.body, class_name, func_name, class_table
-            )
-            if r:
-                return r
-
-    elif isinstance(stmt, TryCatchStmt):
-        if stmt.catch_var == name and stmt.line <= cursor_line:
-            return f"```btrc\nstring {name}\n```\nCatch variable"
-        for block in (stmt.try_block, stmt.catch_block):
-            if block:
-                r = _scan_block_for_var(
-                    name, cursor_line, block, class_name, func_name, class_table
-                )
-                if r:
-                    return r
-
-    elif isinstance(stmt, IfStmt):
-        if stmt.then_block:
-            r = _scan_block_for_var(
-                name, cursor_line, stmt.then_block, class_name, func_name, class_table
-            )
-            if r:
-                return r
-        if isinstance(stmt.else_block, ElseBlock) and stmt.else_block.body:
-            r = _scan_block_for_var(
-                name, cursor_line, stmt.else_block.body, class_name, func_name, class_table
-            )
-            if r:
-                return r
-        elif isinstance(stmt.else_block, ElseIf) and stmt.else_block.if_stmt:
-            r = _check_stmt_for_var(
-                name, cursor_line, stmt.else_block.if_stmt, class_name, func_name, class_table
-            )
-            if r:
-                return r
-
-    elif isinstance(stmt, (WhileStmt, DoWhileStmt)):
-        if stmt.body:
-            r = _scan_block_for_var(
-                name, cursor_line, stmt.body, class_name, func_name, class_table
-            )
-            if r:
-                return r
-
-    elif isinstance(stmt, SwitchStmt):
-        for case in stmt.cases:
-            if isinstance(case, CaseClause):
-                for s in case.body:
-                    r = _check_stmt_for_var(
-                        name, cursor_line, s, class_name, func_name, class_table
-                    )
-                    if r:
-                        return r
-
+    name = vd.name
+    if vd.kind == "param":
+        type_str = type_repr(getattr(vd.node, "type", None), class_table)
+        return f"```btrc\n{type_str} {name}\n```\nParameter of `{vd.owner}`"
+    if vd.kind in ("local", "cfor") and isinstance(vd.node, VarDeclStmt):
+        type_str = _infer_var_type(vd.node, class_table)
+        ctx = "Local variable" if vd.kind == "local" else "Loop variable"
+        return f"```btrc\n{type_str} {name}\n```\n{ctx}"
+    if vd.kind == "loop":
+        return f"```btrc\nvar {name}\n```\nLoop variable"
+    if vd.kind == "loop_key":
+        return f"```btrc\nvar {name}\n```\nLoop variable (key)"
+    if vd.kind == "parallel":
+        return f"```btrc\nvar {name}\n```\nParallel loop variable"
+    if vd.kind == "catch":
+        return f"```btrc\nstring {name}\n```\nCatch variable"
     return None
 
 

@@ -19,6 +19,13 @@ def _copy_tree(source: Path, target: Path) -> None:
             "tests",
             "*.pyc",
             "*.pyo",
+            # Local-only state and build artifacts that must not ship in the
+            # .vsix payload (e.g. src/devex/lsp/.venv, stdlib/gui/build).
+            ".venv",
+            ".btrc-cache",
+            "build",
+            "*.a",
+            "*.vsix",
         ),
     )
 

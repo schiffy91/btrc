@@ -170,7 +170,10 @@ def test_debounce_coalesces_validations(monkeypatch, tmp_path):
     import time
 
     runs = []
-    monkeypatch.setattr(srv, "_validate_document", lambda uri, src: runs.append(src))
+    # Scheduled runs now pass their schedule-time generation so stale runs
+    # can be dropped before publishing; the stub accepts the keyword.
+    monkeypatch.setattr(srv, "_validate_document",
+                        lambda uri, src, generation=None: runs.append(src))
     for i in range(5):
         srv._schedule_validation("file:///d.btrc", f"v{i}", 0.05)
     time.sleep(0.3)
