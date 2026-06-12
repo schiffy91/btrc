@@ -27,7 +27,6 @@ from src.devex.lsp.builtins import (
 )
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
-    document_position_to_resolved,
     resolve_chain_type,
     type_repr,
 )
@@ -127,10 +126,9 @@ def _before_or_at(line: int, col: int, position: lsp.Position) -> bool:
 def _active_call_callee_index(result: AnalysisResult, position: lsp.Position) -> int | None:
     if not result.tokens:
         return None
-    resolved = document_position_to_resolved(result, position)
     stack: list[int] = []
     for index, token in enumerate(result.tokens):
-        if not _before_or_at(token.line, token.col, resolved):
+        if not _before_or_at(token.line, token.col, position):
             break
         if token.value == "(":
             stack.append(index)

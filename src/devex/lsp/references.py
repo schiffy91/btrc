@@ -1,11 +1,8 @@
 """Find-all-references and rename provider for btrc.
 
-Supports finding references for:
-- Class names (type annotations, constructor calls, extends, field types)
-- Method names (call sites, definition)
-- Field names (access sites, definition)
-- Function names (call sites, definition)
-- Variables (declarations and usages within scope)
+References are found by scanning the token streams of the active document and
+every imported unit (positions native per file). Variable references stay
+within the active document — locals don't cross files.
 """
 
 from __future__ import annotations
@@ -17,7 +14,7 @@ from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
-    document_position_to_resolved,
+    active_decls,
     find_token_at_position,
     find_token_index,
     resolve_chain_type,
@@ -25,25 +22,48 @@ from src.devex.lsp.utils import (
 )
 
 # ---------------------------------------------------------------------------
-# Reference collection
+# Token streams
 # ---------------------------------------------------------------------------
 
 
-def _collect_all_tokens_matching(
-    tokens: list[Token],
-    name: str,
-) -> list[Token]:
-    """Find all identifier tokens with the given name."""
-    return [tok for tok in tokens if tok.type == TokenType.IDENT and tok.value == name]
+def _token_streams(result: AnalysisResult) -> list[tuple[str | None, list[Token], list]]:
+    """(file, tokens, decls) per scannable unit; the active document first.
+
+    ``decls`` provide the scope context for chain resolution in that file.
+    """
+    streams: list[tuple[str | None, list[Token], list]] = [
+        (result.path or None, result.tokens or [], active_decls(result))
+    ]
+    for unit in result.units:
+        if result.path and unit.path == result.path:
+            continue
+        if unit.tokens:
+            streams.append((unit.path, unit.tokens, unit.decls))
+    return streams
 
 
-def _result_ref_location(
-    result: AnalysisResult,
-    line: int,
-    col: int,
-    name_len: int,
-) -> lsp.Location:
-    return result_location(result, line, col, name_len)
+def _matching(tokens: list[Token], name: str) -> list[tuple[int, Token]]:
+    """(index, token) for identifier tokens spelling *name*."""
+    return [
+        (i, tok)
+        for i, tok in enumerate(tokens)
+        if tok.type == TokenType.IDENT and tok.value == name
+    ]
+
+
+def _is_member_access(tokens: list[Token], idx: int) -> bool:
+    return idx >= 1 and tokens[idx - 1].value in (".", "->", "?.")
+
+
+Ref = tuple  # (file | None, line, col)
+
+
+def _same_site(ref: Ref, def_loc: tuple[str | None, int, int] | None) -> bool:
+    if def_loc is None:
+        return False
+    rfile, rline, rcol = ref
+    dfile, dline, dcol = def_loc
+    return (rline, rcol) == (dline, dcol) and (rfile or None) == (dfile or None)
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +109,12 @@ def _classify_symbol(
     # Cursor on a member *declaration* (the field/method name in a class body):
     # classify it as that member so find-references/rename span all accesses,
     # not just same-named locals. Member decls live on their own line.
-    for (cls, mem), (dline, _dcol) in dmap.method_defs.items():
-        if mem == name and dline == token.line:
+    here = (result.path or None, token.line)
+    for (cls, mem), (dfile, dline, _dcol) in dmap.method_defs.items():
+        if mem == name and (dfile or None, dline) == here:
             return ("method", cls, name)
-    for (cls, mem), (dline, _dcol) in dmap.field_defs.items():
-        if mem == name and dline == token.line:
+    for (cls, mem), (dfile, dline, _dcol) in dmap.field_defs.items():
+        if mem == name and (dfile or None, dline) == here:
             return ("field", cls, name)
 
     # Check class name
@@ -113,45 +134,48 @@ def _classify_symbol(
 # ---------------------------------------------------------------------------
 
 
-def _find_class_references(
+def _find_name_references(
     name: str,
-    tokens: list[Token],
-    dmap: DefinitionMap,
+    result: AnalysisResult,
+    def_loc: tuple[str | None, int, int] | None,
     include_declaration: bool,
-) -> list[tuple[int, int]]:
-    """Find all references to a class name."""
-    refs = []
-    matching = _collect_all_tokens_matching(tokens, name)
-    def_loc = dmap.class_defs.get(name)
-
-    for tok in matching:
-        loc = (tok.line, tok.col)
-        if not include_declaration and def_loc and loc == def_loc:
-            continue
-        refs.append(loc)
+) -> list[Ref]:
+    """References to a top-level name (class/function/enum) across all units."""
+    refs: list[Ref] = []
+    for file, tokens, _decls in _token_streams(result):
+        for _i, tok in _matching(tokens, name):
+            ref = (file, tok.line, tok.col)
+            if not include_declaration and _same_site(ref, def_loc):
+                continue
+            refs.append(ref)
     return refs
 
 
 def _find_function_references(
     name: str,
-    tokens: list[Token],
+    result: AnalysisResult,
     dmap: DefinitionMap,
     include_declaration: bool,
-) -> list[tuple[int, int]]:
-    """Find all references to a function name."""
-    refs = []
-    matching = _collect_all_tokens_matching(tokens, name)
+) -> list[Ref]:
+    """References to a function name across all units."""
+    refs: list[Ref] = []
     def_loc = dmap.function_defs.get(name)
-
-    # The declaration is recorded at the return-type column, not the name
-    # token's, so match by line and skip the first name token on that line.
-    decl_skipped = False
-    for tok in matching:
-        loc = (tok.line, tok.col)
-        if not include_declaration and def_loc and not decl_skipped and tok.line == def_loc[0]:
-            decl_skipped = True
-            continue
-        refs.append(loc)
+    for file, tokens, _decls in _token_streams(result):
+        # The declaration is recorded at the name token; older parsers recorded
+        # the return-type column, so also match by line in the defining file.
+        decl_skipped = False
+        for _i, tok in _matching(tokens, name):
+            ref = (file, tok.line, tok.col)
+            if (
+                not include_declaration
+                and def_loc
+                and not decl_skipped
+                and (file or None) == (def_loc[0] or None)
+                and tok.line == def_loc[1]
+            ):
+                decl_skipped = True
+                continue
+            refs.append(ref)
     return refs
 
 
@@ -159,22 +183,19 @@ def _find_member_references(
     class_name: str,
     member_name: str,
     kind: str,  # 'method' or 'field'
-    tokens: list[Token],
     result: AnalysisResult,
     class_table: dict[str, ClassInfo],
     dmap: DefinitionMap,
     include_declaration: bool,
-) -> list[tuple[int, int]]:
-    """Find all references to a class member (method or field)."""
-    refs = []
+) -> list[Ref]:
+    """References to a class member (method or field) across all units."""
+    refs: list[Ref] = []
 
-    # Get definition location
     if kind == "method":
         def_loc = dmap.method_defs.get((class_name, member_name))
     else:
         def_loc = dmap.field_defs.get((class_name, member_name))
 
-    # Include definition if requested
     if include_declaration and def_loc:
         refs.append(def_loc)
 
@@ -188,49 +209,34 @@ def _find_member_references(
                 break
             parent = class_table[parent].parent if parent in class_table else None
 
-    # Find all tokens that match member_name preceded by . or -> or ?.
-    matching = _collect_all_tokens_matching(tokens, member_name)
-    for tok in matching:
-        tok_idx = find_token_index(tokens, tok)
-        if tok_idx is None or tok_idx < 2:
-            continue
-
-        loc = (tok.line, tok.col)
-        if not include_declaration and def_loc and loc == def_loc:
-            continue
-
-        prev = tokens[tok_idx - 1]
-        if prev.value not in (".", "->", "?."):
-            continue
-
-        target_class = resolve_chain_type(result, tokens, tok_idx - 2, class_table)
-
-        if target_class in valid_classes:
-            refs.append(loc)
+    for file, tokens, decls in _token_streams(result):
+        for idx, tok in _matching(tokens, member_name):
+            if idx < 2 or not _is_member_access(tokens, idx):
+                continue
+            ref = (file, tok.line, tok.col)
+            if _same_site(ref, def_loc):
+                continue  # declaration handled above
+            target_class = resolve_chain_type(
+                result, tokens, idx - 2, class_table, decls=decls
+            )
+            if target_class in valid_classes:
+                refs.append(ref)
 
     return refs
 
 
-def _find_variable_references(
-    name: str,
-    tokens: list[Token],
-) -> list[tuple[int, int]]:
-    """Find all references to a variable name.
+def _find_variable_references(name: str, result: AnalysisResult) -> list[Ref]:
+    """References to a variable name within the active document.
 
-    Simple token-based approach: collect all identifier tokens with the name.
-    Filter out those that follow . or -> (those are member accesses, not variable refs).
+    Simple token-based approach: collect identifier tokens with the name,
+    excluding member accesses (those follow . / -> / ?.).
     """
-    refs = []
-    matching = _collect_all_tokens_matching(tokens, name)
-
-    for tok in matching:
-        tok_idx = find_token_index(tokens, tok)
-        if tok_idx is not None and tok_idx >= 1:
-            prev = tokens[tok_idx - 1]
-            if prev.value in (".", "->", "?."):
-                continue  # member access, not a variable reference
-        refs.append((tok.line, tok.col))
-
+    refs: list[Ref] = []
+    tokens = result.tokens or []
+    for idx, tok in _matching(tokens, name):
+        if _is_member_access(tokens, idx):
+            continue
+        refs.append((result.path or None, tok.line, tok.col))
     return refs
 
 
@@ -248,38 +254,41 @@ def get_references(
     if not result.tokens or not result.ast:
         return []
 
-    token = find_token_at_position(
-        result.tokens,
-        document_position_to_resolved(result, position),
-    )
+    token = find_token_at_position(result.tokens, position)
     if token is None or token.type != TokenType.IDENT:
         return []
 
     class_table = result.analyzed.class_table if result.analyzed else {}
-    dmap = DefinitionMap.from_ast(result.ast, result.tokens)
+    dmap = DefinitionMap.from_result(result)
     name = token.value
 
-    kind, class_name, member_name = _classify_symbol(token, result.tokens, result, class_table, dmap)
+    kind, class_name, member_name = _classify_symbol(
+        token, result.tokens, result, class_table, dmap
+    )
 
     if kind == "class":
-        locs = _find_class_references(name, result.tokens, dmap, include_declaration)
+        refs = _find_name_references(
+            name, result, dmap.class_defs.get(name), include_declaration
+        )
     elif kind == "function":
-        locs = _find_function_references(name, result.tokens, dmap, include_declaration)
+        refs = _find_function_references(name, result, dmap, include_declaration)
     elif kind in ("method", "field"):
-        locs = _find_member_references(
+        refs = _find_member_references(
             class_name,
             member_name,
             kind,
-            result.tokens,
             result,
             class_table,
             dmap,
             include_declaration,
         )
     else:
-        locs = _find_variable_references(name, result.tokens)
+        refs = _find_variable_references(name, result)
 
-    return [_result_ref_location(result, line, col, len(name)) for line, col in locs]
+    return [
+        result_location(result, line, col, len(name), file=file)
+        for file, line, col in refs
+    ]
 
 
 def get_rename_edits(
@@ -291,10 +300,7 @@ def get_rename_edits(
     if not result.tokens or not result.ast:
         return None
 
-    token = find_token_at_position(
-        result.tokens,
-        document_position_to_resolved(result, position),
-    )
+    token = find_token_at_position(result.tokens, position)
     if token is None or token.type != TokenType.IDENT:
         return None
 
@@ -325,10 +331,7 @@ def prepare_rename(
     if not result.tokens:
         return None
 
-    token = find_token_at_position(
-        result.tokens,
-        document_position_to_resolved(result, position),
-    )
+    token = find_token_at_position(result.tokens, position)
     if token is None or token.type != TokenType.IDENT:
         return None
 

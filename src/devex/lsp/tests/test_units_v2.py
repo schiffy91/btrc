@@ -1,0 +1,189 @@
+"""Per-file unit pipeline: native positions, composition, caching, debounce."""
+
+import importlib
+import os
+
+from lsprotocol import types as lsp
+
+from src.devex.lsp.definition import get_definition
+from src.devex.lsp.diagnostics import compute_diagnostics
+from src.devex.lsp.hover import get_hover_info
+from src.devex.lsp.tests.lsphelp import pos_of
+from src.devex.lsp.units import parse_unit
+from src.devex.lsp.workspace import Workspace
+
+srv = importlib.import_module("src.devex.lsp.server")
+
+
+def test_parse_unit_blanks_imports_preserving_lines():
+    src = "import std.vector\nimport ./lib/*;\n\nint main() { return 0; }\n"
+    unit = parse_unit("/x/main.btrc", src)
+    assert unit.import_specs == [(1, "std.vector"), (2, "./lib/*")]
+    assert unit.error is None
+    # main() must keep its original line (4) despite the blanked imports
+    assert unit.decls[0].line == 4
+    assert unit.decls[0].source_file == "/x/main.btrc"
+
+
+def test_parse_unit_name_positions_land_on_names():
+    src = "class Point {\n    public int x;\n    public int getX() { return self.x; }\n}\n"
+    unit = parse_unit("/x/p.btrc", src)
+    assert unit.name_positions[0] == (1, 7)  # 'Point'
+    fields = unit.member_name_positions[0]
+    assert fields[0] == (2, 16)  # 'x'
+    assert fields[1] == (3, 16)  # 'getX'
+
+
+def _write_project(tmp_path, lib_source=None):
+    lib = tmp_path / "lib.btrc"
+    lib.write_text(
+        lib_source
+        or "class Helper {\n    public int v;\n    public Helper(int v) { self.v = v; }\n}\n"
+    )
+    main = tmp_path / "main.btrc"
+    source = (
+        "import ./lib.btrc;\n"
+        "int main() {\n"
+        "    Helper h = new Helper(1);\n"
+        "    return h.v;\n"
+        "}\n"
+    )
+    main.write_text(source)
+    return main, source
+
+
+def test_hover_on_import_line_is_none(tmp_path):
+    main, source = _write_project(tmp_path)
+    r = compute_diagnostics(main.as_uri(), source)
+    # The historic bug: unmapped import-line positions aliased into the
+    # concatenated stdlib and hover showed stdlib classes (e.g. ListNode).
+    h = get_hover_info(r, lsp.Position(line=0, character=10))
+    assert h is None
+
+
+def test_cross_file_definition_lands_on_name_token(tmp_path):
+    main, source = _write_project(tmp_path)
+    r = compute_diagnostics(main.as_uri(), source)
+    loc = get_definition(r, pos_of(source, "new Helper", offset=5))
+    assert loc is not None
+    assert loc.uri == (tmp_path / "lib.btrc").as_uri()
+    assert (loc.range.start.line, loc.range.start.character) == (0, 6)  # 'Helper'
+
+
+def test_broken_import_diagnosed_on_import_line(tmp_path):
+    main, source = _write_project(tmp_path, lib_source="class Broken {\n")
+    r = compute_diagnostics(main.as_uri(), source)
+    lines = [d.range.start.line for d in r.diagnostics]
+    assert 0 in lines  # the `import ./lib.btrc;` line
+    assert any("lib.btrc" in d.message for d in r.diagnostics)
+
+
+def test_missing_import_diagnosed_on_import_line(tmp_path):
+    main = tmp_path / "main.btrc"
+    source = "import ./nope.btrc;\nint main() { return 0; }\n"
+    main.write_text(source)
+    r = compute_diagnostics(main.as_uri(), source)
+    assert any(d.range.start.line == 0 for d in r.diagnostics)
+
+
+def test_imported_units_are_cached_across_keystrokes(tmp_path):
+    main, source = _write_project(tmp_path)
+    w = Workspace()
+    a1 = w.parse_active(str(main), source)
+    c1 = w.compose(a1)
+    a2 = w.parse_active(str(main), source + "\n// edit")
+    c2 = w.compose(a2)
+    assert c1.imported[0] is c2.imported[0]  # same unit object: no re-parse
+    assert a1 is not a2
+
+
+def test_seeded_analysis_matches_full_analysis(tmp_path):
+    from src.compiler.python.analyzer.analyzer import Analyzer
+
+    main = tmp_path / "main.btrc"
+    source = (
+        "int main() {\n"
+        "    var v = Vector(3);\n"
+        "    v.push(1.5);\n"
+        "    bogusCall();\n"  # one real error
+        "    return v.len();\n"
+        "}\n"
+    )
+    main.write_text(source)
+    w = Workspace()
+    seeded = w.analyze(w.compose(w.parse_active(str(main), source)))
+    # The full-analysis baseline uses a fresh parse (the old pipeline's
+    # behavior); analyzing the same AST objects twice is not supported.
+    w2 = Workspace()
+    full = Analyzer().analyze(w2.compose(w2.parse_active(str(main), source)).program)
+    key = lambda d: (d.message, d.line, d.severity)  # noqa: E731
+    seeded_diags = [key(d) for d in seeded.diags if d.file == str(main)]
+    full_diags = [key(d) for d in full.diags if d.file == str(main)]
+    assert seeded_diags == full_diags
+    assert seeded_diags  # the bogus constructor arity error is present
+    assert set(seeded.class_table) == set(full.class_table)
+
+
+def test_reanalysis_of_cached_imports_is_idempotent(tmp_path):
+    # Imported units keep their AST between keystrokes; the analyzer upgrades
+    # class-typed params/returns in place. A second analysis must not report
+    # its own upgrades as 'Redundant pointer' errors.
+    lib = tmp_path / "lib.btrc"
+    lib.write_text(
+        "class Node {\n"
+        "    public int v;\n"
+        "    public Node(int v) { self.v = v; }\n"
+        "    public Node combine(Node other) { return new Node(self.v + other.v); }\n"
+        "}\n"
+    )
+    main = tmp_path / "main.btrc"
+    source = (
+        "import ./lib.btrc;\n"
+        "int main() {\n"
+        "    Node a = new Node(1);\n"
+        "    Node b = a.combine(new Node(2));\n"
+        "    return b.v;\n"
+        "}\n"
+    )
+    main.write_text(source)
+    w = Workspace()
+    for i in range(3):  # three keystrokes, same imported unit object each time
+        comp = w.compose(w.parse_active(str(main), source + "\n" * i))
+        analyzed = w.analyze(comp)
+        assert not analyzed.diags, f"keystroke {i}: {[d.message for d in analyzed.diags]}"
+
+
+def test_warm_keystroke_is_fast(tmp_path):
+    import time
+
+    main, source = _write_project(tmp_path)
+    compute_diagnostics(main.as_uri(), source)  # warm stdlib units + base
+    start = time.perf_counter()
+    r = compute_diagnostics(main.as_uri(), source + "\n")
+    elapsed = time.perf_counter() - start
+    assert r.analyzed is not None
+    # Generous CI budget; locally this is ~1-5ms (was ~500ms pre-v2).
+    assert elapsed < 0.15, f"keystroke took {elapsed*1000:.0f}ms"
+
+
+def test_debounce_coalesces_validations(monkeypatch, tmp_path):
+    import time
+
+    runs = []
+    monkeypatch.setattr(srv, "_validate_document", lambda uri, src: runs.append(src))
+    for i in range(5):
+        srv._schedule_validation("file:///d.btrc", f"v{i}", 0.05)
+    time.sleep(0.3)
+    assert runs == ["v4"]  # only the last edit validated
+
+
+def test_active_file_overlay_used_for_imports(tmp_path):
+    main, source = _write_project(tmp_path)
+    w = Workspace()
+    overlay_text = "class Helper {\n    public int v;\n    public int extra;\n}\n"
+    w.overlay_provider = lambda path: (
+        overlay_text if os.path.basename(path) == "lib.btrc" else None
+    )
+    comp = w.compose(w.parse_active(str(main), source))
+    helper = next(d for d in comp.imported[0].decls if getattr(d, "name", "") == "Helper")
+    assert any(getattr(m, "name", "") == "extra" for m in helper.members)

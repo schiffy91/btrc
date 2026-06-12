@@ -34,6 +34,8 @@ def _seed(monkeypatch, source=SAMPLE):
     # server.workspace is a read-only property over protocol._workspace.
     monkeypatch.setattr(srv.server.protocol, "_workspace", _Workspace(source),
                         raising=False)
+    # Validate inline so handler effects are observable synchronously.
+    monkeypatch.setattr(srv, "DEBOUNCE_SECONDS", 0)
     srv._validate_document(URI, source)
     return published
 

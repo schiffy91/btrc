@@ -35,7 +35,6 @@ from src.compiler.python.ast_nodes import (
     MethodDecl,
     ParallelForStmt,
     Param,
-    Program,
     PropertyDecl,
     RichEnumDecl,
     StructDecl,
@@ -48,12 +47,12 @@ from src.compiler.python.ast_nodes import (
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
+    active_decls,
     body_range,
-    document_position_to_resolved,
     find_enclosing_class,
     find_token_at_position,
     find_token_index,
-    navigation_tokens,
+    nav_tokens,
     resolve_chain_type,
     resolve_variable_type,
     result_location,
@@ -101,62 +100,78 @@ def _resolve_name_pos(
 
 
 class DefinitionMap:
-    """Maps symbol names to their definition locations."""
+    """Maps symbol names to their definition locations.
+
+    Entries are file-qualified ``(file, line, col)``; positions are native to
+    that file. ``file`` is None for decls without provenance (test snippets).
+    Variable definitions are collected from the active document only — line
+    ranges are meaningless across files.
+    """
 
     def __init__(self):
-        self.class_defs: dict[str, tuple[int, int]] = {}
-        self.function_defs: dict[str, tuple[int, int]] = {}
-        self.method_defs: dict[tuple[str, str], tuple[int, int]] = {}
-        self.field_defs: dict[tuple[str, str], tuple[int, int]] = {}
-        self.property_defs: dict[tuple[str, str], tuple[int, int]] = {}
-        self.enum_defs: dict[str, tuple[int, int]] = {}
-        self.struct_defs: dict[str, tuple[int, int]] = {}
-        self.typedef_defs: dict[str, tuple[int, int]] = {}
+        self.class_defs: dict[str, tuple[str | None, int, int]] = {}
+        self.function_defs: dict[str, tuple[str | None, int, int]] = {}
+        self.method_defs: dict[tuple[str, str], tuple[str | None, int, int]] = {}
+        self.field_defs: dict[tuple[str, str], tuple[str | None, int, int]] = {}
+        self.property_defs: dict[tuple[str, str], tuple[str | None, int, int]] = {}
+        self.enum_defs: dict[str, tuple[str | None, int, int]] = {}
+        self.struct_defs: dict[str, tuple[str | None, int, int]] = {}
+        self.typedef_defs: dict[str, tuple[str | None, int, int]] = {}
         self.var_defs: list[VarDef] = []
 
     @classmethod
-    def from_ast(cls, ast: Program, tokens: list[Token] | None = None) -> DefinitionMap:
-        """Walk the AST to build a definition map.
-
-        *tokens*, when supplied, lets each definition resolve to its name token
-        rather than the leading keyword/type position recorded on the node.
-        """
+    def from_result(cls, result: AnalysisResult) -> DefinitionMap:
+        """Build (or return the cached) definition map for a snapshot."""
+        cached = result._caches.get("dmap")
+        if cached is not None:
+            return cached
         dmap = cls()
-        for decl in ast.declarations:
+        if result.ast:
+            dmap._build(result)
+        result._caches["dmap"] = dmap
+        return dmap
+
+    def _build(self, result: AnalysisResult):
+        name_positions = result.name_positions
+        tokens = result.tokens
+
+        def named(node, name: str, file: str | None) -> tuple[str | None, int, int]:
+            pos = name_positions.get(id(node))
+            if pos is not None:
+                return pos
+            # No precomputed position (test snippets): scan the document tokens.
+            line, col = _resolve_name_pos(tokens, node.line, node.col, name)
+            return (file, line, col)
+
+        for decl in result.ast.declarations:
+            file = getattr(decl, "source_file", None)
+            is_active = file is None or file == result.path
             if isinstance(decl, ClassDecl):
-                dmap.class_defs[decl.name] = _resolve_name_pos(
-                    tokens, decl.line, decl.col, decl.name
-                )
-                _collect_class_members(dmap, decl, tokens)
+                self.class_defs[decl.name] = named(decl, decl.name, file)
+                _collect_class_members(self, decl, file, named, collect_vars=is_active)
             elif isinstance(decl, FunctionDecl):
-                dmap.function_defs[decl.name] = _resolve_name_pos(
-                    tokens, decl.line, decl.col, decl.name
-                )
-                scope_start, scope_end = body_range(decl.body, decl.line)
-                _collect_params(dmap, decl.params, scope_start, scope_end)
-                if decl.body:
-                    _collect_vars_in_block(dmap, decl.body, scope_start, scope_end)
+                self.function_defs[decl.name] = named(decl, decl.name, file)
+                if is_active:
+                    scope_start, scope_end = body_range(decl.body, decl.line)
+                    _collect_params(self, decl.params, scope_start, scope_end)
+                    if decl.body:
+                        _collect_vars_in_block(self, decl.body, scope_start, scope_end)
             elif isinstance(decl, EnumDecl):
-                name_pos = _resolve_name_pos(tokens, decl.line, decl.col, decl.name)
-                dmap.enum_defs[decl.name] = name_pos
+                name_pos = named(decl, decl.name, file)
+                self.enum_defs[decl.name] = name_pos
                 # Map each value name too, so cmd-clicking a use of a value
                 # (e.g. RED) jumps to the enum declaration.
                 for v in decl.values:
-                    dmap.enum_defs.setdefault(v.name, name_pos)
+                    self.enum_defs.setdefault(v.name, name_pos)
             elif isinstance(decl, RichEnumDecl):
-                name_pos = _resolve_name_pos(tokens, decl.line, decl.col, decl.name)
-                dmap.enum_defs[decl.name] = name_pos
+                name_pos = named(decl, decl.name, file)
+                self.enum_defs[decl.name] = name_pos
                 for variant in decl.variants:
-                    dmap.enum_defs.setdefault(variant.name, name_pos)
+                    self.enum_defs.setdefault(variant.name, name_pos)
             elif isinstance(decl, StructDecl):
-                dmap.struct_defs[decl.name] = _resolve_name_pos(
-                    tokens, decl.line, decl.col, decl.name
-                )
+                self.struct_defs[decl.name] = named(decl, decl.name, file)
             elif isinstance(decl, TypedefDecl):
-                dmap.typedef_defs[decl.alias] = _resolve_name_pos(
-                    tokens, decl.line, decl.col, decl.alias
-                )
-        return dmap
+                self.typedef_defs[decl.alias] = named(decl, decl.alias, file)
 
     def find_var(self, name: str, cursor_line: int) -> tuple[int, int] | None:
         """Find the closest variable definition for *name* visible at *cursor_line*."""
@@ -176,26 +191,21 @@ class DefinitionMap:
 
 
 def _collect_class_members(
-    dmap: DefinitionMap, cls: ClassDecl, tokens: list[Token] | None = None
+    dmap: DefinitionMap, cls: ClassDecl, file: str | None, named, collect_vars: bool
 ):
     """Collect all member definitions from a class declaration."""
     for member in cls.members:
         if isinstance(member, FieldDecl):
-            dmap.field_defs[(cls.name, member.name)] = _resolve_name_pos(
-                tokens, member.line, member.col, member.name
-            )
+            dmap.field_defs[(cls.name, member.name)] = named(member, member.name, file)
         elif isinstance(member, MethodDecl):
-            dmap.method_defs[(cls.name, member.name)] = _resolve_name_pos(
-                tokens, member.line, member.col, member.name
-            )
-            scope_start, scope_end = body_range(member.body, member.line)
-            _collect_params(dmap, member.params, scope_start, scope_end)
-            if member.body:
-                _collect_vars_in_block(dmap, member.body, scope_start, scope_end)
+            dmap.method_defs[(cls.name, member.name)] = named(member, member.name, file)
+            if collect_vars:
+                scope_start, scope_end = body_range(member.body, member.line)
+                _collect_params(dmap, member.params, scope_start, scope_end)
+                if member.body:
+                    _collect_vars_in_block(dmap, member.body, scope_start, scope_end)
         elif isinstance(member, PropertyDecl):
-            dmap.property_defs[(cls.name, member.name)] = _resolve_name_pos(
-                tokens, member.line, member.col, member.name
-            )
+            dmap.property_defs[(cls.name, member.name)] = named(member, member.name, file)
 
 
 def _collect_params(
@@ -335,14 +345,13 @@ def get_definition(
     if not result.tokens or not result.ast:
         return None
 
-    resolved_position = document_position_to_resolved(result, position)
-    tokens = navigation_tokens(result.tokens)
-    token = find_token_at_position(tokens, resolved_position)
+    tokens = nav_tokens(result)
+    token = find_token_at_position(tokens, position)
     if token is None or token.type != TokenType.IDENT:
         return None
 
     class_table = result.analyzed.class_table if result.analyzed else {}
-    dmap = DefinitionMap.from_ast(result.ast, result.tokens)
+    dmap = DefinitionMap.from_result(result)
     cursor_line = token.line  # 1-based
 
     # 1. Member access: obj.member / obj->member / obj?.member
@@ -350,53 +359,42 @@ def get_definition(
     if loc:
         return loc
 
-    # 2. Class name reference
-    if token.value in dmap.class_defs:
-        def_line, def_col = dmap.class_defs[token.value]
-        if token.line != def_line or token.col != def_col:
-            return _make_result_location(result, def_line, def_col, len(token.value))
-
-    # 3. Function name reference
-    if token.value in dmap.function_defs:
-        def_line, def_col = dmap.function_defs[token.value]
-        if token.line != def_line or token.col != def_col:
-            return _make_result_location(result, def_line, def_col, len(token.value))
-
-    # 4. Enum name reference
-    if token.value in dmap.enum_defs:
-        def_line, def_col = dmap.enum_defs[token.value]
-        if token.line != def_line or token.col != def_col:
-            return _make_result_location(result, def_line, def_col, len(token.value))
-
-    # 5. Struct name reference
-    if token.value in dmap.struct_defs:
-        def_line, def_col = dmap.struct_defs[token.value]
-        if token.line != def_line or token.col != def_col:
-            return _make_result_location(result, def_line, def_col, len(token.value))
-
-    # 6. Typedef alias reference
-    if token.value in dmap.typedef_defs:
-        def_line, def_col = dmap.typedef_defs[token.value]
-        if token.line != def_line or token.col != def_col:
-            return _make_result_location(result, def_line, def_col, len(token.value))
+    # 2-6. Named declarations: class, function, enum, struct, typedef
+    for table in (
+        dmap.class_defs,
+        dmap.function_defs,
+        dmap.enum_defs,
+        dmap.struct_defs,
+        dmap.typedef_defs,
+    ):
+        if token.value in table:
+            def_file, def_line, def_col = table[token.value]
+            if not _at_def_site(result, token, def_file, def_line, def_col):
+                return result_location(
+                    result, def_line, def_col, len(token.value), file=def_file
+                )
 
     # 7. Local variable / parameter / loop variable / catch variable
     var_loc = dmap.find_var(token.value, cursor_line)
     if var_loc:
         def_line, def_col = var_loc
         if token.line != def_line or token.col != def_col:
-            return _make_result_location(result, def_line, def_col, len(token.value))
+            return result_location(result, def_line, def_col, len(token.value))
 
     return None
 
 
-def _make_result_location(
+def _at_def_site(
     result: AnalysisResult,
-    line: int,
-    col: int,
-    length: int = 0,
-) -> lsp.Location:
-    return result_location(result, line, col, length)
+    token: Token,
+    def_file: str | None,
+    def_line: int,
+    def_col: int,
+) -> bool:
+    """True when the cursor token *is* the definition's name token."""
+    if def_file is not None and def_file != result.path:
+        return False
+    return token.line == def_line and token.col == def_col
 
 
 def _try_member_definition(
@@ -429,15 +427,10 @@ def _try_member_definition(
     current_class = target_class
     while current_class:
         key = (current_class, member_name)
-        if key in dmap.method_defs:
-            def_line, def_col = dmap.method_defs[key]
-            return _make_result_location(result, def_line, def_col, name_len)
-        if key in dmap.field_defs:
-            def_line, def_col = dmap.field_defs[key]
-            return _make_result_location(result, def_line, def_col, name_len)
-        if key in dmap.property_defs:
-            def_line, def_col = dmap.property_defs[key]
-            return _make_result_location(result, def_line, def_col, name_len)
+        for table in (dmap.method_defs, dmap.field_defs, dmap.property_defs):
+            if key in table:
+                def_file, def_line, def_col = table[key]
+                return result_location(result, def_line, def_col, name_len, file=def_file)
 
         cinfo = class_table.get(current_class)
         if cinfo and cinfo.parent and cinfo.parent in class_table:
@@ -457,7 +450,9 @@ def _resolve_object_class(
     if obj_token.value in class_table:
         return obj_token.value
     if obj_token.value == "self":
-        return find_enclosing_class(result.ast, obj_token.line)
+        return find_enclosing_class(active_decls(result), obj_token.line)
     if result.ast:
-        return resolve_variable_type(obj_token.value, result.ast, class_table, obj_token.line)
+        return resolve_variable_type(
+            obj_token.value, active_decls(result), class_table, obj_token.line
+        )
     return None

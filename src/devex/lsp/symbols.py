@@ -17,8 +17,8 @@ from src.compiler.python.ast_nodes import (
     StructDecl,
     TypedefDecl,
 )
-from src.devex.lsp.diagnostics import AnalysisResult, uri_to_path
-from src.devex.lsp.utils import find_closing_brace_line, type_repr
+from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.utils import active_decls, find_closing_brace_line, type_repr
 
 
 def _pos(line: int, col: int) -> lsp.Position:
@@ -31,14 +31,7 @@ def _document_position(
     line: int,
     col: int,
 ) -> tuple[int, int] | None:
-    if not result.source_positions:
-        return (line, col)
-    if line < 1 or line > len(result.source_positions):
-        return None
-    source_file, source_line = result.source_positions[line - 1]
-    if source_file != uri_to_path(result.uri):
-        return None
-    return (source_line, col)
+    return (line, col)
 
 
 def _range_from_node(
@@ -92,7 +85,7 @@ def get_document_symbols(result: AnalysisResult) -> list[lsp.DocumentSymbol]:
     source_lines = result.source.split("\n")
     symbols: list[lsp.DocumentSymbol] = []
 
-    for decl in result.ast.declarations:
+    for decl in active_decls(result):
         if isinstance(decl, ClassDecl):
             decl_range = _range_from_node(result, decl, source_lines)
             decl_selection = _selection_range(result, decl)

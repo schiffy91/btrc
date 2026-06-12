@@ -24,6 +24,22 @@ class AnalyzerError(Exception):
 
 
 @dataclass
+class Diag:
+    """Structured diagnostic with file provenance.
+
+    ``file`` is the source file of the top-level declaration under analysis
+    when the diagnostic was reported (None when declarations carry no
+    ``source_file`` provenance, e.g. plain CLI compiles of resolved source).
+    """
+
+    message: str
+    line: int
+    col: int
+    severity: str = "error"  # "error" | "warning"
+    file: str | None = None
+
+
+@dataclass
 class ClassInfo:
     name: str
     generic_params: list[str] = field(default_factory=list)
@@ -82,6 +98,7 @@ class AnalyzedProgram:
     rich_enum_table: dict[str, RichEnumDecl] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    diags: list[Diag] = field(default_factory=list)
 
 
 class AnalyzerBase:
@@ -91,6 +108,8 @@ class AnalyzerBase:
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.errors: list[str] = []
         self.warnings: list[str] = []
+        self.diags: list[Diag] = []
+        self.current_source_file: str | None = None
         self.scope: Scope = Scope()
         self.global_scope: Scope = self.scope
         self.current_class: ClassInfo | None = None
@@ -111,7 +130,7 @@ class AnalyzerBase:
         self._validate_interfaces(program)
         self._validate_overrides(program)
         self._compute_cyclable_flags()
-        for decl in program.declarations:
+        for decl in self._decls_with_file(program):
             self._analyze_decl(decl)
         return AnalyzedProgram(
             program=program,
@@ -124,7 +143,15 @@ class AnalyzerBase:
             rich_enum_table=self.rich_enum_table,
             errors=self.errors,
             warnings=self.warnings,
+            diags=self.diags,
         )
+
+    def _decls_with_file(self, program: Program):
+        """Iterate top-level decls, tracking their source-file provenance."""
+        for decl in program.declarations:
+            self.current_source_file = getattr(decl, "source_file", None)
+            yield decl
+        self.current_source_file = None
 
     def _compute_cyclable_flags(self):
         """Mark classes that can participate in reference cycles.
@@ -175,9 +202,11 @@ class AnalyzerBase:
 
     def _error(self, msg: str, line: int = 0, col: int = 0):
         self.errors.append(f"{msg} at {line}:{col}")
+        self.diags.append(Diag(msg, line, col, "error", self.current_source_file))
 
     def _warning(self, msg: str, line: int = 0, col: int = 0):
         self.warnings.append(f"{msg} at {line}:{col}")
+        self.diags.append(Diag(msg, line, col, "warning", self.current_source_file))
 
     def _push_scope(self):
         self.scope = Scope(parent=self.scope)

@@ -20,10 +20,10 @@ from src.devex.lsp.builtins import (
 )
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
-    document_position_to_resolved,
+    active_decls,
     find_enclosing_class,
     get_text_before_cursor,
-    navigation_tokens,
+    nav_tokens,
     resolve_chain_type,
     resolve_member_type,
     resolve_variable_type,
@@ -373,9 +373,8 @@ def _dot_completions_from_tokens(
     if not result.tokens:
         return None
 
-    tokens = navigation_tokens(result.tokens)
-    resolved_position = document_position_to_resolved(result, position)
-    access_idx = _access_token_before_cursor(tokens, resolved_position)
+    tokens = nav_tokens(result)
+    access_idx = _access_token_before_cursor(tokens, position)
     if access_idx is None or access_idx < 1:
         return None
 
@@ -468,17 +467,11 @@ def _resolve_var_type(
     """Resolve variable type, handling 'self' specially."""
     if not result.ast:
         return None
-    resolved_line = (
-        document_position_to_resolved(
-            result,
-            lsp.Position(line=cursor_line, character=0),
-        ).line
-        + 1
-    )
+    line = cursor_line + 1  # 0-based editor line -> 1-based source line
     if var_name == "self":
-        return find_enclosing_class(result.ast, resolved_line)
+        return find_enclosing_class(active_decls(result), line)
     class_table = result.analyzed.class_table if result.analyzed else {}
-    return resolve_variable_type(var_name, result.ast, class_table, resolved_line)
+    return resolve_variable_type(var_name, active_decls(result), class_table, line)
 
 
 def _members_for_type(

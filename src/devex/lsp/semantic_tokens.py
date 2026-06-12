@@ -21,8 +21,8 @@ from src.compiler.python.ast_nodes import (
 )
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
-from src.devex.lsp.diagnostics import AnalysisResult, uri_to_path
-from src.devex.lsp.utils import navigation_tokens
+from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.utils import nav_tokens
 
 # LSP Semantic Token Types (order matters — index is the type ID)
 TOKEN_TYPES = [
@@ -84,11 +84,9 @@ class SemanticTokenCollector:
 
     def __init__(self, result: AnalysisResult):
         self.result = result
-        self.tokens = navigation_tokens(result.tokens or [])
+        self.tokens = nav_tokens(result)
         self.ast = result.ast
         self.analyzed = result.analyzed
-        self.source_positions = result.source_positions
-        self.document_path = uri_to_path(result.uri)
         self.class_table = result.analyzed.class_table if result.analyzed else {}
         self.function_table = result.analyzed.function_table if result.analyzed else {}
 
@@ -103,7 +101,7 @@ class SemanticTokenCollector:
         self.variable_names: set[str] = set()
 
         if self.ast:
-            dmap = DefinitionMap.from_ast(self.ast, result.tokens)
+            dmap = DefinitionMap.from_result(result)
             self.variable_names = {var.name for var in dmap.var_defs}
             for decl in self.ast.declarations:
                 if isinstance(decl, EnumDecl):
@@ -230,14 +228,7 @@ class SemanticTokenCollector:
         )
 
     def _document_position(self, tok: Token) -> tuple[int, int] | None:
-        if not self.source_positions:
-            return (tok.line, tok.col)
-        if tok.line < 1 or tok.line > len(self.source_positions):
-            return None
-        source_file, source_line = self.source_positions[tok.line - 1]
-        if source_file != self.document_path:
-            return None
-        return (source_line, tok.col)
+        return (tok.line, tok.col)
 
     def _encode(self) -> list[int]:
         """Encode raw tokens into LSP delta-encoded format.
@@ -276,12 +267,14 @@ class SemanticTokenCollector:
 
 
 def get_semantic_tokens(result: AnalysisResult) -> lsp.SemanticTokens | None:
-    """Compute semantic tokens for the entire document."""
+    """Compute semantic tokens for the document (cached per snapshot)."""
     if not result.tokens or not result.ast:
         return None
 
-    collector = SemanticTokenCollector(result)
-    data = collector.collect()
+    data = result._caches.get("semantic_tokens")
+    if data is None:
+        data = SemanticTokenCollector(result).collect()
+        result._caches["semantic_tokens"] = data
 
     if not data:
         return None

@@ -82,6 +82,15 @@ def find_token_at_position(tokens: list[Token], position: lsp.Position) -> Token
     return None
 
 
+def nav_tokens(result: AnalysisResult) -> list[Token]:
+    """Per-snapshot cached navigation tokens (f-string expressions expanded)."""
+    cached = result._caches.get("nav_tokens")
+    if cached is None:
+        cached = navigation_tokens(result.tokens or [])
+        result._caches["nav_tokens"] = cached
+    return cached
+
+
 def navigation_tokens(tokens: list[Token]) -> list[Token]:
     expanded: list[Token] = []
     for token in tokens:
@@ -170,21 +179,7 @@ def document_position_to_resolved(
     result: AnalysisResult,
     position: lsp.Position,
 ) -> lsp.Position:
-    """Map an editor position in the open document to resolved-source space."""
-    if not result.source_positions:
-        return position
-
-    document_path = _uri_path(result.uri)
-    target_line = position.line + 1
-    for resolved_index, (source_file, source_line) in enumerate(
-        result.source_positions,
-        start=1,
-    ):
-        if source_file == document_path and source_line == target_line:
-            return lsp.Position(
-                line=resolved_index - 1,
-                character=position.character,
-            )
+    """Identity: all positions are native to their file in the v2 pipeline."""
     return position
 
 
@@ -193,18 +188,36 @@ def result_location(
     line: int,
     col: int,
     length: int = 0,
+    file: str | None = None,
 ) -> lsp.Location:
-    """Create a location, mapping resolved compiler lines to source files."""
-    uri = result.uri
-    source_line = line
-    if result.source_positions and 1 <= line <= len(result.source_positions):
-        source_file, original_line = result.source_positions[line - 1]
-        uri = Path(source_file).resolve().as_uri()
-        source_line = original_line
-
-    start = lsp.Position(line=max(0, source_line - 1), character=max(0, col - 1))
+    """Create a location; positions are native to *file* (default: the document)."""
+    if file and file != result.path:
+        uri = Path(file).resolve().as_uri()
+    else:
+        uri = result.uri
+    start = lsp.Position(line=max(0, line - 1), character=max(0, col - 1))
     end = lsp.Position(line=start.line, character=start.character + length) if length else start
     return lsp.Location(uri=uri, range=lsp.Range(start=start, end=end))
+
+
+def active_decls(result: AnalysisResult) -> list:
+    """Top-level decls belonging to the active document.
+
+    Decls without ``source_file`` provenance (tests parsing snippets directly)
+    are treated as active.
+    """
+    cached = result._caches.get("active_decls")
+    if cached is not None:
+        return cached
+    if not result.ast:
+        return []
+    decls = [
+        d
+        for d in result.ast.declarations
+        if getattr(d, "source_file", None) in (None, result.path)
+    ]
+    result._caches["active_decls"] = decls
+    return decls
 
 
 def _uri_path(uri: str) -> str:
@@ -302,11 +315,25 @@ def _deepest_line(node) -> int:
     return best
 
 
-def find_enclosing_class(ast: Program, line: int) -> str | None:
-    """Find which class declaration encloses the given 1-based line number."""
-    if not ast:
+def _decl_list(ast_or_decls) -> list:
+    """Accept either a Program or a plain list of decls."""
+    if ast_or_decls is None:
+        return []
+    if isinstance(ast_or_decls, Program):
+        return ast_or_decls.declarations
+    return ast_or_decls
+
+
+def find_enclosing_class(ast: Program | list, line: int) -> str | None:
+    """Find which class declaration encloses the given 1-based line number.
+
+    Pass ``active_decls(result)`` rather than the composed program — line
+    numbers are only meaningful within a single file.
+    """
+    decls = _decl_list(ast)
+    if not decls:
         return None
-    for decl in ast.declarations:
+    for decl in decls:
         if isinstance(decl, ClassDecl):
             if decl.line <= line:
                 max_line = decl.line
@@ -323,15 +350,16 @@ def find_enclosing_class(ast: Program, line: int) -> str | None:
 
 
 def find_enclosing_class_from_source(
-    ast: Program,
+    ast: Program | list,
     source: str,
     cursor_line: int,
 ) -> str | None:
     """Find the class enclosing the given 0-based cursor line using brace scanning."""
-    if not ast:
+    decls = _decl_list(ast)
+    if not decls:
         return None
     source_lines = source.split("\n")
-    for decl in ast.declarations:
+    for decl in decls:
         if isinstance(decl, ClassDecl):
             class_start = decl.line - 1  # to 0-based
             class_end = find_closing_brace_line(source_lines, class_start)
@@ -363,19 +391,20 @@ BUILTIN_TYPES = _PRIMITIVE_TYPES | frozenset(_MEMBER_TABLES.keys())
 
 def resolve_variable_type(
     name: str,
-    ast: Program,
+    ast: Program | list,
     class_table: dict[str, ClassInfo],
     cursor_line: int | None = None,
 ) -> str | None:
     """Determine the class/type name for a variable by scanning the AST.
 
-    Looks at VarDeclStmt nodes to find declarations like:
+    Pass ``active_decls(result)`` — line filtering is only meaningful within
+    one file. Looks at VarDeclStmt nodes to find declarations like:
         var x = ClassName(...)          -> ClassName
         var x = new ClassName(...)      -> ClassName
         ClassName x = ...               -> ClassName
     """
     candidates: list[tuple[int, str]] = []
-    for decl in ast.declarations:
+    for decl in _decl_list(ast):
         _scan_for_var_types(name, decl, class_table, candidates)
     if cursor_line is not None:
         candidates = [(line, type_name) for line, type_name in candidates if line <= cursor_line]
@@ -451,6 +480,7 @@ def resolve_chain_type(
     tokens: list[Token],
     end_idx: int,
     class_table: dict[str, ClassInfo],
+    decls: list | None = None,
 ) -> str | None:
     """Walk backwards through a chained access and resolve the base type.
 
@@ -477,13 +507,14 @@ def resolve_chain_type(
 
     root = chain[0][0]
     current_type: str | None = None
+    scope_decls = decls if decls is not None else active_decls(result)
 
     if root in class_table:
         current_type = root
-    elif root == "self" and result.ast:
-        current_type = find_enclosing_class(result.ast, tokens[idx].line)
-    elif result.ast:
-        current_type = resolve_variable_type(root, result.ast, class_table, tokens[idx].line)
+    elif root == "self" and scope_decls:
+        current_type = find_enclosing_class(scope_decls, tokens[idx].line)
+    elif scope_decls:
+        current_type = resolve_variable_type(root, scope_decls, class_table, tokens[idx].line)
 
     if current_type is None:
         return None

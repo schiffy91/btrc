@@ -78,18 +78,24 @@ class FunctionsMixin:
                     array_size=type_expr.array_size,
                     line=type_expr.line, col=type_expr.col)
         if type_expr.base in self.class_table:
-            if type_expr.pointer_depth > 0 and not type_expr.is_nullable:
+            # An `auto_upgraded` stamp marks pointers this method synthesized,
+            # so re-analyzing a shared AST (LSP unit caches) stays idempotent
+            # instead of reporting its own upgrade as a redundant pointer.
+            if (type_expr.pointer_depth > 0 and not type_expr.is_nullable
+                    and not getattr(type_expr, "auto_upgraded", False)):
                 self._error(
                     f"Redundant pointer for class type '{type_expr.base}' — "
                     f"classes are always heap-allocated. "
                     f"Use '{type_expr.base}' instead of '{type_expr.base}*'",
                     type_expr.line, type_expr.col)
-            return TypeExpr(
+            upgraded = TypeExpr(
                 base=type_expr.base, generic_args=upgraded_args,
                 pointer_depth=1, is_array=type_expr.is_array,
                 array_size=type_expr.array_size,
                 is_nullable=type_expr.is_nullable,
                 line=type_expr.line, col=type_expr.col)
+            upgraded.auto_upgraded = True
+            return upgraded
         return type_expr
 
     def _analyze_method(self, method):

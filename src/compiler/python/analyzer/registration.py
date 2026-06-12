@@ -14,10 +14,10 @@ from .core import ClassInfo, InterfaceInfo
 class RegistrationMixin:
 
     def _register_declarations(self, program):
-        for decl in program.declarations:
+        for decl in self._decls_with_file(program):
             if isinstance(decl, InterfaceDecl):
                 self._register_interface(decl)
-        for decl in program.declarations:
+        for decl in self._decls_with_file(program):
             if isinstance(decl, ClassDecl):
                 self._register_class(decl)
             elif isinstance(decl, FunctionDecl):
@@ -34,7 +34,7 @@ class RegistrationMixin:
 
     def _resolve_interface_parents(self, program):
         """Second pass: inherit parent interface methods after all interfaces are registered."""
-        for decl in program.declarations:
+        for decl in self._decls_with_file(program):
             if not isinstance(decl, InterfaceDecl) or not decl.parent:
                 continue
             if decl.parent not in self.interface_table:
@@ -93,7 +93,7 @@ class RegistrationMixin:
 
     def _validate_inheritance(self, program):
         """Check for circular inheritance and missing parent classes."""
-        for decl in program.declarations:
+        for decl in self._decls_with_file(program):
             if not isinstance(decl, ClassDecl) or not decl.parent:
                 continue
             if decl.parent not in self.class_table:
@@ -111,7 +111,7 @@ class RegistrationMixin:
 
     def _validate_interfaces(self, program):
         """Validate interface implementations and abstract class constraints."""
-        for decl in program.declarations:
+        for decl in self._decls_with_file(program):
             if not isinstance(decl, ClassDecl):
                 continue
             cls = self.class_table.get(decl.name)
@@ -146,7 +146,7 @@ class RegistrationMixin:
 
     def _validate_overrides(self, program):
         """Validate that method overrides have compatible signatures."""
-        for decl in program.declarations:
+        for decl in self._decls_with_file(program):
             if not isinstance(decl, ClassDecl) or not decl.parent:
                 continue
             parent_cls = self.class_table.get(decl.parent)

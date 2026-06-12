@@ -42,14 +42,16 @@ def test_resolve_member_type_field_method_builtin_unknown():
 
 
 def test_resolve_variable_type_decl_forms():
+    from src.devex.lsp.utils import active_decls
+
     src = ("class Box { public int v; public Box(int v) { self.v = v; } }\n"
            "Box mk() { return Box(1); }\n"
            "int run(Box p) { var a = Box(2); var b = new Box(3); var c = mk(); return 0; }\n")
     r = analyze(src)
-    ast, ct = r.ast, r.analyzed.class_table
-    assert resolve_variable_type("a", ast, ct) == "Box"   # constructor call
-    assert resolve_variable_type("b", ast, ct) == "Box"   # new expression
-    assert resolve_variable_type("p", ast, ct) == "Box"   # parameter type
+    decls, ct = active_decls(r), r.analyzed.class_table
+    assert resolve_variable_type("a", decls, ct) == "Box"   # constructor call
+    assert resolve_variable_type("b", decls, ct) == "Box"   # new expression
+    assert resolve_variable_type("p", decls, ct) == "Box"   # parameter type
 
 
 def test_type_repr_none_is_void():

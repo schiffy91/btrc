@@ -52,16 +52,19 @@ def test_completion_stdlib_class_static_methods_offered():
 
 
 def test_unlocated_analyzer_error_becomes_diagnostic(monkeypatch):
-    # an analyzer error without a " at line:col" suffix maps to a 1:1 diagnostic
-    import src.devex.lsp.diagnostics as diag
+    # an analyzer diag without a position (line/col 0) maps to a 1:1 diagnostic
+    from src.compiler.python.analyzer.analyzer import Analyzer
+    from src.compiler.python.analyzer.core import Diag
 
-    real = diag.Analyzer.analyze
+    real = Analyzer.analyze
 
     def fake(self, program):
         res = real(self, program)
-        res.errors.append("a problem with no position")
+        res.diags.append(Diag("a problem with no position", 0, 0))
         return res
 
-    monkeypatch.setattr(diag.Analyzer, "analyze", fake)
+    monkeypatch.setattr(Analyzer, "analyze", fake)
     r = compute_diagnostics("file:///t.btrc", "int main() { return 0; }\n")
     assert any("no position" in d.message for d in r.diagnostics)
+    bad = next(d for d in r.diagnostics if "no position" in d.message)
+    assert (bad.range.start.line, bad.range.start.character) == (0, 0)

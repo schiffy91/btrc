@@ -35,11 +35,11 @@ from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.builtins import _MEMBER_TABLES, get_hover_markdown
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import (
+    active_decls,
     body_range,
-    document_position_to_resolved,
     find_token_at_position,
     find_token_index,
-    navigation_tokens,
+    nav_tokens,
     resolve_chain_type,
     type_repr,
 )
@@ -158,8 +158,8 @@ def get_hover_info(
     if not result.tokens:
         return None
 
-    tokens = navigation_tokens(result.tokens)
-    token = find_token_at_position(tokens, document_position_to_resolved(result, position))
+    tokens = nav_tokens(result)
+    token = find_token_at_position(tokens, position)
     if token is None:
         return None
 
@@ -251,7 +251,7 @@ def _try_variable_hover(
     name = token.value
     cursor_line = token.line  # 1-based
 
-    for decl in result.ast.declarations:
+    for decl in active_decls(result):
         info = _find_var_hover_in_decl(name, cursor_line, decl, class_table)
         if info:
             return info
