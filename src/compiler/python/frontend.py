@@ -19,6 +19,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
+from functools import cached_property
 
 from . import pkg
 from .analyzer.analyzer import Analyzer
@@ -60,6 +61,51 @@ class FrontendSource:
     source_positions: list[tuple[str, int]] = field(default_factory=list)
     graph: dict[str, set[str]] = field(default_factory=dict)
     strict_imports: bool = False
+
+    @cached_property
+    def _user_position_offset(self) -> int:
+        """Index in ``source_positions`` where user-source line entries begin."""
+        return len(self.source_positions) - (self.user_source.count("\n") + 1)
+
+    def map_line(self, line: int, space: str = "combined") -> tuple[str, int] | None:
+        """Translate a 1-based parse-space line to ``(source_file, native_line)``.
+
+        ``space`` is "combined" (stdlib + user concatenation), "user" (resolved
+        user source), or "stdlib" (composed stdlib source). Returns None when
+        unmappable (out of range, or stdlib positions were not requested).
+        """
+        offset = self._user_position_offset
+        if space == "combined":
+            stdlib_lines = self.stdlib_source.count("\n") + 1 if self.stdlib_source else 0
+            if line > stdlib_lines:
+                space, line = "user", line - stdlib_lines
+            else:
+                space = "stdlib"
+        if space == "stdlib":
+            idx, lo, hi = line - 1, 0, offset
+        else:
+            idx, lo, hi = offset + line - 1, offset, len(self.source_positions)
+        if line >= 1 and lo <= idx < hi:
+            return self.source_positions[idx]
+        return None
+
+    def map_diag_line(self, line: int, *, diag_file: str | None = None,
+                      split_spaces: bool = False) -> tuple[str, int] | None:
+        """Resolve a diagnostic position to ``(source_file, native_line)``.
+
+        ``split_spaces`` means stdlib and user code were parsed separately
+        (stdlib AST cache), so each position is native to whichever space
+        produced it; ``diag_file`` (decl ``source_file`` provenance) selects
+        the stdlib space when it names a stdlib-composed file.
+        """
+        if not split_spaces:
+            return self.map_line(line, "combined")
+        offset = self._user_position_offset
+        if diag_file is not None and any(
+            f == diag_file for f, _ in self.source_positions[:offset]
+        ):
+            return self.map_line(line, "stdlib")
+        return self.map_line(line, "user")
 
 
 @dataclass
@@ -503,6 +549,32 @@ def resolve_frontend_source(
     )
 
 
+def uses_stdlib_ast_cache(
+    frontend_source: FrontendSource,
+    *,
+    use_ast_cache: bool = True,
+    emit_tokens: bool = False,
+    emit_ast: bool = False,
+    debug: bool = False,
+    parse: bool = True,
+) -> bool:
+    """True when stdlib and user code are parsed separately (cached stdlib AST),
+    i.e. parse positions are native to each part rather than combined-source."""
+    return (
+        parse and bool(frontend_source.stdlib_source) and use_ast_cache
+        and not emit_tokens and not emit_ast and not debug
+        and not frontend_source.strict_imports
+    )
+
+
+def _stamp_decl_files(decls, frontend_source: FrontendSource, space: str) -> None:
+    """Record native-file provenance on top-level decls (feeds ``Diag.file``)."""
+    for decl in decls:
+        pos = frontend_source.map_line(getattr(decl, "line", 0), space)
+        if pos is not None:
+            decl.source_file = pos[0]
+
+
 def lex_parse_frontend_source(
     frontend_source: FrontendSource,
     filename: str,
@@ -519,10 +591,13 @@ def lex_parse_frontend_source(
     The stdlib AST cache is a parse optimization only. Token-only/debug/AST dump
     modes lex the exact full source to preserve CLI behavior and line mapping.
     """
-    use_cached_stdlib_ast = (
-        parse and bool(frontend_source.stdlib_source) and use_ast_cache
-        and not emit_tokens and not emit_ast and not debug
-        and not frontend_source.strict_imports
+    use_cached_stdlib_ast = uses_stdlib_ast_cache(
+        frontend_source,
+        use_ast_cache=use_ast_cache,
+        emit_tokens=emit_tokens,
+        emit_ast=emit_ast,
+        debug=debug,
+        parse=parse,
     )
 
     if use_cached_stdlib_ast:
@@ -533,6 +608,8 @@ def lex_parse_frontend_source(
         start = time.perf_counter()
         user_program = Parser(tokens).parse()
         stdlib_decls = _cached_stdlib_decls(frontend_source.stdlib_source)
+        _stamp_decl_files(user_program.declarations, frontend_source, "user")
+        _stamp_decl_files(stdlib_decls, frontend_source, "stdlib")
         program = Program(declarations=stdlib_decls + user_program.declarations)
         _timed(profile, "parse", start)
     else:
@@ -545,6 +622,7 @@ def lex_parse_frontend_source(
         start = time.perf_counter()
         program = Parser(tokens).parse()
         user_program = program if not frontend_source.stdlib_source else None
+        _stamp_decl_files(program.declarations, frontend_source, "combined")
         _timed(profile, "parse", start)
 
     if frontend_source.strict_imports:

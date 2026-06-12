@@ -21,6 +21,7 @@ from .frontend import (
     get_stdlib_source,
     lex_parse_frontend_source,
     resolve_frontend_source,
+    uses_stdlib_ast_cache,
 )
 from .ir.emitter import CEmitter
 from .ir.gen.generator import generate_ir
@@ -60,10 +61,53 @@ def _format_error(source: str, filename: str, message: str,
     )
 
 
-def _syntax_error_exit(source: str, filename: str, e):
+class _DiagnosticPrinter:
+    """Render diagnostics at native per-file positions.
+
+    Parse/analysis positions live in a parse space (combined stdlib+user
+    source, or separate spaces when the stdlib AST cache is used); the
+    frontend's source-position map translates them back to the originating
+    file, so the header and the quoted line both come from that file.
+    """
+
+    def __init__(self, frontend_source, input_path: str, input_source: str,
+                 split_spaces: bool):
+        self.frontend_source = frontend_source
+        self.input_path = input_path
+        self.split_spaces = split_spaces
+        self._sources = {os.path.abspath(input_path): input_source}
+
+    def _source_for(self, path: str) -> str:
+        key = os.path.abspath(path)
+        if key not in self._sources:
+            try:
+                with open(key) as f:
+                    self._sources[key] = f.read()
+            except OSError:
+                self._sources[key] = ""
+        return self._sources[key]
+
+    def emit(self, message: str, line: int, col: int, *,
+             severity: str = "error", diag_file: str | None = None) -> None:
+        loc = self.frontend_source.map_diag_line(
+            line, diag_file=diag_file, split_spaces=self.split_spaces)
+        if loc is None:
+            display, native_line, text = os.path.basename(self.input_path), line, ""
+        else:
+            path, native_line = loc
+            text = self._source_for(path)
+            display = (self.input_path
+                       if os.path.abspath(path) == os.path.abspath(self.input_path)
+                       else os.path.normpath(path))
+        out = _format_error(text, display, message, native_line, col)
+        if severity != "error":
+            out = out.replace("error:", f"{severity}:", 1)
+        print(out, file=sys.stderr)
+
+
+def _syntax_error_exit(printer: _DiagnosticPrinter, e):
     """Print a lexer/parser error with source context, then exit(1)."""
-    raw_msg = str(e).rsplit(" at ", 1)[0] if " at " in str(e) else str(e)
-    print(_format_error(source, filename, raw_msg, e.line, e.col), file=sys.stderr)
+    printer.emit(str(e).removesuffix(f" at {e.line}:{e.col}"), e.line, e.col)
     sys.exit(1)
 
 
@@ -131,10 +175,11 @@ def _build_stdlib_archive(out_dir: str) -> None:
     try:
         tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
         program = Parser(tokens).parse()
-    except LexerError as e:
-        _syntax_error_exit(stdlib_source, "<stdlib>", e)
-    except ParseError as e:
-        _syntax_error_exit(stdlib_source, "<stdlib>", e)
+    except (LexerError, ParseError) as e:
+        msg = str(e).removesuffix(f" at {e.line}:{e.col}")
+        print(_format_error(stdlib_source, "<stdlib>", msg, e.line, e.col),
+              file=sys.stderr)
+        sys.exit(1)
 
     analyzed = analyze_frontend_program(program)
     if analyzed.errors:
@@ -209,11 +254,13 @@ def main():
             args.input,
             include_stdlib=not args.no_stdlib,
             strict_imports=args.strict_imports,
+            map_stdlib_positions=True,
             profile=prof,
         )
     except IncludeResolutionError as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
+    input_source = source
     source = frontend_source.source
 
     filename = os.path.basename(args.input)
@@ -239,10 +286,16 @@ def main():
             return
 
     use_ast_cache = bool(frontend_source.stdlib_source) and not args.no_cache
-    syntax_source = (
-        frontend_source.user_source
-        if use_ast_cache and not any([args.emit_tokens, args.emit_ast, args.debug])
-        else source
+    diag_printer = _DiagnosticPrinter(
+        frontend_source, args.input, input_source,
+        split_spaces=uses_stdlib_ast_cache(
+            frontend_source,
+            use_ast_cache=use_ast_cache,
+            emit_tokens=args.emit_tokens,
+            emit_ast=args.emit_ast,
+            debug=args.debug,
+            parse=not args.emit_tokens,
+        ),
     )
     try:
         parsed = lex_parse_frontend_source(
@@ -255,13 +308,11 @@ def main():
             parse=not args.emit_tokens,
             profile=prof,
         )
-    except LexerError as e:
-        _syntax_error_exit(syntax_source, filename, e)
-    except ParseError as e:
-        _syntax_error_exit(syntax_source, filename, e)
+    except (LexerError, ParseError) as e:
+        _syntax_error_exit(diag_printer, e)
     except FrontendVisibilityError as e:
         for msg, line, col in e.errors:
-            print(_format_error(source, filename, msg, line, col), file=sys.stderr)
+            diag_printer.emit(msg, line, col)
         sys.exit(1)
 
     if args.emit_tokens:
@@ -280,38 +331,23 @@ def main():
 
     analyzed = analyze_frontend_program(program, profile=prof)
 
-    if analyzed.errors:
-        for err in analyzed.errors:
-            # Analyzer errors are formatted as "message at line:col"
-            parts = err.rsplit(" at ", 1)
-            if len(parts) == 2:
-                msg_text = parts[0]
-                loc = parts[1].split(":")
-                if len(loc) == 2:
-                    try:
-                        line_no, col_no = int(loc[0]), int(loc[1])
-                        print(_format_error(source, filename, msg_text,
-                                            line_no, col_no), file=sys.stderr)
-                        continue
-                    except ValueError:
-                        pass
+    # Analyzer diagnostics are structured (message, line, col, file); positions
+    # are mapped to native per-file locations. Entries appended to the plain
+    # errors/warnings lists without a matching Diag print unformatted.
+    error_diags = [d for d in analyzed.diags if d.severity == "error"]
+    if analyzed.errors or error_diags:
+        for d in error_diags:
+            diag_printer.emit(d.message, d.line, d.col, diag_file=d.file)
+        for err in analyzed.errors[len(error_diags):]:
             print(f"error: {err}", file=sys.stderr)
         sys.exit(1)
 
     # Display warnings (non-fatal)
-    for warn in analyzed.warnings:
-        parts = warn.rsplit(" at ", 1)
-        if len(parts) == 2:
-            loc = parts[1].split(":")
-            if len(loc) == 2:
-                try:
-                    line_no, col_no = int(loc[0]), int(loc[1])
-                    print(_format_error(source, filename, parts[0],
-                                        line_no, col_no).replace("error:", "warning:"),
-                          file=sys.stderr)
-                    continue
-                except ValueError:
-                    pass
+    warning_diags = [d for d in analyzed.diags if d.severity == "warning"]
+    for d in warning_diags:
+        diag_printer.emit(d.message, d.line, d.col,
+                          severity="warning", diag_file=d.file)
+    for warn in analyzed.warnings[len(warning_diags):]:
         print(f"warning: {warn}", file=sys.stderr)
 
     # Code generation: AST → IR → optimize → C text
