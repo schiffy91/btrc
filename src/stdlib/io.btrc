@@ -22,15 +22,29 @@ class File {
         return self.is_open;
     }
 
+    /* Reads everything from the current position to EOF.
+     * Chunked, so it works on non-seekable streams (pipes via setHandle)
+     * as well as regular files. */
     public string read() {
         if (!self.is_open) { return ""; }
-        fseek(self.handle, 0, SEEK_END);
-        long size = ftell(self.handle);
-        fseek(self.handle, 0, SEEK_SET);
-        char* buf = (char*)malloc(size + 1);
-        long n = (long)fread(buf, 1, size, self.handle);
-        buf[n] = '\0';
-        return buf;
+        int cap = 4096;
+        int len = 0;
+        char* buffer = (char*)malloc(cap);
+        if (buffer == NULL) { fprintf(stderr, "File.read: out of memory\n"); exit(1); }
+        int ch = fgetc(self.handle);
+        while (ch != EOF) {
+            if (len + 2 >= cap) {
+                cap = cap * 2;
+                char* grown = (char*)realloc(buffer, cap);
+                if (grown == NULL) { fprintf(stderr, "File.read: out of memory\n"); exit(1); }
+                buffer = grown;
+            }
+            buffer[len] = (char)ch;
+            len++;
+            ch = fgetc(self.handle);
+        }
+        buffer[len] = '\0';
+        return buffer;
     }
 
     public string readLine() {

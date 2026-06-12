@@ -1,0 +1,5 @@
+swapped bounds stay in [1, 10]
+randint(5, 5) == 5
+randint(4, 3) stays in [3, 4]
+choice of single element is 77
+PASS: test_stdlib_random_edge

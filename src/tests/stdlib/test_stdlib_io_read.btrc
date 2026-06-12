@@ -1,0 +1,63 @@
+/* File.read(): chunked reads work on regular files (including ones larger
+ * than the 4096-byte initial buffer) and on non-seekable pipes wrapped via
+ * setHandle(), where the old fseek/ftell sizing was undefined behavior. */
+#include <assert.h>
+
+int main() {
+    string dir = FileSystem.tempDir("btrc_io_read");
+    assert(FileSystem.isDir(dir));
+    string path = PathTools.join(dir, "data.txt");
+
+    /* Small file round-trip. */
+    Path.writeAll(path, "hello read\n");
+    File small = File(path);
+    assert(small.ok());
+    string content = small.read();
+    small.close();
+    assert(content.equals("hello read\n"));
+    print(f"small file len={content.len()}");
+
+    /* File bigger than the initial 4096-byte buffer exercises growth. */
+    string big = "";
+    for i in range(1000) {
+        big += "0123456789";
+    }
+    Path.writeAll(path, big);
+    File bigFile = File(path);
+    string bigBack = bigFile.read();
+    bigFile.close();
+    assert(bigBack.len() == 10000);
+    assert(bigBack.equals(big));
+    print(f"big file len={bigBack.len()}");
+
+    /* Empty file reads as "". */
+    Path.writeAll(path, "");
+    File empty = File(path);
+    string none = empty.read();
+    empty.close();
+    assert(none.equals(""));
+    print("empty file reads empty");
+
+    /* Unopened file reads as "". */
+    File missing = File(PathTools.join(dir, "no_such_file"));
+    assert(!missing.ok());
+    assert(missing.read().equals(""));
+    print("missing file reads empty");
+
+    /* Non-seekable stream: wrap a popen pipe with setHandle and read it all.
+     * fseek/ftell sizing would see ftell == -1 here. */
+    FILE* h = popen("printf 'line one\nline two\n'", "r");
+    assert(h != NULL);
+    File pipe = File("");
+    pipe.setHandle(h);
+    string piped = pipe.read();
+    assert(piped.equals("line one\nline two\n"));
+    assert(pclose(h) == 0);
+    print(f"pipe read len={piped.len()}");
+
+    FileSystem.removeRecursive(dir);
+    assert(!FileSystem.exists(dir));
+
+    print("PASS: test_stdlib_io_read");
+    return 0;
+}

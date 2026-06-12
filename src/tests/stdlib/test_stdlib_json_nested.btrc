@@ -1,0 +1,63 @@
+/* JsonObject.parse on nested input: only depth-1 strings become keys, and
+ * nested object/array values are captured whole (balanced, string-aware). */
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    /* Nested object value is captured in full, not truncated at the inner '}'. */
+    var json = JsonObject.parse("{\"a\": {\"b\": 1}, \"c\": 2}");
+    assert(strcmp(json.getString("a", "?"), "{\"b\": 1}") == 0);
+    assert(json.getInt("c", -1) == 2);
+    assert(!json.has("b"));
+    print(f"a={json.getString("a", "?")}");
+    print(f"c={json.getInt("c", -1)}");
+
+    /* Round-trip: stringify re-emits the nested object raw, and re-parsing
+     * preserves the structure. */
+    var again = JsonObject.parse(json.stringify());
+    assert(strcmp(again.getString("a", "?"), "{\"b\": 1}") == 0);
+    assert(again.getInt("c", -1) == 2);
+    assert(!again.has("b"));
+    print(f"round-trip={again.stringify()}");
+
+    /* Inner keys never leak to the top level, even after a comma. */
+    var multi = JsonObject.parse("{\"a\": {\"b\": 1, \"x\": 2}, \"c\": 3}");
+    assert(strcmp(multi.getString("a", "?"), "{\"b\": 1, \"x\": 2}") == 0);
+    assert(multi.getInt("c", -1) == 3);
+    assert(!multi.has("b"));
+    assert(!multi.has("x"));
+
+    /* The captured raw value can itself be parsed. */
+    var inner = JsonObject.parse(multi.getString("a", "{}"));
+    assert(inner.getInt("b", -1) == 1);
+    assert(inner.getInt("x", -1) == 2);
+
+    /* Array values are captured whole too, including nested objects. */
+    var arr = JsonObject.parse("{\"list\": [1, {\"q\": 2}], \"d\": 4}");
+    assert(strcmp(arr.getString("list", "?"), "[1, {\"q\": 2}]") == 0);
+    assert(arr.getInt("d", -1) == 4);
+    assert(!arr.has("q"));
+
+    /* Braces inside strings don't confuse the balanced scan. */
+    var tricky = JsonObject.parse("{\"a\": {\"k\": \"}{\"}, \"e\": 5}");
+    assert(strcmp(tricky.getString("a", "?"), "{\"k\": \"}{\"}") == 0);
+    assert(tricky.getInt("e", -1) == 5);
+
+    /* Escaped quotes inside nested strings are honored. */
+    var esc = JsonObject.parse("{\"a\": {\"k\": \"v\\\"}w\"}, \"c\": 6}");
+    assert(strcmp(esc.getString("a", "?"), "{\"k\": \"v\\\"}w\"}") == 0);
+    assert(esc.getInt("c", -1) == 6);
+
+    /* Deeper nesting stays balanced. */
+    var deep = JsonObject.parse("{\"a\": {\"b\": {\"c\": [1, 2]}}, \"z\": 7}");
+    assert(strcmp(deep.getString("a", "?"), "{\"b\": {\"c\": [1, 2]}}") == 0);
+    assert(deep.getInt("z", -1) == 7);
+
+    /* Flat objects still parse exactly as before. */
+    var flat = JsonObject.parse("{\"name\": \"Ada\", \"age\": 36}");
+    assert(strcmp(flat.getString("name", "?"), "Ada") == 0);
+    assert(flat.getInt("age", -1) == 36);
+
+    print("PASS: test_stdlib_json_nested");
+    return 0;
+}

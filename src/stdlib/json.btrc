@@ -102,33 +102,51 @@ class JsonObject {
         return JsonText.stringEnd(text, start);
     }
 
+    /* Depth-aware single-level parse: only depth-1 strings followed by ':'
+     * become keys; nested objects/arrays are captured whole as raw values
+     * (re-parse them with JsonObject.parse or query via JsonText). */
     class JsonObject parse(string text) {
         var json = JsonObject();
-        var len = (int)strlen(text);
+        var len = text.len();
+        var depth = 0;
         var i = 0;
         while (i < len) {
             i = JsonText.skipSpaces(text, i);
             if (i >= len) { break; }
-            if (text[i] != (char)34) {
+            char c = text[i];
+            if (c == '{' || c == '[') {
+                depth++;
                 i++;
                 continue;
             }
-            i++;
-            var keyStart = i;
-            i = JsonText.stringEnd(text, keyStart);
-            var key = JsonText.unescape(JsonText.slice(text, keyStart, i));
-            i++;
-            i = JsonText.skipSpaces(text, i);
-            if (i < len && text[i] == ':') { i++; }
-            i = JsonText.skipSpaces(text, i);
+            if (c == '}' || c == ']') {
+                depth--;
+                i++;
+                continue;
+            }
+            if (c != (char)34 || depth != 1) {
+                i++;
+                continue;
+            }
+            var keyStart = i + 1;
+            var keyEnd = JsonText.stringEnd(text, keyStart);
+            var afterKey = JsonText.skipSpaces(text, keyEnd + 1);
+            if (afterKey >= len || text[afterKey] != ':') {
+                i = keyEnd + 1;
+                continue;
+            }
+            var key = JsonText.unescape(JsonText.slice(text, keyStart, keyEnd));
+            i = JsonText.skipSpaces(text, afterKey + 1);
             if (i >= len) { break; }
             if (text[i] == (char)34) {
-                i++;
-                var valueStart = i;
-                i = JsonText.stringEnd(text, valueStart);
-                var value = JsonText.unescape(JsonText.slice(text, valueStart, i));
-                json.setString(key, value);
-                i++;
+                var valueStart = i + 1;
+                var valueEnd = JsonText.stringEnd(text, valueStart);
+                json.setString(key, JsonText.unescape(JsonText.slice(text, valueStart, valueEnd)));
+                i = valueEnd + 1;
+            } else if (text[i] == '{' || text[i] == '[') {
+                var valueEnd = JsonText.balancedEnd(text, i);
+                json.setRaw(key, JsonText.slice(text, i, valueEnd));
+                i = valueEnd;
             } else {
                 var valueStart = i;
                 while (i < len && text[i] != ',' && text[i] != '}') { i++; }
@@ -136,8 +154,7 @@ class JsonObject {
                 while (valueEnd > valueStart && (text[valueEnd - 1] == ' ' || text[valueEnd - 1] == '\n' || text[valueEnd - 1] == '\t' || text[valueEnd - 1] == '\r')) {
                     valueEnd--;
                 }
-                var value = JsonText.slice(text, valueStart, valueEnd);
-                json.setRaw(key, value);
+                json.setRaw(key, JsonText.slice(text, valueStart, valueEnd));
             }
         }
         return json;
@@ -189,6 +206,39 @@ class JsonText {
             escaped = !escaped && text[i] == '\\';
             if (text[i] != '\\') { escaped = false; }
             i++;
+        }
+        return len;
+    }
+
+    /* Index just past the matching close bracket of the {...} or [...] that
+     * starts at `start`, honoring nested brackets, strings, and escapes.
+     * Returns text.len() if unterminated. */
+    class int balancedEnd(string text, int start) {
+        var len = text.len();
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        for (int j = start; j < len; j++) {
+            char c = text[j];
+            if (inString) {
+                if (!escaped && c == (char)34) { inString = false; }
+                escaped = !escaped && c == '\\';
+                if (c != '\\') { escaped = false; }
+                continue;
+            }
+            if (c == (char)34) {
+                inString = true;
+                escaped = false;
+                continue;
+            }
+            if (c == '{' || c == '[') {
+                depth++;
+                continue;
+            }
+            if (c == '}' || c == ']') {
+                depth--;
+                if (depth == 0) { return j + 1; }
+            }
         }
         return len;
     }

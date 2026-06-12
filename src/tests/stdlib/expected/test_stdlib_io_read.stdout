@@ -1,0 +1,6 @@
+small file len=11
+big file len=10000
+empty file reads empty
+missing file reads empty
+pipe read len=18
+PASS: test_stdlib_io_read

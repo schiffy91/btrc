@@ -21,8 +21,15 @@ class Random {
         self.seeded = true;
     }
 
+    /* Random integer in [lo, hi] inclusive.
+     * If hi < lo the bounds are swapped, so randint(5, 3) == randint(3, 5). */
     public int randint(int lo, int hi) {
         if (!self.seeded) { self.seedTime(); }
+        if (hi < lo) {
+            int tmp = lo;
+            lo = hi;
+            hi = tmp;
+        }
         return lo + rand() % (hi - lo + 1);
     }
 
@@ -36,6 +43,7 @@ class Random {
     }
 
     public int choice(Vector<int> items) {
+        if (items.len == 0) { fprintf(stderr, "Random choice from empty list\n"); exit(1); }
         int idx = self.randint(0, items.len - 1);
         return items.get(idx);
     }

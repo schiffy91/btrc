@@ -1,0 +1,14 @@
+create 0
+create 1
+create 2
+after fill
+0
+1
+2
+create 9
+destroy 1
+after replace
+destroy 0
+destroy 9
+destroy 2
+PASS: test_stdlib_array_arc
