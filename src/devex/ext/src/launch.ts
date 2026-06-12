@@ -172,6 +172,13 @@ export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunc
         }
     }
 
+    // A live btrc checkout in the workspace is the most accurate server (it
+    // tracks uncommitted compiler/LSP changes, unlike a nix store snapshot).
+    // Prefer it unless the user explicitly configured a server command.
+    if (localServer && localServer.source === 'sourceTree' && !context.config.serverCommandExplicit) {
+        return pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
+    }
+
     const workspaceLaunch = workspaceCommandLaunch(context, workspaceRoot, command);
     if (workspaceLaunch) { return workspaceLaunch; }
 

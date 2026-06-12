@@ -45,9 +45,12 @@
       });
       devShells = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+        system = pkgs.stdenv.hostPlatform.system;
       in {
         default = pkgs.mkShell {
-          packages = cfg.packages pkgs;
+          # btrc-lsp on PATH: the VSCode extension launches the language server
+          # via `nix develop <workspace> --command btrc-lsp`.
+          packages = cfg.packages pkgs ++ [ self.packages.${system}.btrc-lsp ];
           GPU_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.wgpu-native.dev}/include/webgpu -I${pkgs.glfw}/include"
             + lib.optionalString isDarwin " -x objective-c";
           GPU_LDFLAGS = "-L${pkgs.wgpu-native}/lib -lwgpu_native -L${pkgs.glfw}/lib -lglfw"

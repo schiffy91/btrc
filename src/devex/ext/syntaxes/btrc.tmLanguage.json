@@ -3,6 +3,7 @@
   "scopeName": "source.btrc",
   "fileTypes": ["btrc"],
   "patterns": [
+    { "include": "#import-statement" },
     { "include": "#comments" },
     { "include": "#preprocessor" },
     { "include": "#annotations" },
@@ -30,6 +31,26 @@
     { "include": "#punctuation" }
   ],
   "repository": {
+    "import-statement": {
+      "comment": "Whole-line import statement. Consumes the entire line so glob paths (./dir/*, ./dir/**) never reach the block-comment rule",
+      "name": "meta.import.btrc",
+      "match": "^\\s*(import)\\b(.*)$",
+      "captures": {
+        "1": { "name": "keyword.control.import.btrc" },
+        "2": {
+          "patterns": [
+            { "match": "\"[^\"]*\"", "name": "string.quoted.double.import.btrc" },
+            { "match": "\\{", "name": "punctuation.definition.import-group.begin.btrc" },
+            { "match": "\\}", "name": "punctuation.definition.import-group.end.btrc" },
+            { "match": ",", "name": "punctuation.separator.comma.btrc" },
+            { "match": ";", "name": "punctuation.terminator.statement.btrc" },
+            { "match": "\\*{1,2}", "name": "keyword.operator.wildcard.import.btrc" },
+            { "match": "[^\\s;{},*\"]+", "name": "string.unquoted.import.btrc" }
+          ]
+        }
+      }
+    },
+
     "comments": {
       "patterns": [
         {
