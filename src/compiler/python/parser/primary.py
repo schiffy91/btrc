@@ -19,6 +19,31 @@ from ..ast_nodes import (
     TupleLiteral,
 )
 from ..tokens import TokenType
+from .core import ParseError
+
+# Valid C integer suffixes, lowercased (combos of u and l/ll)
+_INT_SUFFIXES = frozenset(("u", "ul", "ull", "l", "ll", "lu", "llu"))
+
+
+def _int_literal_value(raw: str) -> int:
+    """Convert an INT_LIT token value to int, honoring C suffixes and octal.
+
+    Raises ValueError on malformed literals (caller maps to ParseError).
+    """
+    body = raw
+    suffix = ""
+    while body and body[-1] in "uUlL":
+        suffix = body[-1] + suffix
+        body = body[:-1]
+    if suffix and suffix.lower() not in _INT_SUFFIXES:
+        raise ValueError(f"invalid integer suffix '{suffix}'")
+    if not body:
+        raise ValueError("empty integer literal")
+    # C-style octal: leading zero with no 0x/0b/0o prefix (e.g. 0123)
+    if (len(body) > 1 and body[0] == "0"
+            and body[1] not in "xXbBoO"):
+        return int(body, 8)
+    return int(body, 0)
 
 
 class PrimaryMixin:
@@ -28,7 +53,13 @@ class PrimaryMixin:
 
         if tok.type == TokenType.INT_LIT:
             self._advance()
-            return IntLiteral(value=int(tok.value, 0), raw=tok.value,
+            try:
+                value = _int_literal_value(tok.value)
+            except ValueError:
+                raise ParseError(
+                    f"Invalid integer literal '{tok.value}'",
+                    tok.line, tok.col) from None
+            return IntLiteral(value=value, raw=tok.value,
                               line=tok.line, col=tok.col)
 
         if tok.type == TokenType.FLOAT_LIT:

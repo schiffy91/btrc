@@ -2,11 +2,15 @@
 
 from ..ast_nodes import (
     ClassDecl,
+    EnumDecl,
     FieldDecl,
     FunctionDecl,
     InterfaceDecl,
     MethodDecl,
     PropertyDecl,
+    RichEnumDecl,
+    StructDecl,
+    TypedefDecl,
 )
 from .core import ClassInfo, InterfaceInfo
 
@@ -14,14 +18,29 @@ from .core import ClassInfo, InterfaceInfo
 class RegistrationMixin:
 
     def _register_declarations(self, program):
+        # Deep left-leaning expression chains (a+a+...+a) recurse one Python
+        # frame per term in _analyze_expr/_infer_type. The default limit
+        # (1000) rejects real programs; CPython 3.12+ heap-allocates pure
+        # Python frames, so a higher limit is safe here.
+        import sys
+        if sys.getrecursionlimit() < 40000:
+            sys.setrecursionlimit(40000)
         for decl in self._decls_with_file(program):
             if isinstance(decl, InterfaceDecl):
                 self._register_interface(decl)
+        # Struct/enum/typedef names, available before pass 2 runs (cast
+        # validation needs them regardless of declaration order).
+        self.declared_type_names: set[str] = set()
         for decl in self._decls_with_file(program):
             if isinstance(decl, ClassDecl):
                 self._register_class(decl)
             elif isinstance(decl, FunctionDecl):
                 self._register_function(decl)
+            elif isinstance(decl, (StructDecl, EnumDecl, RichEnumDecl)):
+                self.declared_type_names.add(decl.name)
+            elif isinstance(decl, TypedefDecl):
+                self.declared_type_names.add(decl.alias)
+        self._resolve_class_parents()
 
     def _register_interface(self, decl):
         if decl.name in self.interface_table:
@@ -52,13 +71,6 @@ class RegistrationMixin:
         info = ClassInfo(name=decl.name, generic_params=decl.generic_params,
                          parent=decl.parent, interfaces=decl.interfaces,
                          is_abstract=decl.is_abstract)
-        if decl.parent and decl.parent in self.class_table:
-            parent_info = self.class_table[decl.parent]
-            for fname, fld in parent_info.fields.items():
-                info.fields[fname] = fld
-            for mname, method in parent_info.methods.items():
-                if mname != parent_info.name:
-                    info.methods[mname] = method
         declared_fields: set[str] = set()
         declared_methods: set[str] = set()
         for member in decl.members:
@@ -79,6 +91,48 @@ class RegistrationMixin:
             elif isinstance(member, PropertyDecl):
                 info.properties[member.name] = member
         self.class_table[decl.name] = info
+
+    def _resolve_class_parents(self):
+        """Second pass: copy parent members into children in dependency order.
+
+        Classes may be declared before their parents (interfaces already use
+        the same two-pass scheme — see _resolve_interface_parents). Parents
+        are processed before children (topological order over `parent`
+        edges); missing parents and inheritance cycles are skipped here —
+        _validate_inheritance reports them.
+        """
+        order: list[str] = []
+        visiting: set[str] = set()
+        done: set[str] = set()
+
+        def visit(name: str):
+            if name in done or name in visiting:
+                return  # already handled, or a cycle (reported elsewhere)
+            visiting.add(name)
+            info = self.class_table.get(name)
+            if info and info.parent and info.parent in self.class_table:
+                visit(info.parent)
+            visiting.discard(name)
+            done.add(name)
+            order.append(name)
+
+        for name in list(self.class_table):
+            visit(name)
+
+        for name in order:
+            info = self.class_table[name]
+            if not info.parent or info.parent not in self.class_table:
+                continue
+            parent_info = self.class_table[info.parent]
+            # Inherited members come first (struct layout contract); the
+            # child's own declarations override same-named entries in place.
+            merged_fields = dict(parent_info.fields)
+            merged_fields.update(info.fields)
+            info.fields = merged_fields
+            merged_methods = {mname: m for mname, m in parent_info.methods.items()
+                              if mname != parent_info.name}  # not the ctor
+            merged_methods.update(info.methods)
+            info.methods = merged_methods
 
     def _register_function(self, decl):
         if decl.name in self.function_table:

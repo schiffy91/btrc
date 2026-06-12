@@ -1,5 +1,7 @@
 """Expression analysis, lambda analysis, and identifier collection."""
 
+import dataclasses
+
 from ..ast_nodes import (
     AssignExpr,
     BinaryExpr,
@@ -37,6 +39,16 @@ from ..ast_nodes import (
 )
 from .core import SymbolInfo
 
+_PRIMITIVE_TYPE_NAMES = frozenset((
+    "void", "bool", "char", "short", "int", "long", "float", "double",
+    "string", "unsigned", "signed",
+))
+
+# Builtin generic bases that may appear as bare cast targets
+_BUILTIN_CAST_BASES = frozenset((
+    "Vector", "List", "Map", "Set", "Array", "Thread", "Mutex", "Tuple",
+))
+
 
 class ExpressionsMixin:
 
@@ -57,13 +69,24 @@ class ExpressionsMixin:
                     f"'super' cannot be used in class '{self.current_class.name}' "
                     f"which does not extend another class", expr.line, expr.col)
         elif isinstance(expr, BinaryExpr):
-            self._analyze_expr(expr.left)
-            self._analyze_expr(expr.right)
-            if expr.op in ("/", "%", "/=", "%="):
-                r = expr.right
-                if (isinstance(r, IntLiteral) and r.value == 0) or \
-                   (isinstance(r, FloatLiteral) and r.value == 0.0):
-                    self._error("Division by zero", r.line, r.col)
+            # Left-leaning chains (a+a+...+a) can be thousands of nodes deep;
+            # walk the left spine iteratively to avoid one recursion frame
+            # per term, then process bottom-up so _infer_type memo hits.
+            spine = [expr]
+            while isinstance(spine[-1].left, BinaryExpr):
+                spine.append(spine[-1].left)
+            self._analyze_expr(spine[-1].left)
+            for node in reversed(spine):
+                self._analyze_expr(node.right)
+                if node.op in ("/", "%", "/=", "%="):
+                    r = node.right
+                    if (isinstance(r, IntLiteral) and r.value == 0) or \
+                       (isinstance(r, FloatLiteral) and r.value == 0.0):
+                        self._error("Division by zero", r.line, r.col)
+                if node is not expr:
+                    node_t = self._infer_type(node)
+                    if node_t:
+                        self.node_types[id(node)] = node_t
         elif isinstance(expr, UnaryExpr):
             self._analyze_expr(expr.operand)
         elif isinstance(expr, CallExpr):
@@ -95,6 +118,7 @@ class ExpressionsMixin:
         elif isinstance(expr, CastExpr):
             self._collect_generic_instances(expr.target_type)
             self._analyze_expr(expr.expr)
+            self._validate_cast_target(expr)
         elif isinstance(expr, SizeofExpr):
             if isinstance(expr.operand, SizeofType):
                 self._collect_generic_instances(expr.operand.type)
@@ -196,34 +220,59 @@ class ExpressionsMixin:
         self._pop_scope()
         self.current_return_type = prev_return_type
 
+    def _validate_cast_target(self, expr):
+        """Flag casts whose single-IDENT target names no known type.
+
+        Only bare-identifier targets are checked: explicit type syntax
+        (pointers, generics, nullable, arrays) stays permissive because it
+        is routinely used for C-interop casts to extern types. Names ending
+        in ``_t`` follow the C/POSIX typedef convention (size_t, mode_t, ...)
+        and are likewise assumed to come from C headers.
+        """
+        t = expr.target_type
+        if (t is None or t.pointer_depth or t.generic_args or t.is_array
+                or t.is_nullable):
+            return
+        base = t.base
+        if not base.isidentifier():
+            return  # multi-word keyword types ("unsigned int", ...)
+        if base in _PRIMITIVE_TYPE_NAMES or base in _BUILTIN_CAST_BASES:
+            return
+        if (base in self.class_table or base in self.interface_table
+                or base in self.enum_table or base in self.rich_enum_table
+                or base in getattr(self, "declared_type_names", ())):
+            return
+        if self.current_class and base in self.current_class.generic_params:
+            return
+        if base.endswith("_t"):
+            return
+        self._error(f"Unknown type '{base}' in cast", expr.line, expr.col)
+
     def _collect_identifiers(self, node, names):
-        """Walk AST subtree and collect all Identifier names."""
+        """Walk an AST subtree and collect all Identifier names.
+
+        Generic dataclasses-driven walk: every child field of every node is
+        visited (the previous hardcoded attribute list missed try/catch/
+        finally blocks, so captures inside them were dropped).
+        """
         if node is None:
             return
         if isinstance(node, Identifier):
             names.add(node.name)
             return
-        for attr in ('declarations', 'members', 'statements', 'body', 'then_block',
-                     'else_block', 'args', 'elements', 'entries', 'cases', 'parts'):
-            child = getattr(node, attr, None)
-            if child is None:
-                continue
-            if isinstance(child, list):
+        if not dataclasses.is_dataclass(node):
+            return
+        for f in dataclasses.fields(node):
+            child = getattr(node, f.name, None)
+            if isinstance(child, (list, tuple)):
                 for item in child:
-                    if isinstance(item, tuple):
+                    if isinstance(item, (list, tuple)):
                         for sub in item:
-                            if hasattr(sub, '__dict__'):
+                            if dataclasses.is_dataclass(sub):
                                 self._collect_identifiers(sub, names)
-                    elif hasattr(item, '__dict__'):
+                    elif dataclasses.is_dataclass(item):
                         self._collect_identifiers(item, names)
-            elif hasattr(child, '__dict__'):
-                self._collect_identifiers(child, names)
-        for attr in ('left', 'right', 'operand', 'callee', 'obj', 'expr', 'value',
-                     'target', 'condition', 'true_expr', 'false_expr', 'iterable',
-                     'init', 'update', 'initializer', 'index', 'expression',
-                     'key', 'if_stmt', 'var_decl', 'fn'):
-            child = getattr(node, attr, None)
-            if child is not None and hasattr(child, '__dict__'):
+            elif dataclasses.is_dataclass(child):
                 self._collect_identifiers(child, names)
 
     def _infer_spawn_return_type(self, fn_expr) -> TypeExpr:

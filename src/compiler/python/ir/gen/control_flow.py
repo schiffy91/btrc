@@ -88,9 +88,21 @@ def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
     return stmts
 
 
+def _require_setjmp(gen: IRGenerator):
+    """Ensure <setjmp.h> is included.
+
+    Registered at the lowering site so try/catch/throw anywhere — including
+    inside lambda bodies, which the generator's declaration pre-scan does
+    not reach — always pulls in the header.
+    """
+    if "setjmp.h" not in gen.module.includes:
+        gen.module.includes.append("setjmp.h")
+
+
 def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
     """Lower try/catch to setjmp/longjmp boilerplate."""
     from .statements import lower_block
+    _require_setjmp(gen)
     gen.use_helper("__btrc_trycatch_globals")
     gen.use_helper("__btrc_throw")
     stmts: list[IRStmt] = []
@@ -169,6 +181,7 @@ def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
 
 
 def _lower_throw(gen: IRGenerator, node: ThrowStmt) -> list[IRStmt]:
+    _require_setjmp(gen)
     gen.use_helper("__btrc_throw")
     expr = _lower_expr(gen, node.expr)
     return [IRExprStmt(expr=IRCall(callee="__btrc_throw", args=[expr],

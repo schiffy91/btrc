@@ -38,7 +38,23 @@ from ..ast_nodes import (
 class TypeInferenceMixin:
 
     def _infer_type(self, expr) -> TypeExpr | None:
-        """Best-effort type inference. Returns None if unknown."""
+        """Best-effort type inference. Returns None if unknown.
+
+        Memoized in self.node_types (id(node) → TypeExpr) — the same map
+        populated post-analysis and read by the LSP — otherwise every node
+        of a long binary chain re-infers its whole subtree (quadratic).
+        """
+        if expr is None:
+            return None
+        cached = self.node_types.get(id(expr))
+        if cached is not None:
+            return cached
+        result = self._infer_type_uncached(expr)
+        if result is not None:
+            self.node_types[id(expr)] = result
+        return result
+
+    def _infer_type_uncached(self, expr) -> TypeExpr | None:
         if isinstance(expr, IntLiteral):
             return TypeExpr(base="int")
         elif isinstance(expr, FloatLiteral):

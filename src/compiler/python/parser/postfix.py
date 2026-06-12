@@ -17,11 +17,23 @@ class PostfixMixin:
 
     _CAST_FOLLOW_TOKENS = (
         TokenType.IDENT, TokenType.INT_LIT, TokenType.FLOAT_LIT,
-        TokenType.STRING_LIT, TokenType.CHAR_LIT, TokenType.LPAREN,
+        TokenType.STRING_LIT, TokenType.CHAR_LIT, TokenType.FSTRING_LIT,
+        TokenType.LPAREN, TokenType.SIZEOF,
         TokenType.STAR, TokenType.AMP, TokenType.BANG, TokenType.TILDE,
         TokenType.MINUS, TokenType.PLUS_PLUS, TokenType.MINUS_MINUS,
         TokenType.SELF, TokenType.TRUE, TokenType.FALSE, TokenType.NULL,
         TokenType.NEW,
+    )
+
+    # For a parenthesized bare identifier `(a)` the follow tokens MINUS,
+    # STAR, and AMP are ambiguous: `(a) - 1` is far more likely a grouped
+    # expression and a binary operator than a cast of `-1` to type `a`.
+    # Only unambiguous follows (tokens that cannot continue a binary
+    # expression) make a bare-identifier paren a cast. Explicit type syntax
+    # ((int), (Foo*), (Vector<int>), (Foo?)) keeps the full follow set.
+    _BARE_IDENT_CAST_FOLLOW = tuple(
+        t for t in _CAST_FOLLOW_TOKENS
+        if t not in (TokenType.MINUS, TokenType.STAR, TokenType.AMP)
     )
 
     def _is_cast(self) -> bool:
@@ -49,7 +61,9 @@ class PostfixMixin:
 
         if tok.type == TokenType.IDENT:
             self.pos += 1
+            explicit_type_syntax = False
             if self.pos < len(self.tokens) and self.tokens[self.pos].type == TokenType.LT:
+                explicit_type_syntax = True
                 depth = 1
                 self.pos += 1
                 while self.pos < len(self.tokens) and depth > 0:
@@ -60,15 +74,19 @@ class PostfixMixin:
                         depth -= 1
                     self.pos += 1
             while self.pos < len(self.tokens) and self.tokens[self.pos].type == TokenType.STAR:
+                explicit_type_syntax = True
                 self.pos += 1
             if self.pos < len(self.tokens) and self.tokens[self.pos].type == TokenType.QUESTION:
+                explicit_type_syntax = True
                 self.pos += 1
             if self.pos < len(self.tokens) and self.tokens[self.pos].type == TokenType.RPAREN:
                 self.pos += 1
                 if self.pos < len(self.tokens):
                     next_tok = self.tokens[self.pos]
                     self.pos = save
-                    return next_tok.type in self._CAST_FOLLOW_TOKENS
+                    follow = (self._CAST_FOLLOW_TOKENS if explicit_type_syntax
+                              else self._BARE_IDENT_CAST_FOLLOW)
+                    return next_tok.type in follow
             self.pos = save
             return False
 
