@@ -1,42 +1,21 @@
-"""Type utilities: method return type tables, compatibility checking."""
+"""Type utilities: method return type lookup, compatibility checking."""
 
 from __future__ import annotations
 
 from ..ast_nodes import TypeExpr
+from ..string_methods import STRING_METHODS
 
 
 class TypeUtilsMixin:
 
     def _string_method_return_type(self, method_name: str) -> TypeExpr | None:
-        """Return the type of a string method call."""
-        _INT = TypeExpr(base="int")
-        _BOOL = TypeExpr(base="bool")
-        _STRING = TypeExpr(base="string")
-        _CHAR = TypeExpr(base="char")
-        _FLOAT = TypeExpr(base="float")
-        string_methods = {
-            "len": _INT, "byteLen": _INT, "charLen": _INT,
-            "contains": _BOOL, "startsWith": _BOOL, "endsWith": _BOOL,
-            "equals": _BOOL, "indexOf": _INT, "lastIndexOf": _INT,
-            "find": _INT, "count": _INT,
-            "charAt": _CHAR,
-            "substring": _STRING, "trim": _STRING, "lstrip": _STRING,
-            "rstrip": _STRING, "toUpper": _STRING, "toLower": _STRING,
-            "replace": _STRING, "repeat": _STRING,
-            "capitalize": _STRING, "title": _STRING, "swapCase": _STRING,
-            "padLeft": _STRING, "padRight": _STRING, "center": _STRING,
-            "zfill": _STRING,
-            "isBlank": _BOOL, "isAlnum": _BOOL,
-            "isDigitStr": _BOOL, "isAlphaStr": _BOOL,
-            "isUpper": _BOOL, "isLower": _BOOL,
-            "toInt": _INT, "toFloat": _FLOAT,
-            "toDouble": TypeExpr(base="double"), "toLong": TypeExpr(base="long"),
-            "toBool": _BOOL,
-            "reverse": _STRING, "isEmpty": _BOOL,
-            "removePrefix": _STRING, "removeSuffix": _STRING,
-            "split": TypeExpr(base="string", pointer_depth=1),
-        }
-        return string_methods.get(method_name)
+        """Return the type of a string method call (shared spec table)."""
+        spec = STRING_METHODS.get(method_name)
+        if spec is None:
+            return None
+        if spec.return_type == "string*":
+            return TypeExpr(base="string", pointer_depth=1)
+        return TypeExpr(base=spec.return_type)
 
     def _format_type(self, t) -> str:
         """Format a TypeExpr for error messages."""
@@ -75,6 +54,18 @@ class TypeUtilsMixin:
         if target.base in self.class_table and source.base in self.class_table:
             return self._is_subclass(source.base, target.base)
         all_known = numeric | {"string", "bool", "void"}
+        # A raw pointer to a builtin (string*, int*, ...) is never a generic
+        # collection (List<string>, Map<K,V>, ...) and vice versa: rejecting
+        # the pair turns e.g. `List<string> xs = s.split(",")` (split returns
+        # string*) into a clear analyzer error instead of broken C. `void` is
+        # excluded (void* C interop is resolved above and stays permissive),
+        # and unknown<->unknown pairs stay compatible for extern C types.
+        def _builtin_ptr(t) -> bool:
+            return (t.base in all_known and t.base != "void"
+                    and t.pointer_depth > 0)
+        if (_builtin_ptr(source) and target.generic_args) or \
+                (_builtin_ptr(target) and source.generic_args):
+            return False
         return not (target.base in all_known and source.base in all_known)
 
     def _is_subclass(self, child: str, parent: str) -> bool:

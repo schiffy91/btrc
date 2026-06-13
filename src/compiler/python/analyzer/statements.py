@@ -195,10 +195,15 @@ class StatementsMixin:
         self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
 
     def _analyze_for_in(self, stmt):
-        self._analyze_expr(stmt.iterable)
-        self.loop_depth += 1
-        self.break_depth += 1
         if self._is_range_call(stmt.iterable):
+            # `for x in range(...)` is a structural counting-loop form, even
+            # when the program defines its own `range` function (which applies
+            # in expression position only) — so analyze the arguments without
+            # resolving `range` as a call (no user-arity check on the form).
+            for arg in stmt.iterable.args:
+                self._analyze_expr(arg)
+            self.loop_depth += 1
+            self.break_depth += 1
             elem_type = TypeExpr(base="int")
             self._push_scope()
             self.scope.define(stmt.var_name, SymbolInfo(stmt.var_name, elem_type, "variable"))
@@ -207,6 +212,9 @@ class StatementsMixin:
             self.loop_depth -= 1
             self.break_depth -= 1
             return
+        self._analyze_expr(stmt.iterable)
+        self.loop_depth += 1
+        self.break_depth += 1
         iter_type = self._infer_type(stmt.iterable)
         # Two-variable for-in: class with iterValueAt method and 2+ generic args
         _has_iter_value = (iter_type and iter_type.generic_args

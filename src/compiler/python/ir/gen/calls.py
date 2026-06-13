@@ -67,17 +67,17 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             return _lower_constructor_call(gen, name, node.args,
                                            arg_names_for(node, len(node.args)))
 
-        # Built-in functions
-        if name == "print":
-            return _lower_print(gen, node.args)
-        if name == "printf":
-            return IRCall(callee="printf", args=args)
-        if name == "sizeof":
-            if node.args:
-                return IRSizeof(operand=_expr_text(args[0]))
-            return IRSizeof(operand="void")
-        if name == "len":
-            if node.args:
+        # Built-ins apply only when no user function has the same name
+        if name not in gen.analyzed.function_table:
+            if name == "print":
+                return _lower_print(gen, node.args)
+            if name == "printf":
+                return IRCall(callee="printf", args=args)
+            if name == "sizeof":
+                if node.args:
+                    return IRSizeof(operand=_expr_text(args[0]))
+                return IRSizeof(operand="void")
+            if name == "len" and node.args:
                 arg_type = gen.analyzed.node_types.get(id(node.args[0]))
                 if arg_type and is_string_type(arg_type):
                     return IRCast(target_type="int",

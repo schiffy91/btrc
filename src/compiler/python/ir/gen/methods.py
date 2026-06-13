@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier
+from ...string_methods import STRING_CONVERSIONS, STRING_METHODS
 from ..nodes import (
     IRCall,
     IRCast,
@@ -24,64 +25,15 @@ if TYPE_CHECKING:
     from .generator import IRGenerator
 
 
-# String methods that map directly to runtime helpers
-_STRING_METHODS = {
-    "trim": "__btrc_trim",
-    "toUpper": "__btrc_toUpper",
-    "toLower": "__btrc_toLower",
-    "substring": "__btrc_substring",
-    "charAt": "__btrc_charAt",
-    "indexOf": "__btrc_indexOf",
-    "lastIndexOf": "__btrc_lastIndexOf",
-    "replace": "__btrc_replace",
-    "split": "__btrc_split",
-    "repeat": "__btrc_repeat",
-    "reverse": "__btrc_reverse",
-    "isEmpty": "__btrc_isEmpty",
-    "removePrefix": "__btrc_removePrefix",
-    "removeSuffix": "__btrc_removeSuffix",
-    "startsWith": "__btrc_startsWith",
-    "endsWith": "__btrc_endsWith",
-    "contains": "__btrc_strContains",
-    "capitalize": "__btrc_capitalize",
-    "title": "__btrc_title",
-    "swapCase": "__btrc_swapCase",
-    "padLeft": "__btrc_padLeft",
-    "padRight": "__btrc_padRight",
-    "center": "__btrc_center",
-    "lstrip": "__btrc_lstrip",
-    "rstrip": "__btrc_rstrip",
-    "count": "__btrc_count",
-    "find": "__btrc_find",
-    "isDigit": "__btrc_isDigitStr",
-    "isAlpha": "__btrc_isAlphaStr",
-    "isBlank": "__btrc_isBlank",
-    "isUpper": "__btrc_isUpper",
-    "isLower": "__btrc_isLower",
-    "isAlnum": "__btrc_isAlnumStr",
-    "zfill": "__btrc_zfill",
-    "join": "__btrc_join",
-    # Aliases (some tests use the helper name directly)
-    "isDigitStr": "__btrc_isDigitStr",
-    "isAlphaStr": "__btrc_isAlphaStr",
-    "isAlnumStr": "__btrc_isAlnumStr",
-}
-
-# String methods that return new strings (need str_track wrapping)
-_STRING_TRACK_METHODS = {
-    "trim", "toUpper", "toLower", "substring", "replace", "repeat",
-    "reverse", "removePrefix", "removeSuffix", "capitalize", "title",
-    "swapCase", "padLeft", "padRight", "center", "lstrip", "rstrip",
-    "zfill", "join",
-}
-
-# String conversion methods (stdlib calls, no runtime helpers needed)
-_STRING_CONVERSION_METHODS = {
-    "toInt": ("atoi", "int"),
-    "toFloat": ("atof", "float"),
-    "toDouble": ("atof", None),
-    "toLong": ("atol", None),
-}
+# Dispatch views over the shared spec (src/compiler/python/string_methods.py):
+# methods that map directly to runtime helpers, the subset whose helper
+# returns a new heap string (needs str_track wrapping), and the conversion
+# methods lowered to C stdlib calls.
+_STRING_METHODS = {name: spec.helper
+                   for name, spec in STRING_METHODS.items() if spec.helper}
+_STRING_TRACK_METHODS = {name
+                         for name, spec in STRING_METHODS.items() if spec.tracked}
+_STRING_CONVERSION_METHODS = STRING_CONVERSIONS
 
 
 def _lower_string_special(gen, obj, method_name, args):
@@ -93,9 +45,6 @@ def _lower_string_special(gen, obj, method_name, args):
         return IRBinOp(left=cmp, op="==", right=IRLiteral(text="0"))
     if method_name in ("byteLen", "len", "length"):
         return IRCast(target_type="int", expr=IRCall(callee="strlen", args=[obj]))
-    if method_name == "charLen":
-        gen.use_helper("__btrc_charLen")
-        return IRCall(callee="__btrc_charLen", args=[obj], helper_ref="__btrc_charLen")
     return None
 
 
