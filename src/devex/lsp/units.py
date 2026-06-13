@@ -11,6 +11,7 @@ import hashlib
 import os
 from dataclasses import dataclass, field
 
+from src.compiler.python.cache_keys import toolchain_hash
 from src.compiler.python.frontend import (
     _BTRC_IMPORT_RE,
     _BTRC_INCLUDE_RE,
@@ -27,36 +28,9 @@ def _compute_unit_cache_version() -> str:
 
     Derived (not hand-bumped) so stale cached units are impossible: any edit
     to the grammar, the ASDL/AST, the lexer, the token definitions, or the
-    parser changes the hash and orphans old pickles. Computed once at import;
-    hashing a few hundred KB takes ~1ms.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    root = os.path.dirname(os.path.dirname(here))  # .../src
-    compiler = os.path.join(root, "compiler", "python")
-    paths = [
-        os.path.join(root, "language", "grammar.ebnf"),
-        os.path.join(root, "language", "ast", "ast.asdl"),
-        os.path.join(compiler, "lexer.py"),
-        os.path.join(compiler, "lexer_literals.py"),
-        os.path.join(compiler, "tokens.py"),
-        os.path.join(compiler, "ast_nodes.py"),
-    ]
-    parser_dir = os.path.join(compiler, "parser")
-    if os.path.isdir(parser_dir):
-        paths.extend(
-            os.path.join(parser_dir, name)
-            for name in sorted(os.listdir(parser_dir))
-            if name.endswith(".py")
-        )
-    digest = hashlib.sha256()
-    for path in paths:
-        digest.update(os.path.basename(path).encode())
-        try:
-            with open(path, "rb") as f:
-                digest.update(f.read())
-        except OSError:
-            digest.update(b"<missing>")
-    return digest.hexdigest()[:16]
+    parser changes the hash and orphans old pickles. Shared with the
+    compiler's own caches (see cache_keys.toolchain_hash)."""
+    return toolchain_hash("frontend")
 
 
 _UNIT_CACHE_VERSION = _compute_unit_cache_version()

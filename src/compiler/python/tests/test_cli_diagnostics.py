@@ -14,7 +14,8 @@ MODES = pytest.mark.parametrize("mode", [[], ["--no-cache"]], ids=["default", "n
 
 @pytest.fixture(scope="module")
 def workdir(tmp_path_factory):
-    """Shared cwd so the stdlib AST cache (.btrc-cache) is built once."""
+    """Shared cwd for compile outputs (the stdlib AST cache itself is shared
+    session-wide via the conftest BTRC_CACHE_DIR fixture)."""
     return tmp_path_factory.mktemp("cli_diag_work")
 
 

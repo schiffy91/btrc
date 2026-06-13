@@ -25,13 +25,16 @@ from . import pkg
 from .analyzer.analyzer import Analyzer
 from .analyzer.core import AnalyzedProgram
 from .ast_nodes import Program
+from .cache_keys import resolve_cache_dir, toolchain_hash
 from .import_visibility import check_visibility
 from .lexer import Lexer
 from .parser.parser import Parser
+from .pkg import IncludeResolutionError  # canonical import point stays here
 from .tokens import Token
 
-# Bump when the lexer/parser/AST changes so cached stdlib ASTs are invalidated.
-_STDLIB_AST_VERSION = "2"
+# Content hash of the lexer/parser/AST sources: cached stdlib ASTs are
+# invalidated automatically by any frontend change (never hand-bumped).
+_STDLIB_AST_VERSION = toolchain_hash("frontend")
 
 _BTRC_INCLUDE_RE = re.compile(r'^\s*#include\s+[<"]([^>"]+\.btrc)[>"]\s*$')
 _BTRC_IMPORT_RE = re.compile(r'^\s*import\s+(.+?)\s*;?\s*$')
@@ -147,10 +150,6 @@ class FrontendVisibilityError(Exception):
         super().__init__("strict import visibility failed")
 
 
-class IncludeResolutionError(Exception):
-    """Include/import resolution failed before lexing."""
-
-
 def _timed(profile: dict[str, float] | None, label: str, start: float) -> None:
     if profile is not None:
         profile[label] = time.perf_counter() - start
@@ -168,9 +167,7 @@ def _cached_stdlib_decls(stdlib_source: str) -> list:
     key = hashlib.sha256(
         f"astv{_STDLIB_AST_VERSION}\n{stdlib_source}".encode()
     ).hexdigest()
-    cache_dir = os.path.join(os.getcwd(), ".btrc-cache")
-    os.makedirs(cache_dir, exist_ok=True)
-    path = os.path.join(cache_dir, f"stdlib-{key}.ast")
+    path = os.path.join(resolve_cache_dir(), f"stdlib-{key}.ast")
     if os.path.exists(path):
         try:
             with open(path, "rb") as f:

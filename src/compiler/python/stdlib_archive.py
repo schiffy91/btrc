@@ -36,9 +36,20 @@ import json
 import os
 import re
 
+from .cache_keys import toolchain_hash
+
 HEADER_NAME = "btrc_stdlib.h"
 IMPL_NAME = "btrc_stdlib.c"
 MANIFEST_NAME = "btrc_stdlib.manifest"
+
+
+class ArchiveVersionError(Exception):
+    """The archive was built by a different compiler than the one loading it.
+
+    Partitioning a program against a foreign archive silently drops symbols by
+    *name* even when their definitions differ, so a stale archive must be
+    refused and regenerated (--build-stdlib) rather than used.
+    """
 
 # Helpers whose process-global mutable state must be a single instance shared by
 # the archive and every program that links it. Maps helper name -> the extern
@@ -170,6 +181,7 @@ def _build_manifest(module, shared_helpers: list[str]) -> dict:
     by exact text (deterministic across compilations of the same source).
     """
     return {
+        "toolchain": toolchain_hash("full"),
         "types": sorted(
             {e.name for e in module.enum_defs}
             | {s.name for s in module.struct_defs}
@@ -208,8 +220,22 @@ def build_archive(out_dir: str, module) -> dict:
 
 
 def load_manifest(stdlib_dir: str) -> dict:
+    """Load and validate an archive manifest.
+
+    Refuses (raises ArchiveVersionError) when the manifest was written by a
+    different compiler version — the caller must rebuild with --build-stdlib.
+    """
     with open(os.path.join(stdlib_dir, MANIFEST_NAME)) as f:
-        return json.load(f)
+        manifest = json.load(f)
+    current = toolchain_hash("full")
+    stamped = manifest.get("toolchain")
+    if stamped != current:
+        raise ArchiveVersionError(
+            f"stdlib archive in '{stdlib_dir}' was built by a different "
+            f"compiler version (archive: {stamped or 'unstamped'}, current: "
+            f"{current}); regenerate it with --build-stdlib"
+        )
+    return manifest
 
 
 def partition_for_archive(module, manifest: dict,

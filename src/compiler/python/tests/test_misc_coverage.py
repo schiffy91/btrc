@@ -1,11 +1,15 @@
 """Coverage for leaf modules: the EBNF grammar loader, the generated AST
 NodeVisitor, and package-manager edge paths."""
 
+import hashlib
+import json
 import os
+import subprocess
 
 import pytest
 
 from src.compiler.python import ebnf, pkg
+from src.compiler.python.pkg import IncludeResolutionError
 
 # --------------------------------------------------------------------------
 # ebnf grammar loader
@@ -87,7 +91,8 @@ def test_resolve_dep_path_dict_absolute():
 
 
 def test_resolve_dep_git(monkeypatch):
-    monkeypatch.setattr(pkg, "_resolve_git", lambda n, u, r: "/clone/root")
+    monkeypatch.setattr(pkg, "_resolve_git",
+                        lambda n, u, r, refresh=False: "/clone/root")
     d = pkg._resolve_dep("net", {"git": "https://x/n.git", "rev": "v1"}, "/m")
     assert d == {"path": "/clone/root", "git": "https://x/n.git", "rev": "v1"}
 
@@ -97,27 +102,45 @@ def test_resolve_dep_invalid():
         pkg._resolve_dep("x", {"version": "1.0"}, "/m")
 
 
+def _fake_git_run(calls):
+    """subprocess.run stand-in: records commands, reports success."""
+    def run(cmd, *a, **k):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    return run
+
+
 def test_resolve_git_clones(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     calls = []
-    monkeypatch.setattr(pkg.subprocess, "run", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(pkg.subprocess, "run", _fake_git_run(calls))
     path = pkg._resolve_git("net", "https://x/n.git", "v1")
     assert os.path.isabs(path) and len(calls) == 2  # clone + checkout
 
 
 def test_resolve_git_already_cloned(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
-    (tmp_path / "cache" / "net-v1" / ".git").mkdir(parents=True)
+    url_tag = hashlib.sha256(b"https://x/n.git").hexdigest()[:8]
+    (tmp_path / "cache" / f"net-v1-{url_tag}" / ".git").mkdir(parents=True)
     called = []
-    monkeypatch.setattr(pkg.subprocess, "run", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(pkg.subprocess, "run", _fake_git_run(called))
     pkg._resolve_git("net", "https://x/n.git", "v1")
     assert called == []  # skipped — already present
 
 
 def test_resolve_uses_lock(tmp_path):
     (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n')
-    (tmp_path / "btrc.lock").write_text('{"packages": {"dep": {"path": "/p"}}}')
+    lock = {"manifest_hash": pkg._deps_hash({}),
+            "packages": {"dep": {"path": "/p"}}}
+    (tmp_path / "btrc.lock").write_text(json.dumps(lock))
     assert pkg.resolve(str(tmp_path / "btrc.toml")) == {"dep": {"path": "/p"}}
+
+
+def test_resolve_ignores_stale_lock(tmp_path):
+    # Legacy (hash-less) and out-of-date locks are re-resolved, not trusted.
+    (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n')
+    (tmp_path / "btrc.lock").write_text('{"packages": {"dep": {"path": "/p"}}}')
+    assert pkg.resolve(str(tmp_path / "btrc.toml")) == {}
 
 
 def test_resolve_writes_lock(tmp_path):
@@ -133,12 +156,12 @@ def test_configure_for_no_manifest(tmp_path):
     assert pkg._PACKAGES == {}
 
 
-def test_configure_for_failure(tmp_path, capsys):
+def test_configure_for_failure(tmp_path):
     (tmp_path / "btrc.toml").write_text(
         '[package]\nname = "x"\n[dependencies]\nbad = { version = "1" }\n')
-    with pytest.raises(SystemExit):
+    with pytest.raises(IncludeResolutionError, match="package resolution failed"):
         pkg.configure_for(str(tmp_path / "x.btrc"), refresh=True)
-    assert "package resolution failed" in capsys.readouterr().err
+    assert pkg._PACKAGES == {}  # failure never leaves stale packages behind
 
 
 def test_package_import_paths_unknown():
@@ -164,10 +187,12 @@ def test_package_import_paths_root_layout(tmp_path):
     assert paths and paths[0].endswith("sub.btrc")
 
 
-def test_package_import_paths_not_found(tmp_path, capsys):
+def test_package_import_paths_not_found(tmp_path):
     root = tmp_path / "empty"
     root.mkdir()
     pkg._PACKAGES = {"empty": {"path": str(root)}}
-    with pytest.raises(SystemExit):
-        pkg.package_import_paths("empty.missing")
-    assert "not found" in capsys.readouterr().err
+    try:
+        with pytest.raises(IncludeResolutionError, match="not found"):
+            pkg.package_import_paths("empty.missing")
+    finally:
+        pkg._PACKAGES = {}

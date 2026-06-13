@@ -131,7 +131,9 @@ def test_no_cache(tmp_path, monkeypatch, capsys):
 def test_profile(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "p.btrc", HELLO)
-    run_main(monkeypatch, [src, "--profile", "-o", str(tmp_path / "p.c")])
+    # --no-cache: profiling needs the full pipeline, and the session-shared
+    # disk cache may already hold this source from an earlier test.
+    run_main(monkeypatch, [src, "--no-cache", "--profile", "-o", str(tmp_path / "p.c")])
     err = capsys.readouterr().err
     assert "btrc profile" in err
     assert "total" in err
@@ -503,13 +505,14 @@ def test_import_relative_ghost(tmp_path, capsys):
 
 
 def test_cached_stdlib_decls_corrupt_cache(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+    # Pin the cache dir so the corrupt pickle is planted where it will be read.
+    cache_dir = tmp_path / ".btrc-cache"
+    cache_dir.mkdir()
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(cache_dir))
     stdlib_src = "class Tiny2 { public int x; public Tiny2(int x) { self.x = x; } }\n"
     key = hashlib.sha256(
         f"astv{m._STDLIB_AST_VERSION}\n{stdlib_src}".encode()
     ).hexdigest()
-    cache_dir = tmp_path / ".btrc-cache"
-    cache_dir.mkdir()
     (cache_dir / f"stdlib-{key}.ast").write_bytes(b"not a valid pickle")
     decls = m._cached_stdlib_decls(stdlib_src)  # must reparse, not crash
     assert decls

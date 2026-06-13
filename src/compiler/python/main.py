@@ -238,7 +238,11 @@ def main():
         argparser.error("the following arguments are required: input")
 
     # Resolve package dependencies (btrc.toml) governing this input, if any.
-    pkg.configure_for(args.input, refresh=args.fetch)
+    try:
+        pkg.configure_for(args.input, refresh=args.fetch)
+    except IncludeResolutionError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Read input
     try:
@@ -274,7 +278,7 @@ def main():
         args.emit_optimized_ir, args.debug
     ])
     if use_cache:
-        cached = get_cached(cache_source)
+        cached = get_cached(cache_source, input_path=args.input)
         if cached is not None:
             if args.output:
                 out_path = args.output
@@ -370,8 +374,17 @@ def main():
     # --stdlib: drop everything the prebuilt archive already provides, leaving
     # program-only C that #includes btrc_stdlib.h and links the archive.
     if args.stdlib is not None:
-        from .stdlib_archive import load_manifest, partition_for_archive
-        partition_for_archive(ir_module, load_manifest(args.stdlib))
+        from .stdlib_archive import (
+            ArchiveVersionError,
+            load_manifest,
+            partition_for_archive,
+        )
+        try:
+            manifest = load_manifest(args.stdlib)
+        except ArchiveVersionError as e:
+            print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
+        partition_for_archive(ir_module, manifest)
 
     _t = time.perf_counter()
     c_source = CEmitter().emit(ir_module)
@@ -379,7 +392,7 @@ def main():
 
     # Store in disk cache
     if use_cache:
-        cache_store(cache_source, c_source)
+        cache_store(cache_source, c_source, input_path=args.input)
 
     if args.profile:
         _print_profile(prof, len(source))

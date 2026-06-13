@@ -37,7 +37,7 @@ import tempfile
 import time
 
 from src.compiler.python.analyzer.analyzer import Analyzer
-from src.compiler.python.cache import get_stdlib_source_cached
+from src.compiler.python.frontend import get_stdlib_source
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
@@ -119,7 +119,7 @@ def _prepare_source(btrc_path: str) -> tuple[str, str]:
     with open(btrc_path) as f:
         source = f.read()
     source = resolve_includes(source, btrc_path)
-    stdlib_source = get_stdlib_source_cached(source)
+    stdlib_source = get_stdlib_source(source)
     if stdlib_source:
         source = stdlib_source + "\n" + source
     return source, os.path.basename(btrc_path)

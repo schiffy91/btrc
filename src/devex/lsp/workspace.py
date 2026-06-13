@@ -17,6 +17,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from src.compiler.python.ast_nodes import Program
+from src.compiler.python.cache_keys import resolve_cache_dir
 from src.compiler.python.frontend import (
     IncludeResolutionError,
     _discover_stdlib_files,
@@ -268,9 +269,9 @@ class Workspace:
 
 
 def _cache_dir() -> str:
-    d = os.path.join(os.getcwd(), ".btrc-cache")
-    os.makedirs(d, exist_ok=True)
-    return d
+    """Shared btrc cache dir ($BTRC_CACHE_DIR > project root > user cache);
+    never the bare cwd, so the server doesn't litter its launch directory."""
+    return resolve_cache_dir()
 
 
 _UNIT_CACHE_MAX_AGE = 30 * 24 * 3600  # seconds; orphaned pickles outlive a version flip
@@ -296,5 +297,3 @@ def _prune_unit_cache(cache_dir: str) -> None:
                 os.remove(path)
         except OSError:
             pass  # raced/permission: stale entries are harmless
-
-
