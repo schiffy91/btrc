@@ -23,20 +23,28 @@ module Btrc {
     -- Declarations
     -- ================================================================
 
+    -- name_line/name_col mark the NAME token (not the leading keyword) so
+    -- editors land go-to-definition / rename on the identifier itself.
     decl = PreprocessorDirective(string text)
          | ClassDecl(identifier name, identifier* generic_params,
                      class_member* members, identifier? parent,
-                     identifier* interfaces, bool is_abstract)
+                     identifier* interfaces, bool is_abstract,
+                     int name_line, int name_col)
          | InterfaceDecl(identifier name, method_sig* methods,
-                         identifier? parent, identifier* generic_params)
+                         identifier? parent, identifier* generic_params,
+                         int name_line, int name_col)
          | FunctionDecl(type_expr return_type, identifier name,
                         param* params, block? body, bool is_gpu,
-                        bool keep_return)
-         | StructDecl(identifier name, field_def* fields)
-         | EnumDecl(identifier name, enum_value* values)
-         | RichEnumDecl(identifier name, rich_enum_variant* variants)
-         | TypedefDecl(type_expr original, identifier alias)
-         attributes(int line, int col)
+                        bool keep_return, int name_line, int name_col)
+         | StructDecl(identifier name, field_def* fields,
+                      int name_line, int name_col)
+         | EnumDecl(identifier name, enum_value* values,
+                    int name_line, int name_col)
+         | RichEnumDecl(identifier name, rich_enum_variant* variants,
+                        int name_line, int name_col)
+         | TypedefDecl(type_expr original, identifier alias,
+                       int name_line, int name_col)
+         attributes(int line, int col, string? source_file)
 
     -- ================================================================
     -- Types
@@ -53,31 +61,37 @@ module Btrc {
     -- ================================================================
 
     param = Param(type_expr type, identifier name, expr? default,
-                   bool keep)
+                   bool keep, int name_line, int name_col)
             attributes(int line, int col)
 
     -- Class members
     class_member = FieldDecl(string access, type_expr type,
-                             identifier name, expr? initializer)
+                             identifier name, expr? initializer,
+                             int name_line, int name_col)
                  | MethodDecl(string access, type_expr return_type,
                               identifier name, param* params,
                               block? body, bool is_gpu, bool is_abstract,
-                              bool keep_return)
+                              bool keep_return, int name_line, int name_col)
                  | PropertyDecl(string access, type_expr type,
                                 identifier name, bool has_getter,
                                 bool has_setter, block? getter_body,
-                                block? setter_body)
+                                block? setter_body,
+                                int name_line, int name_col)
                  attributes(int line, int col)
 
     -- Interface method signature (method with no body)
     method_sig = MethodSig(type_expr return_type, identifier name,
-                           param* params, bool keep_return)
+                           param* params, bool keep_return,
+                           int name_line, int name_col)
                  attributes(int line, int col)
 
     -- Enum helpers
     enum_value   = EnumValue(identifier name, expr? value)
+                   attributes(int line, int col)
     rich_enum_variant = RichEnumVariant(identifier name, param* params)
+                        attributes(int line, int col)
     field_def    = FieldDef(type_expr type, identifier name)
+                   attributes(int line, int col)
 
     -- ================================================================
     -- Statements
@@ -87,7 +101,7 @@ module Btrc {
             attributes(int line, int col)
 
     stmt = VarDeclStmt(type_expr? type, identifier name,
-                       expr? initializer)
+                       expr? initializer, int name_line, int name_col)
          | ReturnStmt(expr? value)
          | IfStmt(expr condition, block then_block,
                   if_else? else_block)
@@ -105,7 +119,7 @@ module Btrc {
          | ExprStmt(expr expr)
          | DeleteStmt(expr expr)
          | TryCatchStmt(block try_block, identifier catch_var,
-                        block catch_block, block? finally_block)
+                        block? catch_block, block? finally_block)
          | ThrowStmt(expr expr)
          | KeepStmt(expr expr)
          | ReleaseStmt(expr expr)

@@ -6,513 +6,628 @@ DO NOT EDIT BY HAND.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as _dc_field
 from typing import Optional, Union
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Program:
-    declarations: list[decl] = field(default_factory=list)
+    declarations: list[decl] = _dc_field(default_factory=list)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class PreprocessorDirective:
     text: str = ""
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ClassDecl:
     name: str = ""
-    generic_params: list[str] = field(default_factory=list)
-    members: list[class_member] = field(default_factory=list)
+    generic_params: list[str] = _dc_field(default_factory=list)
+    members: list[class_member] = _dc_field(default_factory=list)
     parent: Optional[str] = None
-    interfaces: list[str] = field(default_factory=list)
+    interfaces: list[str] = _dc_field(default_factory=list)
     is_abstract: bool = False
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class InterfaceDecl:
     name: str = ""
-    methods: list[MethodSig] = field(default_factory=list)
+    methods: list[MethodSig] = _dc_field(default_factory=list)
     parent: Optional[str] = None
-    generic_params: list[str] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    generic_params: list[str] = _dc_field(default_factory=list)
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class FunctionDecl:
-    return_type: TypeExpr = None
+    return_type: TypeExpr
     name: str = ""
-    params: list[Param] = field(default_factory=list)
+    params: list[Param] = _dc_field(default_factory=list)
     body: Optional[Block] = None
     is_gpu: bool = False
     keep_return: bool = False
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class StructDecl:
     name: str = ""
-    fields: list[FieldDef] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    fields: list[FieldDef] = _dc_field(default_factory=list)
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class EnumDecl:
     name: str = ""
-    values: list[EnumValue] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    values: list[EnumValue] = _dc_field(default_factory=list)
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class RichEnumDecl:
     name: str = ""
-    variants: list[RichEnumVariant] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    variants: list[RichEnumVariant] = _dc_field(default_factory=list)
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class TypedefDecl:
-    original: TypeExpr = None
+    original: TypeExpr
     alias: str = ""
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class TypeExpr:
     base: str = ""
-    generic_args: list[TypeExpr] = field(default_factory=list)
+    generic_args: list[TypeExpr] = _dc_field(default_factory=list)
     pointer_depth: int = 0
     is_array: bool = False
     array_size: Optional[expr] = None
     is_const: bool = False
     is_nullable: bool = False
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class Param:
-    type: TypeExpr = None
+    type: TypeExpr
     name: str = ""
     default: Optional[expr] = None
     keep: bool = False
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class FieldDecl:
     access: str = ""
-    type: TypeExpr = None
+    type: TypeExpr
     name: str = ""
     initializer: Optional[expr] = None
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class MethodDecl:
     access: str = ""
-    return_type: TypeExpr = None
+    return_type: TypeExpr
     name: str = ""
-    params: list[Param] = field(default_factory=list)
+    params: list[Param] = _dc_field(default_factory=list)
     body: Optional[Block] = None
     is_gpu: bool = False
     is_abstract: bool = False
     keep_return: bool = False
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class PropertyDecl:
     access: str = ""
-    type: TypeExpr = None
+    type: TypeExpr
     name: str = ""
     has_getter: bool = False
     has_setter: bool = False
     getter_body: Optional[Block] = None
     setter_body: Optional[Block] = None
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class MethodSig:
-    return_type: TypeExpr = None
+    return_type: TypeExpr
     name: str = ""
-    params: list[Param] = field(default_factory=list)
+    params: list[Param] = _dc_field(default_factory=list)
     keep_return: bool = False
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class EnumValue:
     name: str = ""
     value: Optional[expr] = None
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class RichEnumVariant:
     name: str = ""
-    params: list[Param] = field(default_factory=list)
+    params: list[Param] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class FieldDef:
-    type: TypeExpr = None
+    type: TypeExpr
     name: str = ""
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class Block:
-    statements: list[stmt] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    statements: list[stmt] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class VarDeclStmt:
     type: Optional[TypeExpr] = None
     name: str = ""
     initializer: Optional[expr] = None
-    line: int = 0
-    col: int = 0
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ReturnStmt:
     value: Optional[expr] = None
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class IfStmt:
-    condition: expr = None
-    then_block: Block = None
+    condition: expr
+    then_block: Block
     else_block: Optional[if_else] = None
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class WhileStmt:
-    condition: expr = None
-    body: Block = None
-    line: int = 0
-    col: int = 0
+    condition: expr
+    body: Block
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class DoWhileStmt:
-    body: Block = None
-    condition: expr = None
-    line: int = 0
-    col: int = 0
+    body: Block
+    condition: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ForInStmt:
     var_name: str = ""
     var_name2: Optional[str] = None
-    iterable: expr = None
-    body: Block = None
-    line: int = 0
-    col: int = 0
+    iterable: expr
+    body: Block
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class CForStmt:
     init: Optional[for_init] = None
     condition: Optional[expr] = None
     update: Optional[expr] = None
-    body: Block = None
-    line: int = 0
-    col: int = 0
+    body: Block
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ParallelForStmt:
     var_name: str = ""
-    iterable: expr = None
-    body: Block = None
-    line: int = 0
-    col: int = 0
+    iterable: expr
+    body: Block
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class SwitchStmt:
-    value: expr = None
-    cases: list[CaseClause] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    value: expr
+    cases: list[CaseClause] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class BreakStmt:
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ContinueStmt:
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ExprStmt:
-    expr: expr = None
-    line: int = 0
-    col: int = 0
+    expr: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class DeleteStmt:
-    expr: expr = None
-    line: int = 0
-    col: int = 0
+    expr: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class TryCatchStmt:
-    try_block: Block = None
+    try_block: Block
     catch_var: str = ""
-    catch_block: Block = None
+    catch_block: Optional[Block] = None
     finally_block: Optional[Block] = None
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ThrowStmt:
-    expr: expr = None
-    line: int = 0
-    col: int = 0
+    expr: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class KeepStmt:
-    expr: expr = None
-    line: int = 0
-    col: int = 0
+    expr: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ReleaseStmt:
-    expr: expr = None
-    line: int = 0
-    col: int = 0
+    expr: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ElseBlock:
-    body: Block = None
+    body: Block
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ElseIf:
-    if_stmt: stmt = None
+    if_stmt: stmt
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ForInitVar:
-    var_decl: stmt = None
+    var_decl: stmt
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ForInitExpr:
-    expression: expr = None
+    expression: expr
 
-@dataclass
+
+@dataclass(kw_only=True)
 class CaseClause:
     value: Optional[expr] = None
-    body: list[stmt] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    body: list[stmt] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class IntLiteral:
     value: int = 0
     raw: str = ""
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class FloatLiteral:
     value: float = 0.0
     raw: str = ""
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class StringLiteral:
     value: str = ""
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class CharLiteral:
     value: str = ""
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class BoolLiteral:
     value: bool = False
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class NullLiteral:
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class Identifier:
     name: str = ""
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class SelfExpr:
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class SuperExpr:
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class BinaryExpr:
-    left: expr = None
+    left: expr
     op: str = ""
-    right: expr = None
-    line: int = 0
-    col: int = 0
+    right: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class UnaryExpr:
     op: str = ""
-    operand: expr = None
+    operand: expr
     prefix: bool = False
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class CallExpr:
-    callee: expr = None
-    args: list[expr] = field(default_factory=list)
-    arg_names: list[str] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    callee: expr
+    args: list[expr] = _dc_field(default_factory=list)
+    arg_names: list[str] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class IndexExpr:
-    obj: expr = None
-    index: expr = None
-    line: int = 0
-    col: int = 0
+    obj: expr
+    index: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class FieldAccessExpr:
-    obj: expr = None
+    obj: expr
     field: str = ""
     arrow: bool = False
     optional: bool = False
-    line: int = 0
-    col: int = 0
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class CastExpr:
-    target_type: TypeExpr = None
-    expr: expr = None
-    line: int = 0
-    col: int = 0
+    target_type: TypeExpr
+    expr: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class SizeofExpr:
-    operand: sizeof_operand = None
-    line: int = 0
-    col: int = 0
+    operand: sizeof_operand
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class TernaryExpr:
-    condition: expr = None
-    true_expr: expr = None
-    false_expr: expr = None
-    line: int = 0
-    col: int = 0
+    condition: expr
+    true_expr: expr
+    false_expr: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class AssignExpr:
-    target: expr = None
+    target: expr
     op: str = ""
-    value: expr = None
-    line: int = 0
-    col: int = 0
+    value: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class ListLiteral:
-    elements: list[expr] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    elements: list[expr] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class MapLiteral:
-    entries: list[MapEntry] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    entries: list[MapEntry] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class BraceInitializer:
-    elements: list[expr] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    elements: list[expr] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class FStringLiteral:
-    parts: list[fstring_part] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    parts: list[fstring_part] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class NewExpr:
-    type: TypeExpr = None
-    args: list[expr] = field(default_factory=list)
-    arg_names: list[str] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    type: TypeExpr
+    args: list[expr] = _dc_field(default_factory=list)
+    arg_names: list[str] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class TupleLiteral:
-    elements: list[expr] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    elements: list[expr] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class LambdaExpr:
     return_type: Optional[TypeExpr] = None
-    params: list[Param] = field(default_factory=list)
-    body: lambda_body = None
-    captures: list[Capture] = field(default_factory=list)
-    line: int = 0
-    col: int = 0
+    params: list[Param] = _dc_field(default_factory=list)
+    body: lambda_body
+    captures: list[Capture] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class SpawnExpr:
-    fn: expr = None
-    line: int = 0
-    col: int = 0
+    fn: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
 
-@dataclass
+
+@dataclass(kw_only=True)
 class SizeofType:
-    type: TypeExpr = None
+    type: TypeExpr
 
-@dataclass
+
+@dataclass(kw_only=True)
 class SizeofExprOp:
-    expr: expr = None
+    expr: expr
 
-@dataclass
+
+@dataclass(kw_only=True)
 class MapEntry:
-    key: expr = None
-    value: expr = None
+    key: expr
+    value: expr
 
-@dataclass
+
+@dataclass(kw_only=True)
 class FStringText:
     text: str = ""
 
-@dataclass
+
+@dataclass(kw_only=True)
 class FStringExpr:
-    expression: expr = None
+    expression: expr
 
-@dataclass
+
+@dataclass(kw_only=True)
 class LambdaBlock:
-    body: Block = None
+    body: Block
 
-@dataclass
+
+@dataclass(kw_only=True)
 class LambdaExprBody:
-    expression: expr = None
+    expression: expr
 
-@dataclass
+
+@dataclass(kw_only=True)
 class Capture:
     name: str = ""
-    type: TypeExpr = None
+    type: TypeExpr
 
 
 # --- Union type aliases for sum types ---
@@ -542,3 +657,4 @@ block = Block
 case_clause = CaseClause
 map_entry = MapEntry
 capture = Capture
+

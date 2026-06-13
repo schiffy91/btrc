@@ -108,7 +108,8 @@ class DeclarationsMixin:
         self._expect(TokenType.RBRACE)
         return ClassDecl(name=name, generic_params=generic_params,
                          members=members, parent=parent, interfaces=interfaces,
-                         is_abstract=is_abstract, line=tok.line, col=tok.col)
+                         is_abstract=is_abstract, line=tok.line, col=tok.col,
+                         name_line=name_tok.line, name_col=name_tok.col)
 
     def _parse_class_member(self, allow_abstract: bool = False):
         """Parse a class member: access_spec (field | method)."""
@@ -144,11 +145,14 @@ class DeclarationsMixin:
 
         type_expr = self._parse_type_expr()
 
-        # Constructor: if next is '(' instead of IDENT, the "type" is the name
+        # Constructor: if next is '(' instead of IDENT, the "type" is the name.
+        # The name token is the type's leading token, so its position is the
+        # type_expr's own line/col.
         if self._check(TokenType.LPAREN):
             name = type_expr.base
             return self._parse_method_rest(access, type_expr, name, is_gpu,
                                            tok.line, tok.col,
+                                           type_expr.line, type_expr.col,
                                            is_abstract=is_abstract_method,
                                            keep_return=keep_return)
 
@@ -158,19 +162,23 @@ class DeclarationsMixin:
         if self._check(TokenType.LPAREN):
             return self._parse_method_rest(access, type_expr, name, is_gpu,
                                            tok.line, tok.col,
+                                           name_tok.line, name_tok.col,
                                            is_abstract=is_abstract_method,
                                            keep_return=keep_return)
         elif self._check(TokenType.LBRACE) and self._is_property_start():
-            return self._parse_property(access, type_expr, name, tok.line, tok.col)
+            return self._parse_property(access, type_expr, name, tok.line, tok.col,
+                                        name_tok.line, name_tok.col)
         else:
             init = None
             if self._match(TokenType.EQ):
                 init = self._parse_expr()
             self._expect(TokenType.SEMICOLON)
             return FieldDecl(access=access, type=type_expr, name=name,
-                             initializer=init, line=tok.line, col=tok.col)
+                             initializer=init, line=tok.line, col=tok.col,
+                             name_line=name_tok.line, name_col=name_tok.col)
 
     def _parse_method_rest(self, access, return_type, name, is_gpu, line, col,
+                           name_line, name_col,
                            is_abstract: bool = False,
                            keep_return: bool = False) -> MethodDecl:
         self._expect(TokenType.LPAREN)
@@ -184,20 +192,25 @@ class DeclarationsMixin:
         return MethodDecl(access=access, return_type=return_type, name=name,
                           params=params, body=body, is_gpu=is_gpu,
                           is_abstract=is_abstract, keep_return=keep_return,
-                          line=line, col=col)
+                          line=line, col=col,
+                          name_line=name_line, name_col=name_col)
 
     # ---- Struct declaration ----
 
     def _parse_struct_decl(self) -> StructDecl:
         tok = self._expect(TokenType.STRUCT)
         name = ""
+        name_line, name_col = tok.line, tok.col
         if self._check(TokenType.IDENT):
-            name = self._advance().value
+            name_tok = self._advance()
+            name = name_tok.value
+            name_line, name_col = name_tok.line, name_tok.col
         if self._match(TokenType.LBRACE):
             fields = []
             while not self._check(TokenType.RBRACE) and not self._at_end():
                 ftype = self._parse_type_expr()
-                fname = self._expect(TokenType.IDENT, "field name").value
+                fname_tok = self._expect(TokenType.IDENT, "field name")
+                fname = fname_tok.value
                 if self._check(TokenType.LBRACKET):
                     self._advance()
                     if self._check(TokenType.RBRACKET):
@@ -208,20 +221,24 @@ class DeclarationsMixin:
                         self._expect(TokenType.RBRACKET)
                         ftype.is_array = True
                         ftype.array_size = size_expr
-                fields.append(FieldDef(type=ftype, name=fname))
+                fields.append(FieldDef(type=ftype, name=fname,
+                                       line=fname_tok.line, col=fname_tok.col))
                 self._expect(TokenType.SEMICOLON)
             self._expect(TokenType.RBRACE)
             self._expect(TokenType.SEMICOLON)
-            return StructDecl(name=name, fields=fields, line=tok.line, col=tok.col)
+            return StructDecl(name=name, fields=fields, line=tok.line, col=tok.col,
+                              name_line=name_line, name_col=name_col)
         else:
             self._expect(TokenType.SEMICOLON)
-            return StructDecl(name=name, fields=[], line=tok.line, col=tok.col)
+            return StructDecl(name=name, fields=[], line=tok.line, col=tok.col,
+                              name_line=name_line, name_col=name_col)
 
     # ---- Interface declaration ----
 
     def _parse_interface_decl(self) -> InterfaceDecl:
         tok = self._expect(TokenType.INTERFACE)
-        name = self._expect(TokenType.IDENT, "interface name").value
+        name_tok = self._expect(TokenType.IDENT, "interface name")
+        name = name_tok.value
 
         generic_params = []
         if self._match(TokenType.LT):
@@ -241,15 +258,21 @@ class DeclarationsMixin:
                 sig_keep = True
                 self._advance()
             ret_type = self._parse_type_expr()
-            mname = self._expect(TokenType.IDENT, "method name").value
+            mname_tok = self._expect(TokenType.IDENT, "method name")
+            mname = mname_tok.value
             self._expect(TokenType.LPAREN)
             params = self._parse_param_list()
             self._expect(TokenType.RPAREN)
             self._expect(TokenType.SEMICOLON)
+            # Stamp the method's own position (the return-type token) and the
+            # name token's span — NOT the enclosing `interface` keyword token.
             methods.append(MethodSig(return_type=ret_type, name=mname,
                                      params=params, keep_return=sig_keep,
-                                     line=tok.line, col=tok.col))
+                                     line=ret_type.line, col=ret_type.col,
+                                     name_line=mname_tok.line,
+                                     name_col=mname_tok.col))
         self._expect(TokenType.RBRACE)
         return InterfaceDecl(name=name, methods=methods, parent=parent,
                              generic_params=generic_params,
-                             line=tok.line, col=tok.col)
+                             line=tok.line, col=tok.col,
+                             name_line=name_tok.line, name_col=name_tok.col)

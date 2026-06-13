@@ -24,7 +24,8 @@ class SimpleDeclarationsMixin:
         self.pos = save
         return result
 
-    def _parse_property(self, access, type_expr, name, line, col) -> PropertyDecl:
+    def _parse_property(self, access, type_expr, name, line, col,
+                        name_line=0, name_col=0) -> PropertyDecl:
         """Parse C#-style property: type name { get; set; } or { get { ... } set { ... } }"""
         self._expect(TokenType.LBRACE)
         has_getter = False
@@ -60,28 +61,35 @@ class SimpleDeclarationsMixin:
         return PropertyDecl(access=access, type=type_expr, name=name,
                             has_getter=has_getter, has_setter=has_setter,
                             getter_body=getter_body, setter_body=setter_body,
-                            line=line, col=col)
+                            line=line, col=col,
+                            name_line=name_line, name_col=name_col)
 
     # ---- Enum declaration ----
 
     def _parse_enum_decl(self) -> EnumDecl:
         tok = self._expect(TokenType.ENUM)
         name = ""
+        name_line, name_col = tok.line, tok.col
         if self._check(TokenType.IDENT):
-            name = self._advance().value
+            name_tok = self._advance()
+            name = name_tok.value
+            name_line, name_col = name_tok.line, name_tok.col
         self._expect(TokenType.LBRACE)
         values = []
         while not self._check(TokenType.RBRACE) and not self._at_end():
-            vname = self._expect(TokenType.IDENT, "enum value").value
+            vname_tok = self._expect(TokenType.IDENT, "enum value")
+            vname = vname_tok.value
             vval = None
             if self._match(TokenType.EQ):
                 vval = self._parse_expr()
-            values.append(EnumValue(name=vname, value=vval))
+            values.append(EnumValue(name=vname, value=vval,
+                                    line=vname_tok.line, col=vname_tok.col))
             if not self._match(TokenType.COMMA):
                 break
         self._expect(TokenType.RBRACE)
         self._expect(TokenType.SEMICOLON)
-        return EnumDecl(name=name, values=values, line=tok.line, col=tok.col)
+        return EnumDecl(name=name, values=values, line=tok.line, col=tok.col,
+                        name_line=name_line, name_col=name_col)
 
     # ---- Rich enum declaration ----
 
@@ -89,30 +97,36 @@ class SimpleDeclarationsMixin:
         """Parse: enum class Name { Variant1(type1 name1), Variant2, ... }"""
         tok = self._expect(TokenType.ENUM)
         self._expect(TokenType.CLASS)
-        name = self._expect(TokenType.IDENT, "enum name").value
+        name_tok = self._expect(TokenType.IDENT, "enum name")
+        name = name_tok.value
         self._expect(TokenType.LBRACE)
         variants = []
         while not self._check(TokenType.RBRACE) and not self._at_end():
-            vname = self._expect(TokenType.IDENT, "variant name").value
+            vname_tok = self._expect(TokenType.IDENT, "variant name")
+            vname = vname_tok.value
             params = []
             if self._match(TokenType.LPAREN):
                 if not self._check(TokenType.RPAREN):
                     params = self._parse_param_list()
                 self._expect(TokenType.RPAREN)
-            variants.append(RichEnumVariant(name=vname, params=params))
+            variants.append(RichEnumVariant(name=vname, params=params,
+                                            line=vname_tok.line, col=vname_tok.col))
             if not self._match(TokenType.COMMA):
                 break
         self._expect(TokenType.RBRACE)
-        return RichEnumDecl(name=name, variants=variants, line=tok.line, col=tok.col)
+        return RichEnumDecl(name=name, variants=variants, line=tok.line, col=tok.col,
+                            name_line=name_tok.line, name_col=name_tok.col)
 
     # ---- Typedef declaration ----
 
     def _parse_typedef_decl(self) -> TypedefDecl:
         tok = self._expect(TokenType.TYPEDEF)
         original = self._parse_type_expr()
-        alias = self._expect(TokenType.IDENT, "typedef alias").value
+        alias_tok = self._expect(TokenType.IDENT, "typedef alias")
+        alias = alias_tok.value
         self._expect(TokenType.SEMICOLON)
-        return TypedefDecl(original=original, alias=alias, line=tok.line, col=tok.col)
+        return TypedefDecl(original=original, alias=alias, line=tok.line, col=tok.col,
+                           name_line=alias_tok.line, name_col=alias_tok.col)
 
     # ---- Function or variable declaration ----
 
@@ -125,12 +139,14 @@ class SimpleDeclarationsMixin:
             if is_gpu:
                 raise self._error("@gpu cannot be applied to variables")
             self._advance()
-            name = self._expect(TokenType.IDENT, "variable name").value
+            name_tok = self._expect(TokenType.IDENT, "variable name")
+            name = name_tok.value
             self._expect(TokenType.EQ, "'=' (var requires an initializer)")
             init = self._parse_expr()
             self._expect(TokenType.SEMICOLON)
             return VarDeclStmt(type=None, name=name, initializer=init,
-                               line=start.line, col=start.col)
+                               line=start.line, col=start.col,
+                               name_line=name_tok.line, name_col=name_tok.col)
 
         type_expr = self._parse_type_expr()
         name_tok = self._expect(TokenType.IDENT, "name")
@@ -144,12 +160,14 @@ class SimpleDeclarationsMixin:
                 return FunctionDecl(return_type=type_expr, name=name, params=params,
                                     body=None, is_gpu=is_gpu,
                                     keep_return=keep_return,
-                                    line=start.line, col=start.col)
+                                    line=start.line, col=start.col,
+                                    name_line=name_tok.line, name_col=name_tok.col)
             body = self._parse_block()
             return FunctionDecl(return_type=type_expr, name=name, params=params,
                                 body=body, is_gpu=is_gpu,
                                 keep_return=keep_return,
-                                line=start.line, col=start.col)
+                                line=start.line, col=start.col,
+                                name_line=name_tok.line, name_col=name_tok.col)
         else:
             if is_gpu:
                 raise self._error("@gpu cannot be applied to variables")
@@ -158,4 +176,5 @@ class SimpleDeclarationsMixin:
                 init = self._parse_expr()
             self._expect(TokenType.SEMICOLON)
             return VarDeclStmt(type=type_expr, name=name, initializer=init,
-                               line=start.line, col=start.col)
+                               line=start.line, col=start.col,
+                               name_line=name_tok.line, name_col=name_tok.col)

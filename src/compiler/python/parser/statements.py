@@ -202,15 +202,18 @@ class StatementsMixin:
 
         if self._check(TokenType.VAR):
             self._advance()
-            name = self._expect(TokenType.IDENT, "variable name").value
+            name_tok = self._expect(TokenType.IDENT, "variable name")
+            name = name_tok.value
             self._expect(TokenType.EQ, "'=' (var requires an initializer)")
             init = self._parse_expr()
             self._expect(TokenType.SEMICOLON)
             return VarDeclStmt(type=None, name=name, initializer=init,
-                               line=tok.line, col=tok.col)
+                               line=tok.line, col=tok.col,
+                               name_line=name_tok.line, name_col=name_tok.col)
 
         type_expr = self._parse_type_expr()
-        name = self._expect(TokenType.IDENT, "variable name").value
+        name_tok = self._expect(TokenType.IDENT, "variable name")
+        name = name_tok.value
         if self._check(TokenType.LBRACKET):
             self._advance()
             if self._check(TokenType.RBRACKET):
@@ -226,4 +229,5 @@ class StatementsMixin:
             init = self._parse_expr()
         self._expect(TokenType.SEMICOLON)
         return VarDeclStmt(type=type_expr, name=name, initializer=init,
-                           line=tok.line, col=tok.col)
+                           line=tok.line, col=tok.col,
+                           name_line=name_tok.line, name_col=name_tok.col)

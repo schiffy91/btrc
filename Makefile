@@ -1,4 +1,4 @@
-.PHONY: all help build gpu gui stubs-generate \
+.PHONY: all help build gpu gui stubs-generate ast-generate \
         test test-unit test-btrc test-c11 test-generate-goldens \
         lint format format-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui bench \
@@ -53,6 +53,9 @@ gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 
 stubs-generate: ## Regenerate built-in type stubs
 	$(NIX) python3 src/language/ast/gen_builtins.py
+
+ast-generate: ## Regenerate the Python AST node classes from ast.asdl
+	$(NIX) python3 src/language/ast/asdl_python.py src/language/ast/ast.asdl > src/compiler/python/ast_nodes.py
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
