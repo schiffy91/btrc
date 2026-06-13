@@ -45,7 +45,7 @@ def _swapped(live: str, uri: str = URI) -> AnalysisResult:
     return AnalysisResult(
         uri=s.uri, source=live, diagnostics=s.diagnostics, tokens=s.tokens,
         ast=s.ast, analyzed=s.analyzed, source_positions=s.source_positions,
-        path=s.path, units=s.units, name_positions=s.name_positions,
+        path=s.path, units=s.units,
         snapshot_source=s.source, _caches=s._caches,
     )
 

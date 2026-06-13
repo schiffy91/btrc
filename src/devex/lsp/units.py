@@ -5,6 +5,11 @@ coordinates, with no preprocessing — so token and AST positions match the
 editor exactly. ``import`` is a real keyword now, so each file's ImportDecl
 nodes carry true line/col and are read directly. Caching and composition live
 in workspace.py.
+
+Name positions are no longer reconstructed here: every named decl/member
+carries its own ``name_line``/``name_col`` (populated by the parser), read
+directly by the definition and symbol providers. The old token-rescan
+side-table has been retired.
 """
 
 from __future__ import annotations
@@ -44,9 +49,6 @@ class FileUnit:
     content_hash: str
     tokens: list[Token] = field(default_factory=list)
     decls: list = field(default_factory=list)
-    name_positions: list[tuple[int, int]] = field(default_factory=list)  # parallel to decls
-    # Parallel to decls; for ClassDecl entries, parallel to its members.
-    member_name_positions: list[list[tuple[int, int]]] = field(default_factory=list)
     # (1-based line, import_spec node) — read from this file's ImportDecl nodes.
     import_specs: list[tuple[int, object]] = field(default_factory=list)
     defined_names: frozenset[str] = frozenset()
@@ -59,51 +61,6 @@ class FileUnit:
     @property
     def error(self) -> Exception | None:
         return self.lex_error or self.parse_error
-
-
-def _decl_name(decl) -> str | None:
-    return getattr(decl, "name", None) or getattr(decl, "alias", None)
-
-
-def _compute_name_positions(
-    decls: list, tokens: list[Token]
-) -> tuple[list[tuple[int, int]], list[list[tuple[int, int]]]]:
-    """Position of each decl's (and class member's) *name* token.
-
-    Editors expect go-to-definition to land on the name, not the leading
-    keyword/type the node records. One forward token walk covers everything
-    because decls and members appear in source order.
-    """
-    positions: list[tuple[int, int]] = []
-    member_positions: list[list[tuple[int, int]]] = []
-    n = len(tokens)
-    state = {"ptr": 0}
-
-    def name_pos(node) -> tuple[int, int]:
-        line = getattr(node, "line", 0)
-        col = getattr(node, "col", 0)
-        name = _decl_name(node)
-        if not name:
-            return (line, col)
-        ptr = state["ptr"]
-        while ptr < n and (tokens[ptr].line, tokens[ptr].col) < (line, col):
-            ptr += 1
-        state["ptr"] = ptr
-        scan = ptr
-        while scan < n:
-            if tokens[scan].value == name:
-                return (tokens[scan].line, tokens[scan].col)
-            scan += 1
-        return (line, col)
-
-    for decl in decls:
-        positions.append(name_pos(decl))
-        members = getattr(decl, "members", None)
-        if members:
-            member_positions.append([name_pos(m) for m in members])
-        else:
-            member_positions.append([])
-    return positions, member_positions
 
 
 def _collect_import_specs(decls: list) -> list[tuple[int, object]]:
@@ -150,9 +107,6 @@ def parse_unit(path: str, source: str) -> FileUnit:
     unit.import_specs = _collect_import_specs(unit.decls)
     for decl in unit.decls:
         decl.source_file = unit.path
-    unit.name_positions, unit.member_name_positions = _compute_name_positions(
-        unit.decls, unit.tokens
-    )
     return unit
 
 

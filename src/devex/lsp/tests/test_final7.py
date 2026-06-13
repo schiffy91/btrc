@@ -15,7 +15,7 @@ from src.devex.lsp import signature_help as sighelp
 from src.devex.lsp import utils as lsputils
 from src.devex.lsp.builtins import get_stdlib_signature
 from src.devex.lsp.completion import get_completions
-from src.devex.lsp.definition import _resolve_name_pos, get_definition
+from src.devex.lsp.definition import _name_pos, get_definition
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.references import get_references, get_rename_edits, prepare_rename
@@ -166,12 +166,15 @@ def test_definition_var_declared_after_cursor_is_skipped():
     assert loc is None or loc.range.start.line == 1
 
 
-def test_resolve_name_pos_fallbacks():
-    # No tokens -> the node's own position is returned unchanged.
-    assert _resolve_name_pos(None, 5, 3, "x") == (5, 3)
-    # Name not present among the tokens -> fall back to the node position.
-    toks = Lexer("int a = 1;", "x").tokenize()
-    assert _resolve_name_pos(toks, 1, 1, "missingname") == (1, 1)
+def test_name_pos_reads_fields_and_falls_back():
+    from src.compiler.python.ast_nodes import ClassDecl
+
+    # Populated name span is read directly (file-qualified).
+    populated = ClassDecl(name="P", name_line=3, name_col=7, line=3, col=1)
+    assert _name_pos(populated, "/p.btrc") == ("/p.btrc", 3, 7)
+    # Unpopulated name span (synthetic node) falls back to line/col.
+    synthetic = ClassDecl(name="P", line=5, col=2)
+    assert _name_pos(synthetic, None) == (None, 5, 2)
 
 
 def test_definition_member_near_file_start_is_none():

@@ -40,12 +40,15 @@ def test_parse_unit_reads_import_specs_in_native_coordinates():
 
 
 def test_parse_unit_name_positions_land_on_names():
+    # The name-span side-table was retired: each decl/member carries its own
+    # name_line/name_col, populated by the parser and read directly.
     src = "class Point {\n    public int x;\n    public int getX() { return self.x; }\n}\n"
     unit = parse_unit("/x/p.btrc", src)
-    assert unit.name_positions[0] == (1, 7)  # 'Point'
-    fields = unit.member_name_positions[0]
-    assert fields[0] == (2, 16)  # 'x'
-    assert fields[1] == (3, 16)  # 'getX'
+    cls = unit.decls[0]
+    assert (cls.name_line, cls.name_col) == (1, 7)  # 'Point'
+    field, method = cls.members[0], cls.members[1]
+    assert (field.name_line, field.name_col) == (2, 16)  # 'x'
+    assert (method.name_line, method.name_col) == (3, 16)  # 'getX'
 
 
 def _write_project(tmp_path, lib_source=None):

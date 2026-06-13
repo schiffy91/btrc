@@ -19,6 +19,18 @@
 
   -- Keywords: identifiers reserved by the language.
   -- The lexer maps these to distinct token types.
+  --
+  -- RESERVED (lexed as keywords, but no @syntax rule consumes them yet —
+  -- using them is a parse error; they are reserved to keep the C surface
+  -- intact and to leave room for future syntax):
+  --   auto, register  -- C storage classes, not implemented
+  --   goto            -- no goto/label syntax
+  --   override        -- not a member modifier (member_body has no slot for
+  --                      it); `public override int f()` is a parse error
+  --   union           -- only usable as a `union IDENT` base_type, never as a
+  --                      top-level declaration
+  -- These remain in @keywords so the keyword/token round-trip stays total
+  -- (every keyword maps to an existing TokenType, and tokens.py validates it).
 
   @keywords {
     -- C keywords
@@ -163,10 +175,15 @@
 
   class_member = access_modifier member_body ;
 
-  access_modifier = "public" | "private" | "class"
-                  (* "class" is used for static methods *) ;
+  access_modifier = "public" | "private" | "class" | "static"
+                  (* "class" and "static" both mark a static member; the
+                     parser maps both to access "class". *) ;
 
-  member_body = [ "@gpu" ] [ "abstract" ] method_or_field_or_property ;
+  member_body = [ "abstract" ] [ "@gpu" ] [ "keep" ] method_or_field_or_property
+                (* Modifier order is fixed: abstract, then @gpu, then keep.
+                   "abstract" is only accepted inside an `abstract class`
+                   (abstract methods elsewhere are a parse error). "keep" marks
+                   the return value as keep-retained. *) ;
 
   method_or_field_or_property
               = type_expr IDENT method_rest        (* method: has ( *)
@@ -188,16 +205,23 @@
   -- Interface declaration
   -- ----------------------------------------------------------------
 
-  interface_decl = "interface" IDENT [ "extends" IDENT ]
-                   "{" { method_signature } "}" ;
+  interface_decl = "interface" IDENT [ "<" ident_list ">" ]
+                   [ "extends" IDENT ]
+                   "{" { method_signature } "}"
+                   (* Generic interfaces (interface Box<T>) are supported. *) ;
 
-  method_signature = type_expr IDENT "(" param_list ")" ";" ;
+  method_signature = [ "keep" ] type_expr IDENT "(" param_list ")" ";"
+                     (* "keep" marks the returned value as keep-retained. *) ;
 
   -- ----------------------------------------------------------------
   -- Struct declaration
   -- ----------------------------------------------------------------
 
-  struct_decl = "struct" IDENT "{" { struct_field } "}" ";" ;
+  struct_decl = "struct" [ IDENT ] "{" { struct_field } "}" ";"
+              | "struct" IDENT ";"
+                (* The name is optional, allowing anonymous structs
+                   (struct { int x; };). A named struct with no body is a
+                   forward declaration (struct Foo;). *) ;
 
   struct_field = type_expr IDENT [ "[" expr "]" ] ";" ;
 
@@ -205,7 +229,9 @@
   -- Enum declarations
   -- ----------------------------------------------------------------
 
-  enum_decl      = "enum" IDENT "{" enum_value { "," enum_value } [ "," ] "}" ";" ;
+  enum_decl      = "enum" [ IDENT ] "{" enum_value { "," enum_value } [ "," ] "}" ";"
+                   (* The name is optional: anonymous enums (enum { A, B };)
+                      are supported. *) ;
   enum_value     = IDENT [ "=" expr ] ;
 
   rich_enum_decl = "enum" "class" IDENT "{"
@@ -229,9 +255,15 @@
   -- Type expressions
   -- ----------------------------------------------------------------
 
-  type_expr = { type_qualifier } base_type [ generic_args ] { pointer_or_array }
-              [ "?" ]
-              (* "?" is nullable sugar: adds one pointer level *) ;
+  type_expr = { type_qualifier } base_type [ generic_args ]
+              [ "[" "]" ] { "*" } [ "?" ]
+              (* Fixed parse order: qualifiers, base type, generic args, then
+                 at most one UNSIZED array suffix "[]", then zero or more
+                 pointer "*", then at most one nullable "?".
+                 "?" is nullable sugar: adds one pointer level.
+                 SIZED arrays ("[" expr "]") are NOT part of type_expr; they
+                 are parsed only in param, struct_field, and var-decl contexts
+                 as a suffix on the declared name (e.g. int arr[10]). *) ;
 
   type_qualifier = "const" | "static" | "extern" | "volatile" ;
 
@@ -246,15 +278,20 @@
             ;
 
   generic_args = "<" type_list ">"
-                 (* Disambiguation: '<' after a type name could be comparison.
-                    Parser uses lookahead to check for matching '>'.
-                    Heuristic: if balanced '<'/'>' with types inside, it is generic.
-                    Also handles ">>" splitting for nested generics like
+                 (* Disambiguation ('<' generic vs. less-than comparison):
+                    the parser scans forward from "<" tracking nesting depth,
+                    splitting ">>" into two closing ">". If it hits ";", "{",
+                    "}", or EOF before the nesting closes, it is NOT generic.
+                    When the matching ">" is found, it is treated as generic
+                    args only if the token immediately AFTER the closing ">"
+                    is one of:
+                      IDENT  "*"  "("  ")"  "["  ","  ">"  ">>"  ";"  "{"  "="
+                    (a type/name continuation, nesting close, or declarator
+                    boundary). Otherwise the "<" is a comparison operator.
+                    The ">>" split also handles nested generics like
                     List<Map<int, int>>. *) ;
 
   type_list = type_expr { "," type_expr } ;
-
-  pointer_or_array = "*" | "[" [ expr ] "]" ;
 
   -- ----------------------------------------------------------------
   -- Parameters
@@ -262,8 +299,9 @@
 
   param_list = [ param { "," param } ] ;
 
-  param = type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
-          (* Array-style params: int arr[], int arr[10]
+  param = [ "keep" ] type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
+          (* "keep" qualifier: the callee keep-retains the argument.
+             Array-style params: int arr[], int arr[10]
              Default values: int x = 42 *) ;
 
   -- ----------------------------------------------------------------
@@ -330,7 +368,13 @@
   switch_stmt = "switch" "(" expr ")" "{" { case_clause } "}" ;
   case_clause = ( "case" expr | "default" ) ":" { statement } ;
 
-  try_catch_stmt = "try" block "catch" "(" IDENT ")" block [ "finally" block ] ;
+  try_catch_stmt = "try" block
+                   [ "catch" "(" [ type_expr ] IDENT ")" block ]
+                   [ "finally" block ]
+                   (* At least one of "catch" or "finally" must be present, so
+                      try/finally without a catch is legal. The catch clause may
+                      carry an optional type annotation (catch (Error e)); the
+                      type is parsed but currently not stored in the AST. *) ;
 
   -- ----------------------------------------------------------------
   -- Expressions (precedence: lowest to highest)
@@ -374,14 +418,38 @@
                  | "sizeof" "(" type_or_expr ")"
                  | "(" type_expr ")" unary  (* C-style cast *)
                  | postfix
-                 (* Cast disambiguation: "(" followed by a type name and ")"
-                    where the token after ")" starts an expression.
-                    Parser uses trial parse: try type_expr, if success
-                    and next is expression-start, treat as cast. *) ;
+                 (* Unary "+" is accepted as a C-style no-op (e.g. +5, +x).
+
+                    Cast disambiguation is NOT a trial parse; it is a bounded
+                    lookahead. After "(", the parser inspects what follows:
+
+                    (a) Type-keyword cast — "(" begins with a base-type keyword
+                        (int, float, struct, const, ...): scan to the matching
+                        ")"; it is a cast iff the token AFTER ")" is in the
+                        cast-follow set below.
+
+                    (b) Bare-identifier / explicit-type cast — "(" begins with
+                        IDENT, optionally followed by "<...>" generic args,
+                        "*" pointers, and/or "?". If any of those explicit-type
+                        markers are present (e.g. (Foo*)x, (Box<int>)x, (Foo?)x)
+                        the full cast-follow set applies. For a BARE identifier
+                        with no type markers (e.g. (a)) the follow set EXCLUDES
+                        "+", "-", "*", "&", so that (a) + 1, (a) - 1, (a) * b,
+                        (a) & b parse as grouped binary expressions, not casts.
+
+                    Cast-follow set (token immediately after the closing ")"
+                    that makes the parenthesized type a cast):
+                      IDENT INT_LIT FLOAT_LIT STRING_LIT CHAR_LIT FSTRING_LIT
+                      "(" "sizeof" "*" "&" "!" "~" "+" "-" "++" "--"
+                      "self" "true" "false" "null" "new" "spawn"
+                    For a bare identifier, "+" "-" "*" "&" are removed from
+                    this set (see above). *) ;
 
   type_or_expr   = type_expr | expr
-                   (* Ambiguous: sizeof(int) vs sizeof(x).
-                      Parser tries type_expr first. *) ;
+                   (* Ambiguous: sizeof(int) vs sizeof(x). The parser uses
+                      lookahead: a type keyword, or an IDENT immediately
+                      followed by ")", "*", or "<", is read as a type;
+                      otherwise the operand is parsed as an expression. *) ;
 
   postfix        = primary { postfix_op } ;
 
@@ -389,6 +457,11 @@
                  | "[" expr "]"             (* indexing *)
                  | "." IDENT               (* field access *)
                  | "." INT_LIT             (* tuple field: .0, .1, .2 *)
+                                           (* LIMITATION: chained tuple access
+                                              like x.0.1 does NOT parse — the
+                                              lexer greedily reads "0.1" as one
+                                              FLOAT_LIT. Use (x.0).1 or bind an
+                                              intermediate. *)
                  | "?." IDENT              (* optional chaining *)
                  | "->" IDENT              (* arrow access *)
                  | "++"                     (* postfix increment *)
@@ -425,12 +498,14 @@
                    (* If comma present: tuple literal (a, b, c).
                       Otherwise: parenthesized expression (a). *) ;
 
-  list_literal   = "[" [ expr_list ] "]" ;
+  list_literal   = "[" [ expr_list [ "," ] ] "]"
+                   (* A trailing comma is allowed: [1, 2, 3,] *) ;
 
-  map_or_brace   = "{" map_entries "}"    (* map literal: {k: v, ...} *)
-                 | "{" [ expr_list ] "}"  (* brace initializer: {a, b, c} *)
+  map_or_brace   = "{" map_entries "}"            (* map literal: {k: v, ...} *)
+                 | "{" [ expr_list [ "," ] ] "}"  (* brace initializer: {a, b, c} *)
                  (* Disambiguation: if first expr is followed by ":",
-                    treat as map literal. Otherwise brace initializer. *) ;
+                    treat as map literal. Otherwise brace initializer.
+                    Both forms allow a trailing comma: {1: 2,} and {1, 2,}. *) ;
 
   map_entries    = map_entry { "," map_entry } [ "," ] ;
   map_entry      = expr ":" expr ;

@@ -144,8 +144,6 @@ class Workspace:
             content_hash=unit.content_hash,
             tokens=[],  # stdlib tokens not used by features
             decls=unit.decls,
-            name_positions=unit.name_positions,
-            member_name_positions=unit.member_name_positions,
             import_specs=[],
             defined_names=unit.defined_names,
         )

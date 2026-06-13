@@ -26,6 +26,7 @@ from src.compiler.python.ast_nodes import (
     EnumDecl,
     FieldDecl,
     FunctionDecl,
+    InterfaceDecl,
     MethodDecl,
     PropertyDecl,
     RichEnumDecl,
@@ -48,24 +49,18 @@ from src.devex.lsp.var_scopes import VarDef, collect_callable_vars
 # ---------------------------------------------------------------------------
 
 
-def _resolve_name_pos(
-    tokens: list[Token] | None, line: int, col: int, name: str
-) -> tuple[int, int]:
-    """Position of the *name* identifier token at or after (line, col).
+def _name_pos(node, file: str | None) -> tuple[str | None, int, int]:
+    """File-qualified position of *node*'s NAME token.
 
-    A declaration node records the position of its leading keyword or type
-    (e.g. ``class``/``int``), but editors expect go-to-definition and find-
-    references to operate on the *name*. Scan forward to the first token that
-    spells *name*; fall back to the node position when tokens are unavailable.
+    Named decls/members carry ``name_line``/``name_col`` pointing at their name
+    token (populated by the parser). Read them directly. ``name_line == 0``
+    means the field was never populated (a synthetic node), so fall back to the
+    node's own ``line``/``col``.
     """
-    if not tokens:
-        return (line, col)
-    for tok in tokens:
-        if (tok.line, tok.col) < (line, col):
-            continue
-        if tok.value == name:
-            return (tok.line, tok.col)
-    return (line, col)
+    nl = getattr(node, "name_line", 0)
+    if nl:
+        return (file, nl, getattr(node, "name_col", 0))
+    return (file, getattr(node, "line", 0), getattr(node, "col", 0))
 
 
 class DefinitionMap:
@@ -101,57 +96,52 @@ class DefinitionMap:
         return dmap
 
     def _build(self, result: AnalysisResult):
-        name_positions = result.name_positions
         tokens = result.tokens
-
-        def named(node, name: str, file: str | None) -> tuple[str | None, int, int]:
-            pos = name_positions.get(id(node))
-            if pos is not None:
-                return pos
-            # No precomputed position (test snippets): scan the document tokens.
-            line, col = _resolve_name_pos(tokens, node.line, node.col, name)
-            return (file, line, col)
 
         for decl in result.ast.declarations:
             file = getattr(decl, "source_file", None)
             is_active = file is None or file == result.path
             if isinstance(decl, ClassDecl):
-                self.class_defs[decl.name] = named(decl, decl.name, file)
-                self._collect_class_members(decl, file, named, tokens, is_active)
+                self.class_defs[decl.name] = _name_pos(decl, file)
+                self._collect_class_members(decl, file, tokens, is_active)
+            elif isinstance(decl, InterfaceDecl):
+                # Interface name navigates like a class; its MethodSig members
+                # now carry correct name spans (the span used to be wrong).
+                self.class_defs[decl.name] = _name_pos(decl, file)
+                for sig in decl.methods:
+                    self.method_defs[(decl.name, sig.name)] = _name_pos(sig, file)
             elif isinstance(decl, FunctionDecl):
-                self.function_defs[decl.name] = named(decl, decl.name, file)
+                self.function_defs[decl.name] = _name_pos(decl, file)
                 if is_active:
                     collect_callable_vars(self.var_defs, decl, tokens)
             elif isinstance(decl, EnumDecl):
-                name_pos = named(decl, decl.name, file)
-                self.enum_defs[decl.name] = name_pos
-                # Map each value name too, so cmd-clicking a use of a value
-                # (e.g. RED) jumps to the enum declaration.
+                self.enum_defs[decl.name] = _name_pos(decl, file)
+                # Map each value name to the value's own position, so cmd-
+                # clicking a use of a value (e.g. RED) jumps to that variant.
                 for v in decl.values:
-                    self.enum_defs.setdefault(v.name, name_pos)
+                    self.enum_defs.setdefault(v.name, _name_pos(v, file))
             elif isinstance(decl, RichEnumDecl):
-                name_pos = named(decl, decl.name, file)
-                self.enum_defs[decl.name] = name_pos
+                self.enum_defs[decl.name] = _name_pos(decl, file)
                 for variant in decl.variants:
-                    self.enum_defs.setdefault(variant.name, name_pos)
+                    self.enum_defs.setdefault(variant.name, _name_pos(variant, file))
             elif isinstance(decl, StructDecl):
-                self.struct_defs[decl.name] = named(decl, decl.name, file)
+                self.struct_defs[decl.name] = _name_pos(decl, file)
             elif isinstance(decl, TypedefDecl):
-                self.typedef_defs[decl.alias] = named(decl, decl.alias, file)
+                self.typedef_defs[decl.alias] = _name_pos(decl, file)
 
     def _collect_class_members(
-        self, cls: ClassDecl, file: str | None, named, tokens, collect_vars: bool
+        self, cls: ClassDecl, file: str | None, tokens, collect_vars: bool
     ):
         """Collect all member definitions from a class declaration."""
         for member in cls.members:
             if isinstance(member, FieldDecl):
-                self.field_defs[(cls.name, member.name)] = named(member, member.name, file)
+                self.field_defs[(cls.name, member.name)] = _name_pos(member, file)
             elif isinstance(member, MethodDecl):
-                self.method_defs[(cls.name, member.name)] = named(member, member.name, file)
+                self.method_defs[(cls.name, member.name)] = _name_pos(member, file)
                 if collect_vars:
                     collect_callable_vars(self.var_defs, member, tokens, cls.name)
             elif isinstance(member, PropertyDecl):
-                self.property_defs[(cls.name, member.name)] = named(member, member.name, file)
+                self.property_defs[(cls.name, member.name)] = _name_pos(member, file)
 
     def find_var_def(self, name: str, line: int, col: int) -> VarDef | None:
         """Innermost definition of *name* visible at 1-based (line, col).

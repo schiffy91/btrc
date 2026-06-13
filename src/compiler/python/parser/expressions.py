@@ -130,15 +130,15 @@ class ExpressionsMixin:
     def _parse_unary(self):
         tok = self._peek()
 
-        if tok.type in (TokenType.BANG, TokenType.TILDE):
+        # Unary +/- and !/~ all share the same shape. Unary + is a C-style
+        # no-op kept for source compatibility (e.g. +5, +x); IR gen treats it
+        # as identity. The grammar's `unary` rule lists "+", so accepting it
+        # keeps spec and parser aligned.
+        if tok.type in (TokenType.BANG, TokenType.TILDE,
+                        TokenType.PLUS, TokenType.MINUS):
             self._advance()
             operand = self._parse_unary()
             return UnaryExpr(op=tok.value, operand=operand, prefix=True,
-                             line=tok.line, col=tok.col)
-        if tok.type == TokenType.MINUS:
-            self._advance()
-            operand = self._parse_unary()
-            return UnaryExpr(op="-", operand=operand, prefix=True,
                              line=tok.line, col=tok.col)
         if tok.type == TokenType.PLUS_PLUS:
             self._advance()

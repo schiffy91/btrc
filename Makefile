@@ -1,4 +1,4 @@
-.PHONY: all help build gpu gui stubs-generate ast-generate \
+.PHONY: all help build gpu gui stubs-generate ast-generate ast-generate-btrc \
         test test-unit test-btrc test-c11 test-generate-goldens \
         lint format format-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui bench \
@@ -56,6 +56,9 @@ stubs-generate: ## Regenerate built-in type stubs
 
 ast-generate: ## Regenerate the Python AST node classes from ast.asdl
 	$(NIX) python3 src/language/ast/asdl_python.py src/language/ast/ast.asdl > src/compiler/python/ast_nodes.py
+
+ast-generate-btrc: ## Regenerate the btrc AST node classes from ast.asdl
+	$(NIX) python3 src/language/ast/asdl_btrc.py src/language/ast/ast.asdl > src/compiler/btrc/ast_nodes.btrc
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 

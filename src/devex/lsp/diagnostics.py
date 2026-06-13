@@ -42,7 +42,6 @@ class AnalysisResult:
     source_positions: list[tuple[str, int]] = field(default_factory=list)  # legacy, unused
     path: str = ""
     units: list[FileUnit] = field(default_factory=list)  # active + imported (with tokens)
-    name_positions: dict[int, tuple[str, int, int]] = field(default_factory=dict)
     # When the server swaps `source` to the live (mid-edit) buffer, this holds
     # the source the tokens/ast were computed from. None means source IS the
     # analyzed snapshot.
@@ -114,23 +113,6 @@ def _make_diagnostic(
     )
 
 
-def _collect_name_positions(result: AnalysisResult, units: list[FileUnit]) -> None:
-    for unit in units:
-        for i, decl in enumerate(unit.decls):
-            if i < len(unit.name_positions):
-                line, col = unit.name_positions[i]
-                result.name_positions[id(decl)] = (unit.path, line, col)
-            members = getattr(decl, "members", None)
-            member_pos = (
-                unit.member_name_positions[i]
-                if i < len(unit.member_name_positions)
-                else []
-            )
-            if members and member_pos:
-                for m, (mline, mcol) in zip(members, member_pos):
-                    result.name_positions[id(m)] = (unit.path, mline, mcol)
-
-
 def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
     """Run the per-file front-end and return diagnostics for this document."""
     path = uri_to_path(uri)
@@ -177,7 +159,6 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
 
     result.ast = comp.program
     result.units = comp.units_with_tokens()
-    _collect_name_positions(result, comp.stdlib + comp.imported + [comp.active])
 
     try:
         result.analyzed = WORKSPACE.analyze(comp)

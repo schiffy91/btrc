@@ -192,6 +192,9 @@ def _build_stdlib_archive(out_dir: str) -> None:
 
 
 def main():
+    # Deeply nested expressions recurse through the full precedence chain;
+    # lift the limit before parsing (the analyzer raises it too, post-parse).
+    sys.setrecursionlimit(40000)
     argparser = argparse.ArgumentParser(description="btrc transpiler")
     argparser.add_argument("input", nargs="?", help="Input .btrc file")
     argparser.add_argument("--stdlib-dir", action=_PrintStdlibDir,
@@ -313,6 +316,10 @@ def main():
         )
     except (LexerError, ParseError) as e:
         _syntax_error_exit(diag_printer, e)
+    except RecursionError:
+        print("error: expression or declaration nested too deeply to compile",
+              file=sys.stderr)
+        sys.exit(1)
     except FrontendVisibilityError as e:
         for msg, line, col in e.errors:
             diag_printer.emit(msg, line, col)

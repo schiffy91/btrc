@@ -12,6 +12,7 @@ from src.compiler.python.ast_nodes import (
     EnumDecl,
     EnumValue,
     FieldDecl,
+    FieldDef,
     FunctionDecl,
     MethodDecl,
     StructDecl,
@@ -59,13 +60,31 @@ def _range_from_node(
     return lsp.Range(start=start, end=lsp.Position(line=line_idx, character=end_col))
 
 
+def _name_line_col(node) -> tuple[int, int]:
+    """1-based position of *node*'s NAME token.
+
+    Named decls/members carry ``name_line``/``name_col`` pointing at their name
+    (populated by the parser); nodes whose position already *is* the name
+    (EnumValue, FieldDef, RichEnumVariant) carry only ``line``/``col``. Read the
+    name span when present, otherwise fall back to the node's own position.
+    """
+    nl = getattr(node, "name_line", 0)
+    if nl:
+        return (nl, getattr(node, "name_col", 0))
+    return (getattr(node, "line", 0), getattr(node, "col", 0))
+
+
 def _selection_range(result: AnalysisResult, node) -> lsp.Range | None:
-    """Selection range: just the name, approximated as the node's start position."""
-    mapped = _document_position(result, node.line, node.col)
-    if mapped is None:
+    """Selection range covering the symbol's NAME token.
+
+    Reads the node's real name span so the outline selects the name, not the
+    leading keyword/type.
+    """
+    line, col = _name_line_col(node)
+    if line == 0:
         return None
-    start = _pos(mapped[0], mapped[1])
-    name = getattr(node, "name", "")
+    start = _pos(line, col)
+    name = getattr(node, "name", "") or getattr(node, "alias", "")
     end = lsp.Position(line=start.line, character=start.character + len(name))
     return lsp.Range(start=start, end=end)
 
@@ -173,12 +192,16 @@ def get_document_symbols(result: AnalysisResult) -> list[lsp.DocumentSymbol]:
             children = []
             for ev in decl.values:
                 if isinstance(ev, EnumValue):
+                    ev_selection = _selection_range(result, ev)
+                    # Values now carry a real position; fall back to the enum's
+                    # range only when unpopulated (synthetic).
+                    ev_range = ev_selection or decl_range
                     children.append(
                         lsp.DocumentSymbol(
                             name=ev.name,
                             kind=lsp.SymbolKind.EnumMember,
-                            range=decl_range,
-                            selection_range=decl_selection,
+                            range=ev_range,
+                            selection_range=ev_selection or decl_selection,
                             detail=str(ev.value) if ev.value is not None else "",
                         )
                     )
@@ -197,12 +220,29 @@ def get_document_symbols(result: AnalysisResult) -> list[lsp.DocumentSymbol]:
             decl_selection = _selection_range(result, decl)
             if decl_range is None or decl_selection is None:
                 continue
+            field_children: list[lsp.DocumentSymbol] = []
+            for fd in decl.fields:
+                if not isinstance(fd, FieldDef):
+                    continue
+                fd_selection = _selection_range(result, fd)
+                if fd_selection is None:
+                    continue
+                field_children.append(
+                    lsp.DocumentSymbol(
+                        name=fd.name,
+                        kind=lsp.SymbolKind.Field,
+                        range=fd_selection,
+                        selection_range=fd_selection,
+                        detail=type_repr(fd.type),
+                    )
+                )
             symbols.append(
                 lsp.DocumentSymbol(
                     name=decl.name,
                     kind=lsp.SymbolKind.Struct,
                     range=decl_range,
                     selection_range=decl_selection,
+                    children=field_children,
                 )
             )
 

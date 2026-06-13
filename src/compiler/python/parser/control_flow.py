@@ -101,21 +101,25 @@ class ControlFlowMixin:
                 start = self._peek()
                 if self._check(TokenType.VAR):
                     self._advance()
-                    name = self._expect(TokenType.IDENT, "variable name").value
+                    name_tok = self._expect(TokenType.IDENT, "variable name")
+                    name = name_tok.value
                     self._expect(TokenType.EQ, "'=' (var requires an initializer)")
                     init_val = self._parse_expr()
                     init = ForInitVar(var_decl=VarDeclStmt(
                         type=None, name=name, initializer=init_val,
-                        line=start.line, col=start.col))
+                        line=start.line, col=start.col,
+                        name_line=name_tok.line, name_col=name_tok.col))
                 else:
                     type_expr = self._parse_type_expr()
-                    name = self._expect(TokenType.IDENT, "variable name").value
+                    name_tok = self._expect(TokenType.IDENT, "variable name")
+                    name = name_tok.value
                     init_val = None
                     if self._match(TokenType.EQ):
                         init_val = self._parse_expr()
                     init = ForInitVar(var_decl=VarDeclStmt(
                         type=type_expr, name=name, initializer=init_val,
-                        line=start.line, col=start.col))
+                        line=start.line, col=start.col,
+                        name_line=name_tok.line, name_col=name_tok.col))
             else:
                 init = ForInitExpr(expression=self._parse_expr())
         self._expect(TokenType.SEMICOLON)

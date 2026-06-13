@@ -118,7 +118,6 @@ def _result_with_current_source(uri: str) -> AnalysisResult | None:
             source_positions=result.source_positions,
             path=result.path,
             units=result.units,
-            name_positions=result.name_positions,
             snapshot_source=result.source,
             _caches=result._caches,
         )
