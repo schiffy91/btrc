@@ -25,7 +25,7 @@ from ..nodes import (
     IRVarDecl,
 )
 from .stringable import has_to_string, to_string_call
-from .types import format_spec_for_type
+from .types import format_spec_for_type, type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -34,16 +34,27 @@ if TYPE_CHECKING:
 def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
     """Lower an f-string to snprintf-based string building.
 
+    Each interpolated expression is evaluated EXACTLY ONCE into a temporary,
+    and that temporary is reused by both the measure (snprintf NULL/0 sizing)
+    and the write pass. Evaluating the expression in both passes would
+    double-run any side effects (counters, RNG, pop(), I/O).
+
     Pattern:
-        int __len = snprintf(NULL, 0, "fmt", args...);
+        <T0> __arg0 = <expr0>;
+        ...
+        int __len = snprintf(NULL, 0, "fmt", __arg0, ...);
         char* __buf = __btrc_str_track((char*)malloc(__len + 1));
-        snprintf(__buf, __len + 1, "fmt", args...);
+        snprintf(__buf, __len + 1, "fmt", __arg0, ...);
     """
     gen.use_helper("__btrc_str_track")
 
-    # Build the format string and collect arguments
+    tmp = gen.fresh_temp("__fstr")
+
+    # Build the format string, hoist each interpolation into a temp, and
+    # collect the temp references used by both snprintf passes.
     fmt_parts = []
-    args = []
+    arg_decls = []  # IRVarDecl for each interpolation (evaluated once)
+    args = []       # IRExpr referencing the temp (used by both passes)
 
     for part in node.parts:
         if isinstance(part, FStringText):
@@ -56,41 +67,9 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
             text = part.text.replace("%", "%%")
             fmt_parts.append(text)
         elif isinstance(part, FStringExpr):
-            from .expressions import lower_expr
-            ir_arg = lower_expr(gen, part.expression)
-            arg_type = gen.analyzed.node_types.get(id(part.expression))
-            fmt = format_spec_for_type(arg_type)
-
-            if has_to_string(gen.analyzed, arg_type):
-                ir_arg = to_string_call(gen, arg_type, ir_arg)
-                fmt = "%s"
-
-            # Force %s for string-producing expressions when type untracked
-            if arg_type is None:
-                expr = part.expression
-                if isinstance(expr, (FStringLiteral, StringLiteral)):
-                    fmt = "%s"
-                elif isinstance(expr, CallExpr):
-                    callee = expr.callee
-                    if isinstance(callee, FieldAccessExpr):
-                        if callee.field in ("toString", "str", "trim",
-                                            "toUpper", "toLower", "substring",
-                                            "replace", "repeat", "reverse",
-                                            "capitalize", "join", "split"):
-                            fmt = "%s"
-
-            if arg_type and arg_type.base == "bool":
-                # bool → ternary: val ? "true" : "false"
-                from ..nodes import IRTernary
-                ir_arg = IRTernary(
-                    condition=ir_arg,
-                    true_expr=IRLiteral(text='"true"'),
-                    false_expr=IRLiteral(text='"false"'),
-                )
-                fmt = "%s"
-
+            fmt, arg = _lower_interpolation(gen, part, tmp, len(args), arg_decls)
             fmt_parts.append(fmt)
-            args.append(ir_arg)
+            args.append(arg)
 
     fmt_str = "".join(fmt_parts)
 
@@ -98,11 +77,7 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
     if not args:
         return IRLiteral(text=f'"{fmt_str}"')
 
-    # Build the snprintf expression sequence as a structured IRStmtExpr
-    # ({int __len = snprintf(NULL, 0, "fmt", args);
-    #   char* __buf = __btrc_str_track((char*)malloc(__len + 1));
-    #   snprintf(__buf, __len + 1, "fmt", args); __buf;})
-    tmp = gen.fresh_temp("__fstr")
+    # Build the snprintf expression sequence as a structured IRStmtExpr.
     len_var = f"{tmp}_len"
     buf_var = f"{tmp}_buf"
 
@@ -112,8 +87,8 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
     len_plus_1 = IRBinOp(left=IRVar(name=len_var), op="+",
                          right=IRLiteral(text="1"))
 
-    stmts = [
-        # int __len = snprintf(NULL, 0, "fmt", args...);
+    stmts = arg_decls + [
+        # int __len = snprintf(NULL, 0, "fmt", __arg0, ...);
         IRVarDecl(
             c_type=CType(text="int"), name=len_var,
             init=IRCall(callee="snprintf", args=snprintf_measure_args),
@@ -126,7 +101,7 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
                        expr=IRCall(callee="malloc", args=[len_plus_1])),
             ]),
         ),
-        # snprintf(__buf, __len + 1, "fmt", args...);
+        # snprintf(__buf, __len + 1, "fmt", __arg0, ...);
         IRExprStmt(expr=IRCall(
             callee="snprintf",
             args=[IRVar(name=buf_var), len_plus_1, fmt_literal] + args,
@@ -134,3 +109,62 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
     ]
 
     return IRStmtExpr(stmts=stmts, result=IRVar(name=buf_var))
+
+
+def _lower_interpolation(gen, part, tmp, index, arg_decls):
+    """Lower one f-string interpolation.
+
+    Returns (format_spec, ir_arg) where ir_arg is reused by both snprintf
+    passes. A temp of the value's C type is appended to arg_decls so the
+    expression evaluates exactly once.
+    """
+    from .expressions import lower_expr
+    ir_value = lower_expr(gen, part.expression)
+    arg_type = gen.analyzed.node_types.get(id(part.expression))
+    fmt = format_spec_for_type(arg_type)
+    # C type for the hoisting temp, kept in lockstep with the final fmt below.
+    c_type = type_to_c(arg_type) if arg_type is not None else None
+
+    if has_to_string(gen.analyzed, arg_type):
+        ir_value = to_string_call(gen, arg_type, ir_value)
+        fmt = "%s"
+        c_type = "char*"
+
+    # Force %s for string-producing expressions when type untracked
+    if arg_type is None:
+        expr = part.expression
+        if isinstance(expr, (FStringLiteral, StringLiteral)):
+            fmt = "%s"
+        elif isinstance(expr, CallExpr):
+            callee = expr.callee
+            if isinstance(callee, FieldAccessExpr):
+                if callee.field in ("toString", "str", "trim",
+                                    "toUpper", "toLower", "substring",
+                                    "replace", "repeat", "reverse",
+                                    "capitalize", "join", "split"):
+                    fmt = "%s"
+        # Untracked: %s ⇒ a char* string, otherwise %d ⇒ an int.
+        c_type = "char*" if fmt == "%s" else "int"
+
+    if arg_type is not None and arg_type.base == "bool":
+        # Evaluate the bool once into a bool temp, then format the (pure)
+        # ternary `val ? "true" : "false"` from that temp in both passes.
+        c_type = "bool"
+        fmt = "%s"
+
+    # Hoist the value into a temp so it is evaluated exactly once.
+    arg_var = f"{tmp}_arg{index}"
+    arg_decls.append(IRVarDecl(
+        c_type=CType(text=c_type), name=arg_var, init=ir_value,
+    ))
+    ir_arg: IRExpr = IRVar(name=arg_var)
+
+    if c_type == "bool":
+        from ..nodes import IRTernary
+        ir_arg = IRTernary(
+            condition=ir_arg,
+            true_expr=IRLiteral(text='"true"'),
+            false_expr=IRLiteral(text='"false"'),
+        )
+
+    return fmt, ir_arg

@@ -1,0 +1,36 @@
+// Regression: f-string interpolations must evaluate their expression EXACTLY
+// once. The lowering does a measure pass (snprintf NULL/0 sizing) and a write
+// pass; previously it emitted the interpolated expression in BOTH passes, so
+// any side effect (counter increment, pop(), I/O) ran twice.
+#include <assert.h>
+#include <string.h>
+
+int counter = 0;
+
+int next() {
+    counter = counter + 1;
+    return counter;
+}
+
+int main() {
+    // Print path: three interpolations must read exactly 1, 2, 3 (each next()
+    // runs once), and the counter must end at 3 — not 6.
+    string a = f"{next()} {next()} {next()}";
+    assert(strcmp(a, "1 2 3") == 0);
+    assert(counter == 3);
+
+    // As-value path: one more call, counter advances by exactly one to 4.
+    string b = f"value={next()}";
+    assert(strcmp(b, "value=4") == 0);
+    assert(counter == 4);
+
+    // Vector.pop() inside an f-string must pop exactly once.
+    Vector<int> v = [10, 20, 30];
+    string c = f"popped {v.pop()}";
+    assert(strcmp(c, "popped 30") == 0);
+    assert(v.size() == 2);
+    v.free();
+
+    print("PASS: test_fstring_eval_once");
+    return 0;
+}
