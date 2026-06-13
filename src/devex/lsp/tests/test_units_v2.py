@@ -5,6 +5,12 @@ import os
 
 from lsprotocol import types as lsp
 
+from src.compiler.python.ast_nodes import (
+    FunctionDecl,
+    ImportDecl,
+    RelativePath,
+    StdModules,
+)
 from src.devex.lsp.definition import get_definition
 from src.devex.lsp.diagnostics import compute_diagnostics
 from src.devex.lsp.hover import get_hover_info
@@ -15,14 +21,22 @@ from src.devex.lsp.workspace import Workspace
 srv = importlib.import_module("src.devex.lsp.server")
 
 
-def test_parse_unit_blanks_imports_preserving_lines():
+def test_parse_unit_reads_import_specs_in_native_coordinates():
     src = "import std.vector\nimport ./lib/*;\n\nint main() { return 0; }\n"
     unit = parse_unit("/x/main.btrc", src)
-    assert unit.import_specs == [(1, "std.vector"), (2, "./lib/*")]
+    # import_specs hold parsed spec nodes keyed by their real 1-based line.
+    lines = [line for line, _ in unit.import_specs]
+    specs = [spec for _, spec in unit.import_specs]
+    assert lines == [1, 2]
+    assert specs[0] == StdModules(names=["vector"])
+    assert specs[1] == RelativePath(path="./lib/*")
     assert unit.error is None
-    # main() must keep its original line (4) despite the blanked imports
-    assert unit.decls[0].line == 4
-    assert unit.decls[0].source_file == "/x/main.btrc"
+    # Files parse as-is (no blanking): ImportDecl nodes carry native lines and
+    # main() keeps its real line (4).
+    assert [d.line for d in unit.decls if isinstance(d, ImportDecl)] == [1, 2]
+    main = next(d for d in unit.decls if isinstance(d, FunctionDecl))
+    assert main.line == 4
+    assert main.source_file == "/x/main.btrc"
 
 
 def test_parse_unit_name_positions_land_on_names():

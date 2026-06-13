@@ -9,6 +9,7 @@ from ...analyzer.core import AnalyzedProgram, ClassInfo
 from ...ast_nodes import (
     ClassDecl,
     FunctionDecl,
+    ImportDecl,
     MethodDecl,
     PreprocessorDirective,
     PropertyDecl,
@@ -213,6 +214,8 @@ class IRGenerator:
         from .classes import emit_class_decl
         from .functions import emit_function_decl
         for decl in self.analyzed.program.declarations:
+            if isinstance(decl, ImportDecl):
+                continue  # resolved by the front-end; never lowered
             if isinstance(decl, ClassDecl):
                 if not decl.generic_params:
                     emit_class_decl(self, decl)

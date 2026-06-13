@@ -26,6 +26,7 @@ from .analyzer.analyzer import Analyzer
 from .analyzer.core import AnalyzedProgram
 from .ast_nodes import Program
 from .cache_keys import resolve_cache_dir, toolchain_hash
+from .import_scan import scan_directives
 from .import_visibility import check_visibility
 from .lexer import Lexer
 from .parser.parser import Parser
@@ -35,9 +36,6 @@ from .tokens import Token
 # Content hash of the lexer/parser/AST sources: cached stdlib ASTs are
 # invalidated automatically by any frontend change (never hand-bumped).
 _STDLIB_AST_VERSION = toolchain_hash("frontend")
-
-_BTRC_INCLUDE_RE = re.compile(r'^\s*#include\s+[<"]([^>"]+\.btrc)[>"]\s*$')
-_BTRC_IMPORT_RE = re.compile(r'^\s*import\s+(.+?)\s*;?\s*$')
 
 # Regex to extract class/interface names from btrc source (for skip-if-redefined)
 _CLASS_NAME_RE = re.compile(
@@ -228,10 +226,17 @@ def get_stdlib_source(user_source: str = "") -> str:
 
 
 def _stdlib_file_source(content: str, path: str) -> tuple[list[str], list[tuple[str, int]]]:
+    """Drop the file's own import directives; the stdlib is composed wholesale."""
+    covered = {
+        ln
+        for d in scan_directives(content)
+        if d.kind == "import"
+        for ln in range(d.start, d.end + 1)
+    }
     lines = []
     source_positions = []
     for line_number, line in enumerate(content.split("\n"), start=1):
-        if _BTRC_IMPORT_RE.match(line):
+        if line_number in covered:
             continue
         lines.append(line)
         source_positions.append((path, line_number))
@@ -258,14 +263,6 @@ def get_stdlib_source_mapped(user_source: str = "") -> StdlibSource:
         lines.extend(file_lines)
         source_positions.extend(file_positions)
     return StdlibSource(source="\n".join(lines), source_positions=source_positions)
-
-
-def _strip_btrc_imports(source: str) -> str:
-    """Drop btrc import lines from auto-stdlib concatenation."""
-    return "\n".join(
-        line for line in source.split("\n")
-        if not _BTRC_IMPORT_RE.match(line)
-    )
 
 
 def _find_stdlib_file(include_path: str) -> str | None:
@@ -301,47 +298,22 @@ def _resolve_include_path(include_path: str, source_dir: str) -> str:
     )
 
 
-def _strip_import_quotes(spec: str) -> str:
-    spec = spec.strip()
-    if spec.endswith(";"):
-        spec = spec[:-1].strip()
-    if len(spec) >= 2 and spec[0] in ('"', "'") and spec[-1] == spec[0]:
-        return spec[1:-1]
-    return spec
-
-
-def _expand_brace_import(spec: str) -> list[str]:
-    start = spec.find("{")
-    end = spec.find("}", start + 1)
-    if start < 0 or end < 0:
-        return [spec]
-    prefix = spec[:start]
-    suffix = spec[end + 1:]
-    result = []
-    for item in spec[start + 1:end].split(","):
-        name = item.strip()
-        if name:
-            result.append(prefix + name + suffix)
-    return result
-
-
-def _stdlib_import_paths(spec: str) -> list[str]:
+def _stdlib_glob_paths() -> list[str]:
     stdlib_dir = _get_stdlib_dir()
-    if spec in ("std.*", "std.**"):
-        return [os.path.join(stdlib_dir, fname) for fname in _discover_stdlib_files()]
-    if not spec.startswith("std."):
-        return []
+    return [os.path.join(stdlib_dir, fname) for fname in _discover_stdlib_files()]
 
-    name = spec.removeprefix("std.")
-    if not name.endswith(".btrc"):
-        name = f"{name}.btrc"
-    path = _find_stdlib_file(name)
+
+def _stdlib_module_path(name: str) -> str:
+    """Resolve a single ``std.<name>`` module to its stdlib file path."""
+    stdlib_dir = _get_stdlib_dir()
+    fname = name if name.endswith(".btrc") else f"{name}.btrc"
+    path = _find_stdlib_file(fname)
     if path is None:
         raise IncludeResolutionError(
-            f"stdlib import '{spec}' not found\n"
+            f"stdlib import 'std.{name}' not found\n"
             f"  searched: {stdlib_dir}"
         )
-    return [path]
+    return path
 
 
 def _relative_import_paths(spec: str, source_dir: str) -> list[str]:
@@ -382,20 +354,63 @@ def _relative_import_paths(spec: str, source_dir: str) -> list[str]:
     return [_resolve_include_path(spec, source_dir)]
 
 
-def _import_paths(spec: str, source_dir: str) -> list[str]:
-    paths: list[str] = []
-    for expanded in _expand_brace_import(_strip_import_quotes(spec)):
-        paths.extend(
-            _stdlib_import_paths(expanded)
-            or pkg.package_import_paths(expanded)
-            or _relative_import_paths(expanded, source_dir)
+def import_spec_paths(spec, source_dir: str) -> list[str]:
+    """Resolve a parsed ``import_spec`` AST node to filesystem path(s).
+
+    All path RESOLUTION still lives in the helpers below (stdlib/package/
+    relative); only the *parsing* of the spec moved into the parser, so brace
+    expansion and quote stripping are already done by the time we get here.
+    """
+    from .ast_nodes import (
+        PackagePath,
+        QuotedPath,
+        RelativePath,
+        StdGlob,
+        StdModules,
+    )
+
+    if isinstance(spec, StdGlob):
+        return _stdlib_glob_paths()
+    if isinstance(spec, StdModules):
+        return [_stdlib_module_path(name) for name in spec.names]
+    if isinstance(spec, PackagePath):
+        dotted = ".".join(spec.segments)
+        return (
+            pkg.package_import_paths(dotted)
+            or _relative_import_paths(dotted, source_dir)
         )
-    return paths
+    if isinstance(spec, (RelativePath, QuotedPath)):
+        path = spec.path
+        return (
+            pkg.package_import_paths(path)
+            or _relative_import_paths(path, source_dir)
+        )
+    raise IncludeResolutionError(f"unsupported import spec: {spec!r}")
+
+
+def _inline_paths(paths: list[str], abs_path: str, line_number: int,
+                  included: set[str], graph: dict[str, set[str]],
+                  out: list[tuple[str, str, int]]) -> None:
+    """Splice resolved import/include targets into ``out`` (recursing)."""
+    for full_path in paths:
+        abs_full = os.path.abspath(full_path)
+        graph[abs_path].add(abs_full)
+        if full_path.endswith(".c"):
+            out.append((f'#include "{abs_full}"', abs_path, line_number))
+            continue
+        with open(full_path) as f:
+            out.extend(_resolve_traced(f.read(), full_path, included, graph))
 
 
 def _resolve_traced(source: str, source_path: str, included: set[str],
                     graph: dict[str, set[str]]) -> list[tuple[str, str, int]]:
-    """Recursively resolve includes/imports, preserving line provenance."""
+    """Recursively resolve includes/imports, preserving line provenance.
+
+    Directives are located by the lexer/parser (``scan_directives``), not by a
+    raw line regex, so imports inside comments or strings are never resolved.
+    Each directive's line range is replaced by the imported declarations; every
+    other line is emitted verbatim with its native provenance.
+    """
     abs_path = os.path.abspath(source_path)
     source_dir = os.path.dirname(abs_path)
     graph.setdefault(abs_path, set())
@@ -403,28 +418,26 @@ def _resolve_traced(source: str, source_path: str, included: set[str],
         return []  # circular/repeat include guard; caller still recorded the edge
     included.add(abs_path)
 
+    directives = scan_directives(source)
+    by_start = {d.start: d for d in directives}
+    covered = {ln for d in directives for ln in range(d.start, d.end + 1)}
+
     out: list[tuple[str, str, int]] = []
     for line_number, line in enumerate(source.split("\n"), start=1):
-        m = _BTRC_INCLUDE_RE.match(line)
-        if m:
-            full_path = os.path.abspath(_resolve_include_path(m.group(1), source_dir))
-            graph[abs_path].add(full_path)
-            with open(full_path) as f:
-                out.extend(_resolve_traced(f.read(), full_path, included, graph))
+        directive = by_start.get(line_number)
+        if directive is not None:
+            if directive.kind == "btrc_include":
+                full = os.path.abspath(
+                    _resolve_include_path(directive.payload, source_dir))
+                graph[abs_path].add(full)
+                with open(full) as f:
+                    out.extend(_resolve_traced(f.read(), full, included, graph))
+            else:  # import
+                paths = import_spec_paths(directive.payload, source_dir)
+                _inline_paths(paths, abs_path, line_number, included, graph, out)
             continue
-
-        m = _BTRC_IMPORT_RE.match(line)
-        if m:
-            for full_path in _import_paths(m.group(1), source_dir):
-                abs_full = os.path.abspath(full_path)
-                graph[abs_path].add(abs_full)
-                if full_path.endswith(".c"):
-                    out.append((f'#include "{abs_full}"', abs_path, line_number))
-                    continue
-                with open(full_path) as f:
-                    out.extend(_resolve_traced(f.read(), full_path, included, graph))
-            continue
-
+        if line_number in covered:
+            continue  # continuation line of a multi-line directive
         out.append((line, abs_path, line_number))
 
     return out

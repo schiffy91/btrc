@@ -25,6 +25,14 @@ class PreprocessorDirective:
 
 
 @dataclass(kw_only=True)
+class ImportDecl:
+    spec: import_spec
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+    source_file: Optional[str] = _dc_field(default=None, compare=False)
+
+
+@dataclass(kw_only=True)
 class ClassDecl:
     name: str = ""
     generic_params: list[str] = _dc_field(default_factory=list)
@@ -109,6 +117,31 @@ class TypedefDecl:
     line: int = _dc_field(default=0, compare=False)
     col: int = _dc_field(default=0, compare=False)
     source_file: Optional[str] = _dc_field(default=None, compare=False)
+
+
+@dataclass(kw_only=True)
+class StdGlob:
+    recursive: bool = False
+
+
+@dataclass(kw_only=True)
+class StdModules:
+    names: list[str] = _dc_field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class PackagePath:
+    segments: list[str] = _dc_field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class RelativePath:
+    path: str = ""
+
+
+@dataclass(kw_only=True)
+class QuotedPath:
+    path: str = ""
 
 
 @dataclass(kw_only=True)
@@ -632,7 +665,8 @@ class Capture:
 
 # --- Union type aliases for sum types ---
 
-decl = Union[PreprocessorDirective, ClassDecl, InterfaceDecl, FunctionDecl, StructDecl, EnumDecl, RichEnumDecl, TypedefDecl]
+decl = Union[PreprocessorDirective, ImportDecl, ClassDecl, InterfaceDecl, FunctionDecl, StructDecl, EnumDecl, RichEnumDecl, TypedefDecl]
+import_spec = Union[StdGlob, StdModules, PackagePath, RelativePath, QuotedPath]
 class_member = Union[FieldDecl, MethodDecl, PropertyDecl]
 stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt]
 if_else = Union[ElseBlock, ElseIf]

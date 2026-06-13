@@ -147,8 +147,16 @@ class AnalyzerBase:
         )
 
     def _decls_with_file(self, program: Program):
-        """Iterate top-level decls, tracking their source-file provenance."""
+        """Iterate top-level decls, tracking their source-file provenance.
+
+        ``ImportDecl`` is skipped: the CLI front-end resolves imports away
+        before analysis, but the LSP composes programs that may still contain
+        them, so analysis treats them as no-ops everywhere.
+        """
+        from ..ast_nodes import ImportDecl
         for decl in program.declarations:
+            if isinstance(decl, ImportDecl):
+                continue
             self.current_source_file = getattr(decl, "source_file", None)
             yield decl
         self.current_source_file = None

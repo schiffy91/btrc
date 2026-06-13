@@ -28,8 +28,8 @@
 
     -- btrc keywords
     abstract bool catch class delete extends false finally function
-    implements in interface keep new null override parallel private public
-    release self spawn string super throw true try var
+    implements import in interface keep new null override parallel private
+    public release self spawn string super throw true try var
   }
 
   -- Operators and delimiters, ordered longest-first within each line.
@@ -65,7 +65,16 @@
     STRING_LIT  = /"([^"\\]|\\.)*"/
     CHAR_LIT    = /'([^'\\]|\\.)*'/
     FSTRING_LIT = /f"..."/ -- brace-balanced sub-lexing; see lexer
+    PATH_SPEC   = /[^;\n]+/ -- raw filesystem path; see lexer note below
   }
+
+  -- Import path mode (lexer): immediately after the "import" keyword, if the
+  -- next non-space character is '.', '/' or '~' (a relative/absolute path), the
+  -- lexer reads the rest of the line up to ';' or newline as ONE raw PATH_SPEC
+  -- token. This keeps whitespace-bearing paths intact and prevents bogus
+  -- rejoins like "./ dir / **". For std.x / std.{a,b} / std.* / "quoted" / bare
+  -- packages (mathx.vec), path mode is NOT entered: those lex as ordinary
+  -- IDENT/DOT/STAR/LBRACE/STRING_LIT tokens and the parser assembles them.
 
   -- Tokens to skip (not passed to parser).
   @ignore {
@@ -108,6 +117,7 @@
   program     = { top_level } ;
 
   top_level   = preprocessor_directive
+              | import_decl
               | class_decl
               | interface_decl
               | struct_decl
@@ -118,6 +128,27 @@
               | var_decl_stmt ;
 
   preprocessor_directive = PREPROCESSOR ;
+
+  -- ----------------------------------------------------------------
+  -- Import declaration
+  -- ----------------------------------------------------------------
+  --
+  -- Imports are resolved by the front-end *after* parsing (see frontend.py):
+  -- each ImportDecl spec is mapped to one or more files whose declarations are
+  -- spliced in. Because import is now a real keyword parsed from the token
+  -- stream, imports inside comments/strings are never resolved.
+
+  import_decl = "import" import_spec [ ";" ] ;
+
+  import_spec = std_spec
+              | quoted_path
+              | path_spec
+              | package_path ;
+
+  std_spec    = "std" "." ( "*" | "*" "*" | IDENT | "{" ident_list "}" ) ;
+  package_path = IDENT { "." IDENT }    (* e.g. mathx, mathx.vec *) ;
+  quoted_path = STRING_LIT ;
+  path_spec   = PATH_SPEC                (* ./x.btrc, ./dir/*, ./dir/**, ../y, /abs, ~/home *) ;
 
   -- ----------------------------------------------------------------
   -- Class declaration

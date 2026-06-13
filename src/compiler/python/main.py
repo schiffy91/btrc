@@ -33,9 +33,8 @@ from .parser.parser import Parser
 _STDLIB_AST_VERSION = _frontend._STDLIB_AST_VERSION
 _cached_stdlib_decls = _frontend._cached_stdlib_decls
 _discover_stdlib_files = _frontend._discover_stdlib_files
-_expand_brace_import = _frontend._expand_brace_import
 _find_stdlib_file = _frontend._find_stdlib_file
-_strip_import_quotes = _frontend._strip_import_quotes
+import_spec_paths = _frontend.import_spec_paths
 resolve_includes = _frontend.resolve_includes
 resolve_includes_traced = _frontend.resolve_includes_traced
 Analyzer = _frontend.Analyzer

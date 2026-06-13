@@ -182,6 +182,36 @@ class Lexer:
         token_type = KEYWORDS.get(value, TokenType.IDENT)
         self._emit(token_type, value, line, col)
 
+        # Import path mode: after the `import` keyword, a relative/absolute path
+        # (starting with '.', '/' or '~') is read as ONE raw PATH_SPEC token so
+        # whitespace inside the path is preserved and never re-tokenized.
+        if token_type is TokenType.IMPORT:
+            self._maybe_read_import_path()
+
+    # --- Import path (single raw token after `import`) ---
+
+    def _maybe_read_import_path(self):
+        """If the token after `import` begins a filesystem path, read it raw.
+
+        Only '.', '/' and '~' trigger path mode (covers ./x, ../y, /abs, ~/home).
+        std.x / std.{a,b} / std.* / "quoted" / bare packages (mathx.vec) begin
+        with an identifier or '"' and lex normally for the parser to assemble.
+        """
+        save_pos, save_line, save_col = self.pos, self.line, self.col
+        # Skip inline spaces/tabs (but NOT newlines: a bare `import` on its own
+        # line is a parse error, not a path read across lines).
+        while self.pos < len(self.source) and self._peek() in (' ', '\t'):
+            self._advance()
+        if self.pos >= len(self.source) or self._peek() not in ('.', '/', '~'):
+            self.pos, self.line, self.col = save_pos, save_line, save_col
+            return
+        line, col = self.line, self.col
+        start = self.pos
+        while self.pos < len(self.source) and self._peek() not in (';', '\n'):
+            self._advance()
+        value = self.source[start:self.pos].rstrip()
+        self._emit(TokenType.PATH_SPEC, value, line, col)
+
     # --- Operators and punctuation (trie-based longest match) ---
 
     def _read_operator(self):

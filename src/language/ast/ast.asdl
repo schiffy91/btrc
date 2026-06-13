@@ -26,6 +26,7 @@ module Btrc {
     -- name_line/name_col mark the NAME token (not the leading keyword) so
     -- editors land go-to-definition / rename on the identifier itself.
     decl = PreprocessorDirective(string text)
+         | ImportDecl(import_spec spec)
          | ClassDecl(identifier name, identifier* generic_params,
                      class_member* members, identifier? parent,
                      identifier* interfaces, bool is_abstract,
@@ -45,6 +46,18 @@ module Btrc {
          | TypedefDecl(type_expr original, identifier alias,
                        int name_line, int name_col)
          attributes(int line, int col, string? source_file)
+
+    -- Import specifiers (resolved to files by the front-end after parsing).
+    --   StdGlob       std.*  (recursive=false) / std.**  (recursive=true)
+    --   StdModules    std.x  / std.{a, b}            (names = [x] or [a, b])
+    --   PackagePath   mathx / mathx.vec              (segments = [mathx, vec])
+    --   RelativePath  ./x.btrc, ./dir/*, ./dir/**, ../y, /abs, ~/home (raw)
+    --   QuotedPath    "rel/path.btrc"                (path = unquoted)
+    import_spec = StdGlob(bool recursive)
+                | StdModules(identifier* names)
+                | PackagePath(identifier* segments)
+                | RelativePath(string path)
+                | QuotedPath(string path)
 
     -- ================================================================
     -- Types

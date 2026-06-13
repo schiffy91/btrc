@@ -4,10 +4,16 @@ from ..ast_nodes import (
     ClassDecl,
     FieldDecl,
     FieldDef,
+    ImportDecl,
     InterfaceDecl,
     MethodDecl,
     MethodSig,
+    PackagePath,
     PreprocessorDirective,
+    QuotedPath,
+    RelativePath,
+    StdGlob,
+    StdModules,
     StructDecl,
 )
 from ..tokens import TokenType
@@ -20,6 +26,9 @@ class DeclarationsMixin:
 
         if tok.type == TokenType.PREPROCESSOR:
             return self._parse_preprocessor()
+
+        if tok.type == TokenType.IMPORT:
+            return self._parse_import_decl()
 
         is_gpu = False
         keep_return = False
@@ -74,6 +83,57 @@ class DeclarationsMixin:
     def _parse_preprocessor(self) -> PreprocessorDirective:
         tok = self._advance()
         return PreprocessorDirective(text=tok.value, line=tok.line, col=tok.col)
+
+    # ---- Import declaration ----
+
+    def _parse_import_decl(self) -> ImportDecl:
+        tok = self._expect(TokenType.IMPORT)
+        spec = self._parse_import_spec()
+        self._match(TokenType.SEMICOLON)  # trailing ';' is optional
+        return ImportDecl(spec=spec, line=tok.line, col=tok.col)
+
+    def _parse_import_spec(self):
+        """Dispatch on the token(s) after `import` to build an import_spec."""
+        # Raw filesystem path (lexed as a single PATH_SPEC token).
+        if self._check(TokenType.PATH_SPEC):
+            return RelativePath(path=self._advance().value)
+
+        # Quoted path: import "rel/path.btrc"  (STRING_LIT value keeps quotes)
+        if self._check(TokenType.STRING_LIT):
+            raw = self._advance().value
+            if len(raw) >= 2 and raw[0] in ('"', "'") and raw[-1] == raw[0]:
+                raw = raw[1:-1]
+            return QuotedPath(path=raw)
+
+        ident = self._expect(TokenType.IDENT, "import path")
+
+        # std.* / std.** / std.IDENT / std.{a, b}
+        if ident.value == "std" and self._check(TokenType.DOT):
+            self._advance()  # '.'
+            return self._parse_std_spec()
+
+        # Bare package path: IDENT { '.' IDENT }  (mathx, mathx.vec)
+        segments = [ident.value]
+        while self._match(TokenType.DOT):
+            segments.append(self._expect(TokenType.IDENT, "package segment").value)
+        return PackagePath(segments=segments)
+
+    def _parse_std_spec(self):
+        """Parse what follows ``std.``: glob, set, or a single module name."""
+        if self._check(TokenType.STAR):
+            self._advance()
+            recursive = bool(self._match(TokenType.STAR))  # std.** is recursive
+            return StdGlob(recursive=recursive)
+        if self._match(TokenType.LBRACE):
+            names = [self._expect(TokenType.IDENT, "module name").value]
+            while self._match(TokenType.COMMA):
+                if self._check(TokenType.RBRACE):  # trailing comma
+                    break
+                names.append(self._expect(TokenType.IDENT, "module name").value)
+            self._expect(TokenType.RBRACE)
+            return StdModules(names=names)
+        name = self._expect(TokenType.IDENT, "module name").value
+        return StdModules(names=[name])
 
     # ---- Class declaration ----
 

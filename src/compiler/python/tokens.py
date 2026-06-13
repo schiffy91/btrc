@@ -61,6 +61,7 @@ class TokenType(Enum):
     FINALLY = auto()
     FUNCTION = auto()
     IMPLEMENTS = auto()
+    IMPORT = auto()
     IN = auto()
     INTERFACE = auto()
     KEEP = auto()
@@ -138,6 +139,7 @@ class TokenType(Enum):
     # Special
     PREPROCESSOR = auto()
     FSTRING_LIT = auto()   # f"..." raw content (without quotes)
+    PATH_SPEC = auto()     # raw import path: ./x.btrc, ../y, /abs, ~/home
     EOF = auto()
 
 

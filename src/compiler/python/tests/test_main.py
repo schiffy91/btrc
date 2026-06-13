@@ -401,16 +401,30 @@ def test_import_c_file(tmp_path):
 # small helpers
 # --------------------------------------------------------------------------
 
-def test_strip_import_quotes():
-    assert m._strip_import_quotes('  "std.math" ;') == "std.math"
-    assert m._strip_import_quotes("std.math;") == "std.math"
-    assert m._strip_import_quotes("std.math") == "std.math"
+def _parse_one(src: str):
+    """Parse a snippet and return its single top-level declaration."""
+    from src.compiler.python.lexer import Lexer
+    from src.compiler.python.parser.parser import Parser
+    return Parser(Lexer(src).tokenize()).parse().declarations[0]
 
 
-def test_expand_brace_import():
-    assert m._expand_brace_import("std.{a, b}") == ["std.a", "std.b"]
-    assert m._expand_brace_import("std.math") == ["std.math"]
-    assert m._expand_brace_import("std.{}") == []  # empty braces
+def test_quoted_import_strips_quotes():
+    # Quote stripping moved from the frontend regex into the parser.
+    from src.compiler.python.ast_nodes import QuotedPath
+    spec = _parse_one('import "std/math.btrc";').spec
+    assert isinstance(spec, QuotedPath)
+    assert spec.path == "std/math.btrc"
+
+
+def test_brace_import_expands_into_names():
+    # Brace expansion moved from the frontend regex into the parser.
+    from src.compiler.python.ast_nodes import StdModules
+    spec = _parse_one("import std.{a, b};").spec
+    assert isinstance(spec, StdModules)
+    assert spec.names == ["a", "b"]
+    single = _parse_one("import std.math;").spec
+    assert isinstance(single, StdModules)
+    assert single.names == ["math"]
 
 
 def test_discover_stdlib_files():

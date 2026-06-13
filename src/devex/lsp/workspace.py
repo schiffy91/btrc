@@ -22,7 +22,7 @@ from src.compiler.python.frontend import (
     IncludeResolutionError,
     _discover_stdlib_files,
     _get_stdlib_dir,
-    _import_paths,
+    import_spec_paths,
 )
 from src.devex.lsp.units import _UNIT_CACHE_VERSION, FileUnit, parse_unit
 
@@ -167,7 +167,7 @@ class Workspace:
             for line, spec in unit.import_specs:
                 attr = line if unit is active else attribute_line
                 try:
-                    paths = _import_paths(spec, os.path.dirname(unit.path))
+                    paths = import_spec_paths(spec, os.path.dirname(unit.path))
                 except IncludeResolutionError as e:
                     import_errors.append((attr, str(e)))
                     continue
