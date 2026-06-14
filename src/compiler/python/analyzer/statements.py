@@ -103,7 +103,9 @@ class StatementsMixin:
             if stmt.catch_block:
                 self._push_scope()
                 self.scope.define(stmt.catch_var,
-                                  SymbolInfo(stmt.catch_var, TypeExpr(base="string"), "variable"))
+                                  self._local_symbol(
+                                      stmt.catch_var, TypeExpr(base="string"),
+                                      "catch", stmt.line, stmt.col))
                 self._analyze_block(stmt.catch_block)
                 self._pop_scope()
             if stmt.finally_block:
@@ -154,7 +156,7 @@ class StatementsMixin:
                 self._error(f"'var' declaration of '{stmt.name}' requires an initializer",
                             stmt.line, stmt.col)
                 stmt.type = TypeExpr(base="int")
-                self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
+                self.scope.define(stmt.name, self._var_symbol(stmt))
                 return
             else:
                 self._analyze_expr(stmt.initializer)
@@ -163,7 +165,7 @@ class StatementsMixin:
                     self._error(f"Cannot infer type for 'var' declaration of '{stmt.name}'",
                                 stmt.line, stmt.col)
                     stmt.type = TypeExpr(base="int")
-                    self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
+                    self.scope.define(stmt.name, self._var_symbol(stmt))
                     return
                 else:
                     stmt.type = inferred
@@ -172,7 +174,7 @@ class StatementsMixin:
                 # ARC aliasing warning: var q = p where p is a managed class-type var
                 self._check_alias_warning(stmt)
                 self._collect_generic_instances(stmt.type)
-                self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
+                self.scope.define(stmt.name, self._var_symbol(stmt))
                 return
 
         stmt.type = self._upgrade_class_type(stmt.type)
@@ -192,7 +194,7 @@ class StatementsMixin:
                     self._error(
                         f"Cannot assign '{init_type.base}' to variable '{stmt.name}' "
                         f"of type '{stmt.type.base}'", stmt.line, stmt.col)
-        self.scope.define(stmt.name, SymbolInfo(stmt.name, stmt.type, "variable"))
+        self.scope.define(stmt.name, self._var_symbol(stmt))
 
     def _analyze_for_in(self, stmt):
         if self._is_range_call(stmt.iterable):
@@ -206,7 +208,10 @@ class StatementsMixin:
             self.break_depth += 1
             elem_type = TypeExpr(base="int")
             self._push_scope()
-            self.scope.define(stmt.var_name, SymbolInfo(stmt.var_name, elem_type, "variable"))
+            self.scope.define(
+                stmt.var_name,
+                self._local_symbol(stmt.var_name, elem_type, "loop",
+                                   stmt.line, stmt.col))
             self._analyze_block(stmt.body)
             self._pop_scope()
             self.loop_depth -= 1
@@ -225,9 +230,15 @@ class StatementsMixin:
             key_type = iter_type.generic_args[0]
             val_type = iter_type.generic_args[1]
             self._push_scope()
-            self.scope.define(stmt.var_name, SymbolInfo(stmt.var_name, key_type, "variable"))
+            self.scope.define(
+                stmt.var_name,
+                self._local_symbol(stmt.var_name, key_type, "loop_key",
+                                   stmt.line, stmt.col))
             if stmt.var_name2:
-                self.scope.define(stmt.var_name2, SymbolInfo(stmt.var_name2, val_type, "variable"))
+                self.scope.define(
+                    stmt.var_name2,
+                    self._local_symbol(stmt.var_name2, val_type, "loop",
+                                       stmt.line, stmt.col))
             self._analyze_block(stmt.body)
             self._pop_scope()
             self.loop_depth -= 1
@@ -239,7 +250,10 @@ class StatementsMixin:
         elem_type = self._get_element_type(iter_type, stmt.line, stmt.col)
         self._push_scope()
         if elem_type:
-            self.scope.define(stmt.var_name, SymbolInfo(stmt.var_name, elem_type, "variable"))
+            self.scope.define(
+                stmt.var_name,
+                self._local_symbol(stmt.var_name, elem_type, "loop",
+                                   stmt.line, stmt.col))
         self._analyze_block(stmt.body)
         self._pop_scope()
         self.loop_depth -= 1
@@ -258,7 +272,10 @@ class StatementsMixin:
         self.break_depth += 1
         self._push_scope()
         if elem_type:
-            self.scope.define(stmt.var_name, SymbolInfo(stmt.var_name, elem_type, "variable"))
+            self.scope.define(
+                stmt.var_name,
+                self._local_symbol(stmt.var_name, elem_type, "parallel",
+                                   stmt.line, stmt.col))
         self._analyze_block(stmt.body)
         self._pop_scope()
         self.loop_depth -= 1
@@ -281,6 +298,12 @@ class StatementsMixin:
         self.loop_depth -= 1
         self.break_depth -= 1
         self._pop_scope()
+
+    def _var_symbol(self, stmt: VarDeclStmt) -> SymbolInfo:
+        """SymbolInfo for a local var decl, pinned to its name token span."""
+        nl = stmt.name_line or stmt.line
+        nc = stmt.name_col or stmt.col
+        return self._local_symbol(stmt.name, stmt.type, "variable", nl, nc)
 
     def _check_alias_warning(self, stmt: VarDeclStmt):
         """Warn when a variable is initialized by aliasing a managed class-type var."""

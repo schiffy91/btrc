@@ -60,6 +60,28 @@ class SymbolInfo:
     name: str
     type: TypeExpr
     kind: str = "variable"  # "variable" | "function" | "param"
+    # Definition site of the symbol (where it was declared). Populated at the
+    # ``Scope.define`` call sites so a resolved symbol knows where it lives.
+    # Defaults of 0/0/None mean "no recorded definition site" (e.g. seeded
+    # stdlib symbols or synthetic symbols like ``self``/``value``).
+    decl_line: int = 0
+    decl_col: int = 0
+    decl_file: str | None = None
+
+
+@dataclass
+class Occurrence:
+    """An identifier use resolved to its definition by the analyzer.
+
+    Recorded only when ``AnalyzerBase.record_occurrences`` is True (the LSP
+    path); the CLI compiler never pays. Positions are native to ``def_file``.
+    """
+
+    kind: str  # 'variable'|'param'|'function'|'class'|'method'|'field'|'enum'|...
+    name: str
+    def_file: str | None = None
+    def_line: int = 0
+    def_col: int = 0
 
 
 @dataclass
@@ -99,6 +121,9 @@ class AnalyzedProgram:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     diags: list[Diag] = field(default_factory=list)
+    # id(identifier-node) -> Occurrence. Empty unless analysis ran with
+    # ``record_occurrences=True`` (LSP path). The CLI compiler never fills it.
+    occurrences: dict[int, Occurrence] = field(default_factory=dict)
 
 
 class AnalyzerBase:
@@ -122,8 +147,17 @@ class AnalyzerBase:
         self.enum_table: dict[str, list[str]] = {}
         self.interface_table: dict[str, InterfaceInfo] = {}
         self.rich_enum_table: dict[str, RichEnumDecl] = {}
+        # Occurrence recording is OFF by default so the CLI compiler pays
+        # nothing. The LSP flips it on before analyzing the user program.
+        self.record_occurrences: bool = False
+        self.occurrences: dict[int, Occurrence] = {}
 
     def analyze(self, program: Program) -> AnalyzedProgram:
+        # Source of definition sites for top-level names when recording
+        # occurrences (the class/enum tables hold no decl reference). The
+        # decl index is rebuilt lazily per analysis.
+        self._recording_program = program
+        self._decl_index_cache = None
         self._register_declarations(program)
         self._resolve_interface_parents(program)
         self._validate_inheritance(program)
@@ -144,6 +178,7 @@ class AnalyzerBase:
             errors=self.errors,
             warnings=self.warnings,
             diags=self.diags,
+            occurrences=self.occurrences,
         )
 
     def _decls_with_file(self, program: Program):
@@ -221,3 +256,16 @@ class AnalyzerBase:
 
     def _pop_scope(self):
         self.scope = self.scope.parent
+
+    def _local_symbol(
+        self, name: str, type_: TypeExpr, kind: str, line: int = 0, col: int = 0
+    ) -> SymbolInfo:
+        """SymbolInfo for a locally-defined symbol, stamped with its def site.
+
+        The def site is the (line, col) of the name in the current source file,
+        so a later occurrence lookup can point exactly at the declaration.
+        """
+        return SymbolInfo(
+            name, type_, kind,
+            decl_line=line, decl_col=col, decl_file=self.current_source_file,
+        )

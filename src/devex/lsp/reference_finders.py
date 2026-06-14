@@ -7,10 +7,13 @@ navigation stream; imported units scan their own token streams.
 
 from __future__ import annotations
 
+from lsprotocol import types as lsp
+
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.occurrences import occurrence_at, references_to
 from src.devex.lsp.utils import active_decls, nav_tokens, resolve_chain_type
 
 Ref = tuple  # (file | None, line, col)
@@ -155,15 +158,34 @@ def find_variable_references(
 ) -> list[Ref]:
     """Scope-aware references to a variable within the active document.
 
-    The cursor token anchors a definition; a candidate token is a reference
-    iff it resolves to that same definition. Unresolvable cursor (no visible
-    definition) yields just the cursor token.
+    Primary path: the analyzer's occurrence table. When the cursor resolves to
+    a recorded occurrence with a definition site, every identifier whose
+    occurrence shares that def site is an exact, scope-correct reference. The
+    definition's own name token (which is not an identifier node) is added so
+    the declaration is part of the result.
+
+    Fallback (no occurrence — e.g. the analyzer never resolved this node):
+    the cursor token anchors a ``VarDef`` and a candidate counts only when it
+    resolves to that same definition. Unresolvable cursor yields just itself.
     """
     here = result.path or None
+
+    occ = occurrence_at(result, lsp.Position(line=token.line - 1, character=token.col - 1))
+    if occ is not None and (occ.def_line or occ.def_file):
+        def_site = (occ.def_file, occ.def_line, occ.def_col)
+        positions = references_to(result, def_site)
+        refs: list[Ref] = [(here, line, col) for line, col in positions]
+        # Include the definition's own name token when it lives in this file.
+        if occ.def_file in (None, result.path):
+            decl_ref = (here, occ.def_line, occ.def_col)
+            if decl_ref not in refs:
+                refs.append(decl_ref)
+        return refs
+
     anchor = dmap.find_var_def(name, token.line, token.col)
     if anchor is None:
         return [(here, token.line, token.col)]
-    refs: list[Ref] = []
+    refs = []
     for idx, tok in _matching(tokens, name):
         if _is_member_access(tokens, idx):
             continue

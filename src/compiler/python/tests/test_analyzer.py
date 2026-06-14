@@ -3539,3 +3539,43 @@ class TestGpuInvalidBody:
             }
         '''
         assert no_errors(src)
+
+
+# --- Occurrence recording (LSP-only; gated off for the CLI) ---
+
+class TestOccurrenceRecording:
+    """``record_occurrences`` is OFF by default so the compiler pays nothing.
+
+    The LSP flips it on to get exact, analyzer-truth identifier resolution.
+    """
+
+    SRC = '''
+        int add(int a, int b) {
+            int sum = a + b;
+            return sum;
+        }
+    '''
+
+    def _analyze(self, source, record):
+        tokens = Lexer(source).tokenize()
+        program = Parser(tokens).parse()
+        analyzer = Analyzer()
+        analyzer.record_occurrences = record
+        return analyzer.analyze(program)
+
+    def test_default_records_nothing(self):
+        """The CLI path (default) populates no occurrences."""
+        result = self._analyze(self.SRC, record=False)
+        assert result.occurrences == {}
+
+    def test_recording_populates_occurrences(self):
+        """With recording on, identifier uses resolve to their def sites."""
+        result = self._analyze(self.SRC, record=True)
+        assert result.occurrences  # non-empty
+        kinds = {occ.kind for occ in result.occurrences.values()}
+        # param uses (a, b) and the local use (sum) are recorded.
+        assert "param" in kinds
+        assert "variable" in kinds
+        # 'sum' resolves back to its own declaration line/col.
+        sums = [o for o in result.occurrences.values() if o.name == "sum"]
+        assert sums and all(o.def_line == 3 for o in sums)

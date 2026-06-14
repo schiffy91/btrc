@@ -158,7 +158,7 @@ def get_hover_info(
     elif token.type == TokenType.IDENT:
         content = _try_member_hover(result, tokens, token, class_table)
         if content is None:
-            content = _try_variable_hover(result, token, class_table)
+            content = _try_variable_hover(result, token, class_table, position)
 
     if content is None:
         return None
@@ -226,29 +226,45 @@ def _try_variable_hover(
     result: AnalysisResult,
     token: Token,
     class_table: dict[str, ClassInfo],
+    position: lsp.Position | None = None,
 ) -> str | None:
     """Hover for the innermost variable definition visible at the cursor.
 
     Scope resolution is shared with go-to-definition/references via
     DefinitionMap.find_var_def — block ends are real closing-brace lines, so
     a variable never hovers outside its function or after its block ends.
+
+    The displayed type prefers the analyzer-inferred type for this exact
+    identifier (so a ``var`` shows its real inferred type, e.g. ``Vector<int>``)
+    and falls back to the syntactic guess when the analyzer recorded nothing.
     """
     if not result.ast:
         return None
 
     from src.devex.lsp.definition import DefinitionMap
+    from src.devex.lsp.occurrences import type_at
 
     dmap = DefinitionMap.from_result(result)
     vd = dmap.find_var_def(token.value, token.line, token.col)
     if vd is None:
         return None
 
+    inferred = type_at(result, position) if position is not None else None
+
     name = vd.name
     if vd.kind == "param":
-        type_str = type_repr(getattr(vd.node, "type", None), class_table)
+        type_str = (
+            type_repr(inferred, class_table)
+            if inferred is not None
+            else type_repr(getattr(vd.node, "type", None), class_table)
+        )
         return f"```btrc\n{type_str} {name}\n```\nParameter of `{vd.owner}`"
     if vd.kind in ("local", "cfor") and isinstance(vd.node, VarDeclStmt):
-        type_str = _infer_var_type(vd.node, class_table)
+        type_str = (
+            type_repr(inferred, class_table)
+            if inferred is not None
+            else _infer_var_type(vd.node, class_table)
+        )
         ctx = "Local variable" if vd.kind == "local" else "Loop variable"
         return f"```btrc\n{type_str} {name}\n```\n{ctx}"
     if vd.kind == "loop":

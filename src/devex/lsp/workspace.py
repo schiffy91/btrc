@@ -220,9 +220,14 @@ class Workspace:
 
         base = self._stdlib_base(comp.stdlib)
         if base is None:
-            return Analyzer().analyze(comp.program)
+            analyzer = Analyzer()
+            analyzer.record_occurrences = True
+            return analyzer.analyze(comp.program)
 
         analyzer = Analyzer()
+        # Record identifier resolutions for the user program only — the stdlib
+        # base is analyzed separately (and cheaply) without recording.
+        analyzer.record_occurrences = True
         analyzer.class_table = dict(base.class_table)
         analyzer.function_table = dict(base.function_table)
         analyzer.enum_table = dict(base.enum_table)

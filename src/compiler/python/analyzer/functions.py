@@ -25,6 +25,12 @@ from .core import SymbolInfo
 
 class FunctionsMixin:
 
+    def _param_symbol(self, param) -> SymbolInfo:
+        """SymbolInfo for a parameter, pinned to its name token span."""
+        nl = param.name_line or param.line
+        nc = param.name_col or param.col
+        return self._local_symbol(param.name, param.type, "param", nl, nc)
+
     def _analyze_decl(self, decl):
         if isinstance(decl, ClassDecl):
             self._analyze_class(decl)
@@ -126,7 +132,7 @@ class FunctionsMixin:
             self.scope.define("self", SymbolInfo("self", self_type, "param"))
         for param in method.params:
             self._collect_generic_instances(param.type)
-            self.scope.define(param.name, SymbolInfo(param.name, param.type, "param"))
+            self.scope.define(param.name, self._param_symbol(param))
         self._collect_generic_instances(method.return_type)
         self._analyze_block(method.body)
 
@@ -183,10 +189,13 @@ class FunctionsMixin:
 
         self._push_scope()
         self._validate_default_params(func.params, func.line, func.col)
-        self.scope.define(func.name, SymbolInfo(func.name, func.return_type, "function"))
+        self.scope.define(
+            func.name,
+            self._local_symbol(func.name, func.return_type, "function",
+                               func.name_line or func.line, func.name_col or func.col))
         for param in func.params:
             self._collect_generic_instances(param.type)
-            self.scope.define(param.name, SymbolInfo(param.name, param.type, "param"))
+            self.scope.define(param.name, self._param_symbol(param))
         self._collect_generic_instances(func.return_type)
         self._analyze_block(func.body)
 

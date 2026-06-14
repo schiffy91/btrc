@@ -35,6 +35,7 @@ from src.compiler.python.ast_nodes import (
 )
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.occurrences import occurrence_at
 from src.devex.lsp.utils import (
     find_token_at_position,
     find_token_index,
@@ -194,6 +195,17 @@ def get_definition(
 
     class_table = result.analyzed.class_table if result.analyzed else {}
     dmap = DefinitionMap.from_result(result)
+
+    # 0. Exact resolution from the analyzer's occurrence table. When the
+    # cursor identifier was resolved by the analyzer, jump straight to its
+    # recorded definition site — no token-walking heuristics. Skip when the
+    # cursor IS the definition site (resolve-to-self is the heuristic's job).
+    occ = occurrence_at(result, position)
+    if occ is not None and (occ.def_line or occ.def_file):
+        if not _at_def_site(result, token, occ.def_file, occ.def_line, occ.def_col):
+            return result_location(
+                result, occ.def_line, occ.def_col, len(token.value), file=occ.def_file
+            )
 
     # 1. Member access: obj.member / obj->member / obj?.member
     loc = _try_member_definition(result, tokens, token, class_table, dmap)

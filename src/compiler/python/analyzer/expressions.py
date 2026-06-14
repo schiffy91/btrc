@@ -37,7 +37,6 @@ from ..ast_nodes import (
     TypeExpr,
     UnaryExpr,
 )
-from .core import SymbolInfo
 
 _PRIMITIVE_TYPE_NAMES = frozenset((
     "void", "bool", "char", "short", "int", "long", "float", "double",
@@ -57,8 +56,11 @@ class ExpressionsMixin:
             return
 
         if isinstance(expr, (IntLiteral, FloatLiteral, StringLiteral,
-                             CharLiteral, BoolLiteral, NullLiteral, Identifier)):
+                             CharLiteral, BoolLiteral, NullLiteral)):
             pass
+        elif isinstance(expr, Identifier):
+            if self.record_occurrences:
+                self._record_identifier(expr)
         elif isinstance(expr, SelfExpr):
             self._validate_self(expr)
         elif isinstance(expr, SuperExpr):
@@ -194,7 +196,7 @@ class ExpressionsMixin:
         for param in expr.params:
             param.type = self._upgrade_class_type(param.type)
             self._collect_generic_instances(param.type)
-            self.scope.define(param.name, SymbolInfo(param.name, param.type, "param"))
+            self.scope.define(param.name, self._param_symbol(param))
             param_names.add(param.name)
         if expr.return_type:
             expr.return_type = self._upgrade_class_type(expr.return_type)

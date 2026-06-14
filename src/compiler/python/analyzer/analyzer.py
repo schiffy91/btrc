@@ -11,6 +11,7 @@ from .core import (
 )
 from .expressions import ExpressionsMixin
 from .functions import FunctionsMixin
+from .occurrences import OccurrencesMixin
 from .registration import RegistrationMixin
 from .statements import StatementsMixin
 from .type_inference import TypeInferenceMixin
@@ -25,6 +26,7 @@ class Analyzer(
     ExpressionsMixin,
     StatementsMixin,
     FunctionsMixin,
+    OccurrencesMixin,
     RegistrationMixin,
     AnalyzerBase,
 ):
