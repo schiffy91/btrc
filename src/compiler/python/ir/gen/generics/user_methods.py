@@ -172,9 +172,18 @@ def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
     )
     gen.module.function_defs.append(new_func)
 
-    # --- _destroy() function ---
-    dtor_stmts = _build_generic_destructor_stmts(cls_info, type_map,
-                                                   mangled, gen)
+    # --- _destroy() function (terminal destructor) ---
+    # If the class defines free() (all collections do), destroy is the single
+    # terminal entry point: free() performs content cleanup (releases elements,
+    # frees buffers, nulls fields — idempotent), then free(self) frees the
+    # struct. We do NOT also emit per-field releases here: free() already does
+    # that, and doing both would double-release the elements.
+    if "free" in cls_info.methods:
+        dtor_stmts = [IRExprStmt(
+            expr=IRCall(callee=f"{mangled}_free", args=[IRVar(name="self")]))]
+    else:
+        dtor_stmts = _build_generic_destructor_stmts(cls_info, type_map,
+                                                       mangled, gen)
     dtor_stmts.append(IRExprStmt(
         expr=IRCall(callee="free", args=[IRVar(name="self")])))
     destroy_func = IRFunctionDef(

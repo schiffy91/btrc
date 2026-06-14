@@ -21,6 +21,7 @@ from ..nodes import (
     IRModule,
     IRStructDef,
     IRStructField,
+    IRVar,
 )
 from .types import is_concrete_instance, mangle_generic_type, type_to_c
 
@@ -72,6 +73,11 @@ class IRGenerator:
         # default (matches main's implicit return).
         self.current_return_c_type: str = "int"
         self.current_return_type: TypeExpr | None = TypeExpr(base="int")
+        # ARC: owning-temporary substitution. When an owning temporary (e.g.
+        # `new Obj()`) is passed directly to a `keep` parameter, it is hoisted
+        # into a temp var so it can be released after the call. Maps the AST arg
+        # node id -> the IRVar that replaces it during call lowering.
+        self._owning_temp_overrides: dict[int, IRVar] = {}
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""
@@ -115,6 +121,16 @@ class IRGenerator:
         """Register a variable as auto-managed in the current scope."""
         if self._managed_vars_stack:
             self._managed_vars_stack[-1].append((var_name, class_type))
+
+    def unregister_managed_var(self, var_name: str):
+        """Drop a variable from auto-management (across all active scopes).
+
+        Used when the user manually frees/deletes a managed local: the user is
+        managing it, so scope exit must not destroy it again (double-free) — but
+        the variable stays valid (e.g. `arr.free()` then `arr.isEmpty()`),
+        unlike delete which also NULLs it."""
+        for scope in self._managed_vars_stack:
+            scope[:] = [(n, t) for (n, t) in scope if n != var_name]
 
     def get_all_managed_vars(self) -> list[tuple[str, str]]:
         """Get all managed vars across all active scopes (for return/break)."""

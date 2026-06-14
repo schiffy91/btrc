@@ -74,9 +74,9 @@ def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
         cls_info = gen.analyzed.class_table[obj_type.base]
         if obj_type.generic_args and cls_info.generic_params:
             mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
-            # Use free() if the class defines it, otherwise destroy()
-            dtor = "free" if "free" in cls_info.methods else "destroy"
-            callee = f"{mangled}_{dtor}"
+            # Always use the terminal destructor: destroy() frees both contents
+            # (via free() for collections) and the struct.
+            callee = f"{mangled}_destroy"
         else:
             callee = f"{obj_type.base}_destroy"
         stmts = [IRExprStmt(expr=IRCall(callee=callee, args=[obj]))]

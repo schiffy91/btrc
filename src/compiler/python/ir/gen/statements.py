@@ -59,7 +59,7 @@ from .arc import (
 from .errors import unsupported_node
 from .expressions import lower_expr
 from .stringable import coerce_value_to_string
-from .variables import _emit_keep_for_call, _lower_var_decl
+from .variables import _keep_call_arc_stmts, _lower_var_decl
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -79,6 +79,23 @@ def lower_block(gen: IRGenerator, block: Block | None) -> IRBlock:
     managed = gen.pop_managed_scope()
     stmts.extend(_emit_scope_release(managed, gen))
     return IRBlock(stmts=stmts)
+
+
+def _maybe_unregister_manual_free(gen, expr):
+    """If *expr* is `<managed_local>.free()`/`.destroy()`, the user is managing
+    that variable manually — drop it from auto scope-release so it isn't
+    destroyed a second time (double-free). The variable stays valid (unlike
+    delete, which NULLs it), so code like `arr.free(); arr.isEmpty();` keeps
+    working."""
+    from ...ast_nodes import CallExpr, FieldAccessExpr
+    if not isinstance(expr, CallExpr):
+        return
+    callee = expr.callee
+    if not isinstance(callee, FieldAccessExpr) or callee.field not in ("free", "destroy"):
+        return
+    recv = callee.obj
+    if isinstance(recv, Identifier):
+        gen.unregister_managed_var(recv.name)
 
 
 def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
@@ -183,9 +200,18 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
             pre, post = get_field_assign_arc_stmts(gen, node.expr)
             if pre or post:
                 return pre + [IRExprStmt(expr=lower_expr(gen, node.expr))] + post
-        # ARC: emit rc++ for keep params before the call
-        pre_stmts = _emit_keep_for_call(gen, node.expr)
-        return pre_stmts + [IRExprStmt(expr=lower_expr(gen, node.expr))]
+        # ARC: emit rc++ for keep params before the call and release any
+        # owning-temporary arguments after it. Overrides registered by
+        # _keep_call_arc_stmts must be active while the call is lowered (so the
+        # call uses the hoisted temp), then cleared.
+        pre_stmts, post_stmts = _keep_call_arc_stmts(gen, node.expr)
+        call_stmt = IRExprStmt(expr=lower_expr(gen, node.expr))
+        if post_stmts:
+            gen._owning_temp_overrides.clear()
+        # ARC: an explicit `v.free()`/`v.destroy()` means the user manages this
+        # local; drop it from auto scope-release so it isn't destroyed twice.
+        _maybe_unregister_manual_free(gen, node.expr)
+        return pre_stmts + [call_stmt] + post_stmts
 
     if isinstance(node, DeleteStmt):
         return _lower_delete(gen, node)

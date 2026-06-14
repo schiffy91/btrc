@@ -14,7 +14,21 @@ from ...ast_nodes import (
     NewExpr,
     VarDeclStmt,
 )
-from ..nodes import CType, IRCall, IRExprStmt, IRRawExpr, IRStmt, IRVar, IRVarDecl
+from ..nodes import (
+    CType,
+    IRBinOp,
+    IRBlock,
+    IRCall,
+    IRExprStmt,
+    IRFieldAccess,
+    IRIf,
+    IRLiteral,
+    IRRawExpr,
+    IRStmt,
+    IRUnaryOp,
+    IRVar,
+    IRVarDecl,
+)
 from .expressions import lower_expr
 from .stringable import coerce_value_to_string
 from .types import type_to_c
@@ -95,6 +109,10 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         return [IRVarDecl(c_type=CType(text=base_c), name=var_name, init=init)]
 
     c_type = type_to_c(node.type) if node.type else "int"
+    # ARC: handle keep params of an initializer call. Owning-temporary args are
+    # hoisted into temp vars (overrides registered here) and released after the
+    # decl; the overrides must be active while the initializer is lowered below.
+    keep_pre, keep_post = _keep_call_arc_stmts(gen, node.initializer)
     init = None
     if node.initializer:
         from ...ast_nodes import ListLiteral, MapLiteral
@@ -132,11 +150,12 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                     and _is_subclass(gen, init_type.base, node.type.base)):
                 from ..nodes import IRCast
                 init = IRCast(target_type=c_type, expr=init)
-    # ARC: emit rc++ for keep params if initializer is a call
-    pre_stmts = _emit_keep_for_call(gen, node.initializer)
+    # Clear owning-temp overrides now that the initializer has been lowered.
+    if keep_post:
+        gen._owning_temp_overrides.clear()
     var_decl = IRVarDecl(c_type=CType(text=c_type), name=node.name, init=init)
     gen._func_var_decls.append(var_decl)
-    result = pre_stmts + [var_decl]
+    result = keep_pre + [var_decl] + keep_post
 
     # Lambda capture struct allocation: when var = lambda_with_captures,
     # allocate the capture struct on the stack and fill it with captured values.
@@ -170,8 +189,6 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     # Per plan rule 1: new Foo() -> alloc, rc = 1, auto-managed at declaring scope.
     # Rule 2: Foo() (constructor call) -> same as new.
     # delete sets var = NULL, so scope exit safely skips deleted vars.
-    # Skip generic types: collections (Vector, Map, etc.) use explicit .free()
-    # which doesn't set the variable to NULL, so auto-management would double-free.
     if (node.initializer and node.type
             and node.type.base in gen.analyzed.class_table
             and not node.type.generic_args):
@@ -193,7 +210,49 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                         gen.register_managed_var(node.name, ret_type.base)
                         _maybe_register_cleanup(gen, node.name, ret_type.base, result)
 
+    # ARC: auto-manage generic collection locals (Vector<T>, Map<K,V>, etc.)
+    # so they (and their contained elements) are released on scope exit / return.
+    # Only when the initializer OWNS a fresh collection: an empty/literal init,
+    # `new Vector<T>()`, or a generic constructor call `Vector()` / `Vector<int>()`.
+    # NOT when it aliases another variable / member / index / arbitrary call —
+    # those don't own the collection and registering would double-free.
+    elif (node.initializer and node.type
+            and node.type.generic_args
+            and node.type.base in gen.analyzed.class_table):
+        cls_info = gen.analyzed.class_table.get(node.type.base)
+        if cls_info and cls_info.generic_params and _owns_generic_collection(
+                gen, node.initializer):
+            arc_type = mangle_generic_type(node.type.base, node.type.generic_args)
+            gen.register_managed_var(node.name, arc_type)
+            _maybe_register_cleanup(gen, node.name, arc_type, result)
+
     return result
+
+
+def _owns_generic_collection(gen: IRGenerator, init) -> bool:
+    """True if `init` produces a freshly-owned generic collection.
+
+    Owning initializers: list/map/brace literals, `new C<...>()`, or a call to
+    a generic class constructor (Identifier callee naming a generic class in the
+    class table, e.g. `Vector()` / `Vector<int>()`). Aliasing forms (Identifier
+    referring to another variable, member access, indexing, or an arbitrary
+    function call returning a borrowed collection) are NOT owning.
+    """
+    from ...ast_nodes import (
+        BraceInitializer,
+        CallExpr,
+        Identifier,
+        ListLiteral,
+        MapLiteral,
+        NewExpr,
+    )
+    if isinstance(init, (ListLiteral, MapLiteral, BraceInitializer, NewExpr)):
+        return True
+    if (isinstance(init, CallExpr) and isinstance(init.callee, Identifier)):
+        cls_info = gen.analyzed.class_table.get(init.callee.name)
+        if cls_info and cls_info.generic_params:
+            return True
+    return False
 
 
 def _managed_type_name(gen: IRGenerator, type_expr) -> str:
@@ -205,15 +264,106 @@ def _managed_type_name(gen: IRGenerator, type_expr) -> str:
     return type_expr.base
 
 
-def _emit_keep_for_call(gen: IRGenerator, expr) -> list[IRStmt]:
-    """If expr is a CallExpr with `keep` params, emit rc++ for those args."""
+def _keep_call_arc_stmts(gen: IRGenerator, expr):
+    """Return (pre_stmts, post_stmts) for the ARC handling of a call's args.
+
+    Two independent concerns:
+
+    1. ``keep``-annotated params (e.g. ``store(keep Obj o)``): a call-site rc++
+       on the argument transfers a reference to the callee. For named-local
+       arguments the source is also registered managed so its scope release
+       balances the rc.
+
+    2. Owning-temporary arguments (``new Obj()`` / ``Vector()`` constructor
+       calls) passed to ANY parameter: the temporary holds the creation
+       reference (rc=1). It is hoisted into a temp var and released (rc-- then
+       destroy at zero) AFTER the call. If the callee kept a reference (body
+       ``keep val`` or a keep param rc++), the net effect leaves exactly the
+       callee's reference; if it did not, the transient temporary is destroyed.
+       This makes ``v.push(new Obj())`` balance the same way as binding the
+       object to a named local first.
+
+    pre_stmts run before the call (temp declarations + keep-param rc++);
+    post_stmts run after it (owning-temp releases). Owning-temp args also get an
+    override registered so the lowered call references the temp var.
+    """
     from ...ast_nodes import CallExpr as CE
     if not isinstance(expr, CE):
-        return []
-    from .calls import emit_keep_rc_increments
-    # We need the lowered args to emit rc++ on. Lower args separately.
-    ir_args = [lower_expr(gen, a) for a in expr.args]
-    # For method calls, the args in the IR don't include 'self' -- that's
-    # prepended by the method call lowering. keep indices refer to the
-    # method's declared params (excluding self).
-    return emit_keep_rc_increments(gen, expr, ir_args)
+        return [], []
+
+    from .arguments import arg_names_for, param_index_for_written_arg
+    from .calls import get_keep_param_indices, params_for_call
+
+    keep_indices = set(get_keep_param_indices(gen, expr))
+    params = params_for_call(gen, expr)
+    names = arg_names_for(expr, len(expr.args))
+
+    pre: list[IRStmt] = []
+    post: list[IRStmt] = []
+    for idx, ast_arg in enumerate(expr.args):
+        arg_type = gen.analyzed.node_types.get(id(ast_arg))
+        if not arg_type or arg_type.base not in gen.analyzed.class_table:
+            continue
+        param_index = param_index_for_written_arg(params, idx, names)
+        is_keep_param = param_index in keep_indices
+        is_owning_temp = _is_owning_temp_arg(gen, ast_arg)
+        if not is_keep_param and not is_owning_temp:
+            continue
+
+        if is_owning_temp:
+            # Hoist the owning temporary into a temp var so it can be referenced
+            # by both the call and the post-call release.
+            temp_name = gen.fresh_temp("__btrc_arg_tmp")
+            temp_c = type_to_c(arg_type)
+            decl = IRVarDecl(c_type=CType(text=temp_c), name=temp_name,
+                             init=lower_expr(gen, ast_arg))
+            gen._func_var_decls.append(decl)
+            pre.append(decl)
+            gen._owning_temp_overrides[id(ast_arg)] = IRVar(name=temp_name)
+            target = IRVar(name=temp_name)
+        else:
+            # Borrowed reference (named local, field, etc.).
+            target = lower_expr(gen, ast_arg)
+
+        if is_keep_param:
+            # Call-site rc++ transfers a reference to the callee.
+            pre.append(IRExprStmt(expr=IRUnaryOp(
+                op="++",
+                operand=IRFieldAccess(obj=target, field="__rc", arrow=True),
+                prefix=False)))
+            if not is_owning_temp and isinstance(ast_arg, Identifier):
+                gen.register_managed_var(ast_arg.name, arg_type.base)
+
+        if is_owning_temp:
+            post.append(_release_stmt(gen, target, arg_type))
+
+    return pre, post
+
+
+def _release_stmt(gen: IRGenerator, target, arg_type):
+    """Build `if (target) { if (--target->__rc <= 0) destroy(target); }`."""
+    from .arc import _get_destroy_name
+    destroy_fn = _get_destroy_name(gen, arg_type, arg_type.base)
+    return IRIf(
+        condition=IRBinOp(left=target, op="!=", right=IRLiteral(text="NULL")),
+        then_block=IRBlock(stmts=[IRIf(
+            condition=IRBinOp(
+                left=IRUnaryOp(op="--", operand=IRFieldAccess(
+                    obj=target, field="__rc", arrow=True), prefix=True),
+                op="<=", right=IRLiteral(text="0")),
+            then_block=IRBlock(stmts=[IRExprStmt(
+                expr=IRCall(callee=destroy_fn, args=[target]))]),
+        )]),
+    )
+
+
+def _is_owning_temp_arg(gen: IRGenerator, ast_arg) -> bool:
+    """True if ast_arg creates a fresh owning object (new / constructor call)."""
+    from ...ast_nodes import CallExpr as CE
+    if isinstance(ast_arg, NewExpr):
+        return True
+    if isinstance(ast_arg, CE) and isinstance(ast_arg.callee, Identifier):
+        # ClassName(...) constructor call (generic or not) owns a fresh object.
+        if ast_arg.callee.name in gen.analyzed.class_table:
+            return True
+    return False

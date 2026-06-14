@@ -42,24 +42,14 @@ def _get_destroy_name(gen: IRGenerator, type_expr, cls_name: str) -> str:
 
 
 def _destroy_fn_for_managed(gen: IRGenerator, cls_name: str) -> str:
-    """Get the correct destroy/free function name for a managed class type."""
-    ct = gen.analyzed.class_table
-    # If cls_name is already a mangled generic name (e.g., btrc_Box_int),
-    # check the base class for 'free' method
-    base_name = cls_name
-    for cname, cinfo in ct.items():
-        from .types import mangle_generic_type
-        if cinfo.generic_params:
-            # Check all concrete instances of this generic
-            instances = gen.analyzed.generic_instances.get(cname, [])
-            for args in instances:
-                mangled = mangle_generic_type(cname, list(args))
-                if mangled == cls_name:
-                    base_name = cname
-                    break
-    cinfo = ct.get(base_name)
-    if cinfo and "free" in cinfo.methods:
-        return f"{cls_name}_free"
+    """Get the terminal destructor name for a managed class type.
+
+    Always returns ``{cls_name}_destroy``. The destroy function is the single
+    terminal destructor: for classes that define free() (collections) it calls
+    free() (content cleanup: release elements, free buffers, null fields) then
+    free(self) (struct). Scope-release / return-path / loop-exit therefore free
+    BOTH the contents and the struct via one call.
+    """
     return f"{cls_name}_destroy"
 
 

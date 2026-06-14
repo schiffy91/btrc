@@ -60,6 +60,14 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
     if node is None:
         return IRLiteral(text="0")
 
+    # ARC: owning temporary hoisted into a temp var (see _emit_keep_for_call).
+    # The temp has already been declared and initialized; references to the
+    # original AST arg node resolve to the temp so it can be released after use.
+    if gen is not None:
+        override = gen._owning_temp_overrides.get(id(node))
+        if override is not None:
+            return override
+
     if isinstance(node, IntLiteral):
         raw = node.raw or str(node.value)
         # Convert btrc octal 0o... to C octal 0...

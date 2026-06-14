@@ -13,20 +13,16 @@ from ..nodes import (
     IRCall,
     IRCast,
     IRExpr,
-    IRExprStmt,
     IRFieldAccess,
     IRLiteral,
     IRRawExpr,
     IRSizeof,
-    IRStmt,
     IRTernary,
-    IRUnaryOp,
 )
 from .arguments import (
     arg_names_for,
     lower_arg_values,
     order_args_for_params,
-    param_index_for_written_arg,
 )
 from .types import format_spec_for_type, is_string_type
 
@@ -172,44 +168,6 @@ def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
             return [i for i, p in enumerate(func_decl.params) if p.keep]
 
     return []
-
-
-def emit_keep_rc_increments(gen: IRGenerator, node: CallExpr,
-                            ir_args: list[IRExpr]) -> list[IRStmt]:
-    """Emit rc++ statements for args passed to `keep` params.
-
-    Only emits rc++ for class-type arguments (primitives don't have __rc).
-    Also registers those args as managed vars if they are local identifiers.
-    Returns the list of IRStmt to emit before the call.
-    """
-    keep_indices = get_keep_param_indices(gen, node)
-    if not keep_indices:
-        return []
-
-    stmts: list[IRStmt] = []
-    params = params_for_call(gen, node)
-    names = arg_names_for(node, len(node.args))
-    for idx in range(len(node.args)):
-        if idx >= len(ir_args):
-            continue
-        param_index = param_index_for_written_arg(params, idx, names)
-        if param_index not in keep_indices:
-            continue
-        ast_arg = node.args[idx]
-        arg_type = gen.analyzed.node_types.get(id(ast_arg))
-        # Only emit rc++ for class-type arguments (have __rc field)
-        if not arg_type or arg_type.base not in gen.analyzed.class_table:
-            continue
-        arg_ir = ir_args[idx]
-        stmts.append(IRExprStmt(expr=IRUnaryOp(
-            op="++",
-            operand=IRFieldAccess(obj=arg_ir, field="__rc", arrow=True),
-            prefix=False,
-        )))
-        # Register the source variable as managed if it's a local Identifier
-        if isinstance(ast_arg, Identifier):
-            gen.register_managed_var(ast_arg.name, arg_type.base)
-    return stmts
 
 
 def params_for_call(gen: IRGenerator, node: CallExpr) -> list:
