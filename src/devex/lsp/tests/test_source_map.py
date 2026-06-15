@@ -53,7 +53,7 @@ def test_definition_maps_stdlib_static_method_to_installed_source():
 
     assert loc is not None
     assert loc.uri.endswith("/src/stdlib/strings.btrc")
-    assert loc.range.start.line == 85
+    assert loc.range.start.line == 104  # split() def; shifted by the strings.btrc header contract comment
 
 
 def test_hover_maps_document_position_after_import(tmp_path):

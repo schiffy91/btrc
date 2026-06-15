@@ -23,9 +23,11 @@ if PROJECT_ROOT not in sys.path:  # pragma: no cover - import-time bootstrap
 
 from lsprotocol import types as lsp
 
+from src.devex.lsp.code_actions import get_code_actions
 from src.devex.lsp.completion import get_completions
 from src.devex.lsp.definition import get_definition
-from src.devex.lsp.diagnostics import compute_diagnostics
+from src.devex.lsp.diagnostics import WORKSPACE, compute_diagnostics
+from src.devex.lsp.highlights import get_document_highlights
 from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.references import get_references, get_rename_edits, prepare_rename
 from src.devex.lsp.semantic_tokens import LEGEND, get_semantic_tokens
@@ -44,6 +46,7 @@ from src.devex.lsp.server_state import (
 )
 from src.devex.lsp.signature_help import get_signature_help
 from src.devex.lsp.symbols import get_document_symbols
+from src.devex.lsp.workspace_symbols import get_workspace_symbols
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger("btrc-lsp")
@@ -78,9 +81,7 @@ def _validate_document(uri: str, source: str, generation: int | None = None):
             _good_analysis_cache[uri] = result
         # Publish under the lock so a didClose (which bumps the generation
         # first) can never be outrun by this now-stale publish.
-        server.text_document_publish_diagnostics(
-            lsp.PublishDiagnosticsParams(uri=uri, diagnostics=result.diagnostics)
-        )
+        server.text_document_publish_diagnostics(lsp.PublishDiagnosticsParams(uri=uri, diagnostics=result.diagnostics))
 
 
 def _schedule_validation(uri: str, source: str, delay: float):
@@ -230,6 +231,30 @@ def semantic_tokens_full(params: lsp.SemanticTokensParams):
     if result:
         return get_semantic_tokens(result)
     return None
+
+
+@server.feature(lsp.TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT)
+def document_highlight(params: lsp.TextDocumentPositionParams):
+    result = _get_best_result(params.text_document.uri)
+    if result:
+        return get_document_highlights(result, params.position)
+    return []
+
+
+@server.feature(lsp.WORKSPACE_SYMBOL)
+def workspace_symbol(params: lsp.WorkspaceSymbolParams):
+    return get_workspace_symbols(WORKSPACE, params.query or "")
+
+
+@server.feature(
+    lsp.TEXT_DOCUMENT_CODE_ACTION,
+    lsp.CodeActionOptions(code_action_kinds=[lsp.CodeActionKind.QuickFix]),
+)
+def code_action(params: lsp.CodeActionParams):
+    result = _get_best_result(params.text_document.uri)
+    if result:
+        return get_code_actions(result, params)
+    return []
 
 
 def main():  # pragma: no cover - stdio entry point for a real client
