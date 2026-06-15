@@ -1,0 +1,121 @@
+/* Bytes: a binary-safe, length-carrying byte buffer. Proves that binary data
+ * survives operations that a NUL-terminated `string` would truncate — the
+ * headline case being a file containing an embedded NUL byte round-tripping
+ * through writeBytes/readBytes with its length and bytes intact.
+ *
+ * Deterministic and hermetic: the only side effect is a temp file under a
+ * fresh temp dir, removed at the end. */
+#include <assert.h>
+
+int main() {
+    /* --- Embedded NUL round-trips in memory --- */
+    Bytes b = Bytes();
+    b.append(72);    /* 'H' */
+    b.append(0);     /* embedded NUL in the MIDDLE */
+    b.append(105);   /* 'i' */
+    assert(b.length() == 3);
+    assert(b.get(0) == 72);
+    assert(b.get(1) == 0);     /* the NUL is preserved, not a terminator */
+    assert(b.get(2) == 105);
+    print(f"in-memory NUL: len={b.length()} mid={b.get(1)}");
+
+    /* get() returns 0..255 (unsigned), even for high bytes. */
+    Bytes hi = Bytes();
+    hi.append(255);
+    hi.append(128);
+    assert(hi.get(0) == 255);
+    assert(hi.get(1) == 128);
+
+    /* set() overwrites in place; length unchanged. */
+    b.set(1, 65);    /* replace the NUL with 'A' */
+    assert(b.get(1) == 65);
+    assert(b.length() == 3);
+    b.set(1, 0);     /* put the NUL back */
+    assert(b.get(1) == 0);
+
+    /* --- fromString (text) --- */
+    Bytes s = Bytes.fromString("abc");
+    assert(s.length() == 3);
+    assert(s.get(0) == 97);
+    assert(s.get(1) == 98);
+    assert(s.get(2) == 99);
+    print(f"fromString: len={s.length()}");
+
+    /* --- slice (binary-safe; clamps, supports negatives) --- */
+    Bytes sl = b.slice(0, 2);
+    assert(sl.length() == 2);
+    assert(sl.get(0) == 72);
+    assert(sl.get(1) == 0);    /* NUL inside the slice */
+    Bytes neg = s.slice(-2, 3);
+    assert(neg.length() == 2);
+    assert(neg.get(0) == 98);
+    Bytes clamped = s.slice(0, 999);
+    assert(clamped.length() == 3);
+    print(f"slice: len={sl.length()}");
+
+    /* --- append / appendBytes --- */
+    Bytes cat = Bytes();
+    cat.appendBytes(s);
+    cat.appendBytes(b);
+    assert(cat.length() == 6);
+    assert(cat.get(0) == 97);
+    assert(cat.get(4) == 0);   /* the NUL from b survived the concatenation */
+    print(f"appendBytes: len={cat.length()}");
+
+    /* --- equals (length + memcmp, so NUL counts) --- */
+    Bytes b2 = Bytes();
+    b2.append(72); b2.append(0); b2.append(105);
+    assert(b.equals(b2));
+    assert(b2.equals(b));
+    assert(!b.equals(s));
+    Bytes shorter = b.slice(0, 2);
+    assert(!b.equals(shorter));   /* different length */
+    print("equals: ok");
+
+    /* --- toString vs toStringLossy --- */
+    Bytes txt = Bytes.fromString("hello");
+    string str = txt.toString();
+    assert(str.equals("hello"));
+    /* toString stops at the first embedded NUL (C-string semantics). */
+    string firstWord = b.toString();
+    assert((int)strlen(firstWord) == 1);   /* "H" then NUL */
+    print("toString: ok");
+
+    /* --- HEADLINE: file with an embedded NUL round-trips byte-exactly --- */
+    string dir = FileSystem.tempDir("btrc_bytes_test");
+    assert(FileSystem.isDir(dir));
+    string path = PathTools.join(dir, "blob.bin");
+
+    Bytes w = Bytes();
+    w.append(1);
+    w.append(0);     /* embedded NUL */
+    w.append(2);
+    w.append(0);     /* another embedded NUL */
+    w.append(255);
+    assert(w.length() == 5);
+
+    File fw = File(path, "wb");
+    assert(fw.ok());
+    assert(fw.writeBytes(w));
+    fw.close();
+
+    File fr = File(path, "rb");
+    assert(fr.ok());
+    Bytes r = fr.readBytes();
+    fr.close();
+
+    assert(r.length() == 5);          /* length preserved despite NUL bytes */
+    assert(r.get(0) == 1);
+    assert(r.get(1) == 0);            /* embedded NUL survived disk round-trip */
+    assert(r.get(2) == 2);
+    assert(r.get(3) == 0);
+    assert(r.get(4) == 255);
+    assert(r.equals(w));              /* byte-exact */
+    print(f"file round-trip: len={r.length()} nul@1={r.get(1)} nul@3={r.get(3)}");
+
+    FileSystem.removeRecursive(dir);
+    assert(!FileSystem.exists(dir));
+
+    print("PASS: test_bytes");
+    return 0;
+}

@@ -59,13 +59,15 @@ class ExecutionGraph {
         return self.resolvePath(self.baseDir, node.specPath);
     }
 
+    /* Looks up a node by id. Unknown ids are a DATA error (the graph came from
+     * user JSON), so this throws a catchable message instead of aborting the
+     * whole process. Wrap in try/catch, or pre-validate with valid() /
+     * validationError() / GraphValidation.nodeIds(). */
     public GraphNode node(string id) {
         for item in self.nodes {
             if (item.id.equals(id)) { return item; }
         }
-        Console.error(f"error 0:0 Unknown graph node: {id}");
-        exit(1);
-        return GraphNode();
+        throw f"Unknown graph node: {id}";
     }
 
     public Vector<string> defaultTargets() {
@@ -213,13 +215,14 @@ class GraphParser {
         node.specPath = JsonText.field(objectText, "spec", "");
         node.after = JsonText.stringArray(objectText, "after");
         node.args = JsonText.argsObject(objectText);
+        /* Missing id/spec is a DATA error in the source JSON, not an internal
+         * invariant — throw a catchable message instead of aborting. (readFile
+         * also surfaces these via the recoverable validationError() path.) */
         if (node.id.isEmpty()) {
-            Console.error("error 0:0 Graph node is missing id");
-            exit(1);
+            throw "Graph node is missing id";
         }
         if (node.specPath.isEmpty()) {
-            Console.error(f"error 0:0 Graph node {node.id} is missing spec");
-            exit(1);
+            throw f"Graph node {node.id} is missing spec";
         }
         return node;
     }
@@ -236,10 +239,13 @@ class GraphParser {
         for objectText in JsonText.objectArray(text, "nodes") {
             graph.nodes.push(GraphParser.node(objectText));
         }
+        /* Validation failures are DATA errors (bad graph JSON), so throw a
+         * catchable message rather than aborting the process. Callers that want
+         * to inspect without throwing can build the graph and call
+         * validationError() / valid() directly. */
         var error = graph.validationError();
         if (!error.isEmpty()) {
-            Console.error(f"error 0:0 {error}");
-            exit(1);
+            throw error;
         }
         return graph;
     }

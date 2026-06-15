@@ -2,6 +2,7 @@
  * Object-oriented file I/O inspired by Python's open() and file objects.
  */
 
+import std.bytes;
 import std.strings;
 import std.vector;
 
@@ -74,20 +75,51 @@ class File {
         return lines;
     }
 
+    /* Binary-safe read: returns the entire file (from the current position to
+     * EOF) as a Bytes buffer. Uses fread with the real byte count, so embedded
+     * NUL bytes are preserved — unlike read()/readLine() which return a
+     * NUL-terminated `string` and truncate at the first '\0'. */
+    public Bytes readBytes() {
+        Bytes out = Bytes();
+        if (!self.is_open) { return out; }
+        char chunk[8192];
+        size_t n = fread(chunk, 1, 8192, self.handle);
+        while (n > 0) {
+            out.appendRaw(chunk, (int)n);
+            n = fread(chunk, 1, 8192, self.handle);
+        }
+        return out;
+    }
+
+    /* Binary-safe write: writes exactly b.len bytes via fwrite (NOT fputs,
+     * which would stop at the first embedded NUL). Returns true when every
+     * byte was written. */
+    public bool writeBytes(Bytes b) {
+        if (!self.is_open || b == null) { return false; }
+        if (b.len == 0) { return true; }
+        size_t wrote = fwrite(b.data, 1, (size_t)b.len, self.handle);
+        return (int)wrote == b.len;
+    }
+
     public void setHandle(FILE* h) {
         self.handle = h;
         self.is_open = true;
     }
 
-    public void write(string text) {
-        if (!self.is_open) { return; }
-        fputs(text, self.handle);
+    /* Writes text to the stream. Returns true on success, false if the file is
+     * not open or the write failed (e.g. disk full / unwritable handle). Callers
+     * that ignore the result keep the old fire-and-forget behavior. */
+    public bool write(string text) {
+        if (!self.is_open) { return false; }
+        return fputs(text, self.handle) != EOF;
     }
 
-    public void writeLine(string text) {
-        if (!self.is_open) { return; }
-        fputs(text, self.handle);
-        fputc('\n', self.handle);
+    /* Writes text followed by a newline. Returns true only when both the text
+     * and the newline were written successfully. */
+    public bool writeLine(string text) {
+        if (!self.is_open) { return false; }
+        if (fputs(text, self.handle) == EOF) { return false; }
+        return fputc('\n', self.handle) != EOF;
     }
 
     public void __del__() {
@@ -117,13 +149,13 @@ class File {
 }
 
 class Path {
+    /* Stat-based existence check. Delegates to FileSystem.exists so Path and
+     * FileSystem agree on every case: directories count as existing, and a file
+     * that exists but is unreadable still reports true. (The old fopen("r")
+     * probe returned false for unreadable-but-existing files and depended on
+     * read permission — a silent inconsistency with FileSystem.exists.) */
     class bool exists(string path) {
-        FILE* f = fopen(path, "r");
-        if (f != NULL) {
-            fclose(f);
-            return true;
-        }
-        return false;
+        return FileSystem.exists(path);
     }
 
     class string readAll(string path) {
@@ -134,10 +166,21 @@ class Path {
         return content;
     }
 
-    class void writeAll(string path, string content) {
+    /* Writes content to path, truncating any existing file. Returns true on
+     * success, false if the file could not be opened or the write failed —
+     * no more silent data loss. Existing callers that ignore the result keep
+     * working; new callers can branch on the bool. */
+    class bool writeAll(string path, string content) {
         var f = File(path, "w");
-        if (!f.ok()) { return; }
-        f.write(content);
+        if (!f.ok()) {
+            fprintf(stderr, "Path.writeAll: cannot open '%s' for writing\n", path);
+            return false;
+        }
+        bool wrote = f.write(content);
         f.close();
+        if (!wrote) {
+            fprintf(stderr, "Path.writeAll: write to '%s' failed\n", path);
+        }
+        return wrote;
     }
 }

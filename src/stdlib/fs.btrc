@@ -8,7 +8,6 @@ import std.process;
 import std.strings;
 import std.vector;
 
-#define _DARWIN_C_SOURCE
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -287,7 +286,10 @@ class FileSystem {
         return Path.readAll(path);
     }
 
-    class void writeText(string path, string content) {
-        Path.writeAll(path, content);
+    /* Writes content to path (truncating). Returns true on success, false on
+     * open/write failure (and prints a clear stderr message via Path.writeAll).
+     * Callers that ignore the result keep the previous fire-and-forget shape. */
+    class bool writeText(string path, string content) {
+        return Path.writeAll(path, content);
     }
 }

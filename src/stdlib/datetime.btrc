@@ -1,5 +1,10 @@
 /* btrc standard library — DateTime
  * Date and time utilities inspired by Python's datetime module.
+ *
+ * Timezone note: toUnix()/fromUnix() treat the DateTime's fields as UTC, while
+ * now() returns LOCAL wall-clock time (via localtime). There is no timezone or
+ * DST handling — round-tripping now() through toUnix()/fromUnix() shifts by your
+ * local UTC offset. Convert deliberately if you mix the two.
  */
 import std.strings;
 

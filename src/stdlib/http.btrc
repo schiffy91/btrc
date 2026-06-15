@@ -8,6 +8,7 @@
  *
  * Auto-included. Sockets are libc-only; the client requires `curl` on PATH.
  */
+import std.bytes;
 import std.fs;
 import std.map;
 import std.process;
@@ -22,13 +23,15 @@ import std.vector;
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
+#include <errno.h>
 
 class HttpRequest {
     public string method;
     public string path;     /* path without query string */
     public string query;    /* raw query string, may be "" */
     public Map<string, string> headers;  /* header names lower-cased */
-    public string body;
+    public string body;        /* string view of the body — truncates at NUL */
+    public Bytes bodyBytes;    /* binary-safe body — full bytes, NUL preserved */
 
     public HttpRequest() {
         self.method = "GET";
@@ -36,10 +39,33 @@ class HttpRequest {
         self.query = "";
         self.headers = {};
         self.body = "";
+        self.bodyBytes = Bytes();
     }
 
     public string header(string name) {
         return self.headers.getOrDefault(name.toLower(), "");
+    }
+
+    /* Parse the raw query string ("a=1&b=hello%20world+x") into a map of
+     * percent-decoded name -> value pairs. req.query is kept raw (so the
+     * separators '&' and '=' are interpreted here, not pre-mangled by decoding);
+     * each individual name and value is urlDecode'd. A bare key ("flag") maps to
+     * "". Later duplicates win. */
+    public Map<string, string> queryParams() {
+        Map<string, string> out = {};
+        if (self.query.isEmpty()) { return out; }
+        for pair in Strings.split(self.query, "&") {
+            if (pair.isEmpty()) { continue; }
+            int eq = Strings.find(pair, "=", 0);
+            if (eq < 0) {
+                out.put(HttpServer.urlDecode(pair), "");
+            } else {
+                string k = pair.substring(0, eq);
+                string v = pair.substring(eq + 1, pair.len() - (eq + 1));
+                out.put(HttpServer.urlDecode(k), HttpServer.urlDecode(v));
+            }
+        }
+        return out;
     }
 
     public bool isGet() { return self.method.equals("GET"); }
@@ -155,36 +181,92 @@ class HttpServer {
         return 0;
     }
 
-    public string readRequestRaw(int c) {
-        string data = "";
-        char buf[8193];
+    /* Binary-safe recv loop: accumulates the raw request into a Bytes buffer by
+     * memcpy'ing exactly recv()'s return-count bytes. The old loop did
+     * `data = data + Strings.copy(buf)`, which truncated at the first NUL and so
+     * corrupted binary POST bodies. Header framing (\r\n\r\n, Content-Length) is
+     * ASCII and precedes the body, so it is detected via a NUL-free string view
+     * of the bytes received so far. */
+    public Bytes readRequestRawBytes(int c) {
+        Bytes data = Bytes();
+        char buf[8192];
         bool haveHeaders = false;
+        bool chunked = false;
         int headerEnd = -1;
         int contentLen = 0;
         while (true) {
             int n = (int)recv(c, buf, 8192, 0);
             if (n <= 0) { break; }
-            buf[n] = '\0';
-            data = data + Strings.copy(buf);
+            data.appendRaw(buf, n);
             if (!haveHeaders) {
-                int he = Strings.find(data, "\r\n\r\n", 0);
+                /* The header block contains no NUL and ends before the body,
+                 * so a lossy string view is sufficient for framing. */
+                string view = data.toStringLossy();
+                int he = Strings.find(view, "\r\n\r\n", 0);
                 if (he >= 0) {
                     haveHeaders = true;
                     headerEnd = he;
-                    contentLen = HttpServer.headerContentLength(data, he);
+                    chunked = HttpServer.isChunked(view, he);
+                    if (!chunked) {
+                        contentLen = HttpServer.headerContentLength(view, he);
+                    }
                 }
             }
             if (haveHeaders) {
-                int bodyStart = headerEnd + 4;
-                int have = data.len() - bodyStart;
-                if (have >= contentLen) { break; }
+                if (chunked) {
+                    /* Read until the terminating "0\r\n\r\n" chunk arrives. The
+                     * body region is searched from headerEnd for the end marker;
+                     * decodeChunked does the actual assembly later. */
+                    string view = data.toStringLossy();
+                    int term = Strings.find(view, "\r\n0\r\n\r\n", headerEnd);
+                    if (term >= 0) { break; }
+                    int term2 = Strings.find(view, "\r\n0\r\n", headerEnd);
+                    if (term2 >= 0) { break; }
+                } else {
+                    int bodyStart = headerEnd + 4;
+                    int have = data.length() - bodyStart;
+                    if (have >= contentLen) { break; }
+                }
             }
         }
         return data;
     }
 
+    /* Back-compat string accessor. Returns the raw request as a string, which
+     * truncates at the first NUL — fine for text requests, lossy for binary.
+     * Binary callers should use readRequestRawBytes / readRequest().bodyBytes. */
+    public string readRequestRaw(int c) {
+        Bytes data = self.readRequestRawBytes(c);
+        string out = data.toStringLossy();
+        return out;
+    }
+
     public HttpRequest readRequest(int c) {
-        return self.parse(self.readRequestRaw(c));
+        return self.parseBytes(self.readRequestRawBytes(c));
+    }
+
+    /* Parse a raw request held in a Bytes buffer. Headers parse from a string
+     * view (ASCII); the body is sliced from the Bytes buffer so binary bodies
+     * (including embedded NUL) survive in req.bodyBytes. req.body remains the
+     * string view for text callers (truncates at NUL — documented). */
+    public HttpRequest parseBytes(Bytes raw) {
+        string view = raw.toStringLossy();
+        HttpRequest req = self.parse(view);
+        int he = Strings.find(view, "\r\n\r\n", 0);
+        if (he >= 0) {
+            int bodyStart = he + 4;
+            if (HttpServer.isChunked(view, he)) {
+                /* parse() already decoded req.body; mirror the assembled text
+                 * into bodyBytes (chunked support is text-only — see
+                 * decodeChunked). */
+                Bytes decoded = Bytes();
+                decoded.appendRaw(req.body, (int)strlen(req.body));
+                req.bodyBytes = decoded;
+            } else {
+                req.bodyBytes = raw.slice(bodyStart, raw.length());
+            }
+        }
+        return req;
     }
 
     public HttpRequest parse(string raw) {
@@ -194,7 +276,15 @@ class HttpServer {
         string head = he >= 0 ? raw.substring(0, he) : raw;
         if (he >= 0) {
             int bodyStart = he + 4;
-            req.body = raw.substring(bodyStart, raw.len() - bodyStart);
+            string rawBody = raw.substring(bodyStart, raw.len() - bodyStart);
+            /* A chunked request body is wire-encoded; decode it so callers see
+             * the assembled payload in req.body (text bodies — see
+             * decodeChunked limits). */
+            if (HttpServer.isChunked(head, head.len())) {
+                req.body = HttpServer.decodeChunked(rawBody);
+            } else {
+                req.body = rawBody;
+            }
         }
         Vector<string> lines = Strings.split(head, "\r\n");
         if (lines.len > 0) {
@@ -223,27 +313,196 @@ class HttpServer {
         return req;
     }
 
+    /* Standard reason phrase for a status code. Unknown codes return a generic
+     * class-based phrase (so e.g. a custom 2xx still reads sensibly) rather than
+     * the old buggy fall-through to "OK", which produced nonsense like
+     * "302 OK". */
+    /* True when the head block declares Transfer-Encoding: chunked (case- and
+     * whitespace-insensitive; also matches "gzip, chunked"). headerEnd is the
+     * index of the "\r\n\r\n" that ends the headers, as from Strings.find. */
+    class bool isChunked(string head, int headerEnd) {
+        string headerText = head.substring(0, headerEnd);
+        for line in Strings.split(headerText, "\r\n") {
+            int colon = Strings.find(line, ":", 0);
+            if (colon <= 0) { continue; }
+            string name = line.substring(0, colon).trim().toLower();
+            if (!name.equals("transfer-encoding")) { continue; }
+            string value = line.substring(colon + 1, line.len() - (colon + 1)).trim().toLower();
+            if (value.contains("chunked")) { return true; }
+        }
+        return false;
+    }
+
+    /* Decode an HTTP/1.1 chunked transfer-encoded body into the assembled
+     * payload. Format: a sequence of "<hex-size>[;chunk-ext]\r\n<size bytes>\r\n"
+     * chunks, ending with a "0\r\n" chunk followed by optional trailers and a
+     * final "\r\n".
+     *
+     * Coverage: single- and multi-chunk bodies, chunk extensions (";..." after
+     * the size, ignored), and upper/lower-case hex sizes. Trailers after the
+     * terminating zero chunk are ignored.
+     *
+     * Limit: operates on a `string`, so it stops at the first embedded NUL —
+     * fine for text bodies. Binary chunked bodies are not supported (chunked
+     * uploads from browsers/forms are text in practice). A malformed length is
+     * treated as end-of-stream, returning what was decoded so far. */
+    class string decodeChunked(string body) {
+        if (body == null) { return ""; }
+        int n = (int)strlen(body);
+        char* out = (char*)malloc((size_t)(n + 1));
+        int o = 0;
+        int i = 0;
+        while (i < n) {
+            /* Read the hex chunk size up to ';' (extension) or CRLF. */
+            int size = 0;
+            bool sawDigit = false;
+            while (i < n) {
+                int hv = HttpServer.hexVal(body[i]);
+                if (hv < 0) { break; }
+                size = size * 16 + hv;
+                sawDigit = true;
+                i++;
+            }
+            if (!sawDigit) { break; }
+            /* Skip any chunk extension (";...") up to CRLF. */
+            while (i < n && body[i] != '\r' && body[i] != '\n') { i++; }
+            /* Skip the CRLF after the size line. */
+            if (i < n && body[i] == '\r') { i++; }
+            if (i < n && body[i] == '\n') { i++; }
+            if (size == 0) { break; }   /* terminating chunk */
+            /* Copy `size` data bytes (clamped to what's available). */
+            int avail = n - i;
+            int take = size < avail ? size : avail;
+            if (take > 0) {
+                memcpy(out + o, body + i, (size_t)take);
+                o = o + take;
+                i = i + take;
+            }
+            /* Skip the trailing CRLF after the chunk data. */
+            if (i < n && body[i] == '\r') { i++; }
+            if (i < n && body[i] == '\n') { i++; }
+        }
+        out[o] = '\0';
+        return out;
+    }
+
+    /* Map a hex digit char to its 0..15 value, or -1 if not hex. */
+    class int hexVal(char ch) {
+        if (ch >= '0' && ch <= '9') { return (int)(ch - '0'); }
+        if (ch >= 'a' && ch <= 'f') { return (int)(ch - 'a') + 10; }
+        if (ch >= 'A' && ch <= 'F') { return (int)(ch - 'A') + 10; }
+        return -1;
+    }
+
+    /* Percent-decode an application/x-www-form-urlencoded token: "%XX" -> the
+     * byte XX, "+" -> space, everything else passes through. A "%" not followed
+     * by two hex digits is left verbatim (lenient, matches browsers). */
+    class string urlDecode(string s) {
+        if (s == null) { return ""; }
+        int n = (int)strlen(s);
+        char* out = (char*)malloc((size_t)(n + 1));
+        int o = 0;
+        int i = 0;
+        while (i < n) {
+            char ch = s[i];
+            if (ch == '+') {
+                out[o] = ' ';
+                o++;
+                i++;
+            } else if (ch == '%' && i + 2 < n) {
+                int hi = HttpServer.hexVal(s[i + 1]);
+                int lo = HttpServer.hexVal(s[i + 2]);
+                if (hi >= 0 && lo >= 0) {
+                    out[o] = (char)(hi * 16 + lo);
+                    o++;
+                    i = i + 3;
+                } else {
+                    out[o] = ch;
+                    o++;
+                    i++;
+                }
+            } else {
+                out[o] = ch;
+                o++;
+                i++;
+            }
+        }
+        out[o] = '\0';
+        return out;
+    }
+
+    /* Percent-encode a string for use in a query value. Unreserved characters
+     * (RFC 3986: A-Z a-z 0-9 - _ . ~) pass through; everything else becomes
+     * "%XX" with upper-case hex. Space becomes "%20" (not "+"), so the result
+     * is valid in both query and path contexts. */
+    class string urlEncode(string s) {
+        if (s == null) { return ""; }
+        int n = (int)strlen(s);
+        char* out = (char*)malloc((size_t)(n * 3 + 1));
+        int o = 0;
+        string hexDigits = "0123456789ABCDEF";
+        for (int i = 0; i < n; i++) {
+            int b = (int)((unsigned char)s[i]);
+            char ch = (char)b;
+            bool unreserved = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+                || (ch >= '0' && ch <= '9')
+                || ch == '-' || ch == '_' || ch == '.' || ch == '~';
+            if (unreserved) {
+                out[o] = ch;
+                o++;
+            } else {
+                out[o] = '%';
+                out[o + 1] = hexDigits[(b >> 4) & 15];
+                out[o + 2] = hexDigits[b & 15];
+                o = o + 3;
+            }
+        }
+        out[o] = '\0';
+        return out;
+    }
+
     public string reason(int status) {
         if (status == 200) { return "OK"; }
         if (status == 201) { return "Created"; }
         if (status == 204) { return "No Content"; }
+        if (status == 301) { return "Moved Permanently"; }
+        if (status == 302) { return "Found"; }
+        if (status == 304) { return "Not Modified"; }
         if (status == 400) { return "Bad Request"; }
         if (status == 401) { return "Unauthorized"; }
         if (status == 403) { return "Forbidden"; }
         if (status == 404) { return "Not Found"; }
         if (status == 405) { return "Method Not Allowed"; }
         if (status == 500) { return "Internal Server Error"; }
-        return "OK";
+        if (status == 502) { return "Bad Gateway"; }
+        if (status == 503) { return "Service Unavailable"; }
+        /* Generic phrase by status class for any other code. */
+        if (status >= 200 && status < 300) { return "OK"; }
+        if (status >= 300 && status < 400) { return "Redirect"; }
+        if (status >= 400 && status < 500) { return "Client Error"; }
+        if (status >= 500 && status < 600) { return "Server Error"; }
+        return "";
     }
 
+    /* Write every byte of `data` to the socket, surviving short writes and
+     * EINTR. A single send() may transmit fewer bytes than requested (a short
+     * write) or be interrupted by a signal (EINTR / EAGAIN), both of which the
+     * old loop treated as fatal — silently dropping the tail of the response.
+     * We loop until all bytes are sent, retrying on EINTR/EAGAIN and only
+     * bailing on a genuine error (n < 0 with another errno) or n == 0. */
     public void sendAll(int c, string data) {
         char* p = data;
         int total = (int)strlen(data);
         int sent = 0;
         while (sent < total) {
             int n = (int)send(c, p + sent, total - sent, 0);
-            if (n <= 0) { break; }
-            sent = sent + n;
+            if (n > 0) {
+                sent = sent + n;
+            } else if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+                continue;
+            } else {
+                break;
+            }
         }
     }
 
@@ -293,38 +552,46 @@ class HttpClient {
         if (dir.isEmpty()) {
             return HttpClientResponse(0, "", "could not create temp dir");
         }
-        var outFile = PathTools.join(dir, "resp.bin");
-        var bodyFile = PathTools.join(dir, "req.bin");
-        var hasBody = !body.isEmpty();
-        if (hasBody) {
-            FileSystem.writeText(bodyFile, body);
-        }
+        /* Everything below runs inside try/finally so the temp dir is removed on
+         * every exit path — normal return, early error return, or an exception
+         * thrown by any step (curl/process/fs). Previously a throw left the temp
+         * dir leaked. */
+        int status = 0;
+        string responseBody = "";
+        string error = "";
+        try {
+            var outFile = PathTools.join(dir, "resp.bin");
+            var bodyFile = PathTools.join(dir, "req.bin");
+            var hasBody = !body.isEmpty();
+            if (hasBody) {
+                FileSystem.writeText(bodyFile, body);
+            }
 
-        var command = Command("curl -sS")
-            .flag("--max-time", Strings.fromInt(self.timeoutSecs))
-            .flag("-X", method)
-            .flag("-o", outFile)
-            .flag("-w", "%{http_code}");
-        for h in headers {
-            command.flag("-H", h);
-        }
-        if (hasBody) {
-            command.flag("--data-binary", "@" + bodyFile);
-        }
-        command.arg(url);
+            var command = Command("curl -sS")
+                .flag("--max-time", Strings.fromInt(self.timeoutSecs))
+                .flag("-X", method)
+                .flag("-o", outFile)
+                .flag("-w", "%{http_code}");
+            for h in headers {
+                command.flag("-H", h);
+            }
+            if (hasBody) {
+                command.flag("--data-binary", "@" + bodyFile);
+            }
+            command.arg(url);
 
-        var result = UnixShell().run(command, stderr=CommandOutput.stream(), logFailure=false);
-        var status = Strings.toInt(result.stdout().trim());
+            var result = UnixShell().run(command, stderr=CommandOutput.stream(), logFailure=false);
+            status = Strings.toInt(result.stdout().trim());
 
-        var responseBody = "";
-        if (FileSystem.exists(outFile)) {
-            responseBody = FileSystem.readText(outFile);
+            if (FileSystem.exists(outFile)) {
+                responseBody = FileSystem.readText(outFile);
+            }
+            if (status == 0) {
+                error = f"curl failed (exit {result.code})";
+            }
+        } finally {
+            FileSystem.removeRecursive(dir);
         }
-        var error = "";
-        if (status == 0) {
-            error = f"curl failed (exit {result.code})";
-        }
-        FileSystem.removeRecursive(dir);
         return HttpClientResponse(status, responseBody, error);
     }
 

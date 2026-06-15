@@ -1,0 +1,166 @@
+/* btrc standard library — Bytes
+ *
+ * A binary-safe, length-carrying byte buffer. Unlike `string` (which is
+ * NUL-terminated and therefore truncates at the first '\0'), Bytes stores an
+ * explicit length and may contain any byte value, including embedded NUL.
+ *
+ * Binary safety is achieved by:
+ *   - carrying an explicit `len` rather than relying on strlen()
+ *   - copying with memcpy(count) rather than strcpy/strlen
+ *
+ * Memory: a raw `char* data` buffer grown with realloc, freed in free()/__del__.
+ * free() nulls the buffer so it is idempotent; the analyzer auto-releases
+ * owning Bytes locals on scope exit (Bytes_destroy runs __del__ then free(self)).
+ */
+
+class Bytes {
+    public char* data;
+    public int len;
+    public int cap;
+
+    public Bytes() {
+        self.data = null;
+        self.len = 0;
+        self.cap = 0;
+    }
+
+    /* Grow the backing buffer to hold at least `need` bytes. */
+    private void reserve(int need) {
+        if (need <= self.cap) { return; }
+        int newCap = self.cap == 0 ? 8 : self.cap;
+        while (newCap < need) { newCap = newCap * 2; }
+        self.data = (char*)__btrc_safe_realloc(self.data, (size_t)newCap);
+        self.cap = newCap;
+    }
+
+    public int length() {
+        return self.len;
+    }
+
+    public bool isEmpty() {
+        return self.len == 0;
+    }
+
+    /* Return byte i as an unsigned value in 0..255. */
+    public int get(int i) {
+        if (i < 0 || i >= self.len) {
+            fprintf(stderr, "Bytes index out of bounds: %d (len=%d)\n", i, self.len);
+            exit(1);
+        }
+        return (int)((unsigned char)self.data[i]);
+    }
+
+    /* Store the low 8 bits of b at index i. */
+    public void set(int i, int b) {
+        if (i < 0 || i >= self.len) {
+            fprintf(stderr, "Bytes index out of bounds: %d (len=%d)\n", i, self.len);
+            exit(1);
+        }
+        self.data[i] = (char)(b & 255);
+    }
+
+    /* Append the low 8 bits of b. */
+    public void append(int b) {
+        self.reserve(self.len + 1);
+        self.data[self.len] = (char)(b & 255);
+        self.len++;
+    }
+
+    /* Append all bytes from another Bytes (memcpy — binary-safe). */
+    public void appendBytes(Bytes other) {
+        if (other == null || other.len == 0) { return; }
+        self.reserve(self.len + other.len);
+        memcpy(self.data + self.len, other.data, (size_t)other.len);
+        self.len = self.len + other.len;
+    }
+
+    /* Append the raw bytes of a C buffer. */
+    public void appendRaw(char* p, int n) {
+        if (p == null || n <= 0) { return; }
+        self.reserve(self.len + n);
+        memcpy(self.data + self.len, p, (size_t)n);
+        self.len = self.len + n;
+    }
+
+    /* Copy of bytes [start, end). Negative indices count from the end;
+     * out-of-range bounds are clamped. */
+    public Bytes slice(int start, int end) {
+        if (start < 0) { start = self.len + start; }
+        if (end < 0) { end = self.len + end; }
+        if (start < 0) { start = 0; }
+        if (end > self.len) { end = self.len; }
+        Bytes result = Bytes();
+        if (start < end) {
+            result.appendRaw(self.data + start, end - start);
+        }
+        return result;
+    }
+
+    /* True when both buffers hold the same bytes (length + memcmp). */
+    public bool equals(Bytes other) {
+        if (other == null) { return false; }
+        if (self.len != other.len) { return false; }
+        if (self.len == 0) { return true; }
+        return memcmp(self.data, other.data, (size_t)self.len) == 0;
+    }
+
+    /* NUL-safe view: returns a freshly malloc'd C string holding the content up
+     * to the first embedded NUL (standard C string semantics). For the full
+     * length-carrying content (NUL bytes preserved up to len), use the Bytes
+     * accessors directly or toStringLossy(). */
+    public string toString() {
+        int n = self.len;
+        for (int i = 0; i < self.len; i++) {
+            if (self.data[i] == '\0') { n = i; break; }
+        }
+        char* out = (char*)malloc((size_t)(n + 1));
+        if (n > 0) { memcpy(out, self.data, (size_t)n); }
+        out[n] = '\0';
+        return out;
+    }
+
+    /* All `len` bytes as a C string with a trailing NUL appended. Embedded NUL
+     * bytes are preserved in the buffer but standard string consumers (strlen,
+     * printf %s) will still stop at the first one — this is unavoidable for the
+     * `string` type. Use it when you need a NUL-terminated copy of binary data. */
+    public string toStringLossy() {
+        char* out = (char*)malloc((size_t)(self.len + 1));
+        if (self.len > 0) { memcpy(out, self.data, (size_t)self.len); }
+        out[self.len] = '\0';
+        return out;
+    }
+
+    /* Build Bytes from a text string. Copies strlen(s) bytes — correct for text;
+     * a string that already contains an embedded NUL would itself be truncated
+     * before reaching here, so fromString is for text, not arbitrary binary. */
+    class Bytes fromString(string s) {
+        Bytes result = Bytes();
+        if (s != null) {
+            int n = (int)strlen(s);
+            result.appendRaw((char*)s, n);
+        }
+        return result;
+    }
+
+    /* Build Bytes from a raw pointer + explicit byte count (binary-safe). */
+    class Bytes fromRaw(char* p, int n) {
+        Bytes result = Bytes();
+        result.appendRaw(p, n);
+        return result;
+    }
+
+    /* Release the backing buffer. Idempotent: nulls data so a second call (or
+     * __del__ after an explicit free()) is a no-op. */
+    public void free() {
+        if (self.data != null) {
+            free(self.data);
+            self.data = null;
+        }
+        self.len = 0;
+        self.cap = 0;
+    }
+
+    public void __del__() {
+        self.free();
+    }
+}

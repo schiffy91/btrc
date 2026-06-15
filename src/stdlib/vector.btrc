@@ -264,14 +264,17 @@ class Vector<T> implements Iterable {
         return result;
     }
 
-    /* NOTE: mapTo<U>(fn: T -> U) — mapping a Vector<T> to a Vector of a
-     * DIFFERENT element type U — is NOT implemented. It requires method-level
-     * type parameters (a generic method introducing its own <U> on an already
-     * generic class), which the compiler does not yet support: the parser
-     * rejects `<U>` after a method name, and there is no monomorphization path
-     * for method-level generics. Implementing mapTo needs that compiler
-     * support (parser + analyzer + IR-gen method-generic monomorphization) as
-     * a follow-up. Until then, map() (T -> T) is the available transform. */
+    /* mapTo<U>(fn: T -> U) — map a Vector<T> to a Vector of a DIFFERENT element
+     * type U. Uses a method-level type parameter (generic method); the concrete
+     * U is inferred from fn's return type at each call site and monomorphized
+     * per (T, U) combination. For same-type transforms use map() (T -> T). */
+    public Vector<U> mapTo<U>(__fn_ptr<U, T> fn) {
+        Vector<U> result = [];
+        for (int i = 0; i < self.len; i++) {
+            result.push(fn(self.data[i]));
+        }
+        return result;
+    }
 
     public T min() {
         if (self.len <= 0) { fprintf(stderr, "Vector min on empty list\n"); exit(1); }

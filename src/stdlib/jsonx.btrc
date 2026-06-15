@@ -1,3 +1,15 @@
+/* btrc standard library — Json (DEPRECATED string-scan extractors)
+ *
+ * DEPRECATED: prefer the JsonValue / JsonObject / JsonParser tree API in
+ * std.json. These helpers do a positional, key-name string search over raw
+ * JSON text: they are UNSAFE for general input because a matching key name
+ * inside a nested object or a string literal can be picked up by accident, and
+ * the "after anchor" variant relies on byte offsets rather than real
+ * structure. They are kept only for existing callers (e.g. cheap one-off field
+ * lookups) and the std.json tree parser supersedes them. Do not build new code
+ * on Json.getString / Json.str; parse with JsonParser/JsonValue instead.
+ */
+
 import std.json;
 import std.strings;
 

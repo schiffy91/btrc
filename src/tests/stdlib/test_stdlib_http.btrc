@@ -73,7 +73,8 @@ int main() {
     assert(parser.reason(201).equals("Created"));
     assert(parser.reason(404).equals("Not Found"));
     assert(parser.reason(500).equals("Internal Server Error"));
-    assert(parser.reason(999).equals("OK"));             // unknown -> default
+    assert(parser.reason(302).equals("Found"));          // 3xx no longer "OK"
+    assert(parser.reason(999).equals(""));               // unknown -> generic/empty
 
     // --- HttpClientResponse.ok() reflects 2xx ---
     assert(HttpClientResponse(200, "x", "").ok());

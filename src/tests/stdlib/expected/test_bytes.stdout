@@ -1,0 +1,8 @@
+in-memory NUL: len=3 mid=0
+fromString: len=3
+slice: len=2
+appendBytes: len=6
+equals: ok
+toString: ok
+file round-trip: len=5 nul@1=0 nul@3=0
+PASS: test_bytes

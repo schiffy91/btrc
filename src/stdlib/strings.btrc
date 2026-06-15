@@ -5,6 +5,21 @@
  *
  * Note: some internals still use C string functions for allocation-heavy
  * primitives, but public callers should use this object-oriented surface.
+ *
+ * === CONTRACT ===
+ *  - ENCODING: every operation here is BYTE-based, not Unicode-aware. Lengths,
+ *    indices, find/rfind/count offsets, and slices are all measured in bytes.
+ *    A multi-byte UTF-8 code point counts as several "characters". The string
+ *    is treated as NUL-terminated, so an embedded '\0' ends it (use std.bytes
+ *    for binary-safe data).
+ *  - CASE OPS are ASCII-ONLY: toUpper/toLower (built-in) and capitalize/title/
+ *    swapCase here only re-case the bytes A-Z / a-z. Bytes >= 0x80 (accented
+ *    letters, non-Latin scripts) are passed through unchanged.
+ *  - toInt: parses an optional leading sign then consecutive ASCII digits and
+ *    STOPS at the first non-digit byte (after trimming surrounding whitespace).
+ *    "12ab" -> 12, "abc" -> 0, "" -> 0, "-7" -> -7. No overflow detection.
+ *  - repeat(s, n): n <= 0 yields the empty string "" (never a negative-size
+ *    allocation).
  */
 
 import std.vector;
@@ -15,6 +30,10 @@ class Strings {
     }
 
     class string repeat(string s, int count) {
+        /* count <= 0 means "no copies" -> empty string. Without this guard a
+         * negative count produced a negative total and malloc(total + 1) with a
+         * wrapped/negative size (undefined behavior / silent corruption). */
+        if (count <= 0) { return Strings.copy(""); }
         int slen = (int)strlen(s);
         int total = slen * count;
         char* result = (char*)malloc(total + 1);
@@ -118,6 +137,10 @@ class Strings {
         return c == ' ' || c == '\t' || c == '\n' || c == '\r';
     }
 
+    /* Parses an optional leading +/- sign then consecutive ASCII digits,
+     * stopping at the first non-digit byte (surrounding whitespace is trimmed
+     * first). Garbage or empty input yields 0; e.g. "12ab" -> 12, "abc" -> 0.
+     * No overflow detection. See the file header CONTRACT for details. */
     class int toInt(string s) {
         if (s == null) { return 0; }
         string value = s.trim();

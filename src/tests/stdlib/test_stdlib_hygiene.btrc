@@ -1,0 +1,56 @@
+/* std.* error-handling hygiene: write failures surface (not silent), Path.exists
+ * agrees with FileSystem.exists, graph data errors are recoverable (catchable,
+ * not exit(1)), and Strings.repeat is safe for non-positive counts.
+ *
+ * Hermetic: uses a fresh temp dir; deterministic; no network/sleep. */
+#include <assert.h>
+
+int main() {
+    string dir = FileSystem.tempDir("btrc-hygiene-test");
+    assert(!dir.isEmpty());
+
+    /* --- Item 1: Path.writeAll surfaces failure instead of silent data loss. */
+    string good = PathTools.join(dir, "ok.txt");
+    assert(Path.writeAll(good, "hello"));
+    assert(Path.readAll(good).equals("hello"));
+    /* Writing under a path whose parent dir does not exist must fail (false). */
+    string unwritable = PathTools.join(dir, "no-such-subdir/child.txt");
+    assert(!Path.writeAll(unwritable, "data"));
+    /* FileSystem.writeText propagates the same bool. */
+    assert(FileSystem.writeText(good, "again"));
+    assert(!FileSystem.writeText(unwritable, "data"));
+
+    /* --- Item 2: Path.exists agrees with FileSystem.exists (stat-based). */
+    string missing = PathTools.join(dir, "definitely-missing.txt");
+    assert(Path.exists(good) == FileSystem.exists(good));
+    assert(Path.exists(good));
+    assert(Path.exists(dir) == FileSystem.exists(dir));
+    assert(Path.exists(dir));
+    assert(Path.exists(missing) == FileSystem.exists(missing));
+    assert(!Path.exists(missing));
+
+    /* --- Item 3: graph unknown-node lookup is recoverable (throws, not exit). */
+    var graph = ExecutionGraph();
+    var n = GraphNode();
+    n.id = "only";
+    n.specPath = "only.json";
+    graph.nodes.push(n);
+    assert(graph.node("only").id.equals("only"));
+    bool caught = false;
+    try {
+        graph.node("ghost");
+    } catch (string e) {
+        caught = true;
+        assert(e.contains("Unknown graph node"));
+    }
+    assert(caught);
+
+    /* --- Item 4: Strings.repeat is safe for count <= 0. */
+    assert(Strings.repeat("x", 0).equals(""));
+    assert(Strings.repeat("x", -1).equals(""));
+    assert(Strings.repeat("ab", 3).equals("ababab"));
+
+    FileSystem.removeRecursive(dir);
+    print("PASS: test_stdlib_hygiene");
+    return 0;
+}
