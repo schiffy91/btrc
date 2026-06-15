@@ -35,6 +35,42 @@ class DateTime {
         );
     }
 
+    /* Seconds since the Unix epoch (1970-01-01 00:00:00), interpreting this
+     * DateTime's fields as UTC. Computed with a portable civil-from-days
+     * algorithm (Howard Hinnant's) — no dependence on the non-portable
+     * timegm(), so it builds identically under strict C11 on macOS and Linux. */
+    public int toUnix() {
+        int y = self.year;
+        int m = self.month;
+        if (m <= 2) {
+            y = y - 1;
+        }
+        int era = (y >= 0 ? y : y - 399) / 400;
+        int yoe = y - era * 400;
+        int mp = (m + 9) % 12;
+        int doy = (153 * mp + 2) / 5 + self.day - 1;
+        int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        int days = era * 146097 + doe - 719468;
+        return days * 86400 + self.hour * 3600 + self.minute * 60 + self.second;
+    }
+
+    /* Construct a DateTime from seconds since the Unix epoch, interpreted as
+     * UTC (via gmtime_r) so the result is deterministic and independent of the
+     * host's local timezone. This is the inverse of toUnix(). */
+    class DateTime fromUnix(int seconds) {
+        time_t t = (time_t)seconds;
+        struct tm out;
+        gmtime_r(&t, &out);
+        return DateTime(
+            out.tm_year + 1900,
+            out.tm_mon + 1,
+            out.tm_mday,
+            out.tm_hour,
+            out.tm_min,
+            out.tm_sec
+        );
+    }
+
     public void display() {
         printf("%04d-%02d-%02d %02d:%02d:%02d",
             self.year, self.month, self.day,
@@ -62,9 +98,15 @@ class DateTime {
     }
 }
 
+/* A monotonic wall-clock stopwatch.
+ *
+ * Backed by CLOCK_MONOTONIC (POSIX) rather than clock(): clock() measures CPU
+ * time, so timing anything that sleeps or blocks on I/O reported near-zero.
+ * start/end are stored as monotonic nanoseconds (long), so both a busy loop
+ * and a sleep yield positive elapsed time. */
 class Timer {
-    private clock_t start_time;
-    private clock_t end_time;
+    private long start_time;
+    private long end_time;
     private bool running;
 
     public Timer() {
@@ -73,24 +115,62 @@ class Timer {
         self.running = false;
     }
 
+    /* Current monotonic clock value, in nanoseconds. */
+    private long monoNanos() {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return (long)ts.tv_sec * 1000000000L + (long)ts.tv_nsec;
+    }
+
     public void start() {
-        self.start_time = clock();
+        self.start_time = self.monoNanos();
         self.running = true;
     }
 
     public void stop() {
-        self.end_time = clock();
+        self.end_time = self.monoNanos();
         self.running = false;
     }
 
+    /* Elapsed wall time in seconds. */
     public float elapsed() {
-        clock_t end = self.running ? clock() : self.end_time;
-        return (float)(end - self.start_time) / (float)CLOCKS_PER_SEC;
+        long end = self.running ? self.monoNanos() : self.end_time;
+        return (float)(end - self.start_time) / 1000000000.0f;
+    }
+
+    /* Elapsed wall time in milliseconds. */
+    public float elapsedMillis() {
+        long end = self.running ? self.monoNanos() : self.end_time;
+        return (float)(end - self.start_time) / 1000000.0f;
     }
 
     public void reset() {
         self.start_time = 0;
         self.end_time = 0;
         self.running = false;
+    }
+
+    /* Suspend the calling thread for the given number of seconds (fractional
+     * seconds allowed), using nanosleep (POSIX). */
+    class void sleep(double seconds) {
+        if (seconds <= 0.0) {
+            return;
+        }
+        struct timespec req;
+        req.tv_sec = (time_t)seconds;
+        double frac = seconds - (double)((time_t)seconds);
+        req.tv_nsec = (long)(frac * 1000000000.0);
+        nanosleep(&req, NULL);
+    }
+
+    /* Suspend the calling thread for the given number of milliseconds. */
+    class void sleepMillis(int ms) {
+        if (ms <= 0) {
+            return;
+        }
+        struct timespec req;
+        req.tv_sec = ms / 1000;
+        req.tv_nsec = (long)(ms % 1000) * 1000000L;
+        nanosleep(&req, NULL);
     }
 }

@@ -1,0 +1,73 @@
+/* Comparator-driven sorting: Vector.sortBy / sortedBy.
+ * less(a, b) returns true when a should come before b. */
+#include <assert.h>
+#include <stdio.h>
+
+class Person {
+    public string name;
+    public int age;
+
+    public Person(string name, int age) {
+        self.name = name;
+        self.age = age;
+    }
+}
+
+int main() {
+    /* --- sort ints descending via an arrow comparator --- */
+    Vector<int> nums = [5, 2, 8, 1, 9, 3];
+    nums.sortBy((int a, int b) => a > b);
+    assert(nums.len == 6);
+    assert(nums.get(0) == 9);
+    assert(nums.get(1) == 8);
+    assert(nums.get(2) == 5);
+    assert(nums.get(3) == 3);
+    assert(nums.get(4) == 2);
+    assert(nums.get(5) == 1);
+
+    /* --- sortedBy is non-mutating: original stays untouched --- */
+    Vector<int> src = [3, 1, 2];
+    Vector<int> asc = src.sortedBy((int a, int b) => a < b);
+    assert(asc.get(0) == 1);
+    assert(asc.get(1) == 2);
+    assert(asc.get(2) == 3);
+    /* original unchanged */
+    assert(src.get(0) == 3);
+    assert(src.get(1) == 1);
+    assert(src.get(2) == 2);
+
+    /* --- sort a Vector of objects by a field, ascending then descending --- */
+    Vector<Person> people = [];
+    people.push(new Person("Carol", 30));
+    people.push(new Person("Alice", 25));
+    people.push(new Person("Bob", 40));
+
+    people.sortBy((Person a, Person b) => a.age < b.age);
+    assert(people.get(0).age == 25);
+    assert(people.get(1).age == 30);
+    assert(people.get(2).age == 40);
+
+    people.sortBy((Person a, Person b) => a.age > b.age);
+    assert(people.get(0).age == 40);
+    assert(people.get(1).age == 30);
+    assert(people.get(2).age == 25);
+
+    /* --- empty and single-element vectors must not crash --- */
+    Vector<int> empty = [];
+    empty.sortBy((int a, int b) => a < b);
+    assert(empty.len == 0);
+    Vector<int> single = [42];
+    single.sortBy((int a, int b) => a < b);
+    assert(single.len == 1);
+    assert(single.get(0) == 42);
+
+    nums.free();
+    src.free();
+    asc.free();
+    people.free();
+    empty.free();
+    single.free();
+
+    printf("PASS: test_vector_sortby\n");
+    return 0;
+}

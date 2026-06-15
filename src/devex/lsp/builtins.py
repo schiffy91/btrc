@@ -229,6 +229,8 @@ VECTOR_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("distinct", "Vector<T>", "method", [], "distinct"),
     BuiltinMember("sort", "void", "method", [], "sort"),
     BuiltinMember("sorted", "Vector<T>", "method", [], "sorted"),
+    BuiltinMember("sortBy", "void", "method", [("__fn_ptr<bool, T, T>", "less")], "sortBy"),
+    BuiltinMember("sortedBy", "Vector<T>", "method", [("__fn_ptr<bool, T, T>", "less")], "sortedBy"),
     BuiltinMember("min", "T", "method", [], "min"),
     BuiltinMember("max", "T", "method", [], "max"),
     BuiltinMember("sum", "T", "method", [], "sum"),

@@ -240,6 +240,39 @@ class Vector<T> implements Iterable {
         return result;
     }
 
+    /* Comparator-driven sorting. `less(a, b)` returns true when a should
+     * come before b. Mirrors sort()'s insertion-sort algorithm (stable for
+     * equal elements: keys never shift past an element they don't precede). */
+    public void sortBy(__fn_ptr<bool, T, T> less) {
+        for (int i = 1; i < self.len; i++) {
+            T key = self.data[i];
+            int j = i - 1;
+            while (j >= 0 && less(key, self.data[j])) {
+                self.data[j + 1] = self.data[j];
+                j = j - 1;
+            }
+            self.data[j + 1] = key;
+        }
+    }
+
+    public Vector<T> sortedBy(__fn_ptr<bool, T, T> less) {
+        Vector<T> result = [];
+        for (int i = 0; i < self.len; i++) {
+            result.push(self.data[i]);
+        }
+        result.sortBy(less);
+        return result;
+    }
+
+    /* NOTE: mapTo<U>(fn: T -> U) — mapping a Vector<T> to a Vector of a
+     * DIFFERENT element type U — is NOT implemented. It requires method-level
+     * type parameters (a generic method introducing its own <U> on an already
+     * generic class), which the compiler does not yet support: the parser
+     * rejects `<U>` after a method name, and there is no monomorphization path
+     * for method-level generics. Implementing mapTo needs that compiler
+     * support (parser + analyzer + IR-gen method-generic monomorphization) as
+     * a follow-up. Until then, map() (T -> T) is the available transform. */
+
     public T min() {
         if (self.len <= 0) { fprintf(stderr, "Vector min on empty list\n"); exit(1); }
         T m = self.data[0];
