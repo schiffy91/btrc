@@ -61,3 +61,33 @@ def test_keeps_address_taken_function():
     m = IRModule(function_defs=[_fn("main", body), _fn("handler_fn")])
     optimize(m)
     assert "handler_fn" in {f.name for f in m.function_defs}
+
+
+def test_substring_name_not_spuriously_kept():
+    """A dead `foo` must be dropped even when a live `foobar` is referenced.
+
+    The raw-text scan matches whole identifiers only — `foo` appearing as a
+    substring of `foobar` no longer keeps the dead `foo` alive. `foobar` is
+    referenced as a real call target from a raw section, so it survives.
+    """
+    m = IRModule(
+        function_defs=[_fn("main"), _fn("foo"), _fn("foobar")],
+        raw_sections=["static void* table[] = { &foobar };"],
+    )
+    optimize(m)
+    names = {f.name for f in m.function_defs}
+    assert "main" in names
+    assert "foobar" in names  # whole-word reference keeps it
+    assert "foo" not in names  # substring of `foobar` must NOT keep it
+
+
+def test_whole_word_reference_in_raw_text_still_kept():
+    """The fix stays conservative: a real identifier reference is still kept."""
+    m = IRModule(
+        function_defs=[_fn("main"), _fn("foo"), _fn("foobar")],
+        # both names appear as whole identifiers
+        raw_sections=["static void* t[] = { &foo, &foobar };"],
+    )
+    optimize(m)
+    names = {f.name for f in m.function_defs}
+    assert {"main", "foo", "foobar"} <= names

@@ -17,6 +17,7 @@ from ..ast_nodes import (
     StructDecl,
 )
 from ..tokens import TokenType
+from .core import ParseError
 
 
 class DeclarationsMixin:
@@ -87,9 +88,31 @@ class DeclarationsMixin:
     # ---- Import declaration ----
 
     def _parse_import_decl(self) -> ImportDecl:
+        # An import must own its whole line: the frontend's directive scan only
+        # resolves an `import` that is first on its start line and whose
+        # terminator is last on its end line (import_scan.scan_directives). An
+        # import sharing a line with other code is never resolved, so accepting
+        # it here would silently drop the import. Reject it as a parse error so
+        # the rule is consistent: an import that does not own its line is
+        # malformed, not a no-op.
+        prev = self.tokens[self.pos - 1] if self.pos > 0 else None
         tok = self._expect(TokenType.IMPORT)
+        if prev is not None and prev.line == tok.line:
+            raise ParseError(
+                "import must be the first token on its line "
+                "(an import sharing a line with other code is never resolved)",
+                tok.line, tok.col,
+            )
         spec = self._parse_import_spec()
-        self._match(TokenType.SEMICOLON)  # trailing ';' is optional
+        end = self._match(TokenType.SEMICOLON)  # trailing ';' is optional
+        end_tok = end if end is not None else self.tokens[self.pos - 1]
+        nxt = self._peek()
+        if nxt.type != TokenType.EOF and nxt.line == end_tok.line:
+            raise ParseError(
+                "import must be the only statement on its line "
+                "(an import sharing a line with other code is never resolved)",
+                nxt.line, nxt.col,
+            )
         return ImportDecl(spec=spec, line=tok.line, col=tok.col)
 
     def _parse_import_spec(self):

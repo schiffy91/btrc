@@ -17,6 +17,7 @@ Currently implements:
 from __future__ import annotations
 
 import dataclasses
+import re
 
 from .nodes import (
     IRAddressOf,
@@ -50,6 +51,9 @@ from .nodes import (
 
 def optimize(module: IRModule) -> IRModule:
     """Run all optimization passes on an IR module."""
+    # The name-regex cache is keyed by set identity; ids can be recycled across
+    # calls once a set is GC'd, so start each run with a clean cache.
+    _NAME_RE_CACHE.clear()
     _eliminate_dead_functions(module)
     _eliminate_dead_helpers(module)
     return module
@@ -126,11 +130,41 @@ def _eliminate_dead_functions(module: IRModule):
         ]
 
 
+# Cache one compiled word-boundary regex per name set (keyed by object id), so
+# the same set is compiled once and reused across every blob/field scan instead
+# of re-walking ~1300 names per piece of text.
+_NAME_RE_CACHE: dict[int, re.Pattern[str] | None] = {}
+
+
+def _names_regex(names: set[str]) -> re.Pattern[str] | None:
+    """Compile/return a `\\b(?:n1|n2|...)\\b` regex matching whole identifiers."""
+    key = id(names)
+    cached = _NAME_RE_CACHE.get(key, False)
+    if cached is not False:
+        return cached
+    if not names:
+        _NAME_RE_CACHE[key] = None
+        return None
+    pattern = r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\b"
+    compiled = re.compile(pattern)
+    _NAME_RE_CACHE[key] = compiled
+    return compiled
+
+
 def _scan_text_for_names(text: str, names: set[str], out: set[str]):
-    """Add any function name that occurs as a substring of `text`."""
-    for n in names:
-        if n in text:
-            out.add(n)
+    """Add every function name that occurs as a *whole identifier* in `text`.
+
+    Whole-identifier (word-boundary) matching, not substring: `foo` must not
+    match inside `foobar`. A substring scan was both unsound in the wrong
+    direction (it kept dead code whose name merely appeared inside a live
+    identifier) and O(names x text). One precompiled alternation regex makes
+    the scan a single pass per text while keeping the conservative guarantee:
+    a name referenced as a real identifier is still matched and kept.
+    """
+    rx = _names_regex(names)
+    if rx is None:
+        return
+    out.update(rx.findall(text))
 
 
 def _collect_func_refs(node, names: set[str], out: set[str]):

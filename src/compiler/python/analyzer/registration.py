@@ -36,7 +36,9 @@ class RegistrationMixin:
                 self._register_class(decl)
             elif isinstance(decl, FunctionDecl):
                 self._register_function(decl)
-            elif isinstance(decl, (StructDecl, EnumDecl, RichEnumDecl)):
+            elif isinstance(decl, StructDecl):
+                self._register_struct(decl)
+            elif isinstance(decl, (EnumDecl, RichEnumDecl)):
                 self.declared_type_names.add(decl.name)
             elif isinstance(decl, TypedefDecl):
                 self.declared_type_names.add(decl.alias)
@@ -133,6 +135,20 @@ class RegistrationMixin:
                               if mname != parent_info.name}  # not the ctor
             merged_methods.update(info.methods)
             info.methods = merged_methods
+
+    def _register_struct(self, decl):
+        """Register a top-level struct; reject anonymous ones.
+
+        Structs only ever appear at top level, and an unnamed top-level struct
+        declares an unreferenceable, unusable type (and would emit invalid C —
+        `typedef struct ;`). Report it as a clear error at the struct's site
+        rather than letting it reach codegen.
+        """
+        if not decl.name:
+            self._error("anonymous struct at top level must be named",
+                        decl.line, decl.col)
+            return
+        self.declared_type_names.add(decl.name)
 
     def _register_function(self, decl):
         if decl.name in self.function_table:

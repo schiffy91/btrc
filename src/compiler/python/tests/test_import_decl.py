@@ -112,6 +112,30 @@ def test_import_is_reserved_keyword():
         _parse("int main() { int import = 1; return import; }")
 
 
+def test_import_not_first_on_line_is_rejected():
+    # An import sharing a line with preceding code is never resolved by the
+    # front-end directive scan, so accepting it as a no-op would silently drop
+    # the import. The parser rejects it instead.
+    from src.compiler.python.parser.core import ParseError
+    with pytest.raises(ParseError) as exc:
+        _parse("int x = 0; import ./foo.btrc;\nint main() { return 0; }")
+    assert exc.value.line == 1  # points at the misplaced import
+
+
+def test_import_with_trailing_code_on_line_is_rejected():
+    # First on its line, but followed by other code — same non-resolution, same
+    # rejection.
+    from src.compiler.python.parser.core import ParseError
+    with pytest.raises(ParseError):
+        _parse("import ./foo.btrc; int y = 5;\nint main() { return 0; }")
+
+
+def test_import_owning_its_line_is_accepted():
+    # The legitimate shape (import alone on its line) still parses fine.
+    decls = _parse("int a() { return 0; }\nimport std.vector;")
+    assert any(isinstance(d, ImportDecl) for d in decls)
+
+
 # -- resolution still finds the files ---------------------------------------
 
 def test_resolve_std_brace(tmp_path):

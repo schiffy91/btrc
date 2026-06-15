@@ -103,3 +103,20 @@ def test_parallel_for_analyzes_without_error():
     }
     """
     assert not errors(src)
+
+
+def test_anonymous_top_level_struct_is_rejected():
+    # A top-level `struct { ... };` with no name declares an unusable type and
+    # would emit invalid C (`typedef struct ;`). The analyzer rejects it.
+    src = "struct { int x; };\nint main() { return 0; }"
+    result = _analyze(src)
+    assert _has(result.errors, "anonymous struct at top level must be named")
+    # the diagnostic carries the struct's source position
+    diag = next(d for d in result.diags
+                if "anonymous struct" in d.message)
+    assert diag.line == 1 and diag.col == 1
+
+
+def test_named_struct_is_accepted():
+    src = "struct Point { int x; int y; };\nint main() { return 0; }"
+    assert not _has(errors(src), "anonymous struct")
