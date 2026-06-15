@@ -6,6 +6,8 @@ import std.bytes;
 import std.strings;
 import std.vector;
 
+#include <sys/stat.h>
+
 class File {
     private FILE* handle;
     private string path;
@@ -155,7 +157,8 @@ class Path {
      * probe returned false for unreadable-but-existing files and depended on
      * read permission — a silent inconsistency with FileSystem.exists.) */
     class bool exists(string path) {
-        return FileSystem.exists(path);
+        struct stat st;
+        return stat(path, &st) == 0;
     }
 
     class string readAll(string path) {
