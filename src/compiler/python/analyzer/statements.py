@@ -102,6 +102,24 @@ class StatementsMixin:
             self._analyze_block(stmt.try_block)
             if stmt.catch_block:
                 self._push_scope()
+                # The runtime exception payload is always a string message, so
+                # the catch variable's actual (codegen) type stays `string`.
+                # An explicit `catch (T e)` annotation is recorded on the node
+                # for tooling/future type-checking, but it must equal `string`
+                # to match the payload — anything else is a type error.
+                catch_type = stmt.catch_type
+                if catch_type is not None:
+                    catch_type = self._upgrade_class_type(catch_type)
+                    self._collect_generic_instances(catch_type)
+                    self.node_types[id(stmt)] = catch_type
+                    if not (catch_type.base == "string"
+                            and catch_type.pointer_depth == 0):
+                        self._error(
+                            f"Catch type '{catch_type.base}' is not supported — "
+                            f"exceptions carry a string message; "
+                            f"use 'string {stmt.catch_var}' or an untyped catch",
+                            getattr(catch_type, "line", stmt.line),
+                            getattr(catch_type, "col", stmt.col))
                 self.scope.define(stmt.catch_var,
                                   self._local_symbol(
                                       stmt.catch_var, TypeExpr(base="string"),

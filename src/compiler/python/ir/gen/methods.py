@@ -131,6 +131,18 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             args = order_args_for_params(
                 gen, method.params, node.args,
                 arg_names_for(node, len(node.args)), args)
+        # Generic method: dispatch to the monomorphized instance for the method
+        # type args inferred at this call site (e.g. mapTo<string>).
+        if method and getattr(method, "generic_params", None):
+            method_args = gen.analyzed.generic_method_call_args.get(id(node))
+            if method_args is not None:
+                from .generics.methods_mono import generic_method_instance_name
+                class_args = (list(obj_type.generic_args)
+                              if (obj_type.generic_args and cls_info.generic_params)
+                              else [])
+                callee = generic_method_instance_name(
+                    obj_type.base, class_args, method_name, method_args)
+                return IRCall(callee=callee, args=[obj] + args)
         return IRCall(
             callee=f"{callee_prefix}_{method_name}",
             args=[obj] + args,

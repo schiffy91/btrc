@@ -1,0 +1,32 @@
+/* Method-level type parameters: Vector.mapTo<U> and a user generic method. */
+import std.vector;
+import std.strings;
+
+string intToStr(int x) { return Strings.fromInt(x); }
+int strLen(string s) { return s.len(); }
+
+class Holder<T> {
+    public T value;
+    public Holder(T v) { self.value = v; }
+    public U transform<U>(__fn_ptr<U, T> fn) { return fn(self.value); }
+}
+
+int dbl(int x) { return x * 2; }
+
+int main() {
+    Vector<int> nums = [1, 2, 3];
+    Vector<string> strs = nums.mapTo(intToStr);
+    print(f"{strs.get(0)},{strs.get(1)},{strs.get(2)}");
+
+    Vector<string> words = ["a", "bb", "ccc"];
+    Vector<int> lens = words.mapTo(strLen);
+    print(f"{lens.get(0)},{lens.get(1)},{lens.get(2)}");
+
+    // user generic class with a generic method, two distinct U
+    Holder<int> h = new Holder<int>(21);
+    int d = h.transform(dbl);
+    string sx = h.transform(intToStr);
+    print(f"{d},{sx}");
+    print("PASS: test_method_generics");
+    return 0;
+}

@@ -96,18 +96,27 @@ def mangle_generic_type(base: str, args: list[TypeExpr]) -> str:
     return f"btrc_{base}_{'_'.join(parts)}"
 
 
+def _pointer_suffix(t: TypeExpr) -> str:
+    """Suffix encoding pointer depth so e.g. ``Vector<int*>`` mangles distinctly
+    from ``Vector<int>``. Empty for depth 0 to keep non-pointer mangling (and
+    therefore existing generated C symbols) byte-identical.
+    """
+    depth = getattr(t, "pointer_depth", 0)
+    return f"_p{depth}" if depth else ""
+
+
 def mangle_type_name(t: TypeExpr) -> str:
     """Mangle a single type for use in C identifiers."""
     if t.generic_args:
         inner = "_".join(mangle_type_name(a) for a in t.generic_args)
-        return f"{t.base}_{inner}"
+        return f"{t.base}_{inner}{_pointer_suffix(t)}"
     base = t.base
     # Normalize string → str for mangling
     if base == "string":
-        return "string"
+        return f"string{_pointer_suffix(t)}"
     if base in _PRIMITIVE_MAP:
-        return base
-    return base
+        return f"{base}{_pointer_suffix(t)}"
+    return f"{base}{_pointer_suffix(t)}"
 
 
 def mangle_tuple_type(t: TypeExpr) -> str:

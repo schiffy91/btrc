@@ -231,6 +231,7 @@ VECTOR_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("sorted", "Vector<T>", "method", [], "sorted"),
     BuiltinMember("sortBy", "void", "method", [("__fn_ptr<bool, T, T>", "less")], "sortBy"),
     BuiltinMember("sortedBy", "Vector<T>", "method", [("__fn_ptr<bool, T, T>", "less")], "sortedBy"),
+    BuiltinMember("mapTo", "Vector<U>", "method", [("__fn_ptr<U, T>", "fn")], "mapTo"),
     BuiltinMember("min", "T", "method", [], "min"),
     BuiltinMember("max", "T", "method", [], "max"),
     BuiltinMember("sum", "T", "method", [], "sum"),
@@ -309,7 +310,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("tempDir", "string", "method", [("string", "prefix")], "tempDir"),
         BuiltinMember("listDir", "Vector<string>", "method", [("string", "path")], "listDir"),
         BuiltinMember("readText", "string", "method", [("string", "path")], "readText"),
-        BuiltinMember("writeText", "void", "method", [("string", "path"), ("string", "content")], "writeText"),
+        BuiltinMember("writeText", "bool", "method", [("string", "path"), ("string", "content")], "writeText"),
     ],
     "GraphCli": [
         BuiltinMember("args", "Map<string, string>", "method", [("CliArgs", "args"), ("int", "startIndex")], "args"),
@@ -332,7 +333,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     "Path": [
         BuiltinMember("exists", "bool", "method", [("string", "path")], "exists"),
         BuiltinMember("readAll", "string", "method", [("string", "path")], "readAll"),
-        BuiltinMember("writeAll", "void", "method", [("string", "path"), ("string", "content")], "writeAll"),
+        BuiltinMember("writeAll", "bool", "method", [("string", "path"), ("string", "content")], "writeAll"),
     ],
     "JsonNum": [
         BuiltinMember("toDouble", "double", "method", [("string", "token")], "toDouble"),

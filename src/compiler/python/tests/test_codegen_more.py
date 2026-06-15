@@ -23,7 +23,11 @@ def test_for_in_user_class_vector_binds_pointer_type():
                "        for item in self.items { total = total + item.v; }\n"
                "        return total; } }\n"
                "int main() { Holder h = Holder(); return h.total(); }")
-    assert "Item* item = btrc_Vector_Item_iterGet" in c
+    # Element type Item is a class, so Vector<Item> monomorphizes on the
+    # pointer element Item* — the mangled name carries the `_p1` pointer-depth
+    # suffix (CMP-19), distinguishing it from a hypothetical Vector<Item>
+    # by-value instance.
+    assert "Item* item = btrc_Vector_Item_p1_iterGet" in c
     assert "item->v" in c
 
 

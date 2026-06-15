@@ -215,9 +215,20 @@ class TypeInferenceMixin:
             if obj_type and obj_type.base in self.class_table:
                 cls = self.class_table[obj_type.base]
                 if expr.callee.field in cls.methods:
-                    ret = cls.methods[expr.callee.field].return_type
+                    method = cls.methods[expr.callee.field]
+                    ret = method.return_type
+                    subs = {}
                     if cls.generic_params and obj_type.generic_args:
                         subs = dict(zip(cls.generic_params, obj_type.generic_args))
+                    # Generic method: also bind its method-level type params
+                    # (U, ...) inferred from the call arguments so the return
+                    # type (e.g. Vector<U>) resolves to a concrete type.
+                    if method.generic_params:
+                        method_subs = self._infer_method_type_args(
+                            expr, method, subs)
+                        if method_subs:
+                            subs = {**subs, **method_subs}
+                    if subs:
                         return self._substitute_type(ret, subs)
                     return ret
             if (isinstance(expr.callee.obj, Identifier)

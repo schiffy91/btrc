@@ -242,7 +242,11 @@ class DeclarationsMixin:
         name_tok = self._expect(TokenType.IDENT, "member name")
         name = name_tok.value
 
-        if self._check(TokenType.LPAREN):
+        # Method-level type parameters: `<U, ...>` after the member name marks a
+        # generic method (e.g. `Vector<U> mapTo<U>(...)`). In a class-member
+        # position only a method can introduce `<...>` after its name, so this
+        # is unambiguous (no comparison expression is valid here).
+        if self._check(TokenType.LT) or self._check(TokenType.LPAREN):
             return self._parse_method_rest(access, type_expr, name, is_gpu,
                                            tok.line, tok.col,
                                            name_tok.line, name_tok.col,
@@ -264,6 +268,15 @@ class DeclarationsMixin:
                            name_line, name_col,
                            is_abstract: bool = False,
                            keep_return: bool = False) -> MethodDecl:
+        # Method-level type parameters (generic method): `<U, V, ...>`.
+        # These are monomorphized per call site, mirroring class-level
+        # generic_params (see _parse_class_decl).
+        generic_params = []
+        if self._match(TokenType.LT):
+            generic_params.append(self._expect(TokenType.IDENT, "generic param").value)
+            while self._match(TokenType.COMMA):
+                generic_params.append(self._expect(TokenType.IDENT, "generic param").value)
+            self._expect_gt()
         self._expect(TokenType.LPAREN)
         params = self._parse_param_list()
         self._expect(TokenType.RPAREN)
@@ -273,6 +286,7 @@ class DeclarationsMixin:
         else:
             body = self._parse_block()
         return MethodDecl(access=access, return_type=return_type, name=name,
+                          generic_params=generic_params,
                           params=params, body=body, is_gpu=is_gpu,
                           is_abstract=is_abstract, keep_return=keep_return,
                           line=line, col=col,

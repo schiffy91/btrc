@@ -22,9 +22,19 @@ class TypesMixin:
 
         # Handle const/static/extern/volatile qualifiers
         has_const = False
+        has_static = False
+        has_extern = False
+        has_volatile = False
         while self._check(TokenType.CONST, TokenType.STATIC, TokenType.EXTERN, TokenType.VOLATILE):
-            if self._peek().type == TokenType.CONST:
+            qt = self._peek().type
+            if qt == TokenType.CONST:
                 has_const = True
+            elif qt == TokenType.STATIC:
+                has_static = True
+            elif qt == TokenType.EXTERN:
+                has_extern = True
+            elif qt == TokenType.VOLATILE:
+                has_volatile = True
             self._advance()
 
         # Handle unsigned/signed qualifiers
@@ -89,6 +99,8 @@ class TypesMixin:
         return TypeExpr(base=base, generic_args=generic_args,
                         pointer_depth=pointer_depth, is_array=is_array,
                         is_const=has_const, is_nullable=is_nullable,
+                        is_static=has_static, is_extern=has_extern,
+                        is_volatile=has_volatile,
                         line=line, col=col)
 
     def _is_tuple_type_start(self) -> bool:

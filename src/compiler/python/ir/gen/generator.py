@@ -27,6 +27,7 @@ from .types import is_concrete_instance, mangle_generic_type, type_to_c
 
 _STANDARD_INCLUDES = [
     "#define _DEFAULT_SOURCE",
+    "#define _DARWIN_C_SOURCE",  # BSD/macOS feature test; compiler-managed, not leaked through stdlib source
     "stdio.h", "stdlib.h", "string.h", "stdbool.h", "stdint.h",
     "ctype.h", "math.h", "assert.h", "limits.h",
 ]
@@ -217,7 +218,12 @@ class IRGenerator:
     def _emit_generic_collections(self):
         """Emit monomorphized generic collection types."""
         from .generics.core import emit_generic_instances
+        from .generics.methods_mono import emit_generic_method_instances
         emit_generic_instances(self)
+        # Generic methods are emitted after all class instances so that any
+        # cross-type collections they build (e.g. Vector<U> inside mapTo) are
+        # already defined and forward-declared.
+        emit_generic_method_instances(self)
 
     def _emit_enums(self):
         """Emit enum definitions."""
@@ -240,15 +246,29 @@ class IRGenerator:
             elif isinstance(decl, VarDeclStmt):
                 # Top-level variable → global variable in C
                 c_type = type_to_c(decl.type) if decl.type else "int"
-                if decl.initializer:
+                # Storage class / type qualifiers. Default is `static` (file
+                # linkage) to preserve historical codegen; `extern`/`static`
+                # explicit qualifiers override it, `volatile` layers on top.
+                t = decl.type
+                is_extern = bool(getattr(t, "is_extern", False))
+                is_volatile = bool(getattr(t, "is_volatile", False))
+                # extern overrides the default; otherwise file-scope `static`
+                # (covers both an explicit `static` and the unqualified default).
+                storage = "extern " if is_extern else "static "
+                volatile = "volatile " if is_volatile else ""
+                prefix = f"{storage}{volatile}"
+                # `extern` is a declaration, not a definition: never emit an
+                # initializer for it (that would turn it into a definition and
+                # collide with the real one in another translation unit).
+                if decl.initializer and not is_extern:
                     from .expressions import lower_expr
                     from .statements import _quick_text
                     init_text = _quick_text(lower_expr(self, decl.initializer))
                     self.module.raw_sections.append(
-                        f"static {c_type} {decl.name} = {init_text};")
+                        f"{prefix}{c_type} {decl.name} = {init_text};")
                 else:
                     self.module.raw_sections.append(
-                        f"static {c_type} {decl.name};")
+                        f"{prefix}{c_type} {decl.name};")
             elif isinstance(decl, PreprocessorDirective):
                 text = decl.text.strip()
                 if text.startswith("#include"):

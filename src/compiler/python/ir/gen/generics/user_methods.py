@@ -114,6 +114,10 @@ def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
     for mname, method in cls_info.methods.items():
         if mname == "__del__" or mname == base_name:
             continue
+        # Generic methods (method-level type params) are monomorphized per
+        # call site, NOT once per class instance — skip them here.
+        if getattr(method, "generic_params", None):
+            continue
         ret_c = emitter.resolve_c(method.return_type) if method.return_type else "void"
         m_params = [f"{mangled}* self"]
         for p in method.params:
@@ -201,6 +205,9 @@ def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
     skipped = set()
     for mname, method in cls_info.methods.items():
         if mname == "__del__" or mname == base_name:
+            continue
+        # Generic methods are emitted per call site (see generic_methods.py).
+        if getattr(method, "generic_params", None):
             continue
         emitter.reset_var_types(method.params)
         ret_c = emitter.resolve_c(method.return_type) if method.return_type else "void"

@@ -3,11 +3,14 @@
 from ..ast_nodes import (
     Block,
     BoolLiteral,
+    CForStmt,
     ClassDecl,
+    DoWhileStmt,
     ElseBlock,
     ElseIf,
     EnumDecl,
     FieldDecl,
+    ForInStmt,
     FunctionDecl,
     IfStmt,
     MethodDecl,
@@ -243,6 +246,14 @@ class FunctionsMixin:
                         return True
             if isinstance(stmt, WhileStmt) and isinstance(stmt.condition, BoolLiteral):
                 if stmt.condition.value and stmt.body and self._has_return(stmt.body):
+                    return True
+            # A return inside a conditional loop body doesn't guarantee a return
+            # on every path, but it DOES mean the function "has a return
+            # statement". This check is a contains-any-return test (the
+            # all-paths logic lives in if/switch/while(true) above), so descend
+            # into loop bodies the same way we descend into blocks.
+            if isinstance(stmt, (CForStmt, ForInStmt, DoWhileStmt)):
+                if stmt.body and self._has_return(stmt.body):
                     return True
             for attr in ('try_block', 'catch_block'):
                 child = getattr(stmt, attr, None)

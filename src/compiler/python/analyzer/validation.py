@@ -62,12 +62,18 @@ class ValidationMixin:
                 cls = self.class_table[obj_type.base]
                 method_name = expr.callee.field
                 if method_name in cls.methods:
-                    ret = cls.methods[method_name].return_type
+                    method = cls.methods[method_name]
+                    ret = method.return_type
                     if ret and ret.generic_args and cls.generic_params and obj_type.generic_args:
                         subs = dict(zip(cls.generic_params, obj_type.generic_args))
                         resolved = self._substitute_type(ret, subs)
                         if resolved and resolved.generic_args:
                             self._collect_generic_instances(resolved)
+                    # Generic method (method-level type params): record the
+                    # monomorphization target for this call site.
+                    if method.generic_params:
+                        self._collect_generic_method_instance(
+                            expr, cls, method, obj_type)
 
     def _arg_names(self, args, arg_names):
         names = list(arg_names or [])

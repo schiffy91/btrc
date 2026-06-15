@@ -159,6 +159,12 @@ class ExpressionsMixin:
         elif isinstance(expr, LambdaExpr):
             self._analyze_lambda(expr)
         elif isinstance(expr, NewExpr):
+            # Upgrade class-typed generic args to pointers before collecting, so
+            # `new List<OwnedItem>()` registers the same `List<OwnedItem*>`
+            # instance every other site does (declared vars, return types).
+            # Without this, a spurious un-upgraded `List<OwnedItem>` instance
+            # gets monomorphized into a struct with an incomplete-type field.
+            expr.type = self._upgrade_class_type(expr.type)
             self._collect_generic_instances(expr.type)
             for arg in expr.args:
                 self._analyze_expr(arg)

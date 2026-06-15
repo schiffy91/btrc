@@ -153,6 +153,9 @@ class TypeExpr:
     array_size: Optional[expr] = None
     is_const: bool = False
     is_nullable: bool = False
+    is_static: bool = False
+    is_extern: bool = False
+    is_volatile: bool = False
     line: int = _dc_field(default=0, compare=False)
     col: int = _dc_field(default=0, compare=False)
 
@@ -186,6 +189,7 @@ class MethodDecl:
     access: str = ""
     return_type: TypeExpr
     name: str = ""
+    generic_params: list[str] = _dc_field(default_factory=list)
     params: list[Param] = _dc_field(default_factory=list)
     body: Optional[Block] = None
     is_gpu: bool = False
@@ -365,6 +369,7 @@ class DeleteStmt:
 class TryCatchStmt:
     try_block: Block
     catch_var: str = ""
+    catch_type: Optional[TypeExpr] = None
     catch_block: Optional[Block] = None
     finally_block: Optional[Block] = None
     line: int = _dc_field(default=0, compare=False)

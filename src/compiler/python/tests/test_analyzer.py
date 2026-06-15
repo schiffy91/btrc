@@ -2602,11 +2602,45 @@ class TestLoopReturnNotExhaustive:
         '''
         assert has_error(src, "no return statement")
 
-    def test_return_in_for_loop_not_exhaustive(self):
-        src = '''
+    def test_return_in_for_loop_counts_as_having_return(self):
+        """CMP-27: a return inside a for/for-in/do-while body counts toward the
+        'function has a return statement' check, just like a return inside a
+        block or if. (This is a contains-any-return test, not an all-paths one,
+        so it intentionally does not require the loop to be exhaustive.)"""
+        for_src = '''
             int bar(int n) {
                 for (int i = 0; i < n; i++) {
                     return i;
+                }
+            }
+        '''
+        assert not has_error(for_src, "no return statement")
+
+        for_in_src = '''
+            int pick() {
+                for x in [1, 2, 3] {
+                    return x;
+                }
+            }
+        '''
+        assert not has_error(for_in_src, "no return statement")
+
+        do_while_src = '''
+            int once() {
+                int i = 0;
+                do {
+                    return i;
+                } while (i < 1);
+            }
+        '''
+        assert not has_error(do_while_src, "no return statement")
+
+    def test_for_loop_without_return_still_errors(self):
+        """A loop body with no return at all keeps the missing-return error."""
+        src = '''
+            int bar(int n) {
+                for (int i = 0; i < n; i++) {
+                    int x = i;
                 }
             }
         '''

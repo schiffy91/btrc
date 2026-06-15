@@ -11,6 +11,7 @@ from .core import (
 )
 from .expressions import ExpressionsMixin
 from .functions import FunctionsMixin
+from .generic_methods import GenericMethodsMixin
 from .occurrences import OccurrencesMixin
 from .registration import RegistrationMixin
 from .statements import StatementsMixin
@@ -23,6 +24,7 @@ class Analyzer(
     TypeUtilsMixin,
     TypeInferenceMixin,
     ValidationMixin,
+    GenericMethodsMixin,
     ExpressionsMixin,
     StatementsMixin,
     FunctionsMixin,

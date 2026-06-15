@@ -113,6 +113,17 @@ class AnalyzedProgram:
     program: Program
     generic_instances: dict[str, list[tuple[TypeExpr, ...]]]
     class_table: dict[str, ClassInfo]
+    # Generic-method monomorphization targets. Keyed by
+    # (owning_class_base, method_name); each entry is a (class_args, method_args)
+    # pair of TypeExpr tuples, where class_args are the concrete generic args of
+    # the receiver instance (e.g. (int,) for Vector<int>) and method_args are the
+    # concrete method-level type arguments (e.g. (string,) for mapTo<string>).
+    generic_method_instances: dict[
+        tuple[str, str], list[tuple[tuple, tuple]]] = field(default_factory=dict)
+    # id(CallExpr) -> tuple of concrete method-level type args for that generic
+    # call site (e.g. (string,) for v.mapTo<string>(...)). Used by IR-gen to
+    # name-mangle the call to the monomorphized instance.
+    generic_method_call_args: dict[int, tuple] = field(default_factory=dict)
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
     node_types: dict[int, TypeExpr] = field(default_factory=dict)
     enum_table: dict[str, list[str]] = field(default_factory=dict)
@@ -131,6 +142,9 @@ class AnalyzerBase:
         self.class_table: dict[str, ClassInfo] = {}
         self.function_table: dict[str, FunctionDecl] = {}
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
+        self.generic_method_instances: dict[
+            tuple[str, str], list[tuple[tuple, tuple]]] = {}
+        self.generic_method_call_args: dict[int, tuple] = {}
         self.errors: list[str] = []
         self.warnings: list[str] = []
         self.diags: list[Diag] = []
@@ -170,6 +184,8 @@ class AnalyzerBase:
             program=program,
             generic_instances=self.generic_instances,
             class_table=self.class_table,
+            generic_method_instances=self.generic_method_instances,
+            generic_method_call_args=self.generic_method_call_args,
             function_table=self.function_table,
             node_types=self.node_types,
             enum_table=self.enum_table,
@@ -199,10 +215,18 @@ class AnalyzerBase:
     def _compute_cyclable_flags(self):
         """Mark classes that can participate in reference cycles.
 
-        A class is cyclable if it has class-type fields that could
-        transitively reference the class itself. This is computed via a
-        fixed-point algorithm: start with classes that directly reference
-        themselves, then propagate to classes that reference cyclable classes.
+        A class is cyclable iff it can reach *itself* by following class-typed
+        field references (directly via a self field, or transitively through a
+        chain of classes that loops back). That, and only that, is what lets a
+        live instance sit in a retain cycle, so it is exactly the set of classes
+        the ARC cycle collector must emit a visitor for.
+
+        Note this is NOT the same as "references a cyclable class": a class that
+        merely points *into* someone else's cycle (e.g. ``D`` with a field of
+        cyclable type ``C`` where nothing points back to ``D``) is never itself
+        part of a cycle and must stay non-cyclable. The per-class reachability
+        search below already computes the transitive closure, so a single pass
+        is exhaustive — no outer fixed-point iteration is needed.
         """
         # Build adjacency: class → set of class types referenced in its fields
         refs: dict[str, set[str]] = {}
@@ -218,30 +242,23 @@ class AnalyzerBase:
                             field_types.add(ga.base)
             refs[name] = field_types
 
-        # Fixed-point: mark classes that can reach themselves
-        cyclable: set[str] = set()
-        changed = True
-        while changed:
-            changed = False
-            for name in refs:
-                if name in cyclable:
+        # Mark each class that can reach itself through field references. The DFS
+        # explores the full transitive closure from each node, so one pass over
+        # all classes is sufficient (marking one class never changes another
+        # class's self-reachability — that depends only on the static `refs`
+        # graph, which never mutates here).
+        for name in refs:
+            visited: set[str] = set()
+            stack = list(refs.get(name, set()))
+            while stack:
+                cur = stack.pop()
+                if cur in visited:
                     continue
-                # Can this class reach itself through field references?
-                visited: set[str] = set()
-                stack = list(refs.get(name, set()))
-                while stack:
-                    cur = stack.pop()
-                    if cur in visited:
-                        continue
-                    visited.add(cur)
-                    if cur == name:
-                        cyclable.add(name)
-                        changed = True
-                        break
-                    stack.extend(refs.get(cur, set()))
-
-        for name in cyclable:
-            self.class_table[name].is_cyclable = True
+                visited.add(cur)
+                if cur == name:
+                    self.class_table[name].is_cyclable = True
+                    break
+                stack.extend(refs.get(cur, set()))
 
     def _error(self, msg: str, line: int = 0, col: int = 0):
         self.errors.append(f"{msg} at {line}:{col}")
