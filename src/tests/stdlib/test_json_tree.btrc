@@ -1,0 +1,176 @@
+/* JsonValue: real recursive JSON tree — parse, navigate, stringify round-trip,
+ * \uXXXX unescape, malformed-input safety, deep nesting. Output is fully
+ * deterministic (no raw float formatting in the printed lines). */
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    /* ---- Parse + navigate a nested document --------------------------- */
+    var doc = JsonValue.parse("{\"a\":{\"b\":[1,2.5,true,null,\"x\\\"y\"]},\"c\":-3e2}");
+    assert(!doc.isError());
+    assert(doc.isObject());
+    assert(doc.size() == 2);
+
+    var a = doc.get("a");
+    assert(a.isObject());
+    var b = a.get("b");
+    assert(b.isArray());
+    assert(b.size() == 5);
+
+    assert(b.at(0).isNumber());
+    assert(b.at(0).isInt());
+    assert(b.at(0).asInt() == 1);
+
+    assert(b.at(1).isNumber());
+    assert(!b.at(1).isInt());
+    assert(b.at(1).asFloat() == 2.5);
+
+    assert(b.at(2).isBool());
+    assert(b.at(2).asBool() == true);
+
+    assert(b.at(3).isNull());
+
+    assert(b.at(4).isString());
+    assert(strcmp(b.at(4).asString(), "x\"y") == 0);
+
+    var c = doc.get("c");
+    assert(c.isNumber());
+    assert(!c.isInt());          /* had an exponent → float */
+    assert(c.asFloat() == -300.0);
+    print("PASS: navigate");
+
+    /* ---- Safe defaults on type mismatch / missing ------------------- */
+    assert(doc.get("nope").isNull());            /* missing key */
+    assert(doc.at(99).isNull());                 /* not an array */
+    assert(a.asInt() == 0);                       /* object as int */
+    assert(b.asString().equals(""));              /* array as string */
+    assert(c.asBool() == false);                  /* number as bool */
+    assert(doc.size() == 2 && b.size() == 5);
+    print("PASS: safe-defaults");
+
+    /* ---- keys() in insertion order ---------------------------------- */
+    var ks = doc.keys();
+    assert(ks.len == 2);
+    assert(ks.get(0).equals("a"));
+    assert(ks.get(1).equals("c"));
+    assert(doc.has("a") && doc.has("c") && !doc.has("z"));
+    print("PASS: keys");
+
+    /* ---- Round-trip: parse(stringify(v)) is structurally equal ------ */
+    var s = doc.stringify();
+    var doc2 = JsonValue.parse(s);
+    assert(!doc2.isError());
+    assert(doc2.get("a").get("b").at(0).asInt() == 1);
+    assert(doc2.get("a").get("b").at(1).asFloat() == 2.5);
+    assert(doc2.get("a").get("b").at(2).asBool() == true);
+    assert(doc2.get("a").get("b").at(3).isNull());
+    assert(strcmp(doc2.get("a").get("b").at(4).asString(), "x\"y") == 0);
+    assert(doc2.get("c").asFloat() == -300.0);
+    /* stringify is idempotent: re-stringifying the re-parsed tree matches. */
+    assert(doc2.stringify().equals(s));
+    print("PASS: round-trip");
+
+    /* ---- \uXXXX unescape: U+00E9 → é (UTF-8 0xC3 0xA9) -------------- */
+    var acc = JsonValue.parse("\"caf\\u00e9\"");
+    assert(acc.isString());
+    assert(strcmp(acc.asString(), "caf\xc3\xa9") == 0);
+    /* astral plane via surrogate pair: U+1F600 → F0 9F 98 80 */
+    var emoji = JsonValue.parse("\"\\ud83d\\ude00\"");
+    assert(emoji.isString());
+    assert(strcmp(emoji.asString(), "\xf0\x9f\x98\x80") == 0);
+    /* the decoded unicode survives a stringify round-trip (kept as raw UTF-8) */
+    var accRound = JsonValue.parse(acc.stringify());
+    assert(strcmp(accRound.asString(), "caf\xc3\xa9") == 0);
+    print("PASS: unicode");
+
+    /* ---- Control-char escaping on output ---------------------------- */
+    var ctrl = JsonValue.makeString("tab\there\x01top");
+    var cs = ctrl.stringify();
+    assert(cs.contains("\\t"));
+    assert(cs.contains("\\u0001"));
+    var ctrlRound = JsonValue.parse(cs);
+    assert(strcmp(ctrlRound.asString(), "tab\there\x01top") == 0);
+    print("PASS: control-escape");
+
+    /* ---- All escape forms decode correctly -------------------------- */
+    var esc = JsonValue.parse("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"");
+    assert(esc.isString());
+    assert(strcmp(esc.asString(), "\"\\/\b\f\n\r\t") == 0);
+    print("PASS: escapes");
+
+    /* ---- Numbers: int, negative, float, exponent -------------------- */
+    assert(JsonValue.parse("42").asInt() == 42);
+    assert(JsonValue.parse("-7").asInt() == -7);
+    assert(JsonValue.parse("0").isInt());
+    assert(JsonValue.parse("3.14").asFloat() == 3.14);
+    assert(JsonValue.parse("1e3").asFloat() == 1000.0);
+    assert(JsonValue.parse("-2.5E-1").asFloat() == -0.25);
+    assert(JsonValue.parse("42").isInt());
+    assert(!JsonValue.parse("42.0").isInt());
+    print("PASS: numbers");
+
+    /* ---- Top-level scalars and empty containers --------------------- */
+    assert(JsonValue.parse("true").asBool() == true);
+    assert(JsonValue.parse("null").isNull());
+    assert(JsonValue.parse("\"hi\"").asString().equals("hi"));
+    assert(JsonValue.parse("[]").isArray() && JsonValue.parse("[]").size() == 0);
+    assert(JsonValue.parse("{}").isObject() && JsonValue.parse("{}").size() == 0);
+    assert(JsonValue.parse("  [ 1 , 2 ]  ").size() == 2);   /* whitespace */
+    print("PASS: scalars");
+
+    /* ---- Malformed input returns an error sentinel, never crashes --- */
+    assert(JsonValue.parse("{\"a\":}").isError());
+    assert(JsonValue.parse("[1,2").isError());
+    assert(JsonValue.parse("{\"a\" 1}").isError());
+    assert(JsonValue.parse("nul").isError());
+    assert(JsonValue.parse("01").isError());           /* leading zero */
+    assert(JsonValue.parse("1.").isError());           /* dangling dot */
+    assert(JsonValue.parse("\"unterminated").isError());
+    assert(JsonValue.parse("{} junk").isError());      /* trailing garbage */
+    assert(JsonValue.parse("").isError());             /* empty */
+    /* error sentinel is also "null" for isNull-only callers */
+    assert(JsonValue.parse("[1,2").isNull());
+    print("PASS: malformed");
+
+    /* ---- Deep nesting stays balanced and releases cleanly ----------- */
+    var deep = JsonValue.parse("[[[[[[[[[[42]]]]]]]]]]");
+    assert(!deep.isError());
+    assert(deep.isArray());
+    var cur = deep.at(0);          /* read via accessor — no managed-local alias */
+    for i in range(9) {
+        assert(cur.isArray());
+        cur = cur.at(0);
+    }
+    assert(cur.asInt() == 42);
+    print("PASS: deep");
+
+    /* ---- Build a tree in code, then stringify ----------------------- */
+    var built = JsonValue.makeObject();
+    built.set("name", JsonValue.makeString("Ada"));
+    built.set("age", JsonValue.makeInt(36));
+    built.set("admin", JsonValue.makeBool(true));
+    var list = JsonValue.makeArray();
+    list.push(JsonValue.makeInt(1));
+    list.push(JsonValue.makeFloat(2.5));
+    built.set("scores", list);
+    var builtRound = JsonValue.parse(built.stringify());
+    assert(strcmp(builtRound.get("name").asString(), "Ada") == 0);
+    assert(builtRound.get("age").asInt() == 36);
+    assert(builtRound.get("admin").asBool() == true);
+    assert(builtRound.get("scores").at(1).asFloat() == 2.5);
+    print("PASS: build");
+
+    /* ---- Parse-heavy loop (ARC stress; ASan-checked separately) ----- */
+    var sum = 0;
+    for i in range(500) {
+        var t = JsonValue.parse("{\"k\":[1,{\"n\":2},[3,4],\"s\"],\"m\":-1.5e1}");
+        assert(!t.isError());
+        sum += t.get("k").at(1).get("n").asInt();
+        delete t;
+    }
+    assert(sum == 1000);
+    print("PASS: loop");
+
+    print("PASS: test_json_tree");
+    return 0;
+}

@@ -1,0 +1,12 @@
+matches: ok
+fullMatch: ok
+find: ok
+first: ok
+findAll: 1 22 333
+findAll empty: ok
+replace: a#b2c3
+replaceAll: a#b#c#
+replaceAll edge: ok
+compiled: ok
+invalid pattern: safe
+PASS: test_regex

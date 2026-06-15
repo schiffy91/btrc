@@ -334,6 +334,13 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("readAll", "string", "method", [("string", "path")], "readAll"),
         BuiltinMember("writeAll", "void", "method", [("string", "path"), ("string", "content")], "writeAll"),
     ],
+    "JsonNum": [
+        BuiltinMember("toDouble", "double", "method", [("string", "token")], "toDouble"),
+        BuiltinMember("format", "string", "method", [("double", "value"), ("bool", "isInt")], "format"),
+        BuiltinMember("charFromCode", "string", "method", [("int", "code")], "charFromCode"),
+        BuiltinMember("uEscape", "string", "method", [("int", "code")], "uEscape"),
+        BuiltinMember("utf8", "string", "method", [("int", "cp")], "utf8"),
+    ],
     "JsonText": [
         BuiltinMember("slice", "string", "method", [("string", "text"), ("int", "start"), ("int", "end")], "slice"),
         BuiltinMember("unescape", "string", "method", [("string", "text")], "unescape"),
@@ -453,6 +460,18 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     ],
     "CommandEnvironment": [
         BuiltinMember("empty", "Vector<string>", "method", [], "empty"),
+    ],
+    "Regex": [
+        BuiltinMember("slice", "string", "method", [("string", "text"), ("int", "so"), ("int", "eo")], "slice"),
+        BuiltinMember("warn", "void", "method", [("string", "pattern")], "warn"),
+        BuiltinMember("matches", "bool", "method", [("string", "pattern"), ("string", "text")], "matches"),
+        BuiltinMember("fullMatch", "bool", "method", [("string", "pattern"), ("string", "text")], "fullMatch"),
+        BuiltinMember("find", "int", "method", [("string", "pattern"), ("string", "text")], "find"),
+        BuiltinMember("first", "string", "method", [("string", "pattern"), ("string", "text")], "first"),
+        BuiltinMember("findAll", "Vector<string>", "method", [("string", "pattern"), ("string", "text")], "findAll"),
+        BuiltinMember("replace", "string", "method", [("string", "pattern"), ("string", "text"), ("string", "replacement")], "replace"),
+        BuiltinMember("replaceAll", "string", "method", [("string", "pattern"), ("string", "text"), ("string", "replacement")], "replaceAll"),
+        BuiltinMember("subst", "string", "method", [("string", "pattern"), ("string", "text"), ("string", "replacement"), ("bool", "all")], "subst"),
     ],
     "Strings": [
         BuiltinMember("copy", "string", "method", [("string", "s")], "copy"),

@@ -1,0 +1,272 @@
+/* btrc standard library — Regular expressions (POSIX)
+ *
+ * A thin, idiomatic wrapper over the C library's POSIX regex engine
+ * (regcomp/regexec/regfree from <regex.h>). All patterns use POSIX
+ * Extended Regular Expression syntax (REG_EXTENDED), i.e. `+`, `?`,
+ * `|`, `()`, `[...]`, `{m,n}` work without backslash-escaping.
+ *
+ * Inspiration: Python's `re` module.
+ *
+ * MATCH SEMANTICS (important):
+ *   - `matches(p, t)` is a SEARCH (like Python re.search): it returns true
+ *     if the pattern occurs ANYWHERE in the text. It is NOT anchored.
+ *   - `fullMatch(p, t)` is anchored start-to-end: the pattern must match
+ *     the WHOLE string. It is implemented by checking that the leftmost
+ *     match spans [0, len), which is robust even for alternations such as
+ *     "a|b" (a naive `^...$` wrap would mis-bind the `|`).
+ *   - `find`/`findAll`/`replaceAll` walk NON-OVERLAPPING matches. After a
+ *     match ending at offset e, the next search starts at e (advancing past
+ *     a zero-width match by one byte to guarantee progress). `^` is honored
+ *     only at true string start: subsequent searches pass REG_NOTBOL.
+ *
+ * ERROR HANDLING:
+ *   An invalid pattern (regcomp failure) never crashes. It is reported on
+ *   stderr and the call returns a safe default: false / -1 / "" / [].
+ *
+ * REPLACEMENT TEXT:
+ *   `replace`/`replaceAll` insert the replacement LITERALLY. Backreferences
+ *   like \1 are NOT expanded — they are emitted verbatim.
+ *
+ * LIFETIME:
+ *   The static methods compile a fresh `regex_t` per call and `regfree` it
+ *   before returning, so there is no leak or use-after-free across calls.
+ *   For repeated matching against one pattern, use `CompiledRegex`, which
+ *   caches the compiled program and frees it in `__del__` (use new/delete).
+ *
+ * Auto-included; depends only on libc and Vector.
+ */
+
+import std.vector;
+
+#include <regex.h>
+#include <string.h>
+
+class Regex {
+    /* Copy text[so, eo) into a fresh, null-terminated btrc string. */
+    class string slice(string text, int so, int eo) {
+        int len = eo - so;
+        if (len <= 0) { return ""; }
+        char* out = (char*)malloc(len + 1);
+        memcpy(out, text + so, len);
+        out[len] = '\0';
+        return out;
+    }
+
+    class void warn(string pattern) {
+        fprintf(stderr, "Regex: invalid pattern: %s\n", pattern);
+    }
+
+    /* Search: true if `pattern` occurs anywhere in `text` (like re.search). */
+    class bool matches(string pattern, string text) {
+        regex_t re;
+        if (regcomp(&re, pattern, REG_EXTENDED) != 0) {
+            Regex.warn(pattern);
+            return false;
+        }
+        int res = regexec(&re, text, 0, NULL, 0);
+        regfree(&re);
+        return res == 0;
+    }
+
+    /* Anchored: true only if `pattern` matches the WHOLE of `text`. */
+    class bool fullMatch(string pattern, string text) {
+        regex_t re;
+        if (regcomp(&re, pattern, REG_EXTENDED) != 0) {
+            Regex.warn(pattern);
+            return false;
+        }
+        regmatch_t m[1];
+        int res = regexec(&re, text, 1, m, 0);
+        bool ok = false;
+        if (res == 0) {
+            int so = (int)m[0].rm_so;
+            int eo = (int)m[0].rm_eo;
+            ok = (so == 0 && eo == (int)strlen(text));
+        }
+        regfree(&re);
+        return ok;
+    }
+
+    /* Index of the first match, or -1 if none / invalid pattern. */
+    class int find(string pattern, string text) {
+        regex_t re;
+        if (regcomp(&re, pattern, REG_EXTENDED) != 0) {
+            Regex.warn(pattern);
+            return -1;
+        }
+        regmatch_t m[1];
+        int res = regexec(&re, text, 1, m, 0);
+        int idx = -1;
+        if (res == 0) {
+            idx = (int)m[0].rm_so;
+        }
+        regfree(&re);
+        return idx;
+    }
+
+    /* The first matched substring, or "" if none / invalid pattern. */
+    class string first(string pattern, string text) {
+        regex_t re;
+        if (regcomp(&re, pattern, REG_EXTENDED) != 0) {
+            Regex.warn(pattern);
+            return "";
+        }
+        regmatch_t m[1];
+        int res = regexec(&re, text, 1, m, 0);
+        string out = "";
+        if (res == 0) {
+            out = Regex.slice(text, (int)m[0].rm_so, (int)m[0].rm_eo);
+        }
+        regfree(&re);
+        return out;
+    }
+
+    /* All non-overlapping matched substrings, left to right. */
+    class Vector<string> findAll(string pattern, string text) {
+        Vector<string> result = [];
+        regex_t re;
+        if (regcomp(&re, pattern, REG_EXTENDED) != 0) {
+            Regex.warn(pattern);
+            return result;
+        }
+        regmatch_t m[1];
+        int tlen = (int)strlen(text);
+        int offset = 0;
+        while (offset <= tlen) {
+            int eflags = offset > 0 ? REG_NOTBOL : 0;
+            if (regexec(&re, text + offset, 1, m, eflags) != 0) { break; }
+            int so = (int)m[0].rm_so;
+            int eo = (int)m[0].rm_eo;
+            result.push(Regex.slice(text, offset + so, offset + eo));
+            /* Advance past this match; force progress on zero-width matches. */
+            int adv = eo;
+            if (eo == so) { adv = eo + 1; }
+            offset = offset + adv;
+        }
+        regfree(&re);
+        return result;
+    }
+
+    /* Replace the first match with `replacement` (literal text). */
+    class string replace(string pattern, string text, string replacement) {
+        return Regex.subst(pattern, text, replacement, false);
+    }
+
+    /* Replace all non-overlapping matches with `replacement` (literal text). */
+    class string replaceAll(string pattern, string text, string replacement) {
+        return Regex.subst(pattern, text, replacement, true);
+    }
+
+    /* Shared substitution engine. Builds the result by copying the spans
+     * between matches and inserting `replacement` at each match. */
+    class string subst(string pattern, string text, string replacement, bool all) {
+        regex_t re;
+        if (regcomp(&re, pattern, REG_EXTENDED) != 0) {
+            Regex.warn(pattern);
+            return Strings.copy(text);
+        }
+        int tlen = (int)strlen(text);
+        int replen = (int)strlen(replacement);
+        int cap = tlen + 16;
+        char* out = (char*)malloc(cap);
+        int olen = 0;
+        regmatch_t m[1];
+        int offset = 0;
+        bool replacedAny = false;
+        while (offset <= tlen) {
+            int eflags = offset > 0 ? REG_NOTBOL : 0;
+            if (regexec(&re, text + offset, 1, m, eflags) != 0) { break; }
+            int so = offset + (int)m[0].rm_so;
+            int eo = offset + (int)m[0].rm_eo;
+            /* Copy the unmatched run [offset, so) verbatim. */
+            int runlen = so - offset;
+            while (olen + runlen + replen + 1 > cap) {
+                cap = cap * 2;
+                out = (char*)realloc(out, cap);
+            }
+            memcpy(out + olen, text + offset, runlen);
+            olen = olen + runlen;
+            /* Insert the replacement (literal). */
+            memcpy(out + olen, replacement, replen);
+            olen = olen + replen;
+            replacedAny = true;
+            /* Advance; force progress on zero-width matches by emitting one byte. */
+            if (eo == so) {
+                if (eo < tlen) {
+                    if (olen + 2 > cap) { cap = cap * 2; out = (char*)realloc(out, cap); }
+                    out[olen] = text[eo];
+                    olen = olen + 1;
+                }
+                offset = eo + 1;
+            } else {
+                offset = eo;
+            }
+            if (!all) { break; }
+        }
+        /* Copy the tail [offset, tlen). */
+        if (replacedAny && offset <= tlen) {
+            int taillen = tlen - offset;
+            while (olen + taillen + 1 > cap) {
+                cap = cap * 2;
+                out = (char*)realloc(out, cap);
+            }
+            memcpy(out + olen, text + offset, taillen);
+            olen = olen + taillen;
+        }
+        regfree(&re);
+        if (!replacedAny) {
+            free(out);
+            return Strings.copy(text);
+        }
+        out[olen] = '\0';
+        return out;
+    }
+}
+
+/* A pre-compiled pattern for repeated matching. Allocate with `new` and
+ * release with `delete`; the compiled program is freed in __del__.
+ *
+ *   CompiledRegex r = new CompiledRegex("[0-9]+");
+ *   bool hit = r.test("abc123");
+ *   delete r;
+ */
+class CompiledRegex {
+    public regex_t re;
+    public bool ok;     /* false if the pattern failed to compile */
+
+    public CompiledRegex(string pattern) {
+        self.ok = (regcomp(&self.re, pattern, REG_EXTENDED) == 0);
+        if (!self.ok) {
+            fprintf(stderr, "CompiledRegex: invalid pattern: %s\n", pattern);
+        }
+    }
+
+    /* Search: true if the compiled pattern occurs anywhere in `text`. */
+    public bool test(string text) {
+        if (!self.ok) { return false; }
+        return regexec(&self.re, text, 0, NULL, 0) == 0;
+    }
+
+    /* Anchored: true only if the compiled pattern matches the whole `text`. */
+    public bool fullMatch(string text) {
+        if (!self.ok) { return false; }
+        regmatch_t m[1];
+        if (regexec(&self.re, text, 1, m, 0) != 0) { return false; }
+        return (int)m[0].rm_so == 0 && (int)m[0].rm_eo == (int)strlen(text);
+    }
+
+    /* Index of the first match, or -1. */
+    public int find(string text) {
+        if (!self.ok) { return -1; }
+        regmatch_t m[1];
+        if (regexec(&self.re, text, 1, m, 0) != 0) { return -1; }
+        return (int)m[0].rm_so;
+    }
+
+    public void __del__() {
+        if (self.ok) {
+            regfree(&self.re);
+            self.ok = false;
+        }
+    }
+}
