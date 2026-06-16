@@ -37,11 +37,18 @@ class IRGenerator:
     """Walks an analyzed AST and produces an IRModule."""
 
     def __init__(self, analyzed: AnalyzedProgram, *,
-                 debug: bool = False, source_file: str = ""):
+                 debug: bool = False, source_file: str = "",
+                 freestanding: bool = False, line_map=None):
         self.analyzed = analyzed
         self.debug = debug
         self.source_file = source_file
+        # debug line mapping: combined-source line -> (abs_file, native_line),
+        # used to emit #line directives so DWARF points at .btrc source.
+        self.line_map = line_map
+        self.freestanding = freestanding
         self.module = IRModule()
+        self.module.freestanding = freestanding
+        self.module.debug = debug
         self._lambda_counter = 0
         self._temp_counter = 0
         # Track which helpers are needed
@@ -160,13 +167,30 @@ class IRGenerator:
 
     # --- Module setup ---
 
+    def require_runtime_include(self, header: str) -> None:
+        """Record a dependency on a hosted-libc header.
+
+        Hosted mode emits ``#include <header>`` directly. Freestanding mode has
+        no hosted libc, so every such dependency is satisfied by the single
+        ``btrc_rt.h`` seam instead — we only flag that the runtime is needed
+        and let that one header map the symbols onto the target environment."""
+        if self.freestanding:
+            self.module.needs_runtime = True
+            return
+        if header not in self.module.includes:
+            self.module.includes.append(header)
+
     def _emit_includes(self):
-        for inc in _STANDARD_INCLUDES:
-            self.module.includes.append(inc)
-        # Check if try/catch is used
+        # Freestanding: skip the hosted-libc prologue entirely. The emitter
+        # routes all runtime symbols through a single btrc_rt.h include; a
+        # program that touches no runtime symbol (the pure subset) gets none.
+        if not self.freestanding:
+            for inc in _STANDARD_INCLUDES:
+                self.module.includes.append(inc)
+        # Check if try/catch is used (needs setjmp/longjmp)
         for decl in self.analyzed.program.declarations:
             if _uses_trycatch(decl):
-                self.module.includes.append("setjmp.h")
+                self.require_runtime_include("setjmp.h")
                 break
 
     def _emit_forward_decls(self):
@@ -335,12 +359,14 @@ class IRGenerator:
 
 
 def generate_ir(analyzed: AnalyzedProgram, *,
-                debug: bool = False, source_file: str = "") -> IRModule:
+                debug: bool = False, source_file: str = "",
+                freestanding: bool = False, line_map=None) -> IRModule:
     """Generate an IR module from an analyzed program.
 
     This is the main entry point for the IR generation pipeline.
     """
-    gen = IRGenerator(analyzed, debug=debug, source_file=source_file)
+    gen = IRGenerator(analyzed, debug=debug, source_file=source_file,
+                      freestanding=freestanding, line_map=line_map)
     return gen.generate()
 
 

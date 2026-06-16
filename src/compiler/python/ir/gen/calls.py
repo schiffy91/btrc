@@ -293,8 +293,7 @@ _MUTEX_PRIMITIVE_TYPES = {"int", "float", "double", "char", "bool", "short", "lo
 def _lower_mutex_constructor(gen, ast_args, ir_args):
     """Lower Mutex(val) → __btrc_mutex_val_create(boxed_val)."""
     gen.use_helper("__btrc_mutex_val_create")
-    if "pthread.h" not in gen.module.includes:
-        gen.module.includes.append("pthread.h")
+    gen.require_runtime_include("pthread.h")
     if not ast_args:
         return IRCall(callee="__btrc_mutex_val_create",
                       args=[IRLiteral(text="NULL")],

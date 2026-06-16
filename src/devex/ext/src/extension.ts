@@ -5,6 +5,7 @@ import {
     ServerOptions,
 } from 'vscode-languageclient/node';
 import { resolveServerLaunch } from './launch';
+import { findDebugAdapterScript, findBtrcpy } from './debug_launch';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -14,6 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(outputChannel);
 
     const config = vscode.workspace.getConfiguration('btrc');
+    registerDebugging(context, config);
     const pythonInspect = config.inspect<string>('pythonPath');
     const pythonExplicit = !!(pythonInspect && (
         pythonInspect.workspaceFolderValue ??
@@ -96,6 +98,63 @@ export function activate(context: vscode.ExtensionContext) {
             }
         },
     });
+}
+
+function registerDebugging(
+    context: vscode.ExtensionContext,
+    config: vscode.WorkspaceConfiguration,
+) {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const pythonPath = config.get<string>('pythonPath', 'python3') || 'python3';
+
+    // Build the native debug binary + drive lldb via the btrc DAP adapter.
+    const factory: vscode.DebugAdapterDescriptorFactory = {
+        createDebugAdapterDescriptor() {
+            const adapter = findDebugAdapterScript(context.extensionPath, workspaceRoot);
+            if (!adapter) {
+                vscode.window.showErrorMessage(
+                    'btrc debug adapter not found (btrc_dap.py). Open the btrc project ' +
+                    'folder or reinstall the extension.');
+                return undefined;
+            }
+            // Any python3 works as the launcher: the adapter re-execs itself under
+            // an interpreter that can import the lldb module.
+            return new vscode.DebugAdapterExecutable(pythonPath, [adapter]);
+        },
+    };
+    context.subscriptions.push(
+        vscode.debug.registerDebugAdapterDescriptorFactory('btrc', factory));
+
+    // Fill in a default config for F5-with-no-launch.json, and auto-detect the
+    // btrc compiler command when the user didn't specify one.
+    const provider: vscode.DebugConfigurationProvider = {
+        resolveDebugConfiguration(_folder, cfg) {
+            if (!cfg.type && !cfg.request && !cfg.name) {
+                const editor = vscode.window.activeTextEditor;
+                if (!editor || editor.document.languageId !== 'btrc') {
+                    return undefined;
+                }
+                cfg.type = 'btrc';
+                cfg.request = 'launch';
+                cfg.name = 'btrc: debug current file';
+                cfg.program = '${file}';
+                cfg.stopOnEntry = false;
+            }
+            if (!cfg.btrcpy) {
+                const resolved = findBtrcpy(workspaceRoot, pythonPath, context.extensionPath);
+                if (resolved) {
+                    cfg.btrcpy = resolved.cmd;
+                    // btrcpyCwd is the build-step cwd (needed for the `-m` form);
+                    // keep it distinct from the debugged program's runtime cwd.
+                    if (resolved.cwd) { cfg.btrcpyCwd = cfg.btrcpyCwd || resolved.cwd; }
+                    if (!cfg.cwd && resolved.cwd) { cfg.cwd = resolved.cwd; }
+                }
+            }
+            return cfg;
+        },
+    };
+    context.subscriptions.push(
+        vscode.debug.registerDebugConfigurationProvider('btrc', provider));
 }
 
 export function deactivate(): Thenable<void> | undefined {

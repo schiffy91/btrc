@@ -211,6 +211,10 @@ def main():
     argparser.add_argument("--emit-ast", action="store_true", help="Print AST")
     argparser.add_argument("--no-stdlib", action="store_true",
                            help="Don't auto-include stdlib .btrc files; use explicit includes only")
+    argparser.add_argument("--freestanding", action="store_true",
+                           help="Emit no hosted-libc includes; route all runtime symbols "
+                                "through a single btrc_rt.h seam (for kernel/embedded targets). "
+                                "Writes a reference btrc_rt.h next to the output.")
     argparser.add_argument("--strict-imports", action="store_true",
                            help="Require every file to import the top-level symbols it references")
     argparser.add_argument("--debug", action="store_true",
@@ -221,6 +225,9 @@ def main():
                            help="Print IR representation (after optimization)")
     argparser.add_argument("--no-cache", action="store_true",
                            help="Disable on-disk compilation cache")
+    argparser.add_argument("--no-dce", action="store_true",
+                           help="Disable dead-code elimination; emit the full uneliminated "
+                                "codegen for byte-identical, reproducible output")
     argparser.add_argument("--profile", action="store_true",
                            help="Print a per-phase timing breakdown to stderr")
     argparser.add_argument("--fetch", action="store_true",
@@ -275,10 +282,11 @@ def main():
     # --stdlib produces different output for the same source (program-only,
     # partitioned against the archive), so it must not share the default cache.
     cache_source = f"strict-imports\0{source}" if args.strict_imports else source
-    use_cache = not args.no_cache and args.stdlib is None and not any([
-        args.emit_tokens, args.emit_ast, args.emit_ir,
-        args.emit_optimized_ir, args.debug
-    ])
+    use_cache = (not args.no_cache and args.stdlib is None
+                 and not args.freestanding and not args.no_dce and not any([
+                     args.emit_tokens, args.emit_ast, args.emit_ir,
+                     args.emit_optimized_ir, args.debug
+                 ]))
     if use_cache:
         cached = get_cached(cache_source, input_path=args.input)
         if cached is not None:
@@ -291,7 +299,11 @@ def main():
             print(f"Transpiled {args.input} → {out_path} (cached)")
             return
 
-    use_ast_cache = bool(frontend_source.stdlib_source) and not args.no_cache
+    # --debug forces combined parsing (no split stdlib AST cache) so every node's
+    # line is in one coordinate space that frontend_source.map_line can translate
+    # back to (file, native_line) for #line directives.
+    use_ast_cache = (bool(frontend_source.stdlib_source)
+                     and not args.no_cache and not args.debug)
     diag_printer = _DiagnosticPrinter(
         frontend_source, args.input, input_source,
         split_spaces=uses_stdlib_ast_cache(
@@ -362,15 +374,29 @@ def main():
 
     # Code generation: AST → IR → optimize → C text
     _t = time.perf_counter()
-    ir_module = generate_ir(analyzed, debug=args.debug, source_file=filename)
+    line_map = None
+    if args.debug:
+        def line_map(combined_line, _fs=frontend_source):
+            m = _fs.map_line(combined_line, "combined")
+            if not m:
+                return None
+            f, native = m
+            return (os.path.abspath(f) if os.path.exists(f) else f, native)
+    ir_module = generate_ir(analyzed, debug=args.debug, source_file=filename,
+                            freestanding=args.freestanding, line_map=line_map)
     prof["ir_gen"] = time.perf_counter() - _t
 
     if args.emit_ir:
         _dump_ir(ir_module)
         return
 
+    # Archive-consumer compiles (--stdlib) let the archive be the optimization
+    # boundary: partition_for_archive drops what the archive provides by matching
+    # the manifest's verbatim sections, so DCE here (which rewrites those
+    # sections) must not run. --no-dce disables elimination for any compile.
     _t = time.perf_counter()
-    ir_module = optimize(ir_module)
+    run_dce = not args.no_dce and args.stdlib is None
+    ir_module = optimize(ir_module, dce=run_dce)
     prof["optimize"] = time.perf_counter() - _t
 
     if args.emit_optimized_ir:
@@ -392,6 +418,15 @@ def main():
             sys.exit(1)
         partition_for_archive(ir_module, manifest)
 
+    # Determine the output path up front so debug builds can stamp #line resets
+    # with the real generated .c path (synthesized code maps there, not to btrc).
+    if args.output:
+        out_path = args.output
+    else:
+        out_path = os.path.splitext(args.input)[0] + ".c"
+    if args.debug:
+        ir_module.debug_cfile = os.path.abspath(out_path)
+
     _t = time.perf_counter()
     c_source = CEmitter().emit(ir_module)
     prof["emit"] = time.perf_counter() - _t
@@ -412,6 +447,18 @@ def main():
 
     with open(out_path, "w") as f:
         f.write(c_source)
+
+    # Freestanding output references "btrc_rt.h"; drop a reference copy next to
+    # it so the result compiles unchanged on a hosted toolchain and documents
+    # the full retarget surface for kernel/embedded use. Never clobber an
+    # existing (possibly user-customized) header.
+    if args.freestanding:
+        rt_path = os.path.join(os.path.dirname(out_path) or ".", "btrc_rt.h")
+        if not os.path.exists(rt_path):
+            from .freestanding import RUNTIME_HEADER
+            with open(rt_path, "w") as f:
+                f.write(RUNTIME_HEADER)
+            print(f"Wrote freestanding runtime seam → {rt_path}")
 
     print(f"Transpiled {args.input} → {out_path}")
 

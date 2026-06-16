@@ -199,12 +199,24 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     assert ref_out.stdout == inline_out.stdout
     assert "tags=2" in ref_out.stdout and "eq=true" in ref_out.stdout
 
-    # And the reference TU is dramatically smaller (stdlib not inlined).
+    # The reference TU links the stdlib instead of inlining it: it includes the
+    # archive header and does NOT define the stdlib functions it uses, whereas
+    # the inline build defines them locally. (A raw line-count ratio is no longer
+    # a good proxy now that dead-code elimination keeps the inline build lean —
+    # this checks the actual property: archive-provided code is not duplicated.)
     with open(inline_c) as f:
-        inline_lines = len(f.read().splitlines())
+        inline_src = f.read()
     with open(ref_c) as f:
-        ref_lines = len(f.read().splitlines())
-    assert ref_lines < inline_lines / 2
+        ref_src = f.read()
+    assert 'btrc_stdlib.h' in ref_src
+    # An archive-provided function the program uses: defined in inline, only
+    # declared (extern, from the header) in the reference build.
+    assert "btrc_Vector_string_push(" in inline_src
+    inline_defs = inline_src.count("btrc_Vector_string_push(")
+    ref_defs = sum(1 for ln in ref_src.splitlines()
+                   if "btrc_Vector_string_push(" in ln and ln.rstrip().endswith("{"))
+    assert ref_defs == 0, "stdlib function should be linked from the archive, not inlined"
+    assert inline_defs >= 1
 
 
 def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):

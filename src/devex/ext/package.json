@@ -13,7 +13,9 @@
   ],
   "icon": "icons/btrc.png",
   "activationEvents": [
-    "onLanguage:btrc"
+    "onLanguage:btrc",
+    "onDebugResolve:btrc",
+    "onDebugDynamicConfigurations:btrc"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -46,6 +48,94 @@
         "editor.semanticHighlighting.enabled": true
       }
     },
+    "breakpoints": [
+      {
+        "language": "btrc"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "btrc",
+        "label": "btrc Debug",
+        "languages": [
+          "btrc"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to the .btrc file to compile and debug.",
+                "default": "${file}"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Command-line arguments passed to the debugged program.",
+                "default": []
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Break at the program's entry point.",
+                "default": false
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for the debugged program.",
+                "default": "${workspaceFolder}"
+              },
+              "btrcpy": {
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "description": "Command that runs the btrc compiler (e.g. \"bin/btrcpy\"). Auto-detected from the workspace when omitted."
+              },
+              "cc": {
+                "type": "string",
+                "description": "C compiler used to build the debug binary.",
+                "default": "cc"
+              },
+              "cflags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Extra flags passed to the C compiler.",
+                "default": []
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "btrc",
+            "request": "launch",
+            "name": "btrc: debug current file",
+            "program": "${file}",
+            "stopOnEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "btrc: Debug current file",
+            "description": "Compile the active .btrc file with debug info and debug it",
+            "body": {
+              "type": "btrc",
+              "request": "launch",
+              "name": "btrc: debug current file",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": false
+            }
+          }
+        ]
+      }
+    ],
     "configuration": {
       "title": "btrc",
       "properties": {

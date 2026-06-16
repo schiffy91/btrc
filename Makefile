@@ -62,14 +62,17 @@ ast-generate-btrc: ## Regenerate the btrc AST node classes from ast.asdl
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
-test: ## Run all tests (compiler unit + LSP + language, gcc -std=c11)
-	$(NIX) $(PYTEST) src/compiler/python/tests/ src/devex/lsp/tests/ src/tests/runner.py $(PYTEST_ARGS)
+test: ## Run all tests (compiler unit + LSP + debugger + language, gcc -std=c11)
+	$(NIX) $(PYTEST) src/compiler/python/tests/ src/devex/lsp/tests/ src/devex/debug/tests/ src/tests/runner.py $(PYTEST_ARGS)
 
 test-unit: ## Run Python unit tests only (lexer, parser, analyzer)
 	$(NIX) $(PYTEST) src/compiler/python/tests/ $(PYTEST_ARGS)
 
 test-lsp: ## Run the editor/LSP server tests (reuses the compiler)
 	$(NIX) $(PYTEST) src/devex/lsp/tests/ $(PYTEST_ARGS)
+
+test-debug: ## Run the debugger (DAP adapter) tests (needs lldb + a C compiler)
+	$(NIX) $(PYTEST) src/devex/debug/tests/ $(PYTEST_ARGS)
 
 test-btrc: ## Run language tests only (.btrc files)
 	$(NIX) $(PYTEST) src/tests/runner.py $(PYTEST_ARGS)

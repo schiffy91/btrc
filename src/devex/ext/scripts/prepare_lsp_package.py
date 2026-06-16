@@ -78,6 +78,14 @@ def prepare(ext_dir: Path, repo_root: Path) -> Path:
         "Bundled btrc language-server payload.\n"
         "Prefer the btrc-lsp executable when it is available; this copy is a fallback.\n"
     )
+
+    # Bundle the debug adapter (a self-contained, sibling-import folder) so the
+    # extension can launch it without a source checkout. It reuses the compiler
+    # payload above (server/src) when no workspace compiler is present.
+    debug_src = repo_root / "src" / "devex" / "debug"
+    if debug_src.exists():
+        _copy_tree(debug_src, ext_dir / "debug")
+
     return bundle_root
 
 

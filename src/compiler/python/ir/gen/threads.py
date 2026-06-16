@@ -52,8 +52,7 @@ def lower_spawn(gen: IRGenerator, node):
     fn = node.fn
 
     # Add pthread.h include and register helpers
-    if "pthread.h" not in gen.module.includes:
-        gen.module.includes.append("pthread.h")
+    gen.require_runtime_include("pthread.h")
     gen.use_helper("__btrc_thread_spawn")
 
     if not isinstance(fn, LambdaExpr):

@@ -804,6 +804,15 @@ int main() {
 }
 ```
 
+### Freestanding / embedded targets
+
+`btrcpy --freestanding` emits C with no hosted-libc includes — every runtime
+symbol is routed through a single retargetable seam (`btrc_rt.h`) so a btrc
+program can target a kernel module, firmware, or bootloader. The pure subset and
+core stdlib (strings, collections, integer math) compile to an object with
+**zero libc dependencies** against the shipped reference runtime. See
+[docs/design/freestanding.md](docs/design/freestanding.md).
+
 ### Standard Library
 
 btrc includes a standard library written in btrc itself (`src/stdlib/`), auto-included by the compiler.
@@ -1075,6 +1084,18 @@ The LSP server maintains a two-tier cache: the current analysis (which may have 
 | Rename | Symbol rename across all references |
 | Signature help | Parameter hints for functions, constructors, methods, and stdlib calls |
 | Document symbols | Outline view with class hierarchy (fields, methods as children) |
+| Debugging | Source-level debugging in `.btrc` files: breakpoints (incl. conditional + logpoints), stepping, call stack, and btrc-aware variable inspection |
+
+### Debugging
+
+Press **F5** on a `.btrc` file to compile it with debug info and debug it
+natively in VS Code -- breakpoints, step over/into/out, the call stack, and
+variables shown as btrc values (a `string` shows its text, `Vector<int>` shows
+`[1, 2, 3]`, a class shows its fields). The compiler emits `#line` directives
+under `--debug` so the binary's DWARF points back at btrc source, and a Debug
+Adapter ([`src/devex/debug/`](src/devex/debug/)) drives `lldb` to present it.
+See [docs/design/debugger.md](docs/design/debugger.md). Requires `lldb` and a C
+compiler.
 
 ### Install
 

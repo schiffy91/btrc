@@ -95,8 +95,7 @@ def _require_setjmp(gen: IRGenerator):
     inside lambda bodies, which the generator's declaration pre-scan does
     not reach — always pulls in the header.
     """
-    if "setjmp.h" not in gen.module.includes:
-        gen.module.includes.append("setjmp.h")
+    gen.require_runtime_include("setjmp.h")
 
 
 def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:

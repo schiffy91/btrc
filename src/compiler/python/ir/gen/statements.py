@@ -72,6 +72,7 @@ def lower_block(gen: IRGenerator, block: Block | None) -> IRBlock:
     gen.push_managed_scope()
     stmts = []
     for s in block.statements:
+        _emit_line_marker(gen, s, stmts)
         ir_stmts = lower_stmt(gen, s)
         stmts.extend(ir_stmts)
     # ARC: scope-exit release for managed vars (only if not already handled
@@ -79,6 +80,21 @@ def lower_block(gen: IRGenerator, block: Block | None) -> IRBlock:
     managed = gen.pop_managed_scope()
     stmts.extend(_emit_scope_release(managed, gen))
     return IRBlock(stmts=stmts)
+
+
+def _emit_line_marker(gen: IRGenerator, ast_stmt, out: list) -> None:
+    """In --debug mode, prepend a ``#line`` marker mapping this statement back to
+    its .btrc source, so the compiled binary's DWARF points at btrc source."""
+    if not (gen.debug and gen.line_map):
+        return
+    line = getattr(ast_stmt, "line", 0)
+    if not line:
+        return
+    mapped = gen.line_map(line)
+    if not mapped:
+        return
+    from ..nodes import IRLineMarker
+    out.append(IRLineMarker(file=mapped[0], line=mapped[1]))
 
 
 def _maybe_unregister_manual_free(gen, expr):

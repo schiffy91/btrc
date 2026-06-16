@@ -29,6 +29,10 @@ class CType:
 class IRModule:
     """Root of the IR tree — represents one translation unit (.c file)."""
     includes: list[str] = field(default_factory=list)         # e.g., ["stdio.h", "stdlib.h"]
+    freestanding: bool = False                                # emit one btrc_rt.h seam, no hosted libc
+    needs_runtime: bool = False                               # freestanding: a feature (setjmp/threads) needs btrc_rt.h
+    debug: bool = False                                       # emit #line directives (source-level debugging)
+    debug_cfile: str = ""                                     # generated .c path, for #line resets in synth code
     forward_decls: list[str] = field(default_factory=list)    # forward struct/function declarations
     helper_decls: list[IRHelperDecl] = field(default_factory=list)  # runtime helpers
     enum_defs: list[IREnumDef] = field(default_factory=list)  # C enum typedefs
@@ -117,6 +121,17 @@ class IRBlock:
 class IRStmt:
     """Base for IR statements."""
     pass
+
+
+@dataclass
+class IRLineMarker(IRStmt):
+    """A ``#line N "file"`` directive (emitted only under --debug).
+
+    Re-points the C compiler's notion of the current source location at the
+    originating .btrc file/line, so the generated binary's DWARF references btrc
+    source directly — giving native breakpoints and step locations in .btrc."""
+    file: str = ""
+    line: int = 0
 
 
 @dataclass
