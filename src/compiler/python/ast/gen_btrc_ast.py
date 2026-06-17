@@ -20,7 +20,10 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)  # sibling modules (asdl_btrc, asdl_parser)
+# repo root, so asdl_btrc's `from src.compiler.python.ebnf import ...` resolves
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))))
 
 import asdl_btrc as B  # noqa: E402
 from asdl_parser import parse_file  # noqa: E402

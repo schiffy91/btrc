@@ -14,8 +14,8 @@ from pathlib import Path
 
 # tests/ -> python/ -> compiler/ -> src/ -> repo root
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_GENERATOR = _REPO_ROOT / "src" / "language" / "ast" / "asdl_python.py"
-_ASDL = _REPO_ROOT / "src" / "language" / "ast" / "ast.asdl"
+_GENERATOR = _REPO_ROOT / "src" / "compiler" / "python" / "ast" / "asdl_python.py"
+_ASDL = _REPO_ROOT / "src" / "language" / "ast.asdl"
 _GENERATED = _REPO_ROOT / "src" / "compiler" / "python" / "ast_nodes.py"
 
 

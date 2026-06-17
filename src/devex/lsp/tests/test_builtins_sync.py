@@ -5,7 +5,7 @@ import importlib.util
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-GENERATOR = REPO_ROOT / "src" / "language" / "ast" / "gen_builtins.py"
+GENERATOR = REPO_ROOT / "src" / "compiler" / "python" / "ast" / "gen_builtins.py"
 CHECKED_IN = REPO_ROOT / "src" / "devex" / "lsp" / "builtins.py"
 
 

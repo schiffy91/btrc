@@ -52,13 +52,13 @@ gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 		|| echo "GUI font backend skipped (missing FreeType headers)"
 
 stubs-generate: ## Regenerate built-in type stubs
-	$(NIX) python3 src/language/ast/gen_builtins.py
+	$(NIX) python3 src/compiler/python/ast/gen_builtins.py
 
 ast-generate: ## Regenerate the Python AST node classes from ast.asdl
-	$(NIX) python3 src/language/ast/asdl_python.py src/language/ast/ast.asdl > src/compiler/python/ast_nodes.py
+	$(NIX) python3 src/compiler/python/ast/asdl_python.py src/language/ast.asdl > src/compiler/python/ast_nodes.py
 
 ast-generate-btrc: ## Regenerate the btrc AST node classes from ast.asdl
-	$(NIX) python3 src/language/ast/gen_btrc_ast.py src/language/ast/ast.asdl > src/compiler/btrc/node.btrc
+	$(NIX) python3 src/compiler/python/ast/gen_btrc_ast.py src/language/ast.asdl > src/compiler/btrc/ast/node.btrc
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 

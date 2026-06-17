@@ -17,7 +17,7 @@ import os
 import sys
 import textwrap
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 sys.path.insert(0, ROOT)
 
 from src.compiler.python.ast_nodes import (

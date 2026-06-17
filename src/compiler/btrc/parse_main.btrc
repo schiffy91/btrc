@@ -1,5 +1,5 @@
 #include "tokens.btrc"
-#include "node.btrc"
+#include "ast/node.btrc"
 #include "ebnf.btrc"
 #include "lexer.btrc"
 #include "parser.btrc"
