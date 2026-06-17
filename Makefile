@@ -58,7 +58,7 @@ ast-generate: ## Regenerate the Python AST node classes from ast.asdl
 	$(NIX) python3 src/language/ast/asdl_python.py src/language/ast/ast.asdl > src/compiler/python/ast_nodes.py
 
 ast-generate-btrc: ## Regenerate the btrc AST node classes from ast.asdl
-	$(NIX) python3 src/language/ast/asdl_btrc.py src/language/ast/ast.asdl > src/compiler/btrc/ast_nodes.btrc
+	$(NIX) python3 src/language/ast/gen_btrc_ast.py src/language/ast/ast.asdl > src/compiler/btrc/node.btrc
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,9 @@ test-lsp: ## Run the editor/LSP server tests (reuses the compiler)
 
 test-debug: ## Run the debugger (DAP adapter) tests (needs lldb + a C compiler)
 	$(NIX) $(PYTEST) src/devex/debug/tests/ $(PYTEST_ARGS)
+
+test-selfhost: ## Verify the self-hosted lexer is byte-identical to btrcpy
+	$(NIX) bash src/compiler/btrc/verify_lex.sh
 
 test-btrc: ## Run language tests only (.btrc files)
 	$(NIX) $(PYTEST) src/tests/runner.py $(PYTEST_ARGS)

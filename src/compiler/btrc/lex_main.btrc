@@ -1,0 +1,17 @@
+#include "tokens.btrc"
+#include "ebnf.btrc"
+#include "lexer.btrc"
+int main(int argc, char** argv) {
+  if (argc < 2) { print("usage: lex <file.btrc>"); return 1; }
+  string grammarText = Path.readAll("src/language/grammar.ebnf");
+  GrammarInfo g = parseGrammar(grammarText);
+  string src = Path.readAll(Strings.copy(argv[1]));
+  Lexer lx = Lexer(src, g);
+  Vector<Token> toks = lx.tokenize();
+  int i = 0;
+  while (i < toks.len) {
+    print(toks.get(i).repr());
+    i = i + 1;
+  }
+  return 0;
+}

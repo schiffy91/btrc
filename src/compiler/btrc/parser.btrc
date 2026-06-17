@@ -1,0 +1,131 @@
+/* Stage 2 — recursive-descent parser (fat-node AST).
+ *
+ * Builds Node trees whose canon() reproduces the Python parser's AST
+ * (verified via src/compiler/btrc/verify_ast.py). Grown incrementally; each
+ * construct verified byte-identical before the next. Node positions come from
+ * the same tokens the Python parser uses.
+ *
+ * No #include here — parse_main.btrc includes tokens/node/ebnf/lexer/parser
+ * in order (btrc has no include-dedup).
+ */
+
+class Parser {
+    public Vector<Token> tokens;
+    public int pos;
+
+    public Parser(Vector<Token> tokens) {
+        self.tokens = tokens;
+        self.pos = 0;
+    }
+
+    public Token peek() {
+        if (self.pos >= self.tokens.len) {
+            return self.tokens.get(self.tokens.len - 1);  // EOF
+        }
+        return self.tokens.get(self.pos);
+    }
+
+    public bool check(string ty) {
+        return self.peek().type == ty;
+    }
+
+    public Token advance() {
+        Token t = self.tokens.get(self.pos);
+        self.pos = self.pos + 1;
+        return t;
+    }
+
+    public Token expect(string ty) {
+        // Lenient for now: assumes well-formed input (verified on valid programs).
+        return self.advance();
+    }
+
+    public Node parseProgram() {
+        Node prog = Node();
+        prog.kind = NK_PROGRAM;
+        while (!self.check("EOF")) {
+            prog.declarations.push(self.parseDecl());
+        }
+        return prog;
+    }
+
+    public Node parseDecl() {
+        // Minimal: <type> <ident> ( ) { block }  ->  FunctionDecl
+        Node ty = self.parseType();
+        Token nameTok = self.advance();
+        Node fn = Node();
+        fn.kind = NK_FUNCTION_DECL;
+        fn.return_type = ty;
+        fn.name = nameTok.value;
+        fn.name_line = nameTok.line;
+        fn.name_col = nameTok.col;
+        fn.line = ty.line;
+        fn.col = ty.col;
+        self.expect("LPAREN");
+        self.expect("RPAREN");
+        // Hoist into a local: `field = <call>` double-evaluates the RHS under the
+        // ARC field-assign implicit-keep (a btrc compiler bug; see memory).
+        Node body = self.parseBlock();
+        fn.body_node = body;
+        return fn;
+    }
+
+    public Node parseType() {
+        Token t = self.advance();
+        Node ty = Node();
+        ty.kind = NK_TYPE_EXPR;
+        ty.base = t.value;
+        ty.line = t.line;
+        ty.col = t.col;
+        return ty;
+    }
+
+    public Node parseBlock() {
+        Token lb = self.expect("LBRACE");
+        Node blk = Node();
+        blk.kind = NK_BLOCK;
+        blk.line = lb.line;
+        blk.col = lb.col;
+        while (!self.check("RBRACE") && !self.check("EOF")) {
+            blk.statements.push(self.parseStatement());
+        }
+        self.expect("RBRACE");
+        return blk;
+    }
+
+    public Node parseStatement() {
+        if (self.check("RETURN")) {
+            Token rt = self.advance();
+            Node r = Node();
+            r.kind = NK_RETURN_STMT;
+            r.line = rt.line;
+            r.col = rt.col;
+            if (!self.check("SEMICOLON")) {
+                Node v = self.parseExpression();
+                r.value_node = v;
+            }
+            self.expect("SEMICOLON");
+            return r;
+        }
+        Token skip = self.advance();
+        Node none = Node();
+        return none;
+    }
+
+    public Node parseExpression() {
+        Token t = self.peek();
+        if (self.check("INT_LIT")) {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_INT_LITERAL;
+            n.value_int = Strings.toInt(t.value);
+            n.raw = t.value;
+            n.line = t.line;
+            n.col = t.col;
+            return n;
+        }
+        Token skip = self.advance();
+        Node none = Node();
+        return none;
+    }
+}

@@ -1,0 +1,66 @@
+/* Stage 1 — tokens.
+ *
+ * Token.type is the token-type NAME string (e.g. "INT", "PLUS", "INT_LIT").
+ * This matches both the --emit-tokens output and the Python GrammarInfo's
+ * string token maps (keyword_to_token: dict[str,str]), and sidesteps enum
+ * reverse-lookup. The TokenType *enum* can be added later for the parser.
+ */
+
+/* char -> one-character string (string + char concat is unsupported in btrc;
+ * f-string interpolation of a char is the working idiom). */
+string chr(char c) {
+    return f"{c}";
+}
+
+/* Reproduce Python's repr() of a str for --emit-tokens parity:
+ * single quotes by default, double quotes when the value contains ' but not ",
+ * with \\, \n, \r, \t and quote escaping. */
+string pyRepr(string s) {
+    bool hasSingle = s.indexOf("'") >= 0;
+    bool hasDouble = s.indexOf("\"") >= 0;
+    char qc = '\'';
+    if (hasSingle && !hasDouble) {
+        qc = '"';
+    }
+    string q = chr(qc);
+    string out = q;
+    int i = 0;
+    int n = s.length();
+    while (i < n) {
+        char c = s[i];
+        if (c == '\\') {
+            out = out + "\\\\";
+        } else if (c == qc) {
+            out = out + "\\" + q;
+        } else if (c == '\n') {
+            out = out + "\\n";
+        } else if (c == '\r') {
+            out = out + "\\r";
+        } else if (c == '\t') {
+            out = out + "\\t";
+        } else {
+            out = out + chr(c);
+        }
+        i = i + 1;
+    }
+    out = out + q;
+    return out;
+}
+
+class Token {
+    public string type;
+    public string value;
+    public int line;
+    public int col;
+
+    public Token(string type, string value, int line, int col) {
+        self.type = type;
+        self.value = value;
+        self.line = line;
+        self.col = col;
+    }
+
+    public string repr() {
+        return f"Token({self.type}, {pyRepr(self.value)}, {self.line}:{self.col})";
+    }
+}
