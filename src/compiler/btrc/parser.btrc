@@ -93,6 +93,15 @@ class Parser {
         return blk;
     }
 
+    public bool isTypeStart() {
+        string t = self.peek().type;
+        return t == "INT" || t == "FLOAT" || t == "BOOL" || t == "STRING"
+            || t == "VOID" || t == "CHAR" || t == "DOUBLE" || t == "SHORT"
+            || t == "LONG" || t == "UNSIGNED" || t == "SIGNED" || t == "STRUCT"
+            || t == "ENUM" || t == "UNION" || t == "CONST" || t == "STATIC"
+            || t == "EXTERN" || t == "VOLATILE";
+    }
+
     public Node parseStatement() {
         if (self.check("RETURN")) {
             Token rt = self.advance();
@@ -107,9 +116,38 @@ class Parser {
             self.expect("SEMICOLON");
             return r;
         }
-        Token skip = self.advance();
-        Node none = Node();
-        return none;
+        if (self.isTypeStart()) {
+            return self.parseVarDecl();
+        }
+        // expression statement
+        Node e = self.parseExpression();
+        Node es = Node();
+        es.kind = NK_EXPR_STMT;
+        es.expr = e;
+        es.line = e.line;
+        es.col = e.col;
+        self.expect("SEMICOLON");
+        return es;
+    }
+
+    public Node parseVarDecl() {
+        Node ty = self.parseType();
+        Token nameTok = self.advance();
+        Node vd = Node();
+        vd.kind = NK_VAR_DECL_STMT;
+        vd.type = ty;
+        vd.name = nameTok.value;
+        vd.name_line = nameTok.line;
+        vd.name_col = nameTok.col;
+        vd.line = ty.line;
+        vd.col = ty.col;
+        if (self.check("EQ")) {
+            self.advance();
+            Node init = self.parseExpression();
+            vd.initializer = init;
+        }
+        self.expect("SEMICOLON");
+        return vd;
     }
 
     public Node parseExpression() {
@@ -120,6 +158,15 @@ class Parser {
             n.kind = NK_INT_LITERAL;
             n.value_int = Strings.toInt(t.value);
             n.raw = t.value;
+            n.line = t.line;
+            n.col = t.col;
+            return n;
+        }
+        if (self.check("IDENT")) {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_IDENTIFIER;
+            n.name = t.value;
             n.line = t.line;
             n.col = t.col;
             return n;
