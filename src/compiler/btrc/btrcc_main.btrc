@@ -1,0 +1,79 @@
+/* Self-hosted btrc compiler — back-half driver.
+ *
+ * Composes the full pipeline (front-end -> lexer -> parser -> analyzer ->
+ * IR gen -> emitter) and prints C source to stdout.
+ *
+ * By default the front-end composes the stdlib and resolves #include/import
+ * directives (byte-identical source to `btrcpy`); `--no-stdlib` reads a single
+ * file raw (the original behavior, matching `btrcpy --no-stdlib`).
+ *
+ * Usage:
+ *   btrcc <file.btrc>              # stdlib auto-composed + includes resolved
+ *   btrcc --no-stdlib <file.btrc>  # raw single file (no stdlib, no resolution)
+ */
+
+#include "tokens.btrc"
+#include "ast/node.btrc"
+#include "ebnf.btrc"
+#include "lexer.btrc"
+#include "frontend.btrc"
+#include "parser.btrc"
+#include "analyzer.btrc"
+#include "ir_nodes.btrc"
+#include "irgen.btrc"
+#include "emitter.btrc"
+
+int main(int argc, char** argv) {
+    if (argc < 2) { print("usage: btrcc [--no-stdlib] <file.btrc>"); return 1; }
+
+    string gt = Path.readAll("src/language/grammar.ebnf");
+    GrammarInfo g = parseGrammar(gt);
+
+    bool includeStdlib = true;
+    int argIdx = 1;
+    string first = Strings.copy(argv[1]);
+    if (first.equals("--no-stdlib")) {
+        includeStdlib = false;
+        argIdx = 2;
+    }
+    if (argIdx >= argc) {
+        print("usage: btrcc [--no-stdlib] <file.btrc>");
+        return 1;
+    }
+
+    string path = Strings.copy(argv[argIdx]);
+    string raw = Path.readAll(path);
+    /* Default: compose stdlib + resolve includes/imports (matches btrcpy).
+     * --no-stdlib: use the single file raw (matches btrcpy --no-stdlib). */
+    string src = raw;
+    if (includeStdlib) {
+        src = feResolveFrontendSource(raw, path, true);
+    }
+    Lexer lx = Lexer(src, g);
+    Vector<Token> toks = lx.tokenize();
+    Parser p = Parser(toks, g);
+    Node prog = p.parseProgram();
+
+    Analyzed a = analyzeProgram(prog);
+    IRGen gen = IRGen(a);
+    IRModule m = gen.generate(prog);
+
+    CEmitter em = CEmitter();
+    string c = em.emit(m);
+
+    /* Print without an extra trailing newline: the emitted string already ends
+     * in "\n"; use printRaw if available, else strip one newline for print. */
+    printNoNL(c);
+    return 0;
+}
+
+/* Print a string verbatim (no added newline). print() appends "\n", so strip
+ * the emitter's single trailing newline first to avoid a double newline. */
+void printNoNL(string s) {
+    int n = s.length();
+    if (n > 0 && s[n - 1] == '\n') {
+        print(s.substring(0, n - 1));
+    } else {
+        print(s);
+    }
+}

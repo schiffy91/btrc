@@ -23,14 +23,16 @@ from src.compiler.python.parser.parser import ParseError, Parser
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_HERE))))
-_AST_DIR = os.path.join(_ROOT, "src", "language", "ast")
-_ASDL_FILE = os.path.join(_AST_DIR, "ast.asdl")
+# ast.asdl lives beside grammar.ebnf in src/language/; the btrc AST generator
+# (asdl_btrc.py) lives with the rest of the Python AST tooling.
+_ASDL_FILE = os.path.join(_ROOT, "src", "language", "ast.asdl")
+_ASDL_BTRC_PY = os.path.join(
+    _ROOT, "src", "compiler", "python", "ast", "asdl_btrc.py")
 
 
 def _load_asdl_btrc():
     """Import asdl_btrc.py by path (it lives outside the test's package)."""
-    path = os.path.join(_AST_DIR, "asdl_btrc.py")
-    spec = importlib.util.spec_from_file_location("asdl_btrc_mod", path)
+    spec = importlib.util.spec_from_file_location("asdl_btrc_mod", _ASDL_BTRC_PY)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

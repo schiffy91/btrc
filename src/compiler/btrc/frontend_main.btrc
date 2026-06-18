@@ -1,0 +1,41 @@
+/* Front-end driver: compose the full source for a btrc program and print it
+ * verbatim to stdout (byte-identical to btrcpy's
+ * resolve_frontend_source(...).source).
+ *
+ * Usage:
+ *   frontend <file.btrc>             # stdlib + includes/imports composed
+ *   frontend --no-stdlib <file.btrc> # includes/imports only (no auto-stdlib)
+ *
+ * Verification:
+ *   (cd /tmp/shv && frontend F.btrc) | diff - oracle_source.txt
+ */
+
+#include "tokens.btrc"
+#include "ebnf.btrc"
+#include "lexer.btrc"
+#include "frontend.btrc"
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        Console.error("usage: frontend [--no-stdlib] <file.btrc>");
+        return 1;
+    }
+
+    bool includeStdlib = true;
+    int argIdx = 1;
+    string first = Strings.copy(argv[1]);
+    if (first.equals("--no-stdlib")) {
+        includeStdlib = false;
+        argIdx = 2;
+    }
+    if (argIdx >= argc) {
+        Console.error("usage: frontend [--no-stdlib] <file.btrc>");
+        return 1;
+    }
+
+    string path = Strings.copy(argv[argIdx]);
+    string src = Path.readAll(path);
+    string composed = feResolveFrontendSource(src, path, includeStdlib);
+    Console.write(composed);
+    return 0;
+}

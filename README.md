@@ -41,7 +41,7 @@ I’ve wanted a modern, ergonomic take on C for years: something fast, simple, c
 
 ## What Is It?
 
-btrc is defined through a formal [EBNF grammar](src/language/grammar.ebnf), which mathematically defines every keyword and operator; an [algebraic AST spec](src/language/ast/ast.asdl) defines every node type for the language graph; and a compiler pipeline consumes both the spec and the graph, walking your code through six stages (lexical analysis, syntax analysis, semantic analysis, intermediate code generation, code optimization, code generation). However, instead of outputting an intermediate language like LLVM or assembly code directly, it outputs C code. I don't expect folks will want to look at the C code outside of debugging errors, but it should resemble something that a human could have written (but more verbose and with a lot more underscores). You *should* be able to read it, debug it, and link it anything (or link anything else to it). It's just C11.
+btrc is defined through a formal [EBNF grammar](src/language/grammar.ebnf), which mathematically defines every keyword and operator; an [algebraic AST spec](src/language/ast.asdl) defines every node type for the language graph; and a compiler pipeline consumes both the spec and the graph, walking your code through six stages (lexical analysis, syntax analysis, semantic analysis, intermediate code generation, code optimization, code generation). However, instead of outputting an intermediate language like LLVM or assembly code directly, it outputs C code. I don't expect folks will want to look at the C code outside of debugging errors, but it should resemble something that a human could have written (but more verbose and with a lot more underscores). You *should* be able to read it, debug it, and link it anything (or link anything else to it). It's just C11.
 
 Depending on how you define things, it might be more accurate to call btrc a transpiler rather than a compiler. You get gcc and clang compatibility for free, but you also inherit many of C's limitations. There is no borrow checker or lifetime analysis here. I did mitigate some of the pain with a simple Automatic Reference Counting (ARC) system that automatically handles most memory management (even dealing with cycles and cleaning up allocations during exceptions). That said, it won't prevent all use-after-free bugs. Just like in C, you can absolutely still shoot yourself in the foot if you aren't careful.
 
@@ -902,11 +902,11 @@ if (r.isErr()) {
 
 ## Compilation Pipeline
 
-btrc compiles through six stages. Two formal specs drive the front-end: [`src/language/grammar.ebnf`](src/language/grammar.ebnf) defines all keywords, operators, and syntax rules; [`src/language/ast/ast.asdl`](src/language/ast/ast.asdl) defines all AST node types using [Zephyr ASDL](https://www.cs.princeton.edu/~appel/papers/asdl97.pdf). A structured IR separates lowering from emission.
+btrc compiles through six stages. Two formal specs drive the front-end: [`src/language/grammar.ebnf`](src/language/grammar.ebnf) defines all keywords, operators, and syntax rules; [`src/language/ast.asdl`](src/language/ast.asdl) defines all AST node types using [Zephyr ASDL](https://www.cs.princeton.edu/~appel/papers/asdl97.pdf). A structured IR separates lowering from emission.
 
 ```
   src/language/grammar.ebnf  (single source of truth: keywords, operators, syntax)
-  src/language/ast/ast.asdl  (single source of truth: AST node types)
+  src/language/ast.asdl  (single source of truth: AST node types)
          |
   .btrc source
          |
@@ -929,21 +929,35 @@ The generated C is self-contained -- no runtime library, no special headers. It 
 
 ---
 
+## Self-Hosting
+
+btrc compiles itself. Alongside the reference compiler in Python, the same six-stage pipeline is implemented in btrc under [`src/compiler/btrc/`](src/compiler/btrc/) -- lexer, parser, analyzer, IR generation, optimizer, and C emitter, plus a front-end that auto-composes the standard library and resolves `#include`/`import` directives. It is bootstrapped by transpiling its own source with the reference compiler (a C compiler does the rest); from then on `btrcc` compiles btrc programs on its own.
+
+Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The AST is generated from the same [`ast.asdl`](src/language/ast.asdl) spec by a btrc-native ASDL parser ([`ast/asdl.btrc`](src/compiler/btrc/ast/asdl.btrc)) -- zero dependencies beyond the btrc executable itself.
+
+The self-hosted compiler is held to a strict bar: across the entire language test suite, the C it emits must compile under `gcc -std=c11` **and** produce byte-identical program output to the reference compiler. Run that bootstrap-parity suite with:
+
+```bash
+make test-btrc-selfhost      # build btrcc, then run the whole corpus through it
+```
+
+---
+
 ## Project Structure
 
 ```
 src/
   language/
     grammar.ebnf               # Formal EBNF grammar (lexical + syntactic rules)
-    ast/
-      ast.asdl                 # Algebraic AST spec (Zephyr ASDL)
-      asdl_parser.py           # ASDL file parser
-      asdl_python.py           # ASDL --> Python dataclasses
-      asdl_btrc.py             # ASDL --> btrc classes
-      gen_builtins.py          # stdlib .btrc --> LSP builtins
+    ast.asdl                   # Algebraic AST spec (Zephyr ASDL) -- single source of truth
 
   compiler/
-    python/                    # Compiler (Python)
+    python/                    # Reference compiler (Python)
+      ast/                     # AST tooling (Python-hosted)
+        asdl_parser.py         # ASDL file parser
+        asdl_python.py         # ASDL --> Python dataclasses
+        asdl_btrc.py           # ASDL --> btrc classes
+        gen_builtins.py        # stdlib .btrc --> LSP builtins
       ebnf.py                  # EBNF parser --> GrammarInfo
       tokens.py                # Token + TokenType (grammar-driven)
       lexer.py                 # Grammar-driven lexer
@@ -967,7 +981,23 @@ src/
           threads.py           # spawn/Thread/Mutex lowering
           generics/            # Monomorphization (vectors, maps, sets, user types)
         helpers/               # Runtime helper C source (strings, alloc, threads, ...)
-      tests/                   # Python unit tests (568 tests)
+      tests/                   # Python unit tests (1140+ tests)
+
+    btrc/                      # Self-hosted compiler (written in btrc)
+      btrcc_main.btrc          # Pipeline entry point
+      tokens.btrc              # Token types + Python-repr quoting
+      ebnf.btrc                # EBNF parser --> GrammarInfo
+      lexer.btrc               # Grammar-driven lexer
+      frontend.btrc            # stdlib auto-composition + #include/import resolution
+      parser.btrc              # Recursive descent parser --> fat-node AST
+      analyzer.btrc            # Type checking, scopes, generics, enums
+      irgen.btrc               # AST --> IR lowering (the core)
+      ir_nodes.btrc            # IR node definitions (fat tagged node)
+      emitter.btrc             # IR --> C text
+      ast/
+        asdl.btrc              # ASDL parser (btrc-native, zero-dependency)
+        gen_node.btrc          # ASDL --> node.btrc generator
+        node.btrc              # GENERATED fat-node AST
 
   stdlib/                      # Standard library (auto-included btrc source)
     vector.btrc                # Vector<T> (dynamic array)
@@ -1111,7 +1141,7 @@ The extension auto-discovers the LSP server and Python interpreter. Configure `b
 ## Roadmap
 
 Planned but not yet implemented:
-- **Self-hosting** -- rewrite the compiler in btrc itself (bootstrap cycle)
+- **Bootstrap fixed-point** -- the [self-hosted compiler](#self-hosting) already compiles the full language suite to matching output; the last step is having the self-compiled `btrcc` rebuild itself bit-for-bit
 - **Module system** -- currently relies on `#include "file.btrc"` textual inclusion
 - **Pattern matching** -- `match` expressions for rich enums with exhaustiveness checking
 - **Weak references** -- `weak` keyword for intentional non-owning references

@@ -42,6 +42,11 @@ def _dump(node, depth: int) -> str:
         return "true" if node else "false"
     if isinstance(node, int):
         return str(node)
+    if isinstance(node, float):
+        import struct
+        # btrc stores FloatLiteral.value as a 32-bit float; round through
+        # float32 so canon matches btrc canonFloat (snprintf %%f).
+        return "%f" % struct.unpack("f", struct.pack("f", node))[0]
     if isinstance(node, str):
         return _q(node)
     if isinstance(node, list):

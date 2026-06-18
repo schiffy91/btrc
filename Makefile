@@ -77,6 +77,9 @@ test-debug: ## Run the debugger (DAP adapter) tests (needs lldb + a C compiler)
 test-selfhost: ## Verify the self-hosted lexer is byte-identical to btrcpy
 	$(NIX) bash src/compiler/btrc/verify_lex.sh
 
+test-btrc-selfhost: ## Bootstrap parity: build btrcc, run the whole corpus through it
+	$(NIX) $(PYTEST) src/tests/runner_btrcc.py $(PYTEST_ARGS)
+
 test-btrc: ## Run language tests only (.btrc files)
 	$(NIX) $(PYTEST) src/tests/runner.py $(PYTEST_ARGS)
 
