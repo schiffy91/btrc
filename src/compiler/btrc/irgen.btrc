@@ -152,8 +152,14 @@ string typeToC(Node t, Analyzed a) {
     else if (base == "uint") { c = "unsigned int"; }
     /* int/float/double/char/void/long/short/size_t map to themselves;
      * user classes also map to their own name (pointer applied below). */
+    int depth = t.pointer_depth;
+    /* A nullable `?` contributes one pointer level so value types can be boxed
+     * (int? -> int*), but `string` is already char* (a pointer), so a nullable
+     * string must collapse back to char* rather than char** — mirrors the
+     * reference type_to_c fix (gcc 15 rejects char* = char**). */
+    if (t.is_nullable && base == "string") { depth = depth - 1; }
     int p = 0;
-    while (p < t.pointer_depth) { c = c + "*"; p = p + 1; }
+    while (p < depth) { c = c + "*"; p = p + 1; }
     /* Class types are reference types: append one pointer level if the source
      * type wasn't already a pointer (mirrors _upgrade_class_type pointer_depth=1
      * with type_to_c then applying it). Generic class instances are likewise
@@ -176,6 +182,29 @@ class Managed {
     public Managed(string name, string cls) {
         self.name = name;
         self.cls = cls;
+    }
+}
+
+/* Snapshot of the ARC managed-scope + return context, taken before lowering an
+ * isolated body (a lambda / thread wrapper, a separate C function). Holds COPIES
+ * of the managed stack + scope starts so the live IRGen fields can be cleared
+ * in place and refilled on restore — never reassigning the field pointer, which
+ * would otherwise release (and free) the prior vector while a plain alias of it
+ * is still held (btrcc has no retain on aliasing locals). */
+class ScopeSnapshot {
+    public Vector<Managed> managed;
+    public Vector<int> starts;
+    public string retC;
+    /* COPIES of the func-var-decl accumulator (the IRNode handles), so a lambda
+     * body lowers in a fresh decl context and the parent's accumulator is
+     * restored after. Mirrors saving/clearing gen._func_var_decls around a
+     * lambda body in lambdas.py. */
+    public Vector<IRNode> funcVarDecls;
+    public ScopeSnapshot() {
+        self.managed = [];
+        self.starts = [];
+        self.retC = "";
+        self.funcVarDecls = [];
     }
 }
 
@@ -203,6 +232,12 @@ class IRGen {
      * depth > 0 register an exception-cleanup so a throw (longjmp) still releases
      * them. Mirrors generator.in_try_depth. */
     public int inTryDepth;
+    /* Nesting depth of try/catch CONSTRUCTS currently being lowered (try body,
+     * catch body, and finally body all count — unlike inTryDepth, which only
+     * spans the try body). A class-pointer `return` lowered anywhere inside a
+     * try/catch gets laundered through __btrc_launder to dodge the gcc -O2 setjmp
+     * cross-branch field-merge miscompile. Mirrors generator.in_trycatch_depth. */
+    public int inTrycatchDepth;
     /* Owning-temporary overrides: a `new X()`/ctor-call argument hoisted into a
      * temp so the call references the temp (and the temp can be released after).
      * Keyed by the arg AST node's "line:col"; the value is the temp's IRVar.
@@ -254,6 +289,14 @@ class IRGen {
     public Map<string, string> fnPtrEnvFn;
     public Map<string, string> fnPtrEnvVar;
 
+    /* Every local IRVarDecl produced in the function/method body currently being
+     * lowered. A try/catch marks ALL of them `volatile`, since any local modified
+     * between setjmp() and read after a longjmp() has an indeterminate value
+     * otherwise (C11 7.13.2.1) and gcc 15 manifests the bug. Reset at every
+     * body-lowering entry; saved/restored around an isolated (lambda) body.
+     * Mirrors generator._func_var_decls + control_flow._lower_try_catch. */
+    public Vector<IRNode> funcVarDecls;
+
     public IRGen(Analyzed analyzed) {
         self.analyzed = analyzed;
         self.usedHelpers = {};
@@ -262,6 +305,7 @@ class IRGen {
         self.loopScopeDepths = [];
         self.callParamVarTypes = {};
         self.inTryDepth = 0;
+        self.inTrycatchDepth = 0;
         self.owningTempOverrides = {};
         self.tempCounter = 0;
         self.currentClass = "";
@@ -274,6 +318,7 @@ class IRGen {
         self.lastLambdaId = 0;
         self.fnPtrEnvFn = {};
         self.fnPtrEnvVar = {};
+        self.funcVarDecls = [];
     }
 
     /* fresh_lambda_id: unique increasing lambda id (mirrors fresh_lambda_id). */
@@ -328,22 +373,108 @@ class IRGen {
         self.managedStack.push(Managed(name, cls));
     }
 
+    /* Start a fresh function/method body: clear the funcVarDecls accumulator in
+     * place (no reassignment — see ScopeSnapshot's note on alias-free) so the
+     * try/catch volatile pass only marks THIS body's locals. Mirrors the
+     * `gen._func_var_decls = []` reset at every body-lowering entry point. */
+    public void resetFuncVarDecls() {
+        while (self.funcVarDecls.len > 0) { self.funcVarDecls.pop(); }
+    }
+
+    /* Begin lowering an isolated body (a lifted lambda / thread wrapper). Snapshot
+     * the current managed stack + scope starts into a fresh ScopeSnapshot (by
+     * copying entries, NOT aliasing the field pointer), then clear the live
+     * fields IN PLACE so the body lowers in an empty managed/return context.
+     * Mirrors the reference saving + clearing _managed_vars_stack around a lambda
+     * body; the in-place clear avoids btrcc's alias-free bug (reassigning a
+     * collection field releases the old vector, which a plain saved alias does
+     * not keep alive). */
+    public ScopeSnapshot enterIsolatedScope(string retC) {
+        ScopeSnapshot snap = ScopeSnapshot();
+        snap.retC = self.currentReturnCType;
+        int i = 0;
+        while (i < self.managedStack.len) {
+            Managed mv = self.managedStack.get(i);
+            snap.managed.push(Managed(mv.name, mv.cls));
+            i = i + 1;
+        }
+        int j = 0;
+        while (j < self.scopeStarts.len) {
+            snap.starts.push(self.scopeStarts.get(j));
+            j = j + 1;
+        }
+        int k = 0;
+        while (k < self.funcVarDecls.len) {
+            snap.funcVarDecls.push(self.funcVarDecls.get(k));
+            k = k + 1;
+        }
+        /* Clear the live fields in place (no reassignment). */
+        while (self.managedStack.len > 0) { self.managedStack.pop(); }
+        while (self.scopeStarts.len > 0) { self.scopeStarts.pop(); }
+        while (self.funcVarDecls.len > 0) { self.funcVarDecls.pop(); }
+        self.currentReturnCType = retC;
+        return snap;
+    }
+
+    /* End an isolated body: clear the live fields in place and refill them from
+     * the snapshot, then restore the return context. */
+    public void exitIsolatedScope(ScopeSnapshot snap) {
+        while (self.managedStack.len > 0) { self.managedStack.pop(); }
+        while (self.scopeStarts.len > 0) { self.scopeStarts.pop(); }
+        int i = 0;
+        while (i < snap.managed.len) {
+            Managed mv = snap.managed.get(i);
+            self.managedStack.push(Managed(mv.name, mv.cls));
+            i = i + 1;
+        }
+        int j = 0;
+        while (j < snap.starts.len) {
+            self.scopeStarts.push(snap.starts.get(j));
+            j = j + 1;
+        }
+        while (self.funcVarDecls.len > 0) { self.funcVarDecls.pop(); }
+        int k = 0;
+        while (k < snap.funcVarDecls.len) {
+            self.funcVarDecls.push(snap.funcVarDecls.get(k));
+            k = k + 1;
+        }
+        self.currentReturnCType = snap.retC;
+    }
+
     /* Inside a try block, register an exception cleanup for a managed local so a
      * throw (longjmp) still releases it (normal scope exit discards it). Marks
      * the matching IRVarDecl volatile so the `var = NULL` after delete is not
      * optimized away (avoids a double-free). Mirrors
      * variables._maybe_register_cleanup. */
     public void maybeRegisterCleanup(string varName, string destroyFn,
-            Vector<IRNode> stmts) {
+            string clsName, Vector<IRNode> stmts) {
         if (self.inTryDepth <= 0) { return; }
-        /* NOTE: btrcpy also marks the var's IRVarDecl volatile so an optimizer
-         * can't drop the post-delete `var = NULL`; the verification harness
-         * compiles without -O, and btrc's IRNode has no volatile flag, so we omit
-         * it. */
+        /* Mark the matching IRVarDecl volatile so (a) the post-delete `var = NULL`
+         * write is not optimized away (avoids a double-free) and (b) the variable
+         * survives a longjmp with a determinate value (C11 7.13.2.1). Mirrors
+         * variables._maybe_register_cleanup. Scan stmts back-to-front for the decl. */
+        int si = stmts.len - 1;
+        while (si >= 0) {
+            IRNode s = stmts.get(si);
+            if (s.kind == IRK_VAR_DECL && s.name == varName) {
+                s.is_volatile = true;
+                si = -1;
+            } else {
+                si = si - 1;
+            }
+        }
         self.useHelper("__btrc_register_cleanup");
         Vector<IRNode> cargs = [];
         cargs.push(irRawExpr("(void**)&" + varName));
         cargs.push(irRawExpr("(__btrc_cleanup_fn)" + destroyFn));
+        /* Pass the class visitor so a throw can run cycle-safe cleanup (mirror
+         * the normal scope-exit collector). Cyclable classes have a `_visit`;
+         * everything else passes NULL (plain destroy, no cycle phase). */
+        if (clsName != "" && self.isCyclable(clsName)) {
+            cargs.push(irRawExpr("(void*)" + clsName + "_visit"));
+        } else {
+            cargs.push(irRawExpr("NULL"));
+        }
         stmts.push(irExprStmt(irCall("__btrc_register_cleanup", cargs)));
     }
 
@@ -516,15 +647,31 @@ class IRGen {
             if (v.value_node != null) {
                 Map<string, Node> empty = {};
                 line = line + " = " + irExprText(self.lowerExpr(v.value_node, empty));
+            } else {
+                /* No explicit value: take the POSITIONAL index (str(i)), NOT
+                 * C-style `previous + 1`. Mirrors enums._emit_enum's
+                 * `value=str(i)` branch — e.g. `enum E { A = 5, B }` gives B = 1,
+                 * not 6. */
+                line = line + " = " + Strings.fromInt(i);
             }
             if (i < d.values.len - 1) { line = line + ","; }
             body = body + line + "\n";
             i = i + 1;
         }
         body = body + "} " + name + ";";
-        m.raw_sections.push(body);
-        /* static const char* Name_toString(Name val) { switch (val) {...} } */
-        m.raw_sections.push(self.enumToStringText(name, d.values, false));
+        /* The typedef goes into enum_defs (emitted before forward decls) so the
+         * enum type name is visible to function-pointer typedefs and function
+         * signatures. Mirrors enums._emit_enum's gen.module.enum_defs.append. */
+        m.enum_defs.push(body);
+        /* static const char* Name_toString(Name val) { switch (val) {...} }.
+         * Pushed into m.functions (not raw_sections) so reachability DCE prunes
+         * it when unused — mirrors enums._emit_enum appending an IRFunctionDef
+         * to gen.module.function_defs. An anonymous enum (empty name) has no
+         * usable toString name, so skip it entirely (the reference's `_toString`
+         * is always dead and removed by DCE). */
+        if (name != "") {
+            m.functions.push(self.enumToStringFn(name, d.values, false));
+        }
     }
 
     /* Emit a rich (tagged-union) enum (NK_RICH_ENUM_DECL): a tag enum, per-variant
@@ -543,7 +690,9 @@ class IRGen {
             i = i + 1;
         }
         tagBody = tagBody + "} " + name + "_Tag;";
-        m.raw_sections.push(tagBody);
+        /* Tag enum goes into enum_defs (before forward decls), mirroring
+         * enums._emit_rich_enum's gen.module.enum_defs.append for the tag. */
+        m.enum_defs.push(tagBody);
         /* Per-variant data structs (only variants with params). Forward-declared
          * typedef then a full struct, mirroring enums._emit_rich_enum. */
         int v2 = 0;
@@ -614,31 +763,42 @@ class IRGen {
             m.raw_sections.push(cb);
             v4 = v4 + 1;
         }
-        /* toString over the tag field. */
-        m.raw_sections.push(self.enumToStringText(name, d.variants, true));
+        /* toString over the tag field. Pushed into m.functions so DCE prunes it
+         * when unused (mirrors enums._emit_rich_enum's function_defs.append). */
+        m.functions.push(self.enumToStringFn(name, d.variants, true));
     }
 
-    /* Build the C text of a `<Name>_toString` switch function. For a plain enum
-     * (`rich` false) the switch is over `val` and cases are `Name_VALUE`; for a
-     * rich enum the switch is over `val.tag` and cases are `Name_VARIANT_TAG`.
-     * Mirrors the toString IRFunctionDef in enums.py. */
-    public string enumToStringText(string name, Vector<Node> items, bool rich) {
+    /* Build the `<Name>_toString` switch function as an IRFunction so it flows
+     * through reachability DCE (mirrors the toString IRFunctionDef in enums.py).
+     * The switch body is carried as a single IRRawC statement; the emitter adds
+     * the `static const char* Name_toString(Name val) {...}` signature/braces.
+     * For a plain enum (`rich` false) the switch is over `val` and cases are
+     * `Name_VALUE`; for a rich enum the switch is over `val.tag` and cases are
+     * `Name_VARIANT_TAG`. */
+    public IRFunction enumToStringFn(string name, Vector<Node> items, bool rich) {
         string switchExpr = "val";
         if (rich) { switchExpr = "val.tag"; }
-        string s = "static const char* " + name + "_toString(" + name + " val) {\n";
-        s = s + "    switch (" + switchExpr + ") {\n";
+        string s = "switch (" + switchExpr + ") {\n";
         int i = 0;
         while (i < items.len) {
             Node it = items.get(i);
             string caseLabel = name + "_" + it.name;
             if (rich) { caseLabel = caseLabel + "_TAG"; }
-            s = s + "        case " + caseLabel + ":\n";
-            s = s + "            return \"" + it.name + "\";\n";
+            s = s + "    case " + caseLabel + ":\n";
+            s = s + "        return \"" + it.name + "\";\n";
             i = i + 1;
         }
-        s = s + "        default:\n            return \"unknown\";\n";
-        s = s + "    }\n}";
-        return s;
+        s = s + "    default:\n        return \"unknown\";\n";
+        s = s + "}";
+        IRFunction fn = IRFunction();
+        fn.name = name + "_toString";
+        fn.return_type = "const char*";
+        fn.is_static = true;
+        fn.params.push(IRParam(name, "val"));
+        Vector<IRNode> bodyStmts = [];
+        bodyStmts.push(irRawC(s));
+        fn.body = irBlock(bodyStmts);
+        return fn;
     }
 
     /* Emit a plain (raw C) `struct` definition -> IRStructDef (mirrors
@@ -843,6 +1003,7 @@ class IRGen {
         Vector<IRNode> ctorBodyStmts = [];
         if (ctor != null && ctor.body_node != null) {
             self.currentReturnCType = "void";
+            self.resetFuncVarDecls();
             Map<string, Node> vt = self.genericMethodVarTypes(inst, ctor, typeMap);
             IRNode blk = self.lowerBlock(ctor.body_node, vt);
             int b = 0;
@@ -904,7 +1065,7 @@ class IRGen {
             freeSelfArgs.push(irVar("self"));
             dbody.push(irExprStmt(irCall(mangled + "_free", freeSelfArgs)));
         } else {
-            self.emitGenericFieldReleases(decl, typeMap, dbody);
+            self.emitGenericFieldReleases(inst, decl, typeMap, dbody);
         }
         Vector<IRNode> freeArgs = [];
         freeArgs.push(irVar("self"));
@@ -935,6 +1096,7 @@ class IRGen {
                 self.currentReturnCType = retC;
                 Vector<IRNode> mbody = [];
                 if (mem.body_node != null) {
+                    self.resetFuncVarDecls();
                     Map<string, Node> vt = self.genericMethodVarTypes(inst, mem, typeMap);
                     IRNode blk = self.lowerBlock(mem.body_node, vt);
                     int b = 0;
@@ -1046,7 +1208,7 @@ class IRGen {
 
         /* var-type map: self -> the receiver instance type, each param -> its
          * resolved type. */
-        Map<string, Node> vt = {};
+        Map<string, Node> vt = self.seededVarTypes();
         Node selfT = Node();
         selfT.kind = NK_TYPE_EXPR;
         selfT.base = inst.classBase;
@@ -1062,6 +1224,7 @@ class IRGen {
 
         Vector<IRNode> mbody = [];
         if (method.body_node != null) {
+            self.resetFuncVarDecls();
             IRNode blk = self.lowerBlock(method.body_node, vt);
             int b = 0;
             while (b < blk.stmts.len) { mbody.push(blk.stmts.get(b)); b = b + 1; }
@@ -1081,7 +1244,7 @@ class IRGen {
      * instance type (carries generic_args + pointer_depth 1), each param -> its
      * resolved type. */
     public Map<string, Node> genericMethodVarTypes(GenInstance inst, Node method, Map<string, Node> typeMap) {
-        Map<string, Node> vt = {};
+        Map<string, Node> vt = self.seededVarTypes();
         Node selfT = Node();
         selfT.kind = NK_TYPE_EXPR;
         selfT.base = inst.base;
@@ -1109,10 +1272,21 @@ class IRGen {
         return null;
     }
 
-    /* Emit ARC field releases for class-typed fields of a generic instance into
-     * the destructor body (resolved field types). Mirrors
-     * _build_generic_destructor_stmts (no-free subset). */
-    public void emitGenericFieldReleases(Node decl, Map<string, Node> typeMap, Vector<IRNode> body) {
+    /* Emit the user __del__ body (if any) followed by ARC field releases for
+     * class-typed fields of a generic instance into the destructor body
+     * (resolved field types). Mirrors _build_generic_destructor_stmts: the
+     * user-defined __del__ runs first, then per-field releases. */
+    public void emitGenericFieldReleases(GenInstance inst, Node decl, Map<string, Node> typeMap, Vector<IRNode> body) {
+        /* User-defined __del__ body runs first (e.g. box_alive-- bookkeeping). */
+        Node? dtor = genericMember(self.analyzed, inst.base, "__del__");
+        if (dtor != null && dtor.body_node != null) {
+            self.currentReturnCType = "void";
+            self.resetFuncVarDecls();
+            Map<string, Node> vt = self.genericMethodVarTypes(inst, dtor, typeMap);
+            IRNode blk = self.lowerBlock(dtor.body_node, vt);
+            int d = 0;
+            while (d < blk.stmts.len) { body.push(blk.stmts.get(d)); d = d + 1; }
+        }
         int i = 0;
         while (i < decl.members.len) {
             Node mem = decl.members.get(i);
@@ -1323,6 +1497,7 @@ class IRGen {
         /* Constructor body (user code). */
         if (ctor != null && ctor.body_node != null) {
             self.currentReturnCType = "void";
+            self.resetFuncVarDecls();
             Map<string, Node> ctorVars = self.ctorVarTypes(decl, ctor);
             IRNode blk = self.lowerBlock(ctor.body_node, ctorVars);
             int k = 0;
@@ -1365,7 +1540,7 @@ class IRGen {
     /* var-type map for lowering a constructor body: `self` -> class type, plus
      * each ctor param -> its declared type. */
     public Map<string, Node> ctorVarTypes(Node decl, Node? ctor) {
-        Map<string, Node> vt = {};
+        Map<string, Node> vt = self.seededVarTypes();
         vt.put("self", classPtrType(makeClassTypeExpr(decl.name)));
         if (ctor != null) {
             int i = 0;
@@ -1390,7 +1565,8 @@ class IRGen {
         Node? dtor = self.analyzed.classMember(name, "__del__");
         if (dtor != null && dtor.kind == NK_METHOD_DECL && dtor.body_node != null) {
             self.currentReturnCType = "void";
-            Map<string, Node> vt = {};
+            self.resetFuncVarDecls();
+            Map<string, Node> vt = self.seededVarTypes();
             vt.put("self", classPtrType(makeClassTypeExpr(name)));
             IRNode blk = self.lowerBlock(dtor.body_node, vt);
             int k = 0;
@@ -1576,7 +1752,7 @@ class IRGen {
         fn.name = name + "_" + method.name;
         string ret = typeToC(method.return_type, self.analyzed);
         fn.return_type = ret;
-        Map<string, Node> vt = {};
+        Map<string, Node> vt = self.seededVarTypes();
         if (!isStatic) {
             fn.params.push(IRParam(name + "*", "self"));
             vt.put("self", classPtrType(makeClassTypeExpr(name)));
@@ -1590,12 +1766,14 @@ class IRGen {
         }
         self.currentReturnCType = ret;
         self.currentReturnTypeNode = method.return_type;
+        self.resetFuncVarDecls();
         if (method.body_node != null) {
             /* Hoist to a local: btrcpy double-evaluates `field = call()`. */
             IRNode mb = self.lowerBlock(method.body_node, vt);
             fn.body = mb;
         } else {
-            fn.body = irBlock([]);
+            Vector<IRNode> empty = [];
+            fn.body = irBlock(empty);
         }
         return fn;
     }
@@ -1613,7 +1791,8 @@ class IRGen {
             Vector<IRNode> gb = [];
             if (prop.getter_body != null) {
                 self.currentReturnCType = propType;
-                Map<string, Node> vt = {};
+                self.resetFuncVarDecls();
+                Map<string, Node> vt = self.seededVarTypes();
                 vt.put("self", classPtrType(makeClassTypeExpr(name)));
                 IRNode blk = self.lowerBlock(prop.getter_body, vt);
                 int k = 0;
@@ -1633,7 +1812,8 @@ class IRGen {
             Vector<IRNode> sb = [];
             if (prop.setter_body != null) {
                 self.currentReturnCType = "void";
-                Map<string, Node> vt = {};
+                self.resetFuncVarDecls();
+                Map<string, Node> vt = self.seededVarTypes();
                 vt.put("self", classPtrType(makeClassTypeExpr(name)));
                 vt.put("value", prop.type);
                 IRNode blk = self.lowerBlock(prop.setter_body, vt);
@@ -1841,6 +2021,14 @@ class IRGen {
                             mp = mp + 1;
                         }
                         self.collectTupleTypesBody(mem.body_node, seen, order, tupleTypes);
+                    } else if (mem.kind == NK_FIELD_DECL) {
+                        /* A class field of tuple type (e.g. `(int,int) pos;`)
+                         * references the tuple struct in the class body, so its
+                         * typedef must be emitted. Python catches this via the
+                         * field-access node_types scan. */
+                        self.collectTupleTypes(mem.type, seen, order, tupleTypes);
+                    } else if (mem.kind == NK_PROPERTY_DECL) {
+                        self.collectTupleTypes(mem.type, seen, order, tupleTypes);
                     }
                     mi = mi + 1;
                 }
@@ -1900,6 +2088,14 @@ class IRGen {
         if (n == null) { return; }
         if (n.kind == NK_VAR_DECL_STMT) {
             self.collectTupleTypes(n.type, seen, order, tupleTypes);
+            /* `var t = (1, 2)` declares t with an inferred tuple type and a null
+             * annotation, so scanning n.type alone misses the tuple. Infer the
+             * type from the initializer (Python catches this via node_types). */
+            if (n.type == null && n.initializer != null) {
+                Map<string, Node> vt = {};
+                Node? it = inferType(n.initializer, self.analyzed, vt);
+                self.collectTupleTypes(it, seen, order, tupleTypes);
+            }
         }
         int si = 0;
         while (si < n.statements.len) {
@@ -1925,6 +2121,22 @@ class IRGen {
         return s;
     }
 
+    /* A fresh varTypes map pre-seeded with module-level (global) variable
+     * types. Mirrors the reference's global scope being visible inside every
+     * function/method body; locals and params added afterward shadow a
+     * same-named global. */
+    public Map<string, Node> seededVarTypes() {
+        Map<string, Node> vt = {};
+        Vector<string> gkeys = self.analyzed.globalVarTypes.keys();
+        int gk = 0;
+        while (gk < gkeys.len) {
+            string gn = gkeys.get(gk);
+            vt.put(gn, self.analyzed.globalVarTypes.get(gn));
+            gk = gk + 1;
+        }
+        return vt;
+    }
+
     public IRFunction lowerFunction(Node d) {
         IRFunction fn = IRFunction();
         fn.name = d.name;
@@ -1938,7 +2150,10 @@ class IRGen {
             fn.params.push(IRParam(typeToC(p.type, self.analyzed), p.name));
             i = i + 1;
         }
-        Map<string, Node> varTypes = {};
+        /* Seed the global scope: module-level vars are visible inside every
+         * function. Params (added next) shadow a same-named global, matching
+         * scope resolution order. */
+        Map<string, Node> varTypes = self.seededVarTypes();
         int j = 0;
         while (j < d.params.len) {
             Node p = d.params.get(j);
@@ -1948,6 +2163,7 @@ class IRGen {
         self.currentReturnCType = ret;
         self.currentReturnTypeNode = d.return_type;
         self.currentClass = "";
+        self.resetFuncVarDecls();
         if (d.body_node != null) {
             /* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
              * (see gotchas), which would lower the body twice and desync the
@@ -2392,7 +2608,18 @@ class IRGen {
                             && init0.callee.kind == NK_IDENTIFIER
                             && self.analyzed.isGenericClass(init0.callee.name)) {
                         string mangled = mangleGenericType(declType.base, declType.generic_args);
-                        init = irCall(mangled + "_new", init.args);
+                        Vector<IRNode> newArgs = init.args;
+                        /* Upcast Derived->Base ctor args against the RESOLVED
+                         * generic param types (the ctor's `E error` param can't
+                         * trigger the upcast in orderArgsForParams). Mirrors
+                         * variables._lower_var_decl's generic-ctor upcast. */
+                        Node? gctor = self.analyzed.genericClassMethod(
+                            init0.callee.name, init0.callee.name);
+                        if (gctor != null) {
+                            self.upcastGenericCtorArgs(
+                                declType, gctor, init0.args, newArgs, varTypes);
+                        }
+                        init = irCall(mangled + "_new", newArgs);
                     }
                 }
                 /* Implicit class->string coercion: `string s = ClassWithToString();`
@@ -2402,9 +2629,23 @@ class IRGen {
                     Node? initType = inferType(node.initializer, self.analyzed, varTypes);
                     init = self.coerceToString(declType, initType, init);
                 }
+                /* Upcast: storing a subclass instance in a base-class variable
+                 * needs an explicit cast — sibling struct pointers are otherwise
+                 * incompatible C (gcc 15 rejects `Error* = KeyError*`). Mirrors
+                 * variables._lower_var_decl's _is_subclass + IRCast branch. */
+                if (init != null && declType != null
+                        && self.analyzed.isClass(declType.base)
+                        && declType.generic_args.len == 0) {
+                    Node? initType2 = inferType(node.initializer, self.analyzed, varTypes);
+                    if (initType2 != null && initType2.base != declType.base
+                            && self.analyzed.isSubclass(initType2.base, declType.base)) {
+                        init = irCast(ct, init);
+                    }
+                }
             }
             if (declType != null) { varTypes.put(node.name, declType); }
             IRNode vdecl = irVarDecl(ct, node.name, init);
+            self.funcVarDecls.push(vdecl);
             out.push(vdecl);
             /* Capturing lambda assigned to a var: allocate the capture-env struct
              * on the stack and fill it; cast the impl (which has an extra void*
@@ -2455,7 +2696,7 @@ class IRGen {
                 }
                 if (owns) {
                     self.registerManagedVar(node.name, declType.base);
-                    self.maybeRegisterCleanup(node.name, declType.base + "_destroy", out);
+                    self.maybeRegisterCleanup(node.name, declType.base + "_destroy", declType.base, out);
                 }
             }
             /* ARC for generic-instance locals (Box<int>, etc.): auto-manage when
@@ -2483,7 +2724,7 @@ class IRGen {
                 if (gowns) {
                     string mangled = mangleGenericType(declType.base, declType.generic_args);
                     self.registerManagedVar(node.name, mangled);
-                    self.maybeRegisterCleanup(node.name, mangled + "_destroy", out);
+                    self.maybeRegisterCleanup(node.name, mangled + "_destroy", mangled, out);
                 }
             }
             return;
@@ -2548,6 +2789,14 @@ class IRGen {
             return;
         }
         if (node.kind == NK_FOR_IN_STMT) {
+            self.lowerForIn(node, varTypes, out);
+            return;
+        }
+        if (node.kind == NK_PARALLEL_FOR_STMT) {
+            /* `parallel for` lowers to a sequential for-in (no GPU/threading
+             * support yet), mirroring statements.lower_stmt's ParallelForStmt
+             * branch which delegates to _lower_for_in. The node carries the same
+             * var_name / iterable / body fields a for-in does. */
             self.lowerForIn(node, varTypes, out);
             return;
         }
@@ -2650,9 +2899,119 @@ class IRGen {
         return self.toStringCall(sourceType, value);
     }
 
+    /* Wrap `value` in an explicit (Base*) cast for a Derived->Base upcast.
+     * Returns `value` unchanged unless the target is a concrete (non-generic)
+     * class and the source's static type is a strict subclass of it. Generic
+     * class targets are skipped: all instances of a generic share one mangled
+     * struct, so no upcast is needed (and the cast text would be wrong). A
+     * subclass and its base compile to SEPARATE C structs, so a Derived* is not
+     * assignment-compatible with a Base* in C; gcc 15 promotes
+     * -Wincompatible-pointer-types to a hard error. Mirrors
+     * upcast.upcast_class_pointer. */
+    public IRNode upcastClassPointer(Node? targetType, Node? sourceType, IRNode value) {
+        if (targetType == null || sourceType == null) { return value; }
+        if (!self.analyzed.isClass(targetType.base)) { return value; }
+        if (targetType.generic_args.len > 0) { return value; }
+        if (sourceType.base == targetType.base) { return value; }
+        if (!self.analyzed.isSubclass(sourceType.base, targetType.base)) { return value; }
+        return irCast(typeToC(targetType, self.analyzed), value);
+    }
+
+    /* Apply both string coercion and Derived->Base upcasting to one call
+     * argument (mirrors arguments._coerce_arg). */
+    public IRNode coerceArg(Node? paramType, Node? srcType, IRNode value) {
+        IRNode v = self.coerceToString(paramType, srcType, value);
+        return self.upcastClassPointer(paramType, srcType, v);
+    }
+
+    /* Upcast Derived->Base generic-constructor args against the RESOLVED generic
+     * param types. A generic class's constructor declares its params using the
+     * unresolved type params (e.g. `E error`), so the upcast in
+     * orderArgsForParams / coerceArg can't fire (`E` isn't a class). Here the
+     * `instanceType` (e.g. Result<int, Error>) gives the {T->int, E->Error} map,
+     * so the 3rd param resolves to `Error` and a `ValueError*` arg gets the
+     * `(Error*)` cast it needs (gcc 15 rejects the bare sibling-pointer pass).
+     * `args` is positionally aligned to the constructor params (post
+     * orderArgsForParams); upcast only those slots that have a written AST arg.
+     * Mirrors variables._lower_var_decl's generic-ctor upcast branch. */
+    public void upcastGenericCtorArgs(Node instanceType, Node ctor,
+            Vector<Node> astArgs, Vector<IRNode> args,
+            Map<string, Node> varTypes) {
+        if (ctor.params.len == 0) { return; }
+        /* Only safe to align positionally when args weren't reordered by name. */
+        if (args.len != astArgs.len) { return; }
+        Map<string, Node> typeMap = genericTypeMap(self.analyzed, instanceType);
+        int i = 0;
+        while (i < args.len && i < ctor.params.len && i < astArgs.len) {
+            Node resolved = resolveGenericType(ctor.params.get(i).type, typeMap);
+            Node? src = inferType(astArgs.get(i), self.analyzed, varTypes);
+            args.set(i, self.upcastClassPointer(resolved, src, args.get(i)));
+            i = i + 1;
+        }
+    }
+
+    /* When a `return` is lexically inside one or more open try blocks, emit the
+     * try-level cleanup DISCARD + try-stack pop that the try's normal-exit tail
+     * would otherwise run — but which a `return` jumps over, leaving them as dead
+     * code after the `return`. Without this, the returned object's cleanup entry
+     * stays registered (pointing at memory the caller will later own/free) and the
+     * try level stays on the stack; a subsequent __btrc_throw then runs that stale
+     * cleanup -> use-after-free. We DISCARD (not release) the cleanups: the
+     * returned object escapes and must stay alive, and the non-returned managed
+     * locals were already released by emitReturnRelease just before this.
+     *
+     * The function's open try levels occupy [base+1 .. __btrc_try_top] where
+     * base = __btrc_try_top - inTryDepth; so discard every cleanup at
+     * try_level >= base+1 (= __btrc_try_top - (inTryDepth - 1)) and pop inTryDepth
+     * levels. Mirrors arc._emit_return_try_pop. */
+    public void emitReturnTryPop(Vector<IRNode> out) {
+        if (self.inTryDepth <= 0) { return; }
+        /* Only discard cleanups if any were registered (mirrors the gate the
+         * try's normal-exit tail uses); a try with no managed locals registers
+         * none. */
+        if (self.usedHelpers.has("__btrc_register_cleanup")) {
+            self.useHelper("__btrc_discard_cleanups");
+            int depth = self.inTryDepth;
+            string levelText = "__btrc_try_top";
+            if (depth != 1) {
+                levelText = "__btrc_try_top - " + Strings.fromInt(depth - 1);
+            }
+            Vector<IRNode> dargs = [];
+            dargs.push(irRawExpr(levelText));
+            out.push(irExprStmt(irCall("__btrc_discard_cleanups", dargs)));
+        }
+        /* Pop this function's open try levels off the try stack. */
+        if (self.inTryDepth == 1) {
+            out.push(irRawC("__btrc_try_top--;"));
+        } else {
+            out.push(irRawC("__btrc_try_top -= " + Strings.fromInt(self.inTryDepth) + ";"));
+        }
+    }
+
+    /* Launder a class-pointer return value through __btrc_launder when the
+     * `return` is lowered inside a try/catch construct. gcc -O2 (notably nix's
+     * fortify hardening, which forces -O2) miscompiles the setjmp(...)==0 vs catch
+     * branches of a try/catch: for a freshly-built object that doesn't otherwise
+     * escape, its points-to / store-merging folds the two branches' field inits
+     * together and drops the catch object's initialization, so the returned
+     * object reads back the wrong field values. Routing the returned pointer
+     * through a volatile slot makes it escape, defeating that fold. Identity at
+     * runtime; only applied to managed class-pointer returns inside a try/catch.
+     * Mirrors arc._maybe_launder_return. */
+    public IRNode maybeLaunderReturn(IRNode value) {
+        if (self.inTrycatchDepth <= 0) { return value; }
+        if (self.currentReturnTypeNode == null) { return value; }
+        if (!self.analyzed.isClass(self.currentReturnTypeNode.base)) { return value; }
+        self.useHelper("__btrc_launder");
+        Vector<IRNode> largs = [];
+        largs.push(value);
+        return irCast(self.currentReturnCType, irCall("__btrc_launder", largs));
+    }
+
     public void lowerReturn(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
         if (node.value_node == null) {
             self.emitReturnRelease("", out);
+            self.emitReturnTryPop(out);
             out.push(irReturn(null));
             return;
         }
@@ -2662,9 +3021,29 @@ class IRGen {
              * release rather than decref'ing it. */
             IRNode v = self.lowerExpr(val, varTypes);
             Node? vt = inferType(val, self.analyzed, varTypes);
-            v = self.coerceToString(self.currentReturnTypeNode, vt, v);
+            IRNode coerced = self.coerceToString(self.currentReturnTypeNode, vt, v);
+            if (coerced != v) {
+                /* String-coercion produced a NEW value (toString call) that can't
+                 * alias the released var: stash in a temp, release, then return
+                 * the temp. Mirrors the coerced-identifier branch in
+                 * statements.py's ReturnStmt lowering. */
+                Vector<IRNode> releases = [];
+                self.emitReturnRelease("", releases);
+                if (releases.len == 0 && self.inTryDepth <= 0) {
+                    out.push(irReturn(self.maybeLaunderReturn(coerced)));
+                    return;
+                }
+                string tmp = self.freshTemp("__btrc_ret");
+                out.push(irVarDecl(self.currentReturnCType, tmp, coerced));
+                int ri = 0;
+                while (ri < releases.len) { out.push(releases.get(ri)); ri = ri + 1; }
+                self.emitReturnTryPop(out);
+                out.push(irReturn(self.maybeLaunderReturn(irVar(tmp))));
+                return;
+            }
             self.emitReturnRelease(val.name, out);
-            out.push(irReturn(v));
+            self.emitReturnTryPop(out);
+            out.push(irReturn(self.maybeLaunderReturn(v)));
             return;
         }
         /* Returning a non-trivial expression. */
@@ -2673,17 +3052,20 @@ class IRGen {
         v = self.coerceToString(self.currentReturnTypeNode, rvt, v);
         Vector<IRNode> releases = [];
         self.emitReturnRelease("", releases);
-        if (releases.len == 0) {
-            out.push(irReturn(v));
+        if (releases.len == 0 && self.inTryDepth <= 0) {
+            out.push(irReturn(self.maybeLaunderReturn(v)));
             return;
         }
-        /* Stash in a temp, release, then return the temp (so the release can't
-         * free objects the return expression still references). */
+        /* Stash in a temp, release, then pop the try level(s), then return the
+         * temp (so the release can't free objects the return expression still
+         * references, and the try-stack pop / cleanup-discard isn't left dead
+         * after the return). */
         string tmp = self.freshTemp("__btrc_ret");
         out.push(irVarDecl(self.currentReturnCType, tmp, v));
         int i = 0;
         while (i < releases.len) { out.push(releases.get(i)); i = i + 1; }
-        out.push(irReturn(irVar(tmp)));
+        self.emitReturnTryPop(out);
+        out.push(irReturn(self.maybeLaunderReturn(irVar(tmp))));
     }
 
     /* Lower delete expr -> X_destroy(obj) (or free for non-class), then obj=NULL
@@ -2757,10 +3139,32 @@ class IRGen {
     /* Lower try/catch to setjmp/longjmp boilerplate (mirrors
      * control_flow._lower_try_catch, common catch-present subset). */
     public void lowerTryCatch(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
+        /* Mark that everything lowered for this construct (try body, catch,
+         * finally) lives inside a try/catch, so class-pointer returns get
+         * laundered against the gcc -O2 setjmp cross-branch miscompile (see
+         * maybeLaunderReturn). Mirrors control_flow._lower_try_catch's
+         * in_trycatch_depth bracket. */
+        self.inTrycatchDepth = self.inTrycatchDepth + 1;
+        self.lowerTryCatchInner(node, varTypes, out);
+        self.inTrycatchDepth = self.inTrycatchDepth - 1;
+    }
+
+    public void lowerTryCatchInner(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
         self.useHelper("__btrc_trycatch_globals");
         self.useHelper("__btrc_throw");
         /* try/catch needs <setjmp.h> (already added at module level when any
          * declaration uses try/catch). */
+
+        /* setjmp/longjmp volatile rule: any local declared before this try/catch
+         * (at any scope in the current function) has an indeterminate value after
+         * a longjmp unless declared volatile (C11 7.13.2.1) — gcc 15 manifests the
+         * bug. Mark every function-level var decl volatile (mirrors
+         * control_flow._lower_try_catch's `for vd in gen._func_var_decls`). */
+        int vi = 0;
+        while (vi < self.funcVarDecls.len) {
+            self.funcVarDecls.get(vi).is_volatile = true;
+            vi = vi + 1;
+        }
 
         /* A try with a `finally` but NO `catch` must run the finally and then
          * RE-THROW any pending exception to the enclosing handler (mirrors
@@ -2806,7 +3210,8 @@ class IRGen {
         }
 
         /* catch block. */
-        IRNode catchBody = irBlock([]);
+        Vector<IRNode> catchStmts = [];
+        IRNode catchBody = irBlock(catchStmts);
         if (finallyOnly) {
             /* No user catch: capture the in-flight exception so the finally can
              * run, then re-throw it after. */
@@ -2896,7 +3301,8 @@ class IRGen {
             stmts.push(self.lowerIf(node.if_stmt, varTypes));
             return irBlock(stmts);
         }
-        return irBlock([]);
+        Vector<IRNode> empty = [];
+        return irBlock(empty);
     }
 
     public IRNode lowerCFor(Node node, Map<string, Node> varTypes) {
@@ -3270,6 +3676,15 @@ class IRGen {
                 IRNode tracked = irCall("__btrc_str_track", trackArgs);
                 return irBinOp(target, "=", tracked);
             }
+            /* Upcast: storing a subclass instance into a base-class field/var
+             * needs an explicit cast — sibling struct pointers are otherwise
+             * incompatible C (gcc 15 rejects `Animal* = Dog*`). Mirrors
+             * fields._lower_assign's upcast_class_pointer (the `=` branch). */
+            if (node.op == "=") {
+                Node? tType = inferType(node.target, self.analyzed, varTypes);
+                Node? vType = inferType(node.value_node, self.analyzed, varTypes);
+                value = self.upcastClassPointer(tType, vType, value);
+            }
             return irBinOp(target, node.op, value);
         }
         if (node.kind == NK_SIZEOF_EXPR) {
@@ -3302,7 +3717,11 @@ class IRGen {
      * that are enclosing locals/params (present in varTypes) and are NOT lambda
      * params, sorted lexicographically. Mirrors analyzer._analyze_lambda's
      * capture computation (btrcc does it on-demand at lowering, having no
-     * persistent scope). */
+     * persistent scope). Module-level globals are visible directly inside the
+     * lifted lambda (file scope), so they are NEVER captured even though they
+     * appear in varTypes (the global scope is seeded into every function's
+     * varTypes); mirrors the reference, where captures come from enclosing
+     * function scope, not the module scope. */
     public Vector<string> lambdaCaptureNames(Node node, Map<string, Node> varTypes) {
         Map<string, bool> paramNames = {};
         int pi = 0;
@@ -3317,7 +3736,10 @@ class IRGen {
         int uk = 0;
         while (uk < usedKeys.len) {
             string nm = usedKeys.get(uk);
-            if (!paramNames.has(nm) && varTypes.has(nm)) { capNames.push(nm); }
+            if (!paramNames.has(nm) && varTypes.has(nm)
+                    && !self.analyzed.globalVarTypes.has(nm)) {
+                capNames.push(nm);
+            }
             uk = uk + 1;
         }
         /* Sort capture names lexicographically (insertion sort via strcmp). */
@@ -3407,12 +3829,7 @@ class IRGen {
         }
 
         /* Save/restore managed-scope + return context around the body. */
-        Vector<Managed> savedManaged = self.managedStack;
-        Vector<int> savedStarts = self.scopeStarts;
-        string savedRetC = self.currentReturnCType;
-        self.managedStack = [];
-        self.scopeStarts = [];
-        self.currentReturnCType = retC;
+        ScopeSnapshot snap = self.enterIsolatedScope(retC);
 
         /* varTypes for the lambda body: the captured vars + the lambda params
          * (captures are unpacked as locals; params are bound). Start from the
@@ -3442,9 +3859,7 @@ class IRGen {
             body.push(irReturn(rexpr));
         }
 
-        self.managedStack = savedManaged;
-        self.scopeStarts = savedStarts;
-        self.currentReturnCType = savedRetC;
+        self.exitIsolatedScope(snap);
 
         fn.body = irBlock(body);
         self.curModule.functions.push(fn);
@@ -3547,12 +3962,7 @@ class IRGen {
         Vector<IRNode> cleanup = self.spawnCaptureCleanup(fn, capNames, varTypes);
 
         /* Lower the lambda body in an isolated ARC/return context. */
-        Vector<Managed> savedManaged = self.managedStack;
-        Vector<int> savedStarts = self.scopeStarts;
-        string savedRetC = self.currentReturnCType;
-        self.managedStack = [];
-        self.scopeStarts = [];
-        self.currentReturnCType = retC;
+        ScopeSnapshot snap = self.enterIsolatedScope(retC);
 
         Map<string, Node> bodyVars = {};
         Vector<string> evk = varTypes.keys();
@@ -3608,9 +4018,7 @@ class IRGen {
             }
         }
 
-        self.managedStack = savedManaged;
-        self.scopeStarts = savedStarts;
-        self.currentReturnCType = savedRetC;
+        self.exitIsolatedScope(snap);
 
         /* Ensure the wrapper always returns void* (cleanup first when present). */
         if (wbody.len == 0 || wbody.get(wbody.len - 1).kind != IRK_RETURN) {
@@ -3875,10 +4283,35 @@ class IRGen {
             if (magic != "") {
                 Node? mm = self.analyzed.classMember(lt.base, magic);
                 if (mm != null && mm.kind == NK_METHOD_DECL) {
+                    /* Upcast the RHS operand to the operator method's declared
+                     * parameter type (e.g. an inherited __add__(Base) used
+                     * through a Sub: the Sub* operand must be cast to Base*).
+                     * Mirrors operators._lower_binary's upcast_class_pointer. */
+                    if (mm.params.len > 0) {
+                        right = self.upcastClassPointer(mm.params.get(0).type, rt, right);
+                    }
                     Vector<IRNode> oargs = [];
                     oargs.push(left);
                     oargs.push(right);
                     return irCall(lt.base + "_" + magic, oargs);
+                }
+            }
+        }
+        /* Operator overloading on a monomorphized generic-class INSTANCE
+         * (e.g. Box<int>): a OP b -> <mangled>_magic(a, b) when the generic
+         * class defines the magic method. Mirrors operators._lower_binary's
+         * generic_args branch. Reached only outside generic-method bodies
+         * (inGenericMethod returns raw above). */
+        if (lt != null && lt.generic_args.len > 0 && self.analyzed.isGenericClass(lt.base)) {
+            string gmagic = binaryOpMagic(op);
+            if (gmagic != "") {
+                Node? gmm = self.analyzed.genericClassMethod(lt.base, gmagic);
+                if (gmm != null) {
+                    string gmangled = mangleGenericType(lt.base, lt.generic_args);
+                    Vector<IRNode> gargs = [];
+                    gargs.push(left);
+                    gargs.push(right);
+                    return irCall(gmangled + "_" + gmagic, gargs);
                 }
             }
         }
@@ -3894,12 +4327,24 @@ class IRGen {
          * a __neg__ method. */
         if (op == "-" && node.prefix) {
             Node? ot = inferType(node.operand, self.analyzed, varTypes);
-            if (ot != null && self.analyzed.isClass(ot.base)) {
+            if (!self.inGenericMethod && ot != null && self.analyzed.isClass(ot.base)) {
                 Node? mm = self.analyzed.classMember(ot.base, "__neg__");
                 if (mm != null && mm.kind == NK_METHOD_DECL) {
                     Vector<IRNode> nargs = [];
                     nargs.push(operand);
                     return irCall(ot.base + "___neg__", nargs);
+                }
+            }
+            /* Monomorphized generic-instance __neg__: -box -> <mangled>___neg__(box).
+             * Mirrors operators._lower_unary's generic_args branch. */
+            if (!self.inGenericMethod && ot != null && ot.generic_args.len > 0
+                    && self.analyzed.isGenericClass(ot.base)) {
+                Node? gmm = self.analyzed.genericClassMethod(ot.base, "__neg__");
+                if (gmm != null) {
+                    string gmangled = mangleGenericType(ot.base, ot.generic_args);
+                    Vector<IRNode> gnargs = [];
+                    gnargs.push(operand);
+                    return irCall(gmangled + "___neg__", gnargs);
                 }
             }
         }
@@ -4112,7 +4557,7 @@ class IRGen {
                 IRNode av = irArgs.get(k);
                 if (k < params.len && k < astArgs.len) {
                     Node? st = inferType(astArgs.get(k), self.analyzed, varTypes);
-                    av = self.coerceToString(params.get(k).type, st, av);
+                    av = self.coerceArg(params.get(k).type, st, av);
                 }
                 result.push(av);
                 k = k + 1;
@@ -4123,7 +4568,7 @@ class IRGen {
                 if (pp.default_ != null) {
                     IRNode dv = self.lowerExpr(pp.default_, varTypes);
                     Node? dt = inferType(pp.default_, self.analyzed, varTypes);
-                    result.push(self.coerceToString(pp.type, dt, dv));
+                    result.push(self.coerceArg(pp.type, dt, dv));
                 } else {
                     result.push(irLiteral("0"));
                 }
@@ -4169,14 +4614,14 @@ class IRGen {
                 IRNode av = irArgs.get(src);
                 if (src < astArgs.len) {
                     Node? st = inferType(astArgs.get(src), self.analyzed, varTypes);
-                    av = self.coerceToString(pp.type, st, av);
+                    av = self.coerceArg(pp.type, st, av);
                 }
                 out.push(av);
             } else {
                 if (pp.default_ != null) {
                     IRNode dv = self.lowerExpr(pp.default_, varTypes);
                     Node? dt = inferType(pp.default_, self.analyzed, varTypes);
-                    out.push(self.coerceToString(pp.type, dt, dv));
+                    out.push(self.coerceArg(pp.type, dt, dv));
                 } else {
                     out.push(irLiteral("0"));
                 }
@@ -4204,6 +4649,20 @@ class IRGen {
             if (name == "Mutex" && !self.analyzed.funcNames.has(name)
                     && !self.analyzed.isClass(name)) {
                 return self.lowerMutexConstructor(node, args, varTypes);
+            }
+            /* Self-referential generic constructor inside a monomorphized body:
+             * Box(...) within Box<int>'s methods -> btrc_Box_int_new(args).
+             * self.currentClass is the current instance's mangled name. Mirrors
+             * user_emitter._call's `cls.generic_params -> {self.mangled}_new`. */
+            if (self.inGenericMethod && self.analyzed.isGenericClass(name)) {
+                Vector<IRNode> gcargs = self.lowerArgs(node, varTypes);
+                Node gdecl = self.analyzed.genericClassTable.get(name);
+                Node? gctor = self.genericConstructor(gdecl);
+                if (gctor != null && gctor.params.len > 0) {
+                    gcargs = self.orderArgsForParams(
+                        gctor.params, node.arg_names, gcargs, node.args, varTypes);
+                }
+                return irCall(self.currentClass + "_new", gcargs);
             }
             /* Constructor call X(...) -> X_new(args) (mirrors variables: a
              * non-generic class name as callee is a constructor). Fill omitted
@@ -4265,9 +4724,14 @@ class IRGen {
         if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR) {
             return self.lowerMethodCall(node, varTypes);
         }
-        print("irgen: unsupported call callee");
-        abortGen();
-        return irLiteral("0");
+        /* Generic/complex callee (mirrors calls._lower_call's final fallback):
+         * lower the args, then lower the callee expression to text and emit a
+         * plain call. For an IIFE the callee is a lambda literal — lowerLambda
+         * lifts it to a static function and returns its name as an IRRawExpr,
+         * so the callee text is just that function name. */
+        Vector<IRNode> gargs = self.lowerArgs(node, varTypes);
+        IRNode calleeExpr = self.lowerExpr(callee, varTypes);
+        return irCall(irExprText(calleeExpr), gargs);
     }
 
     /* Lower obj.method(args) (mirrors methods.lower_method_call, class subset).
@@ -4377,6 +4841,27 @@ class IRGen {
             if (gm != null && gm.params.len > 0) {
                 gmargs = self.orderArgsForParams(
                     gm.params, node.arg_names, gmargs, node.args, varTypes);
+                /* Upcast Derived->Base args for a generic-class method. The
+                 * method's declared param types reference the class type params
+                 * (e.g. push(T val)); resolve each through the receiver's generic
+                 * args, then apply a Derived->Base upcast keyed on the resolved
+                 * type (e.g. Vector<Animal>.push(Dog*) must cast Dog* to
+                 * Animal*). Positional-aligned calls only. Mirrors
+                 * methods._upcast_generic_method_args. */
+                if (node.args.len == gmargs.len) {
+                    Map<string, Node> gtm = genericTypeMap(self.analyzed, ot);
+                    int ua = 0;
+                    while (ua < node.args.len && ua < gm.params.len) {
+                        Node gpt = gm.params.get(ua).type;
+                        if (gpt != null && gtm.has(gpt.base)
+                                && gpt.generic_args.len == 0) {
+                            Node resolved = resolveGenericType(gpt, gtm);
+                            Node? gst = inferType(node.args.get(ua), self.analyzed, varTypes);
+                            gmargs.set(ua, self.upcastClassPointer(resolved, gst, gmargs.get(ua)));
+                        }
+                        ua = ua + 1;
+                    }
+                }
             }
             Vector<IRNode> args = [];
             args.push(obj);
@@ -4518,6 +5003,13 @@ class IRGen {
         if (ctor != null && ctor.params.len > 0) {
             args = self.orderArgsForParams(
                 ctor.params, node.arg_names, args, node.args, varTypes);
+        }
+        /* new C<...>(args): upcast Derived->Base ctor args against the resolved
+         * generic param types (the ctor's `E error` param can't trigger the
+         * upcast otherwise — see upcastGenericCtorArgs). */
+        if (ctor != null && newType.generic_args.len > 0
+                && self.analyzed.isGenericClass(newType.base)) {
+            self.upcastGenericCtorArgs(newType, ctor, node.args, args, varTypes);
         }
         return irCall(typeName + "_new", args);
     }

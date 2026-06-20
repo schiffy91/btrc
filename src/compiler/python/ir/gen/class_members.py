@@ -236,7 +236,31 @@ def lower_new_expr(gen: IRGenerator, node: NewExpr):
     args = lower_arg_values(gen, node.args)
     cls_info = gen.analyzed.class_table.get(node.type.base)
     if cls_info and cls_info.constructor:
+        # For a generic class the constructor's declared param types reference the
+        # class type parameters (e.g. ``Result(bool ok, T value, E error)``).
+        # Resolve them to the instance's concrete generic arguments so a
+        # Derived→Base arg (e.g. a ValueError* into an Error* slot) gets its
+        # explicit ``(Error*)`` upcast — the unresolved ``E`` is not a class, so
+        # order_args_for_params' coercion would otherwise never fire (gcc 15
+        # then rejects the incompatible pointer).
+        params = _resolved_ctor_params(cls_info, node.type)
         args = order_args_for_params(
-            gen, cls_info.constructor.params, node.args,
+            gen, params, node.args,
             arg_names_for(node, len(node.args)), args)
     return IRCall(callee=f"{type_name}_new", args=args)
+
+
+def _resolved_ctor_params(cls_info, type_expr):
+    """Return the constructor's params with their generic type parameters
+    substituted by ``type_expr``'s concrete generic arguments. For a non-generic
+    class (or an unparameterized instantiation) the original params are returned
+    unchanged.
+    """
+    params = cls_info.constructor.params
+    if not (type_expr.generic_args and cls_info.generic_params):
+        return params
+    from dataclasses import replace
+
+    from .generics.core import _resolve_type
+    type_map = dict(zip(cls_info.generic_params, type_expr.generic_args))
+    return [replace(p, type=_resolve_type(p.type, type_map)) for p in params]

@@ -18,10 +18,26 @@ import pytest
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 ADAPTER = os.path.join(os.path.dirname(os.path.dirname(__file__)), "btrc_dap.py")
 
+def _lldb_scripting_available() -> bool:
+    """lldb's binary can exist while its Python scripting bridge is unavailable
+    (e.g. an lldb built against a different Python than the one on PATH). The
+    adapter loads lldb via `lldb -P`; when that fails the session can't even
+    initialize, so skip rather than fail — matching this module's "skips
+    gracefully where the toolchain is unavailable" contract."""
+    lldb = shutil.which("lldb")
+    if lldb is None:
+        return False
+    try:
+        return subprocess.run(
+            [lldb, "-P"], capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
 pytestmark = pytest.mark.skipif(
-    shutil.which("lldb") is None
+    not _lldb_scripting_available()
     or (shutil.which("cc") is None and shutil.which("gcc") is None),
-    reason="needs lldb and a C compiler",
+    reason="needs lldb (with Python scripting) and a C compiler",
 )
 
 PROGRAM = """\

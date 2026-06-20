@@ -1,0 +1,12 @@
+// Import helper that lives in a SIBLING directory of the test, reached via a
+// parent-directory relative import (`import ../parenthelper/up.btrc`). Not
+// `test_`-prefixed, so the corpus runner does not collect it as a test.
+class ParentHelper {
+    class int value() {
+        return 42;
+    }
+
+    class string label() {
+        return "from-parent-dir";
+    }
+}

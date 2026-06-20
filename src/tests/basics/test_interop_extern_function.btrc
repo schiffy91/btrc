@@ -1,0 +1,12 @@
+#include <assert.h>
+
+// Forward-declare a C library function via `extern`, then call it.
+extern int abs(int n);
+
+int main() {
+    assert(abs(-7) == 7);
+    assert(abs(3) == 3);
+    assert(abs(0) == 0);
+    print("PASS: test_interop_extern_function");
+    return 0;
+}

@@ -1,0 +1,32 @@
+#include <assert.h>
+// Mutex<T> over non-int payloads: a class instance (pointer payload, no intptr
+// boxing) and a bool. test_mutex only ever wraps int.
+class Box {
+    public int v;
+    public Box(int x) { self.v = x; }
+}
+
+int main() {
+    // Class-instance payload: round-trips through a pointer cast
+    Box b = new Box(7);
+    Mutex<Box> mb = Mutex(b);
+    Box got = mb.get();
+    assert(got.v == 7);
+
+    Box b2 = new Box(99);
+    mb.set(b2);
+    assert(mb.get().v == 99);
+    mb.destroy();
+    delete b;
+    delete b2;
+
+    // bool payload
+    Mutex<bool> mf = Mutex(true);
+    assert(mf.get() == true);
+    mf.set(false);
+    assert(mf.get() == false);
+    mf.destroy();
+
+    print("PASS: test_mutex_class_and_bool");
+    return 0;
+}

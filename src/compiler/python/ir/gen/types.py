@@ -55,8 +55,15 @@ def type_to_c(t: TypeExpr | None) -> str:
         # User-defined class/struct → pointer by convention
         c = base
 
-    # Apply pointer depth
-    c += "*" * t.pointer_depth
+    # Apply pointer depth. A nullable `?` contributes one pointer level so value
+    # types can be boxed (int? → int*), but `string` is already a pointer
+    # (char*), so a nullable string must collapse back to char* rather than
+    # double-pointering to char** (which older compilers only warned about, but
+    # gcc 15 rejects as an incompatible-pointer error).
+    depth = t.pointer_depth
+    if t.is_nullable and c.endswith("*"):
+        depth -= 1
+    c += "*" * depth
 
     # Array types
     if t.is_array:
@@ -88,6 +95,16 @@ def get_fn_ptr_typedefs() -> list[str]:
     result = list(_fn_ptr_typedefs.values())
     _fn_ptr_typedefs.clear()
     return result
+
+
+def reset_fn_ptr_typedefs() -> None:
+    """Clear the module-level fn-ptr typedef accumulator.
+
+    This is module-global state, so it must be reset at the start of every
+    compile or typedefs leak between compiles that share a process (the LSP
+    and the test runner both compile many files per process; a one-shot CLI
+    invocation never noticed because each run got a fresh interpreter)."""
+    _fn_ptr_typedefs.clear()
 
 
 def mangle_generic_type(base: str, args: list[TypeExpr]) -> str:

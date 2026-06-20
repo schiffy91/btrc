@@ -1,0 +1,36 @@
+// Division and modulo with a NON-constant (runtime) divisor route through
+// the safe int div/mod helpers. Exercises that path for positive and
+// negative runtime divisors with C truncation/sign semantics intact.
+#include <assert.h>
+
+int main() {
+    // Runtime divisor in a loop so the value is not a compile-time constant.
+    for (int d = 1; d <= 4; d++) {
+        int q = 12 / d;
+        int r = 12 % d;
+        assert(q * d + r == 12);
+    }
+
+    // Negative runtime divisor.
+    int neg = -2;
+    assert(7 / neg == -3);
+    assert(7 % neg == 1);
+
+    // Negative runtime dividend.
+    int n = -7;
+    int two = 2;
+    assert(n / two == -3);
+    assert(n % two == -1);
+
+    // Divisor read from a collection element (clearly runtime).
+    Vector<int> divisors = [3, 5, 7];
+    int total = 0;
+    for (int i = 0; i < divisors.size(); i++) {
+        total += 105 / divisors[i];
+    }
+    assert(total == 35 + 21 + 15);
+    divisors.free();
+
+    print("PASS: test_div_mod_runtime_divisor");
+    return 0;
+}

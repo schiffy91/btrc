@@ -212,6 +212,15 @@ class StatementsMixin:
                     self._error(
                         f"Cannot assign '{init_type.base}' to variable '{stmt.name}' "
                         f"of type '{stmt.type.base}'", stmt.line, stmt.col)
+            # A typed collection var with a list/map literal initializer: stamp
+            # the literal with the DECLARED type so monomorphization builds the
+            # right element type. Without this, `Vector<Color> v = [RED, BLUE]`
+            # infers Vector<int> from the int-backed enum members and emits a
+            # Vector<int> assigned to a Vector<Color>* (incompatible under gcc 15).
+            if (stmt.type and stmt.type.generic_args
+                    and isinstance(stmt.initializer, (ListLiteral, MapLiteral))):
+                self.node_types[id(stmt.initializer)] = stmt.type
+                self._collect_generic_instances(stmt.type)
         self.scope.define(stmt.name, self._var_symbol(stmt))
 
     def _analyze_for_in(self, stmt):

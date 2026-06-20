@@ -1,0 +1,34 @@
+// Bare-name predicate aliases .isDigit() and .isAlpha() on a STRING receiver.
+// Only the *Str spellings (isDigitStr/isAlphaStr) are asserted on a string in
+// test_string_instance.btrc; the bare names alias to the same
+// __btrc_isDigitStr/__btrc_isAlphaStr helpers but were never exercised here.
+#include <assert.h>
+
+int main() {
+    // isDigit on string literals.
+    assert("123".isDigit() == true);
+    assert("12a".isDigit() == false);
+
+    // isAlpha on string literals.
+    assert("abc".isAlpha() == true);
+    assert("ab1".isAlpha() == false);
+
+    // Empty string is false for both predicates.
+    assert("".isDigit() == false);
+    assert("".isAlpha() == false);
+
+    // On string variables too.
+    string digits = "98765";
+    string letters = "XyZ";
+    assert(digits.isDigit() == true);
+    assert(letters.isAlpha() == true);
+    assert(digits.isAlpha() == false);
+    assert(letters.isDigit() == false);
+
+    // Bare alias matches its *Str spelling exactly.
+    assert(digits.isDigit() == digits.isDigitStr());
+    assert(letters.isAlpha() == letters.isAlphaStr());
+
+    print("PASS: test_string_isdigit_isalpha_aliases");
+    return 0;
+}

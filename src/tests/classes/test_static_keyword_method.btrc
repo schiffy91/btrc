@@ -1,0 +1,19 @@
+// The `static` keyword as the static-member modifier (the grammar maps both
+// `static` and `class` to the same access level, but the corpus only used the
+// `class` spelling). This locks the `static` spelling for static methods.
+#include <assert.h>
+
+class M {
+    static int twice(int x) { return x * 2; }
+    static int add(int a, int b) { return a + b; }
+}
+
+int main() {
+    assert(M.twice(21) == 42);
+    assert(M.add(3, 7) == 10);
+    // chained static calls
+    assert(M.twice(M.add(4, 6)) == 20);
+
+    print("PASS: test_static_keyword_method");
+    return 0;
+}

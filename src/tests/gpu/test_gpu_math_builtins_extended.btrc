@@ -1,0 +1,20 @@
+#include <assert.h>
+// Exercises the 8 WGSL math builtins that no kernel body used before:
+// floor, ceil, sin, cos, tan, exp, log, pow. The kernel is never dispatched;
+// the WGSL string is just an emitted constant verified to transpile + build.
+@gpu
+float[] mathBuiltins(float[] a) {
+    int i = gpu_id();
+    float v = sqrt(a[i]);
+    v = floor(v);
+    v = ceil(v);
+    v = sin(v) + cos(v) + tan(v);
+    v = exp(v) - log(v + 1.0);
+    return pow(v, 2.0);
+}
+
+int main() {
+    assert(1 + 1 == 2);
+    print("PASS: test_gpu_math_builtins_extended");
+    return 0;
+}

@@ -1,0 +1,35 @@
+/* Vector.copy() must produce an INDEPENDENT shallow copy, not an alias of
+ * the backing data pointer. Mutating the copy must not touch the original. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Vector<int> a = [1, 2, 3];
+    Vector<int> b = a.copy();
+
+    /* copy starts equal */
+    assert(b.size() == 3);
+    assert(b.get(0) == 1);
+    assert(b.get(1) == 2);
+    assert(b.get(2) == 3);
+
+    /* mutate the copy: push and overwrite an element */
+    b.push(4);
+    b.set(0, 99);
+
+    /* the original must be untouched */
+    assert(a.size() == 3);
+    assert(a.get(0) == 1);
+    assert(a.get(1) == 2);
+    assert(a.get(2) == 3);
+
+    /* the copy reflects its own mutations */
+    assert(b.size() == 4);
+    assert(b.get(0) == 99);
+    assert(b.get(3) == 4);
+
+    a.free();
+    b.free();
+    printf("PASS: test_vector_copy_independent\n");
+    return 0;
+}

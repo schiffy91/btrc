@@ -1,0 +1,24 @@
+#include <assert.h>
+
+int main() {
+    // Float scientific / exponent notation
+    double a = 1e3;
+    assert(a > 999.9 && a < 1000.1);
+
+    double b = 2.5e-2;
+    assert(b > 0.024 && b < 0.026);
+
+    float c = 3E2f;
+    assert(c > 299.0f && c < 301.0f);
+
+    // exponent with explicit plus sign
+    double d = 1.5e+2;
+    assert(d > 149.0 && d < 151.0);
+
+    // integer mantissa with exponent
+    double e = 4e0;
+    assert(e > 3.9 && e < 4.1);
+
+    print("PASS: test_float_exponent");
+    return 0;
+}

@@ -1,0 +1,33 @@
+/* Bytes.fromRaw(char*, int) class factory and the idempotency of free():
+ * fromRaw copies an explicit byte count, and free() nulls the buffer so a second
+ * free() (or __del__ after an explicit free) is a no-op. */
+#include <assert.h>
+
+int main() {
+    // fromRaw copies exactly n bytes from a C buffer.
+    Bytes b = Bytes.fromRaw("abc", 3);
+    assert(b.length() == 3);
+    assert(b.get(0) == 97);   // 'a'
+    assert(b.get(1) == 98);   // 'b'
+    assert(b.get(2) == 99);   // 'c'
+
+    // fromRaw with a shorter count copies only that many bytes.
+    Bytes pre = Bytes.fromRaw("abcdef", 2);
+    assert(pre.length() == 2);
+    assert(pre.get(0) == 97);
+    assert(pre.get(1) == 98);
+
+    // fromRaw can carry an embedded NUL (binary-safe).
+    Bytes nul = Bytes.fromRaw("a\0c", 3);
+    assert(nul.length() == 3);
+    assert(nul.get(1) == 0);
+
+    // free() releases and zeroes; a second free() is a no-op.
+    b.free();
+    assert(b.length() == 0);
+    b.free();                 // idempotent
+    assert(b.length() == 0);
+
+    print("PASS: test_stdlib_bytes_fromraw_free");
+    return 0;
+}

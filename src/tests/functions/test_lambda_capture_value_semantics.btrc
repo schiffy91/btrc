@@ -1,0 +1,25 @@
+// Capture-by-value semantics: a lambda capturing a local snapshots the
+// value at creation time; mutating the outer local afterward does NOT
+// change what the lambda sees.
+#include <assert.h>
+
+int main() {
+    int v = 5;
+    var f = (int x) => x + v;   // captures v == 5
+
+    int first = f(1);
+    assert(first == 6);
+
+    v = 99;                     // mutate the outer local after capture
+    int second = f(1);
+    assert(second == 6);        // still uses the captured copy (5), not 99
+
+    // a second lambda created AFTER the mutation captures the new value
+    var g = (int x) => x + v;   // captures v == 99
+    assert(g(1) == 100);
+    // and f is still unaffected
+    assert(f(1) == 6);
+
+    print("PASS: test_lambda_capture_value_semantics");
+    return 0;
+}

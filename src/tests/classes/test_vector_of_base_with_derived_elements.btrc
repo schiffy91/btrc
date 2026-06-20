@@ -1,0 +1,35 @@
+/* A collection declared over a base type, holding derived elements:
+ * Vector<Animal> with Dog/Cat pushed in. Iterating and calling speak()
+ * dispatches STATICALLY to the element's declared type (Animal), so every
+ * element yields the base "..." regardless of the runtime subclass. */
+#include <assert.h>
+
+class Animal {
+    public string speak() { return "..."; }
+}
+
+class Dog extends Animal {
+    public string speak() { return "Woof"; }
+}
+
+class Cat extends Animal {
+    public string speak() { return "Meow"; }
+}
+
+int main() {
+    Vector<Animal> v = [];
+    v.push(Dog());
+    v.push(Cat());
+    assert(v.len == 2);
+
+    int base_count = 0;
+    for a in v {
+        // Declared element type is Animal -> Animal.speak, not the override.
+        assert(a.speak() == "...");
+        base_count += 1;
+    }
+    assert(base_count == 2);
+
+    print("PASS: test_vector_of_base_with_derived_elements");
+    return 0;
+}

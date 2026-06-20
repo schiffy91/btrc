@@ -1,0 +1,48 @@
+/* `keep` STATEMENT applied to a field access (`keep h.item;`). The keep
+ * increments the field target's refcount; the extra retain is observable
+ * because the object survives a release/destruction that would otherwise reach
+ * zero, and only a final matching release drops it to zero. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int v;
+
+    public Obj(int v) {
+        self.v = v;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Holder {
+    public Obj item;
+
+    public Holder() {
+        self.item = null;
+    }
+}
+
+int main() {
+    Holder h = new Holder();
+    Obj o = new Obj(1);      // rc 1
+    h.item = o;              // field assign of local -> rc 2
+
+    keep h.item;             // keep the field target -> rc 3
+    assert(alive == 1);
+
+    // Drop the local handle (rc 3 -> 2) and the holder's field via delete
+    // (Holder destructor releases item: rc 2 -> 1). Without the keep above the
+    // object would now be destroyed; the extra retain keeps it alive.
+    release o;
+    assert(o == null);
+    delete h;                // destructor releases item: rc 2 -> 1
+    assert(alive == 1);      // survived thanks to the keep's extra retain
+
+    print("PASS: test_keep_field_expr");
+    return 0;
+}

@@ -1,0 +1,21 @@
+// Modulo with float operands routes through the integer modulo helper,
+// truncating both operands to int before the operation. This pins down the
+// (lossy but deterministic) behavior of '%' on floats.
+#include <assert.h>
+
+int main() {
+    // 5.5 % 2.0 -> 5 % 2 -> 1 (operands truncated to int).
+    int r = 5.5 % 2.0;
+    assert(r == 1);
+
+    // 9.9 % 4.1 -> 9 % 4 -> 1.
+    int r2 = 9.9 % 4.1;
+    assert(r2 == 1);
+
+    // 7.0 % 3.0 -> 7 % 3 -> 1.
+    int r3 = 7.0 % 3.0;
+    assert(r3 == 1);
+
+    print("PASS: test_float_mod_truncates");
+    return 0;
+}

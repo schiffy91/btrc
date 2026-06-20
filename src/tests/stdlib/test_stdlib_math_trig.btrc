@@ -1,0 +1,31 @@
+/* Math trigonometric methods: sin/cos/tan/asin/acos/atan/atan2.
+ * Each delegates to the same-named libc function; this exercises the
+ * method-shadows-libc-symbol resolution path. */
+#include <assert.h>
+#include "../../stdlib/math.btrc"
+
+int main() {
+    float pi = Math.PI();
+
+    // sin/cos/tan at known angles
+    assert(Math.fabs(Math.sin(0.0f)) < 0.0001f);
+    assert(Math.fabs(Math.cos(0.0f) - 1.0f) < 0.0001f);
+    assert(Math.fabs(Math.sin(pi / 2.0f) - 1.0f) < 0.0001f);
+    assert(Math.fabs(Math.cos(pi / 2.0f)) < 0.0001f);
+    assert(Math.fabs(Math.tan(0.0f)) < 0.0001f);
+    assert(Math.fabs(Math.tan(pi / 4.0f) - 1.0f) < 0.001f);
+
+    // inverse trig
+    assert(Math.fabs(Math.asin(1.0f) - pi / 2.0f) < 0.0001f);
+    assert(Math.fabs(Math.acos(1.0f)) < 0.0001f);
+    assert(Math.fabs(Math.atan(0.0f)) < 0.0001f);
+    assert(Math.fabs(Math.atan(1.0f) - pi / 4.0f) < 0.0001f);
+
+    // atan2(1,1) == pi/4
+    assert(Math.fabs(Math.atan2(1.0f, 1.0f) - pi / 4.0f) < 0.0001f);
+    // atan2(0,-1) == pi
+    assert(Math.fabs(Math.atan2(0.0f, -1.0f) - pi) < 0.0001f);
+
+    print("PASS: test_stdlib_math_trig");
+    return 0;
+}

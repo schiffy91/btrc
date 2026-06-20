@@ -1,0 +1,52 @@
+// Increment/decrement and compound assignment on a class field. A field
+// access target takes a distinct lowering path (field load/store) from a
+// bare local variable.
+#include <assert.h>
+
+class Counter {
+    public int n;
+    public Counter() {
+        self.n = 0;
+    }
+}
+
+class Point {
+    public int x;
+    public int y;
+    public Point(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+}
+
+int main() {
+    // Increment/decrement of a field.
+    Counter c = Counter();
+    c.n++;
+    c.n++;
+    assert(c.n == 2);
+    c.n--;
+    assert(c.n == 1);
+
+    // Compound assignment to a field.
+    c.n += 5;
+    assert(c.n == 6);
+    c.n *= 3;
+    assert(c.n == 18);
+    c.n -= 8;
+    assert(c.n == 10);
+    c.n /= 2;
+    assert(c.n == 5);
+    c.n %= 3;
+    assert(c.n == 2);
+
+    // Two distinct fields on the same object stay independent.
+    Point p = Point(4, 9);
+    p.x += 6;
+    p.y -= 3;
+    assert(p.x == 10);
+    assert(p.y == 6);
+
+    print("PASS: test_incdec_compound_lvalue");
+    return 0;
+}

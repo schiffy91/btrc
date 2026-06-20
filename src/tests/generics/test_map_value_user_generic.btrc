@@ -1,0 +1,24 @@
+/* Built-in Map with a USER generic value type: Map<int, Box<string>>.
+ * Verifies a user-generic monomorphized struct round-trips as a Map value. */
+#include <assert.h>
+#include <string.h>
+import std.map;
+
+class Box<T> {
+    public T v;
+    public Box(T x) { self.v = x; }
+    public T get() { return self.v; }
+}
+
+int main() {
+    Map<int, Box<string>> m = {};
+    m.put(1, new Box<string>("hi"));
+    m.put(2, new Box<string>("yo"));
+    assert(strcmp(m.get(1).get(), "hi") == 0);
+    assert(strcmp(m.get(2).get(), "yo") == 0);
+    assert(m.has(1));
+    assert(!m.has(9));
+
+    print("PASS: test_map_value_user_generic");
+    return 0;
+}

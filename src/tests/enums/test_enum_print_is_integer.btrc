@@ -1,0 +1,13 @@
+#include <stdio.h>
+
+// print(enumValue) on a simple enum prints the INTEGER, not the name.
+// No auto-toString for simple enums.
+enum Color { RED, GREEN, BLUE };
+
+int main() {
+    Color c = GREEN;
+    print(c);            // expect: 1
+    print(BLUE);         // expect: 2
+    printf("PASS: test_enum_print_is_integer\n");
+    return 0;
+}

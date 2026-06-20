@@ -1,0 +1,38 @@
+// Right-associative assignment chain (a = b = c = 5) and comparison
+// results stored directly as standalone bool values.
+#include <assert.h>
+
+int main() {
+    // Right-associative chained assignment.
+    int a = 0;
+    int b = 0;
+    int cc = 0;
+    a = b = cc = 5;
+    assert(a == 5);
+    assert(b == 5);
+    assert(cc == 5);
+
+    // Chain that mixes an expression on the far right.
+    int x = 0;
+    int y = 0;
+    x = y = 3 + 4;
+    assert(x == 7);
+    assert(y == 7);
+
+    // Equality / relational results usable directly as bool values.
+    bool t = (3 < 5);
+    bool f = (5 == 4);
+    assert(t);
+    assert(!f);
+
+    bool ge = (5 >= 5);
+    bool ne = (2 != 3);
+    assert(ge && ne);
+
+    // Stored bool combined further.
+    bool combined = t && !f && ge;
+    assert(combined);
+
+    print("PASS: test_assign_chain_and_value");
+    return 0;
+}

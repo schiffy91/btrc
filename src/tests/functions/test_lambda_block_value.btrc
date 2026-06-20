@@ -1,0 +1,29 @@
+// Arrow lambda with a multi-statement block body, stored both in a `var`
+// and in an explicitly-typed __fn_ptr local, then invoked.
+#include <assert.h>
+
+int main() {
+    var clamp = (int x) => {
+        if (x < 0) {
+            return 0;
+        }
+        if (x > 100) {
+            return 100;
+        }
+        return x;
+    };
+
+    // called directly via the inferred var
+    assert(clamp(-5) == 0);
+    assert(clamp(250) == 100);
+    assert(clamp(42) == 42);
+
+    // same block-body lambda held in an explicit __fn_ptr local
+    __fn_ptr<int, int> f = clamp;
+    assert(f(-5) == 0);
+    assert(f(7) == 7);
+    assert(f(999) == 100);
+
+    print("PASS: test_lambda_block_value");
+    return 0;
+}

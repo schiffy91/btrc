@@ -1,0 +1,46 @@
+/* Inheritance + `__del__`: deleting a subclass instance runs the DERIVED
+ * destructor; the base `__del__` does NOT chain. Pins the current
+ * (non-chaining) destructor behavior for the self-hosted port. */
+#include <assert.h>
+
+int base_d = 0;
+int der_d = 0;
+
+class Base {
+    public int id;
+
+    public Base(int id) {
+        self.id = id;
+    }
+
+    public void __del__() {
+        base_d++;
+    }
+}
+
+class Derived extends Base {
+    public int extra;
+
+    public Derived(int id, int extra) {
+        self.id = id;
+        self.extra = extra;
+    }
+
+    public void __del__() {
+        der_d++;
+    }
+}
+
+int main() {
+    Derived d = new Derived(1, 2);
+    assert(d.id == 1);
+    assert(d.extra == 2);
+
+    delete d;
+    // Only the derived destructor runs; base does not chain.
+    assert(der_d == 1);
+    assert(base_d == 0);
+
+    print("PASS: test_inherited_destructor");
+    return 0;
+}

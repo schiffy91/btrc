@@ -1,0 +1,24 @@
+// Instance-method .replace() with multiple occurrences (replace-all) and with
+// an empty needle (no-op). This lowers to the __btrc_replace C helper, a
+// different code path from the stdlib static Strings.replace.
+#include <assert.h>
+
+int main() {
+    // Replace-all of a single char
+    assert("aaa".replace("a", "b").equals("bbb"));
+
+    // Multiple non-adjacent occurrences
+    assert("a.b.c".replace(".", "-").equals("a-b-c"));
+
+    // Empty needle is a no-op
+    assert("abc".replace("", "X").equals("abc"));
+
+    // Replace-all with empty replacement deletes every match
+    assert("xxx".replace("x", "").equals(""));
+
+    // Non-overlapping multi-char needle
+    assert("aaaa".replace("aa", "b").equals("bb"));
+
+    print("PASS: test_string_replace_all_empty");
+    return 0;
+}

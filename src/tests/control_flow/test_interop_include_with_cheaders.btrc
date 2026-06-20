@@ -1,0 +1,25 @@
+/* An included btrc file that uses #include <math.h> and a raw C function,
+   spliced into a file that also uses a btrc class. math.h must not be emitted
+   in a way that breaks the C compile. */
+#include "test_cheader_helper.btrc"
+#include <math.h>
+#include <assert.h>
+
+class Box {
+    public int w;
+    public Box(int w) { self.w = w; }
+    public int area() { return self.w * self.w; }
+}
+
+int main() {
+    // pure-C function from the included helper, using math.h's sqrt
+    double m = mag(3.0, 4.0);
+    assert(m > 4.99 && m < 5.01);
+
+    // btrc class in the same program
+    Box b = Box(6);
+    assert(b.area() == 36);
+
+    print("PASS: test_interop_include_with_cheaders");
+    return 0;
+}

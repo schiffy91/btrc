@@ -1,0 +1,19 @@
+/* A catch variable whose name SHADOWS an outer local of the same name. The catch
+ * var is emitted into its own C block (`const char* e = __btrc_error_msg;`), so C
+ * scoping must leave the outer `e` intact once the catch completes. No existing
+ * test reuses a catch-var name that collides with a live outer local and then
+ * asserts the outer value survives. */
+#include <assert.h>
+
+int main() {
+    string e = "outer";
+    try {
+        throw "inner";
+    } catch (string e) {
+        assert(e.equals("inner"));  // the catch var shadows the outer e
+    }
+    assert(e.equals("outer"));      // outer e is unchanged after the catch
+
+    print("PASS: test_exceptions_catch_var_shadowing");
+    return 0;
+}

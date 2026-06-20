@@ -1,0 +1,15 @@
+import ./treehelpers/**
+
+#include <assert.h>
+
+// `import ./dir/**` — RECURSIVE glob over a genuinely nested directory tree.
+// treehelpers/ holds top.btrc and a subdirectory deep/inner.btrc; the `**`
+// recursion (os.walk vs os.listdir) must reach the nested file, so a symbol
+// from the subdir resolves.
+int main() {
+    assert(TopHelper.v() == 10);
+    assert(InnerHelper.v() == 32);
+    assert(TopHelper.v() + InnerHelper.v() == 42);
+    print("PASS: test_import_recursive_glob");
+    return 0;
+}

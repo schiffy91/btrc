@@ -1,0 +1,52 @@
+/* Explicit `release self.field` inside a `__del__` destructor. The explicit
+ * release decrements the field's refcount and nulls it; the compiler's implicit
+ * field release that follows is null-guarded, so the child is released exactly
+ * once (no double-free). */
+#include <assert.h>
+
+int alive = 0;
+
+class Child {
+    public int v;
+
+    public Child(int v) {
+        self.v = v;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Parent {
+    public Child child;
+
+    public Parent() {
+        self.child = null;
+    }
+
+    public void __del__() {
+        // Explicit release of the held field during destruction.
+        release self.child;
+    }
+}
+
+int main() {
+    Parent p = new Parent();
+    Child c = new Child(1);   // rc 1
+    p.child = c;              // field assign of local -> rc 2
+    assert(alive == 1);
+
+    release c;                // drop the local handle -> rc 1
+    assert(c == null);
+    assert(alive == 1);
+
+    // Destructor's explicit `release self.child` drops rc 1 -> 0 -> destroyed,
+    // and the implicit field release is a guarded no-op (no double-free).
+    delete p;
+    assert(alive == 0);
+
+    print("PASS: test_release_in_destructor");
+    return 0;
+}

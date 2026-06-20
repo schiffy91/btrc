@@ -1,0 +1,31 @@
+/* A method of a generic class calling ANOTHER method on `self` (self.first())
+ * inside the per-instantiation method copy. Every existing generic-method test
+ * uses a method type-param <U> + __fn_ptr or only touches fields/control-flow;
+ * none exercises an intra-class self.method() dispatch that must be re-mangled
+ * per instantiation (btrc_Box_int_first called from btrc_Box_int_pick). */
+#include <assert.h>
+#include <string.h>
+
+class Box<T> {
+    public T a;
+    public T b;
+    public Box(T x, T y) { self.a = x; self.b = y; }
+    public T first() { return self.a; }
+    public T pick(bool f) {
+        if (f) { return self.first(); }
+        return self.b;
+    }
+}
+
+int main() {
+    Box<int> bi = new Box<int>(3, 4);
+    assert(bi.pick(true) == 3);
+    assert(bi.pick(false) == 4);
+
+    Box<string> bs = new Box<string>("x", "y");
+    assert(strcmp(bs.pick(true), "x") == 0);
+    assert(strcmp(bs.pick(false), "y") == 0);
+
+    print("PASS: test_generic_self_method_call");
+    return 0;
+}

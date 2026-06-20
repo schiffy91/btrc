@@ -1,0 +1,10 @@
+#include <assert.h>
+
+int main() {
+    var t = (10, 20);
+    assert(t._0 + t._1 == 30);
+    assert(t._0 == 10);
+    assert(t._1 == 20);
+    print("PASS: test_tuple_var_inferred");
+    return 0;
+}

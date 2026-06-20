@@ -1,0 +1,35 @@
+/* Bytes.appendRaw(char*, n) and Bytes.toStringLossy(). appendRaw is the
+ * binary-safe primitive every other Bytes builder flows through, but is never
+ * called directly with an explicit pointer + count. toStringLossy returns the
+ * full-length view (NUL terminator appended once at the end), distinct from
+ * toString which stops at the first embedded NUL. */
+#include <assert.h>
+
+int main() {
+    /* appendRaw with an explicit pointer + byte count. */
+    Bytes b = Bytes();
+    string s = "hello";
+    b.appendRaw((char*)s, (int)strlen(s));
+    assert(b.length() == 5);
+    assert(b.get(0) == 104);   /* 'h' */
+    assert(b.get(4) == 111);   /* 'o' */
+
+    /* toStringLossy: the full content as a string (no embedded NUL here). */
+    assert(b.toStringLossy().equals("hello"));
+
+    /* appendRaw guards: null pointer and non-positive count are no-ops. */
+    b.appendRaw(null, 4);
+    assert(b.length() == 5);
+    b.appendRaw((char*)s, 0);
+    assert(b.length() == 5);
+
+    /* A degenerate slice (start == end) routes through appendRaw with n <= 0
+     * and yields an empty Bytes. */
+    Bytes empty = b.slice(3, 3);
+    assert(empty.length() == 0);
+    assert(empty.isEmpty());
+    assert(empty.toStringLossy().equals(""));
+
+    print("PASS: test_stdlib_bytes_appendraw_lossy");
+    return 0;
+}

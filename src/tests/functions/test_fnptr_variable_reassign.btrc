@@ -1,0 +1,33 @@
+// Function pointer stored in a variable of explicit __fn_ptr type
+// (not `var`/lambda), invoked, then reassigned to another function.
+#include <assert.h>
+
+int inc(int x) {
+    return x + 1;
+}
+
+int dec(int x) {
+    return x - 1;
+}
+
+int sqr(int x) {
+    return x * x;
+}
+
+int main() {
+    __fn_ptr<int, int> f = inc;
+    assert(f(5) == 6);
+
+    f = dec;
+    assert(f(5) == 4);
+
+    f = sqr;
+    assert(f(5) == 25);
+
+    // reassign back to a lambda value
+    f = (int x) => x + 100;
+    assert(f(5) == 105);
+
+    print("PASS: test_fnptr_variable_reassign");
+    return 0;
+}

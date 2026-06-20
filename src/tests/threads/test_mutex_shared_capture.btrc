@@ -1,0 +1,42 @@
+#include <assert.h>
+// A Mutex<int> is captured by multiple spawned threads that all mutate the
+// shared value through it (Mutex + ARC-capture + thread interaction together).
+// Bounds are deterministic even though the exact final value is race-dependent.
+int main() {
+    Mutex<int> m = Mutex(0);
+
+    Thread<int> t1 = spawn(() => {
+        for (int i = 0; i < 500; i++) {
+            int cur = m.get();
+            m.set(cur + 1);
+        }
+        return 0;
+    });
+    Thread<int> t2 = spawn(() => {
+        for (int i = 0; i < 500; i++) {
+            int cur = m.get();
+            m.set(cur + 1);
+        }
+        return 0;
+    });
+    Thread<int> t3 = spawn(() => {
+        for (int i = 0; i < 500; i++) {
+            int cur = m.get();
+            m.set(cur + 1);
+        }
+        return 0;
+    });
+
+    t1.join();
+    t2.join();
+    t3.join();
+
+    int total = m.get();
+    // Each get()/set() pair is individually atomic, so total is in (0, 1500].
+    assert(total > 0);
+    assert(total <= 1500);
+    m.destroy();
+
+    print("PASS: test_mutex_shared_capture");
+    return 0;
+}

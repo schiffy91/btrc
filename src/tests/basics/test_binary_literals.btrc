@@ -1,0 +1,27 @@
+#include <assert.h>
+
+int main() {
+    // Binary integer literals (0b / 0B prefix)
+    int x = 0b1010;
+    assert(x == 10);
+
+    int y = 0b11111111;
+    assert(y == 255);
+
+    int z = 0B1;
+    assert(z == 1);
+
+    int zero = 0b0;
+    assert(zero == 0);
+
+    // Binary literal in arithmetic
+    int sum = 0b0001 + 0b0010 + 0b0100;
+    assert(sum == 7);
+
+    // Binary used in bitwise context
+    int masked = 0b1111 & 0b0101;
+    assert(masked == 5);
+
+    print("PASS: test_binary_literals");
+    return 0;
+}

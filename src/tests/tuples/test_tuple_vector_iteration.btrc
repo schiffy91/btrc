@@ -1,0 +1,15 @@
+#include <assert.h>
+
+int main() {
+    Vector<(int, string)> v = [];
+    v.push((1, "a"));
+    v.push((2, "b"));
+    v.push((3, "c"));
+    int sum = 0;
+    for p in v {
+        sum += p._0;
+    }
+    assert(sum == 6);
+    print("PASS: test_tuple_vector_iteration");
+    return 0;
+}

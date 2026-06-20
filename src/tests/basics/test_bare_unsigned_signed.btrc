@@ -1,0 +1,31 @@
+// Bare 'unsigned' and bare 'signed' as a base_type with no width word (the
+// grammar makes the width word optional, defaulting to int). Tested both as a
+// variable declaration type and as a cast. Existing tests always pair
+// unsigned/signed with an explicit width word.
+#include <assert.h>
+
+int main() {
+    // bare 'unsigned' cast: -1 wraps to UINT_MAX
+    int neg = -1;
+    unsigned u = (unsigned)neg;
+    assert(u == 4294967295u);
+
+    // bare 'unsigned' as a declaration type
+    unsigned bare = 7u;
+    assert(bare == 7u);
+
+    // arithmetic on a bare unsigned stays unsigned
+    unsigned sum = bare + 3u;
+    assert(sum == 10u);
+
+    // bare 'signed' cast preserves the negative value
+    signed s = (signed)-3;
+    assert(s == -3);
+
+    // bare 'signed' as a declaration type
+    signed val = -42;
+    assert(val == -42);
+
+    print("PASS: test_bare_unsigned_signed");
+    return 0;
+}

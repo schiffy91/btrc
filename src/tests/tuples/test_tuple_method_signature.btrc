@@ -1,0 +1,30 @@
+/* A tuple type used in a class METHOD signature: as the RETURN type and as a
+ * PARAMETER type. Free functions already exercise tuple params/returns and
+ * classes exercise tuple FIELDS, but a tuple in a method signature routes
+ * through a distinct collection path (MethodDecl.return_type) that no other
+ * test reaches. */
+#include <assert.h>
+
+class Calc {
+    public Calc() {}
+    public (int, int) divmod(int a, int b) {
+        return (a / b, a % b);
+    }
+    public int addpair((int, int) p) {
+        return p._0 + p._1;
+    }
+}
+
+int main() {
+    Calc c = new Calc();
+
+    (int, int) r = c.divmod(17, 5);
+    assert(r._0 == 3);
+    assert(r._1 == 2);
+
+    assert(c.addpair((4, 5)) == 9);
+    assert(c.addpair(r) == 5);
+
+    print("PASS: test_tuple_method_signature");
+    return 0;
+}

@@ -1,0 +1,28 @@
+#include <assert.h>
+
+// Rich enum whose variant payload is a class-pointer; read fields of the
+// payload object through the union (nested member-access type inference).
+class Point {
+    public int x;
+    public int y;
+    public Point(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+}
+
+enum class Shape {
+    At(Point* p),
+    Origin
+}
+
+int main() {
+    Point pt = new Point(3, 4);
+    Shape s = Shape.At(pt);
+    assert(s.tag == Shape.At);
+    assert(s.data.At.p.x == 3);
+    assert(s.data.At.p.y == 4);
+    delete pt;
+    print("PASS: test_rich_enum_nested_payload");
+    return 0;
+}

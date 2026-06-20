@@ -1,0 +1,25 @@
+#include <assert.h>
+
+// Enum constants used as bit flags: power-of-two explicit values combined
+// with the bitwise OR / AND operators. Exercises enum constants flowing
+// through non-arithmetic integer operators.
+enum Perm { READ = 1, WRITE = 2, EXEC = 4 };
+
+int main() {
+    int mask = READ | WRITE;
+    assert((mask & READ) != 0);
+    assert((mask & WRITE) != 0);
+    assert((mask & EXEC) == 0);
+
+    mask = mask | EXEC;
+    assert((mask & EXEC) != 0);
+    assert(mask == 7);
+
+    // clearing a flag
+    mask = mask & (~WRITE);
+    assert((mask & WRITE) == 0);
+    assert(mask == 5);
+
+    print("PASS: test_enum_bitwise_flags");
+    return 0;
+}

@@ -1,0 +1,30 @@
+/* Map.getOrDefault on a MISSING key returns the fallback (vs the stored value
+ * for a present key). putIfAbsent must NOT overwrite an existing key but DOES
+ * insert a new one. The miss / no-op paths were not explicitly asserted. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Map<string, int> m = {"a": 1};
+
+    /* present key returns its value; missing key returns the fallback */
+    assert(m.getOrDefault("a", 99) == 1);
+    assert(m.getOrDefault("zzz", 99) == 99);
+    /* getOrDefault must not insert the missing key */
+    assert(!m.has("zzz"));
+    assert(m.size() == 1);
+
+    /* putIfAbsent on an existing key is a no-op */
+    m.putIfAbsent("a", 100);
+    assert(m.get("a") == 1);
+    assert(m.size() == 1);
+
+    /* putIfAbsent on a new key inserts it */
+    m.putIfAbsent("b", 2);
+    assert(m.get("b") == 2);
+    assert(m.size() == 2);
+
+    m.free();
+    printf("PASS: test_map_default_putifabsent\n");
+    return 0;
+}

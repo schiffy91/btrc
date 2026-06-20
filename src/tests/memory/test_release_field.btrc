@@ -1,0 +1,65 @@
+/* `release` applied to a class FIELD access (`release h.item;` and
+ * `release self.item;` inside a method). release decrements the field target's
+ * refcount, destroying at zero, and nulls the field expression. Assigning an
+ * existing local into a field does rc++, so release of the field then leaves
+ * the local's reference intact. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Holder {
+    public Obj item;
+
+    public Holder() {
+        self.item = null;
+    }
+
+    // release self.field inside a method (drops the field's retain to zero).
+    public void clear() {
+        release self.item;
+    }
+}
+
+int main() {
+    // release of obj.field from outside: field holds one of the object's refs.
+    Holder h = new Holder();
+    Obj x = new Obj(1);      // rc 1
+    h.item = x;              // field assign of a local -> rc 1 -> 2
+    assert(alive == 1);
+    assert(h.item.id == 1);
+
+    release h.item;          // rc 2 -> 1, not destroyed; h.item nulled
+    assert(h.item == null);
+    assert(alive == 1);      // still alive via local x (rc=1)
+
+    // release self.field inside a method, releasing to zero.
+    Holder g = new Holder();
+    Obj y = new Obj(2);      // rc 1
+    g.item = y;              // rc 1 -> 2
+    release y;               // drop the local handle: rc 2 -> 1, g still holds
+    assert(y == null);
+    assert(alive == 2);
+    g.clear();               // release self.item: rc 1 -> 0 -> destroyed
+    assert(g.item == null);
+    assert(alive == 1);      // only Obj(1) remains (still held by x)
+
+    delete x;
+    assert(alive == 0);
+    delete g;
+    delete h;
+    print("PASS: test_release_field");
+    return 0;
+}

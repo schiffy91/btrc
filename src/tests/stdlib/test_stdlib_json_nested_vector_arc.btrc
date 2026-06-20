@@ -1,0 +1,52 @@
+/* JsonValue trees stored inside a user Vector<JsonValue> local, where each tree
+ * nests arrays-of-objects-of-arrays. Exercises ARC release of
+ * Vector<JsonValue>-of-Vector<JsonValue> when the local vector goes out of scope
+ * (recursive teardown, no leak / double-free). */
+#include <assert.h>
+
+int main() {
+    // Hold several JsonValue trees in one vector.
+    Vector<JsonValue> trees = [];
+
+    for t in range(3) {
+        JsonValue root = JsonValue.makeArray();
+        for c in range(3) {
+            JsonValue obj = JsonValue.makeObject();
+            JsonValue inner = JsonValue.makeArray();
+            inner.push(JsonValue.makeInt(c));
+            inner.push(JsonValue.makeString(f"item{c}"));
+            obj.set("children", inner);
+            obj.set("index", JsonValue.makeInt(c));
+            root.push(obj);
+        }
+        trees.push(root);
+    }
+
+    // Structure assertions: trees -> array(3) -> object{children: array(2), index}
+    assert(trees.len == 3);
+    for t in range(3) {
+        JsonValue root = trees.get(t);
+        assert(root.isArray());
+        assert(root.size() == 3);
+        JsonValue obj = root.at(1);
+        assert(obj.isObject());
+        assert(obj.get("index").asInt() == 1);
+        JsonValue children = obj.get("children");
+        assert(children.isArray());
+        assert(children.size() == 2);
+        assert(children.at(0).asInt() == 1);
+        assert(children.at(1).asString().equals("item1"));
+    }
+
+    // Round-trip the first tree through stringify/parse to confirm structure.
+    string s = trees.get(0).stringify();
+    JsonValue reparsed = JsonValue.parse(s);
+    assert(reparsed.isArray());
+    assert(reparsed.size() == 3);
+    assert(reparsed.at(2).get("index").asInt() == 2);
+
+    // Scope exit releases `trees`, which recursively releases every nested
+    // Vector<JsonValue> and child JsonValue.
+    print("PASS: test_stdlib_json_nested_vector_arc");
+    return 0;
+}

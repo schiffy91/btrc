@@ -1,0 +1,12 @@
+#include <assert.h>
+
+int main() {
+    (int, int) a = (1, 2);
+    (int, int) b = a;
+    b._0 = 99;
+    assert(a._0 == 1);
+    assert(b._0 == 99);
+    assert(a._1 == 2 && b._1 == 2);
+    print("PASS: test_tuple_value_copy");
+    return 0;
+}

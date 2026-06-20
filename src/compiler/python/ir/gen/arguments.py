@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from ..nodes import IRExpr, IRLiteral
 from .stringable import coerce_to_string_param
+from .upcast import upcast_class_pointer
+
+
+def _coerce_arg(gen, target_type, ast_node, value: IRExpr) -> IRExpr:
+    """Apply both string coercion and Derived→Base upcasting to one argument."""
+    value = coerce_to_string_param(gen, target_type, ast_node, value)
+    source_type = gen.analyzed.node_types.get(id(ast_node))
+    return upcast_class_pointer(gen, target_type, source_type, value)
 
 
 def arg_names_for(node, count: int) -> list[str]:
@@ -51,7 +59,7 @@ def order_args_for_params(gen, params: list, ast_args: list,
                           else IRLiteral(text="0"))
             ast_result.append(default)
         return [
-            coerce_to_string_param(gen, params[index].type, ast_result[index], result[index])
+            _coerce_arg(gen, params[index].type, ast_result[index], result[index])
             for index in range(len(result))
         ]
 
@@ -79,7 +87,7 @@ def order_args_for_params(gen, params: list, ast_args: list,
                              else IRLiteral(text="0"))
             ast_result[index] = param.default
     return [
-        coerce_to_string_param(gen, params[index].type, ast_result[index], arg)
+        _coerce_arg(gen, params[index].type, ast_result[index], arg)
         for index, arg in enumerate(result)
         if arg is not None
     ]

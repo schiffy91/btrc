@@ -1,0 +1,19 @@
+#include <assert.h>
+
+// Non-include preprocessor directives (#pragma) pass through verbatim into
+// the emitted C, surrounding a raw C struct.
+#pragma pack(push, 1)
+struct Packed {
+    char tag;
+    int value;
+};
+#pragma pack(pop)
+
+int main() {
+    struct Packed p = {65, 1000};
+    assert(p.tag == 65);
+    assert(p.value == 1000);
+
+    print("PASS: test_interop_pragma_passthrough");
+    return 0;
+}

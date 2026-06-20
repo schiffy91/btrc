@@ -1,0 +1,36 @@
+#include <assert.h>
+
+class N {
+    public int x;
+    public N(int x) {
+        self.x = x;
+    }
+    public N __add__(N o) {
+        return N(self.x + o.x);
+    }
+    public N __sub__(N o) {
+        return N(self.x - o.x);
+    }
+    public N __mul__(N o) {
+        return N(self.x * o.x);
+    }
+    public bool __eq__(N o) {
+        return self.x == o.x;
+    }
+}
+
+int main() {
+    N a = N(2);
+    N b = N(3);
+    N c = N(4);
+    // overloaded * binds tighter than overloaded +  => a + (b*c) = 2 + 12 = 14
+    assert(a + b * c == N(14));
+    // explicit grouping overrides => (a+b)*c = 5 * 4 = 20
+    assert((a + b) * c == N(20));
+    // a*b + c = 6 + 4 = 10
+    assert(a * b + c == N(10));
+    // same-precedence left-assoc: a + b - c = 5 - 4 = 1
+    assert(a + b - c == N(1));
+    print("PASS: test_operator_overload_precedence");
+    return 0;
+}

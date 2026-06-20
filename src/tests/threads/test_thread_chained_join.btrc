@@ -1,0 +1,24 @@
+#include <assert.h>
+// A thread's join() result is captured by a later spawn (pipelined threads).
+int main() {
+    Thread<int> a = spawn(() => {
+        return 10;
+    });
+    int x = a.join();
+
+    // x (a post-join value) is captured by the second lambda
+    Thread<int> b = spawn(() => {
+        return x * 3;
+    });
+    assert(b.join() == 30);
+
+    // chain one more stage
+    int y = 30;
+    Thread<int> c = spawn(() => {
+        return y + x;
+    });
+    assert(c.join() == 40);
+
+    print("PASS: test_thread_chained_join");
+    return 0;
+}

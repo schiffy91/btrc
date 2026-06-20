@@ -1,0 +1,25 @@
+// f-string interpolating float/double (%f), long (%ld), and a negative int.
+#include <assert.h>
+
+int main() {
+    // float / double use %f
+    float pi = 3.5;
+    assert(f"{pi}".contains("3.5"));
+    double d = 2.0;
+    assert(f"{d}".startsWith("2"));
+
+    // long uses %ld
+    long n = 1000000;
+    assert(f"{n}".equals("1000000"));
+
+    // negative int formatting
+    int neg = -42;
+    assert(f"{neg}".equals("-42"));
+
+    // arithmetic in the interpolation
+    int a = 7;
+    assert(f"{a * 6}".equals("42"));
+
+    print("PASS: test_fstring_interp_numeric");
+    return 0;
+}

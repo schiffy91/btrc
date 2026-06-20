@@ -1,0 +1,53 @@
+// Operator overloading: __ne__ plus relational __lt__/__gt__/__le__/__ge__.
+// Verifies a != b dispatches to __ne__ (not !__eq__) and the four
+// relational operators each map to their own method and return bool.
+#include <assert.h>
+
+class Money {
+    public int cents;
+    public Money(int c) {
+        self.cents = c;
+    }
+    public bool __eq__(Money other) {
+        return self.cents == other.cents;
+    }
+    public bool __ne__(Money other) {
+        return self.cents != other.cents;
+    }
+    public bool __lt__(Money other) {
+        return self.cents < other.cents;
+    }
+    public bool __gt__(Money other) {
+        return self.cents > other.cents;
+    }
+    public bool __le__(Money other) {
+        return self.cents <= other.cents;
+    }
+    public bool __ge__(Money other) {
+        return self.cents >= other.cents;
+    }
+}
+
+int main() {
+    Money a = Money(100);
+    Money b = Money(250);
+    Money c = Money(100);
+
+    assert(a == c);
+    assert(a != b);
+    assert(!(a != c));
+
+    assert(a < b);
+    assert(b > a);
+    assert(a <= c);
+    assert(b >= a);
+    assert(!(b < a));
+    assert(!(a > b));
+
+    // Use overloaded comparisons as plain bool values combined with &&.
+    bool ordered = (a < b) && (b > c);
+    assert(ordered);
+
+    print("PASS: test_operator_overload_compare");
+    return 0;
+}

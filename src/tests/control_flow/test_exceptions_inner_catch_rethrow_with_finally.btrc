@@ -1,0 +1,33 @@
+/* Nested try where the INNER catch RE-THROWS, and the inner try also has a finally.
+ * The outer try catches the re-thrown value. This pins down a subtle current
+ * behavior: a throw raised from inside the catch block escapes BEFORE the sibling
+ * finally runs (control-flow escape out of the try/catch skips the finally, just
+ * like return/break do). The outer frame still receives the re-thrown value.
+ * Pinning the exact sequence keeps the reference and self-hosted compilers in sync. */
+#include <assert.h>
+
+int main() {
+    Vector<string> log = [];
+    try {
+        try {
+            throw "a";
+        } catch (string e) {
+            assert(e.equals("a"));
+            log.push("inner-catch");
+            throw "b";                 // re-throw from within the catch
+        } finally {
+            log.push("inner-fin");     // SKIPPED: the in-catch throw escapes first
+        }
+    } catch (string o) {
+        assert(o.equals("b"));         // outer catches the re-thrown value
+        log.push("outer-catch");
+    }
+    // inner-fin does not run; the recorded order is inner-catch then outer-catch.
+    assert(log.len == 2);
+    assert(log[0].equals("inner-catch"));
+    assert(log[1].equals("outer-catch"));
+    log.free();
+
+    print("PASS: test_exceptions_inner_catch_rethrow_with_finally");
+    return 0;
+}

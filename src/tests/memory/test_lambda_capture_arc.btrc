@@ -1,0 +1,52 @@
+/* A (non-thread) lambda capturing a managed object: the captured object stays
+ * alive for the duration of the enclosing scope while the lambda references it,
+ * and ARC releases it exactly once at scope exit (no premature free while the
+ * lambda is live, no double-free). */
+#include <assert.h>
+
+int alive = 0;
+
+class Counter {
+    public int n;
+
+    public Counter(int start) {
+        self.n = start;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+
+    public void bump() {
+        self.n += 1;
+    }
+
+    public int value() {
+        return self.n;
+    }
+}
+
+int main() {
+    {
+        Counter c = new Counter(10);
+        assert(alive == 1);
+
+        // Lambda captures the managed object by reference.
+        var inc = void function() { c.bump(); };
+        var read = int function() { return c.value(); };
+
+        // Invoke repeatedly: the captured object must remain valid.
+        inc();
+        inc();
+        inc();
+        assert(read() == 13);
+        assert(c.value() == 13);
+        assert(alive == 1);   // still alive while the lambdas reference it
+    }
+    // Scope exit releases the captured object exactly once.
+    assert(alive == 0);
+
+    print("PASS: test_lambda_capture_arc");
+    return 0;
+}

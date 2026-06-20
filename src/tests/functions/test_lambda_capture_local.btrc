@@ -1,0 +1,29 @@
+// Lambda capturing a LOCAL variable by value (env-struct capture), invoked
+// directly. (A capturing lambda cannot be stored in a bare __fn_ptr and called
+// through it — __fn_ptr is a plain C function pointer with no env slot; see
+// docs/known-language-gaps.md.)
+#include <assert.h>
+
+int main() {
+    int threshold = 3;
+    var over = (int x) => x > threshold;
+    assert(over(4) == true);
+    assert(over(3) == false);
+    assert(over(2) == false);
+
+    // a different captured local
+    int bump = 100;
+    var add = (int x) => x + bump;
+    assert(add(1) == 101);
+    assert(add(5) == 105);
+
+    // capture inside a nested block scope
+    int factor = 10;
+    {
+        var times = (int x) => x * factor;
+        assert(times(3) == 30);
+    }
+
+    print("PASS: test_lambda_capture_local");
+    return 0;
+}

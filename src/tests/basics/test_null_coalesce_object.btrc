@@ -1,0 +1,42 @@
+// Object-typed null-coalescing: the ?? result is a CLASS object, so the
+// lowering picks the C type from an object-typed expression (a distinct
+// path from string/primitive coalescing). Also verifies eval-once when the
+// LHS is a call: maybe() must be evaluated exactly once.
+#include <assert.h>
+
+class Box {
+    public int v;
+    public Box(int v) {
+        self.v = v;
+    }
+}
+
+int calls = 0;
+
+Box? maybe() {
+    calls = calls + 1;
+    return null;
+}
+
+int main() {
+    Box fb = new Box(9);
+
+    // Null LHS object -> fallback object.
+    Box? a = null;
+    Box r = a ?? fb;
+    assert(r.v == 9);
+
+    // Non-null LHS object -> LHS object kept.
+    Box? b = new Box(3);
+    Box r2 = b ?? fb;
+    assert(r2.v == 3);
+
+    // LHS is a call returning null: fallback used, call evaluated once.
+    calls = 0;
+    Box r3 = maybe() ?? fb;
+    assert(r3.v == 9);
+    assert(calls == 1);
+
+    print("PASS: test_null_coalesce_object");
+    return 0;
+}

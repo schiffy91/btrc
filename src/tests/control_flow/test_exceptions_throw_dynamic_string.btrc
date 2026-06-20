@@ -1,0 +1,27 @@
+/* throw of a NON-literal string: a variable, an f-string, a function-call result,
+ * and a string concatenation. Each lowers to a snprintf/strcat into a temp passed
+ * to the throw machinery; literal-only throws dominate the corpus. */
+#include <assert.h>
+
+string build(string base) {
+    return base + "!";
+}
+
+int main() {
+    // throw a variable
+    string m = "dyn";
+    try { throw m; } catch (string e) { assert(e.equals("dyn")); }
+
+    // throw an f-string
+    int n = 42;
+    try { throw f"n={n}"; } catch (string e) { assert(e.equals("n=42")); }
+
+    // throw a function-call result
+    try { throw build("hi"); } catch (string e) { assert(e.equals("hi!")); }
+
+    // throw a string concatenation expression
+    try { throw "a" + "b" + "c"; } catch (string e) { assert(e.equals("abc")); }
+
+    print("PASS: test_exceptions_throw_dynamic_string");
+    return 0;
+}

@@ -1,0 +1,15 @@
+#include <assert.h>
+
+// Qualified simple-enum member access (Color.GREEN) goes through a
+// different IR path than the bare identifier form (GREEN).
+enum Color { RED, GREEN, BLUE };
+
+int main() {
+    Color c = Color.GREEN;
+    assert(c == Color.GREEN);
+    assert(c == GREEN);
+    assert(Color.BLUE == 2);
+    assert(Color.RED == 0);
+    print("PASS: test_enum_qualified_member_access");
+    return 0;
+}

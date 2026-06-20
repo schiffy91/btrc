@@ -1,0 +1,18 @@
+#include <assert.h>
+
+class C {
+    public int v;
+    public C(int x) {
+        self.v = x;
+    }
+}
+
+int main() {
+    (string, C) t = ("c", new C(7));
+    assert(t._0 == "c");
+    // Tuple element is a class instance (C*); bind to a local to access members.
+    C inner = t._1;
+    assert(inner.v == 7);
+    print("PASS: test_tuple_class_element");
+    return 0;
+}

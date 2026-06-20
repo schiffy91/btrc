@@ -1,0 +1,13 @@
+#include <assert.h>
+
+int main() {
+    (int, (int, (int, int))) n = (1, (2, (3, 4)));
+    (int, (int, int)) a = n._1;
+    (int, int) b = a._1;
+    assert(n._0 == 1);
+    assert(a._0 == 2);
+    assert(b._0 == 3);
+    assert(b._1 == 4);
+    print("PASS: test_tuple_deep_nested");
+    return 0;
+}

@@ -671,10 +671,25 @@ Vector<string> feRelativeImportPaths(string spec, string sourceDir) {
  *   std.*            -> all stdlib files (discovery order)
  *   std.{a, b, c}    -> each named stdlib module
  *   std.name         -> one stdlib module
+ *   "rel/path.btrc"  -> quoted relative path (surrounding quotes stripped)
  *   ./path, path     -> relative file / dir / glob
  * Package-path resolution (pkg.package_import_paths) is not ported; falls back
  * to relative resolution as the Python code does when a package is absent. */
 Vector<string> feImportSpecPaths(string spec, string sourceDir) {
+    /* Quoted path: import "rel/path.btrc"  (the raw spec keeps its surrounding
+     * quotes). Mirror the Python parser's QuotedPath handling: strip the
+     * matching surrounding quote and resolve the inner path like a relative
+     * import. The btrc lexer only enters PATH_SPEC mode for paths beginning
+     * with '.', '/' or '~', so a quoted path arrives here as a STRING with the
+     * quote characters intact. */
+    int sn = spec.length();
+    if (sn >= 2) {
+        char q = spec[0];
+        if ((q == '"' || q == '\'') && spec[sn - 1] == q) {
+            string inner = spec.substring(1, sn - 2);
+            return feRelativeImportPaths(inner, sourceDir);
+        }
+    }
     if (feRawStartsWith(spec, 0, "std.")) {
         string rest = spec.substring(4, spec.length() - 4);
         if (rest.equals("*")) {

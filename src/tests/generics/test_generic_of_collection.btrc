@@ -1,0 +1,29 @@
+/* A user generic class parameterized BY a built-in collection type: its type
+ * param T is itself a monomorphized built-in generic (Box<Vector<int>>). The
+ * corpus only covers the reverse (Vector<Box<int>>, etc.); this exercises a
+ * collection living INSIDE a user generic as the T argument, including a second
+ * monomorphization Box<Vector<string>>. */
+#include <assert.h>
+#include <string.h>
+import std.vector;
+
+class Box<T> {
+    public T v;
+    public Box(T x) { self.v = x; }
+    public T get() { return self.v; }
+}
+
+int main() {
+    Box<Vector<int>> bv = new Box<Vector<int>>([1, 2, 3]);
+    Vector<int> inner = bv.get();
+    assert(inner.len == 3);
+    assert(inner.get(1) == 2);
+
+    Box<Vector<string>> bs = new Box<Vector<string>>(["a", "b"]);
+    Vector<string> innerS = bs.get();
+    assert(innerS.len == 2);
+    assert(strcmp(innerS.get(0), "a") == 0);
+
+    print("PASS: test_generic_of_collection");
+    return 0;
+}

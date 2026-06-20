@@ -259,6 +259,12 @@ def _lower_assign(gen: IRGenerator, node: AssignExpr) -> IRExpr:
         return IRBinOp(left=target, op="=", right=tracked)
 
     if node.op == "=":
+        # Upcast: storing a subclass instance into a base-class field/var needs
+        # an explicit cast — sibling struct pointers are otherwise incompatible C.
+        from .upcast import upcast_class_pointer
+        target_type = gen.analyzed.node_types.get(id(node.target))
+        value_type = gen.analyzed.node_types.get(id(node.value))
+        value = upcast_class_pointer(gen, target_type, value_type, value)
         return IRBinOp(left=target, op="=", right=value)
     # Compound: +=, -=, *=, etc.
     return IRBinOp(left=target, op=node.op, right=value)

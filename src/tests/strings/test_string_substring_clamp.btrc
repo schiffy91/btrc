@@ -1,0 +1,18 @@
+// substring clamping for out-of-range arguments: negative start clamps to 0,
+// and a length exceeding the remaining characters clamps to the end.
+#include <assert.h>
+
+int main() {
+    string s = "abc";
+
+    // Negative start clamps to 0
+    assert(s.substring(-5, 2).equals("ab"));
+
+    // Overlong length clamps to the end
+    assert(s.substring(1, 100).equals("bc"));
+    assert(s.substring(0, 100).equals("abc"));
+    assert(s.substring(2, 50).equals("c"));
+
+    print("PASS: test_string_substring_clamp");
+    return 0;
+}

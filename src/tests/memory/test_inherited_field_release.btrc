@@ -1,0 +1,56 @@
+/* Inherited MANAGED field release by the destructor. A managed (class-typed)
+ * field declared in the BASE class must be ARC-released when a Derived instance
+ * is destroyed -- whether or not Derived defines its own __del__. Existing
+ * managed-field-release tests all use a single, non-inherited class. */
+#include <assert.h>
+
+int item_alive = 0;
+
+class Item {
+    public int id;
+
+    public Item(int id) {
+        self.id = id;
+        item_alive++;
+    }
+
+    public void __del__() {
+        item_alive--;
+    }
+}
+
+// Managed field lives on the base class.
+class Base {
+    public Item held;
+
+    public Base() {
+        self.held = null;
+    }
+}
+
+// Case A: Derived omits __del__ entirely -> inherited field release must run.
+class Derived extends Base {
+    public int tag;
+
+    public Derived(int tag) {
+        self.held = null;
+        self.tag = tag;
+    }
+}
+
+int main() {
+    Derived d = new Derived(5);
+    Item it = new Item(1);   // rc 1
+    d.held = it;             // field assign rc++ -> rc 2
+    assert(item_alive == 1);
+    assert(d.held.id == 1);
+
+    delete d;                // inherited managed field released: rc 2 -> 1
+    assert(item_alive == 1); // still alive via local `it`
+
+    delete it;               // rc 1 -> 0 -> destroyed
+    assert(item_alive == 0);
+
+    print("PASS: test_inherited_field_release");
+    return 0;
+}

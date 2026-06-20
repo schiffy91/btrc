@@ -1,0 +1,5 @@
+class Alpha {
+    class int value() {
+        return 11;
+    }
+}

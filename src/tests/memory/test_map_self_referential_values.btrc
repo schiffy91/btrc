@@ -1,0 +1,50 @@
+/* Self-referential object graph stored as Map values: two Nodes that
+ * cross-reference each other via fields are also stored in a Map<int,Node>.
+ * Freeing the map releases the map's retained refs without double-freeing the
+ * still-live objects; scope exit then reclaims the remaining cycle. */
+#include <assert.h>
+
+int alive = 0;
+
+class Node {
+    public int id;
+    public Node friend;
+
+    public Node(int id) {
+        self.id = id;
+        self.friend = null;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+int main() {
+    {
+        Map<int, Node> m = {};
+        Node a = new Node(1);
+        Node b = new Node(2);
+
+        // Cross-reference via fields, plus store both as map values.
+        a.friend = b;
+        b.friend = a;
+        m.set(1, a);
+        m.set(2, b);
+        assert(alive == 2);
+        assert(m.get(1).friend.id == 2);
+        assert(m.get(2).friend.id == 1);
+
+        // Free the map: releases the map's retained references, but the local
+        // handles + the field cross-references keep both objects alive.
+        m.free();
+        assert(alive == 2);
+        assert(a.friend.id == 2);
+    }
+    // Scope exit drops the locals and the cycle collector reclaims the pair.
+    assert(alive == 0);
+
+    print("PASS: test_map_self_referential_values");
+    return 0;
+}

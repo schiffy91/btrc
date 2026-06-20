@@ -1,0 +1,51 @@
+// A property setter containing conditional validation/clamping logic where the
+// stored value DIFFERS from the assigned value, observed by reading back through
+// the getter. Exercises branching control flow inside `set` plus a get/set
+// read-back, distinct from the corpus's fixed-arithmetic setter.
+#include <assert.h>
+
+class Volume {
+    private int v;
+
+    public Volume() {
+        self.v = 0;
+    }
+
+    public int level {
+        get { return self.v; }
+        set {
+            if (value < 0) {
+                self.v = 0;
+            } else if (value > 100) {
+                self.v = 100;
+            } else {
+                self.v = value;
+            }
+        }
+    }
+}
+
+int main() {
+    Volume vol = Volume();
+
+    // in-range value stored verbatim
+    vol.level = 50;
+    assert(vol.level == 50);
+
+    // above the ceiling is clamped to 100
+    vol.level = 200;
+    assert(vol.level == 100);
+
+    // below the floor is clamped to 0
+    vol.level = -5;
+    assert(vol.level == 0);
+
+    // boundary values pass through unchanged
+    vol.level = 100;
+    assert(vol.level == 100);
+    vol.level = 0;
+    assert(vol.level == 0);
+
+    print("PASS: test_property_setter_clamp");
+    return 0;
+}

@@ -1,0 +1,34 @@
+/* The Vector returned by Map.keys() / Map.values() is a first-class Vector
+ * usable with the full Vector API. Hash-map iteration order is unspecified,
+ * so we sort the keys before asserting order. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Map<int, int> m = {3: 10, 1: 30, 2: 20};
+
+    /* keys() -> Vector that can be sorted */
+    Vector<int> ks = m.keys();
+    ks.sort();
+    assert(ks.size() == 3);
+    assert(ks.get(0) == 1);
+    assert(ks.get(1) == 2);
+    assert(ks.get(2) == 3);
+
+    /* values() -> Vector usable with sum() (order-independent) */
+    Vector<int> vs = m.values();
+    assert(vs.size() == 3);
+    assert(vs.sum() == 60);
+
+    /* keys() must contain exactly the inserted keys */
+    assert(ks.contains(1));
+    assert(ks.contains(2));
+    assert(ks.contains(3));
+    assert(!ks.contains(4));
+
+    ks.free();
+    vs.free();
+    m.free();
+    printf("PASS: test_map_keys_values_chain\n");
+    return 0;
+}

@@ -1,0 +1,37 @@
+/* Linked List<T> reverse() swaps every node's next/prev plus head/tail;
+ * toVector() walks head->next building a Vector. Both untested on the real
+ * linked List (Vector-backed "list" tests don't cover the node chain). */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    List<int> l = new List<int>();
+    for x in [1, 2, 3] {
+        l.pushBack(x);
+    }
+
+    l.reverse();
+    /* list is now 3, 2, 1 */
+    assert(l.front() == 3);
+    assert(l.back() == 1);
+    assert(l.get(0) == 3);
+    assert(l.get(1) == 2);
+    assert(l.get(2) == 1);
+
+    /* toVector walks the (reversed) chain head->next */
+    Vector<int> v = l.toVector();
+    assert(v.size() == 3);
+    assert(v.get(0) == 3);
+    assert(v.get(1) == 2);
+    assert(v.get(2) == 1);
+
+    /* reversing again restores original order */
+    l.reverse();
+    assert(l.get(0) == 1);
+    assert(l.get(2) == 3);
+
+    v.free();
+    l.free();
+    printf("PASS: test_list_reverse_tovector\n");
+    return 0;
+}

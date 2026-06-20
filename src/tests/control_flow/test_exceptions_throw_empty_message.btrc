@@ -1,0 +1,19 @@
+/* Throwing an EMPTY string (zero-length payload). test_exceptions_long_message_
+ * truncation pins the upper boundary (2000 chars truncate to 1023); this pins the
+ * lower boundary: throwing "" must be caught as an empty string of length 0. */
+#include <assert.h>
+
+int main() {
+    bool caught = false;
+    try {
+        throw "";
+    } catch (string e) {
+        caught = true;
+        assert(e.length() == 0);
+        assert(e.equals(""));
+    }
+    assert(caught);
+
+    print("PASS: test_exceptions_throw_empty_message");
+    return 0;
+}

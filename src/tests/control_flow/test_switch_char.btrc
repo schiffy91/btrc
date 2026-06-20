@@ -1,0 +1,31 @@
+// Switch on a char value with char-literal case labels (case 'a':).
+#include <assert.h>
+
+int classify(char c) {
+    int r = 0;
+    switch (c) {
+        case 'a':
+            r = 1;
+            break;
+        case 'b':
+            r = 2;
+            break;
+        case 'c':
+            r = 3;
+            break;
+        default:
+            r = -1;
+            break;
+    }
+    return r;
+}
+
+int main() {
+    assert(classify('a') == 1);
+    assert(classify('b') == 2);
+    assert(classify('c') == 3);
+    assert(classify('z') == -1);
+
+    print("PASS: test_switch_char");
+    return 0;
+}

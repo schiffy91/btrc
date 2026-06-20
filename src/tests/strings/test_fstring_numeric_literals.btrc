@@ -1,0 +1,25 @@
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    // long, double, and int literal types flowing through f-string interpolation
+    long big = 9000000000;
+    double d = 3.5;
+    int n = 42;
+
+    string s = f"{big} and {d} and {n}";
+    assert(strstr(s, "9000000000") != null);
+    assert(strstr(s, "3.5") != null);
+    assert(strstr(s, "42") != null);
+
+    // direct interpolation of a numeric expression
+    string e = f"sum={n + 8}";
+    assert(strcmp(e, "sum=50") == 0);
+
+    // hex / binary literals interpolate as their decimal value
+    string r = f"{0xFF}";
+    assert(strcmp(r, "255") == 0);
+
+    print("PASS: test_fstring_numeric_literals");
+    return 0;
+}

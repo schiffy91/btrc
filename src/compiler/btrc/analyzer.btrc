@@ -85,6 +85,12 @@ class Analyzed {
      * type args, so IR-gen can mangle the call to its monomorphized instance
      * without re-running inference. Mirrors generic_method_call_args. */
     public Map<string, Vector<Node>> methodGenCallArgs;
+    /* Module-level (file-scope) variable name -> its TypeExpr. Mirrors the
+     * reference's global scope: a bare identifier referencing a top-level var
+     * resolves to this type during inference (e.g. `string order` so
+     * `order.equals(...)` lowers as a string method). Seeded into each
+     * function's local varTypes at lowering entry. */
+    public Map<string, Node> globalVarTypes;
 
     public Analyzed() {
         self.funcRetTypes = {};
@@ -102,6 +108,7 @@ class Analyzed {
         self.methodGenInstances = [];
         self.methodGenSeen = {};
         self.methodGenCallArgs = {};
+        self.globalVarTypes = {};
     }
 
     /* True if any generic-method monomorphization target exists. */
@@ -143,6 +150,22 @@ class Analyzed {
     /* True if `name` names a known (non-generic) class. */
     public bool isClass(string name) {
         return self.classTable.has(name);
+    }
+
+    /* True if `base` is a (transitive) parent class of `sub`. Walks the parent
+     * chain from `sub`; `sub == base` counts as true. Mirrors
+     * variables._is_subclass. */
+    public bool isSubclass(string sub, string base) {
+        string cur = sub;
+        Map<string, bool> seen = {};
+        while (cur != "" && !seen.has(cur)) {
+            if (cur == base) { return true; }
+            seen.put(cur, true);
+            if (!self.classTable.has(cur)) { return false; }
+            Node decl = self.classTable.get(cur);
+            cur = parentName(decl);
+        }
+        return false;
     }
 
     /* Look up a class member (FieldDecl/MethodDecl/PropertyDecl) by name within
@@ -278,8 +301,31 @@ Analyzed analyzeProgram(Node prog) {
             }
         } else if (d.kind == NK_RICH_ENUM_DECL) {
             a.richEnumTable.put(d.name, d);
+        } else if (d.kind == NK_VAR_DECL_STMT) {
+            /* Module-level variable: record its type in the global scope so a
+             * bare identifier referencing it resolves during inference. An
+             * explicit type is used directly; a `var` global's type is deduced
+             * from its initializer (mirrors the analyzer seeding the global
+             * scope with each module-level var's resolved type). */
+            if (d.type != null) {
+                a.globalVarTypes.put(d.name, d.type);
+            }
         }
         i = i + 1;
+    }
+    /* `var` (untyped) module-level variables: deduce the type from the
+     * initializer now that the function/class tables are populated, so a bare
+     * reference to such a global still resolves (mirrors the global-scope type
+     * the analyzer records for an inferred top-level var). */
+    int gv = 0;
+    while (gv < prog.declarations.len) {
+        Node d = prog.declarations.get(gv);
+        if (d.kind == NK_VAR_DECL_STMT && d.type == null && d.initializer != null) {
+            Map<string, Node> empty = {};
+            Node? gt = inferType(d.initializer, a, empty);
+            if (gt != null) { a.globalVarTypes.put(d.name, gt); }
+        }
+        gv = gv + 1;
     }
     /* Second pass: upgrade class-typed generic args to pointers across the whole
      * AST (mirrors the reference's _upgrade_class_type, which must run before
@@ -401,11 +447,28 @@ void collectMethodGenericsStmt(Node s, Analyzed a, Map<string, Node> vt) {
         collectMethodGenericsExpr(s.condition, a, vt);
         collectMethodGenericsExpr(s.update, a, vt);
         collectMethodGenericsBlock(s.body_node, a, vt);
-    } else if (s.kind == NK_FOR_IN_STMT) {
+    } else if (s.kind == NK_FOR_IN_STMT || s.kind == NK_PARALLEL_FOR_STMT) {
         collectMethodGenericsExpr(s.iterable, a, vt);
         collectMethodGenericsBlock(s.body_node, a, vt);
     } else if (s.kind == NK_DELETE_STMT) {
         collectMethodGenericsExpr(s.expr, a, vt);
+    } else if (s.kind == NK_TRY_CATCH_STMT) {
+        if (s.try_block != null) { collectMethodGenericsBlock(s.try_block, a, vt); }
+        if (s.catch_block != null) { collectMethodGenericsBlock(s.catch_block, a, vt); }
+        if (s.finally_block != null) { collectMethodGenericsBlock(s.finally_block, a, vt); }
+    } else if (s.kind == NK_SWITCH_STMT) {
+        collectMethodGenericsExpr(s.value_node, a, vt);
+        int ci = 0;
+        while (ci < s.cases.len) {
+            Node c = s.cases.get(ci);
+            collectMethodGenericsExpr(c.value_node, a, vt);
+            int cj = 0;
+            while (cj < c.body_nlist.len) {
+                collectMethodGenericsStmt(c.body_nlist.get(cj), a, vt);
+                cj = cj + 1;
+            }
+            ci = ci + 1;
+        }
     } else if (s.kind == NK_BLOCK) {
         collectMethodGenericsBlock(s, a, vt);
     }
@@ -787,11 +850,28 @@ void upgradeStmtGenericArgs(Node s, Analyzed a) {
         upgradeExprGenericArgs(s.condition, a);
         upgradeExprGenericArgs(s.update, a);
         upgradeBlockGenericArgs(s.body_node, a);
-    } else if (s.kind == NK_FOR_IN_STMT) {
+    } else if (s.kind == NK_FOR_IN_STMT || s.kind == NK_PARALLEL_FOR_STMT) {
         upgradeExprGenericArgs(s.iterable, a);
         upgradeBlockGenericArgs(s.body_node, a);
     } else if (s.kind == NK_DELETE_STMT) {
         upgradeExprGenericArgs(s.expr, a);
+    } else if (s.kind == NK_TRY_CATCH_STMT) {
+        if (s.try_block != null) { upgradeBlockGenericArgs(s.try_block, a); }
+        if (s.catch_block != null) { upgradeBlockGenericArgs(s.catch_block, a); }
+        if (s.finally_block != null) { upgradeBlockGenericArgs(s.finally_block, a); }
+    } else if (s.kind == NK_SWITCH_STMT) {
+        upgradeExprGenericArgs(s.value_node, a);
+        int ci = 0;
+        while (ci < s.cases.len) {
+            Node c = s.cases.get(ci);
+            upgradeExprGenericArgs(c.value_node, a);
+            int cj = 0;
+            while (cj < c.body_nlist.len) {
+                upgradeStmtGenericArgs(c.body_nlist.get(cj), a);
+                cj = cj + 1;
+            }
+            ci = ci + 1;
+        }
     } else if (s.kind == NK_BLOCK) {
         upgradeBlockGenericArgs(s, a);
     }
@@ -936,6 +1016,23 @@ void collectGenericsStmt(Node s, Analyzed a) {
         collectGenericsBlock(s.body_node, a);
     } else if (s.kind == NK_DELETE_STMT) {
         collectGenericsExpr(s.expr, a);
+    } else if (s.kind == NK_TRY_CATCH_STMT) {
+        if (s.try_block != null) { collectGenericsBlock(s.try_block, a); }
+        if (s.catch_block != null) { collectGenericsBlock(s.catch_block, a); }
+        if (s.finally_block != null) { collectGenericsBlock(s.finally_block, a); }
+    } else if (s.kind == NK_SWITCH_STMT) {
+        collectGenericsExpr(s.value_node, a);
+        int ci = 0;
+        while (ci < s.cases.len) {
+            Node c = s.cases.get(ci);
+            collectGenericsExpr(c.value_node, a);
+            int cj = 0;
+            while (cj < c.body_nlist.len) {
+                collectGenericsStmt(c.body_nlist.get(cj), a);
+                cj = cj + 1;
+            }
+            ci = ci + 1;
+        }
     } else if (s.kind == NK_BLOCK) {
         collectGenericsBlock(s, a);
     }
@@ -997,6 +1094,40 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
         /* Qualified static reference (ClassName.field on a class name) has no
          * value type here; only instance field access infers a type. */
         Node? ot = inferType(node.obj, a, varTypes);
+        /* Rich-enum field access: `s.tag` is int; any other direct field of a
+         * rich enum (the `data` union) has no scalar type. Mirrors
+         * type_inference._infer_field_access_type's rich_enum_table branch. */
+        if (ot != null && a.isRichEnum(ot.base)) {
+            if (node.field == "tag") { return makePrimType("int"); }
+            return null;
+        }
+        /* Rich-enum payload field: `s.data.<Variant>.<field>` resolves to the
+         * variant param's declared type (so the f-string interp picks the right
+         * format and the arrow decision sees a class-pointer payload). Mirrors
+         * type_inference._infer_field_access_type's nested rich_enum branch. */
+        if (node.obj != null && node.obj.kind == NK_FIELD_ACCESS_EXPR
+                && node.obj.obj != null
+                && node.obj.obj.kind == NK_FIELD_ACCESS_EXPR) {
+            Node dataExpr = node.obj.obj;
+            Node? sType = inferType(dataExpr.obj, a, varTypes);
+            if (sType != null && a.isRichEnum(sType.base)) {
+                Node reDecl = a.richEnumTable.get(sType.base);
+                string variantName = node.obj.field;
+                int vi = 0;
+                while (vi < reDecl.variants.len) {
+                    Node v = reDecl.variants.get(vi);
+                    if (v.name == variantName) {
+                        int pi = 0;
+                        while (pi < v.params.len) {
+                            Node par = v.params.get(pi);
+                            if (par.name == node.field) { return par.type; }
+                            pi = pi + 1;
+                        }
+                    }
+                    vi = vi + 1;
+                }
+            }
+        }
         if (ot != null && a.isClass(ot.base)) {
             Node? fm = a.classMember(ot.base, node.field);
             if (fm != null && fm.kind == NK_FIELD_DECL) { return fm.type; }
@@ -1036,6 +1167,17 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
             if (isStringType(ot)) {
                 Node? srt = stringMethodReturnType(method);
                 if (srt != null) { return srt; }
+            }
+            /* Thread<T>.join() -> T, Mutex<T>.get() -> T, Mutex<T>.set/destroy ->
+             * void (mirrors type_inference's Thread/Mutex CallExpr branches). The
+             * payload type drives the arrow decision when a Mutex stores a class
+             * instance (e.g. mb.get().v must emit `->v`, not `.v`). */
+            if (ot != null && ot.base == "Thread" && ot.generic_args.len > 0) {
+                if (method == "join") { return ot.generic_args.get(0); }
+            }
+            if (ot != null && ot.base == "Mutex" && ot.generic_args.len > 0) {
+                if (method == "get") { return ot.generic_args.get(0); }
+                if (method == "set" || method == "destroy") { return makePrimType("void"); }
             }
             if (ot != null && a.isClass(ot.base)) {
                 Node? mm = a.classMember(ot.base, method);
@@ -1107,6 +1249,32 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
     }
     if (node.kind == NK_LAMBDA_EXPR) {
         return lambdaFnPtrType(node, a, varTypes);
+    }
+    if (node.kind == NK_SPAWN_EXPR) {
+        /* spawn(callable) yields Thread<T> where T is the callable's return type
+         * (mirrors expressions._infer_spawn_return_type / type_inference's
+         * SpawnExpr branch). A lambda's return type is its annotation or the
+         * inferred body return type (lambdaFnPtrType's arg[0]); a non-lambda
+         * function-pointer operand contributes void. */
+        Node ret = makePrimType("void");
+        Node fn = node.fn;
+        if (fn != null && fn.kind == NK_LAMBDA_EXPR) {
+            Node fpt = lambdaFnPtrType(fn, a, varTypes);
+            if (fpt.generic_args.len > 0) { ret = fpt.generic_args.get(0); }
+        } else if (fn != null) {
+            Node? fnt = inferType(fn, a, varTypes);
+            if (fnt != null && fnt.base == "__fn_ptr" && fnt.generic_args.len > 0) {
+                ret = fnt.generic_args.get(0);
+            }
+        }
+        Node u = Node();
+        u.kind = NK_TYPE_EXPR;
+        u.base = "Thread";
+        Vector<Node> tga = [];
+        tga.push(ret);
+        u.generic_args = tga;
+        u.pointer_depth = 1;
+        return u;
     }
     if (node.kind == NK_TUPLE_LITERAL) {
         /* A tuple literal's type is Tuple<T0, T1, ...> built from each element's
@@ -1279,6 +1447,12 @@ Node resolveGenericType(Node? t, Map<string, Node> typeMap) {
             u.base = resolved.base;
             u.generic_args = resolved.generic_args;
             u.pointer_depth = resolved.pointer_depth + t.pointer_depth;
+            /* Preserve the nullable flag so a `T?` field over a reference type
+             * (T->string) still collapses to char* in typeToC instead of char**
+             * (gcc 15 rejects the char* = char** mismatch against the
+             * non-generic value side). Mirrors generics/core._resolve_type and
+             * type_inference._substitute_type. */
+            u.is_nullable = t.is_nullable || resolved.is_nullable;
             return u;
         }
         return resolved;

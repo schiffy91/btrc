@@ -1,0 +1,16 @@
+#include <assert.h>
+#include <string.h>
+
+// Rich enum variant carrying a STRING payload, read back through the union.
+enum class Color {
+    Named(string name),
+    RGB(int r, int g, int b)
+}
+
+int main() {
+    Color c = Color.Named("crimson");
+    assert(c.tag == Color.Named);
+    assert(strcmp(c.data.Named.name, "crimson") == 0);
+    print("PASS: test_rich_enum_string_payload");
+    return 0;
+}

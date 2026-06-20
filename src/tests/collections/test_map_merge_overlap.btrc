@@ -1,0 +1,28 @@
+/* Map.merge() with OVERLAPPING keys: existing keys are overwritten by the
+ * other map's values, and new keys are added. Only one thin merge test
+ * existed. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Map<string, int> a = {"x": 1, "y": 2};
+    Map<string, int> b = {"y": 20, "z": 30};
+
+    a.merge(b);
+
+    /* x kept, y overwritten by b's value, z added */
+    assert(a.size() == 3);
+    assert(a.get("x") == 1);
+    assert(a.get("y") == 20);
+    assert(a.get("z") == 30);
+
+    /* the source map b is unchanged */
+    assert(b.size() == 2);
+    assert(b.get("y") == 20);
+    assert(b.get("z") == 30);
+
+    a.free();
+    b.free();
+    printf("PASS: test_map_merge_overlap\n");
+    return 0;
+}

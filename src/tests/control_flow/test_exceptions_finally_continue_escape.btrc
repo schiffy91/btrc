@@ -1,0 +1,25 @@
+/* `continue` out of a try-with-finally inside a loop SKIPS the finally, identical
+ * to how `return`/`break` skip it. test_exceptions_finally_control_flow_escape pins
+ * the return and break escape paths but never the continue path — yet continue is a
+ * distinct control-flow-escape jump in the lowering. This pins the continue case so
+ * the reference and self-hosted compilers are held to identical behavior. */
+#include <assert.h>
+
+int main() {
+    int finCount = 0;
+    int body = 0;
+    for (int i = 0; i < 6; i = i + 1) {
+        try {
+            if (i % 2 == 0) { continue; }   // even i: escapes before finally
+            body = body + 1;                // only odd i reach this
+        } finally {
+            finCount = finCount + 1;        // skipped on the continue iterations
+        }
+    }
+    // even i in 0..5 -> 0,2,4 continue (skip finally); odd i -> 1,3,5 run finally.
+    assert(finCount == 3);   // only the 3 odd iterations reach the finally
+    assert(body == 3);       // only the 3 odd iterations increment body
+
+    print("PASS: test_exceptions_finally_continue_escape");
+    return 0;
+}

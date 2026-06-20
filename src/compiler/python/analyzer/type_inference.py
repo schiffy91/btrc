@@ -301,7 +301,8 @@ class TypeInferenceMixin:
             if t.pointer_depth > 0:
                 return TypeExpr(
                     base=resolved.base, generic_args=resolved.generic_args,
-                    pointer_depth=resolved.pointer_depth + t.pointer_depth)
+                    pointer_depth=resolved.pointer_depth + t.pointer_depth,
+                    is_nullable=t.is_nullable or resolved.is_nullable)
             return resolved
         if t.generic_args:
             new_args = [self._substitute_type(a, subs) for a in t.generic_args]

@@ -1,0 +1,50 @@
+/* The stdlib Error hierarchy interacting with btrc try/catch: btrc's throw
+ * carries a string, so an Error object's message (toString()) can be thrown and
+ * caught as `string`. Also verifies the structured .code routing survives the
+ * round trip via a side object. */
+#include <assert.h>
+
+int main() {
+    // Throw the message of a KeyError and catch it as a string.
+    bool caught = false;
+    try {
+        Error e = new KeyError("missing key");
+        throw e.toString();
+    } catch (string msg) {
+        caught = msg.equals("missing key");
+    }
+    assert(caught);
+
+    // The structured object can be inspected before/around the throw: a
+    // ValueError still carries code 1, an IOError code 2.
+    int seenCode = 0;
+    try {
+        Error v = new ValueError("bad input");
+        seenCode = v.code;          // structured code captured before throwing
+        throw v.message;
+    } catch (string m) {
+        assert(m.equals("bad input"));
+    }
+    assert(seenCode == 1);
+
+    // A thrown literal string is caught the same way (baseline).
+    string caughtMsg = "";
+    try {
+        throw "plain failure";
+    } catch (string m) {
+        caughtMsg = m;
+    }
+    assert(caughtMsg.equals("plain failure"));
+
+    // No throw -> catch body skipped.
+    bool ran = false;
+    try {
+        ran = true;
+    } catch (string m) {
+        ran = false;
+    }
+    assert(ran);
+
+    print("PASS: test_stdlib_error_throw_catch");
+    return 0;
+}

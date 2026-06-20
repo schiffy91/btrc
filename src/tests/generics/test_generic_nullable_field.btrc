@@ -1,0 +1,32 @@
+/* Generic class with a nullable type-parameter field (T? value) over a
+ * reference type parameter (string). Verifies null-init in the constructor, a
+ * null-coalescing read while empty, then assignment via a setter and read-back.
+ * Two independent instantiations confirm per-instance state. */
+#include <assert.h>
+#include <string.h>
+
+class Box<T> {
+    public T? value;
+    public Box() { self.value = null; }
+    public void set(T v) { self.value = v; }
+    public T? get() { return self.value; }
+}
+
+int main() {
+    Box<string> a = new Box<string>();
+    assert(a.get() == null);
+    string fallback = a.get() ?? "empty";
+    assert(strcmp(fallback, "empty") == 0);
+    a.set("hi");
+    assert(strcmp(a.get(), "hi") == 0);
+
+    Box<string> b = new Box<string>();
+    assert(b.get() == null);
+    b.set("world");
+    assert(strcmp(b.get(), "world") == 0);
+    /* a is unaffected by b */
+    assert(strcmp(a.get(), "hi") == 0);
+
+    print("PASS: test_generic_nullable_field");
+    return 0;
+}

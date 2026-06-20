@@ -1,0 +1,30 @@
+// Field default values that are non-literal expressions: arithmetic, string
+// concatenation, and a boolean expression. The corpus only tested integer- and
+// string-literal field defaults.
+#include <assert.h>
+
+class Config {
+    public int n = 2 + 3;
+    public int doubled = (2 + 3) * 2;
+    public string s = "a" + "b";
+    public bool flag = 5 > 3;
+    public int unset;
+
+    public Config() {
+        // constructor body runs AFTER field defaults are applied
+        self.unset = self.n + 1;
+    }
+}
+
+int main() {
+    Config c = Config();
+    assert(c.n == 5);
+    assert(c.doubled == 10);
+    assert(c.s == "ab");
+    assert(c.flag);
+    // constructor saw the already-defaulted field value
+    assert(c.unset == 6);
+
+    print("PASS: test_field_default_expr");
+    return 0;
+}

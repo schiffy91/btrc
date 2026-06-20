@@ -1,0 +1,46 @@
+/* The line-oriented File API: writeLine appends '\n' and returns bool, readLine
+ * strips the trailing newline, readLines returns a Vector<string>, eof() flips
+ * after the last read, and flush() is a no-op on a writable handle.
+ * Hermetic: a single temp file under a fresh temp dir, removed at the end. */
+#include <assert.h>
+
+int main() {
+    string dir = FileSystem.tempDir("btrc_file_lines");
+    assert(FileSystem.isDir(dir));
+    string path = PathTools.join(dir, "lines.txt");
+
+    // Write three lines; writeLine returns true on success.
+    File w = File(path, "w");
+    assert(w.ok());
+    assert(w.writeLine("first"));
+    assert(w.writeLine("second"));
+    assert(w.writeLine("third"));
+    w.flush();          // returns void, must not error on a live writer
+    w.close();
+
+    // readLine strips the trailing newline.
+    File r = File(path, "r");
+    assert(r.ok());
+    assert(r.readLine().equals("first"));
+    assert(r.readLine().equals("second"));
+    assert(r.readLine().equals("third"));
+    // After the last line, readLine returns "" and eof() is true.
+    assert(r.readLine().equals(""));
+    assert(r.eof());
+    r.close();
+
+    // readLines returns one entry per line, newlines stripped.
+    File rl = File(path, "r");
+    Vector<string> all = rl.readLines();
+    rl.close();
+    assert(all.len == 3);
+    assert(all.get(0).equals("first"));
+    assert(all.get(1).equals("second"));
+    assert(all.get(2).equals("third"));
+
+    FileSystem.removeRecursive(dir);
+    assert(!FileSystem.exists(dir));
+
+    print("PASS: test_stdlib_file_lines");
+    return 0;
+}

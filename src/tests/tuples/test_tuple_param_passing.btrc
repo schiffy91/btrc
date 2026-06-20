@@ -1,0 +1,17 @@
+#include <assert.h>
+
+int first((int, int) p) {
+    return p._0;
+}
+
+int second((int, int) p) {
+    return p._1;
+}
+
+int main() {
+    (int, int) t = (9, 2);
+    assert(first(t) == 9);
+    assert(second(t) == 2);
+    print("PASS: test_tuple_param_passing");
+    return 0;
+}

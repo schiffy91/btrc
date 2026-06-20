@@ -1,0 +1,22 @@
+// Single (non-mutual) forward declaration: the call site appears textually
+// BEFORE the definition, and the function is self-recursive.
+#include <assert.h>
+
+int fact(int n);   // forward declaration
+
+int main() {
+    // call before the definition appears below
+    assert(fact(0) == 1);
+    assert(fact(1) == 1);
+    assert(fact(5) == 120);
+    assert(fact(6) == 720);
+    print("PASS: test_forward_single_recursive");
+    return 0;
+}
+
+int fact(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * fact(n - 1);
+}

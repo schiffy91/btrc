@@ -1,0 +1,45 @@
+// Operator overloading: __mul__, __div__, __mod__ on a class.
+// Verifies the class-method path is taken for *, /, % and is NOT
+// shadowed by the numeric div/mod safety helpers.
+#include <assert.h>
+
+class Vec2 {
+    public int x;
+    public int y;
+    public Vec2(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+    // scale by a scalar
+    public Vec2 __mul__(int k) {
+        return Vec2(self.x * k, self.y * k);
+    }
+    // component-wise integer division by a scalar
+    public Vec2 __div__(int k) {
+        return Vec2(self.x / k, self.y / k);
+    }
+    // component-wise modulo by a scalar
+    public Vec2 __mod__(int k) {
+        return Vec2(self.x % k, self.y % k);
+    }
+}
+
+int main() {
+    Vec2 a = Vec2(2, 3);
+
+    Vec2 m = a * 2;
+    assert(m.x == 4);
+    assert(m.y == 6);
+
+    Vec2 b = Vec2(10, 21);
+    Vec2 d = b / 4;
+    assert(d.x == 2);
+    assert(d.y == 5);
+
+    Vec2 r = b % 4;
+    assert(r.x == 2);
+    assert(r.y == 1);
+
+    print("PASS: test_operator_overload_arith");
+    return 0;
+}

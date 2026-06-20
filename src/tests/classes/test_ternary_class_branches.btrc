@@ -1,0 +1,43 @@
+// Ternary whose branches are class-typed results of overloaded operators.
+// The ternary's type is inferred from the true branch; both branches must
+// lower so the chosen class value is returned correctly.
+#include <assert.h>
+
+class Vec2 {
+    public int x;
+    public int y;
+    public Vec2(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+    public Vec2 __add__(Vec2 other) {
+        return Vec2(self.x + other.x, self.y + other.y);
+    }
+    public Vec2 __sub__(Vec2 other) {
+        return Vec2(self.x - other.x, self.y - other.y);
+    }
+    public bool __eq__(Vec2 other) {
+        return self.x == other.x && self.y == other.y;
+    }
+}
+
+int main() {
+    Vec2 a = Vec2(5, 7);
+    Vec2 b = Vec2(2, 3);
+
+    bool addMode = true;
+    Vec2 r = addMode ? a + b : a - b;
+    assert(r == Vec2(7, 10));
+
+    addMode = false;
+    Vec2 s = addMode ? a + b : a - b;
+    assert(s == Vec2(3, 4));
+
+    // Ternary with string branches.
+    int score = 75;
+    string grade = score >= 60 ? "pass" : "fail";
+    assert(grade == "pass");
+
+    print("PASS: test_ternary_class_branches");
+    return 0;
+}

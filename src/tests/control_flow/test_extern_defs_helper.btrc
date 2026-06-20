@@ -1,0 +1,3 @@
+/* Defines a global that another file references via `extern`. */
+
+int shared_counter = 7;

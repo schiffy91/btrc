@@ -1,0 +1,42 @@
+/* A throw raised from inside a finally body, caught by an OUTER try. This is a
+ * distinct IR lowering path: the finally runs first, so its throw escapes and
+ * overrides the pending-rethrow machinery rather than reaching the
+ * `if (__btrc_finally_pending) ...` tail. Two sub-cases:
+ *   (a) try/finally (no catch) whose try threw AND whose finally also throws ->
+ *       the finally's value wins over the pending rethrow.
+ *   (b) try completes normally but finally throws -> outer frame catches it. */
+#include <assert.h>
+
+int main() {
+    // (a) finally-only: try throws "first", finally throws "from-finally";
+    //     the finally's throw overrides the pending rethrow of "first".
+    string got = "";
+    try {
+        try {
+            throw "first";
+        } finally {
+            throw "from-finally";
+        }
+    } catch (string e) {
+        got = e;
+    }
+    assert(got.equals("from-finally"));
+
+    // (b) try body completes normally, finally throws -> outer catches it.
+    int ran = 0;
+    string got2 = "";
+    try {
+        try {
+            ran = 1;
+        } finally {
+            throw "fin2";
+        }
+    } catch (string e) {
+        got2 = e;
+    }
+    assert(ran == 1);
+    assert(got2.equals("fin2"));
+
+    print("PASS: test_exceptions_throw_from_finally");
+    return 0;
+}

@@ -1,0 +1,23 @@
+/* Method-level generic invoked with an INLINE lambda argument (rather than a
+ * named function). Exercises lambda-lifting + __fn_ptr<U,T> binding for a
+ * monomorphized method instance. */
+#include <assert.h>
+import std.strings;
+
+class Holder<T> {
+    public T value;
+    public Holder(T v) { self.value = v; }
+    public U transform<U>(__fn_ptr<U, T> fn) { return fn(self.value); }
+}
+
+int main() {
+    Holder<int> h = new Holder<int>(21);
+    int doubled = h.transform((int x) => x * 2);
+    assert(doubled == 42);
+
+    string s = h.transform((int x) => Strings.fromInt(x + 1));
+    assert(s == "22");
+
+    print("PASS: test_method_generic_inline_lambda");
+    return 0;
+}

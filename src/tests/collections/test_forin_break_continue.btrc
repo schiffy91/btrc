@@ -1,0 +1,38 @@
+/* break / continue inside a for-in loop over a collection. for-in lowers to
+ * a C for with a synthesized index var + iterGet; break/continue must target
+ * that synthesized loop correctly. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Vector<int> v = [1, 2, 3, 4, 5];
+
+    /* skip evens (continue) and stop at 4 (break): sum 1 + 3 */
+    int s = 0;
+    for x in v {
+        if (x == 4) { break; }
+        if (x % 2 == 0) { continue; }
+        s += x;
+    }
+    assert(s == 4);
+
+    /* break stops iteration: count how many were visited before x==3 */
+    int visited = 0;
+    for x in v {
+        visited += 1;
+        if (x == 3) { break; }
+    }
+    assert(visited == 3);
+
+    /* continue alone visits every element */
+    int total = 0;
+    for x in v {
+        if (false) { continue; }
+        total += x;
+    }
+    assert(total == 15);
+
+    v.free();
+    printf("PASS: test_forin_break_continue\n");
+    return 0;
+}

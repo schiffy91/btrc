@@ -1,0 +1,22 @@
+#include <assert.h>
+
+int main() {
+    // void* generic pointer: round-trip through (void*) and back
+    int x = 5;
+    void* vp = (void*)&x;
+    int* ip = (int*)vp;
+    assert(*ip == 5);
+
+    // mutate through the recovered pointer
+    *ip = 42;
+    assert(x == 42);
+
+    // round-trip a double through void*
+    double d = 2.5;
+    void* dvp = (void*)&d;
+    double* dp = (double*)dvp;
+    assert(*dp > 2.4 && *dp < 2.6);
+
+    print("PASS: test_void_pointer");
+    return 0;
+}

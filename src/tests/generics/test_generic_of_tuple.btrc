@@ -1,0 +1,21 @@
+/* Generic class parameterized by a tuple type: Box<(int, string)>. Verifies a
+ * tuple stored as T survives a value-copy through the field and the elements
+ * are accessible after get(). */
+#include <assert.h>
+#include <string.h>
+
+class Box<T> {
+    public T v;
+    public Box(T x) { self.v = x; }
+    public T get() { return self.v; }
+}
+
+int main() {
+    Box<(int, string)> b = new Box<(int, string)>((1, "a"));
+    (int, string) t = b.get();
+    assert(t._0 == 1);
+    assert(strcmp(t._1, "a") == 0);
+
+    print("PASS: test_generic_of_tuple");
+    return 0;
+}

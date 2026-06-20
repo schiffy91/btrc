@@ -1,0 +1,38 @@
+// Calling sibling methods internally via self.method() — including a private
+// helper invoked from a public method. The corpus only exercised self.<field>,
+// never self.<method>().
+#include <assert.h>
+
+class Calc {
+    private int base;
+
+    public Calc(int base) {
+        self.base = base;
+    }
+
+    private int helper(int x) {
+        return x + self.base;
+    }
+
+    public int compute(int x) {
+        // public method calls a private sibling method through self
+        return self.helper(x) * 2;
+    }
+
+    public int doubleCompute(int x) {
+        // method calling another public method through self
+        return self.compute(x) + self.compute(x);
+    }
+}
+
+int main() {
+    Calc c = Calc(10);
+    assert(c.compute(5) == 30);
+    assert(c.doubleCompute(5) == 60);
+
+    Calc d = Calc(0);
+    assert(d.compute(7) == 14);
+
+    print("PASS: test_self_method_call");
+    return 0;
+}

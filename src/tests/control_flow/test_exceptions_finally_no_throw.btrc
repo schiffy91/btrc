@@ -1,0 +1,30 @@
+/* finally runs when the try block falls through normally (no throw, no catch).
+ * Existing test_try_finally only throws; nothing pins down that finally executes
+ * on the normal-exit path of a bare try/finally. Also checks finally observes the
+ * try block's side effects (sequencing). */
+#include <assert.h>
+
+int main() {
+    int v = 0;
+    try {
+        v = 1;          // try completes normally
+    } finally {
+        assert(v == 1); // finally sees the try's write
+        v = 2;          // finally still runs on the fall-through path
+    }
+    assert(v == 2);
+
+    // A try/finally whose body computes a value: finally runs after it.
+    int sum = 0;
+    int fin = 0;
+    try {
+        for (int i = 1; i <= 4; i = i + 1) { sum = sum + i; }
+    } finally {
+        fin = 1;
+    }
+    assert(sum == 10);
+    assert(fin == 1);
+
+    print("PASS: test_exceptions_finally_no_throw");
+    return 0;
+}

@@ -1,0 +1,28 @@
+// Empty loop bodies: while(...){}, for(...){}, for x in range(n){} with no
+// statements. Empty-block lowering is a common edge a self-hosted emitter
+// botches (e.g. emitting `;` vs `{}` and dropping the index update).
+#include <assert.h>
+
+int main() {
+    // C-for with empty body: the update clause alone advances i to 5
+    int i = 0;
+    for (; i < 5; i++) {}
+    assert(i == 5);
+
+    // range for-in with empty body still iterates n times (no observable effect
+    // here, just must compile and not crash)
+    for j in range(3) {}
+
+    // while(false) with empty body never executes
+    int ran = 0;
+    while (false) {}
+    assert(ran == 0);
+
+    // while loop with empty body but a side-effecting condition
+    int n = 0;
+    while (n++ < 4) {}
+    assert(n == 5); // increments until n becomes 5 (last test 4<4 false)
+
+    print("PASS: test_empty_bodies");
+    return 0;
+}

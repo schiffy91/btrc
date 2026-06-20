@@ -1,0 +1,28 @@
+#include <assert.h>
+
+int main() {
+    // Nullable applied to a generic type argument: Vector<int?>
+    int a = 7;
+    int b = 9;
+    Vector<int?> v = [];
+    v.push(null);
+    v.push(&a);
+    v.push(&b);
+
+    assert(v[0] == null);
+    assert(v[1] != null);
+    assert(*v[1] == 7);
+    assert(*v[2] == 9);
+
+    // Nullable as a Map value type: Map<string, int?>
+    Map<string, int?> m = {};
+    m["here"] = &a;
+    m["gone"] = null;
+
+    assert(m["here"] != null);
+    assert(*m["here"] == 7);
+    assert(m["gone"] == null);
+
+    print("PASS: test_nullable_generic_element");
+    return 0;
+}

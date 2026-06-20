@@ -1,0 +1,23 @@
+/* An inline LIST LITERAL of user-generic elements at construction:
+ * Vector<Box<int>> v = [new Box<int>(1), ...]. The existing
+ * test_vector_of_user_generic / test_vector_of_two_param_generic build the
+ * vector with `[]` + push() only; this exercises the list-literal element-init
+ * path for user-generic elements (each element a `new Box<int>(...)` evaluated
+ * into the literal). */
+#include <assert.h>
+import std.vector;
+
+class Box<T> {
+    public T v;
+    public Box(T x) { self.v = x; }
+    public T get() { return self.v; }
+}
+
+int main() {
+    Vector<Box<int>> v = [new Box<int>(1), new Box<int>(2), new Box<int>(3)];
+    assert(v.len == 3);
+    assert(v.get(0).get() + v.get(1).get() + v.get(2).get() == 6);
+
+    print("PASS: test_vector_literal_of_user_generic");
+    return 0;
+}

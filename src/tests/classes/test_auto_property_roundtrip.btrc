@@ -1,0 +1,35 @@
+// Auto-property { get; set; } full round-trip: set then re-read, read-modify-write,
+// and independent backing storage across two distinct instances.
+#include <assert.h>
+
+class Account {
+    public int balance { get; set; }
+    public string owner { get; set; }
+}
+
+int main() {
+    Account a = Account();
+    Account b = Account();
+
+    a.balance = 3;
+    b.balance = 7;
+    a.owner = "alice";
+    b.owner = "bob";
+
+    // set -> get cycle
+    assert(a.balance == 3);
+    assert(b.balance == 7);
+    assert(a.owner == "alice");
+    assert(b.owner == "bob");
+
+    // read-modify-write through the auto-property
+    a.balance = a.balance + 10;
+    assert(a.balance == 13);
+
+    // the two instances have independent backing fields
+    assert(b.balance == 7);
+    assert(b.owner == "bob");
+
+    print("PASS: test_auto_property_roundtrip");
+    return 0;
+}

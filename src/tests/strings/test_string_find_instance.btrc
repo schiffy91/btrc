@@ -1,0 +1,16 @@
+// Instance .find(sub, start): search from an explicit byte offset.
+#include <assert.h>
+
+int main() {
+    string s = "abcabc";
+    assert(s.find("bc", 0) == 1);
+    assert(s.find("bc", 2) == 4);
+    assert(s.find("z", 0) == -1);
+
+    // start past the only match yields -1
+    assert(s.find("abc", 1) == 3);
+    assert(s.find("abc", 4) == -1);
+
+    print("PASS: test_string_find_instance");
+    return 0;
+}

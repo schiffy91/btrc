@@ -1,0 +1,26 @@
+// Bare named top-level functions used as first-class function-pointer
+// values: bound to explicit __fn_ptr locals, invoked, and composed.
+#include <assert.h>
+
+int twice(int x) {
+    return x * 2;
+}
+
+int negate(int x) {
+    return -x;
+}
+
+int main() {
+    __fn_ptr<int, int> f = twice;
+    assert(f(21) == 42);
+
+    __fn_ptr<int, int> g = negate;
+    assert(g(5) == -5);
+
+    // compose two function-pointer values
+    assert(f(g(3)) == -6);   // twice(negate(3)) = twice(-3)
+    assert(g(f(4)) == -8);   // negate(twice(4)) = negate(8)
+
+    print("PASS: test_fnptr_as_param_value");
+    return 0;
+}

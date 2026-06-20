@@ -1,0 +1,7 @@
+/* Leaf of the include diamond: defined once, included via two paths. */
+
+class Leaf {
+    class int value() {
+        return 100;
+    }
+}

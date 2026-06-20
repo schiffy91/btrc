@@ -1,0 +1,33 @@
+/* Deterministic scope-exit destructor ORDER for multiple managed locals:
+ * objects are released in REVERSE declaration order. Each __del__ appends its
+ * tag to a global; at scope exit the order must be c,b,a. */
+#include <assert.h>
+
+string order = "";
+
+class Tagged {
+    public string tag;
+
+    public Tagged(string tag) {
+        self.tag = tag;
+    }
+
+    public void __del__() {
+        order += self.tag;
+    }
+}
+
+int main() {
+    {
+        Tagged a = new Tagged("a");
+        Tagged b = new Tagged("b");
+        Tagged c = new Tagged("c");
+        assert(a.tag.equals("a"));
+        assert(c.tag.equals("c"));
+        // scope exit releases in reverse declaration order: c, then b, then a.
+    }
+    assert(order.equals("cba"));
+
+    print("PASS: test_destructor_order");
+    return 0;
+}

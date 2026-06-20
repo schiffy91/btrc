@@ -1,0 +1,26 @@
+#include <assert.h>
+// Thread<bool>: join() must round-trip a boolean payload from a spawned lambda.
+int main() {
+    Thread<bool> t1 = spawn(() => {
+        return true;
+    });
+    bool r1 = t1.join();
+    assert(r1 == true);
+
+    Thread<bool> t2 = spawn(() => {
+        int x = 3;
+        int y = 4;
+        return x + y == 7;
+    });
+    bool r2 = t2.join();
+    assert(r2 == true);
+
+    Thread<bool> t3 = spawn(() => {
+        return 10 < 5;
+    });
+    bool r3 = t3.join();
+    assert(r3 == false);
+
+    print("PASS: test_thread_bool_result");
+    return 0;
+}

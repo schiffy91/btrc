@@ -1,0 +1,15 @@
+/* Cross-include extern linkage: the global is defined in an included btrc file
+   and referenced here via an `extern` declaration. Combines #include splicing
+   with the extern variable path. */
+#include "test_extern_defs_helper.btrc"
+#include <assert.h>
+
+extern int shared_counter;
+
+int main() {
+    assert(shared_counter == 7);
+    shared_counter += 35;
+    assert(shared_counter == 42);
+    print("PASS: test_interop_extern_across_include");
+    return 0;
+}

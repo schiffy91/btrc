@@ -1,0 +1,37 @@
+import ./cunion/num.c
+
+#include <assert.h>
+
+// `union IDENT` as a base_type (grammar.ebnf line 275). `union` is interop-only
+// in btrc — it has no declaration form (grammar line 30) — so `union Num` is
+// defined in a raw C file (cunion/num.c) pulled in via the `.c` import path.
+// Here the C union is used as a btrc local var, via pointer deref, as a function
+// parameter, and as a C-array element. `struct IDENT` interop has 12 corpus
+// files; this closes the parallel gap for `union IDENT`.
+int as_int(union Num n) { return n.i; }
+
+int main() {
+    union Num a;
+    a.i = 42;
+    assert(a.i == 42);
+
+    // Overlapping storage: writing the float member changes the int view.
+    a.f = 0.0;
+    assert(a.i == 0);
+    a.i = 42;
+
+    union Num* p = &a;
+    assert(p->i == 42);
+    p->i = 99;
+    assert(a.i == 99);
+
+    assert(as_int(a) == 99);
+
+    union Num arr[2];
+    arr[0].i = 1;
+    arr[1].i = 2;
+    assert(arr[0].i + arr[1].i == 3);
+
+    print("PASS: test_interop_union_base_type");
+    return 0;
+}

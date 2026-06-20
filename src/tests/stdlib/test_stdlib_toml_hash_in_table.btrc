@@ -1,0 +1,35 @@
+/* Toml inline-comment stripping must NOT cut a '#' that lives inside a quoted
+ * string, including inside a [[table]] block and for both single- and
+ * double-quoted literals. */
+#include <assert.h>
+
+int main() {
+    string doc =
+        "[[srv]]\n" +
+        "url = \"http://x#frag\" # real comment\n" +
+        "name = 'a#b' # comment\n" +
+        "\n" +
+        "[[srv]]\n" +
+        "url = \"https://y\"\n" +
+        "name = \"plain\"\n";
+
+    var blocks = Toml.tableArrayBlocks(doc, "srv");
+    assert(blocks.len == 2);
+
+    // First block: the '#' inside the double-quoted URL survives; the trailing
+    // comment is stripped.
+    assert(blocks.get(0).getOrDefault("url", "").equals("http://x#frag"));
+    // The '#' inside the single-quoted literal survives too.
+    assert(blocks.get(0).getOrDefault("name", "").equals("a#b"));
+
+    // Second block parses normally.
+    assert(blocks.get(1).getOrDefault("url", "").equals("https://y"));
+    assert(blocks.get(1).getOrDefault("name", "").equals("plain"));
+
+    // Direct value() checks for the same hazard.
+    assert(Toml.value("u = \"a#b\" # c").equals("a#b"));
+    assert(Toml.value("u = 'a#b' # c").equals("a#b"));
+
+    print("PASS: test_stdlib_toml_hash_in_table");
+    return 0;
+}

@@ -1,0 +1,37 @@
+// Compound bitwise/shift assignment operators: <<=, >>=, &=, |=, ^=.
+// These five assign_ops are in the grammar but otherwise unexercised.
+#include <assert.h>
+
+int main() {
+    int x = 0b1010;   // 10
+
+    x <<= 2;          // 40
+    assert(x == 40);
+
+    x |= 1;           // 41
+    assert(x == 41);
+
+    x &= 0xFE;        // clear low bit -> 40
+    assert(x == 40);
+
+    x ^= 3;           // flip low two bits -> 43
+    assert(x == 43);
+
+    x >>= 1;          // 21
+    assert(x == 21);
+
+    // Compound bitwise inside a loop accumulator.
+    int flags = 0;
+    for (int i = 0; i < 4; i++) {
+        flags |= (1 << i);
+    }
+    assert(flags == 0b1111);
+
+    // RHS is an expression.
+    int y = 0xF0;
+    y &= (0x0F | 0x30);
+    assert(y == 0x30);
+
+    print("PASS: test_compound_bitwise_assign");
+    return 0;
+}

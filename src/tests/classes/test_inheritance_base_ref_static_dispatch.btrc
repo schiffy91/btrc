@@ -1,0 +1,31 @@
+/* Dispatch in btrc is STATIC: a method call resolves by the receiver's
+ * DECLARED type, not its runtime type. Assigning a Dog into an Animal-typed
+ * variable and calling speak() invokes Animal.speak (the base "..."), never
+ * Dog.speak. This pins btrc's no-virtual-dispatch contract. */
+#include <assert.h>
+
+class Animal {
+    public string name;
+    public Animal(string name) { self.name = name; }
+    public string speak() { return "..."; }
+}
+
+class Dog extends Animal {
+    public Dog(string name) { self.name = name; }
+    public string speak() { return "Woof"; }
+}
+
+int main() {
+    // Called through its own declared type -> Dog.speak.
+    Dog d = Dog("Rex");
+    assert(d.speak() == "Woof");
+
+    // Upcast to the base type -> dispatch resolves to Animal.speak,
+    // NOT the runtime Dog override. The inherited field is still readable.
+    Animal a = Dog("Buddy");
+    assert(a.speak() == "...");
+    assert(a.name == "Buddy");
+
+    print("PASS: test_inheritance_base_ref_static_dispatch");
+    return 0;
+}

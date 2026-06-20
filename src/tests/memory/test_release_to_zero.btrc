@@ -1,0 +1,42 @@
+/* `release` that drops the refcount to exactly zero must run the destructor and
+ * null the handle. Existing release tests only release down to rc>0 (leaving a
+ * leak); this exercises the destroy-at-zero branch of release. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+int main() {
+    // Release a freshly-created object (rc=1) straight to zero: destructor runs.
+    Obj o = new Obj(1);
+    assert(alive == 1);
+    release o;               // rc 1 -> 0 -> destroyed
+    assert(o == null);
+    assert(alive == 0);
+
+    // keep then two releases reaches zero on the second release.
+    Obj p = new Obj(2);      // rc 1
+    keep p;                  // rc 2
+    assert(alive == 1);
+    release p;               // rc 1, p nulled, not destroyed
+    assert(p == null);
+    assert(alive == 1);
+    // p is now null; releasing it again is a guarded no-op (handle is null).
+    release p;
+    assert(alive == 1);      // still leaked at rc=1 (no live handle)
+
+    print("PASS: test_release_to_zero");
+    return 0;
+}

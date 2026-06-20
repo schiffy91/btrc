@@ -1,0 +1,46 @@
+// C-style for with empty/omitted clauses: for(;;), for(;cond;), for(init;;update).
+// The parser allows any clause to be None, but no test omits any clause.
+#include <assert.h>
+
+int main() {
+    // all three clauses omitted: for(;;) with an explicit break
+    int i = 0;
+    for (;;) {
+        i++;
+        if (i == 5) {
+            break;
+        }
+    }
+    assert(i == 5);
+
+    // init and update omitted: condition-only loop (acts like while)
+    int j = 0;
+    for (; j < 3; ) {
+        j++;
+    }
+    assert(j == 3);
+
+    // condition omitted: init + update present, break to exit
+    int sum = 0;
+    for (int k = 0; ; k++) {
+        if (k >= 4) {
+            break;
+        }
+        sum += k;
+    }
+    assert(sum == 6); // 0+1+2+3
+
+    // update omitted: init + condition present, mutate inside body
+    int m = 0;
+    int iters = 0;
+    for (int x = 0; x < 10;) {
+        x += 3;
+        m = x;
+        iters++;
+    }
+    assert(iters == 4); // 3, 6, 9, 12
+    assert(m == 12);
+
+    print("PASS: test_cfor_empty_clauses");
+    return 0;
+}

@@ -53,8 +53,10 @@ from ..nodes import (
 from .arc import (
     _emit_loop_exit_release,
     _emit_return_release,
+    _emit_return_try_pop,
     _emit_scope_release,
     _lower_release,
+    _maybe_launder_return,
 )
 from .errors import unsupported_node
 from .expressions import lower_expr
@@ -130,8 +132,15 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         return _lower_var_decl(gen, node)
 
     if isinstance(node, ReturnStmt):
+        # When the `return` is lexically inside a try block, the try's normal-exit
+        # cleanup-discard + try-stack pop would be skipped (they sit after the
+        # `return` as dead code). Emit them here, after the managed-local release
+        # but before the `return`, so the returned object's cleanup is discarded
+        # (it escapes — must stay alive) and the try level is popped.
+        try_pop = _emit_return_try_pop(gen)
         if node.value is None:
-            return _emit_return_release(gen, None) + [IRReturn(value=None)]
+            return (_emit_return_release(gen, None) + try_pop
+                    + [IRReturn(value=None)])
         if isinstance(node.value, Identifier):
             val = lower_expr(gen, node.value)
             value_type = gen.analyzed.node_types.get(id(node.value))
@@ -139,26 +148,29 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
                                              value_type, val)
             if coerced is not val:
                 release_stmts = _emit_return_release(gen, None)
-                if not release_stmts:
-                    return [IRReturn(value=coerced)]
+                if not release_stmts and not try_pop:
+                    return [IRReturn(value=_maybe_launder_return(gen, coerced))]
                 tmp = gen.fresh_temp("__btrc_ret")
                 decl = IRVarDecl(c_type=CType(text=gen.current_return_c_type),
                                  name=tmp, init=coerced)
-                return [decl] + release_stmts + [IRReturn(value=IRVar(name=tmp))]
+                return ([decl] + release_stmts + try_pop
+                        + [IRReturn(value=_maybe_launder_return(
+                            gen, IRVar(name=tmp)))])
             # Returning a bare local transfers ownership to the caller, so it is
             # excluded from the scope release rather than being decref'd.
             release_stmts = _emit_return_release(gen, node.value.name)
-            return release_stmts + [IRReturn(value=val)]
+            return (release_stmts + try_pop
+                    + [IRReturn(value=_maybe_launder_return(gen, val))])
         # Returning a non-trivial expression.
         val = lower_expr(gen, node.value)
         value_type = gen.analyzed.node_types.get(id(node.value))
         val = coerce_value_to_string(gen, gen.current_return_type, value_type, val)
         release_stmts = _emit_return_release(gen, None)
-        if not release_stmts:
+        if not release_stmts and not try_pop:
             # Nothing to release: a plain `return expr;` is correct and needs no
             # temp. This is the common case (most functions have no managed
             # locals) and keeps the output minimal.
-            return [IRReturn(value=val)]
+            return [IRReturn(value=_maybe_launder_return(gen, val))]
         # Managed locals must be released AFTER the value is computed (so the
         # expression may still reference them) but BEFORE returning — otherwise
         # the release frees objects the return expression still uses (a
@@ -172,7 +184,8 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
         tmp = gen.fresh_temp("__btrc_ret")
         decl = IRVarDecl(c_type=CType(text=gen.current_return_c_type),
                          name=tmp, init=val)
-        return [decl] + release_stmts + [IRReturn(value=IRVar(name=tmp))]
+        return ([decl] + release_stmts + try_pop
+                + [IRReturn(value=_maybe_launder_return(gen, IRVar(name=tmp)))])
 
     if isinstance(node, IfStmt):
         return [_lower_if(gen, node)]

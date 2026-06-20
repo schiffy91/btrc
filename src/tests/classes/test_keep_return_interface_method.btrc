@@ -1,0 +1,33 @@
+/* keep-return on an interface method: an interface method signature may carry a
+ * leading `keep` qualifier, and the implementing class provides a `keep`
+ * return. Exercises the ARC interaction with interface-declared returns. */
+#include <assert.h>
+
+class Thing {
+    public int v;
+    public Thing(int v) { self.v = v; }
+}
+
+interface Factory {
+    keep Thing make();
+}
+
+class ThingFactory implements Factory {
+    public int seed;
+    public ThingFactory(int seed) { self.seed = seed; }
+    public keep Thing make() { return Thing(self.seed); }
+}
+
+int main() {
+    ThingFactory f = ThingFactory(99);
+    Thing t = f.make();
+    assert(t.v == 99);
+
+    Thing u = f.make();
+    assert(u.v == 99);
+    // Two independently-kept instances.
+    assert(t.v == u.v);
+
+    print("PASS: test_keep_return_interface_method");
+    return 0;
+}

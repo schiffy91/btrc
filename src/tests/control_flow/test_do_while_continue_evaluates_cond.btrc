@@ -1,0 +1,34 @@
+// do-while where `continue` must still fall through to the condition test
+// (a self-hosted compiler that emits continue as a jump skipping the condition
+// would loop forever or terminate early). Also mutates state in the condition.
+#include <assert.h>
+
+int main() {
+    int i = 0;
+    int seen = 0;
+    do {
+        i++;
+        if (i % 2 == 0) {
+            continue; // must NOT skip the `while (i < 6)` check
+        }
+        seen++;
+    } while (i < 6);
+    assert(i == 6);   // loop terminated normally despite continues
+    assert(seen == 3); // odd i: 1, 3, 5
+
+    // continue on the last iteration must still evaluate the (now false) cond
+    int j = 0;
+    int body_runs = 0;
+    do {
+        j++;
+        body_runs++;
+        if (j == 3) {
+            continue;
+        }
+    } while (j < 3);
+    assert(j == 3);
+    assert(body_runs == 3);
+
+    print("PASS: test_do_while_continue_evaluates_cond");
+    return 0;
+}

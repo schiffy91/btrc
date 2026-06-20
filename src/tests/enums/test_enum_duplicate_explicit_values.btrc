@@ -1,0 +1,19 @@
+#include <assert.h>
+#include <string.h>
+
+// Two simple-enum constants sharing the same explicit value (aliases).
+// Both names resolve to the same underlying integer.
+enum Status { OK = 0, SUCCESS = 0, FAIL = 1 };
+
+int main() {
+    assert(OK == 0);
+    assert(SUCCESS == 0);
+    assert(OK == SUCCESS);
+    assert(FAIL == 1);
+
+    int s = SUCCESS;
+    assert(s == OK);
+
+    print("PASS: test_enum_duplicate_explicit_values");
+    return 0;
+}

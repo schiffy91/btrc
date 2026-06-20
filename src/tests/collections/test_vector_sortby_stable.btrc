@@ -1,0 +1,50 @@
+/* sortBy must be a STABLE sort: elements with equal sort keys keep their
+ * original relative order. sortedBy is non-mutating. */
+#include <assert.h>
+#include <string.h>
+#include <stdio.h>
+
+class Item {
+    public string tag;
+    public int key;
+    public Item(string tag, int key) {
+        self.tag = tag;
+        self.key = key;
+    }
+}
+
+int main() {
+    /* three items share key 1, in input order a, b, c; one item has key 0 */
+    Vector<Item> v = [];
+    v.push(new Item("a", 1));
+    v.push(new Item("b", 1));
+    v.push(new Item("z", 0));
+    v.push(new Item("c", 1));
+
+    /* sortedBy is non-mutating: returns a sorted copy, leaves v alone */
+    Vector<Item> s = v.sortedBy((Item p, Item q) => p.key < q.key);
+    /* original order preserved in v */
+    assert(strcmp(v.get(0).tag, "a") == 0);
+    assert(strcmp(v.get(1).tag, "b") == 0);
+    assert(strcmp(v.get(2).tag, "z") == 0);
+    assert(strcmp(v.get(3).tag, "c") == 0);
+
+    /* sorted copy: key 0 first, then the three key-1 items in original a,b,c order */
+    assert(s.get(0).key == 0);
+    assert(strcmp(s.get(0).tag, "z") == 0);
+    assert(strcmp(s.get(1).tag, "a") == 0);
+    assert(strcmp(s.get(2).tag, "b") == 0);
+    assert(strcmp(s.get(3).tag, "c") == 0);
+
+    /* now mutate v in place and confirm the same stable ordering */
+    v.sortBy((Item p, Item q) => p.key < q.key);
+    assert(strcmp(v.get(0).tag, "z") == 0);
+    assert(strcmp(v.get(1).tag, "a") == 0);
+    assert(strcmp(v.get(2).tag, "b") == 0);
+    assert(strcmp(v.get(3).tag, "c") == 0);
+
+    v.free();
+    s.free();
+    printf("PASS: test_vector_sortby_stable\n");
+    return 0;
+}

@@ -1,0 +1,32 @@
+// Lambda capturing a `string` local (non-primitive, ref-counted capture
+// field). Mirrors test_lambda_capture_value_semantics but for string:
+// the closure snapshots the captured string at creation time.
+#include <assert.h>
+
+int main() {
+    string prefix = "hi-";
+    var f = (string s) => f"{prefix}{s}";   // captures prefix == "hi-"
+
+    string r = f("x");
+    assert(r == "hi-x");
+
+    string r2 = f("yz");
+    assert(r2 == "hi-yz");
+
+    // mutate the outer local AFTER capture; f keeps the snapshot
+    prefix = "bye-";
+    string r3 = f("x");
+    assert(r3 == "hi-x");        // still the captured "hi-"
+
+    // a second lambda created AFTER the mutation captures the new value
+    var g = (string s) => f"{prefix}{s}";   // captures prefix == "bye-"
+    string r4 = g("x");
+    assert(r4 == "bye-x");
+
+    // and f is still unaffected
+    string r5 = f("x");
+    assert(r5 == "hi-x");
+
+    print("PASS: test_lambda_capture_string");
+    return 0;
+}

@@ -1,0 +1,20 @@
+// for-in over a string + char-in-f-string + concat: rebuild a string char by char.
+#include <assert.h>
+
+int main() {
+    string out = "";
+    for c in "abc" {
+        out = out + f"{c}";
+    }
+    assert(out.equals("abc"));
+
+    // reverse via prepend, exercising the same concat path
+    string rev = "";
+    for c in "xyz" {
+        rev = f"{c}" + rev;
+    }
+    assert(rev.equals("zyx"));
+
+    print("PASS: test_fstring_char_iter_rebuild");
+    return 0;
+}

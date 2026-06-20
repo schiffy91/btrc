@@ -1,0 +1,5 @@
+class Greeting {
+    class string text() {
+        return "hello-from-relative";
+    }
+}

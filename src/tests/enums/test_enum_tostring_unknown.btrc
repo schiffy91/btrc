@@ -1,0 +1,13 @@
+#include <assert.h>
+#include <string.h>
+
+// toString of an out-of-range value hits the default 'unknown' arm.
+enum Color { RED, GREEN, BLUE };
+
+int main() {
+    Color c = (Color)99;
+    assert(strcmp(c.toString(), "unknown") == 0);
+    assert(strcmp(Color_toString(GREEN), "GREEN") == 0);
+    print("PASS: test_enum_tostring_unknown");
+    return 0;
+}

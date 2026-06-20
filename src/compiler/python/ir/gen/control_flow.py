@@ -100,6 +100,17 @@ def _require_setjmp(gen: IRGenerator):
 
 def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
     """Lower try/catch to setjmp/longjmp boilerplate."""
+    # Mark that everything lowered for this construct (try body, catch, finally)
+    # lives inside a try/catch, so class-pointer returns get laundered against
+    # the gcc -O2 setjmp cross-branch miscompilation (see _lower_return).
+    gen.in_trycatch_depth += 1
+    try:
+        return _lower_try_catch_inner(gen, node)
+    finally:
+        gen.in_trycatch_depth -= 1
+
+
+def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
     from .statements import lower_block
     _require_setjmp(gen)
     gen.use_helper("__btrc_trycatch_globals")

@@ -17,6 +17,7 @@ from ..nodes import (
     IRFieldAccess,
     IRIf,
     IRLiteral,
+    IRRawC,
     IRRawExpr,
     IRStmt,
     IRUnaryOp,
@@ -251,6 +252,75 @@ def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRS
             )]),
         ))
     return stmts
+
+
+def _emit_return_try_pop(gen: IRGenerator) -> list[IRStmt]:
+    """When a `return` is lexically inside one or more open try blocks, emit the
+    try-level cleanup DISCARD and try-stack pop that the try's normal-exit tail
+    would otherwise run — but which a `return` jumps over, leaving them as dead
+    code after the `return`.
+
+    Without this, the returned object's cleanup entry stays registered (pointing
+    at memory the caller will later own/free) and the try level stays on the
+    stack; a subsequent `__btrc_throw` then runs that stale cleanup -> use-after-
+    free. We DISCARD (not release) the cleanups: the returned object escapes and
+    must stay alive, and the non-returned managed locals were already released by
+    ``_emit_return_release`` just before this.
+
+    The function's open try levels occupy ``[base+1 .. __btrc_try_top]`` where
+    ``base = __btrc_try_top - gen.in_try_depth``; so discard every cleanup at
+    ``try_level >= base + 1`` and pop ``gen.in_try_depth`` levels.
+    """
+    if gen.in_try_depth <= 0:
+        return []
+    stmts: list[IRStmt] = []
+    # Only discard cleanups if any were registered (mirrors the gate the try's
+    # normal-exit tail uses); a try with no managed locals registers none.
+    if "__btrc_register_cleanup" in gen._used_helpers:
+        gen.use_helper("__btrc_discard_cleanups")
+        depth = gen.in_try_depth
+        # level = __btrc_try_top - (in_try_depth - 1)
+        if depth == 1:
+            level_text = "__btrc_try_top"
+        else:
+            level_text = f"__btrc_try_top - {depth - 1}"
+        stmts.append(IRExprStmt(expr=IRCall(
+            callee="__btrc_discard_cleanups",
+            args=[IRRawExpr(text=level_text)],
+            helper_ref="__btrc_discard_cleanups")))
+    # Pop this function's open try levels off the try stack.
+    if gen.in_try_depth == 1:
+        stmts.append(IRRawC(text="__btrc_try_top--;"))
+    else:
+        stmts.append(IRRawC(text=f"__btrc_try_top -= {gen.in_try_depth};"))
+    return stmts
+
+
+def _maybe_launder_return(gen: IRGenerator, value):
+    """Launder a class-pointer return value through ``__btrc_launder`` when the
+    ``return`` is lowered inside a try/catch construct.
+
+    gcc -O2 (notably nix's fortify hardening, which forces -O2) miscompiles the
+    setjmp(...)==0 vs catch branches of a try/catch: for a freshly-built object
+    that doesn't otherwise escape, its points-to / store-merging folds the two
+    branches' field inits together and drops the catch object's initialization,
+    so the returned object reads back the wrong field values. Routing the
+    returned pointer through a volatile slot makes it escape, defeating that
+    fold. Identity at runtime; only applied to managed class-pointer returns
+    inside a try/catch so ordinary code is untouched.
+    """
+    if gen.in_trycatch_depth <= 0:
+        return value
+    rt = gen.current_return_type
+    if rt is None:
+        return value
+    if rt.base not in gen.analyzed.class_table:
+        return value
+    gen.use_helper("__btrc_launder")
+    from ..nodes import IRCall, IRCast
+    laundered = IRCall(callee="__btrc_launder",
+                       args=[value], helper_ref="__btrc_launder")
+    return IRCast(target_type=gen.current_return_c_type, expr=laundered)
 
 
 def _emit_loop_exit_release(gen: IRGenerator) -> list[IRStmt]:

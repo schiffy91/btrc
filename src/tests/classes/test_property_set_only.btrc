@@ -1,0 +1,36 @@
+// A property with ONLY a `set` accessor (no getter). The setter writes the
+// backing field; the stored value is observable through a separate getter
+// method. Exercises the set-only property form independently of get-only,
+// auto, and get+set properties already covered by the corpus.
+#include <assert.h>
+
+class Logger {
+    private string last;
+
+    public Logger() {
+        self.last = "";
+    }
+
+    // set-only property: no getter, writes the backing field via the setter
+    public string message {
+        set { self.last = value; }
+    }
+
+    public string getLast() {
+        return self.last;
+    }
+}
+
+int main() {
+    Logger l = Logger();
+
+    l.message = "hello";
+    assert(l.getLast() == "hello");
+
+    // a second assignment overwrites the backing field through the setter
+    l.message = "world";
+    assert(l.getLast() == "world");
+
+    print("PASS: test_property_set_only");
+    return 0;
+}

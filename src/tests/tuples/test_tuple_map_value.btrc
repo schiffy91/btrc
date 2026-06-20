@@ -1,0 +1,12 @@
+#include <assert.h>
+
+int main() {
+    Map<string, (int, int)> m = {};
+    m.put("k", (3, 4));
+    m.put("j", (5, 6));
+    assert(m.get("k")._0 == 3);
+    assert(m.get("k")._1 == 4);
+    assert(m.get("j")._1 == 6);
+    print("PASS: test_tuple_map_value");
+    return 0;
+}

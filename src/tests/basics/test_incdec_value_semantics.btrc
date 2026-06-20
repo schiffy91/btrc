@@ -1,0 +1,41 @@
+// Postfix returns the OLD value; prefix returns the NEW value. Covers both
+// ++ and -- in rvalue position, which statement-form tests do not pin down.
+#include <assert.h>
+
+int main() {
+    // Postfix increment: a gets old value, i is bumped after.
+    int i = 5;
+    int a = i++;
+    assert(a == 5);
+    assert(i == 6);
+
+    // Postfix decrement: b gets old value.
+    int b = i--;
+    assert(b == 6);
+    assert(i == 5);
+
+    // Prefix increment: c gets new value.
+    int j = 5;
+    int c = ++j;
+    assert(c == 6);
+    assert(j == 6);
+
+    // Prefix decrement: d gets new value.
+    int d = --j;
+    assert(d == 5);
+    assert(j == 5);
+
+    // Used directly inside a larger expression.
+    int k = 10;
+    int e = k++ + 1;   // 10 + 1, then k -> 11
+    assert(e == 11);
+    assert(k == 11);
+
+    int m = 10;
+    int g = ++m + 1;   // m -> 11, then 11 + 1
+    assert(g == 12);
+    assert(m == 11);
+
+    print("PASS: test_incdec_value_semantics");
+    return 0;
+}

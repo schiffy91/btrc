@@ -131,6 +131,13 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             args = order_args_for_params(
                 gen, method.params, node.args,
                 arg_names_for(node, len(node.args)), args)
+            # Upcast args whose declared param type is a class type parameter
+            # (e.g. Vector<Animal>.push(T) where T resolves to Animal): a
+            # subclass element pointer must be cast to the resolved element type.
+            if (obj_type.generic_args and cls_info.generic_params
+                    and len(node.args) == len(args)):
+                args = _upcast_generic_method_args(
+                    gen, cls_info, obj_type, method, node.args, args)
         # Generic method: dispatch to the monomorphized instance for the method
         # type args inferred at this call site (e.g. mapTo<string>).
         if method and getattr(method, "generic_params", None):
@@ -258,6 +265,33 @@ def _lower_mutex_method(gen, obj, method_name, obj_type, args):
                       helper_ref="__btrc_mutex_val_destroy")
     # Unknown Mutex method — fallback
     return IRCall(callee=f"__btrc_mutex_val_{method_name}", args=[obj] + args)
+
+
+def _upcast_generic_method_args(gen, cls_info, obj_type, method,
+                                ast_args, args):
+    """Upcast Derived→Base args for a generic class method.
+
+    The method's declared param types reference the class type parameters (e.g.
+    ``push(T val)``). Resolve each type parameter to the receiver's corresponding
+    generic argument, then apply a Derived→Base upcast keyed on that resolved
+    type. Only positional, non-defaulted calls are handled (``len`` already
+    checked by the caller); arg ``i`` aligns with method param ``i``.
+    """
+    from .upcast import upcast_class_pointer
+    type_map = dict(zip(cls_info.generic_params, obj_type.generic_args))
+    result = list(args)
+    for i, ast_arg in enumerate(ast_args):
+        if i >= len(method.params):
+            break
+        param_type = method.params[i].type
+        if not param_type:
+            continue
+        resolved = type_map.get(param_type.base)
+        if resolved is None:
+            continue
+        source_type = gen.analyzed.node_types.get(id(ast_arg))
+        result[i] = upcast_class_pointer(gen, resolved, source_type, result[i])
+    return result
 
 
 def _obj_text(expr: IRExpr) -> str:

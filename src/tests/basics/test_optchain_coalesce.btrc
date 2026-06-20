@@ -1,0 +1,31 @@
+// Optional chaining (?.) short-circuits to a null/zero result on a null
+// receiver, and that result feeds into null-coalescing (??) to supply a
+// fallback. Also verifies the non-null path returns the real field.
+#include <assert.h>
+
+class Node {
+    public int value;
+    public Node(int v) {
+        self.value = v;
+    }
+}
+
+int main() {
+    // Non-null receiver: ?. reads the field; ?? keeps it.
+    Node present = new Node(42);
+    int got = present?.value ?? -1;
+    assert(got == 42);
+    delete present;
+
+    // Null receiver: ?. short-circuits (no crash), ?? supplies the fallback.
+    Node missing = null;
+    int fallback = missing?.value ?? -1;
+    assert(fallback == -1);
+
+    // ?. on a null receiver alone yields the zero value (no crash).
+    int z = missing?.value;
+    assert(z == 0);
+
+    print("PASS: test_optchain_coalesce");
+    return 0;
+}

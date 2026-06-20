@@ -1,0 +1,40 @@
+// if / else-if / else chain whose branches drive loop control (continue and
+// break) from inside a for-in over a range. Tests the interaction of multi-way
+// branching with loop control as a unit.
+#include <assert.h>
+
+int main() {
+    int sum = 0;
+    for i in range(10) {
+        if (i < 3) {
+            continue;       // skip 0, 1, 2
+        } else if (i > 6) {
+            break;          // stop at i == 7
+        } else {
+            sum += i;       // accumulate 3, 4, 5, 6
+        }
+    }
+    assert(sum == 18); // 3+4+5+6
+
+    // a second chain where the else-if also continues and the final else breaks
+    Vector<int> v = [5, 2, 9, 1, 7, 3];
+    int collected = 0;
+    int count = 0;
+    for x in v {
+        if (x == 9) {
+            break;          // stop entirely when we hit 9
+        } else if (x % 2 == 0) {
+            continue;       // skip evens before the 9
+        } else {
+            collected += x;
+            count++;
+        }
+    }
+    assert(collected == 5); // only 5 collected (2 skipped, 9 breaks)
+    assert(count == 1);
+
+    v.free();
+
+    print("PASS: test_ifchain_loop_control");
+    return 0;
+}

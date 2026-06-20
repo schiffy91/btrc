@@ -1,0 +1,29 @@
+/* User-defined generic class as a free-function parameter and return type.
+ * Exercises cross-function monomorphization: a function builds a Box<int>
+ * and another consumes it, plus a string instantiation, round-tripping the
+ * value through function boundaries. */
+#include <assert.h>
+#include <string.h>
+
+class Box<T> {
+    public T value;
+    public Box(T val) { self.value = val; }
+    public T get() { return self.value; }
+}
+
+Box<int> makeInt(int x) { return new Box<int>(x); }
+int takeInt(Box<int> b) { return b.get(); }
+
+Box<string> makeStr(string s) { return new Box<string>(s); }
+string takeStr(Box<string> b) { return b.get(); }
+
+int main() {
+    assert(takeInt(makeInt(42)) == 42);
+    assert(takeInt(makeInt(-7)) == -7);
+
+    Box<string> bs = makeStr("hi");
+    assert(strcmp(takeStr(bs), "hi") == 0);
+
+    print("PASS: test_generic_as_function_param_return");
+    return 0;
+}

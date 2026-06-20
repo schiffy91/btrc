@@ -1,0 +1,38 @@
+/* ProcessStatus signal/error decoding and UnixPipe realloc growth:
+ *   - ProcessStatus(-1).code() == 127 (popen/system failure sentinel);
+ *   - a SIGTERM-killed process decodes to 128 + signal;
+ *   - UnixPipe.readAll over >4096 bytes exercises the buffer-doubling realloc;
+ *   - UnixPipe.close() returns an ok() status for a clean command. */
+#include <assert.h>
+
+int main() {
+    // raw == -1 -> 127 (the documented failure code).
+    assert(ProcessStatus(-1).code() == 127);
+    assert(!ProcessStatus(-1).ok());
+
+    // A normal exit decodes to its code.
+    assert(UnixProcess.system("exit 0").code() == 0);
+    assert(UnixProcess.system("exit 5").code() == 5);
+
+    // A signal-terminated process: 128 + SIGTERM(15) == 143.
+    assert(UnixProcess.system("kill -TERM $$").code() == 143);
+
+    // UnixPipe.readAll across the 4096-byte realloc boundary: produce exactly
+    // 9000 bytes of output via head -c.
+    UnixPipe p = UnixProcess.pipe("yes x | head -c 9000");
+    assert(p.ok());
+    string out = p.readAll();
+    assert((int)strlen(out) == 9000);
+    // The pipe closes cleanly.
+    ProcessStatus st = p.close();
+    assert(st.ok());
+
+    // A tiny pipe still works (baseline for the same path).
+    UnixPipe small = UnixProcess.pipe("printf hello");
+    string s = small.readAll();
+    assert(s.equals("hello"));
+    small.close();
+
+    print("PASS: test_stdlib_process_status_pipe");
+    return 0;
+}

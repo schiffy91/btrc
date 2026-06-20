@@ -1,0 +1,35 @@
+/* An interface implementation inherited from a parent class: the base class
+ * implements the interface and provides the method body; one subclass overrides
+ * that inherited implementation while a second subclass inherits it unchanged.
+ * Verifies the interface contract can be satisfied by an INHERITED concrete
+ * method and then selectively overridden down the chain. */
+#include <assert.h>
+
+interface Speaker {
+    string speak();
+}
+
+class Animal implements Speaker {
+    public Animal() {}
+    public string speak() { return "..."; }
+}
+
+class Dog extends Animal {
+    public Dog() {}
+    public string speak() { return "Woof"; }   // overrides the inherited impl
+}
+
+class Mute extends Animal {
+    public Mute() {}                            // inherits the base impl
+}
+
+int main() {
+    Dog d = Dog();
+    assert(d.speak() == "Woof");
+
+    Mute m = Mute();
+    assert(m.speak() == "...");
+
+    print("PASS: test_interface_impl_inherited_then_overridden");
+    return 0;
+}

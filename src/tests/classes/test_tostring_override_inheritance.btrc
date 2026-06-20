@@ -1,0 +1,28 @@
+/* Overriding the built-in toString() across a class hierarchy. A base class
+ * defines toString(), a subclass overrides it, and each is invoked on its own
+ * declared type. Exercises the IR generator's special-cased toString branch
+ * (class-defined toString falls through to class dispatch) interacting with
+ * inheritance/override. */
+#include <assert.h>
+
+class Base {
+    public int v;
+    public Base(int v) { self.v = v; }
+    public string toString() { return "Base"; }
+}
+
+class Derived extends Base {
+    public Derived(int v) { self.v = v; }
+    public string toString() { return "Derived"; }
+}
+
+int main() {
+    Derived d = Derived(5);
+    assert(d.toString() == "Derived");
+
+    Base b = Base(1);
+    assert(b.toString() == "Base");
+
+    print("PASS: test_tostring_override_inheritance");
+    return 0;
+}

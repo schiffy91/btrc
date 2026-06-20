@@ -1,0 +1,49 @@
+/* DateTime.toUnix / fromUnix across hard branches of the Hinnant civil-from-days
+ * algorithm: the epoch itself, a pre-1970 (negative) timestamp, a leap day, and
+ * round-tripping through both directions. */
+#include <assert.h>
+#include "../../stdlib/datetime.btrc"
+
+int main() {
+    // The epoch: 1970-01-01 00:00:00 UTC == 0 seconds.
+    DateTime epoch = DateTime(1970, 1, 1, 0, 0, 0);
+    assert(epoch.toUnix() == 0);
+
+    // fromUnix(0) reconstructs the epoch.
+    DateTime back = DateTime.fromUnix(0);
+    assert(back.year == 1970 && back.month == 1 && back.day == 1);
+    assert(back.hour == 0 && back.minute == 0 && back.second == 0);
+
+    // One day before the epoch: -86400 -> 1969-12-31 00:00:00 (pre-1970 branch).
+    DateTime before = DateTime.fromUnix(-86400);
+    assert(before.year == 1969);
+    assert(before.month == 12);
+    assert(before.day == 31);
+
+    // Leap day Feb 29, 2000 round-trips (m<=2 year-1 + leap branch).
+    DateTime leap = DateTime(2000, 2, 29, 12, 30, 0);
+    int leapUnix = leap.toUnix();
+    DateTime leapBack = DateTime.fromUnix(leapUnix);
+    assert(leapBack.year == 2000);
+    assert(leapBack.month == 2);
+    assert(leapBack.day == 29);
+    assert(leapBack.hour == 12 && leapBack.minute == 30);
+
+    // Dec 31 of a leap year (day-of-year 366) round-trips.
+    DateTime yearEnd = DateTime(2024, 12, 31, 23, 59, 59);
+    DateTime yearEndBack = DateTime.fromUnix(yearEnd.toUnix());
+    assert(yearEndBack.year == 2024);
+    assert(yearEndBack.month == 12);
+    assert(yearEndBack.day == 31);
+    assert(yearEndBack.second == 59);
+
+    // A known fixed timestamp: 2001-09-09 01:46:40 UTC == 1000000000.
+    DateTime billennium = DateTime.fromUnix(1000000000);
+    assert(billennium.year == 2001);
+    assert(billennium.month == 9);
+    assert(billennium.day == 9);
+    assert(DateTime(2001, 9, 9, 1, 46, 40).toUnix() == 1000000000);
+
+    print("PASS: test_stdlib_datetime_epoch_edges");
+    return 0;
+}

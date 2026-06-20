@@ -1,0 +1,24 @@
+#include <assert.h>
+// spawn of a lambda with NO return statement (void body); join() returns nothing.
+// Cross-thread side effects are observed through globals.
+int g = 0;
+int accum = 0;
+
+int main() {
+    var t = spawn(() => {
+        g = 99;
+    });
+    t.join();
+    assert(g == 99);
+
+    var t2 = spawn(() => {
+        for (int i = 0; i < 5; i++) {
+            accum = accum + 1;
+        }
+    });
+    t2.join();
+    assert(accum == 5);
+
+    print("PASS: test_thread_void_lambda");
+    return 0;
+}

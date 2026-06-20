@@ -1,0 +1,24 @@
+/* Consume the REAL stdlib Result<T,E> via `import std.result`, returned from a
+ * function (the headline error-handling pattern), instead of a hand-redefined
+ * local Result. Exercises both the Ok and Err paths through a function return. */
+#include <assert.h>
+#include <string.h>
+import std.result;
+
+Result<int, string> divide(int a, int b) {
+    if (b == 0) { return new Result<int, string>(false, 0, "div0"); }
+    return new Result<int, string>(true, a / b, "");
+}
+
+int main() {
+    Result<int, string> ok = divide(10, 2);
+    assert(ok.isOk());
+    assert(ok.unwrap() == 5);
+
+    Result<int, string> err = divide(10, 0);
+    assert(err.isErr());
+    assert(strcmp(err.unwrapErr(), "div0") == 0);
+
+    print("PASS: test_result_stdlib_return");
+    return 0;
+}

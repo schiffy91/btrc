@@ -1,0 +1,28 @@
+#include <assert.h>
+#include <string.h>
+
+// Enum-typed field on a class: store and read back, plus toString.
+enum Status { OK = 200, ERR = 500 };
+
+class Resp {
+    public Status code;
+
+    public Resp(Status c) {
+        self.code = c;
+    }
+}
+
+int main() {
+    Resp r = new Resp(ERR);
+    assert(r.code == ERR);
+    assert(r.code == 500);
+    assert(strcmp(r.code.toString(), "ERR") == 0);
+
+    r.code = OK;
+    assert(r.code == OK);
+    assert(strcmp(r.code.toString(), "OK") == 0);
+
+    delete r;
+    print("PASS: test_enum_as_class_field");
+    return 0;
+}

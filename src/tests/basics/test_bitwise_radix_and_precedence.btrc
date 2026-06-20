@@ -1,0 +1,31 @@
+// Mixing hex/binary/octal literal operands with bitwise ops, plus the
+// bitwise precedence chain: & binds tighter than ^ binds tighter than |,
+// all tighter than && / ||.
+#include <assert.h>
+
+int main() {
+    // Radix literal operands.
+    assert((0b1100 & 0b1010) == 0b1000);
+    assert((0o17 | 0o70) == 0o77);
+    assert((0xA ^ 0xF) == 0x5);
+    assert((0xFF & 0o17) == 0x0F);
+
+    // Precedence: & before ^ before |.
+    // 0x1 | 0x2 ^ 0x3 & 0x1  ==  0x1 | (0x2 ^ (0x3 & 0x1))
+    //                         ==  0x1 | (0x2 ^ 0x1) == 0x1 | 0x3 == 0x3
+    assert((0x1 | 0x2 ^ 0x3 & 0x1) == 0x3);
+
+    // Parenthesized form changes the grouping.
+    assert(((0x1 | 0x2) ^ (0x3 & 0x1)) == 0x2);
+
+    // Bitwise binds tighter than logical &&: (4 & 2) is 0 -> false.
+    bool t = (4 & 2) == 0 && (4 | 2) == 6;
+    assert(t);
+
+    // Equality binds tighter than & in C; verify with explicit parens
+    // that the bitwise-and of two booleans-as-ints behaves.
+    assert((1 == 1) & (2 == 2));
+
+    print("PASS: test_bitwise_radix_and_precedence");
+    return 0;
+}

@@ -1,0 +1,19 @@
+#include <assert.h>
+#include <string.h>
+
+// Rich enum toString returns ONLY the variant name (not the payload form),
+// exercised via the free-function form. Also covers a payload-carrying
+// variant's name.
+enum class Shape {
+    Circle(double r),
+    Point
+}
+
+int main() {
+    Shape c = Shape.Circle(5.0);
+    Shape p = Shape.Point();
+    assert(strcmp(Shape_toString(c), "Circle") == 0);
+    assert(strcmp(Shape_toString(p), "Point") == 0);
+    print("PASS: test_rich_enum_tostring_method");
+    return 0;
+}

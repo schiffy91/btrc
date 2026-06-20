@@ -1,0 +1,14 @@
+#include <assert.h>
+#include <string.h>
+
+// Enum value interpolated in an f-string WITHOUT .toString() formats as
+// the integer, not the name.
+enum Color { RED, GREEN, BLUE };
+
+int main() {
+    Color c = BLUE;
+    string s = f"v={c}";
+    assert(strcmp(s, "v=2") == 0);
+    print("PASS: test_enum_in_fstring_raw");
+    return 0;
+}

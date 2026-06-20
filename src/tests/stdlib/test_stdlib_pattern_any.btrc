@@ -1,0 +1,29 @@
+/* Pattern.anyMatches(Vector<string>, text) and the single-pattern matches both
+ * positive and negative, plus the UnixPattern '?' single-char wildcard. */
+#include <assert.h>
+
+int main() {
+    Vector<string> globs = ["*.txt", "*.md"];
+
+    // anyMatches: true when at least one glob matches.
+    assert(Pattern.anyMatches(globs, "readme.md"));
+    assert(Pattern.anyMatches(globs, "notes.txt"));
+    // false when none match.
+    assert(!Pattern.anyMatches(globs, "image.png"));
+
+    // Empty pattern list never matches.
+    Vector<string> empty = [];
+    assert(!Pattern.anyMatches(empty, "anything"));
+
+    // Single-pattern matches: positive and negative.
+    assert(Pattern.matches("*.log", "server.log"));
+    assert(!Pattern.matches("*.log", "server.txt"));
+
+    // '?' matches exactly one character.
+    assert(UnixPattern.matches("a?c", "abc"));
+    assert(!UnixPattern.matches("a?c", "ac"));
+    assert(!UnixPattern.matches("a?c", "abbc"));
+
+    print("PASS: test_stdlib_pattern_any");
+    return 0;
+}

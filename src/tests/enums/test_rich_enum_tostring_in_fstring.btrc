@@ -1,0 +1,17 @@
+#include <assert.h>
+#include <string.h>
+
+// Rich enum free-fn toString result interpolated in an f-string.
+enum class Dir {
+    North,
+    South
+}
+
+int main() {
+    Dir d = Dir.South();
+    string name = Dir_toString(d);
+    string m = f"dir={name}";
+    assert(strcmp(m, "dir=South") == 0);
+    print("PASS: test_rich_enum_tostring_in_fstring");
+    return 0;
+}

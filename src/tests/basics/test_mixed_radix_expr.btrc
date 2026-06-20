@@ -1,0 +1,22 @@
+#include <assert.h>
+
+int main() {
+    // Hex, binary, and octal literals coexisting in one bitwise expression
+    int mask = 0xFF & 0b1111 | 0o7;
+    assert(mask == (0xFF & 0b1111 | 0o7));
+    assert(mask == 15);
+
+    // literals of different radixes used as array indices
+    int arr[16];
+    for (int i = 0; i < 16; i++) {
+        arr[i] = i;
+    }
+    arr[0x0] = mask;
+    assert(arr[0] == mask);
+    assert(arr[0b0001] == 1);
+    assert(arr[0o12] == 10);
+    assert(arr[0xF] == 15);
+
+    print("PASS: test_mixed_radix_expr");
+    return 0;
+}

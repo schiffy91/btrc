@@ -76,6 +76,7 @@ class IRNode {
 
     /* statements */
     public string c_type;        /* IRVarDecl type text */
+    public bool is_volatile;     /* IRVarDecl: emit `volatile` (setjmp/longjmp rule) */
     public IRNode init;          /* IRVarDecl initializer / IRFor init */
     public IRNode value;         /* IRReturn / IRAssign value */
     public IRNode target;        /* IRAssign target */
@@ -107,6 +108,7 @@ class IRNode {
         self.field = "";
         self.arrow = false;
         self.c_type = "";
+        self.is_volatile = false;
         self.init = null;
         self.value = null;
         self.target = null;
@@ -416,6 +418,11 @@ class IRFunction {
 
 class IRModule {
     public Vector<string> includes;
+    /* Pre-rendered `typedef enum {...} Name;` blocks, emitted BEFORE forward
+     * decls (mirrors module.enum_defs / emitter._emit_enum_def). Functions and
+     * function-pointer typedefs may reference an enum type by name, so the enum
+     * typedef must be declared first. */
+    public Vector<string> enum_defs;
     public Vector<string> forward_decls;
     public Vector<IRStructDef> struct_defs;
     public Vector<IRFunction> functions;
@@ -429,6 +436,7 @@ class IRModule {
 
     public IRModule() {
         self.includes = [];
+        self.enum_defs = [];
         self.forward_decls = [];
         self.struct_defs = [];
         self.functions = [];
@@ -994,19 +1002,43 @@ string helperSource(string name) {
         return "/* btrc try/catch runtime (dynamic) */\n"
             + "static __thread int __btrc_try_cap = 16;\n"
             + "static __thread jmp_buf* __btrc_try_stack = NULL;\n"
-            + "static __thread int __btrc_try_top = -1;\n"
+            /* __btrc_try_top is incremented before setjmp and decremented by the
+             * throw / normal-exit paths, so its value crosses the setjmp/longjmp
+             * boundary. Per C11 7.13.2.1 an object whose value changes between
+             * setjmp and longjmp has an indeterminate value after the longjmp
+             * unless it is volatile. Marking it volatile also serves as the
+             * optimization barrier that stops gcc -O2 from CSE-merging the work in
+             * the setjmp(...)==0 and catch branches across the branch (which
+             * otherwise drops a returned object's field init -> wrong value). */
+            + "static __thread volatile int __btrc_try_top = -1;\n"
             + "static __thread char __btrc_error_msg[1024] = \"\";";
+    }
+    if (name == "__btrc_launder") {
+        return "/* Opaque pointer launder used when returning a freshly-built object\n"
+            + " * out of a try/catch. gcc -O2 (e.g. nix's fortify hardening) runs\n"
+            + " * points-to / store-merging across the setjmp(...)==0 vs catch\n"
+            + " * branches and, for an object that does not otherwise escape, folds\n"
+            + " * the two branches' field inits together -- dropping the catch\n"
+            + " * object's initialization (its fields read back as the other\n"
+            + " * branch's values). Routing the pointer through a volatile slot\n"
+            + " * forces the object to escape, which defeats that miscompilation.\n"
+            + " * Pure C11; the volatile access is the optimization barrier. */\n"
+            + "static void* volatile __btrc_launder_slot;\n"
+            + "static inline void* __btrc_launder(void* p) {\n"
+            + "    __btrc_launder_slot = p;\n"
+            + "    return __btrc_launder_slot;\n"
+            + "}";
     }
     if (name == "__btrc_cleanup_types") {
         return "/* Cleanup stack: tracks heap resources to free on exception */\n"
             + "typedef void (*__btrc_cleanup_fn)(void*);\n"
-            + "typedef struct { void** ptr_ref; __btrc_cleanup_fn fn; int try_level; } __btrc_cleanup_entry;\n"
+            + "typedef struct { void** ptr_ref; __btrc_cleanup_fn fn; void* visit; int try_level; } __btrc_cleanup_entry;\n"
             + "static __thread int __btrc_cleanup_cap = 64;\n"
             + "static __thread __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\n"
             + "static __thread int __btrc_cleanup_top = -1;";
     }
     if (name == "__btrc_register_cleanup") {
-        return "static inline void __btrc_register_cleanup(void** ptr_ref, __btrc_cleanup_fn fn) {\n"
+        return "static inline void __btrc_register_cleanup(void** ptr_ref, __btrc_cleanup_fn fn, void* visit) {\n"
             + "    if (!__btrc_cleanup_stack) {\n"
             + "        __btrc_cleanup_stack = (__btrc_cleanup_entry*)malloc(sizeof(__btrc_cleanup_entry) * __btrc_cleanup_cap);\n"
             + "    }\n"
@@ -1019,15 +1051,66 @@ string helperSource(string name) {
             + "    __btrc_cleanup_top++;\n"
             + "    __btrc_cleanup_stack[__btrc_cleanup_top].ptr_ref = ptr_ref;\n"
             + "    __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;\n"
+            + "    __btrc_cleanup_stack[__btrc_cleanup_top].visit = visit;\n"
             + "    __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;\n"
             + "}";
     }
     if (name == "__btrc_run_cleanups") {
-        return "static inline void __btrc_run_cleanups(int level) {\n"
-            + "    while (__btrc_cleanup_top >= 0 && __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {\n"
-            + "        __btrc_cleanup_entry e = __btrc_cleanup_stack[__btrc_cleanup_top--];\n"
-            + "        if (e.fn && e.ptr_ref && *e.ptr_ref) { e.fn(*e.ptr_ref); *e.ptr_ref = NULL; }\n"
+        return "/* Exception cleanup. Non-cyclable managed locals keep the original\n"
+            + " * unconditional-destroy semantics. Cyclable ones (those with a\n"
+            + " * registered visitor) go through the same phased release +\n"
+            + " * trial-deletion cycle collection as a normal scope exit, so\n"
+            + " * unwinding a scope that holds a reference cycle reclaims it without\n"
+            + " * a use-after-free: a plain per-node destroy would cascade-free one\n"
+            + " * node then read freed memory through the other node's back-edge.\n"
+            + " * __btrc_tracking + the destroyed log guard every cross-entry read. */\n"
+            + "static inline void __btrc_run_cleanups(int level) {\n"
+            + "    int base = __btrc_cleanup_top;\n"
+            + "    while (base >= 0 && __btrc_cleanup_stack[base].try_level >= level) { base--; }\n"
+            + "    base++;\n"
+            + "    if (base > __btrc_cleanup_top) { return; }\n"
+            + "    __btrc_tracking = 1;\n"
+            + "    __btrc_destroyed_count = 0;\n"
+            + "    /* Non-cyclable entries: unconditional destroy (original behavior),\n"
+            + "     * but skip any object already cascade-freed by an earlier destroy. */\n"
+            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
+            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
+            + "        if (e->visit) { continue; }\n"
+            + "        if (e->fn && e->ptr_ref && *e->ptr_ref && !__btrc_is_destroyed(*e->ptr_ref)) {\n"
+            + "            e->fn(*e->ptr_ref);\n"
+            + "            *e->ptr_ref = NULL;\n"
+            + "        }\n"
             + "    }\n"
+            + "    /* Cyclable entries: phased release + cycle collection.\n"
+            + "     * Phase 1 -- drop each managed local's own reference (rc--). */\n"
+            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
+            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
+            + "        if (e->visit && e->ptr_ref && *e->ptr_ref) { (*(int*)*e->ptr_ref)--; }\n"
+            + "    }\n"
+            + "    /* Phase 2 -- destroy objects whose rc hit zero (destroyed-log guarded). */\n"
+            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
+            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
+            + "        if (e->visit && e->fn && e->ptr_ref && *e->ptr_ref\n"
+            + "                && !__btrc_is_destroyed(*e->ptr_ref)\n"
+            + "                && *(int*)*e->ptr_ref <= 0) {\n"
+            + "            e->fn(*e->ptr_ref);\n"
+            + "            *e->ptr_ref = NULL;\n"
+            + "        }\n"
+            + "    }\n"
+            + "    /* Phase 3 -- still-referenced survivors are cycle suspects. */\n"
+            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
+            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
+            + "        if (e->visit && e->fn && e->ptr_ref && *e->ptr_ref\n"
+            + "                && !__btrc_is_destroyed(*e->ptr_ref)\n"
+            + "                && *(int*)*e->ptr_ref > 0) {\n"
+            + "            __btrc_suspect(*e->ptr_ref, (__btrc_visit_fn)e->visit,\n"
+            + "                           (__btrc_destroy_fn)e->fn);\n"
+            + "        }\n"
+            + "    }\n"
+            + "    /* Phase 4 -- trial-deletion cycle collection over the suspects. */\n"
+            + "    if (__btrc_suspect_count > 0) { __btrc_collect_cycles(); }\n"
+            + "    __btrc_tracking = 0;\n"
+            + "    __btrc_cleanup_top = base - 1;\n"
             + "}";
     }
     if (name == "__btrc_discard_cleanups") {
@@ -1236,7 +1319,14 @@ Vector<string> helperDeps(string name) {
     /* trycatch category dependency edges (mirrors trycatch.py depends_on). */
     else if (name == "__btrc_cleanup_types") { out.push("__btrc_trycatch_globals"); }
     else if (name == "__btrc_register_cleanup") { out.push("__btrc_cleanup_types"); }
-    else if (name == "__btrc_run_cleanups") { out.push("__btrc_cleanup_types"); }
+    else if (name == "__btrc_run_cleanups") {
+        out.push("__btrc_cleanup_types");
+        /* Cycle-safe unwinding reuses the trial-deletion collector + the
+         * destroyed-object tracking, so pull the whole cycles machinery in. */
+        out.push("__btrc_destroyed_tracking");
+        out.push("__btrc_suspect_buf");
+        out.push("__btrc_collect_cycles");
+    }
     else if (name == "__btrc_discard_cleanups") { out.push("__btrc_cleanup_types"); }
     else if (name == "__btrc_throw") {
         out.push("__btrc_trycatch_globals");
@@ -1328,10 +1418,9 @@ Vector<string> canonicalHelperOrder() {
     /* trycatch (registry.py category order: after string/math, before hash) */
     order.push("__btrc_trycatch_globals");
     order.push("__btrc_cleanup_types");
+    order.push("__btrc_launder");
     order.push("__btrc_register_cleanup");
-    order.push("__btrc_run_cleanups");
     order.push("__btrc_discard_cleanups");
-    order.push("__btrc_throw");
     /* hash */
     order.push("__btrc_hash_str");
     /* cycles (ARC cycle detection; roots first so their globals/typedefs
@@ -1339,6 +1428,12 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_destroyed_tracking");
     order.push("__btrc_suspect_buf");
     order.push("__btrc_collect_cycles");
+    /* run_cleanups + throw are emitted AFTER the cycles machinery: the
+     * cycle-safe unwinder calls __btrc_collect_cycles / __btrc_suspect and
+     * references the __btrc_visit_fn / __btrc_destroy_fn typedefs declared by
+     * the cycles helpers, so those must precede it. */
+    order.push("__btrc_run_cleanups");
+    order.push("__btrc_throw");
     /* threads (pthread wrappers; spawn/create roots first so their typedefs +
      * globals precede the dependent accessors). */
     order.push("__btrc_thread_spawn");

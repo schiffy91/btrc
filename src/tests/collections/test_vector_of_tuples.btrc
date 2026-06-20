@@ -1,0 +1,38 @@
+/* Tuple as a collection element: push / get / iterate a Vector<(int,string)>.
+ * No test stores tuples in a collection. */
+#include <assert.h>
+#include <string.h>
+#include <stdio.h>
+
+int main() {
+    Vector<(int, string)> v = [];
+    v.push((1, "a"));
+    v.push((2, "b"));
+    v.push((3, "c"));
+
+    assert(v.size() == 3);
+
+    /* indexed access of a stored tuple */
+    var t = v.get(1);
+    assert(t._0 == 2);
+    assert(strcmp(t._1, "b") == 0);
+
+    /* iterate, summing first components and counting elements */
+    int idSum = 0;
+    int count = 0;
+    for pair in v {
+        idSum += pair._0;
+        count += 1;
+    }
+    assert(idSum == 6);
+    assert(count == 3);
+
+    /* last element */
+    var last = v.get(2);
+    assert(last._0 == 3);
+    assert(strcmp(last._1, "c") == 0);
+
+    v.free();
+    printf("PASS: test_vector_of_tuples\n");
+    return 0;
+}

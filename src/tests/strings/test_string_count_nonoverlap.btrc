@@ -1,0 +1,13 @@
+// count() non-overlapping semantics: the helper advances p += sublen, so
+// matches do not overlap.
+#include <assert.h>
+
+int main() {
+    assert("aaaa".count("aa") == 2);   // non-overlapping, not 3
+    assert("aaaaa".count("aa") == 2);
+    assert("abababab".count("abab") == 2);
+    assert("aaa".count("aa") == 1);
+
+    print("PASS: test_string_count_nonoverlap");
+    return 0;
+}

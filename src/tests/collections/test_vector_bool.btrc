@@ -1,0 +1,33 @@
+/* Vector<bool> element type: contains / indexOf / count / get on booleans.
+ * __btrc_eq codegen for bool differs from int. No collection test in the
+ * suite stores or compares booleans. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Vector<bool> v = [true, false, true];
+    assert(v.size() == 3);
+    assert(v.get(0) == true);
+    assert(v.get(1) == false);
+    assert(v.get(2) == true);
+
+    assert(v.contains(false));
+    assert(v.contains(true));
+    assert(v.indexOf(false) == 1);
+    assert(v.indexOf(true) == 0);
+    assert(v.lastIndexOf(true) == 2);
+
+    int trues = v.count(true);
+    int falses = v.count(false);
+    assert(trues == 2);
+    assert(falses == 1);
+
+    /* push another false and re-check */
+    v.push(false);
+    assert(v.count(false) == 2);
+    assert(v.lastIndexOf(false) == 3);
+
+    v.free();
+    printf("PASS: test_vector_bool\n");
+    return 0;
+}

@@ -1,0 +1,10 @@
+#include <assert.h>
+
+int main() {
+    (int, int) t = (2147483647, -2147483647);
+    assert(t._0 == 2147483647);
+    assert(t._1 == -2147483647);
+    assert(t._0 > t._1);
+    print("PASS: test_tuple_boundary_values");
+    return 0;
+}

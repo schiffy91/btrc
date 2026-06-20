@@ -1,0 +1,28 @@
+#include <assert.h>
+
+// Simple (int-backed) enums support the relational operators and integer
+// arithmetic beyond the +1 case, since each constant lowers to its int value.
+enum Priority { LOW, MEDIUM, HIGH, CRITICAL };
+
+int main() {
+    assert(LOW < HIGH);
+    assert(CRITICAL > MEDIUM);
+    assert(MEDIUM <= MEDIUM);
+    assert(HIGH >= LOW);
+
+    // arithmetic between enum constants
+    int span = CRITICAL - LOW;
+    assert(span == 3);
+
+    // mixing an enum constant with an int literal
+    Priority p = MEDIUM;
+    assert(p + 1 == HIGH);
+    assert(p - 1 == LOW);
+
+    // ordering check used as a boolean
+    bool escalated = p >= MEDIUM;
+    assert(escalated);
+
+    print("PASS: test_enum_comparison_operators");
+    return 0;
+}

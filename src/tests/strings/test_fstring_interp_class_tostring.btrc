@@ -1,0 +1,28 @@
+// f-string interpolating a class instance auto-calls its toString().
+#include <assert.h>
+
+class Pt {
+    public int x;
+    public int y;
+    public Pt(int x, int y) {
+        self.x = x;
+        self.y = y;
+    }
+    public string toString() {
+        return f"({self.x},{self.y})";
+    }
+}
+
+int main() {
+    Pt p = new Pt(1, 2);
+    assert(f"p={p}".equals("p=(1,2)"));
+
+    // two instances in one f-string
+    Pt q = new Pt(3, 4);
+    assert(f"{p}-{q}".equals("(1,2)-(3,4)"));
+
+    delete p;
+    delete q;
+    print("PASS: test_fstring_interp_class_tostring");
+    return 0;
+}

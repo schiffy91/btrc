@@ -1,0 +1,27 @@
+// Zero-parameter lambda used outside spawn(): stored in a `var` and in an
+// explicit __fn_ptr<int> local with no parameters, then called.
+#include <assert.h>
+
+int main() {
+    var k = () => 42;
+    assert(k() == 42);
+
+    __fn_ptr<int> f = k;
+    assert(f() == 42);
+
+    // zero-param lambda with a block body
+    var blk = () => {
+        int s = 0;
+        for (int i = 1; i <= 4; i = i + 1) {
+            s = s + i;
+        }
+        return s;
+    };
+    assert(blk() == 10);
+
+    __fn_ptr<int> g = blk;
+    assert(g() == 10);
+
+    print("PASS: test_lambda_no_params");
+    return 0;
+}

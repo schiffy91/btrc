@@ -1,0 +1,14 @@
+#include <assert.h>
+
+// File-scope `static` storage qualifier on a global declaration. Distinct from
+// `static` on a LOCAL variable; here the qualifier emits `static int counter`
+// at file scope. `static` is a valid type_qualifier in the grammar and TypeExpr
+// carries is_static.
+static int counter = 5;
+
+int main() {
+    counter += 37;
+    assert(counter == 42);
+    print("PASS: test_static_global_qualifier");
+    return 0;
+}

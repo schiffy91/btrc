@@ -1,0 +1,13 @@
+#include <assert.h>
+
+int main() {
+    long a = 5L;
+    double b = 1.5;
+    char c = 'A';
+    (long, double, char) t = (a, b, c);
+    assert(t._0 == 5L);
+    assert(t._1 > 1.4 && t._1 < 1.6);
+    assert(t._2 == 'A');
+    print("PASS: test_tuple_other_primitives");
+    return 0;
+}

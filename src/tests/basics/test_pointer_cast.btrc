@@ -1,0 +1,23 @@
+#include <assert.h>
+
+int main() {
+    // Reinterpret an int's bytes via a char* cast
+    int x = 0x41424344;
+    char* cp = (char*)&x;
+
+    // exactly one of the first/last byte is 'A' (0x41) depending on endianness
+    int first = (int)cp[0];
+    assert(first == 0x44 || first == 0x41);
+
+    // sum of the four bytes equals 'A'+'B'+'C'+'D' regardless of byte order
+    int total = (int)cp[0] + (int)cp[1] + (int)cp[2] + (int)cp[3];
+    assert(total == 0x41 + 0x42 + 0x43 + 0x44);
+
+    // void* round-trip preserves the value
+    void* v = (void*)&x;
+    int* back = (int*)v;
+    assert(*back == 0x41424344);
+
+    print("PASS: test_pointer_cast");
+    return 0;
+}

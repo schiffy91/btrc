@@ -1,0 +1,18 @@
+#include <assert.h>
+
+// Rich enum variant with multiple double payload fields, reading each one.
+enum class Shape {
+    Rect(double w, double h),
+    Point
+}
+
+int main() {
+    Shape r = Shape.Rect(3.0, 4.0);
+    assert(r.tag == Shape.Rect);
+    assert(r.data.Rect.w == 3.0);
+    assert(r.data.Rect.h == 4.0);
+    double area = r.data.Rect.w * r.data.Rect.h;
+    assert(area == 12.0);
+    print("PASS: test_rich_enum_multifield_payload_access");
+    return 0;
+}

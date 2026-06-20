@@ -37,6 +37,12 @@ import os
 import re
 
 from .cache_keys import toolchain_hash
+from .stdlib_shared_state import (
+    SHARED_STATE_HELPER_NAMES,
+    derive_shared_decls,
+    derive_shared_impl,
+    externize_toplevel,
+)
 
 HEADER_NAME = "btrc_stdlib.h"
 IMPL_NAME = "btrc_stdlib.c"
@@ -52,42 +58,10 @@ class ArchiveVersionError(Exception):
     """
 
 # Helpers whose process-global mutable state must be a single instance shared by
-# the archive and every program that links it. Maps helper name -> the extern
-# declarations the header publishes (the archive defines them, sans `static`).
-_SHARED_STATE_HELPERS = {
-    "__btrc_trycatch_globals": (
-        "extern __thread int __btrc_try_cap;\n"
-        "extern __thread jmp_buf* __btrc_try_stack;\n"
-        "extern __thread int __btrc_try_top;\n"
-        "extern __thread char __btrc_error_msg[1024];"
-    ),
-    "__btrc_cleanup_types": (
-        "typedef void (*__btrc_cleanup_fn)(void*);\n"
-        "typedef struct { void** ptr_ref; __btrc_cleanup_fn fn; int try_level; } __btrc_cleanup_entry;\n"
-        "extern __thread int __btrc_cleanup_cap;\n"
-        "extern __thread __btrc_cleanup_entry* __btrc_cleanup_stack;\n"
-        "extern __thread int __btrc_cleanup_top;"
-    ),
-    # Double-free / use-after-destroy guard: an object freed in one TU must be
-    # seen as destroyed by every other TU, so this table cannot be per-TU.
-    "__btrc_destroyed_tracking": (
-        "/* shared destroyed-pointer guard (defined in the btrc stdlib archive) */\n"
-        "extern int __btrc_tracking;\n"
-        "extern void** __btrc_destroyed;\n"
-        "extern int __btrc_destroyed_count;\n"
-        "extern int __btrc_destroyed_cap;\n"
-        "void __btrc_mark_destroyed(void* ptr);\n"
-        "int __btrc_is_destroyed(void* ptr);"
-    ),
-}
-
-_SHARED_STATE_IMPLS = {
-    "__btrc_cleanup_types": (
-        "__thread int __btrc_cleanup_cap = 64;\n"
-        "__thread __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\n"
-        "__thread int __btrc_cleanup_top = -1;"
-    ),
-}
+# the archive and every program that links it. The header extern decls and the
+# single-instance .c definitions are *derived* from each helper's real
+# ``c_source`` (see stdlib_shared_state) rather than hardcoded, so a change to
+# the helper text can never drift out of sync with the program TUs.
 
 _FWD_TYPEDEF_RE = re.compile(r"typedef\s+struct\s+(\w+)\s+\1\s*;")
 _FWD_FUNC_RE = re.compile(r"\b(\w+)\s*\(")
@@ -114,23 +88,11 @@ def _is_generic_symbol(name: str) -> bool:
     return name.startswith("btrc_")
 
 
-def _externize_toplevel(text: str) -> str:
-    """Strip a leading ``static``/``static inline`` from each *top-level* (column
-    0) declaration so the symbol gets external linkage. Indented lines (function
-    bodies) are left untouched.
-    """
-    out = []
-    for line in text.split("\n"):
-        if line.startswith("static inline "):
-            out.append(line[len("static inline "):])
-        elif line.startswith("static "):
-            out.append(line[len("static "):])
-        else:
-            out.append(line)
-    return "\n".join(out)
+# Re-exported for callers that referenced the archive's externizer directly.
+_externize_toplevel = externize_toplevel
 
 
-def transform_archive_module(module) -> list[str]:
+def transform_archive_module(module) -> tuple[list[str], dict[str, str]]:
     """Rewrite an IR module in place for use as a precompiled archive.
 
     * Flip the stdlib's own concrete generic instance methods from ``static`` to
@@ -138,8 +100,11 @@ def transform_archive_module(module) -> list[str]:
     * Emit shared-state helpers (the destroyed-pointer guard) as a single extern
       definition.
 
-    Returns the names of shared-state helpers actually present in the module
-    (so the manifest/header only advertise state the archive really defines).
+    Returns ``(shared_names, shared_decls)`` where ``shared_names`` lists the
+    shared-state helpers actually present (so the manifest/header only advertise
+    state the archive really defines) and ``shared_decls`` maps each to the
+    header (extern) declarations derived from its real source — captured *before*
+    each helper's ``c_source`` is rewritten to its single-instance .c definition.
     """
     # Generic instance method *definitions* -> extern.
     for func in module.function_defs:
@@ -165,14 +130,17 @@ def transform_archive_module(module) -> list[str]:
         for s in module.raw_sections
     ]
 
-    # Shared-state helpers -> single extern definition.
+    # Shared-state helpers -> single extern definition. Derive the matching
+    # header decls from the *original* source first, then rewrite the helper to
+    # its single-instance .c definition.
     shared_present = []
+    shared_decls = {}
     for helper in module.helper_decls:
-        if helper.name in _SHARED_STATE_HELPERS:
-            helper.c_source = _SHARED_STATE_IMPLS.get(
-                helper.name, _externize_toplevel(helper.c_source))
+        if helper.name in SHARED_STATE_HELPER_NAMES:
+            shared_decls[helper.name] = derive_shared_decls(helper.c_source)
+            helper.c_source = derive_shared_impl(helper.c_source)
             shared_present.append(helper.name)
-    return shared_present
+    return shared_present, shared_decls
 
 
 def _build_manifest(module, shared_helpers: list[str]) -> dict:
@@ -203,8 +171,7 @@ def build_archive(out_dir: str, module) -> dict:
     from .ir.emitter import CEmitter
 
     os.makedirs(out_dir, exist_ok=True)
-    shared = transform_archive_module(module)
-    shared_decls = {name: _SHARED_STATE_HELPERS[name] for name in shared}
+    shared, shared_decls = transform_archive_module(module)
 
     header = CEmitter().emit_header(module, shared_decls)
     impl = CEmitter().emit_impl(module, HEADER_NAME, set(shared))

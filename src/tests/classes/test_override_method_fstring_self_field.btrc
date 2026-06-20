@@ -1,0 +1,31 @@
+/* Combines f-strings + interface implementation + self field access inside an
+ * overriding method (the README's Circle.draw() example). The interface method
+ * builds its result from an f-string referencing self.<field>. */
+#include <assert.h>
+
+interface Drawable {
+    string render();
+}
+
+class Circle implements Drawable {
+    public int r;
+    public Circle(int r) { self.r = r; }
+    public string render() { return f"circle r={self.r}"; }
+}
+
+class Square implements Drawable {
+    public int side;
+    public Square(int side) { self.side = side; }
+    public string render() { return f"square s={self.side}"; }
+}
+
+int main() {
+    Circle c = Circle(5);
+    assert(c.render() == "circle r=5");
+
+    Square s = Square(3);
+    assert(s.render() == "square s=3");
+
+    print("PASS: test_override_method_fstring_self_field");
+    return 0;
+}

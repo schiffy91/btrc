@@ -1,0 +1,27 @@
+// Shift by large/boundary amounts and shifts on wider (long) integer types
+// that must not truncate to int width. Also arithmetic right shift of a
+// negative value.
+#include <assert.h>
+
+int main() {
+    // Large int shift within 32-bit range.
+    assert((1 << 30) == 1073741824);
+
+    // Arithmetic right shift of a negative int (sign-extending).
+    assert((-256 >> 4) == -16);
+    assert((-1 >> 4) == -1);
+
+    // Wide-type shift: 1L << 40 must use long width, not wrap at 32 bits.
+    long w = 1L << 40;
+    assert(w == 1099511627776L);
+
+    long big = 1L << 62;
+    assert(big == 4611686018427387904L);
+
+    // Right shift on a long.
+    long r = (1L << 50) >> 10;
+    assert(r == 1099511627776L);
+
+    print("PASS: test_shift_boundary_and_wide");
+    return 0;
+}

@@ -1,0 +1,55 @@
+// Recursion whose return type is a non-primitive (Vector and a class
+// instance) — exercises ARC + recursion interaction.
+#include <assert.h>
+
+// recursively build a descending Vector<int>
+Vector<int> countdown(int n) {
+    Vector<int> v = [];
+    if (n <= 0) {
+        return v;
+    }
+    v.push(n);
+    Vector<int> rest = countdown(n - 1);
+    v.extend(rest);
+    return v;
+}
+
+class Acc {
+    public int total;
+
+    public Acc(int total) {
+        self.total = total;
+    }
+}
+
+// recursively accumulate into a freshly returned object each level
+Acc sumTo(int n) {
+    if (n <= 0) {
+        return new Acc(0);
+    }
+    Acc lower = sumTo(n - 1);
+    return new Acc(lower.total + n);
+}
+
+int main() {
+    Vector<int> c = countdown(4);
+    assert(c.len == 4);
+    assert(c.get(0) == 4);
+    assert(c.get(1) == 3);
+    assert(c.get(2) == 2);
+    assert(c.get(3) == 1);
+
+    Vector<int> empty = countdown(0);
+    assert(empty.len == 0);
+
+    Acc a = sumTo(5);
+    assert(a.total == 15);   // 5+4+3+2+1
+    Acc z = sumTo(0);
+    assert(z.total == 0);
+
+    delete a;
+    delete z;
+
+    print("PASS: test_recursion_object_return");
+    return 0;
+}

@@ -1,0 +1,27 @@
+#include <assert.h>
+
+// A raw C struct and a btrc class coexisting and interoperating in one program.
+struct CPoint { int x; int y; };
+
+class Counter {
+    private int n;
+    public Counter() { self.n = 0; }
+    public void inc() { self.n += 1; }
+    public int get() { return self.n; }
+}
+
+int main() {
+    struct CPoint p = {3, 4};
+    p.x += 1;
+
+    Counter c = Counter();
+    c.inc();
+    c.inc();
+
+    assert(p.x == 4);
+    assert(p.x + p.y == 8);
+    assert(c.get() == 2);
+
+    print("PASS: test_interop_mix_class_and_cstruct");
+    return 0;
+}

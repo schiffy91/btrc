@@ -1,0 +1,29 @@
+/* A throw crosses a finally that has its own side effect, and an OUTER try/catch
+ * ultimately catches it: the finally must run (recording its side effect) BEFORE
+ * the exception resumes propagating to the outer catch. test_try_finally uses an
+ * outer catch but never asserts the finally-side-effect ordering relative to the
+ * rethrow. Here a log Vector pins the exact try -> fin -> catch sequence. */
+#include <assert.h>
+
+int main() {
+    Vector<string> log = [];
+    try {
+        try {
+            log.push("try");
+            throw "e";
+        } finally {
+            log.push("fin");   // runs while unwinding, before the outer catch
+        }
+    } catch (string e) {
+        assert(e.equals("e"));
+        log.push("catch");
+    }
+    assert(log.len == 3);
+    assert(log[0].equals("try"));
+    assert(log[1].equals("fin"));
+    assert(log[2].equals("catch"));
+    log.free();
+
+    print("PASS: test_exceptions_finally_rethrow_ordering");
+    return 0;
+}

@@ -1,0 +1,15 @@
+#include <assert.h>
+// Kernel-level bitwise-not (~). No kernel in the corpus used ~ before; the WGSL
+// path `(~x)` was never exercised (unary tests only covered `-` and `!`).
+@gpu
+int[] bitwiseNot(int[] a) {
+    int i = gpu_id();
+    return ~a[i];
+}
+
+int main() {
+    assert(~0 == -1);
+    assert(~5 == -6);
+    print("PASS: test_gpu_bitwise_not");
+    return 0;
+}

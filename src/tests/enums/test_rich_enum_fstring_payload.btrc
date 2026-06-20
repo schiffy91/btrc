@@ -1,0 +1,22 @@
+#include <assert.h>
+#include <string.h>
+
+// Interpolating a rich enum's payload field directly inside an f-string,
+// the exact idiom from the README (f"radius: {s.data.Circle.radius}").
+enum class Shape {
+    Circle(double radius),
+    Named(string name)
+}
+
+int main() {
+    Shape s = Shape.Circle(5.0);
+    string m = f"radius: {s.data.Circle.radius}";
+    assert(strcmp(m, "radius: 5.000000") == 0);
+
+    Shape n = Shape.Named("box");
+    string ms = f"name={n.data.Named.name}";
+    assert(strcmp(ms, "name=box") == 0);
+
+    print("PASS: test_rich_enum_fstring_payload");
+    return 0;
+}

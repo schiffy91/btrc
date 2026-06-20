@@ -1,0 +1,32 @@
+// for-in over a string (char iteration) with break and continue, comparing
+// against char literals. String iteration is tested only with plain counting.
+#include <assert.h>
+
+int main() {
+    // count comma-separated parts, stopping at the first 'c'
+    string s = "a,b,c,d";
+    int parts = 1;
+    for ch in s {
+        if (ch == ',') {
+            parts++;
+        }
+        if (ch == 'c') {
+            break;
+        }
+    }
+    assert(parts == 3); // a | b | c -> 3 parts, break before d
+
+    // continue: count only the non-space characters
+    string t = "x y  z";
+    int letters = 0;
+    for ch in t {
+        if (ch == ' ') {
+            continue;
+        }
+        letters++;
+    }
+    assert(letters == 3); // x, y, z
+
+    print("PASS: test_string_forin_break");
+    return 0;
+}

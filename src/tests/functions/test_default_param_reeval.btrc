@@ -1,0 +1,33 @@
+// Default-parameter expressions are RE-EVALUATED on every call where the
+// argument is omitted (per-call evaluation, NOT evaluate-once). A side-effecting
+// default expression (a global counter bumped by nextId()) pins this semantic:
+// each defaulted call advances the counter, while an explicit arg does NOT.
+#include <assert.h>
+
+int counter = 0;
+
+int nextId() {
+    counter = counter + 1;
+    return counter;
+}
+
+int tag(int x, int id = nextId()) {
+    return x * 100 + id;
+}
+
+int main() {
+    // default evaluated -> id = 1
+    assert(tag(1) == 101);
+    // default re-evaluated -> id = 2 (proves per-call, not evaluate-once)
+    assert(tag(2) == 202);
+    // explicit arg -> default NOT evaluated, counter stays at 2
+    assert(tag(3, 9) == 309);
+    // default evaluated again -> id = 3, proving the explicit call did not bump it
+    assert(tag(4) == 403);
+
+    // counter advanced exactly three times (calls 1, 2, 4)
+    assert(counter == 3);
+
+    print("PASS: test_default_param_reeval");
+    return 0;
+}

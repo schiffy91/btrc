@@ -1,0 +1,35 @@
+/* Generic class with a Vector<T> field PLUS a generic method that transforms
+ * that field into a Vector<U> via a mapping function. Combines field-of-T
+ * collections with a method-level type param producing a different element
+ * type. */
+#include <assert.h>
+#include <string.h>
+import std.vector;
+import std.strings;
+
+string fromInt(int x) { return Strings.fromInt(x); }
+
+class Bag<T> {
+    public Vector<T> items;
+    public Bag() { self.items = []; }
+    public void add(T x) { self.items.push(x); }
+    public Vector<U> mapAll<U>(__fn_ptr<U, T> f) {
+        Vector<U> out = [];
+        for it in self.items { out.push(f(it)); }
+        return out;
+    }
+}
+
+int main() {
+    Bag<int> b = new Bag<int>();
+    b.add(1);
+    b.add(2);
+    b.add(3);
+    Vector<string> mapped = b.mapAll(fromInt);
+    assert(mapped.len == 3);
+    assert(strcmp(mapped.get(0), "1") == 0);
+    assert(strcmp(mapped.get(2), "3") == 0);
+
+    print("PASS: test_generic_field_collection_transform");
+    return 0;
+}

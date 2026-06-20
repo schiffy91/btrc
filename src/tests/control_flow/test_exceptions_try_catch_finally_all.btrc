@@ -1,0 +1,46 @@
+/* try/catch/finally with ALL THREE clauses on a single block.
+ * The corpus only has try/catch, try/finally, and nested combinations; nothing
+ * exercises one try block carrying catch AND finally together. The IR lowers
+ * this path differently from finally-only (no pending-rethrow machinery; the
+ * finally runs unconditionally after the if/else), so it deserves its own test.
+ * Asserts both clauses run, catch-then-finally order, and the non-throwing
+ * fall-through path still runs finally. */
+#include <assert.h>
+
+int main() {
+    // Throwing path: catch runs, then finally runs.
+    int order = 0;
+    int caught = 0;
+    int cleaned = 0;
+    try {
+        throw "boom";
+    } catch (string e) {
+        caught = 1;
+        order = order * 10 + 1;   // catch records "1"
+        assert(e.equals("boom"));
+    } finally {
+        cleaned = 1;
+        order = order * 10 + 2;   // finally records "2"
+    }
+    assert(caught == 1);
+    assert(cleaned == 1);
+    assert(order == 12);          // catch BEFORE finally
+
+    // Non-throwing path: catch is skipped, finally still runs.
+    int ran = 0;
+    int caught2 = 0;
+    int cleaned2 = 0;
+    try {
+        ran = 1;
+    } catch (string e) {
+        caught2 = 1;
+    } finally {
+        cleaned2 = 1;
+    }
+    assert(ran == 1);
+    assert(caught2 == 0);
+    assert(cleaned2 == 1);        // finally runs even with no throw
+
+    print("PASS: test_exceptions_try_catch_finally_all");
+    return 0;
+}

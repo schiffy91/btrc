@@ -1,0 +1,61 @@
+/* The SAME object passed to two different `keep`-param sinks: the refcount is
+ * incremented once per keep store, so the object must be released the matching
+ * number of times before it is destroyed. Pins simultaneous dual ownership of
+ * one object by two containers. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Container {
+    public Obj held;
+
+    public Container() {
+        self.held = null;
+    }
+
+    public void store(keep Obj o) {
+        self.held = o;
+    }
+}
+
+int main() {
+    Container a = new Container();
+    Container b = new Container();
+    Obj n = new Obj(1);          // rc 1
+    assert(alive == 1);
+
+    // Same object into two keep-param sinks: each store does rc++ (keep param)
+    // plus rc++ (field assign).
+    a.store(n);
+    b.store(n);
+    assert(a.held.id == 1);
+    assert(b.held.id == 1);
+
+    // Delete both containers: each destructor releases its held field once.
+    delete a;
+    delete b;
+    // n is still alive: the keep-param retains and the original new keep it > 0.
+    assert(alive == 1);
+
+    // Drop the remaining references: keep-param retains then the original.
+    release n;                   // one outstanding retain
+    assert(alive == 1);
+    release n;                   // handle already null after first release
+    assert(alive == 1);
+
+    print("PASS: test_shared_object_two_containers");
+    return 0;
+}

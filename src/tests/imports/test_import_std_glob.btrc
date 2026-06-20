@@ -1,0 +1,16 @@
+import std.*
+
+#include <assert.h>
+
+// `import std.*` — non-recursive glob over the standard library; symbols from
+// multiple modules are usable without naming each module.
+int main() {
+    assert(Math.abs(-4) == 4);
+
+    var json = JsonObject();
+    json.setString("k", "v");
+    assert(json.getString("k", "").equals("v"));
+
+    print("PASS: test_import_std_glob");
+    return 0;
+}

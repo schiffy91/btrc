@@ -1,0 +1,36 @@
+// Lambda capturing MULTIPLE distinct locals in one closure (capture-struct
+// field ordering), invoked directly. (A capturing lambda cannot be stored in a
+// bare __fn_ptr — it has no env slot; see docs/known-language-gaps.md.)
+#include <assert.h>
+
+int main() {
+    int base = 10;
+    int scale = 2;
+
+    // captures both base and scale: (x + base) * scale
+    var f = (int x) => (x + base) * scale;
+    assert(f(1) == 22);   // (1+10)*2
+    assert(f(2) == 24);   // (2+10)*2
+    assert(f(3) == 26);   // (3+10)*2
+    assert(f(0) == 20);   // (0+10)*2
+
+    // capture three locals of the same type in a predicate
+    int lo = 2;
+    int hi = 9;
+    int step = 1;
+    var inRange = (int x) => x >= lo && x <= hi && x % step == 0;
+    assert(inRange(2) == true);
+    assert(inRange(9) == true);
+    assert(inRange(1) == false);
+    assert(inRange(10) == false);
+
+    // capture locals of two different types (int + bool)
+    int delta = 5;
+    bool negate = true;
+    var adj = (int x) => negate ? -(x + delta) : (x + delta);
+    assert(adj(1) == -6);
+    assert(adj(0) == -5);
+
+    print("PASS: test_lambda_capture_multi");
+    return 0;
+}

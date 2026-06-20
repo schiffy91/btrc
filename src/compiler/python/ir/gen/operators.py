@@ -104,6 +104,14 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
                     cls_c_name = mangle_generic_type(left_type.base, left_type.generic_args)
                 else:
                     cls_c_name = left_type.base
+                # Upcast the RHS operand to the operator method's declared
+                # parameter type (e.g. an inherited __add__(Base) used through a
+                # Sub: the Sub* operand must be cast to Base*).
+                method = cls_info.methods[magic]
+                if method.params:
+                    from .upcast import upcast_class_pointer
+                    right = upcast_class_pointer(
+                        gen, method.params[0].type, right_type, right)
                 return IRCall(callee=f"{cls_c_name}_{magic}",
                               args=[left, right])
 

@@ -1,0 +1,35 @@
+/* Math float counterparts: fsum(Vector<float>), fclamp(val,lo,hi), fsign(x),
+ * plus the empty / single-element Vector boundary for fsum and sum. */
+#include <assert.h>
+#include "../../stdlib/math.btrc"
+
+int main() {
+    // fsum over a populated float vector
+    Vector<float> v = [1.5f, 2.5f, 3.0f];
+    assert(Math.fabs(Math.fsum(v) - 7.0f) < 0.0001f);
+
+    // fsum boundary: empty and single-element
+    Vector<float> fe = [];
+    assert(Math.fabs(Math.fsum(fe)) < 0.0001f);
+    Vector<float> one = [42.5f];
+    assert(Math.fabs(Math.fsum(one) - 42.5f) < 0.0001f);
+
+    // sum (int) boundary mirrors fsum
+    Vector<int> ie = [];
+    assert(Math.sum(ie) == 0);
+    Vector<int> ione = [5];
+    assert(Math.sum(ione) == 5);
+
+    // fclamp clamps to lo / hi / passthrough
+    assert(Math.fabs(Math.fclamp(5.0f, 0.0f, 1.0f) - 1.0f) < 0.0001f);
+    assert(Math.fabs(Math.fclamp(-1.0f, 0.0f, 1.0f)) < 0.0001f);
+    assert(Math.fabs(Math.fclamp(0.5f, 0.0f, 1.0f) - 0.5f) < 0.0001f);
+
+    // fsign: +1 / -1 / 0
+    assert(Math.fabs(Math.fsign(-3.0f) - (-1.0f)) < 0.0001f);
+    assert(Math.fabs(Math.fsign(3.0f) - 1.0f) < 0.0001f);
+    assert(Math.fabs(Math.fsign(0.0f)) < 0.0001f);
+
+    print("PASS: test_stdlib_math_float_helpers");
+    return 0;
+}

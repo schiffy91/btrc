@@ -1,0 +1,23 @@
+// Float division produces a fractional result (the __btrc_div_double path),
+// distinct from integer division which truncates.
+#include <assert.h>
+
+int main() {
+    float r = 7.0 / 2.0;
+    assert(r == 3.5);
+
+    // Compare against the integer-division result of the same operands.
+    int q = 7 / 2;
+    assert(q == 3);
+
+    // Mixed expression: float division then add.
+    float s = 1.0 / 4.0 + 0.25;
+    assert(s == 0.5);
+
+    // double type as well.
+    double d = 9.0 / 4.0;
+    assert(d == 2.25);
+
+    print("PASS: test_float_div");
+    return 0;
+}

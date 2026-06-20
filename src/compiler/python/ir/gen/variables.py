@@ -58,25 +58,21 @@ def _maybe_register_cleanup(gen: IRGenerator, var_name: str,
             break
     destroy_fn = _destroy_fn_for_managed(gen, cls_name)
     gen.use_helper("__btrc_register_cleanup")
+    # Pass the class visitor so a throw can run cycle-safe cleanup (mirror the
+    # normal scope-exit collector). Cyclable classes have a `_visit` function;
+    # everything else passes NULL (plain destroy, no cycle phase).
+    from .arc import _lookup_cls_info
+    cls_info = _lookup_cls_info(gen, cls_name)
+    if cls_info and cls_info.is_cyclable:
+        visit_arg = IRRawExpr(text=f"(void*){cls_name}_visit")
+    else:
+        visit_arg = IRRawExpr(text="NULL")
     stmts.append(IRExprStmt(expr=IRCall(
         callee="__btrc_register_cleanup",
         args=[IRRawExpr(text=f"(void**)&{var_name}"),
-              IRRawExpr(text=f"(__btrc_cleanup_fn){destroy_fn}")],
+              IRRawExpr(text=f"(__btrc_cleanup_fn){destroy_fn}"),
+              visit_arg],
         helper_ref="__btrc_register_cleanup")))
-
-
-def _is_subclass(gen: IRGenerator, sub: str, base: str) -> bool:
-    """True if `base` is a (transitive) parent class of `sub`."""
-    ct = gen.analyzed.class_table
-    seen = set()
-    cur = sub
-    while cur and cur not in seen:
-        if cur == base:
-            return True
-        seen.add(cur)
-        info = ct.get(cur)
-        cur = info.parent if info else None
-    return False
 
 
 def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
@@ -139,17 +135,36 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                 cls_info = gen.analyzed.class_table.get(ctor_name)
                 if cls_info and cls_info.generic_params:
                     mangled = mangle_generic_type(ctor_name, node.type.generic_args)
-                    init = IRCall(callee=f"{mangled}_new", args=init.args)
+                    new_args = list(init.args)
+                    # Upcast Derived→Base constructor args against the RESOLVED
+                    # generic param types — the constructor's declared params use
+                    # the unresolved type param (e.g. `E`), which can't trigger
+                    # the upcast in order_args_for_params. Without this,
+                    # Result<int,Error>(.., ValueError(..)) passes a ValueError*
+                    # into an Error* slot (incompatible pointer under gcc 15).
+                    ctor = cls_info.constructor
+                    if ctor and ctor.params:
+                        from .generics.core import _resolve_type
+                        from .upcast import upcast_class_pointer
+                        type_map = dict(zip(cls_info.generic_params,
+                                            node.type.generic_args))
+                        ast_args = node.initializer.args
+                        for i in range(min(len(new_args), len(ctor.params))):
+                            if i >= len(ast_args):
+                                break
+                            resolved = _resolve_type(ctor.params[i].type, type_map)
+                            src = gen.analyzed.node_types.get(id(ast_args[i]))
+                            new_args[i] = upcast_class_pointer(
+                                gen, resolved, src, new_args[i])
+                    init = IRCall(callee=f"{mangled}_new", args=new_args)
             init = coerce_value_to_string(gen, node.type, init_type, init)
 
         # Upcast: storing a subclass instance in a base-class variable needs an
         # explicit cast — sibling struct pointers are otherwise incompatible C.
-        if (node.type and node.type.base in ct and not node.type.generic_args):
+        if node.type:
+            from .upcast import upcast_class_pointer
             init_type = gen.analyzed.node_types.get(id(node.initializer))
-            if (init_type and init_type.base != node.type.base
-                    and _is_subclass(gen, init_type.base, node.type.base)):
-                from ..nodes import IRCast
-                init = IRCast(target_type=c_type, expr=init)
+            init = upcast_class_pointer(gen, node.type, init_type, init)
     # Clear owning-temp overrides now that the initializer has been lowered.
     if keep_post:
         gen._owning_temp_overrides.clear()

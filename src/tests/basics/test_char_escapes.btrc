@@ -1,0 +1,29 @@
+#include <assert.h>
+
+int main() {
+    // Char escape sequences and their integer (ASCII) values
+    char nl = '\n';
+    assert(nl == 10);
+
+    char tab = '\t';
+    assert(tab == 9);
+
+    char z = '\0';
+    assert(z == 0);
+
+    char bs = '\\';
+    assert(bs == 92);
+
+    char quote = '\'';
+    assert(quote == 39);
+
+    char cr = '\r';
+    assert(cr == 13);
+
+    // escaped char compares equal to its literal numeric code
+    char a = 'A';
+    assert(a == 65);
+
+    print("PASS: test_char_escapes");
+    return 0;
+}

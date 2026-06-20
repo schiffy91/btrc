@@ -1,0 +1,20 @@
+/* Vector.joinToString(sep): the documented alias of join(). join() is tested
+ * but joinToString is a separate forwarding method symbol never compiled/run
+ * anywhere in the corpus. */
+#include <assert.h>
+#include <string.h>
+#include <stdio.h>
+
+int main() {
+    Vector<string> parts = ["a", "b", "c"];
+    string r = parts.joinToString("-");
+    assert(strcmp(r, "a-b-c") == 0);
+
+    Vector<string> one = ["x"];
+    assert(strcmp(one.joinToString(","), "x") == 0);
+
+    parts.free();
+    one.free();
+    printf("PASS: test_join_to_string\n");
+    return 0;
+}

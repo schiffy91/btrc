@@ -1,0 +1,47 @@
+#include <assert.h>
+// spawn lambda capturing MULTIPLE class instances plus a primitive (mixed capture
+// struct): per-capture ARC inc/dec must keep every captured object balanced.
+int alive = 0;
+
+class Counter {
+    public int value;
+    public Counter(int v) {
+        self.value = v;
+        alive++;
+    }
+    public void __del__() {
+        alive--;
+    }
+}
+
+int main() {
+    // Two captured class instances
+    Counter a = new Counter(1);
+    Counter b = new Counter(2);
+    assert(alive == 2);
+
+    Thread<int> t = spawn(() => {
+        return a.value + b.value;
+    });
+    assert(t.join() == 3);
+    // both still owned by main; ARC across the thread boundary balanced
+    assert(alive == 2);
+
+    // Mixed capture: one class instance AND a primitive
+    int k = 5;
+    Counter c = new Counter(10);
+    assert(alive == 3);
+    Thread<int> t2 = spawn(() => {
+        return c.value + k;
+    });
+    assert(t2.join() == 15);
+    assert(alive == 3);
+
+    delete a;
+    delete b;
+    delete c;
+    assert(alive == 0);
+
+    print("PASS: test_thread_arc_multi_capture");
+    return 0;
+}

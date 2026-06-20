@@ -1,0 +1,17 @@
+import ../parenthelper/up.btrc
+
+#include <assert.h>
+
+// Parent-directory relative import: `import ../dir/file.btrc`. Every other
+// relative-import form has an e2e corpus test (./file, ./dir/*, ./dir/**,
+// quoted, .c source) but the `..` parent form had only parse/resolution unit
+// tests. Relative imports resolve against the importing file's directory, so a
+// test in imports/parenttest/ reaching into the sibling imports/parenthelper/
+// dir exercises the `..` segment hermetically.
+int main() {
+    assert(ParentHelper.value() == 42);
+    assert(ParentHelper.label().equals("from-parent-dir"));
+
+    print("PASS: test_import_parent");
+    return 0;
+}

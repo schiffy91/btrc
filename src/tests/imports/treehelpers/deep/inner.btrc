@@ -1,0 +1,5 @@
+class InnerHelper {
+    class int v() {
+        return 32;
+    }
+}

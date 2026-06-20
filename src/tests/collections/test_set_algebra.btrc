@@ -1,0 +1,47 @@
+/* Set algebra beyond unite/intersect/subtract: symmetricDifference,
+ * isSubsetOf, isSupersetOf. None of these were tested. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Set<int> a = {};
+    a.add(1);
+    a.add(2);
+
+    Set<int> b = {};
+    b.add(2);
+    b.add(3);
+
+    /* symmetric difference: elements in exactly one of the two sets */
+    Set<int> sd = a.symmetricDifference(b);
+    assert(sd.size() == 2);
+    assert(sd.contains(1));
+    assert(sd.contains(3));
+    assert(!sd.contains(2));
+
+    /* subset / superset relationships */
+    Set<int> sub = {};
+    sub.add(1);
+    assert(sub.isSubsetOf(a));
+    assert(a.isSupersetOf(sub));
+
+    /* a is NOT a subset of b (1 is missing from b) */
+    assert(!a.isSubsetOf(b));
+
+    /* every set is a subset/superset of itself */
+    assert(a.isSubsetOf(a));
+    assert(a.isSupersetOf(a));
+
+    /* the empty set is a subset of everything */
+    Set<int> empty = {};
+    assert(empty.isSubsetOf(a));
+    assert(a.isSupersetOf(empty));
+
+    a.free();
+    b.free();
+    sd.free();
+    sub.free();
+    empty.free();
+    printf("PASS: test_set_algebra\n");
+    return 0;
+}

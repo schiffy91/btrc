@@ -1,0 +1,10 @@
+import ./relhelpers/greeting.btrc
+
+#include <assert.h>
+
+// `import ./rel.btrc` — a single relative-path file import (not a glob).
+int main() {
+    assert(Greeting.text().equals("hello-from-relative"));
+    print("PASS: test_import_relative_file");
+    return 0;
+}

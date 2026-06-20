@@ -1,0 +1,43 @@
+/* FileSystem.mkdir (single, non-recursive), FileSystem.chmod, Directory.entries
+ * over a populated dir (excluding '.'/'..'), and UnixFileSystem.realPath of a
+ * created file. Hermetic: everything under a fresh temp dir, removed at the end. */
+#include <assert.h>
+
+int main() {
+    string dir = FileSystem.tempDir("btrc_fs_chmod");
+    assert(FileSystem.isDir(dir));
+
+    // mkdir a single subdirectory (mode 0755 == 493) returns 0 on success.
+    string sub = PathTools.join(dir, "sub");
+    assert(FileSystem.mkdir(sub, 493) == 0);
+    assert(FileSystem.isDir(sub));
+
+    // Put one file inside it.
+    string filePath = PathTools.join(sub, "data.txt");
+    assert(FileSystem.writeText(filePath, "hi"));
+    assert(FileSystem.isFile(filePath));
+
+    // Directory.entries lists exactly the one file, never '.'/'..'.
+    Directory d = Directory(sub);
+    Vector<string> entries = d.entries();
+    assert(entries.len == 1);
+    assert(entries.get(0).equals("data.txt"));
+    assert(!entries.contains("."));
+    assert(!entries.contains(".."));
+
+    // chmod to 0644 (== 420) returns 0 on success.
+    assert(FileSystem.chmod(filePath, 420) == 0);
+
+    // realPath of the created file resolves to an absolute path ending in the
+    // file name (the temp dir may itself be a symlink, so only check the tail).
+    string real = UnixFileSystem.realPath(filePath);
+    assert(!real.isEmpty());
+    assert(real[0] == '/');
+    assert(real.endsWith("data.txt"));
+
+    FileSystem.removeRecursive(dir);
+    assert(!FileSystem.exists(dir));
+
+    print("PASS: test_stdlib_fs_chmod_mkdir");
+    return 0;
+}

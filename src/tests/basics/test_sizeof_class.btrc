@@ -1,0 +1,30 @@
+#include <assert.h>
+
+class Pt {
+    public int x;
+    public int y;
+    public Pt() {
+        self.x = 0;
+        self.y = 0;
+    }
+}
+
+int main() {
+    // sizeof of a primitive type operand
+    assert(sizeof(int) > 0);
+    assert(sizeof(double) == 8);
+
+    // sizeof of a user class type compiles and is at least its field bytes
+    assert(sizeof(Pt) >= 2 * sizeof(int));
+
+    // the class still behaves normally
+    Pt p = new Pt();
+    assert(p.x == 0 && p.y == 0);
+    p.x = 3;
+    p.y = 4;
+    assert(p.x + p.y == 7);
+    delete p;
+
+    print("PASS: test_sizeof_class");
+    return 0;
+}

@@ -61,6 +61,16 @@ class CEmitter {
             ds = ds + 1;
         }
 
+        /* Enum definitions (before forward decls, since functions and
+         * function-pointer typedefs may reference an enum type by name).
+         * Mirrors emitter.py's enum_defs loop. */
+        int e = 0;
+        while (e < m.enum_defs.len) {
+            self.raw(m.enum_defs.get(e));
+            self.line("");
+            e = e + 1;
+        }
+
         /* Forward declarations. */
         int i = 0;
         while (i < m.forward_decls.len) {
@@ -197,10 +207,23 @@ class CEmitter {
 
     public void emitStmt(IRNode s) {
         if (s.kind == IRK_VAR_DECL) {
+            string ctype = s.c_type;
+            if (s.is_volatile) {
+                /* For pointer types, `volatile` must go after the * to make the
+                 * pointer itself volatile (not the pointed-to data):
+                 *   Item* volatile it   vs   volatile Item* it
+                 * Mirrors python emitter.py IRVarDecl branch. */
+                int clen = ctype.length();
+                if (clen > 0 && ctype.substring(clen - 1, 1) == "*") {
+                    ctype = ctype + " volatile";
+                } else {
+                    ctype = "volatile " + ctype;
+                }
+            }
             if (s.init != null) {
-                self.line(f"{s.c_type} {s.name} = {self.expr(s.init)};");
+                self.line(f"{ctype} {s.name} = {self.expr(s.init)};");
             } else {
-                self.line(f"{s.c_type} {s.name};");
+                self.line(f"{ctype} {s.name};");
             }
             return;
         }

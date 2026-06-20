@@ -1,0 +1,8 @@
+/* An import-keyword target (NOT a #include) that itself pulls in a C system
+   header and defines a raw C function. Exercises the import-resolved splice
+   branch carrying a `#include <...>` plus raw C across the boundary. */
+#include <math.h>
+
+double mag2(double a, double b) {
+    return sqrt(a * a + b * b);
+}

@@ -1,0 +1,13 @@
+import ./globhelpers/*
+
+#include <assert.h>
+
+// `import ./dir/*` — non-recursive directory glob; every .btrc in the directory
+// is spliced in, so symbols from both files resolve.
+int main() {
+    assert(Alpha.value() == 11);
+    assert(Beta.value() == 31);
+    assert(Alpha.value() + Beta.value() == 42);
+    print("PASS: test_import_dir_glob");
+    return 0;
+}

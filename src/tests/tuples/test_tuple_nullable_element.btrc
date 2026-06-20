@@ -1,0 +1,16 @@
+#include <assert.h>
+
+int main() {
+    // Nullable string as a tuple element; built from typed string? vars so
+    // is_nullable propagates into the tuple struct field c-type.
+    string? a = null;
+    string? b = "set";
+    (int, string?) t = (1, a);
+    assert(t._0 == 1);
+    assert(t._1 == null);
+    (int, string?) u = (2, b);
+    assert(u._0 == 2);
+    assert(u._1 != null);
+    print("PASS: test_tuple_nullable_element");
+    return 0;
+}

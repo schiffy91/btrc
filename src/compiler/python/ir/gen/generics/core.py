@@ -49,12 +49,16 @@ def _resolve_type(t: TypeExpr | None, type_map: dict[str, TypeExpr]) -> TypeExpr
         return TypeExpr(base="void")
     if t.base in type_map and not t.generic_args:
         resolved = type_map[t.base]
-        # Combine pointer depths: T* with T→int becomes int*
+        # Combine pointer depths: T* with T→int becomes int*. Preserve the
+        # nullable flag so a `T?` field over a reference type (T→string) still
+        # collapses to char* in type_to_c instead of char** (gcc 15 rejects the
+        # char* = char** mismatch against the non-generic value side).
         if t.pointer_depth > 0:
             return TypeExpr(
                 base=resolved.base,
                 generic_args=resolved.generic_args,
                 pointer_depth=resolved.pointer_depth + t.pointer_depth,
+                is_nullable=t.is_nullable or resolved.is_nullable,
             )
         return resolved
     if t.generic_args:

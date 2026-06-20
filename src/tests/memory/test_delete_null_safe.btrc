@@ -1,0 +1,58 @@
+/* Null-handling of managed locals. A managed local that is null (never
+ * allocated, or set to null) is skipped by the scope-exit release path (which
+ * null-guards), so no destructor runs for it. Conversely `delete` is an
+ * unconditional force-destroy, so a deleted handle must be nulled (which it is)
+ * to keep scope-exit safe. Pins the null-guard on the auto-release path. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+// A never-allocated managed local: scope exit must null-guard and not destroy.
+void neverAllocated() {
+    Obj o = null;
+    assert(o == null);
+}
+
+// A managed local set to null mid-scope: scope exit skips it (the object it
+// once pointed to leaks, but no double/invalid destruction occurs).
+void nulledMidScope() {
+    Obj a = new Obj(1);
+    assert(alive == 1);
+    a = null;        // drop the handle; object leaks (rc still 1)
+    assert(a == null);
+}
+
+// delete nulls the handle; the subsequent scope-exit release is a safe no-op.
+void deleteThenScopeExit() {
+    Obj b = new Obj(2);
+    delete b;
+    assert(b == null);
+    // scope exit: b is null -> guarded, no second destruction
+}
+
+int main() {
+    neverAllocated();
+    assert(alive == 0);   // nothing was ever created
+
+    nulledMidScope();     // leaks one (rc=1, no handle)
+    assert(alive == 1);
+
+    deleteThenScopeExit();
+    assert(alive == 1);   // still just the earlier leak; b cleaned exactly once
+
+    print("PASS: test_delete_null_safe");
+    return 0;
+}

@@ -1,0 +1,39 @@
+#include <assert.h>
+
+// switch on a rich enum's .tag using Enum.Variant tag constants as labels,
+// reading the payload inside the matching case.
+enum class Shape {
+    Circle(double r),
+    Rect(double w, double h),
+    Point
+}
+
+int main() {
+    Shape s = Shape.Rect(3.0, 4.0);
+    double area = 0.0;
+    switch (s.tag) {
+        case Shape.Circle:
+            area = 3 * s.data.Circle.r * s.data.Circle.r;
+            break;
+        case Shape.Rect:
+            area = s.data.Rect.w * s.data.Rect.h;
+            break;
+        default:
+            area = 0.0;
+            break;
+    }
+    assert(area == 12.0);
+
+    Shape c = Shape.Circle(2.0);
+    switch (c.tag) {
+        case Shape.Circle:
+            area = c.data.Circle.r;
+            break;
+        default:
+            area = -1.0;
+            break;
+    }
+    assert(area == 2.0);
+    print("PASS: test_rich_enum_switch_on_tag");
+    return 0;
+}

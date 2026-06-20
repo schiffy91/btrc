@@ -1,0 +1,15 @@
+/* Transitive + diamond includes:
+     main -> a_helper -> b_helper   (transitive)
+     main -> b_helper               (direct)
+   The leaf (Leaf) is reachable via two paths; the include guard must define it
+   exactly once or the C compile fails on redefinition. */
+#include "test_diamond_a_helper.btrc"
+#include "test_diamond_b_helper.btrc"
+#include <assert.h>
+
+int main() {
+    assert(Leaf.value() == 100);
+    assert(Mid.value() == 105);
+    print("PASS: test_interop_nested_include");
+    return 0;
+}

@@ -1,0 +1,8 @@
+/* Helper included via angle brackets (#include <...>) with a .btrc suffix.
+   The .btrc suffix means this is a btrc textual splice, NOT a C header. */
+
+class AnglePoint {
+    public int v;
+    public AnglePoint(int v) { self.v = v; }
+    public int twice() { return self.v * 2; }
+}

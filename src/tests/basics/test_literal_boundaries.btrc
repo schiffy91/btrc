@@ -1,0 +1,30 @@
+#include <assert.h>
+
+int main() {
+    // Large hex literal at the 32-bit unsigned boundary
+    unsigned int u = 0xFFFFFFFF;
+    assert(u == 4294967295u);
+
+    // INT_MAX
+    int max = 2147483647;
+    assert(max == 2147483647);
+
+    // zero and leading-zero hex
+    int zero = 0;
+    assert(zero == 0);
+    int hz = 0x0;
+    assert(hz == 0);
+
+    // mixed-radix equality: hex, octal, binary, decimal all denote 255
+    assert(0xFF == 255);
+    assert(0o377 == 255);
+    assert(0b11111111 == 255);
+
+    // negative literal
+    int neg = -2147483647;
+    assert(neg < 0);
+    assert(neg + max == 0);
+
+    print("PASS: test_literal_boundaries");
+    return 0;
+}

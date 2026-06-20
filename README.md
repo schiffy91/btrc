@@ -981,7 +981,6 @@ src/
           threads.py           # spawn/Thread/Mutex lowering
           generics/            # Monomorphization (vectors, maps, sets, user types)
         helpers/               # Runtime helper C source (strings, alloc, threads, ...)
-      tests/                   # Python unit tests (1140+ tests)
 
     btrc/                      # Self-hosted compiler (written in btrc)
       btrcc_main.btrc          # Pipeline entry point
@@ -1019,9 +1018,14 @@ src/
       btrc_gpu.h               # C header for GPU compute functions
       btrc_gpu.c               # C implementation (wgpu-native backend)
 
-  tests/                       # Language test suite (362 .btrc files)
-    runner.py                  # Pytest runner (compile + gcc + run + diff)
+  tests/                       # Test suite — one framework for both compilers
+    runner.py                  # Unified runner: each .btrc test through BOTH the
+                               #   Python and self-hosted compilers (--compilers)
     generate_expected.py       # Regenerate golden .stdout files
+    conftest.py                # --compilers option + shared fixtures
+    python/                    # Python reference-compiler unit tests (~1140)
+    btrc/                      # Self-hosted-compiler-specific tests
+    <category>/                # 854 shared language tests (.btrc), run on both
     basics/                    # Types, vars, print, nullable, casting, sizeof
     control_flow/              # if/for/while/switch/try-catch, range
     classes/                   # Classes, inheritance, interfaces, abstract
@@ -1054,8 +1058,9 @@ examples/
 
 ```bash
 make build                  # Create bin/btrcpy wrapper script
-make test                   # Run all tests (unit + language, gcc -std=c11)
-make test-btrc              # Run language tests only (gcc -std=c11)
+make test                   # Everything: unit + LSP + debugger + language on BOTH compilers
+make test-btrc              # Language corpus through the Python reference compiler
+make test-btrc-selfhost     # Language corpus through the self-hosted compiler (btrcc)
 make test-c11               # Strict C11 compliance: gcc + clang at -O0 through -O3
 make lint                   # Run ruff linter
 make format                 # Format with ruff
@@ -1091,7 +1096,7 @@ Manual install requires:
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push and PR to `main`:
 1. Builds the devcontainer image
 2. Runs `make lint` (ruff)
-3. Runs `make test` (568 unit tests + 362 language tests, gcc `-std=c11`)
+3. Runs `make test` (~1140 reference unit tests + 854 language tests run through **both** the reference and self-hosted compilers, gcc `-std=c11`)
 
 GPU tests are automatically skipped in CI when the GPU runtime is not built.
 
@@ -1141,6 +1146,7 @@ The extension auto-discovers the LSP server and Python interpreter. Configure `b
 ## Roadmap
 
 Planned but not yet implemented:
+- **Known language gaps** -- the exhaustive test sweep surfaced a handful of grammar-permitted features the compilers don't yet lower (typedef aliases, `static` locals, class-type casts, rich-enum-by-value across boundaries, …); see [docs/known-language-gaps.md](docs/known-language-gaps.md)
 - **Bootstrap fixed-point** -- the [self-hosted compiler](#self-hosting) already compiles the full language suite to matching output; the last step is having the self-compiled `btrcc` rebuild itself bit-for-bit
 - **Module system** -- currently relies on `#include "file.btrc"` textual inclusion
 - **Pattern matching** -- `match` expressions for rich enums with exhaustiveness checking

@@ -1,0 +1,28 @@
+/* Upcasting a derived instance to its base type via assignment, then reading
+ * an inherited field. btrc lays out a subclass parent-first, so a base-typed
+ * reference can read the inherited field directly. */
+#include <assert.h>
+
+class A {
+    public int x;
+    public A(int x) { self.x = x; }
+}
+
+class C extends A {
+    public int y;
+    public C(int x, int y) { self.x = x; self.y = y; }
+}
+
+int main() {
+    C c = C(3, 4);
+    assert(c.x == 3);
+    assert(c.y == 4);
+
+    // Upcast: a base-typed view of the same object.
+    A a = c;
+    // The inherited field reads correctly through the base type.
+    assert(a.x == 3);
+
+    print("PASS: test_upcast_field_access");
+    return 0;
+}

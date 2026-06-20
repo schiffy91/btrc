@@ -1,0 +1,38 @@
+/* Self-loop cycle: a single object whose field points at itself (n.next = n).
+ * The cycle collector must reclaim a self-referential node at scope exit. */
+#include <assert.h>
+
+int node_count = 0;
+
+class Node {
+    public int id;
+    public Node next;
+
+    public Node(int id) {
+        self.id = id;
+        self.next = null;
+        node_count++;
+    }
+
+    public void __del__() {
+        node_count--;
+    }
+}
+
+int main() {
+    {
+        Node n = new Node(1);
+        assert(node_count == 1);
+
+        // Self-loop: n.next = n  (field assign rc++ -> rc=2).
+        n.next = n;
+        assert(n.next.id == 1);
+        assert(n.next.next.id == 1);
+        // scope exit: --rc -> 1 (still referenced by its own field), then the
+        // trial-deletion collector detects the unreachable self-cycle and frees it.
+    }
+    assert(node_count == 0);
+
+    print("PASS: test_cycle_self_loop");
+    return 0;
+}

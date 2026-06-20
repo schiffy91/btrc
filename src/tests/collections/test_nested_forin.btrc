@@ -1,0 +1,44 @@
+/* Nested for-in over a collection-of-collections (not C-style indexing).
+ * Two synthesized index vars must not collide. break in the inner loop must
+ * only exit the inner loop. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Vector<Vector<int>> m = [];
+    m.push([1, 2]);
+    m.push([3, 4]);
+    m.push([5, 6]);
+
+    /* sum every element via nested for-in */
+    int sum = 0;
+    for row in m {
+        for x in row {
+            sum += x;
+        }
+    }
+    assert(sum == 21);
+
+    /* inner break only exits the inner loop: take the first element of each row */
+    int firsts = 0;
+    for row in m {
+        for x in row {
+            firsts += x;
+            break;
+        }
+    }
+    assert(firsts == 1 + 3 + 5);
+
+    /* count total elements (3 rows x 2 cols) */
+    int n = 0;
+    for row in m {
+        for x in row {
+            n += 1;
+        }
+    }
+    assert(n == 6);
+
+    m.free();
+    printf("PASS: test_nested_forin\n");
+    return 0;
+}

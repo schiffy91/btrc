@@ -1,0 +1,60 @@
+/* DaemonSpec.renderStartCommand quoting composition (Command -> ShellWords ->
+ * f-string) and the DaemonController start/status/stop lifecycle.
+ * Hermetic: spawns a short `sleep` under a fresh temp dir, with pid/log files
+ * there, and always stops it + removes the dir at the end. */
+#include <assert.h>
+
+int main() {
+    string dir = FileSystem.tempDir("btrc_daemon");
+    assert(FileSystem.isDir(dir));
+
+    // --- renderStartCommand quoting composition ---
+    // An arg with a space is single-quoted; a workingDirectory with a space is
+    // quoted inside the `cd` prefix; nohup + pid redirection are present.
+    DaemonSpec spec = DaemonSpec("btrctest", Command("echo").arg("hello world"))
+        .cwd("/tmp/with space")
+        .pid(PathTools.join(dir, "x.pid"))
+        .log(PathTools.join(dir, "x.log"))
+        .restart(true);
+    assert(spec.autoRestart);
+    string cmd = spec.renderStartCommand();
+    assert(cmd.contains("'hello world'"));        // arg quoted
+    assert(cmd.contains("cd '/tmp/with space'"));  // cwd quoted in the cd prefix
+    assert(cmd.contains("nohup echo 'hello world'"));
+    assert(cmd.contains("&& "));                   // cd ... && nohup ...
+
+    // restart(false) flips the flag back.
+    DaemonSpec noRestart = DaemonSpec("d", Command("true")).restart(false);
+    assert(!noRestart.autoRestart);
+
+    // --- live controller lifecycle ---
+    string pidFile = PathTools.join(dir, "live.pid");
+    string logFile = PathTools.join(dir, "live.log");
+    DaemonSpec live = DaemonSpec("btrclive", Command("sleep").arg("5"))
+        .pid(pidFile)
+        .log(logFile);
+
+    DaemonController ctl = DaemonController();
+    // start launches the daemon and writes the pid file.
+    ExecResult started = ctl.start(live);
+    assert(started.ok());
+    assert(FileSystem.exists(pidFile));
+
+    // status reports the process is alive (kill -0 succeeds).
+    ExecResult st = ctl.status(live);
+    assert(st.ok());
+
+    // stop kills it and removes the pid file.
+    ctl.stop(live);
+    assert(!FileSystem.exists(pidFile));
+
+    // After stopping, status fails (no pid file).
+    ExecResult after = ctl.status(live);
+    assert(!after.ok());
+
+    FileSystem.removeRecursive(dir);
+    assert(!FileSystem.exists(dir));
+
+    print("PASS: test_stdlib_daemon");
+    return 0;
+}

@@ -1,0 +1,26 @@
+#include <assert.h>
+
+int main() {
+    // Cast applied to a var-inferred float value
+    var f = 3.99;
+    int i = (int)f;
+    assert(i == 3);
+
+    // Cast of a var-inferred int to long
+    var n = 1000000;
+    long l = (long)n;
+    assert(l == 1000000);
+
+    // Cast inferred int to char
+    var code = 66;
+    char c = (char)code;
+    assert(c == 'B');
+
+    // Cast inferred float to double-width then back
+    var g = 2.5;
+    double d = (double)g;
+    assert(d > 2.4 && d < 2.6);
+
+    print("PASS: test_cast_of_inferred");
+    return 0;
+}

@@ -1,0 +1,40 @@
+/* Vector<Class>.contains / indexOf use reference (__btrc_eq) semantics on
+ * class instances. A pushed instance is found by identity; a distinct,
+ * never-pushed instance is not (indexOf == -1). */
+#include <assert.h>
+#include <stdio.h>
+
+class Person {
+    public string name;
+    public int age;
+    public Person(string name, int age) {
+        self.name = name;
+        self.age = age;
+    }
+}
+
+int main() {
+    Vector<Person> v = [];
+    Person p1 = new Person("Alice", 30);
+    Person p2 = new Person("Bob", 40);
+    v.push(p1);
+    v.push(p2);
+
+    /* the exact stored instances are found by identity */
+    assert(v.contains(p1));
+    assert(v.contains(p2));
+    assert(v.indexOf(p1) == 0);
+    assert(v.indexOf(p2) == 1);
+
+    /* a different instance (even with the same field values) is NOT contained */
+    Person other = new Person("Alice", 30);
+    assert(!v.contains(other));
+    assert(v.indexOf(other) == -1);
+
+    assert(v.size() == 2);
+
+    delete other;
+    v.free();
+    printf("PASS: test_vector_of_class_contains\n");
+    return 0;
+}

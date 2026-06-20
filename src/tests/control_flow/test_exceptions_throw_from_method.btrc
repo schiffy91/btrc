@@ -1,0 +1,44 @@
+/* throw from inside a class METHOD and from inside a CONSTRUCTOR, caught by the
+ * caller. The corpus only ever throws from free functions; this exercises the
+ * method/constructor frames (self as an implicit pointer arg) on the throw path. */
+#include <assert.h>
+
+class Validator {
+    public int limit;
+    public Validator(int limit) {
+        if (limit < 0) { throw "bad limit"; }   // throw from a constructor
+        self.limit = limit;
+    }
+    public void check(int x) {
+        if (x > self.limit) { throw f"over limit: {x}"; }  // throw from a method
+    }
+}
+
+int main() {
+    Validator v = new Validator(10);
+
+    // Method throw caught by caller; the non-throwing call first must be fine.
+    int methodCaught = 0;
+    try {
+        v.check(5);
+        v.check(20);
+    } catch (string e) {
+        methodCaught = 1;
+        assert(e.equals("over limit: 20"));
+    }
+    assert(methodCaught == 1);
+    delete v;
+
+    // Constructor throw caught by caller.
+    int ctorCaught = 0;
+    try {
+        Validator bad = new Validator(-1);
+    } catch (string e) {
+        ctorCaught = 1;
+        assert(e.equals("bad limit"));
+    }
+    assert(ctorCaught == 1);
+
+    print("PASS: test_exceptions_throw_from_method");
+    return 0;
+}

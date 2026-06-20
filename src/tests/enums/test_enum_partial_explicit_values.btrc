@@ -1,0 +1,14 @@
+#include <assert.h>
+
+// A member with no explicit value AFTER an explicit value takes its
+// POSITIONAL index (str(i) in IR gen), NOT C-style 'previous + 1'.
+enum E { A = 5, B, C = 10, D };
+
+int main() {
+    assert(A == 5);
+    assert(B == 1);   // positional index 1, NOT 6
+    assert(C == 10);
+    assert(D == 3);   // positional index 3, NOT 11
+    print("PASS: test_enum_partial_explicit_values");
+    return 0;
+}

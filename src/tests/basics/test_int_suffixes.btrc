@@ -1,0 +1,23 @@
+#include <assert.h>
+
+int main() {
+    // Integer literal suffixes: u, l, ul, ll, ull, lu
+    unsigned int a = 42u;
+    assert(a == 42u);
+
+    long b = 100l;
+    assert(b == 100);
+
+    unsigned long c = 4000000000ul;
+    assert(c == 4000000000ul);
+
+    long long d = 9000000000ll;
+    assert(d == 9000000000LL);
+
+    // suffix on a hex literal
+    unsigned int hx = 0xFFu;
+    assert(hx == 255u);
+
+    print("PASS: test_int_suffixes");
+    return 0;
+}

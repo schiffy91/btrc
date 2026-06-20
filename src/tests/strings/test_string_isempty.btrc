@@ -1,0 +1,28 @@
+// string.isEmpty() on a string receiver (helper __btrc_isEmpty).
+// The corpus tests isEmpty only on List/Map/Set; isBlank is tested on strings
+// but isEmpty (which is true ONLY for "", unlike isBlank) is not.
+#include <assert.h>
+
+int main() {
+    // Empty string -> true.
+    assert("".isEmpty() == true);
+
+    // Any non-empty content -> false.
+    assert("x".isEmpty() == false);
+
+    // A single space is NOT empty (this is what distinguishes isEmpty from isBlank).
+    string s = " ";
+    assert(s.isEmpty() == false);
+
+    // Whitespace-only string: empty? no. blank? yes.
+    string ws = "   ";
+    assert(ws.isEmpty() == false);
+    assert(ws.isBlank() == true);
+
+    // Empty variable.
+    string e = "";
+    assert(e.isEmpty() == true);
+
+    print("PASS: test_string_isempty");
+    return 0;
+}

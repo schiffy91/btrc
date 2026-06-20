@@ -1,0 +1,29 @@
+#include <assert.h>
+// Thread<T> returning a non-primitive (string, class instance).
+// join() casts the wrapper payload straight to a pointer type — no intptr_t.
+class Box {
+    public int value;
+    public Box(int v) {
+        self.value = v;
+    }
+}
+
+int main() {
+    // string return
+    Thread<string> ts = spawn(() => {
+        return "hello thread";
+    });
+    string s = ts.join();
+    assert(s == "hello thread");
+
+    // class-instance return (pointer payload)
+    Thread<Box> tb = spawn(() => {
+        return new Box(7);
+    });
+    Box b = tb.join();
+    assert(b.value == 7);
+    delete b;
+
+    print("PASS: test_thread_string_class_result");
+    return 0;
+}

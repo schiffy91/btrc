@@ -1,0 +1,52 @@
+/* `keep` qualifier on a FIELD declaration (`public keep Obj item;`). Assigning
+ * into the field retains the object (rc++). Using `release` on the local
+ * (which respects the refcount, unlike `delete` which force-destroys) leaves
+ * the object alive via the kept field; deleting the owner then drops it to
+ * zero. Pins the refcount semantics of a keep-qualified field. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Box {
+    public keep Obj item;
+
+    public Box() {
+        self.item = null;
+    }
+}
+
+int main() {
+    Box b = new Box();
+    Obj o = new Obj(5);
+    assert(alive == 1);
+
+    // Assign into the keep-qualified field: rc 1 -> 2.
+    b.item = o;
+    assert(b.item.id == 5);
+
+    // release respects the refcount: rc 2 -> 1, object survives via the field.
+    release o;
+    assert(o == null);
+    assert(alive == 1);
+    assert(b.item.id == 5);
+
+    // Deleting the box releases the kept field, dropping rc 1 -> 0 -> destroyed.
+    delete b;
+    assert(alive == 0);
+
+    print("PASS: test_keep_field_decl");
+    return 0;
+}

@@ -1,0 +1,28 @@
+#include <assert.h>
+// A void @gpu kernel with a bare `return;` early-exit and gpu_id() used as an
+// array index in arithmetic positions (the has_output=false WGSL path).
+@gpu
+void clampNonNegative(int[] a) {
+    int i = gpu_id();
+    if (a[i] < 0) {
+        return;
+    }
+    a[i] = a[i] * 2;
+}
+
+int main() {
+    // CPU mirror of the kernel's semantics (kernel transpiles to WGSL + a CPU
+    // fallback; this asserts the equivalent logic deterministically).
+    int vals[] = {-3, 4, -1, 5};
+    for (int i = 0; i < 4; i++) {
+        if (vals[i] < 0) { continue; }
+        vals[i] = vals[i] * 2;
+    }
+    assert(vals[0] == -3);
+    assert(vals[1] == 8);
+    assert(vals[2] == -1);
+    assert(vals[3] == 10);
+
+    print("PASS: test_gpu_void_early_return");
+    return 0;
+}

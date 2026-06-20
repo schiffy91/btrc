@@ -1,0 +1,64 @@
+/* Set<string> higher-order methods: filter, any, all, forEach.
+ * Set<int> HOF is covered, but each element type is a separate
+ * monomorphization, so the string instantiation — which exercises the
+ * strcmp-based __btrc_eq path inside the lowered loops — is never compiled
+ * or run by any existing test. */
+#include <assert.h>
+#include <stdio.h>
+
+int seen = 0;
+
+bool isLong(string x) {
+    return x.length() > 3;
+}
+
+bool always(string x) {
+    return true;
+}
+
+bool never(string x) {
+    return false;
+}
+
+void tally(string x) {
+    seen += 1;
+}
+
+int main() {
+    Set<string> s = {};
+    s.add("apple");
+    s.add("hi");
+    s.add("banana");
+
+    /* filter: only strings longer than 3 chars survive */
+    Set<string> longs = s.filter(isLong);
+    assert(longs.size() == 2);
+    assert(longs.contains("apple"));
+    assert(longs.contains("banana"));
+    assert(!longs.contains("hi"));
+
+    /* any / all over string elements */
+    assert(s.any(isLong) == true);
+    assert(s.all(isLong) == false);
+    assert(s.all(always) == true);
+    assert(s.any(never) == false);
+
+    /* forEach visits every distinct element exactly once */
+    s.forEach(tally);
+    assert(seen == 3);
+
+    /* empty-set identities for the string monomorphization */
+    Set<string> empty = {};
+    assert(empty.any(isLong) == false);
+    assert(empty.all(isLong) == true);
+    Set<string> empty_f = empty.filter(isLong);
+    assert(empty_f.size() == 0);
+
+    s.free();
+    longs.free();
+    empty.free();
+    empty_f.free();
+
+    printf("PASS: test_set_string_hof\n");
+    return 0;
+}

@@ -1,0 +1,35 @@
+/* A throw raised from inside a `switch` case, caught by an enclosing try/catch.
+ * No corpus test combines `switch` with `throw`/`try`. A switch case generates its
+ * own break/jump structure, so a throw escaping a case (instead of breaking) is a
+ * distinct, untested interaction held identical across both compilers here. */
+#include <assert.h>
+
+// classify wraps a switch in a try; case 2 throws (no break), others break.
+int classify(int x) {
+    int result = 0;
+    try {
+        switch (x) {
+            case 1:
+                result = 10;
+                break;
+            case 2:
+                throw "two is bad";   // escapes the case via the enclosing catch
+            default:
+                result = 0;
+                break;
+        }
+    } catch (string e) {
+        assert(e.equals("two is bad"));
+        result = 99;
+    }
+    return result;
+}
+
+int main() {
+    assert(classify(1) == 10);   // normal break case
+    assert(classify(2) == 99);   // throw from the case, caught
+    assert(classify(5) == 0);    // default case
+
+    print("PASS: test_exceptions_throw_from_switch");
+    return 0;
+}

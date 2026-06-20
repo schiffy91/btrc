@@ -1,0 +1,38 @@
+/* A base-typed CLASS FIELD holding a derived instance. Method dispatch through
+ * that field resolves STATICALLY to the base method, following the field's
+ * DECLARED type. This is composition + inheritance: an Owner stores a Dog in an
+ * Animal-typed field. Static dispatch is pinned both through self.pet (internal)
+ * and through external field access o.pet — the field-receiver kind the corpus
+ * otherwise covers only for locals, parameters, collection elements, and
+ * nullables. */
+#include <assert.h>
+
+class Animal {
+    public string speak() { return "base"; }
+}
+
+class Dog extends Animal {
+    public string speak() { return "Woof"; }
+}
+
+class Owner {
+    public Animal pet;
+    public Owner() { self.pet = Dog(); }   // derived stored in base-typed field
+    public string petSpeaks() { return self.pet.speak(); }
+}
+
+int main() {
+    Owner o = Owner();
+    // Through self.pet inside a method: field's declared type is Animal.
+    assert(o.petSpeaks() == "base");
+    // Through external field access: same static dispatch to the base.
+    assert(o.pet.speak() == "base");
+
+    // A directly-constructed Dog still uses its override, proving the field
+    // type — not the runtime value — is what pins dispatch.
+    Dog d = Dog();
+    assert(d.speak() == "Woof");
+
+    print("PASS: test_base_field_holds_derived_static_dispatch");
+    return 0;
+}

@@ -1,0 +1,45 @@
+/* UiNode void elements beyond br/img (hr, input, link, meta render bare with no
+ * closing tag) and childrenFrom() which appends a whole list of children. */
+#include <assert.h>
+
+int main() {
+    // The full void-element set renders bare (no closing tag, no self-close /).
+    assert(UiNode("hr").isVoidElement());
+    assert(UiNode("hr").renderHtml().equals("<hr>"));
+    assert(UiNode("input").isVoidElement());
+    assert(UiNode("link").isVoidElement());
+    assert(UiNode("meta").isVoidElement());
+
+    // Void elements still carry attributes.
+    assert(UiNode("meta").attr("charset", "utf-8").renderHtml()
+        .equals("<meta charset=\"utf-8\">"));
+    assert(UiNode("input").attr("type", "text").attr("name", "q").renderHtml()
+        .equals("<input type=\"text\" name=\"q\">"));
+    assert(UiNode("link").attr("rel", "stylesheet").renderHtml()
+        .equals("<link rel=\"stylesheet\">"));
+
+    // A non-void element is not in the set.
+    assert(!UiNode("section").isVoidElement());
+
+    // childrenFrom appends every node in the list, in order.
+    Vector<UiNode> items = [
+        UiNode("li").text("a"),
+        UiNode("li").text("b"),
+        UiNode("li").text("c")
+    ];
+    UiNode ul = UiNode("ul").childrenFrom(items);
+    assert(ul.renderHtml().equals("<ul><li>a</li><li>b</li><li>c</li></ul>"));
+
+    // childrenFrom composes with child(): existing children come first.
+    UiNode mixed = UiNode("ul")
+        .child(UiNode("li").text("head"))
+        .childrenFrom([UiNode("li").text("x"), UiNode("li").text("y")]);
+    assert(mixed.renderHtml().equals("<ul><li>head</li><li>x</li><li>y</li></ul>"));
+
+    // childrenFrom with an empty list is a no-op.
+    Vector<UiNode> none = [];
+    assert(UiNode("div").childrenFrom(none).renderHtml().equals("<div></div>"));
+
+    print("PASS: test_stdlib_ui_void_children");
+    return 0;
+}

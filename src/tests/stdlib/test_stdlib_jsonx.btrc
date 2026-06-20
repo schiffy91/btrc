@@ -1,0 +1,39 @@
+/* The deprecated Json (jsonx) string-scan extractors: esc / str escaping,
+ * getString on a present vs non-string value, getStringFrom with an offset, and
+ * getStringAfter when the anchor is missing (returns ""). */
+#include <assert.h>
+
+int main() {
+    // esc escapes control chars and quotes; str wraps in quotes.
+    assert(Json.esc("a\nb").contains("\\n"));
+    assert(Json.esc("a\"b").contains("\\\""));
+    assert(Json.str("hi").equals("\"hi\""));
+    assert(Json.str("a\"b\\c").equals("\"a\\\"b\\\\c\""));
+
+    // getString returns the (unescaped) string value for a present key.
+    assert(Json.getString("{\"a\":\"v\"}", "a").equals("v"));
+    assert(Json.getString("{\"msg\":\"hi\\nthere\"}", "msg").equals("hi\nthere"));
+
+    // A non-string value (number/bool) yields "" — these helpers only read
+    // quoted strings.
+    assert(Json.getString("{\"a\":42}", "a").equals(""));
+    assert(Json.getString("{\"a\": false}", "a").equals(""));
+
+    // A missing key yields "".
+    assert(Json.getString("{\"a\":\"v\"}", "missing").equals(""));
+
+    // getStringFrom scans from an offset: from 0 it finds the first "x" value;
+    // starting past the first object it finds the second occurrence.
+    string doc = "{\"x\":\"first\"},{\"x\":\"second\"}";
+    assert(Json.getStringFrom(doc, "x", 0).equals("first"));
+    int secondObj = Strings.find(doc, "},", 0);
+    assert(Json.getStringFrom(doc, "x", secondObj).equals("second"));
+
+    // getStringAfter: when the anchor is absent, returns "".
+    assert(Json.getStringAfter("{\"x\":\"v\"}", "nosuchanchor", "x").equals(""));
+    // when present, finds the key after the anchor position.
+    assert(Json.getStringAfter("{\"outer\":{\"inner\":\"deep\"}}", "outer", "inner").equals("deep"));
+
+    print("PASS: test_stdlib_jsonx");
+    return 0;
+}

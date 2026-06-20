@@ -1,0 +1,13 @@
+#include <assert.h>
+
+// Anonymous enum: grammar allows an optional name (enum { A, B };).
+enum { A, B, C };
+
+int main() {
+    int x = B;
+    assert(x == 1);
+    assert(A == 0);
+    assert(C == 2);
+    print("PASS: test_anonymous_enum");
+    return 0;
+}

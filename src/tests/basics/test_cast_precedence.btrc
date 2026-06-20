@@ -1,0 +1,29 @@
+// C-style cast binds tighter than binary operators: (int)3.9 * 2 applies
+// the cast to 3.9 first, then multiplies, giving 6 — not (int)(3.9*2)==7.
+#include <assert.h>
+
+int main() {
+    // Cast binds tighter than '*'.
+    int a = (int)3.9 * 2;
+    assert(a == 6);
+
+    // Cast binds tighter than '+'.
+    int b = (int)3.9 + (int)2.9;
+    assert(b == 5);
+
+    // Parenthesizing the arithmetic changes the result.
+    int c = (int)(3.9 * 2.0);
+    assert(c == 7);
+
+    // Cast applies to the immediately following unary operand only.
+    float f = 7.5;
+    int d = (int)f - 1;
+    assert(d == 6);
+
+    // Cast of a parenthesized expression.
+    int e = (int)(1.5 + 1.0) + 10;
+    assert(e == 12);
+
+    print("PASS: test_cast_precedence");
+    return 0;
+}

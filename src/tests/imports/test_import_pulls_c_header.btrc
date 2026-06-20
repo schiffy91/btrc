@@ -1,0 +1,18 @@
+import ./cheaderhelpers/mag_helper.btrc
+
+#include <assert.h>
+
+// `import ./helper.btrc` where the helper transitively pulls in a C system
+// header (`#include <math.h>`) and defines a raw C function. The import keyword
+// and #include go through different front-end branches, so this interaction is
+// exercised here for the IMPORT path specifically. Runner links -lm.
+int main() {
+    double m = mag2(3.0, 4.0);
+    assert(m > 4.99 && m < 5.01);
+
+    double n = mag2(5.0, 12.0);
+    assert(n > 12.99 && n < 13.01);
+
+    print("PASS: test_import_pulls_c_header");
+    return 0;
+}

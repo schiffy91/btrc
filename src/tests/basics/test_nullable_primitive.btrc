@@ -1,0 +1,21 @@
+#include <assert.h>
+
+int main() {
+    // Nullable annotation on a PRIMITIVE type (int?)
+    int? a = null;
+    assert(a == null);
+
+    int v = 9;
+    a = &v;
+    assert(a != null);
+    assert(*a == 9);
+
+    // Nullable on string type
+    string? s = null;
+    assert(s == null);
+    s = "hello";
+    assert(s != null);
+
+    print("PASS: test_nullable_primitive");
+    return 0;
+}

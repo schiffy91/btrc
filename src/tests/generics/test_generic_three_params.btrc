@@ -1,0 +1,30 @@
+/* Three type parameters on one class (Triple<A,B,C>). The corpus tops out at
+ * two params, so the N-param type-map zip and mangling for 3 params is
+ * verified here across a mixed (int,string,bool) instantiation. */
+#include <assert.h>
+#include <string.h>
+
+class Triple<A, B, C> {
+    public A a;
+    public B b;
+    public C c;
+    public Triple(A x, B y, C z) { self.a = x; self.b = y; self.c = z; }
+    public A getA() { return self.a; }
+    public B getB() { return self.b; }
+    public C getC() { return self.c; }
+}
+
+int main() {
+    Triple<int, string, bool> t = new Triple<int, string, bool>(7, "mid", true);
+    assert(t.getA() == 7);
+    assert(strcmp(t.getB(), "mid") == 0);
+    assert(t.getC() == true);
+
+    Triple<bool, int, string> u = new Triple<bool, int, string>(false, 99, "z");
+    assert(u.getA() == false);
+    assert(u.getB() == 99);
+    assert(strcmp(u.getC(), "z") == 0);
+
+    print("PASS: test_generic_three_params");
+    return 0;
+}

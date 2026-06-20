@@ -10,7 +10,7 @@ int main(int argc, char** argv) {
   string src = Path.readAll(Strings.copy(argv[1]));
   Lexer lx = Lexer(src, g);
   Vector<Token> toks = lx.tokenize();
-  Parser p = Parser(toks);
+  Parser p = Parser(toks, g);
   Node prog = p.parseProgram();
   print(prog.canon(0));
   return 0;

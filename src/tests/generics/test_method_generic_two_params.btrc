@@ -1,0 +1,28 @@
+/* Generic METHOD with TWO method-level type params <A, B> used directly as
+ * param/return types (no __fn_ptr over them). Every existing method-generic
+ * test uses exactly one method type param <U>; this verifies the combined-type
+ * map and the {class}_{method}_{argA}_{argB} multi-arg mangling for 2 method
+ * params across distinct (A, B) combinations. */
+#include <assert.h>
+#include <string.h>
+
+class Conv {
+    public Conv() {}
+    public A pickFirst<A, B>(A a, B b) { return a; }
+    public B pickSecond<A, B>(A a, B b) { return b; }
+}
+
+int main() {
+    Conv c = Conv();
+
+    /* (A=int, B=string) */
+    assert(c.pickFirst(5, "x") == 5);
+    assert(strcmp(c.pickSecond(5, "x"), "x") == 0);
+
+    /* (A=string, B=int) -- the reversed combination monomorphizes separately */
+    assert(strcmp(c.pickFirst("y", 9), "y") == 0);
+    assert(c.pickSecond("y", 9) == 9);
+
+    print("PASS: test_method_generic_two_params");
+    return 0;
+}

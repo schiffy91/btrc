@@ -1,0 +1,27 @@
+#include <assert.h>
+
+int main() {
+    // Multi-word integer base types from the base_type grammar rule
+    long int li = 1000000;
+    assert(li == 1000000);
+
+    short int si = -5;
+    assert(si == -5);
+
+    unsigned short us = 60000u;
+    assert(us == 60000u);
+
+    signed long sl = -9000000000;
+    assert(sl < 0);
+    assert(sl == -9000000000);
+
+    // signed/unsigned with explicit width words still behave as their base
+    unsigned int ui = 4000000000u;
+    assert(ui > 3000000000u);
+
+    signed int sgi = -7;
+    assert(sgi == -7);
+
+    print("PASS: test_multiword_int_types");
+    return 0;
+}

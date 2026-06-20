@@ -1,0 +1,33 @@
+/* User generic nested inside a user generic: Box<Box<int>> and a
+ * Pair<Box<int>, Box<string>>. Verifies nested-monomorphization ordering
+ * (inner instance emitted before outer) and read-back through two layers. */
+#include <assert.h>
+#include <string.h>
+
+class Box<T> {
+    public T v;
+    public Box(T x) { self.v = x; }
+    public T get() { return self.v; }
+}
+
+class Pair<A, B> {
+    public A first;
+    public B second;
+    public Pair(A a, B b) { self.first = a; self.second = b; }
+    public A getFirst() { return self.first; }
+    public B getSecond() { return self.second; }
+}
+
+int main() {
+    Box<Box<int>> bb = new Box<Box<int>>(new Box<int>(7));
+    assert(bb.get().get() == 7);
+
+    Box<int> inner = new Box<int>(3);
+    Box<string> innerS = new Box<string>("hi");
+    Pair<Box<int>, Box<string>> p = new Pair<Box<int>, Box<string>>(inner, innerS);
+    assert(p.getFirst().get() == 3);
+    assert(strcmp(p.getSecond().get(), "hi") == 0);
+
+    print("PASS: test_user_generic_nested");
+    return 0;
+}

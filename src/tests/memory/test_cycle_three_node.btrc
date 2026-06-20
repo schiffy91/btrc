@@ -1,0 +1,45 @@
+/* Three-node reference cycle (A -> B -> C -> A) collected by the trial-deletion
+ * cycle collector at scope exit. Extends the 2-node coverage in test_arc_graph
+ * to a longer ring. */
+#include <assert.h>
+
+int node_count = 0;
+
+class Node {
+    public int id;
+    public Node next;
+
+    public Node(int id) {
+        self.id = id;
+        self.next = null;
+        node_count++;
+    }
+
+    public void __del__() {
+        node_count--;
+    }
+}
+
+int main() {
+    {
+        Node a = new Node(1);
+        Node b = new Node(2);
+        Node c = new Node(3);
+        assert(node_count == 3);
+
+        // Ring: a -> b -> c -> a (each field assign does rc++ on the target).
+        a.next = b;
+        b.next = c;
+        c.next = a;
+
+        assert(a.next.id == 2);
+        assert(a.next.next.id == 3);
+        assert(a.next.next.next.id == 1);
+        // scope exit: all three locals dropped to rc=1 by the cyclic field refs;
+        // the trial-deletion collector detects the unreachable 3-ring and frees it.
+    }
+    assert(node_count == 0);
+
+    print("PASS: test_cycle_three_node");
+    return 0;
+}

@@ -1,0 +1,30 @@
+// Property get/set dispatch through a heap (new-allocated, pointer) receiver.
+// Every property test in the corpus uses a stack-allocated (dot receiver)
+// object; this exercises the distinct ->-receiver get/set lowering path.
+#include <assert.h>
+
+class Box {
+    private int w;
+
+    public Box(int w) {
+        self.w = w;
+    }
+
+    public int width {
+        get { return self.w; }
+        set { self.w = value; }
+    }
+}
+
+int main() {
+    Box b = new Box(3);
+    assert(b.width == 3);
+
+    b.width = 10;
+    assert(b.width == 10);
+
+    delete b;
+
+    print("PASS: test_property_on_heap_object");
+    return 0;
+}

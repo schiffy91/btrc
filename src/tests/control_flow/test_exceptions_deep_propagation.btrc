@@ -1,0 +1,32 @@
+/* Deeply nested try (3 levels) where an inner throw propagates through several
+ * uncaught middle layers (each only a finally) to the correct outer catch. The
+ * corpus only nests 2 levels and always catches the inner throw. This pins the
+ * try-stack pop discipline across multiple frames and the finally ordering:
+ * innermost finally runs first, then the next, then the outer catch. */
+#include <assert.h>
+
+int main() {
+    Vector<string> log = [];
+    try {
+        try {
+            try {
+                throw "deep";
+            } finally {
+                log.push("f3");   // innermost finally runs first
+            }
+        } finally {
+            log.push("f2");       // next finally
+        }
+    } catch (string e) {
+        assert(e.equals("deep")); // exact value survives 2 finally frames
+        log.push("catch");        // outer catch runs last
+    }
+    assert(log.len == 3);
+    assert(log[0].equals("f3"));
+    assert(log[1].equals("f2"));
+    assert(log[2].equals("catch"));
+    log.free();
+
+    print("PASS: test_exceptions_deep_propagation");
+    return 0;
+}

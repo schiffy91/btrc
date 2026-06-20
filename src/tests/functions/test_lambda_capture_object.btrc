@@ -1,0 +1,30 @@
+// Lambda capturing a class-instance (object reference) local and reading a
+// field through it. Exercises pointer capture in the closure struct, and
+// that a later-created lambda reads the live field value.
+#include <assert.h>
+
+class Box {
+    public int v;
+    public Box(int v) { self.v = v; }
+}
+
+int main() {
+    Box b = new Box(7);
+
+    // captures the object reference b; reads b.v through the closure
+    var f = (int x) => x + b.v;
+    assert(f(3) == 10);     // 3 + 7
+    assert(f(0) == 7);      // 0 + 7
+
+    // mutate the field, then create a second lambda that sees the live value
+    b.v = 20;
+    var g = (int x) => x + b.v;
+    assert(g(3) == 23);     // 3 + 20
+
+    // f captured the same object reference, so it observes the live field too
+    assert(f(1) == 21);     // 1 + 20
+
+    delete b;
+    print("PASS: test_lambda_capture_object");
+    return 0;
+}

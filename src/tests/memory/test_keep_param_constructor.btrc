@@ -1,0 +1,51 @@
+/* Test keep on a CONSTRUCTOR parameter: rc++ at call site inside the
+ * constructor's keep-param branch (distinct from the method-call branch).
+ * The constructor retains the passed object via keep so it survives the
+ * deletion of the holder. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Box {
+    public Obj held;
+
+    public Box(keep Obj o) {
+        self.held = o;
+    }
+
+    public void __del__() {
+    }
+}
+
+int main() {
+    Obj o = new Obj(1);
+    assert(alive == 1);
+
+    // Constructor keep param retains o (rc++ at call site).
+    Box b = new Box(o);
+    assert(b.held.id == 1);
+
+    // Deleting the Box runs its destructor and releases the held field,
+    // but keep + the local handle still keep o alive.
+    delete b;
+    assert(alive == 1);
+
+    delete o;
+    assert(alive == 0);
+
+    print("PASS: test_keep_param_constructor");
+    return 0;
+}

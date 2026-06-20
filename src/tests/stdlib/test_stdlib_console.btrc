@@ -1,0 +1,15 @@
+/* Console static output helpers. write() emits no newline; writeLine() and log()
+ * append one. error() goes to stderr (NOT captured in the stdout golden). The
+ * exact stdout below is the contract checked against the golden. */
+#include <assert.h>
+
+int main() {
+    Console.write("a");        // no newline
+    Console.write("b");        // -> "ab" so far, still no newline
+    Console.writeLine("c");    // -> "ab" then "c\n"
+    Console.log("d");          // -> "d\n"
+    Console.error("to-stderr"); // stderr only; absent from the stdout golden
+
+    print("PASS: test_stdlib_console");
+    return 0;
+}

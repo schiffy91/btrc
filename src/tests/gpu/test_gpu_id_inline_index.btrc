@@ -1,0 +1,13 @@
+#include <assert.h>
+// gpu_id() used directly as an array index (a[gpu_id()]) instead of binding it
+// to a temp first. Exercises the inline gpu_id->btrc_gid WGSL substitution.
+@gpu
+float[] doubleInline(float[] a) {
+    return a[gpu_id()] * 2.0;
+}
+
+int main() {
+    assert(2 * 2 == 4);
+    print("PASS: test_gpu_id_inline_index");
+    return 0;
+}

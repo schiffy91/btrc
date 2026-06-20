@@ -62,11 +62,11 @@ ast-generate-btrc: ## Regenerate the btrc AST node classes from ast.asdl
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
-test: ## Run all tests (compiler unit + LSP + debugger + language, gcc -std=c11)
-	$(NIX) $(PYTEST) src/compiler/python/tests/ src/devex/lsp/tests/ src/devex/debug/tests/ src/tests/runner.py $(PYTEST_ARGS)
+test: ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
+	$(NIX) $(PYTEST) src/tests/ src/devex/lsp/tests/ src/devex/debug/tests/ $(PYTEST_ARGS)
 
-test-unit: ## Run Python unit tests only (lexer, parser, analyzer)
-	$(NIX) $(PYTEST) src/compiler/python/tests/ $(PYTEST_ARGS)
+test-unit: ## Run Python reference-compiler unit tests (lexer, parser, analyzer, codegen)
+	$(NIX) $(PYTEST) src/tests/python/ $(PYTEST_ARGS)
 
 test-lsp: ## Run the editor/LSP server tests (reuses the compiler)
 	$(NIX) $(PYTEST) src/devex/lsp/tests/ $(PYTEST_ARGS)
@@ -77,11 +77,11 @@ test-debug: ## Run the debugger (DAP adapter) tests (needs lldb + a C compiler)
 test-selfhost: ## Verify the self-hosted lexer is byte-identical to btrcpy
 	$(NIX) bash src/compiler/btrc/verify_lex.sh
 
-test-btrc-selfhost: ## Bootstrap parity: build btrcc, run the whole corpus through it
-	$(NIX) $(PYTEST) src/tests/runner_btrcc.py $(PYTEST_ARGS)
+test-btrc: ## Language corpus through the Python reference compiler (fast)
+	$(NIX) $(PYTEST) src/tests/runner.py --compilers=python $(PYTEST_ARGS)
 
-test-btrc: ## Run language tests only (.btrc files)
-	$(NIX) $(PYTEST) src/tests/runner.py $(PYTEST_ARGS)
+test-btrc-selfhost: ## Language corpus through the self-hosted compiler (btrcc) + btrc-specific tests
+	$(NIX) $(PYTEST) src/tests/runner.py --compilers=btrc src/tests/btrc/ $(PYTEST_ARGS)
 
 test-c11: ## Strict C11: gcc + clang at -O0 through -O3
 	@$(NIX) bash -c '\
@@ -89,7 +89,7 @@ test-c11: ## Strict C11: gcc + clang at -O0 through -O3
 			for opt in O0 O1 O2 O3; do \
 				echo "=== $$cc -std=c11 -$$opt ===" && \
 				BTRC_CC=$$cc BTRC_CFLAGS="-std=c11 -pedantic -$$opt" \
-					$(PYTEST) src/tests/runner.py $(PYTEST_ARGS) || exit 1; \
+					$(PYTEST) src/tests/runner.py --compilers=python $(PYTEST_ARGS) || exit 1; \
 			done; \
 		done && \
 		echo "All C11 compliance tests passed (gcc + clang, -O0 through -O3)."'

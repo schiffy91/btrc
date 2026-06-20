@@ -1,0 +1,22 @@
+// Vector.findIndex with arrow-lambda predicates: a not-found result (-1)
+// and a found result returning the correct index.
+#include <assert.h>
+
+int main() {
+    Vector<int> xs = [1, 3, 5];
+
+    // no even element -> -1
+    assert(xs.findIndex((int x) => x % 2 == 0) == -1);
+
+    // found at index 1
+    assert(xs.findIndex((int x) => x == 3) == 1);
+
+    // first element matches -> 0
+    assert(xs.findIndex((int x) => x == 1) == 0);
+
+    // last element matches -> 2
+    assert(xs.findIndex((int x) => x > 4) == 2);
+
+    print("PASS: test_findindex_arrow_notfound");
+    return 0;
+}

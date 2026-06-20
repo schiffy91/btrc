@@ -1,0 +1,30 @@
+/* Math logarithmic / exponential methods: log/log10/log2/exp.
+ * Same libc-shadowing pattern as the trig methods. */
+#include <assert.h>
+#include "../../stdlib/math.btrc"
+
+int main() {
+    float e = Math.E();
+
+    // log is natural log: log(E) == 1
+    assert(Math.fabs(Math.log(e) - 1.0f) < 0.001f);
+    assert(Math.fabs(Math.log(1.0f)) < 0.0001f);
+
+    // log10(100) == 2
+    assert(Math.fabs(Math.log10(100.0f) - 2.0f) < 0.0001f);
+    assert(Math.fabs(Math.log10(1000.0f) - 3.0f) < 0.0001f);
+
+    // log2(8) == 3
+    assert(Math.fabs(Math.log2(8.0f) - 3.0f) < 0.0001f);
+    assert(Math.fabs(Math.log2(1.0f)) < 0.0001f);
+
+    // exp(0) == 1, exp(1) == E
+    assert(Math.fabs(Math.exp(0.0f) - 1.0f) < 0.0001f);
+    assert(Math.fabs(Math.exp(1.0f) - e) < 0.001f);
+
+    // exp and log are inverses
+    assert(Math.fabs(Math.exp(Math.log(5.0f)) - 5.0f) < 0.001f);
+
+    print("PASS: test_stdlib_math_log_exp");
+    return 0;
+}

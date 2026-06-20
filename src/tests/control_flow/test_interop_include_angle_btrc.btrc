@@ -1,0 +1,11 @@
+/* #include <x.btrc> — angle-bracket form with a .btrc suffix is treated as a
+   btrc textual include (spliced), not handed to the C preprocessor. */
+#include <test_angle_include_helper.btrc>
+#include <assert.h>
+
+int main() {
+    var p = AnglePoint(21);
+    assert(p.twice() == 42);
+    print("PASS: test_interop_include_angle_btrc");
+    return 0;
+}

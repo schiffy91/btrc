@@ -1,0 +1,26 @@
+#include <assert.h>
+
+// Enum constants used as a C-style for-loop bound (compile-time int constant)
+// and selected via a ternary expression.
+enum Count { ZERO, ONE, TWO, THREE };
+
+int main() {
+    int sum = 0;
+    for (int i = ZERO; i < THREE; i = i + 1) {
+        sum = sum + i;
+    }
+    assert(sum == 3);   // 0 + 1 + 2
+
+    // enum constant chosen by a ternary
+    bool big = true;
+    Count c = big ? THREE : ONE;
+    assert(c == THREE);
+    assert(c == 3);
+
+    big = false;
+    Count c2 = big ? THREE : ONE;
+    assert(c2 == ONE);
+
+    print("PASS: test_enum_in_loop_and_ternary");
+    return 0;
+}

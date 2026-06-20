@@ -1,0 +1,28 @@
+#include <assert.h>
+
+int main() {
+    // long long and short declared and used as value types
+    long long ll = 9999999999;
+    assert(ll > 9000000000LL);
+
+    short s = 1000;
+    assert(s == 1000);
+
+    // unsigned variants
+    unsigned int ui = 4000000000u;
+    assert(ui > 3000000000u);
+
+    unsigned long ul = 5000000000;
+    assert(ul > 4000000000UL);
+
+    // long retaining a value beyond 32-bit int range
+    long big = 9000000000;
+    assert(big > 8000000000);
+
+    // arithmetic stays in 64-bit range
+    long long product = 100000ll * 100000ll;
+    assert(product == 10000000000LL);
+
+    print("PASS: test_extended_int_types");
+    return 0;
+}

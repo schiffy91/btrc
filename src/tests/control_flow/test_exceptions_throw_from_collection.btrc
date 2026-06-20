@@ -1,0 +1,33 @@
+/* throw whose message comes from a non-trivial lvalue: a collection element
+ * (msgs[i]) and an object field (obj.message). These involve a heap read to
+ * produce the thrown value, exercising temp lifetime on the throw path. The
+ * corpus only throws literals and simple variables. */
+#include <assert.h>
+
+class Box {
+    public string message;
+    public Box(string m) { self.message = m; }
+}
+
+int main() {
+    // Throw a collection element.
+    Vector<string> msgs = ["alpha", "beta", "gamma"];
+    try {
+        throw msgs[1];
+    } catch (string e) {
+        assert(e.equals("beta"));
+    }
+    msgs.free();
+
+    // Throw an object field.
+    Box box = new Box("field error");
+    try {
+        throw box.message;
+    } catch (string e) {
+        assert(e.equals("field error"));
+    }
+    delete box;
+
+    print("PASS: test_exceptions_throw_from_collection");
+    return 0;
+}

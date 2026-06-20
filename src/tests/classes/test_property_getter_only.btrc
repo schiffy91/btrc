@@ -1,0 +1,41 @@
+// Getter-only computed property that derives its value from multiple private
+// fields. There is no setter and no backing field — every read recomputes.
+#include <assert.h>
+
+class Box {
+    private int w;
+    private int h;
+
+    public Box(int w, int h) {
+        self.w = w;
+        self.h = h;
+    }
+
+    // getter-only computed property: depends on two fields, no setter
+    public int area {
+        get { return self.w * self.h; }
+    }
+
+    public int perimeter {
+        get { return 2 * (self.w + self.h); }
+    }
+
+    public void grow(int dw, int dh) {
+        self.w = self.w + dw;
+        self.h = self.h + dh;
+    }
+}
+
+int main() {
+    Box b = Box(3, 4);
+    assert(b.area == 12);
+    assert(b.perimeter == 14);
+
+    // mutating the backing fields recomputes the getter-only property
+    b.grow(1, 0);
+    assert(b.area == 16);
+    assert(b.perimeter == 16);
+
+    print("PASS: test_property_getter_only");
+    return 0;
+}

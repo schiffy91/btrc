@@ -1,0 +1,50 @@
+// Destructor cascade: deleting a parent runs its __del__ exactly once and
+// cascades to release a class-typed field, running the child's __del__ exactly
+// once too (no double-free). Also exercises a sibling-field cascade and an
+// independent stack object deleted separately.
+#include <assert.h>
+
+int child_freed = 0;
+int parent_freed = 0;
+int sib_freed = 0;
+
+class Child {
+    public int id;
+    public Child(int id) { self.id = id; }
+    public void __del__() { child_freed = child_freed + 1; }
+}
+
+class Sibling {
+    public Sibling() {}
+    public void __del__() { sib_freed = sib_freed + 1; }
+}
+
+class Parent {
+    public Child child;
+    public Sibling sib;
+    public Parent() {
+        self.child = new Child(1);
+        self.sib = new Sibling();
+    }
+    public void __del__() { parent_freed = parent_freed + 1; }
+}
+
+int main() {
+    Parent p = new Parent();
+    delete p;
+    // parent __del__ ran exactly once
+    assert(parent_freed == 1);
+    // each owned field __del__ ran exactly once (cascade, no double-free)
+    assert(child_freed == 1);
+    assert(sib_freed == 1);
+
+    // a second, independent object: its delete is counted separately
+    Child solo = new Child(2);
+    assert(solo.id == 2);
+    delete solo;
+    assert(child_freed == 2);
+    assert(parent_freed == 1);
+
+    print("PASS: test_destructor_cascade_order");
+    return 0;
+}

@@ -1,0 +1,5 @@
+class TopHelper {
+    class int v() {
+        return 10;
+    }
+}

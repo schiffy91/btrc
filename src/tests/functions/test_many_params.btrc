@@ -1,0 +1,25 @@
+// A function with many parameters (8 ints) plus a mixed-type 6-param
+// function, to exercise C signature emission and positional arg ordering.
+#include <assert.h>
+
+int sum8(int a, int b, int c, int d, int e, int f, int g, int h) {
+    return a + b + c + d + e + f + g + h;
+}
+
+int weigh8(int a, int b, int c, int d, int e, int f, int g, int h) {
+    // order-sensitive: distinct weights catch any arg shuffling
+    return a * 1 + b * 2 + c * 3 + d * 4 + e * 5 + f * 6 + g * 7 + h * 8;
+}
+
+int main() {
+    assert(sum8(1, 2, 3, 4, 5, 6, 7, 8) == 36);
+    assert(sum8(0, 0, 0, 0, 0, 0, 0, 0) == 0);
+
+    // 1*1+2*2+...+8*8 = 1+4+9+16+25+36+49+64 = 204
+    assert(weigh8(1, 2, 3, 4, 5, 6, 7, 8) == 204);
+    // each arg = its index ensures positions are not swapped
+    assert(weigh8(8, 7, 6, 5, 4, 3, 2, 1) == (8*1 + 7*2 + 6*3 + 5*4 + 4*5 + 3*6 + 2*7 + 1*8));
+
+    print("PASS: test_many_params");
+    return 0;
+}

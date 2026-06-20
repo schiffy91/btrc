@@ -1,0 +1,49 @@
+/* Inherited destructor when the subclass defines NO __del__ of its own.
+ * Deleting (or scope-releasing) a Derived instance that omits __del__ must run
+ * the INHERITED base-class __del__ exactly once. Existing inheritance+destructor
+ * tests all require BOTH classes to define __del__; this pins the inherited-only
+ * case. */
+#include <assert.h>
+
+int base_d = 0;
+
+class Base {
+    public int id;
+
+    public Base(int id) {
+        self.id = id;
+    }
+
+    public void __del__() {
+        base_d++;
+    }
+}
+
+// Derived has NO __del__ -> the inherited Base.__del__ is the one that fires.
+class Derived extends Base {
+    public int tag;
+
+    public Derived(int id, int tag) {
+        self.id = id;
+        self.tag = tag;
+    }
+}
+
+int main() {
+    // explicit delete of a derived with no own destructor
+    Derived d = new Derived(1, 7);
+    assert(d.id == 1);
+    assert(d.tag == 7);
+    delete d;
+    assert(base_d == 1); // inherited base __del__ fired exactly once
+
+    // scope-exit variant: leaving the block releases e, running base __del__
+    {
+        Derived e = new Derived(2, 9);
+        assert(e.tag == 9);
+    }
+    assert(base_d == 2);
+
+    print("PASS: test_inherited_base_destructor");
+    return 0;
+}

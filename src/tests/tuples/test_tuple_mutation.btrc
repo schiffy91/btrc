@@ -1,0 +1,13 @@
+#include <assert.h>
+
+int main() {
+    (int, int) t = (1, 2);
+    t._0 = 99;
+    assert(t._0 == 99);
+    assert(t._1 == 2);
+    t._1 = -7;
+    assert(t._0 == 99);
+    assert(t._1 == -7);
+    print("PASS: test_tuple_mutation");
+    return 0;
+}

@@ -1,0 +1,41 @@
+/* Empty-collection higher-order op identities: over an empty Vector,
+ * all() is vacuously true, any() is false, sum() is 0, reduce() returns the
+ * init, filter/map produce empty, forEach does not crash. */
+#include <assert.h>
+#include <stdio.h>
+
+int counter = 0;
+
+bool isPos(int x) {
+    return x > 0;
+}
+
+int add(int acc, int x) {
+    return acc + x;
+}
+
+void bump(int x) {
+    counter += 1;
+}
+
+int main() {
+    Vector<int> e = [];
+
+    assert(e.all(isPos) == true);
+    assert(e.any(isPos) == false);
+    assert(e.sum() == 0);
+    assert(e.reduce(7, add) == 7);
+
+    Vector<int> f = e.filter(isPos);
+    assert(f.isEmpty());
+    assert(f.size() == 0);
+
+    /* forEach over empty must not invoke the callback nor crash */
+    e.forEach(bump);
+    assert(counter == 0);
+
+    e.free();
+    f.free();
+    printf("PASS: test_vector_empty_hof\n");
+    return 0;
+}

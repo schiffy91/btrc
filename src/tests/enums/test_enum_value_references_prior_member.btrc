@@ -1,0 +1,13 @@
+#include <assert.h>
+
+// Simple-enum member whose explicit value expression references a PRIOR
+// member of the same enum by name.
+enum E { A = 1, B = A + 10, C = B * 2 };
+
+int main() {
+    assert(A == 1);
+    assert(B == 11);
+    assert(C == 22);
+    print("PASS: test_enum_value_references_prior_member");
+    return 0;
+}

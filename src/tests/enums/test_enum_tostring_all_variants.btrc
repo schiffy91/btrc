@@ -1,0 +1,25 @@
+#include <assert.h>
+#include <string.h>
+
+// toString over every variant of a simple enum, including explicit-value
+// members, asserting each generated name. Exercises every switch arm of the
+// generated <Enum>_toString.
+enum HttpCode { OK = 200, REDIRECT = 300, NOT_FOUND = 404, SERVER_ERROR = 500 };
+
+int main() {
+    HttpCode a = OK;
+    HttpCode b = REDIRECT;
+    HttpCode c = NOT_FOUND;
+    HttpCode d = SERVER_ERROR;
+
+    assert(strcmp(a.toString(), "OK") == 0);
+    assert(strcmp(b.toString(), "REDIRECT") == 0);
+    assert(strcmp(c.toString(), "NOT_FOUND") == 0);
+    assert(strcmp(d.toString(), "SERVER_ERROR") == 0);
+
+    // value preserved alongside the name
+    assert(c == 404);
+
+    print("PASS: test_enum_tostring_all_variants");
+    return 0;
+}

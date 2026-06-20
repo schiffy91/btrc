@@ -1,0 +1,35 @@
+/* The catch variable is an ordinary string and supports the full string API.
+ * The corpus only ever calls .equals/.contains on it; this exercises
+ * .startsWith / .endsWith / .length / .substring / .contains plus splitting the
+ * message via Strings.split. Also contrasts a typed `catch (string e)` against an
+ * untyped `catch (e)` to confirm both bind the same usable string. */
+#include <assert.h>
+
+int main() {
+    // Typed catch: the bound variable supports every string method.
+    try {
+        throw "error: code 42";
+    } catch (string e) {
+        assert(e.length() == 14);
+        assert(e.startsWith("error"));
+        assert(e.endsWith("42"));
+        assert(e.contains("code"));
+        string head = e.substring(0, 5);
+        assert(head.equals("error"));
+        Vector<string> parts = Strings.split(e, ":");
+        assert(parts.len == 2);
+        assert(parts.get(0).equals("error"));
+        parts.free();
+    }
+
+    // Untyped catch binds the same string type: identical behavior.
+    try {
+        throw "error: code 42";
+    } catch (e) {
+        assert(e.length() == 14);
+        assert(e.startsWith("error"));
+    }
+
+    print("PASS: test_exceptions_catch_var_string_methods");
+    return 0;
+}

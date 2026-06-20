@@ -1,0 +1,14 @@
+#include <assert.h>
+
+int main() {
+    (int, (int, int)) n = (1, (2, 3));
+    // Chained access n._1._0 would lex "1._0" oddly; use a parenthesized
+    // intermediate or a separate bind. Here we use the parenthesized form.
+    (int, int) inner = n._1;
+    assert(inner._0 == 2);
+    assert(inner._1 == 3);
+    assert((n._1)._0 == 2);
+    assert((n._1)._1 == 3);
+    print("PASS: test_tuple_chained_access_workaround");
+    return 0;
+}

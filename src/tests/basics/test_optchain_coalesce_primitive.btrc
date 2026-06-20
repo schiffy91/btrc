@@ -1,0 +1,29 @@
+#include <assert.h>
+
+class Box {
+    public int val;
+    public Box(int v) {
+        self.val = v;
+    }
+}
+
+int main() {
+    // Optional chaining returning a primitive, combined with ?? on a NULL receiver
+    Box? b = null;
+    int v = b?.val ?? -1;
+    assert(v == -1);
+
+    // Same expression on a live receiver yields the real value
+    b = new Box(5);
+    int w = b?.val ?? -1;
+    assert(w == 5);
+    delete b;
+
+    // ?? default is only used when the chain short-circuits to the null value
+    Box? c = null;
+    int fallback = c?.val ?? 99;
+    assert(fallback == 99);
+
+    print("PASS: test_optchain_coalesce_primitive");
+    return 0;
+}

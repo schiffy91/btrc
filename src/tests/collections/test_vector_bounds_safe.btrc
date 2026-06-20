@@ -1,0 +1,41 @@
+/* Vector boundary results that return values rather than aborting:
+ * indexOf miss returns -1, slice past the end yields an empty vector, an
+ * empty vector reports size 0 / isEmpty, and take/drop clamp to bounds. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Vector<int> v = [1, 2, 3];
+
+    /* indexOf of an absent value returns -1 (not an abort) */
+    assert(v.indexOf(99) == -1);
+    assert(v.lastIndexOf(99) == -1);
+    assert(v.count(99) == 0);
+
+    /* slice starting past the end yields an empty vector */
+    Vector<int> s = v.slice(5, 10);
+    assert(s.isEmpty());
+    assert(s.size() == 0);
+
+    /* take more than present clamps to the whole vector */
+    Vector<int> t = v.take(10);
+    assert(t.size() == 3);
+
+    /* drop more than present yields empty */
+    Vector<int> d = v.drop(10);
+    assert(d.isEmpty());
+
+    /* an empty literal vector is consistent */
+    Vector<int> e = [];
+    assert(e.isEmpty());
+    assert(e.size() == 0);
+    assert(e.indexOf(0) == -1);
+
+    v.free();
+    s.free();
+    t.free();
+    d.free();
+    e.free();
+    printf("PASS: test_vector_bounds_safe\n");
+    return 0;
+}

@@ -1,0 +1,47 @@
+/* A reference cycle that is still externally reachable must NOT be collected.
+ * An outer local keeps a live reference into an a<->b cycle across an inner
+ * scope exit; the collector must keep both nodes alive. Once the external
+ * reference is released the cycle becomes collectible. */
+#include <assert.h>
+
+int node_count = 0;
+
+class Node {
+    public int id;
+    public Node next;
+
+    public Node(int id) {
+        self.id = id;
+        self.next = null;
+        node_count++;
+    }
+
+    public void __del__() {
+        node_count--;
+    }
+}
+
+int main() {
+    // ext is an external live reference into the cycle (rc++ via the local copy).
+    Node ext = new Node(1);          // rc 1
+    {
+        Node a = ext;                // alias the same object: rc 1 -> 2
+        Node b = new Node(2);        // rc 1
+        a.next = b;                  // b.rc -> 2
+        b.next = a;                  // a(ext).rc -> 3
+        assert(node_count == 2);
+        assert(a.next.id == 2);
+        // inner scope exit drops a and b's local refs, but ext still points at a,
+        // so the cycle remains externally reachable and must survive.
+    }
+    assert(node_count == 2);
+    assert(ext.id == 1);
+    assert(ext.next.id == 2);
+
+    // Drop the external reference: now the cycle is unreachable and reclaimable.
+    delete ext;
+    assert(node_count == 0);
+
+    print("PASS: test_cycle_external_ref_alive");
+    return 0;
+}

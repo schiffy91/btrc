@@ -1,0 +1,36 @@
+// Built-in .toInt()/.toFloat() partial-parse and garbage-input semantics.
+// The built-in .toInt() lowers directly to atoi (not Strings.toInt), so it
+// parses a leading numeric prefix and yields 0 on garbage. The corpus only
+// tests clean inputs; these edge cases were untested for the built-in method.
+#include <assert.h>
+
+int main() {
+    // Partial parse: leading digits then garbage -> the digits.
+    assert("12ab".toInt() == 12);
+
+    // Pure garbage -> 0.
+    assert("abc".toInt() == 0);
+
+    // Leading sign then digits then garbage -> signed prefix.
+    assert("-7xyz".toInt() == -7);
+
+    // Empty string -> 0.
+    assert("".toInt() == 0);
+
+    // Float partial parse and garbage.
+    float p = "3.5kg".toFloat();
+    assert(p > 3.49 && p < 3.51);
+
+    float g = "nope".toFloat();
+    assert(g == 0.0);
+
+    float empty = "".toFloat();
+    assert(empty == 0.0);
+
+    // On a variable too.
+    string s = "256 units";
+    assert(s.toInt() == 256);
+
+    print("PASS: test_string_toint_tofloat_partial");
+    return 0;
+}

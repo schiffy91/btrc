@@ -1,0 +1,34 @@
+/* Vector.fill() over an already-populated vector overwrites every slot;
+ * verify every element afterward. Then swap() boundary (first <-> last). */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Vector<int> v = [1, 2, 3, 4];
+
+    /* fill overwrites every slot with 0 */
+    v.fill(0);
+    assert(v.size() == 4);
+    for x in v {
+        assert(x == 0);
+    }
+
+    /* repopulate, then swap the boundary indices */
+    v.set(0, 5);
+    v.set(1, 6);
+    v.set(2, 7);
+    v.set(3, 9);
+    v.swap(0, 3);
+    assert(v.get(0) == 9);
+    assert(v.get(1) == 6);
+    assert(v.get(2) == 7);
+    assert(v.get(3) == 5);
+
+    /* swapping the same index is a no-op */
+    v.swap(1, 1);
+    assert(v.get(1) == 6);
+
+    v.free();
+    printf("PASS: test_vector_fill_swap\n");
+    return 0;
+}

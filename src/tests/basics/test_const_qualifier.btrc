@@ -1,0 +1,20 @@
+#include <assert.h>
+
+int main() {
+    // const type qualifier on local declarations
+    const int MAX = 100;
+    assert(MAX == 100);
+
+    const double PI = 3.14159;
+    assert(PI > 3.14 && PI < 3.15);
+
+    const string greeting = "hi";
+    assert(greeting.len() == 2);
+
+    // const value used in an expression
+    int doubled = MAX * 2;
+    assert(doubled == 200);
+
+    print("PASS: test_const_qualifier");
+    return 0;
+}

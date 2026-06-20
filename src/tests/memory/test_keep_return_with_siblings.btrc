@@ -1,0 +1,42 @@
+/* keep-return of a managed local that coexists with OTHER managed locals: the
+ * returned local must be skipped by scope/return release (ownership transfers
+ * to the caller) while the siblings are released normally. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+// Creates several managed locals but keep-returns only one. The siblings must
+// be released at function exit; the returned one is owned by the caller.
+keep Obj pick() {
+    Obj a = new Obj(1);
+    Obj b = new Obj(2);
+    Obj c = new Obj(3);
+    assert(alive == 3);
+    return a;            // ownership of a transfers out; b and c are released
+}
+
+int main() {
+    Obj r = pick();
+    assert(r.id == 1);
+    // b and c were released on return; only the returned object survives.
+    assert(alive == 1);
+
+    delete r;
+    assert(alive == 0);
+
+    print("PASS: test_keep_return_with_siblings");
+    return 0;
+}

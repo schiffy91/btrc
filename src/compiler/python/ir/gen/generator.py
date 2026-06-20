@@ -65,8 +65,17 @@ class IRGenerator:
         # Loop body scope markers for break/continue ARC cleanup. Each marker
         # is the managed-scope stack depth just before lowering a loop body.
         self._loop_scope_depths: list[int] = []
-        # Exception safety: tracks nesting depth of try blocks
+        # Exception safety: tracks nesting depth of try blocks. Used to know
+        # whether a `return` is inside a try (so its cleanups/try-pop must run
+        # before returning) -- it covers ONLY the try body, not the catch.
         self.in_try_depth: int = 0
+        # Tracks whether we are lowering anywhere inside a try/catch construct
+        # (the try body OR the catch/finally body). A class-pointer value
+        # returned from such a region is laundered through __btrc_launder to
+        # dodge a gcc -O2 setjmp cross-branch field-merge miscompilation; see
+        # the __btrc_launder helper. Distinct from in_try_depth, which excludes
+        # the catch body.
+        self.in_trycatch_depth: int = 0
         # setjmp/longjmp volatile: tracks IRVarDecls in current function
         # so _lower_try_catch can retroactively mark preceding ones volatile
         self._func_var_decls: list = []
@@ -89,6 +98,8 @@ class IRGenerator:
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""
+        from .types import reset_fn_ptr_typedefs
+        reset_fn_ptr_typedefs()
         self._emit_includes()
         self._emit_forward_decls()
         self._emit_structs()

@@ -1,0 +1,29 @@
+// A C-style cast whose operand is itself a UNARY expression. The type-keyword
+// cast-follow set includes '-', '~', '*', '&', '!', so the cast binds to the
+// unary operand: (int)-d casts -d, (long)*p casts *p, etc. Existing tests only
+// cover a cast followed by a binary operator, never a unary operand.
+#include <assert.h>
+
+int main() {
+    // cast of a unary negation
+    double d = 5.9;
+    assert((int)-d == -5);
+
+    // cast of a dereference
+    int x = 7;
+    int* p = &x;
+    assert((long)*p == 7);
+
+    // cast of a bitwise complement: ~0 is all-ones, narrowed to char is -1
+    assert((char)~0 == -1);
+
+    // cast of a logical not
+    bool b = false;
+    assert((int)!b == 1);
+
+    // cast of an address-of, then back: (long)&x is the pointer value, nonzero
+    assert((long)&x != 0);
+
+    print("PASS: test_cast_followed_by_unary");
+    return 0;
+}

@@ -1,0 +1,34 @@
+/* An abstract method that takes parameters, overridden in a subclass and
+ * invoked directly. (Corpus abstract methods were all zero-arg.) Also checks a
+ * concrete parameterized method inherited from the abstract base. */
+#include <assert.h>
+
+abstract class Op {
+    public abstract int apply(int x);
+    // Concrete inherited helper that does NOT depend on apply().
+    public int offset(int x, int delta) { return x + delta; }
+}
+
+class AddTen extends Op {
+    public int apply(int x) { return x + 10; }
+}
+
+class Triple extends Op {
+    public int apply(int x) { return x * 3; }
+}
+
+int main() {
+    AddTen a = AddTen();
+    // Overridden abstract method with a parameter, called on its own type.
+    assert(a.apply(5) == 15);
+    assert(a.apply(-3) == 7);
+    // Inherited concrete method with parameters.
+    assert(a.offset(4, 6) == 10);
+
+    Triple t = Triple();
+    assert(t.apply(4) == 12);
+    assert(t.offset(2, 2) == 4);
+
+    print("PASS: test_abstract_method_with_params");
+    return 0;
+}

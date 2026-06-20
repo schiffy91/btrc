@@ -1,0 +1,36 @@
+/* The stdlib Result<T, E> (src/stdlib/result.btrc) — the generics tests redefine
+ * their own Result inline, so the shipped one is never exercised. Covers the Ok
+ * and Err variants, unwrap / unwrapErr, and ARC teardown of the stored generic
+ * fields under delete. */
+#include <assert.h>
+#include "../../stdlib/result.btrc"
+
+int main() {
+    // Ok variant: isOk()/isErr() and unwrap() return the stored value.
+    Result<int, string> ok = new Result<int, string>(true, 42, "");
+    assert(ok.isOk());
+    assert(!ok.isErr());
+    assert(ok.unwrap() == 42);
+
+    // Err variant: unwrapErr() returns the stored error.
+    Result<int, string> err = new Result<int, string>(false, 0, "not found");
+    assert(!err.isOk());
+    assert(err.isErr());
+    assert(err.unwrapErr().equals("not found"));
+
+    // A different monomorphization: Result<string, int>.
+    Result<string, int> sok = new Result<string, int>(true, "hello", 0);
+    assert(sok.isOk());
+    assert(sok.unwrap().equals("hello"));
+    Result<string, int> serr = new Result<string, int>(false, "", 404);
+    assert(serr.isErr());
+    assert(serr.unwrapErr() == 404);
+
+    delete ok;
+    delete err;
+    delete sok;
+    delete serr;
+
+    print("PASS: test_stdlib_result");
+    return 0;
+}

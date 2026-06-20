@@ -1,0 +1,11 @@
+#include <assert.h>
+
+int main() {
+    bool flag = true;
+    (int, int) t = flag ? (1, 2) : (3, 4);
+    assert(t._0 == 1 && t._1 == 2);
+    (int, int) u = (!flag) ? (1, 2) : (3, 4);
+    assert(u._0 == 3 && u._1 == 4);
+    print("PASS: test_tuple_ternary");
+    return 0;
+}

@@ -1,0 +1,44 @@
+/* A reference cycle formed THROUGH a collection field (Vector<Node>) is NOT
+ * reclaimed by the cycle collector: the trial-deletion visitor only walks
+ * direct class fields, not collection-held references. This pins the current
+ * documented limitation (the cycle leaks at scope exit) so the self-hosted
+ * compiler must match the same behavior. */
+#include <assert.h>
+
+int node_count = 0;
+
+class Node {
+    public int id;
+    public Vector<Node> children;
+
+    public Node(int id) {
+        self.id = id;
+        self.children = {};
+        node_count++;
+    }
+
+    public void __del__() {
+        node_count--;
+    }
+}
+
+int main() {
+    {
+        Node a = new Node(1);
+        Node b = new Node(2);
+        assert(node_count == 2);
+
+        // Cycle via collection-held refs: a.children -> b, b.children -> a.
+        a.children.push(b);
+        b.children.push(a);
+        assert(a.children.get(0).id == 2);
+        assert(b.children.get(0).id == 1);
+        // scope exit: collector does not traverse the collection-held edges,
+        // so the a<->b cycle is not detected and leaks.
+    }
+    // Documented limitation: the cycle is NOT collected.
+    assert(node_count == 2);
+
+    print("PASS: test_cycle_through_collection");
+    return 0;
+}

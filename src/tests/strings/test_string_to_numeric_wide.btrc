@@ -1,0 +1,22 @@
+// Wide string->number conversions: toDouble() (atof) and toLong() (atol).
+#include <assert.h>
+
+int main() {
+    double d = "3.5".toDouble();
+    assert(d > 3.49 && d < 3.51);
+
+    double neg = "-2.25".toDouble();
+    assert(neg > -2.26 && neg < -2.24);
+
+    long n = "123".toLong();
+    assert(n == 123);
+
+    long big = "4000000000".toLong();
+    assert(big == 4000000000);
+
+    long negl = "-77".toLong();
+    assert(negl == -77);
+
+    print("PASS: test_string_to_numeric_wide");
+    return 0;
+}

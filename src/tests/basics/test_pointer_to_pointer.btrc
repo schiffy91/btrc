@@ -1,0 +1,27 @@
+#include <assert.h>
+
+int main() {
+    // Multi-level pointer types (int**)
+    int x = 7;
+    int* p = &x;
+    int** pp = &p;
+
+    assert(**pp == 7);
+
+    // mutate through the single pointer, observe via double pointer
+    *p = 9;
+    assert(**pp == 9);
+
+    // mutate directly via double dereference
+    **pp = 11;
+    assert(x == 11);
+
+    // re-target the inner pointer through pp; p now points at y
+    int y = 100;
+    *pp = &y;
+    assert(**pp == 100);
+    assert(*p == 100);
+
+    print("PASS: test_pointer_to_pointer");
+    return 0;
+}

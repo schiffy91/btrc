@@ -1,0 +1,20 @@
+/* Map.containsValue with string values: exercises the strcmp branch of the
+ * value comparison (existing containsValue tests use Map<string,int>, the ==
+ * path). The needle is built at runtime ("hel" + "lo") so a match proves
+ * strcmp rather than literal-pointer identity. */
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+    Map<string, string> m = {};
+    m.put("k1", "hello");
+    m.put("k2", "world");
+
+    string needle = "hel" + "lo";
+    assert(m.containsValue(needle));
+    assert(!m.containsValue("absent"));
+
+    m.free();
+    printf("PASS: test_map_containsValue_string\n");
+    return 0;
+}

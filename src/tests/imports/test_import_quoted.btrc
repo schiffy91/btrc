@@ -1,0 +1,11 @@
+import "relhelpers/quoted_msg.btrc"
+
+#include <assert.h>
+
+// `import "quoted/path.btrc"` — the quoted-path import spec (a STRING_LIT,
+// distinct lexer path from the bare ./path form).
+int main() {
+    assert(QuotedMessage.value().equals("quoted-import-ok"));
+    print("PASS: test_import_quoted");
+    return 0;
+}

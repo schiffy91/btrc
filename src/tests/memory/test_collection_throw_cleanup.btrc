@@ -1,0 +1,36 @@
+/* A collection of owned objects unwound by an exception: a Vector<Obj> built
+ * inside a try block is released -- along with its elements -- when a throw
+ * unwinds the scope before any explicit free(). */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int v;
+
+    public Obj(int v) {
+        self.v = v;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+int main() {
+    try {
+        Vector<Obj> v = {};
+        v.push(new Obj(1));
+        v.push(new Obj(2));
+        v.push(new Obj(3));
+        assert(alive == 3);
+        throw "unwind";
+    } catch (string e) {
+        // Exception cleanup releases the collection AND its elements.
+    }
+    assert(alive == 0);
+
+    print("PASS: test_collection_throw_cleanup");
+    return 0;
+}

@@ -1,0 +1,53 @@
+/* Test keep on a FREE-FUNCTION parameter: rc++ at the call site inside the
+ * free-function keep-param branch (distinct from the method and constructor
+ * branches). The kept object survives dropping the local handle because the
+ * keep retain (and the stored field) keep it alive. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public int id;
+
+    public Obj(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+class Sink {
+    public Obj held;
+
+    public Sink() {
+        self.held = null;
+    }
+}
+
+void stashInto(Sink s, keep Obj o) {
+    s.held = o;
+}
+
+int main() {
+    Sink s = new Sink();
+    Obj o = new Obj(1);
+    assert(alive == 1);
+
+    // Free-function keep param: rc++ at the call site.
+    stashInto(s, o);
+    assert(s.held.id == 1);
+
+    // Drop the local handle; keep retain + field assign keep o alive.
+    release o;
+    assert(o == null);
+    assert(alive == 1);
+
+    delete s;
+    assert(alive == 1);
+
+    print("PASS: test_keep_param_free_function");
+    return 0;
+}

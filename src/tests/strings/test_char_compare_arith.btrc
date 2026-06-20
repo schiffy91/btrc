@@ -1,0 +1,29 @@
+// char relational comparison and char arithmetic with int promotion:
+// the digit/letter-classification idioms (ch - '0', ch >= 'a' && ch <= 'z',
+// (char)(c - 32)).
+#include <assert.h>
+
+int main() {
+    // Relational comparison of char literals
+    assert('a' < 'b');
+    assert('z' > 'a');
+    assert('m' >= 'm');
+    assert('a' <= 'z');
+
+    // Digit value via subtraction
+    char d = '7';
+    int v = d - '0';
+    assert(v == 7);
+
+    // Lowercase -> uppercase via offset and cast
+    char c = 'a';
+    char up = (char)(c - 32);
+    assert(up == 'A');
+
+    // Range classification idiom
+    char x = 'k';
+    assert(x >= 'a' && x <= 'z');
+
+    print("PASS: test_char_compare_arith");
+    return 0;
+}

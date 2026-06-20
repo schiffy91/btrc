@@ -1,0 +1,13 @@
+// Embedded \0 truncates the byte view: strings are NUL-terminated.
+#include <assert.h>
+
+int main() {
+    string s = "ab\0cd";
+    assert(s.len() == 2);
+    assert(s.charAt(0) == 'a');
+    assert(s.charAt(1) == 'b');
+    assert(s.equals("ab"));
+
+    print("PASS: test_string_embedded_nul");
+    return 0;
+}

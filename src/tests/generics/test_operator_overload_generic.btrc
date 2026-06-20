@@ -1,0 +1,33 @@
+// Operator overloading on a monomorphized generic class.
+// Box<T>.__add__ must be mangled per type instance so Box<int> + Box<int>
+// and Box<double> + Box<double> resolve to the correct method copies.
+#include <assert.h>
+
+class Box<T> {
+    public T val;
+    public Box(T v) {
+        self.val = v;
+    }
+    public Box<T> __add__(Box<T> other) {
+        return Box(self.val + other.val);
+    }
+    public bool __eq__(Box<T> other) {
+        return self.val == other.val;
+    }
+}
+
+int main() {
+    Box<int> a = Box(3);
+    Box<int> b = Box(4);
+    Box<int> c = a + b;
+    assert(c.val == 7);
+
+    Box<double> p = Box(1.5);
+    Box<double> q = Box(2.25);
+    Box<double> r = p + q;
+    assert(r.val == 3.75);
+    assert(r == r);
+
+    print("PASS: test_operator_overload_generic");
+    return 0;
+}

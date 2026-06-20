@@ -1,0 +1,27 @@
+#include <assert.h>
+// spawn() lambda that CAPTURES string variables from the outer scope.
+// The captured string is stored as a field in the generated capture/env
+// struct (char* copied in) — a distinct capture-struct lowering path from
+// int/class/Mutex captures and from string-as-return-value. Exercises both
+// a single string capture and multi-string capture + concatenation.
+int main() {
+    string greeting = "hello";
+
+    // single string capture: return its length
+    Thread<int> t1 = spawn(() => {
+        return greeting.length();
+    });
+    assert(t1.join() == 5);
+
+    // multi-string capture: concatenate two captured strings, return length
+    string first = "foo";
+    string second = "barbaz";
+    Thread<int> t2 = spawn(() => {
+        string combined = first + second;
+        return combined.length();
+    });
+    assert(t2.join() == 9);
+
+    print("PASS: test_spawn_string_capture");
+    return 0;
+}

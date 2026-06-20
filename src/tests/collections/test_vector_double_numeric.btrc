@@ -1,0 +1,45 @@
+/* Vector<double> and Vector<long> element types: sort / min / max / sum.
+ * double/long comparison and arithmetic codegen differs from int (only
+ * Vector<float> indexOf was tested elsewhere). Built via push() so the
+ * element type is explicit. */
+#include <assert.h>
+#include <stdio.h>
+
+bool approx(double a, double b) {
+    double d = a - b;
+    if (d < 0.0) { d = -d; }
+    return d < 0.0001;
+}
+
+int main() {
+    /* --- doubles --- */
+    Vector<double> d = new Vector<double>();
+    d.push(3.5);
+    d.push(1.5);
+    d.push(2.5);
+    d.sort();
+    assert(approx(d.get(0), 1.5));
+    assert(approx(d.get(1), 2.5));
+    assert(approx(d.get(2), 3.5));
+    assert(approx(d.min(), 1.5));
+    assert(approx(d.max(), 3.5));
+    assert(approx(d.sum(), 7.5));
+
+    /* --- longs --- */
+    Vector<long> g = new Vector<long>();
+    g.push(30L);
+    g.push(10L);
+    g.push(20L);
+    g.sort();
+    assert(g.get(0) == 10L);
+    assert(g.get(1) == 20L);
+    assert(g.get(2) == 30L);
+    assert(g.min() == 10L);
+    assert(g.max() == 30L);
+    assert(g.sum() == 60L);
+
+    d.free();
+    g.free();
+    printf("PASS: test_vector_double_numeric\n");
+    return 0;
+}
