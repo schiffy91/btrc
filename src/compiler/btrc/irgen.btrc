@@ -2364,11 +2364,26 @@ class IRGen {
         Node? fd = self.analyzed.classMember(ot.base, tgt.field);
         if (fd == null || fd.kind != NK_FIELD_DECL || fd.type == null) { return; }
         Node ft = fd.type;
-        /* Only class-instance fields need keep/release. */
-        if (!self.analyzed.isClass(ft.base)) { return; }
+        /* Class-instance fields AND generic-collection fields (Vector/Map/Set)
+         * are ref-counted and need keep/release. Mirrors python's
+         * `ft.base in class_table`, which includes the built-in generics —
+         * without this, storing a Vector into a field skips the retain, so the
+         * source local is freed at scope exit while the field still aliases it
+         * (the bootstrap self-compile use-after-free). */
+        bool ftGeneric = ft.generic_args.len > 0
+            && self.analyzed.isGenericClass(ft.base);
+        if (!self.analyzed.isClass(ft.base) && !ftGeneric) { return; }
         IRNode obj = self.lowerExpr(tgt.obj, varTypes);
         IRNode oldField = irFieldAccess(obj, tgt.field, true);
         string destroyFn = ft.base + "_destroy";
+        if (ftGeneric) {
+            string mangledFt = mangleGenericType(ft.base, ft.generic_args);
+            if (genericMember(self.analyzed, ft.base, "free") != null) {
+                destroyFn = mangledFt + "_free";
+            } else {
+                destroyFn = mangledFt + "_destroy";
+            }
+        }
         /* PRE: release the old field value. */
         IRNode rcDec = irUnaryOp("--", irFieldAccess(oldField, "__rc", true), true);
         Vector<IRNode> dargs = [];
@@ -2381,8 +2396,15 @@ class IRGen {
         outerStmts.push(innerIf);
         pre.push(irIf(irBinOp(oldField, "!=", irLiteral("NULL")),
             irBlock(outerStmts), null));
-        /* POST: rc++ on the new value, unless it is a fresh `new` (rc already 1). */
-        if (node.value_node != null && node.value_node.kind != NK_NEW_EXPR) {
+        /* POST: rc++ on the new value, unless it is freshly constructed (born
+         * with rc=1, so the store transfers ownership — retaining would leak,
+         * and re-lowering a `{}`/`[]` collection literal here mis-emits to a
+         * NULL receiver). Covers `new` and collection literals. */
+        if (node.value_node != null
+                && node.value_node.kind != NK_NEW_EXPR
+                && node.value_node.kind != NK_MAP_LITERAL
+                && node.value_node.kind != NK_LIST_LITERAL
+                && node.value_node.kind != NK_BRACE_INITIALIZER) {
             IRNode v = self.lowerExpr(node.value_node, varTypes);
             post.push(irExprStmt(irUnaryOp("++", irFieldAccess(v, "__rc", true), false)));
         }

@@ -19,6 +19,10 @@ btrc-lsp = "src.devex.lsp.server:main"
 [tool.pytest.ini_options]
 testpaths = ["src/tests", "src/devex/lsp/tests"]
 pythonpath = ["."]
+# `runner.py` holds the parametrized language-corpus tests but doesn't match the
+# default `test_*.py` glob, so directory collection (`pytest src/tests/`, which
+# `make test` runs) silently skipped all 1708 corpus cases. Collect it too.
+python_files = ["test_*.py", "*_test.py", "runner.py"]
 
 [tool.ruff]
 target-version = "py313"

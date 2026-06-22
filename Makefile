@@ -1,5 +1,5 @@
 .PHONY: all help build gpu gui stubs-generate ast-generate ast-generate-btrc \
-        test test-unit test-btrc test-c11 test-generate-goldens \
+        test test-unit test-btrc test-btrc-selfhost test-selfhost bootstrap test-c11 test-generate-goldens \
         lint format format-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui bench \
         extension extension-install \
@@ -82,6 +82,9 @@ test-btrc: ## Language corpus through the Python reference compiler (fast)
 
 test-btrc-selfhost: ## Language corpus through the self-hosted compiler (btrcc) + btrc-specific tests
 	$(NIX) $(PYTEST) src/tests/runner.py --compilers=btrc src/tests/btrc/ $(PYTEST_ARGS)
+
+bootstrap: ## Prove the self-hosted compiler reproduces itself bit-for-bit (fixed point)
+	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py -v $(PYTEST_ARGS)
 
 test-c11: ## Strict C11: gcc + clang at -O0 through -O3
 	@$(NIX) bash -c '\

@@ -935,10 +935,11 @@ btrc compiles itself. Alongside the reference compiler in Python, the same six-s
 
 Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The AST is generated from the same [`ast.asdl`](src/language/ast.asdl) spec by a btrc-native ASDL parser ([`ast/asdl.btrc`](src/compiler/btrc/ast/asdl.btrc)) -- zero dependencies beyond the btrc executable itself.
 
-The self-hosted compiler is held to a strict bar: across the entire language test suite, the C it emits must compile under `gcc -std=c11` **and** produce byte-identical program output to the reference compiler. Run that bootstrap-parity suite with:
+The self-hosted compiler is held to a strict bar: across the entire language test suite, the C it emits must compile under `gcc -std=c11` (and `clang`) **and** produce byte-identical program output to the reference compiler. It also reaches a **bootstrap fixed point** -- the self-built `btrcc` compiles its own source, and that output, recompiled, is byte-identical (the compiler reproduces itself bit-for-bit). Run the bootstrap-parity suite and the fixed-point check with:
 
 ```bash
 make test-btrc-selfhost      # build btrcc, then run the whole corpus through it
+make bootstrap               # prove btrcc reproduces itself bit-for-bit (fixed point)
 ```
 
 ---
@@ -1147,7 +1148,6 @@ The extension auto-discovers the LSP server and Python interpreter. Configure `b
 
 Planned but not yet implemented:
 - **Known language gaps** -- the exhaustive test sweep surfaced a handful of grammar-permitted features the compilers don't yet lower (typedef aliases, `static` locals, class-type casts, rich-enum-by-value across boundaries, …); see [docs/known-language-gaps.md](docs/known-language-gaps.md)
-- **Bootstrap fixed-point** -- the [self-hosted compiler](#self-hosting) already compiles the full language suite to matching output; the last step is having the self-compiled `btrcc` rebuild itself bit-for-bit
 - **Module system** -- currently relies on `#include "file.btrc"` textual inclusion
 - **Pattern matching** -- `match` expressions for rich enums with exhaustiveness checking
 - **Weak references** -- `weak` keyword for intentional non-owning references
