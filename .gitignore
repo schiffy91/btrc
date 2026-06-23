@@ -66,3 +66,4 @@ examples/gui/gui_demo
 # Local build artifacts and scratch
 /build/
 src/compiler/btrc/fe_debug*.btrc
+/dist/

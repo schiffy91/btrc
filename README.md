@@ -1058,7 +1058,8 @@ examples/
 ## Build & Test
 
 ```bash
-make build                  # Create bin/btrcpy wrapper script
+make build                  # Create bin/btrcpy wrapper script (Python reference compiler)
+make btrcc                  # Build the self-hosted compiler for THIS machine -> bin/btrcc
 make test                   # Everything: unit + LSP + debugger + language on BOTH compilers
 make test-btrc              # Language corpus through the Python reference compiler
 make test-btrc-selfhost     # Language corpus through the self-hosted compiler (btrcc)
@@ -1078,6 +1079,29 @@ make examples-todo          # Build the todo example
 make devcontainer           # Generate .devcontainer/ and build image
 make clean                  # Remove build artifacts
 ```
+
+### Cross-platform builds of the self-hosted compiler
+
+`btrcc` is btrc source transpiled to C (by `btrcpy`) and then compiled by a C
+toolchain. `make btrcc` builds it for the current machine; the cross targets use
+[`zig cc`](https://ziglang.org) as a universal cross-compiler, so all of them
+build from a single host into `dist/`:
+
+```bash
+make btrcc                  # native build for this machine -> bin/btrcc
+make btrcc-macos-arm64      # -> dist/btrcc-macos-arm64
+make btrcc-macos-x64        # -> dist/btrcc-macos-x64
+make btrcc-linux-x64        # -> dist/btrcc-linux-x64
+make btrcc-linux-arm64      # -> dist/btrcc-linux-arm64
+make btrcc-dist             # all four of the above
+```
+
+Notes:
+- **Windows** (`make btrcc-windows-x64`) is **not yet supported**: the composed
+  stdlib uses POSIX-only APIs (`termios.h`, `sys/wait.h`, `sys/socket.h`) absent
+  on Windows. A Windows build needs `#ifdef _WIN32` shims in the stdlib runtime.
+- A built `btrcc` reads `src/language/grammar.ebnf` and composes the stdlib from
+  source at runtime, so the binary needs the repo (or those files) alongside it.
 
 ### Requirements
 

@@ -1,4 +1,5 @@
-.PHONY: all help build gpu gui stubs-generate ast-generate ast-generate-btrc \
+.PHONY: all help build btrcc btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
+        btrcc-windows-x64 btrcc-dist gpu gui stubs-generate ast-generate ast-generate-btrc \
         test test-unit test-btrc test-btrc-selfhost test-selfhost bootstrap test-c11 test-generate-goldens \
         lint format format-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui bench \
@@ -22,6 +23,54 @@ build: ## Create bin/btrcpy wrapper script
 		'main()' > bin/btrcpy
 	@chmod +x bin/btrcpy
 	@echo "Built bin/btrcpy"
+
+# --- Self-hosted compiler (btrcc) native + cross builds ----------------------
+# btrcc is btrc source -> transpiled to C by btrcpy -> compiled by a C toolchain.
+# The transpile runs once into dist/btrcc.c; each target compiles that C. Cross
+# builds use `zig cc` (one host -> many OS/arch). NOTE: a built btrcc reads
+# src/language/grammar.ebnf and composes the stdlib from source at runtime, so a
+# shipped binary needs the repo (or those files) alongside it to run.
+ZIG     := $(NIX) zig
+BTRCC_C := dist/btrcc.c
+
+$(BTRCC_C): $(wildcard src/compiler/btrc/*.btrc) $(wildcard src/compiler/btrc/ast/*.btrc) src/language/grammar.ebnf
+	@mkdir -p dist
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/btrcc_main.btrc --no-cache -o $(BTRCC_C)
+
+btrcc: $(BTRCC_C) ## Build the self-hosted compiler for THIS machine -> bin/btrcc
+	@mkdir -p bin
+	$(NIX) cc -std=c11 -O2 $(BTRCC_C) -o bin/btrcc -lm -lpthread
+	@echo "Built bin/btrcc (native $$(uname -s) $$(uname -m))"
+
+btrcc-macos-arm64: $(BTRCC_C) ## Cross-build btrcc for macOS arm64 -> dist/
+	@mkdir -p dist
+	$(ZIG) cc -target aarch64-macos    -std=c11 -O2 $(BTRCC_C) -o dist/btrcc-macos-arm64 -lm
+	@echo "Built dist/btrcc-macos-arm64"
+
+btrcc-macos-x64: $(BTRCC_C) ## Cross-build btrcc for macOS x86_64 -> dist/
+	@mkdir -p dist
+	$(ZIG) cc -target x86_64-macos     -std=c11 -O2 $(BTRCC_C) -o dist/btrcc-macos-x64 -lm
+	@echo "Built dist/btrcc-macos-x64"
+
+btrcc-linux-x64: $(BTRCC_C) ## Cross-build btrcc for Linux x86_64 -> dist/
+	@mkdir -p dist
+	$(ZIG) cc -target x86_64-linux-gnu -std=c11 -O2 $(BTRCC_C) -o dist/btrcc-linux-x64 -lm
+	@echo "Built dist/btrcc-linux-x64"
+
+btrcc-linux-arm64: $(BTRCC_C) ## Cross-build btrcc for Linux aarch64 -> dist/
+	@mkdir -p dist
+	$(ZIG) cc -target aarch64-linux-gnu -std=c11 -O2 $(BTRCC_C) -o dist/btrcc-linux-arm64 -lm
+	@echo "Built dist/btrcc-linux-arm64"
+
+btrcc-windows-x64: ## btrcc for Windows -- NOT yet supported (stdlib uses POSIX APIs)
+	@echo "btrcc-windows-x64: not yet supported."; \
+	echo "  The composed stdlib pulls in POSIX-only headers (termios.h, sys/wait.h,"; \
+	echo "  sys/socket.h) that don't exist on Windows. A Windows build needs"; \
+	echo "  #ifdef _WIN32 shims in the stdlib runtime (process/terminal/socket)."; \
+	exit 1
+
+btrcc-dist: btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 ## Cross-build btrcc for all supported OS/arch -> dist/
+	@echo "Supported btrcc cross-builds:"; ls -1 dist/btrcc-* 2>/dev/null
 
 gpu: ## Build GPU runtime library (skips if deps missing)
 	@$(NIX) bash -c '\

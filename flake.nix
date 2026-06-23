@@ -19,7 +19,7 @@
         initialShellCmd = "echo make help && make help";
         packages = pkgs: with pkgs; [
           (python314.withPackages (ps: [ ps.pytest ps.pytest-xdist ps.pytest-cov ps.pygls ps.lsprotocol ]))
-            ruff gcc clang gnumake git jq gh nodejs_22 nixd wgpu-native glfw freetype
+            ruff gcc clang zig gnumake git jq gh nodejs_22 nixd wgpu-native glfw freetype
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             pkg-config dbus.dev   # native system-tray (StatusNotifierItem) shim
