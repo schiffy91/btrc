@@ -192,6 +192,17 @@ def _build_stdlib_archive(out_dir: str) -> None:
 
 
 def main():
+    # Status lines and analyzer diagnostics contain non-ASCII (e.g. the "→"
+    # arrow). On Windows the default console encoding is cp1252, which can't
+    # encode them and aborts the process mid-transpile. Force UTF-8 on the
+    # standard streams so output is portable; a no-op where it's already UTF-8.
+    for _stream in (sys.stdout, sys.stderr):
+        _reconfig = getattr(_stream, "reconfigure", None)
+        if _reconfig is not None:
+            try:
+                _reconfig(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
     # Deeply nested expressions recurse through the full precedence chain;
     # lift the limit before parsing (the analyzer raises it too, post-parse).
     sys.setrecursionlimit(40000)
