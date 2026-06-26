@@ -26,24 +26,45 @@ fills exactly those gaps — nothing more.
   POSIX headers MinGW-w64 lacks but that survive as orphan `#include`s —
   `regex.h`, `fnmatch.h`, `glob.h`, `pwd.h`, `termios.h`, `sys/wait.h`,
   `sys/socket.h`, `sys/select.h`, `netinet/in.h`, `arpa/inet.h`. They are empty
-  by design: `btrcc` never calls into these modules, so the include only needs to
-  *resolve*.
+  by design: where a program doesn't call into the module, the include only needs
+  to *resolve*.
 * **Missing-*symbol* compat** (`btrc_win_compat.h`, force-included): POSIX
-  functions MinGW omits but that survive DCE in the emitted C. Currently maps
-  `lstat` → `stat` (Windows has no POSIX symlinks).
+  functions/macros MinGW omits but that the emitted C references. Each is a
+  *correct* Windows equivalent, not a link-only stub:
+  - `lstat` → `stat`, `S_ISLNK` → 0 (Windows has no POSIX symlinks)
+  - `geteuid`/`getuid` → 0 (no POSIX uid model)
+  - `gmtime_r`/`localtime_r` (thread-safe time, via copy-out)
+  - `setenv`/`unsetenv` (via `_putenv_s`)
+  - `mkdir(path, mode)` → `_mkdir(path)` (Windows drops the mode bits)
+  - `realpath` → `_fullpath`
+  - `mkdtemp` (real Win32 implementation)
+
+## Coverage
+
+Across the full language corpus, **848 / 863 programs cross-compile to Windows**
+(98.3%). The 15 that don't are all out of this layer's scope:
+
+* **Milestone 2 — POSIX subsystems needing real Win32 backends**: `Process`
+  spawn/wait (`WIFEXITED`, and the `stdout`/`stderr` parameter-name vs
+  `<stdio.h>`-macro collision in `UnixShell`), raw-mode `Terminal`
+  (`struct termios`), `Regex` (`regex_t`), and glob (`fnmatch`). Stubbing these
+  to merely link would misbehave, so they're left out deliberately.
+* **Not standalone programs**: `*_helper.btrc` fixtures that are `#include`d by
+  other tests and have no `main()` (link error `undefined symbol: WinMain`).
+* **GUI**: the native system-tray example (`btrc_tray.h`).
 
 ## Scope / Milestone 2
 
 This layer gets `btrcc` and ordinary btrc programs **building and running** on
-Windows. It does **not** yet give the POSIX-only stdlib modules real behaviour on
-Windows — a program that actually calls `Process`, `Terminal` (raw mode),
-sockets, or `Regex` will reference symbols these shims stub out. Real Win32
-backends (`#ifdef _WIN32` paths in the stdlib runtime) are a follow-up. Until
-then, the supported Windows surface is: the compiler itself plus programs that
-stay within the portable stdlib (strings, collections, math, fs basics, I/O).
+Windows. Real Win32 backends for the POSIX-only modules above (`#ifdef _WIN32`
+paths in the stdlib runtime) are a follow-up. The supported Windows surface today
+is: the compiler itself plus programs within the portable stdlib (strings,
+collections, math, fs basics, env, time, I/O).
 
 ## Testing
 
 `make test-windows` cross-builds `btrcc.exe` plus a sample program to `.exe`
 (works on any host) and runs the sample under `wine`/`wine64` if present
-(Linux/CI), skipping execution gracefully where wine isn't available.
+(Linux/CI), skipping execution gracefully where wine isn't available. A native
+`windows-latest` CI job ([`.github/workflows/windows.yml`](../../../.github/workflows/windows.yml))
+builds and runs the binaries on real Windows on every push.
