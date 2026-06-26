@@ -27,11 +27,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - uses: mlugg/setup-zig@v1
-        with:
-          # Match the project's flake zig. 0.15.x bundles winpthreads headers for
-          # the windows-gnu target; older zig (0.13) lacks <pthread.h> there.
-          version: 0.15.2
+      # Install zig directly from ziglang.org (no setup action — its mirror 404s
+      # for some releases). 0.15.2 matches the project's flake and bundles the
+      # winpthreads headers for the windows-gnu target (older zig lacks them).
+      - name: Install zig 0.15.2
+        shell: pwsh
+        run: |
+          $ver = "0.15.2"
+          $zip = "zig-x86_64-windows-$ver.zip"
+          Invoke-WebRequest -Uri "https://ziglang.org/download/$ver/$zip" -OutFile zig.zip
+          Expand-Archive -Path zig.zip -DestinationPath zig-install -Force
+          Add-Content -Path $env:GITHUB_PATH -Value "$PWD\zig-install\zig-x86_64-windows-$ver"
+      - name: zig version
+        run: zig version
 
       - name: Transpile + build btrcc.exe (native Windows)
         run: |
