@@ -1093,15 +1093,28 @@ make btrcc-macos-arm64      # -> dist/btrcc-macos-arm64
 make btrcc-macos-x64        # -> dist/btrcc-macos-x64
 make btrcc-linux-x64        # -> dist/btrcc-linux-x64
 make btrcc-linux-arm64      # -> dist/btrcc-linux-arm64
-make btrcc-dist             # all four of the above
+make btrcc-windows-x64      # -> dist/btrcc-windows-x64.exe
+make btrcc-dist             # all five of the above
 ```
 
-Notes:
-- **Windows** (`make btrcc-windows-x64`) is **not yet supported**: the composed
-  stdlib uses POSIX-only APIs (`termios.h`, `sys/wait.h`, `sys/socket.h`) absent
-  on Windows. A Windows build needs `#ifdef _WIN32` shims in the stdlib runtime.
-- A built `btrcc` reads `src/language/grammar.ebnf` and composes the stdlib from
-  source at runtime, so the binary needs the repo (or those files) alongside it.
+**Windows** uses a small compat layer in [`src/stdlib/win/`](src/stdlib/win/)
+(applied only to Windows builds, via `-I` + `-include`) that fills the handful of
+POSIX headers/symbols MinGW-w64 omits. This gets `btrcc` and ordinary btrc
+programs building and running on Windows; the POSIX-only stdlib modules
+(`Process`, raw-mode `Terminal`, sockets, `Regex`) don't have real Win32 backends
+yet, so programs that call into them aren't supported on Windows. Test it with:
+
+```bash
+make test-windows           # cross-build btrcc.exe + a sample; run under wine if present
+```
+
+`make test-windows` cross-builds on any host and runs the sample under
+`wine`/`wine64` when available (Linux/CI), skipping execution gracefully
+otherwise. A [`Windows` CI workflow](.github/workflows/windows.yml) builds and
+**runs** the binaries natively on `windows-latest` on every push.
+
+Note: a built `btrcc` reads `src/language/grammar.ebnf` and composes the stdlib
+from source at runtime, so the binary needs the repo (or those files) alongside it.
 
 ### Requirements
 

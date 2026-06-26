@@ -1,0 +1,54 @@
+name: Windows
+
+# Native Windows verification of the self-hosted compiler. Nix doesn't run on
+# Windows, so this installs Python + Zig directly and exercises the same compat
+# layer the cross-build uses (src/stdlib/win, via -I + -include). zig cc targets
+# the MinGW-w64 (gnu) ABI by default, matching `make btrcc-windows-x64`.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      WIN_COMPAT: "-I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Transpile + build btrcc.exe (native Windows)
+        run: |
+          mkdir -p dist
+          python -m src.compiler.python.main src/compiler/btrc/btrcc_main.btrc --no-cache -o dist/btrcc.c
+          zig cc -std=c11 -O2 $WIN_COMPAT dist/btrcc.c -o dist/btrcc.exe -lm
+          test -f dist/btrcc.exe
+
+      - name: Build + run a sample btrc program (asserts PASS)
+        run: |
+          python -m src.compiler.python.main src/tests/strings/test_braces_in_code_gen.btrc --no-cache -o dist/win_sample.c
+          zig cc -std=c11 -O2 $WIN_COMPAT dist/win_sample.c -o dist/win_sample.exe -lm
+          out=$(./dist/win_sample.exe)
+          echo "$out"
+          echo "$out" | grep -q "^PASS:"
+
+      - name: btrcc.exe transpiles a program natively (emits C to stdout)
+        run: |
+          ./dist/btrcc.exe src/tests/strings/test_braces_in_code_gen.btrc > dist/from_btrcc.c
+          test -s dist/from_btrcc.c
+          echo "btrcc.exe produced $(wc -l < dist/from_btrcc.c) lines of C"
+          # the C btrcc emits must itself build + run on native Windows
+          zig cc -std=c11 -O2 $WIN_COMPAT dist/from_btrcc.c -o dist/from_btrcc.exe -lm
+          out=$(./dist/from_btrcc.exe)
+          echo "$out"
+          echo "$out" | grep -q "^PASS:"

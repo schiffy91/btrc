@@ -1,5 +1,5 @@
 .PHONY: all help build btrcc btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
-        btrcc-windows-x64 btrcc-dist gpu gui stubs-generate ast-generate ast-generate-btrc \
+        btrcc-windows-x64 btrcc-dist test-windows gpu gui stubs-generate ast-generate ast-generate-btrc \
         test test-unit test-btrc test-btrc-selfhost test-selfhost bootstrap test-c11 test-generate-goldens \
         lint format format-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui bench \
@@ -32,6 +32,12 @@ build: ## Create bin/btrcpy wrapper script
 # shipped binary needs the repo (or those files) alongside it to run.
 ZIG     := $(NIX) zig
 BTRCC_C := dist/btrcc.c
+# Windows-only compat layer (POSIX builds never see it): shim headers for the
+# handful of POSIX includes MinGW-w64 omits (found via -I) plus a force-included
+# header that maps the few missing SYMBOLS (e.g. lstat -> stat). See
+# src/stdlib/win/README.md. Real Win32 backends for terminal/process/socket are
+# a Milestone-2 follow-up; today these orphan APIs are DCE'd out of btrcc.
+WIN_COMPAT := -I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h
 
 $(BTRCC_C): $(wildcard src/compiler/btrc/*.btrc) $(wildcard src/compiler/btrc/ast/*.btrc) src/language/grammar.ebnf
 	@mkdir -p dist
@@ -62,15 +68,36 @@ btrcc-linux-arm64: $(BTRCC_C) ## Cross-build btrcc for Linux aarch64 -> dist/
 	$(ZIG) cc -target aarch64-linux-gnu -std=c11 -O2 $(BTRCC_C) -o dist/btrcc-linux-arm64 -lm
 	@echo "Built dist/btrcc-linux-arm64"
 
-btrcc-windows-x64: ## btrcc for Windows -- NOT yet supported (stdlib uses POSIX APIs)
-	@echo "btrcc-windows-x64: not yet supported."; \
-	echo "  The composed stdlib pulls in POSIX-only headers (termios.h, sys/wait.h,"; \
-	echo "  sys/socket.h) that don't exist on Windows. A Windows build needs"; \
-	echo "  #ifdef _WIN32 shims in the stdlib runtime (process/terminal/socket)."; \
-	exit 1
+btrcc-windows-x64: $(BTRCC_C) ## Cross-build btrcc for Windows x86_64 -> dist/btrcc-windows-x64.exe
+	@mkdir -p dist
+	$(ZIG) cc -target x86_64-windows-gnu -std=c11 -O2 $(WIN_COMPAT) $(BTRCC_C) -o dist/btrcc-windows-x64.exe -lm
+	@echo "Built dist/btrcc-windows-x64.exe"
 
-btrcc-dist: btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 ## Cross-build btrcc for all supported OS/arch -> dist/
+btrcc-dist: btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 btrcc-windows-x64 ## Cross-build btrcc for all supported OS/arch -> dist/
 	@echo "Supported btrcc cross-builds:"; ls -1 dist/btrcc-* 2>/dev/null
+
+# Lightweight Windows test env: cross-build btrcc.exe + a sample btrc program to
+# .exe (proves the whole Windows toolchain path end-to-end on ANY host), then run
+# the sample under wine if available (Linux/CI), skipping execution gracefully
+# elsewhere (e.g. Apple Silicon, where x86_64 wine isn't readily available).
+WIN_SAMPLE := src/tests/strings/test_braces_in_code_gen.btrc
+test-windows: btrcc-windows-x64 ## Cross-build btrcc + a sample to Windows .exe; run under wine if present
+	@mkdir -p dist
+	@echo "==> cross-compiling sample btrc program to a Windows .exe"
+	$(NIX) python3 -m src.compiler.python.main $(WIN_SAMPLE) --no-cache -o dist/win_sample.c
+	$(ZIG) cc -target x86_64-windows-gnu -std=c11 -O2 $(WIN_COMPAT) dist/win_sample.c -o dist/win_sample.exe -lm
+	@echo "    built dist/win_sample.exe"
+	@if command -v wine64 >/dev/null 2>&1; then WINE=wine64; \
+	elif command -v wine >/dev/null 2>&1; then WINE=wine; else WINE=; fi; \
+	if [ -n "$$WINE" ]; then \
+	  echo "==> running sample under $$WINE"; \
+	  out=$$($$WINE dist/win_sample.exe 2>/dev/null); echo "    $$out"; \
+	  echo "$$out" | grep -q "^PASS:" && echo "PASS: test-windows (ran on Windows via $$WINE)" \
+	    || { echo "FAIL: test-windows (unexpected sample output)"; exit 1; }; \
+	else \
+	  echo "==> wine not available; cross-compile succeeded (execution skipped)"; \
+	  echo "SKIP: test-windows execution (install wine, or run on Windows/CI to execute)"; \
+	fi
 
 gpu: ## Build GPU runtime library (skips if deps missing)
 	@$(NIX) bash -c '\
