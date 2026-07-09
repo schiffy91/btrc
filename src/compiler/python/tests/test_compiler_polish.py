@@ -105,6 +105,45 @@ class TestPointerDepthMangling:
 
 
 # ---------------------------------------------------------------------------
+# Multi-word C base types (`unsigned int`, `long long`) must be identifier-safe
+# when mangled into a C symbol (function-pointer typedef names, generic
+# collection structs). Previously the space leaked verbatim, producing an
+# invalid identifier like `__btrc_fn_..._unsigned int` that failed to compile.
+# ---------------------------------------------------------------------------
+
+class TestMultiWordTypeMangling:
+    def test_unit_multiword_base_is_identifier_safe(self):
+        from src.compiler.python.ast_nodes import TypeExpr
+        from src.compiler.python.ir.gen.types import mangle_type_name
+        assert mangle_type_name(TypeExpr(base="unsigned int")) == "unsigned_int"
+        assert mangle_type_name(TypeExpr(base="long long")) == "long_long"
+        assert (mangle_type_name(TypeExpr(base="unsigned int", pointer_depth=1))
+                == "unsigned_int_p1")
+        # Single-word bases stay byte-identical: zero churn to existing symbols.
+        assert mangle_type_name(TypeExpr(base="int")) == "int"
+        assert mangle_type_name(TypeExpr(base="void", pointer_depth=1)) == "void_p1"
+
+    SRC = """
+        unsigned int addU(unsigned int x, unsigned int y) { return x + y; }
+        int main() {
+            __fn_ptr<unsigned int, unsigned int, unsigned int> f = addU;
+            print(f(20, 22));
+            return 0;
+        }
+    """
+
+    def test_fnptr_multiword_typedef_compiles_and_runs(self, tmp_path):
+        run_res, out_c = _compile(tmp_path, self.SRC, run=True)
+        text = out_c.read_text()
+        # No mangled function-pointer typedef name may contain a space.
+        import re
+        assert not re.search(r"\(\*__btrc_fn_[^)]* [^)]*\)", text), \
+            "space leaked into a fn-ptr typedef identifier"
+        assert run_res.returncode == 0, run_res.stderr
+        assert run_res.stdout.split() == ["42"]
+
+
+# ---------------------------------------------------------------------------
 # CMP-27: _has_return descends into loop bodies
 # ---------------------------------------------------------------------------
 

@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 from ...ast_nodes import TypeExpr
+
+# Any run of characters that is not identifier-safe (spaces in multi-word C base
+# types like ``unsigned int``, and any stray punctuation) collapses to a single
+# underscore when embedded in a mangled C identifier.
+_NON_IDENT = re.compile(r"[^0-9A-Za-z_]+")
 
 # Primitive btrc types → C type strings
 _PRIMITIVE_MAP = {
@@ -122,18 +129,28 @@ def _pointer_suffix(t: TypeExpr) -> str:
     return f"_p{depth}" if depth else ""
 
 
+def _ident(s: str) -> str:
+    """Make a base type spelling safe to embed in a C identifier. Multi-word C
+    base types (``unsigned int``, ``long long``, ``short int``) contain spaces
+    that would otherwise leak into a mangled name — an invalid C identifier
+    (e.g. ``__btrc_fn_..._unsigned int``). No-op for single-word bases, so
+    existing generated symbols stay byte-identical.
+    """
+    return _NON_IDENT.sub("_", s)
+
+
 def mangle_type_name(t: TypeExpr) -> str:
     """Mangle a single type for use in C identifiers."""
     if t.generic_args:
         inner = "_".join(mangle_type_name(a) for a in t.generic_args)
-        return f"{t.base}_{inner}{_pointer_suffix(t)}"
+        return f"{_ident(t.base)}_{inner}{_pointer_suffix(t)}"
     base = t.base
     # Normalize string → str for mangling
     if base == "string":
         return f"string{_pointer_suffix(t)}"
     if base in _PRIMITIVE_MAP:
         return f"{base}{_pointer_suffix(t)}"
-    return f"{base}{_pointer_suffix(t)}"
+    return f"{_ident(base)}{_pointer_suffix(t)}"
 
 
 def mangle_tuple_type(t: TypeExpr) -> str:
