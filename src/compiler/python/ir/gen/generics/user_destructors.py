@@ -10,25 +10,35 @@ from ...nodes import (
     IRVar,
     IRVarDecl,
 )
+from ..destructor_hooks import build_destructor_hook
 from ..types import type_to_c
 from .core import _resolve_type
 
 
-def build_generic_destructor_stmts(cls_info, type_map, mangled, gen):
-    """Lower ``__del__`` and owned fields for one concrete instance."""
-    stmts = []
+def build_generic_destructor_hook(cls_info, type_map, mangled, gen):
+    """Lower one source ``__del__`` into an isolated hidden function."""
     destructor = cls_info.methods.get("__del__")
-    if destructor and destructor.body:
-        from .user_emitter import _UserGenericEmitter
+    if destructor is None or destructor.body is None:
+        return None
+    from .user_emitter import _UserGenericEmitter
 
-        emitter = _UserGenericEmitter(
-            type_map,
-            mangled,
-            lambda type_expr: type_to_c(_resolve_type(type_expr, type_map)),
-            gen=gen,
-            cls_info=cls_info,
-        )
-        stmts.extend(emitter.emit_stmts(destructor.body.statements))
+    emitter = _UserGenericEmitter(
+        type_map,
+        mangled,
+        lambda type_expr: type_to_c(_resolve_type(type_expr, type_map)),
+        gen=gen,
+        cls_info=cls_info,
+    )
+    emitter.reset_var_types()
+    return build_destructor_hook(
+        mangled,
+        IRBlock(stmts=emitter.emit_stmts(destructor.body.statements)),
+    )
+
+
+def build_generic_field_release_stmts(cls_info, type_map, gen):
+    """Build compiler-owned field detachment for one concrete instance."""
+    stmts = []
 
     for field_name, field in cls_info.instance_storage:
         resolved = _resolve_type(field.type, type_map) if field.type else None
@@ -88,3 +98,9 @@ def _field_release(gen, field_name: str, field_type) -> IRBlock:
             IRExprStmt(expr=release_edge_value(gen, IRVar(name=old_name), field_type)),
         ]
     )
+
+
+__all__ = [
+    "build_generic_destructor_hook",
+    "build_generic_field_release_stmts",
+]

@@ -30,9 +30,13 @@ from ..cycle_metadata import (
     register_cycle_classification,
     register_cycle_visitor,
 )
+from ..destructor_hooks import call_destructor_hook
 from ..parameters import lower_source_param
 from .core import _resolve_type
-from .user_destructors import build_generic_destructor_stmts
+from .user_destructors import (
+    build_generic_destructor_hook,
+    build_generic_field_release_stmts,
+)
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator
@@ -57,11 +61,27 @@ def emit_generic_lifecycle(
     ctor = cls_info.constructor
     ctor_params = [lower_source_param(param, emitter.resolve_c) for param in ctor.params] if ctor else []
     declarations = _lifecycle_declarations(mangled, ctor_params)
+    destructor_hook = build_generic_destructor_hook(
+        cls_info,
+        type_map,
+        mangled,
+        gen,
+    )
     definitions = [
         _emit_init(gen, mangled, ctor, ctor_params, emitter),
         _emit_new(gen, mangled, ctor, ctor_params, has_visitor),
-        _emit_destroy(gen, mangled, cls_info, type_map),
     ]
+    if destructor_hook is not None:
+        definitions.append(destructor_hook)
+    definitions.append(
+        _emit_destroy(
+            gen,
+            mangled,
+            cls_info,
+            type_map,
+            has_destructor_hook=destructor_hook is not None,
+        )
+    )
     gen.module.function_defs.extend(definitions)
 
     if has_visitor:
@@ -177,11 +197,19 @@ def _emit_new(gen, mangled, ctor, ctor_params, has_visitor) -> IRFunctionDef:
     )
 
 
-def _emit_destroy(gen, mangled, cls_info, type_map) -> IRFunctionDef:
+def _emit_destroy(
+    gen,
+    mangled,
+    cls_info,
+    type_map,
+    *,
+    has_destructor_hook: bool,
+) -> IRFunctionDef:
+    body_stmts = [call_destructor_hook(mangled)] if has_destructor_hook else []
     if "free" in cls_info.methods:
-        body_stmts = [IRExprStmt(expr=IRCall(callee=f"{mangled}_free", args=[IRVar(name="self")]))]
+        body_stmts.append(IRExprStmt(expr=IRCall(callee=f"{mangled}_free", args=[IRVar(name="self")])))
     else:
-        body_stmts = build_generic_destructor_stmts(cls_info, type_map, mangled, gen)
+        body_stmts.extend(build_generic_field_release_stmts(cls_info, type_map, gen))
     body_stmts.insert(
         0,
         IRVarDecl(

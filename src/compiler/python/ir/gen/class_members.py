@@ -21,6 +21,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
+from .destructor_hooks import build_destructor_hook, call_destructor_hook
 from .managed_values import (
     is_class_type,
     is_managed_type,
@@ -40,7 +41,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     name = decl.name
     dtor = cls_info.methods.get("__del__")
 
-    body_stmts = []
+    hook = None
     if dtor and dtor.body:
         from .statements import lower_block
 
@@ -50,19 +51,26 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
         previous_return_owned = gen.current_return_owned
         gen.current_return_c_type = "void"
         gen.current_return_type = None
-        body_stmts = lower_block(gen, dtor.body, local_bindings=["self"]).stmts
-        gen.current_return_type = previous_return_type
-        gen.current_return_c_type = previous_return_c_type
-        gen.current_return_owned = previous_return_owned
+        try:
+            hook = build_destructor_hook(
+                name,
+                lower_block(gen, dtor.body, local_bindings=["self"]),
+            )
+        finally:
+            gen.current_return_type = previous_return_type
+            gen.current_return_c_type = previous_return_c_type
+            gen.current_return_owned = previous_return_owned
+        gen.module.function_defs.append(hook)
 
-    body_stmts.insert(
-        0,
+    body_stmts = [
         IRVarDecl(
             c_type=CType(text=f"{name}*"),
             name="self",
             init=IRCast(target_type=CType(text=f"{name}*"), expr=IRVar(name="object")),
-        ),
-    )
+        )
+    ]
+    if hook is not None:
+        body_stmts.append(call_destructor_hook(name))
 
     # ARC: release owned pointer-type fields (rc-- then destroy at zero)
     # Class types have pointer_depth=1 in analyzer (always heap-allocated).

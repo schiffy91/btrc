@@ -1941,6 +1941,31 @@ class IRGen {
         newFn.body = irBlock(nbody);
         m.functions.push(newFn);
 
+        /* Lower source __del__ into its own function so a source return cannot
+         * bypass compiler-owned terminal finalization. */
+        Node? genericDestructor = self.analyzed.genericClassMethod(
+            inst.base, "__del__");
+        bool hasDestructorHook = genericDestructor != null
+            && genericDestructor.body_node != null;
+        if (genericDestructor != null
+                && genericDestructor.body_node != null) {
+            self.currentReturnCType = "void";
+            self.currentReturnTypeNode = null;
+            self.currentReturnOwned = true;
+            self.resetFuncVarDecls();
+            Map<string, Node> destructorTypes = self.genericMethodVarTypes(
+                inst, genericDestructor, typeMap);
+            IRNode destructorBlock = self.lowerBlock(
+                genericDestructor.body_node, destructorTypes);
+            Vector<IRNode> hookBody = [];
+            int hookStatement = 0;
+            while (hookStatement < destructorBlock.stmts.len) {
+                hookBody.push(destructorBlock.stmts.get(hookStatement));
+                hookStatement = hookStatement + 1;
+            }
+            m.functions.push(buildDestructorHook(mangled, hookBody));
+        }
+
         /* --- _destroy --- (terminal destructor). If the class defines free()
          * (all stdlib collections do), destroy is the single terminal entry
          * point: `<mangled>_free(self)` does content cleanup (release elements,
@@ -1956,12 +1981,15 @@ class IRGen {
         Vector<IRNode> dbody = [];
         dbody.push(irVarDecl(
             mangled + "*", "self", irCast(mangled + "*", irVar("object"))));
+        if (hasDestructorHook) {
+            dbody.push(callDestructorHook(mangled));
+        }
         if (self.analyzed.genericClassMethod(inst.base, "free") != null) {
             Vector<IRNode> freeSelfArgs = [];
             freeSelfArgs.push(irVar("self"));
             dbody.push(irExprStmt(irCall(mangled + "_free", freeSelfArgs)));
         } else {
-            self.emitGenericFieldReleases(inst, decl, typeMap, dbody);
+            self.emitGenericFieldReleases(decl, typeMap, dbody);
         }
         Vector<IRNode> freeArgs = [];
         freeArgs.push(irVar("self"));
@@ -2221,24 +2249,10 @@ class IRGen {
         return null;
     }
 
-    /* Emit the user __del__ body (if any) followed by ARC field releases for
-     * class-typed fields of a generic instance into the destructor body
-     * (resolved field types). Mirrors _build_generic_destructor_stmts: the
-     * user-defined __del__ runs first, then per-field releases. */
-    public void emitGenericFieldReleases(GenInstance inst, Node decl, Map<string, Node> typeMap, Vector<IRNode> body) {
-        /* User-defined __del__ body runs first (e.g. box_alive-- bookkeeping). */
-        Node? dtor = self.analyzed.genericClassMethod(
-            inst.base, "__del__");
-        if (dtor != null && dtor.body_node != null) {
-            self.currentReturnCType = "void";
-            self.currentReturnTypeNode = null;
-            self.currentReturnOwned = true;
-            self.resetFuncVarDecls();
-            Map<string, Node> vt = self.genericMethodVarTypes(inst, dtor, typeMap);
-            IRNode blk = self.lowerBlock(dtor.body_node, vt);
-            int d = 0;
-            while (d < blk.stmts.len) { body.push(blk.stmts.get(d)); d = d + 1; }
-        }
+    /* Emit compiler-owned ARC field releases for a generic instance using
+     * resolved field types. The source __del__ lives in a separate hook. */
+    public void emitGenericFieldReleases(
+            Node decl, Map<string, Node> typeMap, Vector<IRNode> body) {
         int i = 0;
         while (i < decl.members.len) {
             Node mem = decl.members.get(i);
@@ -2581,8 +2595,8 @@ class IRGen {
         return vt;
     }
 
-    /* Emit X_destroy(self): user __del__ body + class-field releases + free(self)
-     * (mirrors emit_destructor, class subset — no generic fields/cyclable). */
+    /* Emit an isolated source __del__ hook followed by X_destroy(self), whose
+     * field detachment and free cannot be bypassed by a source return. */
     public void emitDestructor(Node decl, IRModule m) {
         string name = decl.name;
         IRFunction fn = IRFunction();
@@ -2593,7 +2607,8 @@ class IRGen {
         body.push(irVarDecl(
             name + "*", "self", irCast(name + "*", irVar("object"))));
         Node? dtor = self.analyzed.classMethod(name, "__del__");
-        if (dtor != null && dtor.kind == NK_METHOD_DECL && dtor.body_node != null) {
+        if (dtor != null && dtor.kind == NK_METHOD_DECL
+                && dtor.body_node != null) {
             self.currentReturnCType = "void";
             self.currentReturnTypeNode = null;
             self.currentReturnOwned = true;
@@ -2601,8 +2616,14 @@ class IRGen {
             Map<string, Node> vt = self.seededVarTypes();
             vt.put("self", classPtrType(makeClassTypeExpr(name)));
             IRNode blk = self.lowerBlock(dtor.body_node, vt);
+            Vector<IRNode> hookBody = [];
             int k = 0;
-            while (k < blk.stmts.len) { body.push(blk.stmts.get(k)); k = k + 1; }
+            while (k < blk.stmts.len) {
+                hookBody.push(blk.stmts.get(k));
+                k = k + 1;
+            }
+            m.functions.push(buildDestructorHook(name, hookBody));
+            body.push(callDestructorHook(name));
         }
         /* Release class-instance fields (own + inherited), in source order. */
         bool hasFieldReleases = self.emitFieldReleases(name, body);
