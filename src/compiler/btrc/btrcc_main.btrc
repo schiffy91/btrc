@@ -88,6 +88,7 @@
 #include "preprocessor_ir.btrc"
 #include "typedef_lowering.btrc"
 #include "helper_reachability.btrc"
+#include "global_reachability.btrc"
 #include "irgen.btrc"
 #include "cleanup_slots.btrc"
 #include "static_initializer_lowering.btrc"

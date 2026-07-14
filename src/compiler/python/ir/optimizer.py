@@ -5,6 +5,7 @@ from __future__ import annotations
 from .cycle_boundaries import install_program_cycle_boundary
 from .nodes import IRModule
 from .optimizer_functions import eliminate_dead_functions as _eliminate_dead_functions
+from .optimizer_globals import eliminate_dead_globals as _eliminate_dead_globals
 from .optimizer_gpu import eliminate_dead_gpu_kernels as _eliminate_dead_gpu_kernels
 from .optimizer_helpers import eliminate_dead_helpers as _eliminate_dead_helpers
 from .optimizer_types import eliminate_dead_externs as _eliminate_dead_externs
@@ -21,6 +22,7 @@ def optimize(module: IRModule, *, dce: bool = True) -> IRModule:
     """
     module.validate_declarations()
     if dce:
+        _eliminate_dead_globals(module)
         _eliminate_dead_functions(module)
     install_program_cycle_boundary(module)
     if dce:

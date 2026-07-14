@@ -1,0 +1,204 @@
+/* File-scope value reachability before ordinary function/helper DCE.
+ * Runtime-helper C is emitted before IRGlobalDecl values and cannot name an
+ * internal module global; helper-owned state stays inside helper source. */
+
+bool globalInitializerHasEffects(IRNode? node) {
+    if (node == null) { return false; }
+    if (node.kind == IRK_CALL || node.kind == IRK_STMT_EXPR
+            || node.kind == IRK_INVALID_EXPR
+            || node.kind >= IRK_VAR_DECL) {
+        return true;
+    }
+    if (node.kind == IRK_UNARYOP
+            && (node.op == "++" || node.op == "--")) {
+        return true;
+    }
+    if (globalInitializerHasEffects(node.left)
+            || globalInitializerHasEffects(node.right)
+            || globalInitializerHasEffects(node.operand)
+            || globalInitializerHasEffects(node.expr)
+            || globalInitializerHasEffects(node.obj)
+            || globalInitializerHasEffects(node.index)
+            || globalInitializerHasEffects(node.condition)
+            || globalInitializerHasEffects(node.true_expr)
+            || globalInitializerHasEffects(node.false_expr)
+            || globalInitializerHasEffects(node.init)
+            || globalInitializerHasEffects(node.value)
+            || globalInitializerHasEffects(node.target)
+            || globalInitializerHasEffects(node.then_block)
+            || globalInitializerHasEffects(node.else_block)
+            || globalInitializerHasEffects(node.body)
+            || globalInitializerHasEffects(node.update)
+            || globalInitializerHasEffects(node.result)
+            || globalInitializerHasEffects(node.array_size)) {
+        return true;
+    }
+    int argument = 0;
+    while (argument < node.args.len) {
+        if (globalInitializerHasEffects(node.args.get(argument))) {
+            return true;
+        }
+        argument = argument + 1;
+    }
+    return false;
+}
+
+void collectGlobalRefs(IRNode? node, Vector<string> names,
+        Map<string, bool> out) {
+    if (node == null) { return; }
+    if (node.kind == IRK_VAR) {
+        scanTextForNames(node.name, names, out);
+    }
+    if (node.kind == IRK_CALL && node.callee != "") {
+        scanTextForNames(node.callee, names, out);
+    }
+    collectGlobalRefs(node.left, names, out);
+    collectGlobalRefs(node.right, names, out);
+    collectGlobalRefs(node.operand, names, out);
+    collectGlobalRefs(node.expr, names, out);
+    collectGlobalRefs(node.obj, names, out);
+    collectGlobalRefs(node.index, names, out);
+    collectGlobalRefs(node.condition, names, out);
+    collectGlobalRefs(node.true_expr, names, out);
+    collectGlobalRefs(node.false_expr, names, out);
+    collectGlobalRefs(node.init, names, out);
+    collectGlobalRefs(node.value, names, out);
+    collectGlobalRefs(node.target, names, out);
+    collectGlobalRefs(node.then_block, names, out);
+    collectGlobalRefs(node.else_block, names, out);
+    collectGlobalRefs(node.body, names, out);
+    collectGlobalRefs(node.update, names, out);
+    collectGlobalRefs(node.result, names, out);
+    collectGlobalRefs(node.array_size, names, out);
+    int argument = 0;
+    while (argument < node.args.len) {
+        collectGlobalRefs(node.args.get(argument), names, out);
+        argument = argument + 1;
+    }
+    int statement = 0;
+    while (statement < node.stmts.len) {
+        collectGlobalRefs(node.stmts.get(statement), names, out);
+        statement = statement + 1;
+    }
+}
+
+void enqueueGlobalFunctionRefs(Map<string, bool> references,
+        Map<string, bool> live, Vector<string> worklist) {
+    Vector<string> names = references.keys();
+    int index = 0;
+    while (index < names.len) {
+        string name = names.get(index);
+        if (!live.has(name)) {
+            live.put(name, true);
+            worklist.push(name);
+        }
+        index = index + 1;
+    }
+}
+
+void eliminateDeadGlobals(IRModule module) {
+    if (module.global_decls.len == 0) { return; }
+
+    Vector<string> functionNames = [];
+    Map<string, int> functionByName = {};
+    Map<string, bool> liveFunctions = {};
+    Vector<string> functionWorklist = [];
+    int functionIndex = 0;
+    while (functionIndex < module.functions.len) {
+        IRFunction fn = module.functions.get(functionIndex);
+        functionNames.push(fn.name);
+        functionByName.put(fn.name, functionIndex);
+        if (fn.name == "main" || fn.name == "btrc_main") {
+            liveFunctions.put(fn.name, true);
+            functionWorklist.push(fn.name);
+        }
+        functionIndex = functionIndex + 1;
+    }
+
+    Vector<string> globalNames = [];
+    Map<string, bool> knownGlobals = {};
+    Map<string, bool> liveGlobals = {};
+    Vector<string> globalWorklist = [];
+    int globalIndex = 0;
+    while (globalIndex < module.global_decls.len) {
+        IRGlobalDecl global = module.global_decls.get(globalIndex);
+        if (!knownGlobals.has(global.name)) {
+            knownGlobals.put(global.name, true);
+            globalNames.push(global.name);
+        }
+        /* Volatile affects accesses, not the observability of unreachable
+         * internal storage. External linkage and real references still root
+         * every volatile object that can be observed. */
+        if (!global.is_static || global.is_extern
+                || globalInitializerHasEffects(global.init)
+                || globalInitializerHasEffects(global.array_size)) {
+            if (!liveGlobals.has(global.name)) {
+                liveGlobals.put(global.name, true);
+                globalWorklist.push(global.name);
+            }
+        }
+        globalIndex = globalIndex + 1;
+    }
+
+    int preprocessorIndex = 0;
+    while (preprocessorIndex < module.preprocessor_decls.len) {
+        IRPreprocessorDecl declaration =
+            module.preprocessor_decls.get(preprocessorIndex);
+        if (declaration.kind == IR_PREPROCESSOR_MACRO) {
+            Map<string, bool> functionRoots = {};
+            Map<string, bool> globalRoots = {};
+            scanTextForNames(
+                declaration.replacement, functionNames, functionRoots);
+            scanTextForNames(
+                declaration.replacement, globalNames, globalRoots);
+            enqueueGlobalFunctionRefs(
+                functionRoots, liveFunctions, functionWorklist);
+            enqueueGlobalFunctionRefs(
+                globalRoots, liveGlobals, globalWorklist);
+        }
+        preprocessorIndex = preprocessorIndex + 1;
+    }
+
+    while (functionWorklist.len > 0 || globalWorklist.len > 0) {
+        Map<string, bool> functionRefs = {};
+        Map<string, bool> globalRefs = {};
+        if (functionWorklist.len > 0) {
+            string functionName = functionWorklist.pop();
+            IRFunction fn = module.functions.get(
+                functionByName.get(functionName));
+            collectFuncRefs(fn.body, functionNames, functionRefs);
+            collectGlobalRefs(fn.body, globalNames, globalRefs);
+        } else {
+            string globalName = globalWorklist.pop();
+            int declarationIndex = 0;
+            while (declarationIndex < module.global_decls.len) {
+                IRGlobalDecl global =
+                    module.global_decls.get(declarationIndex);
+                if (global.name == globalName) {
+                    collectFuncRefs(
+                        global.init, functionNames, functionRefs);
+                    collectFuncRefs(
+                        global.array_size, functionNames, functionRefs);
+                    collectGlobalRefs(
+                        global.init, globalNames, globalRefs);
+                    collectGlobalRefs(
+                        global.array_size, globalNames, globalRefs);
+                }
+                declarationIndex = declarationIndex + 1;
+            }
+        }
+        enqueueGlobalFunctionRefs(
+            functionRefs, liveFunctions, functionWorklist);
+        enqueueGlobalFunctionRefs(
+            globalRefs, liveGlobals, globalWorklist);
+    }
+
+    Vector<IRGlobalDecl> kept = [];
+    globalIndex = 0;
+    while (globalIndex < module.global_decls.len) {
+        IRGlobalDecl global = module.global_decls.get(globalIndex);
+        if (liveGlobals.has(global.name)) { kept.push(global); }
+        globalIndex = globalIndex + 1;
+    }
+    module.global_decls = kept;
+}

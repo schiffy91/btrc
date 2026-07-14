@@ -224,7 +224,7 @@ class TestGlobalQualifiers:
             extern int g_external;
             volatile int g_flag = 0;
             static int g_counter = 5;
-            int main() { print(g_counter); return 0; }
+            int main() { print(g_counter + g_flag); return 0; }
         """
         r, out_c = _compile(tmp_path, src)
         assert r.returncode == 0, r.stderr

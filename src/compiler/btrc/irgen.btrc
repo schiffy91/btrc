@@ -1464,6 +1464,19 @@ class IRGen {
      * lower to a single function. Mirrors _emit_declarations. */
     public void emitDeclarations(Node prog, IRModule m) {
         lowerTypedefDeclarations(prog, m, self.analyzed);
+        Map<string, bool> externallyDefinedGlobals = {};
+        int globalDeclarationIndex = 0;
+        while (globalDeclarationIndex < prog.declarations.len) {
+            Node declaration = prog.declarations.get(globalDeclarationIndex);
+            if (declaration.kind == NK_VAR_DECL_STMT
+                    && declaration.type != null
+                    && declaration.type.is_extern
+                    && self.analyzed.globalHasDefinition.has(
+                        declaration.name)) {
+                externallyDefinedGlobals.put(declaration.name, true);
+            }
+            globalDeclarationIndex = globalDeclarationIndex + 1;
+        }
         Vector<Node> orderedStructs = semanticOrderedStructDefinitions(
             prog, self.analyzed.structTable);
         int structIndex = 0;
@@ -1516,7 +1529,10 @@ class IRGen {
                 bool redundantExtern = d.type != null && d.type.is_extern
                     && d.initializer == null
                     && self.analyzed.globalHasDefinition.has(d.name);
-                if (!redundantExtern) { self.emitGlobalVar(d, m); }
+                if (!redundantExtern) {
+                    self.emitGlobalVar(
+                        d, m, externallyDefinedGlobals.has(d.name));
+                }
             } else if (d.kind == NK_PREPROCESSOR_DIRECTIVE) {
                 self.emitPreprocessor(d, m);
             }
@@ -1689,10 +1705,10 @@ class IRGen {
     }
 
     /* Top-level variable -> file-scope C global (mirrors _emit_declarations'
-     * VarDeclStmt branch). Default storage is `static` (file linkage); explicit
-     * `extern`/`volatile` qualifiers layer on. `extern` is a declaration only —
-     * never emit an initializer for it. */
-    public void emitGlobalVar(Node d, IRModule m) {
+     * VarDeclStmt branch). Default storage is `static` (file linkage). A bare
+     * `extern` remains an uninitialized declaration; a separate ordinary
+     * definition paired with it receives external linkage. */
+    public void emitGlobalVar(Node d, IRModule m, bool forceExternal) {
         if (d.initializer != null) {
             Map<string, Node> globalTypes = {};
             self.rejectPersistentCallableEscape(
@@ -1707,8 +1723,8 @@ class IRGen {
             elementType.is_const = d.type.is_const;
             IRGlobalDecl global = IRGlobalDecl(
                 typeToC(elementType, self.analyzed), d.name);
-            global.is_extern = d.type.is_extern;
-            global.is_static = !d.type.is_extern;
+            global.is_extern = d.type.is_extern && !forceExternal;
+            global.is_static = !(global.is_extern || forceExternal);
             global.is_volatile = d.type.is_volatile;
             Map<string, Node> empty = {};
             global.array_size = self.lowerExpr(d.type.array_size, empty);
@@ -1722,9 +1738,10 @@ class IRGen {
         string ct = "int";
         if (d.type != null) { ct = typeToC(d.type, self.analyzed); }
         IRGlobalDecl global = IRGlobalDecl(ct, d.name);
+        global.is_extern = d.type != null
+            && d.type.is_extern && !forceExternal;
+        global.is_static = !(global.is_extern || forceExternal);
         if (d.type != null) {
-            global.is_extern = d.type.is_extern;
-            global.is_static = !d.type.is_extern;
             global.is_volatile = d.type.is_volatile;
         }
         if (d.initializer != null && !global.is_extern) {
@@ -8584,6 +8601,8 @@ void abortGen() {
  * Stage 5 — Optimizer (reachability DCE).
  *
  * Mirrors src/compiler/python/ir/optimizer.py for the class subset:
+ *   - eliminate_dead_globals: prune the unreachable internal value graph
+ *     before its function/global cycles can become roots.
  *   - _eliminate_dead_functions: keep only functions reachable from `main`
  *     through the call/reference graph; drop forward decls of removed ones.
  *   - _eliminate_dead_structs: keep structs named in surviving code (+ field
@@ -8592,6 +8611,7 @@ void abortGen() {
  * =================================================================== */
 
 void optimizeModule(IRModule m) {
+    eliminateDeadGlobals(m);
     eliminateDeadFunctions(m);
     eliminateDeadGpuKernels(m);
     eliminateDeadStructs(m);
@@ -8782,7 +8802,7 @@ void collectFuncRefs(IRNode node, Vector<string> names, Map<string, bool> out) {
 }
 
 void eliminateDeadFunctions(IRModule m) {
-    if (m.functions.len <= 1) { return; }
+    if (m.functions.len == 0) { return; }
     Vector<string> names = [];
     Map<string, int> byName = {};
     Map<string, bool> keepSet = {};

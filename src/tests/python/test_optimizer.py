@@ -160,7 +160,7 @@ def test_whole_word_reference_in_macro_replacement_still_kept():
     assert {"main", "foo", "foobar"} <= names
 
 
-def test_typed_global_initializer_roots_referenced_function():
+def test_externally_visible_global_initializer_roots_referenced_function():
     module = IRModule(
         function_defs=[_fn("main"), _fn("callback"), _fn("dead")],
         global_decls=[
@@ -168,6 +168,7 @@ def test_typed_global_initializer_roots_referenced_function():
                 c_type=CType(text="void (*)(void)"),
                 name="callback_slot",
                 init=IRVar(name="callback"),
+                is_static=False,
             )
         ],
     )
@@ -188,6 +189,7 @@ def test_typed_global_keeps_its_struct_definition():
             IRGlobalDecl(
                 c_type=CType(text="Live*"),
                 name="live_global",
+                is_static=False,
             )
         ],
     )
@@ -229,8 +231,16 @@ def test_typed_top_level_declarations_keep_referenced_structs():
             )
         ],
         global_decls=[
-            IRGlobalDecl(c_type=CType(text="Alias"), name="alias_value"),
-            IRGlobalDecl(c_type=CType(text="Value"), name="tagged_value"),
+            IRGlobalDecl(
+                c_type=CType(text="Alias"),
+                name="alias_value",
+                is_static=False,
+            ),
+            IRGlobalDecl(
+                c_type=CType(text="Value"),
+                name="tagged_value",
+                is_static=False,
+            ),
         ],
     )
 
