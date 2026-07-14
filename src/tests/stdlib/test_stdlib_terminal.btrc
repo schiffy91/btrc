@@ -1,12 +1,20 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
 
 extern int openpty(int* amaster, int* aslave, char* name,
                    void* termp, void* winp);
+
+volatile sig_atomic_t passwordInterruptSignals = 0;
+
+void countPasswordInterrupt(int signalNumber) {
+    if (signalNumber == SIGTERM) { passwordInterruptSignals++; }
+}
 
 int main() {
     /* Exercise password input on a real terminal and prove ECHO is restored. */
@@ -26,6 +34,39 @@ int main() {
     struct termios afterPassword;
     assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
     assert((afterPassword.c_lflag & ECHO) == (beforePassword.c_lflag & ECHO));
+
+    /* An interrupt wakes the prompt through its self-pipe, restores ECHO and
+     * descriptor flags, then replays the signal under the caller's handler. */
+    int flagsBeforeInterrupt = fcntl(STDIN_FILENO, F_GETFL, 0);
+    assert(flagsBeforeInterrupt >= 0);
+    assert(signal(SIGTERM, countPasswordInterrupt) != SIG_ERR);
+    pid_t interruptChild = fork();
+    assert(interruptChild >= (pid_t)0);
+    if (interruptChild == (pid_t)0) {
+        poll(NULL, 0, 100);
+        kill(getppid(), SIGTERM);
+        _exit(0);
+    }
+    assert(Terminal.promptPassword("interrupt secret: ").isEmpty());
+    int interruptStatus = 0;
+    assert(waitpid(interruptChild, &interruptStatus, 0) == interruptChild);
+    assert(WIFEXITED(interruptStatus) && WEXITSTATUS(interruptStatus) == 0);
+    assert((int)passwordInterruptSignals == 1);
+    assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
+    assert((afterPassword.c_lflag & ECHO) == (beforePassword.c_lflag & ECHO));
+    assert(fcntl(STDIN_FILENO, F_GETFL, 0) == flagsBeforeInterrupt);
+    int passwordSignalRead = TerminalPasswordInput.signalReadDescriptor();
+    int passwordSignalWrite = TerminalPasswordInput.signalWriteDescriptor();
+    assert(passwordSignalRead >= 0);
+    assert(passwordSignalWrite >= 0);
+    assert((fcntl(passwordSignalRead, F_GETFD, 0)
+        & FD_CLOEXEC) != 0);
+    assert((fcntl(passwordSignalWrite, F_GETFD, 0)
+        & FD_CLOEXEC) != 0);
+    raise(SIGTERM);
+    assert((int)passwordInterruptSignals == 2);
+    assert(signal(SIGTERM, SIG_DFL) != SIG_ERR);
+
     assert(dup2(savedStdin, STDIN_FILENO) == STDIN_FILENO);
     clearerr(stdin);
     close(savedStdin);

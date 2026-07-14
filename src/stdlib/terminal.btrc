@@ -16,6 +16,7 @@
 
 import std.bytes;
 import std.strings;
+import std.terminal_password;
 
 extern pid_t forkpty(int* amaster, char* name, void* termp, void* winp);
 
@@ -37,29 +38,7 @@ class Terminal {
     }
 
     class string promptPassword(string label) {
-        fprintf(stderr, "%s", label == null ? "" : label);
-        fflush(stderr);
-
-        struct termios previous;
-        struct termios hidden;
-        bool restore = false;
-        if (tcgetattr(STDIN_FILENO, &previous) == 0) {
-            hidden = previous;
-            hidden.c_lflag = hidden.c_lflag & ~ECHO;
-            restore = tcsetattr(STDIN_FILENO, TCSANOW, &hidden) == 0;
-        }
-
-        string value = "";
-        try {
-            value = Terminal.readLine();
-        } finally {
-            if (restore) {
-                tcsetattr(STDIN_FILENO, TCSANOW, &previous);
-            }
-            fprintf(stderr, "\n");
-            fflush(stderr);
-        }
-        return value;
+        return TerminalPasswordInput.prompt(label);
     }
 }
 
