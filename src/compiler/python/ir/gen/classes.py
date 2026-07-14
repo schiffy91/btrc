@@ -111,15 +111,10 @@ def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
     own_methods = set()
     own_properties = set()
     for member in decl.members:
-        if (
-            isinstance(member, MethodDecl)
-            and not member.is_constructor
-            and member.name != "__del__"
-            and not member.is_abstract
-            and member.body is not None
-        ):
-            _emit_method(gen, decl, member)
+        if isinstance(member, MethodDecl) and not member.is_constructor and member.name != "__del__":
             own_methods.add(member.name)
+            if not member.is_abstract and member.body is not None:
+                _emit_method(gen, decl, member)
         elif isinstance(member, PropertyDecl):
             _emit_property(gen, decl, member)
             own_properties.add(member.name)

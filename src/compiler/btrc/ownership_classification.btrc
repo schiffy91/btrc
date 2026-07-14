@@ -31,18 +31,23 @@ bool irKnownLanguageCall(IRGen generator, Node call,
     }
     if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
     Node receiver = callee.obj;
-    if (receiver != null && receiver.kind == NK_IDENTIFIER) {
+    if (receiver != null && receiver.kind == NK_IDENTIFIER
+            && !varTypes.has(receiver.name)) {
         if (generator.analyzed.isClass(receiver.name)) {
             Node? method = generator.analyzed.classMethod(
                 receiver.name, callee.field);
-            if (method != null && method.kind == NK_METHOD_DECL) {
+            if (method != null
+                    && method.kind == NK_METHOD_DECL
+                    && method.body_node != null) {
                 return true;
             }
         }
         if (generator.analyzed.isGenericClass(receiver.name)) {
             Node? method = generator.analyzed.genericClassMethod(
                 receiver.name, callee.field);
-            if (method != null && method.kind == NK_METHOD_DECL) {
+            if (method != null
+                    && method.kind == NK_METHOD_DECL
+                    && method.body_node != null) {
                 return true;
             }
         }

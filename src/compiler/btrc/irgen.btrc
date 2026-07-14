@@ -200,6 +200,19 @@ class CallableFlowSnapshot {
     }
 }
 
+/* Callback ABI states reachable through a throw edge from one lexical try.
+ * `names` fixes the outer bindings visible when the try begins so declarations
+ * local to the try cannot leak into catch analysis. */
+class CallableExceptionalCapture {
+    public Vector<string> names;
+    public Vector<CallableFlowSnapshot> states;
+
+    public CallableExceptionalCapture() {
+        self.names = [];
+        self.states = [];
+    }
+}
+
 /* Snapshot of the ARC managed-scope + return context, taken before lowering an
  * isolated body (a lambda / thread wrapper, a separate C function). Holds COPIES
  * of the managed stack + scope starts so the live IRGen fields can be cleared
@@ -226,6 +239,7 @@ class ScopeSnapshot {
     public Vector<string> ambiguousCallableNames;
     public Vector<string> callableDeclarations;
     public Vector<int> callableScopeStarts;
+    public Vector<CallableExceptionalCapture> callableExceptionCaptures;
     public Vector<string> borrowedLocalBindings;
     /* COPIES of the func-var-decl accumulator (the IRNode handles), so a lambda
      * body lowers in a fresh decl context and the parent's accumulator is
@@ -253,6 +267,7 @@ class ScopeSnapshot {
         self.ambiguousCallableNames = [];
         self.callableDeclarations = [];
         self.callableScopeStarts = [];
+        self.callableExceptionCaptures = [];
         self.borrowedLocalBindings = [];
         self.funcVarDecls = [];
     }
@@ -383,6 +398,7 @@ class IRGen {
     public Map<string, bool> ambiguousCallableBindings;
     public Vector<string> callableScopeDeclarations;
     public Vector<int> callableScopeStarts;
+    public Vector<CallableExceptionalCapture> callableExceptionCaptures;
 
     /* Every local IRVarDecl produced in the function/method body currently being
      * lowered. A try/catch marks ALL of them `volatile`, since any local modified
@@ -444,6 +460,7 @@ class IRGen {
         self.ambiguousCallableBindings = {};
         self.callableScopeDeclarations = [];
         self.callableScopeStarts = [];
+        self.callableExceptionCaptures = [];
         self.funcVarDecls = [];
         self.cleanupTakeAdapters = {};
         self.cleanupTakeAdapterDefinitions = [];
@@ -514,6 +531,20 @@ class IRGen {
                 expression.name);
             if (declaration.body_node != null) { return 1; }
             return 0;
+        }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR
+                && expression.obj != null
+                && expression.obj.kind == NK_IDENTIFIER
+                && !varTypes.has(expression.obj.name)
+                && self.analyzed.isClass(expression.obj.name)) {
+            Node? method = self.analyzed.classMethod(
+                expression.obj.name, expression.field);
+            if (method != null
+                    && method.kind == NK_METHOD_DECL
+                    && method.access == "class"
+                    && method.body_node != null) {
+                return 1;
+            }
         }
         if (expression.kind == NK_CAST_EXPR) {
             return self.callableExpressionAbi(
@@ -692,6 +723,65 @@ class IRGen {
             i = i + 1;
         }
         self.restoreCallableFlow(joined);
+    }
+
+    public CallableFlowSnapshot callableFlowForNames(
+            Vector<string> names) {
+        CallableFlowSnapshot flow = CallableFlowSnapshot();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            int abi = self.callableBindingAbi(name);
+            if (abi == 1) { flow.owned.push(name); }
+            else if (abi == 2) { flow.ambiguous.push(name); }
+            index = index + 1;
+        }
+        return flow;
+    }
+
+    public CallableExceptionalCapture beginExceptionalCallableCapture(
+            Map<string, Node> varTypes) {
+        CallableExceptionalCapture capture =
+            CallableExceptionalCapture();
+        Vector<string> names = varTypes.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            Node? type = resolveTypedefType(
+                varTypes.get(name), self.analyzed.typedefTable);
+            if (type != null && type.base == "__fn_ptr") {
+                capture.names.push(name);
+            }
+            index = index + 1;
+        }
+        self.callableExceptionCaptures.push(capture);
+        self.recordExceptionalCallableFlow();
+        return capture;
+    }
+
+    public void finishExceptionalCallableCapture(
+            CallableExceptionalCapture capture) {
+        if (self.callableExceptionCaptures.len == 0) {
+            print("internal compiler error: unmatched callable exception capture");
+            abortGen();
+        }
+        CallableExceptionalCapture active =
+            self.callableExceptionCaptures.pop();
+        if (active != capture) {
+            print("internal compiler error: callable exception captures must be nested");
+            abortGen();
+        }
+    }
+
+    public void recordExceptionalCallableFlow() {
+        int index = 0;
+        while (index < self.callableExceptionCaptures.len) {
+            CallableExceptionalCapture capture =
+                self.callableExceptionCaptures.get(index);
+            capture.states.push(
+                self.callableFlowForNames(capture.names));
+            index = index + 1;
+        }
     }
 
     public CallableFlowSnapshot beginCallableScope() {
@@ -1051,6 +1141,14 @@ class IRGen {
                 self.callableScopeStarts.get(callableStart));
             callableStart = callableStart + 1;
         }
+        int callableCapture = 0;
+        while (callableCapture
+                < self.callableExceptionCaptures.len) {
+            snap.callableExceptionCaptures.push(
+                self.callableExceptionCaptures.get(
+                    callableCapture));
+            callableCapture = callableCapture + 1;
+        }
         Vector<string> borrowed = self.snapshotBorrowedLocalBindings();
         int borrowedIndex = 0;
         while (borrowedIndex < borrowed.len) {
@@ -1078,6 +1176,9 @@ class IRGen {
         }
         while (self.callableScopeStarts.len > 0) {
             self.callableScopeStarts.pop();
+        }
+        while (self.callableExceptionCaptures.len > 0) {
+            self.callableExceptionCaptures.pop();
         }
         Vector<string> noBorrowedBindings = [];
         self.restoreBorrowedLocalBindings(noBorrowedBindings);
@@ -1159,6 +1260,17 @@ class IRGen {
             self.callableScopeStarts.push(
                 snap.callableScopeStarts.get(callableStart));
             callableStart = callableStart + 1;
+        }
+        while (self.callableExceptionCaptures.len > 0) {
+            self.callableExceptionCaptures.pop();
+        }
+        int callableCapture = 0;
+        while (callableCapture
+                < snap.callableExceptionCaptures.len) {
+            self.callableExceptionCaptures.push(
+                snap.callableExceptionCaptures.get(
+                    callableCapture));
+            callableCapture = callableCapture + 1;
         }
         self.restoreBorrowedLocalBindings(
             snap.borrowedLocalBindings);
@@ -2145,8 +2257,10 @@ class IRGen {
             Node mem = decl.members.get(i);
             if (mem.kind == NK_METHOD_DECL && !mem.is_constructor
                     && mem.name != "__del__") {
-                m.functions.push(self.lowerMethod(decl, mem));
                 ownMethods.put(mem.name, true);
+                if (!mem.is_abstract && mem.body_node != null) {
+                    m.functions.push(self.lowerMethod(decl, mem));
+                }
             } else if (mem.kind == NK_PROPERTY_DECL) {
                 self.emitProperty(decl, mem, m);
                 ownProperties.put(mem.name, true);
@@ -4353,8 +4467,12 @@ class IRGen {
         /* try block. */
         self.inTryDepth = self.inTryDepth + 1;
         self.pushControlContext("try");
+        CallableExceptionalCapture exceptionalCapture =
+            self.beginExceptionalCallableCapture(varTypes);
         IRNode tryBody = self.lowerBlock(node.try_block, varTypes);
         CallableFlowSnapshot tryFlow = self.snapshotCallableFlow();
+        self.finishExceptionalCallableCapture(
+            exceptionalCapture);
         self.restoreCallableFlow(incoming);
         self.popControlContext();
         self.inTryDepth = self.inTryDepth - 1;
@@ -4373,10 +4491,16 @@ class IRGen {
         tryBody.stmts.push(irExprStmt(irUnaryOp(
             "--", irVar("__btrc_try_top"), false)));
 
-        /* A throw can occur after mutating an outer callback.  Seed catch
-         * lowering from the conservative join of entry and try states. */
+        /* Without checked throws, every callback state reached while lowering
+         * the try is visible to its exceptional edge. */
         Vector<CallableFlowSnapshot> exceptionalFlows = [];
-        exceptionalFlows.push(incoming);
+        int exceptionalFlow = 0;
+        while (exceptionalFlow
+                < exceptionalCapture.states.len) {
+            exceptionalFlows.push(
+                exceptionalCapture.states.get(exceptionalFlow));
+            exceptionalFlow = exceptionalFlow + 1;
+        }
         exceptionalFlows.push(tryFlow);
         self.joinCallableFlows(exceptionalFlows);
         CallableFlowSnapshot exceptionalEntry =
@@ -4493,11 +4617,19 @@ class IRGen {
         Vector<CallableFlowSnapshot> caseFlows = [];
         bool hasDefault = false;
         Vector<IRNode> cases = [];
+        CallableFlowSnapshot fallthroughFlow = incoming;
+        bool hasFallthroughFlow = false;
         self.pushControlContext("switch");
         int i = 0;
         while (i < node.cases.len) {
             Node c = node.cases.get(i);
             self.restoreCallableFlow(incoming);
+            if (hasFallthroughFlow) {
+                Vector<CallableFlowSnapshot> entries = [];
+                entries.push(incoming);
+                entries.push(fallthroughFlow);
+                self.joinCallableFlows(entries);
+            }
             CallableFlowSnapshot enclosingCase =
                 self.beginCallableScope();
             Map<string, Node> caseTypes = semanticCloneTypes(varTypes);
@@ -4522,7 +4654,11 @@ class IRGen {
             self.restoreBorrowedLocalBindings(
                 caseBorrowedBindings);
             self.finishCallableScope(enclosingCase);
-            caseFlows.push(self.snapshotCallableFlow());
+            CallableFlowSnapshot caseFlow =
+                self.snapshotCallableFlow();
+            caseFlows.push(caseFlow);
+            hasFallthroughFlow = fallsThrough;
+            if (hasFallthroughFlow) { fallthroughFlow = caseFlow; }
             cases.push(irCase(caseVal, body));
             i = i + 1;
         }
@@ -5091,6 +5227,7 @@ class IRGen {
                         && lexicalCallableTarget) {
                     self.setCallableBindingAbi(
                         node.target.name, callableAssignmentAbi);
+                    self.recordExceptionalCallableFlow();
                 }
                 if (tType != null
                         && node.target.kind != NK_IDENTIFIER) {
@@ -7927,6 +8064,20 @@ class IRGen {
         }
         if (irClassStaticField(self, node) != null) {
             return irVar(irClassStaticFieldName(node));
+        }
+        /* A static method used as a value is its lowered free-function symbol,
+         * not a C member projection. A lexical binding with the same spelling
+         * still wins over the class namespace. */
+        if (node.obj != null && node.obj.kind == NK_IDENTIFIER
+                && !varTypes.has(node.obj.name)
+                && self.analyzed.isClass(node.obj.name)) {
+            Node? staticMethod = self.analyzed.classMethod(
+                node.obj.name, node.field);
+            if (staticMethod != null
+                    && staticMethod.kind == NK_METHOD_DECL
+                    && staticMethod.access == "class") {
+                return irVar(node.obj.name + "_" + node.field);
+            }
         }
         IRNode obj = self.lowerExpr(node.obj, varTypes);
         Node? ot = self.resolvedExpressionType(node.obj, varTypes);
