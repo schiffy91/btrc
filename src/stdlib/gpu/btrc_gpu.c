@@ -11,6 +11,7 @@
 #include "btrc_gpu_compute_singleton.h"
 #include <webgpu.h>
 #include <GLFW/glfw3.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +51,7 @@ typedef struct {
     GLFWwindow* glfw;
     int         width;
     int         height;
+    unsigned int ref_count;
 } GPUWindow_;
 
 typedef struct {
@@ -60,8 +62,6 @@ typedef struct {
     WGPUQueue         queue;
     WGPUTextureFormat surface_format;
     WGPUCompositeAlphaMode surface_alpha_mode;
-    bool              adapter_request_done;
-    bool              device_request_done;
     /* Per-frame state */
     WGPUCommandEncoder     encoder;
     WGPURenderPassEncoder  pass;
@@ -82,12 +82,31 @@ typedef struct {
  * windows are destroyed here; global teardown is intentionally left to exit. */
 static bool glfw_initialized = false;
 
+/* Native WebGPU requests are asynchronous even though the btrc wrapper exposes
+ * synchronous construction/readback.  Bound every such bridge so a wedged
+ * driver cannot hang the process forever. */
+static const uint64_t gpu_async_timeout_ns = UINT64_C(30000000000);
+
 static bool acquire_glfw(void) {
     if (!glfw_initialized) {
         if (!glfwInit()) { return false; }
         glfw_initialized = true;
     }
     return true;
+}
+
+static bool retain_window(GPUWindow_* window) {
+    if (!window || window->ref_count == UINT_MAX) { return false; }
+    window->ref_count++;
+    return true;
+}
+
+static void release_window(GPUWindow_* window) {
+    if (!window || window->ref_count == 0) { return; }
+    window->ref_count--;
+    if (window->ref_count != 0) { return; }
+    if (window->glfw) { glfwDestroyWindow(window->glfw); }
+    free(window);
 }
 
 static void refresh_window_size(GPUWindow_* window) {
@@ -116,6 +135,29 @@ static void discard_frame(GPU_* gpu) {
     }
 }
 
+static WGPUInstance create_gpu_instance(void) {
+    WGPUInstanceDescriptor descriptor = {
+        .features = {
+            .timedWaitAnyEnable = true,
+            .timedWaitAnyMaxCount = 1,
+        },
+    };
+    return wgpuCreateInstance(&descriptor);
+}
+
+static bool wait_for_future(WGPUInstance instance, WGPUFuture future,
+                            const char* operation) {
+    WGPUFutureWaitInfo wait_info = { .future = future };
+    WGPUWaitStatus status = wgpuInstanceWaitAny(
+        instance, 1, &wait_info, gpu_async_timeout_ns);
+    if (status == WGPUWaitStatus_Success && wait_info.completed) {
+        return true;
+    }
+    fprintf(stderr, "[btrc-gpu] %s timed out or could not be waited on: status=%d\n",
+            operation, status);
+    return false;
+}
+
 /* ================================================================
  * Async request helpers
  * ================================================================ */
@@ -129,7 +171,6 @@ static void on_adapter(WGPURequestAdapterStatus status, WGPUAdapter adapter,
     } else {
         fprintf(stderr, "[btrc-gpu] adapter request failed: status=%d\n", status);
     }
-    gpu->adapter_request_done = true;
 }
 
 static void on_device(WGPURequestDeviceStatus status, WGPUDevice device,
@@ -141,36 +182,33 @@ static void on_device(WGPURequestDeviceStatus status, WGPUDevice device,
     } else {
         fprintf(stderr, "[btrc-gpu] device request failed: status=%d\n", status);
     }
-    gpu->device_request_done = true;
 }
 
 static bool request_adapter(GPU_* gpu,
                             const WGPURequestAdapterOptions* options) {
-    gpu->adapter_request_done = false;
-    wgpuInstanceRequestAdapter(
+    WGPUFuture future = wgpuInstanceRequestAdapter(
         gpu->instance, options,
         (WGPURequestAdapterCallbackInfo){
-            .mode = WGPUCallbackMode_AllowProcessEvents,
+            .mode = WGPUCallbackMode_WaitAnyOnly,
             .callback = on_adapter,
             .userdata1 = gpu,
         });
-    while (!gpu->adapter_request_done) {
-        wgpuInstanceProcessEvents(gpu->instance);
+    if (!wait_for_future(gpu->instance, future, "adapter request")) {
+        return false;
     }
     return gpu->adapter != NULL;
 }
 
 static bool request_device(GPU_* gpu, const WGPUDeviceDescriptor* descriptor) {
-    gpu->device_request_done = false;
-    wgpuAdapterRequestDevice(
+    WGPUFuture future = wgpuAdapterRequestDevice(
         gpu->adapter, descriptor,
         (WGPURequestDeviceCallbackInfo){
-            .mode = WGPUCallbackMode_AllowProcessEvents,
+            .mode = WGPUCallbackMode_WaitAnyOnly,
             .callback = on_device,
             .userdata1 = gpu,
         });
-    while (!gpu->device_request_done) {
-        wgpuInstanceProcessEvents(gpu->instance);
+    if (!wait_for_future(gpu->instance, future, "device request")) {
+        return false;
     }
     return gpu->device != NULL;
 }
@@ -200,6 +238,7 @@ void* btrc_gpu_window_create(char* title, int width, int height) {
         return NULL;
     }
     win->glfw   = glfw;
+    win->ref_count = 1;
     glfwGetFramebufferSize(glfw, &win->width, &win->height);
     if (win->width <= 0 || win->height <= 0) {
         win->width = width;
@@ -232,10 +271,7 @@ int btrc_gpu_window_height(void* win_) {
 }
 
 void btrc_gpu_window_destroy(void* win_) {
-    GPUWindow_* win = (GPUWindow_*)win_;
-    if (!win) return;
-    if (win->glfw) glfwDestroyWindow(win->glfw);
-    free(win);
+    release_window((GPUWindow_*)win_);
 }
 
 bool btrc_gpu_window_key_pressed(void* win_, int key) {
@@ -256,11 +292,14 @@ void* btrc_gpu_init(void* win_) {
     if (!win || !win->glfw) { return NULL; }
     GPU_* gpu = (GPU_*)calloc(1, sizeof(GPU_));
     if (!gpu) { return NULL; }
+    if (!retain_window(win)) {
+        free(gpu);
+        return NULL;
+    }
     gpu->window = win;
 
     /* Instance */
-    WGPUInstanceDescriptor inst_desc = { 0 };
-    gpu->instance = wgpuCreateInstance(&inst_desc);
+    gpu->instance = create_gpu_instance();
     if (!gpu->instance) {
         fprintf(stderr, "[btrc-gpu] wgpuCreateInstance failed\n");
         btrc_gpu_destroy(gpu);
@@ -343,6 +382,7 @@ void btrc_gpu_destroy(void* gpu_) {
     if (gpu->adapter)  wgpuAdapterRelease(gpu->adapter);
     if (gpu->surface)  wgpuSurfaceRelease(gpu->surface);
     if (gpu->instance) wgpuInstanceRelease(gpu->instance);
+    release_window(gpu->window);
     free(gpu);
 }
 
@@ -567,8 +607,7 @@ void* btrc_gpu_init_compute(void) {
     gpu->window = NULL;
     gpu->surface = NULL;
 
-    WGPUInstanceDescriptor inst_desc = { 0 };
-    gpu->instance = wgpuCreateInstance(&inst_desc);
+    gpu->instance = create_gpu_instance();
     if (!gpu->instance) {
         /* Non-fatal: callers probe via btrc_gpu_available() and fall back to CPU. */
         free(gpu);
@@ -713,15 +752,20 @@ bool btrc_gpu_read_buffer_checked(void* gpu_, void* buf_, void* dst, int size) {
 
     /* Map staging buffer and poll until done */
     MapCallbackData_ cb_data = { .done = false };
-    wgpuBufferMapAsync(staging, WGPUMapMode_Read, 0, (size_t)size,
-                       (WGPUBufferMapCallbackInfo){
-                           .mode = WGPUCallbackMode_AllowProcessEvents,
-                           .callback = on_buffer_map,
-                           .userdata1 = &cb_data,
-                       });
+    WGPUFuture map_future = wgpuBufferMapAsync(
+        staging, WGPUMapMode_Read, 0, (size_t)size,
+        (WGPUBufferMapCallbackInfo){
+            .mode = WGPUCallbackMode_WaitAnyOnly,
+            .callback = on_buffer_map,
+            .userdata1 = &cb_data,
+        });
 
-    while (!cb_data.done) {
-        wgpuInstanceProcessEvents(gpu->instance);
+    if (!wait_for_future(gpu->instance, map_future, "buffer map")) {
+        /* Unmap cancels a pending map without allowing its WaitAnyOnly callback
+         * to run after cb_data leaves this stack frame. */
+        wgpuBufferUnmap(staging);
+        wgpuBufferRelease(staging);
+        return false;
     }
 
     bool success = false;

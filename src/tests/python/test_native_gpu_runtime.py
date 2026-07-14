@@ -35,6 +35,23 @@ def test_compute_context_singleton_uses_c11_atomic_publication() -> None:
     assert "destroy_candidate(candidate);" in publication
 
 
+def test_gpu_async_bridges_are_bounded_and_render_context_retains_window() -> None:
+    runtime = (GPU / "btrc_gpu.c").read_text()
+
+    assert ".timedWaitAnyEnable = true" in runtime
+    assert "wgpuInstanceWaitAny(" in runtime
+    assert runtime.count("WGPUCallbackMode_WaitAnyOnly") == 3
+    assert "WGPUCallbackMode_AllowProcessEvents" not in runtime
+    assert "while (!gpu->adapter_request_done)" not in runtime
+    assert "while (!gpu->device_request_done)" not in runtime
+    assert "while (!cb_data.done)" not in runtime
+
+    assert "if (!retain_window(win))" in runtime
+    assert "release_window(gpu->window);" in runtime
+    assert "btrc_gpu_window_destroy(void* win_)" in runtime
+    assert "release_window((GPUWindow_*)win_);" in runtime
+
+
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
 def test_compute_context_cas_publication_is_deterministic(tmp_path: Path, c_compiler: str) -> None:
     if not shutil.which(c_compiler):
