@@ -79,9 +79,8 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     for fname, fd in cls_info.instance_storage:
         if fd.type and fd.type.pointer_depth > 1:
             continue
-        # Generic class fields use their terminal destructor. Collection
-        # ``free()`` methods only clear contents; ``destroy()`` also frees the
-        # instance struct.
+        # Generic class fields use their compiler-owned terminal destructor;
+        # source lifecycle behavior is explicit in an isolated ``__del__`` hook.
         if is_managed_type(gen, fd.type):
             body_stmts.append(_emit_field_release(gen, fname, fd.type))
             has_class_field_releases = has_class_field_releases or is_class_type(gen, fd.type)

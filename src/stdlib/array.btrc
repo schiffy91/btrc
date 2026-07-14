@@ -89,6 +89,10 @@ class Array<T> implements Iterable {
         self.len = 0;
     }
 
+    public void __del__() {
+        self.free();
+    }
+
     /* Iterable<T> protocol */
 
     public int iterLen() {

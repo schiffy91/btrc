@@ -43,11 +43,10 @@ def _get_destroy_name(gen: IRGenerator, type_expr, cls_name: str) -> str:
 def _destroy_fn_for_managed(gen: IRGenerator, cls_name: str) -> str:
     """Get the terminal destructor name for a managed class type.
 
-    Always returns ``{cls_name}_destroy``. The destroy function is the single
-    terminal destructor: for classes that define free() (collections) it calls
-    free() (content cleanup: release elements, free buffers, null fields) then
-    free(self) (struct). Scope-release / return-path / loop-exit therefore free
-    BOTH the contents and the struct via one call.
+    Always returns ``{cls_name}_destroy``. Lifecycle behavior is explicit in a
+    source ``__del__`` hook; an ordinary method named ``free`` is never selected
+    by compiler lowering. Scope, return-path, and loop-exit releases therefore
+    share the same terminal entry point.
     """
     return f"{cls_name}_destroy"
 

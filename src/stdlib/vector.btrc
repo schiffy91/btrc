@@ -77,6 +77,10 @@ class Vector<T> implements Iterable {
         self.cap = 0;
     }
 
+    public void __del__() {
+        self.free();
+    }
+
     public void remove(int idx) {
         if (idx < 0 || idx >= self.len) { fprintf(stderr, "Vector remove index out of bounds: %d (len=%d)\n", idx, self.len); exit(1); }
         release self.data[idx];

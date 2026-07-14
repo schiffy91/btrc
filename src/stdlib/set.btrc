@@ -130,6 +130,10 @@ class Set<T> implements Iterable {
         self.len = 0;
     }
 
+    public void __del__() {
+        self.free();
+    }
+
     public void clear() {
         for (int i = 0; i < self.cap; i++) {
             if (self.occupied[i]) {

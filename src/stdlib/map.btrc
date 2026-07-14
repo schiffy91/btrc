@@ -149,6 +149,10 @@ class Map<K, V> implements Iterable {
         self.len = 0;
     }
 
+    public void __del__() {
+        self.free();
+    }
+
     public void remove(K key) {
         unsigned int idx = __btrc_hash(key) % self.cap;
         while (self.occupied[idx]) {

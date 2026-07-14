@@ -1,7 +1,9 @@
-"""White-box tests for ARC destroy-name resolution. These branches depend on a
-generic class exposing a free() method and on mangled generic-instance names —
-states that the auto-management path doesn't produce for generic collections, so
-drive the helpers directly with a real analyzed program."""
+"""White-box tests for terminal ARC destroy-name resolution.
+
+Mangled generic-instance names are awkward to reach through the auto-management
+path, so drive the helpers directly with a real analyzed program. An ordinary
+method named ``free`` must not affect the selected lifecycle entry point.
+"""
 
 from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.ast_nodes import TypeExpr
@@ -18,7 +20,7 @@ _SRC = """
 class Pool<T> {
     public T item;
     public Pool(T x) { self.item = x; }
-    public void free() { }
+    public void free(int marker) { }
 }
 class Plain { public int v; public Plain() { self.v = 0; } }
 int main() {
@@ -47,15 +49,14 @@ def test_get_destroy_name_non_generic():
     assert _get_destroy_name(g, te, "Plain") == "Plain_destroy"
 
 
-def test_destroy_fn_for_managed_generic_instance_with_free():
+def test_destroy_fn_for_managed_generic_instance_ignores_ordinary_free_method():
     g = _gen()
-    # A mangled generic-instance name whose base class defines free().
+    # A mangled generic-instance name whose base class has an unrelated method.
     mangled = next((m for m in ["btrc_Pool_int", "Pool_int"]), "Pool_int")
-    name = _destroy_fn_for_managed(g, mangled)
-    assert name.endswith("_free") or name.endswith("_destroy")
+    assert _destroy_fn_for_managed(g, mangled) == f"{mangled}_destroy"
 
 
-def test_generic_release_never_uses_contents_only_free_method():
+def test_generic_release_never_uses_ordinary_free_method():
     g = _gen()
     te = TypeExpr(base="Pool", generic_args=[TypeExpr(base="int")])
     assert _get_destroy_name(g, te, "Pool") == "btrc_Pool_int_destroy"

@@ -1966,13 +1966,10 @@ class IRGen {
             m.functions.push(buildDestructorHook(mangled, hookBody));
         }
 
-        /* --- _destroy --- (terminal destructor). If the class defines free()
-         * (all stdlib collections do), destroy is the single terminal entry
-         * point: `<mangled>_free(self)` does content cleanup (release elements,
-         * free buffers, null fields), then `free(self)` frees the struct. We do
-         * NOT also emit per-field releases in that case (free() already does it —
-         * doing both double-releases). Otherwise (no free method) emit per-field
-         * releases + free(self). Mirrors generics.user_methods destroy emission. */
+        /* --- _destroy --- (terminal destructor). Source lifecycle behavior is
+         * explicit in the isolated __del__ hook. An ordinary method named free
+         * has no compiler meaning; terminal destruction always detaches every
+         * compiler-owned managed field before freeing the instance struct. */
         IRFunction dFn = IRFunction();
         dFn.name = mangled + "_destroy";
         dFn.return_type = "void";
@@ -1984,13 +1981,7 @@ class IRGen {
         if (hasDestructorHook) {
             dbody.push(callDestructorHook(mangled));
         }
-        if (self.analyzed.genericClassMethod(inst.base, "free") != null) {
-            Vector<IRNode> freeSelfArgs = [];
-            freeSelfArgs.push(irVar("self"));
-            dbody.push(irExprStmt(irCall(mangled + "_free", freeSelfArgs)));
-        } else {
-            self.emitGenericFieldReleases(decl, typeMap, dbody);
-        }
+        self.emitGenericFieldReleases(decl, typeMap, dbody);
         Vector<IRNode> freeArgs = [];
         freeArgs.push(irVar("self"));
         dbody.push(irExprStmt(irCall("free", freeArgs)));

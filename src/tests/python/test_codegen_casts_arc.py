@@ -1,5 +1,4 @@
-"""Cast disambiguation (generic-type and nested-paren casts) and ARC cleanup for
-generic-typed fields and classes exposing a free() method."""
+"""Cast disambiguation and ARC cleanup for generic-typed fields and classes."""
 
 import shutil
 import subprocess
@@ -45,12 +44,12 @@ def test_arc_cleanup_generic_collection_field():
     assert "Holder" in c
 
 
-def test_arc_class_with_free_method():
+def test_arc_class_with_ordinary_free_method():
     c = emit_c(
         "class Pool<T> {\n"
         "    public T item;\n"
         "    public Pool(T x) { self.item = x; }\n"
-        "    public void free() { }\n"
+        "    public void free(int marker) { }\n"
         "}\n"
         "int main() { Pool<int> p = new Pool<int>(5); return 0; }"
     )
@@ -107,8 +106,21 @@ def test_managed_field_assignment_is_warning_clean_in_both_contexts(tmp_path: Pa
         }
         int main() { exercise(); return 0; }
     """)
-    assert "(void)(((__btrc_field_obj_" in c
-    assert "Node* assigned = ((__btrc_field_obj_" in c
+    statement_assignment = next(
+        (line for line in c.splitlines() if "makeNode(7)" in line),
+        "",
+    )
+    assert "__btrc_arc_replace_edge" in statement_assignment
+    assert "__btrc_arc_retain" in statement_assignment
+    assert "__btrc_arc_release" in statement_assignment
+    assigned_declaration = next(
+        (line for line in c.splitlines() if "Node* assigned =" in line),
+        "",
+    )
+    assert "head->next" in assigned_declaration
+    assert "__btrc_arc_replace_edge" in assigned_declaration
+    assert assigned_declaration.count("__btrc_arc_retain") >= 2
+    assert "__btrc_arc_release" in assigned_declaration
 
     source = tmp_path / "managed_field_assignment.c"
     binary = tmp_path / "managed_field_assignment"

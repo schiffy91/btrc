@@ -250,6 +250,10 @@ class List<T> implements Iterable {
         self.clear();
     }
 
+    public void __del__() {
+        self.free();
+    }
+
     public Vector<T> toVector() {
         Vector<T> result = [];
         ListNode<T> cur = self.head;

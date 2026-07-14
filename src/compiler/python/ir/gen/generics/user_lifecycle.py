@@ -206,10 +206,7 @@ def _emit_destroy(
     has_destructor_hook: bool,
 ) -> IRFunctionDef:
     body_stmts = [call_destructor_hook(mangled)] if has_destructor_hook else []
-    if "free" in cls_info.methods:
-        body_stmts.append(IRExprStmt(expr=IRCall(callee=f"{mangled}_free", args=[IRVar(name="self")])))
-    else:
-        body_stmts.extend(build_generic_field_release_stmts(cls_info, type_map, gen))
+    body_stmts.extend(build_generic_field_release_stmts(cls_info, type_map, gen))
     body_stmts.insert(
         0,
         IRVarDecl(
