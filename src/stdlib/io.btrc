@@ -118,7 +118,7 @@ class File {
      * that ignore the result keep the old fire-and-forget behavior. */
     public bool write(string text) {
         if (!self.is_open || text == null) { return false; }
-        bool wrote = fputs(text, self.handle) != EOF;
+        bool wrote = (int)fputs(text, self.handle) != EOF;
         if (!wrote) { self.io_failed = true; }
         return wrote;
     }
@@ -127,7 +127,7 @@ class File {
      * and the newline were written successfully. */
     public bool writeLine(string text) {
         if (!self.write(text)) { return false; }
-        bool wroteNewline = fputc('\n', self.handle) != EOF;
+        bool wroteNewline = (int)fputc('\n', self.handle) != EOF;
         if (!wroteNewline) { self.io_failed = true; }
         return wroteNewline;
     }
@@ -153,7 +153,7 @@ class File {
 
     public bool flush() {
         if (!self.is_open) { return false; }
-        bool flushed = fflush(self.handle) == 0;
+        bool flushed = (int)fflush(self.handle) == 0;
         if (!flushed) { self.io_failed = true; }
         return flushed;
     }

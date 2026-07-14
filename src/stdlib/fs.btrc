@@ -320,7 +320,7 @@ class UnixFileSystem {
         int capacity = 256;
         char* buffer = (char*)__btrc_safe_realloc(
             NULL, (size_t)capacity);
-        while (getcwd(buffer, (size_t)capacity) == NULL) {
+        while ((char*)getcwd(buffer, (size_t)capacity) == NULL) {
             if (errno != ERANGE || capacity > 1073741823) {
                 free(buffer);
                 return "";
