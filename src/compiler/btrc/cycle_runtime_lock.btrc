@@ -1,0 +1,147 @@
+string cycleRuntimeLockSource(string name) {
+    if (name == "__btrc_arc_lock_state") {
+        return "/* One process-wide lock domain for ARC topology. */\n"
+            + "static atomic_flag __btrc_arc_lock_flag = ATOMIC_FLAG_INIT;\n"
+            + "\n"
+            + "static void __btrc_arc_lock_raw(void) {\n"
+            + "    while (atomic_flag_test_and_set_explicit(\n"
+            + "            &__btrc_arc_lock_flag, memory_order_acquire)) {}\n"
+            + "}\n"
+            + "static void __btrc_arc_unlock_raw(void) {\n"
+            + "    atomic_flag_clear_explicit(\n"
+            + "        &__btrc_arc_lock_flag, memory_order_release);\n"
+            + "}";
+    }
+    if (name == "__btrc_arc_snapshot_state") {
+        return "static _Atomic int __btrc_arc_snapshotting = 0;";
+    }
+    if (name == "__btrc_arc_mutation_lock") {
+        return "static void __btrc_arc_lock_mutation(void) {\n"
+            + "    for (;;) {\n"
+            + "        __btrc_arc_lock_raw();\n"
+            + "        if (!atomic_load_explicit(\n"
+            + "                &__btrc_arc_snapshotting, memory_order_acquire))\n"
+            + "            return;\n"
+            + "        __btrc_arc_unlock_raw();\n"
+            + "        while (atomic_load_explicit(\n"
+            + "                &__btrc_arc_snapshotting, memory_order_acquire)) {}\n"
+            + "    }\n"
+            + "}\n"
+            + "static void __btrc_arc_unlock_mutation(void) {\n"
+            + "    __btrc_arc_unlock_raw();\n"
+            + "}";
+    }
+    if (name == "__btrc_arc_topology_state") {
+        return "static int __btrc_arc_topology_active = 0;\n"
+            + "static int __btrc_arc_topology_flush_pending = 0;";
+    }
+    if (name == "__btrc_arc_topology_depth_state") {
+        return "static _Thread_local int __btrc_arc_topology_depth = 0;";
+    }
+    if (name == "__btrc_arc_topology_begin") {
+        return "static void* __btrc_arc_topology_begin(void) {\n"
+            + "    if (__btrc_arc_topology_depth > 0) {\n"
+            + "        if (__btrc_arc_topology_depth == INT_MAX) {\n"
+            + "            fprintf(stderr, \"btrc: ARC topology scope overflow\\n\");\n"
+            + "            exit(1);\n"
+            + "        }\n"
+            + "        __btrc_arc_topology_depth++;\n"
+            + "        return (void*)&__btrc_arc_topology_active;\n"
+            + "    }\n"
+            + "    for (;;) {\n"
+            + "        __btrc_arc_lock_raw();\n"
+            + "        if (!atomic_load_explicit(\n"
+            + "                &__btrc_arc_snapshotting, memory_order_acquire)\n"
+            + "                && !__btrc_arc_topology_flush_pending) {\n"
+            + "            if (__btrc_arc_topology_active == INT_MAX) {\n"
+            + "                fprintf(stderr, \"btrc: ARC topology scope overflow\\n\");\n"
+            + "                exit(1);\n"
+            + "            }\n"
+            + "            __btrc_arc_topology_active++;\n"
+            + "            __btrc_arc_topology_depth = 1;\n"
+            + "            __btrc_arc_unlock_raw();\n"
+            + "            return (void*)&__btrc_arc_topology_active;\n"
+            + "        }\n"
+            + "        __btrc_arc_unlock_raw();\n"
+            + "        while (atomic_load_explicit(\n"
+            + "                &__btrc_arc_snapshotting, memory_order_acquire)) {}\n"
+            + "    }\n"
+            + "}";
+    }
+    if (name == "__btrc_arc_topology_leave") {
+        return "static int __btrc_arc_topology_leave(void* token) {\n"
+            + "    if (!token) return 0;\n"
+            + "    if (token != (void*)&__btrc_arc_topology_active\n"
+            + "            || __btrc_arc_topology_depth <= 0) {\n"
+            + "        fprintf(stderr, \"btrc: invalid ARC topology scope\\n\");\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    __btrc_arc_topology_depth--;\n"
+            + "    if (__btrc_arc_topology_depth > 0) return 0;\n"
+            + "    __btrc_arc_lock_raw();\n"
+            + "    if (__btrc_arc_topology_active <= 0) {\n"
+            + "        fprintf(stderr, \"btrc: invalid ARC topology scope\\n\");\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    __btrc_arc_topology_active--;\n"
+            + "    int should_flush = __btrc_arc_topology_active == 0\n"
+            + "        && __btrc_arc_topology_flush_pending;\n"
+            + "    __btrc_arc_unlock_raw();\n"
+            + "    return should_flush;\n"
+            + "}";
+    }
+    if (name == "__btrc_arc_topology_cleanup") {
+        return "static void __btrc_arc_topology_cleanup(void* token) {\n"
+            + "    (void)__btrc_arc_topology_leave(token);\n"
+            + "}";
+    }
+    if (name == "__btrc_arc_topology_complete") {
+        return "static void __btrc_arc_topology_complete(void** token_ref) {\n"
+            + "    if (!token_ref || !*token_ref) return;\n"
+            + "    void* token = *token_ref;\n"
+            + "    *token_ref = NULL;\n"
+            + "    if (__btrc_arc_topology_leave(token))\n"
+            + "        (void)__btrc_flush_cycles();\n"
+            + "}";
+    }
+    if (name == "__btrc_arc_deferred_state") {
+        return "typedef struct {\n"
+            + "    void* object;\n"
+            + "    __btrc_destroy_fn destroy;\n"
+            + "} __btrc_arc_deferred;\n"
+            + "static __btrc_arc_deferred* __btrc_arc_deferred_items = NULL;\n"
+            + "static int __btrc_arc_deferred_count = 0;\n"
+            + "static int __btrc_arc_deferred_cap = 0;\n\n"
+            + "static void __btrc_arc_defer_destroy_locked(\n"
+            + "        void* object, __btrc_destroy_fn destroy) {\n"
+            + "    if (__btrc_arc_deferred_count >= __btrc_arc_deferred_cap) {\n"
+            + "        if (__btrc_arc_deferred_cap > INT_MAX / 2) {\n"
+            + "            fprintf(stderr, \"btrc: deferred ARC queue overflow\\n\");\n"
+            + "            exit(1);\n"
+            + "        }\n"
+            + "        int cap = __btrc_arc_deferred_cap\n"
+            + "            ? __btrc_arc_deferred_cap * 2 : 256;\n"
+            + "        __btrc_arc_deferred_items = (__btrc_arc_deferred*)\n"
+            + "            __btrc_safe_realloc(__btrc_arc_deferred_items,\n"
+            + "                sizeof(__btrc_arc_deferred) * (size_t)cap);\n"
+            + "        __btrc_arc_deferred_cap = cap;\n"
+            + "    }\n"
+            + "    __btrc_arc_deferred_items[__btrc_arc_deferred_count++] =\n"
+            + "        (__btrc_arc_deferred){object, destroy};\n"
+            + "}\n"
+            + "static void __btrc_arc_drain_deferred(void) {\n"
+            + "    for (;;) {\n"
+            + "        __btrc_arc_lock_raw();\n"
+            + "        if (__btrc_arc_deferred_count == 0) {\n"
+            + "            __btrc_arc_unlock_raw();\n"
+            + "            return;\n"
+            + "        }\n"
+            + "        __btrc_arc_deferred item =\n"
+            + "            __btrc_arc_deferred_items[--__btrc_arc_deferred_count];\n"
+            + "        __btrc_arc_unlock_raw();\n"
+            + "        item.destroy(item.object);\n"
+            + "    }\n"
+            + "}";
+    }
+    return "";
+}

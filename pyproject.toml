@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "btrc"
 version = "0.1.0"
 description = "A language that transpiles to C"
+readme = "README.md"
 requires-python = ">=3.13"
 dependencies = ["lsprotocol>=2023.0.0", "pygls>=1.3.0"]
 
@@ -16,17 +17,68 @@ dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.1.0"]
 btrcpy = "src.compiler.python.main:main"
 btrc-lsp = "src.devex.lsp.server:main"
 
+# The project intentionally imports through the repository-level `src`
+# namespace (for example, `src.compiler.python.main`).  Setuptools' implicit
+# src-layout discovery strips that namespace, producing a wheel whose entry
+# points cannot import their targets.  Discover from the repository root and
+# keep generated extension payloads and test-only packages out of the wheel.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+exclude = [
+    "src.tests*",
+    "src.compiler.python.tests*",
+    "src.devex.debug.tests*",
+    "src.devex.ext*",
+    "src.devex.lsp.tests*",
+]
+namespaces = true
+
+# Grammar, ASDL, stdlib, and native-runtime sources are runtime inputs, not
+# incidental repository files.  Each data-bearing directory is discovered as
+# a namespace package, so these per-package globs include the complete source
+# payload without admitting build products such as .o/.a files.
+[tool.setuptools.package-data]
+"*" = [
+    "*.asdl",
+    "*.btrc",
+    "*.c",
+    "*.ebnf",
+    "*.h",
+    "*.m",
+    "*.md",
+    "*.sh",
+    "*.txt",
+]
+
+# These names are explicitly local scratch inputs (and are gitignored).  Data
+# file discovery otherwise admits them merely because they end in `.btrc`,
+# making a wheel depend on whichever debug files happen to exist locally.
+[tool.setuptools.exclude-package-data]
+"src.compiler.btrc" = ["fe_debug*.btrc"]
+
 [tool.pytest.ini_options]
-testpaths = ["src/tests", "src/devex/lsp/tests"]
+testpaths = ["src/tests", "src/devex/lsp/tests", "src/devex/debug/tests"]
 pythonpath = ["."]
+# Test directories are namespace-package-free by design, so prepend mode would
+# import duplicate basenames as the same top-level module. Importlib mode gives
+# each collected file a path-derived identity without requiring __init__.py.
+addopts = ["--import-mode=importlib"]
 # `runner.py` holds the parametrized language-corpus tests but doesn't match the
 # default `test_*.py` glob, so directory collection (`pytest src/tests/`, which
-# `make test` runs) silently skipped all 1708 corpus cases. Collect it too.
+# `make test` runs) silently skipped the entire language corpus. Collect it too.
 python_files = ["test_*.py", "*_test.py", "runner.py"]
 
 [tool.ruff]
 target-version = "py313"
 line-length = 120
+extend-exclude = [
+    # Generated verbatim from the ASDL and stdlib specifications. Keeping the
+    # checked-in files byte-identical to their generators is more important
+    # than applying a second, non-authoritative formatting pass.
+    "src/compiler/python/ast_nodes.py",
+    "src/devex/lsp/builtins.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]

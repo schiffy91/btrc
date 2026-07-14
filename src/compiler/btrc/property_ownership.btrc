@@ -1,0 +1,93 @@
+/* ARC-safe bodies for generated auto-property setters. */
+
+void emitAutoPropertyStore(IRGen generator, Node propertyType,
+        IRNode target, Vector<IRNode> body) {
+    if (!irManagedType(generator, propertyType)) {
+        body.push(irAssign(target, irVar("value")));
+        return;
+    }
+    if (irManagedClassType(generator, propertyType)) {
+        body.push(irExprStmt(irManagedReplaceEdge(
+            generator, target, irVar("value"), propertyType,
+            irVar("self"), false)));
+        string runtimeType = irManagedRuntimeType(
+            generator, propertyType);
+        if (irManagedRuntimeCanCycle(generator, runtimeType)) {
+            body.push(irExprStmt(managedArcPoll(generator)));
+        }
+        return;
+    }
+    string oldName = generator.freshTemp("__btrc_property_old");
+    IRNode oldDeclaration = irVarDecl(
+        typeToC(propertyType, generator.analyzed),
+        oldName, target);
+    generator.funcVarDecls.push(oldDeclaration);
+    body.push(oldDeclaration);
+    body.push(irExprStmt(irManagedUnlinkEdge(
+        generator, irVar(oldName), propertyType, irVar("self"))));
+    body.push(irExprStmt(irManagedRetainEdge(
+        generator, irVar("value"), propertyType, irVar("self"))));
+    body.push(irAssign(target, irVar("value")));
+    string runtimeType = irManagedRuntimeType(generator, propertyType);
+    body.push(irExprStmt(irManagedReleaseEdge(
+        generator, irVar(oldName), propertyType, irVar("value"))));
+    if (irManagedRuntimeCanCycle(generator, runtimeType)) {
+        body.push(irExprStmt(managedArcPoll(generator)));
+    }
+}
+
+IRNode lowerPropertyStoreCore(IRGen generator, Node assignment,
+        Node receiverType, Node property, Map<string, Node> varTypes) {
+    Node target = assignment.target;
+    IRNode receiver = generator.lowerExpr(target.obj, varTypes);
+    IRNode value = generator.lowerExpr(
+        assignment.value_node, varTypes);
+    if (target.obj.kind == NK_SELF_EXPR
+            && propertyNeedsBacking(property)) {
+        return irBinOp(irFieldAccess(receiver,
+            instanceStorageName(property), true), "=", value);
+    }
+    Vector<IRNode> arguments = [];
+    arguments.push(receiver);
+    arguments.push(value);
+    Vector<IRNode> sequence = [];
+    sequence.push(irCall(instanceFunctionPrefix(
+        generator.analyzed, receiverType)
+            + "_set_" + target.field, arguments));
+    sequence.push(value);
+    return irCommaExpr(sequence);
+}
+
+IRNode lowerPropertyStoreWithOwnership(IRGen generator, Node assignment,
+        Node receiverType, Node property, Node propertyType,
+        Map<string, Node> varTypes) {
+    Node target = assignment.target;
+    bool directBacking = target.obj.kind == NK_SELF_EXPR
+        && propertyNeedsBacking(property);
+    if (directBacking) {
+        return lowerPropertyStoreCore(generator, assignment,
+            receiverType, property, varTypes);
+    }
+    bool receiverOwned = irUnconsumedOwnedResult(
+        generator, target.obj, varTypes);
+    bool valueOwned = irContextualUnconsumedOwnedResult(
+        generator, assignment.value_node, propertyType, varTypes);
+    if (!receiverOwned && !valueOwned) {
+        return lowerPropertyStoreCore(generator, assignment,
+            receiverType, property, varTypes);
+    }
+    Node? actualValueType = generator.resolvedExpressionType(
+        assignment.value_node, varTypes);
+    if (actualValueType == null) { actualValueType = propertyType; }
+    ownershipRequireType(actualValueType, assignment.value_node);
+    OwnershipBoundary boundary = OwnershipBoundary();
+    boundary.addOperand(generator, target.obj, receiverType,
+        receiverOwned, false, varTypes);
+    boundary.addOperand(generator, assignment.value_node,
+        actualValueType, valueOwned, false, varTypes);
+    IRNode lowered = lowerPropertyStoreCore(generator, assignment,
+        receiverType, property, varTypes);
+    boundary.restore(generator);
+    return boundary.finish(generator, lowered,
+        propertyType, receiverOwned);
+}

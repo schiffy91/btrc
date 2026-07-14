@@ -1,0 +1,212 @@
+/* Structured C host-dispatch helper construction. No C statement text is
+ * synthesized here: setup, dispatch, readback, cleanup, and errors are IR. */
+
+IRNode gpuCallStatement(string name, Vector<IRNode> args) {
+    return irExprStmt(irCall(name, args));
+}
+
+Vector<IRNode> gpuOneArg(IRNode value) {
+    Vector<IRNode> args = [];
+    args.push(value);
+    return args;
+}
+
+Vector<IRNode> gpuNoArgs() {
+    Vector<IRNode> args = [];
+    return args;
+}
+
+IRNode gpuUsage(bool uniform, bool readback) {
+    IRNode value = irVar(uniform ? "BTRC_GPU_UNIFORM" : "BTRC_GPU_STORAGE");
+    value = irBinOp(value, "|", irVar("BTRC_GPU_COPY_DST"));
+    if (readback) { value = irBinOp(value, "|", irVar("BTRC_GPU_COPY_SRC")); }
+    return value;
+}
+
+void gpuAppendUnavailable(IRGpuKernel kernel, Vector<IRNode> body,
+        bool withReturn) {
+    Vector<IRNode> cpuArgs = [];
+    int p = 0;
+    while (p < kernel.declaration.params.len) {
+        Node parameter = kernel.declaration.params.get(p);
+        cpuArgs.push(irVar(parameter.name));
+        if (parameter.type.is_array) {
+            cpuArgs.push(irVar(gpuLengthName(parameter.name)));
+        }
+        p = p + 1;
+    }
+    if (kernel.output_buffer != null) {
+        cpuArgs.push(irVar("__gpu_output"));
+        cpuArgs.push(irVar("__gpu_output_capacity"));
+    }
+    cpuArgs.push(irVar("__gpu_n"));
+    body.push(gpuCallStatement(kernel.name + "__gpucpu", cpuArgs));
+    if (withReturn) { body.push(irReturn(null)); }
+}
+
+void gpuAppendCleanup(Vector<IRNode> body, Vector<string> buffers,
+        string uniformBuffer, string statusBuffer, string bindGroup,
+        string pipeline, string shader) {
+    Vector<string> bufferDestroy = buffers;
+    bufferDestroy.push(uniformBuffer);
+    bufferDestroy.push(statusBuffer);
+    int b = 0;
+    while (b < bufferDestroy.len) {
+        string name = bufferDestroy.get(b);
+        Vector<IRNode> destroy = [];
+        destroy.push(gpuCallStatement("btrc_gpu_buffer_destroy",
+            gpuOneArg(irVar(name))));
+        body.push(irIf(irBinOp(irVar(name), "!=", irVar("NULL")),
+            irBlock(destroy), null));
+        b = b + 1;
+    }
+    Vector<IRNode> bgDestroy = [];
+    bgDestroy.push(gpuCallStatement("btrc_gpu_bind_group_destroy",
+        gpuOneArg(irVar(bindGroup))));
+    body.push(irIf(irBinOp(irVar(bindGroup), "!=", irVar("NULL")),
+        irBlock(bgDestroy), null));
+    Vector<IRNode> pipelineDestroy = [];
+    pipelineDestroy.push(gpuCallStatement(
+        "btrc_gpu_compute_pipeline_destroy", gpuOneArg(irVar(pipeline))));
+    body.push(irIf(irBinOp(irVar(pipeline), "!=", irVar("NULL")),
+        irBlock(pipelineDestroy), null));
+    Vector<IRNode> shaderDestroy = [];
+    shaderDestroy.push(gpuCallStatement("btrc_gpu_shader_destroy",
+        gpuOneArg(irVar(shader))));
+    body.push(irIf(irBinOp(irVar(shader), "!=", irVar("NULL")),
+        irBlock(shaderDestroy), null));
+}
+
+void gpuAppendStatusFailures(Vector<IRNode> body, string status) {
+    Vector<string> diagnostics = [
+        "GPU array index out of bounds\\n",
+        "Division by zero\\n",
+        "Modulo by zero\\n",
+        "Integer division overflow\\n"
+    ];
+    int code = 1;
+    while (code <= diagnostics.len) {
+        Vector<IRNode> failed = [];
+        Vector<IRNode> message = [];
+        message.push(irLiteral("\"" + diagnostics.get(code - 1) + "\""));
+        message.push(irVar("stderr"));
+        failed.push(gpuCallStatement("fputs", message));
+        failed.push(gpuCallStatement("exit", gpuOneArg(irLiteral("1"))));
+        body.push(irIf(irBinOp(irVar(status), "==",
+            irLiteral(Strings.fromInt(code))), irBlock(failed), null));
+        code = code + 1;
+    }
+    Vector<IRNode> unknown = [];
+    Vector<IRNode> unknownMessage = [];
+    unknownMessage.push(irLiteral(
+        "\"[btrc-gpu] GPU kernel reported an unknown failure status\\n\""));
+    unknownMessage.push(irVar("stderr"));
+    unknown.push(gpuCallStatement("fputs", unknownMessage));
+    unknown.push(gpuCallStatement("exit", gpuOneArg(irLiteral("1"))));
+    body.push(irIf(irBinOp(irVar(status), "!=", irLiteral("0U")),
+        irBlock(unknown), null));
+}
+
+void gpuAppendPostSubmitFailure(Vector<IRNode> body, string ok,
+        string started) {
+    Vector<IRNode> failed = [];
+    Vector<IRNode> message = [];
+    message.push(irLiteral(
+        "\"[btrc-gpu] GPU dispatch or result transfer failed after submission\\n\""));
+    message.push(irVar("stderr"));
+    failed.push(gpuCallStatement("fputs", message));
+    failed.push(gpuCallStatement("exit", gpuOneArg(irLiteral("1"))));
+    body.push(irIf(irBinOp(irUnaryOp("!", irVar(ok), true),
+        "&&", irVar(started)), irBlock(failed), null));
+}
+
+IRFunction buildGpuDispatchHelper(IRGen gen, IRGpuKernel kernel,
+        string helperName, string uniformStruct) {
+    IRFunction fn = IRFunction();
+    fn.name = helperName;
+    fn.return_type = "void";
+    fn.is_static = true;
+    Node declaration = kernel.declaration;
+    int p = 0;
+    while (p < declaration.params.len) {
+        Node parameter = declaration.params.get(p);
+        fn.params.push(IRParam(typeToC(parameter.type, gen.analyzed), parameter.name));
+        if (parameter.type.is_array) {
+            fn.params.push(IRParam("int", gpuLengthName(parameter.name)));
+        }
+        p = p + 1;
+    }
+    if (kernel.output_buffer != null) {
+        fn.params.push(IRParam(gpuCElementType(kernel) + "*", "__gpu_output"));
+        fn.params.push(IRParam("int", "__gpu_output_capacity"));
+    }
+    Vector<IRNode> body = [];
+    string gpu = helperName + "_gpu";
+    string ok = helperName + "_ok";
+    string started = helperName + "_dispatch_started";
+    string uniforms = helperName + "_uniforms";
+    string uniformBuffer = helperName + "_buf_uniforms";
+    string statusBuffer = helperName + "_buf_status";
+    string status = helperName + "_status";
+    string shader = helperName + "_shader";
+    string pipeline = helperName + "_pipeline";
+    string bindings = helperName + "_bindings";
+    string bindGroup = helperName + "_bind_group";
+    IRNode dispatchLength = irLiteral("1");
+    if (kernel.param_buffers.len > 0) {
+        dispatchLength = irVar(gpuLengthName(kernel.param_buffers.get(0).name));
+    }
+    body.push(irVarDecl("int", "__gpu_n", dispatchLength));
+    body.push(irIf(irBinOp(irVar("__gpu_n"), "<=", irLiteral("0")),
+        irBlock([irReturn(null)]), null));
+    if (kernel.output_buffer != null) {
+        Vector<IRNode> badCapacity = [];
+        Vector<IRNode> message = [];
+        message.push(irLiteral(
+            "\"[btrc-gpu] output capacity is smaller than dispatch length\\n\""));
+        message.push(irVar("stderr"));
+        badCapacity.push(gpuCallStatement("fputs", message));
+        badCapacity.push(gpuCallStatement("abort", gpuNoArgs()));
+        IRNode invalidOutput = irBinOp(
+            irBinOp(irVar("__gpu_output"), "==", irVar("NULL")), "||",
+            irBinOp(irVar("__gpu_output_capacity"), "<", irVar("__gpu_n")));
+        body.push(irIf(invalidOutput, irBlock(badCapacity), null));
+    }
+    body.push(irVarDecl("void*", gpu,
+        irCall("btrc_gpu_acquire_compute", gpuNoArgs())));
+    Vector<IRNode> noGpu = [];
+    gpuAppendUnavailable(kernel, noGpu, true);
+    body.push(irIf(irBinOp(irVar(gpu), "==", irVar("NULL")),
+        irBlock(noGpu), null));
+    body.push(irVarDecl("bool", ok, irLiteral("true")));
+    body.push(irVarDecl("bool", started, irLiteral("false")));
+    Vector<string> bufferNames = [];
+    int b = 0;
+    while (b < kernel.param_buffers.len) {
+        IRGpuBuffer buffer = kernel.param_buffers.get(b);
+        string name = helperName + "_buf_" + buffer.name;
+        bufferNames.push(name);
+        Vector<IRNode> create = [];
+        create.push(irVar(gpu));
+        create.push(irBinOp(irVar(gpuLengthName(buffer.name)), "*",
+            irSizeofType(buffer.elem_type == "f32" ? "float" : "int")));
+        create.push(gpuUsage(false, true));
+        body.push(irVarDecl("void*", name,
+            irCall("btrc_gpu_create_buffer", create)));
+        body.push(irIf(irBinOp(irVar(name), "==", irVar("NULL")),
+            irBlock([irAssign(irVar(ok), irLiteral("false"))]), null));
+        Vector<IRNode> write = [];
+        write.push(irVar(gpu)); write.push(irVar(name));
+        write.push(irCast("void*", irVar(buffer.name)));
+        write.push(irBinOp(irVar(gpuLengthName(buffer.name)), "*",
+            irSizeofType(buffer.elem_type == "f32" ? "float" : "int")));
+        body.push(irIf(irVar(ok), irBlock([
+            gpuCallStatement("btrc_gpu_write_buffer", write)]), null));
+        b = b + 1;
+    }
+    gpuAppendDispatchPipeline(gen, kernel, helperName, uniformStruct,
+        body, bufferNames, gpu, ok, uniforms, uniformBuffer, statusBuffer,
+        status, shader, pipeline, bindings, bindGroup, started);
+    fn.body = irBlock(body);
+    return fn;
+}

@@ -1,0 +1,79 @@
+/* Control-flow scope composition for semantic validation. */
+
+void semanticValidateLoop(Node statement, SemanticValidationState state,
+        Map<string, Node> vars) {
+    bool isDoWhile = statement.kind == NK_DO_WHILE_STMT;
+    if (!isDoWhile) {
+        semanticValidateExpr(statement.condition, state, vars);
+        semanticValidateCondition(
+            statement.condition, "Loop", state, vars);
+    }
+    int previousLoop = state.loopDepth;
+    int previousBreak = state.breakDepth;
+    state.loopDepth = previousLoop + 1;
+    state.breakDepth = previousBreak + 1;
+    semanticValidateBlock(statement.body_node, state, vars);
+    state.loopDepth = previousLoop;
+    state.breakDepth = previousBreak;
+    if (isDoWhile) {
+        semanticValidateExpr(statement.condition, state, vars);
+        semanticValidateCondition(
+            statement.condition, "Loop", state, vars);
+    }
+}
+
+void semanticValidateSwitch(Node statement, SemanticValidationState state,
+        Map<string, Node> vars) {
+    semanticValidateExpr(statement.value_node, state, vars);
+    semanticValidateSwitchContracts(statement, state, vars);
+    int previousBreak = state.breakDepth;
+    state.breakDepth = previousBreak + 1;
+    int caseIndex = 0;
+    while (caseIndex < statement.cases.len) {
+        Node caseClause = statement.cases.get(caseIndex);
+        semanticValidateExpr(caseClause.value_node, state, vars);
+        Map<string, Node> caseVars = semanticCloneTypes(vars);
+        int statementIndex = 0;
+        bool terminal = false;
+        while (statementIndex < caseClause.body_nlist.len) {
+            Node bodyStatement = caseClause.body_nlist.get(statementIndex);
+            if (terminal) {
+                semanticValidationFail(
+                    "Unreachable code after return/throw/break/continue",
+                    bodyStatement);
+            }
+            semanticValidateStmt(bodyStatement, state, caseVars);
+            terminal = semanticDirectTerminal(bodyStatement);
+            statementIndex = statementIndex + 1;
+        }
+        caseIndex = caseIndex + 1;
+    }
+    state.breakDepth = previousBreak;
+}
+
+bool semanticDirectTerminal(Node statement) {
+    return statement.kind == NK_RETURN_STMT
+        || statement.kind == NK_THROW_STMT
+        || statement.kind == NK_BREAK_STMT
+        || statement.kind == NK_CONTINUE_STMT;
+}
+
+void semanticValidateBlock(Node? block, SemanticValidationState state,
+        Map<string, Node> outerVars) {
+    if (block == null) { return; }
+    Map<string, bool> noReservedNames = {};
+    semanticValidateDirectLocalNames(block, noReservedNames);
+    Map<string, Node> vars = semanticCloneTypes(outerVars);
+    bool terminal = false;
+    int index = 0;
+    while (index < block.statements.len) {
+        Node statement = block.statements.get(index);
+        if (terminal) {
+            semanticValidationFail(
+                "Unreachable code after return/throw/break/continue", statement);
+        }
+        semanticValidateStmt(statement, state, vars);
+        terminal = semanticDirectTerminal(statement);
+        index = index + 1;
+    }
+}

@@ -70,4 +70,8 @@ class GuiWindow {
             self.handle = null;
         }
     }
+
+    public void __del__() {
+        self.close();
+    }
 }

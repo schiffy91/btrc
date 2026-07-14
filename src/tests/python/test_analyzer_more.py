@@ -36,6 +36,7 @@ def test_uninitialized_var_rejected_by_parser():
     import pytest
 
     from src.compiler.python.parser.core import ParseError
+
     with pytest.raises(ParseError):
         Parser(Lexer("int main() { var x; return 0; }", "<t>").tokenize()).parse()
 

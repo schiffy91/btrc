@@ -13,7 +13,13 @@ import sys
 
 import pytest
 
-from src.compiler.python import cache_keys, disk_cache, frontend, stdlib_archive
+from src.compiler.python import (
+    cache_keys,
+    disk_cache,
+    frontend,
+    frontend_stdlib,
+    stdlib_archive,
+)
 
 
 @pytest.fixture
@@ -25,6 +31,7 @@ def clear_hash_memo(monkeypatch):
 # --------------------------------------------------------------------------
 # toolchain hash derivation
 # --------------------------------------------------------------------------
+
 
 def test_toolchain_hash_is_short_hex_and_memoized():
     h = cache_keys.toolchain_hash("frontend")
@@ -41,22 +48,25 @@ def test_full_scope_covers_codegen_sources():
     frontend_files = set(cache_keys._toolchain_files("frontend"))
     full_files = set(cache_keys._toolchain_files("full"))
     assert frontend_files < full_files
-    extra = {os.path.relpath(p, cache_keys._COMPILER_DIR)
-             for p in full_files - frontend_files}
+    extra = {os.path.relpath(p, cache_keys._COMPILER_DIR) for p in full_files - frontend_files}
     assert any(p.startswith("analyzer") for p in extra)
     assert any(p.startswith("ir") for p in extra)
+    assert "main.py" in extra
+    assert "cli_options.py" in extra
     # Parser sources are in both scopes; grammar + ASDL too.
     assert any(p.endswith("grammar.ebnf") for p in frontend_files)
     assert any(p.endswith("ast.asdl") for p in frontend_files)
+    assert any(p.endswith("ast_nodes.py") for p in frontend_files)
+    assert any(p.endswith("ast_codec.py") for p in frontend_files)
+    assert any(p.endswith("frontend.py") for p in frontend_files)
+    assert any(p.endswith("import_scan.py") for p in frontend_files)
 
 
-def test_hash_changes_when_a_source_byte_changes(tmp_path, monkeypatch,
-                                                 clear_hash_memo):
+def test_hash_changes_when_a_source_byte_changes(tmp_path, monkeypatch, clear_hash_memo):
     """Simulate editing a parser source: same file list, one byte different."""
     fake = tmp_path / "parser_file.py"
     fake.write_text("x = 1\n")
-    monkeypatch.setattr(cache_keys, "_toolchain_files",
-                        lambda scope: [str(fake)])
+    monkeypatch.setattr(cache_keys, "_toolchain_files", lambda scope: [str(fake)])
     before = cache_keys.toolchain_hash("full")
 
     monkeypatch.setattr(cache_keys, "_HASH_CACHE", {})
@@ -65,9 +75,20 @@ def test_hash_changes_when_a_source_byte_changes(tmp_path, monkeypatch,
     assert before != after
 
 
+def test_hash_includes_source_path_not_only_basename(tmp_path, monkeypatch):
+    first = tmp_path / "first" / "types.py"
+    second = tmp_path / "second" / "types.py"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("same bytes\n")
+    second.write_text("same bytes\n")
+    monkeypatch.setattr(cache_keys, "_SRC_DIR", str(tmp_path))
+
+    assert cache_keys._hash_paths([str(first)]) != cache_keys._hash_paths([str(second)])
+
+
 def test_hash_differs_between_scopes():
-    assert (cache_keys.toolchain_hash("frontend")
-            != cache_keys.toolchain_hash("full"))
+    assert cache_keys.toolchain_hash("frontend") != cache_keys.toolchain_hash("full")
 
 
 def test_disk_cache_key_covers_toolchain(monkeypatch):
@@ -81,6 +102,7 @@ def test_disk_cache_key_covers_toolchain(monkeypatch):
 # --------------------------------------------------------------------------
 # cache directory resolution
 # --------------------------------------------------------------------------
+
 
 def test_cache_dir_env_var_wins(tmp_path, monkeypatch):
     target = tmp_path / "envcache"
@@ -155,25 +177,25 @@ def test_disk_cache_input_path_anchors_project_root(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# stale stdlib-AST pickle rejection
+# stdlib-AST cache invalidation
 # --------------------------------------------------------------------------
+
 
 def test_stdlib_ast_version_is_derived():
     assert cache_keys.toolchain_hash("frontend") == frontend._STDLIB_AST_VERSION
 
 
-def test_stale_stdlib_pickle_is_not_served_after_toolchain_change(
-        tmp_path, monkeypatch):
+def test_stale_stdlib_ast_is_not_served_after_toolchain_change(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "c"))
     src = "class CacheProbe { public int x; public CacheProbe(int x) { self.x = x; } }\n"
     first = frontend._cached_stdlib_decls(src)
     assert first
-    pickles = os.listdir(tmp_path / "c")
-    assert len(pickles) == 1
+    artifacts = os.listdir(tmp_path / "c")
+    assert len(artifacts) == 1 and artifacts[0].endswith(".ast.json")
 
     # A toolchain change produces a different AST version -> different key:
-    # the old pickle is orphaned, never deserialized.
-    monkeypatch.setattr(frontend, "_STDLIB_AST_VERSION", "f" * 16)
+    # the old JSON entry is orphaned, never served.
+    monkeypatch.setattr(frontend_stdlib, "_STDLIB_AST_VERSION", "f" * 16)
     frontend._cached_stdlib_decls(src)
     assert len(os.listdir(tmp_path / "c")) == 2  # reparsed + stored under new key
 
@@ -182,16 +204,91 @@ def test_stale_stdlib_pickle_is_not_served_after_toolchain_change(
 # stdlib archive stamping
 # --------------------------------------------------------------------------
 
+
+def _archive_manifest(stdlib_source: str, **overrides):
+    manifest = {
+        "schema": stdlib_archive.MANIFEST_SCHEMA,
+        "stdlib_source": stdlib_archive._stdlib_source_hash(stdlib_source),
+        "toolchain": cache_keys.toolchain_hash("full"),
+        "macros": [],
+        **{field: [] for field in stdlib_archive._MANIFEST_LIST_FIELDS},
+    }
+    manifest.update(overrides)
+    return manifest
+
+
 def test_archive_manifest_is_stamped_and_validated(tmp_path):
-    manifest = {"toolchain": cache_keys.toolchain_hash("full"), "types": []}
+    source = "stdlib source"
+    manifest = _archive_manifest(source)
     (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(manifest))
-    assert stdlib_archive.load_manifest(str(tmp_path))["types"] == []
+    assert stdlib_archive.load_manifest(str(tmp_path), source)["types"] == []
+
+
+@pytest.mark.parametrize(
+    "macro",
+    [
+        {
+            "name": "LEGACY",
+            "params": None,
+            "replacement": "1",
+            "before_includes": False,
+        },
+        {"name": "7BAD", "params": None, "replacement": "1"},
+        {"name": "BAD", "params": ["x", "x"], "replacement": "x"},
+        {"name": "BAD", "params": None, "replacement": "one\ntwo"},
+    ],
+)
+def test_archive_manifest_refuses_invalid_typed_macro_records(
+    tmp_path,
+    macro,
+):
+    source = "stdlib source"
+    manifest = _archive_manifest(source, macros=[macro])
+    (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(manifest))
+
+    with pytest.raises(
+        stdlib_archive.ArchiveVersionError,
+        match="invalid or unsupported",
+    ):
+        stdlib_archive.load_manifest(str(tmp_path), source)
 
 
 def test_archive_manifest_refused_on_toolchain_mismatch(tmp_path):
-    for stale in ({"types": []},  # unstamped (pre-stamp archive)
-                  {"toolchain": "0" * 16, "types": []}):  # other compiler
-        (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(stale))
-        with pytest.raises(stdlib_archive.ArchiveVersionError,
-                           match="different compiler"):
-            stdlib_archive.load_manifest(str(tmp_path))
+    source = "stdlib source"
+    stale = _archive_manifest(source, toolchain="0" * 16)
+    (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(stale))
+    with pytest.raises(stdlib_archive.ArchiveVersionError, match="different compiler"):
+        stdlib_archive.load_manifest(str(tmp_path), source)
+
+
+def test_archive_manifest_refused_on_stdlib_source_mismatch(tmp_path):
+    manifest = _archive_manifest("archive stdlib")
+    (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(manifest))
+
+    with pytest.raises(stdlib_archive.ArchiveVersionError, match="different standard library"):
+        stdlib_archive.load_manifest(str(tmp_path), "current or user-overridden stdlib")
+
+
+def test_raw_top_level_manifest_requires_regeneration(tmp_path):
+    source = "stdlib source"
+    stale = _archive_manifest(source)
+    stale["schema"] = 3
+    stale.pop("macros")
+    stale["raw_sections"] = ["#define LEGACY 1"]
+    stale["vtables"] = ["legacy vtable text"]
+    stale["globals"] = ["int legacy;"]
+    (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(stale))
+
+    with pytest.raises(
+        stdlib_archive.ArchiveVersionError,
+        match=r"invalid or unsupported.*regenerate",
+    ):
+        stdlib_archive.load_manifest(str(tmp_path), source)
+
+
+@pytest.mark.parametrize("payload", ["not json", "{}", '{"schema":1,"types":"wrong"}'])
+def test_archive_manifest_refuses_corrupt_or_unsupported_schema(tmp_path, payload):
+    (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(payload)
+
+    with pytest.raises(stdlib_archive.ArchiveVersionError, match="invalid or unsupported"):
+        stdlib_archive.load_manifest(str(tmp_path), "stdlib source")

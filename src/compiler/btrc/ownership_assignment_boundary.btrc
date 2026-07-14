@@ -1,0 +1,102 @@
+/* Single-evaluation ownership boundaries for assignable projections. */
+
+/* Find every expression that must be evaluated before lowering a target. An
+ * unmanaged field/index projection is not itself an owner, so recurse through
+ * it until an owned receiver is reached. Index expressions remain operands to
+ * preserve source evaluation order whenever any collected operand is owned. */
+bool ownedAssignmentPropertyProjection(IRGen generator, Node target,
+        Map<string, Node> varTypes) {
+    if (target.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+    Node? receiverType = generator.resolvedExpressionType(
+        target.obj, varTypes);
+    if (receiverType == null) { return false; }
+    Node? member = null;
+    if (generator.analyzed.isGenericClass(receiverType.base)) {
+        member = genericMember(
+            generator.analyzed, receiverType.base, target.field);
+    } else if (generator.analyzed.isClass(receiverType.base)) {
+        member = generator.analyzed.classMember(
+            receiverType.base, target.field);
+    }
+    return member != null && member.kind == NK_PROPERTY_DECL;
+}
+
+void collectOwnedAssignmentTargetOperands(IRGen generator, Node? target,
+        Map<string, Node> varTypes, Vector<Node> operands,
+        Vector<bool> owned, bool receiverValue) {
+    if (target == null) { return; }
+    bool fieldTarget = target.kind == NK_FIELD_ACCESS_EXPR;
+    bool indexTarget = target.kind == NK_INDEX_EXPR;
+    if (receiverValue && fieldTarget
+            && ownedAssignmentPropertyProjection(
+                generator, target, varTypes)) {
+        /* Properties are getter calls, not address-preserving field access.
+         * Stabilize the produced value before a later index operand. */
+        operands.push(target);
+        owned.push(false);
+        return;
+    }
+    if (!fieldTarget && !indexTarget) {
+        /* A later owned index still forces a boundary. Retain the borrowed
+         * receiver leaf so evaluation remains receiver-before-index. */
+        operands.push(target);
+        owned.push(false);
+        return;
+    }
+
+    Node? object = target.obj;
+    if (object != null) {
+        bool objectOwned = irUnconsumedOwnedResult(
+            generator, object, varTypes);
+        if (objectOwned) {
+            operands.push(object);
+            owned.push(true);
+        } else {
+            collectOwnedAssignmentTargetOperands(
+                generator, object, varTypes, operands, owned, true);
+        }
+    }
+    if (!indexTarget || target.index == null) { return; }
+    Node index = target.index;
+    operands.push(index);
+    owned.push(irUnconsumedOwnedResult(generator, index, varTypes));
+}
+
+/* Assignment targets must remain C lvalues even when a nested field/index
+ * receiver is a caller-owned temporary. Stabilize target operands first, then
+ * recursively lower with overrides installed; that pass sees borrowed slots
+ * and emits an assignable projection instead of a result boundary. Mirrors
+ * assignments.lower_assignment_expr in the reference compiler. */
+IRNode? lowerOwnedAssignment(IRGen generator, Node expression,
+        Map<string, Node> varTypes) {
+    Vector<Node> operands = [];
+    Vector<bool> owned = [];
+    collectOwnedAssignmentTargetOperands(
+        generator, expression.target, varTypes, operands, owned, false);
+
+    bool anyOwned = false;
+    int ownedIndex = 0;
+    while (ownedIndex < owned.len) {
+        if (owned.get(ownedIndex)) { anyOwned = true; }
+        ownedIndex = ownedIndex + 1;
+    }
+    if (!anyOwned) { return null; }
+
+    OwnershipBoundary boundary = OwnershipBoundary();
+    int operandIndex = 0;
+    while (operandIndex < operands.len) {
+        Node operand = operands.get(operandIndex);
+        Node? operandType = generator.resolvedExpressionType(
+            operand, varTypes);
+        ownershipRequireType(operandType, operand);
+        boundary.addOperand(generator, operand, operandType,
+            owned.get(operandIndex), false, varTypes);
+        operandIndex = operandIndex + 1;
+    }
+    IRNode lowered = generator.lowerExpr(expression, varTypes);
+    boundary.restore(generator);
+    Node? resultType = generator.resolvedExpressionType(
+        expression, varTypes);
+    return boundary.finish(generator, lowered, resultType,
+        irManagedType(generator, resultType));
+}

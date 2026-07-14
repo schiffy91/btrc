@@ -50,28 +50,28 @@ def test_hover_cfor_init_variable():
 
 
 def test_hover_forin_loop_variable():
-    assert _hov("x + 1", offset=0) != ""           # for-in loop var x
+    assert _hov("x + 1", offset=0) != ""  # for-in loop var x
 
 
 def test_hover_parallel_for_variable():
-    assert _hov("z + 1", offset=0) != ""           # parallel-for var z
+    assert _hov("z + 1", offset=0) != ""  # parallel-for var z
 
 
 def test_hover_catch_variable():
-    assert _hov("catch (err)", offset=7) != ""     # the catch var `err`
+    assert _hov("catch (err)", offset=7) != ""  # the catch var `err`
 
 
 def test_hover_var_in_elseif_block():
-    assert "q" in _hov("int q = 2", offset=4)       # declared inside else-if
+    assert "q" in _hov("int q = 2", offset=4)  # declared inside else-if
 
 
 def test_hover_var_in_switch_case():
-    assert "c1" in _hov("int c1 = 1", offset=4)     # declared inside a case
+    assert "c1" in _hov("int c1 = 1", offset=4)  # declared inside a case
 
 
 def test_hover_var_type_from_constructor_call():
-    assert "Box" in _hov("bx = make", offset=0)     # _infer_var_type via CallExpr
+    assert "Box" in _hov("bx = make", offset=0)  # _infer_var_type via CallExpr
 
 
 def test_hover_var_type_from_new_expr():
-    assert "Box" in _hov("nb = new", offset=0)      # _infer_var_type via NewExpr
+    assert "Box" in _hov("nb = new", offset=0)  # _infer_var_type via NewExpr

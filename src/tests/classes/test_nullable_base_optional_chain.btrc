@@ -3,6 +3,7 @@
  * STATICALLY to the base method; when the reference is null the ?. chain is
  * skipped safely. */
 #include <stdio.h>
+#include <assert.h>
 
 class Animal {
     public string speak() { return "base"; }
@@ -15,11 +16,14 @@ class Dog extends Animal {
 int main() {
     Animal? a = Dog();
     // Non-null path: static dispatch through the base type -> "base".
-    print(a?.speak());
+    string? present = a?.speak();
+    assert(present != null);
+    print(present);
 
     a = null;
-    // Null path: ?. short-circuits, no crash.
-    print(a?.speak());
+    // Null path: ?. short-circuits to null and never invokes Animal_speak.
+    string? absent = a?.speak();
+    assert(absent == null);
 
     printf("PASS: test_nullable_base_optional_chain\n");
     return 0;

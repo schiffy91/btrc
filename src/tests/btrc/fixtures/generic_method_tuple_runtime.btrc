@@ -1,0 +1,65 @@
+#include <assert.h>
+
+class TupleMaker<T> {
+    public (T, int) pair(T value) {
+        return (value, 7);
+    }
+
+    public int invoke(
+        __fn_ptr<int, int> first,
+        __fn_ptr<int, int> second,
+        bool choose,
+        int value
+    ) {
+        return (choose ? first : second)(value);
+    }
+}
+
+int plusOne(int value) {
+    return value + 1;
+}
+
+int plusTwo(int value) {
+    return value + 2;
+}
+
+class Sequence {
+    public int iterLen() {
+        return 3;
+    }
+
+    public int iterGet(int index) {
+        return index + 1;
+    }
+}
+
+class IterableConsumer<T> {
+    public int sum(Sequence values) {
+        int total = 0;
+        for value in values {
+            total += value;
+        }
+        return total;
+    }
+}
+
+int main() {
+    TupleMaker<int> maker = new TupleMaker<int>();
+    (int, int) pair = maker.pair(35);
+    assert(pair._0 == 35);
+    assert(pair._1 == 7);
+    assert(maker.invoke(plusOne, plusTwo, true, 40) == 41);
+    assert(maker.invoke(plusOne, plusTwo, false, 40) == 42);
+
+    Sequence sequence = new Sequence();
+    int directTotal = 0;
+    for value in sequence {
+        directTotal += value;
+    }
+    assert(directTotal == 6);
+
+    IterableConsumer<Sequence> consumer =
+        new IterableConsumer<Sequence>();
+    assert(consumer.sum(sequence) == 6);
+    return 0;
+}

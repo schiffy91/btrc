@@ -4,19 +4,18 @@
 Usage: python main.py <input.btrc> [-o output.c] [--emit-ast] [--emit-tokens]
 """
 
-import argparse
+import contextlib
 import os
 import sys
 import time
 
+from . import cli_archive, cli_diagnostics, cli_io, cli_options, pkg
 from . import frontend as _frontend
-from . import pkg
 from .disk_cache import get_cached
 from .disk_cache import store as cache_store
 from .frontend import (
     FrontendVisibilityError,
     IncludeResolutionError,
-    _get_stdlib_dir,
     analyze_frontend_program,
     get_stdlib_source,
     lex_parse_frontend_source,
@@ -24,11 +23,11 @@ from .frontend import (
     uses_stdlib_ast_cache,
 )
 from .ir.emitter import CEmitter
+from .ir.gen.errors import CodegenError
 from .ir.gen.generator import generate_ir
 from .ir.optimizer import optimize
-from .lexer import Lexer, LexerError
+from .lexer import LexerError
 from .parser.core import ParseError
-from .parser.parser import Parser
 
 _STDLIB_AST_VERSION = _frontend._STDLIB_AST_VERSION
 _cached_stdlib_decls = _frontend._cached_stdlib_decls
@@ -38,157 +37,17 @@ import_spec_paths = _frontend.import_spec_paths
 resolve_includes = _frontend.resolve_includes
 resolve_includes_traced = _frontend.resolve_includes_traced
 Analyzer = _frontend.Analyzer
-
-
-def _format_error(source: str, filename: str, message: str,
-                  line: int, col: int) -> str:
-    """Format an error with source context and caret."""
-    lines = source.split('\n')
-    if line < 1 or line > len(lines):
-        return f"error: {message}\n --> {filename}:{line}:{col}"
-    source_line = lines[line - 1]
-    width = len(str(line))
-    pad = " " * width
-    caret_offset = max(col - 1, 0)
-    caret = " " * caret_offset + "^"
-    return (
-        f"error: {message}\n"
-        f" {pad}--> {filename}:{line}:{col}\n"
-        f" {pad} |\n"
-        f" {line} | {source_line}\n"
-        f" {pad} | {caret}"
-    )
-
-
-class _DiagnosticPrinter:
-    """Render diagnostics at native per-file positions.
-
-    Parse/analysis positions live in a parse space (combined stdlib+user
-    source, or separate spaces when the stdlib AST cache is used); the
-    frontend's source-position map translates them back to the originating
-    file, so the header and the quoted line both come from that file.
-    """
-
-    def __init__(self, frontend_source, input_path: str, input_source: str,
-                 split_spaces: bool):
-        self.frontend_source = frontend_source
-        self.input_path = input_path
-        self.split_spaces = split_spaces
-        self._sources = {os.path.abspath(input_path): input_source}
-
-    def _source_for(self, path: str) -> str:
-        key = os.path.abspath(path)
-        if key not in self._sources:
-            try:
-                with open(key) as f:
-                    self._sources[key] = f.read()
-            except OSError:
-                self._sources[key] = ""
-        return self._sources[key]
-
-    def emit(self, message: str, line: int, col: int, *,
-             severity: str = "error", diag_file: str | None = None) -> None:
-        loc = self.frontend_source.map_diag_line(
-            line, diag_file=diag_file, split_spaces=self.split_spaces)
-        if loc is None:
-            display, native_line, text = os.path.basename(self.input_path), line, ""
-        else:
-            path, native_line = loc
-            text = self._source_for(path)
-            display = (self.input_path
-                       if os.path.abspath(path) == os.path.abspath(self.input_path)
-                       else os.path.normpath(path))
-        out = _format_error(text, display, message, native_line, col)
-        if severity != "error":
-            out = out.replace("error:", f"{severity}:", 1)
-        print(out, file=sys.stderr)
-
-
-def _syntax_error_exit(printer: _DiagnosticPrinter, e):
-    """Print a lexer/parser error with source context, then exit(1)."""
-    printer.emit(str(e).removesuffix(f" at {e.line}:{e.col}"), e.line, e.col)
-    sys.exit(1)
-
-
-def _print_profile(prof: dict, source_len: int) -> None:
-    """Print a per-phase timing breakdown to stderr."""
-    total = sum(prof.values()) or 1e-9
-    print("--- btrc profile ---", file=sys.stderr)
-    for label, secs in prof.items():
-        pct = 100.0 * secs / total
-        print(f"  {label:<18} {secs * 1000:8.2f} ms  {pct:5.1f}%", file=sys.stderr)
-    print(f"  {'total':<18} {total * 1000:8.2f} ms  ({source_len} chars resolved)",
-          file=sys.stderr)
-
-
-def _dump_ir(module):
-    """Print a canonical IR dump for debugging."""
-    print(f"# IRModule: {len(module.enum_defs)} enums, "
-          f"{len(module.struct_defs)} structs, "
-          f"{len(module.function_defs)} functions, "
-          f"{len(module.helper_decls)} helpers")
-    for enum in module.enum_defs:
-        vals = ", ".join(
-            f"{v.name}={v.value}" if v.value else v.name
-            for v in enum.values)
-        print(f"enum {enum.name} {{ {vals} }}")
-    for struct in module.struct_defs:
-        fields = ", ".join(f"{f.c_type} {f.name}" for f in struct.fields)
-        print(f"struct {struct.name} {{ {fields} }}")
-    for func in module.function_defs:
-        params = ", ".join(f"{p.c_type} {p.name}" for p in func.params)
-        print(f"fn {func.name}({params}) -> {func.return_type}")
-
-
-class _PrintStdlibDir(argparse.Action):
-    """--stdlib-dir: print the bundled stdlib path and exit, like --version.
-
-    Lets tooling locate the compiler's stdlib (e.g. to diff a vendored copy)
-    without knowing where the package keeps it, the way `gcc -print-file-name`
-    or `rustc --print sysroot` report their own data dirs.
-    """
-
-    def __init__(self, option_strings, dest, **kwargs):
-        super().__init__(option_strings, dest, nargs=0, default=argparse.SUPPRESS, **kwargs)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        print(os.path.abspath(_get_stdlib_dir()))
-        parser.exit()
-
-
-def _build_stdlib_archive(out_dir: str) -> None:
-    """Compile the entire stdlib into a linkable archive in ``out_dir``.
-
-    Runs the normal front-end over every stdlib source, but deliberately skips
-    dead-code elimination: an archive is a complete library, not a program, so
-    nothing is "unreachable". Consumers prune what they don't use at link time
-    (``-ffunction-sections`` / ``--gc-sections``).
-    """
-    from .stdlib_archive import build_archive
-
-    stdlib_source = get_stdlib_source("")
-    if not stdlib_source.strip():
-        print("error: no stdlib sources found", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
-        program = Parser(tokens).parse()
-    except (LexerError, ParseError) as e:
-        msg = str(e).removesuffix(f" at {e.line}:{e.col}")
-        print(_format_error(stdlib_source, "<stdlib>", msg, e.line, e.col),
-              file=sys.stderr)
-        sys.exit(1)
-
-    analyzed = analyze_frontend_program(program)
-    if analyzed.errors:
-        for err in analyzed.errors:
-            print(f"error: {err}", file=sys.stderr)
-        sys.exit(1)
-
-    ir_module = generate_ir(analyzed, debug=False, source_file="<stdlib>")
-    build_archive(out_dir, ir_module)
-    print(f"Built stdlib archive → {out_dir}")
+_build_stdlib_archive = cli_archive.build_stdlib_archive
+_partition_against_stdlib = cli_archive.partition_against_stdlib
+_codegen_error_exit = cli_diagnostics.codegen_error_exit
+_DiagnosticPrinter = cli_diagnostics.DiagnosticPrinter
+_dump_ir = cli_diagnostics.dump_ir
+_format_error = cli_diagnostics.format_error
+_print_profile = cli_diagnostics.print_profile
+_syntax_error_exit = cli_diagnostics.syntax_error_exit
+_PrintStdlibDir = cli_options.PrintStdlibDir
+build_argument_parser = cli_options.build_argument_parser
+__all__ = ("_PrintStdlibDir", "_format_error", "get_stdlib_source", "main")
 
 
 def main():
@@ -199,51 +58,12 @@ def main():
     for _stream in (sys.stdout, sys.stderr):
         _reconfig = getattr(_stream, "reconfigure", None)
         if _reconfig is not None:
-            try:
+            with contextlib.suppress(ValueError, OSError):
                 _reconfig(encoding="utf-8")
-            except (ValueError, OSError):
-                pass
     # Deeply nested expressions recurse through the full precedence chain;
     # lift the limit before parsing (the analyzer raises it too, post-parse).
     sys.setrecursionlimit(40000)
-    argparser = argparse.ArgumentParser(description="btrc transpiler")
-    argparser.add_argument("input", nargs="?", help="Input .btrc file")
-    argparser.add_argument("--stdlib-dir", action=_PrintStdlibDir,
-                           help="Print the bundled stdlib directory and exit")
-    argparser.add_argument("--build-stdlib", metavar="DIR",
-                           help="Compile the stdlib into a linkable archive "
-                                "(btrc_stdlib.h/.c/.manifest) in DIR and exit")
-    argparser.add_argument("--stdlib", metavar="DIR",
-                           help="Reference a prebuilt stdlib archive in DIR: emit "
-                                "program-only C that #includes btrc_stdlib.h and "
-                                "links the archive, instead of inlining the stdlib")
-    argparser.add_argument("-o", "--output", help="Output .c file (default: <input>.c)")
-    argparser.add_argument("--emit-tokens", action="store_true", help="Print token stream")
-    argparser.add_argument("--emit-ast", action="store_true", help="Print AST")
-    argparser.add_argument("--no-stdlib", action="store_true",
-                           help="Don't auto-include stdlib .btrc files; use explicit includes only")
-    argparser.add_argument("--freestanding", action="store_true",
-                           help="Emit no hosted-libc includes; route all runtime symbols "
-                                "through a single btrc_rt.h seam (for kernel/embedded targets). "
-                                "Writes a reference btrc_rt.h next to the output.")
-    argparser.add_argument("--strict-imports", action="store_true",
-                           help="Require every file to import the top-level symbols it references")
-    argparser.add_argument("--debug", action="store_true",
-                           help="Emit #line directives for source-level debugging")
-    argparser.add_argument("--emit-ir", action="store_true",
-                           help="Print IR representation (before optimization)")
-    argparser.add_argument("--emit-optimized-ir", action="store_true",
-                           help="Print IR representation (after optimization)")
-    argparser.add_argument("--no-cache", action="store_true",
-                           help="Disable on-disk compilation cache")
-    argparser.add_argument("--no-dce", action="store_true",
-                           help="Disable dead-code elimination; emit the full uneliminated "
-                                "codegen for byte-identical, reproducible output")
-    argparser.add_argument("--profile", action="store_true",
-                           help="Print a per-phase timing breakdown to stderr")
-    argparser.add_argument("--fetch", action="store_true",
-                           help="Re-resolve package dependencies and rewrite btrc.lock")
-
+    argparser = build_argument_parser()
     args = argparser.parse_args()
     prof: dict[str, float] = {}
 
@@ -257,6 +77,9 @@ def main():
     if not args.input:
         argparser.error("the following arguments are required: input")
 
+    emit_only = any([args.emit_tokens, args.emit_ast, args.emit_ir, args.emit_optimized_ir])
+    out_path = None if emit_only else cli_io.output_path(args.input, args.output)
+
     # Resolve package dependencies (btrc.toml) governing this input, if any.
     try:
         pkg.configure_for(args.input, refresh=args.fetch)
@@ -264,13 +87,7 @@ def main():
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Read input
-    try:
-        with open(args.input, "r") as f:
-            source = f.read()
-    except FileNotFoundError:
-        print(f"Error: File '{args.input}' not found", file=sys.stderr)
-        sys.exit(1)
+    source = cli_io.read_input(args.input)
 
     try:
         frontend_source = resolve_frontend_source(
@@ -293,30 +110,29 @@ def main():
     # --stdlib produces different output for the same source (program-only,
     # partitioned against the archive), so it must not share the default cache.
     cache_source = f"strict-imports\0{source}" if args.strict_imports else source
-    use_cache = (not args.no_cache and args.stdlib is None
-                 and not args.freestanding and not args.no_dce and not any([
-                     args.emit_tokens, args.emit_ast, args.emit_ir,
-                     args.emit_optimized_ir, args.debug
-                 ]))
+    use_cache = (
+        not args.no_cache
+        and args.stdlib is None
+        and not args.freestanding
+        and not args.no_dce
+        and not any([args.emit_tokens, args.emit_ast, args.emit_ir, args.emit_optimized_ir, args.debug, args.profile])
+    )
     if use_cache:
         cached = get_cached(cache_source, input_path=args.input)
         if cached is not None:
-            if args.output:
-                out_path = args.output
-            else:
-                out_path = os.path.splitext(args.input)[0] + ".c"
-            with open(out_path, "w") as f:
-                f.write(cached)
+            assert out_path is not None
+            cli_io.write_output(out_path, cached)
             print(f"Transpiled {args.input} → {out_path} (cached)")
             return
 
     # --debug forces combined parsing (no split stdlib AST cache) so every node's
     # line is in one coordinate space that frontend_source.map_line can translate
     # back to (file, native_line) for #line directives.
-    use_ast_cache = (bool(frontend_source.stdlib_source)
-                     and not args.no_cache and not args.debug)
+    use_ast_cache = bool(frontend_source.stdlib_source) and not args.no_cache and not args.debug
     diag_printer = _DiagnosticPrinter(
-        frontend_source, args.input, input_source,
+        frontend_source,
+        args.input,
+        input_source,
         split_spaces=uses_stdlib_ast_cache(
             frontend_source,
             use_ast_cache=use_ast_cache,
@@ -340,8 +156,7 @@ def main():
     except (LexerError, ParseError) as e:
         _syntax_error_exit(diag_printer, e)
     except RecursionError:
-        print("error: expression or declaration nested too deeply to compile",
-              file=sys.stderr)
+        print("error: expression or declaration nested too deeply to compile", file=sys.stderr)
         sys.exit(1)
     except FrontendVisibilityError as e:
         for msg, line, col in e.errors:
@@ -359,6 +174,7 @@ def main():
 
     if args.emit_ast:
         import pprint
+
         pprint.pprint(program)
         return
 
@@ -371,30 +187,35 @@ def main():
     if analyzed.errors or error_diags:
         for d in error_diags:
             diag_printer.emit(d.message, d.line, d.col, diag_file=d.file)
-        for err in analyzed.errors[len(error_diags):]:
+        for err in analyzed.errors[len(error_diags) :]:
             print(f"error: {err}", file=sys.stderr)
         sys.exit(1)
 
     # Display warnings (non-fatal)
     warning_diags = [d for d in analyzed.diags if d.severity == "warning"]
     for d in warning_diags:
-        diag_printer.emit(d.message, d.line, d.col,
-                          severity="warning", diag_file=d.file)
-    for warn in analyzed.warnings[len(warning_diags):]:
+        diag_printer.emit(d.message, d.line, d.col, severity="warning", diag_file=d.file)
+    for warn in analyzed.warnings[len(warning_diags) :]:
         print(f"warning: {warn}", file=sys.stderr)
 
     # Code generation: AST → IR → optimize → C text
     _t = time.perf_counter()
     line_map = None
     if args.debug:
+
         def line_map(combined_line, _fs=frontend_source):
             m = _fs.map_line(combined_line, "combined")
             if not m:
                 return None
             f, native = m
             return (os.path.abspath(f) if os.path.exists(f) else f, native)
-    ir_module = generate_ir(analyzed, debug=args.debug, source_file=filename,
-                            freestanding=args.freestanding, line_map=line_map)
+
+    try:
+        ir_module = generate_ir(
+            analyzed, debug=args.debug, source_file=filename, freestanding=args.freestanding, line_map=line_map
+        )
+    except CodegenError as error:
+        _codegen_error_exit(error)
     prof["ir_gen"] = time.perf_counter() - _t
 
     if args.emit_ir:
@@ -407,7 +228,10 @@ def main():
     # sections) must not run. --no-dce disables elimination for any compile.
     _t = time.perf_counter()
     run_dce = not args.no_dce and args.stdlib is None
-    ir_module = optimize(ir_module, dce=run_dce)
+    try:
+        ir_module = optimize(ir_module, dce=run_dce)
+    except CodegenError as error:
+        _codegen_error_exit(error)
     prof["optimize"] = time.perf_counter() - _t
 
     if args.emit_optimized_ir:
@@ -417,24 +241,11 @@ def main():
     # --stdlib: drop everything the prebuilt archive already provides, leaving
     # program-only C that #includes btrc_stdlib.h and links the archive.
     if args.stdlib is not None:
-        from .stdlib_archive import (
-            ArchiveVersionError,
-            load_manifest,
-            partition_for_archive,
-        )
-        try:
-            manifest = load_manifest(args.stdlib)
-        except ArchiveVersionError as e:
-            print(f"error: {e}", file=sys.stderr)
-            sys.exit(1)
-        partition_for_archive(ir_module, manifest)
+        _partition_against_stdlib(ir_module, program, args.stdlib)
 
     # Determine the output path up front so debug builds can stamp #line resets
     # with the real generated .c path (synthesized code maps there, not to btrc).
-    if args.output:
-        out_path = args.output
-    else:
-        out_path = os.path.splitext(args.input)[0] + ".c"
+    assert out_path is not None
     if args.debug:
         ir_module.debug_cfile = os.path.abspath(out_path)
 
@@ -444,20 +255,13 @@ def main():
 
     # Store in disk cache
     if use_cache:
-        cache_store(cache_source, c_source, input_path=args.input)
+        with contextlib.suppress(OSError, UnicodeError):
+            cache_store(cache_source, c_source, input_path=args.input)
 
     if args.profile:
         _print_profile(prof, len(source))
 
-    # Output
-    if args.output:
-        out_path = args.output
-    else:
-        base = os.path.splitext(args.input)[0]
-        out_path = base + ".c"
-
-    with open(out_path, "w") as f:
-        f.write(c_source)
+    cli_io.write_output(out_path, c_source)
 
     # Freestanding output references "btrc_rt.h"; drop a reference copy next to
     # it so the result compiles unchanged on a hosted toolchain and documents
@@ -465,10 +269,9 @@ def main():
     # existing (possibly user-customized) header.
     if args.freestanding:
         rt_path = os.path.join(os.path.dirname(out_path) or ".", "btrc_rt.h")
-        if not os.path.exists(rt_path):
-            from .freestanding import RUNTIME_HEADER
-            with open(rt_path, "w") as f:
-                f.write(RUNTIME_HEADER)
+        from .freestanding import RUNTIME_HEADER
+
+        if cli_io.write_output_if_missing(rt_path, RUNTIME_HEADER):
             print(f"Wrote freestanding runtime seam → {rt_path}")
 
     print(f"Transpiled {args.input} → {out_path}")

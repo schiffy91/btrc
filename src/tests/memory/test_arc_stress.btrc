@@ -64,7 +64,7 @@ int main() {
     TaskHolder h2 = new TaskHolder(2);
     assert(holder_count == 2);
 
-    // Store t1 in h1: keep param → rc++ at call site
+    // The keep parameter guards the call; h1.task retains t1 persistently.
     h1.setTask(t1);
     assert(h1.task.id == 1);
 
@@ -75,7 +75,7 @@ int main() {
     // ---- Phase 2: Reassignment (replace stored task) ----
 
     // h1 gets a new task — old t1 is released from h1's field,
-    // but still alive because t1 local var + keep param rc
+    // but still alive through the t1 local owner
     h1.setTask(t3);
     assert(h1.task.id == 3);
     assert(task_count == 3); // all three still alive
@@ -85,10 +85,8 @@ int main() {
     // Delete h1: releases t3 from field (--rc, destroy at zero)
     delete h1;
     assert(holder_count == 1);
-    // t3 was: rc=1 (new) + 1 (keep) + 1 (field assign) = 3
-    // First setTask replaced nothing (null), so no release of old
-    // h1 destroy: --t3.field.rc → 3->2, skip
-    // t3 still alive
+    // t3 had one local and one field owner. h1's destruction drops the field
+    // owner, while the local keeps t3 alive.
     assert(task_count == 3);
 
     // Delete h2: releases t2 from field

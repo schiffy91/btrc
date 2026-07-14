@@ -1,0 +1,295 @@
+/* Type-domain, storage-duration, and array-shape declaration contracts. */
+
+bool semanticExplicitCTag(string base) {
+    return base.startsWith("struct ") || base.startsWith("enum ")
+        || base.startsWith("union ");
+}
+
+bool semanticRuntimeTypeBase(string base) {
+    return base == "Array" || base == "List" || base == "Map"
+        || base == "Mutex" || base == "Set" || base == "Thread"
+        || base == "Tuple" || base == "Vector" || base == "__fn_ptr";
+}
+
+bool semanticKnownDeclarationType(
+        Node typeExpr, SemanticValidationState state) {
+    if (typeExpr.pointer_depth > 0 && typeExpr.generic_args.len == 0) {
+        return true;
+    }
+    string base = typeExpr.base;
+    return state.typeParams.has(base)
+        || numericIsIntegralBase(base) || numericIsStandardTypedef(base)
+        || base == "float" || base == "double" || base == "long double"
+        || base == "bool" || base == "string" || base == "void"
+        || semanticRuntimeTypeBase(base)
+        || state.analyzed.isClass(base)
+        || state.analyzed.isGenericClass(base)
+        || state.interfaces.has(base)
+        || state.analyzed.isEnum(base)
+        || state.analyzed.isRichEnum(base)
+        || state.analyzed.structTable.has(base)
+        || state.analyzed.typedefTable.has(base)
+        || base.endsWith("_t")
+        || semanticExplicitCTag(base);
+}
+
+void semanticValidateDeclaredType(Node? typeExpr, string subject,
+        string role, Node site, SemanticValidationState state) {
+    if (typeExpr == null) { return; }
+    if (typeExpr.is_static && typeExpr.is_extern) {
+        semanticValidationFail(
+            subject + " cannot be both static and extern", site);
+    }
+    if ((role == "parameter" || role == "field")
+            && (typeExpr.is_static || typeExpr.is_extern)) {
+        semanticValidationFail(subject
+            + " cannot carry static/extern storage qualifiers", site);
+    }
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical != null && canonical.base == "Thread"
+            && (canonical.pointer_depth > 0 || canonical.is_array
+                || canonical.is_const || canonical.is_nullable)) {
+        semanticValidationFail(
+            "Thread<T> owner type must be one direct mutable handle; "
+                + "pointer, array, const, and nullable Thread shapes are not "
+                + "supported",
+            site);
+    }
+    if ((role == "field" || role == "parameter")
+            && semanticContainsThreadStorage(typeExpr, state)) {
+        semanticValidationFail(subject
+            + " cannot own a Thread handle; keep each Thread<T> in one "
+            + "initialized local variable or return it", site);
+    }
+    if (canonical != null && canonical.base == "Thread"
+            && canonical.generic_args.len > 0) {
+        Node resultType = canonical.generic_args.get(0);
+        Map<string, bool> visiting = {};
+        if (semanticThreadResultHasUnsizedArray(
+                resultType, visiting, state)) {
+            semanticValidationFail(
+                "Thread<T> result type cannot contain an unsized array; "
+                    + "return a managed collection or another explicitly "
+                    + "owned value",
+                site);
+        }
+        if (semanticContainsThreadStorage(resultType, state)) {
+            semanticValidationFail(
+                "Thread<T> result type cannot contain another Thread handle",
+                site);
+        }
+        if (semanticContainsMutexStorage(resultType, state)) {
+            semanticValidationFail(
+                "Thread<T> result type cannot contain a Mutex handle",
+                site);
+        }
+        if (!semanticDirectManagedThreadResult(resultType, state)
+                && semanticThreadAggregateHasManagedReference(
+                    resultType, visiting, state)) {
+            semanticValidationFail(
+                "Thread<T> aggregate result type cannot contain string or "
+                    + "class references; return the managed value directly "
+                    + "or use a scalar-only aggregate",
+                site);
+        }
+    }
+    if (role != "return" && canonical != null
+            && canonical.base == "void"
+            && canonical.pointer_depth == 0) {
+        semanticValidationFail(subject
+            + " cannot have scalar/non-pointer void type", site);
+    }
+    if (canonical != null && canonical.pointer_depth == 0
+            && state.analyzed.structTable.has(canonical.base)
+            && state.analyzed.structTable.get(canonical.base).is_forward) {
+        semanticValidationFail("Incomplete struct '" + canonical.base
+            + "' cannot be used by value for " + subject, site);
+    }
+    if (!semanticKnownDeclarationType(typeExpr, state)) {
+        semanticValidationFail(subject + " uses unknown by-value type '"
+            + semanticFormatType(typeExpr) + "'", site);
+    }
+    int index = 0;
+    while (index < typeExpr.generic_args.len) {
+        string argumentRole = "object";
+        if ((typeExpr.base == "__fn_ptr" || typeExpr.base == "Thread")
+                && index == 0) {
+            argumentRole = "return";
+        }
+        semanticValidateDeclaredType(typeExpr.generic_args.get(index),
+            "Generic argument " + Strings.fromInt(index + 1)
+                + " of " + subject,
+            argumentRole, site, state);
+        index = index + 1;
+    }
+}
+
+void semanticValidateThreadVariableOwner(Node declaration, Node? typeExpr,
+        bool isGlobal, SemanticValidationState state) {
+    if (!semanticContainsThreadStorage(typeExpr, state)) { return; }
+    string subject = isGlobal ? "Global '" : "Variable '";
+    subject = subject + declaration.name + "'";
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    bool staticStorage = isGlobal || (canonical != null
+        && (canonical.is_static || canonical.is_extern));
+    if (staticStorage) {
+        semanticValidationFail(subject
+            + " cannot own a Thread handle with static storage; Thread<T> "
+            + "must be an initialized local owner", declaration);
+    } else if (canonical == null || canonical.base != "Thread") {
+        semanticValidationFail(subject
+            + " cannot embed a Thread handle; Thread<T> must be the "
+            + "variable's direct type", declaration);
+    } else if (declaration.initializer == null) {
+        semanticValidationFail(subject
+            + " must initialize its Thread<T> owner", declaration);
+    }
+}
+
+void semanticValidateArrayBound(Node typeExpr, string subject,
+        string context, Node site, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (!typeExpr.is_array || typeExpr.array_size == null) { return; }
+    semanticValidateExpr(typeExpr.array_size, state, vars);
+    Node? boundType = semanticInferType(typeExpr.array_size, state, vars);
+    if (boundType != null
+            && !semanticIntegralType(boundType, state.analyzed)) {
+        semanticValidationFail(
+            "Array bound for " + subject + " must be integral",
+            typeExpr.array_size);
+    }
+    Map<string, bool> unrestricted = {};
+    SemanticIntegerConstant constant = semanticIntegerConstant(
+        typeExpr.array_size, state, false, "", unrestricted);
+    if (constant.known && constant.value <= 0) {
+        semanticValidationFail(
+            "Array bound for " + subject + " must be positive",
+            typeExpr.array_size);
+    }
+    if ((context == "field" || context == "global"
+            || context == "static")
+            && !constant.valid) {
+        semanticValidationFail("Array bound for " + subject
+            + " must be a constant expression", typeExpr.array_size);
+    }
+}
+
+void semanticValidateVariableStorage(Node declaration,
+        bool isGlobal, SemanticValidationState state,
+        Map<string, Node> vars) {
+    string subject = isGlobal ? "Global '" : "Variable '";
+    subject = subject + declaration.name + "'";
+    semanticValidateDeclaredType(
+        declaration.type, subject, "object", declaration, state);
+    if (declaration.type != null) {
+        string context = isGlobal ? "global" : "local";
+        if (!isGlobal && declaration.type.is_static) { context = "static"; }
+        semanticValidateArrayBound(declaration.type, subject,
+            context, declaration, state, vars);
+        if (declaration.type.is_extern
+                && declaration.initializer != null) {
+            semanticValidationFail(subject
+                + " cannot have an initializer with extern storage",
+                declaration);
+        }
+        if (declaration.type.is_array
+                && declaration.type.array_size == null
+                && declaration.initializer == null
+                && !declaration.type.is_extern) {
+            semanticValidationFail(subject
+                + " requires an array bound or initializer", declaration);
+        }
+        if (declaration.type.is_array
+                && declaration.type.array_size != null
+                && declaration.initializer != null
+                && (declaration.initializer.kind == NK_LIST_LITERAL
+                    || declaration.initializer.kind == NK_BRACE_INITIALIZER)) {
+            Map<string, bool> unrestricted = {};
+            SemanticIntegerConstant bound = semanticIntegerConstant(
+                declaration.type.array_size, state, false, "", unrestricted);
+            if (bound.known && declaration.initializer.elements.len
+                    > bound.value) {
+                semanticValidationFail(subject + " has "
+                    + Strings.fromInt(declaration.initializer.elements.len)
+                    + " elements exceeding its fixed array bound",
+                    declaration);
+            }
+        }
+    }
+    bool staticStorage = isGlobal
+        || (declaration.type != null && declaration.type.is_static);
+    bool isExtern = declaration.type != null && declaration.type.is_extern;
+    if (staticStorage && !isExtern && declaration.initializer != null
+            && !semanticStaticInitializer(
+                declaration.initializer, declaration.type, state)) {
+        semanticValidationFail(subject
+            + " requires a C constant/address initializer for static storage",
+            declaration);
+    }
+}
+
+void semanticValidateAggregateDeclarationTypes(
+        Node program, SemanticValidationState state) {
+    Map<string, Node> noVars = {};
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_STRUCT_DECL && !declaration.is_forward) {
+            int fieldIndex = 0;
+            while (fieldIndex < declaration.fields.len) {
+                Node field = declaration.fields.get(fieldIndex);
+                semanticValidateDeclaredType(field.type,
+                    "Struct field '" + declaration.name + "."
+                        + field.name + "'", "field", field, state);
+                semanticValidateArrayBound(field.type,
+                    "struct field '" + declaration.name + "."
+                        + field.name + "'", "field", field, state, noVars);
+                fieldIndex = fieldIndex + 1;
+            }
+        } else if (declaration.kind == NK_TYPEDEF_DECL) {
+            semanticValidateDeclaredType(declaration.original,
+                "Typedef '" + declaration.alias + "'", "return",
+                declaration, state);
+        } else if (declaration.kind == NK_INTERFACE_DECL) {
+            Map<string, bool> previousParams =
+                semanticCloneFlags(state.typeParams);
+            state.typeParams = semanticTypeParamSet(
+                declaration.generic_params);
+            int methodIndex = 0;
+            while (methodIndex < declaration.methods.len) {
+                Node method = declaration.methods.get(methodIndex);
+                semanticValidateDeclaredType(method.return_type,
+                    "Interface method '" + declaration.name + "."
+                        + method.name + "' return", "return", method, state);
+                semanticValidateArrayReturn(method, "Interface method '"
+                    + declaration.name + "." + method.name + "'");
+                int parameterIndex = 0;
+                while (parameterIndex < method.params.len) {
+                    Node parameter = method.params.get(parameterIndex);
+                    semanticValidateDeclaredType(parameter.type,
+                        "Parameter '" + parameter.name + "'", "parameter",
+                        parameter, state);
+                    parameterIndex = parameterIndex + 1;
+                }
+                methodIndex = methodIndex + 1;
+            }
+            state.typeParams = previousParams;
+        } else if (declaration.kind == NK_RICH_ENUM_DECL) {
+            int variantIndex = 0;
+            while (variantIndex < declaration.variants.len) {
+                Node variant = declaration.variants.get(variantIndex);
+                int parameterIndex = 0;
+                while (parameterIndex < variant.params.len) {
+                    Node parameter = variant.params.get(parameterIndex);
+                    semanticValidateDeclaredType(parameter.type,
+                        "Rich-enum payload '" + declaration.name + "."
+                            + variant.name + "." + parameter.name + "'",
+                        "parameter", parameter, state);
+                    parameterIndex = parameterIndex + 1;
+                }
+                variantIndex = variantIndex + 1;
+            }
+        }
+        index = index + 1;
+    }
+}

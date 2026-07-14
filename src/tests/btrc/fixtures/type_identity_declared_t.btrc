@@ -1,0 +1,4 @@
+class T {}
+class Inner<U> { public U value; }
+class Outer<T> { public Inner<T> child; }
+int main() { Outer<int> value; return 0; }

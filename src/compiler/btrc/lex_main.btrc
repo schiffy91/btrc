@@ -8,6 +8,10 @@ int main(int argc, char** argv) {
   string src = Path.readAll(Strings.copy(argv[1]));
   Lexer lx = Lexer(src, g);
   Vector<Token> toks = lx.tokenize();
+  if (lx.failed) {
+    fprintf(stderr, "error: %s\n", lx.diagnostic);
+    return 1;
+  }
   int i = 0;
   while (i < toks.len) {
     print(toks.get(i).repr());

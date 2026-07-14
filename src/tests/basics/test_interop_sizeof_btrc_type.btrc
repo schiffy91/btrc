@@ -18,7 +18,7 @@ class Big {
 
 int main() {
     // A class with two int fields is at least two ints wide.
-    assert(sizeof(Vec) >= 2 * sizeof(int));
+    assert(sizeof(Vec) >= (size_t)2 * sizeof(int));
     // A class with four int fields is at least as wide as the two-field one.
     assert(sizeof(Big) >= sizeof(Vec));
 

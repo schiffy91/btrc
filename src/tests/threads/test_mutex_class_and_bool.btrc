@@ -1,13 +1,12 @@
 #include <assert.h>
-// Mutex<T> over non-int payloads: a class instance (pointer payload, no intptr
-// boxing) and a bool. test_mutex only ever wraps int.
+// Mutex<T> over non-int payloads: a managed class value and a bool.
 class Box {
     public int v;
     public Box(int x) { self.v = x; }
 }
 
 int main() {
-    // Class-instance payload: round-trips through a pointer cast
+    // Managed values are retained by the mutex and by each get() snapshot.
     Box b = new Box(7);
     Mutex<Box> mb = Mutex(b);
     Box got = mb.get();
@@ -15,10 +14,13 @@ int main() {
 
     Box b2 = new Box(99);
     mb.set(b2);
-    assert(mb.get().v == 99);
+    Box got2 = mb.get();
+    assert(got2.v == 99);
     mb.destroy();
-    delete b;
-    delete b2;
+    release b;
+    release got;
+    release b2;
+    release got2;
 
     // bool payload
     Mutex<bool> mf = Mutex(true);

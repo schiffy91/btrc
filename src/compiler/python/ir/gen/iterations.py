@@ -6,26 +6,24 @@ from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
     CallExpr,
-    CForStmt,
-    ForInitExpr,
-    ForInitVar,
     Identifier,
 )
 from ..nodes import (
     CType,
     IRBinOp,
     IRCall,
-    IRExprStmt,
     IRFieldAccess,
     IRFor,
     IRIndex,
     IRLiteral,
     IRStmt,
-    IRTernary,
     IRUnaryOp,
     IRVar,
     IRVarDecl,
 )
+from .iteration_bindings import IterationBinding
+from .iteration_loops import _lower_c_for, _lower_range_for  # noqa: F401
+from .iteration_strings import lower_string_for_in as _lower_string_for_in
 from .types import mangle_generic_type, type_to_c
 
 if TYPE_CHECKING:
@@ -35,9 +33,10 @@ if TYPE_CHECKING:
 def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     """Lower for-in to C-style for loop."""
     from .statements import _lower_loop_body
+
     iterable = node.iterable
     var_name = node.var_name
-    var_name2 = getattr(node, 'var_name2', None)
+    var_name2 = getattr(node, "var_name2", None)
 
     # Detect range() calls
     if isinstance(iterable, CallExpr) and isinstance(iterable.callee, Identifier):
@@ -49,11 +48,10 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     ir_iter = _lower_expr(gen, iterable)
 
     # Iterable protocol: any class with iterLen + iterGet methods
-    if iter_type and iter_type.generic_args:
+    if iter_type:
         cls_info = gen.analyzed.class_table.get(iter_type.base)
         if cls_info and "iterLen" in cls_info.methods and "iterGet" in cls_info.methods:
-            return _lower_iterable_for_in(gen, node, ir_iter, iter_type,
-                                          cls_info, var_name, var_name2)
+            return _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, var_name2)
 
     # String iteration: for c in str
     if iter_type and iter_type.base == "string":
@@ -75,73 +73,142 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
     else:
         elem_c = "int"
 
-    data_expr = IRFieldAccess(
-        obj=IRVar(name=tmp_iter), field="data", arrow=True)
-    body_block = _lower_loop_body(gen, node.body)
-    body_block.stmts.insert(0, IRVarDecl(
-        c_type=CType(text=elem_c), name=var_name,
-        init=IRIndex(obj=data_expr, index=IRVar(name=idx))))
-    return [
-        IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter),
+    prefix = [
+        IRVarDecl(
+            c_type=CType(text=iter_c_type),
+            name=tmp_iter,
+            init=ir_iter,
+        )
+    ]
+    from .iteration_ownership import (
+        begin_owned_iterable,
+        finish_owned_iterable,
+    )
+
+    owner = begin_owned_iterable(gen, iterable, iter_type, tmp_iter, prefix)
+    data_expr = IRFieldAccess(obj=IRVar(name=tmp_iter), field="data", arrow=True)
+    elem_type = iter_type.generic_args[0] if iter_type and iter_type.generic_args else None
+    body_block = _lower_loop_body(
+        gen,
+        node.body,
+        iteration_bindings=[
+            IterationBinding(
+                name=var_name,
+                c_type=elem_c,
+                type_expr=elem_type,
+                value=IRIndex(obj=data_expr, index=IRVar(name=idx)),
+                owned=False,
+            )
+        ],
+    )
+    result = [
+        *prefix,
         IRFor(
-            init=IRVarDecl(c_type=CType(text="int"), name=idx,
-                           init=IRLiteral(text="0")),
+            init=IRVarDecl(c_type=CType(text="int"), name=idx, init=IRLiteral(text="0")),
             condition=IRBinOp(
-                left=IRVar(name=idx), op="<",
-                right=IRFieldAccess(
-                    obj=IRVar(name=tmp_iter), field="len", arrow=True)),
+                left=IRVar(name=idx), op="<", right=IRFieldAccess(obj=IRVar(name=tmp_iter), field="len", arrow=True)
+            ),
             update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
             body=body_block,
         ),
     ]
+    result.extend(finish_owned_iterable(gen, owner))
+    return result
 
 
-def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info,
-                            var_name, var_name2) -> list[IRStmt]:
+def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, var_name2) -> list[IRStmt]:
     """Lower for-in via Iterable protocol (iterLen/iterGet/iterValueAt)."""
     from .statements import _lower_loop_body
 
-    mangled = mangle_generic_type(iter_type.base, iter_type.generic_args)
+    mangled = mangle_generic_type(iter_type.base, iter_type.generic_args) if iter_type.generic_args else iter_type.base
+
+    # Hoist non-trivial iterables (calls, field chains) into a temp so the
+    # expression is evaluated exactly once: ir_iter feeds iterLen once and
+    # iterGet/iterValueAt on every iteration, so inlining a call re-invokes
+    # it per iteration.
+    from .iteration_ownership import (
+        begin_owned_iterable,
+        finish_owned_iterable,
+        iterable_result_is_owned,
+    )
+
+    owns_iterable = iterable_result_is_owned(gen, node.iterable, iter_type)
+    hoist_decl = None
+    if owns_iterable or not isinstance(ir_iter, IRVar):
+        tmp_iter = gen.fresh_temp("__iter")
+        iter_c_type = type_to_c(iter_type)
+        if not iter_c_type.endswith("*"):
+            iter_c_type += "*"
+        hoist_decl = IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter)
+        ir_iter = IRVar(name=tmp_iter)
+
+    stmts: list[IRStmt] = []
+    owner = None
+    if hoist_decl is not None:
+        stmts.append(hoist_decl)
+        owner = begin_owned_iterable(
+            gen,
+            node.iterable,
+            iter_type,
+            hoist_decl.name,
+            stmts,
+        )
 
     idx = gen.fresh_temp("__i")
     n_var = gen.fresh_temp("__n")
-    body_block = _lower_loop_body(gen, node.body)
-
     # Element type from first generic arg. Class values are reference types in
     # btrc, and generic methods are monomorphized with pointer return types for
     # class arguments, so the loop binding must match the concrete iterGet ABI.
-    elem_c = _iter_value_c(gen, iter_type.generic_args[0]) if iter_type.generic_args else "int"
+    elem_type = _iter_method_return_type(cls_info, iter_type, "iterGet")
+    elem_c = _iter_value_c(gen, elem_type)
+
+    bindings = [
+        IterationBinding(
+            name=var_name,
+            c_type=elem_c,
+            type_expr=elem_type,
+            value=IRCall(
+                callee=f"{mangled}_iterGet",
+                args=[ir_iter, IRVar(name=idx)],
+            ),
+            owned=True,
+        )
+    ]
 
     # Two-variable iteration (e.g., for k, v in map): also call iterValueAt
-    if var_name2 and "iterValueAt" in cls_info.methods and len(iter_type.generic_args) > 1:
-        v_c = _iter_value_c(gen, iter_type.generic_args[1])
-        v_decl = IRVarDecl(
-            c_type=CType(text=v_c), name=var_name2,
-            init=IRCall(callee=f"{mangled}_iterValueAt",
-                        args=[ir_iter, IRVar(name=idx)]))
-        body_block.stmts.insert(0, v_decl)
+    if var_name2 and "iterValueAt" in cls_info.methods:
+        value_type = _iter_method_return_type(cls_info, iter_type, "iterValueAt")
+        v_c = _iter_value_c(gen, value_type)
+        bindings.append(
+            IterationBinding(
+                name=var_name2,
+                c_type=v_c,
+                type_expr=value_type,
+                value=IRCall(
+                    callee=f"{mangled}_iterValueAt",
+                    args=[ir_iter, IRVar(name=idx)],
+                ),
+                owned=True,
+            )
+        )
 
-    # Single-variable: T x = TYPE_iterGet(coll, __i);
-    elem_decl = IRVarDecl(
-        c_type=CType(text=elem_c), name=var_name,
-        init=IRCall(callee=f"{mangled}_iterGet",
-                    args=[ir_iter, IRVar(name=idx)]))
-    body_block.stmts.insert(0, elem_decl)
+    body_block = _lower_loop_body(gen, node.body, iteration_bindings=bindings)
 
     # int __n = TYPE_iterLen(coll);
     # for (int __i = 0; __i < __n; __i++) { body }
-    return [
-        IRVarDecl(c_type=CType(text="int"), name=n_var,
-                  init=IRCall(callee=f"{mangled}_iterLen",
-                              args=[ir_iter])),
-        IRFor(init=IRVarDecl(c_type=CType(text="int"), name=idx,
-                             init=IRLiteral(text="0")),
-              condition=IRBinOp(left=IRVar(name=idx), op="<",
-                                right=IRVar(name=n_var)),
-              update=IRUnaryOp(op="++", operand=IRVar(name=idx),
-                               prefix=False),
-              body=body_block),
-    ]
+    stmts.append(
+        IRVarDecl(c_type=CType(text="int"), name=n_var, init=IRCall(callee=f"{mangled}_iterLen", args=[ir_iter]))
+    )
+    stmts.append(
+        IRFor(
+            init=IRVarDecl(c_type=CType(text="int"), name=idx, init=IRLiteral(text="0")),
+            condition=IRBinOp(left=IRVar(name=idx), op="<", right=IRVar(name=n_var)),
+            update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
+            body=body_block,
+        ),
+    )
+    stmts.extend(finish_owned_iterable(gen, owner))
+    return stmts
 
 
 def _iter_value_c(gen: IRGenerator, t) -> str:
@@ -151,107 +218,19 @@ def _iter_value_c(gen: IRGenerator, t) -> str:
     return c_type
 
 
-def _lower_string_for_in(gen, node, ir_iter, var_name) -> list[IRStmt]:
-    """Lower for c in str to char-by-char iteration."""
-    from .statements import _lower_loop_body
+def _iter_method_return_type(cls_info, iter_type, method_name):
+    """Resolve an iterable protocol method for one concrete instance."""
+    method = cls_info.methods[method_name]
+    if not cls_info.generic_params:
+        return method.return_type
+    from .generics.core import _resolve_type
 
-    idx = gen.fresh_temp("__i")
-    body_block = _lower_loop_body(gen, node.body)
-    char_decl = IRVarDecl(
-        c_type=CType(text="char"), name=var_name,
-        init=IRIndex(obj=ir_iter, index=IRVar(name=idx)))
-    body_block.stmts.insert(0, char_decl)
-    return [IRFor(
-        init=IRVarDecl(c_type=CType(text="int"), name=idx,
-                       init=IRLiteral(text="0")),
-        condition=IRBinOp(
-            left=IRIndex(obj=ir_iter, index=IRVar(name=idx)),
-            op="!=",
-            right=IRLiteral(text="'\\0'")),
-        update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
-        body=body_block,
-    )]
-
-
-def _lower_range_for(gen: IRGenerator, var_name: str,
-                     args: list, body) -> list[IRStmt]:
-    """Lower for x in range(...) to a C for loop."""
-    from .statements import _lower_loop_body
-    body_block = _lower_loop_body(gen, body)
-    if len(args) == 1:
-        end = _lower_expr(gen, args[0])
-        return [IRFor(
-            init=IRVarDecl(c_type=CType(text="int"), name=var_name,
-                           init=IRLiteral(text="0")),
-            condition=IRBinOp(left=IRVar(name=var_name), op="<", right=end),
-            update=IRUnaryOp(op="++", operand=IRVar(name=var_name),
-                             prefix=False),
-            body=body_block)]
-    elif len(args) == 2:
-        start = _lower_expr(gen, args[0])
-        end = _lower_expr(gen, args[1])
-        return [IRFor(
-            init=IRVarDecl(c_type=CType(text="int"), name=var_name,
-                           init=start),
-            condition=IRBinOp(left=IRVar(name=var_name), op="<", right=end),
-            update=IRUnaryOp(op="++", operand=IRVar(name=var_name),
-                             prefix=False),
-            body=body_block)]
-    elif len(args) >= 3:
-        start = _lower_expr(gen, args[0])
-        end = _lower_expr(gen, args[1])
-        step = _lower_expr(gen, args[2])
-        return [IRFor(
-            init=IRVarDecl(c_type=CType(text="int"), name=var_name,
-                           init=start),
-            condition=IRTernary(
-                condition=IRBinOp(left=step, op=">",
-                                  right=IRLiteral(text="0")),
-                true_expr=IRBinOp(left=IRVar(name=var_name), op="<",
-                                  right=end),
-                false_expr=IRBinOp(left=IRVar(name=var_name), op=">",
-                                   right=end)),
-            update=IRBinOp(left=IRVar(name=var_name), op="+=", right=step),
-            body=body_block)]
-    return [IRFor(
-        init=IRVarDecl(c_type=CType(text="int"), name=var_name,
-                       init=IRLiteral(text="0")),
-        condition=IRBinOp(left=IRVar(name=var_name), op="<",
-                          right=IRLiteral(text="0")),
-        update=IRUnaryOp(op="++", operand=IRVar(name=var_name),
-                         prefix=False),
-        body=body_block)]
-
-
-def _lower_c_for(gen: IRGenerator, node: CForStmt) -> IRFor:
-    """Lower a C-style for statement."""
-    from .statements import _lower_loop_body
-    init_node = None
-    if node.init:
-        if isinstance(node.init, ForInitVar):
-            vd = node.init.var_decl
-            c_type = type_to_c(vd.type) if vd.type else "int"
-            init_expr = _lower_expr(gen, vd.initializer) if vd.initializer else None
-            init_node = IRVarDecl(c_type=CType(text=c_type), name=vd.name,
-                                  init=init_expr)
-        elif isinstance(node.init, ForInitExpr):
-            init_node = IRExprStmt(expr=_lower_expr(gen, node.init.expression))
-
-    cond_node = _lower_expr(gen, node.condition) if node.condition else IRLiteral(text="1")
-    update_node = _lower_expr(gen, node.update) if node.update else None
-
-    return IRFor(init=init_node, condition=cond_node, update=update_node,
-                 body=_lower_loop_body(gen, node.body))
+    substitutions = dict(zip(cls_info.generic_params, iter_type.generic_args))
+    return _resolve_type(method.return_type, substitutions)
 
 
 def _lower_expr(gen, node):
     """Convenience wrapper to avoid circular import at module level."""
     from .expressions import lower_expr
+
     return lower_expr(gen, node)
-
-
-def _var_name_from_expr(expr) -> str:
-    """Extract the variable name from an IRVar, for fallback iteration."""
-    if isinstance(expr, IRVar):
-        return expr.name
-    return ""

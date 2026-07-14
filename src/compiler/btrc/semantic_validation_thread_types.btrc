@@ -1,0 +1,253 @@
+/* Unique Thread<T> storage and result-shape declaration contracts. */
+
+bool semanticContainsThreadStorage(
+        Node? typeExpr, SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null) { return false; }
+    if (canonical.base == "Thread") { return true; }
+    int index = canonical.base == "__fn_ptr" ? 1 : 0;
+    while (index < canonical.generic_args.len) {
+        if (semanticContainsThreadStorage(
+                canonical.generic_args.get(index), state)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool semanticContainsMutexStorageImpl(Node? typeExpr,
+        Map<string, bool> visiting, SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null) { return false; }
+    if (canonical.base == "Mutex") { return true; }
+    int index = canonical.base == "__fn_ptr" ? 1 : 0;
+    while (index < canonical.generic_args.len) {
+        if (semanticContainsMutexStorageImpl(
+                canonical.generic_args.get(index), visiting, state)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    if (canonical.pointer_depth > 0) { return false; }
+
+    string name = canonical.base;
+    if (name.startsWith("struct ")) {
+        name = name.substring(7, name.length() - 7);
+    }
+    string kind = state.analyzed.structTable.has(name)
+        ? "struct:" : "rich-enum:";
+    string visitKey = kind + name;
+    if (visiting.has(visitKey)) { return false; }
+    Map<string, bool> nested = semanticCloneFlags(visiting);
+    nested.put(visitKey, true);
+    if (state.analyzed.structTable.has(name)) {
+        Node declaration = state.analyzed.structTable.get(name);
+        if (!declaration.is_forward) {
+            int fieldIndex = 0;
+            while (fieldIndex < declaration.fields.len) {
+                if (semanticContainsMutexStorageImpl(
+                        declaration.fields.get(fieldIndex).type,
+                        nested, state)) {
+                    return true;
+                }
+                fieldIndex = fieldIndex + 1;
+            }
+        }
+    }
+    if (state.analyzed.richEnumTable.has(name)) {
+        Node richEnum = state.analyzed.richEnumTable.get(name);
+        int variantIndex = 0;
+        while (variantIndex < richEnum.variants.len) {
+            Node variant = richEnum.variants.get(variantIndex);
+            int parameterIndex = 0;
+            while (parameterIndex < variant.params.len) {
+                if (semanticContainsMutexStorageImpl(
+                        variant.params.get(parameterIndex).type,
+                        nested, state)) {
+                    return true;
+                }
+                parameterIndex = parameterIndex + 1;
+            }
+            variantIndex = variantIndex + 1;
+        }
+    }
+    return false;
+}
+
+bool semanticContainsMutexStorage(
+        Node? typeExpr, SemanticValidationState state) {
+    Map<string, bool> visiting = {};
+    return semanticContainsMutexStorageImpl(typeExpr, visiting, state);
+}
+
+bool semanticDirectManagedThreadResult(
+        Node? typeExpr, SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null || canonical.is_array) { return false; }
+    bool scalarString = isSemanticScalarString(canonical);
+    bool classReference = canonical.pointer_depth <= 1
+        && (state.analyzed.isClass(canonical.base)
+            || (canonical.generic_args.len > 0
+                && state.analyzed.isGenericClass(canonical.base)));
+    return scalarString || classReference;
+}
+
+bool semanticThreadAggregateHasManagedReference(Node? typeExpr,
+        Map<string, bool> visiting, SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null) { return false; }
+    if (canonical.is_array) {
+        Node element = copyTypeExpr(canonical);
+        element.is_array = false;
+        element.array_size = null;
+        return semanticThreadAggregateHasManagedReference(
+            element, visiting, state);
+    }
+    if (semanticDirectManagedThreadResult(canonical, state)) { return true; }
+    if (canonical.pointer_depth > 0) { return false; }
+    if (canonical.base == "Tuple") {
+        int argumentIndex = 0;
+        while (argumentIndex < canonical.generic_args.len) {
+            if (semanticThreadAggregateHasManagedReference(
+                    canonical.generic_args.get(argumentIndex),
+                    visiting, state)) {
+                return true;
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+        return false;
+    }
+
+    string name = canonical.base;
+    if (name.startsWith("struct ")) {
+        name = name.substring(7, name.length() - 7);
+    }
+    string kind = state.analyzed.structTable.has(name)
+        ? "struct:" : "rich-enum:";
+    string visitKey = kind + name;
+    if (visiting.has(visitKey)) { return false; }
+    Map<string, bool> nested = semanticCloneFlags(visiting);
+    nested.put(visitKey, true);
+    if (state.analyzed.structTable.has(name)) {
+        Node declaration = state.analyzed.structTable.get(name);
+        if (!declaration.is_forward) {
+            int fieldIndex = 0;
+            while (fieldIndex < declaration.fields.len) {
+                if (semanticThreadAggregateHasManagedReference(
+                        declaration.fields.get(fieldIndex).type,
+                        nested, state)) {
+                    return true;
+                }
+                fieldIndex = fieldIndex + 1;
+            }
+        }
+    }
+    if (state.analyzed.richEnumTable.has(name)) {
+        Node richEnum = state.analyzed.richEnumTable.get(name);
+        int variantIndex = 0;
+        while (variantIndex < richEnum.variants.len) {
+            Node variant = richEnum.variants.get(variantIndex);
+            int parameterIndex = 0;
+            while (parameterIndex < variant.params.len) {
+                if (semanticThreadAggregateHasManagedReference(
+                        variant.params.get(parameterIndex).type,
+                        nested, state)) {
+                    return true;
+                }
+                parameterIndex = parameterIndex + 1;
+            }
+            variantIndex = variantIndex + 1;
+        }
+    }
+    return false;
+}
+
+bool semanticThreadResultHasUnsizedArray(Node? typeExpr,
+        Map<string, bool> visiting, SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null) { return false; }
+    if (canonical.is_array) {
+        if (canonical.array_size == null) { return true; }
+        Node element = copyTypeExpr(canonical);
+        element.is_array = false;
+        element.array_size = null;
+        return semanticThreadResultHasUnsizedArray(
+            element, visiting, state);
+    }
+    if (canonical.pointer_depth > 0) { return false; }
+    if (canonical.base == "Tuple") {
+        int argumentIndex = 0;
+        while (argumentIndex < canonical.generic_args.len) {
+            if (semanticThreadResultHasUnsizedArray(
+                    canonical.generic_args.get(argumentIndex),
+                    visiting, state)) {
+                return true;
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+        return false;
+    }
+
+    string name = canonical.base;
+    if (name.startsWith("struct ")) {
+        name = name.substring(7, name.length() - 7);
+    }
+    string kind = state.analyzed.structTable.has(name)
+        ? "struct:" : "rich-enum:";
+    string visitKey = kind + name;
+    if (visiting.has(visitKey)) { return false; }
+    Map<string, bool> nested = semanticCloneFlags(visiting);
+    nested.put(visitKey, true);
+    if (state.analyzed.structTable.has(name)) {
+        Node declaration = state.analyzed.structTable.get(name);
+        if (!declaration.is_forward) {
+            int fieldIndex = 0;
+            while (fieldIndex < declaration.fields.len) {
+                if (semanticThreadResultHasUnsizedArray(
+                        declaration.fields.get(fieldIndex).type,
+                        nested, state)) {
+                    return true;
+                }
+                fieldIndex = fieldIndex + 1;
+            }
+        }
+    }
+    if (state.analyzed.richEnumTable.has(name)) {
+        Node richEnum = state.analyzed.richEnumTable.get(name);
+        int variantIndex = 0;
+        while (variantIndex < richEnum.variants.len) {
+            Node variant = richEnum.variants.get(variantIndex);
+            int parameterIndex = 0;
+            while (parameterIndex < variant.params.len) {
+                if (semanticThreadResultHasUnsizedArray(
+                        variant.params.get(parameterIndex).type,
+                        nested, state)) {
+                    return true;
+                }
+                parameterIndex = parameterIndex + 1;
+            }
+            variantIndex = variantIndex + 1;
+        }
+    }
+    return false;
+}
+
+void semanticRejectThreadOwnerShadow(string name, Node? newType,
+        Map<string, Node> vars, Node site,
+        SemanticValidationState state) {
+    if (!vars.has(name)) { return; }
+    Node existing = vars.get(name);
+    if (semanticContainsThreadStorage(existing, state)) {
+        semanticValidationFail(
+            "Binding '" + name
+                + "' cannot shadow an active Thread owner",
+            site);
+    }
+    if (semanticContainsThreadStorage(newType, state)) {
+        semanticValidationFail(
+            "Thread owner '" + name
+                + "' cannot shadow another active binding",
+            site);
+    }
+}

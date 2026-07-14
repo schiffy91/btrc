@@ -1,5 +1,5 @@
-// Strings.split leading/trailing delimiter asymmetry: a leading empty segment
-// IS preserved, but a trailing empty segment is NOT.
+// Strings.split preserves empty fields on both sides of an explicit delimiter,
+// matching conventional split-with-separator semantics.
 #include <assert.h>
 
 int main() {
@@ -9,15 +9,21 @@ int main() {
     assert(lead[0].equals(""));
     assert(lead[1].equals("a"));
 
-    // Trailing delimiter -> trailing empty segment dropped
+    // Trailing delimiter -> trailing empty segment preserved
     Vector<string> trail = Strings.split("a,", ",");
-    assert(trail.size() == 1);
+    assert(trail.size() == 2);
     assert(trail[0].equals("a"));
+    assert(trail[1].equals(""));
 
-    // Just the delimiter -> single leading empty segment
+    // Just the delimiter -> two empty segments
     Vector<string> only = Strings.split(",", ",");
-    assert(only.size() == 1);
+    assert(only.size() == 2);
     assert(only[0].equals(""));
+    assert(only[1].equals(""));
+
+    Vector<string> empty = Strings.split("", ",");
+    assert(empty.size() == 1);
+    assert(empty[0].equals(""));
 
     print("PASS: test_string_split_edge_delims");
     return 0;

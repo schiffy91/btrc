@@ -43,8 +43,18 @@ class DaemonSpec {
     }
 
     public string renderStartCommand() {
-        string prefix = self.workingDirectory.isEmpty() ? "" : f"cd {UnixShell.quote(self.workingDirectory)} && ";
-        return f"{prefix}nohup {self.command} >> {UnixShell.quote(self.logFile)} 2>&1 & echo $! > {UnixShell.quote(self.pidFile)}";
+        string changeDirectory = self.workingDirectory.isEmpty()
+            ? ""
+            : f"cd {UnixShell.quote(self.workingDirectory)} || exit 1; ";
+        string log = UnixShell.quote(self.logFile);
+        string pid = UnixShell.quote(self.pidFile);
+        /* noclobber makes PID-file creation atomic: an existing file or
+         * symlink fails the start instead of being silently overwritten. */
+        return f"umask 077; {changeDirectory}: >> {log} || exit 1; "
+            + f"nohup {self.command} >> {log} 2>&1 & daemon_pid=$!; "
+            + f"if (set -C; printf '%s\\n' \"$daemon_pid\" > {pid}) 2>/dev/null; "
+            + "then :; else kill -KILL \"$daemon_pid\" 2>/dev/null; "
+            + "wait \"$daemon_pid\" 2>/dev/null; exit 1; fi";
     }
 }
 
@@ -59,13 +69,24 @@ class DaemonController {
         return self.shell.run(spec.renderStartCommand());
     }
 
+    private string validatedPid(DaemonSpec spec) {
+        string pidFile = UnixShell.quote(spec.pidFile);
+        return f"test -f {pidFile} || exit 1; "
+            + f"pid=$(cat {pidFile}) || exit 1; "
+            + "case \"$pid\" in ''|*[!0-9]*) exit 1 ;; esac; "
+            + "test \"$pid\" -gt 1 2>/dev/null || exit 1; ";
+    }
+
     public ExecResult stop(DaemonSpec spec) {
-        string command = f"if [ -f {UnixShell.quote(spec.pidFile)} ]; then kill $(cat {UnixShell.quote(spec.pidFile)}) && rm -f {UnixShell.quote(spec.pidFile)}; fi";
+        string pidFile = UnixShell.quote(spec.pidFile);
+        string command = self.validatedPid(spec)
+            + "if kill \"$pid\"; then "
+            + f"rm -f {pidFile}; else rm -f {pidFile}; exit 1; fi";
         return self.shell.run(command, logFailure=false);
     }
 
     public ExecResult status(DaemonSpec spec) {
-        string command = f"test -f {UnixShell.quote(spec.pidFile)} && kill -0 $(cat {UnixShell.quote(spec.pidFile)})";
+        string command = self.validatedPid(spec) + "kill -0 \"$pid\"";
         return self.shell.run(command, logFailure=false);
     }
 }

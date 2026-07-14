@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 @dataclass
 class GrammarInfo:
     """Structured information extracted from the EBNF grammar."""
+
     keywords: set[str] = field(default_factory=set)
     operators: list[str] = field(default_factory=list)  # sorted longest-first
     keyword_to_token: dict[str, str] = field(default_factory=dict)
@@ -30,18 +31,36 @@ class GrammarInfo:
 
 # Character → TokenType name component (single source for deriving operator names)
 _CHAR_NAMES: dict[str, str] = {
-    '+': 'PLUS', '-': 'MINUS', '*': 'STAR', '/': 'SLASH', '%': 'PERCENT',
-    '=': 'EQ', '<': 'LT', '>': 'GT', '!': 'BANG', '&': 'AMP',
-    '|': 'PIPE', '^': 'CARET', '~': 'TILDE', '?': 'QUESTION',
-    '.': 'DOT', ',': 'COMMA', ';': 'SEMICOLON', ':': 'COLON',
-    '(': 'LPAREN', ')': 'RPAREN', '[': 'LBRACKET', ']': 'RBRACKET',
-    '{': 'LBRACE', '}': 'RBRACE',
+    "+": "PLUS",
+    "-": "MINUS",
+    "*": "STAR",
+    "/": "SLASH",
+    "%": "PERCENT",
+    "=": "EQ",
+    "<": "LT",
+    ">": "GT",
+    "!": "BANG",
+    "&": "AMP",
+    "|": "PIPE",
+    "^": "CARET",
+    "~": "TILDE",
+    "?": "QUESTION",
+    ".": "DOT",
+    ",": "COMMA",
+    ";": "SEMICOLON",
+    ":": "COLON",
+    "(": "LPAREN",
+    ")": "RPAREN",
+    "[": "LBRACKET",
+    "]": "RBRACKET",
+    "{": "LBRACE",
+    "}": "RBRACE",
 }
 
 # Operators whose TokenType name doesn't follow the character-join convention
 _SPECIAL_OPS: dict[str, str] = {
-    '->': 'ARROW',
-    '=>': 'FAT_ARROW',
+    "->": "ARROW",
+    "=>": "FAT_ARROW",
 }
 
 
@@ -63,12 +82,9 @@ def _op_to_token_name(op: str) -> str:
     for ch in op:
         name = _CHAR_NAMES.get(ch)
         if name is None:
-            raise ValueError(
-                f"No character name for {ch!r} in operator {op!r}. "
-                f"Add it to _CHAR_NAMES."
-            )
+            raise ValueError(f"No character name for {ch!r} in operator {op!r}. Add it to _CHAR_NAMES.")
         parts.append(name)
-    return '_'.join(parts)
+    return "_".join(parts)
 
 
 def _keyword_to_token_name(kw: str) -> str:
@@ -90,7 +106,7 @@ def _annotation_to_token_name(name: str) -> str:
 def _extract_brace_block(text: str, marker: str) -> str | None:
     """Extract the content between { } after a @marker, handling nested braces."""
     # Find marker followed (possibly with whitespace) by {
-    pattern = re.compile(re.escape(marker) + r'\s*\{')
+    pattern = re.compile(re.escape(marker) + r"\s*\{")
     m = pattern.search(text)
     if m is None:
         return None
@@ -101,47 +117,47 @@ def _extract_brace_block(text: str, marker: str) -> str | None:
     i = brace_start + 1
     while i < len(text) and depth > 0:
         ch = text[i]
-        if ch == '-' and i + 1 < len(text) and text[i + 1] == '-':
+        if ch == "-" and i + 1 < len(text) and text[i + 1] == "-":
             # Line comment: skip to end of line
-            while i < len(text) and text[i] != '\n':
+            while i < len(text) and text[i] != "\n":
                 i += 1
             continue
-        elif ch == '(' and i + 1 < len(text) and text[i + 1] == '*':
+        elif ch == "(" and i + 1 < len(text) and text[i + 1] == "*":
             # Block comment (* ... *)
             i += 2
-            while i + 1 < len(text) and not (text[i] == '*' and text[i + 1] == ')'):
+            while i + 1 < len(text) and not (text[i] == "*" and text[i + 1] == ")"):
                 i += 1
             i += 2
             continue
-        elif ch == '/':
+        elif ch == "/":
             # Possible regex pattern: /.../ (not followed by / for //)
-            if i + 1 < len(text) and text[i + 1] != '/':
+            if i + 1 < len(text) and text[i + 1] != "/":
                 # Skip regex pattern: scan to next /
                 i += 1
-                while i < len(text) and text[i] != '/' and text[i] != '\n':
-                    if text[i] == '\\':
+                while i < len(text) and text[i] != "/" and text[i] != "\n":
+                    if text[i] == "\\":
                         i += 1  # skip escaped char
                     i += 1
-                if i < len(text) and text[i] == '/':
+                if i < len(text) and text[i] == "/":
                     i += 1  # skip closing /
                 continue
         elif ch == '"':
             # Skip quoted string
             i += 1
             while i < len(text) and text[i] != '"':
-                if text[i] == '\\':
+                if text[i] == "\\":
                     i += 1  # skip escaped char
                 i += 1
             i += 1  # skip closing "
             continue
-        elif ch == '{':
+        elif ch == "{":
             depth += 1
-        elif ch == '}':
+        elif ch == "}":
             depth -= 1
         i += 1
     if depth != 0:
         return None
-    return text[brace_start + 1:i - 1]
+    return text[brace_start + 1 : i - 1]
 
 
 def parse_grammar(text: str) -> GrammarInfo:
@@ -157,13 +173,11 @@ def parse_grammar(text: str) -> GrammarInfo:
     kw_body = _extract_brace_block(lexical_body, "@keywords")
     if kw_body is not None:
         # Strip comments (-- ...)
-        kw_body = re.sub(r'--[^\n]*', '', kw_body)
+        kw_body = re.sub(r"--[^\n]*", "", kw_body)
         # Extract all words
-        keywords = re.findall(r'[a-zA-Z_]\w*', kw_body)
+        keywords = re.findall(r"[a-zA-Z_]\w*", kw_body)
         info.keywords = set(keywords)
-        info.keyword_to_token = {
-            kw: _keyword_to_token_name(kw) for kw in keywords
-        }
+        info.keyword_to_token = {kw: _keyword_to_token_name(kw) for kw in keywords}
 
     # Extract @operators { ... }
     op_body = _extract_brace_block(lexical_body, "@operators")
@@ -182,12 +196,10 @@ def parse_grammar(text: str) -> GrammarInfo:
     # Extract @annotations { ... }
     ann_body = _extract_brace_block(lexical_body, "@annotations")
     if ann_body is not None:
-        ann_body = re.sub(r'--[^\n]*', '', ann_body)
-        annotations = re.findall(r'[a-zA-Z_]\w*', ann_body)
+        ann_body = re.sub(r"--[^\n]*", "", ann_body)
+        annotations = re.findall(r"[a-zA-Z_]\w*", ann_body)
         info.annotations = set(annotations)
-        info.annotation_to_token = {
-            ann: _annotation_to_token_name(ann) for ann in annotations
-        }
+        info.annotation_to_token = {ann: _annotation_to_token_name(ann) for ann in annotations}
 
     return info
 

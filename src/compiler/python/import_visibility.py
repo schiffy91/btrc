@@ -40,6 +40,17 @@ def _line_file(provenance: list[str], line: int) -> str | None:
     return None
 
 
+def _canonical_file(path: str) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+
+def _canonical_graph(graph: dict[str, set[str]]) -> dict[str, set[str]]:
+    canonical: dict[str, set[str]] = {}
+    for source, targets in graph.items():
+        canonical.setdefault(_canonical_file(source), set()).update(_canonical_file(target) for target in targets)
+    return canonical
+
+
 def _reachable_files(start: str, graph: dict[str, set[str]]) -> set[str]:
     seen = {start}
     queue = deque(graph.get(start, set()))
@@ -159,17 +170,19 @@ def _symbol_files(program: ast.Program, provenance: list[str]) -> dict[str, set[
         name = _decl_name(decl)
         source_file = _line_file(provenance, getattr(decl, "line", 0))
         if name and source_file:
-            symbols.setdefault(name, set()).add(os.path.abspath(source_file))
+            symbols.setdefault(name, set()).add(_canonical_file(source_file))
     return symbols
 
 
-def check_visibility(program: ast.Program, provenance: list[str],
-                     graph: dict[str, set[str]]) -> list[tuple[str, int, int]]:
+def check_visibility(
+    program: ast.Program, provenance: list[str], graph: dict[str, set[str]]
+) -> list[tuple[str, int, int]]:
     """Return import-visibility errors as ``(message, line, col)`` tuples.
 
     A reference is satisfied when *any* file declaring the symbol is the
     referencing file itself or reachable through its imports.
     """
+    graph = _canonical_graph(graph)
     symbol_files = _symbol_files(program, provenance)
     reachable_cache: dict[str, set[str]] = {}
     errors: list[tuple[str, int, int]] = []
@@ -180,10 +193,9 @@ def check_visibility(program: ast.Program, provenance: list[str],
         source_file = _line_file(provenance, getattr(decl, "line", 0))
         if source_file is None:
             continue
-        source_file = os.path.abspath(source_file)
-        reachable = reachable_cache.setdefault(
-            source_file, _reachable_files(source_file, graph)
-        )
+        display_file = os.path.abspath(source_file)
+        source_file = _canonical_file(source_file)
+        reachable = reachable_cache.setdefault(source_file, _reachable_files(source_file, graph))
         collector = _RefCollector(set(getattr(decl, "generic_params", [])))
         collector.visit(decl)
 
@@ -197,10 +209,11 @@ def check_visibility(program: ast.Program, provenance: list[str],
             if not declaring or declaring & reachable:
                 continue
             shown = os.path.basename(sorted(declaring)[0])
-            errors.append((
-                f"'{name}' is defined in {shown} "
-                f"but {os.path.basename(source_file)} does not import it",
-                line,
-                col,
-            ))
+            errors.append(
+                (
+                    f"'{name}' is defined in {shown} but {os.path.basename(display_file)} does not import it",
+                    line,
+                    col,
+                )
+            )
     return errors

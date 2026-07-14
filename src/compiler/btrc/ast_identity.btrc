@@ -1,0 +1,10 @@
+#include <stdint.h>
+
+/* Stable identity for AST-node side tables shared across compiler stages.
+ * The self-host runtime represents class values as stable C pointers. Source
+ * positions—even with the node kind—are not unique for chained expressions,
+ * so use the standard uintptr_t representation of the actual Node object. */
+string astNodeKey(Node node) {
+    unsigned long long address = (unsigned long long)(uintptr_t)node;
+    return f"{address}";
+}

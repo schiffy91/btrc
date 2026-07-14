@@ -24,7 +24,7 @@ fills exactly those gaps — nothing more.
 
 * **Missing-*file* shims** (resolved via `-I`): minimal guarded headers for the
   POSIX headers MinGW-w64 lacks but that survive as orphan `#include`s —
-  `regex.h`, `fnmatch.h`, `glob.h`, `pwd.h`, `termios.h`, `sys/wait.h`,
+  `regex.h`, `fnmatch.h`, `glob.h`, `grp.h`, `poll.h`, `pwd.h`, `termios.h`, `sys/wait.h`,
   `sys/socket.h`, `sys/select.h`, `netinet/in.h`, `arpa/inet.h`. They are empty
   by design: where a program doesn't call into the module, the include only needs
   to *resolve*.

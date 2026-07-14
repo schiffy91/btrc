@@ -11,11 +11,11 @@ class Pt {
 
 int main() {
     // sizeof of a primitive type operand
-    assert(sizeof(int) > 0);
-    assert(sizeof(double) == 8);
+    assert(sizeof(int) > (size_t)0);
+    assert(sizeof(double) == (size_t)8);
 
     // sizeof of a user class type compiles and is at least its field bytes
-    assert(sizeof(Pt) >= 2 * sizeof(int));
+    assert(sizeof(Pt) >= (size_t)2 * sizeof(int));
 
     // the class still behaves normally
     Pt p = new Pt();

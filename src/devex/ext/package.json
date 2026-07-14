@@ -174,9 +174,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run prepare-lsp && npm run esbuild-base",
-    "esbuild-base": "esbuild ./src/extension.ts ./src/launch.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
+    "esbuild-base": "esbuild ./src/extension.ts ./src/launch.ts ./src/debug_launch.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
     "compile": "npm run esbuild-base",
-    "test": "npm run compile && node --test test/*.test.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && npm run compile && node --test test/*.test.js",
     "prepare-lsp": "python3 scripts/prepare_lsp_package.py",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
     "package": "vsce package --out btrc.vsix --allow-missing-repository",
@@ -186,10 +187,10 @@
     "vscode-languageclient": "^9.0.0"
   },
   "devDependencies": {
-    "@types/node": "^25.3.0",
-    "@types/vscode": "^1.85.0",
+    "@types/node": "^18.19.0",
+    "@types/vscode": "1.85.0",
     "@vscode/vsce": "^3.0.0",
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.1",
     "typescript": "^5.3.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"

@@ -22,6 +22,8 @@ int main() {
     /* round-trip in a fresh temp dir, then clean it up */
     string dir = FileSystem.tempDir("btrc_fs_test");
     assert(FileSystem.isDir(dir));
+    assert(FileSystem.tempDir("../btrc_escape").isEmpty());
+    assert(FileSystem.tempDir("nested/btrc_escape").isEmpty());
     string f = PathTools.join(dir, "data.txt");
     FileSystem.writeText(f, "hello fs");
     assert(FileSystem.exists(f) && FileSystem.isFile(f));

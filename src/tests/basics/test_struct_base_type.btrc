@@ -19,7 +19,7 @@ int main() {
     assert(pp->y == 4);
 
     // sizeof of the spelled-out struct type
-    assert(sizeof(struct Point) >= 2 * sizeof(int));
+    assert(sizeof(struct Point) >= (size_t)2 * sizeof(int));
 
     print("PASS: test_struct_base_type");
     return 0;

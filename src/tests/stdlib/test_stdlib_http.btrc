@@ -1,10 +1,9 @@
 /* HTTP stack: request parsing and response builders.
  *
  * This covers the pure, deterministic surface — request-line/path/query/header/
- * body parsing and the HttpResponse constructors. The live socket round-trip
- * (HttpServer.start/accept + HttpClient over curl) is intentionally exercised by
- * an example rather than here: binding a real port and shelling out to curl is
- * slow and non-hermetic, which doesn't belong in the language test suite. */
+ * body parsing and the HttpResponse constructors. Socket framing is exercised
+ * hermetically with local socket pairs in test_stdlib_http_socket_io.btrc; the
+ * curl client deliberately has no external-network test. */
 #include <assert.h>
 
 int main() {

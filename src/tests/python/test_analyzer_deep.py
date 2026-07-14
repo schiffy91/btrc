@@ -19,9 +19,9 @@ def _has(msgs, sub):
     return any(sub.lower() in m.lower() for m in msgs)
 
 
-def test_subclass_of_implementer_accepted_as_interface():
-    # Sub -> Mid (implements Speaker) -> used where Speaker expected: the subtype
-    # check walks the inheritance chain looking for the interface.
+def test_interface_parameter_is_rejected_before_codegen():
+    # Interfaces validate implementations but have no runtime dispatch object;
+    # accepting this signature would emit an unknown C type.
     src = """
     interface Speaker { int speak(); }
     class Mid implements Speaker { public int v; public Mid() { self.v = 0; } public int speak() { return 1; } }
@@ -29,7 +29,7 @@ def test_subclass_of_implementer_accepted_as_interface():
     int call(Speaker s) { return s.speak(); }
     int main() { Sub x = new Sub(); return call(x); }
     """
-    assert errors(src) == []
+    assert _has(errors(src), "cannot be used as a runtime value")
 
 
 def test_deep_subclass_accepted_as_base():

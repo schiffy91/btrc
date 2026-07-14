@@ -1,0 +1,18 @@
+// A top-level function whose public C prototype directly names a callback
+// type. The callback typedef must be emitted before that prototype; otherwise
+// the generated C is ill-formed even though uses inside function bodies work.
+#include <assert.h>
+
+bool accepts_command(unsigned int command, void* data) {
+    return command == 18 && data == null;
+}
+
+void install_callback(__fn_ptr<bool, unsigned int, void*> callback) {
+    assert(callback(18, null));
+}
+
+int main() {
+    install_callback(accepts_command);
+    print("PASS: test_fnptr_exported_parameter");
+    return 0;
+}

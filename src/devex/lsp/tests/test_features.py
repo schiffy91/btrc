@@ -16,6 +16,7 @@ from src.devex.lsp.tests.lsphelp import SAMPLE, analyze, decoded_semantic_tokens
 
 # ----------------------------------------------------------------- hover
 
+
 def test_hover_method_shows_name():
     r = analyze(SAMPLE)
     txt = hover_text(get_hover_info(r, pos_of(SAMPLE, "p.getX", offset=2)))
@@ -36,6 +37,7 @@ def test_hover_empty_on_blank():
 
 # ------------------------------------------------------------- completion
 
+
 def test_member_completion_lists_methods():
     r = analyze(SAMPLE)
     # cursor right after `p.` in `p.getX()` → member completion on Point
@@ -54,21 +56,19 @@ def test_top_level_completion_includes_user_symbols():
 
 # ------------------------------------------------- references + rename
 
+
 def test_find_references_of_method():
     r = analyze(SAMPLE)
-    refs = get_references(r, pos_of(SAMPLE, "p.getX", offset=2),
-                          include_declaration=True)
+    refs = get_references(r, pos_of(SAMPLE, "p.getX", offset=2), include_declaration=True)
     lines = sorted(loc.range.start.line for loc in refs)
-    assert 7 in lines    # the getX declaration
-    assert 13 in lines   # the p.getX() call
+    assert 7 in lines  # the getX declaration
+    assert 13 in lines  # the p.getX() call
 
 
 def test_find_references_excludes_declaration_when_asked():
     r = analyze(SAMPLE)
-    with_decl = get_references(r, pos_of(SAMPLE, "p.getX", offset=2),
-                               include_declaration=True)
-    without = get_references(r, pos_of(SAMPLE, "p.getX", offset=2),
-                             include_declaration=False)
+    with_decl = get_references(r, pos_of(SAMPLE, "p.getX", offset=2), include_declaration=True)
+    without = get_references(r, pos_of(SAMPLE, "p.getX", offset=2), include_declaration=False)
     assert len(without) < len(with_decl)
 
 
@@ -89,11 +89,12 @@ def test_rename_local_edits_all_uses():
     if not all_edits and edit.document_changes:
         for dc in edit.document_changes:
             all_edits.extend(getattr(dc, "edits", []))
-    assert len(all_edits) >= 2                     # decl + use
+    assert len(all_edits) >= 2  # decl + use
     assert all(e.new_text == "q" for e in all_edits)
 
 
 # --------------------------------------------------------- doc symbols
+
 
 def test_document_symbols_tree():
     r = analyze(SAMPLE)
@@ -107,6 +108,7 @@ def test_document_symbols_tree():
 
 # ------------------------------------------------------ signature help
 
+
 def test_signature_help_inside_call():
     r = analyze(SAMPLE)
     # inside add(self.x, self.x) on line 8 — cursor just after the '('
@@ -116,6 +118,7 @@ def test_signature_help_inside_call():
 
 
 # ------------------------------------------------------ semantic tokens
+
 
 def test_semantic_tokens_nonempty():
     r = analyze(SAMPLE)

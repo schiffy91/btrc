@@ -13,9 +13,12 @@ import pytest
 
 def pytest_addoption(parser):
     parser.addoption(
-        "--compilers", action="store", default="python,btrc",
+        "--compilers",
+        action="store",
+        default="python,btrc",
         help="comma-separated list of compilers to run the language corpus "
-             "through: 'python' (reference), 'btrc' (self-hosted), or both.")
+        "through: 'python' (reference), 'btrc' (self-hosted), or both.",
+    )
 
 
 def pytest_generate_tests(metafunc):
@@ -33,9 +36,9 @@ def _isolated_btrc_cache(tmp_path_factory):
     """Point every btrc cache at a session-temp dir.
 
     The cache directory resolves to $BTRC_CACHE_DIR > btrc.toml project root >
-    the user cache dir; without this fixture the suite would write stdlib AST
-    pickles and .c output into the developer's real user cache. One shared dir
-    per session keeps the stdlib AST cache warm across tests while staying
+    the user cache dir; without this fixture the suite would write stdlib JSON
+    AST artifacts and generated C into the developer's real user cache. One
+    shared dir per session keeps the stdlib AST cache warm across tests while staying
     hermetic. Tests that exercise the resolution order itself monkeypatch the
     variable away.
     """

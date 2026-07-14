@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..nodes import IRCast, IRExpr
+from ..nodes import CType, IRCast, IRExpr
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -42,9 +42,9 @@ def is_subclass(gen: IRGenerator, sub: str | None, base: str | None) -> bool:
     return False
 
 
-def upcast_class_pointer(gen: IRGenerator, target_type: TypeExpr | None,
-                         source_type: TypeExpr | None,
-                         value: IRExpr) -> IRExpr:
+def upcast_class_pointer(
+    gen: IRGenerator, target_type: TypeExpr | None, source_type: TypeExpr | None, value: IRExpr
+) -> IRExpr:
     """Wrap `value` in an explicit ``(Base*)`` cast for a Derived→Base upcast.
 
     Returns `value` unchanged unless ALL of the following hold:
@@ -65,4 +65,7 @@ def upcast_class_pointer(gen: IRGenerator, target_type: TypeExpr | None,
         return value
     if not is_subclass(gen, source_type.base, target_type.base):
         return value
-    return IRCast(target_type=type_to_c(target_type), expr=value)
+    return IRCast(
+        target_type=CType(text=type_to_c(target_type)),
+        expr=value,
+    )

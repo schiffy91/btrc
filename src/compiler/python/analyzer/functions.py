@@ -1,33 +1,20 @@
 """Declaration, class, method, property, and function analysis."""
 
 from ..ast_nodes import (
-    Block,
-    BoolLiteral,
-    CForStmt,
     ClassDecl,
-    DoWhileStmt,
-    ElseBlock,
-    ElseIf,
     EnumDecl,
     FieldDecl,
-    ForInStmt,
     FunctionDecl,
-    IfStmt,
     MethodDecl,
     PropertyDecl,
-    ReturnStmt,
     RichEnumDecl,
-    SwitchStmt,
-    ThrowStmt,
     TypeExpr,
     VarDeclStmt,
-    WhileStmt,
 )
 from .core import SymbolInfo
 
 
 class FunctionsMixin:
-
     def _param_symbol(self, param) -> SymbolInfo:
         """SymbolInfo for a parameter, pinned to its name token span."""
         nl = param.name_line or param.line
@@ -41,10 +28,10 @@ class FunctionsMixin:
             self._analyze_function(decl)
         elif isinstance(decl, VarDeclStmt):
             self._analyze_var_decl(decl)
-        elif isinstance(decl, EnumDecl):
-            self.enum_table[decl.name] = [v.name for v in decl.values]
-        elif isinstance(decl, RichEnumDecl):
-            self.rich_enum_table[decl.name] = decl
+        elif isinstance(decl, (EnumDecl, RichEnumDecl)):
+            # Registration owns enum tables; pass two must not append members
+            # a second time.
+            return
 
     def _analyze_class(self, decl):
         prev_class = self.current_class
@@ -55,6 +42,20 @@ class FunctionsMixin:
                 self._collect_generic_instances(member.type)
                 if member.initializer:
                     self._analyze_expr(member.initializer)
+                    self._validate_callable_storage(
+                        member.type,
+                        member.initializer,
+                        True,
+                        member.line,
+                        member.col,
+                    )
+                    self._validate_typed_initializer(
+                        member.type,
+                        member.initializer,
+                        f"Field '{decl.name}.{member.name}'",
+                        member.line,
+                        member.col,
+                    )
             elif isinstance(member, MethodDecl):
                 self._analyze_method(member)
             elif isinstance(member, PropertyDecl):
@@ -70,42 +71,10 @@ class FunctionsMixin:
             elif seen_default:
                 self._error(
                     f"Non-default parameter '{param.name}' follows default parameter",
-                    param.line or line, param.col or col)
+                    param.line or line,
+                    param.col or col,
+                )
                 break
-
-    def _upgrade_class_type(self, type_expr):
-        """Auto-upgrade class-typed references to pointers (reference types)."""
-        if type_expr is None:
-            return type_expr
-        upgraded_args = type_expr.generic_args
-        if type_expr.generic_args:
-            upgraded_args = [self._upgrade_class_type(arg) for arg in type_expr.generic_args]
-            if upgraded_args != type_expr.generic_args:
-                type_expr = TypeExpr(
-                    base=type_expr.base, generic_args=upgraded_args,
-                    pointer_depth=type_expr.pointer_depth, is_array=type_expr.is_array,
-                    array_size=type_expr.array_size,
-                    line=type_expr.line, col=type_expr.col)
-        if type_expr.base in self.class_table:
-            # An `auto_upgraded` stamp marks pointers this method synthesized,
-            # so re-analyzing a shared AST (LSP unit caches) stays idempotent
-            # instead of reporting its own upgrade as a redundant pointer.
-            if (type_expr.pointer_depth > 0 and not type_expr.is_nullable
-                    and not getattr(type_expr, "auto_upgraded", False)):
-                self._error(
-                    f"Redundant pointer for class type '{type_expr.base}' — "
-                    f"classes are always heap-allocated. "
-                    f"Use '{type_expr.base}' instead of '{type_expr.base}*'",
-                    type_expr.line, type_expr.col)
-            upgraded = TypeExpr(
-                base=type_expr.base, generic_args=upgraded_args,
-                pointer_depth=1, is_array=type_expr.is_array,
-                array_size=type_expr.array_size,
-                is_nullable=type_expr.is_nullable,
-                line=type_expr.line, col=type_expr.col)
-            upgraded.auto_upgraded = True
-            return upgraded
-        return type_expr
 
     def _analyze_method(self, method):
         prev_method = self.current_method
@@ -113,39 +82,69 @@ class FunctionsMixin:
         prev_gpu = self.in_gpu_function
         self.in_gpu_function = method.is_gpu
         prev_return_type = self.current_return_type
-        self.current_return_type = method.return_type
+
+        if method.is_gpu:
+            self._error(
+                "@gpu is only supported on top-level functions; methods have no WGSL dispatch lowering",
+                method.line,
+                method.col,
+            )
 
         for param in method.params:
             param.type = self._upgrade_class_type(param.type)
-        is_constructor = method.name == (self.current_class.name if self.current_class else "")
-        if is_constructor:
-            if method.return_type and method.return_type.base not in (
-                    "void", self.current_class.name if self.current_class else ""):
-                self._error(
-                    f"Constructor '{method.name}' cannot have return type "
-                    f"'{method.return_type.base}'", method.line, method.col)
-        else:
+        is_constructor = method.is_constructor
+        self.current_return_type = TypeExpr(base="void") if is_constructor else method.return_type
+        if not is_constructor:
             method.return_type = self._upgrade_class_type(method.return_type)
+            self._validate_array_return_declaration(
+                method,
+                self.current_class.name if self.current_class else None,
+            )
 
         self._push_scope()
         self._validate_default_params(method.params, method.line, method.col)
 
         if method.access != "class":
-            self_type = TypeExpr(base=self.current_class.name, pointer_depth=1)
+            self_type = self._current_self_type()
             self.scope.define("self", SymbolInfo("self", self_type, "param"))
         for param in method.params:
             self._collect_generic_instances(param.type)
-            self.scope.define(param.name, self._param_symbol(param))
-        self._collect_generic_instances(method.return_type)
-        self._analyze_block(method.body)
+            if param.default is not None:
+                self._analyze_expr(param.default)
+                self._validate_callable_storage(
+                    param.type, param.default, True, param.line or method.line, param.col or method.col
+                )
+                self._validate_typed_initializer(
+                    param.type,
+                    param.default,
+                    f"Default for parameter '{param.name}'",
+                    param.line or method.line,
+                    param.col or method.col,
+                )
+            if self._claim_local_binding(
+                param.name,
+                "parameter",
+                param.name_line or param.line,
+                param.name_col or param.col,
+            ):
+                self.scope.define(param.name, self._param_symbol(param))
+        if not is_constructor:
+            self._collect_generic_instances(method.return_type)
+        self._analyze_root_block(method.body)
 
-        if (not is_constructor and method.return_type
-                and method.return_type.base != "void"
-                and method.body and not self._has_return(method.body)):
+        if (
+            not is_constructor
+            and method.return_type
+            and method.return_type.base != "void"
+            and method.body
+            and not self._block_must_terminate(method.body)
+        ):
             class_name = self.current_class.name if self.current_class else ""
             self._error(
-                f"Method '{class_name}.{method.name}' has non-void return type "
-                f"but no return statement", method.line, method.col)
+                f"Method '{class_name}.{method.name}' has non-void return type but no return statement",
+                method.line,
+                method.col,
+            )
 
         self._pop_scope()
         self.current_method = prev_method
@@ -156,24 +155,41 @@ class FunctionsMixin:
         """Analyze a C#-style property declaration."""
         self._collect_generic_instances(prop.type)
         prop.type = self._upgrade_class_type(prop.type)
-        synthetic_method = MethodDecl(access=prop.access, return_type=prop.type,
-                                      name=f"_prop_{prop.name}")
+        synthetic_method = MethodDecl(access=prop.access, return_type=prop.type, name=f"_prop_{prop.name}")
         prev_method = self.current_method
+        prev_return_type = self.current_return_type
         self.current_method = synthetic_method
         if prop.getter_body:
+            self.current_return_type = prop.type
             self._push_scope()
-            self_type = TypeExpr(base=self.current_class.name, pointer_depth=1)
+            self_type = self._current_self_type()
             self.scope.define("self", SymbolInfo("self", self_type, "param"))
-            self._analyze_block(prop.getter_body)
+            self._analyze_root_block(prop.getter_body)
+            if not self._block_must_terminate(prop.getter_body):
+                self._error(
+                    f"Property getter '{self.current_class.name}.{prop.name}' does not return a value on every path",
+                    prop.line,
+                    prop.col,
+                )
             self._pop_scope()
         if prop.setter_body:
+            self.current_return_type = TypeExpr(base="void")
             self._push_scope()
-            self_type = TypeExpr(base=self.current_class.name, pointer_depth=1)
+            self_type = self._current_self_type()
             self.scope.define("self", SymbolInfo("self", self_type, "param"))
             self.scope.define("value", SymbolInfo("value", prop.type, "param"))
-            self._analyze_block(prop.setter_body)
+            self._analyze_root_block(prop.setter_body)
             self._pop_scope()
         self.current_method = prev_method
+        self.current_return_type = prev_return_type
+
+    def _current_self_type(self):
+        generic_args = [TypeExpr(base=name) for name in self.current_class.generic_params]
+        return TypeExpr(
+            base=self.current_class.name,
+            generic_args=generic_args,
+            pointer_depth=1,
+        )
 
     def _analyze_function(self, func):
         prev_gpu = self.in_gpu_function
@@ -181,93 +197,58 @@ class FunctionsMixin:
         prev_return_type = self.current_return_type
         self.current_return_type = func.return_type
 
-        # Validate @gpu function constraints
-        if func.is_gpu:
-            from .gpu import validate_gpu_function
-            validate_gpu_function(self, func)
-
         for param in func.params:
             param.type = self._upgrade_class_type(param.type)
         func.return_type = self._upgrade_class_type(func.return_type)
+        self._validate_array_return_declaration(func)
 
         self._push_scope()
         self._validate_default_params(func.params, func.line, func.col)
         self.scope.define(
             func.name,
-            self._local_symbol(func.name, func.return_type, "function",
-                               func.name_line or func.line, func.name_col or func.col))
+            self._local_symbol(
+                func.name, func.return_type, "function", func.name_line or func.line, func.name_col or func.col
+            ),
+        )
         for param in func.params:
             self._collect_generic_instances(param.type)
-            self.scope.define(param.name, self._param_symbol(param))
+            if param.default is not None:
+                self._analyze_expr(param.default)
+                self._validate_callable_storage(
+                    param.type, param.default, True, param.line or func.line, param.col or func.col
+                )
+                self._validate_typed_initializer(
+                    param.type,
+                    param.default,
+                    f"Default for parameter '{param.name}'",
+                    param.line or func.line,
+                    param.col or func.col,
+                )
+            if self._claim_local_binding(
+                param.name,
+                "parameter",
+                param.name_line or param.line,
+                param.name_col or param.col,
+            ):
+                self.scope.define(param.name, self._param_symbol(param))
         self._collect_generic_instances(func.return_type)
-        self._analyze_block(func.body)
+        self._analyze_root_block(func.body)
 
-        if (func.return_type and func.return_type.base != "void"
-                and func.body and not self._has_return(func.body)):
-            self._error(f"Function '{func.name}' has non-void return type "
-                        f"but no return statement", func.line, func.col)
+        # GPU validation consumes inferred local/expression types, so it runs
+        # after ordinary body analysis while the function scope is still live.
+        if func.is_gpu:
+            from .gpu import validate_gpu_function
+
+            validate_gpu_function(self, func)
+
+        if (
+            func.return_type
+            and func.return_type.base != "void"
+            and func.body
+            and not self._block_must_terminate(func.body)
+        ):
+            self._error(f"Function '{func.name}' has non-void return type but no return statement", func.line, func.col)
 
         self._pop_scope()
         self.in_gpu_function = prev_gpu
         self.current_return_type = prev_return_type
-
-    def _has_return(self, block) -> bool:
-        """Check if a block contains at least one return/throw statement."""
-        if block is None:
-            return False
-        for stmt in block.statements:
-            if isinstance(stmt, (ReturnStmt, ThrowStmt)):
-                return True
-            if isinstance(stmt, IfStmt):
-                if stmt.else_block is not None and self._has_return_in_if(stmt):
-                    return True
-            if isinstance(stmt, SwitchStmt):
-                has_default = any(case.value is None for case in stmt.cases)
-                if has_default:
-                    all_cases_return = True
-                    for case in stmt.cases:
-                        case_returns = False
-                        for case_stmt in case.body:
-                            if isinstance(case_stmt, (ReturnStmt, ThrowStmt)):
-                                case_returns = True
-                                break
-                            if isinstance(case_stmt, Block) and self._has_return(case_stmt):
-                                case_returns = True
-                                break
-                            if (isinstance(case_stmt, IfStmt)
-                                    and case_stmt.else_block is not None):
-                                if self._has_return_in_if(case_stmt):
-                                    case_returns = True
-                                    break
-                        if not case_returns:
-                            all_cases_return = False
-                            break
-                    if all_cases_return:
-                        return True
-            if isinstance(stmt, WhileStmt) and isinstance(stmt.condition, BoolLiteral):
-                if stmt.condition.value and stmt.body and self._has_return(stmt.body):
-                    return True
-            # A return inside a conditional loop body doesn't guarantee a return
-            # on every path, but it DOES mean the function "has a return
-            # statement". This check is a contains-any-return test (the
-            # all-paths logic lives in if/switch/while(true) above), so descend
-            # into loop bodies the same way we descend into blocks.
-            if isinstance(stmt, (CForStmt, ForInStmt, DoWhileStmt)):
-                if stmt.body and self._has_return(stmt.body):
-                    return True
-            for attr in ('try_block', 'catch_block'):
-                child = getattr(stmt, attr, None)
-                if isinstance(child, Block) and self._has_return(child):
-                    return True
-        return False
-
-    def _has_return_in_if(self, stmt) -> bool:
-        """Check if ALL branches of an if/else return (exhaustive)."""
-        then_returns = isinstance(stmt.then_block, Block) and self._has_return(stmt.then_block)
-        if not then_returns:
-            return False
-        if isinstance(stmt.else_block, ElseBlock):
-            return self._has_return(stmt.else_block.body)
-        if isinstance(stmt.else_block, ElseIf):
-            return self._has_return_in_if(stmt.else_block.if_stmt)
-        return False

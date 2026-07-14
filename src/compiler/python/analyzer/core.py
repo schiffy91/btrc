@@ -12,6 +12,7 @@ from ..ast_nodes import (
     Program,
     PropertyDecl,
     RichEnumDecl,
+    StructDecl,
     TypeExpr,
 )
 
@@ -44,8 +45,13 @@ class ClassInfo:
     name: str
     generic_params: list[str] = field(default_factory=list)
     fields: dict[str, FieldDecl] = field(default_factory=dict)
+    static_fields: dict[str, FieldDecl] = field(default_factory=dict)
     methods: dict[str, MethodDecl] = field(default_factory=dict)
     properties: dict[str, PropertyDecl] = field(default_factory=dict)
+    field_owners: dict[str, str] = field(default_factory=dict)
+    method_owners: dict[str, str] = field(default_factory=dict)
+    property_owners: dict[str, str] = field(default_factory=dict)
+    instance_storage: list[tuple[str, FieldDecl | PropertyDecl]] = field(default_factory=list)
     constructor: MethodDecl = None
     parent: str = None
     interfaces: list[str] = field(default_factory=list)
@@ -67,6 +73,10 @@ class SymbolInfo:
     decl_line: int = 0
     decl_col: int = 0
     decl_file: str | None = None
+    # A capturing lambda cannot be represented by a bare C function pointer.
+    # Direct local calls have a dedicated lowering path; aliases, parameters,
+    # and returns must reject the value until the language has a closure type.
+    captures_environment: bool = False
 
 
 @dataclass
@@ -118,13 +128,14 @@ class AnalyzedProgram:
     # pair of TypeExpr tuples, where class_args are the concrete generic args of
     # the receiver instance (e.g. (int,) for Vector<int>) and method_args are the
     # concrete method-level type arguments (e.g. (string,) for mapTo<string>).
-    generic_method_instances: dict[
-        tuple[str, str], list[tuple[tuple, tuple]]] = field(default_factory=dict)
+    generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = field(default_factory=dict)
     # id(CallExpr) -> tuple of concrete method-level type args for that generic
     # call site (e.g. (string,) for v.mapTo<string>(...)). Used by IR-gen to
     # name-mangle the call to the monomorphized instance.
     generic_method_call_args: dict[int, tuple] = field(default_factory=dict)
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
+    typedef_table: dict[str, TypeExpr] = field(default_factory=dict)
+    struct_table: dict[str, StructDecl] = field(default_factory=dict)
     node_types: dict[int, TypeExpr] = field(default_factory=dict)
     enum_table: dict[str, list[str]] = field(default_factory=dict)
     interface_table: dict[str, InterfaceInfo] = field(default_factory=dict)
@@ -141,9 +152,10 @@ class AnalyzerBase:
     def __init__(self):
         self.class_table: dict[str, ClassInfo] = {}
         self.function_table: dict[str, FunctionDecl] = {}
+        self.typedef_table: dict[str, TypeExpr] = {}
+        self.struct_table: dict[str, StructDecl] = {}
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
-        self.generic_method_instances: dict[
-            tuple[str, str], list[tuple[tuple, tuple]]] = {}
+        self.generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = {}
         self.generic_method_call_args: dict[int, tuple] = {}
         self.errors: list[str] = []
         self.warnings: list[str] = []
@@ -158,6 +170,13 @@ class AnalyzerBase:
         self.node_types: dict[int, TypeExpr] = {}
         self.loop_depth: int = 0
         self.break_depth: int = 0
+        self._assignment_target_depth: int = 0
+        self._analyzed_array_bounds: set[int] = set()
+        self._nonnull_paths: set = set()
+        # Symbol identities whose storage address has escaped. A later call can
+        # rebind those locals indirectly, so nullable refinements for them are
+        # not stable across calls.
+        self._address_escaped_symbol_ids: set[int] = set()
         self.enum_table: dict[str, list[str]] = {}
         self.interface_table: dict[str, InterfaceInfo] = {}
         self.rich_enum_table: dict[str, RichEnumDecl] = {}
@@ -165,6 +184,10 @@ class AnalyzerBase:
         # nothing. The LSP flips it on before analyzing the user program.
         self.record_occurrences: bool = False
         self.occurrences: dict[int, Occurrence] = {}
+        # Stack of (outer symbol map, captured type map) for nested lambdas.
+        # Symbol identity, not spelling, distinguishes a true capture from a
+        # lambda-local declaration that shadows an outer name.
+        self._lambda_contexts: list[tuple[dict[str, SymbolInfo], dict[str, TypeExpr]]] = []
 
     def analyze(self, program: Program) -> AnalyzedProgram:
         # Source of definition sites for top-level names when recording
@@ -173,13 +196,23 @@ class AnalyzerBase:
         self._recording_program = program
         self._decl_index_cache = None
         self._register_declarations(program)
+        # Registered types are a shared inference context. Normalize all of
+        # them before any declaration body is analyzed so generic dispatch is
+        # independent of source/import order.
+        self._normalize_registered_types(program)
+        self._validate_registered_declarations(program)
         self._resolve_interface_parents(program)
         self._validate_inheritance(program)
         self._validate_interfaces(program)
         self._validate_overrides(program)
         self._compute_cyclable_flags()
+        self._validate_aggregate_declarations(program)
         for decl in self._decls_with_file(program):
             self._analyze_decl(decl)
+        from .generic_instance_closure import close_generic_instance_graph
+
+        close_generic_instance_graph(self)
+        self._validate_generated_c_symbols(program)
         return AnalyzedProgram(
             program=program,
             generic_instances=self.generic_instances,
@@ -187,6 +220,8 @@ class AnalyzerBase:
             generic_method_instances=self.generic_method_instances,
             generic_method_call_args=self.generic_method_call_args,
             function_table=self.function_table,
+            typedef_table=self.typedef_table,
+            struct_table=self.struct_table,
             node_types=self.node_types,
             enum_table=self.enum_table,
             interface_table=self.interface_table,
@@ -205,60 +240,13 @@ class AnalyzerBase:
         them, so analysis treats them as no-ops everywhere.
         """
         from ..ast_nodes import ImportDecl
+
         for decl in program.declarations:
             if isinstance(decl, ImportDecl):
                 continue
             self.current_source_file = getattr(decl, "source_file", None)
             yield decl
         self.current_source_file = None
-
-    def _compute_cyclable_flags(self):
-        """Mark classes that can participate in reference cycles.
-
-        A class is cyclable iff it can reach *itself* by following class-typed
-        field references (directly via a self field, or transitively through a
-        chain of classes that loops back). That, and only that, is what lets a
-        live instance sit in a retain cycle, so it is exactly the set of classes
-        the ARC cycle collector must emit a visitor for.
-
-        Note this is NOT the same as "references a cyclable class": a class that
-        merely points *into* someone else's cycle (e.g. ``D`` with a field of
-        cyclable type ``C`` where nothing points back to ``D``) is never itself
-        part of a cycle and must stay non-cyclable. The per-class reachability
-        search below already computes the transitive closure, so a single pass
-        is exhaustive — no outer fixed-point iteration is needed.
-        """
-        # Build adjacency: class → set of class types referenced in its fields
-        refs: dict[str, set[str]] = {}
-        for name, ci in self.class_table.items():
-            field_types: set[str] = set()
-            for _fn, fd in ci.fields.items():
-                if fd.type and fd.type.base in self.class_table:
-                    field_types.add(fd.type.base)
-                # Generic type parameter could be anything — can't know statically
-                if fd.type and fd.type.generic_args:
-                    for ga in fd.type.generic_args:
-                        if ga.base in self.class_table:
-                            field_types.add(ga.base)
-            refs[name] = field_types
-
-        # Mark each class that can reach itself through field references. The DFS
-        # explores the full transitive closure from each node, so one pass over
-        # all classes is sufficient (marking one class never changes another
-        # class's self-reachability — that depends only on the static `refs`
-        # graph, which never mutates here).
-        for name in refs:
-            visited: set[str] = set()
-            stack = list(refs.get(name, set()))
-            while stack:
-                cur = stack.pop()
-                if cur in visited:
-                    continue
-                visited.add(cur)
-                if cur == name:
-                    self.class_table[name].is_cyclable = True
-                    break
-                stack.extend(refs.get(cur, set()))
 
     def _error(self, msg: str, line: int = 0, col: int = 0):
         self.errors.append(f"{msg} at {line}:{col}")
@@ -272,17 +260,22 @@ class AnalyzerBase:
         self.scope = Scope(parent=self.scope)
 
     def _pop_scope(self):
+        forget = getattr(self, "_forget_nonnull_symbols", None)
+        if forget is not None:
+            forget(self.scope.symbols.values())
         self.scope = self.scope.parent
 
-    def _local_symbol(
-        self, name: str, type_: TypeExpr, kind: str, line: int = 0, col: int = 0
-    ) -> SymbolInfo:
+    def _local_symbol(self, name: str, type_: TypeExpr, kind: str, line: int = 0, col: int = 0) -> SymbolInfo:
         """SymbolInfo for a locally-defined symbol, stamped with its def site.
 
         The def site is the (line, col) of the name in the current source file,
         so a later occurrence lookup can point exactly at the declaration.
         """
         return SymbolInfo(
-            name, type_, kind,
-            decl_line=line, decl_col=col, decl_file=self.current_source_file,
+            name,
+            type_,
+            kind,
+            decl_line=line,
+            decl_col=col,
+            decl_file=self.current_source_file,
         )

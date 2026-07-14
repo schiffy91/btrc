@@ -30,6 +30,28 @@ int main() {
     assert(PathTools.join("", "b").equals("b"));
     assert(PathTools.join("a", "").equals("a"));
 
+    // Platform-independent probes cover drive, UNC, and drive-relative forms.
+    assert(PathTools.isAbsoluteFor("C:\\a\\b", true));
+    assert(PathTools.isAbsoluteFor("\\\\host\\share\\a", true));
+    assert(!PathTools.isAbsoluteFor("C:a", true));
+    assert(!PathTools.isAbsoluteFor("a/b", true));
+    assert(PathTools.isAbsoluteFor("/a/b", false));
+    assert(!PathTools.isAbsoluteFor("a\\b", false));
+    assert(PathTools.isRootRelativeFor("\\a", true));
+    assert(PathTools.rootLengthFor("C:\\", true) == 3);
+    assert(PathTools.rootLengthFor("C:relative", true) == 2);
+    assert(PathTools.rootLengthFor("\\\\host\\share\\a", true) == 12);
+    assert(PathTools.joinFor("C:\\base", "C:tail", true)
+        .equals("C:\\base\\tail"));
+    assert(PathTools.joinFor("C:\\base", "D:tail", true)
+        .equals("D:tail"));
+    assert(PathTools.joinFor("C:", "tail", true).equals("C:tail"));
+    assert(PathTools.joinFor("C:\\base", "\\tail", true)
+        .equals("C:\\tail"));
+    assert(PathTools.joinFor("\\\\host\\share\\dir", "\\tail", true)
+        .equals("\\\\host\\share\\tail"));
+    assert(PathTools.joinFor("/base", "tail", false).equals("/base/tail"));
+
     print("PASS: test_stdlib_path_edges");
     return 0;
 }

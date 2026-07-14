@@ -1,0 +1,285 @@
+/* Semantics-preserving WGSL expression lowering. Side-effecting expressions
+ * may append prerequisite WGSL statements and return a fresh value name. */
+
+string gpuExprBase(GpuWgsl out, Node expression) {
+    Node? type = out.typeOf(expression);
+    if (type != null) { return type.base; }
+    if (expression.kind == NK_BOOL_LITERAL) { return "bool"; }
+    if (expression.kind == NK_FLOAT_LITERAL) { return "float"; }
+    if (expression.kind == NK_INT_LITERAL) { return "int"; }
+    return "";
+}
+
+string gpuCoerceText(string value, string source, string target) {
+    if (source == "" || target == "" || source == target) { return value; }
+    if (source == "bool" && target == "int") {
+        return "select(0, 1, " + value + ")";
+    }
+    if (source == "bool" && target == "float") {
+        return "select(0.0, 1.0, " + value + ")";
+    }
+    if (target == "bool" && source == "int") {
+        return "(" + value + " != 0)";
+    }
+    if (target == "bool" && source == "float") {
+        return "(" + value + " != 0.0)";
+    }
+    if (source == "int" && target == "float") { return "f32(" + value + ")"; }
+    if (source == "float" && target == "int") { return "i32(" + value + ")"; }
+    return value;
+}
+
+string gpuCheckedArithmetic(GpuWgsl out, Node expression,
+        string left, string right) {
+    string leftName = out.freshValue();
+    string rightName = out.freshValue();
+    string result = out.freshValue();
+    out.line("let " + leftName + ": i32 = " + left + ";");
+    out.line("let " + rightName + ": i32 = " + right + ";");
+    out.line("var " + result + ": i32 = 0;");
+    int zeroCode = 2;
+    if (expression.op == "%") { zeroCode = 3; }
+    out.line("if (" + rightName + " == 0) {");
+    out.indent = out.indent + 1;
+    out.line("atomicMax(&btrc_status.code, "
+        + Strings.fromInt(zeroCode) + "u);");
+    out.indent = out.indent - 1;
+    out.line("} else if (" + leftName
+        + " == -2147483648 && " + rightName + " == -1) {");
+    out.indent = out.indent + 1;
+    if (expression.op == "/") {
+        out.line("atomicMax(&btrc_status.code, 4u);");
+    } else {
+        out.line(result + " = 0;");
+    }
+    out.indent = out.indent - 1;
+    out.line("} else {");
+    out.indent = out.indent + 1;
+    out.line(result + " = " + leftName + " " + expression.op
+        + " " + rightName + ";");
+    out.indent = out.indent - 1;
+    out.line("}");
+    return result;
+}
+
+string gpuCheckedIndex(GpuWgsl out, Node expression) {
+    if (expression.obj == null || expression.obj.kind != NK_IDENTIFIER) {
+        gpuLoweringFail(expression, "GPU indexing requires an array parameter");
+    }
+    string source = expression.obj.name;
+    if (!out.arrayLengths.has(source)) {
+        gpuLoweringFail(expression, "GPU indexing requires an array parameter");
+    }
+    Node? arrayType = out.typeOf(expression.obj);
+    string element = gpuWgslElementType(arrayType);
+    string indexValue = out.expr(expression.index);
+    string indexName = out.freshValue();
+    string result = out.freshValue();
+    string length = "uniforms." + out.arrayLengths.get(source);
+    out.line("let " + indexName + ": i32 = " + indexValue + ";");
+    out.line("var " + result + ": " + element + ";");
+    out.line("if (" + indexName + " < 0 || " + indexName
+        + " >= " + length + ") {");
+    out.indent = out.indent + 1;
+    out.line("atomicMax(&btrc_status.code, 1u);");
+    out.line(result + " = " + (element == "f32" ? "0.0" : "0") + ";");
+    out.indent = out.indent - 1;
+    out.line("} else {");
+    out.indent = out.indent + 1;
+    out.line(result + " = " + out.lookupName(expression.obj, source)
+        + "[" + indexName + "];");
+    out.indent = out.indent - 1;
+    out.line("}");
+    return result;
+}
+
+string gpuWgslBinary(GpuWgsl out, Node expression) {
+    if (expression.op == "&&" || expression.op == "||") {
+        if (gpuExprBase(out, expression.left) != "bool"
+                || gpuExprBase(out, expression.right) != "bool") {
+            gpuLoweringFail(expression,
+                "GPU logical operators require bool operands");
+        }
+        string left = out.expr(expression.left);
+        string result = out.freshValue();
+        out.line("var " + result + ": bool = " + left + ";");
+        string condition = result;
+        if (expression.op == "||") { condition = "!" + result; }
+        out.line("if (" + condition + ") {");
+        out.indent = out.indent + 1;
+        string rightLazy = out.expr(expression.right);
+        out.line(result + " = " + rightLazy + ";");
+        out.indent = out.indent - 1;
+        out.line("}");
+        return result;
+    }
+    string leftType = gpuExprBase(out, expression.left);
+    string rightType = gpuExprBase(out, expression.right);
+    string left = out.expr(expression.left);
+    string right = out.expr(expression.right);
+    gpuValidateBinaryTypes(expression, leftType, rightType);
+    if ((expression.op == "/" || expression.op == "%")
+            && leftType == "int" && rightType == "int") {
+        return gpuCheckedArithmetic(out, expression, left, right);
+    }
+    bool allowed = expression.op == "+" || expression.op == "-"
+        || expression.op == "*" || expression.op == "/"
+        || expression.op == "%" || expression.op == "=="
+        || expression.op == "!=" || expression.op == "<"
+        || expression.op == ">" || expression.op == "<="
+        || expression.op == ">=" || expression.op == "&"
+        || expression.op == "|" || expression.op == "^"
+        || expression.op == "<<" || expression.op == ">>";
+    if (!allowed) { gpuLoweringFail(expression, "operator has no WGSL definition"); }
+    if (expression.op == "^" && leftType == "bool") {
+        return "(" + left + " != " + right + ")";
+    }
+    if (expression.op == "<<" || expression.op == ">>") {
+        right = "u32(" + right + ")";
+    } else if ((leftType == "int" && rightType == "float")
+            || (leftType == "float" && rightType == "int")) {
+        left = gpuCoerceText(left, leftType, "float");
+        right = gpuCoerceText(right, rightType, "float");
+    }
+    return "(" + left + " " + expression.op + " " + right + ")";
+}
+
+string gpuWgslCall(GpuWgsl out, Node expression) {
+    if (expression.callee == null || expression.callee.kind != NK_IDENTIFIER) {
+        gpuLoweringFail(expression, "indirect and method calls have no WGSL definition");
+    }
+    string name = expression.callee.name;
+    int named = 0;
+    while (named < expression.arg_names.len) {
+        if (expression.arg_names.get(named) != "") {
+            gpuLoweringFail(expression, "WGSL built-ins do not accept named arguments");
+        }
+        named = named + 1;
+    }
+    if (name == "gpu_id") {
+        if (expression.args.len != 0) {
+            gpuLoweringFail(expression, "gpu_id() takes no arguments");
+        }
+        return "btrc_gid";
+    }
+    if (!gpuBuiltin(name) || out.analyzed.funcNames.has(name)
+            || out.names.has(name)) {
+        gpuLoweringFail(expression, "call to '" + name
+            + "' has no WGSL definition");
+    }
+    int arity = gpuBuiltinArity(name);
+    if (expression.args.len != arity) {
+        gpuLoweringFail(expression, name + "() expects "
+            + Strings.fromInt(arity) + " argument(s)");
+    }
+    string expectedBase = "";
+    int typeIndex = 0;
+    while (typeIndex < expression.args.len) {
+        string actual = gpuExprBase(out, expression.args.get(typeIndex));
+        if (gpuFloatBuiltin(name) && actual != "float") {
+            gpuLoweringFail(expression,
+                name + "() requires float arguments in GPU functions");
+        }
+        if (gpuSameTypeBuiltin(name)) {
+            if (actual != "int" && actual != "float") {
+                gpuLoweringFail(expression,
+                    name + "() requires int or float arguments in GPU functions");
+            }
+            if (expectedBase == "") { expectedBase = actual; }
+            else if (actual != expectedBase) {
+                gpuLoweringFail(expression,
+                    name + "() arguments must have the same GPU scalar type");
+            }
+        }
+        typeIndex = typeIndex + 1;
+    }
+    Vector<string> rendered = [];
+    int i = 0;
+    while (i < expression.args.len) {
+        rendered.push(out.expr(expression.args.get(i)));
+        i = i + 1;
+    }
+    if (name == "round") {
+        string value = out.freshValue();
+        out.line("let " + value + ": f32 = " + rendered.get(0) + ";");
+        return "select(select(ceil(" + value + " - 0.5), floor("
+            + value + " + 0.5), " + value + " >= 0.0), " + value
+            + ", " + value + " == 0.0)";
+    }
+    string args = "";
+    int a = 0;
+    while (a < rendered.len) {
+        if (a > 0) { args = args + ", "; }
+        args = args + rendered.get(a);
+        a = a + 1;
+    }
+    return name + "(" + args + ")";
+}
+
+string gpuWgslExpr(GpuWgsl out, Node expression) {
+    if (expression == null) { gpuLoweringFail(expression, "missing WGSL expression"); }
+    if (expression.kind == NK_INT_LITERAL) { return Strings.fromInt(expression.value_int); }
+    if (expression.kind == NK_FLOAT_LITERAL) {
+        return gpuWgslFloatLiteral(expression);
+    }
+    if (expression.kind == NK_BOOL_LITERAL) {
+        if (expression.value_bool) { return "true"; }
+        return "false";
+    }
+    if (expression.kind == NK_IDENTIFIER) {
+        string mapped = out.lookupName(expression, expression.name);
+        if (out.uniforms.has(expression.name)) {
+            mapped = "uniforms." + mapped;
+            if (out.boolUniforms.has(expression.name)) {
+                mapped = "(" + mapped + " != 0u)";
+            }
+        }
+        return mapped;
+    }
+    if (expression.kind == NK_BINARY_EXPR) { return gpuWgslBinary(out, expression); }
+    if (expression.kind == NK_INDEX_EXPR) { return gpuCheckedIndex(out, expression); }
+    if (expression.kind == NK_CALL_EXPR) { return gpuWgslCall(out, expression); }
+    if (expression.kind == NK_UNARY_EXPR) {
+        string operand = out.expr(expression.operand);
+        if (expression.op == "+") { return operand; }
+        if (expression.op == "!" || expression.op == "~" || expression.op == "-") {
+            return "(" + expression.op + operand + ")";
+        }
+        if (expression.op == "++" || expression.op == "--") {
+            if (gpuExprBase(out, expression.operand) == "float") {
+                return operand + (expression.op == "++" ? " += 1.0" : " -= 1.0");
+            }
+            return operand + expression.op;
+        }
+        gpuLoweringFail(expression, "unary operator has no WGSL definition");
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        string condition = out.expr(expression.condition);
+        string result = out.freshValue();
+        string target = gpuExprBase(out, expression);
+        if (target == "") { target = gpuExprBase(out, expression.true_expr); }
+        Node targetNode = makePrimType(target);
+        out.line("var " + result + ": " + gpuWgslScalarType(targetNode) + ";");
+        out.line("if (" + condition + ") {");
+        out.indent = out.indent + 1;
+        string yes = out.expr(expression.true_expr);
+        yes = gpuCoerceText(yes, gpuExprBase(out, expression.true_expr), target);
+        out.line(result + " = " + yes + ";");
+        out.indent = out.indent - 1;
+        out.line("} else {");
+        out.indent = out.indent + 1;
+        string no = out.expr(expression.false_expr);
+        no = gpuCoerceText(no, gpuExprBase(out, expression.false_expr), target);
+        out.line(result + " = " + no + ";");
+        out.indent = out.indent - 1;
+        out.line("}");
+        return result;
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        string value = out.expr(expression.expr);
+        return gpuCoerceText(value, gpuExprBase(out, expression.expr),
+            expression.target_type.base);
+    }
+    gpuLoweringFail(expression, "expression has no WGSL definition");
+    return "0";
+}

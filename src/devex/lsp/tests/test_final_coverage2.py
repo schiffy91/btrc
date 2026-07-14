@@ -17,7 +17,7 @@ def test_signature_static_method_via_class_name():
         "class Mathy {\n"
         "    public int base;\n"
         "    public Mathy(int base) { self.base = base; }\n"
-        "    public int addp(int a, int b) { return a + b; }\n"
+        "    class int addp(int a, int b) { return a + b; }\n"
         "}\n"
         "int main() { return Mathy.addp(1, 2); }\n"
     )

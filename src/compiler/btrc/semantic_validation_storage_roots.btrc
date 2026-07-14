@@ -1,0 +1,91 @@
+/* Mutation target categories, owner lifetime roots, and receiver constness. */
+
+bool semanticIsLvalue(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    if (expression.kind == NK_IDENTIFIER) {
+        return semanticIdentifierStorage(expression.name, state, vars);
+    }
+    if (expression.kind == NK_INDEX_EXPR) {
+        return semanticIsProtocolIndexProjection(expression, state, vars)
+            || semanticIsAddressableStorage(expression, state, vars);
+    }
+    if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+        if (expression.optional) { return false; }
+        if (semanticIsPropertyProjection(expression, state, vars)) {
+            return true;
+        }
+        return semanticIsAddressableStorage(expression, state, vars);
+    }
+    return expression.kind == NK_UNARY_EXPR && expression.op == "*";
+}
+
+bool semanticHasTemporaryManagedOwner(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    Node? resultType = semanticInferType(expression, state, vars);
+    resultType = semanticResolveAliases(resultType, state);
+    bool managedResult = resultType != null
+        && (state.analyzed.isClass(resultType.base)
+            || state.analyzed.isGenericClass(resultType.base));
+    if ((expression.kind == NK_CALL_EXPR
+            || expression.kind == NK_NEW_EXPR) && managedResult) {
+        return true;
+    }
+    if (expression.kind == NK_INDEX_EXPR) {
+        if (managedResult && semanticIsProtocolIndexProjection(
+                expression, state, vars)) {
+            return true;
+        }
+        return semanticHasTemporaryManagedOwner(
+            expression.obj, state, vars);
+    }
+    if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+        return semanticHasTemporaryManagedOwner(
+            expression.obj, state, vars);
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        return semanticHasTemporaryManagedOwner(
+            expression.expr, state, vars);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        return semanticHasTemporaryManagedOwner(
+                expression.true_expr, state, vars)
+            || semanticHasTemporaryManagedOwner(
+                expression.false_expr, state, vars);
+    }
+    if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+        return semanticHasTemporaryManagedOwner(
+                expression.left, state, vars)
+            || semanticHasTemporaryManagedOwner(
+                expression.right, state, vars);
+    }
+    return false;
+}
+
+bool semanticIsLifetimeStableStorage(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    return semanticIsAddressableStorage(expression, state, vars)
+        && !semanticHasTemporaryManagedOwner(expression, state, vars);
+}
+
+bool semanticTargetHasConstReceiver(Node? target,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (target == null) { return false; }
+    if (target.kind != NK_FIELD_ACCESS_EXPR
+            && target.kind != NK_INDEX_EXPR) {
+        return false;
+    }
+    Node? receiverType = semanticInferType(target.obj, state, vars);
+    receiverType = semanticResolveAliases(receiverType, state);
+    if (receiverType != null && receiverType.is_const) { return true; }
+    return semanticTargetHasConstReceiver(target.obj, state, vars);
+}
+
+void semanticValidateTargetReceiverMutability(Node? target,
+        SemanticValidationState state, Map<string, Node> vars, Node site) {
+    if (semanticTargetHasConstReceiver(target, state, vars)) {
+        semanticValidationFail(
+            "Cannot modify through a const-qualified receiver", site);
+    }
+}

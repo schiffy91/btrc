@@ -86,4 +86,4 @@ int main() {
 
 def test_def_typedef_usage_resolves_to_decl():
     loc = get_definition(analyze(DECLS), pos_of(DECLS, "Id n", offset=0))
-    assert loc is not None and loc.range.start.line == 4   # `typedef int Id;`
+    assert loc is not None and loc.range.start.line == 4  # `typedef int Id;`

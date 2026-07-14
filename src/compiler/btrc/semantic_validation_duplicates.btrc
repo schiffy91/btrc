@@ -1,0 +1,260 @@
+/* Duplicate declaration and override-signature contracts. */
+
+bool semanticDefaultExpressionSame(Node? left, Node? right) {
+    if (left == null || right == null) { return true; }
+    if (left.kind != right.kind) { return false; }
+    if (left.kind == NK_NULL_LITERAL) { return true; }
+    if (left.kind == NK_INT_LITERAL) { return left.raw == right.raw; }
+    if (left.kind == NK_FLOAT_LITERAL) { return left.raw == right.raw; }
+    if (left.kind == NK_BOOL_LITERAL) {
+        return left.value_bool == right.value_bool;
+    }
+    if (left.kind == NK_STRING_LITERAL || left.kind == NK_CHAR_LITERAL) {
+        return left.value_string == right.value_string;
+    }
+    if (left.kind == NK_IDENTIFIER) { return left.name == right.name; }
+    if (left.kind == NK_UNARY_EXPR) {
+        return left.op == right.op
+            && semanticDefaultExpressionSame(left.operand, right.operand);
+    }
+    if (left.kind == NK_BINARY_EXPR) {
+        return left.op == right.op
+            && semanticDefaultExpressionSame(left.left, right.left)
+            && semanticDefaultExpressionSame(left.right, right.right);
+    }
+    if (left.kind == NK_FIELD_ACCESS_EXPR) {
+        return left.field == right.field && left.arrow == right.arrow
+            && left.optional == right.optional
+            && semanticDefaultExpressionSame(left.obj, right.obj);
+    }
+    return false;
+}
+
+void semanticMergeCallableDefaults(Node definition, Node declaration) {
+    int index = 0;
+    while (index < definition.params.len
+            && index < declaration.params.len) {
+        Node target = definition.params.get(index);
+        Node source = declaration.params.get(index);
+        if (target.default_ == null && source.default_ != null) {
+            target.default_ = source.default_;
+        }
+        index = index + 1;
+    }
+}
+
+bool semanticExternOnlyGlobal(Node declaration) {
+    return declaration.kind == NK_VAR_DECL_STMT
+        && declaration.type != null && declaration.type.is_extern
+        && declaration.initializer == null;
+}
+
+bool semanticGlobalTypesSame(Node left, Node right,
+        SemanticValidationState state) {
+    if (left.type == null || right.type == null) {
+        return left.type == null && right.type == null;
+    }
+    Node leftType = copyTypeExpr(left.type);
+    Node rightType = copyTypeExpr(right.type);
+    leftType.is_extern = false;
+    rightType.is_extern = false;
+    return semanticAliasTypesSame(leftType, rightType, state);
+}
+
+bool semanticCallableSignatureSame(Node left, Node right,
+        SemanticValidationState state) {
+    if (left.return_type == null || right.return_type == null
+            || !semanticAliasTypesSame(
+                left.return_type, right.return_type, state)
+            || left.params.len != right.params.len
+            || left.keep_return != right.keep_return
+            || left.is_gpu != right.is_gpu) {
+        return false;
+    }
+    int index = 0;
+    while (index < left.params.len) {
+        Node leftParam = left.params.get(index);
+        Node rightParam = right.params.get(index);
+        if (!semanticAliasTypesSame(leftParam.type, rightParam.type, state)
+                || leftParam.name != rightParam.name
+                || leftParam.keep_ != rightParam.keep_
+                || !semanticDefaultExpressionSame(
+                    leftParam.default_, rightParam.default_)) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+bool semanticNamedTopLevel(Node declaration) {
+    return declaration.kind == NK_CLASS_DECL
+        || declaration.kind == NK_INTERFACE_DECL
+        || declaration.kind == NK_FUNCTION_DECL
+        || declaration.kind == NK_STRUCT_DECL
+        || declaration.kind == NK_ENUM_DECL
+        || declaration.kind == NK_RICH_ENUM_DECL
+        || declaration.kind == NK_TYPEDEF_DECL
+        || declaration.kind == NK_VAR_DECL_STMT;
+}
+
+string semanticTopLevelName(Node declaration) {
+    if (declaration.kind == NK_TYPEDEF_DECL) { return declaration.alias; }
+    return declaration.name;
+}
+
+void semanticValidateTopLevelDuplicates(
+        Node program, SemanticValidationState state) {
+    Map<string, Node> declarations = {};
+    Map<string, Node> globalDefinitions = {};
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (semanticNamedTopLevel(declaration)) {
+            string name = semanticTopLevelName(declaration);
+            if (declaration.kind == NK_STRUCT_DECL
+                    && !declaration.is_forward
+                    && declaration.fields.len == 0) {
+                semanticValidationFail(
+                    "Struct definition '" + name
+                    + "' must contain at least one field", declaration);
+            }
+            if (declarations.has(name)) {
+                Node previous = declarations.get(name);
+                bool globalPair = declaration.kind == NK_VAR_DECL_STMT
+                    && previous.kind == NK_VAR_DECL_STMT;
+                if (globalPair) {
+                    if (!semanticGlobalTypesSame(
+                            declaration, previous, state)) {
+                        semanticValidationFail(
+                            "Conflicting types for global '" + name + "'",
+                            declaration);
+                    }
+                    if (!semanticExternOnlyGlobal(declaration)) {
+                        if (globalDefinitions.has(name)) {
+                            semanticValidationFail(
+                                "Duplicate definition of global '"
+                                    + name + "'", declaration);
+                        }
+                        globalDefinitions.put(name, declaration);
+                        declarations.put(name, declaration);
+                        if (declaration.type != null) {
+                            state.analyzed.globalVarTypes.put(
+                                name, declaration.type);
+                        }
+                    }
+                    index = index + 1;
+                    continue;
+                }
+                bool structPair = declaration.kind == NK_STRUCT_DECL
+                    && previous.kind == NK_STRUCT_DECL;
+                if (structPair) {
+                    if (!declaration.is_forward && !previous.is_forward) {
+                        semanticValidationFail(
+                            "Duplicate struct definition '" + name + "'",
+                            declaration);
+                    }
+                    /* Any number of compatible tag forwards may surround the
+                     * single complete definition.  Retain the definition so a
+                     * later forward cannot erase its field information. */
+                    if (!declaration.is_forward) {
+                        declarations.put(name, declaration);
+                    }
+                    index = index + 1;
+                    continue;
+                }
+                bool forwardPair = declaration.kind == NK_FUNCTION_DECL
+                    && previous.kind == NK_FUNCTION_DECL
+                    && ((declaration.body_node == null)
+                        != (previous.body_node == null));
+                if (!forwardPair
+                        || !semanticCallableSignatureSame(
+                            declaration, previous, state)) {
+                    semanticValidationFail(
+                        "Duplicate top-level declaration '" + name + "'",
+                        declaration);
+                }
+                Node definition = previous;
+                Node prototype = declaration;
+                if (declaration.body_node != null) {
+                    definition = declaration;
+                    prototype = previous;
+                }
+                semanticMergeCallableDefaults(definition, prototype);
+                state.analyzed.funcTable.put(name, definition);
+                state.analyzed.funcRetTypes.put(name, definition.return_type);
+                if (previous.body_node == null) {
+                    declarations.put(name, declaration);
+                }
+            } else {
+                declarations.put(name, declaration);
+                if (declaration.kind == NK_VAR_DECL_STMT
+                        && !semanticExternOnlyGlobal(declaration)) {
+                    globalDefinitions.put(name, declaration);
+                }
+            }
+        }
+        index = index + 1;
+    }
+}
+
+void semanticValidateClassMemberDuplicates(Node declaration) {
+    Map<string, Node> members = {};
+    int index = 0;
+    while (index < declaration.members.len) {
+        Node member = declaration.members.get(index);
+        /* Fields/properties and methods occupy separate source namespaces:
+         * `map.keys` names the backing field while `map.keys()` names the
+         * collection method.  Reject duplicates within either namespace. */
+        string namespace = "value:";
+        if (member.kind == NK_METHOD_DECL) { namespace = "method:"; }
+        string key = namespace + member.name;
+        if (members.has(key)) {
+            semanticValidationFail("Duplicate member '" + declaration.name
+                + "." + member.name + "'", member);
+        }
+        members.put(key, member);
+        index = index + 1;
+    }
+}
+
+void semanticValidateClassOverrides(Node declaration,
+        SemanticValidationState state) {
+    string parent = parentName(declaration);
+    if (parent == "" || !state.analyzed.classTable.has(parent)) { return; }
+    int index = 0;
+    while (index < declaration.members.len) {
+        Node member = declaration.members.get(index);
+        if (member.kind == NK_METHOD_DECL && !member.is_constructor) {
+            Node? inherited = semanticInheritedClassMember(
+                parent, member.name, state.analyzed);
+            if (inherited != null && inherited.kind == NK_METHOD_DECL) {
+                Node inheritedMethod = inherited;
+                if (!semanticCallableSignatureSame(
+                        member, inheritedMethod, state)
+                        || (member.access == "class")
+                            != (inheritedMethod.access == "class")) {
+                    semanticValidationFail("Override '" + declaration.name
+                        + "." + member.name
+                        + "' does not match inherited signature", member);
+                }
+            }
+        }
+        index = index + 1;
+    }
+}
+
+void semanticValidateDeclarationDuplicates(Node program,
+        SemanticValidationState state) {
+    semanticValidateTopLevelDuplicates(program, state);
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_CLASS_DECL) {
+            semanticValidateClassMemberDuplicates(declaration);
+            semanticValidateClassStorage(declaration, state);
+            semanticValidateClassOverrides(declaration, state);
+        }
+        index = index + 1;
+    }
+}

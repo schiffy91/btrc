@@ -1,0 +1,168 @@
+/* HTTPS-capable curl client and platform browser launcher. */
+import std.fs;
+import std.process;
+import std.strings;
+import std.vector;
+
+#include <sys/stat.h>
+
+class HttpClientResponse {
+    public int status;
+    public string body;
+    public string error;
+
+    public HttpClientResponse(int status, string body, string error) {
+        self.status = status;
+        self.body = body;
+        self.error = error;
+    }
+
+    public bool ok() {
+        return self.status >= 200 && self.status < 300;
+    }
+}
+
+class HttpClient {
+    public int timeoutSecs;
+    public int maxRequestBytes;
+    public int maxResponseBytes;
+
+    public HttpClient() {
+        self.timeoutSecs = 120;
+        self.maxRequestBytes = 8388608;
+        self.maxResponseBytes = 8388608;
+    }
+
+    public HttpClient timeout(int secs) {
+        if (secs < 1) { secs = 1; }
+        if (secs > 86400) { secs = 86400; }
+        self.timeoutSecs = secs;
+        return self;
+    }
+
+    public HttpClientResponse request(string method, string url,
+                                      Vector<string> headers, string body) {
+        if (!HttpFraming.token(method) || method.len() > 64) {
+            return HttpClientResponse(0, "", "invalid HTTP method");
+        }
+        if (!HttpFraming.requestTarget(url) || url.len() > 8192) {
+            return HttpClientResponse(0, "", "invalid URL");
+        }
+        if (self.maxRequestBytes < 0 || self.maxResponseBytes < 0) {
+            return HttpClientResponse(0, "", "HTTP size limits cannot be negative");
+        }
+        if (headers == null) {
+            return HttpClientResponse(0, "", "headers cannot be null");
+        }
+        int headerBytes = 0;
+        for header in headers {
+            if (!HttpFraming.headerLine(header)) {
+                return HttpClientResponse(0, "", "invalid HTTP header");
+            }
+            if (header.len() > 65536 - headerBytes) {
+                return HttpClientResponse(0, "", "HTTP headers are too large");
+            }
+            headerBytes = headerBytes + header.len();
+        }
+        if (body != null
+                && (size_t)strlen(body) > (size_t)self.maxRequestBytes) {
+            return HttpClientResponse(0, "", "request body is too large");
+        }
+        var dir = FileSystem.tempDir("btrchttp");
+        if (dir.isEmpty()) {
+            return HttpClientResponse(0, "", "could not create temp dir");
+        }
+        /* Everything below runs inside try/finally so the temp dir is removed on
+         * every exit path — normal return, early error return, or an exception
+         * thrown by any step (curl/process/fs). Previously a throw left the temp
+         * dir leaked. */
+        int status = 0;
+        string responseBody = "";
+        string error = "";
+        try {
+            var outFile = PathTools.join(dir, "resp.bin");
+            var bodyFile = PathTools.join(dir, "req.bin");
+            string requestBody = body == null ? "" : body;
+            var hasBody = !requestBody.isEmpty();
+            int curlResponseLimit = self.maxResponseBytes > 0
+                ? self.maxResponseBytes : 1;
+            int curlTimeout = self.timeoutSecs;
+            if (curlTimeout < 1) { curlTimeout = 1; }
+            if (curlTimeout > 86400) { curlTimeout = 86400; }
+            if (hasBody && !FileSystem.writeText(bodyFile, requestBody)) {
+                error = "could not write request body";
+                return HttpClientResponse(0, "", error);
+            }
+
+            var command = Command("curl -sS")
+                .flag("--max-time", Strings.fromInt(curlTimeout))
+                .flag("--max-filesize", Strings.fromInt(curlResponseLimit))
+                .flag("-X", method)
+                .flag("-o", outFile)
+                .flag("-w", "%{http_code}");
+            for h in headers {
+                command.flag("-H", h);
+            }
+            if (hasBody) {
+                command.flag("--data-binary", "@" + bodyFile);
+            }
+            command.arg(url);
+
+            var result = UnixShell().run(command, stderr=CommandOutput.stream(), logFailure=false);
+            string statusText = result.stdout().trim();
+            bool validStatus = statusText.len() == 3;
+            for ch in statusText {
+                if (ch < '0' || ch > '9') { validStatus = false; }
+            }
+            if (validStatus) { status = Strings.toInt(statusText); }
+            if (status < 100 || status > 599) { status = 0; }
+
+            if (result.code != 0) {
+                error = f"curl failed (exit {result.code})";
+            } else if (status == 0) {
+                error = "curl returned an invalid HTTP status";
+            } else if (FileSystem.exists(outFile)) {
+                struct stat responseStatus;
+                if (stat(outFile, &responseStatus) != 0) {
+                    status = 0;
+                    error = "could not inspect response body";
+                } else if (responseStatus.st_size < 0
+                        || responseStatus.st_size > (off_t)self.maxResponseBytes) {
+                    status = 0;
+                    error = "response body is too large";
+                } else {
+                    responseBody = FileSystem.readText(outFile);
+                }
+            } else {
+                status = 0;
+                error = "curl did not produce a response body file";
+            }
+        } finally {
+            FileSystem.removeRecursive(dir);
+        }
+        return HttpClientResponse(status, responseBody, error);
+    }
+
+    public HttpClientResponse post(string url, Vector<string> headers, string body) {
+        return self.request("POST", url, headers, body);
+    }
+
+    public HttpClientResponse get(string url, Vector<string> headers) {
+        return self.request("GET", url, headers, "");
+    }
+}
+
+class Browser {
+    class void open(string url) {
+        if (url == null || url.isEmpty()) { return; }
+        var u = UnixShell().run("uname -s", logFailure=false);
+        var kernel = u.stdout().trim();
+        var opener = "xdg-open";
+        if (kernel.equals("Darwin")) { opener = "open"; }
+        if (kernel.contains("MINGW") || kernel.contains("MSYS") || kernel.contains("CYGWIN")) {
+            opener = "start";
+        }
+        var command = Command(opener).arg(url);
+        UnixShell().run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
+    }
+}

@@ -1,0 +1,55 @@
+/* Binary PPM P6 round-trips, comments/CRLF, and adversarial header bounds. */
+import std.image;
+import std.fs;
+
+#include <assert.h>
+
+int main() {
+    Image source = Image(2, 1);
+    /* First raster byte is ASCII whitespace: decoding must not skip it. */
+    source.setRGBA(0, 0, 32, 0, 255, 255);
+    source.setRGBA(1, 0, 35, 10, 13, 255);
+
+    Bytes encoded = ImageIO.encodePpm(source);
+    assert(encoded.length() == 17);
+    assert(encoded.get(0) == 80 && encoded.get(1) == 54);
+    assert(encoded.get(11) == 32);
+    ImageLoad decoded = ImageIO.decodePpm(encoded);
+    assert(decoded.ok());
+    assert(decoded.image.diff(source).exact());
+    assert(ImageIO.decode(encoded).ok());
+
+    Bytes commented = Bytes.fromString("P6\n# generated fixture\n1 1\n255\r\n");
+    commented.append(35);  /* '#' is raster, not another comment. */
+    commented.append(9);
+    commented.append(10);
+    ImageLoad commentDecoded = ImageIO.decodePpm(commented);
+    assert(commentDecoded.ok());
+    assert(commentDecoded.image.pixel(0, 0).equals(RGBA(35, 9, 10, 255)));
+
+    Bytes truncated = encoded.slice(0, encoded.length() - 1);
+    ImageLoad shortRead = ImageIO.decodePpm(truncated);
+    assert(!shortRead.ok());
+    assert(shortRead.error.equals("PPM raster is truncated"));
+
+    assert(!ImageIO.decodePpm(Bytes.fromString("P3\n1 1\n255\n0 0 0")).ok());
+    assert(!ImageIO.decodePpm(Bytes.fromString("P61 1\n255\nabc")).ok());
+    assert(!ImageIO.decodePpm(Bytes.fromString("P6\n1 1\n65535\nabc")).ok());
+    assert(!ImageIO.decodePpm(Bytes.fromString(
+        "P6\n2147483647 2147483647\n255\n")).ok());
+    assert(!ImageIO.decodePpm(Bytes.fromString(
+        "P6\n999999999999999999999 1\n255\n")).ok());
+
+    string dir = FileSystem.tempDir("btrc_image_ppm");
+    assert(FileSystem.isDir(dir));
+    string path = PathTools.join(dir, "evidence.ppm");
+    assert(ImageIO.savePpm(source, path));
+    ImageLoad loaded = ImageIO.load(path);
+    assert(loaded.ok());
+    assert(loaded.image.diff(source).exact());
+    assert(!ImageIO.loadPpm(PathTools.join(dir, "missing.ppm")).ok());
+    FileSystem.removeRecursive(dir);
+
+    print("PASS: test_stdlib_image_ppm");
+    return 0;
+}

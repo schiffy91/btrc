@@ -16,6 +16,8 @@
  *   - _resolve_include_path / _find_stdlib_file / import_spec_paths /
  *     _relative_import_paths / _stdlib_glob_paths / _stdlib_module_path
  *   - import_scan.scan_directives  (comment/string-aware directive location)
+ * Lexical/canonical path rules live in frontend_paths.btrc so drive, UNC, and
+ * separator semantics stay independently testable.
  *
  * btrc gotchas honored throughout:
  *   - string.substring(start, COUNT) takes a LENGTH, not an end index.
@@ -27,7 +29,8 @@
  *
  * Requires the stdlib (FileSystem / PathTools / Strings / Vector / Map) and the
  * btrc lexer (tokens.btrc, ebnf.btrc, lexer.btrc) to be in scope. Include this
- * after those modules; a driver / btrcc wires the grammar in.
+ * after those modules and frontend_paths.btrc; a driver / btrcc wires the
+ * grammar in.
  */
 
 /* ----- small text helpers (fe-prefixed to avoid clashing with emitter.btrc) - */
@@ -110,53 +113,6 @@ class FeDirective {
         self.start = start;
         self.end = end;
     }
-}
-
-/* ----- path utilities (mirror os.path used by frontend.py) ----------------- */
-
-/* os.path.abspath-style normalization (does NOT resolve symlinks, unlike
- * PathTools.absolute which uses realpath). Joins with cwd if relative, then
- * collapses '.' and '..' segments. Keeps the composed source independent of
- * the working tree's symlink layout. */
-string feAbsPath(string path) {
-    string p = path;
-    if (p.length() == 0 || p[0] != '/') {
-        p = PathTools.join(FileSystem.currentDirectory(), p);
-    }
-    Vector<string> parts = Strings.split(p, "/");
-    Vector<string> stack = [];
-    int i = 0;
-    while (i < parts.len) {
-        string seg = parts.get(i);
-        if (seg.length() == 0 || seg.equals(".")) {
-            /* drop empty (from leading '/' or '//') and '.' */
-        } else if (seg.equals("..")) {
-            if (stack.len > 0) { stack.pop(); }
-        } else {
-            stack.push(seg);
-        }
-        i = i + 1;
-    }
-    string out = "";
-    int k = 0;
-    while (k < stack.len) {
-        out = out + "/" + stack.get(k);
-        k = k + 1;
-    }
-    if (out.length() == 0) { return "/"; }
-    return out;
-}
-
-string feDirName(string path) {
-    return PathTools.dirname(path);
-}
-
-string feBaseName(string path) {
-    return PathTools.basename(path);
-}
-
-string feJoinPath(string a, string b) {
-    return PathTools.join(a, b);
 }
 
 bool feExists(string path) {
@@ -593,7 +549,9 @@ void feWalkCollect(string root, Vector<string> out) {
     while (i < entries.len) {
         string name = entries.get(i);
         string path = feJoinPath(root, name);
-        if (feIsDir(path)) {
+        /* Python os.walk(..., followlinks=false) scans a symlink passed as the
+         * root but never descends through symlinked child directories. */
+        if (feIsDir(path) && !FileSystem.isSymlink(path)) {
             feWalkCollect(path, out);
         } else if (feIsFile(path) && (feEndsWith(name, ".btrc") || feEndsWith(name, ".c"))) {
             out.push(path);
@@ -617,7 +575,7 @@ Vector<string> feRelativeImportPaths(string spec, string sourceDir) {
         if (directGlob) { cut = 2; }
         string base = spec.substring(0, spec.length() - cut);
         string root = base;
-        if (base.length() == 0 || base[0] != '/') { root = feJoinPath(sourceDir, base); }
+        if (!PathTools.isAbsolute(base)) { root = feJoinPath(sourceDir, base); }
         if (!feIsDir(root)) { return out; }
         if (recursive) {
             feWalkCollect(root, out);
@@ -640,7 +598,7 @@ Vector<string> feRelativeImportPaths(string spec, string sourceDir) {
 
     /* plain directory import */
     string asDir = spec;
-    if (spec.length() == 0 || spec[0] != '/') { asDir = feJoinPath(sourceDir, spec); }
+    if (!PathTools.isAbsolute(spec)) { asDir = feJoinPath(sourceDir, spec); }
     if (feIsDir(asDir)) {
         Vector<string> entries = feSortedListDir(asDir);
         int i = 0;
@@ -658,7 +616,7 @@ Vector<string> feRelativeImportPaths(string spec, string sourceDir) {
 
     /* single file (relative or absolute), else fall back to include resolution */
     string path = spec;
-    if (spec.length() == 0 || spec[0] != '/') { path = feJoinPath(sourceDir, spec); }
+    if (!PathTools.isAbsolute(spec)) { path = feJoinPath(sourceDir, spec); }
     if (feExists(path)) { out.push(path); return out; }
     string resolved = feResolveIncludePath(spec, sourceDir);
     if (resolved.length() > 0) { out.push(resolved); }
@@ -725,6 +683,36 @@ Vector<string> feImportSpecPaths(string spec, string sourceDir) {
 
 /* ----- recursive include / import resolution (mirror _resolve_traced) ------- */
 
+bool feCTrigraphSuffix(char c) {
+    return c == '=' || c == '/' || c == '\'' || c == '(' || c == ')'
+        || c == '!' || c == '<' || c == '>' || c == '-';
+}
+
+/* C11 header names cannot portably quote `"` or control bytes, and trigraph
+ * replacement runs before preprocessing. Reject such rare filesystem names
+ * instead of emitting a malformed or redirected include directive. */
+string feCIncludeDirective(string path) {
+    int i = 0;
+    while (i < path.length()) {
+        int code = (int)(byte)path[i];
+        if (path[i] == '"' || code < 32 || code == 127) {
+            fprintf(stderr,
+                "error: cannot import C file with a quote or control character in its path: %s\n",
+                path);
+            exit(1);
+        }
+        if (i + 2 < path.length() && path[i] == '?' && path[i + 1] == '?'
+                && feCTrigraphSuffix(path[i + 2])) {
+            fprintf(stderr,
+                "error: cannot import C file whose path contains a C trigraph: %s\n",
+                path);
+            exit(1);
+        }
+        i = i + 1;
+    }
+    return f"#include \"{path}\"";
+}
+
 /* Splice resolved import/include targets into `out` (recursing). Mirrors
  * _inline_paths: .c files become a literal `#include "<abs>"` line; .btrc files
  * are resolved recursively. */
@@ -735,8 +723,12 @@ void feInlinePaths(Vector<string> paths, string absPath, Vector<FeLine> out,
         string fullPath = paths.get(i);
         string absFull = feAbsPath(fullPath);
         if (feEndsWith(fullPath, ".c")) {
-            string lineText = f"#include \"{absFull}\"";
-            out.push(FeLine(lineText, absPath, 0));
+            string identity = feCanonicalPathIdentity(absFull);
+            if (!included.has(identity)) {
+                included.put(identity, true);
+                string lineText = feCIncludeDirective(absFull);
+                out.push(FeLine(lineText, absPath, 0));
+            }
         } else {
             string content = Path.readAll(fullPath);
             feResolveTracedInto(content, fullPath, included, out);
@@ -754,11 +746,12 @@ void feInlinePaths(Vector<string> paths, string absPath, Vector<FeLine> out,
 void feResolveTracedInto(string source, string sourcePath,
                          Map<string, bool> included, Vector<FeLine> out) {
     string absPath = feAbsPath(sourcePath);
+    string identity = feCanonicalPathIdentity(absPath);
     string sourceDir = feDirName(absPath);
-    if (included.has(absPath)) {
+    if (included.has(identity)) {
         return;  /* circular/repeat include guard */
     }
-    included.put(absPath, true);
+    included.put(identity, true);
 
     Vector<string> lines = feSplitLines(source);
     GrammarInfo grammar = feGrammar();

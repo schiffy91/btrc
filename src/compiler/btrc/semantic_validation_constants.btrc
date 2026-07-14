@@ -1,0 +1,281 @@
+/* Recognition and partial evaluation of C integer constant expressions. */
+
+class SemanticIntegerConstant {
+    public bool valid;
+    public bool known;
+    public long long value;
+
+    public SemanticIntegerConstant(bool valid, bool known, long long value) {
+        self.valid = valid;
+        self.known = known;
+        self.value = value;
+    }
+}
+
+SemanticIntegerConstant semanticInvalidConstant() {
+    return SemanticIntegerConstant(false, false, 0);
+}
+
+SemanticIntegerConstant semanticUnknownConstant() {
+    return SemanticIntegerConstant(true, false, 0);
+}
+
+SemanticIntegerConstant semanticKnownConstant(long long value) {
+    return SemanticIntegerConstant(true, true, value);
+}
+
+string semanticEnumConstantKey(string owner, string member) {
+    return owner + "." + member;
+}
+
+SemanticIntegerConstant semanticStoredEnumConstant(
+        string owner, string member, SemanticValidationState state) {
+    string key = semanticEnumConstantKey(owner, member);
+    if (!state.enumConstantKnown.has(key)) {
+        return semanticInvalidConstant();
+    }
+    if (!state.enumConstantKnown.get(key)) {
+        return semanticUnknownConstant();
+    }
+    return semanticKnownConstant(state.enumConstantValues.get(key));
+}
+
+SemanticIntegerConstant semanticCharacterConstant(string raw) {
+    int length = raw.length();
+    if (length == 3) { return semanticKnownConstant((int)raw[1]); }
+    if (length < 4 || raw[1] != '\\') {
+        return semanticUnknownConstant();
+    }
+    char escaped = raw[2];
+    if (escaped == 'a') { return semanticKnownConstant(7); }
+    if (escaped == 'b') { return semanticKnownConstant(8); }
+    if (escaped == 't') { return semanticKnownConstant(9); }
+    if (escaped == 'n') { return semanticKnownConstant(10); }
+    if (escaped == 'v') { return semanticKnownConstant(11); }
+    if (escaped == 'f') { return semanticKnownConstant(12); }
+    if (escaped == 'r') { return semanticKnownConstant(13); }
+    if (escaped == '\\' || escaped == '\'' || escaped == '"'
+            || escaped == '?') {
+        return semanticKnownConstant((int)escaped);
+    }
+    if (escaped >= '0' && escaped <= '7') {
+        int value = 0;
+        int index = 2;
+        while (index < length - 1) {
+            char digit = raw[index];
+            if (digit < '0' || digit > '7') {
+                return semanticUnknownConstant();
+            }
+            value = value * 8 + (int)digit - (int)'0';
+            index = index + 1;
+        }
+        return semanticKnownConstant(value);
+    }
+    if (escaped == 'x') {
+        int value = 0;
+        int index = 3;
+        while (index < length - 1) {
+            char digit = raw[index];
+            if (!lexerIsHexDigit(digit)) {
+                return semanticUnknownConstant();
+            }
+            value = value * 16 + lexerHexDigitValue(digit);
+            index = index + 1;
+        }
+        return semanticKnownConstant(value);
+    }
+    return semanticUnknownConstant();
+}
+
+SemanticIntegerConstant semanticApplyConstantUnary(
+        string op, long long value) {
+    if (op == "+") { return semanticKnownConstant(value); }
+    if (op == "-") {
+        if (value == LLONG_MIN) { return semanticInvalidConstant(); }
+        return semanticKnownConstant(-value);
+    }
+    if (op == "~") { return semanticKnownConstant(~value); }
+    if (op == "!") { return semanticKnownConstant(value == 0 ? 1 : 0); }
+    return semanticInvalidConstant();
+}
+
+bool semanticConstantMultiplyOverflows(long long left, long long right) {
+    if (left == 0 || right == 0) { return false; }
+    if (left == -1) { return right == LLONG_MIN; }
+    if (right == -1) { return left == LLONG_MIN; }
+    if (left > 0) {
+        if (right > 0) { return left > LLONG_MAX / right; }
+        return right < LLONG_MIN / left;
+    }
+    if (right > 0) { return left < LLONG_MIN / right; }
+    return left < LLONG_MAX / right;
+}
+
+SemanticIntegerConstant semanticApplyConstantBinary(
+        string op, long long left, long long right) {
+    if (op == "+") {
+        if ((right > 0 && left > LLONG_MAX - right)
+                || (right < 0 && left < LLONG_MIN - right)) {
+            return semanticInvalidConstant();
+        }
+        return semanticKnownConstant(left + right);
+    }
+    if (op == "-") {
+        if ((right > 0 && left < LLONG_MIN + right)
+                || (right < 0 && left > LLONG_MAX + right)) {
+            return semanticInvalidConstant();
+        }
+        return semanticKnownConstant(left - right);
+    }
+    if (op == "*") {
+        if (semanticConstantMultiplyOverflows(left, right)) {
+            return semanticInvalidConstant();
+        }
+        return semanticKnownConstant(left * right);
+    }
+    if (op == "/" || op == "%") {
+        if (right == 0 || (left == LLONG_MIN && right == -1)) {
+            return semanticInvalidConstant();
+        }
+        if (op == "/") { return semanticKnownConstant(left / right); }
+        return semanticKnownConstant(left % right);
+    }
+    if (op == "<<" || op == ">>") {
+        if (right < 0 || right >= 64) {
+            return semanticInvalidConstant();
+        }
+        if (op == "<<") {
+            if (left < 0 || (right > 0
+                    && left > (LLONG_MAX >> (int)right))) {
+                return semanticInvalidConstant();
+            }
+            return semanticKnownConstant(left << (int)right);
+        }
+        if (left < 0) { return semanticUnknownConstant(); }
+        return semanticKnownConstant(left >> (int)right);
+    }
+    if (op == "&") { return semanticKnownConstant(left & right); }
+    if (op == "|") { return semanticKnownConstant(left | right); }
+    if (op == "^") { return semanticKnownConstant(left ^ right); }
+    if (op == "==") { return semanticKnownConstant(left == right ? 1 : 0); }
+    if (op == "!=") { return semanticKnownConstant(left != right ? 1 : 0); }
+    if (op == "<") { return semanticKnownConstant(left < right ? 1 : 0); }
+    if (op == ">") { return semanticKnownConstant(left > right ? 1 : 0); }
+    if (op == "<=") { return semanticKnownConstant(left <= right ? 1 : 0); }
+    if (op == ">=") { return semanticKnownConstant(left >= right ? 1 : 0); }
+    if (op == "&&") {
+        return semanticKnownConstant(left != 0 && right != 0 ? 1 : 0);
+    }
+    if (op == "||") {
+        return semanticKnownConstant(left != 0 || right != 0 ? 1 : 0);
+    }
+    return semanticInvalidConstant();
+}
+
+SemanticIntegerConstant semanticIntegerConstant(
+        Node? expression, SemanticValidationState state,
+        bool restrictEnum, string enumOwner,
+        Map<string, bool> allowedMembers) {
+    if (expression == null) { return semanticInvalidConstant(); }
+    if (expression.kind == NK_INT_LITERAL) {
+        return semanticIntegerLiteralConstant(expression);
+    }
+    if (expression.kind == NK_BOOL_LITERAL) {
+        return semanticKnownConstant(expression.value_bool ? 1 : 0);
+    }
+    if (expression.kind == NK_CHAR_LITERAL) {
+        return semanticCharacterConstant(expression.value_string);
+    }
+    if (expression.kind == NK_IDENTIFIER) {
+        if (restrictEnum) {
+            if (allowedMembers.has(expression.name)) {
+                return semanticStoredEnumConstant(
+                    enumOwner, expression.name, state);
+            }
+            /* A declared enum member is not an ambient C macro. Reject
+             * self/forward/foreign bare references before the uppercase-macro
+             * interop escape hatch. */
+            if (state.analyzed.enumContains(enumOwner, expression.name)
+                    || state.analyzed.isEnumValue(expression.name)
+                    || state.analyzed.isAmbiguousEnumValue(expression.name)) {
+                return semanticInvalidConstant();
+            }
+        } else if (state.analyzed.isEnumValue(expression.name)) {
+            return semanticStoredEnumConstant(
+                state.analyzed.enumOwnerOf(expression.name),
+                expression.name, state);
+        }
+        if (expression.name != "NULL"
+                && isCIntegerIdentifier(expression.name)) {
+            return semanticUnknownConstant();
+        }
+        return semanticInvalidConstant();
+    }
+    if (expression.kind == NK_FIELD_ACCESS_EXPR
+            && expression.obj.kind == NK_IDENTIFIER
+            && state.analyzed.enumContains(
+                expression.obj.name, expression.field)) {
+        string owner = expression.obj.name;
+        if (restrictEnum && (owner != enumOwner
+                || !allowedMembers.has(expression.field))) {
+            return semanticInvalidConstant();
+        }
+        return semanticStoredEnumConstant(owner, expression.field, state);
+    }
+    if (expression.kind == NK_SIZEOF_EXPR) {
+        return semanticUnknownConstant();
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        return semanticIntegralCastConstant(expression, state,
+            restrictEnum, enumOwner, allowedMembers);
+    }
+    if (expression.kind == NK_UNARY_EXPR
+            && (expression.op == "+" || expression.op == "-"
+                || expression.op == "~" || expression.op == "!")) {
+        SemanticIntegerConstant operand = semanticIntegerConstant(
+            expression.operand, state, restrictEnum,
+            enumOwner, allowedMembers);
+        if (!operand.valid || !operand.known) { return operand; }
+        return semanticApplyConstantUnary(expression.op, operand.value);
+    }
+    if (expression.kind == NK_BINARY_EXPR) {
+        SemanticIntegerConstant left = semanticIntegerConstant(
+            expression.left, state, restrictEnum,
+            enumOwner, allowedMembers);
+        SemanticIntegerConstant right = semanticIntegerConstant(
+            expression.right, state, restrictEnum,
+            enumOwner, allowedMembers);
+        if (!left.valid || !right.valid) {
+            return semanticInvalidConstant();
+        }
+        if (!left.known || !right.known) {
+            return semanticUnknownConstant();
+        }
+        return semanticApplyConstantBinary(
+            expression.op, left.value, right.value);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        SemanticIntegerConstant condition = semanticIntegerConstant(
+            expression.condition, state, restrictEnum,
+            enumOwner, allowedMembers);
+        SemanticIntegerConstant whenTrue = semanticIntegerConstant(
+            expression.true_expr, state, restrictEnum,
+            enumOwner, allowedMembers);
+        SemanticIntegerConstant whenFalse = semanticIntegerConstant(
+            expression.false_expr, state, restrictEnum,
+            enumOwner, allowedMembers);
+        if (!condition.valid || !whenTrue.valid || !whenFalse.valid) {
+            return semanticInvalidConstant();
+        }
+        if (condition.known) {
+            if (condition.value != 0) { return whenTrue; }
+            return whenFalse;
+        }
+        if (whenTrue.known && whenFalse.known
+                && whenTrue.value == whenFalse.value) {
+            return whenTrue;
+        }
+        return semanticUnknownConstant();
+    }
+    return semanticInvalidConstant();
+}

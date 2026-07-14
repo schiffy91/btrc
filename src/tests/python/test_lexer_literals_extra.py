@@ -20,6 +20,7 @@ def first(src, kind):
 
 # --- triple-quoted strings with carriage returns (lines 36-40) ---
 
+
 def test_triple_quoted_with_cr():
     t = first('"""a\rb"""', TokenType.STRING_LIT)
     assert "a" in t.value and "b" in t.value
@@ -31,6 +32,7 @@ def test_triple_quoted_with_crlf():
 
 
 # --- unterminated literals ---
+
 
 def test_unterminated_char():
     with pytest.raises(LexerError):
@@ -48,6 +50,7 @@ def test_fstring_unterminated():
 
 
 # --- integer suffixes (lines 214-230) ---
+
 
 @pytest.mark.parametrize(
     "lit",

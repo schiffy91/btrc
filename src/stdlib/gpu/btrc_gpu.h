@@ -41,11 +41,14 @@ void btrc_gpu_draw(void* gpu, void* pipeline, int vertex_count);
 void btrc_gpu_end_frame(void* gpu);
 
 /* ---- Headless compute ---- */
+bool  btrc_gpu_available(void);
 void* btrc_gpu_init_compute(void);
+void* btrc_gpu_acquire_compute(void);
 
 /* ---- Buffers ---- */
 void* btrc_gpu_create_buffer(void* gpu, int size, int usage);
 void  btrc_gpu_write_buffer(void* gpu, void* buf, void* data, int size);
+bool  btrc_gpu_read_buffer_checked(void* gpu, void* buf, void* dst, int size);
 void  btrc_gpu_read_buffer(void* gpu, void* buf, void* dst, int size);
 void  btrc_gpu_buffer_destroy(void* buf);
 
@@ -59,7 +62,7 @@ void* btrc_gpu_create_bind_group(void* gpu, void* pipeline,
 void  btrc_gpu_bind_group_destroy(void* bg);
 
 /* ---- Dispatch ---- */
-void  btrc_gpu_dispatch(void* gpu, void* pipeline, void* bg, int workgroups_x);
+bool  btrc_gpu_dispatch(void* gpu, void* pipeline, void* bg, int workgroups_x);
 
 /* ---- Keyboard ---- */
 bool  btrc_gpu_window_key_pressed(void* win, int key);

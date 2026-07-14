@@ -1,0 +1,12 @@
+#include <assert.h>
+
+int values[8];
+
+int main() {
+    values[0] = 3;
+    values[7] = 39;
+    assert(values[0] + values[7] == 42);
+    assert(sizeof(values) == sizeof(int) * (size_t)8);
+    print("PASS: test_global_fixed_array");
+    return 0;
+}

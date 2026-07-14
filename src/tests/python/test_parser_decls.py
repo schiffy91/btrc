@@ -2,8 +2,11 @@
 implement multiple interfaces, multi-parameter generics, array-typed fields,
 and `keep` on parameters and return types."""
 
-from src.compiler.python.ast_nodes import ClassDecl, FunctionDecl, StructDecl
+import pytest
+
+from src.compiler.python.ast_nodes import ClassDecl, FunctionDecl, StructDecl, VarDeclStmt
 from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.core import ParseError
 from src.compiler.python.parser.parser import Parser
 
 
@@ -47,10 +50,25 @@ def test_struct_with_array_fields():
     assert buf.fields[1].type.is_array
 
 
+def test_top_level_array_declarator():
+    prog = parse("int values[8];\nint main() { return 0; }")
+    values = prog.declarations[0]
+    assert isinstance(values, VarDeclStmt)
+    assert values.type.is_array
+    assert values.type.array_size.value == 8
+
+
+def test_multidimensional_array_has_architecture_error():
+    with pytest.raises(ParseError, match="AST/IR representation"):
+        parse("int grid[2][3];")
+
+
 def test_keep_parameter_in_method():
-    src = ("class Obj { public int v; public Obj() { self.v = 0; } }\n"
-           "class Sink { public void take(keep Obj o) { return; } }\n"
-           "int main() { return 0; }")
+    src = (
+        "class Obj { public int v; public Obj() { self.v = 0; } }\n"
+        "class Sink { public void take(keep Obj o) { return; } }\n"
+        "int main() { return 0; }"
+    )
     prog = parse(src)
     sink = next(d for d in prog.declarations if isinstance(d, ClassDecl) and d.name == "Sink")
     take = sink.members[0]
@@ -58,8 +76,10 @@ def test_keep_parameter_in_method():
 
 
 def test_keep_return_function():
-    src = ("class Obj { public int v; public Obj() { self.v = 0; } }\n"
-           "keep Obj make() { return new Obj(); }\n"
-           "int main() { Obj o = make(); return 0; }")
+    src = (
+        "class Obj { public int v; public Obj() { self.v = 0; } }\n"
+        "keep Obj make() { return new Obj(); }\n"
+        "int main() { Obj o = make(); return 0; }"
+    )
     prog = parse(src)
     assert any(isinstance(d, FunctionDecl) and d.name == "make" for d in prog.declarations)

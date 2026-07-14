@@ -1,16 +1,9 @@
-/* Stage 3 — Analyzer (minimal).
+/* Stage 3 — self-hosted semantic tables and on-demand expression inference.
  *
- * Mirrors the subset of src/compiler/python/analyzer/* needed to lower the
- * pure-int --no-stdlib programs byte-identically. For that subset the analyzer
- * needs only:
- *   - a function table (name -> return TypeExpr) so a call is not mistaken for a
- *     built-in, and so a call expression's type can be inferred,
- *   - on-demand expression type inference (inferType) used by IR-gen to choose
- *     between __btrc_div_int/__btrc_div_double, detect string operands, etc.
- *
- * There are no generics/classes/strings to register in this subset; grow the
- * tables (class_table, enum_table, ...) as the supported language widens.
- */
+ * Declaration registration, generic-instance discovery, nominal class data,
+ * and inferred TypeExpr values supply the same typed lowering contracts used
+ * by the Python compiler. Numeric/operator policy itself lives in the small
+ * numeric_semantics.btrc and operator_semantics.btrc modules. */
 
 /* A concrete monomorphization request: base generic class + the concrete type
  * args it was instantiated with, plus the precomputed mangled name. */
@@ -59,7 +52,7 @@ class Analyzed {
     /* Concrete generic instances in discovery (declaration-walk) order, deduped
      * by mangled name. Mirrors analyzer.generic_instances flattened. */
     public Vector<GenInstance> genericInstances;
-    /* set of mangled names already collected (dedup). */
+    /* set of canonical recursive instance keys already collected (dedup). */
     public Map<string, bool> genericSeen;
     /* enum type name -> its EnumDecl node (NK_ENUM_DECL). Mirrors enum_table
      * keyed by type name (Python enum_table maps name -> [value names]). */
@@ -67,21 +60,24 @@ class Analyzed {
     /* bare enum value name (e.g. "RED") -> owning enum type name ("Color"). Lets
      * a bare identifier lower to its prefixed C constant. */
     public Map<string, string> enumValueOwner;
+    /* Number of enum declarations that export each bare spelling. Qualified
+     * access remains legal when the bare form is ambiguous. */
+    public Map<string, int> enumValueOwnerCount;
     /* rich (tagged-union) enum type name -> its RichEnumDecl node
      * (NK_RICH_ENUM_DECL). Mirrors rich_enum_table. */
     public Map<string, Node> richEnumTable;
-    /* Function-pointer typedefs accumulated during lowering. `fnPtrTypedefs` maps
-     * the mangled name (e.g. __btrc_fn_bool_int) -> the full typedef text;
-     * `fnPtrOrder` preserves first-seen insertion order for deterministic
-     * emission. Mirrors types.py's module-level _fn_ptr_typedefs dict. */
-    public Map<string, string> fnPtrTypedefs;
+    /* Function-pointer types accumulated during lowering. `fnPtrTypes` maps
+     * the mangled name (e.g. __btrc_fn_bool_int) to its TypeExpr; IR generation
+     * later creates typed IRFunctionPointerTypedef declarations. `fnPtrOrder`
+     * preserves first-seen insertion order for deterministic emission. */
+    public Map<string, Node> fnPtrTypes;
     public Vector<string> fnPtrOrder;
     /* Generic-method monomorphization targets, in discovery order, deduped by
      * the same mangled-key as their emitted C name. Mirrors
      * analyzed.generic_method_instances. */
     public Vector<MethodGenInstance> methodGenInstances;
     public Map<string, bool> methodGenSeen;
-    /* call-site nodeKey ("line:col" of the CallExpr) -> the inferred method
+    /* call-site astNodeKey (stable Node identity) -> the inferred method
      * type args, so IR-gen can mangle the call to its monomorphized instance
      * without re-running inference. Mirrors generic_method_call_args. */
     public Map<string, Vector<Node>> methodGenCallArgs;
@@ -91,6 +87,16 @@ class Analyzed {
      * `order.equals(...)` lowers as a string method). Seeded into each
      * function's local varTypes at lowering entry. */
     public Map<string, Node> globalVarTypes;
+    /* Global names with a concrete definition (not an initializer-less extern).
+     * IR generation suppresses redundant extern redeclarations when the same
+     * composed translation unit already owns the definition. */
+    public Map<string, bool> globalHasDefinition;
+    /* user typedef alias -> original TypeExpr; inference canonicalizes through
+     * this table while IR declarations preserve source alias spelling. */
+    public Map<string, Node> typedefTable;
+    /* struct tag/name -> complete definition when available, otherwise its
+     * forward declaration. */
+    public Map<string, Node> structTable;
 
     public Analyzed() {
         self.funcRetTypes = {};
@@ -102,13 +108,17 @@ class Analyzed {
         self.genericSeen = {};
         self.enumTable = {};
         self.enumValueOwner = {};
+        self.enumValueOwnerCount = {};
         self.richEnumTable = {};
-        self.fnPtrTypedefs = {};
+        self.fnPtrTypes = {};
         self.fnPtrOrder = [];
         self.methodGenInstances = [];
         self.methodGenSeen = {};
         self.methodGenCallArgs = {};
         self.globalVarTypes = {};
+        self.globalHasDefinition = {};
+        self.typedefTable = {};
+        self.structTable = {};
     }
 
     /* True if any generic-method monomorphization target exists. */
@@ -128,7 +138,26 @@ class Analyzed {
 
     /* True if `name` is a bare enum value (e.g. RED). */
     public bool isEnumValue(string name) {
-        return self.enumValueOwner.has(name);
+        return self.enumValueOwner.has(name)
+            && self.enumValueOwnerCount.get(name) == 1;
+    }
+
+    public bool isAmbiguousEnumValue(string name) {
+        return self.enumValueOwnerCount.has(name)
+            && self.enumValueOwnerCount.get(name) > 1;
+    }
+
+    public bool enumContains(string enumName, string valueName) {
+        if (!self.enumTable.has(enumName)) { return false; }
+        Node declaration = self.enumTable.get(enumName);
+        int index = 0;
+        while (index < declaration.values.len) {
+            if (declaration.values.get(index).name == valueName) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
     }
 
     /* The owning enum type name of bare value `name` ("" if unknown). */
@@ -168,8 +197,9 @@ class Analyzed {
         return false;
     }
 
-    /* Look up a class member (FieldDecl/MethodDecl/PropertyDecl) by name within
-     * class `cls`, walking the inheritance chain. Returns null if not found. */
+    /* Look up an ordinary class member by name, walking the inheritance chain.
+     * Constructors are declaration-only call targets and never instance
+     * members; classConstructor() is their sole lookup path. */
     public Node? classMember(string cls, string member) {
         string cur = cls;
         while (cur != "" && self.classTable.has(cur)) {
@@ -177,7 +207,11 @@ class Analyzed {
             int i = 0;
             while (i < decl.members.len) {
                 Node m = decl.members.get(i);
-                if (m.name == member) { return m; }
+                if (m.name == member
+                        && !(m.kind == NK_METHOD_DECL
+                            && m.is_constructor)) {
+                    return m;
+                }
                 i = i + 1;
             }
             cur = parentName(decl);
@@ -185,15 +219,36 @@ class Analyzed {
         return null;
     }
 
-    /* The constructor MethodDecl of class `cls` (a method named like the class),
-     * or null if the class has no explicit constructor. */
+    /* Method-only lookup has a separate source namespace from fields and
+     * properties. Walk inheritance just like classMember, but never let a
+     * same-named value member mask the callable declaration. */
+    public Node? classMethod(string cls, string method) {
+        string cur = cls;
+        while (cur != "" && self.classTable.has(cur)) {
+            Node decl = self.classTable.get(cur);
+            int index = 0;
+            while (index < decl.members.len) {
+                Node member = decl.members.get(index);
+                if (member.kind == NK_METHOD_DECL
+                        && !member.is_constructor
+                        && member.name == method) {
+                    return member;
+                }
+                index = index + 1;
+            }
+            cur = parentName(decl);
+        }
+        return null;
+    }
+
+    /* The explicitly marked constructor MethodDecl of class `cls`, or null. */
     public Node? classConstructor(string cls) {
         if (!self.classTable.has(cls)) { return null; }
         Node decl = self.classTable.get(cls);
         int i = 0;
         while (i < decl.members.len) {
             Node m = decl.members.get(i);
-            if (m.kind == NK_METHOD_DECL && m.name == cls) { return m; }
+            if (m.kind == NK_METHOD_DECL && m.is_constructor) { return m; }
             i = i + 1;
         }
         return null;
@@ -208,8 +263,26 @@ class Analyzed {
         int i = 0;
         while (i < decl.members.len) {
             Node m = decl.members.get(i);
-            if (m.kind == NK_METHOD_DECL && m.name == member) { return m; }
+            if (m.kind == NK_METHOD_DECL && !m.is_constructor
+                    && m.name == member) {
+                return m;
+            }
             i = i + 1;
+        }
+        return null;
+    }
+
+    public Node? genericClassConstructor(string cls) {
+        if (!self.genericClassTable.has(cls)) { return null; }
+        Node decl = self.genericClassTable.get(cls);
+        int index = 0;
+        while (index < decl.members.len) {
+            Node member = decl.members.get(index);
+            if (member.kind == NK_METHOD_DECL
+                    && member.is_constructor) {
+                return member;
+            }
+            index = index + 1;
         }
         return null;
     }
@@ -245,7 +318,8 @@ class Analyzed {
         int i = 0;
         while (i < decl.members.len) {
             Node m = decl.members.get(i);
-            if (m.kind == NK_METHOD_DECL && m.name != cls && m.name != "__del__") {
+            if (m.kind == NK_METHOD_DECL && !m.is_constructor
+                    && m.name != "__del__") {
                 if (idx.has(m.name)) {
                     out.set(idx.get(m.name), MethodEntry(m.name, m));
                 } else {
@@ -296,11 +370,25 @@ Analyzed analyzeProgram(Node prog) {
             a.enumTable.put(d.name, d);
             int v = 0;
             while (v < d.values.len) {
-                a.enumValueOwner.put(d.values.get(v).name, d.name);
+                string valueName = d.values.get(v).name;
+                int ownerCount = 0;
+                if (a.enumValueOwnerCount.has(valueName)) {
+                    ownerCount = a.enumValueOwnerCount.get(valueName);
+                }
+                a.enumValueOwnerCount.put(valueName, ownerCount + 1);
+                if (!a.enumValueOwner.has(valueName)) {
+                    a.enumValueOwner.put(valueName, d.name);
+                }
                 v = v + 1;
             }
         } else if (d.kind == NK_RICH_ENUM_DECL) {
             a.richEnumTable.put(d.name, d);
+        } else if (d.kind == NK_TYPEDEF_DECL) {
+            a.typedefTable.put(d.alias, d.original);
+        } else if (d.kind == NK_STRUCT_DECL) {
+            if (!a.structTable.has(d.name) || !d.is_forward) {
+                a.structTable.put(d.name, d);
+            }
         } else if (d.kind == NK_VAR_DECL_STMT) {
             /* Module-level variable: record its type in the global scope so a
              * bare identifier referencing it resolves during inference. An
@@ -310,6 +398,9 @@ Analyzed analyzeProgram(Node prog) {
             if (d.type != null) {
                 a.globalVarTypes.put(d.name, d.type);
             }
+            bool externOnly = d.type != null && d.type.is_extern
+                && d.initializer == null;
+            if (!externOnly) { a.globalHasDefinition.put(d.name, true); }
         }
         i = i + 1;
     }
@@ -518,12 +609,12 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
     Vector<Node> classArgs = [];
     bool ownerGeneric = ot.generic_args.len > 0 && a.isGenericClass(ot.base);
     if (ownerGeneric) {
-        method_decl = genericMember(a, ot.base, method);
+        method_decl = a.genericClassMethod(ot.base, method);
         classBase = ot.base;
         int ca = 0;
         while (ca < ot.generic_args.len) { classArgs.push(ot.generic_args.get(ca)); ca = ca + 1; }
     } else if (a.isClass(ot.base)) {
-        method_decl = a.classMember(ot.base, method);
+        method_decl = a.classMethod(ot.base, method);
         classBase = ot.base;
     } else {
         return;
@@ -546,6 +637,7 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
     Map<string, Node> methodSubs = {};
     inferMethodTypeArgs(call, method_decl, classSubs, a, vt, methodSubs);
     Vector<Node> methodArgs = [];
+    Map<string, bool> tparams = typeParameterSet(method_decl.generic_params);
     int mp = 0;
     bool ok = true;
     while (mp < method_decl.generic_params.len) {
@@ -553,36 +645,52 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
         if (!methodSubs.has(gp)) { ok = false; }
         else {
             Node arg = methodSubs.get(gp);
-            if (!isConcreteType(arg)) { ok = false; }
+            if (typeReferencesNames(arg, tparams)) { ok = false; }
             else { methodArgs.push(arg); }
         }
         mp = mp + 1;
     }
     if (!ok) { return; }
 
-    /* Dedup key combines class + method arg mangles. */
-    string key = classBase + "::" + method + "::" + methodGenKeyArgs(classArgs)
-                 + "::" + methodGenKeyArgs(methodArgs);
-    if (!a.methodGenSeen.has(key)) {
-        a.methodGenSeen.put(key, true);
-        a.methodGenInstances.push(
-            MethodGenInstance(classBase, method, classArgs, methodArgs));
-    }
-    /* Record per-call-site method args for IR-gen mangling. */
-    a.methodGenCallArgs.put(nodeKeyAn(call), methodArgs);
+    string owner = classBase + "." + method;
+    validateGenericArgumentsForOwner(owner, methodArgs);
 
-    /* Register concrete generic types that the substituted signature mentions
-     * (e.g. Vector<string> from mapTo's return type). */
+    /* Resolve and validate the full signature before recording an instance.
+     * This catches nested-array composition and nested writable class
+     * specializations after class- and method-level substitution. */
     Map<string, Node> full = {};
     Vector<string> csk = classSubs.keys();
     int ci = 0;
-    while (ci < csk.len) { full.put(csk.get(ci), classSubs.get(csk.get(ci))); ci = ci + 1; }
+    while (ci < csk.len) {
+        full.put(csk.get(ci), classSubs.get(csk.get(ci)));
+        ci = ci + 1;
+    }
     int mi = 0;
     while (mi < method_decl.generic_params.len) {
         string gp = method_decl.generic_params.get(mi);
         if (methodSubs.has(gp)) { full.put(gp, methodSubs.get(gp)); }
         mi = mi + 1;
     }
+    validateSpecializedType(owner, method_decl.return_type, full, a);
+    int vsi = 0;
+    while (vsi < method_decl.params.len) {
+        validateSpecializedType(
+            owner, method_decl.params.get(vsi).type, full, a);
+        vsi = vsi + 1;
+    }
+
+    string key = methodInstanceKey(
+        classBase, classArgs, method, methodArgs);
+    if (!a.methodGenSeen.has(key)) {
+        a.methodGenSeen.put(key, true);
+        a.methodGenInstances.push(
+            MethodGenInstance(classBase, method, classArgs, methodArgs));
+    }
+    /* Record per-call-site method args for IR-gen mangling. */
+    a.methodGenCallArgs.put(astNodeKey(call), methodArgs);
+
+    /* Register concrete generic types that the substituted signature mentions
+     * (e.g. Vector<string> from mapTo's return type). */
     registerSubstitutedGenerics(method_decl.return_type, full, a);
     int pi = 0;
     while (pi < method_decl.params.len) {
@@ -597,42 +705,6 @@ void registerSubstitutedGenerics(Node? t, Map<string, Node> subs, Analyzed a) {
     if (t == null) { return; }
     Node resolved = resolveGenericType(t, subs);
     registerGenericInstance(resolved, a);
-}
-
-/* Stable mangle of a type-arg list for the method-generic dedup key. */
-string methodGenKeyArgs(Vector<Node> args) {
-    string out = "";
-    int i = 0;
-    while (i < args.len) {
-        if (i > 0) { out = out + ","; }
-        out = out + typeKeyOf(args.get(i));
-        i = i + 1;
-    }
-    return out;
-}
-
-/* A simple structural key for a TypeExpr (base + pointer depth + nested args).
- * Sufficient for dedup; does not need to match the C mangle exactly. */
-string typeKeyOf(Node t) {
-    string out = t.base;
-    int p = 0;
-    while (p < t.pointer_depth) { out = out + "*"; p = p + 1; }
-    if (t.generic_args.len > 0) {
-        out = out + "<";
-        int i = 0;
-        while (i < t.generic_args.len) {
-            if (i > 0) { out = out + ","; }
-            out = out + typeKeyOf(t.generic_args.get(i));
-            i = i + 1;
-        }
-        out = out + ">";
-    }
-    return out;
-}
-
-/* nodeKey duplicate (mangleTypeName's nodeKey lives in irgen, included later). */
-string nodeKeyAn(Node n) {
-    return Strings.fromInt(n.line) + ":" + Strings.fromInt(n.col);
 }
 
 /* Infer concrete bindings for each method type parameter by unifying every
@@ -716,6 +788,102 @@ Node stripOnePointer(Node actual, Node declared) {
     return actual;
 }
 
+Map<string, bool> typeParameterSet(Vector<string> parameters) {
+    Map<string, bool> names = {};
+    int index = 0;
+    while (index < parameters.len) {
+        names.put(parameters.get(index), true);
+        index = index + 1;
+    }
+    return names;
+}
+
+Map<string, bool> mergeTypeParameterSets(
+        Map<string, bool> inherited, Vector<string> parameters) {
+    Map<string, bool> names = {};
+    Vector<string> inheritedNames = inherited.keys();
+    int inheritedIndex = 0;
+    while (inheritedIndex < inheritedNames.len) {
+        names.put(inheritedNames.get(inheritedIndex), true);
+        inheritedIndex = inheritedIndex + 1;
+    }
+    int parameterIndex = 0;
+    while (parameterIndex < parameters.len) {
+        names.put(parameters.get(parameterIndex), true);
+        parameterIndex = parameterIndex + 1;
+    }
+    return names;
+}
+
+void validateGenericArgumentsForOwner(string owner, Vector<Node> args) {
+    int index = 0;
+    while (index < args.len) {
+        string problem = genericArgumentProblem(args.get(index));
+        if (problem != "") {
+            typeShapeFail("Generic argument " + Strings.fromInt(index + 1)
+                + " for '" + owner + "' is invalid: " + problem);
+        }
+        index = index + 1;
+    }
+}
+
+/* Qualifiers are coherent inside structural Tuple/__fn_ptr shapes, but not in
+ * a nested writable class specialization. Validate only known generic classes
+ * and then recurse so nested class shapes cannot bypass the policy. */
+void validateNestedClassArguments(string owner, Node? typeExpr, Analyzed a) {
+    if (typeExpr == null) { return; }
+    if (a.genericClassTable.has(typeExpr.base)) {
+        validateGenericArgumentsForOwner(
+            owner + " via " + typeExpr.base, typeExpr.generic_args);
+    }
+    int index = 0;
+    while (index < typeExpr.generic_args.len) {
+        validateNestedClassArguments(
+            owner, typeExpr.generic_args.get(index), a);
+        index = index + 1;
+    }
+}
+
+void validateSpecializedType(string owner, Node? declared,
+                             Map<string, Node> substitutions, Analyzed a) {
+    if (declared == null) { return; }
+    Node resolved = resolveGenericType(declared, substitutions);
+    validateNestedClassArguments(owner, resolved, a);
+}
+
+void validateGenericClassSpecialization(Node typeExpr, Analyzed a) {
+    if (!a.genericClassTable.has(typeExpr.base)) { return; }
+    validateGenericArgumentsForOwner(typeExpr.base, typeExpr.generic_args);
+    Node declaration = a.genericClassTable.get(typeExpr.base);
+    if (declaration.generic_params.len != typeExpr.generic_args.len) { return; }
+    Map<string, Node> substitutions = {};
+    int parameter = 0;
+    while (parameter < declaration.generic_params.len) {
+        substitutions.put(
+            declaration.generic_params.get(parameter),
+            typeExpr.generic_args.get(parameter));
+        parameter = parameter + 1;
+    }
+    int memberIndex = 0;
+    while (memberIndex < declaration.members.len) {
+        Node member = declaration.members.get(memberIndex);
+        if (member.kind == NK_FIELD_DECL || member.kind == NK_PROPERTY_DECL) {
+            validateSpecializedType(
+                typeExpr.base, member.type, substitutions, a);
+        } else if (member.kind == NK_METHOD_DECL) {
+            validateSpecializedType(
+                typeExpr.base, member.return_type, substitutions, a);
+            int paramIndex = 0;
+            while (paramIndex < member.params.len) {
+                validateSpecializedType(typeExpr.base,
+                    member.params.get(paramIndex).type, substitutions, a);
+                paramIndex = paramIndex + 1;
+            }
+        }
+        memberIndex = memberIndex + 1;
+    }
+}
+
 /* Register the transitive generic-instance closure: for every concrete generic
  * instance, resolve its member field/method/param types through that instance's
  * type map and register any resolved generic-class type. Repeats until the
@@ -739,13 +907,21 @@ void registerTransitiveGenericInstances(Analyzed a) {
                 int mi = 0;
                 while (mi < decl.members.len) {
                     Node mem = decl.members.get(mi);
+                    Map<string, bool> unresolved = {};
+                    if (mem.kind == NK_METHOD_DECL) {
+                        unresolved = typeParameterSet(mem.generic_params);
+                    }
                     if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
-                        if (registerResolvedGenericInstance(mem.type, tm, a)) { changed = true; }
+                        if (registerResolvedGenericInstance(
+                                mem.type, tm, unresolved, a)) { changed = true; }
                     } else if (mem.kind == NK_METHOD_DECL) {
-                        if (registerResolvedGenericInstance(mem.return_type, tm, a)) { changed = true; }
+                        if (registerResolvedGenericInstance(
+                                mem.return_type, tm, unresolved, a)) { changed = true; }
                         int p = 0;
                         while (p < mem.params.len) {
-                            if (registerResolvedGenericInstance(mem.params.get(p).type, tm, a)) { changed = true; }
+                            if (registerResolvedGenericInstance(
+                                    mem.params.get(p).type, tm,
+                                    unresolved, a)) { changed = true; }
                             p = p + 1;
                         }
                     }
@@ -755,22 +931,19 @@ void registerTransitiveGenericInstances(Analyzed a) {
             idx = idx + 1;
         }
     }
+    closeGenericInstanceGraph(a);
 }
 
 /* Resolve a member TypeExpr through `tm` and, if the result is a concrete
  * generic-class instance not yet seen, register it. Returns true if a new
  * instance was added (so the caller's fixpoint loop iterates again). */
-bool registerResolvedGenericInstance(Node? t, Map<string, Node> tm, Analyzed a) {
+bool registerResolvedGenericInstance(Node? t, Map<string, Node> tm,
+                                     Map<string, bool> unresolved, Analyzed a) {
     if (t == null) { return false; }
     Node resolved = resolveGenericType(t, tm);
-    if (resolved.generic_args.len == 0) { return false; }
-    if (!a.genericClassTable.has(resolved.base)) { return false; }
-    if (!isConcreteType(resolved)) { return false; }
-    string mangled = mangleGenericType(resolved.base, resolved.generic_args);
-    if (a.genericSeen.has(mangled)) { return false; }
-    a.genericSeen.put(mangled, true);
-    a.genericInstances.push(GenInstance(resolved.base, resolved.generic_args, mangled));
-    return true;
+    int before = a.genericInstances.len;
+    registerGenericInstanceWithUnresolved(resolved, a, unresolved);
+    return a.genericInstances.len > before;
 }
 
 /* --- AST pass: upgrade class-typed generic args to pointers in place. ---
@@ -781,194 +954,282 @@ bool registerResolvedGenericInstance(Node? t, Map<string, Node> tm, Analyzed a) 
  * args, exactly as in the reference. */
 void upgradeDeclGenericArgs(Node d, Analyzed a) {
     if (d.kind == NK_FUNCTION_DECL) {
+        Map<string, bool> unresolved = typeParameterSet(d.generic_params);
         int i = 0;
         while (i < d.params.len) {
-            upgradeTypeGenericArgs(d.params.get(i).type, a);
+            upgradeTypeGenericArgs(d.params.get(i).type, a, unresolved);
             i = i + 1;
         }
-        upgradeTypeGenericArgs(d.return_type, a);
-        if (d.body_node != null) { upgradeBlockGenericArgs(d.body_node, a); }
+        upgradeTypeGenericArgs(d.return_type, a, unresolved);
+        if (d.body_node != null) {
+            upgradeBlockGenericArgs(d.body_node, a, unresolved);
+        }
     } else if (d.kind == NK_CLASS_DECL) {
+        /* Generic-class members stay as templates; their class parameters are
+         * resolved from already-normalized instance arguments. Non-generic
+         * classes can still own generic methods, whose method parameters must
+         * shadow same-named global classes during this pass. */
         if (d.generic_params.len == 0) {
+            Map<string, bool> classParameters = {};
             int i = 0;
             while (i < d.members.len) {
                 Node mem = d.members.get(i);
                 if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
-                    upgradeTypeGenericArgs(mem.type, a);
+                    upgradeTypeGenericArgs(mem.type, a, classParameters);
                 } else if (mem.kind == NK_METHOD_DECL) {
+                    Map<string, bool> unresolved = mergeTypeParameterSets(
+                        classParameters, mem.generic_params);
                     int p = 0;
                     while (p < mem.params.len) {
-                        upgradeTypeGenericArgs(mem.params.get(p).type, a);
+                        upgradeTypeGenericArgs(
+                            mem.params.get(p).type, a, unresolved);
                         p = p + 1;
                     }
-                    upgradeTypeGenericArgs(mem.return_type, a);
-                    if (mem.body_node != null) { upgradeBlockGenericArgs(mem.body_node, a); }
+                    upgradeTypeGenericArgs(mem.return_type, a, unresolved);
+                    if (mem.body_node != null) {
+                        upgradeBlockGenericArgs(mem.body_node, a, unresolved);
+                    }
                 }
                 i = i + 1;
             }
         }
     } else if (d.kind == NK_VAR_DECL_STMT) {
-        upgradeTypeGenericArgs(d.type, a);
-        upgradeExprGenericArgs(d.initializer, a);
+        Map<string, bool> unresolved = {};
+        upgradeTypeGenericArgs(d.type, a, unresolved);
+        upgradeExprGenericArgs(d.initializer, a, unresolved);
     }
 }
 
-void upgradeBlockGenericArgs(Node block, Analyzed a) {
+void upgradeBlockGenericArgs(Node block, Analyzed a,
+                             Map<string, bool> unresolved) {
     if (block == null) { return; }
     int i = 0;
     while (i < block.statements.len) {
-        upgradeStmtGenericArgs(block.statements.get(i), a);
+        upgradeStmtGenericArgs(block.statements.get(i), a, unresolved);
         i = i + 1;
     }
 }
 
-void upgradeStmtGenericArgs(Node s, Analyzed a) {
+void upgradeStmtGenericArgs(Node s, Analyzed a,
+                            Map<string, bool> unresolved) {
     if (s == null) { return; }
     if (s.kind == NK_VAR_DECL_STMT) {
-        upgradeTypeGenericArgs(s.type, a);
-        upgradeExprGenericArgs(s.initializer, a);
+        upgradeTypeGenericArgs(s.type, a, unresolved);
+        upgradeExprGenericArgs(s.initializer, a, unresolved);
     } else if (s.kind == NK_RETURN_STMT) {
-        upgradeExprGenericArgs(s.value_node, a);
+        upgradeExprGenericArgs(s.value_node, a, unresolved);
     } else if (s.kind == NK_EXPR_STMT) {
-        upgradeExprGenericArgs(s.expr, a);
+        upgradeExprGenericArgs(s.expr, a, unresolved);
     } else if (s.kind == NK_IF_STMT) {
-        upgradeExprGenericArgs(s.condition, a);
-        upgradeBlockGenericArgs(s.then_block, a);
-        if (s.else_block != null) { upgradeStmtGenericArgs(s.else_block, a); }
+        upgradeExprGenericArgs(s.condition, a, unresolved);
+        upgradeBlockGenericArgs(s.then_block, a, unresolved);
+        if (s.else_block != null) {
+            upgradeStmtGenericArgs(s.else_block, a, unresolved);
+        }
     } else if (s.kind == NK_ELSE_BLOCK) {
-        upgradeBlockGenericArgs(s.body_node, a);
+        upgradeBlockGenericArgs(s.body_node, a, unresolved);
     } else if (s.kind == NK_ELSE_IF) {
-        upgradeStmtGenericArgs(s.if_stmt, a);
+        upgradeStmtGenericArgs(s.if_stmt, a, unresolved);
     } else if (s.kind == NK_WHILE_STMT || s.kind == NK_DO_WHILE_STMT) {
-        upgradeExprGenericArgs(s.condition, a);
-        upgradeBlockGenericArgs(s.body_node, a);
+        upgradeExprGenericArgs(s.condition, a, unresolved);
+        upgradeBlockGenericArgs(s.body_node, a, unresolved);
     } else if (s.kind == NK_C_FOR_STMT) {
         if (s.init != null) {
-            if (s.init.kind == NK_FOR_INIT_VAR) { upgradeStmtGenericArgs(s.init.var_decl, a); }
-            else if (s.init.kind == NK_FOR_INIT_EXPR) { upgradeExprGenericArgs(s.init.expression, a); }
+            if (s.init.kind == NK_FOR_INIT_VAR) {
+                upgradeStmtGenericArgs(s.init.var_decl, a, unresolved);
+            } else if (s.init.kind == NK_FOR_INIT_EXPR) {
+                upgradeExprGenericArgs(s.init.expression, a, unresolved);
+            }
         }
-        upgradeExprGenericArgs(s.condition, a);
-        upgradeExprGenericArgs(s.update, a);
-        upgradeBlockGenericArgs(s.body_node, a);
+        upgradeExprGenericArgs(s.condition, a, unresolved);
+        upgradeExprGenericArgs(s.update, a, unresolved);
+        upgradeBlockGenericArgs(s.body_node, a, unresolved);
     } else if (s.kind == NK_FOR_IN_STMT || s.kind == NK_PARALLEL_FOR_STMT) {
-        upgradeExprGenericArgs(s.iterable, a);
-        upgradeBlockGenericArgs(s.body_node, a);
+        upgradeExprGenericArgs(s.iterable, a, unresolved);
+        upgradeBlockGenericArgs(s.body_node, a, unresolved);
     } else if (s.kind == NK_DELETE_STMT) {
-        upgradeExprGenericArgs(s.expr, a);
+        upgradeExprGenericArgs(s.expr, a, unresolved);
     } else if (s.kind == NK_TRY_CATCH_STMT) {
-        if (s.try_block != null) { upgradeBlockGenericArgs(s.try_block, a); }
-        if (s.catch_block != null) { upgradeBlockGenericArgs(s.catch_block, a); }
-        if (s.finally_block != null) { upgradeBlockGenericArgs(s.finally_block, a); }
+        if (s.try_block != null) {
+            upgradeBlockGenericArgs(s.try_block, a, unresolved);
+        }
+        if (s.catch_block != null) {
+            upgradeBlockGenericArgs(s.catch_block, a, unresolved);
+        }
+        if (s.finally_block != null) {
+            upgradeBlockGenericArgs(s.finally_block, a, unresolved);
+        }
     } else if (s.kind == NK_SWITCH_STMT) {
-        upgradeExprGenericArgs(s.value_node, a);
+        upgradeExprGenericArgs(s.value_node, a, unresolved);
         int ci = 0;
         while (ci < s.cases.len) {
             Node c = s.cases.get(ci);
-            upgradeExprGenericArgs(c.value_node, a);
+            upgradeExprGenericArgs(c.value_node, a, unresolved);
             int cj = 0;
             while (cj < c.body_nlist.len) {
-                upgradeStmtGenericArgs(c.body_nlist.get(cj), a);
+                upgradeStmtGenericArgs(
+                    c.body_nlist.get(cj), a, unresolved);
                 cj = cj + 1;
             }
             ci = ci + 1;
         }
     } else if (s.kind == NK_BLOCK) {
-        upgradeBlockGenericArgs(s, a);
+        upgradeBlockGenericArgs(s, a, unresolved);
     }
 }
 
-void upgradeExprGenericArgs(Node e, Analyzed a) {
+void upgradeExprGenericArgs(Node e, Analyzed a,
+                            Map<string, bool> unresolved) {
     if (e == null) { return; }
-    if (e.kind == NK_NEW_EXPR) { upgradeTypeGenericArgs(e.type, a); }
-    if (e.kind == NK_CAST_EXPR) { upgradeTypeGenericArgs(e.target_type, a); }
-    upgradeExprGenericArgs(e.callee, a);
-    upgradeExprGenericArgs(e.left, a);
-    upgradeExprGenericArgs(e.right, a);
-    upgradeExprGenericArgs(e.operand, a);
-    upgradeExprGenericArgs(e.expr, a);
-    upgradeExprGenericArgs(e.obj, a);
-    upgradeExprGenericArgs(e.index, a);
-    upgradeExprGenericArgs(e.condition, a);
-    upgradeExprGenericArgs(e.true_expr, a);
-    upgradeExprGenericArgs(e.false_expr, a);
-    upgradeExprGenericArgs(e.target, a);
-    upgradeExprGenericArgs(e.value_node, a);
+    if (e.kind == NK_NEW_EXPR) {
+        upgradeTypeGenericArgs(e.type, a, unresolved);
+    }
+    if (e.kind == NK_CAST_EXPR) {
+        upgradeTypeGenericArgs(e.target_type, a, unresolved);
+    }
+    if (e.kind == NK_SIZEOF_TYPE) {
+        upgradeTypeGenericArgs(e.type, a, unresolved);
+    }
+    if (e.kind == NK_LAMBDA_EXPR) {
+        upgradeTypeGenericArgs(e.return_type, a, unresolved);
+        int parameter = 0;
+        while (parameter < e.params.len) {
+            Node value = e.params.get(parameter);
+            upgradeTypeGenericArgs(value.type, a, unresolved);
+            upgradeExprGenericArgs(value.default_, a, unresolved);
+            parameter = parameter + 1;
+        }
+        int capture = 0;
+        while (capture < e.captures.len) {
+            upgradeTypeGenericArgs(
+                e.captures.get(capture).type, a, unresolved);
+            capture = capture + 1;
+        }
+        if (e.body_node != null
+                && e.body_node.kind == NK_LAMBDA_BLOCK) {
+            upgradeBlockGenericArgs(
+                e.body_node.body_node, a, unresolved);
+        } else if (e.body_node != null
+                && e.body_node.kind == NK_LAMBDA_EXPR_BODY) {
+            upgradeExprGenericArgs(
+                e.body_node.expression, a, unresolved);
+        }
+    }
+    upgradeExprGenericArgs(e.callee, a, unresolved);
+    upgradeExprGenericArgs(e.left, a, unresolved);
+    upgradeExprGenericArgs(e.right, a, unresolved);
+    upgradeExprGenericArgs(e.operand, a, unresolved);
+    upgradeExprGenericArgs(e.expr, a, unresolved);
+    upgradeExprGenericArgs(e.obj, a, unresolved);
+    upgradeExprGenericArgs(e.index, a, unresolved);
+    upgradeExprGenericArgs(e.condition, a, unresolved);
+    upgradeExprGenericArgs(e.true_expr, a, unresolved);
+    upgradeExprGenericArgs(e.false_expr, a, unresolved);
+    upgradeExprGenericArgs(e.target, a, unresolved);
+    upgradeExprGenericArgs(e.value_node, a, unresolved);
+    upgradeExprGenericArgs(e.expression, a, unresolved);
+    upgradeExprGenericArgs(e.fn, a, unresolved);
+    upgradeExprGenericArgs(e.key, a, unresolved);
     int i = 0;
-    while (i < e.args.len) { upgradeExprGenericArgs(e.args.get(i), a); i = i + 1; }
+    while (i < e.args.len) {
+        upgradeExprGenericArgs(e.args.get(i), a, unresolved);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < e.elements.len) {
+        upgradeExprGenericArgs(e.elements.get(i), a, unresolved);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < e.entries.len) {
+        upgradeExprGenericArgs(e.entries.get(i), a, unresolved);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < e.parts.len) {
+        upgradeExprGenericArgs(e.parts.get(i), a, unresolved);
+        i = i + 1;
+    }
 }
 
-/* Register a concrete generic instance (deduped, in discovery order). Recurses
- * into nested generic args first (mirrors validation._collect_generic_instances:
- * the type itself is appended, then its args). */
-void registerGenericInstance(Node t, Analyzed a) {
+/* Register a concrete generic instance (deduped, in discovery order), while
+ * filtering only the type-parameter names that are unresolved in this lexical
+ * template. A declared one-letter class is therefore never mistaken for T. */
+void registerGenericInstance(Node? t, Analyzed a) {
+    Map<string, bool> unresolved = {};
+    registerGenericInstanceWithUnresolved(t, a, unresolved);
+}
+
+void registerGenericInstanceWithUnresolved(
+        Node? t, Analyzed a, Map<string, bool> unresolved) {
     if (t == null) { return; }
     if (t.generic_args.len == 0) { return; }
-    /* Only fully-concrete instances of known generic classes are emitted. */
-    if (!isConcreteType(t)) { return; }
     string base = t.base;
     if (a.genericClassTable.has(base)) {
+        validateGenericClassSpecialization(t, a);
+    }
+    if (a.genericClassTable.has(base)
+            && !typeReferencesNames(t, unresolved)) {
         /* By this point class-typed args have been upgraded to pointers in the
          * AST by upgradeProgramGenericArgs, so the mangled name carries the
          * `_p1` suffix and the per-instance type map resolves T to a pointer. */
         string mangled = mangleGenericType(base, t.generic_args);
-        if (!a.genericSeen.has(mangled)) {
-            a.genericSeen.put(mangled, true);
+        string key = genericInstanceKey(base, t.generic_args);
+        if (!a.genericSeen.has(key)) {
+            a.genericSeen.put(key, true);
             a.genericInstances.push(GenInstance(base, t.generic_args, mangled));
         }
     }
-    /* Recurse into args (nested generics). */
+    /* Even when the outer shape is unresolved, a concrete nested argument is
+     * independently registerable and must not be lost. */
     int i = 0;
     while (i < t.generic_args.len) {
-        registerGenericInstance(t.generic_args.get(i), a);
+        registerGenericInstanceWithUnresolved(
+            t.generic_args.get(i), a, unresolved);
         i = i + 1;
     }
-}
-
-/* True if a TypeExpr is fully resolved (no bare type-param like T/K/V). Mirrors
- * types.is_concrete_type: a single uppercase letter base is a type parameter. */
-bool isConcreteType(Node t) {
-    string b = t.base;
-    if (b.length() == 1) {
-        char c0 = b[0];
-        if (c0 >= 'A' && c0 <= 'Z') { return false; }
-    }
-    int i = 0;
-    while (i < t.generic_args.len) {
-        if (!isConcreteType(t.generic_args.get(i))) { return false; }
-        i = i + 1;
-    }
-    return true;
 }
 
 /* Walk a top-level declaration for generic instances (param/return/field types
  * and statement bodies). */
 void collectGenericsDecl(Node d, Analyzed a) {
     if (d.kind == NK_FUNCTION_DECL) {
+        Map<string, bool> unresolved = typeParameterSet(d.generic_params);
         int i = 0;
         while (i < d.params.len) {
-            registerGenericInstance(d.params.get(i).type, a);
+            registerGenericInstanceWithUnresolved(
+                d.params.get(i).type, a, unresolved);
             i = i + 1;
         }
-        registerGenericInstance(d.return_type, a);
-        if (d.body_node != null) { collectGenericsBlock(d.body_node, a); }
+        registerGenericInstanceWithUnresolved(d.return_type, a, unresolved);
+        if (d.body_node != null) {
+            collectGenericsBlock(d.body_node, a, unresolved);
+        }
     } else if (d.kind == NK_CLASS_DECL) {
         /* Field/method/property types of NON-generic classes can mention generic
          * instances; generic class members are templated (their T-typed members
          * resolve per instance, not here). */
         if (d.generic_params.len == 0) {
+            Map<string, bool> none = {};
             int i = 0;
             while (i < d.members.len) {
                 Node mem = d.members.get(i);
                 if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
-                    registerGenericInstance(mem.type, a);
+                    registerGenericInstanceWithUnresolved(mem.type, a, none);
                 } else if (mem.kind == NK_METHOD_DECL) {
+                    Map<string, bool> unresolved =
+                        typeParameterSet(mem.generic_params);
                     int p = 0;
                     while (p < mem.params.len) {
-                        registerGenericInstance(mem.params.get(p).type, a);
+                        registerGenericInstanceWithUnresolved(
+                            mem.params.get(p).type, a, unresolved);
                         p = p + 1;
                     }
-                    registerGenericInstance(mem.return_type, a);
-                    if (mem.body_node != null) { collectGenericsBlock(mem.body_node, a); }
+                    registerGenericInstanceWithUnresolved(
+                        mem.return_type, a, unresolved);
+                    if (mem.body_node != null) {
+                        collectGenericsBlock(mem.body_node, a, unresolved);
+                    }
                 }
                 i = i + 1;
             }
@@ -977,115 +1238,197 @@ void collectGenericsDecl(Node d, Analyzed a) {
 }
 
 /* Walk a block's statements for generic-instance-bearing types/exprs. */
-void collectGenericsBlock(Node block, Analyzed a) {
+void collectGenericsBlock(Node block, Analyzed a,
+                          Map<string, bool> unresolved) {
     if (block == null) { return; }
     int i = 0;
     while (i < block.statements.len) {
-        collectGenericsStmt(block.statements.get(i), a);
+        collectGenericsStmt(block.statements.get(i), a, unresolved);
         i = i + 1;
     }
 }
 
-void collectGenericsStmt(Node s, Analyzed a) {
+void collectGenericsStmt(Node s, Analyzed a,
+                         Map<string, bool> unresolved) {
     if (s == null) { return; }
     if (s.kind == NK_VAR_DECL_STMT) {
-        registerGenericInstance(s.type, a);
-        collectGenericsExpr(s.initializer, a);
+        registerGenericInstanceWithUnresolved(s.type, a, unresolved);
+        collectGenericsExpr(s.initializer, a, unresolved);
     } else if (s.kind == NK_RETURN_STMT) {
-        collectGenericsExpr(s.value_node, a);
+        collectGenericsExpr(s.value_node, a, unresolved);
     } else if (s.kind == NK_EXPR_STMT) {
-        collectGenericsExpr(s.expr, a);
+        collectGenericsExpr(s.expr, a, unresolved);
     } else if (s.kind == NK_IF_STMT) {
-        collectGenericsExpr(s.condition, a);
-        collectGenericsBlock(s.then_block, a);
-        if (s.else_block != null) { collectGenericsStmt(s.else_block, a); }
+        collectGenericsExpr(s.condition, a, unresolved);
+        collectGenericsBlock(s.then_block, a, unresolved);
+        if (s.else_block != null) {
+            collectGenericsStmt(s.else_block, a, unresolved);
+        }
     } else if (s.kind == NK_ELSE_BLOCK) {
-        collectGenericsBlock(s.body_node, a);
+        collectGenericsBlock(s.body_node, a, unresolved);
     } else if (s.kind == NK_ELSE_IF) {
-        collectGenericsStmt(s.if_stmt, a);
+        collectGenericsStmt(s.if_stmt, a, unresolved);
     } else if (s.kind == NK_WHILE_STMT || s.kind == NK_DO_WHILE_STMT) {
-        collectGenericsExpr(s.condition, a);
-        collectGenericsBlock(s.body_node, a);
+        collectGenericsExpr(s.condition, a, unresolved);
+        collectGenericsBlock(s.body_node, a, unresolved);
     } else if (s.kind == NK_C_FOR_STMT) {
         if (s.init != null) {
-            if (s.init.kind == NK_FOR_INIT_VAR) { collectGenericsStmt(s.init.var_decl, a); }
-            else if (s.init.kind == NK_FOR_INIT_EXPR) { collectGenericsExpr(s.init.expression, a); }
+            if (s.init.kind == NK_FOR_INIT_VAR) {
+                collectGenericsStmt(s.init.var_decl, a, unresolved);
+            } else if (s.init.kind == NK_FOR_INIT_EXPR) {
+                collectGenericsExpr(s.init.expression, a, unresolved);
+            }
         }
-        collectGenericsExpr(s.condition, a);
-        collectGenericsExpr(s.update, a);
-        collectGenericsBlock(s.body_node, a);
+        collectGenericsExpr(s.condition, a, unresolved);
+        collectGenericsExpr(s.update, a, unresolved);
+        collectGenericsBlock(s.body_node, a, unresolved);
     } else if (s.kind == NK_DELETE_STMT) {
-        collectGenericsExpr(s.expr, a);
+        collectGenericsExpr(s.expr, a, unresolved);
     } else if (s.kind == NK_TRY_CATCH_STMT) {
-        if (s.try_block != null) { collectGenericsBlock(s.try_block, a); }
-        if (s.catch_block != null) { collectGenericsBlock(s.catch_block, a); }
-        if (s.finally_block != null) { collectGenericsBlock(s.finally_block, a); }
+        if (s.try_block != null) {
+            collectGenericsBlock(s.try_block, a, unresolved);
+        }
+        if (s.catch_block != null) {
+            collectGenericsBlock(s.catch_block, a, unresolved);
+        }
+        if (s.finally_block != null) {
+            collectGenericsBlock(s.finally_block, a, unresolved);
+        }
     } else if (s.kind == NK_SWITCH_STMT) {
-        collectGenericsExpr(s.value_node, a);
+        collectGenericsExpr(s.value_node, a, unresolved);
         int ci = 0;
         while (ci < s.cases.len) {
             Node c = s.cases.get(ci);
-            collectGenericsExpr(c.value_node, a);
+            collectGenericsExpr(c.value_node, a, unresolved);
             int cj = 0;
             while (cj < c.body_nlist.len) {
-                collectGenericsStmt(c.body_nlist.get(cj), a);
+                collectGenericsStmt(c.body_nlist.get(cj), a, unresolved);
                 cj = cj + 1;
             }
             ci = ci + 1;
         }
     } else if (s.kind == NK_BLOCK) {
-        collectGenericsBlock(s, a);
+        collectGenericsBlock(s, a, unresolved);
     }
 }
 
-void collectGenericsExpr(Node e, Analyzed a) {
+void collectGenericsExpr(Node e, Analyzed a,
+                         Map<string, bool> unresolved) {
     if (e == null) { return; }
-    if (e.kind == NK_NEW_EXPR) { registerGenericInstance(e.type, a); }
-    if (e.kind == NK_CAST_EXPR) { registerGenericInstance(e.target_type, a); }
+    if (e.kind == NK_NEW_EXPR) {
+        registerGenericInstanceWithUnresolved(e.type, a, unresolved);
+    }
+    if (e.kind == NK_CAST_EXPR) {
+        registerGenericInstanceWithUnresolved(e.target_type, a, unresolved);
+    }
     /* Recurse through sub-expressions that can hold a generic-typed expr. */
-    collectGenericsExpr(e.callee, a);
-    collectGenericsExpr(e.left, a);
-    collectGenericsExpr(e.right, a);
-    collectGenericsExpr(e.operand, a);
-    collectGenericsExpr(e.expr, a);
-    collectGenericsExpr(e.obj, a);
-    collectGenericsExpr(e.index, a);
-    collectGenericsExpr(e.condition, a);
-    collectGenericsExpr(e.true_expr, a);
-    collectGenericsExpr(e.false_expr, a);
-    collectGenericsExpr(e.target, a);
-    collectGenericsExpr(e.value_node, a);
+    collectGenericsExpr(e.callee, a, unresolved);
+    collectGenericsExpr(e.left, a, unresolved);
+    collectGenericsExpr(e.right, a, unresolved);
+    collectGenericsExpr(e.operand, a, unresolved);
+    collectGenericsExpr(e.expr, a, unresolved);
+    collectGenericsExpr(e.obj, a, unresolved);
+    collectGenericsExpr(e.index, a, unresolved);
+    collectGenericsExpr(e.condition, a, unresolved);
+    collectGenericsExpr(e.true_expr, a, unresolved);
+    collectGenericsExpr(e.false_expr, a, unresolved);
+    collectGenericsExpr(e.target, a, unresolved);
+    collectGenericsExpr(e.value_node, a, unresolved);
     int i = 0;
-    while (i < e.args.len) { collectGenericsExpr(e.args.get(i), a); i = i + 1; }
+    while (i < e.args.len) {
+        collectGenericsExpr(e.args.get(i), a, unresolved);
+        i = i + 1;
+    }
 }
 
 /* On-demand type inference for an expression node, given a map of in-scope
  * variable name -> declared TypeExpr node. Returns a TypeExpr Node, or null if
  * the type is unknown (mirrors Python's node_types.get returning None). */
-Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
+Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     if (node == null) { return null; }
-    if (node.kind == NK_INT_LITERAL) { return makePrimType("int"); }
-    if (node.kind == NK_FLOAT_LITERAL) { return makePrimType("float"); }
+    if (node.kind == NK_INT_LITERAL) { return integerLiteralType(node.raw); }
+    if (node.kind == NK_FLOAT_LITERAL) { return floatLiteralType(node.raw); }
     if (node.kind == NK_BOOL_LITERAL) { return makePrimType("bool"); }
     if (node.kind == NK_CHAR_LITERAL) { return makePrimType("char"); }
     if (node.kind == NK_STRING_LITERAL) { return makePrimType("string"); }
     if (node.kind == NK_F_STRING_LITERAL) { return makePrimType("string"); }
+    if (node.kind == NK_SIZEOF_EXPR) { return makePrimType("size_t"); }
+    if (node.kind == NK_NULL_LITERAL) { return makeSemanticNullType(); }
     if (node.kind == NK_IDENTIFIER) {
+        if (node.name == "NULL") { return makeSemanticNullType(); }
         if (varTypes.has(node.name)) { return varTypes.get(node.name); }
+        if (a.funcTable.has(node.name)) {
+            return argTypeForInference(node, a, varTypes);
+        }
+        if (a.isEnumValue(node.name)) {
+            return makePrimType(a.enumOwnerOf(node.name));
+        }
+        /* Standard stream objects are opaque FILE pointers. The reference
+         * analyzer records this type too; preserving it here lets structured
+         * call sequencing hoist stderr/stdout/stdin without inventing a C11
+         * typeof fallback or mistaking the operand for a managed value. */
+        if (node.name == "stdin" || node.name == "stdout"
+                || node.name == "stderr") {
+            Node streamType = makePrimType("FILE");
+            streamType.pointer_depth = 1;
+            return streamType;
+        }
+        if (isCIntegerIdentifier(node.name)) { return makePrimType("int"); }
         return null;
     }
     if (node.kind == NK_BINARY_EXPR) {
-        /* comparison/logical ops yield bool; arithmetic yields the left type. */
+        /* Comparison/logical ops yield bool. Arithmetic follows the shared,
+         * operand-order-independent numeric contract. */
         if (isComparisonOp(node.op)) { return makePrimType("bool"); }
-        return inferType(node.left, a, varTypes);
+        Node? leftType = inferType(node.left, a, varTypes);
+        Node? rightType = inferType(node.right, a, varTypes);
+        Node? numericType = numericResultType(leftType, rightType, a);
+        if (numericType != null) { return numericType; }
+        if (leftType != null) { return leftType; }
+        return rightType;
     }
     if (node.kind == NK_UNARY_EXPR) {
+        Node? operandType = inferType(node.operand, a, varTypes);
+        if (operandType == null) { return null; }
         if (node.op == "!") { return makePrimType("bool"); }
-        return inferType(node.operand, a, varTypes);
+        if (node.op == "&") {
+            if (node.operand != null
+                    && node.operand.kind == NK_IDENTIFIER
+                    && a.funcTable.has(node.operand.name)
+                    && !varTypes.has(node.operand.name)) {
+                return operandType;
+            }
+            Node addressed = copyTypeExpr(operandType);
+            addressed.pointer_depth = addressed.pointer_depth + 1;
+            addressed.is_array = false;
+            addressed.array_size = null;
+            return addressed;
+        }
+        if (node.op == "*") {
+            Node dereferenced = copyTypeExpr(operandType);
+            if (dereferenced.is_array) {
+                dereferenced.is_array = false;
+                dereferenced.array_size = null;
+                return dereferenced;
+            }
+            if (dereferenced.pointer_depth > 0) {
+                dereferenced.pointer_depth = dereferenced.pointer_depth - 1;
+                return dereferenced;
+            }
+        }
+        return operandType;
     }
     if (node.kind == NK_SELF_EXPR) {
         if (varTypes.has("self")) { return varTypes.get("self"); }
         return null;
+    }
+    if (node.kind == NK_SUPER_EXPR) {
+        if (!varTypes.has("self")) { return null; }
+        Node selfType = varTypes.get("self");
+        if (!a.classTable.has(selfType.base)) { return null; }
+        string parent = parentName(a.classTable.get(selfType.base));
+        if (parent == "") { return null; }
+        return classPtrType(makeClassTypeExpr(parent));
     }
     if (node.kind == NK_NEW_EXPR) {
         return classPtrType(node.type);
@@ -1093,7 +1436,19 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
     if (node.kind == NK_FIELD_ACCESS_EXPR) {
         /* Qualified static reference (ClassName.field on a class name) has no
          * value type here; only instance field access infers a type. */
+        if (node.obj != null && node.obj.kind == NK_IDENTIFIER
+                && a.isEnum(node.obj.name)
+                && a.enumContains(node.obj.name, node.field)) {
+            return makePrimType(node.obj.name);
+        }
         Node? ot = inferType(node.obj, a, varTypes);
+        if (ot != null && ot.base == "Tuple") {
+            int tupleIndex = tupleFieldIndex(node.field);
+            if (tupleIndex >= 0 && tupleIndex < ot.generic_args.len) {
+                return ot.generic_args.get(tupleIndex);
+            }
+            return null;
+        }
         /* Rich-enum field access: `s.tag` is int; any other direct field of a
          * rich enum (the `data` union) has no scalar type. Mirrors
          * type_inference._infer_field_access_type's rich_enum_table branch. */
@@ -1140,11 +1495,58 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 return resolveGenericType(fm.type, genericTypeMap(a, ot));
             }
         }
+        Node? nativeField = structFieldType(ot, node.field, a);
+        if (nativeField != null) { return nativeField; }
         return null;
     }
     if (node.kind == NK_CALL_EXPR) {
         Node callee = node.callee;
+        if (callee != null && callee.kind == NK_LAMBDA_EXPR) {
+            Node callableType = lambdaFnPtrType(callee, a, varTypes);
+            if (callableType.generic_args.len > 0) {
+                return callableType.generic_args.get(0);
+            }
+        }
+        Node? callableCallee = directFunctionPointerType(
+            inferType(callee, a, varTypes), a);
+        if (callableCallee != null) {
+            return callableCallee.generic_args.get(0);
+        }
         if (callee != null && callee.kind == NK_IDENTIFIER) {
+            if (callee.name == "__btrc_hash") { return makePrimType("uint"); }
+            if (callee.name == "__btrc_eq" || callee.name == "__btrc_lt"
+                    || callee.name == "__btrc_gt") {
+                return makePrimType("bool");
+            }
+            if (callee.name == "__btrc_str_track"
+                    || callee.name == "__btrc_string_adopt"
+                    || callee.name == "__btrc_string_alloc") {
+                return makePrimType("string");
+            }
+            /* Builtin Mutex(value) infers the exact payload type. Keep this in
+             * semantic inference (matching the reference compiler) so ownership
+             * boundaries and every other consumer see a typed handle instead of
+             * falling back to an integer C temporary. */
+            if (callee.name == "Mutex" && node.args.len > 0) {
+                Node mutexType = makePrimType("Mutex");
+                Node? argumentType = inferType(
+                    node.args.get(0), a, varTypes);
+                if (argumentType == null) {
+                    argumentType = makePrimType("int");
+                } else if ((a.isClass(argumentType.base)
+                            || a.isGenericClass(argumentType.base))
+                        && argumentType.pointer_depth == 0) {
+                    /* Local scope tables preserve the source spelling of an
+                     * outer class type, while declaration normalization eagerly
+                     * records class-typed generic arguments as pointers.  A
+                     * Mutex payload is an expression value, so give an inferred
+                     * bare class the same heap-reference shape used by the
+                     * reference compiler before embedding it in Mutex<T>. */
+                    argumentType = classPtrType(argumentType);
+                }
+                mutexType.generic_args.push(argumentType);
+                return mutexType;
+            }
             /* Constructor call ClassName(...) yields a class-instance pointer. */
             if (a.isClass(callee.name)) {
                 return classPtrType(makeClassTypeExpr(callee.name));
@@ -1158,7 +1560,7 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
             /* Static method call ClassName.method(...) */
             if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER
                     && a.isClass(callee.obj.name)) {
-                Node? sm = a.classMember(callee.obj.name, method);
+                Node? sm = a.classMethod(callee.obj.name, method);
                 if (sm != null && sm.kind == NK_METHOD_DECL) { return sm.return_type; }
             }
             /* Instance method call obj.method(...) */
@@ -1180,13 +1582,13 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 if (method == "set" || method == "destroy") { return makePrimType("void"); }
             }
             if (ot != null && a.isClass(ot.base)) {
-                Node? mm = a.classMember(ot.base, method);
+                Node? mm = a.classMethod(ot.base, method);
                 if (mm != null && mm.kind == NK_METHOD_DECL) { return mm.return_type; }
                 if (mm != null && mm.kind == NK_PROPERTY_DECL) { return mm.type; }
             }
             /* Generic instance method call: resolve return type via type map. */
             if (ot != null && ot.generic_args.len > 0 && a.isGenericClass(ot.base)) {
-                Node? mm = genericMember(a, ot.base, method);
+                Node? mm = a.genericClassMethod(ot.base, method);
                 if (mm != null && mm.kind == NK_METHOD_DECL) {
                     return resolveGenericType(mm.return_type, genericTypeMap(a, ot));
                 }
@@ -1198,49 +1600,38 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return null;
     }
     if (node.kind == NK_INDEX_EXPR) {
-        /* Indexing yields the element type. For a generic collection value
-         * (List/Set/Vector → arg[0]; Map → arg[1]) use the generic arg; for a
-         * pointer/array backing store (e.g. a resolved `T* data` field, which
-         * inference reports as `OwnedItem**`) strip one pointer level. Mirrors
-         * the reference IndexExpr inference + _indexed_self_field_type. */
         Node? ot = inferType(node.obj, a, varTypes);
-        if (ot != null && ot.generic_args.len > 0 && ot.pointer_depth == 0) {
-            if (ot.generic_args.len == 1) { return ot.generic_args.get(0); }
-            if (ot.generic_args.len == 2) { return ot.generic_args.get(1); }
-        }
-        if (ot != null && ot.pointer_depth > 0) {
-            Node u = Node();
-            u.kind = NK_TYPE_EXPR;
-            u.base = ot.base;
-            u.generic_args = ot.generic_args;
-            u.pointer_depth = ot.pointer_depth - 1;
-            u.is_array = ot.is_array;
-            u.is_nullable = ot.is_nullable;
-            return u;
-        }
-        if (ot != null && ot.is_array) {
-            Node u = Node();
-            u.kind = NK_TYPE_EXPR;
-            u.base = ot.base;
-            u.generic_args = ot.generic_args;
-            u.pointer_depth = ot.pointer_depth;
-            return u;
-        }
-        return null;
+        return semanticIndexResultType(ot, a);
     }
     if (node.kind == NK_CAST_EXPR) { return node.target_type; }
     if (node.kind == NK_TERNARY_EXPR) {
-        return inferType(node.true_expr, a, varTypes);
+        Node? trueType = inferType(node.true_expr, a, varTypes);
+        Node? falseType = inferType(node.false_expr, a, varTypes);
+        Node? numericType = numericResultType(trueType, falseType, a);
+        if (numericType != null) { return numericType; }
+        if (semanticIsNullType(trueType) && falseType != null) {
+            return falseType;
+        }
+        if (semanticIsNullType(falseType) && trueType != null) {
+            return trueType;
+        }
+        if (trueType != null) { return trueType; }
+        return falseType;
     }
     if (node.kind == NK_LIST_LITERAL) {
         if (node.elements.len > 0) {
             Node? et = inferType(node.elements.get(0), a, varTypes);
             if (et != null) {
+                Node elementType = et;
+                if ((a.isClass(et.base) || a.isGenericClass(et.base))
+                        && et.pointer_depth == 0) {
+                    elementType = classPtrType(et);
+                }
                 Node u = Node();
                 u.kind = NK_TYPE_EXPR;
                 u.base = "Vector";
                 Vector<Node> ga = [];
-                ga.push(et);
+                ga.push(elementType);
                 u.generic_args = ga;
                 return u;
             }
@@ -1290,13 +1681,34 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
         while (ti < node.elements.len) {
             Node? et = inferType(node.elements.get(ti), a, varTypes);
             if (et == null) { et = makePrimType("int"); }
-            ga.push(et);
+            ga.push(copyTypeExprTree(et));
             ti = ti + 1;
         }
         u.generic_args = ga;
+        /* Declared aggregate types eagerly normalize nested class references
+         * to their concrete pointer shape.  Inferred symbol types keep the
+         * source spelling for an outer class, so normalize these copied tuple
+         * arguments before invariant generic comparison.  The recursive copy
+         * avoids mutating the symbol table while handling nested tuples. */
+        upgradeConcreteTypeGenericArgs(u, a);
         return u;
     }
     return null;
+}
+
+Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
+    return resolveTypedefType(
+        inferTypeRaw(node, a, varTypes), a.typedefTable);
+}
+
+Node? directFunctionPointerType(Node? typeExpr, Analyzed a) {
+    Node? resolved = resolveTypedefType(typeExpr, a.typedefTable);
+    if (resolved == null || resolved.base != "__fn_ptr"
+            || resolved.pointer_depth != 0 || resolved.is_array
+            || resolved.generic_args.len == 0) {
+        return null;
+    }
+    return resolved;
 }
 
 /* Infer the __fn_ptr(ret, params...) TypeExpr for a lambda expression so that
@@ -1309,43 +1721,11 @@ Node lambdaFnPtrType(Node node, Analyzed a, Map<string, Node> varTypes) {
     u.kind = NK_TYPE_EXPR;
     u.base = "__fn_ptr";
     Vector<Node> ga = [];
-    /* arg[0] = return type. With an explicit annotation, use it; otherwise infer
-     * from the body (expr body -> its type; block body -> first `return x` type),
-     * defaulting to int (mirrors type_inference._infer_lambda_return). */
-    Node ret = makePrimType("int");
-    if (node.return_type != null) {
-        ret = node.return_type;
-    } else {
-        /* Build a varTypes with the lambda's own params in scope (they are not in
-         * the enclosing varTypes). */
-        Map<string, Node> bv = {};
-        Vector<string> vk = varTypes.keys();
-        int vi = 0;
-        while (vi < vk.len) { bv.put(vk.get(vi), varTypes.get(vk.get(vi))); vi = vi + 1; }
-        int qi = 0;
-        while (qi < node.params.len) {
-            Node qp = node.params.get(qi);
-            if (qp.type != null) { bv.put(qp.name, qp.type); }
-            qi = qi + 1;
-        }
-        Node bn = node.body_node;
-        if (bn != null && bn.kind == NK_LAMBDA_EXPR_BODY && bn.expression != null) {
-            Node? bt = inferType(bn.expression, a, bv);
-            if (bt != null) { ret = bt; }
-        } else if (bn != null && bn.kind == NK_LAMBDA_BLOCK && bn.body_node != null) {
-            Node blk = bn.body_node;
-            int s = 0;
-            while (s < blk.statements.len) {
-                Node st = blk.statements.get(s);
-                if (st.kind == NK_RETURN_STMT && st.value_node != null) {
-                    Node? rt = inferType(st.value_node, a, bv);
-                    if (rt != null) { ret = rt; }
-                    s = blk.statements.len;
-                } else {
-                    s = s + 1;
-                }
-            }
-        }
+    /* arg[0] is the explicit or structurally inferred return type. */
+    Node ret = inferredLambdaReturnType(node, a, varTypes);
+    if ((a.isClass(ret.base) || a.isGenericClass(ret.base))
+            && ret.pointer_depth == 0 && !ret.is_array) {
+        ret = classPtrType(ret);
     }
     ga.push(ret);
     /* arg[1..] = parameter types. */
@@ -1368,6 +1748,10 @@ void collectIdentifiers(Node? n, Map<string, bool> names) {
     if (n == null) { return; }
     if (n.kind == NK_IDENTIFIER) {
         names.put(n.name, true);
+        return;
+    }
+    if (n.kind == NK_SELF_EXPR || n.kind == NK_SUPER_EXPR) {
+        names.put("self", true);
         return;
     }
     /* Node-typed scalar children. */
@@ -1441,21 +1825,26 @@ Node resolveGenericType(Node? t, Map<string, Node> typeMap) {
     if (t == null) { return makePrimType("void"); }
     if (typeMap.has(t.base) && t.generic_args.len == 0) {
         Node resolved = typeMap.get(t.base);
-        if (t.pointer_depth > 0) {
-            Node u = Node();
-            u.kind = NK_TYPE_EXPR;
-            u.base = resolved.base;
-            u.generic_args = resolved.generic_args;
-            u.pointer_depth = resolved.pointer_depth + t.pointer_depth;
-            /* Preserve the nullable flag so a `T?` field over a reference type
-             * (T->string) still collapses to char* in typeToC instead of char**
-             * (gcc 15 rejects the char* = char** mismatch against the
-             * non-generic value side). Mirrors generics/core._resolve_type and
-             * type_inference._substitute_type. */
-            u.is_nullable = t.is_nullable || resolved.is_nullable;
-            return u;
+        if (t.is_array && resolved.is_array) {
+            typeShapeFail("nested array composition for type parameter '"
+                + t.base + "' is not supported");
         }
-        return resolved;
+        Node u = Node();
+        u.kind = NK_TYPE_EXPR;
+        u.base = resolved.base;
+        u.generic_args = resolved.generic_args;
+        u.pointer_depth = resolved.pointer_depth + t.pointer_depth;
+        u.is_array = t.is_array || resolved.is_array;
+        if (t.array_size != null) { u.array_size = t.array_size; }
+        else { u.array_size = resolved.array_size; }
+        u.is_const = t.is_const || resolved.is_const;
+        u.is_nullable = t.is_nullable || resolved.is_nullable;
+        u.is_static = t.is_static || resolved.is_static;
+        u.is_extern = t.is_extern || resolved.is_extern;
+        u.is_volatile = t.is_volatile || resolved.is_volatile;
+        if (t.line != 0) { u.line = t.line; } else { u.line = resolved.line; }
+        if (t.col != 0) { u.col = t.col; } else { u.col = resolved.col; }
+        return u;
     }
     if (t.generic_args.len > 0) {
         Node u = Node();
@@ -1469,6 +1858,15 @@ Node resolveGenericType(Node? t, Map<string, Node> typeMap) {
         }
         u.generic_args = ra;
         u.pointer_depth = t.pointer_depth;
+        u.is_array = t.is_array;
+        u.array_size = t.array_size;
+        u.is_const = t.is_const;
+        u.is_nullable = t.is_nullable;
+        u.is_static = t.is_static;
+        u.is_extern = t.is_extern;
+        u.is_volatile = t.is_volatile;
+        u.line = t.line;
+        u.col = t.col;
         return u;
     }
     return t;
@@ -1495,7 +1893,10 @@ Node? genericMember(Analyzed a, string base, string member) {
     int i = 0;
     while (i < decl.members.len) {
         Node m = decl.members.get(i);
-        if (m.name == member) { return m; }
+        if (m.name == member
+                && !(m.kind == NK_METHOD_DECL && m.is_constructor)) {
+            return m;
+        }
         i = i + 1;
     }
     return null;
@@ -1534,16 +1935,25 @@ Node classPtrType(Node? t) {
  * The OUTER class type is left at its source pointer_depth — typeToC applies the
  * class pointer lazily there; only nested args need the eager AST upgrade so the
  * mangled name and field types agree everywhere. */
-void upgradeTypeGenericArgs(Node? t, Analyzed a) {
+void upgradeConcreteTypeGenericArgs(Node? t, Analyzed a) {
+    Map<string, bool> unresolved = {};
+    upgradeTypeGenericArgs(t, a, unresolved);
+}
+
+void upgradeTypeGenericArgs(Node? t, Analyzed a,
+                            Map<string, bool> unresolved) {
     if (t == null) { return; }
     int i = 0;
     while (i < t.generic_args.len) {
         Node arg = t.generic_args.get(i);
         /* Recurse into the arg's own generic args first. */
-        upgradeTypeGenericArgs(arg, a);
+        upgradeTypeGenericArgs(arg, a, unresolved);
         /* A class instance (regular or generic) is a heap pointer: a bare
-         * (depth-0) class-typed arg gains one pointer level. */
-        if ((a.isClass(arg.base) || a.isGenericClass(arg.base)) && arg.pointer_depth == 0) {
+         * (depth-0) class-typed arg gains one pointer level. A lexically
+         * shadowing type parameter is never reinterpreted as a global class. */
+        if (!unresolved.has(arg.base)
+                && (a.isClass(arg.base) || a.isGenericClass(arg.base))
+                && arg.pointer_depth == 0) {
             arg.pointer_depth = 1;
         }
         i = i + 1;
@@ -1559,11 +1969,28 @@ Node makePrimType(string base) {
     return t;
 }
 
+/* Supported unresolved C integer seam. Mirrors c_call_types.py exactly:
+ * errno and all-uppercase identifiers (with digits/underscores allowed) are
+ * treated as integer-valued C macros. At least one uppercase letter is needed,
+ * matching Python str.isupper(). */
+bool isCIntegerIdentifier(string name) {
+    if (name == "errno") { return true; }
+    if (name == "" || name == "NULL") { return false; }
+    bool sawUpper = false;
+    int index = 0;
+    while (index < name.length()) {
+        char value = name[index];
+        if (value >= 'a' && value <= 'z') { return false; }
+        if (value >= 'A' && value <= 'Z') { sawUpper = true; }
+        index = index + 1;
+    }
+    return sawUpper;
+}
+
 /* True for the btrc `string` scalar (base "string", no generics, depth 0).
  * Mirrors types.is_string_type. */
 bool isStringType(Node? t) {
-    if (t == null) { return false; }
-    return t.base == "string" && t.generic_args.len == 0 && t.pointer_depth == 0;
+    return isSemanticScalarString(t);
 }
 
 /* Return type of a builtin string method (mirrors type_utils
@@ -1592,7 +2019,7 @@ Node? stringMethodReturnType(string method) {
             || method == "capitalize" || method == "title" || method == "swapCase"
             || method == "padLeft" || method == "padRight" || method == "center"
             || method == "zfill" || method == "removePrefix" || method == "removeSuffix"
-            || method == "join") {
+            ) {
         return makePrimType("string");
     }
     if (method == "split") {
@@ -1608,21 +2035,4 @@ Node? stringMethodReturnType(string method) {
 bool isComparisonOp(string op) {
     return op == "==" || op == "!=" || op == "<" || op == ">"
         || op == "<=" || op == ">=" || op == "&&" || op == "||";
-}
-
-bool typeIsString(Node? t) {
-    if (t == null) { return false; }
-    return t.base == "string" && t.generic_args.len == 0 && t.pointer_depth == 0;
-}
-
-bool typeIsNumeric(Node? t) {
-    if (t == null) { return false; }
-    string b = t.base;
-    return b == "int" || b == "float" || b == "double" || b == "long"
-        || b == "short" || b == "byte" || b == "uint";
-}
-
-bool typeIsFloatLike(Node? t) {
-    if (t == null) { return false; }
-    return t.base == "float" || t.base == "double";
 }

@@ -17,7 +17,7 @@ int main() {
     assert(*arr[0] + *arr[1] + *arr[2] == 6);
 
     // sizeof is N pointer-widths, not N int-widths
-    assert(sizeof(arr) == 3 * sizeof(int*));
+    assert(sizeof(arr) == (size_t)3 * sizeof(int*));
 
     // mutate the pointee through the array element; the original changes
     *arr[1] = 9;

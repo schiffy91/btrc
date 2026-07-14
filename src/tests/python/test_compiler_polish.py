@@ -43,9 +43,10 @@ def _compile(tmp_path, source, run=False):
     src.write_text(source)
     out_c = tmp_path / "t.c"
     r = subprocess.run(
-        [sys.executable, "-m", "src.compiler.python.main", str(src),
-         "-o", str(out_c)],
-        cwd=REPO, capture_output=True, text=True,
+        [sys.executable, "-m", "src.compiler.python.main", str(src), "-o", str(out_c)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
         env={"BTRC_CACHE_DIR": str(tmp_path / "cache"), "PATH": "/usr/bin:/bin"},
     )
     if not run:
@@ -53,9 +54,10 @@ def _compile(tmp_path, source, run=False):
     assert r.returncode == 0, r.stderr
     exe = tmp_path / "t"
     g = subprocess.run(
-        ["cc", "-std=c11", "-pedantic-errors", str(out_c), "-o", str(exe),
-         "-lm", "-lpthread"],
-        cwd=REPO, capture_output=True, text=True,
+        ["cc", "-std=c11", "-pedantic-errors", str(out_c), "-o", str(exe), "-lm", "-lpthread"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
     )
     assert g.returncode == 0, g.stderr
     run_res = subprocess.run([str(exe)], capture_output=True, text=True)
@@ -65,6 +67,7 @@ def _compile(tmp_path, source, run=False):
 # ---------------------------------------------------------------------------
 # CMP-19: pointer depth in generic mangling
 # ---------------------------------------------------------------------------
+
 
 class TestPointerDepthMangling:
     SRC = """
@@ -95,10 +98,11 @@ class TestPointerDepthMangling:
     def test_unit_mangling_includes_pointer_suffix(self):
         from src.compiler.python.ast_nodes import TypeExpr
         from src.compiler.python.ir.gen.types import mangle_type_name
+
         plain = mangle_type_name(TypeExpr(base="int"))
         ptr = mangle_type_name(TypeExpr(base="int", pointer_depth=1))
         ptr2 = mangle_type_name(TypeExpr(base="int", pointer_depth=2))
-        assert plain == "int"          # depth 0 unchanged (zero churn)
+        assert plain == "int"  # depth 0 unchanged (zero churn)
         assert ptr == "int_p1"
         assert ptr2 == "int_p2"
         assert plain != ptr != ptr2
@@ -108,22 +112,23 @@ class TestPointerDepthMangling:
 # CMP-27: _has_return descends into loop bodies
 # ---------------------------------------------------------------------------
 
+
 class TestHasReturnLoops:
-    def test_c_for_return_no_false_positive(self):
+    def test_c_for_that_may_not_execute_does_not_satisfy_return(self):
         src = """
             int f() {
                 for (int i = 0; i < 1; i = i + 1) { return i; }
             }
         """
-        assert not any("no return statement" in e for e in _errors(src))
+        assert any("no return statement" in e for e in _errors(src))
 
-    def test_for_in_return_no_false_positive(self):
+    def test_for_in_that_may_not_execute_does_not_satisfy_return(self):
         src = """
             int g() {
                 for x in [1, 2, 3] { return x; }
             }
         """
-        assert not any("no return statement" in e for e in _errors(src))
+        assert any("no return statement" in e for e in _errors(src))
 
     def test_do_while_return_no_false_positive(self):
         src = """
@@ -134,7 +139,7 @@ class TestHasReturnLoops:
         """
         assert not any("no return statement" in e for e in _errors(src))
 
-    def test_method_loop_return_no_false_positive(self):
+    def test_method_c_for_does_not_satisfy_return(self):
         src = """
             class C {
                 public int m() {
@@ -142,7 +147,7 @@ class TestHasReturnLoops:
                 }
             }
         """
-        assert not any("no return statement" in e for e in _errors(src))
+        assert any("no return statement" in e for e in _errors(src))
 
     def test_truly_missing_return_still_errors(self):
         # No return anywhere -> the missing-return diagnostic must remain.
@@ -158,6 +163,7 @@ class TestHasReturnLoops:
 # ---------------------------------------------------------------------------
 # CMP-29: cyclable-flag classification
 # ---------------------------------------------------------------------------
+
 
 class TestCyclableFlags:
     def _cyclable(self, src: str) -> dict[str, bool]:
@@ -191,6 +197,15 @@ class TestCyclableFlags:
         assert flags["C"] is True
         assert flags["D"] is False
 
+    def test_base_typed_edge_can_close_cycle_through_subclass(self):
+        src = """
+            class Base {}
+            class Derived extends Base { public Base peer; }
+        """
+        flags = self._cyclable(src)
+        assert flags["Base"] is False
+        assert flags["Derived"] is True
+
     def test_acyclic_class_not_cyclable(self):
         src = """
             class Leaf { public int v; public Leaf() {} }
@@ -201,6 +216,7 @@ class TestCyclableFlags:
 # ---------------------------------------------------------------------------
 # CMP-21: extern/static/volatile global qualifiers
 # ---------------------------------------------------------------------------
+
 
 class TestGlobalQualifiers:
     def test_qualifiers_emit_distinctly(self, tmp_path):
@@ -216,8 +232,8 @@ class TestGlobalQualifiers:
         assert "extern int g_external;" in text
         # extern is a declaration -> never carries an initializer
         assert "extern int g_external = " not in text
-        assert "volatile int g_flag = 0;" in text          # volatile preserved
-        assert "static int g_counter = 5;" in text          # static preserved
+        assert "volatile int g_flag = 0;" in text  # volatile preserved
+        assert "static int g_counter = 5;" in text  # static preserved
 
     def test_unqualified_global_stays_static(self, tmp_path):
         # Zero-churn guard: a plain global still emits file-scope `static`.
@@ -234,6 +250,7 @@ class TestGlobalQualifiers:
 # CMP-26: typed catch annotation stored + validated
 # ---------------------------------------------------------------------------
 
+
 class TestTypedCatch:
     def _try_stmt(self, src: str):
         tokens = Lexer(src).tokenize()
@@ -243,12 +260,13 @@ class TestTypedCatch:
 
         def walk(node):
             import dataclasses
+
             if type(node).__name__ == "TryCatchStmt":
                 found.append(node)
             if dataclasses.is_dataclass(node):
                 for fld in dataclasses.fields(node):
                     v = getattr(node, fld.name)
-                    for x in (v if isinstance(v, list) else [v]):
+                    for x in v if isinstance(v, list) else [v]:
                         if dataclasses.is_dataclass(x):
                             walk(x)
 
@@ -293,5 +311,4 @@ class TestTypedCatch:
                 return 0;
             }
         """
-        assert any("Catch type 'MyError' is not supported" in e
-                   for e in _errors(src))
+        assert any("Catch type 'MyError' is not supported" in e for e in _errors(src))

@@ -1,0 +1,71 @@
+/* Single-evaluation ownership boundary for synthetic effect-only calls. */
+
+IRNode lowerOwnedEffectCall(IRGen generator, string callee,
+        Vector<IRNode> prefixArguments, Vector<Node> operands,
+        Vector<Node> expectedTypes, Map<string, Node> varTypes) {
+    bool anyOwned = false;
+    int index = 0;
+    while (index < operands.len) {
+        Node? expectedType = null;
+        if (index < expectedTypes.len) {
+            expectedType = expectedTypes.get(index);
+        }
+        if (irContextualUnconsumedOwnedResult(
+                generator, operands.get(index), expectedType, varTypes)) {
+            anyOwned = true;
+        }
+        index = index + 1;
+    }
+
+    OwnershipBoundary boundary = OwnershipBoundary();
+    if (anyOwned) {
+        index = 0;
+        while (index < operands.len) {
+            Node operand = operands.get(index);
+            Node? expectedType = null;
+            if (index < expectedTypes.len) {
+                expectedType = expectedTypes.get(index);
+            }
+            Node? operandType = generator.resolvedExpressionType(
+                operand, varTypes);
+            if (operandType == null) { operandType = expectedType; }
+            ownershipRequireType(operandType, operand);
+            IRNode loweredOperand = generator.lowerExpr(
+                operand, varTypes);
+            if (expectedType != null) {
+                loweredOperand = generator.lowerAssignedValue(
+                    operand, expectedType, varTypes);
+            }
+            boundary.addLoweredOperand(generator, operand, operandType,
+                loweredOperand,
+                irContextualUnconsumedOwnedResult(
+                    generator, operand, expectedType, varTypes), false);
+            index = index + 1;
+        }
+    }
+
+    Vector<IRNode> arguments = [];
+    index = 0;
+    while (index < prefixArguments.len) {
+        arguments.push(prefixArguments.get(index));
+        index = index + 1;
+    }
+    index = 0;
+    while (index < operands.len) {
+        if (anyOwned) {
+            arguments.push(generator.lowerExpr(
+                operands.get(index), varTypes));
+        } else if (index < expectedTypes.len) {
+            arguments.push(generator.lowerAssignedValue(
+                operands.get(index), expectedTypes.get(index), varTypes));
+        } else {
+            arguments.push(generator.lowerExpr(operands.get(index), varTypes));
+        }
+        index = index + 1;
+    }
+    IRNode call = irCall(callee, arguments);
+    if (!anyOwned) { return call; }
+    boundary.restore(generator);
+    return boundary.finish(
+        generator, call, makePrimType("void"), false);
+}

@@ -7,13 +7,16 @@ navigation stream; imported units scan their own token streams.
 
 from __future__ import annotations
 
-from lsprotocol import types as lsp
-
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult
-from src.devex.lsp.occurrences import occurrence_at, references_to
+from src.devex.lsp.occurrences import (
+    build_index,
+    occurrence_for_token,
+    references_to,
+    resolved_references_to,
+)
 from src.devex.lsp.utils import active_decls, nav_tokens, resolve_chain_type
 
 Ref = tuple  # (file | None, line, col)
@@ -39,11 +42,7 @@ def _token_streams(result: AnalysisResult) -> list[tuple[str | None, list[Token]
 
 def _matching(tokens: list[Token], name: str) -> list[tuple[int, Token]]:
     """(index, token) for identifier tokens spelling *name*."""
-    return [
-        (i, tok)
-        for i, tok in enumerate(tokens)
-        if tok.type == TokenType.IDENT and tok.value == name
-    ]
+    return [(i, tok) for i, tok in enumerate(tokens) if tok.type == TokenType.IDENT and tok.value == name]
 
 
 def _is_member_access(tokens: list[Token], idx: int) -> bool:
@@ -65,14 +64,13 @@ def find_name_references(
     include_declaration: bool,
 ) -> list[Ref]:
     """References to a top-level name (class/enum/struct/typedef) across units."""
-    refs: list[Ref] = []
-    for file, tokens, _decls in _token_streams(result):
-        for _i, tok in _matching(tokens, name):
-            ref = (file, tok.line, tok.col)
-            if not include_declaration and _same_site(ref, def_loc):
-                continue
-            refs.append(ref)
-    return refs
+    refs = resolved_references_to(result, def_loc) if def_loc else []
+    refs.extend(build_index(result).type_positions.get(name, []))
+    refs.extend(_inheritance_references(name, result))
+    constructor = DefinitionMap.from_result(result).method_defs.get((name, name))
+    if constructor is not None:
+        refs.append(constructor)
+    return _with_declaration(refs, def_loc, include_declaration)
 
 
 def find_function_references(
@@ -82,25 +80,39 @@ def find_function_references(
     include_declaration: bool,
 ) -> list[Ref]:
     """References to a function name across all units."""
-    refs: list[Ref] = []
     def_loc = dmap.function_defs.get(name)
+    refs = resolved_references_to(result, def_loc) if def_loc else []
+    return _with_declaration(refs, def_loc, include_declaration)
+
+
+def _with_declaration(
+    refs: list[Ref],
+    definition: Ref | None,
+    include_declaration: bool,
+) -> list[Ref]:
+    unique = list(dict.fromkeys(refs))
+    if definition is None:
+        return unique
+    unique = [ref for ref in unique if not _same_site(ref, definition)]
+    return [definition, *unique] if include_declaration else unique
+
+
+def _inheritance_references(name: str, result: AnalysisResult) -> list[Ref]:
+    refs: list[Ref] = []
     for file, tokens, _decls in _token_streams(result):
-        # The declaration is recorded at the name token; older parsers recorded
-        # the return-type column, so also match by line in the defining file.
-        decl_skipped = False
-        for _i, tok in _matching(tokens, name):
-            ref = (file, tok.line, tok.col)
-            if (
-                not include_declaration
-                and def_loc
-                and not decl_skipped
-                and (file or None) == (def_loc[0] or None)
-                and tok.line == def_loc[1]
-            ):
-                decl_skipped = True
-                continue
-            refs.append(ref)
+        for index, token in _matching(tokens, name):
+            if _in_inheritance_clause(tokens, index):
+                refs.append((file, token.line, token.col))
     return refs
+
+
+def _in_inheritance_clause(tokens: list[Token], index: int) -> bool:
+    for token in reversed(tokens[max(0, index - 32) : index]):
+        if token.value in ("extends", "implements"):
+            return True
+        if token.value in ("{", "}", ";"):
+            return False
+    return False
 
 
 def find_member_references(
@@ -140,9 +152,7 @@ def find_member_references(
             ref = (file, tok.line, tok.col)
             if _same_site(ref, def_loc):
                 continue  # declaration handled above
-            target_class = resolve_chain_type(
-                result, tokens, idx - 2, class_table, decls=decls
-            )
+            target_class = resolve_chain_type(result, tokens, idx - 2, class_table, decls=decls)
             if target_class in valid_classes:
                 refs.append(ref)
 
@@ -170,7 +180,7 @@ def find_variable_references(
     """
     here = result.path or None
 
-    occ = occurrence_at(result, lsp.Position(line=token.line - 1, character=token.col - 1))
+    occ = occurrence_for_token(result, token)
     if occ is not None and (occ.def_line or occ.def_file):
         def_site = (occ.def_file, occ.def_line, occ.def_col)
         positions = references_to(result, def_site)

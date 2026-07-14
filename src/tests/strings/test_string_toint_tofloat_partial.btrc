@@ -1,7 +1,6 @@
 // Built-in .toInt()/.toFloat() partial-parse and garbage-input semantics.
-// The built-in .toInt() lowers directly to atoi (not Strings.toInt), so it
-// parses a leading numeric prefix and yields 0 on garbage. The corpus only
-// tests clean inputs; these edge cases were untested for the built-in method.
+// Built-in numeric conversion parses a leading prefix, yields zero on garbage,
+// and saturates integer overflow deterministically.
 #include <assert.h>
 
 int main() {
@@ -16,6 +15,11 @@ int main() {
 
     // Empty string -> 0.
     assert("".toInt() == 0);
+
+    assert("999999999999999999999".toInt() == 2147483647);
+    assert("-999999999999999999999".toInt() == -2147483647 - 1);
+    assert("999999999999999999999".toLong() == LONG_MAX);
+    assert("-999999999999999999999".toLong() == LONG_MIN);
 
     // Float partial parse and garbage.
     float p = "3.5kg".toFloat();

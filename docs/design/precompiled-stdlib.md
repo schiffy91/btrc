@@ -22,20 +22,17 @@ one line of a small program still pays the full stdlib cost.
 
 ## What already exists (and why it is not enough)
 
-The compiler has three caches, each removing one slice of repeated work:
+The compiler has two persistent caches, each removing one slice of repeated work:
 
 1. **`disk_cache.py`** — caches the *final C output* keyed by a hash of the
    fully-resolved source (stdlib + user) plus a compiler version stamp. An
    *unchanged* program recompiles in <1 ms. **Limitation:** any edit to user
    code changes the hash and misses entirely.
 
-2. **`cache.py: get_stdlib_source_cached`** — in-process cache of the stdlib
-   *source string*, keyed by the set of user-defined class names (which
-   determines skip-if-redefined). Removes re-reading stdlib files.
-
-3. **`main.py: _cached_stdlib_decls`** — on-disk pickle of the stdlib *parsed AST
-   declarations*, keyed by the stdlib source hash. Removes re-lexing/re-parsing
-   the stdlib on the CLI path.
+2. **`frontend_stdlib.py: _cached_stdlib_decls`** — schema-validated, on-disk
+   JSON encoding of the stdlib *parsed AST declarations*, keyed by the stdlib
+   source and toolchain hashes. Removes re-lexing/re-parsing the stdlib on the
+   CLI path without deserializing executable pickle payloads.
 
 So after an edit to user code, the compiler still pays, every time:
 
@@ -75,7 +72,8 @@ from the per-program translation unit.
   core.
 - `libbtrcstd.c` / `libbtrcstd.o` — definitions of the monomorphic core plus the
   runtime helpers it references.
-- `core.analyzed` — a pickled `AnalyzedProgram` slice for the core: its
+- `core.analyzed.json` — a schema-versioned JSON encoding of an
+  `AnalyzedProgram` slice for the core: its
   `class_table`, function signatures, and `node_types` for *signatures only*
   (not bodies). This lets the analyzer resolve `Strings.trim(...)` in user code
   without re-analyzing the body of `Strings.trim`.
@@ -91,7 +89,7 @@ stdlib rebuilds the artifact automatically.
    class, fall back to the current whole-program path (rare; correctness first).
 2. Lex + parse only the user code (stdlib AST already cached, step unchanged).
 3. **Analyze** with the core's `class_table`/signatures preloaded as *extern*
-   symbols (from `core.analyzed`). The analyzer treats core functions as declared
+   symbols (from `core.analyzed.json`). The analyzer treats core functions as declared
    but bodyless — it type-checks calls without walking core bodies. Generic
    templates are still analyzed per-program (they are not in the core).
 4. **IR-gen** the user code + the generic instantiations it requires. Core
@@ -116,7 +114,7 @@ stdlib rebuilds the artifact automatically.
   in `libbtrcstd.o`; helpers used by user/generic code are emitted per-program.
   Helpers used by both must be `extern` in user TUs (declared in the header), or
   duplicated as `static` in each TU. Pick one and verify the linker outcome under
-  `-std=c11 -pedantic-errors` on both gcc and clang.
+  `-std=c11 -pedantic-errors -Wall -Wextra -Werror` on both GCC and Clang.
 - **ARC across the boundary.** A core function returning a managed object (e.g.
   `Strings.copy` returns an owned `char*`; class-returning factories return owned
   pointers) must keep the same ownership contract. The cycle collector's

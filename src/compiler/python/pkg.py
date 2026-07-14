@@ -14,15 +14,13 @@ Resolution is recorded in `btrc.lock` for reproducible builds. The lock stores
 a hash of the manifest's [dependencies] table — editing the dependencies makes
 the lock stale and resolution re-runs automatically (no --fetch needed). Path
 dependencies are recorded relative to the lock file (reproducible across
-checkouts) and resolved back to absolute paths at load; git dependencies are
-recorded as (url, rev) and re-derived from the clone cache at load.
+checkouts) and resolved back to absolute paths at load; Git dependencies retain
+the requested ref and pin its resolved commit SHA.
 
 Git dependencies are cloned into a cache under ~/.btrc/pkgs/ (override with
-$BTRC_PKG_CACHE), keyed by name + rev + a hash of the URL, so same-named deps
-from different URLs never share a clone. Refresh semantics: a rev that is a
-full 40-char commit SHA is immutable (cloned once, never refetched); any other
-rev (branch, tag, HEAD) is pinned by the initial clone and re-pinned by
-`git fetch` + checkout on every --fetch.
+$BTRC_PKG_CACHE). Cache identities hash the exact name, URL, and requested ref;
+checkouts add the immutable resolved commit. ``--fetch`` is the only operation
+that advances a moving ref and rewrites its lock entry.
 
 Imports then resolve as:
 
@@ -36,7 +34,21 @@ import hashlib
 import json
 import os
 import subprocess
-import tomllib
+
+from .cache_io import atomic_write_json, load_json
+from .manifest_io import load_manifest
+from .pkg_context import (
+    configured_packages,
+)
+from .pkg_context import (
+    package_context as package_context,
+)
+from .pkg_context import (
+    replace_packages as _replace_packages,
+)
+from .pkg_git import is_commit_sha as _is_commit_sha
+from .pkg_git import resolve_git as _resolve_git
+from .pkg_git import resolved_commit as _resolved_git_commit
 
 
 class IncludeResolutionError(Exception):
@@ -49,9 +61,16 @@ class IncludeResolutionError(Exception):
     """
 
 
-# Resolved {name: {"path": abs_root, "git"?: url, "rev"?: rev}} for the
-# manifest governing the current compilation. Set by configure_for().
-_PACKAGES: dict[str, dict] = {}
+class LockfileError(ValueError):
+    """A present lockfile is corrupt or violates its declared schema."""
+
+
+class LockfileVersionError(LockfileError):
+    """A lockfile was written by an unsupported schema version."""
+
+
+LOCK_SCHEMA = 2
+MAX_LOCK_BYTES = 16 * 1024 * 1024
 
 
 def find_manifest(start_dir: str) -> str | None:
@@ -67,66 +86,30 @@ def find_manifest(start_dir: str) -> str | None:
         d = parent
 
 
-def _cache_dir() -> str:
-    base = os.environ.get("BTRC_PKG_CACHE") or os.path.expanduser("~/.btrc/pkgs")
-    os.makedirs(base, exist_ok=True)
-    return base
-
-
-def _is_commit_sha(rev: str) -> bool:
-    return len(rev) == 40 and all(c in "0123456789abcdef" for c in rev.lower())
-
-
-def _git(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], check=True,
-                          capture_output=True, text=True)
-
-
-def _checkout(dest: str, rev: str) -> None:
-    """Detached checkout of rev, preferring the remote-tracking ref so a
-    moving branch actually advances after a fetch."""
-    for target in (f"origin/{rev}", rev):
-        r = subprocess.run(["git", "-C", dest, "checkout", "--quiet",
-                            "--detach", target],
-                           capture_output=True, text=True)
-        if r.returncode == 0:
-            return
-    raise subprocess.CalledProcessError(r.returncode, r.args,
-                                        output=r.stdout, stderr=r.stderr)
-
-
-def _resolve_git(name: str, url: str, rev: str, refresh: bool = False) -> str:
-    """Clone url@rev into the cache and return its absolute path.
-
-    The cache key includes a hash of the URL, so two deps with the same
-    name+rev but different URLs get distinct clones. Non-SHA revs are
-    refetched + re-pinned when ``refresh`` is set (--fetch).
-    """
-    url_tag = hashlib.sha256(url.encode()).hexdigest()[:8]
-    safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in f"{name}-{rev}")
-    dest = os.path.join(_cache_dir(), f"{safe}-{url_tag}")
-    if not os.path.isdir(os.path.join(dest, ".git")):
-        _git(["clone", "--quiet", url, dest])
-        _checkout(dest, rev)
-    elif refresh and not _is_commit_sha(rev):
-        _git(["-C", dest, "fetch", "--quiet", "origin"])
-        _checkout(dest, rev)
-    return os.path.abspath(dest)
-
-
 def _resolve_dep(name: str, spec, manifest_dir: str, refresh: bool = False) -> dict:
     if isinstance(spec, str):
         # bare path string
+        if not spec:
+            raise ValueError(f"dependency '{name}' has an empty path")
         p = spec if os.path.isabs(spec) else os.path.normpath(os.path.join(manifest_dir, spec))
         return {"path": p}
+    if not isinstance(spec, dict):
+        raise ValueError(f"dependency '{name}' must be a path string or dependency table")
     if "path" in spec:
         p = spec["path"]
+        if not isinstance(p, str) or not p:
+            raise ValueError(f"dependency '{name}' must specify a non-empty path")
         p = p if os.path.isabs(p) else os.path.normpath(os.path.join(manifest_dir, p))
         return {"path": p}
     if "git" in spec:
         rev = spec.get("rev") or spec.get("tag") or spec.get("branch") or "HEAD"
-        return {"path": _resolve_git(name, spec["git"], rev, refresh=refresh),
-                "git": spec["git"], "rev": rev}
+        path = _resolve_git(name, spec["git"], rev, refresh=refresh)
+        return {
+            "commit": _resolved_git_commit(path),
+            "git": spec["git"],
+            "path": path,
+            "rev": rev,
+        }
     raise ValueError(f"dependency '{name}' must specify a path or git source")
 
 
@@ -137,20 +120,61 @@ def _deps_hash(deps: dict) -> str:
 
 
 def _load_lock(lock_path: str, deps_hash: str, manifest_dir: str) -> dict | None:
-    """Return the locked resolution, or None when the lock is unusable/stale."""
-    try:
-        with open(lock_path) as f:
-            lock = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    """Return a schema-v2 resolution, or None to migrate stale/legacy data."""
+    lock = load_json(lock_path, max_bytes=MAX_LOCK_BYTES)
+    if lock is None:
+        if not os.path.exists(lock_path):
+            return None
+        raise LockfileError(f"cannot parse '{lock_path}' as a bounded UTF-8 JSON lockfile")
+    if not isinstance(lock, dict):
+        raise LockfileError(f"invalid '{lock_path}': lockfile root must be an object")
+    schema = lock.get("schema")
+    if schema is None:
+        if set(lock) <= {"manifest_hash", "packages"} and "packages" in lock:
+            return None  # recognized pre-schema lock: resolve and migrate atomically
+        raise LockfileError(f"invalid legacy lockfile '{lock_path}'")
+    if schema != LOCK_SCHEMA:
+        if schema == 1:
+            return None
+        raise LockfileVersionError(
+            f"unsupported btrc.lock schema {schema!r} in '{lock_path}' (this compiler supports schema {LOCK_SCHEMA})"
+        )
+    if set(lock) != {"manifest_hash", "packages", "schema"}:
+        raise LockfileError(f"invalid schema-{LOCK_SCHEMA} lockfile '{lock_path}': unexpected fields")
+    if not isinstance(lock["manifest_hash"], str):
+        raise LockfileError(f"invalid schema-{LOCK_SCHEMA} lockfile '{lock_path}': manifest hash must be text")
+    if lock["manifest_hash"] != deps_hash:
         return None
-    if lock.get("manifest_hash") != deps_hash:
-        return None  # dependencies changed (or pre-hash lock): re-resolve
+    locked_packages = lock["packages"]
+    if not isinstance(locked_packages, dict):
+        raise LockfileError(f"invalid schema-{LOCK_SCHEMA} lockfile '{lock_path}': packages must be an object")
+    for name, entry in locked_packages.items():
+        if not isinstance(name, str) or not name or not isinstance(entry, dict):
+            raise LockfileError(f"invalid schema-{LOCK_SCHEMA} package entry in '{lock_path}'")
+        if "git" in entry:
+            if not (
+                set(entry) == {"commit", "git", "rev"}
+                and isinstance(entry["git"], str)
+                and entry["git"]
+                and isinstance(entry["rev"], str)
+                and entry["rev"]
+                and not entry["rev"].startswith("-")
+                and _is_commit_sha(entry["commit"])
+            ):
+                raise LockfileError(f"invalid locked Git dependency '{name}' in '{lock_path}'")
+        elif not (set(entry) == {"path"} and isinstance(entry["path"], str) and entry["path"]):
+            raise LockfileError(f"invalid locked path dependency '{name}' in '{lock_path}'")
     packages: dict[str, dict] = {}
-    for name, entry in lock.get("packages", {}).items():
+    for name, entry in locked_packages.items():
         entry = dict(entry)
         if "git" in entry:
-            entry["path"] = _resolve_git(name, entry["git"],
-                                         entry.get("rev") or "HEAD")
+            entry["commit"] = entry["commit"].lower()
+            entry["path"] = _resolve_git(
+                name,
+                entry["git"],
+                entry["rev"],
+                pinned_commit=entry["commit"],
+            )
         else:
             p = entry.get("path", "")
             if not os.path.isabs(p):
@@ -160,20 +184,26 @@ def _load_lock(lock_path: str, deps_hash: str, manifest_dir: str) -> dict | None
     return packages
 
 
-def _write_lock(lock_path: str, deps_hash: str, resolved: dict[str, dict],
-                manifest_dir: str) -> None:
-    """Record resolution portably: relative paths for path deps, (url, rev)
-    for git deps (their cache path is machine-local and re-derived at load)."""
+def _write_lock(lock_path: str, deps_hash: str, resolved: dict[str, dict], manifest_dir: str) -> None:
+    """Atomically record portable paths and immutable Git resolutions."""
     packages = {}
     for name, entry in resolved.items():
         if "git" in entry:
-            packages[name] = {"git": entry["git"], "rev": entry.get("rev")}
+            packages[name] = {
+                "commit": entry["commit"],
+                "git": entry["git"],
+                "rev": entry["rev"],
+            }
         else:
             packages[name] = {"path": os.path.relpath(entry["path"], manifest_dir)}
-    with open(lock_path, "w") as f:
-        json.dump({"manifest_hash": deps_hash, "packages": packages},
-                  f, indent=2, sort_keys=True)
-        f.write("\n")
+    atomic_write_json(
+        lock_path,
+        {
+            "manifest_hash": deps_hash,
+            "packages": packages,
+            "schema": LOCK_SCHEMA,
+        },
+    )
 
 
 def resolve(manifest_path: str, refresh: bool = False) -> dict[str, dict]:
@@ -181,9 +211,10 @@ def resolve(manifest_path: str, refresh: bool = False) -> dict[str, dict]:
     manifest_dir = os.path.dirname(os.path.abspath(manifest_path))
     lock_path = os.path.join(manifest_dir, "btrc.lock")
 
-    with open(manifest_path, "rb") as f:
-        manifest = tomllib.load(f)
+    manifest = load_manifest(manifest_path)
     deps = manifest.get("dependencies", {})
+    if not isinstance(deps, dict):
+        raise ValueError("manifest 'dependencies' must be a table")
     deps_hash = _deps_hash(deps)
 
     if not refresh and os.path.exists(lock_path):
@@ -191,32 +222,35 @@ def resolve(manifest_path: str, refresh: bool = False) -> dict[str, dict]:
         if locked is not None:
             return locked
 
-    resolved = {name: _resolve_dep(name, spec, manifest_dir, refresh=refresh)
-                for name, spec in deps.items()}
+    resolved = {name: _resolve_dep(name, spec, manifest_dir, refresh=refresh) for name, spec in deps.items()}
     _write_lock(lock_path, deps_hash, resolved, manifest_dir)
     return resolved
 
 
-def configure_for(input_path: str, refresh: bool = False) -> None:
-    """Find + resolve the manifest governing input_path; populate _PACKAGES.
-
-    Raises IncludeResolutionError on failure (never exits): hosts such as the
-    LSP must survive a broken manifest. _PACKAGES is cleared first so a failed
-    resolution can't leave a previous project's packages active.
-    """
-    global _PACKAGES
-    _PACKAGES = {}
+def packages_for(input_path: str, refresh: bool = False) -> dict[str, dict]:
+    """Resolve packages governing ``input_path`` without installing them."""
     manifest = find_manifest(os.path.dirname(os.path.abspath(input_path)))
     if manifest is None:
-        return
+        return {}
     try:
-        _PACKAGES = resolve(manifest, refresh=refresh)
-    except (subprocess.CalledProcessError, ValueError, OSError) as e:
-        detail = (getattr(e, "stderr", None) or "").strip()
-        msg = f"package resolution failed: {e}"
+        return resolve(manifest, refresh=refresh)
+    except (subprocess.SubprocessError, ValueError, OSError) as error:
+        detail = (getattr(error, "stderr", None) or "").strip()
+        message = f"package resolution failed: {error}"
         if detail:
-            msg = f"{msg}\n  {detail}"
-        raise IncludeResolutionError(msg) from e
+            message = f"{message}\n  {detail}"
+        raise IncludeResolutionError(message) from error
+
+
+def configure_for(input_path: str, refresh: bool = False) -> None:
+    """Install packages governing input_path in this execution context.
+
+    Raises IncludeResolutionError on failure (never exits): hosts such as the
+    LSP must survive a broken manifest. The context is cleared first so a
+    failed resolution cannot leave a previous project's packages active.
+    """
+    _replace_packages({})
+    _replace_packages(packages_for(input_path, refresh=refresh))
 
 
 def package_import_paths(spec: str) -> list[str]:
@@ -228,7 +262,7 @@ def package_import_paths(spec: str) -> list[str]:
     """
     spec = spec.strip()
     head, _, rest = spec.partition(".")
-    pkg = _PACKAGES.get(head)
+    pkg = configured_packages().get(head)
     if pkg is None:
         return []
     root = pkg["path"]
@@ -240,7 +274,4 @@ def package_import_paths(spec: str) -> list[str]:
     ):
         if os.path.exists(candidate):
             return [os.path.abspath(candidate)]
-    raise IncludeResolutionError(
-        f"package import '{spec}' not found in dependency '{head}'\n"
-        f"  package root: {root}"
-    )
+    raise IncludeResolutionError(f"package import '{spec}' not found in dependency '{head}'\n  package root: {root}")

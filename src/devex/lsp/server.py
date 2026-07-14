@@ -26,13 +26,15 @@ from lsprotocol import types as lsp
 from src.devex.lsp.code_actions import get_code_actions
 from src.devex.lsp.completion import get_completions
 from src.devex.lsp.definition import get_definition
-from src.devex.lsp.diagnostics import WORKSPACE, compute_diagnostics
+from src.devex.lsp.diagnostics import WORKSPACE, compute_diagnostics, uri_to_path
 from src.devex.lsp.highlights import get_document_highlights
 from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.references import get_references, get_rename_edits, prepare_rename
 from src.devex.lsp.semantic_tokens import LEGEND, get_semantic_tokens
 from src.devex.lsp.server_state import (
     _analysis_cache,
+    _document_sources,
+    _generation_counter,
     _generations,
     _get_best_result,
     _good_analysis_cache,
@@ -41,6 +43,7 @@ from src.devex.lsp.server_state import (
     _state_lock,
     _timers,
     _validate_lock,
+    _versions,
     _warm_workspace,
     server,
 )
@@ -53,6 +56,13 @@ logger = logging.getLogger("btrc-lsp")
 
 # Debounce window for didChange re-analysis. 0 validates inline (used by tests).
 DEBOUNCE_SECONDS = float(os.environ.get("BTRC_LSP_DEBOUNCE", "0.2"))
+
+
+def _cached_current_result(params):
+    return _result_with_current_source(
+        params.text_document.uri,
+        compute_if_missing=False,
+    )
 
 
 def _validate_document(uri: str, source: str, generation: int | None = None):
@@ -68,8 +78,9 @@ def _validate_document(uri: str, source: str, generation: int | None = None):
     if generation is None:
         with _state_lock:
             _open_uris.add(uri)
-            _generations[uri] = _generations.get(uri, 0) + 1
-            generation = _generations[uri]
+            generation = next(_generation_counter)
+            _generations[uri] = generation
+            _document_sources[uri] = source
     with _validate_lock:
         result = compute_diagnostics(uri, source)
     with _state_lock:
@@ -84,12 +95,23 @@ def _validate_document(uri: str, source: str, generation: int | None = None):
         server.text_document_publish_diagnostics(lsp.PublishDiagnosticsParams(uri=uri, diagnostics=result.diagnostics))
 
 
-def _schedule_validation(uri: str, source: str, delay: float):
+def _schedule_validation(
+    uri: str,
+    source: str,
+    delay: float,
+    version: int | None = None,
+):
     """Debounced validation: a newer edit supersedes any pending/running one."""
     with _state_lock:
+        current_version = _versions.get(uri)
+        if version is not None and current_version is not None and version < current_version:
+            return
+        if version is not None:
+            _versions[uri] = version
         _open_uris.add(uri)
-        _generations[uri] = _generations.get(uri, 0) + 1
-        generation = _generations[uri]
+        _document_sources[uri] = source
+        generation = next(_generation_counter)
+        _generations[uri] = generation
         old = _timers.pop(uri, None)
     if old:
         old.cancel()
@@ -118,9 +140,11 @@ def _schedule_validation(uri: str, source: str, delay: float):
 @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
 @server.thread()
 def did_open(params: lsp.DidOpenTextDocumentParams):
-    _validate_document(
+    _schedule_validation(
         params.text_document.uri,
         params.text_document.text,
+        0,
+        params.text_document.version,
     )
 
 
@@ -128,7 +152,12 @@ def did_open(params: lsp.DidOpenTextDocumentParams):
 @server.thread()
 def did_change(params: lsp.DidChangeTextDocumentParams):
     doc = server.workspace.get_text_document(params.text_document.uri)
-    _schedule_validation(params.text_document.uri, doc.source, DEBOUNCE_SECONDS)
+    _schedule_validation(
+        params.text_document.uri,
+        doc.source,
+        DEBOUNCE_SECONDS,
+        params.text_document.version,
+    )
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_SAVE)
@@ -142,13 +171,17 @@ def did_save(params: lsp.DidSaveTextDocumentParams):
 def did_close(params: lsp.DidCloseTextDocumentParams):
     uri = params.text_document.uri
     with _state_lock:
-        _generations[uri] = _generations.get(uri, 0) + 1  # cancel pending runs
+        _generations.pop(uri, None)  # invalidate any generation in flight
         _open_uris.discard(uri)  # in-flight runs must not repopulate caches
+        _document_sources.pop(uri, None)
+        _versions.pop(uri, None)
         timer = _timers.pop(uri, None)
     if timer:
         timer.cancel()
-    _analysis_cache.pop(uri, None)
-    _good_analysis_cache.pop(uri, None)
+    with _state_lock:
+        _analysis_cache.pop(uri, None)
+        _good_analysis_cache.pop(uri, None)
+    WORKSPACE.close_document(uri_to_path(uri))
     server.text_document_publish_diagnostics(lsp.PublishDiagnosticsParams(uri=uri, diagnostics=[]))
 
 
@@ -162,7 +195,7 @@ def document_symbol(params: lsp.DocumentSymbolParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_HOVER)
 def hover(params: lsp.HoverParams):
-    result = _get_best_result(params.text_document.uri)
+    result = _cached_current_result(params)
     if result:
         return get_hover_info(result, params.position)
     return None
@@ -170,7 +203,7 @@ def hover(params: lsp.HoverParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_DEFINITION)
 def goto_definition(params: lsp.TextDocumentPositionParams):
-    result = _get_best_result(params.text_document.uri)
+    result = _cached_current_result(params)
     if result:
         return get_definition(result, params.position)
     return None
@@ -197,7 +230,7 @@ def signature_help(params: lsp.SignatureHelpParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_REFERENCES)
 def find_references(params: lsp.ReferenceParams):
-    result = _get_best_result(params.text_document.uri)
+    result = _cached_current_result(params)
     if result:
         include_decl = params.context.include_declaration if params.context else True
         return get_references(result, params.position, include_decl)
@@ -208,7 +241,7 @@ def find_references(params: lsp.ReferenceParams):
     lsp.TEXT_DOCUMENT_RENAME,
 )
 def rename(params: lsp.RenameParams):
-    result = _get_best_result(params.text_document.uri)
+    result = _cached_current_result(params)
     if result:
         return get_rename_edits(result, params.position, params.new_name)
     return None
@@ -216,7 +249,7 @@ def rename(params: lsp.RenameParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_PREPARE_RENAME)
 def prepare_rename_handler(params: lsp.PrepareRenameParams):
-    result = _get_best_result(params.text_document.uri)
+    result = _cached_current_result(params)
     if result:
         return prepare_rename(result, params.position)
     return None
@@ -235,7 +268,7 @@ def semantic_tokens_full(params: lsp.SemanticTokensParams):
 
 @server.feature(lsp.TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT)
 def document_highlight(params: lsp.TextDocumentPositionParams):
-    result = _get_best_result(params.text_document.uri)
+    result = _cached_current_result(params)
     if result:
         return get_document_highlights(result, params.position)
     return []
@@ -251,7 +284,7 @@ def workspace_symbol(params: lsp.WorkspaceSymbolParams):
     lsp.CodeActionOptions(code_action_kinds=[lsp.CodeActionKind.QuickFix]),
 )
 def code_action(params: lsp.CodeActionParams):
-    result = _get_best_result(params.text_document.uri)
+    result = _cached_current_result(params)
     if result:
         return get_code_actions(result, params)
     return []

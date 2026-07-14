@@ -26,9 +26,19 @@ class Bytes {
 
     /* Grow the backing buffer to hold at least `need` bytes. */
     private void reserve(int need) {
+        if (need < 0 || need > 2147483646) {
+            fprintf(stderr, "Bytes capacity overflow\n");
+            exit(1);
+        }
         if (need <= self.cap) { return; }
         int newCap = self.cap == 0 ? 8 : self.cap;
-        while (newCap < need) { newCap = newCap * 2; }
+        while (newCap < need) {
+            if (newCap > 1073741823) {
+                newCap = need;
+            } else {
+                newCap = newCap * 2;
+            }
+        }
         self.data = (char*)__btrc_safe_realloc(self.data, (size_t)newCap);
         self.cap = newCap;
     }
@@ -61,6 +71,10 @@ class Bytes {
 
     /* Append the low 8 bits of b. */
     public void append(int b) {
+        if (self.len >= 2147483646) {
+            fprintf(stderr, "Bytes length overflow\n");
+            exit(1);
+        }
         self.reserve(self.len + 1);
         self.data[self.len] = (char)(b & 255);
         self.len++;
@@ -69,17 +83,41 @@ class Bytes {
     /* Append all bytes from another Bytes (memcpy — binary-safe). */
     public void appendBytes(Bytes other) {
         if (other == null || other.len == 0) { return; }
-        self.reserve(self.len + other.len);
-        memcpy(self.data + self.len, other.data, (size_t)other.len);
-        self.len = self.len + other.len;
+        int count = other.len;
+        if (count > 2147483646 - self.len) {
+            fprintf(stderr, "Bytes length overflow\n");
+            exit(1);
+        }
+        int oldLength = self.len;
+        self.reserve(oldLength + count);
+        /* memmove makes self-append well-defined after reserve updates the
+         * shared object's data pointer. */
+        memmove(self.data + oldLength, other.data, (size_t)count);
+        self.len = oldLength + count;
     }
 
     /* Append the raw bytes of a C buffer. */
     public void appendRaw(char* p, int n) {
         if (p == null || n <= 0) { return; }
-        self.reserve(self.len + n);
-        memcpy(self.data + self.len, p, (size_t)n);
-        self.len = self.len + n;
+        if (n > 2147483646 - self.len) {
+            fprintf(stderr, "Bytes length overflow\n");
+            exit(1);
+        }
+        int oldLength = self.len;
+        int newLength = oldLength + n;
+        if (newLength > self.cap) {
+            /* p is allowed to point into this buffer. Preserve it before a
+             * realloc can invalidate the address; external sources take the
+             * same bounded path only when capacity grows. */
+            char* snapshot = (char*)__btrc_safe_realloc(NULL, (size_t)n);
+            memcpy(snapshot, p, (size_t)n);
+            self.reserve(newLength);
+            memcpy(self.data + oldLength, snapshot, (size_t)n);
+            free(snapshot);
+        } else {
+            memmove(self.data + oldLength, p, (size_t)n);
+        }
+        self.len = newLength;
     }
 
     /* Copy of bytes [start, end). Negative indices count from the end;
@@ -104,7 +142,7 @@ class Bytes {
         return memcmp(self.data, other.data, (size_t)self.len) == 0;
     }
 
-    /* NUL-safe view: returns a freshly malloc'd C string holding the content up
+    /* NUL-safe view: returns a freshly allocated C string holding the content up
      * to the first embedded NUL (standard C string semantics). For the full
      * length-carrying content (NUL bytes preserved up to len), use the Bytes
      * accessors directly or toStringLossy(). */
@@ -113,10 +151,11 @@ class Bytes {
         for (int i = 0; i < self.len; i++) {
             if (self.data[i] == '\0') { n = i; break; }
         }
-        char* out = (char*)malloc((size_t)(n + 1));
+        char* out = (char*)__btrc_safe_realloc(
+            NULL, (size_t)n + (size_t)1);
         if (n > 0) { memcpy(out, self.data, (size_t)n); }
         out[n] = '\0';
-        return out;
+        return __btrc_str_track(out);
     }
 
     /* All `len` bytes as a C string with a trailing NUL appended. Embedded NUL
@@ -124,10 +163,11 @@ class Bytes {
      * printf %s) will still stop at the first one — this is unavoidable for the
      * `string` type. Use it when you need a NUL-terminated copy of binary data. */
     public string toStringLossy() {
-        char* out = (char*)malloc((size_t)(self.len + 1));
+        char* out = (char*)__btrc_safe_realloc(
+            NULL, (size_t)self.len + (size_t)1);
         if (self.len > 0) { memcpy(out, self.data, (size_t)self.len); }
         out[self.len] = '\0';
-        return out;
+        return __btrc_str_track(out);
     }
 
     /* Build Bytes from a text string. Copies strlen(s) bytes — correct for text;
@@ -136,7 +176,12 @@ class Bytes {
     class Bytes fromString(string s) {
         Bytes result = Bytes();
         if (s != null) {
-            int n = (int)strlen(s);
+            size_t length = strlen(s);
+            if (length > (size_t)2147483646) {
+                fprintf(stderr, "Bytes source string exceeds supported range\n");
+                exit(1);
+            }
+            int n = (int)length;
             result.appendRaw((char*)s, n);
         }
         return result;

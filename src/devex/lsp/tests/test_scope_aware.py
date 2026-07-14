@@ -168,6 +168,7 @@ def test_catch_var_references_exclude_out_of_scope_use():
 
 # -------------------------------------------------------------- use before decl
 
+
 def test_use_before_decl_excluded_from_references_and_rename():
     src = "int f() {\n    int y = w;\n    int w = 5;\n    return w;\n}\n"
     refs = _ref_positions(src, pos_of(src, "return w", offset=7))
@@ -217,6 +218,7 @@ def test_fstring_interpolation_included_in_rename():
 
 
 # -------------------------------------------------------------- rename refusals
+
 
 def test_rename_refused_on_unresolvable_identifier():
     src = "int main() { return ghost; }\n"
@@ -311,6 +313,7 @@ def test_find_matching_brace_line_token_space():
 
 # ------------------------------------------------------------ caret at word end
 
+
 def test_hover_at_caret_immediately_after_identifier():
     src = "int main() { int count = 5; return count; }\n"
     pos = pos_of(src, "return count", offset=12)  # caret right after the final `t`
@@ -326,11 +329,12 @@ def test_definition_at_caret_immediately_after_identifier():
 
 # ----------------------------------------------------------- find_var_def picks
 
+
 def test_find_var_def_innermost_and_def_site_identity():
     r = analyze(SHADOW)
     dmap = DefinitionMap.from_result(r)
-    inner_use = dmap.find_var_def("v", 5, 13)   # `n = v` (1-based 5)
-    outer_use = dmap.find_var_def("v", 7, 12)   # `return v`
+    inner_use = dmap.find_var_def("v", 5, 13)  # `n = v` (1-based 5)
+    outer_use = dmap.find_var_def("v", 7, 12)  # `return v`
     assert inner_use is not None and inner_use.line == 4  # 1-based decl lines
     assert outer_use is not None and outer_use.line == 2
     # the definition's own name token anchors itself

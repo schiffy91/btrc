@@ -36,7 +36,7 @@ def test_non_exhaustive_enum_switch_is_flagged():
     """
     errs = errors(src)
     assert _has(errs, "not exhaustive")
-    assert _has(errs, "BLUE")          # names the specific missing variant
+    assert _has(errs, "BLUE")  # names the specific missing variant
 
 
 def test_exhaustive_enum_switch_is_accepted():
@@ -112,11 +112,25 @@ def test_anonymous_top_level_struct_is_rejected():
     result = _analyze(src)
     assert _has(result.errors, "anonymous struct at top level must be named")
     # the diagnostic carries the struct's source position
-    diag = next(d for d in result.diags
-                if "anonymous struct" in d.message)
+    diag = next(d for d in result.diags if "anonymous struct" in d.message)
     assert diag.line == 1 and diag.col == 1
 
 
 def test_named_struct_is_accepted():
     src = "struct Point { int x; int y; };\nint main() { return 0; }"
     assert not _has(errors(src), "anonymous struct")
+
+
+def test_interface_value_type_fails_before_c_emission():
+    src = """
+    interface Named { string name(); }
+    class User implements Named {
+        public string name() { return "Ada"; }
+    }
+    int main() {
+        Named value = User();
+        return 0;
+    }
+    """
+    errs = errors(src)
+    assert _has(errs, "Interface type 'Named' cannot be used as a runtime value")

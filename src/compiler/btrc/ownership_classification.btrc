@@ -1,0 +1,295 @@
+/* Managed-value ownership classification shared by self-hosted IR lowering. */
+
+bool irKnownLanguageCall(IRGen generator, Node call,
+        Map<string, Node> varTypes) {
+    Node callee = call.callee;
+    if (callee == null) { return false; }
+    if (callee.kind == NK_IDENTIFIER) {
+        return generator.analyzed.funcTable.has(callee.name)
+            || generator.analyzed.isClass(callee.name)
+            || generator.analyzed.isGenericClass(callee.name);
+    }
+    if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+    Node receiver = callee.obj;
+    if (receiver != null && receiver.kind == NK_IDENTIFIER) {
+        if (generator.analyzed.isClass(receiver.name)) {
+            Node? method = generator.analyzed.classMethod(
+                receiver.name, callee.field);
+            if (method != null && method.kind == NK_METHOD_DECL) {
+                return true;
+            }
+        }
+        if (generator.analyzed.isGenericClass(receiver.name)) {
+            Node? method = generator.analyzed.genericClassMethod(
+                receiver.name, callee.field);
+            if (method != null && method.kind == NK_METHOD_DECL) {
+                return true;
+            }
+        }
+    }
+    Node? receiverType = generator.resolvedExpressionType(
+        receiver, varTypes);
+    if (receiverType == null) { return false; }
+    if (receiverType.base == "Thread" && callee.field == "join") {
+        /* The worker transfers its managed +1 through the pthread payload;
+         * join consumes the payload and returns that same ownership unit. */
+        return true;
+    }
+    if (receiverType.base == "Mutex" && callee.field == "get") {
+        /* Managed values are retained while the mutex is locked; get()
+         * transfers that fresh external ownership unit to the caller. */
+        return true;
+    }
+    if (generator.analyzed.isClass(receiverType.base)) {
+        Node? method = generator.analyzed.classMethod(
+            receiverType.base, callee.field);
+        return method != null && method.kind == NK_METHOD_DECL;
+    }
+    if (generator.analyzed.isGenericClass(receiverType.base)) {
+        Node? method = generator.analyzed.genericClassMethod(
+            receiverType.base, callee.field);
+        return method != null && method.kind == NK_METHOD_DECL;
+    }
+    return false;
+}
+
+bool irStringCallOwnsResult(IRGen generator, Node call,
+        Map<string, Node> varTypes) {
+    if (irKnownLanguageCall(generator, call, varTypes)) { return true; }
+    Node callee = call.callee;
+    if (callee == null) { return false; }
+    if (callee.kind == NK_IDENTIFIER) {
+        return callee.name == "__btrc_string_alloc"
+            || callee.name == "__btrc_string_adopt"
+            || callee.name == "__btrc_str_track";
+    }
+    if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+    Node? receiverType = generator.resolvedExpressionType(
+        callee.obj, varTypes);
+    if (irManagedStringType(generator, receiverType)) {
+        return stringMethodTracked(callee.field);
+    }
+    if (callee.field != "toString" || receiverType == null) {
+        return false;
+    }
+    return receiverType.base != "bool"
+        && !generator.analyzed.enumTable.has(receiverType.base);
+}
+
+bool irOwnershipBranchPromotable(IRGen generator, Node branch,
+        Map<string, Node> varTypes) {
+    if (branch.kind == NK_NULL_LITERAL
+            || irExpressionOwnsResult(generator, branch, varTypes)) {
+        return true;
+    }
+    return irManagedType(generator,
+        generator.resolvedExpressionType(branch, varTypes));
+}
+
+bool irConditionalOwnsResult(IRGen generator, Node expression,
+        Node left, Node right, Map<string, Node> varTypes) {
+    if (!irManagedType(generator,
+            generator.resolvedExpressionType(expression, varTypes))) {
+        return false;
+    }
+    bool ownsBranch = irExpressionOwnsResult(
+        generator, left, varTypes)
+        || irExpressionOwnsResult(generator, right, varTypes);
+    return ownsBranch
+        && irOwnershipBranchPromotable(generator, left, varTypes)
+        && irOwnershipBranchPromotable(generator, right, varTypes);
+}
+
+bool irExpressionOwnsResult(IRGen generator, Node? expression,
+        Map<string, Node> varTypes) {
+    if (expression == null) { return false; }
+    Node? resultType = generator.resolvedExpressionType(
+        expression, varTypes);
+    bool managedResult = irManagedType(generator, resultType);
+    if (expression.kind == NK_NEW_EXPR
+            || expression.kind == NK_LIST_LITERAL
+            || expression.kind == NK_MAP_LITERAL
+            || expression.kind == NK_BRACE_INITIALIZER) {
+        return managedResult;
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        return managedResult && irExpressionOwnsResult(
+            generator, expression.expr, varTypes);
+    }
+    if (expression.kind == NK_F_STRING_LITERAL) {
+        int partIndex = 0;
+        while (partIndex < expression.parts.len) {
+            if (expression.parts.get(partIndex).kind == NK_F_STRING_EXPR) {
+                return true;
+            }
+            partIndex = partIndex + 1;
+        }
+        return false;
+    }
+    if (expression.kind == NK_CALL_EXPR) {
+        if (irManagedStringType(generator, resultType)) {
+            return irStringCallOwnsResult(
+                generator, expression, varTypes);
+        }
+        return managedResult
+            && irKnownLanguageCall(generator, expression, varTypes);
+    }
+    if (expression.kind == NK_ASSIGN_EXPR) {
+        Node target = expression.target;
+        return managedResult && target != null
+            && (target.kind == NK_FIELD_ACCESS_EXPR
+                || target.kind == NK_INDEX_EXPR)
+            && irExpressionOwnsResult(
+                generator, target.obj, varTypes);
+    }
+    if (expression.kind == NK_FIELD_ACCESS_EXPR
+            || expression.kind == NK_INDEX_EXPR) {
+        if (!managedResult) { return false; }
+        if (irExpressionOwnsResult(
+                generator, expression.obj, varTypes)) { return true; }
+        if (expression.kind == NK_INDEX_EXPR) {
+            Node? receiverType = generator.resolvedExpressionType(
+                expression.obj, varTypes);
+            return receiverType != null
+                && receiverType.generic_args.len > 0
+                && generator.analyzed.isGenericClass(receiverType.base)
+                && semanticIndexedMethod(
+                    receiverType, "get", generator.analyzed) != null;
+        }
+        return false;
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        return irConditionalOwnsResult(generator, expression,
+            expression.true_expr, expression.false_expr, varTypes);
+    }
+    if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+        return irConditionalOwnsResult(generator, expression,
+            expression.left, expression.right, varTypes);
+    }
+    if (expression.kind == NK_BINARY_EXPR && managedResult) {
+        if (expression.op == "+"
+                && irManagedStringType(generator, resultType)
+                && irManagedStringType(generator,
+                    generator.resolvedExpressionType(
+                        expression.left, varTypes))
+                && irManagedStringType(generator,
+                    generator.resolvedExpressionType(
+                        expression.right, varTypes))) {
+            return true;
+        }
+        Node? leftType = generator.resolvedExpressionType(
+            expression.left, varTypes);
+        if (leftType == null) { return false; }
+        string magic = semanticBinaryOperatorMethod(expression.op);
+        if (magic == "") { return false; }
+        if (generator.analyzed.isClass(leftType.base)) {
+            return generator.analyzed.classMethod(
+                leftType.base, magic) != null;
+        }
+        if (generator.analyzed.isGenericClass(leftType.base)) {
+            return generator.analyzed.genericClassMethod(
+                leftType.base, magic) != null;
+        }
+    }
+    if (expression.kind == NK_UNARY_EXPR && managedResult
+            && expression.op == "-") {
+        Node? operandType = generator.resolvedExpressionType(
+            expression.operand, varTypes);
+        if (operandType == null) { return false; }
+        if (generator.analyzed.isClass(operandType.base)) {
+            return generator.analyzed.classMethod(
+                operandType.base, "__neg__") != null;
+        }
+        if (generator.analyzed.isGenericClass(operandType.base)) {
+            return generator.analyzed.genericClassMethod(
+                operandType.base, "__neg__") != null;
+        }
+    }
+    return false;
+}
+
+bool irUnconsumedOwnedResult(IRGen generator, Node? expression,
+        Map<string, Node> varTypes) {
+    if (expression == null) { return false; }
+    if (generator.owningTempOverrides.has(
+            astNodeKey(expression))) { return false; }
+    return irExpressionOwnsResult(generator, expression, varTypes);
+}
+
+/* Aggregate literal inference is contextual: an empty `{}` and every map
+ * literal need the target/parameter type to identify their concrete managed
+ * result.  Preserve the same +1 contract as list literals without pretending
+ * raw struct/array brace initializers are heap owners. */
+bool irContextualExpressionOwnsResult(IRGen generator, Node? expression,
+        Node? expectedType, Map<string, Node> varTypes) {
+    if (expression == null) { return false; }
+    bool aggregate = expression.kind == NK_LIST_LITERAL
+        || expression.kind == NK_MAP_LITERAL
+        || expression.kind == NK_BRACE_INITIALIZER;
+    if (aggregate && irManagedType(generator, expectedType)) {
+        return true;
+    }
+    return irExpressionOwnsResult(generator, expression, varTypes);
+}
+
+bool irContextualUnconsumedOwnedResult(IRGen generator, Node? expression,
+        Node? expectedType, Map<string, Node> varTypes) {
+    if (expression == null || generator.owningTempOverrides.has(
+            astNodeKey(expression))) { return false; }
+    return irContextualExpressionOwnsResult(
+        generator, expression, expectedType, varTypes);
+}
+
+string irManagedLocalType(IRGen generator, string name) {
+    int index = generator.managedStack.len - 1;
+    while (index >= 0) {
+        Managed value = generator.managedStack.get(index);
+        if (value.name == name) { return value.cls; }
+        index = index - 1;
+    }
+    return "";
+}
+
+bool irBorrowsFromManagedLocal(IRGen generator, Node? expression) {
+    if (expression == null) { return false; }
+    if (expression.kind == NK_IDENTIFIER) {
+        return irManagedLocalType(generator, expression.name) != "";
+    }
+    if (expression.kind == NK_FIELD_ACCESS_EXPR
+            || expression.kind == NK_INDEX_EXPR) {
+        return irBorrowsFromManagedLocal(generator, expression.obj);
+    }
+    if (expression.kind == NK_ASSIGN_EXPR) {
+        return irBorrowsFromManagedLocal(generator, expression.target);
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        return irBorrowsFromManagedLocal(generator, expression.expr);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        return irBorrowsFromManagedLocal(
+            generator, expression.true_expr)
+            || irBorrowsFromManagedLocal(
+                generator, expression.false_expr);
+    }
+    if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+        return irBorrowsFromManagedLocal(generator, expression.left)
+            || irBorrowsFromManagedLocal(generator, expression.right);
+    }
+    return false;
+}
+
+IRNode irPromoteBorrowedValue(IRGen generator, IRNode lowered,
+        Node resultType) {
+    string name = generator.freshTemp("__btrc_promoted");
+    IRNode declaration = irVarDecl(
+        typeToC(resultType, generator.analyzed), name, null);
+    generator.funcVarDecls.push(declaration);
+    IRNode value = irVar(name);
+    Vector<IRNode> declarations = [];
+    declarations.push(declaration);
+    Vector<IRNode> sequence = [];
+    sequence.push(irBinOp(value, "=", lowered));
+    sequence.push(irRetainExpression(generator, value, resultType));
+    sequence.push(value);
+    return irStmtExpr(declarations, irCommaExpr(sequence));
+}

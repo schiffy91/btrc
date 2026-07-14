@@ -4,22 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import BinaryExpr, UnaryExpr
+from ...ast_nodes import BinaryExpr, FieldAccessExpr, IndexExpr, UnaryExpr
 from ..nodes import (
-    CType,
     IRAddressOf,
     IRBinOp,
     IRCall,
     IRDeref,
     IRExpr,
-    IRLiteral,
-    IRStmtExpr,
-    IRTernary,
     IRUnaryOp,
-    IRVar,
-    IRVarDecl,
 )
-from .types import is_numeric_type, is_string_type, mangle_generic_type, type_to_c
+from .managed_values import is_managed_type
+from .typed_operators import lower_typed_binary, operator_context
+from .types import mangle_generic_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -27,10 +23,39 @@ if TYPE_CHECKING:
 
 def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
     """Lower a binary expression, handling special operators."""
+    if node.op == "+":
+        from .string_concat import lower_long_string_concat
+
+        flattened = lower_long_string_concat(gen, node)
+        if flattened is not None:
+            return flattened
+    if node.op not in {"??", "&&", "||"}:
+        from .ownership_boundary import sequence_owned_operands
+
+        sequenced = sequence_owned_operands(
+            gen,
+            [node.left, node.right],
+            build=lambda: _lower_binary_plain(gen, node),
+            result_type=gen.analyzed.node_types.get(id(node)),
+        )
+        if sequenced is not None:
+            return sequenced
+    return _lower_binary_plain(gen, node)
+
+
+def _lower_binary_plain(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
+    """Lower one binary operation after owned operands are stabilized."""
     from .expressions import lower_expr
 
     left = lower_expr(gen, node.left)
     right = lower_expr(gen, node.right)
+
+    if node.op == "??":
+        from .ownership import normalize_owned_branch, owns_result
+
+        if owns_result(gen, node):
+            left = normalize_owned_branch(gen, node.left, left)
+            right = normalize_owned_branch(gen, node.right, right)
 
     # Infer types for special handling
     left_type = gen.analyzed.node_types.get(id(node.left))
@@ -38,91 +63,116 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
 
     op = node.op
 
-    # String concatenation: a + b → __btrc_str_track(__btrc_strcat(a, b))
-    # Only when BOTH sides are strings (string + int is pointer arithmetic)
-    if op == "+" and is_string_type(left_type) and is_string_type(right_type):
-        gen.use_helper("__btrc_strcat")
-        gen.use_helper("__btrc_str_track")
-        cat = IRCall(callee="__btrc_strcat", args=[left, right],
-                     helper_ref="__btrc_strcat")
-        return IRCall(callee="__btrc_str_track", args=[cat],
-                      helper_ref="__btrc_str_track")
+    overloaded = lower_overloaded_values(gen, left_type, right_type, op, left, right)
+    if overloaded is not None:
+        return overloaded
 
-    # String comparison: a == b → strcmp(a, b) == 0
-    if op in ("==", "!=") and is_string_type(left_type) and is_string_type(right_type):
-        cmp = IRCall(callee="strcmp", args=[left, right])
-        cmp_op = "==" if op == "==" else "!="
-        return IRBinOp(left=cmp, op=cmp_op, right=IRLiteral(text="0"))
-
-    # Division: a / b → __btrc_div_int(a, b)
-    if op == "/" and is_numeric_type(left_type):
-        if left_type and left_type.base in ("float", "double"):
-            gen.use_helper("__btrc_div_double")
-            return IRCall(callee="__btrc_div_double", args=[left, right],
-                          helper_ref="__btrc_div_double")
-        gen.use_helper("__btrc_div_int")
-        return IRCall(callee="__btrc_div_int", args=[left, right],
-                      helper_ref="__btrc_div_int")
-
-    # Modulo: a % b → __btrc_mod_int(a, b)
-    if op == "%" and is_numeric_type(left_type):
-        gen.use_helper("__btrc_mod_int")
-        return IRCall(callee="__btrc_mod_int", args=[left, right],
-                      helper_ref="__btrc_mod_int")
-
-    # Null coalescing: a ?? b → ({ T __tmp = a; __tmp != NULL ? __tmp : b; })
-    # Uses a temp variable to avoid evaluating left twice (e.g., if it's a call)
-    if op == "??":
-        tmp = gen.fresh_temp("__nc")
-        left_type_expr = gen.analyzed.node_types.get(id(node.left))
-        c_type = type_to_c(left_type_expr) if left_type_expr else "void*"
-        tmp_var = IRVar(name=tmp)
-        return IRStmtExpr(
-            stmts=[IRVarDecl(c_type=CType(text=c_type), name=tmp, init=left)],
-            result=IRTernary(
-                condition=IRBinOp(left=tmp_var, op="!=",
-                                  right=IRLiteral(text="NULL")),
-                true_expr=tmp_var,
-                false_expr=right,
-            ),
-        )
-
-    # Operator overloading on class types: a + b → ClassName___add__(a, b)
-    if left_type and left_type.base in gen.analyzed.class_table:
-        op_map = {
-            "+": "__add__", "-": "__sub__", "*": "__mul__",
-            "/": "__div__", "%": "__mod__",
-            "==": "__eq__", "!=": "__ne__",
-            "<": "__lt__", ">": "__gt__",
-            "<=": "__le__", ">=": "__ge__",
-        }
-        if op in op_map:
-            cls_info = gen.analyzed.class_table[left_type.base]
-            magic = op_map[op]
-            if magic in cls_info.methods:
-                if left_type.generic_args:
-                    cls_c_name = mangle_generic_type(left_type.base, left_type.generic_args)
-                else:
-                    cls_c_name = left_type.base
-                # Upcast the RHS operand to the operator method's declared
-                # parameter type (e.g. an inherited __add__(Base) used through a
-                # Sub: the Sub* operand must be cast to Base*).
-                method = cls_info.methods[magic]
-                if method.params:
-                    from .upcast import upcast_class_pointer
-                    right = upcast_class_pointer(
-                        gen, method.params[0].type, right_type, right)
-                return IRCall(callee=f"{cls_c_name}_{magic}",
-                              args=[left, right])
+    lowered = lower_typed_binary(
+        op,
+        left,
+        right,
+        left_type,
+        right_type,
+        operator_context(gen),
+        allow_unresolved_c_operands=True,
+        left_is_optional_value=(isinstance(node.left, FieldAccessExpr) and node.left.optional),
+    )
+    if lowered is not None:
+        return lowered
 
     return IRBinOp(left=left, op=op, right=right)
 
 
+def lower_overloaded_binary(
+    gen: IRGenerator, left_node, right_node, op: str, left: IRExpr, right: IRExpr
+) -> IRExpr | None:
+    """Lower one class binary operation, or return ``None`` if not overloaded."""
+
+    left_type = gen.analyzed.node_types.get(id(left_node))
+    right_type = gen.analyzed.node_types.get(id(right_node))
+    return lower_overloaded_values(gen, left_type, right_type, op, left, right)
+
+
+def lower_overloaded_values(
+    gen: IRGenerator, left_type, right_type, op: str, left: IRExpr, right: IRExpr
+) -> IRExpr | None:
+    """Lower one class operation from already-resolved operand types."""
+
+    op_map = {
+        "+": "__add__",
+        "-": "__sub__",
+        "*": "__mul__",
+        "/": "__div__",
+        "%": "__mod__",
+        "==": "__eq__",
+        "!=": "__ne__",
+        "<": "__lt__",
+        ">": "__gt__",
+        "<=": "__le__",
+        ">=": "__ge__",
+    }
+    magic = op_map.get(op)
+    if not magic or not left_type:
+        return None
+    cls_info = gen.analyzed.class_table.get(left_type.base)
+    if cls_info is None or magic not in cls_info.methods:
+        return None
+
+    method = cls_info.methods[magic]
+    if method.params:
+        from .upcast import upcast_class_pointer
+
+        right = upcast_class_pointer(gen, method.params[0].type, right_type, right)
+    class_name = (
+        mangle_generic_type(left_type.base, left_type.generic_args) if left_type.generic_args else left_type.base
+    )
+    return IRCall(callee=f"{class_name}_{magic}", args=[left, right])
+
+
 def _lower_unary(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
+    if node.op in {"++", "--"} and isinstance(
+        node.operand,
+        (FieldAccessExpr, IndexExpr),
+    ):
+        from .ownership_boundary import sequence_owned_operands
+
+        target_nodes = [node.operand.obj]
+        if isinstance(node.operand, IndexExpr):
+            target_nodes.append(node.operand.index)
+        result_type = gen.analyzed.node_types.get(id(node))
+        sequenced = sequence_owned_operands(
+            gen,
+            target_nodes,
+            build=lambda: _lower_unary_plain(gen, node),
+            result_type=result_type,
+            promote_result=bool(is_managed_type(gen, result_type)),
+        )
+        if sequenced is not None:
+            return sequenced
+    if node.op not in {"++", "--", "&", "*"}:
+        from .ownership_boundary import sequence_owned_operands
+
+        sequenced = sequence_owned_operands(
+            gen,
+            [node.operand],
+            build=lambda: _lower_unary_plain(gen, node),
+            result_type=gen.analyzed.node_types.get(id(node)),
+        )
+        if sequenced is not None:
+            return sequenced
+    return _lower_unary_plain(gen, node)
+
+
+def _lower_unary_plain(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
     from .expressions import lower_expr
 
-    operand = lower_expr(gen, node.operand)
     op = node.op
+    if op in {"++", "--"}:
+        from .updates import generator_update_context, lower_incdec
+
+        return lower_incdec(generator_update_context(gen), node)
+
+    operand = lower_expr(gen, node.operand)
     if op == "&":
         return IRAddressOf(expr=operand)
     if op == "*":
@@ -137,6 +187,5 @@ def _lower_unary(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
                     cls_c_name = mangle_generic_type(operand_type.base, operand_type.generic_args)
                 else:
                     cls_c_name = operand_type.base
-                return IRCall(callee=f"{cls_c_name}___neg__",
-                              args=[operand])
+                return IRCall(callee=f"{cls_c_name}___neg__", args=[operand])
     return IRUnaryOp(op=op, operand=operand, prefix=node.prefix)

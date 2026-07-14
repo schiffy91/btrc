@@ -1,0 +1,246 @@
+/* Collision checks for the ordinary C identifier namespace after lowering. */
+
+void semanticCollectMergedClassMethods(Analyzed analyzed, string className,
+        Vector<MethodEntry> output, Map<string, int> indices,
+        Map<string, bool> visited) {
+    if (!analyzed.classTable.has(className) || visited.has(className)) {
+        return;
+    }
+    visited.put(className, true);
+    Node declaration = analyzed.classTable.get(className);
+    string parent = parentName(declaration);
+    if (parent != "" && analyzed.classTable.has(parent)) {
+        semanticCollectMergedClassMethods(
+            analyzed, parent, output, indices, visited);
+    }
+    int memberIndex = 0;
+    while (memberIndex < declaration.members.len) {
+        Node member = declaration.members.get(memberIndex);
+        if (member.kind == NK_METHOD_DECL && !member.is_constructor
+                && member.name != "__del__") {
+            MethodEntry entry = MethodEntry(member.name, member);
+            if (indices.has(member.name)) {
+                output.set(indices.get(member.name), entry);
+            } else {
+                indices.put(member.name, output.len);
+                output.push(entry);
+            }
+        }
+        memberIndex = memberIndex + 1;
+    }
+}
+
+Vector<MethodEntry> semanticMergedClassMethods(
+        Analyzed analyzed, string className) {
+    Vector<MethodEntry> output = [];
+    Map<string, int> indices = {};
+    Map<string, bool> visited = {};
+    semanticCollectMergedClassMethods(
+        analyzed, className, output, indices, visited);
+    return output;
+}
+
+bool semanticClassNeedsVisitorSeen(string className, Analyzed analyzed,
+        Map<string, bool> visited) {
+    if (!analyzed.isClass(className) || visited.has(className)) {
+        return false;
+    }
+    visited.put(className, true);
+    Node declaration = analyzed.classTable.get(className);
+    string parent = parentName(declaration);
+    if (parent != "" && semanticClassNeedsVisitorSeen(
+            parent, analyzed, visited)) {
+        return true;
+    }
+    int memberIndex = 0;
+    while (memberIndex < declaration.members.len) {
+        Node member = declaration.members.get(memberIndex);
+        if (instanceStorageName(member) != "" && member.type != null
+                && member.type.pointer_depth <= 1
+                && (analyzed.isClass(member.type.base)
+                    || (member.type.generic_args.len > 0
+                        && analyzed.isGenericClass(member.type.base)))) {
+            return true;
+        }
+        memberIndex = memberIndex + 1;
+    }
+    return false;
+}
+
+bool semanticClassNeedsVisitor(string className, Analyzed analyzed) {
+    Map<string, bool> visited = {};
+    return semanticClassNeedsVisitorSeen(className, analyzed, visited);
+}
+
+void semanticClaimSymbol(Map<string, string> symbols, string symbol,
+        string owner, Node site) {
+    if (symbol == "") { return; }
+    if (symbols.has(symbol) && symbols.get(symbol) != owner) {
+        semanticValidationFail("Emitted C symbol '" + symbol
+            + "' collides between " + symbols.get(symbol)
+            + " and " + owner, site);
+    }
+    symbols.put(symbol, owner);
+}
+
+void semanticClaimTopLevelSymbol(
+        Node declaration, Map<string, string> symbols) {
+    if (!semanticNamedTopLevel(declaration)) { return; }
+    string name = semanticTopLevelName(declaration);
+    string owner = "top-level declaration '" + name + "'";
+    semanticClaimSymbol(symbols, name, owner, declaration);
+}
+
+void semanticClaimClassSymbols(Node declaration,
+        SemanticValidationState state, Map<string, string> symbols) {
+    string name = declaration.name;
+    semanticClaimSymbol(symbols, name + "_init",
+        "class '" + name + "' initializer", declaration);
+    semanticClaimSymbol(symbols, name + "_new",
+        "class '" + name + "' allocator", declaration);
+    semanticClaimSymbol(symbols, name + "_destroy",
+        "class '" + name + "' destructor", declaration);
+    if (semanticClassNeedsVisitor(name, state.analyzed)) {
+        semanticClaimSymbol(symbols, cycleVisitorName(name),
+            "class '" + name + "' cycle visitor", declaration);
+    }
+    Vector<MethodEntry> methods = semanticMergedClassMethods(
+        state.analyzed, name);
+    int methodIndex = 0;
+    while (methodIndex < methods.len) {
+        MethodEntry entry = methods.get(methodIndex);
+        semanticClaimSymbol(symbols, name + "_" + entry.name,
+            "method '" + name + "." + entry.name + "'", entry.sig);
+        methodIndex = methodIndex + 1;
+    }
+    Vector<Node> properties = mergedClassProperties(state.analyzed, name);
+    int propertyIndex = 0;
+    while (propertyIndex < properties.len) {
+        Node property = properties.get(propertyIndex);
+        if (property.has_getter) {
+            semanticClaimSymbol(symbols, name + "_get_" + property.name,
+                "getter '" + name + "." + property.name + "'", property);
+        }
+        if (property.has_setter) {
+            semanticClaimSymbol(symbols, name + "_set_" + property.name,
+                "setter '" + name + "." + property.name + "'", property);
+        }
+        propertyIndex = propertyIndex + 1;
+    }
+}
+
+void semanticClaimEnumSymbols(
+        Node declaration, Map<string, string> symbols) {
+    int index = 0;
+    while (index < declaration.values.len) {
+        Node value = declaration.values.get(index);
+        string emittedName = value.name;
+        if (declaration.name != "") {
+            emittedName = declaration.name + "_" + value.name;
+        }
+        semanticClaimSymbol(symbols, emittedName,
+            "enum value '" + declaration.name + "." + value.name + "'",
+            value);
+        index = index + 1;
+    }
+    if (declaration.name != "") {
+        semanticClaimSymbol(symbols, declaration.name + "_toString",
+            "enum '" + declaration.name + "' formatter", declaration);
+    }
+}
+
+void semanticClaimRichEnumSymbols(
+        Node declaration, Map<string, string> symbols) {
+    semanticClaimSymbol(symbols, declaration.name + "_Tag",
+        "rich enum '" + declaration.name + "' tag type", declaration);
+    int index = 0;
+    while (index < declaration.variants.len) {
+        Node variant = declaration.variants.get(index);
+        string stem = declaration.name + "_" + variant.name;
+        semanticClaimSymbol(symbols, stem + "_TAG",
+            "rich-enum tag '" + declaration.name + "."
+                + variant.name + "'", variant);
+        semanticClaimSymbol(symbols, stem,
+            "rich-enum constructor '" + declaration.name + "."
+                + variant.name + "'", variant);
+        if (variant.params.len > 0) {
+            semanticClaimSymbol(symbols, stem + "_Data",
+                "rich-enum payload type '" + declaration.name + "."
+                    + variant.name + "'", variant);
+        }
+        index = index + 1;
+    }
+    semanticClaimSymbol(symbols, declaration.name + "_toString",
+        "rich enum '" + declaration.name + "' formatter", declaration);
+}
+
+void semanticClaimGenericInstanceSymbols(SemanticValidationState state,
+        Map<string, string> symbols) {
+    int instanceIndex = 0;
+    while (instanceIndex < state.analyzed.genericInstances.len) {
+        GenInstance instance = state.analyzed.genericInstances.get(instanceIndex);
+        if (state.analyzed.genericClassTable.has(instance.base)) {
+            Node declaration =
+                state.analyzed.genericClassTable.get(instance.base);
+            string owner = "generic instance '" + instance.mangled + "'";
+            semanticClaimSymbol(symbols, instance.mangled + "_init",
+                owner + " initializer", declaration);
+            semanticClaimSymbol(symbols, instance.mangled + "_new",
+                owner + " allocator", declaration);
+            semanticClaimSymbol(symbols, instance.mangled + "_destroy",
+                owner + " destructor", declaration);
+            if (genericInstanceNeedsVisitor(state.analyzed, instance)) {
+                semanticClaimSymbol(symbols, cycleVisitorName(instance.mangled),
+                    owner + " cycle visitor", declaration);
+            }
+            int memberIndex = 0;
+            while (memberIndex < declaration.members.len) {
+                Node member = declaration.members.get(memberIndex);
+                if (member.kind == NK_METHOD_DECL && !member.is_constructor
+                        && member.name != "__del__"
+                        && member.generic_params.len == 0) {
+                    semanticClaimSymbol(symbols,
+                        instance.mangled + "_" + member.name,
+                        owner + " method '" + member.name + "'", member);
+                } else if (member.kind == NK_PROPERTY_DECL) {
+                    if (member.has_getter) {
+                        semanticClaimSymbol(symbols,
+                            instance.mangled + "_get_" + member.name,
+                            owner + " getter '" + member.name + "'", member);
+                    }
+                    if (member.has_setter) {
+                        semanticClaimSymbol(symbols,
+                            instance.mangled + "_set_" + member.name,
+                            owner + " setter '" + member.name + "'", member);
+                    }
+                }
+                memberIndex = memberIndex + 1;
+            }
+        }
+        instanceIndex = instanceIndex + 1;
+    }
+}
+
+void semanticValidateEmittedSymbols(
+        Node program, SemanticValidationState state) {
+    Map<string, string> symbols = {};
+    int index = 0;
+    while (index < program.declarations.len) {
+        semanticClaimTopLevelSymbol(program.declarations.get(index), symbols);
+        index = index + 1;
+    }
+    index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_CLASS_DECL
+                && declaration.generic_params.len == 0) {
+            semanticClaimClassSymbols(declaration, state, symbols);
+        } else if (declaration.kind == NK_ENUM_DECL) {
+            semanticClaimEnumSymbols(declaration, symbols);
+        } else if (declaration.kind == NK_RICH_ENUM_DECL) {
+            semanticClaimRichEnumSymbols(declaration, symbols);
+        }
+        index = index + 1;
+    }
+    semanticClaimGenericInstanceSymbols(state, symbols);
+}

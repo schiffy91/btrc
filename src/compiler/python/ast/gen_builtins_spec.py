@@ -1,0 +1,147 @@
+"""Intrinsic member and function specifications for builtins generation."""
+
+INTRINSIC_STRING_MEMBERS = [
+    ("len", "int", "field", [], "Length of the string (bytes)"),
+    ("charAt", "char", "method", [("int", "index")], "Character at index"),
+    ("trim", "string", "method", [], "Remove leading/trailing whitespace"),
+    ("lstrip", "string", "method", [], "Remove leading whitespace"),
+    ("rstrip", "string", "method", [], "Remove trailing whitespace"),
+    ("toUpper", "string", "method", [], "Convert to uppercase"),
+    ("toLower", "string", "method", [], "Convert to lowercase"),
+    ("contains", "bool", "method", [("string", "sub")], "Check if contains substring"),
+    ("startsWith", "bool", "method", [("string", "prefix")], "Check prefix"),
+    ("endsWith", "bool", "method", [("string", "suffix")], "Check suffix"),
+    ("indexOf", "int", "method", [("string", "sub")], "Index of first occurrence"),
+    (
+        "lastIndexOf",
+        "int",
+        "method",
+        [("string", "sub")],
+        "Index of last occurrence",
+    ),
+    (
+        "substring",
+        "string",
+        "method",
+        [("int", "start"), ("int", "end")],
+        "Extract substring",
+    ),
+    ("equals", "bool", "method", [("string", "other")], "Compare strings"),
+    ("split", "Vector<string>", "method", [("string", "delim")], "Split into list"),
+    (
+        "replace",
+        "string",
+        "method",
+        [("string", "old"), ("string", "replacement")],
+        "Replace occurrences",
+    ),
+    ("repeat", "string", "method", [("int", "count")], "Repeat N times"),
+    (
+        "count",
+        "int",
+        "method",
+        [("string", "sub")],
+        "Count non-overlapping occurrences",
+    ),
+    (
+        "find",
+        "int",
+        "method",
+        [("string", "sub"), ("int", "start")],
+        "Find from start index",
+    ),
+    ("capitalize", "string", "method", [], "Uppercase first char"),
+    ("title", "string", "method", [], "Capitalize each word"),
+    ("swapCase", "string", "method", [], "Swap upper/lower case"),
+    (
+        "padLeft",
+        "string",
+        "method",
+        [("int", "width"), ("char", "fill")],
+        "Left-pad",
+    ),
+    (
+        "padRight",
+        "string",
+        "method",
+        [("int", "width"), ("char", "fill")],
+        "Right-pad",
+    ),
+    (
+        "center",
+        "string",
+        "method",
+        [("int", "width"), ("char", "fill")],
+        "Center with padding",
+    ),
+    ("charLen", "int", "method", [], "UTF-8 character count"),
+    ("byteLen", "int", "method", [], "Byte length"),
+    ("isDigitStr", "bool", "method", [], "All chars are digits"),
+    ("isAlphaStr", "bool", "method", [], "All chars are alphabetic"),
+    ("isBlank", "bool", "method", [], "Empty or all whitespace"),
+    ("isAlnum", "bool", "method", [], "All chars are alphanumeric"),
+    ("isUpper", "bool", "method", [], "All chars are uppercase"),
+    ("isLower", "bool", "method", [], "All chars are lowercase"),
+    ("reverse", "string", "method", [], "Reverse the string"),
+    ("isEmpty", "bool", "method", [], "True if string is empty"),
+    (
+        "removePrefix",
+        "string",
+        "method",
+        [("string", "prefix")],
+        "Remove prefix if present",
+    ),
+    (
+        "removeSuffix",
+        "string",
+        "method",
+        [("string", "suffix")],
+        "Remove suffix if present",
+    ),
+    ("toInt", "int", "method", [], "Parse as integer"),
+    ("toFloat", "float", "method", [], "Parse as float"),
+    ("toDouble", "double", "method", [], "Parse as double"),
+    ("toLong", "long", "method", [], "Parse as long"),
+    (
+        "toBool",
+        "bool",
+        "method",
+        [],
+        'Parse as bool (false for empty, "false", "0")',
+    ),
+    (
+        "zfill",
+        "string",
+        "method",
+        [("int", "width")],
+        "Left-pad with zeros (preserves sign)",
+    ),
+]
+
+
+INTRINSIC_COLLECTION_MEMBERS: dict[str, list[tuple]] = {
+    # Vector and Set higher-order methods live in stdlib source. Map.forEach is
+    # an IR-generation intrinsic and therefore has no stdlib declaration.
+    "Map": [
+        (
+            "forEach",
+            "void",
+            "method",
+            [("fn", "callback")],
+            "Call fn(key, value) for each entry",
+        ),
+    ],
+}
+
+
+INTRINSIC_FUNCTIONS = {
+    "println": ("void", [("string", "message")]),
+    "print": ("void", [("string", "message")]),
+    "input": ("string", [("string", "prompt")]),
+    "toString": ("string", [("int", "value")]),
+    "toInt": ("int", [("string", "value")]),
+    "toFloat": ("float", [("string", "value")]),
+    "len": ("int", [("string", "s")]),
+    "range": ("Vector<int>", [("int", "n")]),
+    "exit": ("void", [("int", "code")]),
+}

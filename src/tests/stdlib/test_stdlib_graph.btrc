@@ -111,6 +111,29 @@ int main() {
     assert(!cycle.ok());
     assert(cycle.error.contains("Cycle in graph"));
 
+    GraphTraversal unknown = GraphTraversal(graph);
+    unknown.order(["missing"]);
+    assert(!unknown.ok());
+    assert(unknown.error.contains("Unknown graph node: missing"));
+
+    // Traversal uses explicit frames, so deep graphs do not consume the C
+    // call stack. Keep the fixture large enough to catch recursive lowering
+    // while remaining quick under sanitizer builds.
+    Vector<GraphNode> deepNodes = [];
+    for (int i = 0; i < 1500; i++) {
+        string id = f"node-{i}";
+        Vector<string> parents = [];
+        if (i > 0) { parents.push(f"node-{i - 1}"); }
+        deepNodes.push(graphNodeAfter(id, f"{id}.json", parents));
+    }
+    var deepGraph = graphWith(deepNodes);
+    GraphTraversal deep = GraphTraversal(deepGraph);
+    Vector<string> deepOrder = deep.order(["node-1499"]);
+    assert(deep.ok());
+    assert(deepOrder.len == 1500);
+    assert(deepOrder.first().equals("node-0"));
+    assert(deepOrder.last().equals("node-1499"));
+
     print("PASS: test_stdlib_graph");
     return 0;
 }

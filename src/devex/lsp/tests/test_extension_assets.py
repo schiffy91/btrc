@@ -103,12 +103,20 @@ def test_extension_packaging_stages_lsp_payload(tmp_path):
 
     assert (bundle_root / "src" / "devex" / "lsp" / "server.py").exists()
     assert (bundle_root / "src" / "compiler" / "python" / "frontend.py").exists()
+    assert not (bundle_root / "src" / "compiler" / "btrc").exists()
     assert (bundle_root / "src" / "language" / "grammar.ebnf").exists()
     assert (bundle_root / "src" / "stdlib" / "process.btrc").exists()
+    staged_debug = ext_dir / "debug"
+    expected_debug_modules = {path.name for path in (REPO_ROOT / "src" / "devex" / "debug").glob("*.py")}
+    assert {path.name for path in staged_debug.glob("*.py")} == expected_debug_modules
+    assert (bundle_root / "flake.lock").read_text() == (REPO_ROOT / "flake.lock").read_text()
     bundled_flake = (bundle_root / "flake.nix").read_text()
     assert "Bundled btrc language server" in bundled_flake
     assert "ps.pygls ps.lsprotocol" in bundled_flake
     assert not (bundle_root / "src" / "devex" / "lsp" / "tests").exists()
+    assert not any(bundle_root.rglob(".DS_Store"))
+    assert not any(bundle_root.rglob("*.o"))
+    assert not any(bundle_root.rglob("*.a"))
 
 
 def test_extension_package_keeps_bundled_server_payload():
@@ -116,5 +124,16 @@ def test_extension_package_keeps_bundled_server_payload():
 
     assert "server/**" not in ignored
     assert "server/src/devex/lsp/tests/**" in ignored
+    assert "scripts/**" in ignored
+    assert "test/**" in ignored
+    assert "package-lock.json" in ignored
     assert "**/__pycache__/**" in ignored
     assert "**/*.pyc" in ignored
+
+
+def test_nix_extension_package_installs_staged_debug_adapter():
+    flake = (REPO_ROOT / "flake.nix").read_text()
+
+    assert '"src/devex/debug/"' in flake
+    assert '"src/devex/ext/debug/"' in flake
+    assert 'cp -R debug icons out server syntaxes "$extension"/' in flake

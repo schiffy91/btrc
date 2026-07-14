@@ -1,0 +1,24 @@
+#include <assert.h>
+
+int alive = 0;
+
+class Node<T> {
+    public Node() { alive++; }
+    public void __del__() { alive--; }
+}
+
+class Bag<T> {
+    public void createAndDiscard() {
+        Node<T> node = new Node<T>();
+        delete node;
+    }
+}
+
+int main() {
+    Bag<int> bag = new Bag<int>();
+    bag.createAndDiscard();
+    assert(alive == 0);
+    delete bag;
+    print("PASS: one-level generic closure");
+    return 0;
+}

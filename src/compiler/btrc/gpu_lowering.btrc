@@ -1,0 +1,299 @@
+/* Kernel registration and CPU fallback lowering. Kernels are registered in a
+ * pre-pass so calls before declarations resolve identically to later calls. */
+
+string gpuLengthName(string parameter) { return "__gpu_len_" + parameter; }
+
+void rejectGpuMethods(Node program) {
+    int i = 0;
+    while (i < program.declarations.len) {
+        Node declaration = program.declarations.get(i);
+        if (declaration.kind == NK_CLASS_DECL
+                || declaration.kind == NK_INTERFACE_DECL) {
+            int m = 0;
+            while (m < declaration.members.len) {
+                Node member = declaration.members.get(m);
+                if (member.is_gpu) {
+                    gpuLoweringFail(member,
+                        "@gpu methods are not supported; use a top-level kernel");
+                }
+                m = m + 1;
+            }
+        }
+        i = i + 1;
+    }
+}
+
+void registerGpuKernels(IRGen gen, Node program, IRModule module) {
+    rejectGpuMethods(program);
+    bool addedRuntime = false;
+    int i = 0;
+    while (i < program.declarations.len) {
+        Node declaration = program.declarations.get(i);
+        if (declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu) {
+            if (!addedRuntime) {
+                module.preprocessor_decls.push(irInclude("btrc_gpu.h", false));
+                addedRuntime = true;
+            }
+            if (declaration.body_node == null) {
+                gpuLoweringFail(declaration, "@gpu kernel requires a body");
+            }
+            if (gen.gpu.kernels.has(declaration.name)) {
+                gpuLoweringFail(declaration, "duplicate @gpu kernel '"
+                    + declaration.name + "'");
+            }
+            IRGpuKernel kernel = IRGpuKernel(declaration.name, declaration);
+            kernel.wgsl_source = generateGpuWgsl(gen.analyzed, kernel);
+            gen.gpu.kernels.put(declaration.name, kernel);
+            module.gpu_kernels.push(kernel);
+        }
+        i = i + 1;
+    }
+}
+
+void ensureGpuCheckedIndexHelper(IRModule module) {
+    int i = 0;
+    while (i < module.functions.len) {
+        if (module.functions.get(i).name == "__btrc_gpu_checked_index") { return; }
+        i = i + 1;
+    }
+    IRFunction declaration = IRFunction();
+    declaration.name = "__btrc_gpu_checked_index";
+    declaration.return_type = "int";
+    declaration.is_static = true;
+    declaration.params.push(IRParam("int", "index"));
+    declaration.params.push(IRParam("int", "length"));
+    Vector<IRNode> invalid = [];
+    Vector<IRNode> message = [];
+    message.push(irLiteral("\"GPU array index out of bounds\\n\""));
+    message.push(irVar("stderr"));
+    invalid.push(irExprStmt(irCall("fputs", message)));
+    Vector<IRNode> exitArgs = [];
+    exitArgs.push(irLiteral("1"));
+    invalid.push(irExprStmt(irCall("exit", exitArgs)));
+    Vector<IRNode> body = [];
+    body.push(irIf(irBinOp(irBinOp(irVar("index"), "<", irLiteral("0")),
+        "||", irBinOp(irVar("index"), ">=", irVar("length"))),
+        irBlock(invalid), null));
+    body.push(irReturn(irVar("index")));
+    declaration.body = irBlock(body);
+    module.functions.push(declaration);
+}
+
+IRNode lowerGpuCpuIndex(IRGen gen, Node expression,
+        Map<string, Node> varTypes) {
+    if (expression.obj == null || expression.obj.kind != NK_IDENTIFIER
+            || !gen.gpuCpu.array_lengths.has(expression.obj.name)) {
+        gpuLoweringFail(expression,
+            "CPU GPU fallback index must target an array parameter");
+    }
+    Vector<IRNode> checkedArgs = [];
+    checkedArgs.push(gen.lowerExpr(expression.index, varTypes));
+    checkedArgs.push(irVar(gen.gpuCpu.array_lengths.get(expression.obj.name)));
+    return irIndex(gen.lowerExpr(expression.obj, varTypes),
+        irCall("__btrc_gpu_checked_index", checkedArgs));
+}
+
+bool tryLowerGpuCpuReturn(IRGen gen, Node statement,
+        Map<string, Node> varTypes, Vector<IRNode> out) {
+    if (!gen.gpuCpu.active || !gen.gpuCpu.returns_array
+            || statement.kind != NK_RETURN_STMT) { return false; }
+    if (statement.value_node == null) {
+        gpuLoweringFail(statement,
+            "array-returning GPU invocation must return an element value");
+    }
+    Node? valueType = inferType(
+        statement.value_node, gen.analyzed, varTypes);
+    if (valueType != null && valueType.is_array) {
+        if (statement.value_node.kind != NK_IDENTIFIER
+                || !gen.gpuCpu.array_lengths.has(statement.value_node.name)) {
+            gpuLoweringFail(statement,
+                "CPU GPU array return must name an array parameter");
+        }
+        Vector<IRNode> checked = [];
+        checked.push(irVar(gen.gpuCpu.index_name));
+        checked.push(irVar(gen.gpuCpu.array_lengths.get(
+            statement.value_node.name)));
+        out.push(irReturn(irIndex(irVar(statement.value_node.name),
+            irCall("__btrc_gpu_checked_index", checked))));
+    } else {
+        out.push(irReturn(gen.lowerExpr(statement.value_node, varTypes)));
+    }
+    return true;
+}
+
+IRNode? lowerGpuCpuBuiltin(IRGen gen, string name, Node call,
+        Vector<IRNode> args, Map<string, Node> varTypes) {
+    if (!gen.gpuCpu.active) { return null; }
+    if (name == "gpu_id") {
+        if (args.len != 0) { gpuLoweringFail(call, "gpu_id() takes no arguments"); }
+        return irVar(gen.gpuCpu.index_name);
+    }
+    if (!gpuBuiltin(name)) { return null; }
+    if (args.len != gpuBuiltinArity(name)) {
+        gpuLoweringFail(call, name + "() has invalid arity");
+    }
+    string firstType = "";
+    if (call.args.len > 0) { firstType = gpuExprBaseForCpu(gen, call.args.get(0), varTypes); }
+    if (name == "abs") {
+        if (firstType == "float") { return irCall("fabsf", args); }
+        return irCall("abs", args);
+    }
+    if (name == "min" || name == "max") {
+        if (firstType == "float") {
+            return irCall(name == "min" ? "fminf" : "fmaxf", args);
+        }
+        string op = name == "min" ? "<" : ">";
+        return irTernary(irBinOp(args.get(0), op, args.get(1)),
+            args.get(0), args.get(1));
+    }
+    if (name == "clamp") {
+        if (firstType == "float") {
+            Vector<IRNode> inner = [];
+            inner.push(args.get(0));
+            inner.push(args.get(1));
+            IRNode low = irCall("fmaxf", inner);
+            Vector<IRNode> outer = [];
+            outer.push(low);
+            outer.push(args.get(2));
+            return irCall("fminf", outer);
+        }
+        IRNode lowInt = irTernary(
+            irBinOp(args.get(0), ">", args.get(1)),
+            args.get(0), args.get(1));
+        return irTernary(irBinOp(lowInt, "<", args.get(2)),
+            lowInt, args.get(2));
+    }
+    string cName = name + "f";
+    if (name == "round") { cName = "roundf"; }
+    return irCall(cName, args);
+}
+
+string gpuExprBaseForCpu(IRGen gen, Node expression,
+        Map<string, Node> varTypes) {
+    Node? type = gpuContextualExprType(
+        expression, gen.analyzed, varTypes);
+    if (type != null) { return type.base; }
+    return "";
+}
+
+void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
+    ensureGpuCheckedIndexHelper(module);
+    bool returnsArray = declaration.return_type != null
+        && declaration.return_type.is_array;
+    IRFunction worker = IRFunction();
+    worker.name = declaration.name + "__gpuitem";
+    worker.return_type = returnsArray
+        ? (declaration.return_type.base == "float" ? "float" : "int")
+        : "void";
+    worker.is_static = true;
+    Map<string, Node> varTypes = gen.seededVarTypes();
+    gen.gpuCpu.array_lengths = {};
+    int p = 0;
+    while (p < declaration.params.len) {
+        Node parameter = declaration.params.get(p);
+        worker.params.push(IRParam(
+            typeToC(parameter.type, gen.analyzed), parameter.name));
+        varTypes.put(parameter.name, parameter.type);
+        if (parameter.type.is_array) {
+            string length = gpuLengthName(parameter.name);
+            worker.params.push(IRParam("int", length));
+            gen.gpuCpu.array_lengths.put(parameter.name, length);
+            varTypes.put(length, makePrimType("int"));
+        }
+        p = p + 1;
+    }
+    worker.params.push(IRParam("int", "__gid"));
+    varTypes.put("__gid", makePrimType("int"));
+    gen.gpuCpu.active = true;
+    gen.gpuCpu.returns_array = returnsArray;
+    gen.gpuCpu.index_name = "__gid";
+    string previousReturnC = gen.currentReturnCType;
+    Node? previousReturn = gen.currentReturnTypeNode;
+    bool previousReturnOwned = gen.currentReturnOwned;
+    gen.currentReturnCType = worker.return_type;
+    gen.currentReturnOwned = true;
+    if (returnsArray) {
+        gen.currentReturnTypeNode = makePrimType(declaration.return_type.base);
+    } else {
+        gen.currentReturnTypeNode = declaration.return_type;
+    }
+    worker.body = gen.lowerBlock(declaration.body_node, varTypes);
+    gen.currentReturnCType = previousReturnC;
+    gen.currentReturnTypeNode = previousReturn;
+    gen.currentReturnOwned = previousReturnOwned;
+    gen.gpuCpu.active = false;
+    gen.gpuCpu.returns_array = false;
+    gen.gpuCpu.index_name = "";
+    IRFunctionDecl workerPrototype = IRFunctionDecl(
+        worker.name, worker.return_type, true);
+    int workerParam = 0;
+    while (workerParam < worker.params.len) {
+        IRParam parameter = worker.params.get(workerParam);
+        workerPrototype.params.push(IRParam(parameter.c_type, parameter.name));
+        workerParam = workerParam + 1;
+    }
+    module.function_decls.push(workerPrototype);
+    module.functions.push(worker);
+
+    IRFunction wrapper = IRFunction();
+    wrapper.name = declaration.name + "__gpucpu";
+    wrapper.return_type = "void";
+    wrapper.is_static = true;
+    Vector<IRNode> invocationArgs = [];
+    p = 0;
+    while (p < declaration.params.len) {
+        Node parameter = declaration.params.get(p);
+        wrapper.params.push(IRParam(
+            typeToC(parameter.type, gen.analyzed), parameter.name));
+        invocationArgs.push(irVar(parameter.name));
+        if (parameter.type.is_array) {
+            string length = gpuLengthName(parameter.name);
+            wrapper.params.push(IRParam("int", length));
+            invocationArgs.push(irVar(length));
+        }
+        p = p + 1;
+    }
+    if (returnsArray) {
+        wrapper.params.push(IRParam(worker.return_type + "*", "__gpu_output"));
+        wrapper.params.push(IRParam("int", "__gpu_output_capacity"));
+    }
+    wrapper.params.push(IRParam("int", "__gpu_n"));
+    invocationArgs.push(irVar("__gid"));
+    IRNode invocation = irCall(worker.name, invocationArgs);
+    IRNode invocationStmt = irExprStmt(invocation);
+    if (returnsArray) {
+        invocationStmt = irAssign(
+            irIndex(irVar("__gpu_output"), irVar("__gid")), invocation);
+    }
+    IRNode loop = irFor(irVarDecl("int", "__gid", irLiteral("0")),
+        irBinOp(irVar("__gid"), "<", irVar("__gpu_n")),
+        irUnaryOp("++", irVar("__gid"), false),
+        irBlock([invocationStmt]));
+    Vector<IRNode> body = [];
+    if (returnsArray) {
+        IRNode invalidOutput = irBinOp(
+            irBinOp(irVar("__gpu_n"), ">", irLiteral("0")), "&&",
+            irBinOp(irBinOp(irVar("__gpu_output"), "==", irVar("NULL")),
+                "||", irBinOp(irVar("__gpu_output_capacity"), "<",
+                    irVar("__gpu_n"))));
+        Vector<IRNode> invalidBody = [];
+        Vector<IRNode> message = [];
+        message.push(irLiteral(
+            "\"[btrc-gpu] output capacity is smaller than dispatch length\\n\""));
+        message.push(irVar("stderr"));
+        invalidBody.push(gpuCallStatement("fputs", message));
+        invalidBody.push(gpuCallStatement("abort", gpuNoArgs()));
+        body.push(irIf(invalidOutput, irBlock(invalidBody), null));
+    }
+    body.push(loop);
+    wrapper.body = irBlock(body);
+    IRFunctionDecl prototype = IRFunctionDecl(wrapper.name, "void", true);
+    int fp = 0;
+    while (fp < wrapper.params.len) {
+        IRParam parameter = wrapper.params.get(fp);
+        prototype.params.push(IRParam(parameter.c_type, parameter.name));
+        fp = fp + 1;
+    }
+    module.function_decls.push(prototype);
+    module.functions.push(wrapper);
+}

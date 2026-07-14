@@ -1,0 +1,23 @@
+#include <assert.h>
+
+class Counter {
+    public int value;
+    public Counter(int value) { self.value = value; }
+    public Counter __add__(Counter other) {
+        return Counter(self.value + other.value);
+    }
+    public Counter __sub__(Counter other) {
+        return Counter(self.value - other.value);
+    }
+}
+
+int main() {
+    Counter value = Counter(40);
+    Counter two = Counter(2);
+    value += two;
+    assert(value.value == 42);
+    value -= two;
+    assert(value.value == 40);
+    print("PASS: test_class_compound_assignment");
+    return 0;
+}

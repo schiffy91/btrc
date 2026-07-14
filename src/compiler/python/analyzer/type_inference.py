@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..ast_nodes import (
     AssignExpr,
     BinaryExpr,
@@ -16,14 +18,11 @@ from ..ast_nodes import (
     Identifier,
     IndexExpr,
     IntLiteral,
-    LambdaBlock,
     LambdaExpr,
-    LambdaExprBody,
     ListLiteral,
     MapLiteral,
     NewExpr,
     NullLiteral,
-    ReturnStmt,
     SelfExpr,
     SizeofExpr,
     SpawnExpr,
@@ -33,17 +32,14 @@ from ..ast_nodes import (
     TypeExpr,
     UnaryExpr,
 )
+from ..numeric_literals import float_literal_type
+from .c_call_types import c_integer_identifier
+from .iteration_inference import _IterationInferenceMixin
 
 
-class TypeInferenceMixin:
-
+class TypeInferenceMixin(_IterationInferenceMixin):
     def _infer_type(self, expr) -> TypeExpr | None:
-        """Best-effort type inference. Returns None if unknown.
-
-        Memoized in self.node_types (id(node) → TypeExpr) — the same map
-        populated post-analysis and read by the LSP — otherwise every node
-        of a long binary chain re-infers its whole subtree (quadratic).
-        """
+        """Infer a type, memoizing results to avoid quadratic re-inference."""
         if expr is None:
             return None
         cached = self.node_types.get(id(expr))
@@ -56,9 +52,9 @@ class TypeInferenceMixin:
 
     def _infer_type_uncached(self, expr) -> TypeExpr | None:
         if isinstance(expr, IntLiteral):
-            return TypeExpr(base="int")
+            return self._infer_integer_literal_type(expr.raw, expr.value)
         elif isinstance(expr, FloatLiteral):
-            return TypeExpr(base="float")
+            return TypeExpr(base=float_literal_type(expr.raw))
         elif isinstance(expr, StringLiteral):
             return TypeExpr(base="string")
         elif isinstance(expr, CharLiteral):
@@ -68,43 +64,109 @@ class TypeInferenceMixin:
         elif isinstance(expr, FStringLiteral):
             return TypeExpr(base="string")
         elif isinstance(expr, SizeofExpr):
-            return TypeExpr(base="int")
+            return TypeExpr(base="size_t")
         elif isinstance(expr, NullLiteral):
             return TypeExpr(base="void", pointer_depth=1, is_nullable=True)
         elif isinstance(expr, Identifier):
+            if expr.name == "NULL":
+                return TypeExpr(base="void", pointer_depth=1, is_nullable=True)
             sym = self.scope.lookup(expr.name)
             if sym:
                 return sym.type
+            function = self.function_table.get(expr.name)
+            if function:
+                return TypeExpr(
+                    base="__fn_ptr",
+                    generic_args=[function.return_type, *(param.type for param in function.params)],
+                )
+            owners = self._enum_member_owners.get(expr.name, set())
+            if len(owners) == 1:
+                owner = next(iter(owners))
+                return TypeExpr(base=owner or "int")
+            if expr.name in {"stdin", "stdout", "stderr"}:
+                return TypeExpr(base="FILE", pointer_depth=1)
+            if c_integer_identifier(expr.name):
+                return TypeExpr(base="int")
             return None
         elif isinstance(expr, SelfExpr):
             if self.current_class:
-                return TypeExpr(base=self.current_class.name, pointer_depth=1)
+                return self._current_self_type()
             return None
         elif isinstance(expr, FieldAccessExpr):
             return self._infer_field_access_type(expr)
         elif isinstance(expr, CallExpr):
             return self._infer_call_type(expr)
         elif isinstance(expr, NewExpr):
-            return TypeExpr(base=expr.type.base, generic_args=expr.type.generic_args,
-                            pointer_depth=1)
+            if expr.type.base in ("Thread", "Mutex"):
+                return replace(expr.type, pointer_depth=0)
+            return TypeExpr(base=expr.type.base, generic_args=expr.type.generic_args, pointer_depth=1)
         elif isinstance(expr, IndexExpr):
             obj_type = self._infer_type(expr.obj)
-            if obj_type and obj_type.generic_args:
+            if obj_type and obj_type.base in ("Vector", "List", "Array", "Set") and len(obj_type.generic_args) == 1:
                 # Generic with 1 arg (List, Array, Set): element = args[0]
-                if len(obj_type.generic_args) == 1:
-                    return obj_type.generic_args[0]
-                # Generic with 2 args (Map): value = args[1]
-                if len(obj_type.generic_args) == 2:
-                    return obj_type.generic_args[1]
+                return obj_type.generic_args[0]
+            if obj_type and obj_type.base == "Map" and len(obj_type.generic_args) == 2:
+                return obj_type.generic_args[1]
+            if obj_type and obj_type.base == "string":
+                return TypeExpr(base="char", is_const=obj_type.is_const)
+            if obj_type and obj_type.is_array:
+                return replace(obj_type, is_array=False, array_size=None)
+            if (
+                obj_type
+                and obj_type.pointer_depth > 0
+                and (obj_type.base not in self.class_table or obj_type.pointer_depth > 1)
+            ):
+                return replace(obj_type, pointer_depth=obj_type.pointer_depth - 1)
+            from ..index_protocol import indexed_protocol_info
+
+            cls = indexed_protocol_info(obj_type, self.class_table)
+            if cls is not None:
+                getter = cls.methods.get("get")
+                setter = cls.methods.get("set")
+                value_type = None
+                if getter is not None and len(getter.params) == 1:
+                    value_type = getter.return_type
+                elif setter is not None and len(setter.params) == 2:
+                    value_type = setter.params[1].type
+                if value_type is not None and cls.generic_params and obj_type.generic_args:
+                    substitutions = dict(zip(cls.generic_params, obj_type.generic_args))
+                    value_type = self._substitute_type(value_type, substitutions)
+                if value_type is not None:
+                    return value_type
             return None
         elif isinstance(expr, BinaryExpr):
             return self._infer_binary_type(expr)
         elif isinstance(expr, CastExpr):
             return expr.target_type
         elif isinstance(expr, UnaryExpr):
-            return self._infer_type(expr.operand)
+            operand_type = self._infer_type(expr.operand)
+            if operand_type is None:
+                return None
+            if expr.op == "&":
+                if isinstance(expr.operand, Identifier) and expr.operand.name in self.function_table:
+                    return operand_type
+                return replace(
+                    operand_type,
+                    pointer_depth=operand_type.pointer_depth + 1,
+                    is_array=False,
+                    array_size=None,
+                )
+            if expr.op == "*":
+                if operand_type.is_array:
+                    return replace(operand_type, is_array=False, array_size=None)
+                if operand_type.pointer_depth > 0:
+                    return replace(
+                        operand_type,
+                        pointer_depth=operand_type.pointer_depth - 1,
+                    )
+            if expr.op == "!":
+                return TypeExpr(base="bool")
+            overloaded = self._operator_return_type(operand_type, expr.op, unary=True)
+            if overloaded is not None:
+                return overloaded
+            return operand_type
         elif isinstance(expr, TernaryExpr):
-            return self._infer_type(expr.true_expr)
+            return self._infer_ternary_type(expr)
         elif isinstance(expr, AssignExpr):
             return self._infer_type(expr.target)
         elif isinstance(expr, LambdaExpr):
@@ -124,19 +186,18 @@ class TypeInferenceMixin:
             if expr.elements:
                 elem_type = self._infer_type(expr.elements[0])
                 if elem_type:
-                    return TypeExpr(base="Vector", generic_args=[elem_type])
-            return TypeExpr(base="Vector", generic_args=[TypeExpr(base="int")])
+                    return self._collection_literal_type("Vector", [elem_type])
+            return self._collection_literal_type("Vector", [TypeExpr(base="int")])
         elif isinstance(expr, MapLiteral):
             if expr.entries:
                 key_type = self._infer_type(expr.entries[0].key)
                 val_type = self._infer_type(expr.entries[0].value)
                 if key_type and val_type:
-                    return TypeExpr(base="Map", generic_args=[key_type, val_type])
-            return TypeExpr(base="Map",
-                            generic_args=[TypeExpr(base="string"), TypeExpr(base="int")])
+                    return self._collection_literal_type("Map", [key_type, val_type])
+            return self._collection_literal_type("Map", [TypeExpr(base="string"), TypeExpr(base="int")])
         elif isinstance(expr, SpawnExpr):
             ret_type = self._infer_spawn_return_type(expr.fn)
-            return TypeExpr(base="Thread", generic_args=[ret_type], pointer_depth=1)
+            return TypeExpr(base="Thread", generic_args=[ret_type])
         elif isinstance(expr, BraceInitializer):
             if expr.elements:
                 first_type = self._infer_type(expr.elements[0])
@@ -145,13 +206,25 @@ class TypeInferenceMixin:
         return None
 
     def _infer_field_access_type(self, expr):
+        if isinstance(expr.obj, Identifier):
+            enum_values = self.enum_table.get(expr.obj.name)
+            if enum_values is not None and expr.field in enum_values:
+                return TypeExpr(base=expr.obj.name or "int")
+            class_info = self.class_table.get(expr.obj.name) if self.scope.lookup(expr.obj.name) is None else None
+            if class_info and expr.field in class_info.static_fields:
+                return class_info.static_fields[expr.field].type
         obj_type = self._infer_type(expr.obj)
+        if obj_type and (obj_type.base == "Tuple" or obj_type.base.startswith("(")):
+            if expr.field.startswith("_") and expr.field[1:].isdigit():
+                index = int(expr.field[1:])
+                if expr.field == f"_{index}" and index < len(obj_type.generic_args):
+                    return obj_type.generic_args[index]
+            return None
         if obj_type and obj_type.base in self.rich_enum_table:
             if expr.field == "tag":
                 return TypeExpr(base="int")
             return None
-        if (isinstance(expr.obj, FieldAccessExpr)
-                and isinstance(expr.obj.obj, FieldAccessExpr)):
+        if isinstance(expr.obj, FieldAccessExpr) and isinstance(expr.obj.obj, FieldAccessExpr):
             data_expr = expr.obj.obj
             if isinstance(data_expr.obj, (Identifier, FieldAccessExpr)):
                 s_type = self._infer_type(data_expr.obj)
@@ -166,146 +239,35 @@ class TypeInferenceMixin:
         if obj_type and obj_type.base in self.class_table:
             cls = self.class_table[obj_type.base]
             field_type = None
+            is_property = False
             if expr.field in cls.properties:
                 field_type = cls.properties[expr.field].type
+                is_property = True
             elif expr.field in cls.fields:
                 field_type = cls.fields[expr.field].type
             if field_type and cls.generic_params and obj_type.generic_args:
                 subs = dict(zip(cls.generic_params, obj_type.generic_args))
-                if field_type.base in subs:
-                    return subs[field_type.base]
-            return field_type
+                field_type = self._substitute_type(field_type, subs)
+            return self._const_member_type(obj_type, field_type, is_property)
+        if obj_type:
+            struct_name = obj_type.base.removeprefix("struct ")
+            struct_decl = self.struct_table.get(struct_name)
+            if struct_decl:
+                field_type = next(
+                    (field.type for field in struct_decl.fields if field.name == expr.field),
+                    None,
+                )
+                return self._const_member_type(obj_type, field_type)
         return None
 
-    def _infer_call_type(self, expr):
-        if isinstance(expr.callee, Identifier):
-            # gpu_id() → int
-            if expr.callee.name == "gpu_id":
-                return TypeExpr(base="int")
-            # Mutex(val) → Mutex<T> where T = type of val
-            if expr.callee.name == "Mutex" and expr.args:
-                arg_type = self._infer_type(expr.args[0])
-                if arg_type:
-                    return TypeExpr(base="Mutex", generic_args=[arg_type],
-                                    pointer_depth=1)
-                return TypeExpr(base="Mutex", generic_args=[TypeExpr(base="int")],
-                                pointer_depth=1)
-            if expr.callee.name in self.class_table:
-                return TypeExpr(base=expr.callee.name, pointer_depth=1)
-            if expr.callee.name in self.function_table:
-                return self.function_table[expr.callee.name].return_type
-        if isinstance(expr.callee, FieldAccessExpr):
-            obj_type = self._infer_type(expr.callee.obj)
-            if (obj_type and obj_type.base in ("int", "float", "double", "long", "bool")
-                    and obj_type.pointer_depth == 0):
-                if expr.callee.field == "toString":
-                    return TypeExpr(base="string")
-            if obj_type and (obj_type.base == "string" or
-                             (obj_type.base == "char" and obj_type.pointer_depth >= 1)):
-                return self._string_method_return_type(expr.callee.field)
-            # Thread<T>.join() → T, Mutex<T>.get() → T
-            if obj_type and obj_type.base == "Thread" and obj_type.generic_args:
-                if expr.callee.field == "join":
-                    return obj_type.generic_args[0]
-            if obj_type and obj_type.base == "Mutex" and obj_type.generic_args:
-                if expr.callee.field == "get":
-                    return obj_type.generic_args[0]
-                if expr.callee.field in ("set", "destroy"):
-                    return TypeExpr(base="void")
-            if obj_type and obj_type.base in self.class_table:
-                cls = self.class_table[obj_type.base]
-                if expr.callee.field in cls.methods:
-                    method = cls.methods[expr.callee.field]
-                    ret = method.return_type
-                    subs = {}
-                    if cls.generic_params and obj_type.generic_args:
-                        subs = dict(zip(cls.generic_params, obj_type.generic_args))
-                    # Generic method: also bind its method-level type params
-                    # (U, ...) inferred from the call arguments so the return
-                    # type (e.g. Vector<U>) resolves to a concrete type.
-                    if method.generic_params:
-                        method_subs = self._infer_method_type_args(
-                            expr, method, subs)
-                        if method_subs:
-                            subs = {**subs, **method_subs}
-                    if subs:
-                        return self._substitute_type(ret, subs)
-                    return ret
-            if (isinstance(expr.callee.obj, Identifier)
-                    and expr.callee.obj.name in self.class_table):
-                cls = self.class_table[expr.callee.obj.name]
-                if expr.callee.field in cls.methods:
-                    return cls.methods[expr.callee.field].return_type
-        return None
-
-    def _infer_binary_type(self, expr):
-        left_type = self._infer_type(expr.left)
-        right_type = self._infer_type(expr.right)
-        if expr.op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||"):
-            return TypeExpr(base="bool")
-        if left_type and right_type:
-            if left_type.base == "double" or right_type.base == "double":
-                return TypeExpr(base="double")
-            if left_type.base == "float" or right_type.base == "float":
-                return TypeExpr(base="float")
-            if left_type.base == "long" or right_type.base == "long":
-                return TypeExpr(base="long")
-            if left_type.base == "int" and right_type.base == "int":
-                return TypeExpr(base="int")
-        return left_type or right_type
-
-    def _infer_lambda_return(self, expr) -> TypeExpr:
-        """Infer the return type of a lambda from its body."""
-        if isinstance(expr.body, LambdaBlock):
-            for stmt in expr.body.body.statements:
-                if isinstance(stmt, ReturnStmt) and stmt.value:
-                    t = self._infer_type(stmt.value)
-                    if t:
-                        return t
-        elif isinstance(expr.body, LambdaExprBody):
-            t = self._infer_type(expr.body.expression)
-            if t:
-                return t
-        return TypeExpr(base="int")
-
-    def _get_element_type(self, iter_type, line, col):
-        """Get the element type for for-in iteration."""
-        if iter_type is None:
-            return None
-        if (iter_type.base == "string"
-                or (iter_type.base == "char" and iter_type.pointer_depth >= 1)):
-            return TypeExpr(base="char")
-        # Generic class with iterGet method → iterable
-        if iter_type.generic_args and iter_type.base in self.class_table:
-            cls = self.class_table[iter_type.base]
-            if "iterGet" in cls.methods:
-                ret = cls.methods["iterGet"].return_type
-                if cls.generic_params and iter_type.generic_args:
-                    subs = dict(zip(cls.generic_params, iter_type.generic_args))
-                    return self._substitute_type(ret, subs)
-                return ret
-        if iter_type.base in self.class_table:
-            self._error(f"Type '{iter_type.base}' is not iterable", line, col)
-            return None
-        if iter_type.base in ("int", "float", "double", "bool"):
-            self._error(f"Type '{iter_type.base}' is not iterable", line, col)
-            return None
-        return None
-
-    def _substitute_type(self, t: TypeExpr | None, subs: dict) -> TypeExpr | None:
-        """Recursively substitute type parameters in a TypeExpr."""
-        if t is None:
-            return None
-        if t.base in subs and not t.generic_args:
-            resolved = subs[t.base]
-            if t.pointer_depth > 0:
-                return TypeExpr(
-                    base=resolved.base, generic_args=resolved.generic_args,
-                    pointer_depth=resolved.pointer_depth + t.pointer_depth,
-                    is_nullable=t.is_nullable or resolved.is_nullable)
-            return resolved
-        if t.generic_args:
-            new_args = [self._substitute_type(a, subs) for a in t.generic_args]
-            return TypeExpr(base=t.base, generic_args=new_args,
-                           pointer_depth=t.pointer_depth)
-        return t
+    @staticmethod
+    def _const_member_type(receiver_type, field_type, is_property=False):
+        if (
+            field_type is not None
+            and receiver_type.is_const
+            and not is_property
+            and field_type.pointer_depth == 0
+            and field_type.base != "string"
+        ):
+            return replace(field_type, is_const=True)
+        return field_type

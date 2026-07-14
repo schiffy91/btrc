@@ -53,14 +53,14 @@ class Result:
     """One benchmark program's measured outcome (best-of-N for timings)."""
 
     name: str
-    phases_ms: dict[str, float]          # best per-phase milliseconds
-    funcs_before: int                    # IR functions before optimize()
-    funcs_after: int                     # IR functions after optimize()
-    helpers_after: int                   # runtime helpers after optimize()
-    c_lines: int                         # emitted C line count
-    total_ms: float                      # best end-to-end milliseconds
-    cc_ms: float = 0.0                   # gcc compile time (0 if not measured)
-    bin_bytes: int = 0                   # binary size (0 if not measured)
+    phases_ms: dict[str, float]  # best per-phase milliseconds
+    funcs_before: int  # IR functions before optimize()
+    funcs_after: int  # IR functions after optimize()
+    helpers_after: int  # runtime helpers after optimize()
+    c_lines: int  # emitted C line count
+    total_ms: float  # best end-to-end milliseconds
+    cc_ms: float = 0.0  # gcc compile time (0 if not measured)
+    bin_bytes: int = 0  # binary size (0 if not measured)
 
     @property
     def dce_ratio(self) -> float:
@@ -187,11 +187,7 @@ def _measure_cc(cc: str, c_source: str) -> tuple[float, int]:
 def _discover() -> list[str]:
     if not os.path.isdir(BENCH_DIR):
         return []
-    return sorted(
-        os.path.join(BENCH_DIR, f)
-        for f in os.listdir(BENCH_DIR)
-        if f.endswith(".btrc")
-    )
+    return sorted(os.path.join(BENCH_DIR, f) for f in os.listdir(BENCH_DIR) if f.endswith(".btrc"))
 
 
 _PHASES = ["lex", "parse", "analyze", "ir_gen", "optimize", "emit"]
@@ -215,16 +211,16 @@ def _print_table(results: list[Result], show_cc: bool) -> None:
         print(row)
     print("-" * len(header))
     avg_dce = sum(r.dce_ratio for r in results) / max(len(results), 1)
-    print(f"mean dead-function elimination: {avg_dce * 100:.1f}% "
-          f"({len(results)} programs)")
+    print(f"mean dead-function elimination: {avg_dce * 100:.1f}% ({len(results)} programs)")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="btrc compile-time benchmark")
     ap.add_argument("--repeat", type=int, default=5, help="iterations (best wins)")
     ap.add_argument("--json", help="write machine-readable results to this path")
-    ap.add_argument("--cc", nargs="?", const="cc", default=None,
-                    help="also compile emitted C with this compiler (default cc)")
+    ap.add_argument(
+        "--cc", nargs="?", const="cc", default=None, help="also compile emitted C with this compiler (default cc)"
+    )
     args = ap.parse_args()
 
     programs = _discover()

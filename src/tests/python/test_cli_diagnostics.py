@@ -40,6 +40,7 @@ ANALYZER_BAD = 'int main() {\n    int x = "hello";\n    return 0;\n}\n'
 # (a) analyzer errors: native position + quoted line from the right file
 # --------------------------------------------------------------------------
 
+
 @MODES
 def test_analyzer_error_native_position(tmp_path, monkeypatch, capsys, workdir, mode):
     src = write(tmp_path / "t.btrc", ANALYZER_BAD)
@@ -61,6 +62,7 @@ def test_analyzer_error_identical_across_modes(tmp_path, monkeypatch, capsys, wo
 # --------------------------------------------------------------------------
 # (b) messages containing " at " are not corrupted by position parsing
 # --------------------------------------------------------------------------
+
 
 def test_message_containing_at_survives(tmp_path, monkeypatch, capsys, workdir):
     src = write(tmp_path / "at.btrc", "int main() { return 0; }\n")
@@ -102,6 +104,7 @@ def test_warning_diag_native_position(tmp_path, monkeypatch, capsys, workdir):
 # (c) lexer and parser errors: native positions in both modes
 # --------------------------------------------------------------------------
 
+
 @MODES
 def test_lexer_error_native_position(tmp_path, monkeypatch, capsys, workdir, mode):
     src = write(tmp_path / "lex.btrc", "int main() {\n    int x = @;\n    return 0;\n}\n")
@@ -122,21 +125,15 @@ def test_parse_error_native_position(tmp_path, monkeypatch, capsys, workdir, mod
 # (d) errors in imported files name the imported file at its native line
 # --------------------------------------------------------------------------
 
+
 def _two_file_project(tmp_path):
-    helper = write(tmp_path / "helper.btrc",
-                   "class Helper {\n"
-                   "    public int bad() {\n"
-                   '        int y = "oops";\n'
-                   "        return y;\n"
-                   "    }\n"
-                   "}\n")
-    app = write(tmp_path / "app.btrc",
-                "import ./helper.btrc\n"
-                "\n"
-                "int main() {\n"
-                "    Helper h = new Helper();\n"
-                "    return 0;\n"
-                "}\n")
+    helper = write(
+        tmp_path / "helper.btrc",
+        'class Helper {\n    public int bad() {\n        int y = "oops";\n        return y;\n    }\n}\n',
+    )
+    app = write(
+        tmp_path / "app.btrc", "import ./helper.btrc\n\nint main() {\n    Helper h = new Helper();\n    return 0;\n}\n"
+    )
     return helper, app
 
 
@@ -152,16 +149,11 @@ def test_error_in_imported_file(tmp_path, monkeypatch, capsys, workdir, mode):
 @MODES
 def test_error_in_main_file_after_import(tmp_path, monkeypatch, capsys, workdir, mode):
     """Import expansion shifts resolved-source lines; positions stay native."""
-    write(tmp_path / "helper.btrc",
-          "class Helper {\n    public int ok() {\n        return 1;\n    }\n}\n")
-    app = write(tmp_path / "app.btrc",
-                "import ./helper.btrc\n"
-                "\n"
-                "int main() {\n"
-                "    Helper h = new Helper();\n"
-                '    int z = "bad";\n'
-                "    return 0;\n"
-                "}\n")
+    write(tmp_path / "helper.btrc", "class Helper {\n    public int ok() {\n        return 1;\n    }\n}\n")
+    app = write(
+        tmp_path / "app.btrc",
+        'import ./helper.btrc\n\nint main() {\n    Helper h = new Helper();\n    int z = "bad";\n    return 0;\n}\n',
+    )
     err = compile_err(monkeypatch, capsys, workdir, [app] + mode)
     assert f"--> {app}:5:5" in err  # not the import-shifted line 9/5175
     assert 'int z = "bad";' in err

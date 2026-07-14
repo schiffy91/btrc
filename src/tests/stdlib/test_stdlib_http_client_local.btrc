@@ -1,0 +1,59 @@
+/* HttpClient end-to-end through a deterministic local curl stand-in. */
+#include <assert.h>
+#include <sys/stat.h>
+
+int main() {
+    string oldPath = Environment.get("PATH", "");
+    string oldTemp = Environment.get("TMPDIR", "/tmp");
+    string fixture = FileSystem.tempDir("btrc-http-client-test");
+    assert(!fixture.isEmpty());
+    string curlPath = PathTools.join(fixture, "curl");
+    string script =
+        "#!/bin/sh\n"
+        + "out=''\n"
+        + "body=''\n"
+        + "while [ \"$#\" -gt 0 ]; do\n"
+        + "  case \"$1\" in\n"
+        + "    -o) out=\"$2\"; shift 2 ;;\n"
+        + "    --data-binary) body=\"${2#@}\"; shift 2 ;;\n"
+        + "    --max-time|--max-filesize|-X|-w|-H) shift 2 ;;\n"
+        + "    *) shift ;;\n"
+        + "  esac\n"
+        + "done\n"
+        + "if [ -n \"$body\" ]; then cat \"$body\" > \"$out\"; "
+        + "else printf 'local-response' > \"$out\"; fi\n"
+        + "printf '201'\n";
+    assert(FileSystem.writeText(curlPath, script));
+    assert(chmod(curlPath, 0700) == 0);
+    assert(setenv("PATH", fixture + ":" + oldPath, 1) == 0);
+    assert(setenv("TMPDIR", fixture, 1) == 0);
+
+    Vector<string> headers = ["X-Test: local"];
+    HttpClient client = HttpClient().timeout(3);
+    HttpClientResponse get = client.get("https://unused.invalid", headers);
+    assert(get.status == 201);
+    assert(get.body.equals("local-response"));
+    assert(get.error.isEmpty());
+
+    HttpClientResponse post = client.post(
+        "https://unused.invalid", headers, "request-body");
+    assert(post.status == 201);
+    assert(post.body.equals("request-body"));
+    assert(post.error.isEmpty());
+
+    client.maxResponseBytes = 4;
+    HttpClientResponse bounded = client.get("https://unused.invalid", headers);
+    assert(bounded.status == 0);
+    assert(bounded.error.contains("too large"));
+
+    /* Every per-request btrchttp.* directory was removed by finally. */
+    Vector<string> remaining = FileSystem.listDir(fixture);
+    assert(remaining.len == 1);
+    assert(remaining.get(0).equals("curl"));
+
+    setenv("PATH", oldPath, 1);
+    setenv("TMPDIR", oldTemp, 1);
+    assert(FileSystem.removeRecursive(fixture) == 0);
+    print("PASS: test_stdlib_http_client_local");
+    return 0;
+}

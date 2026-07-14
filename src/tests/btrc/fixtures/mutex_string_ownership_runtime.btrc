@@ -1,0 +1,21 @@
+#include <assert.h>
+
+string ownedText(string suffix) {
+    return "owned-" + suffix;
+}
+
+int main() {
+    Mutex<string> value = Mutex(ownedText("initial"));
+    string first = value.get();
+    assert(first == "owned-initial");
+
+    value.set(ownedText("next"));
+    assert(first == "owned-initial");
+    string second = value.get();
+    assert(second == "owned-next");
+
+    value.destroy();
+    assert(first == "owned-initial");
+    assert(second == "owned-next");
+    return 0;
+}

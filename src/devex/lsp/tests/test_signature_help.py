@@ -30,7 +30,7 @@ def test_constructor_call_signature():
     s = _sig(SAMPLE, "Point(5)", offset=6)
     assert s is not None
     assert "Point" in s.signatures[0].label
-    assert len(s.signatures[0].parameters) == 1   # the ctor's int x
+    assert len(s.signatures[0].parameters) == 1  # the ctor's int x
 
 
 def test_member_method_call_signature():
@@ -42,9 +42,11 @@ def test_member_method_call_signature():
 
 
 def test_new_expression_signature():
-    src = ("class Box { public int v; public Box(int v) { self.v = v; } }\n"
-           "int main() { Box b = new Box(9); return b.v; }\n")
-    s = _sig(src, "new Box(9)", offset=8)   # cursor inside (9)
+    src = (
+        "class Box { public int v; public Box(int v) { self.v = v; } }\n"
+        "int main() { Box b = new Box(9); return b.v; }\n"
+    )
+    s = _sig(src, "new Box(9)", offset=8)  # cursor inside (9)
     assert s is not None
     assert "Box" in s.signatures[0].label
     assert len(s.signatures[0].parameters) == 1

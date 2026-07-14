@@ -1,7 +1,5 @@
-/* Test keep on a CONSTRUCTOR parameter: rc++ at call site inside the
- * constructor's keep-param branch (distinct from the method-call branch).
- * The constructor retains the passed object via keep so it survives the
- * deletion of the holder. */
+/* A constructor keep parameter guards the call; the constructed object's
+ * managed field independently owns the stored argument. */
 #include <assert.h>
 
 int alive = 0;
@@ -34,12 +32,12 @@ int main() {
     Obj o = new Obj(1);
     assert(alive == 1);
 
-    // Constructor keep param retains o (rc++ at call site).
+    // The constructor call is guarded and the field retains o.
     Box b = new Box(o);
     assert(b.held.id == 1);
 
     // Deleting the Box runs its destructor and releases the held field,
-    // but keep + the local handle still keep o alive.
+    // while the local handle still keeps o alive.
     delete b;
     assert(alive == 1);
 

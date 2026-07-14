@@ -1,0 +1,95 @@
+/* Stateless HTTP text codecs and status metadata. */
+
+class HttpUrl {
+    class string decode(string value) {
+        if (value == null) { return ""; }
+        size_t inputLength = strlen(value);
+        if (inputLength > (size_t)2147483647) { return ""; }
+        int length = (int)inputLength;
+        char* output = (char*)malloc(inputLength + (size_t)1);
+        if (output == NULL) { return ""; }
+        int written = 0;
+        int index = 0;
+        while (index < length) {
+            char ch = value[index];
+            if (ch == '+') {
+                output[written++] = ' ';
+                index++;
+            } else if (ch == '%' && index + 2 < length) {
+                int high = HttpFraming.hexVal(value[index + 1]);
+                int low = HttpFraming.hexVal(value[index + 2]);
+                if (high >= 0 && low >= 0) {
+                    int decoded = high * 16 + low;
+                    if (decoded == 0) {
+                        output[written++] = '%';
+                        output[written++] = value[index + 1];
+                        output[written++] = value[index + 2];
+                    } else {
+                        output[written++] = (char)decoded;
+                    }
+                    index = index + 3;
+                } else {
+                    output[written++] = ch;
+                    index++;
+                }
+            } else {
+                output[written++] = ch;
+                index++;
+            }
+        }
+        output[written] = '\0';
+        return __btrc_str_track(output);
+    }
+
+    class string encode(string value) {
+        if (value == null) { return ""; }
+        size_t inputLength = strlen(value);
+        if (inputLength > (size_t)715827882) { return ""; }
+        int length = (int)inputLength;
+        char* output = (char*)malloc(
+            inputLength * (size_t)3 + (size_t)1);
+        if (output == NULL) { return ""; }
+        int written = 0;
+        string digits = "0123456789ABCDEF";
+        for (int index = 0; index < length; index++) {
+            int byte = (int)((unsigned char)value[index]);
+            char ch = (char)byte;
+            bool unreserved = (ch >= 'A' && ch <= 'Z')
+                || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+                || ch == '-' || ch == '_' || ch == '.' || ch == '~';
+            if (unreserved) {
+                output[written++] = ch;
+            } else {
+                output[written++] = '%';
+                output[written++] = digits[(byte >> 4) & 15];
+                output[written++] = digits[byte & 15];
+            }
+        }
+        output[written] = '\0';
+        return __btrc_str_track(output);
+    }
+}
+
+class HttpStatus {
+    class string reason(int status) {
+        if (status == 200) { return "OK"; }
+        if (status == 201) { return "Created"; }
+        if (status == 204) { return "No Content"; }
+        if (status == 301) { return "Moved Permanently"; }
+        if (status == 302) { return "Found"; }
+        if (status == 304) { return "Not Modified"; }
+        if (status == 400) { return "Bad Request"; }
+        if (status == 401) { return "Unauthorized"; }
+        if (status == 403) { return "Forbidden"; }
+        if (status == 404) { return "Not Found"; }
+        if (status == 405) { return "Method Not Allowed"; }
+        if (status == 500) { return "Internal Server Error"; }
+        if (status == 502) { return "Bad Gateway"; }
+        if (status == 503) { return "Service Unavailable"; }
+        if (status >= 200 && status < 300) { return "OK"; }
+        if (status >= 300 && status < 400) { return "Redirect"; }
+        if (status >= 400 && status < 500) { return "Client Error"; }
+        if (status >= 500 && status < 600) { return "Server Error"; }
+        return "";
+    }
+}

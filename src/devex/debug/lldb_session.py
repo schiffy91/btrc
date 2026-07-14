@@ -12,6 +12,11 @@ from __future__ import annotations
 import os
 
 import summaries
+from lldb_translation import dot_to_arrow as _dot_to_arrow
+from lldb_translation import filespec_path as _filespec_path
+from lldb_translation import require_success as _require_success
+from lldb_translation import source_identity as _source_identity
+from lldb_translation import thread_name as _thread_name
 
 
 class LldbSession:
@@ -24,10 +29,12 @@ class LldbSession:
         self.listener = self.debugger.GetListener()
         # DAP handle registries, rebuilt on every stop (lldb objects are only
         # valid while the process is stopped).
-        self._frames = {}     # frameId -> SBFrame
-        self._vars = {}       # variablesReference -> ('locals', frame) | ('value', SBValue)
+        self._frames = {}  # frameId -> SBFrame
+        self._vars = {}  # variablesReference -> ('locals', frame) | ('value', SBValue)
         self._next_id = 1
         self._logpoints = {}  # breakpoint id -> logMessage (auto-continue + print)
+        self._breakpoints_by_source = {}  # canonical source path -> breakpoint ids
+        self._closed = False
 
     # --- lifecycle ---
 
@@ -36,6 +43,8 @@ class LldbSession:
         self.target = self.debugger.CreateTarget(program)
         if not self.target.IsValid():
             raise RuntimeError(f"could not create debug target for {program}")
+        self._logpoints.clear()
+        self._breakpoints_by_source.clear()
         return self.target
 
     def start(self, program, argv, cwd, stop_on_entry):
@@ -43,15 +52,42 @@ class LldbSession:
         flags = self.lldb.eLaunchFlagNone
         err = self.lldb.SBError()
         self.process = self.target.Launch(
-            self.listener, argv or [], None, None, None, None,
-            cwd or os.path.dirname(program) or ".", flags, stop_on_entry, err)
+            self.listener,
+            argv or [],
+            None,
+            None,
+            None,
+            None,
+            cwd or os.path.dirname(program) or ".",
+            flags,
+            stop_on_entry,
+            err,
+        )
         if not err.Success():
             raise RuntimeError(err.GetCString() or "launch failed")
+        if not self.process or not self.process.IsValid():
+            raise RuntimeError("launch returned an invalid process")
         return self.process
 
     def terminate(self):
         if self.process and self.process.IsValid():
-            self.process.Kill()
+            if self.process.GetState() in {
+                self.lldb.eStateExited,
+                self.lldb.eStateDetached,
+                self.lldb.eStateInvalid,
+            }:
+                return
+            _require_success(self.process.Kill(), "terminate process")
+
+    def close(self):
+        """Release the process-independent LLDB debugger exactly once."""
+        if self._closed:
+            return
+        self._closed = True
+        self.reset_handles()
+        self.target = None
+        self.process = None
+        self.lldb.SBDebugger.Destroy(self.debugger)
 
     # --- breakpoints ---
 
@@ -61,21 +97,17 @@ class LldbSession:
         Each spec is a DAP SourceBreakpoint (``line`` plus optional
         ``condition``, ``hitCondition``, ``logMessage``). Returns DAP Breakpoint
         dicts (verified + resolved line)."""
-        # Remove existing breakpoints whose file matches this source.
-        base = os.path.basename(source_path)
-        to_delete = []
-        for i in range(self.target.GetNumBreakpoints()):
-            bp = self.target.GetBreakpointAtIndex(i)
-            if bp.GetNumLocations() and _bp_file(bp) == base:
-                to_delete.append(bp.GetID())
-        for bid in to_delete:
+        source_location, source_key = _source_identity(source_path)
+        for bid in self._breakpoints_by_source.pop(source_key, set()):
             self.target.BreakpointDelete(bid)
             self._logpoints.pop(bid, None)
 
         results = []
+        breakpoint_ids = set()
         for spec in specs:
             line = spec["line"]
-            bp = self.target.BreakpointCreateByLocation(base, line)
+            bp = self.target.BreakpointCreateByLocation(source_location, line)
+            breakpoint_ids.add(bp.GetID())
             cond = spec.get("condition")
             if cond:
                 bp.SetCondition(cond)
@@ -90,6 +122,7 @@ class LldbSession:
                 le = bp.GetLocationAtIndex(0).GetAddress().GetLineEntry()
                 resolved_line = le.GetLine() or line
             results.append({"verified": bool(verified), "line": resolved_line})
+        self._breakpoints_by_source[source_key] = breakpoint_ids
         return results
 
     def logpoint_message(self, thread):
@@ -107,11 +140,13 @@ class LldbSession:
 
     def _interpolate(self, frame, msg):
         import re
+
         def repl(m):
             val = frame.EvaluateExpression(m.group(1))
             if val and val.IsValid() and not val.GetError().Fail():
                 return summaries.summarize(val)
             return m.group(0)
+
         return re.sub(r"\{([^}]+)\}", repl, msg)
 
     # --- stop bookkeeping ---
@@ -183,8 +218,7 @@ class LldbSession:
                 out.append(self._var_dict(v))
             return out
         # kind == "value": expand a structured btrc value
-        return [self._var_dict(child, name)
-                for name, child in summaries.children(payload)]
+        return [self._var_dict(child, name) for name, child in summaries.children(payload)]
 
     def _var_dict(self, sbval, name_override=None):
         name = name_override if name_override is not None else (sbval.GetName() or "?")
@@ -218,20 +252,24 @@ class LldbSession:
         if summaries.children(val):
             ref = self._alloc()
             self._vars[ref] = ("value", val)
-        return {"result": summaries.summarize(val),
-                "type": val.GetTypeName() or "", "variablesReference": ref}
+        return {"result": summaries.summarize(val), "type": val.GetTypeName() or "", "variablesReference": ref}
 
     # --- execution control ---
 
     def _selected_thread(self, thread_id=None):
+        if self.process is None or not self.process.IsValid():
+            raise RuntimeError("debug process is not running")
         if thread_id is not None:
             t = self.process.GetThreadByID(thread_id)
             if t.IsValid():
                 return t
-        return self.process.GetSelectedThread()
+        thread = self.process.GetSelectedThread()
+        if not thread.IsValid():
+            raise RuntimeError("no valid debug thread is selected")
+        return thread
 
     def cont(self):
-        self.process.Continue()
+        _require_success(self.process.Continue(), "continue process")
 
     def step_over(self, thread_id=None):
         self._selected_thread(thread_id).StepOver()
@@ -243,30 +281,4 @@ class LldbSession:
         self._selected_thread(thread_id).StepOut()
 
     def pause(self):
-        self.process.Stop()
-
-
-def _dot_to_arrow(expr):
-    """Rewrite btrc member access `a.b` as C `a->b` (objects are pointers).
-
-    Only `.` preceded by an identifier or `)` and followed by an identifier is
-    rewritten, so float literals (``3.14``) and `->` are untouched."""
-    import re
-    return re.sub(r"([A-Za-z_]\w*|\))\s*\.\s*([A-Za-z_])", r"\1->\2", expr)
-
-
-def _bp_file(bp):
-    loc = bp.GetLocationAtIndex(0)
-    fe = loc.GetAddress().GetLineEntry().GetFileSpec()
-    return fe.GetFilename() or ""
-
-
-def _filespec_path(fe):
-    d, f = fe.GetDirectory(), fe.GetFilename()
-    if d and f:
-        return os.path.join(d, f)
-    return f or ""
-
-
-def _thread_name(t):
-    return t.GetName() or f"thread #{t.GetIndexID()}"
+        _require_success(self.process.Stop(), "pause process")

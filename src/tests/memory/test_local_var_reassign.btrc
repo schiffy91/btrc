@@ -1,6 +1,5 @@
-/* Reassigning a managed LOCAL variable to a new object. Pins the actual ARC
- * behavior of local reassignment (whether the previously-held object is
- * released on reassignment, and what the net alive count is at scope exit). */
+/* Reassigning a managed local transfers the variable's owned reference from
+ * the old object to the new one. */
 #include <assert.h>
 
 int alive = 0;
@@ -27,12 +26,11 @@ int main() {
         // Reassign the local to a new object.
         o = new Obj(2);
         assert(o.id == 2);
-        // Pin the observed count after reassignment.
-        assert(alive == 2);
+        // The old value is released as part of replacement.
+        assert(alive == 1);
     }
-    // At scope exit the live handle (Obj(2)) is released; the orphaned Obj(1)
-    // is not reachable through the local, so it leaks (rc still 1).
-    assert(alive == 1);
+    // Scope exit releases the replacement value.
+    assert(alive == 0);
 
     print("PASS: test_local_var_reassign");
     return 0;

@@ -1,0 +1,33 @@
+/* Exact lifetime for a fresh managed value hoisted by `for-in` lowering.
+ *
+ * The synthetic owner is visible to return/throw lowering while the body is
+ * generated, but sits outside the loop control marker. Continue therefore
+ * preserves it, break reaches the trailing release, and return/throw release
+ * it through the normal managed-local paths. */
+
+string beginOwnedIteration(IRGen generator, Node expression,
+        Node typeExpr, Map<string, Node> varTypes, string name,
+        Vector<IRNode> prefix) {
+    if (!irUnconsumedOwnedResult(generator, expression, varTypes)
+            || !irManagedType(generator, typeExpr)) {
+        return "";
+    }
+    string runtimeType = irManagedRuntimeType(generator, typeExpr);
+    generator.registerManagedVar(name, runtimeType);
+    generator.maybeRegisterCleanup(name,
+        irManagedCleanupSymbol(generator, runtimeType),
+        runtimeType, prefix);
+    return runtimeType;
+}
+
+void endOwnedIteration(IRGen generator, string name,
+        string runtimeType, Vector<IRNode> output) {
+    if (runtimeType == "") { return; }
+    generator.unregisterManagedVar(name);
+    Vector<Managed> owner = [];
+    owner.push(Managed(name, runtimeType));
+    generator.emitScopeRelease(owner, output);
+    /* The exception registration lives until its lexical cleanup marker. A
+     * null live slot makes a later throw in that scope a harmless no-op. */
+    output.push(irAssign(irVar(name), irLiteral("NULL")));
+}

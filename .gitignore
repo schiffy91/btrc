@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.o
 *.dSYM/
+*.egg-info/
 
 # Coverage artifacts
 .coverage
@@ -45,6 +46,7 @@ src/devex/lsp/.venv/
 src/devex/ext/out/
 src/devex/ext/node_modules/
 src/devex/ext/server/
+src/devex/ext/debug/
 src/devex/ext/*.vsix
 
 # GPU runtime
@@ -63,7 +65,12 @@ bench/strings
 # GUI example binary
 examples/gui/gui_demo
 
-# Local build artifacts and scratch
-/build/
+# Local build artifacts. The tracked `build/*.nix` files are authored policy,
+# so ignore only generated children; a new policy file must remain visible.
+/build/generated/
+/build/out/
+/build/lib/
+/build/bdist.*/
+/build/temp.*/
 src/compiler/btrc/fe_debug*.btrc
 /dist/

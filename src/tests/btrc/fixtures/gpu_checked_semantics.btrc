@@ -1,0 +1,15 @@
+@gpu int[] checked(int[] xs, int[] ys, int divisor, bool choose) {
+    int i = gpu_id();
+    int picked = choose && divisor != 0 ? i : i + 1;
+    if (picked < 0 || picked >= 4) {
+        return xs;
+    }
+    return xs[picked] / divisor + ys[i] % divisor;
+}
+
+int main() {
+    int[] xs = {8, 9};
+    int[] ys = {3, 4};
+    int[] output = checked(xs, ys, 2, true);
+    return output[0];
+}

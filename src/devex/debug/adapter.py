@@ -8,271 +8,289 @@ lldb-capable interpreter first).
 
 from __future__ import annotations
 
-import os
 import sys
 import threading
 
-import lldb  # noqa: E402  (available after bootstrap)
-
 import builder
-from dap_io import DapReader, DapWriter
+import lldb
+from adapter_events import AdapterEventsMixin
+from dap_coordinates import DapCoordinates
+from dap_io import DapProtocolError, DapReader, DapWriter
+from launch_config import parse_launch_config
 from lldb_session import LldbSession
 
 
-class BtrcAdapter:
+class BtrcAdapter(AdapterEventsMixin):
     def __init__(self, stdin, stdout):
         self.reader = DapReader(stdin)
         self.writer = DapWriter(stdout)
         self.session = LldbSession(lldb)
-        self._launch = None          # stored launch config until configurationDone
-        self._program = None         # built binary path
+        self.coordinates = DapCoordinates()
+        self._launch = None  # stored launch config until configurationDone
+        self._artifact = None  # owned builder.BuildArtifact
+        self._program = None  # built binary path
         self._cwd = None
         self._running = False
+        self._terminated = False
+        self._lifecycle_lock = threading.Lock()
+        self._events_enabled = threading.Event()
         self._event_thread = None
-        self._await_entry = False     # report the first (reasonless) stop as "entry"
+        self._await_entry = False  # report the first (reasonless) stop as "entry"
+        self._output_decoders = {}
 
     # --- main loop ---
 
     def run(self):
-        while True:
-            msg = self.reader.read()
-            if msg is None:
-                break
-            if msg.get("type") != "request":
-                continue
-            handler = getattr(self, "do_" + msg["command"], None)
-            try:
-                if handler is None:
-                    self.writer.respond(msg, success=False,
-                                        message=f"unsupported request: {msg['command']}")
-                else:
-                    handler(msg)
-            except Exception as e:  # noqa: BLE001  report, don't crash the session
-                self.writer.respond(msg, success=False, message=str(e))
-            if msg["command"] == "disconnect":
-                break
+        try:
+            while True:
+                try:
+                    msg = self.reader.read()
+                except DapProtocolError as error:
+                    sys.stderr.write(f"btrc debug adapter: protocol error: {error}\n")
+                    break
+                if msg is None:
+                    break
+                if msg.get("type") != "request":
+                    continue
+                error = _request_shape_error(msg)
+                if error is not None:
+                    if _can_respond(msg):
+                        self.writer.respond(msg, success=False, message=error)
+                        continue
+                    sys.stderr.write(f"btrc debug adapter: {error}\n")
+                    break
+                command = msg["command"]
+                handler = getattr(self, "do_" + command, None)
+                try:
+                    if handler is None:
+                        self.writer.respond(msg, success=False, message=f"unsupported request: {command}")
+                    else:
+                        handler(msg)
+                except Exception as error:
+                    self.writer.respond(msg, success=False, message=str(error))
+                if command == "disconnect":
+                    break
+        finally:
+            self._terminate_and_cleanup()
 
     # --- request handlers ---
 
     def do_initialize(self, req):
-        self.writer.respond(req, body={
-            "supportsConfigurationDoneRequest": True,
-            "supportsEvaluateForHovers": True,
-            "supportsTerminateRequest": True,
-            "supportsConditionalBreakpoints": True,
-            "supportsHitConditionalBreakpoints": True,
-            "supportsLogPoints": True,
-        })
+        self.coordinates = DapCoordinates.from_initialize(_arguments(req))
+        self.writer.respond(
+            req,
+            body={
+                "supportsConfigurationDoneRequest": True,
+                "supportsEvaluateForHovers": True,
+                "supportsTerminateRequest": True,
+                "supportsConditionalBreakpoints": True,
+                "supportsHitConditionalBreakpoints": True,
+                "supportsLogPoints": True,
+            },
+        )
         self.writer.event("initialized")
 
     def do_launch(self, req):
-        args = req.get("arguments", {})
-        program = args.get("program")
-        if not program:
-            raise RuntimeError("launch: missing 'program' (.btrc file)")
-        btrcpy_cmd = args.get("btrcpy") or [sys.executable, "-m",
-                                            "src.compiler.python.main"]
-        if isinstance(btrcpy_cmd, str):
-            btrcpy_cmd = btrcpy_cmd.split()
-        cc = args.get("cc", "cc")
-        self._cwd = args.get("cwd") or os.path.dirname(os.path.abspath(program))
+        if self._launch is not None or self._artifact is not None:
+            raise RuntimeError("launch has already been processed")
+        config = parse_launch_config(_arguments(req))
         try:
-            self._program = builder.build(
-                program, btrcpy_cmd=btrcpy_cmd, cc=cc, cflags=args.get("cflags"),
-                cwd=args.get("btrcpyCwd") or self._cwd)
-        except builder.BuildError as e:
-            self._output("stderr", str(e) + "\n")
+            artifact = builder.build(
+                config.program,
+                btrcpy_cmd=config.btrcpy_command,
+                cc=config.cc,
+                cflags=config.cflags,
+                cwd=config.compiler_cwd,
+            )
+        except builder.BuildError as error:
+            self._output("stderr", str(error) + "\n")
             self.writer.respond(req, success=False, message="build failed")
             self.writer.event("terminated")
             return
-        self.session.create_target(self._program)
-        self._launch = {
-            "argv": args.get("args", []),
-            "stop_on_entry": bool(args.get("stopOnEntry", False)),
-        }
+        try:
+            self.session.create_target(artifact.executable)
+        except Exception:
+            artifact.cleanup()
+            raise
+        self._artifact = artifact
+        self._program = artifact.executable
+        self._cwd = config.runtime_cwd
+        self._terminated = False
+        self._launch = config
         self.writer.respond(req)
 
     def do_setBreakpoints(self, req):
-        args = req["arguments"]
-        source = args.get("source", {})
+        args = _arguments(req)
+        source = args.get("source")
+        if not isinstance(source, dict):
+            raise ValueError("setBreakpoints: 'source' must be an object")
         path = source.get("path") or source.get("name")
-        specs = args.get("breakpoints")
-        if specs is None:
-            specs = [{"line": ln} for ln in args.get("lines", [])]
-        verified = self.session.set_breakpoints(path, specs) if self.session.target else []
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError("setBreakpoints: source path is required")
+        path = self.coordinates.client_path_to_native(path)
+        specs = _breakpoint_specs(args, minimum_line=self.coordinates.minimum_line)
+        debugger_specs = [{**spec, "line": self.coordinates.client_line_to_debugger(spec["line"])} for spec in specs]
+        verified = self.session.set_breakpoints(path, debugger_specs) if self.session.target else []
+        for breakpoint in verified:
+            if "line" in breakpoint:
+                breakpoint["line"] = self.coordinates.debugger_line_to_client(breakpoint["line"])
         self.writer.respond(req, body={"breakpoints": verified})
 
     def do_setExceptionBreakpoints(self, req):
         self.writer.respond(req, body={"breakpoints": []})
 
     def do_configurationDone(self, req):
-        self.writer.respond(req)
-        self._await_entry = self._launch["stop_on_entry"]
-        self.session.start(self._program, self._launch["argv"], self._cwd,
-                           self._launch["stop_on_entry"])
-        self._running = True
-        self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
-        self._event_thread.start()
+        if self._launch is None or self._program is None:
+            raise RuntimeError("configurationDone received before a successful launch")
+        config = self._launch
+        self._await_entry = config.stop_on_entry
+        try:
+            self.session.start(self._program, config.argv, self._cwd, config.stop_on_entry)
+            self._prepare_event_loop()
+            self.writer.respond(req)
+        except Exception:
+            self._terminate_and_cleanup()
+            raise
+        self._enable_events()
 
     def do_threads(self, req):
         self.writer.respond(req, body={"threads": self.session.threads()})
 
     def do_stackTrace(self, req):
-        tid = req["arguments"]["threadId"]
+        tid = _required_int(_arguments(req), "threadId", "stackTrace")
         frames = self.session.stack_frames(tid)
-        self.writer.respond(req, body={"stackFrames": frames,
-                                       "totalFrames": len(frames)})
+        for frame in frames:
+            frame["line"] = self.coordinates.debugger_line_to_client(frame.get("line", 0))
+            frame["column"] = self.coordinates.debugger_column_to_client(frame.get("column", 0))
+            source = frame.get("source")
+            if source and source.get("path"):
+                source["path"] = self.coordinates.native_path_to_client(source["path"])
+        self.writer.respond(req, body={"stackFrames": frames, "totalFrames": len(frames)})
 
     def do_scopes(self, req):
-        self.writer.respond(req, body={
-            "scopes": self.session.scopes(req["arguments"]["frameId"])})
+        frame_id = _required_int(_arguments(req), "frameId", "scopes")
+        self.writer.respond(req, body={"scopes": self.session.scopes(frame_id)})
 
     def do_variables(self, req):
-        ref = req["arguments"]["variablesReference"]
+        ref = _required_int(_arguments(req), "variablesReference", "variables")
         self.writer.respond(req, body={"variables": self.session.variables(ref)})
 
     def do_evaluate(self, req):
-        args = req["arguments"]
-        res = self.session.evaluate(args.get("frameId"), args.get("expression", ""))
+        args = _arguments(req)
+        expression = args.get("expression")
+        if not isinstance(expression, str):
+            raise ValueError("evaluate: 'expression' must be a string")
+        frame_id = _optional_int(args, "frameId", "evaluate")
+        res = self.session.evaluate(frame_id, expression)
         if res is None:
             self.writer.respond(req, success=False, message="cannot evaluate")
         else:
             self.writer.respond(req, body=res)
 
     def do_continue(self, req):
-        self.writer.respond(req, body={"allThreadsContinued": True})
         self.session.cont()
+        self.writer.respond(req, body={"allThreadsContinued": True})
 
     def do_next(self, req):
+        thread_id = _optional_int(_arguments(req), "threadId", "next")
+        self.session.step_over(thread_id)
         self.writer.respond(req)
-        self.session.step_over(req["arguments"].get("threadId"))
 
     def do_stepIn(self, req):
+        thread_id = _optional_int(_arguments(req), "threadId", "stepIn")
+        self.session.step_into(thread_id)
         self.writer.respond(req)
-        self.session.step_into(req["arguments"].get("threadId"))
 
     def do_stepOut(self, req):
+        thread_id = _optional_int(_arguments(req), "threadId", "stepOut")
+        self.session.step_out(thread_id)
         self.writer.respond(req)
-        self.session.step_out(req["arguments"].get("threadId"))
 
     def do_pause(self, req):
-        self.writer.respond(req)
         self.session.pause()
+        self.writer.respond(req)
 
     def do_terminate(self, req):
-        self.session.terminate()
+        terminated = self._terminate_and_cleanup()
         self.writer.respond(req)
+        if terminated:
+            self.writer.event("terminated")
 
     def do_disconnect(self, req):
-        self._running = False
-        self.session.terminate()
+        self._terminate_and_cleanup()
         self.writer.respond(req)
 
-    # --- lldb event loop ---
 
-    def _event_loop(self):
-        while self._running:
-            event = lldb.SBEvent()
-            if not self.session.listener.WaitForEvent(1, event):
-                continue
-            if not lldb.SBProcess.EventIsProcessEvent(event):
-                continue
-            self._drain_output()
-            state = lldb.SBProcess.GetStateFromEvent(event)
-            if state == lldb.eStateStopped:
-                # A stop event whose process was auto-restarted (e.g. a
-                # conditional breakpoint whose condition was false) is not a real
-                # user-visible stop — lldb resumes it itself.
-                if lldb.SBProcess.GetRestartedFromEvent(event):
-                    continue
-                self._on_stop()
-            elif state == lldb.eStateExited:
-                code = self.session.process.GetExitStatus()
-                self._drain_output()
-                self.writer.event("exited", {"exitCode": code})
-                self.writer.event("terminated")
-                self._running = False
-            elif state == lldb.eStateCrashed:
-                self.writer.event("stopped", {"reason": "exception",
-                                              "threadId": self._stopped_tid(),
-                                              "allThreadsStopped": True})
+def _request_shape_error(request):
+    sequence = request.get("seq")
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        return "request has no valid sequence number"
+    command = request.get("command")
+    if not isinstance(command, str) or not command:
+        return "request has no valid command"
+    if "arguments" in request and not isinstance(request["arguments"], dict):
+        return f"{command}: 'arguments' must be an object"
+    return None
 
-    def _on_stop(self):
-        proc = self.session.process
-        tid = self._stopped_tid()
-        if tid is None:
-            # The stop-on-entry halt carries no breakpoint/step reason; surface
-            # it once as an "entry" stop. Any other reasonless stop is transient
-            # (e.g. a false conditional breakpoint lldb auto-resumes) — ignore it.
-            if self._await_entry:
-                self._await_entry = False
-                sel = proc.GetSelectedThread()
-                if sel.IsValid():
-                    self.session.reset_handles()
-                    self.writer.event("stopped", {
-                        "reason": "entry",
-                        "threadId": sel.GetThreadID(),
-                        "allThreadsStopped": True,
-                    })
-            return
-        thread = proc.GetThreadByID(tid)
-        # Logpoint: print its (interpolated) message and resume without stopping.
-        logmsg = self.session.logpoint_message(thread)
-        if logmsg is not None:
-            self._output("console", logmsg + "\n")
-            self.session.cont()
-            return
-        self.session.reset_handles()
-        if self._await_entry:
-            self._await_entry = False
-            reason = "entry"   # first stop under stopOnEntry, whatever lldb called it
-        else:
-            reason = _dap_stop_reason(thread.GetStopReason())
-        self.writer.event("stopped", {
-            "reason": reason,
-            "threadId": tid,
-            "allThreadsStopped": True,
-        })
 
-    def _stopped_tid(self):
-        # Return a thread with a genuine stop reason; None for transient stops
-        # (e.g. a conditional breakpoint whose condition was false and which lldb
-        # auto-resumes) so we don't surface a spurious "pause" to the client.
-        proc = self.session.process
-        for t in proc:
-            if t.GetStopReason() not in (lldb.eStopReasonNone,
-                                         lldb.eStopReasonInvalid):
-                return t.GetThreadID()
+def _can_respond(request):
+    sequence = request.get("seq")
+    return (
+        isinstance(sequence, int)
+        and not isinstance(sequence, bool)
+        and sequence >= 1
+        and isinstance(request.get("command"), str)
+        and bool(request["command"])
+    )
+
+
+def _arguments(request):
+    return request.get("arguments", {})
+
+
+def _required_int(arguments, name, command):
+    value = _optional_int(arguments, name, command)
+    if value is None:
+        raise ValueError(f"{command}: missing '{name}'")
+    return value
+
+
+def _optional_int(arguments, name, command):
+    value = arguments.get(name)
+    if value is None:
         return None
-
-    def _drain_output(self):
-        proc = self.session.process
-        if not proc:
-            return
-        while True:
-            chunk = proc.GetSTDOUT(4096)
-            if not chunk:
-                break
-            self._output("stdout", chunk)
-        while True:
-            chunk = proc.GetSTDERR(4096)
-            if not chunk:
-                break
-            self._output("stderr", chunk)
-
-    def _output(self, category, text):
-        self.writer.event("output", {"category": category, "output": text})
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{command}: '{name}' must be a positive integer")
+    return value
 
 
-def _dap_stop_reason(reason):
-    mapping = {
-        lldb.eStopReasonBreakpoint: "breakpoint",
-        lldb.eStopReasonPlanComplete: "step",
-        lldb.eStopReasonWatchpoint: "data breakpoint",
-        lldb.eStopReasonSignal: "exception",
-        lldb.eStopReasonException: "exception",
-    }
-    return mapping.get(reason, "pause")
+def _breakpoint_specs(arguments, *, minimum_line=1):
+    specs = arguments.get("breakpoints")
+    if specs is None:
+        lines = arguments.get("lines", [])
+        if not isinstance(lines, list):
+            raise ValueError("setBreakpoints: 'lines' must be a list")
+        specs = [{"line": line} for line in lines]
+    if not isinstance(specs, list):
+        raise ValueError("setBreakpoints: 'breakpoints' must be a list")
+    for spec in specs:
+        if not isinstance(spec, dict):
+            raise ValueError("setBreakpoints: each breakpoint must be an object")
+        line = spec.get("line")
+        if isinstance(line, bool) or not isinstance(line, int) or line < minimum_line:
+            convention = "positive" if minimum_line else "non-negative"
+            raise ValueError(f"setBreakpoints: breakpoint line must be {convention}")
+        condition = spec.get("condition")
+        if condition is not None and not isinstance(condition, str):
+            raise ValueError("setBreakpoints: 'condition' must be a string")
+        hit_condition = spec.get("hitCondition")
+        if hit_condition is not None:
+            if not isinstance(hit_condition, str) or not hit_condition.isdigit() or int(hit_condition) < 1:
+                raise ValueError("setBreakpoints: 'hitCondition' must be a positive decimal string")
+        log_message = spec.get("logMessage")
+        if log_message is not None and not isinstance(log_message, str):
+            raise ValueError("setBreakpoints: 'logMessage' must be a string")
+    return specs
 
 
 def main():

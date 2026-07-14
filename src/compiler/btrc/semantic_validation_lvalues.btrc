@@ -1,0 +1,214 @@
+/* Mutation contracts for const storage, properties, and aggregates. */
+
+string semanticStructTypeName(
+        Node? typeExpr, Analyzed analyzed) {
+    if (typeExpr == null || typeExpr.pointer_depth > 0) { return ""; }
+    if (typeExpr.base.startsWith("struct ")) {
+        return typeExpr.base.substring(7, typeExpr.base.length() - 7);
+    }
+    if (analyzed.structTable.has(typeExpr.base)) { return typeExpr.base; }
+    return "";
+}
+
+bool semanticStructContainsConst(Node? typeExpr, Analyzed analyzed,
+        Map<string, bool> visiting) {
+    string name = semanticStructTypeName(typeExpr, analyzed);
+    if (name == "" || visiting.has(name)
+            || !analyzed.structTable.has(name)) {
+        return false;
+    }
+    Node declaration = analyzed.structTable.get(name);
+    if (declaration.is_forward) { return false; }
+    visiting.put(name, true);
+    int index = 0;
+    while (index < declaration.fields.len) {
+        Node field = declaration.fields.get(index);
+        if ((field.type.is_const && field.type.pointer_depth == 0)
+                || semanticStructContainsConst(
+                    field.type, analyzed, visiting)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+void semanticValidateMutableTarget(Node? targetType,
+        SemanticValidationState state, Node site) {
+    targetType = semanticResolveAliases(targetType, state);
+    if (targetType == null) { return; }
+    if (targetType.is_const && targetType.pointer_depth == 0) {
+        semanticValidationFail("Cannot modify const storage of type '"
+            + semanticFormatType(targetType) + "'", site);
+    }
+    if (targetType.is_array && targetType.array_size != null) {
+        semanticValidationFail("Fixed array '"
+            + semanticFormatType(targetType) + "' is not assignable", site);
+    }
+    Map<string, bool> visiting = {};
+    if (semanticStructContainsConst(
+            targetType, state.analyzed, visiting)) {
+        semanticValidationFail("Cannot assign or update struct '"
+            + semanticFormatType(targetType)
+            + "' because it contains const storage", site);
+    }
+}
+
+void semanticValidatePropertyMutation(Node target, bool requireGetter,
+        SemanticValidationState state, Map<string, Node> vars, Node site) {
+    if (target.kind != NK_FIELD_ACCESS_EXPR) { return; }
+    Node? receiver = semanticInferType(target.obj, state, vars);
+    if (receiver == null) { return; }
+    Node? member = null;
+    if (state.analyzed.isClass(receiver.base)) {
+        member = state.analyzed.classMember(receiver.base, target.field);
+    } else if (state.analyzed.isGenericClass(receiver.base)) {
+        member = genericMember(state.analyzed, receiver.base, target.field);
+    }
+    if (member == null || member.kind != NK_PROPERTY_DECL) { return; }
+    Node property = member;
+    if (!property.has_setter) {
+        semanticValidationFail(
+            "Property '" + target.field + "' has no setter", site);
+    }
+    if (requireGetter && !property.has_getter) {
+        semanticValidationFail(
+            "Property '" + target.field + "' has no getter", site);
+    }
+}
+
+Node? semanticLvalueMember(Node receiverType, string member,
+        SemanticValidationState state) {
+    if (state.analyzed.isClass(receiverType.base)) {
+        return state.analyzed.classMember(receiverType.base, member);
+    }
+    if (state.analyzed.isGenericClass(receiverType.base)) {
+        return genericMember(state.analyzed, receiverType.base, member);
+    }
+    return null;
+}
+
+bool semanticIsPropertyProjection(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+    Node? receiverType = semanticInferType(expression.obj, state, vars);
+    if (receiverType == null) { return false; }
+    Node? member = semanticLvalueMember(
+        receiverType, expression.field, state);
+    return member != null && member.kind == NK_PROPERTY_DECL;
+}
+
+bool semanticIsProtocolIndexProjection(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression.kind != NK_INDEX_EXPR) { return false; }
+    Node? receiverType = semanticInferType(expression.obj, state, vars);
+    receiverType = semanticResolveAliases(receiverType, state);
+    if (receiverType == null) { return false; }
+    if (receiverType.is_array || isStringType(receiverType)) { return false; }
+    bool rawPointer = receiverType.pointer_depth > 0;
+    if (state.analyzed.isClass(receiverType.base)) {
+        rawPointer = receiverType.pointer_depth > 1;
+    } else if (state.analyzed.isGenericClass(receiverType.base)) {
+        rawPointer = receiverType.pointer_depth > 0;
+    }
+    if (rawPointer) { return false; }
+    Node? getter = semanticLvalueMember(receiverType, "get", state);
+    Node? setter = semanticLvalueMember(receiverType, "set", state);
+    return (getter != null && getter.kind == NK_METHOD_DECL)
+        || (setter != null && setter.kind == NK_METHOD_DECL);
+}
+
+bool semanticReferenceReceiver(Node? typeExpr,
+        SemanticValidationState state) {
+    typeExpr = semanticResolveAliases(typeExpr, state);
+    return typeExpr != null
+        && (typeExpr.pointer_depth > 0 || typeExpr.is_array
+            || isStringType(typeExpr)
+            || state.analyzed.isClass(typeExpr.base)
+            || state.analyzed.isGenericClass(typeExpr.base));
+}
+
+bool semanticIdentifierStorage(string name,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (vars.has(name)) { return true; }
+    if (state.analyzed.funcNames.has(name)
+            || state.analyzed.isClass(name)
+            || state.analyzed.isGenericClass(name)
+            || state.analyzed.isEnum(name)
+            || state.analyzed.isRichEnum(name)
+            || state.analyzed.isEnumValue(name)
+            || state.analyzed.isAmbiguousEnumValue(name)) {
+        return false;
+    }
+    /* Preserve unresolved C-interoperability identifiers. */
+    return true;
+}
+
+bool semanticStaticFieldProjection(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression.kind != NK_FIELD_ACCESS_EXPR
+            || expression.obj == null
+            || expression.obj.kind != NK_IDENTIFIER
+            || vars.has(expression.obj.name)) {
+        return false;
+    }
+    Node? member = null;
+    if (state.analyzed.isClass(expression.obj.name)) {
+        member = state.analyzed.classMember(
+            expression.obj.name, expression.field);
+    } else if (state.analyzed.isGenericClass(expression.obj.name)) {
+        member = genericMember(
+            state.analyzed, expression.obj.name, expression.field);
+    }
+    return member != null && member.kind == NK_FIELD_DECL
+        && member.access == "class";
+}
+
+/* Physical storage differs from a virtual property/index mutation target.
+ * Getter results are values; a by-value aggregate reached through one cannot
+ * be mutated by taking the address of a discarded copy. */
+bool semanticIsAddressableStorage(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    if (expression.kind == NK_IDENTIFIER) {
+        return semanticIdentifierStorage(expression.name, state, vars);
+    }
+    if (expression.kind == NK_UNARY_EXPR && expression.op == "*") {
+        return true;
+    }
+    if (expression.kind == NK_INDEX_EXPR) {
+        if (semanticIsProtocolIndexProjection(expression, state, vars)) {
+            return false;
+        }
+        Node? receiverType = semanticInferType(
+            expression.obj, state, vars);
+        receiverType = semanticResolveAliases(receiverType, state);
+        if (receiverType == null) { return true; }
+        if (receiverType.is_array) {
+            return semanticIsAddressableStorage(
+                expression.obj, state, vars);
+        }
+        if (isStringType(receiverType)) { return true; }
+        bool rawPointer = receiverType.pointer_depth > 0;
+        if (state.analyzed.isClass(receiverType.base)) {
+            rawPointer = receiverType.pointer_depth > 1;
+        } else if (state.analyzed.isGenericClass(receiverType.base)) {
+            rawPointer = receiverType.pointer_depth > 0;
+        }
+        if (rawPointer) { return true; }
+        return semanticIsAddressableStorage(
+            expression.obj, state, vars);
+    }
+    if (expression.kind != NK_FIELD_ACCESS_EXPR
+            || expression.optional
+            || semanticIsPropertyProjection(expression, state, vars)) {
+        return false;
+    }
+    if (semanticStaticFieldProjection(expression, state, vars)) {
+        return true;
+    }
+    Node? receiverType = semanticInferType(
+        expression.obj, state, vars);
+    if (semanticReferenceReceiver(receiverType, state)) { return true; }
+    return semanticIsAddressableStorage(expression.obj, state, vars);
+}

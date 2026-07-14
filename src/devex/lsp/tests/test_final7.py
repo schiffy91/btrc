@@ -112,15 +112,14 @@ def test_active_call_degraded_no_tokens_is_none():
 # --------------------------------------------------------------------------- #
 
 
-def test_completion_user_class_shadowing_stdlib_dedups():
+def test_completion_user_class_shadowing_stdlib_has_no_instance_leak():
     src = (
         "class Math { public int v; public Math() { self.v = 0; }\n"
         "             public int sq() { return self.v * self.v; } }\n"
         "int main() { int r = Math.sq(); return r; }\n"
     )
     items = get_completions(analyze(src), pos_of(src, "Math.sq", offset=5))
-    labels = [i.label for i in items]
-    assert labels and len(labels) == len(set(labels))
+    assert items == []
 
 
 def test_completion_chain_with_unresolved_head_is_empty():

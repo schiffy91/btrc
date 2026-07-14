@@ -8,22 +8,24 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...ast_nodes import FieldAccessExpr, IndexExpr
+from ..c_types import qualify_volatile_object
 from ..nodes import (
+    CType,
+    IRAddressOf,
     IRAssign,
-    IRBinOp,
-    IRBlock,
     IRCall,
+    IRDeref,
     IRExprStmt,
     IRFieldAccess,
-    IRIf,
+    IRIndex,
     IRLiteral,
-    IRRawC,
-    IRRawExpr,
     IRStmt,
-    IRUnaryOp,
     IRVar,
+    IRVarDecl,
 )
 from .expressions import lower_expr
+from .managed_local import ManagedLocal
 
 if TYPE_CHECKING:
     from ...ast_nodes import ReleaseStmt
@@ -31,14 +33,13 @@ if TYPE_CHECKING:
 
 
 def _get_destroy_name(gen: IRGenerator, type_expr, cls_name: str) -> str:
-    """Get the appropriate destroy function name for a class type."""
+    """Get the terminal destroy function name for a managed class value."""
     from .types import is_generic_class_type, mangle_generic_type
+
     ct = gen.analyzed.class_table
     if type_expr.generic_args and is_generic_class_type(type_expr, ct):
         mangled = mangle_generic_type(type_expr.base, type_expr.generic_args)
-        field_cls = ct.get(type_expr.base)
-        dtor = "free" if field_cls and "free" in field_cls.methods else "destroy"
-        return f"{mangled}_{dtor}"
+        return f"{mangled}_destroy"
     return f"{cls_name}_destroy"
 
 
@@ -54,308 +55,192 @@ def _destroy_fn_for_managed(gen: IRGenerator, cls_name: str) -> str:
     return f"{cls_name}_destroy"
 
 
-def _emit_scope_release(managed: list[tuple[str, str]],
-                        gen: IRGenerator | None = None) -> list[IRStmt]:
-    """Emit rc-- cleanup for all managed vars in a scope.
+def _emit_scope_release(
+    managed: list[ManagedLocal],
+    gen: IRGenerator | None = None,
+    *,
+    force: bool = True,
+) -> list[IRStmt]:
+    """Release a batch, then poll or force-drain if it can enqueue."""
+    if not gen:
+        raise RuntimeError("typed scope release requires an IR generator")
+    from .arc_ops import (
+        flush_release_batch,
+        poll_release_batch,
+    )
+    from .managed_values import STRING_RUNTIME_NAME, release_emitted_value
 
-    Uses a three-phase approach for cyclable types to avoid accessing
-    freed memory in the cycle collector:
-    1. Decrement rc for ALL managed vars
-    2. Destroy any with rc <= 0 (cascade may free others)
-    3. Suspect those still alive (rc > 0) for cycle collection
-    """
-    has_cyclable = False
-    if gen:
-        for _, cls_name in managed:
-            cls_info = _lookup_cls_info(gen, cls_name)
-            if cls_info and cls_info.is_cyclable:
-                has_cyclable = True
-                break
+    stmts: list[IRStmt] = []
+    for local in reversed(managed):
+        if local.cleanup_kind == "thread":
+            from .thread_values import consume_thread_handle
 
-    if has_cyclable and gen:
-        return _emit_scope_release_phased(managed, gen)
-
-    # Simple path: no cyclable types, just rc-- and destroy
-    stmts = []
-    for var_name, cls_name in reversed(managed):
-        destroy_fn = _destroy_fn_for_managed(gen, cls_name) if gen else f"{cls_name}_destroy"
-        stmts.append(IRIf(
-            condition=IRBinOp(
-                left=IRVar(name=var_name), op="!=",
-                right=IRLiteral(text="NULL")),
-            then_block=IRBlock(stmts=[IRIf(
-                condition=IRBinOp(
-                    left=IRUnaryOp(op="--", operand=IRFieldAccess(
-                        obj=IRVar(name=var_name), field="__rc", arrow=True),
-                        prefix=True),
-                    op="<=", right=IRLiteral(text="0")),
-                then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=destroy_fn,
-                                args=[IRVar(name=var_name)]))]),
-            )]),
-        ))
-    return stmts
-
-
-def _lookup_cls_info(gen: IRGenerator, cls_name: str):
-    """Look up ClassInfo by name or mangled name."""
-    cls_info = gen.analyzed.class_table.get(cls_name)
-    if cls_info:
-        return cls_info
-    for cname, ci in gen.analyzed.class_table.items():
-        if cls_name.startswith("btrc_" + cname):
-            return ci
-    return None
-
-
-def _emit_scope_release_phased(managed: list[tuple[str, str]],
-                                gen: IRGenerator) -> list[IRStmt]:
-    """Three-phase scope release for scopes containing cyclable types.
-
-    Uses destroyed-object tracking to avoid reading freed memory:
-    cascade destruction (in Phase 2) may free objects whose local vars
-    are still non-NULL.  We gate Phase 2/3 reads with __btrc_is_destroyed()
-    which short-circuits before touching freed memory.
-    """
-    stmts = []
-    gen.use_helper("__btrc_suspect_buf")
-    gen.use_helper("__btrc_collect_cycles")
-    gen.use_helper("__btrc_destroyed_tracking")
-
-    # Enable cascade-destroy tracking
-    stmts.append(IRAssign(
-        target=IRVar(name="__btrc_tracking"),
-        value=IRLiteral(text="1")))
-    stmts.append(IRAssign(
-        target=IRVar(name="__btrc_destroyed_count"),
-        value=IRLiteral(text="0")))
-
-    # Phase 1: Decrement rc for ALL managed vars
-    for var_name, _cls_name in reversed(managed):
-        stmts.append(IRIf(
-            condition=IRBinOp(
-                left=IRVar(name=var_name), op="!=",
-                right=IRLiteral(text="NULL")),
-            then_block=IRBlock(stmts=[IRExprStmt(
-                expr=IRUnaryOp(op="--", operand=IRFieldAccess(
-                    obj=IRVar(name=var_name), field="__rc", arrow=True),
-                    prefix=True))]),
-        ))
-
-    # Phase 2: Destroy those at rc == 0
-    # Guard with !__btrc_is_destroyed() to skip cascade-freed objects
-    # (short-circuit ensures var->__rc is never read on freed memory)
-    for var_name, cls_name in reversed(managed):
-        destroy_fn = _destroy_fn_for_managed(gen, cls_name)
-        stmts.append(IRIf(
-            condition=IRBinOp(
-                left=IRVar(name=var_name), op="!=",
-                right=IRLiteral(text="NULL")),
-            then_block=IRBlock(stmts=[IRIf(
-                condition=IRBinOp(
-                    left=IRCall(callee="__btrc_is_destroyed",
-                                args=[IRVar(name=var_name)]),
-                    op="==", right=IRLiteral(text="0")),
-                then_block=IRBlock(stmts=[IRIf(
-                    condition=IRBinOp(
-                        left=IRFieldAccess(
-                            obj=IRVar(name=var_name), field="__rc",
-                            arrow=True),
-                        op="<=", right=IRLiteral(text="0")),
-                    then_block=IRBlock(stmts=[
-                        IRExprStmt(expr=IRCall(
-                            callee=destroy_fn,
-                            args=[IRVar(name=var_name)])),
-                        IRAssign(
-                            target=IRVar(name=var_name),
-                            value=IRLiteral(text="NULL")),
-                    ]),
-                )]),
-            )]),
-        ))
-
-    # Phase 3: Suspect those still alive (rc > 0) for cycle collection
-    for var_name, cls_name in reversed(managed):
-        cls_info = _lookup_cls_info(gen, cls_name)
-        if not cls_info or not cls_info.is_cyclable:
+            gen.use_helper("__btrc_thread_free")
+            stmts.append(
+                IRExprStmt(
+                    expr=IRCall(
+                        callee="__btrc_thread_free",
+                        args=[
+                            consume_thread_handle(
+                                gen,
+                                IRVar(name=local.name),
+                            )
+                        ],
+                        helper_ref="__btrc_thread_free",
+                    )
+                )
+            )
             continue
-        destroy_fn = _destroy_fn_for_managed(gen, cls_name)
-        stmts.append(IRIf(
-            condition=IRBinOp(
-                left=IRVar(name=var_name), op="!=",
-                right=IRLiteral(text="NULL")),
-            then_block=IRBlock(stmts=[IRIf(
-                condition=IRBinOp(
-                    left=IRCall(callee="__btrc_is_destroyed",
-                                args=[IRVar(name=var_name)]),
-                    op="==", right=IRLiteral(text="0")),
-                then_block=IRBlock(stmts=[IRIf(
-                    condition=IRBinOp(
-                        left=IRFieldAccess(
-                            obj=IRVar(name=var_name), field="__rc",
-                            arrow=True),
-                        op=">", right=IRLiteral(text="0")),
-                    then_block=IRBlock(stmts=[IRExprStmt(
-                        expr=IRCall(
-                            callee="__btrc_suspect",
-                            helper_ref="__btrc_suspect_buf",
-                            args=[
-                                IRVar(name=var_name),
-                                IRRawExpr(
-                                    text=f"(__btrc_visit_fn){cls_name}_visit"),
-                                IRRawExpr(
-                                    text=f"(__btrc_destroy_fn){destroy_fn}"),
-                            ]))]),
-                )]),
-            )]),
-        ))
-
-    # Phase 4: Collect cycles if any suspects
-    stmts.append(IRIf(
-        condition=IRBinOp(
-            left=IRVar(name="__btrc_suspect_count"), op=">",
-            right=IRLiteral(text="0")),
-        then_block=IRBlock(stmts=[IRExprStmt(
-            expr=IRCall(callee="__btrc_collect_cycles",
-                        helper_ref="__btrc_collect_cycles", args=[]))]),
-    ))
-
-    # Disable tracking
-    stmts.append(IRAssign(
-        target=IRVar(name="__btrc_tracking"),
-        value=IRLiteral(text="0")))
-
+        stmts.append(IRExprStmt(expr=release_emitted_value(gen, IRVar(name=local.name), local.type_name)))
+    boundary = flush_release_batch if force else poll_release_batch
+    flush = boundary(
+        gen,
+        emitted_names=[
+            local.type_name
+            for local in managed
+            if local.cleanup_kind == "arc" and local.type_name != STRING_RUNTIME_NAME
+        ],
+    )
+    if flush is not None:
+        stmts.append(IRExprStmt(expr=flush))
     return stmts
 
 
 def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:
     """Emit rc-- for all managed vars across all scopes, except the returned var."""
-    stmts = []
-    all_managed = gen.get_all_managed_vars()
-    for var_name, cls_name in reversed(all_managed):
-        if var_name == returned_var:
-            continue  # Skip the returned variable — ownership transfers to caller
-        destroy_fn = _destroy_fn_for_managed(gen, cls_name)
-        stmts.append(IRIf(
-            condition=IRBinOp(
-                left=IRVar(name=var_name), op="!=",
-                right=IRLiteral(text="NULL")),
-            then_block=IRBlock(stmts=[IRIf(
-                condition=IRBinOp(
-                    left=IRUnaryOp(op="--", operand=IRFieldAccess(
-                        obj=IRVar(name=var_name), field="__rc", arrow=True),
-                        prefix=True),
-                    op="<=", right=IRLiteral(text="0")),
-                then_block=IRBlock(stmts=[IRExprStmt(
-                    expr=IRCall(callee=destroy_fn,
-                                args=[IRVar(name=var_name)]))]),
-            )]),
-        ))
-    return stmts
+    managed = [local for local in gen.get_all_managed_vars() if local.name != returned_var]
+    return _emit_scope_release(managed, gen)
 
 
-def _emit_return_try_pop(gen: IRGenerator) -> list[IRStmt]:
-    """When a `return` is lexically inside one or more open try blocks, emit the
-    try-level cleanup DISCARD and try-stack pop that the try's normal-exit tail
-    would otherwise run — but which a `return` jumps over, leaving them as dead
-    code after the `return`.
+def _emit_control_exit_release(gen: IRGenerator, targets: set[str]) -> list[IRStmt]:
+    """Release managed locals exited by the nearest matching target."""
+    return _emit_scope_release(gen.get_control_managed_vars(targets), gen, force=True)
 
-    Without this, the returned object's cleanup entry stays registered (pointing
-    at memory the caller will later own/free) and the try level stays on the
-    stack; a subsequent `__btrc_throw` then runs that stale cleanup -> use-after-
-    free. We DISCARD (not release) the cleanups: the returned object escapes and
-    must stay alive, and the non-returned managed locals were already released by
-    ``_emit_return_release`` just before this.
 
-    The function's open try levels occupy ``[base+1 .. __btrc_try_top]`` where
-    ``base = __btrc_try_top - gen.in_try_depth``; so discard every cleanup at
-    ``try_level >= base + 1`` and pop ``gen.in_try_depth`` levels.
-    """
-    if gen.in_try_depth <= 0:
-        return []
-    stmts: list[IRStmt] = []
-    # Only discard cleanups if any were registered (mirrors the gate the try's
-    # normal-exit tail uses); a try with no managed locals registers none.
-    if "__btrc_register_cleanup" in gen._used_helpers:
-        gen.use_helper("__btrc_discard_cleanups")
-        depth = gen.in_try_depth
-        # level = __btrc_try_top - (in_try_depth - 1)
-        if depth == 1:
-            level_text = "__btrc_try_top"
-        else:
-            level_text = f"__btrc_try_top - {depth - 1}"
-        stmts.append(IRExprStmt(expr=IRCall(
-            callee="__btrc_discard_cleanups",
-            args=[IRRawExpr(text=level_text)],
-            helper_ref="__btrc_discard_cleanups")))
-    # Pop this function's open try levels off the try stack.
-    if gen.in_try_depth == 1:
-        stmts.append(IRRawC(text="__btrc_try_top--;"))
+def _stabilize_release_edge(gen: IRGenerator, node, expr):
+    """Return one addressable target and its exact persistent-edge owner."""
+    from .managed_values import is_class_type
+    from .types import type_to_c
+
+    owner_expr = None
+    owner_node = None
+    shape = ""
+    if isinstance(node, FieldAccessExpr) and isinstance(expr, IRFieldAccess):
+        owner_node = node.obj
+        owner_expr = expr.obj
+        shape = "field"
+    elif (
+        isinstance(node, IndexExpr)
+        and isinstance(node.obj, FieldAccessExpr)
+        and isinstance(expr, IRIndex)
+        and isinstance(expr.obj, IRFieldAccess)
+    ):
+        owner_node = node.obj.obj
+        owner_expr = expr.obj.obj
+        shape = "index"
+    owner_type = gen.analyzed.node_types.get(id(owner_node)) if owner_node is not None else None
+    if owner_expr is None or not shape or not is_class_type(gen, owner_type):
+        return expr, None, []
+
+    declaration = IRVarDecl(
+        c_type=CType(text=type_to_c(owner_type)),
+        name=gen.fresh_temp("__btrc_release_owner"),
+        init=owner_expr,
+    )
+    gen._func_var_decls.append(declaration)
+    owner = IRVar(name=declaration.name)
+    if shape == "field":
+        target = IRFieldAccess(
+            obj=owner,
+            field=expr.field,
+            arrow=expr.arrow,
+        )
     else:
-        stmts.append(IRRawC(text=f"__btrc_try_top -= {gen.in_try_depth};"))
-    return stmts
-
-
-def _maybe_launder_return(gen: IRGenerator, value):
-    """Launder a class-pointer return value through ``__btrc_launder`` when the
-    ``return`` is lowered inside a try/catch construct.
-
-    gcc -O2 (notably nix's fortify hardening, which forces -O2) miscompiles the
-    setjmp(...)==0 vs catch branches of a try/catch: for a freshly-built object
-    that doesn't otherwise escape, its points-to / store-merging folds the two
-    branches' field inits together and drops the catch object's initialization,
-    so the returned object reads back the wrong field values. Routing the
-    returned pointer through a volatile slot makes it escape, defeating that
-    fold. Identity at runtime; only applied to managed class-pointer returns
-    inside a try/catch so ordinary code is untouched.
-    """
-    if gen.in_trycatch_depth <= 0:
-        return value
-    rt = gen.current_return_type
-    if rt is None:
-        return value
-    if rt.base not in gen.analyzed.class_table:
-        return value
-    gen.use_helper("__btrc_launder")
-    from ..nodes import IRCall, IRCast
-    laundered = IRCall(callee="__btrc_launder",
-                       args=[value], helper_ref="__btrc_launder")
-    return IRCast(target_type=gen.current_return_c_type, expr=laundered)
-
-
-def _emit_loop_exit_release(gen: IRGenerator) -> list[IRStmt]:
-    """Emit cleanup for managed vars owned by the current loop body."""
-    return _emit_scope_release(gen.get_loop_managed_vars(), gen)
+        target = IRIndex(
+            obj=IRFieldAccess(
+                obj=owner,
+                field=expr.obj.field,
+                arrow=expr.obj.arrow,
+            ),
+            index=expr.index,
+        )
+    return target, owner, [declaration]
 
 
 def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
-    """Lower release expr -> rc--; destroy at zero; expr = NULL."""
+    """Lower an explicit typed ownership release and flush boundary."""
     expr = lower_expr(gen, node.expr)
-    # Determine the destroy function
     expr_type = gen.analyzed.node_types.get(id(node.expr))
-    if expr_type and expr_type.base in gen.analyzed.class_table:
-        from .types import is_generic_class_type, mangle_generic_type
-        ct = gen.analyzed.class_table
-        if expr_type.generic_args and is_generic_class_type(expr_type, ct):
-            mangled = mangle_generic_type(expr_type.base, expr_type.generic_args)
-            field_cls = ct.get(expr_type.base)
-            dtor = "free" if field_cls and "free" in field_cls.methods else "destroy"
-            destroy_fn = f"{mangled}_{dtor}"
-        else:
-            destroy_fn = f"{expr_type.base}_destroy"
+    from .managed_values import is_managed_type
+
+    if not is_managed_type(gen, expr_type):
+        return [IRExprStmt(expr=IRCall(callee="free", args=[expr]))]
+    from .managed_values import (
+        flush_released_values,
+        is_class_type,
+        release_edge_value,
+        release_value,
+        replace_edge_value,
+        unlink_edge_value,
+    )
+    from .types import type_to_c
+
+    expr, edge_owner, owner_decls = _stabilize_release_edge(gen, node.expr, expr)
+
+    value_c = type_to_c(expr_type)
+    slot_name = gen.fresh_temp("__btrc_release_slot")
+    slot_decl = IRVarDecl(
+        c_type=CType(text=f"{qualify_volatile_object(value_c, True)}*"),
+        name=slot_name,
+        init=IRAddressOf(expr=expr),
+    )
+    slot = IRDeref(expr=IRVar(name=slot_name))
+    gen._func_var_decls.append(slot_decl)
+    stmts = [*owner_decls, slot_decl]
+    if edge_owner is not None and is_class_type(gen, expr_type):
+        stmts.append(
+            IRExprStmt(
+                expr=replace_edge_value(
+                    gen,
+                    slot,
+                    IRLiteral(text="NULL"),
+                    expr_type,
+                    edge_owner,
+                    adopt=False,
+                )
+            )
+        )
     else:
-        destroy_fn = "free"
-    stmts = [IRIf(
-        condition=IRBinOp(left=expr, op="!=", right=IRLiteral(text="NULL")),
-        then_block=IRBlock(stmts=[IRIf(
-            condition=IRBinOp(
-                left=IRUnaryOp(op="--", operand=IRFieldAccess(
-                    obj=expr, field="__rc", arrow=True), prefix=True),
-                op="<=", right=IRLiteral(text="0")),
-            then_block=IRBlock(stmts=[IRExprStmt(
-                expr=IRCall(callee=destroy_fn, args=[expr]))]),
-        )]),
-    )]
-    # Set variable to NULL
-    stmts.append(IRAssign(target=expr, value=IRLiteral(text="NULL")))
+        value_name = gen.fresh_temp("__btrc_release_value")
+        value_decl = IRVarDecl(
+            c_type=CType(text=value_c),
+            name=value_name,
+            init=slot,
+        )
+        gen._func_var_decls.append(value_decl)
+        release = release_edge_value if edge_owner is not None else release_value
+        stmts.extend(
+            [
+                value_decl,
+                *(
+                    [
+                        IRExprStmt(
+                            expr=unlink_edge_value(
+                                gen,
+                                IRVar(name=value_name),
+                                expr_type,
+                                edge_owner,
+                            )
+                        )
+                    ]
+                    if edge_owner is not None
+                    else []
+                ),
+                IRAssign(target=slot, value=IRLiteral(text="NULL")),
+                IRExprStmt(expr=release(gen, IRVar(name=value_name), expr_type)),
+            ]
+        )
+    flush = flush_released_values(gen, expr_type)
+    if flush is not None:
+        stmts.append(IRExprStmt(expr=flush))
     return stmts

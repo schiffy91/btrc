@@ -9,6 +9,8 @@ while emitting far less C.
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -71,13 +73,6 @@ int main() {
 # unit tests — pure logic, no compiler/cc needed
 # --------------------------------------------------------------------------
 
-def test_forward_decl_name():
-    assert sa._forward_decl_name("typedef struct Foo Foo;") == "Foo"
-    assert sa._forward_decl_name("static int Bar_baz(Bar* self);") == "Bar_baz"
-    assert sa._forward_decl_name("void btrc_Vector_int_push(btrc_Vector_int* v, int x);") \
-        == "btrc_Vector_int_push"
-    assert sa._forward_decl_name("/* just a comment */") is None
-
 
 def test_externize_toplevel_strips_only_leading_static():
     src = "static int g = 0;\nstatic inline int f(void) {\n    static int local = 1;\n    return local;\n}"
@@ -88,55 +83,137 @@ def test_externize_toplevel_strips_only_leading_static():
     assert "    static int local = 1;" in out
 
 
-def test_brace_section_prototype():
-    from src.compiler.python.ir.emitter import _brace_section_prototype
-    assert _brace_section_prototype("void V_visit(V* s, void (*fn)(void**)) {\n  ;\n}") \
-        == "void V_visit(V* s, void (*fn)(void**));"
-    # Not a function definition → no prototype.
-    assert _brace_section_prototype("int table[] = {1, 2, 3};") is None
-    assert _brace_section_prototype("no braces here;") is None
-
-
-def test_partition_drops_archive_symbols():
+def test_archive_manifest_roundtrip_preserves_typed_declarations():
     """partition_for_archive removes exactly what the manifest provides and
-    prepends the header include."""
+    inserts the header without reordering the remaining directives."""
     from src.compiler.python.ir.nodes import (
         CType,
+        IRFunctionDecl,
         IRFunctionDef,
+        IRFunctionPointerTypedef,
+        IRHelperDecl,
+        IRInclude,
+        IRMacroDef,
         IRModule,
         IRStructDef,
+        IRStructForward,
     )
 
-    class _H:  # minimal helper stand-in
-        def __init__(self, name):
-            self.name = name
+    archive_module = IRModule(
+        struct_forwards=[IRStructForward(name="Std")],
+        function_pointer_typedefs=[
+            IRFunctionPointerTypedef(
+                name="StdCallback",
+                return_type=CType(text="void"),
+            )
+        ],
+        function_decls=[
+            IRFunctionDecl(
+                name="Std_api",
+                return_type=CType(text="void"),
+            )
+        ],
+        struct_defs=[IRStructDef(name="Std", fields=[])],
+        function_defs=[IRFunctionDef(name="Std_m", return_type=CType(text="void"))],
+        preprocessor_decls=[IRMacroDef(name="STD_VALUE", replacement="7")],
+        helper_decls=[
+            IRHelperDecl(
+                category="strings",
+                name="__btrc_strcat",
+                c_source="static char* __btrc_strcat(void);",
+            )
+        ],
+    )
+    manifest = sa._build_manifest(archive_module, [], "stdlib source")
+    assert manifest["schema"] == sa.MANIFEST_SCHEMA == 4
 
     mod = IRModule(
-        includes=["stdio.h"],
-        forward_decls=["typedef struct Std Std;", "typedef struct Usr Usr;"],
-        struct_defs=[IRStructDef(name="Std", fields=[]),
-                     IRStructDef(name="Usr", fields=[])],
-        function_defs=[IRFunctionDef(name="Std_m", return_type=CType(text="void")),
-                       IRFunctionDef(name="Usr_m", return_type=CType(text="void"))],
-        helper_decls=[_H("__btrc_strcat"), _H("__btrc_user_only")],
+        preprocessor_decls=[
+            IRMacroDef(name="STD_VALUE", replacement="7"),
+            IRMacroDef(name="USER_VALUE", replacement="9"),
+            IRInclude(header="stdio.h"),
+            IRMacroDef(name="AFTER_INCLUDE", replacement="11"),
+        ],
+        struct_forwards=[
+            IRStructForward(name="Std"),
+            IRStructForward(name="Usr"),
+        ],
+        function_pointer_typedefs=[
+            IRFunctionPointerTypedef(name="StdCallback", return_type=CType(text="void")),
+            IRFunctionPointerTypedef(name="UsrCallback", return_type=CType(text="void")),
+        ],
+        function_decls=[
+            IRFunctionDecl(name="Std_api", return_type=CType(text="void")),
+            IRFunctionDecl(name="Usr_api", return_type=CType(text="void")),
+        ],
+        struct_defs=[IRStructDef(name="Std", fields=[]), IRStructDef(name="Usr", fields=[])],
+        function_defs=[
+            IRFunctionDef(name="Std_m", return_type=CType(text="void")),
+            IRFunctionDef(name="Usr_m", return_type=CType(text="void")),
+        ],
+        helper_decls=[
+            IRHelperDecl(
+                category="strings",
+                name="__btrc_strcat",
+                c_source="static char* __btrc_strcat(void);",
+            ),
+            IRHelperDecl(
+                category="user",
+                name="__btrc_user_only",
+                c_source="static void __btrc_user_only(void);",
+            ),
+        ],
     )
-    manifest = {
-        "types": ["Std"], "functions": ["Std_m"], "helpers": ["__btrc_strcat"],
-        "forward_decls": ["typedef struct Std Std;"], "vtables": [],
-        "globals": [], "raw_sections": [], "shared_helpers": [],
-    }
     sa.partition_for_archive(mod, manifest, "btrc_stdlib.h")
 
     assert [s.name for s in mod.struct_defs] == ["Usr"]
     assert [f.name for f in mod.function_defs] == ["Usr_m"]
     assert [h.name for h in mod.helper_decls] == ["__btrc_user_only"]
-    assert mod.forward_decls == ["typedef struct Usr Usr;"]
-    assert mod.includes[0] == '#include "btrc_stdlib.h"'
+    assert [item.name for item in mod.struct_forwards] == ["Usr"]
+    assert [item.name for item in mod.function_pointer_typedefs] == ["UsrCallback"]
+    assert [item.name for item in mod.function_decls] == ["Usr_api"]
+    assert all(isinstance(item, IRStructForward) for item in mod.struct_forwards)
+    assert all(isinstance(item, IRFunctionPointerTypedef) for item in mod.function_pointer_typedefs)
+    assert all(isinstance(item, IRFunctionDecl) for item in mod.function_decls)
+    assert mod.preprocessor_decls == [
+        IRMacroDef(name="USER_VALUE", replacement="9"),
+        IRInclude(header="btrc_stdlib.h", is_system=False),
+        IRInclude(header="stdio.h"),
+        IRMacroDef(name="AFTER_INCLUDE", replacement="11"),
+    ]
+    assert "forward_decls" not in manifest
+    assert not {"raw_sections", "vtables", "globals"} & set(manifest)
+    assert manifest["function_declarations"] == ["Std_api"]
+    assert manifest["macros"] == [
+        {
+            "name": "STD_VALUE",
+            "params": None,
+            "replacement": "7",
+        }
+    ]
+
+
+def test_archive_override_check_distinguishes_imports_from_user_code(tmp_path):
+    manifest = {
+        "types": ["CliArgs"],
+        "functions": [],
+        "global_decl_names": [],
+    }
+    stdlib_decl = SimpleNamespace(
+        name="CliArgs",
+        source_file=str(Path(sa.__file__).parents[2] / "stdlib" / "cli.btrc"),
+    )
+    sa.reject_user_overrides(SimpleNamespace(declarations=[stdlib_decl]), manifest)
+
+    user_decl = SimpleNamespace(name="CliArgs", source_file=str(tmp_path / "program.btrc"))
+    with pytest.raises(sa.ArchiveVersionError, match=r"overrides.*CliArgs"):
+        sa.reject_user_overrides(SimpleNamespace(declarations=[user_decl]), manifest)
 
 
 # --------------------------------------------------------------------------
 # build the archive
 # --------------------------------------------------------------------------
+
 
 def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     out = tmp_path / "std"
@@ -144,19 +221,46 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     assert "Built stdlib archive" in capsys.readouterr().out
     for name in (sa.HEADER_NAME, sa.IMPL_NAME, sa.MANIFEST_NAME):
         assert (out / name).exists(), name
-    manifest = sa.load_manifest(str(out))
+    manifest = sa.load_manifest(str(out), m.get_stdlib_source(""))
     # The archive must provide a substantial, real interface.
     assert len(manifest["functions"]) > 100
+    assert {macro["name"] for macro in manifest["macros"]} >= {
+        "_DEFAULT_SOURCE",
+        "_DARWIN_C_SOURCE",
+    }
     assert "__btrc_destroyed_tracking" in manifest["shared_helpers"]
+    assert "__btrc_destroyed_capacity" in manifest["shared_helpers"]
+    assert "__btrc_cleanup_types" in manifest["shared_helpers"]
+    assert "__btrc_cleanup_capacity" in manifest["shared_helpers"]
+    assert "__btrc_suspect_state" in manifest["shared_helpers"]
     # The header guards itself and declares (not defines) the shared state.
     header = (out / sa.HEADER_NAME).read_text()
+    impl = (out / sa.IMPL_NAME).read_text()
     assert "#ifndef BTRC_STDLIB_H" in header
     assert "extern void** __btrc_destroyed;" in header
+    assert "extern _Atomic int __btrc_destroyed_count;" in header
+    assert "extern int __btrc_destroyed_cap;" in header
+    assert "extern _Thread_local __btrc_cleanup_entry* __btrc_cleanup_stack;" in header
+    assert "extern _Thread_local int __btrc_cleanup_cap;" in header
+    assert "extern void** __btrc_suspects;" in header
+    assert "extern int __btrc_suspect_cap;" in header
+    assert "_Thread_local void** __btrc_destroyed" not in header
+    assert "_Thread_local void** __btrc_suspects" not in header
+    assert "static _Thread_local int __btrc_cleanup_cap" not in header
+    assert "void** __btrc_destroyed = NULL;" in impl
+    assert "_Atomic int __btrc_destroyed_count = 0;" in impl
+    assert "int __btrc_destroyed_cap = 0;" in impl
+    assert "_Thread_local int __btrc_cleanup_cap = 64;" in impl
+    assert "void** __btrc_suspects = NULL;" in impl
+    assert "int __btrc_suspect_cap = 0;" in impl
+    assert "_Thread_local void** __btrc_destroyed" not in impl
+    assert "_Thread_local void** __btrc_suspects" not in impl
 
 
 # --------------------------------------------------------------------------
 # end-to-end: reference build == inline build, but smaller
 # --------------------------------------------------------------------------
+
 
 def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     cc = shutil.which("cc") or shutil.which("gcc")
@@ -167,11 +271,21 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     run_main(monkeypatch, ["--build-stdlib", str(std)])
     capsys.readouterr()
     subprocess.run(
-        [cc, "-std=c11", "-O1", "-ffunction-sections", "-fdata-sections",
-         "-c", str(std / sa.IMPL_NAME), "-o", str(std / "btrc_stdlib.o")],
-        check=True, cwd=str(std))
-    subprocess.run(["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")],
-                   check=True)
+        [
+            cc,
+            "-std=c11",
+            "-O1",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-c",
+            str(std / sa.IMPL_NAME),
+            "-o",
+            str(std / "btrc_stdlib.o"),
+        ],
+        check=True,
+        cwd=str(std),
+    )
+    subprocess.run(["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")], check=True)
 
     prog = tmp_path / "p.btrc"
     prog.write_text(CROSS_BOUNDARY_PROG)
@@ -181,8 +295,7 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     run_main(monkeypatch, ["--no-cache", str(prog), "-o", inline_c])
     capsys.readouterr()
     inline_bin = str(tmp_path / "inline_bin")
-    subprocess.run([cc, "-std=c11", inline_c, "-o", inline_bin, "-lm", "-lpthread"],
-                   check=True)
+    subprocess.run([cc, "-std=c11", inline_c, "-o", inline_bin, "-lm", "-lpthread"], check=True)
     inline_out = subprocess.run([inline_bin], capture_output=True, text=True)
 
     # Reference build.
@@ -190,8 +303,9 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     run_main(monkeypatch, ["--no-cache", "--stdlib", str(std), str(prog), "-o", ref_c])
     capsys.readouterr()
     ref_bin = str(tmp_path / "ref_bin")
-    subprocess.run([cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"),
-                    "-o", ref_bin, "-lm", "-lpthread"], check=True)
+    subprocess.run(
+        [cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"], check=True
+    )
     ref_out = subprocess.run([ref_bin], capture_output=True, text=True)
 
     # Byte-identical behaviour — the whole point.
@@ -208,13 +322,12 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
         inline_src = f.read()
     with open(ref_c) as f:
         ref_src = f.read()
-    assert 'btrc_stdlib.h' in ref_src
+    assert "btrc_stdlib.h" in ref_src
     # An archive-provided function the program uses: defined in inline, only
     # declared (extern, from the header) in the reference build.
     assert "btrc_Vector_string_push(" in inline_src
     inline_defs = inline_src.count("btrc_Vector_string_push(")
-    ref_defs = sum(1 for ln in ref_src.splitlines()
-                   if "btrc_Vector_string_push(" in ln and ln.rstrip().endswith("{"))
+    ref_defs = sum(1 for ln in ref_src.splitlines() if "btrc_Vector_string_push(" in ln and ln.rstrip().endswith("{"))
     assert ref_defs == 0, "stdlib function should be linked from the archive, not inlined"
     assert inline_defs >= 1
 
@@ -228,11 +341,21 @@ def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
     run_main(monkeypatch, ["--build-stdlib", str(std)])
     capsys.readouterr()
     subprocess.run(
-        [cc, "-std=c11", "-O1", "-ffunction-sections", "-fdata-sections",
-         "-c", str(std / sa.IMPL_NAME), "-o", str(std / "btrc_stdlib.o")],
-        check=True, cwd=str(std))
-    subprocess.run(["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")],
-                   check=True)
+        [
+            cc,
+            "-std=c11",
+            "-O1",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-c",
+            str(std / sa.IMPL_NAME),
+            "-o",
+            str(std / "btrc_stdlib.o"),
+        ],
+        check=True,
+        cwd=str(std),
+    )
+    subprocess.run(["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")], check=True)
 
     prog = tmp_path / "throw.btrc"
     prog.write_text(ARCHIVE_THROW_PROG)
@@ -240,8 +363,9 @@ def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
     run_main(monkeypatch, ["--no-cache", "--stdlib", str(std), str(prog), "-o", ref_c])
     capsys.readouterr()
     ref_bin = str(tmp_path / "throw_bin")
-    subprocess.run([cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"),
-                    "-o", ref_bin, "-lm", "-lpthread"], check=True)
+    subprocess.run(
+        [cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"], check=True
+    )
     ref_out = subprocess.run([ref_bin], capture_output=True, text=True)
 
     assert ref_out.returncode == 0, ref_out.stderr

@@ -1,0 +1,19 @@
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    char* raw = "hello";
+    string semantic = "hello";
+    assert(semantic == raw);
+    assert(raw == semantic);
+
+    char letters[6];
+    strcpy(letters, "hello");
+    assert(semantic == letters);
+    assert(letters == semantic);
+
+    string missing = null;
+    string fallback = missing ?? raw;
+    assert(fallback == semantic);
+    return 0;
+}

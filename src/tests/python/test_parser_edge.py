@@ -3,7 +3,12 @@ disambiguation."""
 
 import pytest
 
-from src.compiler.python.ast_nodes import FunctionDecl
+from src.compiler.python.ast_nodes import (
+    BraceInitializer,
+    FunctionDecl,
+    MapLiteral,
+    TernaryExpr,
+)
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.core import ParseError
 from src.compiler.python.parser.parser import Parser
@@ -30,6 +35,19 @@ def test_map_literal_vs_block_disambiguation():
 
 
 def test_empty_brace_initializer_parses():
-    prog = parse("class C { public int v; public C() { self.v = 0; } }\n"
-                 "int main() { return 0; }")
+    prog = parse("class C { public int v; public C() { self.v = 0; } }\nint main() { return 0; }")
     assert prog.declarations
+
+
+def test_ternary_brace_element_is_not_misclassified_as_map():
+    prog = parse("int main() { bool c = true; int[] xs = {c ? 1 : 2}; return 0; }")
+    initializer = prog.declarations[0].body.statements[1].initializer
+    assert isinstance(initializer, BraceInitializer)
+    assert isinstance(initializer.elements[0], TernaryExpr)
+
+
+def test_ternary_expression_can_be_a_map_key():
+    prog = parse("int main() { bool c = true; Map<int, int> m = {c ? 1 : 2: 3}; return 0; }")
+    initializer = prog.declarations[0].body.statements[1].initializer
+    assert isinstance(initializer, MapLiteral)
+    assert isinstance(initializer.entries[0].key, TernaryExpr)

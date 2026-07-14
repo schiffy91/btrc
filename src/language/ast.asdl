@@ -2,8 +2,8 @@
 --
 -- This is the single source of truth for AST node types.
 -- Generated code:
---   src/language/ast/asdl_python.py  -> src/compiler/python/ast_nodes.py
---   src/language/ast/asdl_btrc.py   -> src/compiler/btrc/ast_nodes.btrc
+--   src/compiler/python/ast/asdl_python.py  -> src/compiler/python/ast_nodes.py
+--   src/compiler/python/ast/gen_btrc_ast.py -> src/compiler/btrc/ast/node.btrc
 --
 -- ASDL modifier semantics:
 --   field        = required (exactly 1)
@@ -37,7 +37,7 @@ module Btrc {
          | FunctionDecl(type_expr return_type, identifier name,
                         param* params, block? body, bool is_gpu,
                         bool keep_return, int name_line, int name_col)
-         | StructDecl(identifier name, field_def* fields,
+         | StructDecl(identifier name, field_def* fields, bool is_forward,
                       int name_line, int name_col)
          | EnumDecl(identifier name, enum_value* values,
                     int name_line, int name_col)
@@ -83,7 +83,8 @@ module Btrc {
                              identifier name, expr? initializer,
                              int name_line, int name_col)
                  | MethodDecl(string access, type_expr return_type,
-                              identifier name, identifier* generic_params,
+                              identifier name, bool is_constructor,
+                              identifier* generic_params,
                               param* params,
                               block? body, bool is_gpu, bool is_abstract,
                               bool keep_return, int name_line, int name_col)

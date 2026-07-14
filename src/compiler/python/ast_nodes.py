@@ -1,6 +1,6 @@
 """AST node definitions for the btrc language.
 
-Auto-generated from src/language/ast/ast.asdl by src/language/ast/asdl_python.py.
+Auto-generated from src/language/ast.asdl by src/compiler/python/ast/asdl_python.py.
 DO NOT EDIT BY HAND.
 """
 
@@ -79,6 +79,7 @@ class FunctionDecl:
 class StructDecl:
     name: str = ""
     fields: list[FieldDef] = _dc_field(default_factory=list)
+    is_forward: bool = False
     name_line: int = _dc_field(default=0, compare=False)
     name_col: int = _dc_field(default=0, compare=False)
     line: int = _dc_field(default=0, compare=False)
@@ -189,6 +190,7 @@ class MethodDecl:
     access: str = ""
     return_type: TypeExpr
     name: str = ""
+    is_constructor: bool = False
     generic_params: list[str] = _dc_field(default_factory=list)
     params: list[Param] = _dc_field(default_factory=list)
     body: Optional[Block] = None

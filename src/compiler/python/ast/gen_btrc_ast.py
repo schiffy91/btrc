@@ -12,9 +12,10 @@ lists to `Vector<string>`; scalars stay int/bool/string/float. The only field
 name whose type differs across constructors is `value` (Node vs int/float/bool/
 string), which gets per-type backing fields (value_node/value_int/...).
 
-Output: src/compiler/btrc/node.btrc  (via `make ast-generate-btrc`).
+Output: src/compiler/btrc/ast/node.btrc (via `make ast-generate-btrc`).
 Reuses helpers from asdl_btrc.py; does not modify the Python compiler.
 """
+
 from __future__ import annotations
 
 import os
@@ -25,8 +26,8 @@ sys.path.insert(0, _HERE)  # sibling modules (asdl_btrc, asdl_parser)
 # repo root, so asdl_btrc's `from src.compiler.python.ebnf import ...` resolves
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))))
 
-import asdl_btrc as B  # noqa: E402
-from asdl_parser import parse_file  # noqa: E402
+import asdl_btrc as B
+from asdl_parser import parse_file
 
 SCALARS = {"int", "bool", "string", "float"}
 
@@ -36,7 +37,7 @@ def fat(btrc_type: str):
     if btrc_type in SCALARS:
         return ("scalar", btrc_type)
     if btrc_type.startswith("List<"):
-        inner = btrc_type[len("List<"):-1]
+        inner = btrc_type[len("List<") : -1]
         return ("strlist", "Vector<string>") if inner == "string" else ("nodelist", "Vector<Node>")
     return ("node", "Node")
 
@@ -49,9 +50,9 @@ def variant_suffix(cat: str, decl: str) -> str:
 
 def build_plan(module):
     """Return (constructors, field_decls, per_kind) where:
-      constructors = [(ctor, fields_incl_attrs)]
-      field_decls  = ordered [(backing_name, declared_type, init)]
-      per_kind     = {kind_name: [(asdl_name, backing_name, cat, decl)]}
+    constructors = [(ctor, fields_incl_attrs)]
+    field_decls  = ordered [(backing_name, declared_type, init)]
+    per_kind     = {kind_name: [(asdl_name, backing_name, cat, decl)]}
     """
     name_map = B._build_type_name_map(module)
     ctors = []
@@ -72,7 +73,7 @@ def build_plan(module):
 
     # A string field that is optional in EVERY use becomes a nullable `string?`
     # so canon can emit `nil` when absent (matching the Python AST's None).
-    str_opt = {}      # name -> [bools]  (opt flag per use, string fields only)
+    str_opt = {}  # name -> [bools]  (opt flag per use, string fields only)
     for _c, fields in ctors:
         for f in fields:
             cat, decl = fat(B._btrc_type(f, name_map))
@@ -99,8 +100,15 @@ def build_plan(module):
                 if optstr:
                     decls[bn] = ("string?", "null")
                 else:
-                    init = {"int": "0", "bool": "false", "string": '""', "float": "0.0",
-                            "Vector<Node>": "[]", "Vector<string>": "[]", "Node": "null"}[decl]
+                    init = {
+                        "int": "0",
+                        "bool": "false",
+                        "string": '""',
+                        "float": "0.0",
+                        "Vector<Node>": "[]",
+                        "Vector<string>": "[]",
+                        "Node": "null",
+                    }[decl]
                     decls[bn] = (decl, init)
                 order.append(bn)
             entries.append((f.name, bn, cat, decl, optstr))
@@ -126,7 +134,7 @@ def generate(module) -> str:
     L: list[str] = [
         "/* Self-hosted btrc AST — fat tagged node.",
         " *",
-        " * Auto-generated from src/language/ast/ast.asdl by gen_btrc_ast.py.",
+        " * Auto-generated from src/language/ast.asdl by src/compiler/python/ast/gen_btrc_ast.py.",
         " * DO NOT EDIT BY HAND. btrc lacks dynamic dispatch/downcast, so the AST",
         " * is one Node with a `kind` tag + the union of all fields.",
         " */",
@@ -173,7 +181,7 @@ def generate(module) -> str:
     return "\n".join(L)
 
 
-_HELPERS = r'''string spaces(int n) {
+_HELPERS = r"""string spaces(int n) {
     string s = "";
     int i = 0;
     while (i < n) { s = s + " "; i = i + 1; }
@@ -234,7 +242,7 @@ string canonStrList(Vector<string> xs, int d) {
     }
     return out + "\n" + spaces(2 * d) + "]";
 }
-'''
+"""
 
 
 def main():

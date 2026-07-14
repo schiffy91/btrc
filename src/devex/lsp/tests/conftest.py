@@ -11,7 +11,7 @@ def _isolated_btrc_cache(tmp_path_factory):
 
     The cache directory resolves to $BTRC_CACHE_DIR > btrc.toml project root >
     the user cache dir; without this fixture the suite would write LSP unit
-    pickles into the developer's real user cache (it previously littered the
+    unit artifacts into the developer's real user cache (it previously littered the
     invoking cwd). One shared dir per session keeps the stdlib unit cache warm
     across tests while staying hermetic.
     """

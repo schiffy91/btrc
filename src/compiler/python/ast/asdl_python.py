@@ -2,7 +2,7 @@
 """Generate Python AST node definitions from an ASDL specification.
 
 Usage:
-    python3 src/language/ast/asdl_python.py src/language/ast/ast.asdl > src/compiler/python/ast_nodes.py
+    python3 src/compiler/python/ast/asdl_python.py src/language/ast.asdl > src/compiler/python/ast_nodes.py
 
 Produces:
     - @dataclass for each constructor (product type or sum variant)
@@ -134,7 +134,7 @@ def generate(module: Module) -> str:
     # Header
     lines.append('"""AST node definitions for the btrc language.')
     lines.append("")
-    lines.append("Auto-generated from src/language/ast/ast.asdl by src/language/ast/asdl_python.py.")
+    lines.append("Auto-generated from src/language/ast.asdl by src/compiler/python/ast/asdl_python.py.")
     lines.append("DO NOT EDIT BY HAND.")
     lines.append('"""')
     lines.append("")

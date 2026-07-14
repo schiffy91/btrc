@@ -8,7 +8,10 @@ class C {
 }
 
 int main() {
-    (string, C) t = ("c", new C(7));
+    // Tuples are shallow value aggregates: class elements borrow an owner
+    // whose lifetime must cover every tuple use.
+    C owner = new C(7);
+    (string, C) t = ("c", owner);
     assert(t._0 == "c");
     // Tuple element is a class instance (C*); bind to a local to access members.
     C inner = t._1;

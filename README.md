@@ -2,7 +2,7 @@
 
 **Modern syntax & features. C output. No magic.**
 
-btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, imports, collections, threads, GPU compute, automatic reference counting, exception handling, and a growing standard library -- all while staying compatible with C. The generated C is strict C11: no compiler extensions, no runtime library, no garbage collector, no virtual machine. Small inline helpers handle strings, collections, threading, and exceptions, but nothing is linked separately. You can inspect, debug, and link the output with any C11 compiler. It comes with a VS Code extension, a language server, and hundreds of compiler/language tests.
+btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, imports, collections, threads, GPU compute, automatic reference counting, exception handling, and a growing standard library -- all while staying compatible with C. The generated C is strict C11: no compiler extensions, no garbage collector, and no virtual machine. Core CPU programs embed the small helpers they use; optional GPU, GUI, tray, and other native backends link their platform runtimes explicitly. You can inspect, debug, and link the output with a C11 toolchain. It comes with a VS Code extension, a language server, and hundreds of compiler/language tests.
 
 And no – it's not actually better than C, but I like the name, which I ripped off from [btrfs](https://en.wikipedia.org/wiki/Btrfs).
 
@@ -128,6 +128,11 @@ Supported forms are:
 - directory globs with `./dir/*`
 - recursive directory globs with `./dir/**`
 
+Import composition is bounded before files are concatenated: resolved source
+may contain at most 64 MiB across 10,000 unique files, import nesting is capped
+at 256 levels, and a directory glob scans at most 100,000 entries. Exceeding a
+limit produces a compiler diagnostic instead of exhausting the host process.
+
 Use `--no-stdlib` when building programs that vendor or explicitly import the
 stdlib themselves. This is useful for downstream projects that need deterministic
 include ordering or a checked-in stdlib snapshot.
@@ -136,11 +141,11 @@ The current stdlib surfaces are intentionally practical:
 
 - `Strings` for object-oriented string helpers, conversion, splitting, joining,
   padding, and comparisons
-- `Command`, `CommandResult`, `UnixShell`, `ShellWords`, and `ProcessPipe` for
-  chainable shell/process orchestration
+- `Command`, `CommandOutput`, `UnixShell`, `ShellWords`, `UnixPipe`, and
+  `ChildProcess` for shell/process orchestration
 - `FileSystem`, `PathTools`, `Directory`, and `FileStatus` for filesystem work
-- `JsonObject` and `TomlDocument` for small declarative config files
-- `CliArgs`, `CliCommand`, and `CliRouter` for simple CLIs
+- `JsonObject`, `JsonValue`, and `Toml` for small declarative config files
+- `CliArgs`, `CliCommand`, `CliCommandLine`, and `CliHelp` for simple CLIs
 - `UiDocument`, `Window`, `Tray`, `DaemonSpec`, and related daemon/UI models for
   lightweight native-app scaffolding
 - `Platform`, `Environment`, and `Terminal` for OS/runtime integration
@@ -149,6 +154,40 @@ Low-level stdlib internals may call C APIs because that is how btrc exposes
 platform primitives. Application and test code should use the object-oriented
 wrappers instead of reaching for `strcmp`, `__btrc_strdup`, manual shell string
 assembly, or raw path manipulation.
+
+### Package dependencies
+
+A project can declare local or Git dependencies in the nearest `btrc.toml`:
+
+```toml
+[package]
+name = "myapp"
+
+[dependencies]
+mathx = { path = "../mathx" }
+netkit = { git = "https://example.com/netkit.git", rev = "v1.2.0" }
+```
+
+Compiling any source below that manifest resolves dependencies and atomically
+writes `btrc.lock`. Git entries preserve the requested ref and pin its exact
+commit; path entries are stored relative to the manifest. A changed dependency
+table is detected automatically. Pass `--fetch` only when you intentionally
+want to advance a moving Git ref and rewrite its lock entry. Git checkouts use
+`~/.btrc/pkgs/` by default, or `$BTRC_PKG_CACHE` when set. Manifest input is
+bounded to 1 MiB, and Git operations are non-interactive with a five-minute
+timeout so a compiler invocation cannot hang on a credential prompt or dead
+network indefinitely.
+
+Package imports address the dependency name and then an optional module path:
+
+```btrc
+import mathx
+import netkit.http
+```
+
+The resolver looks under each dependency's `src/` directory first, then its
+root. The compiler and LSP keep package maps isolated per invocation/workspace,
+so one project's manifest cannot leak into another project.
 
 ## What You Keep From C
 
@@ -359,6 +398,10 @@ class Circle extends Shape implements Drawable {
     public void draw() { print(f"circle r={self.r}"); }
 }
 ```
+
+Interfaces are compile-time implementation contracts. Dispatch is static, so
+variables, fields, parameters, and return values use the implementing concrete
+class rather than an interface type.
 
 Interfaces support inheritance (`interface A extends B`). The compiler checks that implementing classes provide all required methods with compatible signatures.
 
@@ -642,13 +685,14 @@ free(buf);
 
 | Keyword | Usage | Meaning |
 |---------|-------|---------|
-| `keep` | Function param: `store(keep T t)` | "I store this pointer" -- rc++ at call site |
-| `keep` | Function return: `keep T pop()` | "Caller takes ownership" -- caller auto-manages |
+| `keep` | Function param: `store(keep T t)` | Keep the argument alive until the call returns |
+| `keep` | Function return: `keep T pop()` | Explicitly documents the managed-return ABI; managed btrc returns are already caller-owned |
 | `keep` | Statement: `keep p;` | Explicit rc++ (keep alive past scope exit) |
 | `release` | Statement: `release p;` | rc--; destroy at zero; p = NULL |
 
 ```
-// Container stores a reference -- keep param increments refcount
+// Managed fields own their stored references. A keep parameter also protects
+// the argument for the duration of the call.
 class Container {
     public Node item;
     public void store(keep Node n) {
@@ -659,14 +703,35 @@ class Container {
 void example() {
     var c = new Container();
     var n = new Node(42);
-    c.store(n);              // rc++ at call site (keep param)
+    c.store(n);              // item retains n; call guard is then released
     delete c;                // Container destructor releases item (rc--)
-    // n still alive -- rc was incremented by keep
+    // n is still alive through its local owned reference
     delete n;                // force destroy
 }
 ```
 
-**Zero-cost when unused:** When no `keep` is ever applied to a variable, the compiler skips all refcount operations. The generated C is identical to hand-written manual code.
+`delete` is an explicit force-destroy operation. Use it only after every other
+owner has released the object; it intentionally invalidates outstanding aliases.
+Use `release` when shared owners may still exist. Storing a managed value in a
+class field or auto-property retains it independently of a parameter annotation.
+
+Every class value returned by a btrc function or method gives
+the caller one owned reference. Returning a fresh value or owned local transfers
+that reference; returning a borrowed parameter, `self`, field, or property
+retains it first. The `keep` return spelling remains useful as explicit API/ABI
+documentation, but it is not required to make a managed return caller-owned.
+Managed property reads remain field-like borrowed projections; when their
+receiver is itself a temporary owner, the compiler retains the projected value
+before releasing that receiver.
+
+Tuples, C structs, fixed C arrays, and rich-enum payloads are shallow value
+aggregates: class elements inside them are borrowed references. Keep an explicit
+class owner alive for at least as long as the aggregate. The compiler rejects
+embedding or assigning a caller-owned temporary directly because these
+aggregates have no copy/destructor protocol with which to release it.
+
+**Pay for managed values only:** Refcount operations are emitted at managed
+ownership boundaries; primitive-only code does not incur ARC work.
 
 **Cycle detection:** For classes that can form reference cycles (A -> B -> A), the compiler includes a trial-deletion cycle collector. Non-cyclable types pay zero overhead.
 
@@ -925,7 +990,12 @@ btrc compiles through six stages. Two formal specs drive the front-end: [`src/la
     gcc/clang     --> native binary     any C11 compiler works
 ```
 
-The generated C is self-contained -- no runtime library, no special headers. It includes everything inline: vtables for inheritance, monomorphized generic structs, collection implementations, string helpers, threading wrappers, and exception handling via `setjmp`/`longjmp`.
+For core CPU programs, generated C is self-contained apart from the ordinary C
+and platform libraries selected by the program. It includes the needed static
+inheritance/member lowering, monomorphized generic structs, collection and
+string helpers, threading wrappers, and exception handling via
+`setjmp`/`longjmp`. GPU, GUI, tray, and similar native features link their
+documented backend runtimes.
 
 ---
 
@@ -933,7 +1003,7 @@ The generated C is self-contained -- no runtime library, no special headers. It 
 
 btrc compiles itself. Alongside the reference compiler in Python, the same six-stage pipeline is implemented in btrc under [`src/compiler/btrc/`](src/compiler/btrc/) -- lexer, parser, analyzer, IR generation, optimizer, and C emitter, plus a front-end that auto-composes the standard library and resolves `#include`/`import` directives. It is bootstrapped by transpiling its own source with the reference compiler (a C compiler does the rest); from then on `btrcc` compiles btrc programs on its own.
 
-Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The AST is generated from the same [`ast.asdl`](src/language/ast.asdl) spec by a btrc-native ASDL parser ([`ast/asdl.btrc`](src/compiler/btrc/ast/asdl.btrc)) -- zero dependencies beyond the btrc executable itself.
+Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The checked-in btrc AST node layer is generated from the same [`ast.asdl`](src/language/ast.asdl) contract by [`gen_btrc_ast.py`](src/compiler/python/ast/gen_btrc_ast.py); `make ast-generate-btrc` is the canonical regeneration command. The self-hosted AST tooling consumes the same schema and is verified against that generated contract.
 
 The self-hosted compiler is held to a strict bar: across the entire language test suite, the C it emits must compile under `gcc -std=c11` (and `clang`) **and** produce byte-identical program output to the reference compiler. It also reaches a **bootstrap fixed point** -- the self-built `btrcc` compiles its own source, and that output, recompiled, is byte-identical (the compiler reproduces itself bit-for-bit). Run the bootstrap-parity suite and the fixed-point check with:
 
@@ -964,8 +1034,10 @@ src/
       lexer.py                 # Grammar-driven lexer
       lexer_literals.py        # Number/string literal parsing
       ast_nodes.py             # GENERATED from ast.asdl
-      cache.py                 # Stdlib source caching
-      disk_cache.py            # On-disk compilation cache
+      cache_io.py              # Atomic JSON/text cache writes
+      cache_keys.py            # Cache paths + toolchain fingerprints
+      disk_cache.py            # On-disk compiled-C cache
+      stdlib_ast_cache.py      # Schema-validated JSON stdlib AST cache
       main.py                  # Pipeline entry point + CLI
       parser/                  # Recursive descent parser (mixin-based)
       analyzer/                # Type checking, scopes, generics, GPU validation
@@ -990,6 +1062,7 @@ src/
       lexer.btrc               # Grammar-driven lexer
       frontend.btrc            # stdlib auto-composition + #include/import resolution
       parser.btrc              # Recursive descent parser --> fat-node AST
+      ast_identity.btrc        # Stable AST side-table keys shared across stages
       analyzer.btrc            # Type checking, scopes, generics, enums
       irgen.btrc               # AST --> IR lowering (the core)
       ir_nodes.btrc            # IR node definitions (fat tagged node)
@@ -1017,16 +1090,18 @@ src/
     gpu/                       # GPU runtime (WebGPU/wgpu-native)
       gpu.btrc                 # GPU btrc types
       btrc_gpu.h               # C header for GPU compute functions
-      btrc_gpu.c               # C implementation (wgpu-native backend)
+      btrc_gpu.c               # Strict-C11 implementation (wgpu-native backend)
+      btrc_gpu_compute_singleton.h # Atomic compute-context publication
+      btrc_gpu_surface_macos.m # macOS Cocoa/Metal surface bridge
 
   tests/                       # Test suite — one framework for both compilers
     runner.py                  # Unified runner: each .btrc test through BOTH the
                                #   Python and self-hosted compilers (--compilers)
     generate_expected.py       # Regenerate golden .stdout files
     conftest.py                # --compilers option + shared fixtures
-    python/                    # Python reference-compiler unit tests (~1140)
+    python/                    # Python reference-compiler unit tests
     btrc/                      # Self-hosted-compiler-specific tests
-    <category>/                # 854 shared language tests (.btrc), run on both
+    <category>/                # Shared language tests (.btrc), run on both
     basics/                    # Types, vars, print, nullable, casting, sizeof
     control_flow/              # if/for/while/switch/try-catch, range
     classes/                   # Classes, inheritance, interfaces, abstract
@@ -1059,11 +1134,13 @@ examples/
 
 ```bash
 make build                  # Create bin/btrcpy wrapper script (Python reference compiler)
+make package                # Build the Python sdist, then its installable wheel
+make wheel                  # Build only the installable Python wheel
 make btrcc                  # Build the self-hosted compiler for THIS machine -> bin/btrcc
 make test                   # Everything: unit + LSP + debugger + language on BOTH compilers
 make test-btrc              # Language corpus through the Python reference compiler
 make test-btrc-selfhost     # Language corpus through the self-hosted compiler (btrcc)
-make test-c11               # Strict C11 compliance: gcc + clang at -O0 through -O3
+make test-c11               # Strict, warning-free C11: gcc + clang at -O0 through -O3
 make lint                   # Run ruff linter
 make format                 # Format with ruff
 make test-generate-goldens  # Regenerate golden .stdout files
@@ -1132,9 +1209,11 @@ Manual install requires:
 ### CI
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push and PR to `main`:
-1. Builds the devcontainer image
-2. Runs `make lint` (ruff)
-3. Runs `make test` (~1140 reference unit tests + 854 language tests run through **both** the reference and self-hosted compilers, gcc `-std=c11`)
+1. Validates the Nix flake and builds the devcontainer image
+2. Checks lint and formatting
+3. Builds the Python distribution and VS Code extension
+4. Runs the reference, self-hosted, LSP, debugger, and shared language suites
+5. Re-runs the shared language suite across the strict GCC/Clang C11 matrix
 
 GPU tests are automatically skipped in CI when the GPU runtime is not built.
 
@@ -1184,8 +1263,9 @@ The extension auto-discovers the LSP server and Python interpreter. Configure `b
 ## Roadmap
 
 Planned but not yet implemented:
-- **Known language gaps** -- the exhaustive test sweep surfaced a handful of grammar-permitted features the compilers don't yet lower (typedef aliases, `static` locals, class-type casts, rich-enum-by-value across boundaries, …); see [docs/known-language-gaps.md](docs/known-language-gaps.md)
-- **Module system** -- currently relies on `#include "file.btrc"` textual inclusion
+- **Known language gaps** -- the remaining unsupported forms and their regression status are tracked in [docs/known-language-gaps.md](docs/known-language-gaps.md)
+- **Module system** -- imports already resolve and compose declarations textually;
+  namespaced modules and separate compilation remain planned
 - **Pattern matching** -- `match` expressions for rich enums with exhaustiveness checking
 - **Weak references** -- `weak` keyword for intentional non-owning references
 - **Incremental compilation** -- only recompile changed files

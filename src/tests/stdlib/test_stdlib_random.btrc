@@ -16,7 +16,7 @@ int main() {
     // random() returns [0, 1)
     for i in range(20) {
         float val = rng.random();
-        assert(val >= 0.0f && val <= 1.0f);
+        assert(val >= 0.0f && val < 1.0f);
     }
 
     // uniform returns values in range

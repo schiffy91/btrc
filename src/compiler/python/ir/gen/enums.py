@@ -17,12 +17,15 @@ from ..nodes import (
     IRLiteral,
     IRParam,
     IRReturn,
-    IRStructDef,
     IRStructField,
     IRSwitch,
+    IRTaggedUnionDef,
+    IRTaggedUnionVariant,
     IRVar,
     IRVarDecl,
 )
+from .parameters import lower_source_param
+from .types import type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -38,41 +41,66 @@ def emit_enum_decls(gen: IRGenerator):
 
 
 def _emit_enum(gen: IRGenerator, decl: EnumDecl):
-    """Emit a simple enum as IREnumDef + toString IRFunctionDef."""
+    """Emit a simple enum and, for named enums, its toString helper."""
     # Build enum definition
     values = []
-    for i, v in enumerate(decl.values):
+    prior_members = set()
+    for v in decl.values:
         if v.value is not None:
             from .expressions import lower_expr
-            from .statements import _quick_text
-            val_text = _quick_text(lower_expr(gen, v.value))
-            values.append(IREnumValue(
-                name=f"{decl.name}_{v.name}", value=val_text))
+
+            previous_owner = getattr(gen, "_enum_lowering_owner", None)
+            previous_members = getattr(gen, "_enum_lowering_members", None)
+            gen._enum_lowering_owner = decl.name or ""
+            gen._enum_lowering_members = frozenset(prior_members)
+            try:
+                lowered_value = lower_expr(gen, v.value)
+            finally:
+                gen._enum_lowering_owner = previous_owner
+                gen._enum_lowering_members = previous_members
+            values.append(
+                IREnumValue(
+                    name=_enum_value_name(decl.name, v.name),
+                    value=lowered_value,
+                )
+            )
         else:
-            values.append(IREnumValue(
-                name=f"{decl.name}_{v.name}", value=str(i)))
-    gen.module.enum_defs.append(IREnumDef(name=decl.name, values=values))
+            values.append(
+                IREnumValue(
+                    name=_enum_value_name(decl.name, v.name),
+                    value=None,
+                )
+            )
+        prior_members.add(v.name)
+    gen.module.enum_defs.append(IREnumDef(name=decl.name or None, values=values))
+
+    if not decl.name:
+        return
 
     # Generate toString function as IRFunctionDef
     cases = [
-        IRCase(
-            value=IRLiteral(text=f"{decl.name}_{v.name}"),
-            body=[IRReturn(value=IRLiteral(text=f'"{v.name}"'))])
+        IRCase(value=IRVar(name=f"{decl.name}_{v.name}"), body=[IRReturn(value=IRLiteral(text=f'"{v.name}"'))])
         for v in decl.values
     ]
-    cases.append(IRCase(
-        value=None,
-        body=[IRReturn(value=IRLiteral(text='"unknown"'))]))
+    cases.append(IRCase(value=None, body=[IRReturn(value=IRLiteral(text='"unknown"'))]))
 
-    gen.module.function_defs.append(IRFunctionDef(
-        name=f"{decl.name}_toString",
-        return_type=CType(text="const char*"),
-        params=[IRParam(c_type=CType(text=decl.name), name="val")],
-        is_static=True,
-        body=IRBlock(stmts=[
-            IRSwitch(value=IRVar(name="val"), cases=cases),
-        ]),
-    ))
+    gen.module.function_defs.append(
+        IRFunctionDef(
+            name=f"{decl.name}_toString",
+            return_type=CType(text="const char*"),
+            params=[IRParam(c_type=CType(text=decl.name), name="val")],
+            is_static=True,
+            body=IRBlock(
+                stmts=[
+                    IRSwitch(value=IRVar(name="val"), cases=cases),
+                ]
+            ),
+        )
+    )
+
+
+def _enum_value_name(enum_name: str, value_name: str) -> str:
+    return f"{enum_name}_{value_name}" if enum_name else value_name
 
 
 def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
@@ -81,109 +109,96 @@ def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
 
     # Tag enum → IREnumDef
     tag_values = [
-        IREnumValue(name=f"{name}_{v.name}_TAG", value=str(i))
+        IREnumValue(
+            name=f"{name}_{v.name}_TAG",
+            value=IRLiteral(text=str(i)),
+        )
         for i, v in enumerate(decl.variants)
     ]
-    gen.module.enum_defs.append(IREnumDef(
-        name=f"{name}_Tag", values=tag_values))
+    gen.module.enum_defs.append(IREnumDef(name=f"{name}_Tag", values=tag_values))
 
-    # Data structs for each variant with parameters → IRStructDef + typedef
-    for v in decl.variants:
-        if v.params:
-            from .types import type_to_c
-            struct_name = f"{name}_{v.name}_Data"
-            gen.module.forward_decls.append(
-                f"typedef struct {struct_name} {struct_name};")
-            fields = [
-                IRStructField(c_type=CType(text=type_to_c(p.type)), name=p.name)
-                for p in v.params
-            ]
-            gen.module.struct_defs.append(IRStructDef(
-                name=struct_name, fields=fields))
-
-    # Main struct with tag + union → raw_sections
-    # (IRStructDef doesn't support unions; keep as raw C text)
-    union_fields = []
-    for v in decl.variants:
-        if v.params:
-            union_fields.append(
-                f"        {name}_{v.name}_Data {v.name};")
-    if union_fields:
-        union_text = "\n".join(union_fields)
-        gen.module.raw_sections.append(
-            f"typedef struct {{\n"
-            f"    {name}_Tag tag;\n"
-            f"    union {{\n{union_text}\n    }} data;\n"
-            f"}} {name};")
-    else:
-        gen.module.raw_sections.append(
-            f"typedef struct {{\n    {name}_Tag tag;\n}} {name};")
+    variants = [
+        IRTaggedUnionVariant(
+            name=variant.name,
+            fields=[
+                IRStructField(c_type=CType(text=type_to_c(param.type)), name=param.name) for param in variant.params
+            ],
+        )
+        for variant in decl.variants
+    ]
+    gen.module.tagged_union_defs.append(
+        IRTaggedUnionDef(
+            name=name,
+            tag_type=CType(text=f"{name}_Tag"),
+            variants=variants,
+        )
+    )
 
     # Constructor functions → IRFunctionDef
     for v in decl.variants:
-        from .types import type_to_c
         if v.params:
-            params = [
-                IRParam(c_type=CType(text=type_to_c(p.type)), name=p.name)
-                for p in v.params
-            ]
+            params = [lower_source_param(parameter) for parameter in v.params]
             body_stmts = [
                 IRVarDecl(c_type=CType(text=name), name="__result", init=None),
                 IRAssign(
-                    target=IRFieldAccess(
-                        obj=IRVar(name="__result"), field="tag", arrow=False),
-                    value=IRLiteral(text=f"{name}_{v.name}_TAG")),
+                    target=IRFieldAccess(obj=IRVar(name="__result"), field="tag", arrow=False),
+                    value=IRVar(name=f"{name}_{v.name}_TAG"),
+                ),
             ]
             for p in v.params:
-                body_stmts.append(IRAssign(
-                    target=IRFieldAccess(
-                        obj=IRFieldAccess(
+                body_stmts.append(
+                    IRAssign(
+                        target=IRFieldAccess(
                             obj=IRFieldAccess(
-                                obj=IRVar(name="__result"),
-                                field="data", arrow=False),
-                            field=v.name, arrow=False),
-                        field=p.name, arrow=False),
-                    value=IRVar(name=p.name)))
+                                obj=IRFieldAccess(obj=IRVar(name="__result"), field="data", arrow=False),
+                                field=v.name,
+                                arrow=False,
+                            ),
+                            field=p.name,
+                            arrow=False,
+                        ),
+                        value=IRVar(name=p.name),
+                    )
+                )
             body_stmts.append(IRReturn(value=IRVar(name="__result")))
         else:
             params = []
             body_stmts = [
                 IRVarDecl(c_type=CType(text=name), name="__result", init=None),
                 IRAssign(
-                    target=IRFieldAccess(
-                        obj=IRVar(name="__result"), field="tag", arrow=False),
-                    value=IRLiteral(text=f"{name}_{v.name}_TAG")),
+                    target=IRFieldAccess(obj=IRVar(name="__result"), field="tag", arrow=False),
+                    value=IRVar(name=f"{name}_{v.name}_TAG"),
+                ),
                 IRReturn(value=IRVar(name="__result")),
             ]
 
-        gen.module.function_defs.append(IRFunctionDef(
-            name=f"{name}_{v.name}",
-            return_type=CType(text=name),
-            params=params,
-            is_static=True,
-            body=IRBlock(stmts=body_stmts),
-        ))
+        gen.module.function_defs.append(
+            IRFunctionDef(
+                name=f"{name}_{v.name}",
+                return_type=CType(text=name),
+                params=params,
+                is_static=True,
+                body=IRBlock(stmts=body_stmts),
+            )
+        )
 
     # Generate toString function as IRFunctionDef
     cases = [
-        IRCase(
-            value=IRLiteral(text=f"{name}_{v.name}_TAG"),
-            body=[IRReturn(value=IRLiteral(text=f'"{v.name}"'))])
+        IRCase(value=IRVar(name=f"{name}_{v.name}_TAG"), body=[IRReturn(value=IRLiteral(text=f'"{v.name}"'))])
         for v in decl.variants
     ]
-    cases.append(IRCase(
-        value=None,
-        body=[IRReturn(value=IRLiteral(text='"unknown"'))]))
+    cases.append(IRCase(value=None, body=[IRReturn(value=IRLiteral(text='"unknown"'))]))
 
-    gen.module.function_defs.append(IRFunctionDef(
-        name=f"{name}_toString",
-        return_type=CType(text="const char*"),
-        params=[IRParam(c_type=CType(text=name), name="val")],
-        is_static=True,
-        body=IRBlock(stmts=[
-            IRSwitch(
-                value=IRFieldAccess(
-                    obj=IRVar(name="val"), field="tag", arrow=False),
-                cases=cases),
-        ]),
-    ))
+    gen.module.function_defs.append(
+        IRFunctionDef(
+            name=f"{name}_toString",
+            return_type=CType(text="const char*"),
+            params=[IRParam(c_type=CType(text=name), name="val")],
+            is_static=True,
+            body=IRBlock(
+                stmts=[
+                    IRSwitch(value=IRFieldAccess(obj=IRVar(name="val"), field="tag", arrow=False), cases=cases),
+                ]
+            ),
+        )
+    )

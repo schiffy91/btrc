@@ -1,0 +1,87 @@
+#include <assert.h>
+
+enum Code { CODE_ZERO, CODE_ONE, CODE_TWO };
+
+enum class Measure {
+    Exact(double value, long count),
+    Missing
+}
+
+struct Pair {
+    double fraction;
+    unsigned long long wide;
+};
+
+typedef double Ratio;
+typedef __fn_ptr<int, int> Unary;
+
+int rawValue = 73;
+int evaluations = 0;
+int increment(int value) { return value + 1; }
+double nextDecimal() { evaluations++; return 4.75; }
+
+int main() {
+    Mutex<double> decimal = Mutex(1.25);
+    assert(decimal.get() == 1.25);
+    decimal.set(9.5);
+    assert(decimal.get() == 9.5);
+    decimal.set(nextDecimal());
+    assert(evaluations == 1);
+    assert(decimal.get() == 4.75);
+    decimal.destroy();
+
+    Mutex<long double> extended = Mutex((long double)3.125);
+    assert(extended.get() == (long double)3.125);
+    extended.destroy();
+
+    Mutex<Ratio> ratio = Mutex((Ratio)11.75);
+    assert(ratio.get() == (Ratio)11.75);
+    ratio.destroy();
+
+    Mutex<unsigned long long> wide = Mutex(0xFEDCBA9876543210ULL);
+    assert(wide.get() == 0xFEDCBA9876543210ULL);
+    wide.destroy();
+
+    Mutex<size_t> sized = Mutex(sizeof(Pair));
+    assert(sized.get() == sizeof(Pair));
+    sized.destroy();
+
+    Mutex<Code> code = Mutex(CODE_TWO);
+    assert(code.get() == CODE_TWO);
+    code.destroy();
+
+    Pair first = {6.25, 0xABCDEF0123456789ULL};
+    Mutex<Pair> pairMutex = new Mutex<Pair>(first);
+    Pair pair = pairMutex.get();
+    assert(pair.fraction == 6.25);
+    assert(pair.wide == 0xABCDEF0123456789ULL);
+    Pair second = {8.5, 91ULL};
+    pairMutex.set(second);
+    pair = pairMutex.get();
+    assert(pair.fraction == 8.5 && pair.wide == 91ULL);
+    pairMutex.destroy();
+
+    Mutex<(double, long)> tupleMutex = Mutex((7.75, (long)91));
+    (double, long) tupleValue = tupleMutex.get();
+    assert(tupleValue._0 == 7.75 && tupleValue._1 == 91);
+    tupleMutex.destroy();
+
+    Measure exact = Measure.Exact(2.5, 19);
+    Mutex<Measure> measureMutex = Mutex(exact);
+    Measure measure = measureMutex.get();
+    assert(measure.tag == Measure.Exact);
+    assert(measure.data.Exact.value == 2.5);
+    assert(measure.data.Exact.count == 19);
+    measureMutex.destroy();
+
+    Unary callback = increment;
+    Mutex<Unary> callbackMutex = Mutex(callback);
+    __fn_ptr<int, int> joinedCallback = callbackMutex.get();
+    assert(joinedCallback(8) == 9);
+    callbackMutex.destroy();
+
+    Mutex<int*> pointerMutex = Mutex(&rawValue);
+    assert(pointerMutex.get() == &rawValue);
+    pointerMutex.destroy();
+    return 0;
+}

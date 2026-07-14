@@ -1,0 +1,66 @@
+/* break/continue intentionally skip a surrounding finally in btrc's current
+ * control-flow contract, but they must also pop that try frame. Otherwise a
+ * later throw longjmps into the stale frame and runs the skipped finally late. */
+#include <assert.h>
+
+int main() {
+    int breakFinally = 0;
+    string breakCaught = "";
+    try {
+        for i in range(1) {
+            try {
+                break;
+            } finally {
+                breakFinally++;
+            }
+        }
+        assert(breakFinally == 0);
+        throw "after-break";
+    } catch (string message) {
+        breakCaught = message;
+    }
+    assert(breakFinally == 0);
+    assert(breakCaught.equals("after-break"));
+
+    int continueFinally = 0;
+    string continueCaught = "";
+    try {
+        for i in range(1) {
+            try {
+                continue;
+            } finally {
+                continueFinally++;
+            }
+        }
+        assert(continueFinally == 0);
+        throw "after-continue";
+    } catch (string message) {
+        continueCaught = message;
+    }
+    assert(continueFinally == 0);
+    assert(continueCaught.equals("after-continue"));
+
+    int switchFinally = 0;
+    string switchCaught = "";
+    try {
+        switch (1) {
+            case 1:
+                try {
+                    break;
+                } finally {
+                    switchFinally++;
+                }
+            default:
+                break;
+        }
+        assert(switchFinally == 0);
+        throw "after-switch";
+    } catch (string message) {
+        switchCaught = message;
+    }
+    assert(switchFinally == 0);
+    assert(switchCaught.equals("after-switch"));
+
+    print("PASS: test_exceptions_control_escape_frame_cleanup");
+    return 0;
+}

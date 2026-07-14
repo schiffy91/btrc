@@ -1,0 +1,33 @@
+/* Non-mutating TypeExpr shape copies shared by semantic transformations. */
+
+Node copyTypeExprWithArgs(Node typeExpr, Vector<Node> genericArgs) {
+    Node result = Node();
+    result.kind = NK_TYPE_EXPR;
+    result.base = typeExpr.base;
+    result.generic_args = genericArgs;
+    result.pointer_depth = typeExpr.pointer_depth;
+    result.is_array = typeExpr.is_array;
+    result.array_size = typeExpr.array_size;
+    result.is_const = typeExpr.is_const;
+    result.is_nullable = typeExpr.is_nullable;
+    result.is_static = typeExpr.is_static;
+    result.is_extern = typeExpr.is_extern;
+    result.is_volatile = typeExpr.is_volatile;
+    result.line = typeExpr.line;
+    result.col = typeExpr.col;
+    return result;
+}
+
+Node copyTypeExpr(Node typeExpr) {
+    return copyTypeExprWithArgs(typeExpr, typeExpr.generic_args);
+}
+
+Node copyTypeExprTree(Node typeExpr) {
+    Vector<Node> genericArgs = [];
+    int index = 0;
+    while (index < typeExpr.generic_args.len) {
+        genericArgs.push(copyTypeExprTree(typeExpr.generic_args.get(index)));
+        index = index + 1;
+    }
+    return copyTypeExprWithArgs(typeExpr, genericArgs);
+}

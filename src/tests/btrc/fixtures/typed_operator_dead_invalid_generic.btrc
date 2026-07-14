@@ -1,0 +1,13 @@
+class Item {
+    public Item() {}
+}
+
+class Ordered<T> {
+    public Ordered() {}
+    public bool less(T left, T right) { return left < right; }
+}
+
+int main() {
+    Ordered<Item> ordered = new Ordered<Item>();
+    return ordered == null ? 1 : 0;
+}

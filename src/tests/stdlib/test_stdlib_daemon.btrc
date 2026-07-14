@@ -21,7 +21,7 @@ int main() {
     assert(cmd.contains("'hello world'"));        // arg quoted
     assert(cmd.contains("cd '/tmp/with space'"));  // cwd quoted in the cd prefix
     assert(cmd.contains("nohup echo 'hello world'"));
-    assert(cmd.contains("&& "));                   // cd ... && nohup ...
+    assert(cmd.contains("set -C"));                // PID creation is atomic
 
     // restart(false) flips the flag back.
     DaemonSpec noRestart = DaemonSpec("d", Command("true")).restart(false);
@@ -51,6 +51,19 @@ int main() {
     // After stopping, status fails (no pid file).
     ExecResult after = ctl.status(live);
     assert(!after.ok());
+
+    // PID-file contents are data, never shell syntax or kill options.
+    string marker = PathTools.join(dir, "injected");
+    Path.writeAll(pidFile, f"1; touch {marker}");
+    assert(!ctl.status(live).ok());
+    assert(!ctl.stop(live).ok());
+    assert(!FileSystem.exists(marker));
+    assert(FileSystem.exists(pidFile));
+    Path.writeAll(pidFile, "-1");
+    assert(!ctl.status(live).ok());
+    assert(!ctl.stop(live).ok());
+    assert(FileSystem.exists(pidFile));
+    FileSystem.removeRecursive(pidFile);
 
     FileSystem.removeRecursive(dir);
     assert(!FileSystem.exists(dir));

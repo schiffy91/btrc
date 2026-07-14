@@ -10,14 +10,15 @@
 BTRC := python3 -m src.compiler.python.main
 ROOT := ../..
 TRAY := ../../src/stdlib/tray
-CC   := cc
 
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Darwin)
+  CC      := clang
   SHIM    := $(TRAY)/btrc_tray_macos.m
   TRAY_LD := -framework Cocoa
   TRAY_CF := -fobjc-arc
 else
+  CC      := cc
   SHIM    := $(TRAY)/btrc_tray_linux.c
   TRAY_LD := $(shell pkg-config --libs dbus-1 2>/dev/null)
   TRAY_CF := $(shell pkg-config --cflags dbus-1 2>/dev/null)

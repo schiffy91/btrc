@@ -1,6 +1,6 @@
 // Lambda capturing MULTIPLE distinct locals in one closure (capture-struct
-// field ordering), invoked directly. (A capturing lambda cannot be stored in a
-// bare __fn_ptr — it has no env slot; see docs/known-language-gaps.md.)
+// field ordering), invoked directly. A bare __fn_ptr has no environment slot,
+// so the analyzer rejects conversions that would discard these captures.
 #include <assert.h>
 
 int main() {

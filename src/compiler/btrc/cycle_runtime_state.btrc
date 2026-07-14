@@ -1,0 +1,214 @@
+string cycleRuntimeStateSource(string name) {
+    if (name == "__btrc_arc_callback_types") {
+        return "/* Type-erased ARC metadata shared by ownership paths. */\n"
+            + "typedef int __btrc_arc_count;\n"
+            + "typedef struct __btrc_arc_type __btrc_arc_type;\n"
+            + "typedef struct __btrc_arc_incoming __btrc_arc_incoming;\n"
+            + "typedef struct __btrc_arc_header {\n"
+            + "    __btrc_arc_count rc;\n"
+            + "    __btrc_arc_count edge_rc;\n"
+            + "    /* One current incoming-edge owner, or self as a full-snapshot sentinel. */\n"
+            + "    void* live_witness;\n"
+            + "    const __btrc_arc_type* type;\n"
+            + "    __btrc_arc_incoming* incoming;\n"
+            + "} __btrc_arc_header;\n"
+            + "struct __btrc_arc_incoming {\n"
+            + "    void* owner;\n"
+            + "    __btrc_arc_incoming* next;\n"
+            + "};\n"
+            + "typedef void (*__btrc_destroy_fn)(void*);\n"
+            + "typedef void (*__btrc_field_visit_fn)(\n"
+            + "    void**, const __btrc_arc_type*, void*);\n"
+            + "typedef void (*__btrc_visit_fn)(\n"
+            + "    void*, __btrc_field_visit_fn, void*);\n"
+            + "struct __btrc_arc_type {\n"
+            + "    __btrc_visit_fn visit;\n"
+            + "    __btrc_destroy_fn destroy;\n"
+            + "};";
+    }
+    if (name == "__btrc_arc_header_of") {
+        return "static inline __btrc_arc_header* __btrc_arc_header_of(void* object) {\n"
+            + "    return (__btrc_arc_header*)object;\n"
+            + "}";
+    }
+    if (name == "__btrc_arc_type_of") {
+        return "static inline const __btrc_arc_type* __btrc_arc_type_of(\n"
+            + "        void* object, const __btrc_arc_type* fallback) {\n"
+            + "    if (object && __btrc_arc_header_of(object)->type)\n"
+            + "        return __btrc_arc_header_of(object)->type;\n"
+            + "    return fallback;\n"
+            + "}";
+    }
+    if (name == "__btrc_arc_validate") {
+        return "static inline void __btrc_arc_validate(void* object) {\n"
+            + "    if (!object) return;\n"
+            + "    __btrc_arc_header* header = __btrc_arc_header_of(object);\n"
+            + "    if (header->rc < 0 || header->edge_rc < 0\n"
+            + "            || header->edge_rc > header->rc || !header->type\n"
+            + "            || !header->type->destroy) {\n"
+            + "        fprintf(stderr, \"btrc: invalid ARC header\\n\");\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "}";
+    }
+    if (name == "__btrc_destroyed_tracking") {
+        return "/* ARC cascade-destroy tracking: avoid reading freed memory */\n"
+            + "static _Atomic int __btrc_tracking = 0;\n"
+            + "static void** __btrc_destroyed = NULL;\n"
+            + "static int __btrc_destroyed_count = 0;";
+    }
+    if (name == "__btrc_destroyed_tracking_scope") {
+        return "static void __btrc_destroyed_tracking_begin(void) {\n"
+            + "    __btrc_arc_lock_mutation();\n"
+            + "    int active = atomic_load_explicit(\n"
+            + "        &__btrc_tracking, memory_order_relaxed);\n"
+            + "    if (active == 0) __btrc_destroyed_count = 0;\n"
+            + "    if (active == INT_MAX) {\n"
+            + "        fprintf(stderr, \"btrc: destroyed tracking depth overflow\\n\");\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    atomic_store_explicit(\n"
+            + "        &__btrc_tracking, active + 1, memory_order_release);\n"
+            + "    __btrc_arc_unlock_mutation();\n"
+            + "}\n"
+            + "static void __btrc_destroyed_tracking_end(void) {\n"
+            + "    __btrc_arc_lock_mutation();\n"
+            + "    int active = atomic_load_explicit(\n"
+            + "        &__btrc_tracking, memory_order_relaxed);\n"
+            + "    if (active <= 0) {\n"
+            + "        fprintf(stderr, \"btrc: unbalanced destroyed tracking scope\\n\");\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    active--;\n"
+            + "    atomic_store_explicit(\n"
+            + "        &__btrc_tracking, active, memory_order_release);\n"
+            + "    if (active == 0) __btrc_destroyed_count = 0;\n"
+            + "    __btrc_arc_unlock_mutation();\n"
+            + "}";
+    }
+    if (name == "__btrc_is_destroyed") {
+        return "static int __btrc_is_destroyed(void* ptr) {\n"
+            + "    if (!ptr) return 0;\n"
+            + "    __btrc_arc_lock_mutation();\n"
+            + "    for (int i = 0; i < __btrc_destroyed_count; i++) {\n"
+            + "        if (__btrc_destroyed[i] != ptr) continue;\n"
+            + "        __btrc_arc_unlock_mutation();\n"
+            + "        return 1;\n"
+            + "    }\n"
+            + "    __btrc_arc_unlock_mutation();\n"
+            + "    return 0;\n"
+            + "}";
+    }
+    if (name == "__btrc_destroyed_capacity") {
+        return "static int __btrc_destroyed_cap = 0;";
+    }
+    if (name == "__btrc_mark_destroyed") {
+        return "static void __btrc_mark_destroyed(void* ptr) {\n"
+            + "    if (!ptr) return;\n"
+            + "    __btrc_arc_lock_mutation();\n"
+            + "    if (!atomic_load_explicit(\n"
+            + "            &__btrc_tracking, memory_order_acquire)) {\n"
+            + "        __btrc_arc_unlock_mutation();\n"
+            + "        return;\n"
+            + "    }\n"
+            + "    for (int i = 0; i < __btrc_destroyed_count; i++) {\n"
+            + "        if (__btrc_destroyed[i] != ptr) continue;\n"
+            + "        __btrc_arc_unlock_mutation();\n"
+            + "        return;\n"
+            + "    }\n"
+            + "    if (__btrc_destroyed_count >= __btrc_destroyed_cap) {\n"
+            + "        if (__btrc_destroyed_cap > INT_MAX / 2) { fprintf(stderr, \"btrc: destroyed tracking overflow\\n\"); exit(1); }\n"
+            + "        int new_cap = __btrc_destroyed_cap ? __btrc_destroyed_cap * 2 : 256;\n"
+            + "        if ((size_t)new_cap > SIZE_MAX / sizeof(void*)) { fprintf(stderr, \"btrc: destroyed tracking size overflow\\n\"); exit(1); }\n"
+            + "        __btrc_destroyed = (void**)__btrc_safe_realloc(\n"
+            + "            __btrc_destroyed, sizeof(void*) * (size_t)new_cap);\n"
+            + "        __btrc_destroyed_cap = new_cap;\n"
+            + "    }\n"
+            + "    __btrc_destroyed[__btrc_destroyed_count++] = ptr;\n"
+            + "    __btrc_arc_unlock_mutation();\n"
+            + "}";
+    }
+    if (name == "__btrc_suspect_state") {
+        return "/* ARC cycle detection: suspect buffer */\n"
+            + "static void** __btrc_suspects = NULL;\n"
+            + "static int __btrc_suspect_count = 0;\n"
+            + "static __btrc_visit_fn* __btrc_visit_table = NULL;\n"
+            + "static __btrc_destroy_fn* __btrc_destroy_table = NULL;\n"
+            + "static void** __btrc_suspect_keys = NULL;\n"
+            + "static int __btrc_suspect_key_cap = 0;";
+    }
+    if (name == "__btrc_suspect_capacity") {
+        return "static int __btrc_suspect_cap = 0;";
+    }
+    if (name == "__btrc_ptr_hash") {
+        return "static size_t __btrc_ptr_hash(const void* ptr) {\n"
+            + "    uintptr_t value = (uintptr_t)ptr;\n"
+            + "    value ^= value >> 17;\n"
+            + "    value ^= value >> 9;\n"
+            + "    return (size_t)value;\n"
+            + "}";
+    }
+    if (name == "__btrc_suspect_locked") {
+        return "static void __btrc_grow_suspect_keys_locked(void) {\n"
+            + "    if (__btrc_suspect_key_cap > INT_MAX / 2) { fprintf(stderr, \"btrc: cycle suspect hash overflow\\n\"); exit(1); }\n"
+            + "    int cap = __btrc_suspect_key_cap ? __btrc_suspect_key_cap * 2 : 256;\n"
+            + "    void** keys = (void**)calloc((size_t)cap, sizeof(void*));\n"
+            + "    if (!keys) { fprintf(stderr, \"btrc: cycle suspect hash allocation failed\\n\"); exit(1); }\n"
+            + "    for (int i = 0; i < __btrc_suspect_count; i++) {\n"
+            + "        size_t index = __btrc_ptr_hash(__btrc_suspects[i]) & ((size_t)cap - 1);\n"
+            + "        while (keys[index]) index = (index + 1) & ((size_t)cap - 1);\n"
+            + "        keys[index] = __btrc_suspects[i];\n"
+            + "    }\n"
+            + "    free(__btrc_suspect_keys);\n"
+            + "    __btrc_suspect_keys = keys;\n"
+            + "    __btrc_suspect_key_cap = cap;\n"
+            + "}\n"
+            + "static inline void __btrc_suspect_locked(void* obj, __btrc_visit_fn visit,\n"
+            + "                           __btrc_destroy_fn destroy) {\n"
+            + "    if (!obj) return;\n"
+            + "    __btrc_arc_validate(obj);\n"
+            + "    __btrc_arc_header* header = __btrc_arc_header_of(obj);\n"
+            + "    if (header->rc > header->edge_rc) return;\n"
+            + "    __btrc_arc_type fallback = {visit, destroy};\n"
+            + "    const __btrc_arc_type* type = __btrc_arc_type_of(obj, &fallback);\n"
+            + "    if (!type || !type->visit || !type->destroy) return;\n"
+            + "    if (__btrc_suspect_key_cap == 0\n"
+            + "            || __btrc_suspect_count >= __btrc_suspect_key_cap / 2)\n"
+            + "        __btrc_grow_suspect_keys_locked();\n"
+            + "    size_t key = __btrc_ptr_hash(obj)\n"
+            + "        & ((size_t)__btrc_suspect_key_cap - 1);\n"
+            + "    while (__btrc_suspect_keys[key]) {\n"
+            + "        if (__btrc_suspect_keys[key] == obj) return;\n"
+            + "        key = (key + 1) & ((size_t)__btrc_suspect_key_cap - 1);\n"
+            + "    }\n"
+            + "    if (__btrc_suspect_count >= __btrc_suspect_cap) {\n"
+            + "        if (__btrc_suspect_cap > INT_MAX / 2) { fprintf(stderr, \"btrc: cycle suspect overflow\\n\"); exit(1); }\n"
+            + "        int new_cap = __btrc_suspect_cap ? __btrc_suspect_cap * 2 : 256;\n"
+            + "        if ((size_t)new_cap > SIZE_MAX / sizeof(void*)\n"
+            + "                || (size_t)new_cap > SIZE_MAX / sizeof(__btrc_visit_fn)\n"
+            + "                || (size_t)new_cap > SIZE_MAX / sizeof(__btrc_destroy_fn)) { fprintf(stderr, \"btrc: cycle suspect size overflow\\n\"); exit(1); }\n"
+            + "        __btrc_suspects = (void**)__btrc_safe_realloc(\n"
+            + "            __btrc_suspects, sizeof(void*) * (size_t)new_cap);\n"
+            + "        __btrc_visit_table = (__btrc_visit_fn*)__btrc_safe_realloc(\n"
+            + "            __btrc_visit_table, sizeof(__btrc_visit_fn) * (size_t)new_cap);\n"
+            + "        __btrc_destroy_table = (__btrc_destroy_fn*)__btrc_safe_realloc(\n"
+            + "            __btrc_destroy_table, sizeof(__btrc_destroy_fn) * (size_t)new_cap);\n"
+            + "        __btrc_suspect_cap = new_cap;\n"
+            + "    }\n"
+            + "    __btrc_suspects[__btrc_suspect_count] = obj;\n"
+            + "    __btrc_visit_table[__btrc_suspect_count] = type->visit;\n"
+            + "    __btrc_destroy_table[__btrc_suspect_count] = type->destroy;\n"
+            + "    __btrc_suspect_keys[key] = obj;\n"
+            + "    __btrc_suspect_count++;\n"
+            + "}";
+    }
+    if (name == "__btrc_suspect") {
+        return "static void __btrc_suspect(\n"
+            + "        void* obj, __btrc_visit_fn visit, __btrc_destroy_fn destroy) {\n"
+            + "    __btrc_arc_lock_mutation();\n"
+            + "    __btrc_suspect_locked(obj, visit, destroy);\n"
+            + "    __btrc_arc_unlock_mutation();\n"
+            + "}";
+    }
+    return "";
+}

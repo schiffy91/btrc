@@ -13,6 +13,7 @@
 #include "tokens.btrc"
 #include "ebnf.btrc"
 #include "lexer.btrc"
+#include "frontend_paths.btrc"
 #include "frontend.btrc"
 
 int main(int argc, char** argv) {

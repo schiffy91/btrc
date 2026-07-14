@@ -8,8 +8,8 @@ from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.arc import (
     _destroy_fn_for_managed,
     _get_destroy_name,
-    _lookup_cls_info,
 )
+from src.compiler.python.ir.gen.arc_cycles import lookup_class_info
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -34,11 +34,11 @@ def _gen():
     return IRGenerator(analyzed)
 
 
-def test_get_destroy_name_generic_with_free():
+def test_get_destroy_name_generic_uses_terminal_destructor():
     g = _gen()
     te = TypeExpr(base="Pool", generic_args=[TypeExpr(base="int")])
     name = _get_destroy_name(g, te, "Pool")
-    assert name.endswith("_free")            # Pool defines free()
+    assert name.endswith("_destroy")
 
 
 def test_get_destroy_name_non_generic():
@@ -50,10 +50,15 @@ def test_get_destroy_name_non_generic():
 def test_destroy_fn_for_managed_generic_instance_with_free():
     g = _gen()
     # A mangled generic-instance name whose base class defines free().
-    mangled = next((m for m in [
-        "btrc_Pool_int", "Pool_int"] ), "Pool_int")
+    mangled = next((m for m in ["btrc_Pool_int", "Pool_int"]), "Pool_int")
     name = _destroy_fn_for_managed(g, mangled)
     assert name.endswith("_free") or name.endswith("_destroy")
+
+
+def test_generic_release_never_uses_contents_only_free_method():
+    g = _gen()
+    te = TypeExpr(base="Pool", generic_args=[TypeExpr(base="int")])
+    assert _get_destroy_name(g, te, "Pool") == "btrc_Pool_int_destroy"
 
 
 def test_destroy_fn_for_managed_plain_class():
@@ -63,5 +68,5 @@ def test_destroy_fn_for_managed_plain_class():
 
 def test_lookup_cls_info_by_mangled_name():
     g = _gen()
-    info = _lookup_cls_info(g, "btrc_Pool_int")
+    info = lookup_class_info(g, "btrc_Pool_int")
     assert info is None or info.name == "Pool"

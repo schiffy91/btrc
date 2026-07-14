@@ -1,0 +1,54 @@
+/* Each switch clause is a lexical scope. This is required both by strict C11
+ * (a label cannot directly prefix a declaration) and by ARC: breaking the
+ * switch releases case locals without releasing surrounding loop locals. */
+#include <assert.h>
+
+int alive = 0;
+int destroyed = 0;
+
+class Resource {
+    public int id;
+
+    public Resource(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+        destroyed++;
+    }
+}
+
+int main() {
+    int observed = 0;
+    for i in range(2) {
+        Resource outer = new Resource(100 + i);
+        assert(alive == 1);
+
+        switch (i) {
+            case 0:
+                Resource local = new Resource(200);
+                int marker = 3;
+                observed += local.id + marker;
+                assert(alive == 2);
+                break;
+            default:
+                Resource local = new Resource(301);
+                int marker = 4;
+                observed += local.id + marker;
+                assert(alive == 2);
+                break;
+        }
+
+        assert(alive == 1);
+        assert(outer.id == 100 + i);
+        observed += outer.id;
+    }
+
+    assert(alive == 0);
+    assert(destroyed == 4);
+    assert(observed == 709);
+    print("PASS: test_switch_case_scope_arc");
+    return 0;
+}

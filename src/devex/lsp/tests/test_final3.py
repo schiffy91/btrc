@@ -48,39 +48,47 @@ def test_references_inherited_field_access_classifies_via_parent():
 
 def test_hover_inherited_member_access():
     from src.devex.lsp.tests.lsphelp import hover_text
+
     t = hover_text(get_hover_info(analyze(INH), pos_of(INH, "d.speak", offset=2)))
     assert "speak" in t
 
 
 # --- user-class static method completion ------------------------------------
 
+
 def test_completion_user_class_static_methods():
-    src = ("class Util {\n"
-           "    public int x;\n"
-           "    public Util() { self.x = 0; }\n"
-           "    class int helper(int a) { return a; }\n"
-           "}\n"
-           "int main() { return Util.helper(5); }\n")
+    src = (
+        "class Util {\n"
+        "    public int x;\n"
+        "    public Util() { self.x = 0; }\n"
+        "    class int helper(int a) { return a; }\n"
+        "}\n"
+        "int main() { return Util.helper(5); }\n"
+    )
     names = {i.label for i in get_completions(analyze(src), pos_of(src, "Util.helper", offset=5))}
     assert "helper" in names
 
 
 # --- semantic token type classification -------------------------------------
 
+
 def test_semantic_tokens_classify_type_names():
-    src = ("struct Pt { int x; int y; };\n"
-           "typedef int Id;\n"
-           "class Widget { public int w; public Widget() { self.w = 0; } }\n"
-           "int main() {\n"
-           "    Widget wd = Widget();\n"
-           "    Id n = 5;\n"
-           "    return n + wd.w;\n"
-           "}\n")
+    src = (
+        "struct Pt { int x; int y; };\n"
+        "typedef int Id;\n"
+        "class Widget { public int w; public Widget() { self.w = 0; } }\n"
+        "int main() {\n"
+        "    Widget wd = Widget();\n"
+        "    Id n = 5;\n"
+        "    return n + wd.w;\n"
+        "}\n"
+    )
     toks = get_semantic_tokens(analyze(src))
     assert toks is not None and len(toks.data) > 0
 
 
 # --- degraded mode: members that cannot resolve hit the defensive returns ----
+
 
 def _degraded(src, uri="file:///x.btrc"):
     tokens = Lexer(src, "x").tokenize()
@@ -91,7 +99,7 @@ def _degraded(src, uri="file:///x.btrc"):
 def test_degraded_unresolvable_member_degrades_cleanly():
     src = "int main() { mystery.thing(); return 0; }\n"
     r = _degraded(src)
-    pos = pos_of(src, "mystery.thing", offset=8)   # cursor on `thing`
+    pos = pos_of(src, "mystery.thing", offset=8)  # cursor on `thing`
     assert get_hover_info(r, pos) is None
     assert get_definition(r, pos) is None
     assert isinstance(get_completions(r, pos_of(src, "mystery.thing", offset=8)), list)

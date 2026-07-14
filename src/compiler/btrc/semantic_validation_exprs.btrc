@@ -1,0 +1,293 @@
+/* Expression-domain validation.  Unknown C interop values remain unresolved;
+ * once both operand types are known, invalid operations fail before IR gen. */
+
+bool semanticRawPointer(Node? typeExpr, Analyzed analyzed) {
+    return typeExpr != null
+        && (typeExpr.pointer_depth > 0 || typeExpr.is_array)
+        && !analyzed.isClass(typeExpr.base)
+        && !analyzed.isGenericClass(typeExpr.base);
+}
+
+bool semanticHasBinaryOverload(
+        Node leftType, string op, SemanticValidationState state) {
+    string magic = semanticBinaryOperatorMethod(op);
+    if (magic == "") { return false; }
+    Node? method = null;
+    if (state.analyzed.isClass(leftType.base)) {
+        method = state.analyzed.classMethod(leftType.base, magic);
+    } else if (state.analyzed.isGenericClass(leftType.base)) {
+        method = state.analyzed.genericClassMethod(leftType.base, magic);
+    }
+    return method != null && method.kind == NK_METHOD_DECL;
+}
+
+bool semanticHasUnaryOverload(
+        Node operandType, string op, SemanticValidationState state) {
+    if (op != "-") { return false; }
+    Node? method = null;
+    if (state.analyzed.isClass(operandType.base)) {
+        method = state.analyzed.classMethod(operandType.base, "__neg__");
+    } else if (state.analyzed.isGenericClass(operandType.base)) {
+        method = state.analyzed.genericClassMethod(
+            operandType.base, "__neg__");
+    }
+    return method != null && method.kind == NK_METHOD_DECL;
+}
+
+void semanticOperatorFailure(Node expression, Node left, Node right) {
+    semanticValidationFail("operator '" + expression.op
+        + "' is not defined for '" + semanticFormatType(left)
+        + "' and '" + semanticFormatType(right) + "'", expression);
+}
+
+void semanticValidatePortableNumericMix(
+        Node site, Node left, Node right, string context,
+        SemanticValidationState state) {
+    if (numericIsType(left, state.analyzed)
+            && numericIsType(right, state.analyzed)
+            && !numericIntegerMixIsPortable(left, right)) {
+        semanticValidationFail(context + " mixes ABI-dependent integer type '"
+            + semanticFormatType(left) + "' with '"
+            + semanticFormatType(right)
+            + "'; cast explicitly to a fixed-width or built-in integer type",
+            site);
+    }
+}
+
+void semanticValidateBinary(Node expression, SemanticValidationState state,
+        Map<string, Node> vars) {
+    semanticRejectThreadObservation(expression.left, state, vars);
+    semanticRejectThreadObservation(expression.right, state, vars);
+    Node? left = semanticInferType(expression.left, state, vars);
+    Node? right = semanticInferType(expression.right, state, vars);
+    if (left == null || right == null
+            || semanticTypeContainsParams(left, state.typeParams)
+            || semanticTypeContainsParams(right, state.typeParams)) {
+        return;
+    }
+    if (semanticHasBinaryOverload(left, expression.op, state)) { return; }
+    semanticValidatePortableNumericMix(
+        expression, left, right, "Operator '" + expression.op + "'", state);
+    string op = expression.op;
+    bool valid = false;
+    if (op == "??") {
+        bool optionalScalar = semanticOptionalValueCoalesce(
+            expression.left, left, right, state.analyzed);
+        valid = optionalScalar
+            || (semanticIsReferenceType(left, state.analyzed)
+                && (semanticAssignmentCompatible(left, right, state)
+                    || semanticAssignmentCompatible(right, left, state)));
+    } else if (op == "&&" || op == "||") {
+        valid = semanticScalarConditionType(left, state)
+            && semanticScalarConditionType(right, state);
+    } else if (op == "&" || op == "|" || op == "^"
+            || op == "<<" || op == ">>") {
+        valid = semanticIntegralType(left, state.analyzed)
+            && semanticIntegralType(right, state.analyzed);
+    } else if (op == "+" || op == "-") {
+        valid = (numericIsType(left, state.analyzed)
+                && numericIsType(right, state.analyzed))
+            || (op == "+" && isSemanticScalarString(left)
+                && isSemanticScalarString(right))
+            || ((semanticRawPointer(left, state.analyzed)
+                    || (op == "+" && isSemanticScalarString(left)))
+                && semanticIntegralType(right, state.analyzed))
+            || (op == "+" && semanticIntegralType(left, state.analyzed)
+                && semanticRawPointer(right, state.analyzed))
+            || (op == "-" && semanticRawPointer(left, state.analyzed)
+                && semanticRawPointer(right, state.analyzed)
+                && semanticReferenceTypesCompatible(
+                    left, right, state.analyzed));
+    } else if (op == "*" || op == "/" || op == "%") {
+        valid = numericIsType(left, state.analyzed)
+            && numericIsType(right, state.analyzed)
+            && left.base != "bool" && right.base != "bool";
+    } else if (semanticIsComparisonOperator(op)) {
+        valid = semanticComparisonDomain(
+            op, left, right, state.analyzed) != OP_DOMAIN_INVALID;
+    } else {
+        return;
+    }
+    if (!valid) { semanticOperatorFailure(expression, left, right); }
+}
+
+void semanticValidateAssignment(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (!semanticIsLvalue(expression.target, state, vars)) {
+        semanticValidationFail("Assignment target is not assignable", expression);
+    }
+    semanticRejectShallowStore(expression, state, vars);
+    Node? target = semanticInferType(expression.target, state, vars);
+    Node? source = semanticInferType(expression.value_node, state, vars);
+    if (expression.op == "=") {
+        semanticValidateTypedInitializer(target, expression.value_node,
+            "Assignment", state, vars);
+    }
+    semanticValidatePropertyMutation(expression.target,
+        expression.op != "=", state, vars, expression);
+    semanticValidateIndexedMutation(expression.target,
+        expression.op != "=", state, vars, expression);
+    semanticValidateTargetReceiverMutability(
+        expression.target, state, vars, expression);
+    semanticValidateMutableTarget(target, state, expression);
+    if (target == null || source == null) { return; }
+    if (expression.op == "=") {
+        semanticRejectThreadHandleCopy(
+            target, source, expression.value_node, expression, state);
+        Node? resolvedTarget = semanticResolveAliases(target, state);
+        Node? resolvedSource = semanticResolveAliases(source, state);
+        bool copiedThread = resolvedSource != null
+            && resolvedSource.base == "Thread"
+            && semanticThreadCopySource(expression.value_node);
+        if (resolvedTarget != null && resolvedTarget.base == "Thread"
+                && !copiedThread) {
+            semanticValidationFail(
+                "Thread owner variables are single-assignment; declare a "
+                    + "new owner for a fresh Thread result",
+                expression);
+        }
+        if (!semanticAssignmentCompatible(target, source, state)) {
+            semanticValidationFail("Cannot assign '"
+                + semanticFormatType(source) + "' to '"
+                + semanticFormatType(target) + "'", expression);
+        }
+        return;
+    }
+    semanticValidatePortableNumericMix(expression, target, source,
+        "Compound assignment '" + expression.op + "'", state);
+    if (semanticHasBinaryOverload(
+            target, expression.op.substring(0, expression.op.length() - 1),
+            state)) {
+        return;
+    }
+    string op = expression.op.substring(0, expression.op.length() - 1);
+    bool valid = false;
+    if (op == "+" && isSemanticScalarString(target)
+            && (isSemanticScalarString(source)
+                || semanticIsCStringPointer(source))) {
+        valid = true;
+    } else if (op == "&" || op == "|" || op == "^"
+            || op == "<<" || op == ">>") {
+        valid = semanticIntegralType(target, state.analyzed)
+            && semanticIntegralType(source, state.analyzed);
+    } else {
+        valid = numericIsType(target, state.analyzed)
+            && numericIsType(source, state.analyzed)
+            && target.base != "bool" && source.base != "bool";
+    }
+    if (!valid) { semanticOperatorFailure(expression, target, source); }
+}
+
+void semanticValidateUnary(Node expression, SemanticValidationState state,
+        Map<string, Node> vars) {
+    Node? operand = semanticInferType(expression.operand, state, vars);
+    if (operand == null
+            || semanticTypeContainsParams(operand, state.typeParams)) {
+        return;
+    }
+    if (semanticHasUnaryOverload(operand, expression.op, state)) {
+        return;
+    }
+    bool valid = true;
+    if (expression.op == "&") {
+        valid = semanticIsLifetimeStableStorage(
+            expression.operand, state, vars)
+            || (expression.operand.kind == NK_IDENTIFIER
+                && state.analyzed.funcNames.has(
+                    expression.operand.name));
+    } else if (expression.op == "*") {
+        valid = operand.pointer_depth > 0 || operand.is_array;
+    } else if (expression.op == "++" || expression.op == "--") {
+        valid = semanticIsLvalue(expression.operand, state, vars)
+            && ((numericIsType(operand, state.analyzed)
+                    && operand.base != "bool")
+                || operand.pointer_depth > 0);
+        if (valid) {
+            semanticValidatePropertyMutation(expression.operand,
+                true, state, vars, expression);
+            semanticValidateIndexedMutation(expression.operand,
+                true, state, vars, expression);
+            semanticValidateTargetReceiverMutability(
+                expression.operand, state, vars, expression);
+            semanticValidateMutableTarget(operand, state, expression);
+        }
+    } else if (expression.op == "+" || expression.op == "-") {
+        valid = numericIsType(operand, state.analyzed)
+            && operand.base != "bool";
+    } else if (expression.op == "~") {
+        valid = semanticIntegralType(operand, state.analyzed);
+    } else if (expression.op == "!") {
+        valid = semanticScalarConditionType(operand, state);
+    }
+    if (!valid) {
+        semanticValidationFail("Unary operator '" + expression.op
+            + "' is not defined for '" + semanticFormatType(operand) + "'",
+            expression);
+    }
+}
+
+void semanticValidateExpr(Node? expression, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (expression == null) { return; }
+    if (expression.kind == NK_BINARY_EXPR) {
+        semanticValidateExpr(expression.left, state, vars);
+        semanticValidateExpr(expression.right, state, vars);
+        semanticValidateBinary(expression, state, vars);
+    } else if (expression.kind == NK_UNARY_EXPR) {
+        semanticValidateExpr(expression.operand, state, vars);
+        semanticValidateUnary(expression, state, vars);
+    } else if (expression.kind == NK_ASSIGN_EXPR) {
+        if (expression.target != null
+                && expression.target.kind == NK_INDEX_EXPR) {
+            semanticValidateExpr(expression.target.obj, state, vars);
+            semanticValidateExpr(expression.target.index, state, vars);
+            semanticValidateIndex(expression.target, state, vars,
+                expression.op != "=");
+        } else {
+            semanticValidateExpr(expression.target, state, vars);
+        }
+        semanticValidateExpr(expression.value_node, state, vars);
+        semanticValidateAssignment(expression, state, vars);
+    } else if (expression.kind == NK_CALL_EXPR) {
+        /* An unresolved direct identifier call is the deliberate C-interop
+         * seam.  Validate all other callees as ordinary value expressions. */
+        if (expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER) {
+            semanticValidateExpr(expression.callee, state, vars);
+        }
+        int index = 0;
+        while (index < expression.args.len) {
+            semanticValidateExpr(expression.args.get(index), state, vars);
+            index = index + 1;
+        }
+        semanticValidateCall(expression, state, vars);
+    } else if (expression.kind == NK_INDEX_EXPR) {
+        semanticValidateExpr(expression.obj, state, vars);
+        semanticValidateExpr(expression.index, state, vars);
+        semanticValidateIndex(expression, state, vars, true);
+    } else if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+        semanticValidateExpr(expression.obj, state, vars);
+        semanticValidateField(expression, state, vars);
+    } else if (expression.kind == NK_TERNARY_EXPR) {
+        semanticValidateExpr(expression.condition, state, vars);
+        semanticValidateCondition(
+            expression.condition, "Ternary expression", state, vars);
+        semanticValidateExpr(expression.true_expr, state, vars);
+        semanticValidateExpr(expression.false_expr, state, vars);
+        Node? first = semanticInferType(expression.true_expr, state, vars);
+        Node? second = semanticInferType(expression.false_expr, state, vars);
+        if (first != null && second != null) {
+            semanticValidatePortableNumericMix(
+                expression, first, second, "Ternary expression", state);
+        }
+        if (first != null && second != null
+                && !semanticAssignmentCompatible(first, second, state)
+                && !semanticAssignmentCompatible(second, first, state)) {
+            semanticValidationFail("Ternary branches have incompatible types '"
+                + semanticFormatType(first) + "' and '"
+                + semanticFormatType(second) + "'", expression);
+        }
+    } else {
+        semanticValidateExprChildren(expression, state, vars);
+    }
+}

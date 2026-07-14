@@ -7,7 +7,7 @@ struct Node {
 
 int main() {
     // sizeof on a C aggregate type
-    assert(sizeof(struct Node) > 0);
+    assert(sizeof(struct Node) > (size_t)0);
     // a struct with an int and a pointer is at least that big
     assert(sizeof(struct Node) >= sizeof(int) + sizeof(struct Node*));
     // pointer-to-struct is the size of any data pointer

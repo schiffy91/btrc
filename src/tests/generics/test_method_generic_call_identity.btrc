@@ -1,0 +1,21 @@
+/* Every postfix node in a chain inherits the root expression's source
+ * position. These two generic-method CallExpr nodes therefore need object
+ * identity—not kind/position—to retain their distinct U substitutions. */
+#include <assert.h>
+
+class Chain {
+    public size_t recordedBytes;
+    public Chain() { self.recordedBytes = (size_t)0; }
+    public Chain record<U>(U value) {
+        self.recordedBytes = self.recordedBytes + sizeof(value);
+        return self;
+    }
+}
+
+int main() {
+    Chain chain = Chain();
+    Chain result = chain.record(7).record("seven");
+    assert(result.recordedBytes == sizeof(int) + sizeof(string));
+    print("PASS: test_method_generic_call_identity");
+    return 0;
+}

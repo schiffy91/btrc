@@ -2,7 +2,7 @@
 """Generate btrc AST node definitions from an ASDL specification.
 
 Usage:
-    python3 src/language/ast/asdl_btrc.py src/language/ast/ast.asdl > src/compiler/btrc/ast_nodes.btrc
+    python3 src/compiler/python/ast/asdl_btrc.py src/language/ast.asdl > generated.btrc
 
 Produces:
     - enum NodeKind with a value for each constructor
@@ -57,7 +57,7 @@ def _btrc_keywords() -> set[str]:
     directory where the compiler package is not on sys.path until call time.
     """
     here = os.path.dirname(os.path.abspath(__file__))
-    root = os.path.dirname(os.path.dirname(os.path.dirname(here)))
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(here))))
     if root not in sys.path:
         sys.path.insert(0, root)
     from src.compiler.python.ebnf import get_grammar_info
@@ -138,9 +138,7 @@ def _to_screaming_snake(name: str) -> str:
     for i, ch in enumerate(name):
         if ch.isupper() and i > 0:
             prev = name[i - 1]
-            if prev.islower() or prev.isdigit() or (
-                i + 1 < len(name) and name[i + 1].islower() and prev.isupper()
-            ):
+            if prev.islower() or prev.isdigit() or (i + 1 < len(name) and name[i + 1].islower() and prev.isupper()):
                 result.append("_")
         result.append(ch.upper())
     return "".join(result)
@@ -217,7 +215,7 @@ def generate(module: Module) -> str:
     lines: list[str] = [
         "/* btrc AST node definitions.",
         " *",
-        " * Auto-generated from src/language/ast/ast.asdl by src/language/ast/asdl_btrc.py.",
+        " * Auto-generated from src/language/ast.asdl by src/compiler/python/ast/asdl_btrc.py.",
         " * DO NOT EDIT BY HAND.",
         " */",
         "",

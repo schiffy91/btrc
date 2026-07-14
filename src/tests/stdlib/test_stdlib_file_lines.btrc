@@ -1,6 +1,6 @@
 /* The line-oriented File API: writeLine appends '\n' and returns bool, readLine
  * strips the trailing newline, readLines returns a Vector<string>, eof() flips
- * after the last read, and flush() is a no-op on a writable handle.
+ * after the last read, and flush() reports success on a writable handle.
  * Hermetic: a single temp file under a fresh temp dir, removed at the end. */
 #include <assert.h>
 
@@ -15,8 +15,8 @@ int main() {
     assert(w.writeLine("first"));
     assert(w.writeLine("second"));
     assert(w.writeLine("third"));
-    w.flush();          // returns void, must not error on a live writer
-    w.close();
+    assert(w.flush());
+    assert(w.close());
 
     // readLine strips the trailing newline.
     File r = File(path, "r");
@@ -37,6 +37,25 @@ int main() {
     assert(all.get(0).equals("first"));
     assert(all.get(1).equals("second"));
     assert(all.get(2).equals("third"));
+
+    string longLine = Strings.repeat("0123456789", 900);
+    assert(Path.writeAll(path, longLine + "\nshort\n\n"));
+    File longReader = File(path, "r");
+    assert(longReader.readLine().equals(longLine));
+    assert(longReader.readLine().equals("short"));
+    assert(longReader.readLine().equals(""));
+    assert(longReader.readLine().equals(""));
+    assert(longReader.eof());
+    assert(!longReader.failed());
+    assert(longReader.close());
+
+    File linesReader = File(path, "r");
+    Vector<string> longLines = linesReader.readLines();
+    assert(longLines.len == 3);
+    assert(longLines.get(0).equals(longLine));
+    assert(longLines.get(1).equals("short"));
+    assert(longLines.get(2).equals(""));
+    assert(linesReader.close());
 
     FileSystem.removeRecursive(dir);
     assert(!FileSystem.exists(dir));

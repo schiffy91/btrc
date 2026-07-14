@@ -23,8 +23,11 @@ def _copy_tree(source: Path, target: Path) -> None:
             # .vsix payload (e.g. src/devex/lsp/.venv, stdlib/gui/build).
             ".venv",
             ".btrc-cache",
+            ".DS_Store",
             "build",
+            "fe_debug*.btrc",
             "*.a",
+            "*.o",
             "*.vsix",
         ),
     )
@@ -65,7 +68,13 @@ def prepare(ext_dir: Path, repo_root: Path) -> Path:
     if bundle_root.exists():
         shutil.rmtree(bundle_root)
 
-    _copy_tree(repo_root / "src" / "compiler", bundle_root / "src" / "compiler")
+    # The fallback server and debug adapter use the Python compiler.  The
+    # self-hosted compiler is a separate product and would only inflate the
+    # extension (while also admitting local self-host debug programs).
+    _copy_tree(
+        repo_root / "src" / "compiler" / "python",
+        bundle_root / "src" / "compiler" / "python",
+    )
     _copy_tree(repo_root / "src" / "stdlib", bundle_root / "src" / "stdlib")
     _copy_tree(repo_root / "src" / "language", bundle_root / "src" / "language")
     _copy_tree(repo_root / "src" / "devex" / "lsp", bundle_root / "src" / "devex" / "lsp")
@@ -73,6 +82,7 @@ def prepare(ext_dir: Path, repo_root: Path) -> Path:
     _copy_if_exists(repo_root / "src" / "__init__.py", bundle_root / "src" / "__init__.py")
     _copy_if_exists(repo_root / "src" / "devex" / "__init__.py", bundle_root / "src" / "devex" / "__init__.py")
     _write_server_flake(bundle_root / "flake.nix")
+    _copy_if_exists(repo_root / "flake.lock", bundle_root / "flake.lock")
 
     (bundle_root / "README.txt").write_text(
         "Bundled btrc language-server payload.\n"

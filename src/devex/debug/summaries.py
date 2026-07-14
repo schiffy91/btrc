@@ -39,8 +39,7 @@ def _is_null(value) -> bool:
 
 
 def _field_names(struct_val):
-    return [struct_val.GetChildAtIndex(i).GetName()
-            for i in range(struct_val.GetNumChildren())]
+    return [struct_val.GetChildAtIndex(i).GetName() for i in range(struct_val.GetNumChildren())]
 
 
 def classify(value) -> str:
@@ -57,8 +56,7 @@ def classify(value) -> str:
         return "set"
     if value.GetType().IsPointerType():
         st = _struct_type(value)
-        if st.IsValid() and "__rc" in [st.GetFieldAtIndex(i).GetName()
-                                       for i in range(st.GetNumberOfFields())]:
+        if st.IsValid() and "__rc" in [st.GetFieldAtIndex(i).GetName() for i in range(st.GetNumberOfFields())]:
             return "object"
     return "plain"
 
@@ -181,13 +179,11 @@ def children(value):
         if kind == "vector":
             n = st.GetChildMemberWithName("len").GetValueAsSigned()
             data = st.GetChildMemberWithName("data")
-            return [(f"[{i}]", data.GetChildAtIndex(i, 0, True))
-                    for i in range(min(n, MAX_ELEMS))]
+            return [(f"[{i}]", data.GetChildAtIndex(i, 0, True)) for i in range(min(n, MAX_ELEMS))]
         if kind in ("map", "set"):
             cap = st.GetChildMemberWithName("cap").GetValueAsSigned()
             occ = st.GetChildMemberWithName("occupied")
-            keys = (st.GetChildMemberWithName("keys")
-                    or st.GetChildMemberWithName("items"))
+            keys = st.GetChildMemberWithName("keys") or st.GetChildMemberWithName("items")
             values = st.GetChildMemberWithName("values")  # invalid for sets
             out = []
             for i in range(cap):
@@ -202,8 +198,7 @@ def children(value):
                     out.append((f"[{len(out)}]", keys.GetChildAtIndex(i, 0, True)))
             return out
         if kind == "object":
-            return [(name, st.GetChildMemberWithName(name))
-                    for name in _field_names(st) if name != "__rc"]
+            return [(name, st.GetChildMemberWithName(name)) for name in _field_names(st) if name != "__rc"]
         return []
     except Exception:
         return []

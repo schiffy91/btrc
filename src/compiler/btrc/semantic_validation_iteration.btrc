@@ -1,0 +1,197 @@
+/* Structural range and iterable-protocol contracts. */
+
+bool semanticIsRangeForm(Node? expression) {
+    return expression != null && expression.kind == NK_CALL_EXPR
+        && expression.callee != null
+        && expression.callee.kind == NK_IDENTIFIER
+        && expression.callee.name == "range";
+}
+
+void semanticValidateRangeForm(Node call, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (call.args.len < 1 || call.args.len > 3) {
+        semanticValidationFail("range expects 1 to 3 arguments, got "
+            + Strings.fromInt(call.args.len), call);
+    }
+    int index = 0;
+    while (index < call.arg_names.len) {
+        if (call.arg_names.get(index) != "") {
+            semanticValidationFail(
+                "range does not accept named arguments", call);
+        }
+        index = index + 1;
+    }
+    index = 0;
+    while (index < call.args.len) {
+        Node argument = call.args.get(index);
+        semanticValidateExpr(argument, state, vars);
+        semanticRejectThreadValueEscape(
+            argument, "passed as range arguments", state, vars);
+        Node? argumentType = semanticInferType(argument, state, vars);
+        if (argumentType == null
+                || !semanticIntegralType(
+                    argumentType, state.analyzed)
+                || argumentType.base == "bool") {
+            string actual = "unknown";
+            if (argumentType != null) {
+                actual = semanticFormatType(argumentType);
+            }
+            semanticValidationFail("range argument "
+                + Strings.fromInt(index + 1)
+                + " must have an integral non-bool type, got '"
+                + actual + "'", argument);
+        }
+        index = index + 1;
+    }
+    if (call.args.len == 3) {
+        Map<string, bool> unrestricted = {};
+        SemanticIntegerConstant step = semanticIntegerConstant(
+            call.args.get(2), state, false, "", unrestricted);
+        if (step.known && step.value == 0) {
+            semanticValidationFail("range step cannot be zero",
+                call.args.get(2));
+        }
+    }
+}
+
+Node? semanticIterableMethod(
+        Node iterableType, string name, Analyzed analyzed) {
+    if (analyzed.isGenericClass(iterableType.base)
+            && iterableType.pointer_depth == 0) {
+        return analyzed.genericClassMethod(iterableType.base, name);
+    }
+    if (analyzed.isClass(iterableType.base)) {
+        return analyzed.classMethod(iterableType.base, name);
+    }
+    return null;
+}
+
+Node semanticIterableResolvedType(
+        Node declared, Node iterableType, Analyzed analyzed) {
+    if (analyzed.isGenericClass(iterableType.base)
+            && iterableType.generic_args.len > 0) {
+        return resolveGenericType(
+            declared, genericTypeMap(analyzed, iterableType));
+    }
+    return declared;
+}
+
+Node semanticValidateIterableMethod(Node iterableType, string methodName,
+        int arity, SemanticValidationState state, Node site) {
+    Node? found = semanticIterableMethod(
+        iterableType, methodName, state.analyzed);
+    if (found == null || found.access == "class"
+            || found.params.len != arity) {
+        semanticValidationFail("Type '" + semanticFormatType(iterableType)
+            + "' does not satisfy the for-in protocol: instance "
+            + methodName + "() must take " + Strings.fromInt(arity)
+            + " argument(s)", site);
+    }
+    Node method = found;
+    return method;
+}
+
+Node semanticIterableElementType(Node iterableType,
+        SemanticValidationState state, Node site, bool second) {
+    Node lenMethod = semanticValidateIterableMethod(
+        iterableType, "iterLen", 0, state, site);
+    Node lenType = semanticIterableResolvedType(
+        lenMethod.return_type, iterableType, state.analyzed);
+    if (!semanticIntegralType(lenType, state.analyzed)
+            || lenType.base == "bool") {
+        semanticValidationFail("for-in iterLen() must return an integral "
+            + "non-bool type", lenMethod);
+    }
+    string methodName = second ? "iterValueAt" : "iterGet";
+    Node valueMethod = semanticValidateIterableMethod(
+        iterableType, methodName, 1, state, site);
+    Node indexType = semanticIterableResolvedType(
+        valueMethod.params.get(0).type, iterableType, state.analyzed);
+    if (!semanticIntegralType(indexType, state.analyzed)
+            || indexType.base == "bool") {
+        semanticValidationFail("for-in " + methodName
+            + "() index must have an integral non-bool type", valueMethod);
+    }
+    Node valueType = semanticIterableResolvedType(
+        valueMethod.return_type, iterableType, state.analyzed);
+    if (valueType.base == "void" && valueType.pointer_depth == 0) {
+        semanticValidationFail("for-in " + methodName
+            + "() cannot return void", valueMethod);
+    }
+    return valueType;
+}
+
+void semanticValidateForIn(Node statement, SemanticValidationState state,
+        Map<string, Node> vars) {
+    Map<string, Node> bodyVars = semanticCloneTypes(vars);
+    Map<string, bool> loopNames = {};
+    semanticValidateDeclaredName(
+        statement.var_name, "Loop variable", statement);
+    loopNames.put(statement.var_name, true);
+
+    Node first = makePrimType("int");
+    Node? iterableType = null;
+    if (semanticIsRangeForm(statement.iterable)) {
+        semanticValidateRangeForm(statement.iterable, state, vars);
+        if (statement.var_name2 != null) {
+            semanticValidationFail(
+                "range iteration has exactly one loop variable", statement);
+        }
+    } else {
+        semanticValidateExpr(statement.iterable, state, vars);
+        iterableType = semanticInferType(statement.iterable, state, vars);
+        if (iterableType == null) {
+            semanticValidationFail(
+                "Cannot determine a for-in iterable protocol", statement);
+        }
+        if (isStringType(iterableType)) {
+            first = makePrimType("char");
+            if (statement.var_name2 != null) {
+                semanticValidationFail(
+                    "String iteration has exactly one loop variable", statement);
+            }
+        } else {
+            first = semanticIterableElementType(
+                iterableType, state, statement, false);
+        }
+    }
+    semanticRejectThreadOwnerShadow(
+        statement.var_name, first, vars, statement, state);
+    if (semanticContainsThreadStorage(first, state)) {
+        semanticValidationFail(
+            "for-in loop variables cannot own a Thread handle; declare a "
+                + "fresh local owner inside the loop",
+            statement);
+    }
+    bodyVars.put(statement.var_name, first);
+
+    if (statement.var_name2 != null) {
+        semanticValidateDeclaredName(
+            statement.var_name2, "Loop variable", statement);
+        if (loopNames.has(statement.var_name2)) {
+            semanticValidationFail("Duplicate loop variable name '"
+                + statement.var_name2 + "'", statement);
+        }
+        loopNames.put(statement.var_name2, true);
+        Node second = semanticIterableElementType(
+            iterableType, state, statement, true);
+        semanticRejectThreadOwnerShadow(
+            statement.var_name2, second, vars, statement, state);
+        if (semanticContainsThreadStorage(second, state)) {
+            semanticValidationFail(
+                "for-in loop variables cannot own a Thread handle; declare "
+                    + "a fresh local owner inside the loop",
+                statement);
+        }
+        bodyVars.put(statement.var_name2, second);
+    }
+
+    semanticValidateDirectLocalNames(statement.body_node, loopNames);
+    int previousLoop = state.loopDepth;
+    int previousBreak = state.breakDepth;
+    state.loopDepth = previousLoop + 1;
+    state.breakDepth = previousBreak + 1;
+    semanticValidateBlock(statement.body_node, state, bodyVars);
+    state.loopDepth = previousLoop;
+    state.breakDepth = previousBreak;
+}

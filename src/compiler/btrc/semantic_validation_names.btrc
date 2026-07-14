@@ -1,0 +1,257 @@
+/* Declaration-name and same-scope binding contracts.
+ *
+ * Source names flow directly into strict-C11 output.  Validate every binding
+ * at the semantic boundary while leaving unresolved *uses* available to the
+ * intentional C-interop seam. */
+
+bool semanticC11ReservedName(string name) {
+    return name == "auto" || name == "break" || name == "case"
+        || name == "char" || name == "const" || name == "continue"
+        || name == "default" || name == "do" || name == "double"
+        || name == "else" || name == "enum" || name == "extern"
+        || name == "float" || name == "for" || name == "goto"
+        || name == "if" || name == "inline" || name == "int"
+        || name == "long" || name == "register" || name == "restrict"
+        || name == "return" || name == "short" || name == "signed"
+        || name == "sizeof" || name == "static" || name == "struct"
+        || name == "switch" || name == "typedef" || name == "union"
+        || name == "unsigned" || name == "void" || name == "volatile"
+        || name == "while" || name == "_Alignas" || name == "_Alignof"
+        || name == "_Atomic" || name == "_Bool" || name == "_Complex"
+        || name == "_Generic" || name == "_Imaginary"
+        || name == "_Noreturn" || name == "_Static_assert"
+        || name == "_Thread_local";
+}
+
+bool semanticTrustedNativeBinding(string name) {
+    return name == "btrc_gpu_acquire_compute"
+        || name == "btrc_gpu_available"
+        || name == "btrc_gpu_begin_frame"
+        || name == "btrc_gpu_bind_group_destroy"
+        || name == "btrc_gpu_buffer_destroy"
+        || name == "btrc_gpu_compute_pipeline_destroy"
+        || name == "btrc_gpu_create_bind_group"
+        || name == "btrc_gpu_create_buffer"
+        || name == "btrc_gpu_create_compute_pipeline"
+        || name == "btrc_gpu_create_render_pipeline"
+        || name == "btrc_gpu_create_shader"
+        || name == "btrc_gpu_create_uniform"
+        || name == "btrc_gpu_destroy" || name == "btrc_gpu_dispatch"
+        || name == "btrc_gpu_draw" || name == "btrc_gpu_draw_uniform"
+        || name == "btrc_gpu_end_frame" || name == "btrc_gpu_get_time"
+        || name == "btrc_gpu_init" || name == "btrc_gpu_init_compute"
+        || name == "btrc_gpu_pipeline_destroy"
+        || name == "btrc_gpu_read_buffer"
+        || name == "btrc_gpu_read_buffer_checked"
+        || name == "btrc_gpu_set_uniform"
+        || name == "btrc_gpu_shader_destroy"
+        || name == "btrc_gpu_uniform_destroy"
+        || name == "btrc_gpu_upload_uniform"
+        || name == "btrc_gpu_window_create"
+        || name == "btrc_gpu_window_destroy"
+        || name == "btrc_gpu_window_height"
+        || name == "btrc_gpu_window_is_open"
+        || name == "btrc_gpu_window_key_pressed"
+        || name == "btrc_gpu_window_poll"
+        || name == "btrc_gpu_window_width"
+        || name == "btrc_gpu_write_buffer"
+        || name == "btrc_gui_blend_rect" || name == "btrc_gui_clear"
+        || name == "btrc_gui_draw_text" || name == "btrc_gui_fill_rect"
+        || name == "btrc_gui_font_destroy"
+        || name == "btrc_gui_font_load"
+        || name == "btrc_gui_get_pixel" || name == "btrc_gui_save_ppm"
+        || name == "btrc_gui_set_font"
+        || name == "btrc_gui_surface_create"
+        || name == "btrc_gui_surface_destroy"
+        || name == "btrc_gui_surface_height"
+        || name == "btrc_gui_surface_resize"
+        || name == "btrc_gui_surface_width"
+        || name == "btrc_gui_text_height"
+        || name == "btrc_gui_text_width"
+        || name == "btrc_gui_window_close"
+        || name == "btrc_gui_window_fb_height"
+        || name == "btrc_gui_window_fb_width"
+        || name == "btrc_gui_window_mouse_down"
+        || name == "btrc_gui_window_mouse_x"
+        || name == "btrc_gui_window_mouse_y"
+        || name == "btrc_gui_window_open"
+        || name == "btrc_gui_window_poll"
+        || name == "btrc_gui_window_present"
+        || name == "btrc_gui_window_should_close"
+        || name == "btrc_tray_add_item"
+        || name == "btrc_tray_add_separator"
+        || name == "btrc_tray_create" || name == "btrc_tray_destroy"
+        || name == "btrc_tray_request_quit"
+        || name == "btrc_tray_run_iteration"
+        || name == "btrc_tray_set_icon"
+        || name == "btrc_tray_set_menu"
+        || name == "btrc_tray_set_tooltip"
+        || name == "btrc_tray_should_quit"
+        || name == "btrc_tray_show"
+        || name == "btrc_tray_take_command";
+}
+
+void semanticValidateDeclaredName(
+        string name, string subject, Node site) {
+    if (name == "") { return; }
+    if (semanticC11ReservedName(name)) {
+        semanticValidationFail(subject + " name '" + name
+            + "' is reserved by C11", site);
+    }
+    string prefix = "";
+    if (name.startsWith("__btrc_")) { prefix = "__btrc_"; }
+    else if (name.startsWith("btrc_")) { prefix = "btrc_"; }
+    bool trustedPrototype = site.kind == NK_FUNCTION_DECL
+        && site.body_node == null && semanticTrustedNativeBinding(name);
+    if (prefix != "" && !trustedPrototype) {
+        semanticValidationFail(subject + " name '" + name
+            + "' uses the compiler-reserved '" + prefix + "' prefix", site);
+    }
+}
+
+void semanticValidateGenericNames(
+        Vector<string> names, string owner, Node site) {
+    Map<string, bool> seen = {};
+    int index = 0;
+    while (index < names.len) {
+        string name = names.get(index);
+        semanticValidateDeclaredName(name, "Generic parameter", site);
+        if (seen.has(name)) {
+            semanticValidationFail("Duplicate generic parameter name '"
+                + name + "' in " + owner, site);
+        }
+        seen.put(name, true);
+        index = index + 1;
+    }
+}
+
+Map<string, bool> semanticParameterNames(
+        Vector<Node> params, string owner) {
+    Map<string, bool> seen = {};
+    int index = 0;
+    while (index < params.len) {
+        Node parameter = params.get(index);
+        semanticValidateDeclaredName(
+            parameter.name, "Parameter", parameter);
+        if (seen.has(parameter.name)) {
+            semanticValidationFail("Duplicate parameter name '"
+                + parameter.name + "' in " + owner, parameter);
+        }
+        seen.put(parameter.name, true);
+        index = index + 1;
+    }
+    return seen;
+}
+
+void semanticValidateCallableNames(Node callable, string owner) {
+    semanticValidateDeclaredName(callable.name, "Callable", callable);
+    semanticValidateGenericNames(
+        callable.generic_params, owner, callable);
+    semanticParameterNames(callable.params, owner);
+}
+
+void semanticValidateUniqueNodeNames(Vector<Node> nodes,
+        string subject, string owner) {
+    Map<string, bool> seen = {};
+    int index = 0;
+    while (index < nodes.len) {
+        Node item = nodes.get(index);
+        semanticValidateDeclaredName(item.name, subject, item);
+        if (seen.has(item.name)) {
+            semanticValidationFail("Duplicate " + subject.toLower()
+                + " name '" + item.name + "' in " + owner, item);
+        }
+        seen.put(item.name, true);
+        index = index + 1;
+    }
+}
+
+void semanticValidateDeclarationNames(Node program) {
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (semanticNamedTopLevel(declaration)) {
+            semanticValidateDeclaredName(semanticTopLevelName(declaration),
+                "Top-level declaration", declaration);
+        }
+        if (declaration.kind == NK_FUNCTION_DECL) {
+            semanticValidateCallableNames(declaration,
+                "function '" + declaration.name + "'");
+        } else if (declaration.kind == NK_CLASS_DECL) {
+            semanticValidateGenericNames(declaration.generic_params,
+                "class '" + declaration.name + "'", declaration);
+            int memberIndex = 0;
+            while (memberIndex < declaration.members.len) {
+                Node member = declaration.members.get(memberIndex);
+                semanticValidateDeclaredName(
+                    member.name, "Class member", member);
+                if (member.kind == NK_METHOD_DECL) {
+                    semanticValidateCallableNames(member,
+                        "method '" + declaration.name + "."
+                            + member.name + "'");
+                }
+                memberIndex = memberIndex + 1;
+            }
+        } else if (declaration.kind == NK_INTERFACE_DECL) {
+            semanticValidateGenericNames(declaration.generic_params,
+                "interface '" + declaration.name + "'", declaration);
+            int methodIndex = 0;
+            while (methodIndex < declaration.methods.len) {
+                Node method = declaration.methods.get(methodIndex);
+                semanticValidateCallableNames(method,
+                    "interface method '" + declaration.name + "."
+                        + method.name + "'");
+                methodIndex = methodIndex + 1;
+            }
+        } else if (declaration.kind == NK_STRUCT_DECL
+                && !declaration.is_forward) {
+            semanticValidateUniqueNodeNames(declaration.fields,
+                "Struct field", "struct '" + declaration.name + "'");
+        } else if (declaration.kind == NK_ENUM_DECL) {
+            semanticValidateUniqueNodeNames(declaration.values,
+                "Enum value", "enum '" + declaration.name + "'");
+        } else if (declaration.kind == NK_RICH_ENUM_DECL) {
+            semanticValidateUniqueNodeNames(declaration.variants,
+                "Rich-enum variant", "rich enum '"
+                    + declaration.name + "'");
+            int variantIndex = 0;
+            while (variantIndex < declaration.variants.len) {
+                Node variant = declaration.variants.get(variantIndex);
+                semanticParameterNames(variant.params,
+                    "rich-enum variant '" + declaration.name + "."
+                        + variant.name + "'");
+                variantIndex = variantIndex + 1;
+            }
+        }
+        index = index + 1;
+    }
+}
+
+void semanticValidateDirectLocalNames(
+        Node? block, Map<string, bool> reserved) {
+    if (block == null) { return; }
+    Map<string, bool> seen = semanticCloneFlags(reserved);
+    int index = 0;
+    while (index < block.statements.len) {
+        Node statement = block.statements.get(index);
+        if (statement.kind == NK_VAR_DECL_STMT) {
+            semanticValidateDeclaredName(
+                statement.name, "Local variable", statement);
+            if (seen.has(statement.name)) {
+                semanticValidationFail("Duplicate local variable name '"
+                    + statement.name + "' in the same scope", statement);
+            }
+            seen.put(statement.name, true);
+        }
+        index = index + 1;
+    }
+}
+
+void semanticValidateLambdaNames(Node expression) {
+    Map<string, bool> params = semanticParameterNames(
+        expression.params, "lambda");
+    Node body = expression.body_node;
+    if (body != null && body.kind == NK_LAMBDA_BLOCK) {
+        semanticValidateDirectLocalNames(body.body_node, params);
+    }
+}

@@ -1,10 +1,8 @@
 /* HTTP stdlib pure helpers: urlDecode/urlEncode, reason() phrase table, and
  * chunked transfer-encoding decoding.
  *
- * These are the deterministic, socket-free helpers hardened in the D6 audit.
- * The live socket path (sendAll EINTR retry, recv framing) cannot be unit-tested
- * without binding a port and is intentionally left to an example — see
- * src/stdlib/http.btrc. Everything here is hermetic and runs in milliseconds. */
+ * These are the deterministic, socket-free helpers. Local socket framing and
+ * short-write coverage lives in test_stdlib_http_socket_io.btrc. */
 #include <assert.h>
 
 int main() {

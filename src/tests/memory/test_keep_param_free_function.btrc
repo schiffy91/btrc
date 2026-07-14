@@ -1,7 +1,5 @@
-/* Test keep on a FREE-FUNCTION parameter: rc++ at the call site inside the
- * free-function keep-param branch (distinct from the method and constructor
- * branches). The kept object survives dropping the local handle because the
- * keep retain (and the stored field) keep it alive. */
+/* A free-function keep parameter guards the call; the destination field owns
+ * the stored reference after the call returns. */
 #include <assert.h>
 
 int alive = 0;
@@ -36,17 +34,17 @@ int main() {
     Obj o = new Obj(1);
     assert(alive == 1);
 
-    // Free-function keep param: rc++ at the call site.
+    // The keep guard is call-scoped; the field store is persistent ownership.
     stashInto(s, o);
     assert(s.held.id == 1);
 
-    // Drop the local handle; keep retain + field assign keep o alive.
+    // Drop the local handle; the field keeps o alive.
     release o;
     assert(o == null);
     assert(alive == 1);
 
     delete s;
-    assert(alive == 1);
+    assert(alive == 0);
 
     print("PASS: test_keep_param_free_function");
     return 0;

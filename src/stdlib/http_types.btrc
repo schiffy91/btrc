@@ -1,0 +1,100 @@
+/* HTTP request and response value types. */
+import std.bytes;
+import std.map;
+import std.strings;
+import std.vector;
+
+class HttpRequest {
+    public bool valid;
+    public string error;
+    public string method;
+    public string path;     /* path without query string */
+    public string query;    /* raw query string, may be "" */
+    public string version;
+    public Map<string, string> headers;  /* header names lower-cased */
+    public string body;        /* string view of the body — truncates at NUL */
+    public Bytes bodyBytes;    /* binary-safe body — full bytes, NUL preserved */
+
+    public HttpRequest() {
+        self.valid = false;
+        self.error = "request is incomplete";
+        self.method = "GET";
+        self.path = "/";
+        self.query = "";
+        self.version = "HTTP/1.1";
+        self.headers = {};
+        self.body = "";
+        self.bodyBytes = Bytes();
+    }
+
+    public string header(string name) {
+        if (name == null || self.headers == null) { return ""; }
+        return self.headers.getOrDefault(name.toLower(), "");
+    }
+
+    /* Parse the raw query string ("a=1&b=hello%20world+x") into a map of
+     * percent-decoded name -> value pairs. req.query is kept raw (so the
+     * separators '&' and '=' are interpreted here, not pre-mangled by decoding);
+     * each individual name and value is urlDecode'd. A bare key ("flag") maps to
+     * "". Later duplicates win. */
+    public Map<string, string> queryParams() {
+        Map<string, string> out = {};
+        if (self.query == null || self.query.isEmpty()) { return out; }
+        for pair in Strings.split(self.query, "&") {
+            if (pair.isEmpty()) { continue; }
+            int eq = Strings.find(pair, "=", 0);
+            if (eq < 0) {
+                out.put(HttpServer.urlDecode(pair), "");
+            } else {
+                string k = pair.substring(0, eq);
+                string v = pair.substring(eq + 1, pair.len() - (eq + 1));
+                out.put(HttpServer.urlDecode(k), HttpServer.urlDecode(v));
+            }
+        }
+        return out;
+    }
+
+    public bool isGet() { return self.method != null && self.method.equals("GET"); }
+    public bool isPost() { return self.method != null && self.method.equals("POST"); }
+}
+
+class HttpResponse {
+    public int status;
+    public string contentType;
+    public string body;
+    public Vector<string> extraHeaders;
+
+    public HttpResponse(int status, string contentType, string body) {
+        self.status = status;
+        self.contentType = contentType;
+        self.body = body;
+        self.extraHeaders = [];
+    }
+
+    public HttpResponse addHeader(string line) {
+        if (line != null) { self.extraHeaders.push(line); }
+        return self;
+    }
+
+    class HttpResponse text(string body) {
+        return HttpResponse(200, "text/plain; charset=utf-8", body);
+    }
+    class HttpResponse html(string body) {
+        return HttpResponse(200, "text/html; charset=utf-8", body);
+    }
+    class HttpResponse json(string body) {
+        return HttpResponse(200, "application/json; charset=utf-8", body);
+    }
+    class HttpResponse js(string body) {
+        return HttpResponse(200, "application/javascript; charset=utf-8", body);
+    }
+    class HttpResponse css(string body) {
+        return HttpResponse(200, "text/css; charset=utf-8", body);
+    }
+    class HttpResponse notFound() {
+        return HttpResponse(404, "text/plain; charset=utf-8", "Not Found");
+    }
+    class HttpResponse error(int code, string message) {
+        return HttpResponse(code, "text/plain; charset=utf-8", message);
+    }
+}

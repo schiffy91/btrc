@@ -2,8 +2,11 @@
 enum/union/tuple type spellings, array-sized parameters, `keep` params, and the
 `<` generic-vs-comparison disambiguation."""
 
-from src.compiler.python.ast_nodes import FunctionDecl
+import pytest
+
+from src.compiler.python.ast_nodes import CastExpr, FunctionDecl, LambdaExpr
 from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.core import ParseError
 from src.compiler.python.parser.parser import Parser
 
 
@@ -34,6 +37,29 @@ def test_multiword_primitive_types_parse():
     assert {"ull", "ld", "li", "si", "sh", "ui"} <= set(fns)
 
 
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "unsigned short int",
+        "signed short int",
+        "unsigned long int",
+        "signed long int",
+        "unsigned long long int",
+        "signed long long int",
+    ],
+)
+def test_signed_unsigned_integer_spellings_parse(spelling):
+    prog = parse(f"{spelling} f({spelling} x) {{ return x; }}")
+    func = prog.declarations[0]
+    assert func.return_type.base == spelling
+    assert func.params[0].type.base == spelling
+
+
+def test_long_long_double_is_rejected():
+    with pytest.raises(ParseError):
+        parse("long long double invalid() { return 0; }")
+
+
 def test_struct_enum_type_usage():
     src = """
     enum Color { RED, GREEN };
@@ -56,21 +82,49 @@ def test_tuple_type_in_signature():
     assert any(f.name == "swap" for f in fns)
 
 
+def test_tuple_type_preserves_qualifiers_and_suffixes():
+    prog = parse("void f() { const volatile (int, string)? maybe; (int, string)* pointer; (int, string)[] values; }")
+    maybe, pointer, values = prog.declarations[0].body.statements
+    assert maybe.type.base == "Tuple"
+    assert maybe.type.is_const and maybe.type.is_volatile
+    assert maybe.type.is_nullable and maybe.type.pointer_depth == 1
+    assert pointer.type.pointer_depth == 1 and not pointer.type.is_nullable
+    assert values.type.is_array
+
+
+def test_nested_generic_nullable_type_and_cast():
+    prog = parse("void f() { Box<Vector<int>>? box; var x = (Box<Vector<int>>) box; }")
+    box_type = prog.declarations[0].body.statements[0].type
+    cast = prog.declarations[0].body.statements[1].initializer
+    assert box_type.base == "Box" and box_type.is_nullable
+    assert box_type.generic_args[0].base == "Vector"
+    assert isinstance(cast, CastExpr)
+    assert cast.target_type.generic_args[0].generic_args[0].base == "int"
+
+
+def test_nested_generic_nullable_verbose_lambda():
+    prog = parse("void f() { var fn = Box<Vector<int>>? function() { return null; }; }")
+    initializer = prog.declarations[0].body.statements[0].initializer
+    assert isinstance(initializer, LambdaExpr)
+    assert initializer.return_type.is_nullable
+    assert initializer.return_type.generic_args[0].base == "Vector"
+
+
 def test_parameter_with_explicit_array_size():
     src = "int sum(int buf[10]) { return buf[0]; }\nint main() { return 0; }"
     prog = parse(src)
-    swap = next(d for d in prog.declarations
-                if isinstance(d, FunctionDecl) and d.name == "sum")
+    swap = next(d for d in prog.declarations if isinstance(d, FunctionDecl) and d.name == "sum")
     assert swap.params[0].type.is_array
     assert swap.params[0].type.array_size is not None
 
 
 def test_keep_parameter():
-    src = ("class Obj { public int v; public Obj() { self.v = 0; } }\n"
-           "void hold(keep Obj o) { return; }\nint main() { return 0; }")
+    src = (
+        "class Obj { public int v; public Obj() { self.v = 0; } }\n"
+        "void hold(keep Obj o) { return; }\nint main() { return 0; }"
+    )
     prog = parse(src)
-    hold = next(d for d in prog.declarations
-                if isinstance(d, FunctionDecl) and d.name == "hold")
+    hold = next(d for d in prog.declarations if isinstance(d, FunctionDecl) and d.name == "hold")
     assert hold.params[0].keep is True
 
 

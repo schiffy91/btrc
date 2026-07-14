@@ -1,0 +1,150 @@
+/* Bounded socket I/O for the HTTP server. */
+import std.bytes;
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <string.h>
+#include <signal.h>
+#include <errno.h>
+
+class HttpSocket {
+    class int openListener(int port, bool bindAny) {
+        if (port < 0 || port > 65535) { return -1; }
+        signal(SIGPIPE, SIG_IGN);
+        int descriptor = socket(AF_INET, SOCK_STREAM, 0);
+        if (descriptor < 0) { return -1; }
+        int yes = 1;
+        if (setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR,
+                       &yes, sizeof(yes)) < 0) {
+            close(descriptor);
+            return -1;
+        }
+        struct sockaddr_in address;
+        memset(&address, 0, sizeof(address));
+        address.sin_family = AF_INET;
+        address.sin_port = htons((unsigned short)port);
+        address.sin_addr.s_addr = htonl(bindAny ? INADDR_ANY : INADDR_LOOPBACK);
+        if (bind(descriptor, (struct sockaddr*)&address, sizeof(address)) < 0
+                || listen(descriptor, 64) < 0) {
+            close(descriptor);
+            return -1;
+        }
+        return descriptor;
+    }
+
+    class int acceptConnection(int listener, int timeoutSecs) {
+        if (listener < 0) { return -1; }
+        struct sockaddr_in client;
+        socklen_t clientLength = sizeof(client);
+        int descriptor = -1;
+        while (descriptor < 0) {
+            clientLength = sizeof(client);
+            descriptor = accept(listener, (struct sockaddr*)&client, &clientLength);
+            if (descriptor < 0 && errno != EINTR) { return -1; }
+        }
+        struct timeval timeout;
+        timeout.tv_sec = timeoutSecs > 0 ? timeoutSecs : 1;
+        timeout.tv_usec = 0;
+        if (setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO,
+                       &timeout, sizeof(timeout)) < 0
+                || setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO,
+                              &timeout, sizeof(timeout)) < 0) {
+            close(descriptor);
+            return -1;
+        }
+        return descriptor;
+    }
+
+    class void closeConnection(int descriptor) {
+        if (descriptor < 0) { return; }
+        shutdown(descriptor, SHUT_RDWR);
+        close(descriptor);
+    }
+
+    class Bytes emptyBytes() {
+        return Bytes();
+    }
+
+    class Bytes readRequest(int descriptor, int maxHeaderBytes,
+                            int maxBodyBytes, int maxRequestBytes) {
+        Bytes data = Bytes();
+        if (descriptor < 0 || maxHeaderBytes < 4 || maxBodyBytes < 0
+                || maxRequestBytes < maxHeaderBytes) {
+            return HttpSocket.emptyBytes();
+        }
+        int headerEnd = -1;
+        int contentLength = -1;
+        int transferEncoding = -1;
+        char buffer[8192];
+        while (true) {
+            ssize_t count = recv(descriptor, buffer, sizeof(buffer), 0);
+            if (count < (ssize_t)0 && errno == EINTR) { continue; }
+            if (count <= (ssize_t)0
+                    || (long long)count
+                        > (long long)(maxRequestBytes - data.len)) {
+                return HttpSocket.emptyBytes();
+            }
+            data.appendRaw(buffer, (int)count);
+
+            if (headerEnd < 0) {
+                int found = HttpFraming.headerEnd(data);
+                if (found == -2 || (found < 0 && data.len > maxHeaderBytes)) {
+                    return HttpSocket.emptyBytes();
+                }
+                if (found < 0) { continue; }
+                if (found > maxHeaderBytes - 4) { return HttpSocket.emptyBytes(); }
+                headerEnd = found;
+                Bytes headerBytes = data.slice(0, headerEnd);
+                string head = headerBytes.toStringLossy();
+                contentLength = HttpFraming.contentLength(head);
+                transferEncoding = HttpFraming.transferEncoding(head);
+                if (contentLength == -2 || transferEncoding == -2
+                        || (contentLength >= 0 && transferEncoding == 1)
+                        || contentLength > maxBodyBytes) {
+                    return HttpSocket.emptyBytes();
+                }
+            }
+
+            int bodyStart = headerEnd + 4;
+            if (transferEncoding == 1) {
+                int end = HttpFraming.chunkedEnd(
+                    data, bodyStart, maxBodyBytes, maxHeaderBytes);
+                if (end == -2 || end > maxRequestBytes) {
+                    return HttpSocket.emptyBytes();
+                }
+                if (end >= 0) { return data.slice(0, end); }
+            } else {
+                int bodyLength = contentLength >= 0 ? contentLength : 0;
+                if (bodyStart > maxRequestBytes
+                        || bodyLength > maxRequestBytes - bodyStart) {
+                    return HttpSocket.emptyBytes();
+                }
+                int messageEnd = bodyStart + bodyLength;
+                if (data.len >= messageEnd) { return data.slice(0, messageEnd); }
+            }
+        }
+        return HttpSocket.emptyBytes();
+    }
+
+    class bool sendAll(int descriptor, string data) {
+        if (descriptor < 0 || data == null) { return false; }
+        signal(SIGPIPE, SIG_IGN);
+        size_t total = strlen(data);
+        size_t sent = 0;
+        while (sent < total) {
+            ssize_t count = send(descriptor, data + sent, total - sent, 0);
+            if (count > (ssize_t)0) {
+                sent = sent + (size_t)count;
+            } else if (count < (ssize_t)0 && errno == EINTR) {
+                continue;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+}

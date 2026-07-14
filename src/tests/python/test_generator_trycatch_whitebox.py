@@ -31,12 +31,16 @@ def test_detects_trycatch_in_else_block():
 
 
 def test_detects_trycatch_in_else_if():
-    assert _block_uses_trycatch(_body('void f() { if (1 == 1) {} else if (2 == 2) { try { throw "x"; } catch (string e) {} } }'))
+    assert _block_uses_trycatch(
+        _body('void f() { if (1 == 1) {} else if (2 == 2) { try { throw "x"; } catch (string e) {} } }')
+    )
 
 
 def test_detects_trycatch_in_while_for_dowhile():
     assert _block_uses_trycatch(_body('void f() { while (1 == 0) { try { throw "x"; } catch (string e) {} } }'))
-    assert _block_uses_trycatch(_body('void f() { for (int i = 0; i < 0; i = i + 1) { try { throw "x"; } catch (string e) {} } }'))
+    assert _block_uses_trycatch(
+        _body('void f() { for (int i = 0; i < 0; i = i + 1) { try { throw "x"; } catch (string e) {} } }')
+    )
     assert _block_uses_trycatch(_body('void f() { do { try { throw "x"; } catch (string e) {} } while (1 == 0); }'))
 
 
@@ -45,23 +49,35 @@ def test_detects_trycatch_in_switch_case_directly():
 
 
 def test_detects_trycatch_in_switch_case_nested():
-    assert _block_uses_trycatch(_body('void f() { switch (1) { case 1: while (1 == 0) { try { throw "y"; } catch (string e) {} } default: {} } }'))
+    assert _block_uses_trycatch(
+        _body(
+            'void f() { switch (1) { case 1: while (1 == 0) { try { throw "y"; } catch (string e) {} } default: {} } }'
+        )
+    )
 
 
 def test_detects_trycatch_nested_in_try_catch_finally():
-    src = ('void f() { try { try { throw "a"; } catch (string e) {} }'
-           ' catch (string e) {} finally { try { throw "b"; } catch (string e) {} } }')
+    src = (
+        'void f() { try { try { throw "a"; } catch (string e) {} }'
+        ' catch (string e) {} finally { try { throw "b"; } catch (string e) {} } }'
+    )
     assert _block_uses_trycatch(_body(src))
 
 
 def test_stmt_detector_directly_on_each_structure():
     assert _stmt_uses_trycatch(_first_stmt('void f() { if (1 == 1) { throw "x"; } }'))
-    assert _stmt_uses_trycatch(_first_stmt('void f() { if (1 == 1) {} else if (2 == 2) { try { throw "x"; } catch (string e) {} } }'))
+    assert _stmt_uses_trycatch(
+        _first_stmt('void f() { if (1 == 1) {} else if (2 == 2) { try { throw "x"; } catch (string e) {} } }')
+    )
     assert _stmt_uses_trycatch(_first_stmt('void f() { while (1 == 0) { try { throw "x"; } catch (string e) {} } }'))
-    assert _stmt_uses_trycatch(_first_stmt('void f() { switch (1) { case 1: while (1 == 0) { try { throw "y"; } catch (string e) {} } default: {} } }'))
+    assert _stmt_uses_trycatch(
+        _first_stmt(
+            'void f() { switch (1) { case 1: while (1 == 0) { try { throw "y"; } catch (string e) {} } default: {} } }'
+        )
+    )
 
 
 def test_no_trycatch_returns_false():
-    assert not _block_uses_trycatch(_body('void f() { int x = 0; if (x > 0) { x = 1; } while (x < 5) { x = x + 1; } }'))
-    assert not _stmt_uses_trycatch(_first_stmt('void f() { int x = 0; }'))
+    assert not _block_uses_trycatch(_body("void f() { int x = 0; if (x > 0) { x = 1; } while (x < 5) { x = x + 1; } }"))
+    assert not _stmt_uses_trycatch(_first_stmt("void f() { int x = 0; }"))
     assert not _block_uses_trycatch(None)

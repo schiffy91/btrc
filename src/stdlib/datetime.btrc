@@ -8,6 +8,7 @@
  */
 import std.strings;
 
+#include <errno.h>
 #include <time.h>
 
 class DateTime {
@@ -44,35 +45,57 @@ class DateTime {
      * DateTime's fields as UTC. Computed with a portable civil-from-days
      * algorithm (Howard Hinnant's) — no dependence on the non-portable
      * timegm(), so it builds identically under strict C11 on macOS and Linux. */
-    public int toUnix() {
-        int y = self.year;
-        int m = self.month;
+    public long long toUnix() {
+        long long y = (long long)self.year;
+        long long m = (long long)self.month;
         if (m <= 2) {
-            y = y - 1;
+            y = y - 1LL;
         }
-        int era = (y >= 0 ? y : y - 399) / 400;
-        int yoe = y - era * 400;
-        int mp = (m + 9) % 12;
-        int doy = (153 * mp + 2) / 5 + self.day - 1;
-        int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        int days = era * 146097 + doe - 719468;
-        return days * 86400 + self.hour * 3600 + self.minute * 60 + self.second;
+        long long era = (y >= 0LL ? y : y - 399LL) / 400LL;
+        long long yoe = y - era * 400LL;
+        long long mp = (m + 9LL) % 12LL;
+        long long doy = (153LL * mp + 2LL) / 5LL
+            + (long long)self.day - 1LL;
+        long long doe = yoe * 365LL + yoe / 4LL - yoe / 100LL + doy;
+        long long days = era * 146097LL + doe - 719468LL;
+        return days * 86400LL
+            + (long long)self.hour * 3600LL
+            + (long long)self.minute * 60LL
+            + (long long)self.second;
     }
 
     /* Construct a DateTime from seconds since the Unix epoch, interpreted as
-     * UTC (via gmtime_r) so the result is deterministic and independent of the
-     * host's local timezone. This is the inverse of toUnix(). */
-    class DateTime fromUnix(int seconds) {
-        time_t t = (time_t)seconds;
-        struct tm out;
-        gmtime_r(&t, &out);
+     * UTC.  The inverse civil-from-days calculation avoids time_t width and
+     * platform-specific gmtime variants, including the 32-bit 2038 boundary. */
+    class DateTime fromUnix(long long seconds) {
+        long long days = seconds / 86400LL;
+        long long remaining = seconds % 86400LL;
+        if (remaining < 0LL) {
+            remaining = remaining + 86400LL;
+            days = days - 1LL;
+        }
+
+        long long z = days + 719468LL;
+        long long era = (z >= 0LL ? z : z - 146096LL) / 146097LL;
+        long long doe = z - era * 146097LL;
+        long long yoe = (doe - doe / 1460LL + doe / 36524LL
+            - doe / 146096LL) / 365LL;
+        long long year = yoe + era * 400LL;
+        long long doy = doe - (365LL * yoe + yoe / 4LL - yoe / 100LL);
+        long long mp = (5LL * doy + 2LL) / 153LL;
+        long long day = doy - (153LL * mp + 2LL) / 5LL + 1LL;
+        long long month = mp + (mp < 10LL ? 3LL : -9LL);
+        if (month <= 2LL) {
+            year = year + 1LL;
+        }
+
         return DateTime(
-            out.tm_year + 1900,
-            out.tm_mon + 1,
-            out.tm_mday,
-            out.tm_hour,
-            out.tm_min,
-            out.tm_sec
+            (int)year,
+            (int)month,
+            (int)day,
+            (int)(remaining / 3600LL),
+            (int)((remaining % 3600LL) / 60LL),
+            (int)(remaining % 60LL)
         );
     }
 
@@ -165,7 +188,8 @@ class Timer {
         req.tv_sec = (time_t)seconds;
         double frac = seconds - (double)((time_t)seconds);
         req.tv_nsec = (long)(frac * 1000000000.0);
-        nanosleep(&req, NULL);
+        while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+        }
     }
 
     /* Suspend the calling thread for the given number of milliseconds. */
@@ -176,6 +200,7 @@ class Timer {
         struct timespec req;
         req.tv_sec = ms / 1000;
         req.tv_nsec = (long)(ms % 1000) * 1000000L;
-        nanosleep(&req, NULL);
+        while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+        }
     }
 }

@@ -11,8 +11,8 @@ from pathlib import Path
 
 from lsprotocol import types as lsp
 
+from src.devex.lsp import unit_cache
 from src.devex.lsp import units as units_mod
-from src.devex.lsp import workspace as workspace_mod
 from src.devex.lsp.completion import get_completions
 from src.devex.lsp.diagnostics import AnalysisResult, compute_diagnostics, uri_to_path
 from src.devex.lsp.signature_help import get_signature_help
@@ -43,10 +43,17 @@ def _swapped(live: str, uri: str = URI) -> AnalysisResult:
     s = compute_diagnostics(uri, SNAP)
     assert s.diagnostics == [] and s.analyzed is not None
     return AnalysisResult(
-        uri=s.uri, source=live, diagnostics=s.diagnostics, tokens=s.tokens,
-        ast=s.ast, analyzed=s.analyzed, source_positions=s.source_positions,
-        path=s.path, units=s.units,
-        snapshot_source=s.source, _caches=s._caches,
+        uri=s.uri,
+        source=live,
+        diagnostics=s.diagnostics,
+        tokens=s.tokens,
+        ast=s.ast,
+        analyzed=s.analyzed,
+        source_positions=s.source_positions,
+        path=s.path,
+        units=s.units,
+        snapshot_source=s.source,
+        _caches=s._caches,
     )
 
 
@@ -66,10 +73,10 @@ class _Workspace:
 
 def _install(monkeypatch, source, uri=URI):
     published = []
-    monkeypatch.setattr(srv.server, "text_document_publish_diagnostics",
-                        lambda params: published.append(params), raising=False)
-    monkeypatch.setattr(srv.server.protocol, "_workspace", _Workspace(source, uri),
-                        raising=False)
+    monkeypatch.setattr(
+        srv.server, "text_document_publish_diagnostics", lambda params: published.append(params), raising=False
+    )
+    monkeypatch.setattr(srv.server.protocol, "_workspace", _Workspace(source, uri), raising=False)
     monkeypatch.setattr(srv, "DEBOUNCE_SECONDS", 0)
     return published
 
@@ -95,17 +102,18 @@ def test_midedit_signature_help_does_not_use_stale_callee():
 def test_midedit_unchanged_lines_still_use_token_path():
     # source swapped, but the queried line is identical -> token path intact
     live = SNAP + "\n"
-    labels = {i.label for i in get_completions(
-        _swapped(live), pos_of(SNAP, "d.bark", offset=2))}
+    labels = {i.label for i in get_completions(_swapped(live), pos_of(SNAP, "d.bark", offset=2))}
     assert "bark" in labels
 
 
 def test_server_swaps_live_buffer_and_resolves_new_receiver(monkeypatch):
     _install(monkeypatch, SNAP.replace("    d.bark();\n", "    c.\n"))
     srv._validate_document(URI, SNAP)  # snapshot analyzed from the OLD text
-    items = srv.completion(lsp.CompletionParams(
-        text_document=lsp.TextDocumentIdentifier(uri=URI),
-        position=lsp.Position(line=5, character=6)))
+    items = srv.completion(
+        lsp.CompletionParams(
+            text_document=lsp.TextDocumentIdentifier(uri=URI), position=lsp.Position(line=5, character=6)
+        )
+    )
     labels = {i.label for i in items}
     assert "purr" in labels and "bark" not in labels
 
@@ -162,8 +170,7 @@ def test_validation_after_did_close_is_dropped(monkeypatch):
     published = _install(monkeypatch, SAMPLE)
     srv._validate_document(URI, SAMPLE)
     gen = srv_state._generations[URI]
-    srv.did_close(lsp.DidCloseTextDocumentParams(
-        text_document=lsp.TextDocumentIdentifier(uri=URI)))
+    srv.did_close(lsp.DidCloseTextDocumentParams(text_document=lsp.TextDocumentIdentifier(uri=URI)))
     assert URI not in srv._analysis_cache
     published.clear()
     # A run that passed its pre-check before the close finishes now: dropped.
@@ -218,23 +225,26 @@ def test_unit_cache_version_is_content_derived():
     v = units_mod._UNIT_CACHE_VERSION
     assert re.fullmatch(r"[0-9a-f]{16}", v), v  # a hash, not a hand-bumped counter
     assert units_mod._compute_unit_cache_version() == v  # deterministic
+    assert v != units_mod.toolchain_hash("frontend")  # LSP codec/extraction included
 
 
-def test_prune_unit_cache_drops_only_old_unit_pickles(tmp_path):
+def test_prune_unit_cache_removes_legacy_pickles_and_only_expired_json(tmp_path):
     cache = tmp_path / "cache"
     cache.mkdir()
-    old = cache / "lspunit-old.pkl"
-    new = cache / "lspunit-new.pkl"
+    legacy = cache / "lspunit-legacy.pkl"
+    old = cache / "lspunit-old.json"
+    new = cache / "lspunit-new.json"
     other = cache / "unrelated.txt"
-    for f in (old, new, other):
+    for f in (legacy, old, new, other):
         f.write_bytes(b"x")
     stale = time.time() - 40 * 24 * 3600
     os.utime(old, (stale, stale))
     os.utime(other, (stale, stale))
-    workspace_mod._prune_unit_cache(str(cache))
+    unit_cache.prune_unit_cache(str(cache))
+    assert not legacy.exists()  # unsafe legacy format is invalidated immediately
     assert not old.exists()
     assert new.exists()
-    assert other.exists()  # only lspunit-*.pkl are touched
+    assert other.exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -251,6 +261,26 @@ def test_uri_to_path_windows_drive_loses_leading_slash():
     path = uri_to_path("file:///C:/Users/a%20b/x.btrc")
     assert not path.startswith("/")
     assert path.replace("\\", "/") == "C:/Users/a b/x.btrc"
+
+
+def test_uri_to_path_preserves_unc_authority_and_virtual_uri_identity():
+    assert uri_to_path("file://server/share/a%20b.btrc").replace("\\", "/") == "//server/share/a b.btrc"
+    left = uri_to_path("untitled:one.btrc")
+    right = uri_to_path("untitled:two.btrc")
+    assert left != right and left.endswith(".btrc") and right.endswith(".btrc")
+
+
+def test_older_document_version_cannot_overwrite_newer_analysis(monkeypatch):
+    published = _install(monkeypatch, "int main() { return 2; }\n")
+    newer = "int main() { return 2; }\n"
+    older = "int main() { return 1; }\n"
+
+    srv._schedule_validation(URI, newer, 0, version=2)
+    published.clear()
+    srv._schedule_validation(URI, older, 0, version=1)
+
+    assert srv._analysis_cache[URI].source == newer
+    assert published == []
 
 
 # --------------------------------------------------------------------------- #
@@ -275,7 +305,7 @@ def test_analyzer_diagnostic_covers_full_token():
     r = compute_diagnostics("file:///span.btrc", src)
     d = next(d for d in r.diagnostics if "Cannot assign" in d.message)
     line = src.split("\n")[d.range.start.line]
-    assert line[d.range.start.character:d.range.end.character] == "string"
+    assert line[d.range.start.character : d.range.end.character] == "string"
 
 
 def test_lexer_diagnostic_without_tokens_stays_one_char():

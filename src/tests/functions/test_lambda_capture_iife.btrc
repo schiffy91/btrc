@@ -1,0 +1,38 @@
+// Capturing IIFEs materialize their closure environment at the call site.
+// The environment stores and call remain control-sensitive expressions.
+#include <assert.h>
+
+int effects = 0;
+
+int tick() {
+    effects++;
+    return 4;
+}
+
+int main() {
+    int offset = 3;
+    var expression = ((int value) => value + offset)(4);
+    var block = ((int value) => { return value * offset; })(5);
+    assert(expression == 7);
+    assert(block == 15);
+
+    bool choose = false;
+    int guarded = choose ? ((int value) => value + offset)(tick()) : 11;
+    assert(guarded == 11);
+    assert(effects == 0);
+
+    choose = true;
+    guarded = choose ? ((int value) => value + offset)(tick()) : 0;
+    assert(guarded == 7);
+    assert(effects == 1);
+
+    int iterations = 0;
+    int limit = 3;
+    while (((int current) => current < limit)(iterations)) {
+        iterations++;
+    }
+    assert(iterations == 3);
+
+    print("PASS: test_lambda_capture_iife");
+    return 0;
+}

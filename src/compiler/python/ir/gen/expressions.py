@@ -39,17 +39,17 @@ from ...ast_nodes import (
     UnaryExpr,
 )
 from ..nodes import (
-    IRCall,
+    CType,
     IRCast,
+    IRCompoundLiteral,
     IRExpr,
     IRLiteral,
-    IRRawExpr,
     IRSizeof,
-    IRTernary,
     IRVar,
 )
 from .errors import unsupported_node
-from .types import is_generic_class_type, type_to_c
+from .literal_text import format_c_integer_literal
+from .types import type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -69,14 +69,13 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
             return override
 
     if isinstance(node, IntLiteral):
-        raw = node.raw or str(node.value)
-        # Convert btrc octal 0o... to C octal 0...
-        if raw.startswith("0o") or raw.startswith("0O"):
-            return IRLiteral(text="0" + raw[2:])
-        return IRLiteral(text=raw)
+        return IRLiteral(text=format_c_integer_literal(node.raw, node.value))
 
     if isinstance(node, FloatLiteral):
-        return IRLiteral(text=node.raw or str(node.value))
+        text = node.raw or str(node.value)
+        if getattr(gen, "_gpu_cpu_index", None) and not text.endswith(("f", "F")):
+            text += "f"
+        return IRLiteral(text=text)
 
     if isinstance(node, StringLiteral):
         # Parser stores value WITH quotes, e.g. '"hello"'
@@ -103,58 +102,94 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
 
     if isinstance(node, BinaryExpr):
         from .operators import _lower_binary
+
         return _lower_binary(gen, node)
 
     if isinstance(node, UnaryExpr):
         from .operators import _lower_unary
+
         return _lower_unary(gen, node)
 
     if isinstance(node, CallExpr):
-        from .calls import _lower_call
-        return _lower_call(gen, node)
+        from .arguments_arc import lower_call_with_arc
+
+        return lower_call_with_arc(gen, node)
 
     if isinstance(node, FieldAccessExpr):
         from .fields import _lower_field_access
+
         return _lower_field_access(gen, node)
 
     if isinstance(node, IndexExpr):
         from .fields import _lower_index
+
         return _lower_index(gen, node)
 
     if isinstance(node, AssignExpr):
-        from .fields import _lower_assign
-        return _lower_assign(gen, node)
+        from .assignments import lower_assignment_expr
+
+        return lower_assignment_expr(gen, node)
 
     if isinstance(node, CastExpr):
-        return IRCast(target_type=type_to_c(node.target_type),
-                      expr=lower_expr(gen, node.expr))
+        target_type = type_to_c(node.target_type)
+        reference_types = set(gen.analyzed.class_table)
+        reference_types.update(getattr(gen.analyzed, "interface_table", {}))
+        if node.target_type.base in reference_types and not target_type.endswith("*"):
+            target_type += "*"
+        return IRCast(target_type=CType(text=target_type), expr=lower_expr(gen, node.expr))
 
     if isinstance(node, SizeofExpr):
         return _lower_sizeof(gen, node)
 
     if isinstance(node, TernaryExpr):
-        return IRTernary(condition=lower_expr(gen, node.condition),
-                         true_expr=lower_expr(gen, node.true_expr),
-                         false_expr=lower_expr(gen, node.false_expr))
+        from .ownership import normalize_owned_branch, owns_result
+        from .typed_operators import lower_typed_ternary, operator_context
+
+        true_expr = lower_expr(gen, node.true_expr)
+        false_expr = lower_expr(gen, node.false_expr)
+        if owns_result(gen, node):
+            true_expr = normalize_owned_branch(
+                gen,
+                node.true_expr,
+                true_expr,
+            )
+            false_expr = normalize_owned_branch(
+                gen,
+                node.false_expr,
+                false_expr,
+            )
+        return lower_typed_ternary(
+            lower_expr(gen, node.condition),
+            true_expr,
+            false_expr,
+            gen.analyzed.node_types.get(id(node.true_expr)),
+            gen.analyzed.node_types.get(id(node.false_expr)),
+            operator_context(gen),
+        )
 
     if isinstance(node, NewExpr):
-        from .class_members import lower_new_expr
+        from .constructor_calls import lower_new_expr
+
         return lower_new_expr(gen, node)
 
     if isinstance(node, ListLiteral):
         from .collections import lower_list_literal
+
         return lower_list_literal(gen, node)
 
     if isinstance(node, MapLiteral):
         from .collections import lower_map_literal
+
         return lower_map_literal(gen, node)
 
     if isinstance(node, FStringLiteral):
         from .fstrings import lower_fstring
+
         return lower_fstring(gen, node)
 
     if isinstance(node, LambdaExpr):
         from .lambdas import lower_lambda
+
         return lower_lambda(gen, node)
 
     if isinstance(node, TupleLiteral):
@@ -162,20 +197,13 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
 
     if isinstance(node, SpawnExpr):
         from .threads import lower_spawn
+
         return lower_spawn(gen, node)
 
     if isinstance(node, BraceInitializer):
-        if not node.elements:
-            # Check if analyzer annotated this with a collection type
-            node_type = gen.analyzed.node_types.get(id(node))
-            if node_type and is_generic_class_type(node_type, gen.analyzed.class_table):
-                from .types import mangle_generic_type
-                mangled = mangle_generic_type(node_type.base, node_type.generic_args)
-                return IRCall(callee=f"{mangled}_new", args=[])
-            # Empty brace init → NULL for pointer types, {0} for structs
-            return IRLiteral(text="NULL")
-        elems = ", ".join(_expr_text(lower_expr(gen, e)) for e in node.elements)
-        return IRRawExpr(text=f"{{{elems}}}")
+        from .aggregate_initializers import lower_brace_initializer
+
+        return lower_brace_initializer(gen, node)
 
     raise unsupported_node("expression", node)
 
@@ -183,26 +211,34 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
 def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
     """Lower an identifier, handling enum values."""
     name = node.name
+    enum_members = getattr(gen, "_enum_lowering_members", ()) or ()
+    if name in enum_members:
+        owner = getattr(gen, "_enum_lowering_owner", "")
+        prefix = f"{owner}_" if owner else ""
+        return IRVar(name=f"{prefix}{name}")
     # Check if this is an enum member (e.g., RED → Color_RED)
     for enum_name, values in gen.analyzed.enum_table.items():
         if name in values:
-            return IRLiteral(text=f"{enum_name}_{name}")
+            prefix = f"{enum_name}_" if enum_name else ""
+            return IRVar(name=f"{prefix}{name}")
     return IRVar(name=name)
 
 
 def _lower_sizeof(gen: IRGenerator, node: SizeofExpr) -> IRExpr:
     if isinstance(node.operand, SizeofType):
-        return IRSizeof(operand=type_to_c(node.operand.type))
+        return IRSizeof(operand=CType(text=type_to_c(node.operand.type)))
     elif isinstance(node.operand, SizeofExprOp):
         inner = lower_expr(gen, node.operand.expr)
-        return IRSizeof(operand=_expr_text(inner))
-    return IRSizeof(operand="void")
+        return IRSizeof(operand=inner)
+    return IRSizeof(operand=CType(text="void"))
 
 
 def _lower_tuple(gen: IRGenerator, node: TupleLiteral) -> IRExpr:
     """Lower tuple literal to C struct initializer."""
-    from .statements import _quick_text
+    from .aggregate_ownership import reject_owned_elements
     from .types import mangle_tuple_type
+
+    reject_owned_elements(gen, node.elements, "a shallow aggregate")
     elems = [lower_expr(gen, e) for e in node.elements]
     node_type = gen.analyzed.node_types.get(id(node))
     if node_type and node_type.generic_args:
@@ -210,48 +246,7 @@ def _lower_tuple(gen: IRGenerator, node: TupleLiteral) -> IRExpr:
     else:
         # Fallback: construct from element count
         mangled = f"btrc_Tuple_{'_'.join(['int'] * len(node.elements))}"
-    field_inits = ", ".join(f"._{i} = {_quick_text(e)}" for i, e in enumerate(elems))
-    return IRRawExpr(text=f"({mangled}){{{field_inits}}}")
-
-
-def _expr_text(expr: IRExpr) -> str:
-    """Quick helper to get text representation of simple expressions."""
-    from ..nodes import (
-        IRAddressOf,
-        IRBinOp,
-        IRDeref,
-        IRFieldAccess,
-        IRIndex,
-        IRUnaryOp,
+    return IRCompoundLiteral(
+        c_type=CType(text=mangled),
+        fields=[(f"_{index}", value) for index, value in enumerate(elems)],
     )
-    if isinstance(expr, IRLiteral):
-        return expr.text
-    if isinstance(expr, IRVar):
-        return expr.name
-    if isinstance(expr, IRRawExpr):
-        return expr.text
-    if isinstance(expr, IRBinOp):
-        return f"({_expr_text(expr.left)} {expr.op} {_expr_text(expr.right)})"
-    if isinstance(expr, IRUnaryOp):
-        if expr.prefix:
-            return f"({expr.op}{_expr_text(expr.operand)})"
-        return f"({_expr_text(expr.operand)}{expr.op})"
-    if isinstance(expr, IRCall):
-        args = ", ".join(_expr_text(arg) for arg in expr.args)
-        return f"{expr.callee}({args})"
-    if isinstance(expr, IRFieldAccess):
-        op = "->" if expr.arrow else "."
-        return f"{_expr_text(expr.obj)}{op}{expr.field}"
-    if isinstance(expr, IRIndex):
-        return f"{_expr_text(expr.obj)}[{_expr_text(expr.index)}]"
-    if isinstance(expr, IRCast):
-        return f"(({expr.target_type}){_expr_text(expr.expr)})"
-    if isinstance(expr, IRTernary):
-        return f"({_expr_text(expr.condition)} ? {_expr_text(expr.true_expr)} : {_expr_text(expr.false_expr)})"
-    if isinstance(expr, IRAddressOf):
-        return f"(&{_expr_text(expr.expr)})"
-    if isinstance(expr, IRDeref):
-        return f"(*{_expr_text(expr.expr)})"
-    if isinstance(expr, IRSizeof):
-        return f"sizeof({expr.operand})"
-    raise unsupported_node("inline expression", expr)

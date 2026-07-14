@@ -52,3 +52,4 @@ clean:
 	@$(MAKE) -C triangle clean 2>/dev/null || true
 	@$(MAKE) -C sgd clean 2>/dev/null || true
 	@$(MAKE) -C gui clean 2>/dev/null || true
+	@$(MAKE) -C tray clean 2>/dev/null || true

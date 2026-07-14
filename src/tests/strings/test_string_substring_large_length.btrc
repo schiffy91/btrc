@@ -1,0 +1,12 @@
+/* A very large requested length clamps to the remaining suffix without signed
+ * overflow in start + length. */
+#include <assert.h>
+
+int main() {
+    assert("abc".substring(1, 2147483647).equals("bc"));
+    assert("abc".substring(2, 2147483647).equals("c"));
+    assert("abc".substring(3, 2147483647).equals(""));
+
+    print("PASS: test_string_substring_large_length");
+    return 0;
+}

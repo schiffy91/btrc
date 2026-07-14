@@ -8,6 +8,8 @@ definition must land on the method name (the old MethodSig bug), and enum
 values now carry real positions.
 """
 
+from lsprotocol import types as lsp
+
 from src.devex.lsp.definition import DefinitionMap, get_definition
 from src.devex.lsp.symbols import get_document_symbols
 from src.devex.lsp.tests.lsphelp import analyze, pos_of
@@ -174,3 +176,23 @@ def test_document_symbol_struct_fields_have_ranges():
     assert fx is not None and fy is not None
     assert fx.selection_range.start.character == src.index(" x;") + 1
     assert fy.selection_range.start.character == src.index(" y;") + 1
+
+
+def test_document_symbol_constructor_kind_uses_ast_marker():
+    src = (
+        "class NamedMethod { public int NamedMethod() { return 1; } }\nclass Constructed { public Constructed() {} }\n"
+    )
+    symbols = get_document_symbols(analyze(src))
+    named_method = _symbol(_symbol(symbols, "NamedMethod").children, "NamedMethod")
+    constructor = _symbol(_symbol(symbols, "Constructed").children, "Constructed")
+
+    assert named_method.kind == lsp.SymbolKind.Method
+    assert constructor.kind == lsp.SymbolKind.Constructor
+
+
+def test_struct_definition_wins_over_later_forward_declaration():
+    src = "struct Tail { int value; };\nstruct Tail;\nint main() { Tail value = {1}; return value.value; }\n"
+    location = get_definition(analyze(src), pos_of(src, "Tail value", offset=1))
+
+    assert location is not None
+    assert location.range.start.line == 0

@@ -25,6 +25,7 @@ from src.compiler.python.ast_nodes import (
     StructDecl,
     TypedefDecl,
 )
+from src.devex.lsp.text_coordinates import protocol_range
 from src.devex.lsp.units import FileUnit
 from src.devex.lsp.workspace import Workspace
 
@@ -77,17 +78,27 @@ def _name_position(node) -> tuple[int, int]:
     return (getattr(node, "line", 0), getattr(node, "col", 0))
 
 
-def _symbol_for(decl, file_path: str, name: str, kind: lsp.SymbolKind):
+def _symbol_for(
+    decl,
+    unit: FileUnit,
+    name: str,
+    kind: lsp.SymbolKind,
+):
     line, col = _name_position(decl)
     if line == 0:
         return None
-    start = lsp.Position(line=max(0, line - 1), character=max(0, col - 1))
-    end = lsp.Position(line=start.line, character=start.character + len(name))
-    uri = _path_to_uri(file_path)
+    source = unit.source
+    if not source:
+        try:
+            with open(unit.path, encoding="utf-8") as source_file:
+                source = source_file.read()
+        except OSError:
+            source = ""
+    uri = _path_to_uri(unit.path)
     return lsp.WorkspaceSymbol(
         name=name,
         kind=kind,
-        location=lsp.Location(uri=uri, range=lsp.Range(start=start, end=end)),
+        location=lsp.Location(uri=uri, range=protocol_range(source, line, col, len(name))),
     )
 
 
@@ -101,9 +112,25 @@ def _path_to_uri(path: str) -> str:
 
 def _units(workspace: Workspace) -> list[FileUnit]:
     """Every parsed unit: cached user files first, then stdlib."""
-    units: list[FileUnit] = [unit for _sig, unit in workspace._file_cache.values()]
+    units = workspace.cached_units()
     units.extend(workspace.stdlib_units())
     return units
+
+
+def _preferred_declarations(declarations: list) -> list:
+    """Use a struct definition when a file also contains forward declarations."""
+    structs = {}
+    for declaration in declarations:
+        if not isinstance(declaration, StructDecl):
+            continue
+        previous = structs.get(declaration.name)
+        if previous is None or (previous.is_forward and not declaration.is_forward):
+            structs[declaration.name] = declaration
+    return [
+        declaration
+        for declaration in declarations
+        if not isinstance(declaration, StructDecl) or structs.get(declaration.name) is declaration
+    ]
 
 
 def get_workspace_symbols(workspace: Workspace, query: str, limit: int = 500) -> list[lsp.WorkspaceSymbol]:
@@ -116,7 +143,7 @@ def get_workspace_symbols(workspace: Workspace, query: str, limit: int = 500) ->
     seen: set[tuple[str, str, int]] = set()
     for unit in _units(workspace):
         path = unit.path
-        for decl in unit.decls:
+        for decl in _preferred_declarations(unit.decls):
             classified = _classify(decl)
             if classified is None:
                 continue
@@ -129,7 +156,7 @@ def get_workspace_symbols(workspace: Workspace, query: str, limit: int = 500) ->
             if key in seen:
                 continue
             seen.add(key)
-            sym = _symbol_for(decl, path, name, kind)
+            sym = _symbol_for(decl, unit, name, kind)
             if sym is not None:
                 ranked.append((rank, sym))
     # Stable sort by match quality (substring/prefix before subsequence);

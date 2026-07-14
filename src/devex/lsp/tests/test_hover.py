@@ -56,6 +56,7 @@ def test_hover_none_on_operator():
 def test_hover_none_without_tokens():
     # empty/whitespace document → no tokens → no hover
     from src.devex.lsp.tests.lsphelp import analyze as a
+
     r = a("   \n")
     assert get_hover_info(r, pos_of("   \n", " ", offset=0)) is None
 

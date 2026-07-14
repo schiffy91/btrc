@@ -1,0 +1,146 @@
+#include <assert.h>
+
+import std.vector;
+
+int baseDestroyed = 0;
+int derivedAlive = 0;
+int derivedDestroyed = 0;
+int payloadAlive = 0;
+int payloadDestroyed = 0;
+
+class Payload {
+    public int id;
+
+    public Payload(int id) {
+        self.id = id;
+        payloadAlive++;
+    }
+
+    public void __del__() {
+        payloadAlive--;
+        payloadDestroyed++;
+    }
+}
+
+class Base {
+    public int tag() { return 10; }
+    public void __del__() { baseDestroyed++; }
+}
+
+class Derived extends Base {
+    public Payload payload;
+    public Base peer;
+
+    public Derived(int id) {
+        self.payload = new Payload(id);
+        self.peer = null;
+        derivedAlive++;
+    }
+
+    public int tag() { return 20; }
+
+    public void __del__() {
+        derivedAlive--;
+        derivedDestroyed++;
+    }
+}
+
+class Holder {
+    public Base value;
+
+    public Holder(int id) {
+        self.value = new Derived(id);
+    }
+
+    public int readTag() { return self.value.tag(); }
+}
+
+void assertReleased(int expected) {
+    assert(baseDestroyed == 0);
+    assert(derivedAlive == 0);
+    assert(payloadAlive == 0);
+    assert(derivedDestroyed == expected);
+    assert(payloadDestroyed == expected);
+}
+
+void localPath() {
+    Base value = new Derived(1);
+    assert(value.tag() == 10);
+}
+
+void fieldPath() {
+    Holder holder = new Holder(2);
+    assert(holder.readTag() == 10);
+    assert(holder.value.tag() == 10);
+}
+
+void collectionPath() {
+    Vector<Base> values = [];
+    values.push(new Derived(3));
+    values.push(new Derived(4));
+    assert(values.len == 2);
+    for value in values {
+        assert(value.tag() == 10);
+    }
+}
+
+Base makeDerived(int id) {
+    return new Derived(id);
+}
+
+void returnPath() {
+    Base value = makeDerived(5);
+    assert(value.tag() == 10);
+}
+
+void throwPath() {
+    Base value = new Derived(6);
+    assert(value.tag() == 10);
+    throw "polymorphic throw";
+}
+
+void deletePath() {
+    Base value = new Derived(7);
+    assert(value.tag() == 10);
+    delete value;
+}
+
+Base makeCycleRoot(int id) {
+    Derived first = new Derived(id);
+    Derived second = new Derived(id + 1);
+    first.peer = second;
+    second.peer = first;
+    return first;
+}
+
+void cyclePath() {
+    Base root = makeCycleRoot(8);
+    assert(root.tag() == 10);
+}
+
+int main() {
+    localPath();
+    assertReleased(1);
+
+    fieldPath();
+    assertReleased(2);
+
+    collectionPath();
+    assertReleased(4);
+
+    returnPath();
+    assertReleased(5);
+
+    try { throwPath(); }
+    catch (string error) {
+        assert(error.equals("polymorphic throw"));
+    }
+    assertReleased(6);
+
+    deletePath();
+    assertReleased(7);
+
+    cyclePath();
+    assertReleased(9);
+    return 0;
+}

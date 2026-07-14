@@ -14,11 +14,12 @@ generic types that the substituted return/parameter types reference (e.g.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..ast_nodes import Identifier, LambdaExpr, TypeExpr
 
 
 class GenericMethodsMixin:
-
     def _collect_generic_method_instance(self, expr, cls, method, obj_type):
         """Record a monomorphization target for a generic-method call site.
 
@@ -39,10 +40,17 @@ class GenericMethodsMixin:
             return  # incomplete inference — leave it un-monomorphized
 
         method_args = tuple(method_subs[gp] for gp in method.generic_params)
-        if not self._all_concrete(method_args):
+        if not self._all_concrete(method_args, method.generic_params):
             return
 
         class_args = tuple(obj_type.generic_args) if obj_type.generic_args else ()
+        owner = f"{obj_type.base}.{method.name}"
+        if not self._validate_generic_arguments(owner, method_args, expr.line, expr.col):
+            return
+        full_subs = {**class_subs, **method_subs}
+        signature_types = [method.return_type, *(param.type for param in method.params)]
+        if not self._validate_substitution_shapes(owner, signature_types, full_subs, expr.line, expr.col):
+            return
 
         key = (obj_type.base, method.name)
         bucket = self.generic_method_instances.setdefault(key, [])
@@ -57,7 +65,6 @@ class GenericMethodsMixin:
         # Register concrete generic types that the substituted signature
         # references (e.g. Vector<string> from mapTo's return type) so the
         # class-instance monomorphization loop emits them.
-        full_subs = {**class_subs, **method_subs}
         for t in [method.return_type] + [p.type for p in method.params]:
             resolved = self._substitute_type(t, full_subs)
             if resolved and resolved.generic_args:
@@ -89,14 +96,15 @@ class GenericMethodsMixin:
         type_params = set(method.generic_params)
         subs: dict[str, TypeExpr] = {}
 
-        for i, param in enumerate(method.params):
-            if i >= len(expr.args):
-                break
+        names = self._arg_names(expr.args, expr.arg_names)
+        for param_index, arg_index in self._bound_arguments(method.params, names):
+            param = method.params[param_index]
             declared = self._substitute_type(param.type, class_subs)
-            actual = self._arg_type_for_inference(expr.args[i])
+            actual = self._arg_type_for_inference(expr.args[arg_index])
             if declared is None or actual is None:
                 continue
-            self._unify_type_param(declared, actual, type_params, subs)
+            if not self._unify_type_param(declared, actual, type_params, subs):
+                return None
 
         for gp in method.generic_params:
             if gp not in subs:
@@ -118,7 +126,7 @@ class GenericMethodsMixin:
             return self._infer_type(arg)
         return self._infer_type(arg)
 
-    def _unify_type_param(self, declared, actual, type_params, subs):
+    def _unify_type_param(self, declared, actual, type_params, subs) -> bool:
         """Structurally unify ``declared`` (may mention type params) with ``actual``.
 
         Records bindings for any name in ``type_params`` into ``subs``. Pointer
@@ -126,48 +134,62 @@ class GenericMethodsMixin:
         type parameters.
         """
         if declared is None or actual is None:
-            return
+            return True
         if declared.base in type_params and not declared.generic_args:
-            if declared.base not in subs:
-                # Bind to the actual type with the type-parameter's pointer depth
-                # stripped (declared `T` vs `T*` is handled structurally below).
-                subs[declared.base] = self._strip_one_pointer(actual, declared)
-            return
-        # Recurse into matching generic argument lists positionally
-        if declared.generic_args and actual.generic_args:
-            for d, a in zip(declared.generic_args, actual.generic_args):
-                self._unify_type_param(d, a, type_params, subs)
+            binding = self._strip_one_pointer(actual, declared)
+            if binding is None:
+                return False
+            existing = subs.get(declared.base)
+            if existing is not None:
+                return self._types_equal(existing, binding)
+            subs[declared.base] = binding
+            return True
 
-    def _strip_one_pointer(self, actual, declared) -> TypeExpr:
+        if declared.generic_args or actual.generic_args:
+            if (
+                declared.base != actual.base
+                or declared.pointer_depth != actual.pointer_depth
+                or declared.is_array != actual.is_array
+                or len(declared.generic_args) != len(actual.generic_args)
+            ):
+                return False
+            return all(
+                self._unify_type_param(d, a, type_params, subs)
+                for d, a in zip(declared.generic_args, actual.generic_args)
+            )
+        return True
+
+    def _strip_one_pointer(self, actual, declared) -> TypeExpr | None:
         """Adjust ``actual`` for the pointer depth the declared param adds.
 
         When the declared parameter is ``U*`` and the actual is ``int*``, the
         bound ``U`` is ``int``. Pointer depths beyond the type-parameter slot are
         subtracted. Plain (non-pointer) parameters bind to ``actual`` as-is.
         """
+        binding = actual
+        if getattr(declared, "is_array", False):
+            if not getattr(binding, "is_array", False):
+                return None
+            binding = replace(binding, is_array=False, array_size=None)
         extra = getattr(declared, "pointer_depth", 0)
-        if extra and getattr(actual, "pointer_depth", 0) >= extra:
-            return TypeExpr(
-                base=actual.base,
-                generic_args=actual.generic_args,
-                pointer_depth=actual.pointer_depth - extra,
-                is_array=getattr(actual, "is_array", False),
-                is_nullable=getattr(actual, "is_nullable", False),
-            )
-        return actual
+        if extra:
+            if getattr(binding, "pointer_depth", 0) < extra:
+                return None
+            binding = replace(binding, pointer_depth=binding.pointer_depth - extra)
+        return binding
 
-    def _all_concrete(self, args) -> bool:
+    def _all_concrete(self, args, unresolved=()) -> bool:
         """True if every TypeExpr in ``args`` is fully concrete (no type params).
 
-        A single uppercase-letter base (T, U, K, V, ...) is treated as an
-        unresolved type parameter, mirroring ir.gen.types.is_concrete_type.
+        Only parameters declared by the generic method are unresolved. A real
+        user type named ``T`` is otherwise a perfectly concrete type.
         """
-        return all(self._type_is_concrete(a) for a in args)
+        unresolved = set(unresolved)
+        return all(self._type_is_concrete(a, unresolved) for a in args)
 
-    def _type_is_concrete(self, t) -> bool:
+    def _type_is_concrete(self, t, unresolved) -> bool:
         if t is None:
             return False
-        base = t.base
-        if len(base) == 1 and base.isupper():
+        if t.base in unresolved:
             return False
-        return all(self._type_is_concrete(a) for a in (t.generic_args or []))
+        return all(self._type_is_concrete(a, unresolved) for a in (t.generic_args or []))

@@ -46,6 +46,14 @@ List<OwnedItem> makeList() {
     return items;
 }
 
+Vector<OwnedItem> makeVector() {
+    Vector<OwnedItem> items = [];
+    items.push(new OwnedItem(400));
+    items.push(new OwnedItem(401));
+    assert(live_items == 2);
+    return items;
+}
+
 int main() {
     Map<int, OwnedItem> mapItems = makeMap();
     assert(live_items == 20);
@@ -77,6 +85,16 @@ int main() {
     listItems.free();
     assert(live_items == 1);
     delete popped;
+    assert(live_items == 0);
+
+    Vector<OwnedItem> vectorItems = makeVector();
+    assert(live_items == 2);
+    OwnedItem poppedVector = vectorItems.pop();
+    assert(poppedVector.id == 401);
+    assert(live_items == 2);
+    vectorItems.free();
+    assert(live_items == 1);
+    delete poppedVector;
     assert(live_items == 0);
 
     print("PASS: test_collection_object_ownership");

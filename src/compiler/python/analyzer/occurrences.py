@@ -26,14 +26,16 @@ from .core import Occurrence
 
 
 class OccurrencesMixin:
-
     def _record_identifier(self, expr) -> None:
         """Record where a simple ``Identifier`` resolves (LSP path only)."""
         sym = self.scope.lookup(expr.name)
         if sym is not None and (sym.decl_file is not None or sym.decl_line or sym.decl_col):
             self.occurrences[id(expr)] = Occurrence(
-                kind=sym.kind, name=expr.name,
-                def_file=sym.decl_file, def_line=sym.decl_line, def_col=sym.decl_col,
+                kind=sym.kind,
+                name=expr.name,
+                def_file=sym.decl_file,
+                def_line=sym.decl_line,
+                def_col=sym.decl_col,
             )
             return
         # Top-level declarations not shadowed by a local symbol.
@@ -42,9 +44,11 @@ class OccurrencesMixin:
             nl = getattr(decl, "name_line", 0) or getattr(decl, "line", 0)
             nc = getattr(decl, "name_col", 0) or getattr(decl, "col", 0)
             self.occurrences[id(expr)] = Occurrence(
-                kind=kind, name=expr.name,
+                kind=kind,
+                name=expr.name,
                 def_file=getattr(decl, "source_file", None),
-                def_line=nl, def_col=nc,
+                def_line=nl,
+                def_col=nc,
             )
 
     def _lookup_top_level(self, name):

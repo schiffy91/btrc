@@ -1,0 +1,26 @@
+/* A lifted lambda is a separate C function and must not inherit the lexical
+ * try depth of the expression that created it. Otherwise its return pops the
+ * caller's thread-local try stack; the next try indexes a stale negative frame. */
+#include <assert.h>
+
+int main() {
+    __fn_ptr<int> callback = () => { return 1; };
+    try {
+        callback = () => { return 7; };
+    } catch (string message) {
+        assert(false);
+    }
+
+    assert(callback() == 7);
+
+    bool caught = false;
+    try {
+        throw "after-lambda";
+    } catch (string message) {
+        caught = message.equals("after-lambda");
+    }
+    assert(caught);
+
+    print("PASS: test_lambda_try_context_isolation");
+    return 0;
+}

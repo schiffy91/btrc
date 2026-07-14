@@ -1,0 +1,147 @@
+/* Per-call argument evaluation and capacity metadata for GPU dispatch. */
+
+class GpuPreparedCall {
+    public Vector<IRNode> declarations;
+    public Vector<IRNode> sequence;
+    public Vector<IRNode> helper_args;
+    public IRNode dispatch_length;
+
+    public GpuPreparedCall() {
+        self.declarations = [];
+        self.sequence = [];
+        self.helper_args = [];
+        self.dispatch_length = irLiteral("1");
+    }
+}
+
+IRNode gpuKnownArrayLength(IRGen gen, Node expression) {
+    if (expression == null || expression.kind != NK_IDENTIFIER) {
+        gpuLoweringFail(expression,
+            "GPU array argument must be a named array with a known capacity");
+    }
+    string name = expression.name;
+    if (gen.gpuHost.array_lengths.has(name)) {
+        return gen.gpuHost.array_lengths.get(name);
+    }
+    if (gen.gpuHost.unknown_array_lengths.has(name)) {
+        gpuLoweringFail(expression,
+            "GPU array argument has no provable capacity in this scope");
+    }
+    /* A global fixed array is not recorded in the local context; sizeof is
+     * still a compile-time, capacity-safe length for a direct identifier. */
+    IRNode denominator = irSizeofExpr(irIndex(irVar(name), irLiteral("0")));
+    return irBinOp(irSizeofExpr(irVar(name)), "/", denominator);
+}
+
+Vector<int> gpuArgumentSlots(Node call, Node declaration) {
+    Map<string, int> indices = {};
+    int p = 0;
+    while (p < declaration.params.len) {
+        indices.put(declaration.params.get(p).name, p);
+        p = p + 1;
+    }
+    Vector<int> slots = [];
+    Map<string, bool> filled = {};
+    int positional = 0;
+    int i = 0;
+    while (i < call.args.len) {
+        string named = "";
+        if (i < call.arg_names.len) { named = call.arg_names.get(i); }
+        int slot = positional;
+        if (named != "") {
+            if (!indices.has(named)) {
+                gpuLoweringFail(call, "unknown GPU argument name '" + named + "'");
+            }
+            slot = indices.get(named);
+        } else {
+            while (filled.has(Strings.fromInt(slot))) { slot = slot + 1; }
+            positional = slot + 1;
+        }
+        if (slot >= declaration.params.len
+                || filled.has(Strings.fromInt(slot))) {
+            gpuLoweringFail(call, "duplicate or excess GPU argument");
+        }
+        filled.put(Strings.fromInt(slot), true);
+        slots.push(slot);
+        i = i + 1;
+    }
+    return slots;
+}
+
+GpuPreparedCall prepareGpuCall(IRGen gen, IRGpuKernel kernel, Node call,
+        Vector<IRNode> loweredArgs, Map<string, Node> varTypes) {
+    GpuPreparedCall prepared = GpuPreparedCall();
+    Node declaration = kernel.declaration;
+    Vector<int> slots = gpuArgumentSlots(call, declaration);
+    Map<string, IRNode> values = {};
+    Map<string, IRNode> lengths = {};
+    int a = 0;
+    while (a < call.args.len) {
+        int slot = slots.get(a);
+        Node parameter = declaration.params.get(slot);
+        string key = Strings.fromInt(slot);
+        string valueName = gen.freshTemp("__btrc_gpu_arg");
+        prepared.declarations.push(irVarDecl(
+            typeToC(parameter.type, gen.analyzed), valueName, null));
+        prepared.sequence.push(irBinOp(irVar(valueName), "=",
+            loweredArgs.get(a)));
+        values.put(key, irVar(valueName));
+        if (parameter.type.is_array) {
+            string lengthName = gen.freshTemp("__btrc_gpu_len");
+            prepared.declarations.push(irVarDecl("int", lengthName, null));
+            prepared.sequence.push(irBinOp(irVar(lengthName), "=",
+                gpuKnownArrayLength(gen, call.args.get(a))));
+            lengths.put(key, irVar(lengthName));
+        }
+        a = a + 1;
+    }
+    bool hasDispatchLength = false;
+    int p = 0;
+    while (p < declaration.params.len) {
+        string key = Strings.fromInt(p);
+        Node parameter = declaration.params.get(p);
+        if (!values.has(key)) {
+            if (parameter.default_ == null) {
+                gpuLoweringFail(call, "missing GPU argument '"
+                    + parameter.name + "'");
+            }
+            string valueName = gen.freshTemp("__btrc_gpu_default");
+            prepared.declarations.push(irVarDecl(
+                typeToC(parameter.type, gen.analyzed), valueName, null));
+            prepared.sequence.push(irBinOp(irVar(valueName), "=",
+                gen.lowerExpr(parameter.default_, varTypes)));
+            values.put(key, irVar(valueName));
+            if (parameter.type.is_array) {
+                gpuLoweringFail(parameter,
+                    "default GPU array arguments require a provable capacity");
+            }
+        }
+        prepared.helper_args.push(values.get(key));
+        if (parameter.type.is_array) {
+            if (!lengths.has(key)) {
+                gpuLoweringFail(call, "GPU array length is unavailable");
+            }
+            prepared.helper_args.push(lengths.get(key));
+            if (!hasDispatchLength) {
+                prepared.dispatch_length = lengths.get(key);
+                hasDispatchLength = true;
+            }
+        }
+        p = p + 1;
+    }
+    return prepared;
+}
+
+IRNode gpuOutputCapacity(IRGen gen, Node target) {
+    if (target == null || target.kind != NK_IDENTIFIER) {
+        gpuLoweringFail(target,
+            "GPU array output target must be a named array with known capacity");
+    }
+    return gpuKnownArrayLength(gen, target);
+}
+
+string gpuCElementType(IRGpuKernel kernel) {
+    if (kernel.output_buffer != null
+            && kernel.output_buffer.elem_type == "f32") { return "float"; }
+    return "int";
+}

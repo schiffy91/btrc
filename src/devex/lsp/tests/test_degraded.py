@@ -61,7 +61,7 @@ def test_completion_member_via_text_heuristics():
     r = _degraded()
     # resolve `d` (var d = Box(4)) inside the if-block by scanning the AST text
     items = get_completions(r, pos_of(SRC, "d.get", offset=2))
-    assert isinstance(items, list)   # resolution ran without analysis (no crash)
+    assert isinstance(items, list)  # resolution ran without analysis (no crash)
 
 
 def test_completion_member_in_elseif_via_heuristics():

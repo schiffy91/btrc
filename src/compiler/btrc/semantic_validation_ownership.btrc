@@ -1,0 +1,139 @@
+/* Source ownership operations and the ARC/raw-allocation boundary. */
+
+bool semanticManagedOwnershipType(
+        Node? typeExpr, SemanticValidationState state) {
+    if (typeExpr == null) { return false; }
+    return !typeExpr.is_array && typeExpr.pointer_depth <= 1
+        && (state.analyzed.isClass(typeExpr.base)
+            || state.analyzed.isGenericClass(typeExpr.base));
+}
+
+bool semanticRawDeleteType(
+        Node? typeExpr, SemanticValidationState state) {
+    if (typeExpr == null || typeExpr.is_array) { return false; }
+    if (semanticManagedOwnershipType(typeExpr, state)) { return true; }
+    return typeExpr.pointer_depth > 0
+        && typeExpr.base != "__fn_ptr";
+}
+
+bool semanticThreadJoinReceiverConsumable(Node receiver) {
+    if (receiver.kind == NK_IDENTIFIER || receiver.kind == NK_SPAWN_EXPR
+            || receiver.kind == NK_CALL_EXPR) {
+        return true;
+    }
+    if (receiver.kind == NK_TERNARY_EXPR) {
+        return !semanticThreadCopySource(receiver);
+    }
+    return false;
+}
+
+void semanticValidateThreadJoinReceiver(Node call) {
+    Node callee = call.callee;
+    if (callee.optional
+            || !semanticThreadJoinReceiverConsumable(callee.obj)) {
+        semanticValidationFail(
+            "Thread.join() receiver must be a unique local owner or a "
+                + "fresh Thread result",
+            call);
+    }
+}
+
+void semanticRejectThreadHandleCopy(Node? target, Node? source,
+        Node? value, Node site, SemanticValidationState state) {
+    target = semanticResolveAliases(target, state);
+    source = semanticResolveAliases(source, state);
+    if (target == null || target.base != "Thread"
+            || source == null || source.base != "Thread"
+            || value == null || !semanticThreadCopySource(value)) {
+        return;
+    }
+    semanticValidationFail(
+        "Thread handles cannot be copied; transfer a fresh spawn() or "
+            + "function-call result instead",
+        site);
+}
+
+bool semanticOwnershipUsesIndirectLvalue(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+        Node? receiver = semanticInferType(expression.obj, state, vars);
+        if (receiver == null) { return false; }
+        Node? member = null;
+        if (state.analyzed.isClass(receiver.base)) {
+            member = state.analyzed.classMember(
+                receiver.base, expression.field);
+        } else if (state.analyzed.isGenericClass(receiver.base)) {
+            member = genericMember(
+                state.analyzed, receiver.base, expression.field);
+        }
+        return member != null && member.kind == NK_PROPERTY_DECL;
+    }
+    if (expression.kind == NK_INDEX_EXPR) {
+        Node? receiver = semanticInferType(expression.obj, state, vars);
+        if (receiver == null) { return false; }
+        return semanticIndexedMethod(
+            receiver, "get", state.analyzed) != null;
+    }
+    return false;
+}
+
+string semanticOwnershipName(Node statement) {
+    if (statement.kind == NK_DELETE_STMT) { return "delete"; }
+    if (statement.kind == NK_KEEP_STMT) { return "keep"; }
+    return "release";
+}
+
+void semanticValidateOwnership(Node statement,
+        SemanticValidationState state, Map<string, Node> vars) {
+    semanticValidateExpr(statement.expr, state, vars);
+    string operation = semanticOwnershipName(statement);
+    if (!semanticIsLvalue(statement.expr, state, vars)) {
+        semanticValidationFail(operation
+            + " requires an assignable value", statement);
+    }
+    Node? operand = semanticInferType(statement.expr, state, vars);
+    if (operand == null) {
+        semanticValidationFail("Cannot determine operand type for "
+            + operation, statement);
+    }
+    if (semanticTypeContainsParams(operand, state.typeParams)) {
+        /* keep/release are intentionally parametric: monomorphization turns
+         * them into ARC operations for managed T and no-ops otherwise.  A
+         * generic class instance such as ListNode<T> also has a concrete
+         * allocation family: monomorphization selects its destroy function.
+         * Only a bare type parameter leaves delete's allocation kind unknown. */
+        if (statement.kind == NK_DELETE_STMT) {
+            if (!semanticManagedOwnershipType(operand, state)) {
+                semanticValidationFail(
+                    "delete requires a concrete allocation type", statement);
+            }
+        } else {
+            return;
+        }
+    }
+    bool valid = semanticManagedOwnershipType(operand, state);
+    if (statement.kind == NK_DELETE_STMT) {
+        valid = semanticRawDeleteType(operand, state);
+    }
+    if (!valid) {
+        semanticValidationFail(operation + " is not valid for type '"
+            + semanticFormatType(operand) + "'", statement);
+    }
+    if (statement.kind != NK_KEEP_STMT) {
+        if (semanticOwnershipUsesIndirectLvalue(
+                statement.expr, state, vars)) {
+            semanticValidationFail(operation
+                + " cannot target a property or protocol index; "
+                + "store it in a direct lvalue first", statement);
+        }
+        if (!semanticIsLifetimeStableStorage(
+                statement.expr, state, vars)) {
+            semanticValidationFail(operation
+                + " requires storage rooted in a stable owner; "
+                + "bind temporary owners to a local first", statement);
+        }
+        semanticValidateTargetReceiverMutability(
+            statement.expr, state, vars, statement);
+        semanticValidateMutableTarget(operand, state, statement);
+    }
+}

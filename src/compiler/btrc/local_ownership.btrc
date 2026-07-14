@@ -1,0 +1,49 @@
+/* Single-evaluation replacement for managed local variables. */
+
+IRNode? lowerManagedLocalStore(IRGen generator, Node assignment,
+        Map<string, Node> varTypes) {
+    if (assignment.op != "=" || assignment.target == null
+            || assignment.target.kind != NK_IDENTIFIER
+            || irManagedLocalType(
+                generator, assignment.target.name) == "") {
+        return null;
+    }
+    Node? targetType = generator.resolvedExpressionType(
+        assignment.target, varTypes);
+    if (!irManagedType(generator, targetType)) { return null; }
+    Node? valueType = generator.resolvedExpressionType(
+        assignment.value_node, varTypes);
+    IRNode value = generator.lowerAssignedValue(
+        assignment.value_node, targetType, varTypes);
+    value = generator.upcastClassPointer(
+        targetType, valueType, value);
+
+    string cType = typeToC(targetType, generator.analyzed);
+    string newName = generator.freshTemp("__btrc_local_new");
+    string oldName = generator.freshTemp("__btrc_local_old");
+    IRNode newDeclaration = irVarDecl(cType, newName, null);
+    IRNode oldDeclaration = irVarDecl(cType, oldName, null);
+    generator.funcVarDecls.push(newDeclaration);
+    generator.funcVarDecls.push(oldDeclaration);
+    Vector<IRNode> declarations = [];
+    declarations.push(newDeclaration);
+    declarations.push(oldDeclaration);
+
+    IRNode target = generator.lowerExpr(
+        assignment.target, varTypes);
+    IRNode newValue = irVar(newName);
+    IRNode oldValue = irVar(oldName);
+    Vector<IRNode> sequence = [];
+    sequence.push(irBinOp(newValue, "=", value));
+    sequence.push(irBinOp(oldValue, "=", target));
+    if (!irContextualExpressionOwnsResult(
+            generator, assignment.value_node, targetType, varTypes)) {
+        sequence.push(irRetainExpression(
+            generator, newValue, targetType));
+    }
+    sequence.push(generator.optionalReleaseExpr(oldValue,
+        irManagedRuntimeType(generator, targetType)));
+    sequence.push(irBinOp(target, "=", newValue));
+    sequence.push(target);
+    return irStmtExpr(declarations, irCommaExpr(sequence));
+}

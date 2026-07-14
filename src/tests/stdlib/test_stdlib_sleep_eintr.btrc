@@ -1,0 +1,44 @@
+/* nanosleep reports an interrupted wait through EINTR and the remaining
+ * duration.  Timer.sleep must resume rather than returning early. */
+#include <assert.h>
+#include <signal.h>
+#include <sys/time.h>
+#include "../../stdlib/datetime.btrc"
+
+void interruptSleep(int signalNumber) {
+    if (signalNumber != SIGALRM) {
+        return;
+    }
+}
+
+void armInterrupt() {
+    struct itimerval alarmTimer;
+    alarmTimer.it_interval.tv_sec = 0;
+    alarmTimer.it_interval.tv_usec = 0;
+    alarmTimer.it_value.tv_sec = 0;
+    alarmTimer.it_value.tv_usec = 50000;
+    assert(setitimer(ITIMER_REAL, &alarmTimer, NULL) == 0);
+}
+
+int main() {
+    signal(SIGALRM, interruptSleep);
+
+    armInterrupt();
+    Timer secondsTimer = Timer();
+    secondsTimer.start();
+    Timer.sleep(0.15);
+    secondsTimer.stop();
+
+    /* Without the EINTR retry this returns near the 50 ms alarm. */
+    assert(secondsTimer.elapsedMillis() >= 120.0f);
+
+    armInterrupt();
+    Timer millisTimer = Timer();
+    millisTimer.start();
+    Timer.sleepMillis(150);
+    millisTimer.stop();
+    assert(millisTimer.elapsedMillis() >= 120.0f);
+
+    print("PASS: test_stdlib_sleep_eintr");
+    return 0;
+}

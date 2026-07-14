@@ -21,7 +21,8 @@ from src.compiler.python.ast_nodes import (
 )
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, analysis_positions_are_stable
+from src.devex.lsp.text_coordinates import codepoint_to_utf16, line_text, utf16_length
 from src.devex.lsp.utils import nav_tokens
 
 # LSP Semantic Token Types (order matters — index is the type ID)
@@ -216,12 +217,15 @@ class SemanticTokenCollector:
         if location is None:
             return
         line, col = location
+        source_line = line_text(self.result.snapshot_source or self.result.source, line - 1)
+        lsp_col = codepoint_to_utf16(source_line, col - 1)
+        token_length = utf16_length(tok.value)
         mod_bits = _mod_bits(*modifiers) if modifiers else 0
         self.raw_tokens.append(
             (
                 line,  # 1-based
-                col,  # 1-based
-                len(tok.value),
+                lsp_col,  # 0-based UTF-16
+                token_length,
                 type_idx,
                 mod_bits,
             )
@@ -244,9 +248,9 @@ class SemanticTokenCollector:
         prev_col = 0
 
         for line, col, length, type_idx, mod_bits in self.raw_tokens:
-            # Convert from 1-based to 0-based
+            # Line is compiler 1-based; column is already LSP UTF-16.
             lsp_line = line - 1
-            lsp_col = col - 1
+            lsp_col = col
 
             delta_line = lsp_line - prev_line
             if delta_line == 0:
@@ -268,7 +272,7 @@ class SemanticTokenCollector:
 
 def get_semantic_tokens(result: AnalysisResult) -> lsp.SemanticTokens | None:
     """Compute semantic tokens for the document (cached per snapshot)."""
-    if not result.tokens or not result.ast:
+    if not result.tokens or not result.ast or not analysis_positions_are_stable(result):
         return None
 
     data = result._caches.get("semantic_tokens")

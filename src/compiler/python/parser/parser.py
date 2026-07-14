@@ -1,5 +1,7 @@
 """Parser assembly: combines all parsing mixins into the final Parser class."""
 
+from .aggregate_declarations import AggregateDeclarationsMixin
+from .class_declarations import ClassDeclarationsMixin
 from .control_flow import ControlFlowMixin
 from .core import ParseError, ParserBase
 from .decl_simple import SimpleDeclarationsMixin
@@ -20,11 +22,14 @@ class Parser(
     ControlFlowMixin,
     StatementsMixin,
     SimpleDeclarationsMixin,
+    ClassDeclarationsMixin,
+    AggregateDeclarationsMixin,
     DeclarationsMixin,
     TypesMixin,
     ParserBase,
 ):
     """Recursive descent parser for the btrc language."""
+
     pass
 
 

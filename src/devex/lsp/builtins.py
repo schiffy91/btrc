@@ -1,6 +1,6 @@
 """Single source of truth for built-in type members in the btrc language.
 
-Auto-generated from stdlib .btrc files by src/language/ast/gen_builtins.py.
+Auto-generated from stdlib .btrc files by src/compiler/python/ast/gen_builtins.py.
 DO NOT EDIT BY HAND — edit the stdlib source or the generator instead.
 
 Used by completion, hover, and signature help providers to avoid
@@ -96,8 +96,7 @@ ARRAY_MEMBERS: list[BuiltinMember] = [
 LISTNODE_MEMBERS: list[BuiltinMember] = [
     BuiltinMember("value", "T", "field", doc="value"),
     BuiltinMember("next", "ListNode<T>", "field", doc="next"),
-    BuiltinMember("prev", "ListNode<T>", "field", doc="prev"),
-    BuiltinMember("free", "void", "method", [], "free"),
+    BuiltinMember("copiedValue", "T", "method", [], "copiedValue"),
 ]
 
 # Generated from src/stdlib/list.btrc
@@ -289,8 +288,15 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     ],
     "PathTools": [
         BuiltinMember("shellQuote", "string", "method", [("string", "raw")], "shellQuote"),
+        BuiltinMember("isSeparatorFor", "bool", "method", [("char", "value"), ("bool", "windows")], "isSeparatorFor"),
+        BuiltinMember("hasDrivePrefixFor", "bool", "method", [("string", "path"), ("bool", "windows")], "hasDrivePrefixFor"),
+        BuiltinMember("isAbsoluteFor", "bool", "method", [("string", "path"), ("bool", "windows")], "isAbsoluteFor"),
+        BuiltinMember("isAbsolute", "bool", "method", [("string", "path")], "isAbsolute"),
+        BuiltinMember("isRootRelativeFor", "bool", "method", [("string", "path"), ("bool", "windows")], "isRootRelativeFor"),
+        BuiltinMember("rootLengthFor", "int", "method", [("string", "path"), ("bool", "windows")], "rootLengthFor"),
         BuiltinMember("basename", "string", "method", [("string", "path")], "basename"),
         BuiltinMember("dirname", "string", "method", [("string", "path")], "dirname"),
+        BuiltinMember("joinFor", "string", "method", [("string", "left"), ("string", "right"), ("bool", "windows")], "joinFor"),
         BuiltinMember("join", "string", "method", [("string", "left"), ("string", "right")], "join"),
         BuiltinMember("absolute", "string", "method", [("string", "path")], "absolute"),
     ],
@@ -330,6 +336,55 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     "Browser": [
         BuiltinMember("open", "void", "method", [("string", "url")], "open"),
     ],
+    "HttpFraming": [
+        BuiltinMember("hexVal", "int", "method", [("char", "ch")], "hexVal"),
+        BuiltinMember("tokenChar", "bool", "method", [("char", "ch")], "tokenChar"),
+        BuiltinMember("token", "bool", "method", [("string", "value")], "token"),
+        BuiltinMember("fieldValue", "bool", "method", [("string", "value")], "fieldValue"),
+        BuiltinMember("requestTarget", "bool", "method", [("string", "value")], "requestTarget"),
+        BuiltinMember("headerLine", "bool", "method", [("string", "line")], "headerLine"),
+        BuiltinMember("headerEnd", "int", "method", [("Bytes", "raw")], "headerEnd"),
+        BuiltinMember("contentLength", "int", "method", [("string", "head")], "contentLength"),
+        BuiltinMember("transferEncoding", "int", "method", [("string", "head")], "transferEncoding"),
+        BuiltinMember("trailerLine", "bool", "method", [("Bytes", "raw"), ("int", "start"), ("int", "end")], "trailerLine"),
+        BuiltinMember("chunkedEnd", "int", "method", [("Bytes", "raw"), ("int", "bodyStart"), ("int", "maxBodyBytes"), ("int", "maxTrailerBytes")], "chunkedEnd"),
+        BuiltinMember("decodeChunked", "Bytes", "method", [("Bytes", "body"), ("int", "maxBodyBytes"), ("int", "maxTrailerBytes")], "decodeChunked"),
+    ],
+    "HttpUrl": [
+        BuiltinMember("decode", "string", "method", [("string", "value")], "decode"),
+        BuiltinMember("encode", "string", "method", [("string", "value")], "encode"),
+    ],
+    "HttpStatus": [
+        BuiltinMember("reason", "string", "method", [("int", "status")], "reason"),
+    ],
+    "HttpSocket": [
+        BuiltinMember("openListener", "int", "method", [("int", "port"), ("bool", "bindAny")], "openListener"),
+        BuiltinMember("acceptConnection", "int", "method", [("int", "listener"), ("int", "timeoutSecs")], "acceptConnection"),
+        BuiltinMember("closeConnection", "void", "method", [("int", "descriptor")], "closeConnection"),
+        BuiltinMember("emptyBytes", "Bytes", "method", [], "emptyBytes"),
+        BuiltinMember("readRequest", "Bytes", "method", [("int", "descriptor"), ("int", "maxHeaderBytes"), ("int", "maxBodyBytes"), ("int", "maxRequestBytes")], "readRequest"),
+        BuiltinMember("sendAll", "bool", "method", [("int", "descriptor"), ("string", "data")], "sendAll"),
+    ],
+    "ImageBinary": [
+        BuiltinMember("has", "bool", "method", [("Bytes", "bytes"), ("long long", "offset"), ("long long", "count")], "has"),
+        BuiltinMember("u16", "int", "method", [("Bytes", "bytes"), ("int", "offset")], "u16"),
+        BuiltinMember("u32", "long long", "method", [("Bytes", "bytes"), ("int", "offset")], "u32"),
+        BuiltinMember("i32", "long long", "method", [("Bytes", "bytes"), ("int", "offset")], "i32"),
+        BuiltinMember("appendU16", "void", "method", [("Bytes", "bytes"), ("int", "value")], "appendU16"),
+        BuiltinMember("appendU32", "void", "method", [("Bytes", "bytes"), ("long long", "value")], "appendU32"),
+    ],
+    "ImageIO": [
+        BuiltinMember("decode", "ImageLoad", "method", [("Bytes", "bytes")], "decode"),
+        BuiltinMember("decodePpm", "ImageLoad", "method", [("Bytes", "bytes")], "decodePpm"),
+        BuiltinMember("decodeBmp", "ImageLoad", "method", [("Bytes", "bytes")], "decodeBmp"),
+        BuiltinMember("encodePpm", "Bytes", "method", [("Image", "image")], "encodePpm"),
+        BuiltinMember("encodeBmp", "Bytes", "method", [("Image", "image"), ("int", "bitsPerPixel"), ("bool", "topDown")], "encodeBmp"),
+        BuiltinMember("load", "ImageLoad", "method", [("string", "path")], "load"),
+        BuiltinMember("loadPpm", "ImageLoad", "method", [("string", "path")], "loadPpm"),
+        BuiltinMember("loadBmp", "ImageLoad", "method", [("string", "path")], "loadBmp"),
+        BuiltinMember("savePpm", "bool", "method", [("Image", "image"), ("string", "path")], "savePpm"),
+        BuiltinMember("saveBmp", "bool", "method", [("Image", "image"), ("string", "path"), ("int", "bitsPerPixel"), ("bool", "topDown")], "saveBmp"),
+    ],
     "Path": [
         BuiltinMember("exists", "bool", "method", [("string", "path")], "exists"),
         BuiltinMember("readAll", "string", "method", [("string", "path")], "readAll"),
@@ -337,6 +392,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     ],
     "JsonNum": [
         BuiltinMember("toDouble", "double", "method", [("string", "token")], "toDouble"),
+        BuiltinMember("isFinite", "bool", "method", [("double", "value")], "isFinite"),
         BuiltinMember("format", "string", "method", [("double", "value"), ("bool", "isInt")], "format"),
         BuiltinMember("charFromCode", "string", "method", [("int", "code")], "charFromCode"),
         BuiltinMember("uEscape", "string", "method", [("int", "code")], "uEscape"),
@@ -349,6 +405,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("balancedEnd", "int", "method", [("string", "text"), ("int", "start")], "balancedEnd"),
         BuiltinMember("skipSpaces", "int", "method", [("string", "text"), ("int", "i")], "skipSpaces"),
         BuiltinMember("isInt", "bool", "method", [("string", "text")], "isInt"),
+        BuiltinMember("toIntOr", "int", "method", [("string", "text"), ("int", "fallback")], "toIntOr"),
         BuiltinMember("keyPosition", "int", "method", [("string", "text"), ("string", "key")], "keyPosition"),
         BuiltinMember("valueStart", "int", "method", [("string", "text"), ("string", "key")], "valueStart"),
         BuiltinMember("parseStringValue", "string", "method", [("string", "text"), ("int", "i"), ("string", "fallback")], "parseStringValue"),
@@ -462,7 +519,19 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     "CommandEnvironment": [
         BuiltinMember("empty", "Vector<string>", "method", [], "empty"),
     ],
+    "ChildProcessClock": [
+        BuiltinMember("milliseconds", "long long", "method", [], "milliseconds"),
+    ],
+    "ChildProcess": [
+        BuiltinMember("validateEnvironment", "void", "method", [("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment")], "validateEnvironment"),
+        BuiltinMember("closePipe", "void", "method", [("int*", "descriptors")], "closePipe"),
+        BuiltinMember("failure", "ExecResult", "method", [("string", "command"), ("string", "message")], "failure"),
+        BuiltinMember("render", "string", "method", [("string", "executable"), ("Vector<string>", "arguments")], "render"),
+        BuiltinMember("run", "ExecResult", "method", [("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds")], "run"),
+    ],
     "Regex": [
+        BuiltinMember("checkedLength", "int", "method", [("string", "text")], "checkedLength"),
+        BuiltinMember("capacityFor", "int", "method", [("int", "current"), ("long long", "required")], "capacityFor"),
         BuiltinMember("slice", "string", "method", [("string", "text"), ("int", "so"), ("int", "eo")], "slice"),
         BuiltinMember("warn", "void", "method", [("string", "pattern")], "warn"),
         BuiltinMember("matches", "bool", "method", [("string", "pattern"), ("string", "text")], "matches"),
@@ -475,6 +544,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("subst", "string", "method", [("string", "pattern"), ("string", "text"), ("string", "replacement"), ("bool", "all")], "subst"),
     ],
     "Strings": [
+        BuiltinMember("checkedLength", "int", "method", [("string", "s")], "checkedLength"),
         BuiltinMember("copy", "string", "method", [("string", "s")], "copy"),
         BuiltinMember("repeat", "string", "method", [("string", "s"), ("int", "count")], "repeat"),
         BuiltinMember("join", "string", "method", [("Vector<string>", "items"), ("string", "sep")], "join"),
@@ -511,10 +581,16 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("prompt", "string", "method", [("string", "label")], "prompt"),
         BuiltinMember("promptPassword", "string", "method", [("string", "label")], "promptPassword"),
     ],
+    "TerminalClock": [
+        BuiltinMember("milliseconds", "long long", "method", [], "milliseconds"),
+    ],
     "UnixPamPassword": [
+        BuiltinMember("safeSecret", "bool", "method", [("string", "value")], "safeSecret"),
+        BuiltinMember("writeResponse", "bool", "method", [("int", "fd"), ("string", "value")], "writeResponse"),
         BuiltinMember("change", "bool", "method", [("string", "user"), ("string", "oldPassword"), ("string", "newPassword")], "change"),
     ],
     "Toml": [
+        BuiltinMember("unquotedPosition", "int", "method", [("string", "line"), ("char", "target")], "unquotedPosition"),
         BuiltinMember("stripInlineComment", "string", "method", [("string", "raw")], "stripInlineComment"),
         BuiltinMember("unquote", "string", "method", [("string", "raw")], "unquote"),
         BuiltinMember("key", "string", "method", [("string", "line")], "key"),

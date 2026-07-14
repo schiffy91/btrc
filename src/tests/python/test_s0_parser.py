@@ -11,8 +11,7 @@ from src.compiler.python.ast_nodes import (
     SizeofExpr,
     UnaryExpr,
 )
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser.core import ParseError
+from src.compiler.python.lexer import Lexer, LexerError
 from src.compiler.python.parser.parser import Parser
 
 
@@ -28,6 +27,7 @@ def parse_expr(source: str):
 
 # --- S0-2: integer literal suffixes and C-style octal ---
 
+
 class TestIntLiteralSuffixes:
     def test_unsigned_suffix(self):
         lit = parse_expr("10u")
@@ -42,8 +42,7 @@ class TestIntLiteralSuffixes:
         assert lit.raw == "0xFFul"
 
     def test_long_long_suffixes(self):
-        for raw, val in (("7L", 7), ("7ll", 7), ("7LL", 7), ("7ull", 7),
-                         ("7llu", 7), ("7lU", 7), ("0x10U", 16)):
+        for raw, val in (("7L", 7), ("7ll", 7), ("7LL", 7), ("7ull", 7), ("7llu", 7), ("7lU", 7), ("0x10U", 16)):
             lit = parse_expr(raw)
             assert isinstance(lit, IntLiteral)
             assert lit.value == val, raw
@@ -67,15 +66,16 @@ class TestIntLiteralSuffixes:
         lit = parse_expr("0o17")
         assert lit.value == 15
 
-    def test_malformed_octal_is_parse_error_not_valueerror(self):
-        # 09 is not valid octal; must surface as ParseError with position,
-        # never a raw Python ValueError.
-        with pytest.raises(ParseError) as exc:
+    def test_malformed_octal_fails_at_the_lexical_boundary(self):
+        # 09 is not valid C-style octal and must never reach either parser as a
+        # seemingly valid token (or leak a raw Python ValueError).
+        with pytest.raises(LexerError) as exc:
             parse("void f() { int x = 09; }")
         assert exc.value.line == 1
 
 
 # --- S0-1a: parenthesized single identifier vs cast ---
+
 
 class TestCastDisambiguation:
     def test_paren_ident_minus_is_binary(self):

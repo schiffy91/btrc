@@ -6,8 +6,8 @@ change automatically orphans stale entries.
 
 Two hash scopes exist:
 
-* ``"frontend"`` — grammar, ASDL/AST, lexer, tokens, parser. Invalidates caches
-  of *parse* artifacts (stdlib AST pickles, LSP file units).
+* ``"frontend"`` — grammar, ASDL/AST, imports, lexer, tokens, parser. Invalidates
+  caches of frontend parse artifacts.
 * ``"full"`` — frontend scope plus analyzer/ and ir/ (type checking, lowering,
   optimization, emission all shape the generated C). Invalidates caches of
   *compiled output* (.c disk cache, stdlib archives).
@@ -47,11 +47,7 @@ def _python_files_under(*rel_dirs: str) -> list[str]:
     for rel in rel_dirs:
         root = os.path.join(_COMPILER_DIR, rel)
         for current, _dirs, files in os.walk(root):
-            found.extend(
-                os.path.join(current, name)
-                for name in files
-                if name.endswith(".py")
-            )
+            found.extend(os.path.join(current, name) for name in files if name.endswith(".py"))
     return sorted(found)
 
 
@@ -59,29 +55,49 @@ def _toolchain_files(scope: str) -> list[str]:
     """The compiler sources whose content shapes a cache entry for ``scope``."""
     paths = [
         os.path.join(_SRC_DIR, "language", "grammar.ebnf"),
-        os.path.join(_SRC_DIR, "language", "ast", "ast.asdl"),
+        os.path.join(_SRC_DIR, "language", "ast.asdl"),
         os.path.join(_COMPILER_DIR, "ebnf.py"),
         os.path.join(_COMPILER_DIR, "lexer.py"),
         os.path.join(_COMPILER_DIR, "lexer_literals.py"),
+        os.path.join(_COMPILER_DIR, "numeric_literals.py"),
         os.path.join(_COMPILER_DIR, "tokens.py"),
         os.path.join(_COMPILER_DIR, "ast_nodes.py"),
+        os.path.join(_COMPILER_DIR, "ast_codec.py"),
+        os.path.join(_COMPILER_DIR, "cache_io.py"),
+        os.path.join(_COMPILER_DIR, "frontend.py"),
+        os.path.join(_COMPILER_DIR, "frontend_imports.py"),
+        os.path.join(_COMPILER_DIR, "frontend_models.py"),
+        os.path.join(_COMPILER_DIR, "frontend_stdlib.py"),
+        os.path.join(_COMPILER_DIR, "import_scan.py"),
+        os.path.join(_COMPILER_DIR, "import_visibility.py"),
+        os.path.join(_COMPILER_DIR, "pkg.py"),
+        os.path.join(_COMPILER_DIR, "source_io.py"),
+        os.path.join(_COMPILER_DIR, "stdlib_ast_cache.py"),
     ]
     paths.extend(_python_files_under("parser"))
     if scope == "full":
-        paths.extend(_python_files_under("analyzer", "ir"))
-    return paths
+        # Generated C can be shaped by orchestration, archive, freestanding,
+        # cache, and CLI modules as well as analyzer/IR code. Cover every
+        # production Python source so a new lowering-adjacent module cannot be
+        # forgotten and silently reuse stale output.
+        paths.extend(_python_files_under(""))
+    return sorted(set(paths))
 
 
 def _hash_paths(paths: list[str]) -> str:
-    """Short (16 hex chars) content hash over file names + bytes."""
+    """Short content hash over stable relative paths and length-framed bytes."""
     digest = hashlib.sha256()
     for path in paths:
-        digest.update(os.path.basename(path).encode())
+        relative_path = os.path.relpath(path, _SRC_DIR).replace(os.sep, "/").encode()
+        digest.update(len(relative_path).to_bytes(8, "big"))
+        digest.update(relative_path)
         try:
             with open(path, "rb") as f:
-                digest.update(f.read())
+                content = f.read()
         except OSError:
-            digest.update(b"<missing>")
+            content = b"<missing>"
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
     return digest.hexdigest()[:16]
 
 
@@ -111,8 +127,7 @@ def resolve_cache_dir(input_path: str | None = None) -> str:
     if env:
         cache = env
     else:
-        start = (os.path.dirname(os.path.abspath(input_path))
-                 if input_path else os.getcwd())
+        start = os.path.dirname(os.path.abspath(input_path)) if input_path else os.getcwd()
         manifest = pkg.find_manifest(start)
         if manifest is not None:
             cache = os.path.join(os.path.dirname(manifest), ".btrc-cache")

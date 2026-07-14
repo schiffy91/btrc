@@ -5,14 +5,18 @@
  * placeholder so callers can branch explicitly when Windows support arrives.
  */
 
+import std.bytes;
 import std.io;
 import std.platform;
 import std.strings;
 import std.vector;
 
 #include <errno.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include <poll.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 extern FILE* popen(const char* command, const char* mode);
@@ -53,21 +57,14 @@ class UnixPipe {
 
     public string readAll() {
         if (!self.ok()) { return ""; }
-        int cap = 4096;
-        int len = 0;
-        char* buffer = (char*)malloc(cap);
-        int ch = fgetc(self.handle);
-        while (ch != EOF) {
-            if (len + 2 >= cap) {
-                cap = cap * 2;
-                buffer = (char*)realloc(buffer, cap);
-            }
-            buffer[len] = (char)ch;
-            len++;
-            ch = fgetc(self.handle);
+        Bytes bytes = Bytes();
+        char chunk[4096];
+        size_t count = fread(chunk, 1, 4096, self.handle);
+        while (count > (size_t)0) {
+            bytes.appendRaw(chunk, (int)count);
+            count = fread(chunk, 1, 4096, self.handle);
         }
-        buffer[len] = '\0';
-        return buffer;
+        return bytes.toStringLossy();
     }
 
     public ProcessStatus close() {
@@ -182,12 +179,14 @@ class ExecResult {
     public string out;
     public string err;
     public string command;
+    public bool timedOut;
 
     public ExecResult(int code, string out, string err, string command) {
         self.code = code;
         self.out = out;
         self.err = err;
         self.command = command;
+        self.timedOut = false;
     }
 
     public bool ok() {
@@ -206,6 +205,268 @@ class ExecResult {
 
     public string stderr() {
         return self.err;
+    }
+
+    public bool wasTimedOut() {
+        return self.timedOut;
+    }
+}
+
+/* One captured child stream. The parent only reads after poll(2) marks the
+ * descriptor ready, so stdout and stderr can both fill without deadlocking. */
+class ChildProcessCapture {
+    public int descriptor;
+    public bool open;
+    public bool failed;
+    public Bytes buffer;
+
+    public ChildProcessCapture(int descriptor) {
+        self.descriptor = descriptor;
+        self.open = descriptor >= 0;
+        self.failed = false;
+        self.buffer = Bytes();
+    }
+
+    public void readReady() {
+        if (!self.open) { return; }
+        char buffer[4097];
+        ssize_t count = read(self.descriptor, buffer, 4096);
+        if (count > (ssize_t)0) {
+            self.buffer.appendRaw(buffer, (int)count);
+            return;
+        }
+        if (count < (ssize_t)0 && errno == EINTR) { return; }
+        if (count < (ssize_t)0) { self.failed = true; }
+        close(self.descriptor);
+        self.descriptor = -1;
+        self.open = false;
+    }
+
+    public string text() {
+        return self.buffer.toStringLossy();
+    }
+
+    public void closeCapture() {
+        if (self.open) {
+            close(self.descriptor);
+            self.descriptor = -1;
+            self.open = false;
+        }
+    }
+}
+
+class ChildProcessClock {
+    class long long milliseconds() {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        return (long long)now.tv_sec * 1000LL
+            + (long long)now.tv_nsec / 1000000LL;
+    }
+}
+
+/* Direct child execution for structured automation. Unlike UnixShell, this
+ * API never parses or renders shell syntax: executable and arguments reach
+ * execvp(3) as distinct argv entries. Environment changes inherit the parent
+ * environment, then apply NAME=value overrides and explicit unsets. A zero
+ * timeout is unbounded; expiry returns code 124 with wasTimedOut() true. */
+class ChildProcess {
+    class void validateEnvironment(Vector<string> environment,
+                                   Vector<string> unsetEnvironment) {
+        for item in environment {
+            int split = Strings.find(item, "=", 0);
+            if (split <= 0) {
+                throw f"invalid environment assignment: {item}";
+            }
+            string name = item.substring(0, split);
+            if (!ShellWords.isEnvName(name)) {
+                throw f"invalid environment variable name: {name}";
+            }
+        }
+        for name in unsetEnvironment {
+            if (!ShellWords.isEnvName(name)) {
+                throw f"invalid environment variable name: {name}";
+            }
+        }
+    }
+
+    class void closePipe(int* descriptors) {
+        close(descriptors[0]);
+        close(descriptors[1]);
+    }
+
+    class ExecResult failure(string command, string message) {
+        return ExecResult(127, "", message, command);
+    }
+
+    class string render(string executable, Vector<string> arguments) {
+        Vector<string> parts = [ShellWords.quote(executable)];
+        for argument in arguments {
+            parts.push(ShellWords.quote(argument));
+        }
+        return parts.join(" ");
+    }
+
+    class ExecResult run(string executable,
+                         Vector<string> arguments,
+                         string cwd = "",
+                         Vector<string> environment = CommandEnvironment.empty(),
+                         Vector<string> unsetEnvironment = CommandEnvironment.empty(),
+                         int timeoutMilliseconds = 0) {
+        if (executable.isEmpty()) {
+            return ChildProcess.failure(executable, "executable cannot be empty");
+        }
+        if (timeoutMilliseconds < 0) {
+            throw "timeoutMilliseconds cannot be negative";
+        }
+        ChildProcess.validateEnvironment(environment, unsetEnvironment);
+
+        string command = ChildProcess.render(executable, arguments);
+        if (arguments.len > 2147483645) {
+            return ChildProcess.failure(command, "too many child arguments");
+        }
+        char** execArguments = (char**)calloc(arguments.len + 2, sizeof(char*));
+        if (execArguments == NULL) {
+            return ChildProcess.failure(command, "failed to allocate child arguments");
+        }
+        execArguments[0] = executable;
+        for (int i = 0; i < arguments.len; i++) {
+            execArguments[i + 1] = arguments.get(i);
+        }
+        execArguments[arguments.len + 1] = NULL;
+
+        int stdoutPipe[2];
+        int stderrPipe[2];
+        if (pipe(stdoutPipe) != 0) {
+            free(execArguments);
+            return ChildProcess.failure(command, "failed to create stdout pipe");
+        }
+        if (pipe(stderrPipe) != 0) {
+            ChildProcess.closePipe(stdoutPipe);
+            free(execArguments);
+            return ChildProcess.failure(command, "failed to create stderr pipe");
+        }
+
+        pid_t child = fork();
+        if (child < (pid_t)0) {
+            ChildProcess.closePipe(stdoutPipe);
+            ChildProcess.closePipe(stderrPipe);
+            free(execArguments);
+            return ChildProcess.failure(command, "failed to fork child process");
+        }
+
+        if (child == (pid_t)0) {
+            setpgid(0, 0);
+            close(stdoutPipe[0]);
+            close(stderrPipe[0]);
+            if (dup2(stdoutPipe[1], STDOUT_FILENO) < 0
+                    || dup2(stderrPipe[1], STDERR_FILENO) < 0) {
+                _exit(126);
+            }
+            close(stdoutPipe[1]);
+            close(stderrPipe[1]);
+
+            if (!cwd.isEmpty() && chdir(cwd) != 0) {
+                fprintf(stderr, "failed to enter working directory: %s\n", cwd);
+                _exit(126);
+            }
+            for name in unsetEnvironment {
+                if (unsetenv(name) != 0) {
+                    fprintf(stderr, "failed to unset environment variable: %s\n", name);
+                    _exit(126);
+                }
+            }
+            for item in environment {
+                int split = Strings.find(item, "=", 0);
+                string name = item.substring(0, split);
+                string value = item.substring(split + 1, item.len() - split - 1);
+                if (setenv(name, value, 1) != 0) {
+                    fprintf(stderr, "failed to set environment variable: %s\n", name);
+                    _exit(126);
+                }
+            }
+            execvp(executable, execArguments);
+            fprintf(stderr, "failed to execute: %s\n", executable);
+            _exit(127);
+        }
+
+        close(stdoutPipe[1]);
+        close(stderrPipe[1]);
+        free(execArguments);
+        // Calling from both sides closes the race between fork and exec.
+        setpgid(child, child);
+
+        ChildProcessCapture output = ChildProcessCapture(stdoutPipe[0]);
+        ChildProcessCapture error = ChildProcessCapture(stderrPipe[0]);
+        bool exited = false;
+        bool timedOut = false;
+        bool captureFailed = false;
+        int rawStatus = 0;
+        long long deadline = timeoutMilliseconds == 0
+            ? 0LL
+            : ChildProcessClock.milliseconds()
+                + (long long)timeoutMilliseconds;
+
+        while (!exited || output.open || error.open) {
+            if (!exited) {
+                pid_t waited = waitpid(child, &rawStatus, WNOHANG);
+                if (waited == child) {
+                    exited = true;
+                } else if (waited < (pid_t)0 && errno != EINTR) {
+                    exited = true;
+                    rawStatus = -1;
+                }
+            }
+
+            if (!timedOut && deadline > 0LL
+                    && ChildProcessClock.milliseconds() >= deadline) {
+                timedOut = true;
+                // The child is its own process-group leader, so descendants
+                // holding capture pipes are terminated as part of the timeout.
+                if (kill(-child, SIGKILL) != 0) {
+                    kill(child, SIGKILL);
+                }
+            }
+
+            struct pollfd streams[2];
+            streams[0].fd = output.open ? output.descriptor : -1;
+            streams[0].events = POLLIN;
+            streams[0].revents = 0;
+            streams[1].fd = error.open ? error.descriptor : -1;
+            streams[1].events = POLLIN;
+            streams[1].revents = 0;
+            int ready = poll(streams, 2, 10);
+            if (ready > 0) {
+                if (output.open && streams[0].revents != 0) {
+                    output.readReady();
+                }
+                if (error.open && streams[1].revents != 0) {
+                    error.readReady();
+                }
+            } else if (ready < 0 && errno != EINTR) {
+                captureFailed = true;
+                output.closeCapture();
+                error.closeCapture();
+                if (!exited) {
+                    if (kill(-child, SIGKILL) != 0) {
+                        kill(child, SIGKILL);
+                    }
+                }
+            }
+        }
+
+        captureFailed = captureFailed || output.failed || error.failed;
+
+        int code = captureFailed
+            ? 127
+            : (timedOut ? 124 : ProcessStatus(rawStatus).code());
+        string errorText = error.text();
+        if (captureFailed) {
+            errorText = errorText + "failed to poll child output\n";
+        }
+        ExecResult result = ExecResult(
+            code, output.text(), errorText, command);
+        result.timedOut = timedOut;
+        return result;
     }
 }
 
@@ -297,7 +558,7 @@ class UnixShell {
         var base = Environment.get("TMPDIR", "/tmp");
         var separator = base.endsWith("/") ? "" : "/";
         var templatePath = f"{base}{separator}btrc-process-{Platform.pid()}-{self.tempId}.{name}.XXXXXX";
-        char* raw = Strings.copy(templatePath);
+        string raw = Strings.copy(templatePath);
         int fd = mkstemp(raw);
         if (fd < 0) { return ""; }
         close(fd);
@@ -373,8 +634,12 @@ class UnixShell {
 
         var rendered = self.withContext(command, cwd, env, sudo, chroot);
         var outFile = self.tempPath("stdout");
+        if (outFile.isEmpty()) {
+            throw "failed to create temporary process files";
+        }
         var errFile = self.tempPath("stderr");
-        if (outFile.isEmpty() || errFile.isEmpty()) {
+        if (errFile.isEmpty()) {
+            unlink(outFile);
             throw "failed to create temporary process files";
         }
         var stdinFile = "";
@@ -385,8 +650,12 @@ class UnixShell {
                 unlink(errFile);
                 throw "failed to create temporary stdin file";
             }
-            Path.writeAll(stdinFile, stdin);
-            chmod(stdinFile, 384);
+            if (!Path.writeAll(stdinFile, stdin) || chmod(stdinFile, 384) != 0) {
+                unlink(outFile);
+                unlink(errFile);
+                unlink(stdinFile);
+                throw "failed to prepare temporary stdin file";
+            }
         }
         var executed = self.withRedirections(rendered, stdout, stderr, outFile, errFile, stdinFile);
 

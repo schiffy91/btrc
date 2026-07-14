@@ -14,3 +14,6 @@ class HelperDef:
 
     depends_on: list[str] = field(default_factory=list)
     """Names of other helpers (keys inside their category) that must be emitted first."""
+
+    required_headers: list[str] = field(default_factory=list)
+    """Hosted C headers required whenever this helper survives dependency closure."""

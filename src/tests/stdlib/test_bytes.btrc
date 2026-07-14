@@ -62,6 +62,13 @@ int main() {
     assert(cat.get(4) == 0);   /* the NUL from b survived the concatenation */
     print(f"appendBytes: len={cat.length()}");
 
+    /* Self-append may grow/reallocate; it must snapshot the original length
+     * and use overlap-safe copying. */
+    Bytes selfAppend = Bytes.fromString("grow-me");
+    selfAppend.appendBytes(selfAppend);
+    assert(selfAppend.length() == 14);
+    assert(selfAppend.toString().equals("grow-megrow-me"));
+
     /* --- equals (length + memcmp, so NUL counts) --- */
     Bytes b2 = Bytes();
     b2.append(72); b2.append(0); b2.append(105);

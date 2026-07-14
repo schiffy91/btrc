@@ -16,7 +16,10 @@ from __future__ import annotations
 import hashlib
 import os
 
+from .cache_io import atomic_write_text
 from .cache_keys import resolve_cache_dir, toolchain_hash
+
+MAX_C_CACHE_BYTES = 256 * 1024 * 1024
 
 
 def _cache_key(resolved_source: str) -> str:
@@ -31,18 +34,24 @@ def get_cached(resolved_source: str, input_path: str | None = None) -> str | Non
     Returns the cached C source string, or None if not cached.
     ``input_path`` anchors project-root cache-dir resolution.
     """
-    key = _cache_key(resolved_source)
-    path = os.path.join(resolve_cache_dir(input_path), f"{key}.c")
-    if os.path.exists(path):
-        with open(path) as f:
-            return f.read()
-    return None
+    try:
+        key = _cache_key(resolved_source)
+        path = os.path.join(resolve_cache_dir(input_path), f"{key}.c")
+        with open(path, "rb") as cache_file:
+            encoded = cache_file.read(MAX_C_CACHE_BYTES + 1)
+        if len(encoded) > MAX_C_CACHE_BYTES:
+            return None
+        return encoded.decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
 
 
-def store(resolved_source: str, c_output: str,
-          input_path: str | None = None) -> None:
-    """Store compiled C output in the disk cache."""
+def store(
+    resolved_source: str,
+    c_output: str,
+    input_path: str | None = None,
+) -> None:
+    """Atomically store compiled C output in the disk cache."""
     key = _cache_key(resolved_source)
     path = os.path.join(resolve_cache_dir(input_path), f"{key}.c")
-    with open(path, "w") as f:
-        f.write(c_output)
+    atomic_write_text(path, c_output)

@@ -1,0 +1,101 @@
+/* Contextual f32 types and literal spelling shared by WGSL and CPU fallback. */
+
+string gpuContextualExprBase(Node? expression, Analyzed analyzed,
+        Map<string, Node> varTypes) {
+    if (expression == null) { return ""; }
+    if (expression.kind == NK_FLOAT_LITERAL) { return "float"; }
+    if (expression.kind == NK_INT_LITERAL) { return "int"; }
+    if (expression.kind == NK_BOOL_LITERAL) { return "bool"; }
+    if (expression.kind == NK_BINARY_EXPR) {
+        string op = expression.op;
+        if (op == "==" || op == "!=" || op == "<" || op == ">"
+                || op == "<=" || op == ">=" || op == "&&"
+                || op == "||") {
+            return "bool";
+        }
+        string left = gpuContextualExprBase(
+            expression.left, analyzed, varTypes);
+        string right = gpuContextualExprBase(
+            expression.right, analyzed, varTypes);
+        if (left == "float" || right == "float") { return "float"; }
+        if (left == right && left != "") { return left; }
+    }
+    if (expression.kind == NK_UNARY_EXPR) {
+        if (expression.op == "!") { return "bool"; }
+        return gpuContextualExprBase(
+            expression.operand, analyzed, varTypes);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        string whenTrue = gpuContextualExprBase(
+            expression.true_expr, analyzed, varTypes);
+        string whenFalse = gpuContextualExprBase(
+            expression.false_expr, analyzed, varTypes);
+        if (whenTrue == whenFalse) { return whenTrue; }
+        if ((whenTrue == "int" && whenFalse == "float")
+                || (whenTrue == "float" && whenFalse == "int")) {
+            return "float";
+        }
+    }
+    if (expression.kind == NK_CAST_EXPR
+            && expression.target_type != null) {
+        return expression.target_type.base;
+    }
+    if (expression.kind == NK_CALL_EXPR && expression.callee != null
+            && expression.callee.kind == NK_IDENTIFIER) {
+        string name = expression.callee.name;
+        if (name == "gpu_id") { return "int"; }
+        if (gpuFloatBuiltin(name)) { return "float"; }
+        if (gpuSameTypeBuiltin(name) && expression.args.len > 0) {
+            return gpuContextualExprBase(
+                expression.args.get(0), analyzed, varTypes);
+        }
+    }
+    Node? inferred = inferType(expression, analyzed, varTypes);
+    if (inferred != null) { return inferred.base; }
+    return "";
+}
+
+Node? gpuContextualExprType(Node? expression, Analyzed analyzed,
+        Map<string, Node> varTypes) {
+    if (expression == null) { return null; }
+    bool contextual = expression.kind == NK_FLOAT_LITERAL
+        || expression.kind == NK_INT_LITERAL
+        || expression.kind == NK_BOOL_LITERAL
+        || expression.kind == NK_BINARY_EXPR
+        || expression.kind == NK_UNARY_EXPR
+        || expression.kind == NK_TERNARY_EXPR
+        || expression.kind == NK_CAST_EXPR;
+    if (expression.kind == NK_CALL_EXPR && expression.callee != null
+            && expression.callee.kind == NK_IDENTIFIER) {
+        string name = expression.callee.name;
+        contextual = name == "gpu_id" || gpuBuiltin(name);
+    }
+    if (contextual) {
+        string base = gpuContextualExprBase(
+            expression, analyzed, varTypes);
+        if (base != "") { return makePrimType(base); }
+    }
+    return inferType(expression, analyzed, varTypes);
+}
+
+void gpuValidateFloatLiteral(Node expression) {
+    double value = floatLiteralDoubleValue(expression.raw);
+    if (float32LiteralProblem(expression.raw, value) != "") {
+        gpuLoweringFail(expression,
+            "floating literal is outside the WGSL f32 range");
+    }
+}
+
+string gpuWgslFloatLiteral(Node expression) {
+    gpuValidateFloatLiteral(expression);
+    string raw = expression.raw;
+    if (raw == "") { raw = Strings.fromFloat(expression.value_float); }
+    if (raw.endsWith("f") || raw.endsWith("F")) {
+        raw = raw.substring(0, raw.length() - 1);
+    }
+    if (raw.indexOf(".") < 0 && raw.indexOf("e") < 0
+            && raw.indexOf("E") < 0) {
+        raw = raw + ".0";
+    }
+    return raw;
+}

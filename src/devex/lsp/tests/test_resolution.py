@@ -65,8 +65,7 @@ def test_hover_inherited_field():
 
 def test_references_of_field_across_class():
     # `name` field: declaration + self.name (x2) + d.name
-    refs = get_references(analyze(SRC), pos_of(SRC, "public string name", offset=14),
-                          include_declaration=True)
+    refs = get_references(analyze(SRC), pos_of(SRC, "public string name", offset=14), include_declaration=True)
     lines = {r.range.start.line for r in refs}
     assert {1, 2, 8, 16} <= lines
 

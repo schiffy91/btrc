@@ -7,7 +7,10 @@ lists. Every position in an ``AnalysisResult`` is native to its file — there
 is no resolved-source mapping.
 """
 
+import hashlib
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 from urllib.request import url2pathname
@@ -17,6 +20,7 @@ from lsprotocol import types as lsp
 from src.compiler.python.analyzer.core import AnalyzedProgram
 from src.compiler.python.ast_nodes import Program
 from src.compiler.python.tokens import Token
+from src.devex.lsp.text_coordinates import protocol_range
 from src.devex.lsp.units import FileUnit, unit_line_index
 from src.devex.lsp.workspace import Workspace
 
@@ -58,6 +62,21 @@ def line_changed_since_snapshot(result: AnalysisResult, line0: int) -> bool:
     return _line_at(result.source, line0) != _line_at(result.snapshot_source, line0)
 
 
+def analysis_is_current(result: AnalysisResult) -> bool:
+    """Whether token/AST positions describe the source exposed to the client."""
+    return result.snapshot_source is None
+
+
+def analysis_positions_are_stable(result: AnalysisResult) -> bool:
+    """Whether every analyzed position still points at the same source prefix."""
+    return result.snapshot_source is None or result.source.startswith(result.snapshot_source)
+
+
+def analysis_is_current_at(result: AnalysisResult, line: int) -> bool:
+    """Whether a point request can safely use tokens from one source line."""
+    return analysis_positions_are_stable(result) or not line_changed_since_snapshot(result, line)
+
+
 def _line_at(text: str, line0: int) -> str:
     lines = text.split("\n")
     return lines[line0] if 0 <= line0 < len(lines) else ""
@@ -74,7 +93,13 @@ def uri_to_path(uri: str) -> str:
     leading slash so the result is a usable native path.
     """
     parsed = urlparse(uri)
+    if parsed.scheme and parsed.scheme != "file":
+        suffix = os.path.splitext(parsed.path)[1] or ".btrc"
+        digest = hashlib.sha256(uri.encode()).hexdigest()
+        return os.path.join(tempfile.gettempdir(), "btrc-lsp-virtual", digest + suffix)
     path = url2pathname(parsed.path)
+    if parsed.netloc and parsed.netloc != "localhost":
+        path = f"//{parsed.netloc}{path}"
     if _WINDOWS_DRIVE_RE.match(path):
         path = path[1:]
     return path
@@ -87,6 +112,7 @@ def _make_diagnostic(
     severity: lsp.DiagnosticSeverity = lsp.DiagnosticSeverity.Error,
     source: str = "btrc",
     token_index: dict[int, list[Token]] | None = None,
+    source_text: str = "",
 ) -> lsp.Diagnostic:
     """Create an LSP Diagnostic.
 
@@ -94,8 +120,6 @@ def _make_diagnostic(
     tokens) is given and a token covers (line, col), the range widens to that
     token's end; otherwise it stays one character wide.
     """
-    line_0 = max(0, line - 1)
-    col_0 = max(0, col - 1)
     length = 1
     if token_index:
         for tok in token_index.get(line, []):
@@ -103,10 +127,7 @@ def _make_diagnostic(
                 length = tok.col + len(tok.value) - col
                 break
     return lsp.Diagnostic(
-        range=lsp.Range(
-            start=lsp.Position(line=line_0, character=col_0),
-            end=lsp.Position(line=line_0, character=col_0 + length),
-        ),
+        range=protocol_range(source_text, line, col, length),
         message=message,
         severity=severity,
         source=source,
@@ -121,24 +142,24 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
     try:
         active = WORKSPACE.parse_active(path, source)
     except Exception as e:  # defensive: lexer/parser raising something unexpected
-        result.diagnostics.append(_make_diagnostic(1, 1, str(e)))
+        result.diagnostics.append(_make_diagnostic(1, 1, str(e), source_text=source))
         return result
 
     result.tokens = active.tokens or None
     token_index = unit_line_index(active) if active.tokens else None
     if active.lex_error:
         e = active.lex_error
-        result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e), token_index=token_index))
+        result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e), token_index=token_index, source_text=source))
         return result
     if active.parse_error:
         e = active.parse_error
-        result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e), token_index=token_index))
+        result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e), token_index=token_index, source_text=source))
         return result
 
     try:
         comp = WORKSPACE.compose(active)
     except Exception as e:
-        result.diagnostics.append(_make_diagnostic(1, 1, str(e)))
+        result.diagnostics.append(_make_diagnostic(1, 1, str(e), source_text=source))
         return result
 
     # Identical composition (same active text, same imports, same stdlib) →
@@ -150,12 +171,12 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
         tuple((u.path, u.content_hash) for u in comp.imported),
         tuple(u.path for u in comp.stdlib),
     )
-    cached = WORKSPACE.snapshot_cache.get(path)
+    cached = WORKSPACE.get_snapshot(path)
     if cached is not None and cached[0] == fingerprint:
         return cached[1]
 
     for line, message in comp.import_errors:
-        result.diagnostics.append(_make_diagnostic(line, 1, message, token_index=token_index))
+        result.diagnostics.append(_make_diagnostic(line, 1, message, token_index=token_index, source_text=source))
 
     result.ast = comp.program
     result.units = comp.units_with_tokens()
@@ -163,20 +184,23 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
     try:
         result.analyzed = WORKSPACE.analyze(comp)
     except (SystemExit, Exception) as e:
-        result.diagnostics.append(_make_diagnostic(1, 1, str(e)))
+        result.diagnostics.append(_make_diagnostic(1, 1, str(e), source_text=source))
         return result
 
     for diag in result.analyzed.diags:
         if diag.file is not None and diag.file != path:
             continue  # imported/stdlib diagnostics belong to their own document
-        severity = (
-            lsp.DiagnosticSeverity.Warning
-            if diag.severity == "warning"
-            else lsp.DiagnosticSeverity.Error
-        )
+        severity = lsp.DiagnosticSeverity.Warning if diag.severity == "warning" else lsp.DiagnosticSeverity.Error
         result.diagnostics.append(
-            _make_diagnostic(diag.line, diag.col, diag.message, severity, token_index=token_index)
+            _make_diagnostic(
+                diag.line,
+                diag.col,
+                diag.message,
+                severity,
+                token_index=token_index,
+                source_text=source,
+            )
         )
 
-    WORKSPACE.snapshot_cache[path] = (fingerprint, result)
+    WORKSPACE.store_snapshot(path, fingerprint, result)
     return result

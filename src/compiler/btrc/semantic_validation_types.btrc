@@ -1,0 +1,234 @@
+/* Semantic-validation state and assignment compatibility.
+ *
+ * The self-hosted analyzer's registration pass deliberately stays focused on
+ * symbol/type discovery.  These helpers form the fail-closed body-validation
+ * layer between registration and IR generation. */
+
+class SemanticValidationState {
+    public Analyzed analyzed;
+    public Node? returnType;
+    public string owner;
+    public Map<string, bool> typeParams;
+    public Map<string, Node> interfaces;
+    public int loopDepth;
+    public int breakDepth;
+    public bool gpuCallable;
+    /* Partially evaluated simple-enum constants, keyed by `Enum.member`.
+     * The known map distinguishes a legitimate unknown macro-derived value
+     * from a missing/invalid member. */
+    public Map<string, int> enumConstantValues;
+    public Map<string, bool> enumConstantKnown;
+
+    public SemanticValidationState(Analyzed analyzed) {
+        self.analyzed = analyzed;
+        self.returnType = null;
+        self.owner = "";
+        self.typeParams = {};
+        self.interfaces = {};
+        self.loopDepth = 0;
+        self.breakDepth = 0;
+        self.gpuCallable = false;
+        self.enumConstantValues = {};
+        self.enumConstantKnown = {};
+    }
+}
+
+void semanticValidationFail(string message, Node site) {
+    fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
+    exit(1);
+}
+
+Map<string, Node> semanticCloneTypes(Map<string, Node> source) {
+    Map<string, Node> result = {};
+    Vector<string> keys = source.keys();
+    int index = 0;
+    while (index < keys.len) {
+        string key = keys.get(index);
+        result.put(key, source.get(key));
+        index = index + 1;
+    }
+    return result;
+}
+
+Map<string, bool> semanticTypeParamSet(Vector<string> names) {
+    Map<string, bool> result = {};
+    int index = 0;
+    while (index < names.len) {
+        result.put(names.get(index), true);
+        index = index + 1;
+    }
+    return result;
+}
+
+Map<string, bool> semanticCloneFlags(Map<string, bool> source) {
+    Map<string, bool> result = {};
+    Vector<string> keys = source.keys();
+    int index = 0;
+    while (index < keys.len) {
+        string key = keys.get(index);
+        result.put(key, source.get(key));
+        index = index + 1;
+    }
+    return result;
+}
+
+Map<string, bool> semanticCombinedTypeParams(
+        Vector<string> classParams, Vector<string> methodParams) {
+    Map<string, bool> result = semanticTypeParamSet(classParams);
+    int index = 0;
+    while (index < methodParams.len) {
+        result.put(methodParams.get(index), true);
+        index = index + 1;
+    }
+    return result;
+}
+
+string semanticFormatType(Node? typeExpr) {
+    if (typeExpr == null) { return "<unknown>"; }
+    string result = typeExpr.base;
+    if (typeExpr.generic_args.len > 0) {
+        result = result + "<";
+        int index = 0;
+        while (index < typeExpr.generic_args.len) {
+            if (index > 0) { result = result + ", "; }
+            result = result + semanticFormatType(
+                typeExpr.generic_args.get(index));
+            index = index + 1;
+        }
+        result = result + ">";
+    }
+    int pointer = 0;
+    while (pointer < typeExpr.pointer_depth) {
+        result = result + "*";
+        pointer = pointer + 1;
+    }
+    if (typeExpr.is_array) { result = result + "[]"; }
+    return result;
+}
+
+bool semanticTypeContainsParams(
+        Node? typeExpr, Map<string, bool> typeParams) {
+    if (typeExpr == null) { return false; }
+    if (typeParams.has(typeExpr.base)) { return true; }
+    int index = 0;
+    while (index < typeExpr.generic_args.len) {
+        if (semanticTypeContainsParams(
+                typeExpr.generic_args.get(index), typeParams)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+int semanticAssignmentDepth(Node typeExpr, Analyzed analyzed) {
+    return semanticValueDepth(typeExpr, analyzed);
+}
+
+bool semanticSameTypeShape(Node left, Node right, Analyzed analyzed) {
+    return left.base == right.base
+        && semanticAssignmentDepth(left, analyzed)
+            == semanticAssignmentDepth(right, analyzed)
+        && left.is_array == right.is_array
+        && semanticGenericArgsEqual(left.generic_args, right.generic_args);
+}
+
+bool semanticAssignmentCompatible(Node? target, Node? source,
+        SemanticValidationState state) {
+    target = semanticResolveAliases(target, state);
+    source = semanticResolveAliases(source, state);
+    if (target == null || source == null) { return false; }
+    if (semanticTypeContainsParams(target, state.typeParams)
+            || semanticTypeContainsParams(source, state.typeParams)) {
+        return true;
+    }
+    if (semanticIsNullType(source)) {
+        return semanticIsReferenceType(target, state.analyzed)
+            || state.interfaces.has(target.base);
+    }
+    if (semanticSameTypeShape(target, source, state.analyzed)) { return true; }
+    /* C array-to-pointer decay is directional.  Do not collapse both shapes to
+     * one effective depth: a pointer cannot initialize an array declaration. */
+    if (source.is_array && !target.is_array
+            && target.base == source.base
+            && target.pointer_depth == source.pointer_depth + 1
+            && semanticGenericArgsEqual(
+                target.generic_args, source.generic_args)) {
+        return true;
+    }
+    if (numericIsType(target, state.analyzed)
+            && numericIsType(source, state.analyzed)
+            && target.base != "bool" && source.base != "bool") {
+        return true;
+    }
+    if (isSemanticScalarString(target)
+            && semanticIsCStringPointer(source)) {
+        return true;
+    }
+    if (semanticIsCStringPointer(target)
+            && isSemanticScalarString(source)) {
+        return true;
+    }
+    if (semanticIsVoidPointer(target)
+            && semanticIsReferenceType(source, state.analyzed)) {
+        return true;
+    }
+    if (semanticIsVoidPointer(source)
+            && semanticIsReferenceType(target, state.analyzed)) {
+        return true;
+    }
+    bool targetNominal = state.analyzed.isClass(target.base)
+        || state.analyzed.isGenericClass(target.base);
+    bool sourceNominal = state.analyzed.isClass(source.base)
+        || state.analyzed.isGenericClass(source.base);
+    if (state.interfaces.has(target.base) && sourceNominal) {
+        return semanticClassImplements(
+            state, source.base, target.base);
+    }
+    if (state.interfaces.has(target.base)
+            && state.interfaces.has(source.base)) {
+        return semanticInterfaceExtends(
+            state, source.base, target.base);
+    }
+    if (targetNominal && sourceNominal) {
+        return semanticSpecializationIsSubtype(
+            source, target, state.analyzed);
+    }
+    if (isSemanticScalarString(target)
+            && state.analyzed.isClass(source.base)) {
+        Node? method = state.analyzed.classMethod(source.base, "toString");
+        return method != null && method.kind == NK_METHOD_DECL
+            && method.params.len == 0 && method.return_type != null
+            && method.return_type.base == "string";
+    }
+    return false;
+}
+
+bool semanticIntegralType(Node? typeExpr, Analyzed analyzed) {
+    return typeExpr != null && numericIsType(typeExpr, analyzed)
+        && !numericIsFloating(typeExpr);
+}
+
+bool semanticBoolType(Node? typeExpr) {
+    return typeExpr != null && typeExpr.base == "bool"
+        && typeExpr.pointer_depth == 0 && !typeExpr.is_array
+        && typeExpr.generic_args.len == 0;
+}
+
+void semanticRejectRuntimeInterfaceType(Node? typeExpr, Node site,
+        SemanticValidationState state) {
+    typeExpr = semanticResolveAliases(typeExpr, state);
+    if (typeExpr == null) { return; }
+    if (state.typeParams.has(typeExpr.base)) { return; }
+    if (state.interfaces.has(typeExpr.base)) {
+        semanticValidationFail("Interface type '" + typeExpr.base
+            + "' is compile-time-only and cannot be used as a runtime value type",
+            site);
+    }
+    int index = 0;
+    while (index < typeExpr.generic_args.len) {
+        semanticRejectRuntimeInterfaceType(
+            typeExpr.generic_args.get(index), site, state);
+        index = index + 1;
+    }
+}

@@ -9,17 +9,17 @@ class Math {
     class float PI()    { return 3.14159265358979323846f; }
     class float E()     { return 2.71828182845904523536f; }
     class float TAU()   { return 6.28318530717958647692f; }
-    class float INF()   { float zero = 0.0f; return 1.0f / zero; }
+    class float INF()   { return (float)INFINITY; }
 
     /* Basic operations */
     class int abs(int x) {
+        if (x == -2147483647 - 1) { return 2147483647; }
         if (x < 0) { return -x; }
         return x;
     }
 
     class float fabs(float x) {
-        if (x < 0.0f) { return -x; }
-        return x;
+        return fabsf(x);
     }
 
     class int max(int a, int b) {
@@ -33,13 +33,11 @@ class Math {
     }
 
     class float fmax(float a, float b) {
-        if (a > b) { return a; }
-        return b;
+        return fmaxf(a, b);
     }
 
     class float fmin(float a, float b) {
-        if (a < b) { return a; }
-        return b;
+        return fminf(a, b);
     }
 
     class int clamp(int x, int lo, int hi) {
@@ -51,41 +49,66 @@ class Math {
     /* Power and roots */
     class float power(float base, int exp) {
         float result = 1.0f;
-        bool negative = false;
-        if (exp < 0) {
-            negative = true;
-            exp = -exp;
-        }
-        for i in range(exp) {
-            result = result * base;
+        long long signedExponent = (long long)exp;
+        bool negative = signedExponent < 0LL;
+        unsigned long long magnitude = negative
+            ? (unsigned long long)(-signedExponent)
+            : (unsigned long long)signedExponent;
+        float factor = base;
+        while (magnitude > 0ULL) {
+            if ((magnitude & 1ULL) != 0ULL) { result = result * factor; }
+            magnitude = magnitude / 2ULL;
+            if (magnitude > 0ULL) { factor = factor * factor; }
         }
         if (negative) {
-            return 1.0f / result;
+            return result == 0.0f ? (float)INFINITY : 1.0f / result;
         }
         return result;
     }
 
     class float sqrt(float x) {
-        return sqrt(x);
+        return sqrtf(x);
     }
 
     /* Factorial and combinatorics */
     class int factorial(int n) {
-        if (n <= 1) { return 1; }
-        return n * Math.factorial(n - 1);
+        if (n < 0) { return 0; }
+        int result = 1;
+        for (int value = 2; value <= n; value++) {
+            if (result > 2147483647 / value) { return 2147483647; }
+            result = result * value;
+        }
+        return result;
     }
 
     class int gcd(int a, int b) {
-        while (b != 0) {
-            int temp = b;
-            b = a % b;
-            a = temp;
+        long long left = (long long)a;
+        long long right = (long long)b;
+        if (left < 0LL) { left = -left; }
+        if (right < 0LL) { right = -right; }
+        while (right != 0LL) {
+            long long temp = right;
+            right = left % right;
+            left = temp;
         }
-        return a;
+        return left > 2147483647LL ? 2147483647 : (int)left;
     }
 
     class int lcm(int a, int b) {
-        return Math.abs(a) / Math.gcd(a, b) * Math.abs(b);
+        if (a == 0 || b == 0) { return 0; }
+        long long left = (long long)a;
+        long long right = (long long)b;
+        if (left < 0LL) { left = -left; }
+        if (right < 0LL) { right = -right; }
+        long long x = left;
+        long long y = right;
+        while (y != 0LL) {
+            long long temp = y;
+            y = x % y;
+            x = temp;
+        }
+        long long result = (left / x) * right;
+        return result > 2147483647LL ? 2147483647 : (int)result;
     }
 
     /* Fibonacci */
@@ -94,10 +117,13 @@ class Math {
         if (n == 1) { return 1; }
         int a = 0;
         int b = 1;
-        for i in range(2, n + 1) {
+        int i = 2;
+        while (i <= n) {
+            if (b > 2147483647 - a) { return 2147483647; }
             int temp = a + b;
             a = b;
             b = temp;
+            i++;
         }
         return b;
     }
@@ -108,7 +134,7 @@ class Math {
         if (n < 4) { return true; }
         if (n % 2 == 0) { return false; }
         int i = 3;
-        while (i * i <= n) {
+        while (i <= n / i) {
             if (n % i == 0) { return false; }
             i = i + 2;
         }
@@ -125,41 +151,55 @@ class Math {
 
     /* Sum and product of lists */
     class int sum(Vector<int> items) {
-        int total = 0;
+        if (items == null) { return 0; }
+        long long total = 0LL;
         for i in range(items.len) {
-            total = total + items.get(i);
+            total = total + (long long)items.get(i);
         }
-        return total;
+        if (total > 2147483647LL) { return 2147483647; }
+        if (total < -2147483648LL) { return -2147483647 - 1; }
+        return (int)total;
     }
 
     class float fsum(Vector<float> items) {
-        float total = 0.0f;
+        if (items == null) { return 0.0f; }
+        double total = 0.0;
         for i in range(items.len) {
-            total = total + items.get(i);
+            total = total + (double)items.get(i);
         }
-        return total;
+        return (float)total;
     }
 
     /* Trigonometric */
-    class float sin(float x)  { return sin(x); }
-    class float cos(float x)  { return cos(x); }
-    class float tan(float x)  { return tan(x); }
-    class float asin(float x) { return asin(x); }
-    class float acos(float x) { return acos(x); }
-    class float atan(float x) { return atan(x); }
-    class float atan2(float y, float x) { return atan2(y, x); }
+    class float sin(float x)  { return sinf(x); }
+    class float cos(float x)  { return cosf(x); }
+    class float tan(float x)  { return tanf(x); }
+    class float asin(float x) { return asinf(x); }
+    class float acos(float x) { return acosf(x); }
+    class float atan(float x) { return atanf(x); }
+    class float atan2(float y, float x) { return atan2f(y, x); }
 
     /* Rounding */
-    class float ceil(float x)     { return ceil(x); }
-    class float floor(float x)    { return floor(x); }
-    class int round(float x)      { return (int)round(x); }
-    class int truncate(float x)   { return (int)trunc(x); }
+    class float ceil(float x)     { return ceilf(x); }
+    class float floor(float x)    { return floorf(x); }
+    class int round(float x) {
+        if (isnan(x)) { return 0; }
+        if (x >= (float)2147483647) { return 2147483647; }
+        if (x <= (float)(-2147483647 - 1)) { return -2147483647 - 1; }
+        return (int)roundf(x);
+    }
+    class int truncate(float x) {
+        if (isnan(x)) { return 0; }
+        if (x >= (float)2147483647) { return 2147483647; }
+        if (x <= (float)(-2147483647 - 1)) { return -2147483647 - 1; }
+        return (int)truncf(x);
+    }
 
     /* Logarithmic / Exponential */
-    class float log(float x)   { return log(x); }
-    class float log10(float x) { return log10(x); }
-    class float log2(float x)  { return log2(x); }
-    class float exp(float x)   { return exp(x); }
+    class float log(float x)   { return logf(x); }
+    class float log10(float x) { return log10f(x); }
+    class float log2(float x)  { return log2f(x); }
+    class float exp(float x)   { return expf(x); }
 
     /* Conversion */
     class float toRadians(float degrees) {

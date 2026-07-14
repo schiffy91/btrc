@@ -1,0 +1,60 @@
+#include <assert.h>
+
+int alive = 0;
+
+class Box {
+    public int value;
+    public Box(int value) {
+        self.value = value;
+        alive++;
+    }
+    public void __del__() { alive--; }
+}
+
+string ownedText(string suffix) {
+    return "thread-" + suffix;
+}
+
+Thread<string> spawnCapturedText() {
+    string captured = ownedText("captured");
+    return spawn(() => captured);
+}
+
+int main() {
+    Thread<string> stringWorker = spawn(() => ownedText("result"));
+    string stringResult = stringWorker.join();
+    assert(stringResult == "thread-result");
+
+    Thread<string> capturedWorker = spawnCapturedText();
+    string capturedResult = capturedWorker.join();
+    assert(capturedResult == "thread-captured");
+
+    Thread<string?> nullableWorker = spawn(
+        string? function() { return ownedText("nullable"); }
+    );
+    string? nullableResult = nullableWorker.join();
+    assert(nullableResult == "thread-nullable");
+    {
+        Thread<string?> unjoinedNullable = spawn(
+            string? function() { return ownedText("unjoined-nullable"); }
+        );
+    }
+
+    Thread<Box> worker = spawn(() => new Box(42));
+    Box result = worker.join();
+    assert(alive == 1);
+    assert(result.value == 42);
+    delete result;
+    assert(alive == 0);
+
+    Box source = new Box(84);
+    Thread<Box> borrowedWorker = spawn(() => source);
+    Box borrowedResult = borrowedWorker.join();
+    assert(alive == 1);
+    release source;
+    assert(alive == 1);
+    assert(borrowedResult.value == 84);
+    delete borrowedResult;
+    assert(alive == 0);
+    return 0;
+}

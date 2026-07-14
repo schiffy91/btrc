@@ -14,21 +14,21 @@ Format (one field per line, 2-space indent by depth):
 <value> ::= nested node `(...)` | list `[ ... ]` (`[]` when empty) | `nil`
           | `true`/`false` | decimal int | "double-quoted string" (\\ \n \r \t).
 """
+
 import dataclasses
 import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-from src.compiler.python.lexer import Lexer  # noqa: E402
-from src.compiler.python.parser.parser import Parser  # noqa: E402
+from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 
 
 def _q(s: str) -> str:
     out = ['"']
     for ch in s:
-        out.append({"\\": "\\\\", '"': '\\"', "\n": "\\n",
-                    "\r": "\\r", "\t": "\\t"}.get(ch, ch))
+        out.append({"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}.get(ch, ch))
     out.append('"')
     return "".join(out)
 
@@ -44,9 +44,10 @@ def _dump(node, depth: int) -> str:
         return str(node)
     if isinstance(node, float):
         import struct
+
         # btrc stores FloatLiteral.value as a 32-bit float; round through
         # float32 so canon matches btrc canonFloat (snprintf %%f).
-        return "%f" % struct.unpack("f", struct.pack("f", node))[0]
+        return f"{struct.unpack('f', struct.pack('f', node))[0]:f}"
     if isinstance(node, str):
         return _q(node)
     if isinstance(node, list):
@@ -57,8 +58,7 @@ def _dump(node, depth: int) -> str:
         fields = dataclasses.fields(node)
         if not fields:
             return "(" + type(node).__name__ + ")"
-        body = "\n".join(cpad + f.name + "=" + _dump(getattr(node, f.name), depth + 1)
-                         for f in fields)
+        body = "\n".join(cpad + f.name + "=" + _dump(getattr(node, f.name), depth + 1) for f in fields)
         return "(" + type(node).__name__ + "\n" + body + ")"
     return _q(str(node))
 

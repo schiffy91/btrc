@@ -1,0 +1,27 @@
+#include <assert.h>
+#include <string.h>
+
+enum Mode { READY, DONE };
+
+enum class Outcome {
+    Value(int value),
+    Empty
+}
+int global_answer = 9;
+
+int main() {
+    int values[3] = {2, 3, 5};
+    (int, int) pair = (values[0], values[2]);
+    Outcome value = Outcome.Value(pair._0 + pair._1);
+    Outcome empty = Outcome.Empty();
+
+    assert(global_answer == 9);
+    assert(sizeof(values[1]) == sizeof(int));
+    assert(value.data.Value.value == 7);
+    assert(strcmp(Mode_toString(READY), "READY") == 0);
+    assert(strcmp(Outcome_toString(value), "Value") == 0);
+    assert(strcmp(Outcome_toString(empty), "Empty") == 0);
+
+    print("PASS: test_structured_ir_expressions");
+    return 0;
+}

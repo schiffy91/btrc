@@ -9,6 +9,8 @@
 import std.strings;
 
 #include <unistd.h>
+#include <errno.h>
+#include <stdlib.h>
 
 class UnixPlatform {
     class int pid() {
@@ -22,15 +24,36 @@ class UnixPlatform {
 
 class Platform {
     class bool isUnix() {
-        return true;
+        return !Platform.isWindows();
     }
 
     class bool isWindows() {
-        return false;
+        /* MinGW's getcwd() returns either a drive-rooted path (C:\\...) or
+         * a UNC path.  Detect that shape at runtime so cross-compiled programs
+         * do not bake the transpiler host's platform into their output. */
+        int capacity = 256;
+        char* cwd = (char*)__btrc_safe_realloc(NULL, (size_t)capacity);
+        while (getcwd(cwd, (size_t)capacity) == NULL) {
+            if (errno != ERANGE || capacity > 1073741823) {
+                free(cwd);
+                return false;
+            }
+            capacity = capacity * 2;
+            cwd = (char*)__btrc_safe_realloc(cwd, (size_t)capacity);
+        }
+        int length = Strings.checkedLength(cwd);
+        bool driveRooted = length >= 3
+            && ((cwd[0] >= 'A' && cwd[0] <= 'Z')
+                || (cwd[0] >= 'a' && cwd[0] <= 'z'))
+            && cwd[1] == ':'
+            && (cwd[2] == '/' || cwd[2] == '\\');
+        bool uncRooted = length >= 2 && cwd[0] == '\\' && cwd[1] == '\\';
+        free(cwd);
+        return driveRooted || uncRooted;
     }
 
     class string pathSeparator() {
-        return "/";
+        return Platform.isWindows() ? "\\" : "/";
     }
 
     class int pid() {
@@ -42,7 +65,9 @@ class Platform {
     }
 
     class bool isRoot() {
-        return Platform.euid() == 0;
+        /* Windows has no POSIX root identity; the compatibility getuid/euid
+         * value is only a sentinel and must never grant privileges. */
+        return !Platform.isWindows() && Platform.euid() == 0;
     }
 }
 

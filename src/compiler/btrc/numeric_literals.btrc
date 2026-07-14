@@ -1,0 +1,198 @@
+/* Host-C literal selection and representability contracts.
+ *
+ * This mirrors compiler/python/numeric_literals.py without parsing through a
+ * signed host int.  Literal magnitudes are accumulated in unsigned long long,
+ * then checked against the exact C11 candidate list for their radix/suffix. */
+
+class IntegerLiteralInfo {
+    public bool valid;
+    public unsigned long long magnitude;
+    public string suffix;
+    public bool decimal;
+
+    public IntegerLiteralInfo(bool valid, unsigned long long magnitude,
+            string suffix, bool decimal) {
+        self.valid = valid;
+        self.magnitude = magnitude;
+        self.suffix = suffix;
+        self.decimal = decimal;
+    }
+}
+
+IntegerLiteralInfo parseIntegerLiteralInfo(string raw) {
+    int bodyEnd = raw.length();
+    while (bodyEnd > 0 && isCIntegerSuffixChar(raw[bodyEnd - 1])) {
+        bodyEnd = bodyEnd - 1;
+    }
+    string suffix = raw.substring(
+        bodyEnd, raw.length() - bodyEnd).toLower();
+    if (bodyEnd == 0) {
+        return IntegerLiteralInfo(false, 0ULL, suffix, true);
+    }
+
+    int radix = 10;
+    int start = 0;
+    bool decimal = true;
+    if (bodyEnd >= 2 && raw[0] == '0') {
+        char prefix = raw[1];
+        if (prefix == 'x' || prefix == 'X') {
+            radix = 16;
+            start = 2;
+            decimal = false;
+        } else if (prefix == 'b' || prefix == 'B') {
+            radix = 2;
+            start = 2;
+            decimal = false;
+        } else if (prefix == 'o' || prefix == 'O') {
+            radix = 8;
+            start = 2;
+            decimal = false;
+        } else if (bodyEnd > 1) {
+            radix = 8;
+            start = 1;
+            decimal = false;
+        }
+    }
+    if (start >= bodyEnd) {
+        return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
+    }
+
+    unsigned long long magnitude = 0ULL;
+    int index = start;
+    while (index < bodyEnd) {
+        int digit = lexerHexDigitValue(raw[index]);
+        if (digit < 0 || digit >= radix) {
+            return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
+        }
+        unsigned long long wideDigit = (unsigned long long)digit;
+        unsigned long long wideRadix = (unsigned long long)radix;
+        if (magnitude > (ULLONG_MAX - wideDigit) / wideRadix) {
+            return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
+        }
+        magnitude = magnitude * wideRadix + wideDigit;
+        index = index + 1;
+    }
+    return IntegerLiteralInfo(true, magnitude, suffix, decimal);
+}
+
+string integerLiteralTypeName(string raw) {
+    IntegerLiteralInfo info = parseIntegerLiteralInfo(raw);
+    if (!info.valid) { return ""; }
+    unsigned long long value = info.magnitude;
+    string suffix = info.suffix;
+
+    if (suffix == "") {
+        if (value <= (unsigned long long)INT_MAX) { return "int"; }
+        if (!info.decimal && value <= (unsigned long long)UINT_MAX) {
+            return "unsigned int";
+        }
+        if (value <= (unsigned long long)LONG_MAX) { return "long"; }
+        if (!info.decimal && value <= (unsigned long long)ULONG_MAX) {
+            return "unsigned long";
+        }
+        if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
+        if (!info.decimal) { return "unsigned long long"; }
+        return "";
+    }
+    if (suffix == "u") {
+        if (value <= (unsigned long long)UINT_MAX) { return "unsigned int"; }
+        if (value <= (unsigned long long)ULONG_MAX) { return "unsigned long"; }
+        return "unsigned long long";
+    }
+    if (suffix == "l") {
+        if (value <= (unsigned long long)LONG_MAX) { return "long"; }
+        if (!info.decimal && value <= (unsigned long long)ULONG_MAX) {
+            return "unsigned long";
+        }
+        if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
+        if (!info.decimal) { return "unsigned long long"; }
+        return "";
+    }
+    if (suffix == "ul" || suffix == "lu") {
+        if (value <= (unsigned long long)ULONG_MAX) {
+            return "unsigned long";
+        }
+        return "unsigned long long";
+    }
+    if (suffix == "ll") {
+        if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
+        if (!info.decimal) { return "unsigned long long"; }
+        return "";
+    }
+    if (suffix == "ull" || suffix == "llu") {
+        return "unsigned long long";
+    }
+    return "";
+}
+
+int integerLiteralStoredValue(string raw) {
+    IntegerLiteralInfo info = parseIntegerLiteralInfo(raw);
+    if (!info.valid || info.magnitude > (unsigned long long)INT_MAX) {
+        return 0;
+    }
+    return (int)info.magnitude;
+}
+
+string floatLiteralBody(string raw) {
+    int length = raw.length();
+    if (length > 0 && (raw[length - 1] == 'f'
+            || raw[length - 1] == 'F')) {
+        return raw.substring(0, length - 1);
+    }
+    return raw;
+}
+
+double floatLiteralDoubleValue(string raw) {
+    return strtod(floatLiteralBody(raw), NULL);
+}
+
+bool floatLiteralHasNonzeroSignificand(string raw) {
+    int index = 0;
+    while (index < raw.length() && raw[index] != 'e' && raw[index] != 'E') {
+        if (raw[index] >= '1' && raw[index] <= '9') { return true; }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool floatLiteralIsNarrow(string raw) {
+    int length = raw.length();
+    return length > 0 && (raw[length - 1] == 'f'
+        || raw[length - 1] == 'F');
+}
+
+string floatLiteralProblem(string raw) {
+    double value = floatLiteralDoubleValue(raw);
+    bool finite = value == value && value <= DBL_MAX && value >= -DBL_MAX;
+    if (!finite) {
+        return "Floating literal '" + raw
+            + "' is outside the finite double range";
+    }
+    bool nonzeroSource = floatLiteralHasNonzeroSignificand(raw);
+    if (value == 0.0 && nonzeroSource) {
+        return "Floating literal '" + raw + "' underflows to zero";
+    }
+    if (!floatLiteralIsNarrow(raw)) { return ""; }
+    return float32LiteralProblem(raw, value);
+}
+
+string float32LiteralProblem(string raw, double value) {
+    bool nonzeroSource = floatLiteralHasNonzeroSignificand(raw);
+    float narrowed = (float)value;
+    bool finiteFloat = narrowed == narrowed
+        && narrowed <= FLT_MAX && narrowed >= -FLT_MAX;
+    if (!finiteFloat) {
+        return "Floating literal '" + raw
+            + "' is outside the finite float range";
+    }
+    if (narrowed == 0.0f && nonzeroSource) {
+        return "Floating literal '" + raw
+            + "' underflows to zero as float";
+    }
+    return "";
+}
+
+string floatLiteralTypeName(string raw) {
+    if (floatLiteralIsNarrow(raw)) { return "float"; }
+    return "double";
+}

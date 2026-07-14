@@ -1,0 +1,61 @@
+#include <assert.h>
+#include <string.h>
+
+class Item {
+    public int value;
+    public Item(int value) { self.value = value; }
+}
+
+class Buffer<T> {
+    public T[] data;
+    public int size;
+
+    public Buffer(T[] data, int size) {
+        self.data = data;
+        self.size = size;
+    }
+
+    public void set(int index, T value) { self.data[index] = value; }
+    public T get(int index) { return self.data[index]; }
+}
+
+class Shape<T> {
+    public Shape() {}
+    public int marker() { return 1; }
+}
+
+int main() {
+    string first = "alpha";
+    string second = "beta";
+    assert(first != second);
+    assert(first < second);
+    assert(first <= second);
+    assert(second > first);
+    assert(second >= first);
+    assert(first == "alpha");
+
+    int integerData[2] = {0, 0};
+    Buffer<int> integers = new Buffer<int>(integerData, 2);
+    integers.set(0, 0B101010U);
+    integers.set(1, 0o17);
+    assert(integers.get(0) == 42);
+    assert(integers.get(1) == 15);
+
+    string stringData[1] = {"initial"};
+    Buffer<string> strings = new Buffer<string>(stringData, 1);
+    strings.set(0, "portable");
+    assert(strcmp(strings.get(0), "portable") == 0);
+
+    Item item = new Item(9);
+    Item itemData[1] = {item};
+    Buffer<Item> items = new Buffer<Item>(itemData, 1);
+    items.set(0, item);
+    assert(items.get(0).value == 9);
+
+    Shape<string> scalarShape = new Shape<string>();
+    Shape<string[]> arrayShape = new Shape<string[]>();
+    assert(scalarShape.marker() + arrayShape.marker() == 2);
+
+    print("PASS: test_generic_array_type_metadata");
+    return 0;
+}

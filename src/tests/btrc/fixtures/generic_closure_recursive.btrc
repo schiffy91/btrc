@@ -1,0 +1,29 @@
+#include <assert.h>
+
+int linkAlive = 0;
+
+class Link<T> {
+    public Link<T> next;
+
+    public Link() {
+        self.next = null;
+        linkAlive++;
+    }
+
+    public void __del__() { linkAlive--; }
+
+    public void exercise() {
+        Link<T> child = new Link<T>();
+        delete child;
+    }
+}
+
+int main() {
+    Link<int> root = new Link<int>();
+    root.exercise();
+    assert(linkAlive == 1);
+    delete root;
+    assert(linkAlive == 0);
+    print("PASS: recursive generic closure");
+    return 0;
+}

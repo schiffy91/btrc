@@ -1,0 +1,36 @@
+/* User typedef normalization for semantic validation.
+ *
+ * IR emission preserves source aliases in C declarations.  Semantic checks,
+ * however, must reason about their underlying value domain: `typedef int
+ * Score;` supports arithmetic and assignment exactly as `int` does. */
+
+Node? semanticResolveAliases(Node? typeExpr,
+        SemanticValidationState state) {
+    return resolveTypedefType(typeExpr, state.analyzed.typedefTable);
+}
+
+Node? semanticInferType(Node? expression, SemanticValidationState state,
+        Map<string, Node> vars) {
+    return semanticResolveAliases(
+        inferType(expression, state.analyzed, vars), state);
+}
+
+bool semanticAliasTypesSame(Node? left, Node? right,
+        SemanticValidationState state) {
+    left = semanticResolveAliases(left, state);
+    right = semanticResolveAliases(right, state);
+    if (left == null || right == null) { return left == null && right == null; }
+    return typeShapeKey(left) == typeShapeKey(right);
+}
+
+void semanticValidateTypedefs(Node program, SemanticValidationState state) {
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_TYPEDEF_DECL) {
+            resolveTypedefType(
+                declaration.original, state.analyzed.typedefTable);
+        }
+        index = index + 1;
+    }
+}

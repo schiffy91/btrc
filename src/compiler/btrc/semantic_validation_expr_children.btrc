@@ -1,0 +1,214 @@
+/* Recursive expression forms whose domain checks live at their children. */
+
+void semanticValidateExprList(Vector<Node> expressions,
+        SemanticValidationState state, Map<string, Node> vars) {
+    int index = 0;
+    while (index < expressions.len) {
+        Node value = expressions.get(index);
+        semanticValidateExpr(value, state, vars);
+        semanticRejectThreadValueEscape(
+            value, "embedded in aggregate values", state, vars);
+        index = index + 1;
+    }
+}
+
+void semanticValidateNew(Node expression, SemanticValidationState state,
+        Map<string, Node> vars) {
+    string className = expression.type.base;
+    Node? constructor = null;
+    Map<string, Node> substitutions = {};
+    if (expression.type.pointer_depth != 0 || expression.type.is_array
+            || expression.type.is_nullable) {
+        semanticValidationFail("new requires an unqualified class type, got '"
+            + semanticFormatType(expression.type) + "'", expression);
+    }
+    if (className == "Mutex") {
+        if (expression.type.generic_args.len != 1) {
+            semanticValidationFail(
+                "new Mutex requires exactly one value type", expression);
+        }
+        if (expression.args.len != 1) {
+            semanticValidationFail(
+                "'new Mutex<T>()' expects exactly 1 argument", expression);
+        }
+        int mutexArgIndex = 0;
+        while (mutexArgIndex < expression.arg_names.len) {
+            if (expression.arg_names.get(mutexArgIndex) != "") {
+                semanticValidationFail(
+                    "'new Mutex<T>()' does not accept named arguments",
+                    expression);
+            }
+            mutexArgIndex = mutexArgIndex + 1;
+        }
+        Node expected = expression.type.generic_args.get(0);
+        Node? actual = semanticInferType(
+            expression.args.get(0), state, vars);
+        if (actual != null
+                && !semanticAssignmentCompatible(expected, actual, state)) {
+            semanticValidationFail("Mutex initializer expects '"
+                + semanticFormatType(expected) + "' but got '"
+                + semanticFormatType(actual) + "'", expression);
+        }
+        return;
+    }
+    if (state.analyzed.isClass(className)) {
+        if (state.analyzed.classTable.get(className).is_abstract) {
+            semanticValidationFail(
+                "Cannot instantiate abstract class '" + className + "'",
+                expression);
+        }
+        constructor = state.analyzed.classConstructor(className);
+    } else if (state.analyzed.isGenericClass(className)) {
+        constructor = state.analyzed.genericClassConstructor(className);
+        substitutions = genericTypeMap(state.analyzed, expression.type);
+    } else {
+        semanticValidationFail("new requires a class type, got '"
+            + semanticFormatType(expression.type) + "'", expression);
+    }
+    if (constructor == null) {
+        if (expression.args.len > 0) {
+            semanticValidationFail("Class '" + className
+                + "' has no constructor but was called with "
+                + Strings.fromInt(expression.args.len) + " argument(s)",
+                expression);
+        }
+        return;
+    }
+    semanticValidateSignature(className, constructor.params, expression,
+        substitutions, state, vars);
+}
+
+void semanticValidateMapEntries(Vector<Node> entries,
+        SemanticValidationState state, Map<string, Node> vars) {
+    int index = 0;
+    while (index < entries.len) {
+        Node entry = entries.get(index);
+        semanticValidateExpr(entry.key, state, vars);
+        semanticValidateExpr(entry.value_node, state, vars);
+        semanticRejectThreadValueEscape(
+            entry.key, "embedded in aggregate values", state, vars);
+        semanticRejectThreadValueEscape(
+            entry.value_node, "embedded in aggregate values", state, vars);
+        index = index + 1;
+    }
+}
+
+void semanticValidateFStringParts(Vector<Node> parts,
+        SemanticValidationState state, Map<string, Node> vars) {
+    int index = 0;
+    while (index < parts.len) {
+        Node part = parts.get(index);
+        if (part.kind == NK_F_STRING_EXPR) {
+            semanticValidateExpr(part.expression, state, vars);
+            semanticRejectThreadValueEscape(
+                part.expression, "formatted as values", state, vars);
+        }
+        index = index + 1;
+    }
+}
+
+void semanticValidateExprChildren(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression.kind == NK_IDENTIFIER) {
+        string name = expression.name;
+        if (!vars.has(name)
+                && state.analyzed.isAmbiguousEnumValue(name)) {
+            semanticValidationFail("Ambiguous enum value '" + name
+                + "'; qualify it with the enum name", expression);
+        }
+        bool known = vars.has(name) || state.analyzed.funcTable.has(name)
+            || state.analyzed.isClass(name)
+            || state.analyzed.isGenericClass(name)
+            || state.analyzed.isEnum(name)
+            || state.analyzed.isRichEnum(name)
+            || state.analyzed.isEnumValue(name)
+            || isCIntegerIdentifier(name) || name == "NULL"
+            || name == "stdin"
+            || name == "stdout" || name == "stderr";
+        if (!known) {
+            semanticValidationFail(
+                "Unknown identifier '" + name + "'", expression);
+        }
+    } else if (expression.kind == NK_SELF_EXPR) {
+        if (!vars.has("self")) {
+            semanticValidationFail(
+                "'self' used outside an instance method", expression);
+        }
+    } else if (expression.kind == NK_SUPER_EXPR) {
+        if (!vars.has("self")) {
+            semanticValidationFail(
+                "'super' used outside an instance method", expression);
+        }
+        Node selfType = vars.get("self");
+        if (!state.analyzed.classTable.has(selfType.base)
+                || parentName(state.analyzed.classTable.get(selfType.base)) == "") {
+            semanticValidationFail(
+                "'super' used in a class without a parent", expression);
+        }
+    } else if (expression.kind == NK_CAST_EXPR) {
+        semanticRejectRuntimeInterfaceType(
+            expression.target_type, expression, state);
+        semanticValidateExpr(expression.expr, state, vars);
+        semanticRejectThreadValueEscape(
+            expression.expr, "cast", state, vars);
+    } else if (expression.kind == NK_SIZEOF_EXPR) {
+        if (expression.operand != null
+                && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
+            semanticValidateExpr(expression.operand.expr, state, vars);
+        }
+    } else if (expression.kind == NK_LIST_LITERAL
+            || expression.kind == NK_BRACE_INITIALIZER
+            || expression.kind == NK_TUPLE_LITERAL) {
+        semanticValidateExprList(expression.elements, state, vars);
+        if (expression.kind == NK_TUPLE_LITERAL) {
+            semanticRejectOwnedElements(expression.elements,
+                "a shallow aggregate", state, vars);
+        }
+    } else if (expression.kind == NK_MAP_LITERAL) {
+        semanticValidateMapEntries(expression.entries, state, vars);
+    } else if (expression.kind == NK_F_STRING_LITERAL) {
+        semanticValidateFStringParts(expression.parts, state, vars);
+    } else if (expression.kind == NK_NEW_EXPR) {
+        semanticValidateExprList(expression.args, state, vars);
+        semanticValidateNew(expression, state, vars);
+    } else if (expression.kind == NK_LAMBDA_EXPR) {
+        if (state.typeParams.len > 0) {
+            semanticValidationFail(
+                "Lambda expressions are not supported inside generic declarations",
+                expression);
+        }
+        semanticValidateLambda(expression, state, vars);
+    } else if (expression.kind == NK_SPAWN_EXPR) {
+        if (state.typeParams.len > 0 && (expression.fn == null
+                || expression.fn.kind != NK_LAMBDA_EXPR)) {
+            semanticValidationFail(
+                "spawn expressions are not supported inside generic declarations",
+                expression);
+        }
+        semanticValidateExpr(expression.fn, state, vars);
+        if (expression.fn != null
+                && expression.fn.kind == NK_LAMBDA_EXPR) {
+            semanticValidateSpawnCaptures(expression.fn, state, vars);
+        }
+        Node? callable = semanticInferType(expression.fn, state, vars);
+        if (expression.fn == null
+                || (expression.fn.kind != NK_LAMBDA_EXPR
+                    && (callable == null || callable.base != "__fn_ptr"))) {
+            semanticValidationFail(
+                "spawn expects a lambda or function pointer", expression);
+        } else if (expression.fn.kind != NK_LAMBDA_EXPR
+                && callable != null) {
+            Node typedCallable = callable;
+            if (typedCallable.generic_args.len != 2
+                    || !semanticIsVoidPointer(
+                        typedCallable.generic_args.get(0))
+                    || !semanticIsVoidPointer(
+                        typedCallable.generic_args.get(1))) {
+                semanticValidationFail(
+                    "Non-lambda spawn requires __fn_ptr<void*, void*>; use a "
+                        + "lambda adapter for other signatures",
+                    expression);
+            }
+        }
+    }
+}

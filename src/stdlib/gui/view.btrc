@@ -105,22 +105,32 @@ class GuiEvents {
 
 class Ui {
     class bool hit(GuiInput input, int x, int y, int w, int h) {
-        return input.mouseX >= x && input.mouseX < x + w
-            && input.mouseY >= y && input.mouseY < y + h;
+        if (w <= 0 || h <= 0) { return false; }
+        long long mx = (long long)input.mouseX;
+        long long my = (long long)input.mouseY;
+        return mx >= (long long)x && mx < (long long)x + (long long)w
+            && my >= (long long)y && my < (long long)y + (long long)h;
     }
 
     /* Intrinsic size pass (bottom-up). */
     class void measure(View v) {
         if (v.kind.equals("text")) {
-            v.mW = btrc_gui_text_width(v.text, v.scale) + 2 * v.padding;
-            v.mH = btrc_gui_text_height(v.scale) + 2 * v.padding;
+            int inset = GuiInt.multiply(2, v.padding);
+            v.mW = GuiInt.add(btrc_gui_text_width(v.text, v.scale), inset);
+            v.mH = GuiInt.add(btrc_gui_text_height(v.scale), inset);
         } else if (v.kind.equals("button")) {
-            v.mW = btrc_gui_text_width(v.text, v.scale) + 2 * v.padding + 20;
-            v.mH = btrc_gui_text_height(v.scale) + 2 * v.padding + 12;
+            int inset = GuiInt.multiply(2, v.padding);
+            v.mW = GuiInt.add(
+                GuiInt.add(btrc_gui_text_width(v.text, v.scale), inset), 20);
+            v.mH = GuiInt.add(
+                GuiInt.add(btrc_gui_text_height(v.scale), inset), 12);
         } else if (v.kind.equals("checkbox")) {
             int box = btrc_gui_text_height(v.scale);
-            v.mW = box + 8 + btrc_gui_text_width(v.text, v.scale) + 2 * v.padding;
-            v.mH = box + 2 * v.padding;
+            int inset = GuiInt.multiply(2, v.padding);
+            v.mW = GuiInt.add(
+                GuiInt.add(GuiInt.add(box, 8), btrc_gui_text_width(v.text, v.scale)),
+                inset);
+            v.mH = GuiInt.add(box, inset);
         } else if (v.kind.equals("spacer")) {
             v.mW = 0; v.mH = 0;
         } else {
@@ -130,18 +140,23 @@ class Ui {
             int cross = 0;
             for c in v.children {
                 if (v.kind.equals("row")) {
-                    main = main + c.mW;
+                    main = GuiInt.add(main, c.mW);
                     if (c.mH > cross) { cross = c.mH; }
                 } else {
-                    main = main + c.mH;
+                    main = GuiInt.add(main, c.mH);
                     if (c.mW > cross) { cross = c.mW; }
                 }
             }
-            if (n > 1) { main = main + v.gap * (n - 1); }
+            if (n > 1) {
+                main = GuiInt.add(main, GuiInt.multiply(v.gap, n - 1));
+            }
+            int inset = GuiInt.multiply(2, v.padding);
             if (v.kind.equals("row")) {
-                v.mW = main + 2 * v.padding; v.mH = cross + 2 * v.padding;
+                v.mW = GuiInt.add(main, inset);
+                v.mH = GuiInt.add(cross, inset);
             } else {
-                v.mH = main + 2 * v.padding; v.mW = cross + 2 * v.padding;
+                v.mH = GuiInt.add(main, inset);
+                v.mW = GuiInt.add(cross, inset);
             }
         }
         if (v.fixedW > 0) { v.mW = v.fixedW; }
@@ -153,20 +168,22 @@ class Ui {
         v.x = x; v.y = y; v.w = w; v.h = h;
         int n = v.children.len;
         if (n == 0) { return; }
-        int innerX = x + v.padding;
-        int innerY = y + v.padding;
-        int innerW = w - 2 * v.padding;
-        int innerH = h - 2 * v.padding;
+        int inset = GuiInt.multiply(2, v.padding);
+        int innerX = GuiInt.add(x, v.padding);
+        int innerY = GuiInt.add(y, v.padding);
+        int innerW = GuiInt.subtract(w, inset);
+        int innerH = GuiInt.subtract(h, inset);
         bool isRow = v.kind.equals("row");
 
         int fixed = 0;
         int grows = 0;
         for c in v.children {
             if (c.grow) { grows++; }
-            else { fixed = fixed + (isRow ? c.mW : c.mH); }
+            else { fixed = GuiInt.add(fixed, isRow ? c.mW : c.mH); }
         }
-        int gaps = n > 1 ? v.gap * (n - 1) : 0;
-        int avail = (isRow ? innerW : innerH) - fixed - gaps;
+        int gaps = n > 1 ? GuiInt.multiply(v.gap, n - 1) : 0;
+        int avail = GuiInt.subtract(
+            GuiInt.subtract(isRow ? innerW : innerH, fixed), gaps);
         if (avail < 0) { avail = 0; }
         int per = grows > 0 ? avail / grows : 0;
 
@@ -178,7 +195,7 @@ class Ui {
             } else {
                 Ui.layout(c, innerX, cursor, innerW, mainSize);
             }
-            cursor = cursor + mainSize + v.gap;
+            cursor = GuiInt.add(GuiInt.add(cursor, mainSize), v.gap);
         }
     }
 
@@ -187,7 +204,9 @@ class Ui {
 
         if (v.kind.equals("text")) {
             Color c = v.hasFg ? v.fg : theme.text;
-            s.text(v.x + v.padding, v.y + v.padding, v.text, c, v.scale);
+            s.text(
+                GuiInt.add(v.x, v.padding), GuiInt.add(v.y, v.padding),
+                v.text, c, v.scale);
         } else if (v.kind.equals("button")) {
             bool hovered = Ui.hit(input, v.x, v.y, v.w, v.h);
             Color fill = hovered ? theme.accent : theme.panel;
@@ -195,14 +214,23 @@ class Ui {
             s.fillRect(v.x, v.y, v.w, v.h, fill);
             int tw = btrc_gui_text_width(v.text, v.scale);
             int th = btrc_gui_text_height(v.scale);
-            s.text(v.x + (v.w - tw) / 2, v.y + (v.h - th) / 2, v.text, fg, v.scale);
+            s.text(
+                GuiInt.add(v.x, GuiInt.subtract(v.w, tw) / 2),
+                GuiInt.add(v.y, GuiInt.subtract(v.h, th) / 2),
+                v.text, fg, v.scale);
             if (hovered && input.mousePressed && !v.id.isEmpty()) { ev.clicked = v.id; }
         } else if (v.kind.equals("checkbox")) {
             int box = btrc_gui_text_height(v.scale);
             bool hovered = Ui.hit(input, v.x, v.y, v.w, v.h);
             s.fillRect(v.x, v.y, box, box, theme.border);
-            if (v.checked) { s.fillRect(v.x + 3, v.y + 3, box - 6, box - 6, theme.accent); }
-            s.text(v.x + box + 8, v.y, v.text, theme.text, v.scale);
+            if (v.checked) {
+                s.fillRect(
+                    GuiInt.add(v.x, 3), GuiInt.add(v.y, 3),
+                    GuiInt.subtract(box, 6), GuiInt.subtract(box, 6), theme.accent);
+            }
+            s.text(
+                GuiInt.add(GuiInt.add(v.x, box), 8), v.y,
+                v.text, theme.text, v.scale);
             if (hovered && input.mousePressed && !v.id.isEmpty()) { ev.toggled.push(v.id); }
         }
 

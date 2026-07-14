@@ -8,6 +8,7 @@ lives in server.py; both modules share the locks defined here.
 import logging
 import os
 import threading
+from itertools import count
 
 from pygls.lsp.server import LanguageServer
 
@@ -33,20 +34,30 @@ _state_lock = threading.Lock()  # guards generations/timers/open set + publishes
 _generations: dict[str, int] = {}
 _timers: dict[str, object] = {}
 _open_uris: set[str] = set()
+_document_sources: dict[str, str] = {}
+_versions: dict[str, int] = {}
+_generation_counter = count(1)
 
 
 def _overlay_provider(path: str) -> str | None:
     """Serve unsaved editor buffers when imported files are open in the editor."""
+    with _state_lock:
+        sources = list(_document_sources.items())
     try:
-        # Snapshot: worker threads must not iterate a dict the protocol
-        # thread mutates on didOpen/didClose.
-        documents = list(server.workspace.text_documents.items())
+        workspace_sources = [(uri, document.source) for uri, document in list(server.workspace.text_documents.items())]
     except Exception:
-        return None
-    for uri, doc in documents:
-        if os.path.abspath(uri_to_path(uri)) == path:
-            return doc.source
+        workspace_sources = []
+    known_uris = {uri for uri, _source in sources}
+    sources.extend(item for item in workspace_sources if item[0] not in known_uris)
+    identity = _path_identity(path)
+    for uri, source in sources:
+        if _path_identity(uri_to_path(uri)) == identity:
+            return source
     return None
+
+
+def _path_identity(path: str) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(path)))
 
 
 WORKSPACE.overlay_provider = _overlay_provider
@@ -60,13 +71,14 @@ def _get_best_result(uri: str) -> AnalysisResult | None:
     go-to-definition, hover, and find-references keep working while the
     user is typing and the file has transient parse errors.
     """
-    result = _analysis_cache.get(uri)
-    if result and result.ast and result.analyzed:
-        return result
-    good = _good_analysis_cache.get(uri)
-    if good:
-        return good
-    return result  # may still have tokens even without AST
+    with _state_lock:
+        result = _analysis_cache.get(uri)
+        if result and result.ast and result.analyzed:
+            return result
+        good = _good_analysis_cache.get(uri)
+        if good:
+            return good
+        return result  # may still have tokens even without AST
 
 
 def _compute_uncached(uri: str, source: str) -> AnalysisResult:
@@ -78,13 +90,18 @@ def _compute_uncached(uri: str, source: str) -> AnalysisResult:
     """
     with _validate_lock:
         result = compute_diagnostics(uri, source)
+    with _state_lock:
         _analysis_cache[uri] = result
         if result.analyzed and result.ast:
             _good_analysis_cache[uri] = result
     return result
 
 
-def _result_with_current_source(uri: str) -> AnalysisResult | None:
+def _result_with_current_source(
+    uri: str,
+    *,
+    compute_if_missing: bool = True,
+) -> AnalysisResult | None:
     """Best analysis for *uri*, with `source` swapped to the live buffer.
 
     Completion and signature help extract text around the cursor from
@@ -92,16 +109,20 @@ def _result_with_current_source(uri: str) -> AnalysisResult | None:
     last analyzed snapshot. ``snapshot_source`` keeps the analyzed text so
     providers can detect lines whose tokens are stale.
     """
-    doc = server.workspace.get_text_document(uri)
+    try:
+        doc = server.workspace.get_text_document(uri)
+    except Exception:
+        doc = None
     current_source = doc.source if doc else None
 
-    result = _analysis_cache.get(uri)
-    if result and not result.analyzed:
-        good = _good_analysis_cache.get(uri)
-        if good:
-            result = good
+    with _state_lock:
+        result = _analysis_cache.get(uri)
+        if result and not result.analyzed:
+            good = _good_analysis_cache.get(uri)
+            if good:
+                result = good
 
-    if not result and current_source:
+    if not result and current_source and compute_if_missing:
         result = _compute_uncached(uri, current_source)
 
     if not result:

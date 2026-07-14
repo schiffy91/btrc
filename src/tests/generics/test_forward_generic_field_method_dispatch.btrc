@@ -1,0 +1,35 @@
+/* A method declared before its model class reads a Vector<user-class> field.
+ * The analyzer must normalize every class field before analyzing any body;
+ * otherwise this call lowers as Vector<Entry>_size while the field and
+ * monomorphized implementation are Vector<Entry*> (`_p1`). */
+import std.vector;
+
+class Reader {
+    class int count(Bucket bucket) {
+        return bucket.entries.size();
+    }
+}
+
+class Entry {
+    public int value;
+
+    public Entry(int value) {
+        self.value = value;
+    }
+}
+
+class Bucket {
+    public Vector<Entry> entries;
+
+    public Bucket() {
+        self.entries = [];
+    }
+}
+
+int main() {
+    Bucket bucket = Bucket();
+    bucket.entries.push(Entry(7));
+    print(f"count={Reader.count(bucket)} value={bucket.entries.get(0).value}");
+    print("PASS: test_forward_generic_field_method_dispatch");
+    return 0;
+}

@@ -17,8 +17,8 @@ from ..nodes import (
     IRBinOp,
     IRCall,
     IRCast,
+    IRCommaExpr,
     IRExpr,
-    IRExprStmt,
     IRLiteral,
     IRStmtExpr,
     IRVar,
@@ -47,14 +47,16 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
         snprintf(__buf, __len + 1, "fmt", __arg0, ...);
     """
     gen.use_helper("__btrc_str_track")
+    gen.use_helper("__btrc_string_alloc")
 
     tmp = gen.fresh_temp("__fstr")
 
     # Build the format string, hoist each interpolation into a temp, and
     # collect the temp references used by both snprintf passes.
     fmt_parts = []
-    arg_decls = []  # IRVarDecl for each interpolation (evaluated once)
-    args = []       # IRExpr referencing the temp (used by both passes)
+    arg_decls = []  # uninitialized declarations, safe to hoist
+    arg_assignments = []  # evaluations sequenced at the expression site
+    args = []  # IRExpr referencing the temp (used by both passes)
 
     for part in node.parts:
         if isinstance(part, FStringText):
@@ -67,7 +69,7 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
             text = part.text.replace("%", "%%")
             fmt_parts.append(text)
         elif isinstance(part, FStringExpr):
-            fmt, arg = _lower_interpolation(gen, part, tmp, len(args), arg_decls)
+            fmt, arg = _lower_interpolation(gen, part, tmp, len(args), arg_decls, arg_assignments)
             fmt_parts.append(fmt)
             args.append(arg)
 
@@ -77,41 +79,47 @@ def lower_fstring(gen: IRGenerator, node: FStringLiteral) -> IRExpr:
     if not args:
         return IRLiteral(text=f'"{fmt_str}"')
 
-    # Build the snprintf expression sequence as a structured IRStmtExpr.
+    # Declarations may be hoisted by the C emitter, but every side effect stays
+    # in a comma expression.  This preserves short-circuit/ternary semantics and
+    # reevaluates while-loop conditions on every iteration under strict C11.
     len_var = f"{tmp}_len"
     buf_var = f"{tmp}_buf"
 
     fmt_literal = IRLiteral(text=f'"{fmt_str}"')
-    snprintf_measure_args = [IRLiteral(text="NULL"), IRLiteral(text="0"),
-                             fmt_literal] + args
-    len_plus_1 = IRBinOp(left=IRVar(name=len_var), op="+",
-                         right=IRLiteral(text="1"))
+    snprintf_measure_args = [IRLiteral(text="NULL"), IRLiteral(text="0"), fmt_literal] + args
+    len_plus_1 = IRBinOp(
+        left=IRCast(target_type=CType(text="size_t"), expr=IRVar(name=len_var)),
+        op="+",
+        right=IRLiteral(text="1"),
+    )
 
-    stmts = arg_decls + [
-        # int __len = snprintf(NULL, 0, "fmt", __arg0, ...);
-        IRVarDecl(
-            c_type=CType(text="int"), name=len_var,
-            init=IRCall(callee="snprintf", args=snprintf_measure_args),
-        ),
-        # char* __buf = __btrc_str_track((char*)malloc(__len + 1));
-        IRVarDecl(
-            c_type=CType(text="char*"), name=buf_var,
-            init=IRCall(callee="__btrc_str_track", args=[
-                IRCast(target_type=CType(text="char*"),
-                       expr=IRCall(callee="malloc", args=[len_plus_1])),
-            ]),
-        ),
-        # snprintf(__buf, __len + 1, "fmt", __arg0, ...);
-        IRExprStmt(expr=IRCall(
-            callee="snprintf",
-            args=[IRVar(name=buf_var), len_plus_1, fmt_literal] + args,
-        )),
+    declarations = arg_decls + [
+        IRVarDecl(c_type=CType(text="int"), name=len_var),
+        IRVarDecl(c_type=CType(text="char*"), name=buf_var),
     ]
+    sequence = arg_assignments + [
+        IRBinOp(left=IRVar(name=len_var), op="=", right=IRCall(callee="snprintf", args=snprintf_measure_args)),
+        IRBinOp(
+            left=IRVar(name=buf_var),
+            op="=",
+            right=IRCall(
+                callee="__btrc_str_track",
+                args=[
+                    IRCall(callee="__btrc_string_alloc", args=[IRVar(name=len_var)], helper_ref="__btrc_string_alloc"),
+                ],
+                helper_ref="__btrc_str_track",
+            ),
+        ),
+        IRCall(callee="snprintf", args=[IRVar(name=buf_var), len_plus_1, fmt_literal] + args),
+        IRVar(name=buf_var),
+    ]
+    return IRStmtExpr(
+        stmts=declarations,
+        result=IRCommaExpr(expressions=sequence),
+    )
 
-    return IRStmtExpr(stmts=stmts, result=IRVar(name=buf_var))
 
-
-def _lower_interpolation(gen, part, tmp, index, arg_decls):
+def _lower_interpolation(gen, part, tmp, index, arg_decls, arg_assignments):
     """Lower one f-string interpolation.
 
     Returns (format_spec, ir_arg) where ir_arg is reused by both snprintf
@@ -119,6 +127,7 @@ def _lower_interpolation(gen, part, tmp, index, arg_decls):
     expression evaluates exactly once.
     """
     from .expressions import lower_expr
+
     ir_value = lower_expr(gen, part.expression)
     arg_type = gen.analyzed.node_types.get(id(part.expression))
     fmt = format_spec_for_type(arg_type)
@@ -138,10 +147,20 @@ def _lower_interpolation(gen, part, tmp, index, arg_decls):
         elif isinstance(expr, CallExpr):
             callee = expr.callee
             if isinstance(callee, FieldAccessExpr):
-                if callee.field in ("toString", "str", "trim",
-                                    "toUpper", "toLower", "substring",
-                                    "replace", "repeat", "reverse",
-                                    "capitalize", "join", "split"):
+                if callee.field in (
+                    "toString",
+                    "str",
+                    "trim",
+                    "toUpper",
+                    "toLower",
+                    "substring",
+                    "replace",
+                    "repeat",
+                    "reverse",
+                    "capitalize",
+                    "join",
+                    "split",
+                ):
                     fmt = "%s"
         # Untracked: %s ⇒ a char* string, otherwise %d ⇒ an int.
         c_type = "char*" if fmt == "%s" else "int"
@@ -154,13 +173,13 @@ def _lower_interpolation(gen, part, tmp, index, arg_decls):
 
     # Hoist the value into a temp so it is evaluated exactly once.
     arg_var = f"{tmp}_arg{index}"
-    arg_decls.append(IRVarDecl(
-        c_type=CType(text=c_type), name=arg_var, init=ir_value,
-    ))
+    arg_decls.append(IRVarDecl(c_type=CType(text=c_type), name=arg_var))
+    arg_assignments.append(IRBinOp(left=IRVar(name=arg_var), op="=", right=ir_value))
     ir_arg: IRExpr = IRVar(name=arg_var)
 
     if c_type == "bool":
         from ..nodes import IRTernary
+
         ir_arg = IRTernary(
             condition=ir_arg,
             true_expr=IRLiteral(text='"true"'),

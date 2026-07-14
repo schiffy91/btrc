@@ -1,0 +1,30 @@
+/* Integer boundary behavior is deterministic and free of signed-overflow UB. */
+#include <assert.h>
+
+int main() {
+    assert(isinf(Math.INF()));
+    assert(Math.abs(-2147483647 - 1) == 2147483647);
+    assert(!signbit(Math.fabs(-0.0f)));
+    assert(Math.power(2.0f, -2147483647 - 1) == 0.0f);
+
+    assert(Math.factorial(-1) == 0);
+    assert(Math.factorial(12) == 479001600);
+    assert(Math.factorial(13) == 2147483647);
+    assert(Math.gcd(-2147483647 - 1, -1) == 1);
+    assert(Math.gcd(-2147483647 - 1, 0) == 2147483647);
+    assert(Math.lcm(0, 0) == 0);
+    assert(Math.lcm(50000, 50001) == 2147483647);
+    assert(Math.fibonacci(47) == 2147483647);
+    assert(Math.isPrime(2147483647));
+
+    Vector<int> positive = [2147483647, 1];
+    Vector<int> negative = [-2147483647 - 1, -1];
+    assert(Math.sum(positive) == 2147483647);
+    assert(Math.sum(negative) == -2147483647 - 1);
+    assert(Math.round((float)INFINITY) == 2147483647);
+    assert(Math.truncate((float)-INFINITY) == -2147483647 - 1);
+    assert(Math.round((float)NAN) == 0);
+
+    print("PASS: test_stdlib_math_boundaries");
+    return 0;
+}

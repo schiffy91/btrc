@@ -37,16 +37,16 @@ def emit_c(source: str) -> str:
 # Extensions that have previously leaked into output, or would if a future
 # change reached for them. Each must never appear in emitted C.
 _GNU_EXTENSIONS = [
-    r"\b__auto_type\b",     # type inference (use the concrete type instead)
-    r"\b__typeof__\b",      # typeof (same)
-    r"\btypeof\b",          # GNU typeof spelling
-    r"\(\{",                # statement expressions ({ ...; })
-    r"\b__extension__\b",   # explicit GNU extension marker
+    r"\b__auto_type\b",  # type inference (use the concrete type instead)
+    r"\b__typeof__\b",  # typeof (same)
+    r"\btypeof\b",  # GNU typeof spelling
+    r"\(\{",  # statement expressions ({ ...; })
+    r"\b__extension__\b",  # explicit GNU extension marker
 ]
 
 
 def test_no_gnu_extensions_in_simple_program():
-    c = emit_c("int main() { print(\"hi\"); return 0; }")
+    c = emit_c('int main() { print("hi"); return 0; }')
     for pat in _GNU_EXTENSIONS:
         assert not re.search(pat, c), f"emitted C contains GNU extension {pat!r}:\n{c}"
 
@@ -112,5 +112,5 @@ def test_void_return_emits_bare_return():
 
 def test_main_promoted_to_int():
     """A `void main` is emitted returning int (C requires it)."""
-    c = emit_c("void main() { print(\"x\"); }")
+    c = emit_c('void main() { print("x"); }')
     assert re.search(r"\bint main\s*\(", c), c

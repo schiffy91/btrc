@@ -1,20 +1,24 @@
 """Tests for the compiler driver (main.py): CLI flags, include/import
 resolution, stdlib selection, error formatting, and IR dumping."""
 
-import hashlib
+import json
 import os
+import pickle
 import shutil
 import subprocess
 import sys
 
 import pytest
 
-from src.compiler.python import frontend as fe
+from src.compiler.python import frontend_imports as frontend_imports
+from src.compiler.python import frontend_stdlib as frontend_stdlib
 from src.compiler.python import main as m
+from src.compiler.python import stdlib_ast_cache as ast_cache
 
 # --------------------------------------------------------------------------
 # helpers
 # --------------------------------------------------------------------------
+
 
 def write(path, content):
     with open(path, "w") as f:
@@ -34,6 +38,7 @@ BARE = "int main() { return 0; }\n"
 # --------------------------------------------------------------------------
 # end-to-end driver flags
 # --------------------------------------------------------------------------
+
 
 def test_default_compile_writes_output(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
@@ -87,11 +92,13 @@ def test_emit_ast(tmp_path, monkeypatch, capsys):
 
 def test_emit_ir(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    src = write(tmp_path / "t.btrc",
-                "enum Color { RED, GREEN = 5 };\n"
-                "struct Point { int x; int y; };\n"
-                "int add(int a, int b) { return a + b; }\n"
-                "int main() { return add(1, 2); }\n")
+    src = write(
+        tmp_path / "t.btrc",
+        "enum Color { RED, GREEN = 5 };\n"
+        "struct Point { int x; int y; };\n"
+        "int add(int a, int b) { return a + b; }\n"
+        "int main() { return add(1, 2); }\n",
+    )
     run_main(monkeypatch, [src, "--emit-ir"])
     out = capsys.readouterr().out
     assert "IRModule:" in out
@@ -139,9 +146,25 @@ def test_profile(tmp_path, monkeypatch, capsys):
     assert "total" in err
 
 
+def test_profile_bypasses_existing_compiled_c_cache(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    src = write(tmp_path / "profile-cache.btrc", BARE)
+    output = str(tmp_path / "profile-cache.c")
+
+    run_main(monkeypatch, [src, "--no-stdlib", "-o", output])
+    capsys.readouterr()
+    run_main(monkeypatch, [src, "--no-stdlib", "--profile", "-o", output])
+    captured = capsys.readouterr()
+
+    assert "(cached)" not in captured.out
+    assert "btrc profile" in captured.err
+
+
 # --------------------------------------------------------------------------
 # true end-to-end: source → CLI → C → compile → run
 # --------------------------------------------------------------------------
+
 
 def test_cli_end_to_end_compiles_and_runs(tmp_path, monkeypatch, capsys):
     """The whole pipeline: drive main() to emit C, compile it with a real C
@@ -171,11 +194,23 @@ def test_cli_end_to_end_compiles_and_runs(tmp_path, monkeypatch, capsys):
 # error paths
 # --------------------------------------------------------------------------
 
+
 def test_file_not_found(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit):
         run_main(monkeypatch, [str(tmp_path / "nope.btrc")])
     assert "not found" in capsys.readouterr().err
+
+
+def test_invalid_utf8_input_reports_a_clean_error(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "invalid.btrc"
+    source.write_bytes(b"int main() { return 0; }\xff")
+    with pytest.raises(SystemExit) as stopped:
+        run_main(monkeypatch, [str(source)])
+    captured = capsys.readouterr()
+    assert stopped.value.code == 1
+    assert "not valid UTF-8" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_lexer_error(tmp_path, monkeypatch, capsys):
@@ -197,9 +232,10 @@ def test_parser_error(tmp_path, monkeypatch, capsys):
 
 def test_analyzer_error_with_location(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    src = write(tmp_path / "ae.btrc",
-                "class Box { private int x; public Box() { self.x = 0; } }\n"
-                "int main() { Box b = Box(); return b.x; }\n")  # private field access
+    src = write(
+        tmp_path / "ae.btrc",
+        "class Box { private int x; public Box() { self.x = 0; } }\nint main() { Box b = Box(); return b.x; }\n",
+    )  # private field access
     with pytest.raises(SystemExit):
         run_main(monkeypatch, [src, "--no-cache"])
     assert "error:" in capsys.readouterr().err
@@ -264,6 +300,7 @@ def test_analyzer_warning(tmp_path, monkeypatch, capsys):
 # _format_error
 # --------------------------------------------------------------------------
 
+
 def test_format_error_normal():
     out = m._format_error("line one\nline two\n", "f.btrc", "boom", 2, 3)
     assert "boom" in out and "f.btrc:2:3" in out and "line two" in out and "^" in out
@@ -279,6 +316,7 @@ def test_format_error_out_of_range():
 # --------------------------------------------------------------------------
 # include / import resolution
 # --------------------------------------------------------------------------
+
 
 def test_resolve_hash_include(tmp_path):
     write(tmp_path / "lib.btrc", "int helper() { return 7; }\n")
@@ -296,6 +334,15 @@ def test_resolve_missing_include(tmp_path, capsys):
     assert "not found" in capsys.readouterr().err
 
 
+def test_resolve_invalid_utf8_include_reports_resolution_error(tmp_path):
+    included = tmp_path / "invalid.btrc"
+    included.write_bytes(b"int helper() { return 1; }\xff")
+    source = '#include "invalid.btrc"\nint main() { return 0; }\n'
+    root = write(tmp_path / "main.btrc", source)
+    with pytest.raises(m.IncludeResolutionError, match="not valid UTF-8"):
+        m.resolve_includes(source, root, exit_on_error=False)
+
+
 def test_resolve_circular_include(tmp_path):
     a = tmp_path / "a.btrc"
     b = tmp_path / "b.btrc"
@@ -303,6 +350,19 @@ def test_resolve_circular_include(tmp_path):
     b.write_text('#include "a.btrc"\nint b() { return 2; }\n')
     resolved = m.resolve_includes(a.read_text(), str(a))
     assert "int a" in resolved and "int b" in resolved  # no infinite loop
+
+
+def test_resolve_symlink_cycle_uses_canonical_identity(tmp_path):
+    source = '#include "loop/a.btrc"\nint a() { return 1; }\n'
+    path = tmp_path / "a.btrc"
+    path.write_text(source)
+    try:
+        (tmp_path / "loop").symlink_to(tmp_path, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks unavailable: {error}")
+
+    resolved = m.resolve_includes(source, str(path))
+    assert resolved.count("int a()") == 1
 
 
 def test_import_stdlib_single(tmp_path):
@@ -397,20 +457,47 @@ def test_import_c_file(tmp_path):
     assert '#include "' in resolved and "native.c" in resolved
 
 
+def test_repeated_c_import_is_emitted_once_by_canonical_identity(tmp_path):
+    native = tmp_path / "native.c"
+    write(native, "int native(void) { return 1; }\n")
+    try:
+        (tmp_path / "native_alias.c").symlink_to(native)
+    except OSError as error:
+        pytest.skip(f"file symlinks unavailable: {error}")
+    source = "import ./native.c;\nimport ./native_alias.c;\nint main() { return native(); }\n"
+    root = write(tmp_path / "main.btrc", source)
+    resolved = m.resolve_includes(source, root)
+    assert resolved.count("#include") == 1
+
+
+@pytest.mark.parametrize("unsafe", ['bad"name.c', "bad\nname.c", "bad??/name.c"])
+def test_c_import_rejects_paths_that_c11_cannot_quote_safely(unsafe):
+    with pytest.raises(m.IncludeResolutionError, match="cannot import C file"):
+        frontend_imports._c_include_directive(unsafe)
+
+
+def test_c_import_preserves_spaces_and_backslashes():
+    path = r"C:\source tree\native.c"
+    assert frontend_imports._c_include_directive(path) == f'#include "{path}"'
+
+
 # --------------------------------------------------------------------------
 # small helpers
 # --------------------------------------------------------------------------
+
 
 def _parse_one(src: str):
     """Parse a snippet and return its single top-level declaration."""
     from src.compiler.python.lexer import Lexer
     from src.compiler.python.parser.parser import Parser
+
     return Parser(Lexer(src).tokenize()).parse().declarations[0]
 
 
 def test_quoted_import_strips_quotes():
     # Quote stripping moved from the frontend regex into the parser.
     from src.compiler.python.ast_nodes import QuotedPath
+
     spec = _parse_one('import "std/math.btrc";').spec
     assert isinstance(spec, QuotedPath)
     assert spec.path == "std/math.btrc"
@@ -419,6 +506,7 @@ def test_quoted_import_strips_quotes():
 def test_brace_import_expands_into_names():
     # Brace expansion moved from the frontend regex into the parser.
     from src.compiler.python.ast_nodes import StdModules
+
     spec = _parse_one("import std.{a, b};").spec
     assert isinstance(spec, StdModules)
     assert spec.names == ["a", "b"]
@@ -452,13 +540,21 @@ def test_find_stdlib_file_subdir():
 
 
 def test_cached_stdlib_decls_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(cache_dir))
     stdlib_src = "class Tiny { public int x; public Tiny(int x) { self.x = x; } }\n"
     first = m._cached_stdlib_decls(stdlib_src)
     assert first  # parsed
-    # Second call reads the pickle.
+    cache_files = list(cache_dir.glob("stdlib-*.ast.json"))
+    assert len(cache_files) == 1
+    assert json.loads(cache_files[0].read_text())["schema"] == ast_cache.SCHEMA_VERSION
+
+    def unexpected_parse(_self):
+        raise AssertionError("cache hit reparsed the stdlib")
+
+    monkeypatch.setattr(frontend_stdlib.Parser, "parse", unexpected_parse)
     second = m._cached_stdlib_decls(stdlib_src)
-    assert len(second) == len(first)
+    assert second == first
 
 
 def test_lexer_error_cached_path(tmp_path, monkeypatch, capsys):
@@ -479,26 +575,59 @@ def test_parser_error_cached_path(tmp_path, monkeypatch, capsys):
     assert "error:" in capsys.readouterr().err
 
 
+def test_codegen_error_is_reported_without_a_traceback(tmp_path, monkeypatch, capsys):
+    src = write(
+        tmp_path / "unsupported_directive.btrc",
+        "#undef UNSUPPORTED\nint main() { return 0; }\n",
+    )
+    with pytest.raises(SystemExit) as stopped:
+        run_main(monkeypatch, ["--no-cache", "--no-stdlib", src])
+    captured = capsys.readouterr()
+    assert stopped.value.code == 1
+    assert "unsupported preprocessor directive '#undef'" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_cached_stdlib_decls_write_failure(tmp_path, monkeypatch):
-    """A failed pickle write is swallowed; decls still return."""
-    monkeypatch.chdir(tmp_path)
+    """A failed atomic cache write is swallowed; declarations still return."""
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
 
     def boom(*a, **k):
         raise OSError("disk full")
 
-    monkeypatch.setattr(fe.pickle, "dump", boom)
-    decls = m._cached_stdlib_decls(
-        "class TinyW { public int x; public TinyW(int x) { self.x = x; } }\n")
+    monkeypatch.setattr(ast_cache, "atomic_write_json", boom)
+    decls = m._cached_stdlib_decls("class TinyW { public int x; public TinyW(int x) { self.x = x; } }\n")
     assert decls
 
 
+def test_cached_stdlib_decls_unavailable_cache_still_parses(monkeypatch):
+    def unavailable():
+        raise PermissionError("read-only cache root")
+
+    monkeypatch.setattr(frontend_stdlib, "resolve_cache_dir", unavailable)
+    decls = m._cached_stdlib_decls("class Cacheless { public int x; public Cacheless() { self.x = 1; } }\n")
+    assert decls
+
+
+def test_disk_cache_write_failure_does_not_fail_compilation(tmp_path, monkeypatch):
+    source = write(tmp_path / "cacheless.btrc", "int main() { return 0; }\n")
+    output = tmp_path / "cacheless.c"
+
+    def unavailable(*_args, **_kwargs):
+        raise PermissionError("read-only cache root")
+
+    monkeypatch.setattr(m, "cache_store", unavailable)
+    run_main(monkeypatch, ["--no-stdlib", source, "-o", str(output)])
+    assert "int main(void)" in output.read_text()
+
+
 def test_discover_stdlib_files_missing_dir(monkeypatch):
-    monkeypatch.setattr(fe, "_get_stdlib_dir", lambda: "/no/such/stdlib/dir")
+    monkeypatch.setattr(frontend_stdlib, "_get_stdlib_dir", lambda: "/no/such/stdlib/dir")
     assert m._discover_stdlib_files() == []
 
 
 def test_get_stdlib_source_missing_listed_file(monkeypatch):
-    monkeypatch.setattr(fe, "_discover_stdlib_files", lambda: ["does_not_exist.btrc"])
+    monkeypatch.setattr(frontend_stdlib, "_discover_stdlib_files", lambda: ["does_not_exist.btrc"])
     assert m.get_stdlib_source("") == ""  # listed-but-absent file skipped
 
 
@@ -519,14 +648,36 @@ def test_import_relative_ghost(tmp_path, capsys):
 
 
 def test_cached_stdlib_decls_corrupt_cache(tmp_path, monkeypatch):
-    # Pin the cache dir so the corrupt pickle is planted where it will be read.
+    # Pin the cache dir so corrupt JSON is planted at the current cache path.
     cache_dir = tmp_path / ".btrc-cache"
     cache_dir.mkdir()
     monkeypatch.setenv("BTRC_CACHE_DIR", str(cache_dir))
     stdlib_src = "class Tiny2 { public int x; public Tiny2(int x) { self.x = x; } }\n"
-    key = hashlib.sha256(
-        f"astv{m._STDLIB_AST_VERSION}\n{stdlib_src}".encode()
-    ).hexdigest()
-    (cache_dir / f"stdlib-{key}.ast").write_bytes(b"not a valid pickle")
+    path = ast_cache.cache_path(str(cache_dir), m._STDLIB_AST_VERSION, stdlib_src)
+    with open(path, "wb") as cache_file:
+        cache_file.write(b"not valid JSON")
     decls = m._cached_stdlib_decls(stdlib_src)  # must reparse, not crash
     assert decls
+    with open(path, encoding="utf-8") as cache_file:
+        assert json.load(cache_file)["schema"] == ast_cache.SCHEMA_VERSION
+
+
+def test_cached_stdlib_decls_never_executes_legacy_pickle(tmp_path, monkeypatch):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    marker = tmp_path / "pickle-executed"
+
+    class Exploit:
+        def __reduce__(self):
+            return os.mkdir, (str(marker),)
+
+    legacy = cache_dir / "stdlib-malicious.ast"
+    with open(legacy, "wb") as cache_file:
+        pickle.dump(Exploit(), cache_file)
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(cache_dir))
+
+    decls = m._cached_stdlib_decls("class Safe { public int x; public Safe() { self.x = 0; } }\n")
+
+    assert decls and not marker.exists()
+    assert not legacy.exists()
+    assert list(cache_dir.glob("stdlib-*.ast.json"))

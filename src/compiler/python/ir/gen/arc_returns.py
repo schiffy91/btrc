@@ -1,0 +1,222 @@
+"""ARC bookkeeping specific to returns across try/catch boundaries."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ..nodes import (
+    CType,
+    IRBinOp,
+    IRCall,
+    IRCast,
+    IRExprStmt,
+    IRLiteral,
+    IRReturn,
+    IRStmt,
+    IRVar,
+    IRVarDecl,
+)
+from .try_stack import pop_try_frames
+
+if TYPE_CHECKING:
+    from ...ast_nodes import ReturnStmt
+    from .generator import IRGenerator
+
+
+def lower_return(gen: IRGenerator, node: ReturnStmt) -> list[IRStmt]:
+    """Lower one return while enforcing the managed-value return ABI.
+
+    A btrc function or method returning a class value always gives its caller
+    one owned reference. Already-owned expressions transfer that reference;
+    borrowed parameters, ``self``, fields, and aliases are retained before
+    any local owners are released.
+    """
+    from ...ast_nodes import Identifier
+    from .arc import _emit_return_release
+    from .expressions import lower_expr
+    from .managed_values import is_managed_type, retain_value
+    from .ownership import owns_result
+    from .stringable import coerce_value_to_string
+    from .type_resolution import canonical_type
+
+    if node.value is None:
+        try_pop = _emit_return_try_pop(gen)
+        cleanup_discard = _emit_return_cleanup_discard(gen)
+        value = IRLiteral(text="0") if gen._normalizing_void_main else None
+        return _emit_return_release(gen, None) + try_pop + cleanup_discard + [IRReturn(value=value)]
+
+    lowered = lower_expr(gen, node.value)
+    # Lowering the value can register temporary exception cleanups.  Query the
+    # active marker and try helpers only afterward so the return discards every
+    # slot created while evaluating its expression.
+    try_pop = _emit_return_try_pop(gen)
+    cleanup_discard = _emit_return_cleanup_discard(gen)
+    value_type = gen.analyzed.node_types.get(id(node.value))
+    value = coerce_value_to_string(
+        gen,
+        gen.current_return_type,
+        value_type,
+        lowered,
+    )
+    from .upcast import upcast_class_pointer
+
+    value = upcast_class_pointer(
+        gen,
+        gen.current_return_type,
+        value_type,
+        value,
+    )
+    managed_value_type = is_managed_type(gen, gen.current_return_type)
+    managed_return = managed_value_type and gen.current_return_owned
+    expression_owned = bool(managed_value_type and owns_result(gen, node.value))
+    owned_value = bool(managed_return and expression_owned)
+    returned_local = None
+    local_owned = False
+    if managed_value_type and isinstance(node.value, Identifier):
+        if gen.managed_local_type(node.value.name) is not None:
+            local_owned = True
+            if managed_return:
+                owned_value = True
+                returned_local = node.value.name
+
+    return_type = canonical_type(
+        gen.current_return_type,
+        gen.analyzed.typedef_table,
+    )
+    if (
+        isinstance(node.value, Identifier)
+        and return_type is not None
+        and return_type.base == "Thread"
+        and gen.local_cleanup_kind(node.value.name) == "thread"
+    ):
+        returned_local = node.value.name
+
+    if managed_value_type and not gen.current_return_owned:
+        if (
+            expression_owned
+            or local_owned
+            or _borrows_from_owned_local(
+                gen,
+                node.value,
+            )
+        ):
+            from .errors import CodegenError
+
+            raise CodegenError(
+                "borrowed property getter cannot return an owned temporary or a value borrowed from a local owner"
+            )
+
+    release_stmts = _emit_return_release(gen, returned_local)
+    promote_borrowed = managed_return and not owned_value
+    if not release_stmts and not try_pop and not cleanup_discard and not promote_borrowed:
+        return [IRReturn(value=_maybe_launder_return(gen, value))]
+
+    temporary = IRVarDecl(
+        c_type=CType(text=gen.current_return_c_type),
+        name=gen.fresh_temp("__btrc_ret"),
+        init=value,
+    )
+    result = IRVar(name=temporary.name)
+    promote = []
+    if promote_borrowed:
+        promote.append(IRExprStmt(expr=retain_value(gen, result, gen.current_return_type)))
+    return [
+        temporary,
+        *promote,
+        *release_stmts,
+        *try_pop,
+        *cleanup_discard,
+        IRReturn(value=_maybe_launder_return(gen, result)),
+    ]
+
+
+def _borrows_from_owned_local(gen, expression) -> bool:
+    from ...ast_nodes import (
+        AssignExpr,
+        BinaryExpr,
+        CastExpr,
+        FieldAccessExpr,
+        Identifier,
+        IndexExpr,
+        TernaryExpr,
+    )
+
+    if isinstance(expression, Identifier):
+        return gen.managed_local_type(expression.name) is not None
+    if isinstance(expression, (FieldAccessExpr, IndexExpr)):
+        return _borrows_from_owned_local(gen, expression.obj)
+    if isinstance(expression, AssignExpr):
+        # Assignment expressions yield the stored lvalue.  A local target, or
+        # a projection rooted in a local owner, still dies with this getter.
+        return _borrows_from_owned_local(gen, expression.target)
+    if isinstance(expression, CastExpr):
+        return _borrows_from_owned_local(gen, expression.expr)
+    if isinstance(expression, TernaryExpr):
+        return any(_borrows_from_owned_local(gen, branch) for branch in (expression.true_expr, expression.false_expr))
+    if isinstance(expression, BinaryExpr) and expression.op == "??":
+        return any(_borrows_from_owned_local(gen, branch) for branch in (expression.left, expression.right))
+    return False
+
+
+def _emit_return_try_pop(gen: IRGenerator) -> list[IRStmt]:
+    """Discard cleanups and pop try levels bypassed by a return."""
+    return _emit_try_pop(gen, gen.in_try_depth)
+
+
+def _emit_return_cleanup_discard(gen: IRGenerator) -> list[IRStmt]:
+    """Forget this function's registered slots after ordinary ARC release."""
+    from .cleanup_scopes import cleanup_scope_exit
+
+    return cleanup_scope_exit(gen, gen.get_return_cleanup_marker())
+
+
+def _emit_try_pop(gen: IRGenerator, depth: int) -> list[IRStmt]:
+    """Discard cleanup registrations and pop ``depth`` active try frames."""
+    if depth <= 0:
+        return []
+    stmts: list[IRStmt] = []
+    # A try without managed locals has no registered cleanup level to discard.
+    if gen._used_helpers & {
+        "__btrc_register_cleanup",
+        "__btrc_register_direct_cleanup",
+    }:
+        gen.use_helper("__btrc_discard_cleanups")
+        level = IRVar(name="__btrc_try_top")
+        if depth > 1:
+            level = IRBinOp(
+                left=level,
+                op="-",
+                right=IRLiteral(text=str(depth - 1)),
+            )
+        stmts.append(
+            IRExprStmt(
+                expr=IRCall(
+                    callee="__btrc_discard_cleanups",
+                    args=[level],
+                    helper_ref="__btrc_discard_cleanups",
+                )
+            )
+        )
+    stmts.extend(pop_try_frames(depth))
+    return stmts
+
+
+def _maybe_launder_return(gen: IRGenerator, value):
+    """Prevent setjmp branch folding for managed returns inside try/catch."""
+    if gen.in_trycatch_depth <= 0:
+        return value
+    return_type = gen.current_return_type
+    from .managed_values import is_managed_type
+
+    if not is_managed_type(gen, return_type):
+        return value
+    gen.use_helper("__btrc_launder")
+    laundered = IRCall(
+        callee="__btrc_launder",
+        args=[value],
+        helper_ref="__btrc_launder",
+    )
+    return IRCast(
+        target_type=CType(text=gen.current_return_c_type),
+        expr=laundered,
+    )

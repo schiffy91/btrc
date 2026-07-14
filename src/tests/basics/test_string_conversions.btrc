@@ -11,6 +11,14 @@ int main() {
     long n = s2.toLong();
     assert(n == 99999);
 
+    // toBool follows the built-in contract: only empty, "false", and "0"
+    // are false; other non-empty strings are true.
+    assert("true".toBool());
+    assert("yes".toBool());
+    assert(!"false".toBool());
+    assert(!"0".toBool());
+    assert(!"".toBool());
+
     print("PASS: test_string_conversions");
     return 0;
 }

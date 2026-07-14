@@ -1,0 +1,86 @@
+/* Conservative normal-completion queries for structured IR statements. */
+
+bool irSequenceMayFallThrough(Vector<IRNode> statements);
+
+bool irStatementMayFallThrough(IRNode? statement) {
+    if (statement == null) { return true; }
+    if (statement.kind == IRK_RETURN
+            || statement.kind == IRK_BREAK
+            || statement.kind == IRK_CONTINUE) {
+        return false;
+    }
+    if (statement.kind == IRK_BLOCK) {
+        return irSequenceMayFallThrough(statement.stmts);
+    }
+    if (statement.kind == IRK_IF && statement.else_block != null) {
+        return irStatementMayFallThrough(statement.then_block)
+            || irStatementMayFallThrough(statement.else_block);
+    }
+    return true;
+}
+
+bool irSequenceMayFallThrough(Vector<IRNode> statements) {
+    int index = 0;
+    while (index < statements.len) {
+        if (!irStatementMayFallThrough(statements.get(index))) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+/* True when a structured IR tree reads the named variable. Declarations do
+ * not count: cleanup marks are materialized only when a normal/control/return
+ * discard actually consumes their value. */
+bool irNodeReferencesVariable(IRNode? node, string name) {
+    if (node == null) { return false; }
+    if (node.kind == IRK_VAR && node.name == name) { return true; }
+    if (irNodeReferencesVariable(node.left, name)
+            || irNodeReferencesVariable(node.right, name)
+            || irNodeReferencesVariable(node.operand, name)
+            || irNodeReferencesVariable(node.expr, name)
+            || irNodeReferencesVariable(node.obj, name)
+            || irNodeReferencesVariable(node.index, name)
+            || irNodeReferencesVariable(node.condition, name)
+            || irNodeReferencesVariable(node.true_expr, name)
+            || irNodeReferencesVariable(node.false_expr, name)
+            || irNodeReferencesVariable(node.init, name)
+            || irNodeReferencesVariable(node.value, name)
+            || irNodeReferencesVariable(node.target, name)
+            || irNodeReferencesVariable(node.then_block, name)
+            || irNodeReferencesVariable(node.else_block, name)
+            || irNodeReferencesVariable(node.body, name)
+            || irNodeReferencesVariable(node.update, name)
+            || irNodeReferencesVariable(node.result, name)
+            || irNodeReferencesVariable(node.array_size, name)) {
+        return true;
+    }
+    int argument = 0;
+    while (argument < node.args.len) {
+        if (irNodeReferencesVariable(node.args.get(argument), name)) {
+            return true;
+        }
+        argument = argument + 1;
+    }
+    int statement = 0;
+    while (statement < node.stmts.len) {
+        if (irNodeReferencesVariable(node.stmts.get(statement), name)) {
+            return true;
+        }
+        statement = statement + 1;
+    }
+    return false;
+}
+
+bool irSequenceReferencesVariable(
+        Vector<IRNode> statements, string name) {
+    int index = 0;
+    while (index < statements.len) {
+        if (irNodeReferencesVariable(statements.get(index), name)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}

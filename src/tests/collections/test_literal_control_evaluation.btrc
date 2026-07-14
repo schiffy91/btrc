@@ -1,0 +1,25 @@
+int calls = 0;
+
+int tick() {
+    calls++;
+    return calls;
+}
+
+string text() {
+    calls++;
+    return "unexpected";
+}
+
+int main() {
+    Vector<int> values = true ? [tick()] : [tick()];
+    assert(calls == 1);
+    assert(values.len == 1);
+    assert(values[0] == 1);
+
+    string chosen = true ? "safe" : (text() ?? "fallback");
+    assert(chosen == "safe");
+    assert(calls == 1);
+
+    print("PASS");
+    return 0;
+}

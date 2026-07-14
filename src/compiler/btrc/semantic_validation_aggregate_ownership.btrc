@@ -1,0 +1,156 @@
+/* Fail-closed ownership rules for shallow by-value aggregates. */
+
+bool semanticManagedResultType(Node? typeExpr,
+        SemanticValidationState state) {
+    if (typeExpr == null) { return false; }
+    return state.analyzed.isClass(typeExpr.base)
+        || (typeExpr.generic_args.len > 0
+            && state.analyzed.isGenericClass(typeExpr.base));
+}
+
+bool semanticKnownLanguageCall(Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node callee = call.callee;
+    if (callee == null) { return false; }
+    if (callee.kind == NK_IDENTIFIER) {
+        return state.analyzed.funcTable.has(callee.name)
+            || state.analyzed.isClass(callee.name)
+            || state.analyzed.isGenericClass(callee.name);
+    }
+    if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+    if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER) {
+        string owner = callee.obj.name;
+        if (state.analyzed.isClass(owner)) {
+            Node? method = state.analyzed.classMethod(owner, callee.field);
+            if (method != null && method.kind == NK_METHOD_DECL) {
+                return true;
+            }
+        }
+        if (state.analyzed.isGenericClass(owner)) {
+            Node? method = state.analyzed.genericClassMethod(
+                owner, callee.field);
+            if (method != null && method.kind == NK_METHOD_DECL) {
+                return true;
+            }
+        }
+    }
+    Node? receiver = semanticInferType(callee.obj, state, vars);
+    if (receiver == null) { return false; }
+    if (state.analyzed.isClass(receiver.base)) {
+        Node? method = state.analyzed.classMethod(
+            receiver.base, callee.field);
+        return method != null && method.kind == NK_METHOD_DECL;
+    }
+    if (state.analyzed.isGenericClass(receiver.base)) {
+        Node? method = state.analyzed.genericClassMethod(
+            receiver.base, callee.field);
+        return method != null && method.kind == NK_METHOD_DECL;
+    }
+    return false;
+}
+
+bool semanticExpressionOwnsResult(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    if (expression.kind == NK_NEW_EXPR) { return true; }
+    if (expression.kind == NK_CAST_EXPR) {
+        return semanticExpressionOwnsResult(expression.expr, state, vars);
+    }
+    if (expression.kind == NK_CALL_EXPR) {
+        Node? result = semanticInferType(expression, state, vars);
+        return semanticManagedResultType(result, state)
+            && semanticKnownLanguageCall(expression, state, vars);
+    }
+    if (expression.kind == NK_FIELD_ACCESS_EXPR
+            || expression.kind == NK_INDEX_EXPR) {
+        Node? result = semanticInferType(expression, state, vars);
+        if (!semanticManagedResultType(result, state)) { return false; }
+        if (semanticExpressionOwnsResult(
+                expression.obj, state, vars)) { return true; }
+        if (expression.kind == NK_INDEX_EXPR) {
+            Node? receiver = semanticInferType(
+                expression.obj, state, vars);
+            return receiver != null && receiver.generic_args.len > 0
+                && state.analyzed.isGenericClass(receiver.base);
+        }
+        return false;
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        Node? result = semanticInferType(expression, state, vars);
+        return semanticManagedResultType(result, state)
+            && (semanticExpressionOwnsResult(
+                    expression.true_expr, state, vars)
+                || semanticExpressionOwnsResult(
+                    expression.false_expr, state, vars));
+    }
+    if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+        Node? result = semanticInferType(expression, state, vars);
+        return semanticManagedResultType(result, state)
+            && (semanticExpressionOwnsResult(
+                    expression.left, state, vars)
+                || semanticExpressionOwnsResult(
+                    expression.right, state, vars));
+    }
+    return false;
+}
+
+void semanticRejectOwnedElements(Vector<Node> elements, string aggregate,
+        SemanticValidationState state, Map<string, Node> vars) {
+    int index = 0;
+    while (index < elements.len) {
+        Node element = elements.get(index);
+        if (semanticExpressionOwnsResult(element, state, vars)) {
+            semanticValidationFail("caller-owned temporary cannot be embedded in "
+                + aggregate + "; aggregate class elements are shallow borrowed "
+                + "references, so bind the owner to a local first", element);
+        }
+        index = index + 1;
+    }
+}
+
+void semanticRejectShallowInitializer(Node? expected, Node initializer,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expected == null || (initializer.kind != NK_BRACE_INITIALIZER
+            && initializer.kind != NK_LIST_LITERAL)) { return; }
+    Node? canonical = semanticResolveAliases(expected, state);
+    if (canonical == null) { return; }
+    string structName = semanticStructTypeName(
+        canonical, state.analyzed);
+    bool shallow = canonical.is_array || canonical.base == "Tuple"
+        || (structName != "" && canonical.pointer_depth == 0);
+    if (shallow) {
+        semanticRejectOwnedElements(initializer.elements,
+            "a shallow aggregate", state, vars);
+    }
+}
+
+void semanticRejectRichEnumOwnedArgs(Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node callee = call.callee;
+    if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR
+            || callee.obj == null || callee.obj.kind != NK_IDENTIFIER
+            || !state.analyzed.isRichEnum(callee.obj.name)) { return; }
+    semanticRejectOwnedElements(call.args,
+        "rich-enum payload '" + callee.obj.name + "." + callee.field + "'",
+        state, vars);
+}
+
+void semanticRejectShallowStore(Node assignment,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (assignment.target == null
+            || assignment.target.kind != NK_FIELD_ACCESS_EXPR
+            || !semanticExpressionOwnsResult(
+                assignment.value_node, state, vars)) { return; }
+    Node? receiver = semanticInferType(
+        assignment.target.obj, state, vars);
+    receiver = semanticResolveAliases(receiver, state);
+    if (receiver == null) { return; }
+    string structName = semanticStructTypeName(
+        receiver, state.analyzed);
+    if (receiver.base == "Tuple"
+            || (structName != "" && receiver.pointer_depth == 0)) {
+        semanticValidationFail("caller-owned temporary cannot be stored in a "
+            + "shallow aggregate; bind the owner to a local and store only "
+            + "its borrowed reference", assignment.value_node);
+    }
+}

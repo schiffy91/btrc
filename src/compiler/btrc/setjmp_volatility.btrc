@@ -1,0 +1,284 @@
+/* C11 setjmp qualification based on lexical visibility and direct mutation.
+ * Mirrors compiler/python/ir/gen/setjmp_volatility.py. */
+
+void applySetjmpVolatility(IRModule module) {
+    int i = 0;
+    while (i < module.functions.len) {
+        IRFunction fn = module.functions.get(i);
+        Vector<IRNode> visible = [];
+        scanSetjmpBlock(fn.body, visible, fn.params);
+        i = i + 1;
+    }
+}
+
+Vector<IRNode> copyVisible(Vector<IRNode> source) {
+    Vector<IRNode> result = [];
+    int i = 0;
+    while (i < source.len) {
+        result.push(source.get(i));
+        i = i + 1;
+    }
+    return result;
+}
+
+void addVisibleAutomatic(Vector<IRNode> visible, IRNode? declaration) {
+    if (declaration == null || declaration.kind != IRK_VAR_DECL
+            || declaration.is_static || declaration.is_extern) {
+        return;
+    }
+    visible.push(declaration);
+}
+
+void markSetjmpVisible(Vector<IRNode> visible, Vector<IRParam> params,
+        Map<string, bool> modified, bool filterModified) {
+    if (filterModified) {
+        Map<string, bool> remaining = copyNameSet(modified);
+        int i = visible.len - 1;
+        while (i >= 0) {
+            IRNode declaration = visible.get(i);
+            if (remaining.has(declaration.name)) {
+                declaration.is_volatile = true;
+                remaining.remove(declaration.name);
+            }
+            i = i - 1;
+        }
+        int p = 0;
+        while (p < params.len) {
+            IRParam parameter = params.get(p);
+            if (remaining.has(parameter.name)) {
+                parameter.is_volatile = true;
+            }
+            p = p + 1;
+        }
+        return;
+    }
+    int p = 0;
+    while (p < params.len) {
+        params.get(p).is_volatile = true;
+        p = p + 1;
+    }
+    int i = 0;
+    while (i < visible.len) {
+        visible.get(i).is_volatile = true;
+        i = i + 1;
+    }
+}
+
+/* IRStmtExpr declarations are emitted before their containing statement and
+ * remain in that C block. Collect them before scanning any expression in the
+ * statement, including declarations nested in a later header operand. */
+void collectExpressionHoists(IRNode? node, Vector<IRNode> visible) {
+    if (node == null) { return; }
+    if (node.kind == IRK_STMT_EXPR) {
+        int s = 0;
+        while (s < node.stmts.len) {
+            IRNode declaration = node.stmts.get(s);
+            addVisibleAutomatic(visible, declaration);
+            collectExpressionHoists(declaration.init, visible);
+            s = s + 1;
+        }
+        collectExpressionHoists(node.result, visible);
+        return;
+    }
+    collectExpressionHoists(node.left, visible);
+    collectExpressionHoists(node.right, visible);
+    collectExpressionHoists(node.operand, visible);
+    collectExpressionHoists(node.expr, visible);
+    collectExpressionHoists(node.obj, visible);
+    collectExpressionHoists(node.index, visible);
+    collectExpressionHoists(node.condition, visible);
+    collectExpressionHoists(node.true_expr, visible);
+    collectExpressionHoists(node.false_expr, visible);
+    collectExpressionHoists(node.init, visible);
+    collectExpressionHoists(node.value, visible);
+    collectExpressionHoists(node.target, visible);
+    collectExpressionHoists(node.update, visible);
+    collectExpressionHoists(node.result, visible);
+    collectExpressionHoists(node.array_size, visible);
+    int i = 0;
+    while (i < node.args.len) {
+        collectExpressionHoists(node.args.get(i), visible);
+        i = i + 1;
+    }
+}
+
+void scanSetjmpExpressionFiltered(IRNode? node, Vector<IRNode> visible,
+        Vector<IRParam> params, Map<string, bool> modified,
+        bool filterModified) {
+    if (node == null) { return; }
+    if (node.kind == IRK_CALL && node.callee == "setjmp") {
+        markSetjmpVisible(visible, params, modified, filterModified);
+        return;
+    }
+    if (node.kind == IRK_STMT_EXPR) {
+        int s = 0;
+        while (s < node.stmts.len) {
+            scanSetjmpExpressionFiltered(
+                node.stmts.get(s).init, visible, params,
+                modified, filterModified);
+            s = s + 1;
+        }
+        scanSetjmpExpressionFiltered(
+            node.result, visible, params, modified, filterModified);
+        return;
+    }
+    scanSetjmpExpressionFiltered(node.left, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.right, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.operand, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.expr, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.obj, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.index, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.condition, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.true_expr, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.false_expr, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.init, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.value, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.target, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.update, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(node.result, visible, params, modified, filterModified);
+    scanSetjmpExpressionFiltered(
+        node.array_size, visible, params, modified, filterModified);
+    int i = 0;
+    while (i < node.args.len) {
+        scanSetjmpExpressionFiltered(
+            node.args.get(i), visible, params, modified, filterModified);
+        i = i + 1;
+    }
+}
+
+void scanSetjmpExpression(IRNode? node, Vector<IRNode> visible,
+        Vector<IRParam> params) {
+    Map<string, bool> unfiltered = {};
+    scanSetjmpExpressionFiltered(node, visible, params, unfiltered, false);
+}
+
+void collectStatementHoists(IRNode? statement, Vector<IRNode> visible) {
+    if (statement == null) { return; }
+    if (statement.kind == IRK_VAR_DECL) {
+        collectExpressionHoists(statement.init, visible);
+    } else if (statement.kind == IRK_ASSIGN) {
+        collectExpressionHoists(statement.target, visible);
+        collectExpressionHoists(statement.value, visible);
+    } else if (statement.kind == IRK_EXPR_STMT) {
+        collectExpressionHoists(statement.expr, visible);
+    }
+}
+
+void scanStatementExpressions(IRNode? statement, Vector<IRNode> visible,
+        Vector<IRParam> params) {
+    if (statement == null) { return; }
+    if (statement.kind == IRK_VAR_DECL) {
+        scanSetjmpExpression(statement.init, visible, params);
+    } else if (statement.kind == IRK_ASSIGN) {
+        scanSetjmpExpression(statement.target, visible, params);
+        scanSetjmpExpression(statement.value, visible, params);
+    } else if (statement.kind == IRK_EXPR_STMT) {
+        scanSetjmpExpression(statement.expr, visible, params);
+    }
+}
+
+void scanSetjmpBlock(IRNode? block, Vector<IRNode> inherited,
+        Vector<IRParam> params) {
+    if (block == null) { return; }
+    Vector<IRNode> visible = copyVisible(inherited);
+    scanSetjmpSequence(block.stmts, visible, params);
+}
+
+void scanSetjmpSequence(Vector<IRNode> statements, Vector<IRNode> visible,
+        Vector<IRParam> params) {
+    int i = 0;
+    while (i < statements.len) {
+        scanSetjmpStatement(statements.get(i), visible, params);
+        i = i + 1;
+    }
+}
+
+void scanSetjmpStatement(IRNode statement, Vector<IRNode> visible,
+        Vector<IRParam> params) {
+    if (statement.kind == IRK_VAR_DECL) {
+        collectExpressionHoists(statement.init, visible);
+        scanSetjmpExpression(statement.init, visible, params);
+        addVisibleAutomatic(visible, statement);
+        return;
+    }
+    if (statement.kind == IRK_ASSIGN) {
+        collectExpressionHoists(statement.target, visible);
+        collectExpressionHoists(statement.value, visible);
+        scanSetjmpExpression(statement.target, visible, params);
+        scanSetjmpExpression(statement.value, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_RETURN) {
+        collectExpressionHoists(statement.value, visible);
+        scanSetjmpExpression(statement.value, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_EXPR_STMT) {
+        collectExpressionHoists(statement.expr, visible);
+        scanSetjmpExpression(statement.expr, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_IF) {
+        collectExpressionHoists(statement.condition, visible);
+        if (expressionContainsSetjmp(statement.condition)) {
+            Map<string, bool> modified = setjmpMutatedNames(statement.then_block);
+            scanSetjmpExpressionFiltered(
+                statement.condition, visible, params, modified, true);
+        } else {
+            scanSetjmpExpression(statement.condition, visible, params);
+        }
+        scanSetjmpBlock(statement.then_block, visible, params);
+        scanSetjmpBlock(statement.else_block, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_WHILE) {
+        collectExpressionHoists(statement.condition, visible);
+        scanSetjmpExpression(statement.condition, visible, params);
+        scanSetjmpBlock(statement.body, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_DO_WHILE) {
+        collectExpressionHoists(statement.condition, visible);
+        scanSetjmpBlock(statement.body, visible, params);
+        scanSetjmpExpression(statement.condition, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_FOR) {
+        scanSetjmpFor(statement, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_SWITCH) {
+        collectExpressionHoists(statement.value, visible);
+        scanSetjmpExpression(statement.value, visible, params);
+        int c = 0;
+        while (c < statement.args.len) {
+            IRNode caseNode = statement.args.get(c);
+            Vector<IRNode> caseVisible = copyVisible(visible);
+            collectExpressionHoists(caseNode.value, caseVisible);
+            scanSetjmpExpression(caseNode.value, caseVisible, params);
+            scanSetjmpSequence(caseNode.stmts, caseVisible, params);
+            c = c + 1;
+        }
+        return;
+    }
+    if (statement.kind == IRK_BLOCK) {
+        scanSetjmpBlock(statement, visible, params);
+    }
+}
+
+void scanSetjmpFor(IRNode statement, Vector<IRNode> visible,
+        Vector<IRParam> params) {
+    /* Header statement-expression declarations are emitted before the `for`
+     * line in the enclosing scope. The ordinary initializer declaration is
+     * scoped to the loop and therefore is not copied back to `visible`. */
+    collectStatementHoists(statement.init, visible);
+    collectExpressionHoists(statement.condition, visible);
+    collectExpressionHoists(statement.update, visible);
+
+    Vector<IRNode> loopVisible = copyVisible(visible);
+    scanStatementExpressions(statement.init, loopVisible, params);
+    addVisibleAutomatic(loopVisible, statement.init);
+    scanSetjmpExpression(statement.condition, loopVisible, params);
+    scanSetjmpBlock(statement.body, loopVisible, params);
+    scanSetjmpExpression(statement.update, loopVisible, params);
+}

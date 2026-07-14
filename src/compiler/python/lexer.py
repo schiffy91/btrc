@@ -6,6 +6,7 @@ hand-coded for robustness, with the grammar's @literals serving as the spec.
 """
 
 from .ebnf import get_grammar_info
+from .lexer_literal_rules import is_ascii_alnum, is_ascii_alpha, is_ascii_digit
 from .lexer_literals import read_char, read_fstring, read_number, read_string
 from .tokens import ANNOTATIONS, KEYWORDS, OPERATORS, Token, TokenType
 
@@ -25,12 +26,29 @@ class Lexer:
         self.line = 1
         self.col = 1
         self.tokens: list[Token] = []
+        self._failure: LexerError | None = None
+        self._complete = False
 
         # Build operator trie from grammar for longest-match tokenization
         gi = get_grammar_info()
         self._op_trie = _build_trie(gi.operators)
 
     def tokenize(self) -> list[Token]:
+        if self._failure is not None:
+            raise self._failure
+        if self._complete:
+            return self.tokens
+        try:
+            self._scan_tokens()
+        except LexerError as error:
+            self.tokens.clear()
+            self._failure = error
+            raise
+        self.tokens.append(Token(TokenType.EOF, "", self.line, self.col))
+        self._complete = True
+        return self.tokens
+
+    def _scan_tokens(self) -> None:
         while self.pos < len(self.source):
             self._skip_whitespace_and_comments()
             if self.pos >= len(self.source):
@@ -39,10 +57,10 @@ class Lexer:
             ch = self.source[self.pos]
 
             # Preprocessor directive
-            if ch == '#' and self._at_line_start():
+            if ch == "#" and self._at_line_start():
                 self._read_preprocessor()
             # Annotation (@gpu)
-            elif ch == '@':
+            elif ch == "@":
                 self._read_annotation()
             # String literal
             elif ch == '"':
@@ -51,17 +69,14 @@ class Lexer:
             elif ch == "'":
                 self._read_char()
             # Number
-            elif ch.isdigit():
+            elif is_ascii_digit(ch):
                 self._read_number()
             # Identifier or keyword
-            elif ch.isalpha() or ch == '_':
+            elif is_ascii_alpha(ch) or ch == "_":
                 self._read_identifier()
             # Operators and punctuation (trie-based longest match)
             else:
                 self._read_operator()
-
-        self.tokens.append(Token(TokenType.EOF, "", self.line, self.col))
-        return self.tokens
 
     # --- Character helpers ---
 
@@ -69,12 +84,12 @@ class Lexer:
         pos = self.pos + offset
         if pos < len(self.source):
             return self.source[pos]
-        return '\0'
+        return "\0"
 
     def _advance(self) -> str:
         ch = self.source[self.pos]
         self.pos += 1
-        if ch == '\n':
+        if ch == "\n":
             self.line += 1
             self.col = 1
         else:
@@ -83,9 +98,9 @@ class Lexer:
 
     def _at_line_start(self) -> bool:
         i = self.pos - 1
-        while i >= 0 and self.source[i] in (' ', '\t'):
+        while i >= 0 and self.source[i] in (" ", "\t"):
             i -= 1
-        return i < 0 or self.source[i] == '\n'
+        return i < 0 or self.source[i] == "\n"
 
     def _emit(self, token_type: TokenType, value: str, line: int, col: int):
         self.tokens.append(Token(token_type, value, line, col))
@@ -95,11 +110,11 @@ class Lexer:
     def _skip_whitespace_and_comments(self):
         while self.pos < len(self.source):
             ch = self._peek()
-            if ch in (' ', '\t', '\n', '\r'):
+            if ch in (" ", "\t", "\n", "\r"):
                 self._advance()
-            elif ch == '/' and self._peek(1) == '/':
+            elif ch == "/" and self._peek(1) == "/":
                 self._skip_line_comment()
-            elif ch == '/' and self._peek(1) == '*':
+            elif ch == "/" and self._peek(1) == "*":
                 self._skip_block_comment()
             else:
                 break
@@ -107,7 +122,7 @@ class Lexer:
     def _skip_line_comment(self):
         self._advance()  # /
         self._advance()  # /
-        while self.pos < len(self.source) and self._peek() != '\n':
+        while self.pos < len(self.source) and self._peek() != "\n":
             self._advance()
 
     def _skip_block_comment(self):
@@ -116,7 +131,7 @@ class Lexer:
         self._advance()  # /
         self._advance()  # *
         while self.pos < len(self.source):
-            if self._peek() == '*' and self._peek(1) == '/':
+            if self._peek() == "*" and self._peek(1) == "/":
                 self._advance()
                 self._advance()
                 return
@@ -129,14 +144,14 @@ class Lexer:
         line, col = self.line, self.col
         start = self.pos
         while self.pos < len(self.source):
-            if self._peek() == '\\' and self._peek(1) == '\n':
+            if self._peek() == "\\" and self._peek(1) == "\n":
                 self._advance()
                 self._advance()
-            elif self._peek() == '\n':
+            elif self._peek() == "\n":
                 break
             else:
                 self._advance()
-        value = self.source[start:self.pos]
+        value = self.source[start : self.pos]
         self._emit(TokenType.PREPROCESSOR, value, line, col)
 
     # --- Annotation (grammar-driven via @annotations section) ---
@@ -145,9 +160,9 @@ class Lexer:
         line, col = self.line, self.col
         self._advance()  # skip @
         start = self.pos
-        while self.pos < len(self.source) and (self._peek().isalnum() or self._peek() == '_'):
+        while self.pos < len(self.source) and (is_ascii_alnum(self._peek()) or self._peek() == "_"):
             self._advance()
-        name = self.source[start:self.pos]
+        name = self.source[start : self.pos]
         token_type = ANNOTATIONS.get(name)
         if token_type is not None:
             self._emit(token_type, f"@{name}", line, col)
@@ -170,9 +185,9 @@ class Lexer:
     def _read_identifier(self):
         line, col = self.line, self.col
         start = self.pos
-        while self.pos < len(self.source) and (self._peek().isalnum() or self._peek() == '_'):
+        while self.pos < len(self.source) and (is_ascii_alnum(self._peek()) or self._peek() == "_"):
             self._advance()
-        value = self.source[start:self.pos]
+        value = self.source[start : self.pos]
 
         # Check for f-string: identifier 'f' followed immediately by '"'
         if value == "f" and self.pos < len(self.source) and self._peek() == '"':
@@ -200,16 +215,16 @@ class Lexer:
         save_pos, save_line, save_col = self.pos, self.line, self.col
         # Skip inline spaces/tabs (but NOT newlines: a bare `import` on its own
         # line is a parse error, not a path read across lines).
-        while self.pos < len(self.source) and self._peek() in (' ', '\t'):
+        while self.pos < len(self.source) and self._peek() in (" ", "\t"):
             self._advance()
-        if self.pos >= len(self.source) or self._peek() not in ('.', '/', '~'):
+        if self.pos >= len(self.source) or self._peek() not in (".", "/", "~"):
             self.pos, self.line, self.col = save_pos, save_line, save_col
             return
         line, col = self.line, self.col
         start = self.pos
-        while self.pos < len(self.source) and self._peek() not in (';', '\n'):
+        while self.pos < len(self.source) and self._peek() not in (";", "\n"):
             self._advance()
-        value = self.source[start:self.pos].rstrip()
+        value = self.source[start : self.pos].rstrip()
         self._emit(TokenType.PATH_SPEC, value, line, col)
 
     # --- Operators and punctuation (trie-based longest match) ---
@@ -228,18 +243,20 @@ class Lexer:
                 break
             node = node[ch]
             i += 1
-            if '' in node:  # terminal marker
-                best_match = node['']
+            if "" in node:  # terminal marker
+                best_match = node[""]
                 best_len = i
 
         if best_match is not None:
-            value = self.source[self.pos:self.pos + best_len]
+            value = self.source[self.pos : self.pos + best_len]
             for _ in range(best_len):
                 self._advance()
             self._emit(best_match, value, line, col)
             return
 
         ch = self._peek()
+        if ord(ch) > 0x7F:
+            raise LexerError("Unexpected non-ASCII character", line, col)
         raise LexerError(f"Unexpected character '{ch}'", line, col)
 
 
@@ -257,5 +274,5 @@ def _build_trie(operators: list[str]) -> dict:
             if ch not in node:
                 node[ch] = {}
             node = node[ch]
-        node[''] = token_type  # terminal marker
+        node[""] = token_type  # terminal marker
     return root

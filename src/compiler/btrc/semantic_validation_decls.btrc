@@ -1,0 +1,270 @@
+/* Top-level declaration/body validation entry point. */
+
+Map<string, Node> semanticGlobalTypes(Analyzed analyzed) {
+    return semanticCloneTypes(analyzed.globalVarTypes);
+}
+
+void semanticValidateParameterDefaults(Vector<Node> params,
+        SemanticValidationState state, Map<string, Node> vars, Node owner) {
+    bool sawDefault = false;
+    int index = 0;
+    while (index < params.len) {
+        Node parameter = params.get(index);
+        semanticRejectRuntimeInterfaceType(parameter.type, parameter, state);
+        if (parameter.default_ != null) {
+            sawDefault = true;
+            semanticValidateExpr(parameter.default_, state, vars);
+            semanticValidateTypedInitializer(parameter.type,
+                parameter.default_, "Default for parameter '"
+                    + parameter.name + "'", state, vars);
+            Node? actual = semanticInferType(
+                parameter.default_, state, vars);
+            if (actual != null && !semanticAssignmentCompatible(
+                    parameter.type, actual, state)) {
+                semanticValidationFail("Default for parameter '"
+                    + parameter.name + "' expects '"
+                    + semanticFormatType(parameter.type) + "' but got '"
+                    + semanticFormatType(actual) + "'", parameter);
+            }
+        } else if (sawDefault) {
+            semanticValidationFail("Non-default parameter '" + parameter.name
+                + "' follows default parameter", parameter);
+        }
+        vars.put(parameter.name, parameter.type);
+        index = index + 1;
+    }
+}
+
+Node semanticSelfType(Node classDeclaration) {
+    Node selfType = makeClassTypeExpr(classDeclaration.name);
+    selfType.pointer_depth = 1;
+    int index = 0;
+    while (index < classDeclaration.generic_params.len) {
+        selfType.generic_args.push(
+            makePrimType(classDeclaration.generic_params.get(index)));
+        index = index + 1;
+    }
+    return selfType;
+}
+
+void semanticValidateCallableBody(Node callable, Node? classDeclaration,
+        SemanticValidationState state) {
+    Map<string, bool> signaturePreviousParams =
+        semanticCloneFlags(state.typeParams);
+    Vector<string> signatureClassParams = [];
+    if (classDeclaration != null) {
+        int signatureClassIndex = 0;
+        while (signatureClassIndex < classDeclaration.generic_params.len) {
+            signatureClassParams.push(
+                classDeclaration.generic_params.get(signatureClassIndex));
+            signatureClassIndex = signatureClassIndex + 1;
+        }
+    }
+    state.typeParams = semanticCombinedTypeParams(
+        signatureClassParams, callable.generic_params);
+    semanticValidateDeclaredType(callable.return_type,
+        "Callable '" + callable.name + "' return", "return",
+        callable, state);
+    semanticRejectRuntimeInterfaceType(
+        callable.return_type, callable, state);
+    int typeIndex = 0;
+    while (typeIndex < callable.params.len) {
+        Node parameter = callable.params.get(typeIndex);
+        semanticValidateDeclaredType(parameter.type,
+            "Parameter '" + parameter.name + "'", "parameter",
+            parameter, state);
+        semanticRejectRuntimeInterfaceType(
+            parameter.type, parameter, state);
+        typeIndex = typeIndex + 1;
+    }
+    state.typeParams = signaturePreviousParams;
+    if (callable.body_node == null) { return; }
+    Node? previousReturn = state.returnType;
+    string previousOwner = state.owner;
+    Map<string, bool> previousParams = semanticCloneFlags(state.typeParams);
+    int previousLoop = state.loopDepth;
+    int previousBreak = state.breakDepth;
+    bool previousGpu = state.gpuCallable;
+    Map<string, Node> vars = semanticGlobalTypes(state.analyzed);
+    Vector<string> classParams = [];
+    if (classDeclaration != null) {
+        int classParamIndex = 0;
+        while (classParamIndex < classDeclaration.generic_params.len) {
+            classParams.push(
+                classDeclaration.generic_params.get(classParamIndex));
+            classParamIndex = classParamIndex + 1;
+        }
+        state.owner = classDeclaration.name + "." + callable.name;
+        if (callable.access != "class") {
+            vars.put("self", semanticSelfType(classDeclaration));
+        }
+    } else {
+        state.owner = callable.name;
+    }
+    state.typeParams = semanticCombinedTypeParams(
+        classParams, callable.generic_params);
+    bool isConstructor = classDeclaration != null
+        && callable.is_constructor;
+    if (isConstructor) {
+        state.returnType = makePrimType("void");
+    } else {
+        state.returnType = semanticResolveAliases(
+            callable.return_type, state);
+    }
+    state.loopDepth = 0;
+    state.breakDepth = 0;
+    state.gpuCallable = callable.is_gpu;
+    Map<string, bool> parameterNames = semanticParameterNames(
+        callable.params, "callable '" + state.owner + "'");
+    semanticValidateDirectLocalNames(callable.body_node, parameterNames);
+    semanticValidateParameterDefaults(
+        callable.params, state, vars, callable);
+    semanticValidateBlock(callable.body_node, state, vars);
+    bool nonVoid = state.returnType != null
+        && state.returnType.base != "void";
+    if (nonVoid && !semanticBlockTerminates(callable.body_node)) {
+        semanticValidationFail("Callable '" + state.owner
+            + "' has non-void return type but does not return on every path",
+            callable);
+    }
+    state.returnType = previousReturn;
+    state.owner = previousOwner;
+    state.typeParams = previousParams;
+    state.loopDepth = previousLoop;
+    state.breakDepth = previousBreak;
+    state.gpuCallable = previousGpu;
+}
+
+void semanticValidateProperty(Node property, Node classDeclaration,
+        SemanticValidationState state) {
+    Node synthetic = Node();
+    synthetic.kind = NK_METHOD_DECL;
+    synthetic.access = property.access;
+    synthetic.name = "get_" + property.name;
+    synthetic.return_type = property.type;
+    synthetic.body_node = property.getter_body;
+    synthetic.line = property.line;
+    synthetic.col = property.col;
+    if (property.getter_body != null) {
+        semanticValidateCallableBody(synthetic, classDeclaration, state);
+    }
+    synthetic.name = "set_" + property.name;
+    synthetic.return_type = makePrimType("void");
+    synthetic.body_node = property.setter_body;
+    if (property.setter_body != null) {
+        Node valueParameter = Node();
+        valueParameter.kind = NK_PARAM;
+        valueParameter.name = "value";
+        valueParameter.type = property.type;
+        synthetic.params.push(valueParameter);
+        semanticValidateCallableBody(synthetic, classDeclaration, state);
+    }
+}
+
+void semanticValidateClassBodies(Node declaration,
+        SemanticValidationState state) {
+    Map<string, Node> fieldVars = semanticGlobalTypes(state.analyzed);
+    fieldVars.put("self", semanticSelfType(declaration));
+    Map<string, bool> previousParams = semanticCloneFlags(state.typeParams);
+    state.typeParams = semanticTypeParamSet(declaration.generic_params);
+    int index = 0;
+    while (index < declaration.members.len) {
+        Node member = declaration.members.get(index);
+        if (member.kind == NK_FIELD_DECL) {
+            semanticValidateDeclaredType(member.type,
+                "Field '" + declaration.name + "." + member.name + "'",
+                "field", member, state);
+            semanticRejectRuntimeInterfaceType(member.type, member, state);
+            if (member.access == "class") {
+                semanticValidationFail("Static field '" + declaration.name
+                    + "." + member.name
+                    + "' is not supported by the self-hosted backend", member);
+            }
+            semanticValidateArrayBound(member.type,
+                "field '" + declaration.name + "." + member.name + "'",
+                "field", member, state, fieldVars);
+            Node? canonicalField = semanticResolveAliases(member.type, state);
+            if (member.initializer != null && canonicalField != null
+                    && canonicalField.is_const
+                    && canonicalField.pointer_depth == 0) {
+                semanticValidationFail("Field '" + declaration.name + "."
+                    + member.name
+                    + "' cannot initialize scalar const storage after allocation",
+                    member);
+            }
+            if (member.initializer != null) {
+                semanticValidateExpr(member.initializer, state, fieldVars);
+                semanticValidateTypedInitializer(member.type,
+                    member.initializer, "Field '" + declaration.name + "."
+                        + member.name + "'", state, fieldVars);
+                Node? actual = semanticInferType(
+                    member.initializer, state, fieldVars);
+                if (actual != null && !semanticAssignmentCompatible(
+                        member.type, actual, state)) {
+                    semanticValidationFail("Field '" + declaration.name + "."
+                        + member.name + "' expects '"
+                        + semanticFormatType(member.type) + "' but got '"
+                        + semanticFormatType(actual) + "'", member);
+                }
+            }
+        } else if (member.kind == NK_METHOD_DECL) {
+            semanticValidateCallableBody(member, declaration, state);
+        } else if (member.kind == NK_PROPERTY_DECL) {
+            semanticValidateDeclaredType(member.type,
+                "Property '" + declaration.name + "." + member.name + "'",
+                "field", member, state);
+            semanticRejectRuntimeInterfaceType(member.type, member, state);
+            if (member.access == "class") {
+                semanticValidationFail("Static property '" + declaration.name
+                    + "." + member.name + "' is not supported", member);
+            }
+            Node? canonicalProperty =
+                semanticResolveAliases(member.type, state);
+            if (member.has_setter && canonicalProperty != null
+                    && canonicalProperty.is_const
+                    && canonicalProperty.pointer_depth == 0) {
+                semanticValidationFail("Property '" + declaration.name + "."
+                    + member.name
+                    + "' cannot have a setter for scalar const storage",
+                    member);
+            }
+            semanticValidateProperty(member, declaration, state);
+        }
+        index = index + 1;
+    }
+    state.typeParams = previousParams;
+}
+
+void semanticValidateProgram(Node program, Analyzed analyzed) {
+    SemanticValidationState state = SemanticValidationState(analyzed);
+    semanticValidateTypedefs(program, state);
+    semanticValidateInterfaceDeclarations(program, state);
+    semanticValidateProgramEnumValues(program, state);
+    semanticValidateAggregateDeclarationTypes(program, state);
+    semanticValidateStructLayouts(program, state);
+    semanticValidateDeclarationNames(program);
+    semanticValidateDeclarationDuplicates(program, state);
+    semanticValidateEmittedSymbols(program, state);
+    semanticValidateCallableShapes(program, state);
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_CLASS_DECL) {
+            semanticValidateClassContracts(declaration, state);
+        }
+        index = index + 1;
+    }
+    Map<string, Node> globals = semanticGlobalTypes(analyzed);
+    index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_FUNCTION_DECL) {
+            semanticValidateCallableBody(declaration, null, state);
+        } else if (declaration.kind == NK_CLASS_DECL) {
+            semanticValidateClassBodies(declaration, state);
+        } else if (declaration.kind == NK_VAR_DECL_STMT) {
+            semanticValidateVariable(declaration, state, globals);
+        }
+        index = index + 1;
+    }
+}

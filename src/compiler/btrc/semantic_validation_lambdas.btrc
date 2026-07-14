@@ -1,0 +1,135 @@
+/* Lambda signatures execute in an isolated callable/control-flow context. */
+
+void semanticValidateLambda(Node expression, SemanticValidationState state,
+        Map<string, Node> vars) {
+    semanticValidateLambdaNames(expression);
+    Map<string, Node> bodyVars = semanticCloneTypes(vars);
+    Map<string, bool> parameterNames = {};
+    int index = 0;
+    while (index < expression.params.len) {
+        Node parameter = expression.params.get(index);
+        parameterNames.put(parameter.name, true);
+        semanticValidateDeclaredType(parameter.type,
+            "Lambda parameter '" + parameter.name + "'",
+            "parameter", parameter, state);
+        semanticRejectRuntimeInterfaceType(
+            parameter.type, parameter, state);
+        semanticValidateArrayBound(parameter.type,
+            "Lambda parameter '" + parameter.name + "'",
+            "parameter", parameter, state, bodyVars);
+        if (parameter.default_ != null) {
+            semanticValidationFail(
+                "Lambda parameters cannot have default arguments",
+                parameter);
+        }
+        if (parameter.type != null) {
+            bodyVars.put(parameter.name, parameter.type);
+        }
+        index = index + 1;
+    }
+    if (expression.return_type != null) {
+        semanticValidateDeclaredType(expression.return_type,
+            "Lambda return type", "return", expression, state);
+        semanticRejectRuntimeInterfaceType(
+            expression.return_type, expression, state);
+        semanticValidateArrayReturn(expression, "Lambda");
+    }
+
+    Map<string, bool> usedNames = {};
+    collectIdentifiers(expression.body_node, usedNames);
+    Vector<string> names = usedNames.keys();
+    int captureIndex = 0;
+    while (captureIndex < names.len) {
+        string name = names.get(captureIndex);
+        if (!parameterNames.has(name) && vars.has(name)
+                && !state.analyzed.globalVarTypes.has(name)
+                && semanticContainsThreadStorage(vars.get(name), state)) {
+            semanticValidationFail(
+                "A lambda cannot capture Thread handle '" + name
+                    + "'; join it before capture or create a fresh owner "
+                    + "inside the lambda",
+                expression);
+        }
+        captureIndex = captureIndex + 1;
+    }
+
+    Node? previousReturn = state.returnType;
+    int previousLoop = state.loopDepth;
+    int previousBreak = state.breakDepth;
+    Node resultType = inferredLambdaReturnType(
+        expression, state.analyzed, vars);
+    state.returnType = resultType;
+    state.loopDepth = 0;
+    state.breakDepth = 0;
+
+    Node body = expression.body_node;
+    if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
+        semanticValidateExpr(body.expression, state, bodyVars);
+        Node? actual = semanticInferType(body.expression, state, bodyVars);
+        if (actual == null) {
+            semanticValidationFail(
+                "Cannot infer lambda expression return type", body.expression);
+        }
+        if (!semanticAssignmentCompatible(resultType, actual, state)) {
+            semanticValidationFail("Lambda return type mismatch: expected '"
+                + semanticFormatType(resultType) + "' but got '"
+                + semanticFormatType(actual) + "'", body.expression);
+        }
+    } else if (body != null && body.kind == NK_LAMBDA_BLOCK) {
+        semanticValidateBlock(body.body_node, state, bodyVars);
+        bool nonVoid = resultType.base != "void"
+            || resultType.pointer_depth > 0;
+        if (nonVoid && !semanticBlockTerminates(body.body_node)) {
+            semanticValidationFail(
+                "Non-void lambda does not return on every path", expression);
+        }
+    }
+
+    state.returnType = previousReturn;
+    state.loopDepth = previousLoop;
+    state.breakDepth = previousBreak;
+}
+
+void semanticValidateSpawnCaptures(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Map<string, bool> parameterNames = {};
+    int parameterIndex = 0;
+    while (parameterIndex < expression.params.len) {
+        parameterNames.put(
+            expression.params.get(parameterIndex).name, true);
+        parameterIndex = parameterIndex + 1;
+    }
+    Map<string, bool> usedNames = {};
+    collectIdentifiers(expression.body_node, usedNames);
+    Vector<string> names = usedNames.keys();
+    int captureIndex = 0;
+    while (captureIndex < names.len) {
+        string name = names.get(captureIndex);
+        if (!parameterNames.has(name) && vars.has(name)
+                && !state.analyzed.globalVarTypes.has(name)) {
+            Node captureType = vars.get(name);
+            Node? canonical = semanticResolveAliases(captureType, state);
+            Map<string, bool> visiting = {};
+            if ((canonical != null && canonical.is_array)
+                    || semanticThreadResultHasUnsizedArray(
+                        captureType, visiting, state)) {
+                semanticValidationFail(
+                    "spawn cannot capture array storage through '" + name
+                        + "'; copy it into a scalar-only struct or managed "
+                        + "collection",
+                    expression);
+            }
+            Map<string, bool> managedVisiting = {};
+            if (!semanticDirectManagedThreadResult(captureType, state)
+                    && semanticThreadAggregateHasManagedReference(
+                        captureType, managedVisiting, state)) {
+                semanticValidationFail(
+                    "spawn cannot capture shallow aggregate '" + name
+                        + "' containing string or class references; capture "
+                        + "managed values directly",
+                    expression);
+            }
+        }
+        captureIndex = captureIndex + 1;
+    }
+}

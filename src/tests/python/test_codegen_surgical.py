@@ -14,15 +14,19 @@ def test_array_list_literal_initializer():
 
 def test_gpu_dispatch_over_runtime_sized_vector():
     # Dispatching with a Vector<T> argument uses ->len / ->data at the call site.
-    c = emit_c("@gpu\nvoid scale(float[] xs, float k) { int i = gpu_id(); xs[i] = xs[i] * k; }\n"
-               "int main() { Vector<float> v = new Vector<float>(); v.add(1.0); scale(v, 2.0); return 0; }")
+    c = emit_c(
+        "@gpu\nvoid scale(float[] xs, float k) { int i = gpu_id(); xs[i] = xs[i] * k; }\n"
+        "int main() { Vector<float> v = new Vector<float>(); v.add(1.0); scale(v, 2.0); return 0; }"
+    )
     assert "->len" in c or "->data" in c
 
 
 def test_operator_overload_on_generic_instances():
-    c = emit_c("class Vec2<T> { public T x; public T y; public Vec2(T a, T b) { self.x = a; self.y = b; } }\n"
-               "int main() { Vec2<int> a = new Vec2<int>(1, 2); Vec2<int> b = new Vec2<int>(3, 4);\n"
-               "             bool eq = a == b; return eq ? 1 : 0; }")
+    c = emit_c(
+        "class Vec2<T> { public T x; public T y; public Vec2(T a, T b) { self.x = a; self.y = b; } }\n"
+        "int main() { Vec2<int> a = new Vec2<int>(1, 2); Vec2<int> b = new Vec2<int>(3, 4);\n"
+        "             bool eq = a == b; return eq ? 1 : 0; }"
+    )
     assert "Vec2_int" in c
 
 

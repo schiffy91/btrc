@@ -39,6 +39,7 @@ def write(path, text):
 
 # -- parsed spec shapes -----------------------------------------------------
 
+
 def test_std_single_module():
     spec = _spec("import std.vector;")
     assert isinstance(spec, StdModules)
@@ -96,6 +97,7 @@ def test_import_line_recorded():
 
 # -- comment / keyword behaviour (the headline fix) -------------------------
 
+
 def test_commented_import_is_not_parsed():
     decls = _parse("/* import std.nonexistent; */\nint main() { return 0; }")
     assert not any(isinstance(d, ImportDecl) for d in decls)
@@ -108,6 +110,7 @@ def test_line_commented_import_is_not_parsed():
 
 def test_import_is_reserved_keyword():
     from src.compiler.python.parser.core import ParseError
+
     with pytest.raises(ParseError):
         _parse("int main() { int import = 1; return import; }")
 
@@ -117,6 +120,7 @@ def test_import_not_first_on_line_is_rejected():
     # front-end directive scan, so accepting it as a no-op would silently drop
     # the import. The parser rejects it instead.
     from src.compiler.python.parser.core import ParseError
+
     with pytest.raises(ParseError) as exc:
         _parse("int x = 0; import ./foo.btrc;\nint main() { return 0; }")
     assert exc.value.line == 1  # points at the misplaced import
@@ -126,6 +130,7 @@ def test_import_with_trailing_code_on_line_is_rejected():
     # First on its line, but followed by other code — same non-resolution, same
     # rejection.
     from src.compiler.python.parser.core import ParseError
+
     with pytest.raises(ParseError):
         _parse("import ./foo.btrc; int y = 5;\nint main() { return 0; }")
 
@@ -137,6 +142,7 @@ def test_import_owning_its_line_is_accepted():
 
 
 # -- resolution still finds the files ---------------------------------------
+
 
 def test_resolve_std_brace(tmp_path):
     src = "import std.{strings, json}\nint main() { return 0; }"

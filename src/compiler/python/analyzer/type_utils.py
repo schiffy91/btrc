@@ -2,11 +2,50 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..ast_nodes import TypeExpr
+from ..numeric_semantics import is_known_integer_typedef_name
 from ..string_methods import STRING_METHODS
+from ..type_identity import TypeShapeError, substitute_type_expr
 
 
 class TypeUtilsMixin:
+    _NUMERIC_TYPES = frozenset(
+        (
+            "byte",
+            "char",
+            "short",
+            "short int",
+            "int",
+            "long",
+            "long int",
+            "long long",
+            "long long int",
+            "float",
+            "double",
+            "long double",
+            "uint",
+            "unsigned int",
+            "signed",
+            "unsigned",
+            "unsigned char",
+            "unsigned short",
+            "unsigned short int",
+            "unsigned long",
+            "unsigned long int",
+            "unsigned long long",
+            "unsigned long long int",
+            "signed char",
+            "signed short",
+            "signed short int",
+            "signed int",
+            "signed long",
+            "signed long int",
+            "signed long long",
+            "signed long long int",
+        )
+    )
 
     def _string_method_return_type(self, method_name: str) -> TypeExpr | None:
         """Return the type of a string method call (shared spec table)."""
@@ -24,49 +63,201 @@ class TypeUtilsMixin:
             args = ", ".join(self._format_type(a) for a in t.generic_args)
             result += f"<{args}>"
         result += "*" * t.pointer_depth
+        if t.is_array:
+            result += "[]"
         return result
+
+    def _is_opaque_c_scalar(self, type_expr) -> bool:
+        """Whether a type is an unresolved C/POSIX scalar typedef.
+
+        Imported headers do not expose typedef definitions to the btrc parser,
+        so only the shared, explicit C/POSIX integer registry is admitted.
+        """
+        return bool(
+            type_expr
+            and (is_known_integer_typedef_name(type_expr.base) or type_expr.base.startswith("enum "))
+            and type_expr.pointer_depth == 0
+            and not type_expr.is_array
+            and not type_expr.generic_args
+        )
+
+    def _is_native_enum_scalar(self, type_expr) -> bool:
+        """Whether ``type_expr`` is an int-backed btrc enum value."""
+        return bool(
+            type_expr
+            and type_expr.base in self.enum_table
+            and type_expr.pointer_depth == 0
+            and not type_expr.is_array
+            and not type_expr.generic_args
+        )
 
     def _types_compatible(self, target, source) -> bool:
         """Check if source type can be assigned to target type."""
+        if target is None or source is None:
+            return False
+        target = self._canonical_type(target)
+        source = self._canonical_type(source)
+
+        # The null literal is compatible only with nullable/pointer values.
+        if source.base == "null" or (source.base == "void" and source.pointer_depth > 0):
+            return target.pointer_depth > 0 or target.is_array or target.base == "string"
+
+        # Nullable sugar adds one pointer level. While analyzing a generic
+        # template, ``T`` may later become an intrinsic reference type (where
+        # that extra level collapses) or a value type. Defer the lift from T to
+        # T? until the concrete instance is lowered instead of rejecting valid
+        # reference-type instances such as Box<string>.
+        if (
+            target.base == source.base
+            and self._is_active_type_parameter(target)
+            and target.is_nullable
+            and target.pointer_depth == source.pointer_depth + 1
+        ):
+            return self._generic_args_equal(target, source)
+
+        # C array expressions decay to a pointer to their first element when
+        # passed to functions or used as values.
+        if (
+            source.is_array
+            and not target.is_array
+            and target.base == source.base
+            and target.pointer_depth == source.pointer_depth + 1
+        ):
+            return self._const_conversion_allowed(target, source) and self._generic_args_equal(target, source)
+
         if target.base == source.base:
-            # Check generic arg compatibility
-            t_args = getattr(target, 'generic_args', None) or []
-            s_args = getattr(source, 'generic_args', None) or []
-            if t_args and s_args and len(t_args) == len(s_args):
-                for t_arg, s_arg in zip(t_args, s_args):
-                    if not self._types_compatible(t_arg, s_arg):
-                        return False
+            if self._semantic_pointer_depth(target) != self._semantic_pointer_depth(source):
+                return False
+            if target.is_array != source.is_array:
+                return False
+            return self._const_conversion_allowed(target, source) and self._generic_args_equal(target, source)
+
+        if (
+            target.base in self._NUMERIC_TYPES
+            and source.base in self._NUMERIC_TYPES
+            and target.pointer_depth == source.pointer_depth == 0
+            and not target.is_array
+            and not source.is_array
+            and not target.generic_args
+            and not source.generic_args
+        ):
             return True
-        numeric = {"int", "float", "double", "char", "long", "short", "byte", "uint"}
-        if target.base in numeric and source.base in numeric:
+        if (
+            (self._is_opaque_c_scalar(target) and source.base in self._NUMERIC_TYPES)
+            or (self._is_opaque_c_scalar(source) and target.base in self._NUMERIC_TYPES)
+            or (self._is_opaque_c_scalar(target) and self._is_opaque_c_scalar(source))
+        ):
             return True
-        if target.base == "string" and source.base == "char" and source.pointer_depth >= 1:
+        if (self._is_native_enum_scalar(target) and source.base in self._NUMERIC_TYPES) or (
+            self._is_native_enum_scalar(source) and target.base in self._NUMERIC_TYPES
+        ):
             return True
-        if source.base == "string" and target.base == "char" and target.pointer_depth >= 1:
-            return True
+        if target.base == "string" and source.base == "char" and (source.pointer_depth >= 1 or source.is_array):
+            return self._const_conversion_allowed(target, source)
+        if source.base == "string" and target.base == "char" and (target.pointer_depth >= 1 or target.is_array):
+            return self._const_conversion_allowed(target, source)
         if target.base == "string" and source.base in self.class_table:
             method = self.class_table[source.base].methods.get("toString")
-            return bool(method and not method.params
-                        and method.return_type
-                        and method.return_type.base == "string")
-        if source.base == "null" or (source.base == "void" and source.pointer_depth > 0):
-            return target.pointer_depth > 0 or target.base == "string"
+            return bool(method and not method.params and method.return_type and method.return_type.base == "string")
+        # ISO C permits object-pointer conversions through void*.
+        if (
+            target.base == "void"
+            and target.pointer_depth == 1
+            and (self._semantic_pointer_depth(source) > 0 or source.is_array)
+        ):
+            return self._const_conversion_allowed(target, source)
+        if (
+            source.base == "void"
+            and source.pointer_depth == 1
+            and (self._semantic_pointer_depth(target) > 0 or target.is_array)
+        ):
+            return self._const_conversion_allowed(target, source)
         if target.base in self.class_table and source.base in self.class_table:
-            return self._is_subclass(source.base, target.base)
-        all_known = numeric | {"string", "bool", "void"}
-        # A raw pointer to a builtin (string*, int*, ...) is never a generic
-        # collection (List<string>, Map<K,V>, ...) and vice versa: rejecting
-        # the pair turns e.g. `List<string> xs = s.split(",")` (split returns
-        # string*) into a clear analyzer error instead of broken C. `void` is
-        # excluded (void* C interop is resolved above and stays permissive),
-        # and unknown<->unknown pairs stay compatible for extern C types.
-        def _builtin_ptr(t) -> bool:
-            return (t.base in all_known and t.base != "void"
-                    and t.pointer_depth > 0)
-        if (_builtin_ptr(source) and target.generic_args) or \
-                (_builtin_ptr(target) and source.generic_args):
+            return self._reference_shapes_compatible(target, source) and self._is_subclass(source.base, target.base)
+        if target.base in self.interface_table and source.base in self.class_table:
+            return self._reference_shapes_compatible(target, source) and self._is_subclass(source.base, target.base)
+        if target.base in self.interface_table and source.base in self.interface_table:
+            return self._reference_shapes_compatible(target, source) and self._is_interface_subtype(
+                source.base, target.base
+            )
+        return False
+
+    def _is_active_type_parameter(self, type_expr) -> bool:
+        if type_expr is None or type_expr.generic_args:
             return False
-        return not (target.base in all_known and source.base in all_known)
+        parameters = set(
+            (self.current_class.generic_params if self.current_class else [])
+            + (self.current_method.generic_params if self.current_method else [])
+        )
+        return type_expr.base in parameters
+
+    def _generic_args_equal(self, left, right) -> bool:
+        left_args = left.generic_args or []
+        right_args = right.generic_args or []
+        return len(left_args) == len(right_args) and all(self._types_equal(a, b) for a, b in zip(left_args, right_args))
+
+    def _types_equal(self, left, right) -> bool:
+        """Position-independent structural equality for signature types."""
+        if left is None or right is None:
+            return left is right
+        left = self._canonical_type(left)
+        right = self._canonical_type(right)
+        if (
+            left.base != right.base
+            or (self._semantic_pointer_depth(left) != self._semantic_pointer_depth(right))
+            or left.is_array != right.is_array
+            or left.is_nullable != right.is_nullable
+            or left.is_const != right.is_const
+            or left.is_volatile != right.is_volatile
+        ):
+            return False
+        left_args = left.generic_args or []
+        right_args = right.generic_args or []
+        return len(left_args) == len(right_args) and all(self._types_equal(a, b) for a, b in zip(left_args, right_args))
+
+    def _semantic_pointer_depth(self, type_expr) -> int:
+        """Pointer depth after intrinsic-reference nullable sugar collapses."""
+        depth = type_expr.pointer_depth
+        if type_expr.base in {"Vector", "List", "Map", "Set", "Array"} and type_expr.generic_args and depth == 0:
+            depth = 1
+        if type_expr.base == "string" and type_expr.is_nullable and depth > 0:
+            depth -= 1
+        return depth
+
+    def _canonical_type(self, type_expr, seen=None):
+        """Resolve typedef aliases while preserving use-site modifiers."""
+        if type_expr is None or type_expr.base not in self.typedef_table:
+            return type_expr
+        seen = set() if seen is None else seen
+        if type_expr.base in seen:
+            return type_expr
+        seen.add(type_expr.base)
+        resolved = self._canonical_type(self.typedef_table[type_expr.base], seen)
+        return replace(
+            resolved,
+            pointer_depth=resolved.pointer_depth + type_expr.pointer_depth,
+            is_array=resolved.is_array or type_expr.is_array,
+            array_size=type_expr.array_size or resolved.array_size,
+            is_const=resolved.is_const or type_expr.is_const,
+            is_nullable=resolved.is_nullable or type_expr.is_nullable,
+            is_static=resolved.is_static or type_expr.is_static,
+            is_extern=resolved.is_extern or type_expr.is_extern,
+            is_volatile=resolved.is_volatile or type_expr.is_volatile,
+            line=type_expr.line or resolved.line,
+            col=type_expr.col or resolved.col,
+        )
+
+    def _is_interface_subtype(self, child: str, parent: str) -> bool:
+        """Whether an interface is the same as or transitively extends another."""
+        current = child
+        visited: set[str] = set()
+        while current and current not in visited:
+            if current == parent:
+                return True
+            visited.add(current)
+            info = self.interface_table.get(current)
+            current = info.parent if info else None
+        return False
 
     def _is_subclass(self, child: str, parent: str) -> bool:
         """Check if child class extends parent (directly or transitively)."""
@@ -80,7 +271,7 @@ class TypeUtilsMixin:
             visited = set()
             while cur and cur.name not in visited:
                 visited.add(cur.name)
-                if parent in cur.interfaces:
+                if any(self._is_interface_subtype(interface, parent) for interface in cur.interfaces):
                     return True
                 cur = self.class_table.get(cur.parent) if cur.parent else None
             return False
@@ -91,3 +282,11 @@ class TypeUtilsMixin:
                 return True
             info = self.class_table.get(info.parent)
         return False
+
+    def _substitute_type(self, t: TypeExpr | None, subs: dict) -> TypeExpr | None:
+        """Recursively substitute type parameters in a TypeExpr."""
+        try:
+            return substitute_type_expr(t, subs)
+        except TypeShapeError as error:
+            self._report_type_shape_error(str(error), error.type_expr or t, getattr(t, "line", 0), getattr(t, "col", 0))
+            return t

@@ -1,0 +1,100 @@
+/* Conservative source-call ownership effects. */
+
+Node? ownershipCallableForCall(IRGen generator, Node call,
+        Map<string, Node> varTypes) {
+    if (call.kind == NK_NEW_EXPR) {
+        Node? constructor = generator.analyzed.classConstructor(
+            call.type.base);
+        if (constructor == null) {
+            constructor = generator.analyzed.genericClassConstructor(
+                call.type.base);
+        }
+        return constructor;
+    }
+    Node callee = call.callee;
+    if (callee == null) { return null; }
+    if (callee.kind == NK_LAMBDA_EXPR) { return callee; }
+    if (callee.kind == NK_IDENTIFIER) {
+        if (generator.analyzed.isClass(callee.name)) {
+            return generator.analyzed.classConstructor(callee.name);
+        }
+        if (generator.analyzed.isGenericClass(callee.name)) {
+            return generator.analyzed.genericClassConstructor(callee.name);
+        }
+        if (generator.analyzed.funcTable.has(callee.name)) {
+            return generator.analyzed.funcTable.get(callee.name);
+        }
+        return null;
+    }
+    if (callee.kind != NK_FIELD_ACCESS_EXPR) { return null; }
+    Node receiver = callee.obj;
+    if (receiver != null && receiver.kind == NK_IDENTIFIER) {
+        if (generator.analyzed.isClass(receiver.name)) {
+            Node? method = generator.analyzed.classMethod(
+                receiver.name, callee.field);
+            if (method != null && method.kind == NK_METHOD_DECL) {
+                return method;
+            }
+        }
+        if (generator.analyzed.isGenericClass(receiver.name)) {
+            Node? method = generator.analyzed.genericClassMethod(
+                receiver.name, callee.field);
+            if (method != null && method.kind == NK_METHOD_DECL) {
+                return method;
+            }
+        }
+    }
+    Node? receiverType = generator.resolvedExpressionType(
+        receiver, varTypes);
+    if (receiverType == null) { return null; }
+    if (generator.analyzed.isClass(receiverType.base)) {
+        Node? method = generator.analyzed.classMethod(
+            receiverType.base, callee.field);
+        if (method != null && method.kind == NK_METHOD_DECL) {
+            return method;
+        }
+    }
+    if (generator.analyzed.isGenericClass(receiverType.base)) {
+        Node? method = generator.analyzed.genericClassMethod(
+            receiverType.base, callee.field);
+        if (method != null && method.kind == NK_METHOD_DECL) {
+            return method;
+        }
+    }
+    return null;
+}
+
+Map<int, bool> ownershipOwnedTransferParams(Node? declaration) {
+    Map<int, bool> empty = {};
+    if (declaration == null || declaration.body_node == null
+            || declaration.params.len == 0) {
+        return empty;
+    }
+    Map<string, int> indices = {};
+    int index = 0;
+    while (index < declaration.params.len) {
+        Node parameter = declaration.params.get(index);
+        if (!parameter.keep_) { indices.put(parameter.name, index); }
+        index = index + 1;
+    }
+    Map<int, bool> transferred = {};
+    Vector<Node> statements = declaration.body_node.statements;
+    int position = 0;
+    while (position < statements.len) {
+        Node statement = statements.get(position);
+        if (statement.kind == NK_DELETE_STMT
+                && statement.expr != null
+                && statement.expr.kind == NK_IDENTIFIER
+                && indices.has(statement.expr.name)) {
+            transferred.put(indices.get(statement.expr.name), true);
+        } else if (statement.kind == NK_RETURN_STMT
+                && statement.value_node == null
+                && position == statements.len - 1) {
+            return transferred;
+        } else {
+            return empty;
+        }
+        position = position + 1;
+    }
+    return transferred;
+}

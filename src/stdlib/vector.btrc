@@ -16,12 +16,33 @@ class Vector<T> implements Iterable {
         self.cap = 0;
     }
 
-    public void push(T val) {
-        keep val;
-        if (self.len >= self.cap) {
-            self.cap = self.cap == 0 ? 4 : self.cap * 2;
-            self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
+    private void ensureAppendCapacity() {
+        if (self.len == 2147483647) {
+            fprintf(stderr, "Vector length overflow\n");
+            exit(1);
         }
+        if (self.len < self.cap) { return; }
+
+        int nextCap = 4;
+        if (self.cap != 0) {
+            if (self.cap < 0 || self.cap > 1073741823) {
+                fprintf(stderr, "Vector capacity overflow\n");
+                exit(1);
+            }
+            nextCap = self.cap * 2;
+        }
+        if ((size_t)nextCap > (size_t)(-1) / sizeof(T)) {
+            fprintf(stderr, "Vector allocation size overflow\n");
+            exit(1);
+        }
+        self.data = (T*)__btrc_safe_realloc(
+            self.data, (size_t)nextCap * sizeof(T));
+        self.cap = nextCap;
+    }
+
+    public void push(T val) {
+        self.ensureAppendCapacity();
+        keep val;
         self.data[self.len] = val;
         self.len++;
     }
@@ -29,7 +50,9 @@ class Vector<T> implements Iterable {
     public T pop() {
         if (self.len <= 0) { fprintf(stderr, "Vector pop from empty list\n"); exit(1); }
         self.len--;
-        return self.data[self.len];
+        T value = self.data[self.len];
+        release self.data[self.len];
+        return value;
     }
 
     public T get(int i) {
@@ -144,18 +167,16 @@ class Vector<T> implements Iterable {
     }
 
     public void extend(Vector<T> other) {
-        for (int i = 0; i < other.len; i++) {
+        int originalLength = other.len;
+        for (int i = 0; i < originalLength; i++) {
             self.push(other.data[i]);
         }
     }
 
     public void insert(int idx, T val) {
         if (idx < 0 || idx > self.len) { fprintf(stderr, "Vector insert index out of bounds: %d (size %d)\n", idx, self.len); exit(1); }
+        self.ensureAppendCapacity();
         keep val;
-        if (self.len >= self.cap) {
-            self.cap = self.cap == 0 ? 4 : self.cap * 2;
-            self.data = (T*)__btrc_safe_realloc(self.data, sizeof(T) * self.cap);
-        }
         for (int i = self.len; i > idx; i--) {
             self.data[i] = self.data[i - 1];
         }
@@ -303,25 +324,41 @@ class Vector<T> implements Iterable {
     }
 
     public string join(string sep) {
-        int total = 0;
-        int sep_len = (int)strlen(sep);
+        size_t total = 0;
+        size_t sepLen = strlen(sep);
         for (int i = 0; i < self.len; i++) {
-            total = total + (int)strlen(self.data[i]);
-            if (i < self.len - 1) { total = total + sep_len; }
-        }
-        char* result = (char*)malloc(total + 1);
-        int pos = 0;
-        for (int i = 0; i < self.len; i++) {
-            int slen = (int)strlen(self.data[i]);
-            memcpy(result + pos, self.data[i], slen);
-            pos = pos + slen;
+            size_t itemLength = strlen(self.data[i]);
+            if (itemLength > (size_t)(-1) - total) {
+                fprintf(stderr, "Vector join size overflow\n");
+                exit(1);
+            }
+            total = total + itemLength;
             if (i < self.len - 1) {
-                memcpy(result + pos, sep, sep_len);
-                pos = pos + sep_len;
+                if (sepLen > (size_t)(-1) - total) {
+                    fprintf(stderr, "Vector join size overflow\n");
+                    exit(1);
+                }
+                total = total + sepLen;
+            }
+        }
+        if (total == (size_t)(-1)) {
+            fprintf(stderr, "Vector join size overflow\n");
+            exit(1);
+        }
+        char* result = (char*)__btrc_safe_realloc(
+            null, total + (size_t)1);
+        size_t pos = 0;
+        for (int i = 0; i < self.len; i++) {
+            size_t itemLength = strlen(self.data[i]);
+            memcpy(result + pos, self.data[i], itemLength);
+            pos = pos + itemLength;
+            if (i < self.len - 1) {
+                memcpy(result + pos, sep, sepLen);
+                pos = pos + sepLen;
             }
         }
         result[pos] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     public string joinToString(string sep) {

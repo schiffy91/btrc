@@ -51,7 +51,7 @@ def test_cursor_on_punctuation():
 
 def test_broken_parse_keeps_diagnostics_but_no_ast_features():
     r = analyze("class { not valid\n")  # parse error → no AST
-    assert r.diagnostics                 # the error is still reported
+    assert r.diagnostics  # the error is still reported
     assert get_definition(r, ORIGIN) is None
     assert get_references(r, ORIGIN) == []
     assert get_document_symbols(r) == []

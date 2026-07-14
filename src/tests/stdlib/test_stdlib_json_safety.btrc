@@ -1,0 +1,66 @@
+/* JsonValue and legacy JsonText safety boundaries: malformed control bytes,
+ * recursion limits, numeric overflow, defined int conversion, and full escape
+ * decoding through the shared JSON string parser. */
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    assert(JsonValue.parse("\"line\nbreak\"").isError());
+    assert(JsonValue.parse("1e9999").isError());
+
+    JsonValue huge = JsonValue.parse(
+        "99999999999999999999999999999999999999");
+    assert(huge.isNumber());
+    string hugeText = huge.stringify();
+    assert(!hugeText.equals("inf"));
+    assert(!JsonValue.parse(hugeText).isError());
+
+    assert(JsonValue.parse("2147483647").asInt() == 2147483647);
+    assert(JsonValue.parse("-2147483648").asInt() == -2147483648);
+    assert(JsonValue.parse("2147483648").asInt() == 0);
+    assert(JsonValue.parse("-2147483649").asInt() == 0);
+
+    JsonObject legacyNumber = JsonObject.parse("{\"n\":2147483648}");
+    assert(legacyNumber.getInt("n", -17) == -17);
+    assert(JsonText.intField("{\"n\":-2147483649}", "n", -19) == -19);
+
+    JsonObject escaped = JsonObject.parse(
+        "{\"u\":\"\\u00e9\",\"controls\":\"\\b\\f\"}");
+    assert(strcmp(escaped.getString("u", ""), "\xc3\xa9") == 0);
+    assert(strcmp(escaped.getString("controls", ""), "\b\f") == 0);
+
+    JsonObject controlKey = JsonObject();
+    controlKey.setString("b\b", "value");
+    string controlKeyText = controlKey.stringify();
+    assert(controlKeyText.contains("\"b\\b\""));
+    assert(!JsonValue.parse(controlKeyText).isError());
+
+    JsonValue unpaired = JsonValue.parse("\"\\ud800\\ud800\"");
+    assert(unpaired.isString());
+    assert(strcmp(unpaired.asString(), "\xef\xbf\xbd\xef\xbf\xbd") == 0);
+    assert(strcmp(JsonNum.utf8(0x110000), "\xef\xbf\xbd") == 0);
+
+    string deep = "0";
+    for i in range(520) { deep = "[" + deep + "]"; }
+    assert(JsonValue.parse(deep).isError());
+
+    JsonValue builtDeep = JsonValue.makeInt(1);
+    for i in range(520) {
+        JsonValue parent = JsonValue.makeArray();
+        parent.push(builtDeep);
+        builtDeep = parent;
+    }
+    assert(!JsonValue.parse(builtDeep.stringify()).isError());
+
+    assert(JsonText.slice("abc", -4, 2).equals("ab"));
+    assert(JsonText.slice("abc", 3, 2).equals(""));
+    assert(JsonText.skipSpaces("  x", -9) == 2);
+
+    double infinity = strtod("1e9999", NULL);
+    JsonValue invalidFloat = JsonValue.makeFloat(infinity);
+    assert(invalidFloat.isError());
+    assert(invalidFloat.stringify().equals("null"));
+
+    print("PASS: test_stdlib_json_safety");
+    return 0;
+}

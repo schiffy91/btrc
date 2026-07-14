@@ -37,14 +37,14 @@ def test_clean():
 
 
 def test_member_method_signature_with_params_first_active():
-    s = _sig("c.addTwo(1", offset=9)            # cursor on the first argument
+    s = _sig("c.addTwo(1", offset=9)  # cursor on the first argument
     assert s is not None and "addTwo" in s.signatures[0].label
     assert len(s.signatures[0].parameters) == 2
     assert s.active_parameter == 0
 
 
 def test_member_method_signature_second_active():
-    s = _sig(", 2)", offset=2)                  # cursor on the second argument
+    s = _sig(", 2)", offset=2)  # cursor on the second argument
     assert s is not None and s.active_parameter == 1
 
 
@@ -79,7 +79,7 @@ def test_rename_method_edits_decl_and_call():
         for dc in edit.document_changes:
             all_edits.extend(getattr(dc, "edits", []))
     lines = {e.range.start.line for e in all_edits}
-    assert {3, 10} <= lines                      # method decl + the call site
+    assert {3, 10} <= lines  # method decl + the call site
     assert all(e.new_text == "sum" for e in all_edits)
 
 

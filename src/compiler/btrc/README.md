@@ -1,48 +1,64 @@
-# Self-hosted btrc compiler (in progress)
+# Self-hosted btrc compiler
 
-A faithful port of the Python compiler (`src/compiler/python/`) into btrc, built
-stage by stage and verified **byte-identical** to the Python reference at each
-stage boundary. See [docs/design/self-hosting.md](../../../docs/design/self-hosting.md).
+`btrcc` is the production self-hosted implementation of the same six-stage
+pipeline as the Python reference compiler. It reads the shared grammar and AST
+specifications, composes imports and the standard library, analyzes the program,
+lowers it to structured IR, and emits strict C11.
 
-## Status
+Because btrc has no dynamic downcasts, the self-hosted AST and IR use fat tagged
+nodes: one node class per layer, a `kind` tag, and the union of fields needed by
+all variants. The AST node source is generated from
+[`src/language/ast.asdl`](../../language/ast.asdl); do not edit
+[`ast/node.btrc`](ast/node.btrc) by hand.
 
-| Stage | Module | Status |
-|---|---|---|
-| 0. EBNF | `ebnf.btrc` | ✅ byte-identical (keyword/operator/annotation token maps) |
-| 1. Lexer | `tokens.btrc`, `lexer.btrc` | ✅ `--emit-tokens` byte-identical across 398/398 self-contained corpus files |
-| AST | `ast_nodes.btrc` | generated (`make ast-generate-btrc`) |
-| 2. Parser | — | not started |
-| 3. Analyzer | — | not started |
-| 4–6. IR/opt/emit | — | not started |
+## Pipeline modules
 
-## Files
+| Stage | Modules |
+|---|---|
+| Front end | `frontend_paths.btrc`, `frontend.btrc`, `btrcc_main.btrc` |
+| Grammar and lexer | `ebnf.btrc`, `tokens.btrc`, `lexer.btrc` |
+| Parser | `parser.btrc` |
+| Analyzer | `ast_identity.btrc`, `analyzer.btrc` |
+| IR generation | `ir_nodes.btrc`, `ir_top_nodes.btrc`, `irgen.btrc`, `setjmp_volatility.btrc` |
+| GPU lowering | `gpu_ir_nodes.btrc`, `gpu_wgsl*.btrc`, `gpu_lowering.btrc`, `gpu_dispatch*.btrc`, `gpu_optimizer.btrc` |
+| C emission | `emitter.btrc`, `gpu_emitter.btrc` |
 
-- `ast_nodes.btrc` — AST node types, generated from `src/language/ast/ast.asdl`
-  by `asdl_btrc.py` (`make ast-generate-btrc`). Do not edit by hand.
-- `tokens.btrc` — `Token` + `pyRepr` (Python-repr-compatible value quoting) +
-  `chr` (char→string). Token type is the type-NAME string.
-- `ebnf.btrc` — `GrammarInfo` + `parseGrammar` (manual scanning, no regex).
-- `lexer.btrc` — the tokenizer (grammar-driven; longest-first operator match).
-- `lex_main.btrc` — CLI driver: lex a file, print tokens (mirrors `--emit-tokens`).
-- `verify_lex.sh` — Stage-1 regression: diff the btrc lexer against btrcpy across
-  the corpus (`make test-selfhost`).
+The small `lex_main.btrc`, `parse_main.btrc`, and `frontend_main.btrc` programs
+are stage-boundary verification drivers. `ast/asdl.btrc` and
+`ast/gen_node.btrc` provide the dependency-free self-hosted ASDL generator.
 
-## Running
+Reachable top-level `@gpu` functions follow the same checked WGSL and structured
+host-dispatch model as the Python compiler. Unsupported GPU syntax fails closed;
+unreachable kernels and shader constants are removed by DCE. Pre-submit GPU
+failures execute per-invocation C fallbacks, including array outputs. Failures
+after a successful submission clean up and terminate without applying a
+fallback to partially transferred data.
+
+## Build and verify
+
+Run commands from the repository root because the compiler locates
+`src/language/grammar.ebnf` relative to its working directory.
 
 ```bash
-make test-selfhost                      # build + verify the lexer against btrcpy
-btrcpy src/compiler/btrc/lex_main.btrc -o /tmp/lex.c && cc -std=c11 /tmp/lex.c -o /tmp/btrclex
-/tmp/btrclex some_file.btrc             # print its token stream
+make btrcc                  # native bin/btrcc
+make test-selfhost          # lexer parity
+make test-btrc-selfhost     # full shared corpus through btrcc
+make bootstrap              # fixed-point self-hosting proof
 ```
 
-## btrc gotchas learned (for future stages)
+For parser-stage inspection:
 
-- `string.substring(start, COUNT)` takes a length, not an end index — every
-  Python `s[a:b]` becomes `s.substring(a, b - a)`.
-- char→string: `f"{c}"` (string `+` char concatenation is unsupported).
-- String methods are instance (`s.length()`, `s.indexOf(x)`, `s.substring(a,n)`,
-  `s.toUpper()`); char classification is static (`Strings.isDigit(c)`, `isAlpha`,
-  `isAlnum`, `isSpace`). Whole-file read: `Path.readAll(path)`.
-- Map: `{}` literal, `.put(k,v)`, `.get(k)` (aborts on missing — guard with
-  `.has(k)`). Vector: `[]`, `.push(x)`, `.get(i)`, `.len`, `.sortBy(lambda)`.
-- Lambdas need typed params: `(string a, string b) => ...`.
+```bash
+python3 -m src.compiler.python.main \
+  src/compiler/btrc/parse_main.btrc --no-cache -o /tmp/parse.c
+cc -std=c11 -pedantic-errors /tmp/parse.c -lm -lpthread -o /tmp/btrcparse
+/tmp/btrcparse program.btrc
+```
+
+## Parser diagnostics
+
+`Parser.expect()` and generic-close handling record a sticky fatal diagnostic
+with line/column and expected/actual token details. `parseProgram()` stops at
+that boundary; `parse_main.btrc` and `btrcc_main.btrc` report the error and
+return nonzero before analysis or IR generation. The built-driver regression
+suite is `src/tests/btrc/test_parser_diagnostics.py`.

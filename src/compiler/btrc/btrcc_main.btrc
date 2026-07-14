@@ -14,13 +14,111 @@
 
 #include "tokens.btrc"
 #include "ast/node.btrc"
+#include "type_shapes.btrc"
+#include "ast_identity.btrc"
+#include "type_identity.btrc"
 #include "ebnf.btrc"
 #include "lexer.btrc"
+#include "frontend_paths.btrc"
 #include "frontend.btrc"
+#include "literal_text.btrc"
+#include "numeric_literals.btrc"
 #include "parser.btrc"
+#include "typedef_semantics.btrc"
+#include "tuple_semantics.btrc"
 #include "analyzer.btrc"
+#include "generic_instance_walk.btrc"
+#include "generic_instance_closure.btrc"
+#include "class_storage.btrc"
+#include "lambda_semantics.btrc"
+#include "numeric_semantics.btrc"
+#include "operator_semantics.btrc"
+#include "semantic_validation_types.btrc"
+#include "semantic_validation_conditions.btrc"
+#include "semantic_validation_constants.btrc"
+#include "semantic_numeric_constants.btrc"
+#include "semantic_validation_enum_values.btrc"
+#include "semantic_validation_aliases.btrc"
+#include "semantic_validation_thread_types.btrc"
+#include "semantic_validation_static_initializers.btrc"
+#include "semantic_validation_interfaces.btrc"
+#include "semantic_validation_storage.btrc"
+#include "semantic_validation_duplicates.btrc"
+#include "semantic_validation_names.btrc"
+#include "semantic_validation_symbols.btrc"
+#include "semantic_validation_callable_shapes.btrc"
+#include "semantic_validation_decl_types.btrc"
+#include "struct_semantics.btrc"
+#include "semantic_validation_lvalues.btrc"
+#include "semantic_validation_storage_roots.btrc"
+#include "semantic_validation_initializers.btrc"
+#include "semantic_validation_strings.btrc"
+#include "semantic_validation_indexing.btrc"
+#include "semantic_validation_ownership.btrc"
+#include "semantic_validation_aggregate_ownership.btrc"
+#include "semantic_validation_calls.btrc"
+#include "semantic_validation_exprs.btrc"
+#include "semantic_validation_lambdas.btrc"
+#include "semantic_validation_expr_children.btrc"
+#include "semantic_validation_returns.btrc"
+#include "semantic_validation_switches.btrc"
+#include "semantic_validation_iteration.btrc"
+#include "semantic_validation_control.btrc"
+#include "semantic_validation_stmts.btrc"
+#include "semantic_validation_decls.btrc"
+#include "cycle_runtime_state.btrc"
+#include "cycle_runtime_lock.btrc"
+#include "cycle_runtime_incoming.btrc"
+#include "cycle_runtime_collector_prefix.btrc"
+#include "cycle_runtime_collector_suffix.btrc"
+#include "cycle_runtime_release.btrc"
+#include "cycle_runtime_helpers.btrc"
+#include "string_runtime_helpers.btrc"
 #include "ir_nodes.btrc"
+#include "ir_completion.btrc"
+#include "gpu_ir_nodes.btrc"
+#include "ir_top_nodes.btrc"
+#include "preprocessor_ir.btrc"
+#include "typedef_lowering.btrc"
+#include "helper_reachability.btrc"
 #include "irgen.btrc"
+#include "arc_metadata.btrc"
+#include "managed_value_lowering.btrc"
+#include "ownership_classification.btrc"
+#include "iteration_ownership.btrc"
+#include "ownership_boundary.btrc"
+#include "ownership_assignment_boundary.btrc"
+#include "string_concat_lowering.btrc"
+#include "ownership_effect_boundary.btrc"
+#include "ownership_call_effects.btrc"
+#include "ownership_calls.btrc"
+#include "ownership_optional_calls.btrc"
+#include "ownership_returns.btrc"
+#include "local_ownership.btrc"
+#include "property_ownership.btrc"
+#include "class_property_lowering.btrc"
+#include "generic_cycle_lowering.btrc"
+#include "collection_cycle_lowering.btrc"
+#include "cycle_release_lowering.btrc"
+#include "topology_queries.btrc"
+#include "topology_boundaries.btrc"
+#include "cycle_boundaries.btrc"
+#include "constructor_cleanup.btrc"
+#include "gpu_wgsl.btrc"
+#include "gpu_wgsl_builtins.btrc"
+#include "gpu_numeric.btrc"
+#include "gpu_wgsl_exprs.btrc"
+#include "gpu_wgsl_stmts.btrc"
+#include "gpu_lowering.btrc"
+#include "gpu_dispatch_model.btrc"
+#include "gpu_dispatch_pipeline.btrc"
+#include "gpu_dispatch_host.btrc"
+#include "gpu_dispatch.btrc"
+#include "gpu_optimizer.btrc"
+#include "gpu_emitter.btrc"
+#include "parameter_usage.btrc"
+#include "setjmp_mutations.btrc"
+#include "setjmp_volatility.btrc"
 #include "emitter.btrc"
 
 int main(int argc, char** argv) {
@@ -51,13 +149,21 @@ int main(int argc, char** argv) {
     }
     Lexer lx = Lexer(src, g);
     Vector<Token> toks = lx.tokenize();
+    if (lx.failed) {
+        fprintf(stderr, "error: %s\n", lx.diagnostic);
+        return 1;
+    }
     Parser p = Parser(toks, g);
     Node prog = p.parseProgram();
+    if (p.failed) {
+        fprintf(stderr, "error: %s\n", p.diagnostic);
+        return 1;
+    }
 
     Analyzed a = analyzeProgram(prog);
+    semanticValidateProgram(prog, a);
     IRGen gen = IRGen(a);
     IRModule m = gen.generate(prog);
-
     CEmitter em = CEmitter();
     string c = em.emit(m);
 

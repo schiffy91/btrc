@@ -1,0 +1,98 @@
+/* Caller-owned managed-return ABI for the self-hosted IR generator. */
+
+void lowerOwnedReturn(IRGen generator, Node statement,
+        Map<string, Node> varTypes, Vector<IRNode> output) {
+    if (statement.value_node == null) {
+        generator.emitReturnRelease("", output);
+        generator.emitReturnTryPop(output);
+        generator.emitReturnCleanupExit(output);
+        IRNode? value = null;
+        if (generator.currentReturnCType == "int"
+                && generator.currentReturnTypeNode != null
+                && generator.currentReturnTypeNode.base == "void") {
+            value = irLiteral("0");
+        }
+        output.push(irReturn(value));
+        return;
+    }
+
+    Node expression = statement.value_node;
+    IRNode value = generator.lowerExpr(expression, varTypes);
+    if (generator.currentReturnTypeNode != null
+            && expression.kind != NK_IDENTIFIER) {
+        value = generator.lowerAssignedValue(
+            expression, generator.currentReturnTypeNode, varTypes);
+    }
+    Node? valueType = generator.resolvedExpressionType(
+        expression, varTypes);
+    value = generator.coerceToString(
+        generator.currentReturnTypeNode, valueType, value);
+
+    Node? returnType = generator.currentReturnTypeNode;
+    if (returnType != null) {
+        returnType = generator.resolveBodyType(returnType);
+        returnType = resolveTypedefType(
+            returnType, generator.analyzed.typedefTable);
+    }
+    value = generator.upcastClassPointer(
+        returnType, valueType, value);
+    bool managedValue = irManagedType(generator, returnType);
+    bool managedReturn = managedValue
+        && generator.currentReturnOwned;
+    bool expressionOwned = managedValue
+        && irContextualExpressionOwnsResult(
+            generator, expression, returnType, varTypes);
+    bool localOwned = false;
+    string returnedLocal = "";
+    if (managedValue && expression.kind == NK_IDENTIFIER
+            && irManagedLocalType(
+                generator, expression.name) != "") {
+        localOwned = true;
+        if (managedReturn) { returnedLocal = expression.name; }
+    }
+    if (returnType != null && returnType.base == "Thread"
+            && expression.kind == NK_IDENTIFIER
+            && generator.localCleanupKind(expression.name) == "thread") {
+        returnedLocal = expression.name;
+    }
+
+    if (managedValue && !generator.currentReturnOwned
+            && (expressionOwned || localOwned
+                || irBorrowsFromManagedLocal(generator, expression))) {
+        fprintf(stderr, "error: borrowed property getter cannot return an owned temporary or a value borrowed from a local owner\n");
+        abortGen();
+    }
+
+    bool ownedValue = managedReturn
+        && (expressionOwned || localOwned);
+    bool promoteBorrowed = managedReturn && !ownedValue;
+    Vector<IRNode> releases = [];
+    generator.emitReturnRelease(returnedLocal, releases);
+    bool needsTemporary = releases.len > 0
+        || generator.inTryDepth > 0
+        || generator.getReturnCleanupMarker() != ""
+        || promoteBorrowed;
+    if (!needsTemporary) {
+        output.push(irReturn(generator.maybeLaunderReturn(value)));
+        return;
+    }
+
+    string temporaryName = generator.freshTemp("__btrc_ret");
+    IRNode declaration = irVarDecl(
+        generator.currentReturnCType, temporaryName, value);
+    generator.funcVarDecls.push(declaration);
+    output.push(declaration);
+    IRNode result = irVar(temporaryName);
+    if (promoteBorrowed) {
+        output.push(irExprStmt(irRetainExpression(
+            generator, result, returnType)));
+    }
+    int releaseIndex = 0;
+    while (releaseIndex < releases.len) {
+        output.push(releases.get(releaseIndex));
+        releaseIndex = releaseIndex + 1;
+    }
+    generator.emitReturnTryPop(output);
+    generator.emitReturnCleanupExit(output);
+    output.push(irReturn(generator.maybeLaunderReturn(result)));
+}

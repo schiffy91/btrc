@@ -22,8 +22,25 @@ def visibility_errors(entry):
 
 def test_direct_import_grants_cross_file_access(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
-    write(tmp_path / "a.btrc",
-          "import ./b.btrc;\nB makeB() { B b = new B(); return b; }\n")
+    write(tmp_path / "a.btrc", "import ./b.btrc;\nB makeB() { B b = new B(); return b; }\n")
+    entry = tmp_path / "main.btrc"
+    write(entry, "import ./a.btrc;\nint main() { return 0; }\n")
+
+    assert visibility_errors(entry) == []
+
+
+def test_symlink_import_grants_access_by_canonical_file_identity(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    write(real / "b.btrc", "class B {}\n")
+    try:
+        (tmp_path / "alias").symlink_to(real, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks unavailable: {error}")
+    write(
+        tmp_path / "a.btrc",
+        "import ./alias/b.btrc;\nB makeB() { return new B(); }\n",
+    )
     entry = tmp_path / "main.btrc"
     write(entry, "import ./a.btrc;\nint main() { return 0; }\n")
 
@@ -32,8 +49,7 @@ def test_direct_import_grants_cross_file_access(tmp_path):
 
 def test_missing_per_file_import_reports_symbol_owner(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
-    write(tmp_path / "a.btrc",
-          "B makeB() { B b = new B(); return b; }\n")
+    write(tmp_path / "a.btrc", "B makeB() { B b = new B(); return b; }\n")
     entry = tmp_path / "main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
@@ -46,8 +62,7 @@ def test_missing_per_file_import_reports_symbol_owner(tmp_path):
 def test_mega_header_import_grants_transitive_access(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "prelude.btrc", "import ./b.btrc;\n")
-    write(tmp_path / "a.btrc",
-          "import ./prelude.btrc;\nB makeB() { B b = new B(); return b; }\n")
+    write(tmp_path / "a.btrc", "import ./prelude.btrc;\nB makeB() { B b = new B(); return b; }\n")
     entry = tmp_path / "main.btrc"
     write(entry, "import ./a.btrc;\nint main() { return 0; }\n")
 
@@ -57,10 +72,8 @@ def test_mega_header_import_grants_transitive_access(tmp_path):
 def test_strict_imports_cli_reports_visibility_error(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     write(tmp_path / "b.btrc", "class B {}\n")
-    write(tmp_path / "a.btrc",
-          "B makeB() { B b = new B(); return b; }\n")
-    entry = write(tmp_path / "main.btrc",
-                  "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
+    write(tmp_path / "a.btrc", "B makeB() { B b = new B(); return b; }\n")
+    entry = write(tmp_path / "main.btrc", "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     monkeypatch.setattr(sys, "argv", ["btrc", entry, "--strict-imports", "--no-cache"])
     with pytest.raises(SystemExit) as exc:
@@ -73,12 +86,14 @@ def test_strict_imports_cli_reports_visibility_error(tmp_path, monkeypatch, caps
 def test_local_shadowing_top_level_symbol_is_not_a_reference(tmp_path):
     """Locals/params named like a top-level symbol must not demand an import."""
     write(tmp_path / "b.btrc", "class Logger {}\nint helper() { return 1; }\n")
-    write(tmp_path / "a.btrc",
-          "int work(int helper) {\n"
-          "    int Logger = helper + 1;\n"          # local shadows class
-          "    for (int helper = 0; helper < 3; helper++) { Logger += helper; }\n"
-          "    return Logger;\n"
-          "}\n")
+    write(
+        tmp_path / "a.btrc",
+        "int work(int helper) {\n"
+        "    int Logger = helper + 1;\n"  # local shadows class
+        "    for (int helper = 0; helper < 3; helper++) { Logger += helper; }\n"
+        "    return Logger;\n"
+        "}\n",
+    )
     entry = tmp_path / "main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
@@ -87,13 +102,15 @@ def test_local_shadowing_top_level_symbol_is_not_a_reference(tmp_path):
 
 def test_loop_and_catch_variables_are_scoped(tmp_path):
     write(tmp_path / "b.btrc", "class Item {}\n")
-    write(tmp_path / "a.btrc",
-          "int scan(Vector<int> xs) {\n"
-          "    int total = 0;\n"
-          "    for Item in xs { total += Item; }\n"  # loop var shadows class
-          "    try { total += 1; } catch (Item) { total = 0; }\n"
-          "    return total;\n"
-          "}\n")
+    write(
+        tmp_path / "a.btrc",
+        "int scan(Vector<int> xs) {\n"
+        "    int total = 0;\n"
+        "    for Item in xs { total += Item; }\n"  # loop var shadows class
+        "    try { total += 1; } catch (Item) { total = 0; }\n"
+        "    return total;\n"
+        "}\n",
+    )
     entry = tmp_path / "main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
@@ -103,8 +120,7 @@ def test_loop_and_catch_variables_are_scoped(tmp_path):
 def test_genuine_reference_still_reported_alongside_local(tmp_path):
     """Scoping must not hide real cross-file references."""
     write(tmp_path / "b.btrc", "class B {}\n")
-    write(tmp_path / "a.btrc",
-          "int f() { int x = 0; B b = new B(); return x; }\n")
+    write(tmp_path / "a.btrc", "int f() { int x = 0; B b = new B(); return x; }\n")
     entry = tmp_path / "main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
@@ -117,12 +133,9 @@ def test_duplicate_symbol_satisfied_by_any_declaring_file(tmp_path):
     """When two files declare the same name, importing either satisfies it."""
     write(tmp_path / "impl1.btrc", "int helper() { return 1; }\n")
     write(tmp_path / "impl2.btrc", "int helper() { return 2; }\n")
-    write(tmp_path / "uses2.btrc",
-          "import ./impl2.btrc;\nint go() { return helper(); }\n")
+    write(tmp_path / "uses2.btrc", "import ./impl2.btrc;\nint go() { return helper(); }\n")
     entry = tmp_path / "main.btrc"
-    write(entry,
-          "import ./impl1.btrc;\nimport ./uses2.btrc;\n"
-          "int main() { return 0; }\n")
+    write(entry, "import ./impl1.btrc;\nimport ./uses2.btrc;\nint main() { return 0; }\n")
 
     # uses2 imports impl2 (one of the declaring files): satisfied, even though
     # impl1 also declares 'helper' and was registered first.

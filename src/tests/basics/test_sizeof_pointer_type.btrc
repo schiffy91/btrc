@@ -9,7 +9,7 @@ int main() {
     assert(sizeof(char*) == sizeof(double*));
 
     // a pointer is at least 4 bytes on any supported target
-    assert(sizeof(int*) >= 4);
+    assert(sizeof(int*) >= (size_t)4);
 
     // pointer-to-pointer is still one pointer wide
     assert(sizeof(char**) == sizeof(void*));

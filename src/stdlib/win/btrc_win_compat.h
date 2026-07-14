@@ -10,7 +10,9 @@
    spawn/wait, raw-mode Terminal, sockets, Regex, glob/fnmatch) are deliberately
    left out: those are Milestone 2, and stubbing them would link but misbehave. */
 #pragma once
+#include <errno.h>
 #include <sys/stat.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -54,11 +56,17 @@ static inline struct tm *btrc_localtime_r(const time_t *t, struct tm *out) {
 
 /* Environment variables: real Windows behaviour via _putenv_s. */
 static inline int btrc_setenv(const char *name, const char *value, int overwrite) {
-    (void)overwrite;
-    return _putenv_s(name, value ? value : "");
+    if (!name || !name[0] || strchr(name, '=')) { errno = EINVAL; return -1; }
+    if (!overwrite && getenv(name) != NULL) { return 0; }
+    int error = _putenv_s(name, value ? value : "");
+    if (error != 0) { errno = error; return -1; }
+    return 0;
 }
 static inline int btrc_unsetenv(const char *name) {
-    return _putenv_s(name, "");
+    if (!name || !name[0] || strchr(name, '=')) { errno = EINVAL; return -1; }
+    int error = _putenv_s(name, "");
+    if (error != 0) { errno = error; return -1; }
+    return 0;
 }
 #ifndef setenv
 #define setenv(n, v, o) btrc_setenv((n), (v), (o))
@@ -78,17 +86,48 @@ static inline int btrc_unsetenv(const char *name) {
 /* realpath: canonicalise a path. Windows' _fullpath is the direct equivalent
    (allocates when the output buffer is NULL, like POSIX realpath). */
 static inline char *btrc_realpath(const char *path, char *resolved) {
-    return _fullpath(resolved, path, 260 /* _MAX_PATH */);
+    if (!path) { errno = EINVAL; return (char *)0; }
+    return _fullpath(resolved, path, _MAX_PATH);
 }
 #ifndef realpath
 #define realpath(p, r) btrc_realpath((p), (r))
 #endif
 
-/* mkdtemp: create a uniquely-named temp directory. The emitted C declares an
-   extern prototype, so provide a real (extern) definition — one translation
-   unit per btrc program, so no multiple-definition risk. */
-char *mkdtemp(char *tmpl) {
-    if (_mktemp_s(tmpl, strlen(tmpl) + 1) != 0) return (char *)0;
-    if (_mkdir(tmpl) != 0) return (char *)0;
-    return tmpl;
+/* mkdtemp: create a uniquely-named temp directory. Keep the implementation
+   inline because this header is force-included into every translation unit;
+   a header-level external definition would fail when native shims are linked. */
+static inline char *mkdtemp(char *tmpl) {
+    if (!tmpl) { errno = EINVAL; return (char *)0; }
+    size_t length = strlen(tmpl);
+    if (length < 6 || length == SIZE_MAX ||
+        memcmp(tmpl + length - 6, "XXXXXX", 6) != 0) {
+        errno = EINVAL;
+        return (char *)0;
+    }
+    size_t size = length + 1;
+    char *original = (char *)malloc(size);
+    if (!original) { errno = ENOMEM; return (char *)0; }
+    memcpy(original, tmpl, size);
+    for (int attempt = 0; attempt < 128; attempt++) {
+        memcpy(tmpl, original, size);
+        int error = _mktemp_s(tmpl, size);
+        if (error != 0) {
+            free(original);
+            errno = error;
+            return (char *)0;
+        }
+        if (_mkdir(tmpl) == 0) {
+            free(original);
+            return tmpl;
+        }
+        if (errno != EEXIST) {
+            int mkdir_error = errno;
+            free(original);
+            errno = mkdir_error;
+            return (char *)0;
+        }
+    }
+    free(original);
+    errno = EEXIST;
+    return (char *)0;
 }

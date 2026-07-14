@@ -5,6 +5,7 @@ import importlib
 from lsprotocol import types as lsp
 
 from src.devex.lsp.diagnostics import WORKSPACE, compute_diagnostics
+from src.devex.lsp.workspace import Workspace
 from src.devex.lsp.workspace_symbols import _match_rank, get_workspace_symbols
 
 srv = importlib.import_module("src.devex.lsp.server")
@@ -88,3 +89,18 @@ def test_handler_returns_symbols(monkeypatch):
     _warm(USER)
     out = srv.workspace_symbol(lsp.WorkspaceSymbolParams(query="Widget"))
     assert any(s.name == "Widget" for s in out)
+
+
+def test_struct_definition_preferred_over_forward_declarations(tmp_path):
+    source_file = tmp_path / "structs.btrc"
+    source_file.write_text("struct WorkspaceTail;\nstruct WorkspaceTail { int value; };\nstruct WorkspaceTail;\n")
+    workspace = Workspace()
+    assert workspace.get_file_unit(str(source_file)) is not None
+
+    matches = [
+        symbol
+        for symbol in get_workspace_symbols(workspace, "WorkspaceTail")
+        if symbol.location.uri == source_file.as_uri()
+    ]
+    assert len(matches) == 1
+    assert matches[0].location.range.start.line == 1

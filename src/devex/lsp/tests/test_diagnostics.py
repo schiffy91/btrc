@@ -33,27 +33,25 @@ def test_lexer_error_reported_with_location():
     assert r.diagnostics, "expected a lexer diagnostic"
     d = r.diagnostics[0]
     assert d.severity == lsp.DiagnosticSeverity.Error
-    assert d.range.start.line == 1          # the bad string is on line 1 (0-based)
+    assert d.range.start.line == 1  # the bad string is on line 1 (0-based)
     assert d.source == "btrc"
 
 
 def test_parser_error_reported():
-    r = analyze("class { int x; }\n")        # missing class name
+    r = analyze("class { int x; }\n")  # missing class name
     assert r.diagnostics
     assert r.diagnostics[0].severity == lsp.DiagnosticSeverity.Error
 
 
 def test_analyzer_error_reported_with_message_and_line():
-    src = ("class Box { private int x; public Box() { self.x = 0; } }\n"
-           "int main() { Box b = Box(); return b.x; }\n")
+    src = "class Box { private int x; public Box() { self.x = 0; } }\nint main() { Box b = Box(); return b.x; }\n"
     r = analyze(src)
     assert any("private" in m for m in _msgs(r))
     assert any(d.range.start.line == 1 for d in r.diagnostics)  # b.x access on line 1
 
 
 def test_analyzer_warning_reported_with_warning_severity():
-    src = ("class Box { public int x; public Box() { self.x = 0; } }\n"
-           "int main() { Box? b = new Box(); return b.x; }\n")
+    src = "class Box { public int x; public Box() { self.x = 0; } }\nint main() { Box? b = new Box(); return b.x; }\n"
     r = analyze(src)
     warnings = [d for d in r.diagnostics if d.severity == lsp.DiagnosticSeverity.Warning]
     assert any("Non-optional access" in d.message for d in warnings)

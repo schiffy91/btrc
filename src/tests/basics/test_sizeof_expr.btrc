@@ -6,13 +6,13 @@ int main() {
     assert(sizeof(x) == sizeof(int));
 
     double d = 1.0;
-    assert(sizeof(d) == 8);
+    assert(sizeof(d) == (size_t)8);
 
     // sizeof of a compound expression
     assert(sizeof(x + 1) == sizeof(int));
 
     char c = 'A';
-    assert(sizeof(c) == 1);
+    assert(sizeof(c) == (size_t)1);
 
     // sizeof of a pointer expression
     int* p = &x;

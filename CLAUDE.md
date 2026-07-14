@@ -32,15 +32,15 @@ this RIGHT.
 
 ### Overview
 
-The Python compiler follows a 6-stage pipeline driven by formal specs.
-A self-hosted btrc compiler (same pipeline) is planned but not yet implemented.
+The Python reference compiler and self-hosted btrc compiler follow the same
+6-stage pipeline driven by formal specs.
 
 ```
 SHARED SPECS (single source of truth):
   src/language/grammar.ebnf       keywords, operators, syntax rules
-  src/language/ast/ast.asdl       AST node types (Zephyr ASDL)
-  src/language/ast/asdl_python.py ASDL → Python dataclasses
-  src/language/ast/asdl_btrc.py   ASDL → btrc classes
+  src/language/ast.asdl                   AST node types (Zephyr ASDL)
+  src/compiler/python/ast/asdl_python.py  ASDL → Python dataclasses
+  src/compiler/python/ast/gen_btrc_ast.py ASDL → btrc fat tagged nodes
 
 PIPELINE:
   source.btrc
@@ -68,7 +68,7 @@ PIPELINE:
 
 #### Stage 2: Parser
 - Hand-written recursive descent, guided by grammar rules
-- Produces typed AST nodes generated from `src/language/ast/ast.asdl`
+- Produces typed AST nodes generated from `src/language/ast.asdl`
 - Handles disambiguation: generic `<` vs comparison, cast vs grouping,
   for-in vs C-for, tuple type vs paren group
 - ASDL wrapper types: ElseBlock/ElseIf, ForInitVar/ForInitExpr,
@@ -94,9 +94,10 @@ PIPELINE:
   - Lambdas → static functions + capture structs
   - String/collection methods → runtime helper calls
   - Operator overloading → method calls
-  - Vtable setup for inheritance/interfaces
+  - Static inheritance/member lowering and interface-contract validation
 - **Produces structured IR nodes** (IRIf, IRCall, IRFor, IRBinOp, etc.)
-- **NEVER produces C text** (exception: IRRawC for setjmp boilerplate only)
+- **NEVER produces C text.** Runtime helpers are pre-authored in
+  `ir/helpers/`; IR generation may reference them, but does not assemble them.
 
 #### Stage 5: Optimizer
 - Walks IR tree, collects runtime helper references
@@ -113,18 +114,18 @@ PIPELINE:
 ## Shared Specs
 
 ### src/language/grammar.ebnf
-- @lexical: @keywords (60 keywords), @operators (48 operators sorted longest-first)
+- @lexical: the canonical keyword and longest-first operator tables
 - @syntax: grammar rules (human-readable spec, not parser-generator input)
 - EBNF parser extracts GrammarInfo: keyword set, operator list,
   keyword→token mapping, operator→token mapping
 
-### src/language/ast/ast.asdl (Zephyr ASDL)
-- ~50 AST node types with typed fields
+### src/language/ast.asdl (Zephyr ASDL)
+- Typed sum and product node definitions for the complete source AST
 - Sum types: decl, stmt, expr, class_member, if_else, for_init, etc.
 - Product types: Program, ClassDecl, BinaryExpr, etc.
 - attributes(int line, int col) on nodes that have source locations
 - Field names ARE the API contract for analyzer, IR gen, LSP, and tests
-- NEVER hand-edit ast_nodes.py or ast_nodes.btrc — regenerate from ASDL
+- NEVER hand-edit ast_nodes.py or ast/node.btrc — regenerate from ASDL
 
 ---
 
@@ -144,10 +145,12 @@ src/compiler/python/
   tokens.py                     Token + TokenType enum
   lexer.py                      grammar-driven tokenizer
   lexer_literals.py             number/string literal parsing
-  ast_nodes.py                  GENERATED from src/language/ast/ast.asdl
+  ast_nodes.py                  GENERATED from src/language/ast.asdl
   main.py                       pipeline entry point + CLI
-  cache.py                      stdlib source caching
-  disk_cache.py                 on-disk compilation cache
+  cache_io.py                   atomic JSON/text cache writes
+  cache_keys.py                 cache paths + toolchain fingerprints
+  disk_cache.py                 on-disk compiled-C cache
+  stdlib_ast_cache.py           schema-validated JSON stdlib AST cache
 
   parser/                        recursive descent parser (mixin-based)
     parser.py                    assembles Parser from mixins
@@ -229,19 +232,20 @@ src/compiler/python/
       cycles.py                  ARC cycle detection helpers
       threads.py                 threading helpers (pthread wrappers)
 
-  tests/
-    test_lexer.py                tokenize snippets → check tokens
-    test_parser.py               parse snippets → check AST structure
-    test_analyzer.py             analyze snippets → check types/errors
 ```
+
+Compiler tests live in `src/tests/python/`; generated language/runtime fixtures
+and their golden output live alongside the topic-organized corpus in
+`src/tests/`.
 
 ---
 
-## btrc Compiler (src/compiler/btrc/) — NOT YET IMPLEMENTED
+## btrc Compiler (src/compiler/btrc/)
 
-The self-hosted compiler is planned but does not exist yet. When implemented,
-it will be a faithful port of the Python compiler in btrc, following the same
-6-stage pipeline and producing identical output for every input.
+The self-hosted compiler implements the same six-stage pipeline with fat tagged
+AST and IR nodes. `btrcc_main.btrc` is the production driver; the unified
+language runner executes the corpus through both compilers, and the bootstrap
+suite proves a byte-stable self-hosting fixed point.
 
 ---
 
@@ -259,15 +263,15 @@ it will be a faithful port of the Python compiler in btrc, following the same
 
 ### Test Categories
 
-#### 1. Python Unit Tests (per-stage, 568 tests)
+#### 1. Python Unit Tests (per-stage)
 ```
-src/compiler/python/tests/
+src/tests/python/
   test_lexer.py           tokenize snippets → check tokens
   test_parser.py          parse snippets → check AST structure
   test_analyzer.py        analyze snippets → check types/errors
 ```
 
-#### 2. Language Tests (362 .btrc files, organized by topic)
+#### 2. Language Tests (organized by topic)
 ```
 src/tests/
   runner.py                test runner (pytest parametrized)
@@ -296,12 +300,17 @@ Each subdirectory has:
 ### Makefile Targets
 ```
 make build                Create bin/btrcpy wrapper script
-make test                 Run all tests (unit + language, gcc -std=c11)
-make test-unit            Run Python unit tests only (lexer, parser, analyzer)
-make test-btrc            Run language tests only (gcc -std=c11)
+make test                 Run unit, LSP, debugger, and both compiler corpora
+make test-unit            Run Python reference-compiler unit tests
+make test-lsp             Run editor/LSP tests
+make test-debug           Run debugger/DAP tests
+make test-btrc            Run the corpus through the Python compiler
+make test-btrc-selfhost   Run the corpus through btrcc plus self-host tests
+make bootstrap            Prove the self-hosted compiler's fixed point
 make test-c11             Strict C11: gcc + clang at -O0 through -O3
 make lint                 Run ruff linter
 make format               Format with ruff
+make format-check         Check formatting without modifying files
 make test-generate-goldens  Regenerate golden .stdout files
 make stubs-generate       Regenerate built-in type stubs
 make extension            Package VSCode extension (.vsix)
@@ -316,6 +325,8 @@ make devcontainer         Generate .devcontainer/ and build image
 make clean                Remove build artifacts
 ```
 
+Run `make help` for the canonical, complete target list.
+
 ---
 
 ## Hard Rules (Summary)
@@ -325,6 +336,6 @@ make clean                Remove build artifacts
 3. **Grammar is the single source of truth.** No hardcoded keywords/operators.
 4. **AST types come from ASDL.** Never hand-edit generated files.
 5. **Files ~200 lines max.** Decompose into packages.
-6. **All 930 tests must pass.** No "pre-existing failures."
+6. **All tests must pass.** No "pre-existing failures."
 7. **Generated C must be strict C11.** No compiler-specific extensions.
 8. **Don't cut corners when context runs low.** Save state and stop.

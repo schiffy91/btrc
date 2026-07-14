@@ -1,0 +1,320 @@
+/* Function/method calls, field access, and indexing validation. */
+
+int semanticParameterIndex(Vector<Node> params, string name) {
+    int index = 0;
+    while (index < params.len) {
+        if (params.get(index).name == name) { return index; }
+        index = index + 1;
+    }
+    return -1;
+}
+
+void semanticAddMethodSubstitutions(Node method, Node call,
+        Map<string, Node> substitutions, SemanticValidationState state) {
+    if (method.generic_params.len == 0) { return; }
+    string callKey = astNodeKey(call);
+    if (!state.analyzed.methodGenCallArgs.has(callKey)) {
+        semanticValidationFail("Cannot infer generic arguments for method '"
+            + method.name + "'", call);
+    }
+    Vector<Node> arguments = state.analyzed.methodGenCallArgs.get(callKey);
+    if (arguments.len != method.generic_params.len) {
+        semanticValidationFail("Generic method '" + method.name
+            + "' requires " + Strings.fromInt(method.generic_params.len)
+            + " type argument(s)", call);
+    }
+    int index = 0;
+    while (index < method.generic_params.len) {
+        substitutions.put(
+            method.generic_params.get(index), arguments.get(index));
+        index = index + 1;
+    }
+}
+
+void semanticValidateSignature(string label, Vector<Node> params,
+        Node call, Map<string, Node> substitutions,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Map<string, bool> supplied = {};
+    int positional = 0;
+    bool sawNamed = false;
+    int argumentIndex = 0;
+    while (argumentIndex < call.args.len) {
+        string argumentName = "";
+        if (argumentIndex < call.arg_names.len) {
+            argumentName = call.arg_names.get(argumentIndex);
+        }
+        int parameterIndex = -1;
+        if (argumentName != "") {
+            sawNamed = true;
+            parameterIndex = semanticParameterIndex(params, argumentName);
+            if (parameterIndex < 0) {
+                semanticValidationFail("'" + label
+                    + "()' has no parameter named '" + argumentName + "'", call);
+            }
+        } else {
+            if (sawNamed) {
+                semanticValidationFail("'" + label
+                    + "()' positional argument follows named argument", call);
+            }
+            parameterIndex = positional;
+            positional = positional + 1;
+        }
+        if (parameterIndex >= params.len) {
+            semanticValidationFail("'" + label + "()' expects at most "
+                + Strings.fromInt(params.len) + " argument(s) but got "
+                + Strings.fromInt(call.args.len), call);
+        }
+        string suppliedKey = Strings.fromInt(parameterIndex);
+        if (supplied.has(suppliedKey)) {
+            semanticValidationFail("'" + label
+                + "()' got one parameter more than once", call);
+        }
+        supplied.put(suppliedKey, true);
+        Node parameter = params.get(parameterIndex);
+        Node expected = parameter.type;
+        if (substitutions.len > 0) {
+            expected = resolveGenericType(expected, substitutions);
+        }
+        Node argument = call.args.get(argumentIndex);
+        Node? actual = semanticInferType(argument, state, vars);
+        if (actual != null
+                && !semanticAssignmentCompatible(expected, actual, state)) {
+            semanticValidationFail("Argument '" + parameter.name + "' to '"
+                + label + "()' expects '" + semanticFormatType(expected)
+                + "' but got '" + semanticFormatType(actual) + "'", argument);
+        }
+        argumentIndex = argumentIndex + 1;
+    }
+    int parameterIndex = 0;
+    while (parameterIndex < params.len) {
+        Node parameter = params.get(parameterIndex);
+        if (!supplied.has(Strings.fromInt(parameterIndex))
+                && parameter.default_ == null) {
+            semanticValidationFail("'" + label
+                + "()' missing required argument '" + parameter.name + "'", call);
+        }
+        parameterIndex = parameterIndex + 1;
+    }
+}
+
+void semanticValidateCall(Node call, SemanticValidationState state,
+        Map<string, Node> vars) {
+    int threadArgumentIndex = 0;
+    while (threadArgumentIndex < call.args.len) {
+        semanticRejectThreadValueEscape(
+            call.args.get(threadArgumentIndex), "passed as arguments",
+            state, vars);
+        threadArgumentIndex = threadArgumentIndex + 1;
+    }
+    semanticRejectRichEnumOwnedArgs(call, state, vars);
+    Node callee = call.callee;
+    Map<string, Node> noSubstitutions = {};
+    if (callee == null) { return; }
+    if (callee.kind == NK_IDENTIFIER) {
+        string name = callee.name;
+        if (name == "Mutex") {
+            if (call.args.len != 1) {
+                semanticValidationFail("'Mutex()' expects 1 argument but got "
+                    + Strings.fromInt(call.args.len), call);
+            }
+            int mutexArgIndex = 0;
+            while (mutexArgIndex < call.arg_names.len) {
+                if (call.arg_names.get(mutexArgIndex) != "") {
+                    semanticValidationFail(
+                        "'Mutex()' does not accept named arguments", call);
+                }
+                mutexArgIndex = mutexArgIndex + 1;
+            }
+            return;
+        }
+        if (state.analyzed.funcTable.has(name)) {
+            Node functionDecl = state.analyzed.funcTable.get(name);
+            semanticValidateSignature(name, functionDecl.params, call,
+                noSubstitutions, state, vars);
+            return;
+        }
+        if (state.analyzed.isClass(name)) {
+            Node classDeclaration = state.analyzed.classTable.get(name);
+            if (classDeclaration.is_abstract) {
+                semanticValidationFail(
+                    "Cannot instantiate abstract class '" + name + "'", call);
+            }
+            Node? constructor = state.analyzed.classConstructor(name);
+            if (constructor == null) {
+                if (call.args.len > 0) {
+                    semanticValidationFail("Class '" + name
+                        + "' has no constructor but was called with "
+                        + Strings.fromInt(call.args.len) + " argument(s)", call);
+                }
+            } else {
+                semanticValidateSignature(name, constructor.params, call,
+                    noSubstitutions, state, vars);
+            }
+            return;
+        }
+        if (vars.has(name)) {
+            Node? resolvedCallable = directFunctionPointerType(
+                vars.get(name), state.analyzed);
+            if (resolvedCallable == null) {
+                semanticValidationFail("Value '" + name
+                    + "' is not callable", call);
+            }
+            Node callable = resolvedCallable;
+            Vector<Node> params = [];
+            int index = 1;
+            while (index < callable.generic_args.len) {
+                Node parameter = Node();
+                parameter.kind = NK_PARAM;
+                parameter.name = Strings.fromInt(index);
+                parameter.type = callable.generic_args.get(index);
+                params.push(parameter);
+                index = index + 1;
+            }
+            semanticValidateSignature(name, params, call,
+                noSubstitutions, state, vars);
+            return;
+        }
+        return;
+    }
+    if (callee.kind == NK_LAMBDA_EXPR) {
+        semanticValidateSignature("lambda", callee.params, call,
+            noSubstitutions, state, vars);
+        return;
+    }
+    Node? calleeType = directFunctionPointerType(
+        semanticInferType(callee, state, vars), state.analyzed);
+    if (calleeType != null) {
+        Vector<Node> callableParams = [];
+        int callableIndex = 1;
+        while (callableIndex < calleeType.generic_args.len) {
+            Node callableParam = Node();
+            callableParam.kind = NK_PARAM;
+            callableParam.name = Strings.fromInt(callableIndex);
+            callableParam.type = calleeType.generic_args.get(callableIndex);
+            callableParams.push(callableParam);
+            callableIndex = callableIndex + 1;
+        }
+        semanticValidateSignature("callable", callableParams, call,
+            noSubstitutions, state, vars);
+        return;
+    }
+    if (callee.kind != NK_FIELD_ACCESS_EXPR) {
+        if (calleeType != null) {
+            semanticValidationFail("Expression is not callable", call);
+        }
+        return;
+    }
+    string methodName = callee.field;
+    if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER
+            && state.analyzed.isClass(callee.obj.name)) {
+        string className = callee.obj.name;
+        Node? method = state.analyzed.classMethod(className, methodName);
+        if (method == null || method.kind != NK_METHOD_DECL) {
+            semanticValidationFail("Class '" + className
+                + "' has no class method '" + methodName + "'", call);
+        }
+        Node concreteMethod = method;
+        if (concreteMethod.access != "class") {
+            semanticValidationFail("Method '" + className + "."
+                + methodName + "' is not a class method", call);
+        }
+        semanticValidateSignature(className + "." + methodName,
+            concreteMethod.params, call, noSubstitutions, state, vars);
+        return;
+    }
+    Node? receiver = semanticInferType(callee.obj, state, vars);
+    if (receiver == null) { return; }
+    Node? canonicalReceiver = semanticResolveAliases(receiver, state);
+    if (canonicalReceiver != null
+            && canonicalReceiver.base == "Thread"
+            && methodName == "join") {
+        semanticValidateThreadJoinReceiver(call);
+        return;
+    }
+    if (isStringType(receiver)) {
+        semanticValidateStringCall(call, state, vars);
+        return;
+    }
+    Node? method = null;
+    Map<string, Node> substitutions = {};
+    if (state.analyzed.isClass(receiver.base)) {
+        method = state.analyzed.classMethod(receiver.base, methodName);
+    } else if (state.analyzed.isGenericClass(receiver.base)) {
+        method = state.analyzed.genericClassMethod(
+            receiver.base, methodName);
+        substitutions = genericTypeMap(state.analyzed, receiver);
+    } else if (state.interfaces.has(receiver.base)) {
+        method = semanticInterfaceMethod(state, receiver.base, methodName);
+    } else {
+        return;
+    }
+    if (method == null || method.kind != NK_METHOD_DECL) {
+        semanticValidationFail("Type '" + semanticFormatType(receiver)
+            + "' has no method '" + methodName + "'", call);
+    }
+    Node concreteMethod = method;
+    if (concreteMethod.access == "class") {
+        semanticValidationFail("Class method '" + receiver.base + "."
+            + methodName + "' must be called on the class", call);
+    }
+    semanticAddMethodSubstitutions(
+        concreteMethod, call, substitutions, state);
+    semanticValidateSignature(receiver.base + "." + methodName,
+        concreteMethod.params, call, substitutions, state, vars);
+}
+
+void semanticValidateField(Node expression, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (expression.obj == null) { return; }
+    if (expression.obj.kind == NK_IDENTIFIER) {
+        if (state.analyzed.isEnum(expression.obj.name)) {
+            if (!state.analyzed.enumContains(
+                    expression.obj.name, expression.field)) {
+                semanticValidationFail("Enum '" + expression.obj.name
+                    + "' has no value '" + expression.field + "'",
+                    expression);
+            }
+            return;
+        }
+        if (state.analyzed.isRichEnum(expression.obj.name)
+                || state.analyzed.isClass(expression.obj.name)) {
+            return;
+        }
+    }
+    Node? receiver = semanticInferType(expression.obj, state, vars);
+    if (receiver == null || isStringType(receiver)
+            || state.analyzed.isRichEnum(receiver.base)) {
+        return;
+    }
+    if (receiver.base == "Tuple") {
+        int tupleIndex = tupleFieldIndex(expression.field);
+        if (tupleIndex < 0 || tupleIndex >= receiver.generic_args.len) {
+            semanticValidationFail("Tuple type '"
+                + semanticFormatType(receiver) + "' has no field '"
+                + expression.field + "'", expression);
+        }
+        return;
+    }
+    string structName = structResolvedName(receiver, state.analyzed);
+    if (structName != "") {
+        if (structFieldType(receiver, expression.field,
+                state.analyzed) == null) {
+            semanticValidationFail("Struct '" + structName
+                + "' has no field '" + expression.field + "'", expression);
+        }
+        return;
+    }
+    Node? member = null;
+    if (state.analyzed.isClass(receiver.base)) {
+        member = state.analyzed.classMember(receiver.base, expression.field);
+    } else if (state.analyzed.isGenericClass(receiver.base)) {
+        member = genericMember(
+            state.analyzed, receiver.base, expression.field);
+    } else {
+        return;
+    }
+    if (member == null) {
+        semanticValidationFail("Type '" + semanticFormatType(receiver)
+            + "' has no member '" + expression.field + "'", expression);
+    }
+}

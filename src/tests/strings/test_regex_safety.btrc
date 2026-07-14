@@ -1,0 +1,21 @@
+/* Regex bounds and output growth: invalid slices are harmless, large literal
+ * replacements grow safely, and zero-width substitutions always progress. */
+#include <assert.h>
+
+int main() {
+    assert(Regex.slice("abc", -1, 2).equals(""));
+    assert(Regex.slice("abc", 1, 4).equals(""));
+    assert(Regex.slice("abc", 1, 3).equals("bc"));
+
+    string replacement =
+        "01234567890123456789012345678901234567890123456789";
+    string grown = Regex.replaceAll("x", "xxxx", replacement);
+    assert(grown.len() == replacement.len() * 4);
+    assert(grown.startsWith(replacement));
+
+    assert(Regex.replace("^", "abc", "X").equals("Xabc"));
+    assert(Regex.replaceAll("$", "abc", "X").equals("abcX"));
+
+    print("PASS: test_regex_safety");
+    return 0;
+}

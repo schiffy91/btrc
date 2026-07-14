@@ -4,38 +4,83 @@
 
 import std.vector;
 
+#include <stdint.h>
+#include <time.h>
+
 class Random {
     private bool seeded;
+    private unsigned long long state;
 
     public Random() {
         self.seeded = false;
+        self.state = 0ULL;
+    }
+
+    private void initialize(unsigned long long value) {
+        /* Canonical PCG initialization with a fixed odd stream increment. */
+        self.state = 0ULL;
+        self.seeded = true;
+        self.nextU32();
+        self.state = self.state + value;
+        self.nextU32();
     }
 
     public void seed(int s) {
-        srand(s);
-        self.seeded = true;
+        self.initialize((unsigned long long)(unsigned int)s);
     }
 
     public void seedTime() {
-        srand((unsigned int)time(NULL));
-        self.seeded = true;
+        /* Fold independent process-local entropy into the 64-bit state.  The
+         * object address distinguishes instances created during one clock
+         * tick; neither this nor nextU32 mutates the C library's global PRNG. */
+        unsigned long long address = (unsigned long long)(uintptr_t)self;
+        unsigned long long entropy = (unsigned long long)time(NULL)
+            ^ ((unsigned long long)clock() << 32)
+            ^ address;
+        self.initialize(entropy);
+    }
+
+    private unsigned int nextU32() {
+        if (!self.seeded) {
+            self.seedTime();
+        }
+        unsigned long long previous = self.state;
+        self.state = previous * 6364136223846793005ULL
+            + 1442695040888963407ULL;
+        unsigned int shifted =
+            (unsigned int)(((previous >> 18u) ^ previous) >> 27u);
+        unsigned int rotation = (unsigned int)(previous >> 59u);
+        return (shifted >> rotation)
+            | (shifted << ((0u - rotation) & 31u));
     }
 
     /* Random integer in [lo, hi] inclusive.
      * If hi < lo the bounds are swapped, so randint(5, 3) == randint(3, 5). */
     public int randint(int lo, int hi) {
-        if (!self.seeded) { self.seedTime(); }
         if (hi < lo) {
             int tmp = lo;
             lo = hi;
             hi = tmp;
         }
-        return lo + rand() % (hi - lo + 1);
+
+        /* Widen before subtracting so INT_MIN..INT_MAX is a valid range.
+         * Rejection sampling also avoids the modulo bias of rand() % span. */
+        unsigned long long span =
+            (unsigned long long)((long long)hi - (long long)lo) + 1ULL;
+        unsigned long long domain = 4294967296ULL;
+        unsigned long long limit = domain - (domain % span);
+        unsigned long long sample = (unsigned long long)self.nextU32();
+        while (sample >= limit) {
+            sample = (unsigned long long)self.nextU32();
+        }
+        unsigned long long offset = sample % span;
+        return (int)((long long)lo + (long long)offset);
     }
 
     public float random() {
-        if (!self.seeded) { self.seedTime(); }
-        return (float)rand() / (float)RAND_MAX;
+        /* A float has 24 bits of integer precision.  Scaling exactly 24 random
+         * bits by 2^-24 guarantees the advertised half-open interval [0, 1). */
+        return (float)(self.nextU32() >> 8) / 16777216.0f;
     }
 
     public float uniform(float lo, float hi) {

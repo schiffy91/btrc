@@ -1,0 +1,42 @@
+/* Nullable ownership operations are null-safe, and assigning null into a
+ * managed field releases the field's previous reference before clearing it. */
+#include <assert.h>
+
+int alive = 0;
+
+class Obj {
+    public Obj() { alive++; }
+    public void __del__() { alive--; }
+}
+
+class Holder {
+    public Obj? item;
+    public Holder() { self.item = null; }
+}
+
+void acceptNullable(keep Obj? value) {
+    assert(value == null);
+}
+
+int main() {
+    Holder holder = new Holder();
+    Obj value = new Obj();
+    holder.item = value;
+    release value;
+    assert(alive == 1);
+
+    holder.item = null;
+    assert(holder.item == null);
+    assert(alive == 0);
+
+    Obj? empty = null;
+    keep empty;
+    release empty;
+    holder.item = empty;
+    acceptNullable(empty);
+    assert(holder.item == null);
+    assert(alive == 0);
+
+    print("PASS: test_nullable_ownership_ops");
+    return 0;
+}

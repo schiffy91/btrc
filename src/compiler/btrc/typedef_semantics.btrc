@@ -1,0 +1,67 @@
+/* Canonical user-typedef expansion shared by analysis and IR generation.
+ * Source declarations still emit their aliases; inferred expression types use
+ * the underlying shape so operators, members, calls, and generic arguments all
+ * see one semantic type domain. */
+
+void typedefSemanticFail(string message, Node site) {
+    fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
+    exit(1);
+}
+
+Node composeTypedefType(Node useType, Node originalType) {
+    if (useType.is_array && originalType.is_array) {
+        typedefSemanticFail(
+            "Nested array composition through typedef is not supported",
+            useType);
+    }
+    Node result = Node();
+    result.kind = NK_TYPE_EXPR;
+    result.base = originalType.base;
+    result.generic_args = originalType.generic_args;
+    result.pointer_depth = originalType.pointer_depth
+        + useType.pointer_depth;
+    result.is_array = originalType.is_array || useType.is_array;
+    if (useType.array_size != null) {
+        result.array_size = useType.array_size;
+    } else {
+        result.array_size = originalType.array_size;
+    }
+    result.is_const = originalType.is_const || useType.is_const;
+    result.is_nullable = originalType.is_nullable || useType.is_nullable;
+    result.is_static = originalType.is_static || useType.is_static;
+    result.is_extern = originalType.is_extern || useType.is_extern;
+    result.is_volatile = originalType.is_volatile || useType.is_volatile;
+    if (useType.line != 0) { result.line = useType.line; }
+    else { result.line = originalType.line; }
+    if (useType.col != 0) { result.col = useType.col; }
+    else { result.col = originalType.col; }
+    return result;
+}
+
+Node? resolveTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
+    if (typeExpr == null) { return null; }
+    Node current = typeExpr;
+    Map<string, bool> visited = {};
+    while (current.generic_args.len == 0 && typedefs.has(current.base)) {
+        if (visited.has(current.base)) {
+            typedefSemanticFail(
+                "Cyclic typedef involving '" + current.base + "'", typeExpr);
+        }
+        visited.put(current.base, true);
+        current = composeTypedefType(current, typedefs.get(current.base));
+    }
+    if (current.generic_args.len == 0) { return current; }
+    Vector<Node> args = [];
+    int index = 0;
+    while (index < current.generic_args.len) {
+        Node? resolved = resolveTypedefType(
+            current.generic_args.get(index), typedefs);
+        if (resolved == null) {
+            typedefSemanticFail("Invalid null generic type", typeExpr);
+        }
+        Node concrete = resolved;
+        args.push(concrete);
+        index = index + 1;
+    }
+    return copyTypeExprWithArgs(current, args);
+}

@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from types import MappingProxyType
+
 from ...ast_nodes import TypeExpr
+from ...type_identity import (
+    ensure_supported_generic_arguments,
+    is_semantic_scalar_string,
+    mangle_function_pointer_symbol,
+    mangle_generic_symbol,
+    type_symbol_component,
+)
+from ..nodes import CType, IRFunctionPointerTypedef
 
 # Primitive btrc types → C type strings
 _PRIMITIVE_MAP = {
@@ -40,7 +54,7 @@ def type_to_c(t: TypeExpr | None) -> str:
         return "__btrc_mutex_val_t*"
 
     # Const qualifier prefix
-    prefix = "const " if getattr(t, 'is_const', False) else ""
+    prefix = "const " if getattr(t, "is_const", False) else ""
 
     # Primitives
     if base in _PRIMITIVE_MAP and not t.generic_args:
@@ -72,75 +86,100 @@ def type_to_c(t: TypeExpr | None) -> str:
     return prefix + c
 
 
-# Track emitted function pointer typedefs (mangled_name → typedef text)
-_fn_ptr_typedefs: dict[str, str] = {}
+# Function-pointer declarations belong to one translation unit. Context-local,
+# immutable state keeps nested, async, and concurrent compilations isolated.
+_FnPtrSignature = tuple[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True)
+class _FnPtrTypedefState:
+    definitions: Mapping[str, _FnPtrSignature]
+    emitted: frozenset[str]
+
+
+_fn_ptr_typedefs: ContextVar[_FnPtrTypedefState | None] = ContextVar(
+    "btrc_fn_ptr_typedefs",
+    default=None,
+)
+
+
+def _empty_fn_ptr_state() -> _FnPtrTypedefState:
+    return _FnPtrTypedefState(MappingProxyType({}), frozenset())
+
+
+def _current_fn_ptr_state() -> _FnPtrTypedefState:
+    return _fn_ptr_typedefs.get() or _empty_fn_ptr_state()
+
+
+@contextmanager
+def fn_ptr_typedef_scope() -> Iterator[None]:
+    """Create and reliably tear down one translation unit's typedef registry."""
+    token = _fn_ptr_typedefs.set(_empty_fn_ptr_state())
+    try:
+        yield
+    finally:
+        _fn_ptr_typedefs.reset(token)
 
 
 def fn_ptr_typedef_name(t: TypeExpr) -> str:
     """Get/create a typedef name for a function pointer type."""
     ret_type = type_to_c(t.generic_args[0]) if t.generic_args else "void"
     param_types = [type_to_c(a) for a in t.generic_args[1:]]
-    # Mangle: __btrc_fn_int_int
-    parts = [mangle_type_name(a) for a in t.generic_args]
-    mangled = f"__btrc_fn_{'_'.join(parts)}"
-    if mangled not in _fn_ptr_typedefs:
-        params_str = ", ".join(param_types) if param_types else "void"
-        _fn_ptr_typedefs[mangled] = (
-            f"typedef {ret_type} (*{mangled})({params_str});")
+    mangled = mangle_function_pointer_symbol(t.generic_args)
+    state = _current_fn_ptr_state()
+    if mangled not in state.definitions:
+        definitions = dict(state.definitions)
+        definitions[mangled] = (ret_type, tuple(param_types))
+        _fn_ptr_typedefs.set(
+            _FnPtrTypedefState(
+                definitions=MappingProxyType(definitions),
+                emitted=state.emitted,
+            )
+        )
     return mangled
 
 
-def get_fn_ptr_typedefs() -> list[str]:
-    """Return all accumulated function pointer typedef strings and clear the cache."""
-    result = list(_fn_ptr_typedefs.values())
-    _fn_ptr_typedefs.clear()
+def get_fn_ptr_typedefs() -> list[IRFunctionPointerTypedef]:
+    """Return declarations not yet emitted in this translation unit."""
+    state = _current_fn_ptr_state()
+    result = [
+        IRFunctionPointerTypedef(
+            name=name,
+            return_type=CType(text=return_type),
+            param_types=[CType(text=parameter) for parameter in parameters],
+        )
+        for name, (return_type, parameters) in state.definitions.items()
+        if name not in state.emitted
+    ]
+    _fn_ptr_typedefs.set(
+        _FnPtrTypedefState(
+            definitions=state.definitions,
+            emitted=frozenset(state.definitions),
+        )
+    )
     return result
 
 
 def reset_fn_ptr_typedefs() -> None:
-    """Clear the module-level fn-ptr typedef accumulator.
-
-    This is module-global state, so it must be reset at the start of every
-    compile or typedefs leak between compiles that share a process (the LSP
-    and the test runner both compile many files per process; a one-shot CLI
-    invocation never noticed because each run got a fresh interpreter)."""
-    _fn_ptr_typedefs.clear()
+    """Reset the function-pointer registry in the current execution context."""
+    _fn_ptr_typedefs.set(_empty_fn_ptr_state())
 
 
 def mangle_generic_type(base: str, args: list[TypeExpr]) -> str:
     """Mangle a generic type to a C-safe name: List<int> → btrc_List_int."""
-    parts = [mangle_type_name(a) for a in args]
-    return f"btrc_{base}_{'_'.join(parts)}"
-
-
-def _pointer_suffix(t: TypeExpr) -> str:
-    """Suffix encoding pointer depth so e.g. ``Vector<int*>`` mangles distinctly
-    from ``Vector<int>``. Empty for depth 0 to keep non-pointer mangling (and
-    therefore existing generated C symbols) byte-identical.
-    """
-    depth = getattr(t, "pointer_depth", 0)
-    return f"_p{depth}" if depth else ""
+    ensure_supported_generic_arguments(args)
+    return mangle_generic_symbol(base, args)
 
 
 def mangle_type_name(t: TypeExpr) -> str:
     """Mangle a single type for use in C identifiers."""
-    if t.generic_args:
-        inner = "_".join(mangle_type_name(a) for a in t.generic_args)
-        return f"{t.base}_{inner}{_pointer_suffix(t)}"
-    base = t.base
-    # Normalize string → str for mangling
-    if base == "string":
-        return f"string{_pointer_suffix(t)}"
-    if base in _PRIMITIVE_MAP:
-        return f"{base}{_pointer_suffix(t)}"
-    return f"{base}{_pointer_suffix(t)}"
+    return type_symbol_component(t)
 
 
 def mangle_tuple_type(t: TypeExpr) -> str:
     """Mangle a tuple type: (int, string) → btrc_Tuple_int_string."""
     if t.generic_args:
-        parts = [mangle_type_name(a) for a in t.generic_args]
-        return f"btrc_Tuple_{'_'.join(parts)}"
+        return mangle_generic_symbol("Tuple", t.generic_args)
     return "btrc_Tuple"
 
 
@@ -157,10 +196,8 @@ def is_pointer_type(t: TypeExpr | None) -> bool:
 
 
 def is_string_type(t: TypeExpr | None) -> bool:
-    """Check if a type is a string type."""
-    if t is None:
-        return False
-    return t.base == "string" and not t.generic_args and t.pointer_depth == 0
+    """Check for a semantic scalar string, excluding arrays/raw pointers."""
+    return is_semantic_scalar_string(t)
 
 
 def is_numeric_type(t: TypeExpr | None) -> bool:
@@ -178,21 +215,16 @@ def is_generic_class_type(t: TypeExpr | None, class_table: dict) -> bool:
     return info is not None and bool(info.generic_params)
 
 
-def is_concrete_type(t: TypeExpr) -> bool:
-    """Check if a type is fully resolved (no unresolved generic params like T, K, V)."""
-    base = t.base
-    if base in _PRIMITIVE_MAP:
-        pass
-    elif len(base) == 1 and base.isupper():
-        # Single uppercase letter → likely a type parameter
+def is_direct_generic_instance_reference(
+    t: TypeExpr | None,
+    class_table: dict,
+) -> bool:
+    """Whether ``t`` is one generic heap reference, not storage around it."""
+    if not is_generic_class_type(t, class_table) or t.is_array:
         return False
-    # Check generic args recursively
-    return all(is_concrete_type(arg) for arg in t.generic_args)
-
-
-def is_concrete_instance(args: tuple) -> bool:
-    """Check if a generic instance tuple has all concrete types."""
-    return all(is_concrete_type(a) for a in args)
+    # Analyzer normalization upgrades class values from semantic depth 0 to C
+    # reference depth 1.  A composed/raw pointer around that value is depth 2+.
+    return t.pointer_depth <= 1
 
 
 def element_type_c(t: TypeExpr) -> str:
@@ -209,12 +241,24 @@ def format_spec_for_type(t: TypeExpr | None) -> str:
     base = t.base
     if t.pointer_depth > 0:
         return "%s"  # Any pointer (char*, etc.) → %s
-    if base in ("int", "short", "byte", "uint"):
+    if base in ("int", "short", "short int", "signed int", "signed short", "signed short int"):
         return "%d"
-    if base == "long":
+    if base in ("byte", "uint", "unsigned int", "unsigned short", "unsigned short int", "unsigned char"):
+        return "%u"
+    if base in ("long", "long int", "signed long", "signed long int"):
         return "%ld"
+    if base in ("unsigned long", "unsigned long int"):
+        return "%lu"
+    if base in ("long long", "long long int", "signed long long", "signed long long int"):
+        return "%lld"
+    if base in ("unsigned long long", "unsigned long long int"):
+        return "%llu"
+    if base == "size_t":
+        return "%zu"
     if base in ("float", "double"):
         return "%f"
+    if base == "long double":
+        return "%Lf"
     if base == "char":
         return "%c"
     if base == "string":

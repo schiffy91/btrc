@@ -18,13 +18,14 @@ from src.compiler.python.ast_nodes import (
     StructDecl,
     TypedefDecl,
 )
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, analysis_positions_are_stable
+from src.devex.lsp.text_coordinates import protocol_position, utf16_length
 from src.devex.lsp.utils import active_decls, find_closing_brace_line, type_repr
 
 
-def _pos(line: int, col: int) -> lsp.Position:
+def _pos(source: str, line: int, col: int) -> lsp.Position:
     """Convert 1-based btrc position to 0-based LSP position."""
-    return lsp.Position(line=max(0, line - 1), character=max(0, col - 1))
+    return protocol_position(source, line, col)
 
 
 def _document_position(
@@ -45,18 +46,16 @@ def _range_from_node(
     if mapped is None:
         return None
     line, col = mapped
-    start = _pos(line, col)
+    start = _pos(result.source, line, col)
 
     if isinstance(node, (ClassDecl, FunctionDecl, MethodDecl)):
         end_line = find_closing_brace_line(source_lines, line - 1)
         if end_line is not None:
-            end_col = len(source_lines[end_line]) if end_line < len(source_lines) else 0
-            return lsp.Range(
-                start=start, end=lsp.Position(line=end_line, character=end_col)
-            )
+            end_col = utf16_length(source_lines[end_line]) if end_line < len(source_lines) else 0
+            return lsp.Range(start=start, end=lsp.Position(line=end_line, character=end_col))
 
     line_idx = max(0, line - 1)
-    end_col = len(source_lines[line_idx]) if line_idx < len(source_lines) else 0
+    end_col = utf16_length(source_lines[line_idx]) if line_idx < len(source_lines) else 0
     return lsp.Range(start=start, end=lsp.Position(line=line_idx, character=end_col))
 
 
@@ -83,7 +82,7 @@ def _selection_range(result: AnalysisResult, node) -> lsp.Range | None:
     line, col = _name_line_col(node)
     if line == 0:
         return None
-    start = _pos(line, col)
+    start = _pos(result.source, line, col)
     name = getattr(node, "name", "") or getattr(node, "alias", "")
     end = lsp.Position(line=start.line, character=start.character + len(name))
     return lsp.Range(start=start, end=end)
@@ -98,7 +97,7 @@ def _method_detail(method: MethodDecl) -> str:
 
 def get_document_symbols(result: AnalysisResult) -> list[lsp.DocumentSymbol]:
     """Extract document symbols from the parsed AST."""
-    if not result.ast:
+    if not result.ast or not analysis_positions_are_stable(result):
         return []
 
     source_lines = result.source.split("\n")
@@ -132,13 +131,7 @@ def get_document_symbols(result: AnalysisResult) -> list[lsp.DocumentSymbol]:
                     member_selection = _selection_range(result, member)
                     if member_range is None or member_selection is None:
                         continue
-                    # Constructor vs regular method
-                    is_constructor = member.name == decl.name
-                    kind = (
-                        lsp.SymbolKind.Constructor
-                        if is_constructor
-                        else lsp.SymbolKind.Method
-                    )
+                    kind = lsp.SymbolKind.Constructor if member.is_constructor else lsp.SymbolKind.Method
                     children.append(
                         lsp.DocumentSymbol(
                             name=member.name,

@@ -16,13 +16,15 @@ URI = "file:///t.btrc"
 
 
 def test_semantic_tokens_new_constructor_and_generic():
-    src = ("enum Color { RED, GREEN };\n"
-           "class Box<T> { public T v; public Box(T v) { self.v = v; } }\n"
-           "int main() {\n"
-           "    Box<int> b = new Box(5);\n"
-           "    Color c = RED;\n"
-           "    return 0;\n"
-           "}\n")
+    src = (
+        "enum Color { RED, GREEN };\n"
+        "class Box<T> { public T v; public Box(T v) { self.v = v; } }\n"
+        "int main() {\n"
+        "    Box<int> b = new Box(5);\n"
+        "    Color c = RED;\n"
+        "    return 0;\n"
+        "}\n"
+    )
     toks = get_semantic_tokens(analyze(src))
     assert toks is not None and len(toks.data) > 0
     decoded = decoded_semantic_tokens(src, toks.data)
@@ -37,21 +39,24 @@ def test_completion_stdlib_class_dedup():
     src = 'int main() { string s = Strings.copy("x"); return 0; }\n'
     items = get_completions(analyze(src), pos_of(src, "Strings.copy", offset=8))
     labels = [i.label for i in items]
-    assert len(labels) == len(set(labels))   # no duplicates
+    assert len(labels) == len(set(labels))  # no duplicates
 
 
 def test_constructor_signature_active_param():
-    src = ("class Rect { public int w; public int h;\n"
-           "    public Rect(int w, int h) { self.w = w; self.h = h; } }\n"
-           "int main() { Rect r = Rect(3, 4); return r.w; }\n")
+    src = (
+        "class Rect { public int w; public int h;\n"
+        "    public Rect(int w, int h) { self.w = w; self.h = h; } }\n"
+        "int main() { Rect r = Rect(3, 4); return r.w; }\n"
+    )
     s = get_signature_help(analyze(src), pos_of(src, "Rect(3, 4)", offset=5))
     assert s is not None and len(s.signatures[0].parameters) == 2
 
 
 def test_server_signature_falls_back_to_last_good(monkeypatch):
     published = []
-    monkeypatch.setattr(srv.server, "text_document_publish_diagnostics",
-                        lambda params: published.append(params), raising=False)
+    monkeypatch.setattr(
+        srv.server, "text_document_publish_diagnostics", lambda params: published.append(params), raising=False
+    )
 
     class _Doc:
         source = SAMPLE
@@ -61,9 +66,11 @@ def test_server_signature_falls_back_to_last_good(monkeypatch):
             return _Doc()
 
     monkeypatch.setattr(srv.server.protocol, "_workspace", _WS(), raising=False)
-    srv._validate_document(URI, SAMPLE)                 # good analysis cached
-    srv._validate_document(URI, "class { broken")        # current is broken (no analysis)
-    sig = srv.signature_help(lsp.SignatureHelpParams(
-        text_document=lsp.TextDocumentIdentifier(uri=URI),
-        position=pos_of(SAMPLE, "add(self.x", offset=4)))
+    srv._validate_document(URI, SAMPLE)  # good analysis cached
+    srv._validate_document(URI, "class { broken")  # current is broken (no analysis)
+    sig = srv.signature_help(
+        lsp.SignatureHelpParams(
+            text_document=lsp.TextDocumentIdentifier(uri=URI), position=pos_of(SAMPLE, "add(self.x", offset=4)
+        )
+    )
     assert sig is not None and sig.signatures

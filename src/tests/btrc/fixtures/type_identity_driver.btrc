@@ -1,0 +1,128 @@
+#include "../../../compiler/btrc/tokens.btrc"
+#include "../../../compiler/btrc/ast/node.btrc"
+#include "../../../compiler/btrc/type_identity.btrc"
+#include <assert.h>
+
+Node identityType(string base) {
+    Node typeExpr = Node();
+    typeExpr.kind = NK_TYPE_EXPR;
+    typeExpr.base = base;
+    return typeExpr;
+}
+
+Vector<Node> identityArgs1(Node first) {
+    Vector<Node> args = [];
+    args.push(first);
+    return args;
+}
+
+Vector<Node> identityArgs2(Node first, Node second) {
+    Vector<Node> args = [];
+    args.push(first);
+    args.push(second);
+    return args;
+}
+
+int main() {
+    Node scalar = identityType("int");
+    Node pointer = identityType("int");
+    pointer.pointer_depth = 1;
+    Node nullable = identityType("int");
+    nullable.pointer_depth = 1;
+    nullable.is_nullable = true;
+    Node array = identityType("int");
+    array.is_array = true;
+    Node shaped = identityType("int");
+    shaped.pointer_depth = 1;
+    shaped.is_nullable = true;
+    shaped.is_array = true;
+
+    assert(typeShapeKey(scalar) != typeShapeKey(pointer));
+    assert(typeShapeKey(pointer) != typeShapeKey(nullable));
+    assert(typeShapeKey(nullable) != typeShapeKey(array));
+    assert(typeSymbolComponent(pointer).equals("int_p1"));
+    assert(typeSymbolComponent(nullable).equals("int_p1_n"));
+    assert(typeSymbolComponent(shaped).equals("int_p1_n_a"));
+    assert(mangleGenericSymbol("Vector", identityArgs1(array))
+        .equals("btrc_Vector_int_a"));
+
+    Node nested = identityType("A");
+    nested.generic_args = identityArgs1(scalar);
+    nested.pointer_depth = 1;
+    Node flat = identityType("A_int_p1");
+    assert(typeSymbolComponent(nested).equals(
+        "ZQtb2_41p1n0a0q0k1t19_b6_696e74p0n0a0q0k0"));
+    assert(mangleGenericSymbol("Holder", identityArgs1(nested))
+        != mangleGenericSymbol("Holder", identityArgs1(flat)));
+    assert(mangleGenericSymbol("Holder_A", identityArgs1(scalar))
+        != mangleGenericSymbol("Holder", identityArgs1(
+            identityType("A_int"))));
+
+    Node leftTail = identityType("a");
+    Node rightTail = identityType("p1");
+    rightTail.is_array = true;
+    string left = mangleGenericSymbol(
+        "Pair", identityArgs2(pointer, leftTail));
+    string right = mangleGenericSymbol(
+        "Pair", identityArgs2(scalar, rightTail));
+    assert(left.equals(
+        "btrc_ZQgb8_50616972k2t19_b6_696e74p1n0a0q0k0t15_b2_61p0n0a0q0k0"));
+    assert(right.equals(
+        "btrc_ZQgb8_50616972k2t19_b6_696e74p0n0a0q0k0t17_b4_7031p0n0a1q0k0"));
+    assert(left != right);
+
+    Node qualified = identityType("int");
+    qualified.is_const = true;
+    qualified.is_static = true;
+    qualified.is_extern = true;
+    qualified.is_volatile = true;
+    assert(typeIdentityQualifierBits(qualified) == 15);
+    assert(typeSymbolComponent(qualified).equals(
+        "ZQtb6_696e74p0n0a0q15k0"));
+    assert(typeIdentityUtf8Hex("é").equals("c3a9"));
+
+    Node voidType = identityType("void");
+    Vector<Node> structural = identityArgs2(qualified, scalar);
+    assert(mangleGenericSymbol("Tuple", structural).equals(
+        "btrc_ZQgb10_5475706c65k2t20_b6_696e74p0n0a0q15k0t19_b6_696e74p0n0a0q0k0"));
+    assert(mangleFunctionPointerSymbol(
+        identityArgs2(voidType, qualified)).equals(
+            "__btrc_fn_ZQfk2t21_b8_766f6964p0n0a0q0k0t20_b6_696e74p0n0a0q15k0"));
+
+    Vector<Node> noClassArgs = [];
+    assert(mangleMethodInstanceSymbol(
+        "Picker", noClassArgs, "identity", identityArgs1(pointer))
+        .equals("Picker_identity_int_p1"));
+    assert(mangleMethodInstanceSymbol(
+        "Picker", noClassArgs, "identity", identityArgs1(nullable))
+        .equals("Picker_identity_int_p1_n"));
+    assert(mangleMethodInstanceSymbol(
+        "Picker", noClassArgs, "identity", identityArgs1(nested)).equals(
+            "btrc_ZQmb12_5069636b6572k0m16_6964656e74697479k1t38_b2_41p1n0a0q0k1t19_b6_696e74p0n0a0q0k0"));
+    assert(mangleFunctionPointerSymbol(
+        identityArgs2(identityType("bool"), scalar))
+        .equals("__btrc_fn_bool_int"));
+
+    Node text = identityType("string");
+    Node nullableText = identityType("string");
+    nullableText.pointer_depth = 1;
+    nullableText.is_nullable = true;
+    Node textArray = identityType("string");
+    textArray.is_array = true;
+    Node rawTextPointer = identityType("string");
+    rawTextPointer.pointer_depth = 1;
+    assert(isSemanticScalarString(text));
+    assert(isSemanticScalarString(nullableText));
+    assert(!isSemanticScalarString(textArray));
+    assert(!isSemanticScalarString(rawTextPointer));
+
+    Map<string, bool> names = {};
+    names.put("U", true);
+    Node templated = identityType("Box");
+    templated.generic_args = identityArgs1(identityType("U"));
+    assert(typeReferencesNames(templated, names));
+    assert(!typeReferencesNames(identityType("T"), names));
+
+    print("PASS: type_identity_driver");
+    return 0;
+}

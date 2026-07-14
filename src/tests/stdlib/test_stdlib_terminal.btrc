@@ -1,13 +1,21 @@
 #include <assert.h>
 
 int main() {
-    string path = "/tmp/btrc-terminal-test-input.txt";
-    Path.writeAll(path, "plain\nsecret\n");
+    string dir = FileSystem.tempDir("btrc_terminal");
+    string path = PathTools.join(dir, "input.txt");
+    string longLine = "x".repeat(9000);
+    Path.writeAll(path, longLine + "\nplain\nsecret\n");
     FILE* input = freopen(path, "r", stdin);
     assert(input != NULL);
 
+    assert(Terminal.readLine().equals(longLine));
     assert(Terminal.prompt("plain: ").equals("plain"));
     assert(Terminal.promptPassword("secret: ").equals("secret"));
+    assert(UnixPamPassword.safeSecret("normal"));
+    assert(!UnixPamPassword.safeSecret("bad\nsecond response"));
+    assert(!UnixPamPassword.safeSecret("bad\rresponse"));
+
+    FileSystem.removeRecursive(dir);
 
     print("PASS: test_stdlib_terminal");
     return 0;

@@ -1,0 +1,84 @@
+#include <assert.h>
+
+int itemsAlive = 0;
+int ordinaryAlive = 0;
+int genericAlive = 0;
+
+class Item {
+    public int id;
+
+    public Item(int id) {
+        self.id = id;
+        itemsAlive++;
+    }
+
+    public void __del__() {
+        itemsAlive--;
+    }
+}
+
+class OrdinaryFailure {
+    public Item first;
+    public Item second;
+
+    public OrdinaryFailure(int id) {
+        ordinaryAlive++;
+        self.first = new Item(id);
+        self.second = new Item(id + 1);
+        throw "ordinary constructor failure";
+    }
+
+    public void __del__() {
+        ordinaryAlive--;
+    }
+}
+
+class GenericFailure<T> {
+    public T value;
+    public Item extra;
+
+    public GenericFailure(T value, int id) {
+        genericAlive++;
+        self.value = value;
+        self.extra = new Item(id);
+        throw "generic constructor failure";
+    }
+
+    public void __del__() {
+        genericAlive--;
+    }
+}
+
+void exerciseOrdinary(int id) {
+    try {
+        OrdinaryFailure failure = new OrdinaryFailure(id);
+        assert(failure == null);
+    } catch (string error) {
+        assert(error.equals("ordinary constructor failure"));
+    }
+}
+
+void exerciseGeneric(int id) {
+    try {
+        GenericFailure<Item> failure =
+            new GenericFailure<Item>(new Item(id), id + 1);
+        assert(failure == null);
+    } catch (string error) {
+        assert(error.equals("generic constructor failure"));
+    }
+}
+
+int main() {
+    for (int iteration = 0; iteration < 32; iteration++) {
+        exerciseOrdinary(iteration * 10);
+        assert(itemsAlive == 0);
+        assert(ordinaryAlive == 0);
+        assert(genericAlive == 0);
+
+        exerciseGeneric(iteration * 10);
+        assert(itemsAlive == 0);
+        assert(ordinaryAlive == 0);
+        assert(genericAlive == 0);
+    }
+    return 0;
+}

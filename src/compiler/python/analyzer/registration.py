@@ -11,20 +11,27 @@ from ..ast_nodes import (
     RichEnumDecl,
     StructDecl,
     TypedefDecl,
+    VarDeclStmt,
 )
+from ..class_storage import instance_storage_name
 from .core import ClassInfo, InterfaceInfo
 
 
 class RegistrationMixin:
-
     def _register_declarations(self, program):
         # Deep left-leaning expression chains (a+a+...+a) recurse one Python
         # frame per term in _analyze_expr/_infer_type. The default limit
         # (1000) rejects real programs; CPython 3.12+ heap-allocates pure
         # Python frames, so a higher limit is safe here.
         import sys
+
         if sys.getrecursionlimit() < 40000:
             sys.setrecursionlimit(40000)
+        # The LSP seeds fresh analyzers with an already-resolved stdlib symbol
+        # table.  Preserve the identity of those ClassInfo objects so parent
+        # metadata is not merged (or shadow-validated) a second time below.
+        pre_resolved_classes = {id(info) for info in self.class_table.values()}
+        self._initialize_registration_state(program)
         for decl in self._decls_with_file(program):
             if isinstance(decl, InterfaceDecl):
                 self._register_interface(decl)
@@ -38,231 +45,179 @@ class RegistrationMixin:
                 self._register_function(decl)
             elif isinstance(decl, StructDecl):
                 self._register_struct(decl)
-            elif isinstance(decl, (EnumDecl, RichEnumDecl)):
-                self.declared_type_names.add(decl.name)
+            elif isinstance(decl, EnumDecl):
+                self._register_simple_enum(decl)
+            elif isinstance(decl, RichEnumDecl):
+                self._register_rich_enum(decl)
             elif isinstance(decl, TypedefDecl):
+                self._claim_top_level_name(
+                    decl.alias,
+                    "typedef",
+                    decl.name_line or decl.line,
+                    decl.name_col or decl.col,
+                )
                 self.declared_type_names.add(decl.alias)
-        self._resolve_class_parents()
+                self.typedef_table[decl.alias] = decl.original
+            elif isinstance(decl, VarDeclStmt):
+                self._register_global(decl)
+        self._resolve_class_parents(pre_resolved_classes)
 
     def _register_interface(self, decl):
-        if decl.name in self.interface_table:
-            self._error(f"Duplicate interface name '{decl.name}'", decl.line, decl.col)
-        info = InterfaceInfo(name=decl.name, parent=decl.parent,
-                             generic_params=decl.generic_params)
+        self._claim_top_level_name(
+            decl.name,
+            "interface",
+            decl.name_line or decl.line,
+            decl.name_col or decl.col,
+        )
+        self._validate_generic_parameter_names(
+            decl.generic_params,
+            f"interface '{decl.name}'",
+            decl.line,
+            decl.col,
+        )
+        info = InterfaceInfo(name=decl.name, parent=decl.parent, generic_params=decl.generic_params)
         for method in decl.methods:
+            self._validate_declared_name(
+                method.name,
+                "Interface method",
+                method.name_line or method.line,
+                method.name_col or method.col,
+            )
+            self._validate_parameter_names(
+                method.params,
+                f"interface method '{decl.name}.{method.name}'",
+            )
+            self._validate_array_return_declaration(method, decl.name)
+            if method.name in info.methods:
+                self._error(
+                    f"Duplicate method '{method.name}' in interface '{decl.name}'",
+                    method.line,
+                    method.col,
+                )
             info.methods[method.name] = method
         self.interface_table[decl.name] = info
 
     def _resolve_interface_parents(self, program):
-        """Second pass: inherit parent interface methods after all interfaces are registered."""
-        for decl in self._decls_with_file(program):
-            if not isinstance(decl, InterfaceDecl) or not decl.parent:
-                continue
-            if decl.parent not in self.interface_table:
-                self._error(f"Parent interface '{decl.parent}' not found", decl.line, decl.col)
-                continue
-            info = self.interface_table[decl.name]
-            parent_info = self.interface_table[decl.parent]
-            for mname, method in parent_info.methods.items():
-                if mname not in info.methods:
-                    info.methods[mname] = method
-
-    def _register_class(self, decl):
-        if decl.name in self.class_table:
-            self._error(f"Duplicate class name '{decl.name}'", decl.line, decl.col)
-        info = ClassInfo(name=decl.name, generic_params=decl.generic_params,
-                         parent=decl.parent, interfaces=decl.interfaces,
-                         is_abstract=decl.is_abstract)
-        declared_fields: set[str] = set()
-        declared_methods: set[str] = set()
-        for member in decl.members:
-            if isinstance(member, FieldDecl):
-                if member.name in declared_fields:
-                    self._error(f"Duplicate field '{member.name}' in class '{decl.name}'",
-                                member.line, member.col)
-                declared_fields.add(member.name)
-                info.fields[member.name] = member
-            elif isinstance(member, MethodDecl):
-                if member.name in declared_methods:
-                    self._error(f"Duplicate method '{member.name}' in class '{decl.name}'",
-                                member.line, member.col)
-                declared_methods.add(member.name)
-                if member.name == decl.name:
-                    info.constructor = member
-                info.methods[member.name] = member
-            elif isinstance(member, PropertyDecl):
-                info.properties[member.name] = member
-        self.class_table[decl.name] = info
-
-    def _resolve_class_parents(self):
-        """Second pass: copy parent members into children in dependency order.
-
-        Classes may be declared before their parents (interfaces already use
-        the same two-pass scheme — see _resolve_interface_parents). Parents
-        are processed before children (topological order over `parent`
-        edges); missing parents and inheritance cycles are skipped here —
-        _validate_inheritance reports them.
-        """
-        order: list[str] = []
+        """Resolve inherited methods in dependency order and reject cycles."""
+        declarations = {decl.name: decl for decl in self._decls_with_file(program) if isinstance(decl, InterfaceDecl)}
         visiting: set[str] = set()
         done: set[str] = set()
 
-        def visit(name: str):
-            if name in done or name in visiting:
-                return  # already handled, or a cycle (reported elsewhere)
-            visiting.add(name)
-            info = self.class_table.get(name)
-            if info and info.parent and info.parent in self.class_table:
-                visit(info.parent)
-            visiting.discard(name)
-            done.add(name)
-            order.append(name)
-
-        for name in list(self.class_table):
-            visit(name)
-
-        for name in order:
-            info = self.class_table[name]
-            if not info.parent or info.parent not in self.class_table:
-                continue
-            parent_info = self.class_table[info.parent]
-            # Inherited members come first (struct layout contract); the
-            # child's own declarations override same-named entries in place.
-            merged_fields = dict(parent_info.fields)
-            merged_fields.update(info.fields)
-            info.fields = merged_fields
-            merged_methods = {mname: m for mname, m in parent_info.methods.items()
-                              if mname != parent_info.name}  # not the ctor
-            merged_methods.update(info.methods)
-            info.methods = merged_methods
-
-    def _register_struct(self, decl):
-        """Register a top-level struct; reject anonymous ones.
-
-        Structs only ever appear at top level, and an unnamed top-level struct
-        declares an unreferenceable, unusable type (and would emit invalid C —
-        `typedef struct ;`). Report it as a clear error at the struct's site
-        rather than letting it reach codegen.
-        """
-        if not decl.name:
-            self._error("anonymous struct at top level must be named",
-                        decl.line, decl.col)
-            return
-        self.declared_type_names.add(decl.name)
-
-    def _register_function(self, decl):
-        if decl.name in self.function_table:
-            existing = self.function_table[decl.name]
-            if existing.body is None and decl.body is not None:
-                pass
-            elif existing.body is not None and decl.body is None:
+        def resolve(name: str):
+            if name in done:
                 return
-            else:
-                self._error(f"Duplicate function name '{decl.name}'", decl.line, decl.col)
-        self.function_table[decl.name] = decl
+            declaration = declarations[name]
+            if name in visiting:
+                self._error(f"Circular interface inheritance involving '{name}'", declaration.line, declaration.col)
+                return
+            visiting.add(name)
+            info = self.interface_table[name]
+            if info.parent:
+                if info.parent not in self.interface_table:
+                    self._error(f"Parent interface '{info.parent}' not found", declaration.line, declaration.col)
+                else:
+                    resolve(info.parent)
+                    parent = self.interface_table[info.parent]
+                    inherited = dict(parent.methods)
+                    inherited.update(info.methods)
+                    info.methods = inherited
+            visiting.remove(name)
+            done.add(name)
 
-    def _validate_inheritance(self, program):
-        """Check for circular inheritance and missing parent classes."""
-        for decl in self._decls_with_file(program):
-            if not isinstance(decl, ClassDecl) or not decl.parent:
-                continue
-            if decl.parent not in self.class_table:
-                self._error(f"Parent class '{decl.parent}' not found", decl.line, decl.col)
-                continue
-            seen = {decl.name}
-            cur = decl.parent
-            while cur and cur in self.class_table:
-                if cur in seen:
-                    self._error(f"Circular inheritance detected: '{decl.name}' -> '{cur}'",
-                                decl.line, decl.col)
-                    break
-                seen.add(cur)
-                cur = self.class_table[cur].parent
+        for name in declarations:
+            resolve(name)
 
-    def _validate_interfaces(self, program):
-        """Validate interface implementations and abstract class constraints."""
-        for decl in self._decls_with_file(program):
-            if not isinstance(decl, ClassDecl):
-                continue
-            cls = self.class_table.get(decl.name)
-            if not cls:
-                continue
-            for iface_name in cls.interfaces:
-                if iface_name not in self.interface_table:
-                    self._error(f"Interface '{iface_name}' not found", decl.line, decl.col)
-                    continue
-                iface = self.interface_table[iface_name]
-                for mname, iface_method in iface.methods.items():
-                    if mname not in cls.methods:
-                        self._error(
-                            f"Class '{decl.name}' does not implement interface method "
-                            f"'{mname}' from '{iface_name}'",
-                            decl.line, decl.col)
-                    else:
-                        self._check_signature_compat(
-                            decl.name, cls.methods[mname], iface_method,
-                            f"interface '{iface_name}'")
-            if cls.parent and cls.parent in self.class_table and not cls.is_abstract:
-                parent = self.class_table[cls.parent]
-                if parent.is_abstract:
-                    for mname, method in parent.methods.items():
-                        if method.is_abstract and mname not in {
-                            m.name for m in decl.members if isinstance(m, MethodDecl)
-                        }:
-                            self._error(
-                                f"Class '{decl.name}' must implement abstract method "
-                                f"'{mname}' from '{cls.parent}'",
-                                decl.line, decl.col)
-
-    def _validate_overrides(self, program):
-        """Validate that method overrides have compatible signatures."""
-        for decl in self._decls_with_file(program):
-            if not isinstance(decl, ClassDecl) or not decl.parent:
-                continue
-            parent_cls = self.class_table.get(decl.parent)
-            if not parent_cls:
-                continue
-            for member in decl.members:
-                if not isinstance(member, MethodDecl):
-                    continue
-                if member.name == decl.name:  # skip constructor
-                    continue
-                parent_method = parent_cls.methods.get(member.name)
-                if not parent_method:
-                    continue
-                self._check_signature_compat(
-                    decl.name, member, parent_method,
-                    f"parent class '{decl.parent}'")
-
-    def _check_signature_compat(self, class_name, impl, expected, source):
-        """Check that impl method signature is compatible with expected."""
-        name = impl.name
-        line = getattr(impl, 'line', 0)
-        col = getattr(impl, 'col', 0)
-        # Check return type
-        impl_ret = getattr(impl, 'return_type', None)
-        exp_ret = getattr(expected, 'return_type', None)
-        if (exp_ret and impl_ret
-                and exp_ret.base and impl_ret.base
-                and not self._types_compatible(exp_ret, impl_ret)):
-            self._error(
-                f"Override '{name}' in '{class_name}' has incompatible "
-                f"return type '{impl_ret.base}' (expected '{exp_ret.base}' "
-                f"from {source})", line, col)
-        # Check parameter count
-        impl_params = getattr(impl, 'params', [])
-        exp_params = getattr(expected, 'params', [])
-        if len(impl_params) != len(exp_params):
-            self._error(
-                f"Override '{name}' in '{class_name}' has "
-                f"{len(impl_params)} parameter(s) (expected "
-                f"{len(exp_params)} from {source})", line, col)
-        else:
-            for i, (ep, ip) in enumerate(zip(exp_params, impl_params)):
-                if (ep.type and ip.type
-                        and not self._types_compatible(ep.type, ip.type)):
+    def _register_class(self, decl):
+        self._claim_top_level_name(
+            decl.name,
+            "class",
+            decl.name_line or decl.line,
+            decl.name_col or decl.col,
+        )
+        self._validate_generic_parameter_names(
+            decl.generic_params,
+            f"class '{decl.name}'",
+            decl.line,
+            decl.col,
+        )
+        info = ClassInfo(
+            name=decl.name,
+            generic_params=decl.generic_params,
+            parent=decl.parent,
+            interfaces=decl.interfaces,
+            is_abstract=decl.is_abstract,
+        )
+        declared_fields: set[str] = set()
+        declared_methods: set[str] = set()
+        declared_properties: set[str] = set()
+        declared_members: dict[str, str] = {}
+        storage_names = {"__arc", "__rc", "__cycle_safe_rc"}
+        for member in decl.members:
+            if isinstance(member, FieldDecl):
+                self._validate_declared_name(
+                    member.name,
+                    "Field",
+                    member.name_line or member.line,
+                    member.name_col or member.col,
+                )
+                if member.name in declared_fields:
+                    self._error(f"Duplicate field '{member.name}' in class '{decl.name}'", member.line, member.col)
+                declared_fields.add(member.name)
+                self._claim_member_name(decl, member, "field", declared_members)
+                target = info.static_fields if member.access == "class" else info.fields
+                target[member.name] = member
+                info.field_owners[member.name] = decl.name
+            elif isinstance(member, MethodDecl):
+                self._validate_declared_name(
+                    member.name,
+                    "Method",
+                    member.name_line or member.line,
+                    member.name_col or member.col,
+                )
+                self._validate_generic_parameter_names(
+                    member.generic_params,
+                    f"method '{decl.name}.{member.name}'",
+                    member.line,
+                    member.col,
+                )
+                self._validate_parameter_names(
+                    member.params,
+                    f"method '{decl.name}.{member.name}'",
+                )
+                if member.name in declared_methods:
+                    self._error(f"Duplicate method '{member.name}' in class '{decl.name}'", member.line, member.col)
+                declared_methods.add(member.name)
+                self._claim_member_name(decl, member, "method", declared_members)
+                if member.is_constructor:
+                    info.constructor = member
+                info.methods[member.name] = member
+                info.method_owners[member.name] = decl.name
+            elif isinstance(member, PropertyDecl):
+                self._validate_declared_name(
+                    member.name,
+                    "Property",
+                    member.name_line or member.line,
+                    member.name_col or member.col,
+                )
+                if member.name in declared_properties:
                     self._error(
-                        f"Override '{name}' param {i+1} in '{class_name}' "
-                        f"has incompatible type '{ip.type.base}' "
-                        f"(expected '{ep.type.base}' from {source})",
-                        line, col)
+                        f"Duplicate property '{member.name}' in class '{decl.name}'",
+                        member.line,
+                        member.col,
+                    )
+                declared_properties.add(member.name)
+                self._claim_member_name(decl, member, "property", declared_members)
+                info.properties[member.name] = member
+                info.property_owners[member.name] = decl.name
+            storage_name = instance_storage_name(member)
+            if storage_name is not None:
+                if storage_name in storage_names:
+                    self._error(
+                        f"Instance storage name '{storage_name}' collides with another member in class '{decl.name}'",
+                        member.line,
+                        member.col,
+                    )
+                else:
+                    storage_names.add(storage_name)
+                    info.instance_storage.append((storage_name, member))
+        self.class_table[decl.name] = info

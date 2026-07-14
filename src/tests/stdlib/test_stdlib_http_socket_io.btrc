@@ -1,0 +1,175 @@
+/* Deterministic local-socket coverage for split reads/writes and close framing. */
+#include <assert.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <errno.h>
+
+bool sendText(int descriptor, string text) {
+    size_t length = strlen(text);
+    size_t sent = 0;
+    while (sent < length) {
+        ssize_t count = send(descriptor, text + sent, length - sent, 0);
+        if (count > (ssize_t)0) { sent = sent + (size_t)count; }
+        else if (count < (ssize_t)0 && errno == EINTR) { continue; }
+        else { return false; }
+    }
+    return true;
+}
+
+Bytes readToClose(int descriptor) {
+    Bytes data = Bytes();
+    char buffer[4096];
+    while (true) {
+        ssize_t count = recv(descriptor, buffer, sizeof(buffer), 0);
+        if (count > (ssize_t)0) { data.appendRaw(buffer, (int)count); }
+        else if (count < (ssize_t)0 && errno == EINTR) { continue; }
+        else { break; }
+    }
+    return data;
+}
+
+int main() {
+    HttpServer server = HttpServer(0);
+
+    HttpServer lifecycle = HttpServer(0);
+    assert(lifecycle.start());
+    assert(lifecycle.fd >= 0);
+    lifecycle.stop();
+    assert(lifecycle.fd == -1);
+    assert(lifecycle.start());
+    lifecycle.stop();
+
+    int limitedPair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, limitedPair) == 0);
+    server.maxBodyBytes = 2;
+    assert(sendText(limitedPair[0],
+        "POST / HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\n"));
+    shutdown(limitedPair[0], SHUT_WR);
+    assert(server.readRequestRawBytes(limitedPair[1]).isEmpty());
+    close(limitedPair[0]);
+    close(limitedPair[1]);
+    server.maxBodyBytes = 8388608;
+
+    int blockedPair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, blockedPair) == 0);
+    int descriptorFlags = fcntl(blockedPair[0], F_GETFL, 0);
+    assert(descriptorFlags >= 0);
+    assert(fcntl(blockedPair[0], F_SETFL, descriptorFlags | O_NONBLOCK) == 0);
+    assert(!server.trySendAll(blockedPair[0], "x".repeat(200000)));
+    close(blockedPair[0]);
+    close(blockedPair[1]);
+
+    /* Header delimiter and body span several fixed-size recv buffers. */
+    int largePair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, largePair) == 0);
+    string filler = "h".repeat(9000);
+    string body = "b".repeat(20000);
+    string largeRequest = "POST /large HTTP/1.1\r\nHost: local\r\nX-Fill: "
+        + filler + f"\r\nContent-Length: {body.len()}\r\n\r\n" + body;
+    pid_t largeWriter = fork();
+    assert(largeWriter >= (pid_t)0);
+    if (largeWriter == (pid_t)0) {
+        close(largePair[1]);
+        if (!sendText(largePair[0], largeRequest)) { _exit(2); }
+        shutdown(largePair[0], SHUT_WR);
+        close(largePair[0]);
+        _exit(0);
+    }
+    close(largePair[0]);
+    Bytes largeRaw = server.readRequestRawBytes(largePair[1]);
+    int largeStatus = 0;
+    waitpid(largeWriter, &largeStatus, 0);
+    assert(WIFEXITED(largeStatus) && WEXITSTATUS(largeStatus) == 0);
+    assert(largeRaw.length() == (int)strlen(largeRequest));
+    HttpRequest largeParsed = server.parseBytes(largeRaw);
+    assert(largeParsed.valid);
+    assert(largeParsed.bodyBytes.length() == 20000);
+    close(largePair[1]);
+
+    /* A chunk payload contains the old substring-based false terminator. The
+     * second half arrives later, forcing the reader to honor the chunk size. */
+    int chunkPair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, chunkPair) == 0);
+    pid_t writer = fork();
+    assert(writer >= (pid_t)0);
+    if (writer == (pid_t)0) {
+        close(chunkPair[1]);
+        string prefix = "POST /chunk HTTP/1.1\r\nHost: local\r\n"
+            + "Transfer-Encoding: chunked\r\n\r\nF\r\nAA\r\n0\r\n\r\n";
+        if (!sendText(chunkPair[0], prefix)) { _exit(2); }
+        poll(NULL, 0, 50);
+        if (!sendText(chunkPair[0], "BBBBBB\r\n0\r\n\r\n")) { _exit(3); }
+        shutdown(chunkPair[0], SHUT_WR);
+        close(chunkPair[0]);
+        _exit(0);
+    }
+    close(chunkPair[0]);
+    Bytes chunkRaw = server.readRequestRawBytes(chunkPair[1]);
+    int writerStatus = 0;
+    waitpid(writer, &writerStatus, 0);
+    assert(WIFEXITED(writerStatus) && WEXITSTATUS(writerStatus) == 0);
+    HttpRequest chunkParsed = server.parseBytes(chunkRaw);
+    assert(chunkParsed.valid);
+    assert(chunkParsed.body.equals("AA\r\n0\r\n\r\nBBBBBB"));
+    close(chunkPair[1]);
+
+    /* A small send buffer plus a large response exercises short writes. The
+     * reader waits for EOF before the caller closes the descriptor, proving
+     * respond() shuts down the write side promised by Connection: close. */
+    int responsePair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, responsePair) == 0);
+    int sendBuffer = 1024;
+    assert(setsockopt(responsePair[0], SOL_SOCKET, SO_SNDBUF,
+                      &sendBuffer, sizeof(sendBuffer)) == 0);
+    struct timeval receiveTimeout;
+    receiveTimeout.tv_sec = 2;
+    receiveTimeout.tv_usec = 0;
+    assert(setsockopt(responsePair[1], SOL_SOCKET, SO_RCVTIMEO,
+                      &receiveTimeout, sizeof(receiveTimeout)) == 0);
+
+    pid_t reader = fork();
+    assert(reader >= (pid_t)0);
+    if (reader == (pid_t)0) {
+        close(responsePair[0]);
+        Bytes response = readToClose(responsePair[1]);
+        string text = response.toStringLossy();
+        int headerEnd = Strings.find(text, "\r\n\r\n", 0);
+        bool good = headerEnd >= 0
+            && text.contains("Content-Length: 200000\r\n")
+            && text.contains("Content-Type: application/octet-stream\r\n")
+            && text.contains("X-Good: yes\r\n")
+            && !text.contains("Injected") && !text.contains("Type-Injection")
+            && response.length() == headerEnd + 4 + 200000;
+        close(responsePair[1]);
+        _exit(good ? 0 : 4);
+    }
+    close(responsePair[1]);
+    HttpResponse response = HttpResponse.text("z".repeat(200000));
+    response.contentType = "text/plain\r\nType-Injection: yes";
+    response.addHeader("X-Good: yes");
+    response.addHeader("Content-Length: 1");
+    response.addHeader("Bad\r\nInjected: yes");
+    server.respond(responsePair[0], response);
+    int readerStatus = 0;
+    waitpid(reader, &readerStatus, 0);
+    assert(WIFEXITED(readerStatus) && WEXITSTATUS(readerStatus) == 0);
+    server.closeConn(responsePair[0]);
+
+    /* Statuses that forbid payloads are emitted with a zero-length body. */
+    int emptyPair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, emptyPair) == 0);
+    server.respond(emptyPair[0], HttpResponse(204, "text/plain", "must-not-send"));
+    Bytes emptyResponse = readToClose(emptyPair[1]);
+    string emptyText = emptyResponse.toStringLossy();
+    assert(emptyText.contains("HTTP/1.1 204 No Content\r\n"));
+    assert(emptyText.contains("Content-Length: 0\r\n"));
+    assert(!emptyText.contains("must-not-send"));
+    server.closeConn(emptyPair[0]);
+    close(emptyPair[1]);
+
+    print("PASS: test_stdlib_http_socket_io");
+    return 0;
+}

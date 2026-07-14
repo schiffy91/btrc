@@ -13,16 +13,24 @@ class File {
     private string path;
     private string mode;
     private bool is_open;
+    private bool owns_handle;
+    private bool io_failed;
 
     public File(string path, string mode = "r") {
-        self.path = path;
-        self.mode = mode;
-        self.handle = fopen(path, mode);
+        self.path = path == null ? "" : path;
+        self.mode = mode == null ? "" : mode;
+        self.handle = path == null || mode == null ? NULL : fopen(path, mode);
         self.is_open = self.handle != NULL;
+        self.owns_handle = self.is_open;
+        self.io_failed = !self.is_open;
     }
 
     public bool ok() {
         return self.is_open;
+    }
+
+    public bool failed() {
+        return self.io_failed;
     }
 
     /* Reads everything from the current position to EOF.
@@ -30,49 +38,38 @@ class File {
      * as well as regular files. */
     public string read() {
         if (!self.is_open) { return ""; }
-        int cap = 4096;
-        int len = 0;
-        char* buffer = (char*)malloc(cap);
-        if (buffer == NULL) { fprintf(stderr, "File.read: out of memory\n"); exit(1); }
-        int ch = fgetc(self.handle);
-        while (ch != EOF) {
-            if (len + 2 >= cap) {
-                cap = cap * 2;
-                char* grown = (char*)realloc(buffer, cap);
-                if (grown == NULL) { fprintf(stderr, "File.read: out of memory\n"); exit(1); }
-                buffer = grown;
-            }
-            buffer[len] = (char)ch;
-            len++;
-            ch = fgetc(self.handle);
+        Bytes bytes = Bytes();
+        char chunk[8192];
+        size_t count = fread(chunk, 1, 8192, self.handle);
+        while (count > (size_t)0) {
+            bytes.appendRaw(chunk, (int)count);
+            count = fread(chunk, 1, 8192, self.handle);
         }
-        buffer[len] = '\0';
-        return buffer;
+        if (ferror(self.handle)) { self.io_failed = true; }
+        return bytes.toStringLossy();
     }
 
     public string readLine() {
         if (!self.is_open) { return ""; }
-        char buf[4096];
-        if (fgets(buf, 4096, self.handle) != NULL) {
-            int len = (int)strlen(buf);
-            if (len > 0 && buf[len - 1] == '\n') {
-                buf[len - 1] = '\0';
-            }
-            return Strings.copy(buf);
+        Bytes line = Bytes();
+        int ch = fgetc(self.handle);
+        while (ch != EOF && ch != '\n') {
+            line.append(ch);
+            ch = fgetc(self.handle);
         }
-        return "";
+        if (ch == EOF && ferror(self.handle)) { self.io_failed = true; }
+        return line.toStringLossy();
     }
 
     public Vector<string> readLines() {
         Vector<string> lines = [];
         if (!self.is_open) { return lines; }
-        char buf[4096];
-        while (fgets(buf, 4096, self.handle) != NULL) {
-            int len = (int)strlen(buf);
-            if (len > 0 && buf[len - 1] == '\n') {
-                buf[len - 1] = '\0';
+        while (!self.eof() && !self.failed()) {
+            string line = self.readLine();
+            if (self.failed()) { break; }
+            if (!self.eof() || !line.isEmpty()) {
+                lines.push(line);
             }
-            lines.push(Strings.copy(buf));
         }
         return lines;
     }
@@ -86,10 +83,11 @@ class File {
         if (!self.is_open) { return out; }
         char chunk[8192];
         size_t n = fread(chunk, 1, 8192, self.handle);
-        while (n > 0) {
+        while (n > (size_t)0) {
             out.appendRaw(chunk, (int)n);
             n = fread(chunk, 1, 8192, self.handle);
         }
+        if (ferror(self.handle)) { self.io_failed = true; }
         return out;
     }
 
@@ -100,42 +98,52 @@ class File {
         if (!self.is_open || b == null) { return false; }
         if (b.len == 0) { return true; }
         size_t wrote = fwrite(b.data, 1, (size_t)b.len, self.handle);
-        return (int)wrote == b.len;
+        bool complete = (int)wrote == b.len;
+        if (!complete) { self.io_failed = true; }
+        return complete;
     }
 
     public void setHandle(FILE* h) {
+        bool closeFailed = false;
+        if (self.is_open) { closeFailed = !self.close(); }
         self.handle = h;
-        self.is_open = true;
+        self.path = "";
+        self.is_open = h != NULL;
+        self.owns_handle = false;
+        self.io_failed = closeFailed || !self.is_open;
     }
 
     /* Writes text to the stream. Returns true on success, false if the file is
      * not open or the write failed (e.g. disk full / unwritable handle). Callers
      * that ignore the result keep the old fire-and-forget behavior. */
     public bool write(string text) {
-        if (!self.is_open) { return false; }
-        return fputs(text, self.handle) != EOF;
+        if (!self.is_open || text == null) { return false; }
+        bool wrote = fputs(text, self.handle) != EOF;
+        if (!wrote) { self.io_failed = true; }
+        return wrote;
     }
 
     /* Writes text followed by a newline. Returns true only when both the text
      * and the newline were written successfully. */
     public bool writeLine(string text) {
-        if (!self.is_open) { return false; }
-        if (fputs(text, self.handle) == EOF) { return false; }
-        return fputc('\n', self.handle) != EOF;
+        if (!self.write(text)) { return false; }
+        bool wroteNewline = fputc('\n', self.handle) != EOF;
+        if (!wroteNewline) { self.io_failed = true; }
+        return wroteNewline;
     }
 
     public void __del__() {
         self.close();
     }
 
-    public void close() {
-        if (self.is_open) {
-            /* Don't close handles we don't own (stdout, stderr) */
-            if (self.path.len() > 0) {
-                fclose(self.handle);
-            }
-            self.is_open = false;
-        }
+    public bool close() {
+        if (!self.is_open) { return true; }
+        int status = self.owns_handle ? fclose(self.handle) : 0;
+        self.handle = NULL;
+        self.is_open = false;
+        self.owns_handle = false;
+        if (status != 0) { self.io_failed = true; }
+        return status == 0;
     }
 
     public bool eof() {
@@ -143,10 +151,11 @@ class File {
         return feof(self.handle) != 0;
     }
 
-    public void flush() {
-        if (self.is_open) {
-            fflush(self.handle);
-        }
+    public bool flush() {
+        if (!self.is_open) { return false; }
+        bool flushed = fflush(self.handle) == 0;
+        if (!flushed) { self.io_failed = true; }
+        return flushed;
     }
 }
 
@@ -157,6 +166,7 @@ class Path {
      * probe returned false for unreadable-but-existing files and depended on
      * read permission — a silent inconsistency with FileSystem.exists.) */
     class bool exists(string path) {
+        if (path == null) { return false; }
         struct stat st;
         return stat(path, &st) == 0;
     }
@@ -165,7 +175,8 @@ class Path {
         var f = File(path, "r");
         if (!f.ok()) { return ""; }
         string content = f.read();
-        f.close();
+        bool closed = f.close();
+        if (f.failed() || !closed) { return ""; }
         return content;
     }
 
@@ -174,16 +185,17 @@ class Path {
      * no more silent data loss. Existing callers that ignore the result keep
      * working; new callers can branch on the bool. */
     class bool writeAll(string path, string content) {
+        if (path == null || content == null) { return false; }
         var f = File(path, "w");
         if (!f.ok()) {
             fprintf(stderr, "Path.writeAll: cannot open '%s' for writing\n", path);
             return false;
         }
         bool wrote = f.write(content);
-        f.close();
-        if (!wrote) {
+        bool closed = f.close();
+        if (!wrote || !closed) {
             fprintf(stderr, "Path.writeAll: write to '%s' failed\n", path);
         }
-        return wrote;
+        return wrote && closed;
     }
 }

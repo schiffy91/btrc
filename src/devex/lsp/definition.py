@@ -34,16 +34,21 @@ from src.compiler.python.ast_nodes import (
     TypedefDecl,
 )
 from src.compiler.python.tokens import Token, TokenType
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current_at
 from src.devex.lsp.occurrences import occurrence_at
 from src.devex.lsp.utils import (
+    active_decls,
     find_token_at_position,
     find_token_index,
     nav_tokens,
     resolve_chain_type,
     result_location,
 )
-from src.devex.lsp.var_scopes import VarDef, collect_callable_vars
+from src.devex.lsp.var_scopes import (
+    VarDef,
+    collect_lexical_vars,
+    find_visible_var_def,
+)
 
 # ---------------------------------------------------------------------------
 # Definition map building
@@ -101,10 +106,9 @@ class DefinitionMap:
 
         for decl in result.ast.declarations:
             file = getattr(decl, "source_file", None)
-            is_active = file is None or file == result.path
             if isinstance(decl, ClassDecl):
                 self.class_defs[decl.name] = _name_pos(decl, file)
-                self._collect_class_members(decl, file, tokens, is_active)
+                self._collect_class_members(decl, file)
             elif isinstance(decl, InterfaceDecl):
                 # Interface name navigates like a class; its MethodSig members
                 # now carry correct name spans (the span used to be wrong).
@@ -113,8 +117,6 @@ class DefinitionMap:
                     self.method_defs[(decl.name, sig.name)] = _name_pos(sig, file)
             elif isinstance(decl, FunctionDecl):
                 self.function_defs[decl.name] = _name_pos(decl, file)
-                if is_active:
-                    collect_callable_vars(self.var_defs, decl, tokens)
             elif isinstance(decl, EnumDecl):
                 self.enum_defs[decl.name] = _name_pos(decl, file)
                 # Map each value name to the value's own position, so cmd-
@@ -126,21 +128,22 @@ class DefinitionMap:
                 for variant in decl.variants:
                     self.enum_defs.setdefault(variant.name, _name_pos(variant, file))
             elif isinstance(decl, StructDecl):
-                self.struct_defs[decl.name] = _name_pos(decl, file)
+                # A real definition always wins over forward declarations,
+                # regardless of their source order.  Keep a forward location
+                # only when no definition is available.
+                if not decl.is_forward or decl.name not in self.struct_defs:
+                    self.struct_defs[decl.name] = _name_pos(decl, file)
             elif isinstance(decl, TypedefDecl):
                 self.typedef_defs[decl.alias] = _name_pos(decl, file)
+        self.var_defs.extend(collect_lexical_vars(active_decls(result), tokens))
 
-    def _collect_class_members(
-        self, cls: ClassDecl, file: str | None, tokens, collect_vars: bool
-    ):
+    def _collect_class_members(self, cls: ClassDecl, file: str | None):
         """Collect all member definitions from a class declaration."""
         for member in cls.members:
             if isinstance(member, FieldDecl):
                 self.field_defs[(cls.name, member.name)] = _name_pos(member, file)
             elif isinstance(member, MethodDecl):
                 self.method_defs[(cls.name, member.name)] = _name_pos(member, file)
-                if collect_vars:
-                    collect_callable_vars(self.var_defs, member, tokens, cls.name)
             elif isinstance(member, PropertyDecl):
                 self.property_defs[(cls.name, member.name)] = _name_pos(member, file)
 
@@ -152,20 +155,7 @@ class DefinitionMap:
         matches (so params declared before the body's `{` resolve too).
         Innermost = max scope_start, then latest definition line.
         """
-        best: VarDef | None = None
-        for vd in self.var_defs:
-            if vd.name != name:
-                continue
-            at_def_site = (vd.line, vd.col) == (line, col)
-            in_scope = (
-                vd.scope_start <= line <= vd.scope_end
-                and (vd.line, vd.col) <= (line, col)
-            )
-            if not (at_def_site or in_scope):
-                continue
-            if best is None or (vd.scope_start, vd.line) > (best.scope_start, best.line):
-                best = vd
-        return best
+        return find_visible_var_def(self.var_defs, name, line, col)
 
     def find_var(self, name: str, cursor_line: int) -> tuple[int, int] | None:
         """Thin wrapper over :meth:`find_var_def` returning (line, col)."""
@@ -185,11 +175,11 @@ def get_definition(
     position: lsp.Position,
 ) -> lsp.Location | None:
     """Return the definition location for the symbol at the given position."""
-    if not result.tokens or not result.ast:
+    if not result.tokens or not result.ast or not analysis_is_current_at(result, position.line):
         return None
 
     tokens = nav_tokens(result)
-    token = find_token_at_position(tokens, position)
+    token = find_token_at_position(tokens, position, result.source)
     if token is None or token.type != TokenType.IDENT:
         return None
 
@@ -203,9 +193,7 @@ def get_definition(
     occ = occurrence_at(result, position)
     if occ is not None and (occ.def_line or occ.def_file):
         if not _at_def_site(result, token, occ.def_file, occ.def_line, occ.def_col):
-            return result_location(
-                result, occ.def_line, occ.def_col, len(token.value), file=occ.def_file
-            )
+            return result_location(result, occ.def_line, occ.def_col, len(token.value), file=occ.def_file)
 
     # 1. Member access: obj.member / obj->member / obj?.member
     loc = _try_member_definition(result, tokens, token, class_table, dmap)
@@ -223,9 +211,7 @@ def get_definition(
         if token.value in table:
             def_file, def_line, def_col = table[token.value]
             if not _at_def_site(result, token, def_file, def_line, def_col):
-                return result_location(
-                    result, def_line, def_col, len(token.value), file=def_file
-                )
+                return result_location(result, def_line, def_col, len(token.value), file=def_file)
 
     # 7. Local variable / parameter / loop variable / catch variable.
     # The definition site resolves to itself (standard editor behavior).

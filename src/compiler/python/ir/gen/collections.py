@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING
 from ...ast_nodes import ListLiteral, MapLiteral
 from ..nodes import (
     CType,
+    IRBinOp,
     IRCall,
+    IRCommaExpr,
     IRExpr,
-    IRExprStmt,
     IRStmtExpr,
     IRVar,
     IRVarDecl,
@@ -23,10 +24,11 @@ if TYPE_CHECKING:
 def lower_list_literal(gen: IRGenerator, node: ListLiteral) -> IRExpr:
     """Lower [a, b, c] → List_new() + push calls.
 
-    Uses IRStmtExpr to produce a GCC statement expression:
-    ({btrc_List_int* __tmp = btrc_List_int_new(); btrc_List_int_push(__tmp, a); ... __tmp;})
+    The temporary declaration is safe to hoist; allocation and pushes remain a
+    standard-C comma expression at the literal's semantic evaluation site.
     """
     from .expressions import lower_expr
+    from .ownership_boundary import sequence_owned_operands
 
     # Determine the list type from analyzer
     list_type = gen.analyzed.node_types.get(id(node))
@@ -43,23 +45,42 @@ def lower_list_literal(gen: IRGenerator, node: ListLiteral) -> IRExpr:
         mangled = "btrc_Vector_int"
 
     tmp = gen.fresh_temp("__list")
-    stmts = [IRVarDecl(
-        c_type=CType(text=f"{mangled}*"),
-        name=tmp,
-        init=IRCall(callee=f"{mangled}_new", args=[]),
-    )]
+    declarations = [
+        IRVarDecl(
+            c_type=CType(text=f"{mangled}*"),
+            name=tmp,
+        )
+    ]
+    sequence = [IRBinOp(left=IRVar(name=tmp), op="=", right=IRCall(callee=f"{mangled}_new", args=[]))]
     for elem in node.elements:
-        ir_elem = lower_expr(gen, elem)
-        stmts.append(IRExprStmt(
-            expr=IRCall(callee=f"{mangled}_push", args=[IRVar(name=tmp), ir_elem]),
-        ))
 
-    return IRStmtExpr(stmts=stmts, result=IRVar(name=tmp))
+        def push_element(elem=elem):
+            return IRCall(
+                callee=f"{mangled}_push",
+                args=[IRVar(name=tmp), lower_expr(gen, elem)],
+            )
+
+        sequence.append(
+            sequence_owned_operands(
+                gen,
+                [elem],
+                build=push_element,
+                result_type=None,
+            )
+            or push_element()
+        )
+
+    sequence.append(IRVar(name=tmp))
+    return IRStmtExpr(
+        stmts=declarations,
+        result=IRCommaExpr(expressions=sequence),
+    )
 
 
 def lower_map_literal(gen: IRGenerator, node: MapLiteral) -> IRExpr:
     """Lower {k: v, ...} → Map_new() + put calls."""
     from .expressions import lower_expr
+    from .ownership_boundary import sequence_owned_operands
 
     map_type = gen.analyzed.node_types.get(id(node))
     if map_type and map_type.generic_args:
@@ -79,17 +100,37 @@ def lower_map_literal(gen: IRGenerator, node: MapLiteral) -> IRExpr:
         return IRCall(callee=f"{mangled}_new", args=[])
 
     tmp = gen.fresh_temp("__map")
-    stmts = [IRVarDecl(
-        c_type=CType(text=f"{mangled}*"),
-        name=tmp,
-        init=IRCall(callee=f"{mangled}_new", args=[]),
-    )]
+    declarations = [
+        IRVarDecl(
+            c_type=CType(text=f"{mangled}*"),
+            name=tmp,
+        )
+    ]
+    sequence = [IRBinOp(left=IRVar(name=tmp), op="=", right=IRCall(callee=f"{mangled}_new", args=[]))]
     for entry in node.entries:
-        ir_key = lower_expr(gen, entry.key)
-        ir_val = lower_expr(gen, entry.value)
-        stmts.append(IRExprStmt(
-            expr=IRCall(callee=f"{mangled}_put",
-                        args=[IRVar(name=tmp), ir_key, ir_val]),
-        ))
 
-    return IRStmtExpr(stmts=stmts, result=IRVar(name=tmp))
+        def put_entry(entry=entry):
+            return IRCall(
+                callee=f"{mangled}_put",
+                args=[
+                    IRVar(name=tmp),
+                    lower_expr(gen, entry.key),
+                    lower_expr(gen, entry.value),
+                ],
+            )
+
+        sequence.append(
+            sequence_owned_operands(
+                gen,
+                [entry.key, entry.value],
+                build=put_entry,
+                result_type=None,
+            )
+            or put_entry()
+        )
+
+    sequence.append(IRVar(name=tmp))
+    return IRStmtExpr(
+        stmts=declarations,
+        result=IRCommaExpr(expressions=sequence),
+    )

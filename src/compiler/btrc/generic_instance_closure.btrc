@@ -1,0 +1,210 @@
+/* Deterministic fixed-point discovery for instantiated generic templates. */
+
+Map<string, Node> genericClosureGlobalTypes(Analyzed analyzed) {
+    return genericClosureCopyTypes(analyzed.globalVarTypes);
+}
+
+Map<string, Node> genericClosureClassMap(
+        Node declaration, Vector<Node> arguments) {
+    Map<string, Node> substitutions = {};
+    int index = 0;
+    while (index < declaration.generic_params.len
+            && index < arguments.len) {
+        substitutions.put(declaration.generic_params.get(index),
+            arguments.get(index));
+        index = index + 1;
+    }
+    return substitutions;
+}
+
+Node genericClosureSelfType(string base, Vector<Node> arguments) {
+    Node selfType = Node();
+    selfType.kind = NK_TYPE_EXPR;
+    selfType.base = base;
+    selfType.generic_args = arguments;
+    selfType.pointer_depth = 1;
+    return selfType;
+}
+
+void genericClosureSeedParameters(Node method,
+        Map<string, Node> substitutions, Map<string, bool> unresolved,
+        Analyzed analyzed, Map<string, Node> variables) {
+    genericClosureRegisterType(
+        method.return_type, substitutions, unresolved, analyzed);
+    int index = 0;
+    while (index < method.params.len) {
+        Node parameter = method.params.get(index);
+        Node resolved = resolveGenericType(parameter.type, substitutions);
+        genericClosureRegisterType(
+            resolved, substitutions, unresolved, analyzed);
+        variables.put(parameter.name, resolved);
+        genericClosureWalkNode(parameter.default_, substitutions,
+            unresolved, analyzed, variables);
+        index = index + 1;
+    }
+}
+
+void genericClosureScanProperty(Node property,
+        Map<string, Node> substitutions, Analyzed analyzed,
+        Map<string, Node> baseVariables) {
+    Map<string, bool> unresolved = {};
+    genericClosureRegisterType(
+        property.type, substitutions, unresolved, analyzed);
+    Map<string, Node> getterVariables =
+        genericClosureCopyTypes(baseVariables);
+    genericClosureWalkNode(property.getter_body, substitutions,
+        unresolved, analyzed, getterVariables);
+    Map<string, Node> setterVariables =
+        genericClosureCopyTypes(baseVariables);
+    setterVariables.put(
+        "value", resolveGenericType(property.type, substitutions));
+    genericClosureWalkNode(property.setter_body, substitutions,
+        unresolved, analyzed, setterVariables);
+}
+
+void genericClosureScanMembers(Node declaration,
+        Map<string, Node> substitutions, Analyzed analyzed,
+        Map<string, Node> baseVariables, bool includeConstructor) {
+    int index = 0;
+    while (index < declaration.members.len) {
+        Node member = declaration.members.get(index);
+        if (member.kind == NK_FIELD_DECL) {
+            Map<string, bool> unresolved = {};
+            genericClosureRegisterType(
+                member.type, substitutions, unresolved, analyzed);
+            genericClosureWalkNode(member.initializer, substitutions,
+                unresolved, analyzed, baseVariables);
+        } else if (member.kind == NK_PROPERTY_DECL) {
+            genericClosureScanProperty(
+                member, substitutions, analyzed, baseVariables);
+        } else if (member.kind == NK_METHOD_DECL) {
+            if (includeConstructor || !member.is_constructor) {
+                Map<string, bool> unresolved =
+                    typeParameterSet(member.generic_params);
+                Map<string, Node> variables =
+                    genericClosureCopyTypes(baseVariables);
+                genericClosureSeedParameters(member, substitutions,
+                    unresolved, analyzed, variables);
+                genericClosureWalkNode(member.body_node, substitutions,
+                    unresolved, analyzed, variables);
+            }
+        }
+        index = index + 1;
+    }
+}
+
+void genericClosureScanHierarchy(Node declaration,
+        Vector<Node> arguments, Map<string, Node> substitutions,
+        Analyzed analyzed, Map<string, Node> baseVariables,
+        Map<string, bool> visited, bool includeConstructor) {
+    if (visited.has(declaration.name)) { return; }
+    visited.put(declaration.name, true);
+    string parent = parentName(declaration);
+    Node? parentDeclaration = null;
+    if (analyzed.genericClassTable.has(parent)) {
+        parentDeclaration = analyzed.genericClassTable.get(parent);
+    } else if (analyzed.classTable.has(parent)) {
+        parentDeclaration = analyzed.classTable.get(parent);
+    }
+    if (parentDeclaration != null) {
+        Map<string, Node> parentSubstitutions =
+            genericClosureClassMap(parentDeclaration, arguments);
+        genericClosureScanHierarchy(parentDeclaration, arguments,
+            parentSubstitutions, analyzed, baseVariables, visited, false);
+    }
+    genericClosureScanMembers(declaration, substitutions,
+        analyzed, baseVariables, includeConstructor);
+}
+
+void genericClosureScanClassInstance(
+        GenInstance instance, Analyzed analyzed) {
+    if (!analyzed.genericClassTable.has(instance.base)) { return; }
+    Node declaration = analyzed.genericClassTable.get(instance.base);
+    Map<string, Node> substitutions = genericClosureClassMap(
+        declaration, instance.args);
+    Map<string, Node> baseVariables = genericClosureGlobalTypes(analyzed);
+    baseVariables.put("self",
+        genericClosureSelfType(instance.base, instance.args));
+    Map<string, bool> visited = {};
+    genericClosureScanHierarchy(declaration, instance.args,
+        substitutions, analyzed, baseVariables, visited, true);
+}
+
+Node? genericClosureMethodDeclaration(
+        MethodGenInstance instance, Analyzed analyzed) {
+    if (analyzed.isGenericClass(instance.classBase)) {
+        return analyzed.genericClassMethod(
+            instance.classBase, instance.methodName);
+    }
+    if (analyzed.isClass(instance.classBase)) {
+        return analyzed.classMethod(
+            instance.classBase, instance.methodName);
+    }
+    return null;
+}
+
+Node? genericClosureOwnerDeclaration(
+        MethodGenInstance instance, Analyzed analyzed) {
+    if (analyzed.isGenericClass(instance.classBase)) {
+        return analyzed.genericClassTable.get(instance.classBase);
+    }
+    if (analyzed.isClass(instance.classBase)) {
+        return analyzed.classTable.get(instance.classBase);
+    }
+    return null;
+}
+
+void genericClosureScanMethodInstance(
+        MethodGenInstance instance, Analyzed analyzed) {
+    Node? declaration = genericClosureOwnerDeclaration(instance, analyzed);
+    Node? method = genericClosureMethodDeclaration(instance, analyzed);
+    if (declaration == null || method == null) { return; }
+    Map<string, Node> substitutions = genericClosureClassMap(
+        declaration, instance.classArgs);
+    int methodIndex = 0;
+    while (methodIndex < method.generic_params.len
+            && methodIndex < instance.methodArgs.len) {
+        substitutions.put(method.generic_params.get(methodIndex),
+            instance.methodArgs.get(methodIndex));
+        methodIndex = methodIndex + 1;
+    }
+    Map<string, bool> unresolved = {};
+    Map<string, Node> variables = genericClosureGlobalTypes(analyzed);
+    variables.put("self", genericClosureSelfType(
+        instance.classBase, instance.classArgs));
+    genericClosureSeedParameters(method, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(method.body_node, substitutions,
+        unresolved, analyzed, variables);
+}
+
+void closeGenericInstanceGraph(Analyzed analyzed) {
+    Map<string, bool> processedClasses = {};
+    Map<string, bool> processedMethods = {};
+    int classIndex = 0;
+    int methodIndex = 0;
+    while (classIndex < analyzed.genericInstances.len
+            || methodIndex < analyzed.methodGenInstances.len) {
+        while (classIndex < analyzed.genericInstances.len) {
+            GenInstance instance =
+                analyzed.genericInstances.get(classIndex);
+            classIndex = classIndex + 1;
+            if (!processedClasses.has(instance.mangled)) {
+                processedClasses.put(instance.mangled, true);
+                genericClosureScanClassInstance(instance, analyzed);
+            }
+        }
+        while (methodIndex < analyzed.methodGenInstances.len) {
+            MethodGenInstance instance =
+                analyzed.methodGenInstances.get(methodIndex);
+            methodIndex = methodIndex + 1;
+            string key = methodInstanceKey(instance.classBase,
+                instance.classArgs, instance.methodName,
+                instance.methodArgs);
+            if (!processedMethods.has(key)) {
+                processedMethods.put(key, true);
+                genericClosureScanMethodInstance(instance, analyzed);
+            }
+        }
+    }
+}

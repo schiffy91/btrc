@@ -1,5 +1,7 @@
 """LSP source mapping for files that textually expand imports."""
 
+from pathlib import Path
+
 from src.devex.lsp.definition import get_definition
 from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.references import get_references, get_rename_edits
@@ -53,7 +55,13 @@ def test_definition_maps_stdlib_static_method_to_installed_source():
 
     assert loc is not None
     assert loc.uri.endswith("/src/stdlib/strings.btrc")
-    assert loc.range.start.line == 104  # split() def; shifted by the strings.btrc header contract comment
+    strings_path = Path(__file__).resolve().parents[3] / "stdlib" / "strings.btrc"
+    split_line = next(
+        index
+        for index, line in enumerate(strings_path.read_text().splitlines())
+        if "class Vector<string> split(" in line
+    )
+    assert loc.range.start.line == split_line
 
 
 def test_hover_maps_document_position_after_import(tmp_path):
@@ -70,10 +78,7 @@ def test_hover_maps_document_position_after_import(tmp_path):
 def test_self_member_resolution_after_import_stays_in_local_class(tmp_path):
     lib = tmp_path / "lib.btrc"
     lib.write_text(
-        "class Imported {\n"
-        "    public int value;\n"
-        "    public Imported(int value) { self.value = value; }\n"
-        "}\n"
+        "class Imported {\n    public int value;\n    public Imported(int value) { self.value = value; }\n}\n"
     )
     main = tmp_path / "main.btrc"
     source = (
@@ -92,9 +97,7 @@ def test_self_member_resolution_after_import_stays_in_local_class(tmp_path):
     result = analyze(source, uri=main.as_uri())
 
     loc = get_definition(result, pos_of(source, "return self.value", offset=12))
-    hover = hover_text(
-        get_hover_info(result, pos_of(source, "return self.value", offset=12))
-    )
+    hover = hover_text(get_hover_info(result, pos_of(source, "return self.value", offset=12)))
 
     assert loc is not None
     assert loc.uri == main.as_uri()

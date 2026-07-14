@@ -3,35 +3,38 @@
 #include <termios.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/select.h>
+#include <poll.h>
 #include <pwd.h>
+#include <grp.h>
 #include <signal.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
 
+import std.bytes;
 import std.strings;
 
 extern int forkpty(int* amaster, char* name, void* termp, void* winp);
 
 class Terminal {
     class string readLine() {
-        char buffer[4096];
-        if (fgets(buffer, 4096, stdin) == NULL) { return ""; }
-        int length = (int)strlen(buffer);
-        if (length > 0 && buffer[length - 1] == '\n') {
-            buffer[length - 1] = '\0';
+        Bytes value = Bytes();
+        int byte = fgetc(stdin);
+        while (byte != EOF && byte != '\n') {
+            value.append(byte);
+            byte = fgetc(stdin);
         }
-        return Strings.copy(buffer);
+        return value.toStringLossy();
     }
 
     class string prompt(string label) {
-        fprintf(stderr, "%s", label);
+        fprintf(stderr, "%s", label == null ? "" : label);
         fflush(stderr);
         return Terminal.readLine();
     }
 
     class string promptPassword(string label) {
-        fprintf(stderr, "%s", label);
+        fprintf(stderr, "%s", label == null ? "" : label);
         fflush(stderr);
 
         struct termios previous;
@@ -53,22 +56,70 @@ class Terminal {
     }
 }
 
+class TerminalClock {
+    class long long milliseconds() {
+        struct timespec now;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+            return (long long)time(NULL) * 1000LL;
+        }
+        return (long long)now.tv_sec * 1000LL
+            + (long long)now.tv_nsec / 1000000LL;
+    }
+}
+
 class UnixPamPassword {
+    class bool safeSecret(string value) {
+        return value != null
+            && !value.contains("\n")
+            && !value.contains("\r");
+    }
+
+    class bool writeResponse(int fd, string value) {
+        size_t length = strlen(value);
+        size_t offset = 0;
+        while (offset < length) {
+            ssize_t written = write(
+                fd, (char*)value + offset, length - offset);
+            if (written > (ssize_t)0) {
+                offset += (size_t)written;
+            } else if (written < (ssize_t)0 && errno == EINTR) {
+                continue;
+            } else {
+                return false;
+            }
+        }
+        while (true) {
+            ssize_t written = write(fd, "\n", 1);
+            if (written == (ssize_t)1) { return true; }
+            if (written < (ssize_t)0 && errno == EINTR) { continue; }
+            return false;
+        }
+    }
+
     class bool change(string user, string oldPassword, string newPassword) {
+        if (user == null || user.isEmpty()
+                || !UnixPamPassword.safeSecret(oldPassword)
+                || !UnixPamPassword.safeSecret(newPassword)) {
+            return false;
+        }
         struct passwd* pw = getpwnam(user);
         if (pw == NULL) { return false; }
 
         int fd = -1;
         pid_t pid = forkpty(&fd, NULL, NULL, NULL);
-        if (pid < 0) { return false; }
+        if (pid < (pid_t)0) { return false; }
 
-        if (pid == 0) {
-            setgid(pw->pw_gid);
-            setuid(pw->pw_uid);
-            setenv("HOME", pw->pw_dir, 1);
-            setenv("USER", user, 1);
-            setenv("LOGNAME", user, 1);
-            setenv("PATH", "/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin", 1);
+        if (pid == (pid_t)0) {
+            if ((geteuid() == (uid_t)0
+                    && initgroups(user, pw->pw_gid) != 0)
+                    || setgid(pw->pw_gid) != 0
+                    || setuid(pw->pw_uid) != 0
+                    || setenv("HOME", pw->pw_dir, 1) != 0
+                    || setenv("USER", user, 1) != 0
+                    || setenv("LOGNAME", user, 1) != 0
+                    || setenv("PATH", "/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin", 1) != 0) {
+                _exit(126);
+            }
             execlp("passwd", "passwd", (char*)NULL);
             _exit(127);
         }
@@ -78,36 +129,43 @@ class UnixPamPassword {
         responses[1] = newPassword;
         responses[2] = newPassword;
         int response = 0;
-        time_t deadline = time(NULL) + 30;
+        long long deadline = TerminalClock.milliseconds() + 30000LL;
         char buffer[4096];
+        bool failed = false;
 
-        while (time(NULL) < deadline && response < 3) {
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(fd, &readfds);
-            struct timeval timeout;
-            timeout.tv_sec = 5;
-            timeout.tv_usec = 0;
-            int ready = select(fd + 1, &readfds, NULL, NULL, &timeout);
-            if (ready < 0) { break; }
+        while (TerminalClock.milliseconds() < deadline && response < 3) {
+            struct pollfd input;
+            input.fd = fd;
+            input.events = POLLIN;
+            input.revents = 0;
+            int ready = poll(&input, 1, 1000);
+            if (ready < 0 && errno == EINTR) { continue; }
+            if (ready < 0) { failed = true; break; }
             if (ready == 0) { continue; }
             ssize_t n = read(fd, buffer, sizeof(buffer));
-            if (n <= 0) { break; }
+            if (n < (ssize_t)0 && errno == EINTR) { continue; }
+            if (n <= (ssize_t)0) { break; }
             bool prompt = false;
             for (ssize_t i = 0; i < n; i++) {
                 if (buffer[i] == ':') { prompt = true; }
             }
             if (prompt) {
-                write(fd, responses[response], strlen(responses[response]));
-                write(fd, "\n", 1);
+                if (!UnixPamPassword.writeResponse(fd, responses[response])) {
+                    failed = true;
+                    break;
+                }
                 response++;
-                usleep(200000);
             }
         }
 
+        if (failed || response < 3) { kill(pid, SIGKILL); }
         close(fd);
         int status = 0;
-        waitpid(pid, &status, 0);
-        return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        pid_t waited = waitpid(pid, &status, 0);
+        while (waited < (pid_t)0 && errno == EINTR) {
+            waited = waitpid(pid, &status, 0);
+        }
+        return !failed && response == 3 && waited == pid
+            && WIFEXITED(status) && WEXITSTATUS(status) == 0;
     }
 }

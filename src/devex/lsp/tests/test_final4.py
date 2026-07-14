@@ -25,9 +25,11 @@ def test_hover_var_literal_init_fallback():
 
 
 def test_hover_method_parameter():
-    src = ("class C { public int v; public C(int v) { self.v = v; }\n"
-           "          public int f(int a) { return a; } }\n"
-           "int main() { C c = C(1); return c.f(2); }\n")
+    src = (
+        "class C { public int v; public C(int v) { self.v = v; }\n"
+        "          public int f(int a) { return a; } }\n"
+        "int main() { C c = C(1); return c.f(2); }\n"
+    )
     t = hover_text(get_hover_info(analyze(src), pos_of(src, "return a", offset=7)))
     assert "a" in t
 
@@ -38,9 +40,11 @@ def test_signature_help_outside_any_call_is_none():
 
 
 def test_signature_zero_arguments_active_param_zero():
-    src = ("class C { public int v; public C() { self.v = 0; }\n"
-           "          public int f(int a) { return a; } }\n"
-           "int main() { C c = C(); return c.f(); }\n")
+    src = (
+        "class C { public int v; public C() { self.v = 0; }\n"
+        "          public int f(int a) { return a; } }\n"
+        "int main() { C c = C(); return c.f(); }\n"
+    )
     s = get_signature_help(analyze(src), pos_of(src, "c.f()", offset=4))  # cursor between ( )
     assert s is None or s.active_parameter == 0
 

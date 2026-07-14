@@ -6,16 +6,24 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      # Pin action implementations by commit so moving tags cannot alter CI.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
+      - run: nix flake check --no-build
+      - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension --no-link
       - run: make devcontainer
       - run: chmod -R a+w .
-      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make NIX= lint
-      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make NIX= test
-      - run: podman run --rm -v $PWD:/workspace btrc-devcontainer:latest make NIX= test-c11
+      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= lint format-check
+      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= package extension
+      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-dist
+      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= test
+      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= test-c11

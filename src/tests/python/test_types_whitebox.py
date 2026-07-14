@@ -13,9 +13,12 @@ from src.compiler.python.ir.gen.types import (
 
 
 def T(base, **kw):
-    return TypeExpr(base=base, generic_args=kw.get("generic_args", []),
-                    pointer_depth=kw.get("pointer_depth", 0),
-                    is_const=kw.get("is_const", False))
+    return TypeExpr(
+        base=base,
+        generic_args=kw.get("generic_args", []),
+        pointer_depth=kw.get("pointer_depth", 0),
+        is_const=kw.get("is_const", False),
+    )
 
 
 def test_type_to_c_none_and_primitives():
@@ -41,9 +44,9 @@ def test_mangle_tuple_type():
 def test_is_pointer_type():
     assert is_pointer_type(None) is False
     assert is_pointer_type(T("int", pointer_depth=1)) is True
-    assert is_pointer_type(T("string")) is True       # string is char*
+    assert is_pointer_type(T("string")) is True  # string is char*
     assert is_pointer_type(T("int")) is False
-    assert is_pointer_type(T("MyClass")) is True       # user classes are heap pointers
+    assert is_pointer_type(T("MyClass")) is True  # user classes are heap pointers
 
 
 def test_is_string_and_numeric():
@@ -62,11 +65,11 @@ def test_element_type_c():
 
 def test_format_spec_for_type_all_branches():
     assert format_spec_for_type(None) == "%d"
-    assert format_spec_for_type(T("int", pointer_depth=1)) == "%s"   # pointer
+    assert format_spec_for_type(T("int", pointer_depth=1)) == "%s"  # pointer
     assert format_spec_for_type(T("int")) == "%d"
     assert format_spec_for_type(T("long")) == "%ld"
     assert format_spec_for_type(T("double")) == "%f"
     assert format_spec_for_type(T("char")) == "%c"
     assert format_spec_for_type(T("string")) == "%s"
     assert format_spec_for_type(T("bool")) == "%s"
-    assert format_spec_for_type(T("UnknownClass")) == "%d"          # default
+    assert format_spec_for_type(T("UnknownClass")) == "%d"  # default

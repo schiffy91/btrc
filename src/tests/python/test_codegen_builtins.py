@@ -11,8 +11,7 @@ def test_sizeof_expression_and_type():
 
 
 def test_len_on_string_and_list():
-    c = emit_c('int main() { string s = "hello"; List<int> xs = {1, 2, 3};\n'
-               '              return len(s) + len(xs); }')
+    c = emit_c('int main() { string s = "hello"; List<int> xs = {1, 2, 3};\n              return len(s) + len(xs); }')
     assert "len" in c or "strlen" in c
 
 
@@ -27,10 +26,12 @@ def test_int_to_string_method():
 
 
 def test_property_getter_access():
-    c = emit_c("class C { public int v;\n"
-               "    public int doubled { get { return self.v * 2; } }\n"
-               "    public C() { self.v = 5; } }\n"
-               "int main() { C c = new C(); return c.doubled; }")
+    c = emit_c(
+        "class C { public int v;\n"
+        "    public int doubled { get { return self.v * 2; } }\n"
+        "    public C() { self.v = 5; } }\n"
+        "int main() { C c = new C(); return c.doubled; }"
+    )
     assert "_get_doubled" in c or "doubled" in c
 
 

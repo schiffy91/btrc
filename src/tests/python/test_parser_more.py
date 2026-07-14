@@ -38,14 +38,16 @@ def test_sizeof_of_expression_parses():
 
 
 def test_valid_property_with_getter_and_setter():
-    src = ("class Temp {\n"
-           "    public int celsius;\n"
-           "    public int fahrenheit {\n"
-           "        get { return self.celsius * 9 / 5 + 32; }\n"
-           "        set { self.celsius = (value - 32) * 5 / 9; }\n"
-           "    }\n"
-           "    public Temp() { self.celsius = 0; }\n"
-           "}\n"
-           "int main() { Temp t = new Temp(); t.fahrenheit = 212; return t.celsius; }")
+    src = (
+        "class Temp {\n"
+        "    public int celsius;\n"
+        "    public int fahrenheit {\n"
+        "        get { return self.celsius * 9 / 5 + 32; }\n"
+        "        set { self.celsius = (value - 32) * 5 / 9; }\n"
+        "    }\n"
+        "    public Temp() { self.celsius = 0; }\n"
+        "}\n"
+        "int main() { Temp t = new Temp(); t.fahrenheit = 212; return t.celsius; }"
+    )
     prog = parse(src)
     assert prog.declarations
