@@ -68,8 +68,7 @@ class ControlFlowAnalysisMixin:
     def _analyze_switch_case(self, case):
         self._push_scope()
         try:
-            for statement in case.body:
-                self._analyze_stmt(statement)
+            self._analyze_statements(case.body)
         finally:
             self._pop_scope()
 

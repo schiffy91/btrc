@@ -112,6 +112,17 @@ def test_generic_type_parameter_allows_runtime_ownership_operation():
     assert result.errors == []
 
 
+def test_generic_type_parameter_rejects_conditional_borrow_consumption():
+    result = _analyze("""
+        class Values<T> {
+            public void releaseMaybe(T value, bool condition) {
+                if (condition) { release value; }
+            }
+        }
+    """)
+    assert any("unconditional leading release/delete" in error for error in result.errors)
+
+
 def test_nullable_references_share_their_nonnullable_c_value_shape():
     result = _analyze("""
         class Node {}

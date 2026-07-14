@@ -36,16 +36,25 @@ class StatementsMixin:
             self._analyze_statement_sequence(block)
 
     def _analyze_statement_sequence(self, block):
+        self._analyze_statements(block.statements)
+
+    def _analyze_statements(self, statements):
         found_terminal = False
-        for stmt in block.statements:
-            if found_terminal:
-                line = getattr(stmt, "line", 0)
-                col = getattr(stmt, "col", 0)
-                self._error("Unreachable code after return/throw/break/continue", line, col)
-                break
-            self._analyze_stmt(stmt)
-            if isinstance(stmt, (ReturnStmt, BreakStmt, ContinueStmt, ThrowStmt)):
-                found_terminal = True
+        outer_previous = self._previous_statement
+        self._previous_statement = None
+        try:
+            for stmt in statements:
+                if found_terminal:
+                    line = getattr(stmt, "line", 0)
+                    col = getattr(stmt, "col", 0)
+                    self._error("Unreachable code after return/throw/break/continue", line, col)
+                    break
+                self._analyze_stmt(stmt)
+                self._previous_statement = stmt
+                if isinstance(stmt, (ReturnStmt, BreakStmt, ContinueStmt, ThrowStmt)):
+                    found_terminal = True
+        finally:
+            self._previous_statement = outer_previous
 
     def _analyze_stmt(self, stmt):
         if isinstance(stmt, VarDeclStmt):

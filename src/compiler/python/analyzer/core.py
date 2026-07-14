@@ -169,6 +169,7 @@ class AnalyzerBase:
         self.current_class: ClassInfo | None = None
         self.current_method: MethodDecl | None = None
         self.current_callable = None
+        self._previous_statement = None
         self.in_virtual_setter: bool = False
         self.current_return_type: TypeExpr | None = None
         self.in_gpu_function: bool = False

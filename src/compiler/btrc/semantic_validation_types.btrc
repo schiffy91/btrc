@@ -14,6 +14,7 @@ class SemanticValidationState {
     public int breakDepth;
     public bool gpuCallable;
     public Node? callable;
+    public Node? previousStatement;
     public Map<string, bool> parameterNames;
     public Map<string, bool> borrowedBindings;
     /* Lexical binding identity reduced to the property needed by capture
@@ -36,6 +37,7 @@ class SemanticValidationState {
         self.breakDepth = 0;
         self.gpuCallable = false;
         self.callable = null;
+        self.previousStatement = null;
         self.parameterNames = {};
         self.borrowedBindings = {};
         self.localBindings = {};

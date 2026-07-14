@@ -37,6 +37,8 @@ void semanticValidateSwitch(Node statement, SemanticValidationState state,
             semanticCloneFlags(state.localBindings);
         Map<string, bool> previousCaseBorrowed =
             semanticCloneFlags(state.borrowedBindings);
+        Node? previousStatement = state.previousStatement;
+        state.previousStatement = null;
         int statementIndex = 0;
         bool terminal = false;
         while (statementIndex < caseClause.body_nlist.len) {
@@ -47,11 +49,13 @@ void semanticValidateSwitch(Node statement, SemanticValidationState state,
                     bodyStatement);
             }
             semanticValidateStmt(bodyStatement, state, caseVars);
+            state.previousStatement = bodyStatement;
             terminal = semanticDirectTerminal(bodyStatement);
             statementIndex = statementIndex + 1;
         }
         state.localBindings = previousCaseLocals;
         state.borrowedBindings = previousCaseBorrowed;
+        state.previousStatement = previousStatement;
         caseIndex = caseIndex + 1;
     }
     state.breakDepth = previousBreak;
@@ -71,6 +75,8 @@ void semanticValidateBlock(Node? block, SemanticValidationState state,
         semanticCloneFlags(state.borrowedBindings);
     Map<string, bool> previousLocalBindings =
         semanticCloneFlags(state.localBindings);
+    Node? previousStatement = state.previousStatement;
+    state.previousStatement = null;
     Map<string, bool> noReservedNames = {};
     semanticValidateDirectLocalNames(block, noReservedNames);
     Map<string, Node> vars = semanticCloneTypes(outerVars);
@@ -83,9 +89,11 @@ void semanticValidateBlock(Node? block, SemanticValidationState state,
                 "Unreachable code after return/throw/break/continue", statement);
         }
         semanticValidateStmt(statement, state, vars);
+        state.previousStatement = statement;
         terminal = semanticDirectTerminal(statement);
         index = index + 1;
     }
     state.borrowedBindings = previousBorrowedBindings;
     state.localBindings = previousLocalBindings;
+    state.previousStatement = previousStatement;
 }

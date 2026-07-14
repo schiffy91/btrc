@@ -1,6 +1,6 @@
 """Semantic contracts for managed parameter ownership transfer."""
 
-from ..ast_nodes import DeleteStmt, Identifier, ReleaseStmt
+from ..ast_nodes import DeleteStmt, Identifier, KeepStmt, ReleaseStmt
 
 
 class ParameterConsumptionContractsMixin:
@@ -18,6 +18,8 @@ class ParameterConsumptionContractsMixin:
             return
         symbol = self.scope.lookup(expression.name)
         if symbol is None:
+            return
+        if isinstance(statement, ReleaseStmt) and self._release_balances_keep(expression):
             return
         if symbol.kind in {"capture", "lambda_param"} and not symbol.owned_storage:
             self._error(
@@ -55,6 +57,19 @@ class ParameterConsumptionContractsMixin:
                 statement.line,
                 statement.col,
             )
+
+    def _release_balances_keep(self, expression: Identifier) -> bool:
+        """Whether an adjacent retain supplies the reference being released.
+
+        Adjacency keeps this proof local: no intervening statement can throw or
+        leave the scope before the guard reference is released.
+        """
+        previous = self._previous_statement
+        return bool(
+            isinstance(previous, KeepStmt)
+            and isinstance(previous.expr, Identifier)
+            and previous.expr.name == expression.name
+        )
 
     def _possibly_managed_parameter_type(self, type_expr) -> bool:
         if type_expr is None:

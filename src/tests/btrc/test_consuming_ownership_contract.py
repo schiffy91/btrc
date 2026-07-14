@@ -14,6 +14,8 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
+BALANCED_PARAMETER_RUNTIME = Path(__file__).parent / "fixtures/balanced_parameter_ownership_runtime.btrc"
+
 
 def _assert_rejected_by_both(
     semantic_btrcc: Path,
@@ -78,6 +80,38 @@ def test_consuming_call_promotes_mixed_owned_conditionals(
     assert reference.returncode == 0, reference.stderr
     _strict_build_and_run(selfhost_c, tmp_path / "selfhost-mixed-consume")
     _strict_build_and_run(reference_c, tmp_path / "reference-mixed-consume")
+
+
+def test_balanced_generic_parameter_release_preserves_the_borrow(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = BALANCED_PARAMETER_RUNTIME.read_text()
+    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-balanced-borrow")
+    _strict_build_and_run(reference_c, tmp_path / "reference-balanced-borrow")
+
+
+def test_conditional_generic_parameter_release_is_rejected(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Guard<T> {
+            public void maybeRelease(T value, bool condition) {
+                if (condition) { release value; }
+            }
+        }
+    """
+    _assert_rejected_by_both(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "must be an unconditional leading release/delete",
+    )
 
 
 def test_fstring_cannot_replace_borrowed_parameter(
