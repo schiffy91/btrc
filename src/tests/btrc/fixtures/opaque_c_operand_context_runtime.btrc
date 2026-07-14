@@ -190,6 +190,9 @@ long long dependentOpaqueValue() {
 
 int main() {
     assert(access("/", F_OK) == 0);
+    char workingDirectory[4096];
+    assert((char*)getcwd(
+        workingDirectory, (size_t)sizeof(workingDirectory)) != NULL);
     assert(ChildProcessClock.deadline(LLONG_MAX - 2LL, 10) == LLONG_MAX);
 
     sequenceStep = 0;
