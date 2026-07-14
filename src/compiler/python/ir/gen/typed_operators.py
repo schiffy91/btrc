@@ -36,6 +36,7 @@ from .optional_fallback import replace_optional_fallback
 from .typed_hash import lower_typed_hash
 from .typed_numeric import (
     lower_checked_divmod,
+    lower_numeric_comparison,
     lower_numeric_operation,
     lower_typed_ternary,
 )
@@ -126,7 +127,7 @@ def lower_typed_comparison(
         return _lower_string_comparison(operator, left, right, context)
     if domain == "reference":
         return _lower_reference_equality(operator, left, right, left_type, right_type)
-    return lower_numeric_operation(operator, left, right, left_type, right_type, context)
+    return lower_numeric_comparison(operator, left, right, left_type, right_type, context)
 
 
 def _lower_string_comparison(

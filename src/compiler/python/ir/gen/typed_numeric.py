@@ -40,6 +40,28 @@ def lower_numeric_operation(
     )
 
 
+def lower_numeric_comparison(
+    operator: str,
+    left: IRExpr,
+    right: IRExpr,
+    left_type: TypeExpr | None,
+    right_type: TypeExpr | None,
+    context: OperatorLoweringContext,
+) -> IRExpr:
+    """Compare mixed numeric types in their explicit language-level domain."""
+    result_type = numeric_result_type(left_type, right_type, context.enum_names)
+    if result_type is None:
+        raise TypedOperatorError(f"cannot resolve numeric result type for operator '{operator}'")
+    if left_type is not None and right_type is not None and left_type.base == right_type.base:
+        return IRBinOp(left=left, op=operator, right=right)
+    target = CType(text=type_to_c(result_type))
+    return IRBinOp(
+        left=IRCast(target_type=target, expr=left),
+        op=operator,
+        right=IRCast(target_type=target, expr=right),
+    )
+
+
 def lower_checked_divmod(
     operator: str,
     left: IRExpr,

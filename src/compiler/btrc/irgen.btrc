@@ -6466,6 +6466,24 @@ class IRGen {
         return irBinOp(loweredLeft, op, loweredRight);
     }
 
+    public IRNode lowerNumericComparisonValues(
+            string op, IRNode left, IRNode right,
+            Node leftType, Node rightType) {
+        Node? resultType = numericResultType(
+            leftType, rightType, self.analyzed);
+        if (resultType == null) {
+            self.typedOperatorFail(
+                "cannot resolve numeric result type for operator '" + op + "'");
+        }
+        if (leftType.base == rightType.base) {
+            return irBinOp(left, op, right);
+        }
+        string resultC = typeToC(resultType, self.analyzed);
+        return irBinOp(
+            irCast(resultC, left), op,
+            irCast(resultC, right));
+    }
+
     public IRNode lowerReferenceEqualityValues(string op,
             IRNode left, IRNode right, Node leftType, Node rightType) {
         if (semanticIsNullType(leftType) || semanticIsNullType(rightType)) {
@@ -6573,7 +6591,7 @@ class IRGen {
                 return self.lowerReferenceEqualityValues(
                     op, left, right, leftType, rightType);
             }
-            return self.lowerNumericValues(
+            return self.lowerNumericComparisonValues(
                 op, left, right, leftType, rightType);
         }
         if ((op == "+" || op == "-" || op == "*" || op == "&"
