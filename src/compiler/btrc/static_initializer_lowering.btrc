@@ -1,0 +1,106 @@
+/* Strict-C file-scope aggregate initialization.
+ *
+ * Expression-position braces lower to typed compound literals. File-scope
+ * declarations instead require initializer-list syntax: even a constant
+ * compound literal is not a constant expression under strict C11. */
+
+Node? canonicalStaticInitializerType(
+        IRGen generator, Node? typeExpr) {
+    if (typeExpr == null) { return null; }
+    Node? resolved = resolveTypedefType(
+        typeExpr, generator.analyzed.typedefTable);
+    if (resolved != null) { return resolved; }
+    return typeExpr;
+}
+
+Node? staticInitializerElementType(
+        IRGen generator, Node? aggregateType, int index) {
+    Node? canonicalType = canonicalStaticInitializerType(
+        generator, aggregateType);
+    if (canonicalType == null) { return null; }
+    Node canonical = canonicalType;
+    if (canonical.is_array) {
+        Node element = copyTypeExpr(canonical);
+        element.is_array = false;
+        element.array_size = null;
+        return element;
+    }
+    if (canonical.base == "Tuple") {
+        if (index < canonical.generic_args.len) {
+            return canonical.generic_args.get(index);
+        }
+        return null;
+    }
+    string structName = semanticStructTypeName(
+        canonical, generator.analyzed);
+    if (structName == "" || !generator.analyzed.structTable.has(structName)) {
+        return null;
+    }
+    Node declaration = generator.analyzed.structTable.get(structName);
+    if (declaration.is_forward || index >= declaration.fields.len) {
+        return null;
+    }
+    return declaration.fields.get(index).type;
+}
+
+int staticInitializerFieldCount(IRGen generator, Node? aggregateType) {
+    Node? canonicalType = canonicalStaticInitializerType(
+        generator, aggregateType);
+    if (canonicalType == null) { return -1; }
+    Node canonical = canonicalType;
+    if (canonical.is_array) { return -1; }
+    if (canonical.base == "Tuple") { return canonical.generic_args.len; }
+    string structName = semanticStructTypeName(
+        canonical, generator.analyzed);
+    if (structName == "" || !generator.analyzed.structTable.has(structName)) {
+        return -1;
+    }
+    Node declaration = generator.analyzed.structTable.get(structName);
+    if (declaration.is_forward) { return -1; }
+    return declaration.fields.len;
+}
+
+IRNode zeroStaticInitializer(IRGen generator, Node? expected) {
+    Vector<IRNode> zero = [];
+    Node? canonicalType = canonicalStaticInitializerType(
+        generator, expected);
+    if (canonicalType != null) {
+        Node canonical = canonicalType;
+        if (canonical.is_array
+                || staticInitializerFieldCount(generator, canonical) >= 0) {
+            zero.push(irLiteral("0"));
+            return irInitializerList(zero);
+        }
+    }
+    return irLiteral("0");
+}
+
+IRNode lowerStaticInitializer(IRGen generator, Node node, Node? expected,
+        Map<string, Node> varTypes) {
+    if (node.kind != NK_BRACE_INITIALIZER
+            && node.kind != NK_LIST_LITERAL) {
+        return generator.lowerExpr(node, varTypes);
+    }
+
+    Vector<IRNode> elements = [];
+    int index = 0;
+    while (index < node.elements.len) {
+        Node? elementType = staticInitializerElementType(
+            generator, expected, index);
+        elements.push(lowerStaticInitializer(
+            generator, node.elements.get(index), elementType, varTypes));
+        index = index + 1;
+    }
+    int fieldCount = staticInitializerFieldCount(generator, expected);
+    if (elements.len > 0) {
+        while (index < fieldCount) {
+            elements.push(zeroStaticInitializer(
+                generator,
+                staticInitializerElementType(generator, expected, index)));
+            index = index + 1;
+        }
+    } else {
+        elements.push(irLiteral("0"));
+    }
+    return irInitializerList(elements);
+}

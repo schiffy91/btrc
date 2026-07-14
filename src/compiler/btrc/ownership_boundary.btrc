@@ -98,11 +98,12 @@ class OwnershipBoundary {
             self.registerCleanup(
                 generator, declaration, name, runtimeType);
             if (!transferred) {
-                self.suffix.push(generator.optionalReleaseExpr(
-                    value, runtimeType));
+                self.appendReleaseAndClear(
+                    generator, value, typeExpr, runtimeType);
+            } else {
+                self.suffix.push(irBinOp(
+                    value, "=", irLiteral("NULL")));
             }
-            self.suffix.push(irBinOp(
-                value, "=", irLiteral("NULL")));
         }
         if (keepValue && runtimeType != "") {
             string keptName = generator.freshTemp("__btrc_kept_operand");
@@ -116,11 +117,26 @@ class OwnershipBoundary {
             self.prefix.push(irBinOp(kept, "=", value));
             self.registerCleanup(
                 generator, keptDeclaration, keptName, runtimeType);
-            self.suffix.push(generator.optionalReleaseExpr(
-                kept, runtimeType));
-            self.suffix.push(irBinOp(
-                kept, "=", irLiteral("NULL")));
+            self.appendReleaseAndClear(
+                generator, kept, typeExpr, runtimeType);
         }
+    }
+
+    public void appendReleaseAndClear(IRGen generator, IRNode value,
+            Node typeExpr, string runtimeType) {
+        string savedName = generator.freshTemp(
+            "__btrc_released_operand");
+        IRNode savedDeclaration = irVarDecl(
+            typeToC(typeExpr, generator.analyzed),
+            savedName, irLiteral("NULL"));
+        self.declarations.push(savedDeclaration);
+        generator.funcVarDecls.push(savedDeclaration);
+        IRNode saved = irVar(savedName);
+        self.suffix.push(irBinOp(saved, "=", value));
+        self.suffix.push(irBinOp(
+            value, "=", irLiteral("NULL")));
+        self.suffix.push(generator.optionalReleaseExpr(
+            saved, runtimeType));
     }
 
     public void restore(IRGen generator) {
@@ -233,10 +249,10 @@ IRNode lowerOwnedIndex(IRGen generator, Node expression,
     boundary.restore(generator);
     Node? resultType = generator.resolvedExpressionType(
         expression, varTypes);
-    bool sourceGetter = concreteObjectType.generic_args.len > 0
-        && generator.analyzed.isGenericClass(concreteObjectType.base)
-        && semanticIndexedMethod(
-            concreteObjectType, "get", generator.analyzed) != null;
+    bool sourceGetter = !semanticRawIndexedPointer(
+            concreteObjectType, generator.analyzed)
+        && semanticValidIndexedGetter(semanticIndexedMethod(
+            concreteObjectType, "get", generator.analyzed));
     return boundary.finish(generator, lowered, resultType,
         irManagedType(generator, resultType) && !sourceGetter);
 }
@@ -254,20 +270,24 @@ IRNode lowerOwnedBinary(IRGen generator, Node expression,
         generator, expression.left, varTypes);
     bool rightOwned = irUnconsumedOwnedResult(
         generator, expression.right, varTypes);
-    if (!leftOwned && !rightOwned) {
-        return generator.lowerBinaryCore(expression, varTypes);
-    }
     Node? leftType = generator.resolvedExpressionType(
         expression.left, varTypes);
     Node? rightType = generator.resolvedExpressionType(
         expression.right, varTypes);
+    bool rightKeep = leftType != null && rightType != null
+        && irManagedType(generator, rightType)
+        && irManagedCompoundKeepsRhs(
+            generator, leftType, expression.op);
+    if (!leftOwned && !rightOwned && !rightKeep) {
+        return generator.lowerBinaryCore(expression, varTypes);
+    }
     ownershipRequireType(leftType, expression.left);
     ownershipRequireType(rightType, expression.right);
     OwnershipBoundary boundary = OwnershipBoundary();
     boundary.addOperand(generator, expression.left,
         leftType, leftOwned, false, varTypes);
     boundary.addOperand(generator, expression.right,
-        rightType, rightOwned, false, varTypes);
+        rightType, rightOwned, rightKeep, varTypes);
     IRNode lowered = generator.lowerBinaryCore(expression, varTypes);
     boundary.restore(generator);
     return boundary.finish(generator, lowered,

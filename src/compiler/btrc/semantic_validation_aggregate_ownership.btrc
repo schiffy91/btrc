@@ -3,9 +3,53 @@
 bool semanticManagedResultType(Node? typeExpr,
         SemanticValidationState state) {
     if (typeExpr == null) { return false; }
-    return state.analyzed.isClass(typeExpr.base)
+    return isStringType(typeExpr)
+        || state.analyzed.isClass(typeExpr.base)
         || (typeExpr.generic_args.len > 0
             && state.analyzed.isGenericClass(typeExpr.base));
+}
+
+bool semanticStringCallOwnsResult(Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (semanticKnownLanguageCall(call, state, vars)) { return true; }
+    Node callee = call.callee;
+    if (callee == null) { return false; }
+    if (callee.kind == NK_IDENTIFIER) {
+        return callee.name == "__btrc_str_track"
+            || callee.name == "__btrc_string_adopt"
+            || callee.name == "__btrc_string_alloc";
+    }
+    if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+    Node? receiver = semanticInferType(callee.obj, state, vars);
+    if (isStringType(receiver)) {
+        return stringMethodTracked(callee.field);
+    }
+    if (receiver == null || callee.field != "toString") { return false; }
+    return receiver.base != "bool"
+        && !state.analyzed.enumTable.has(receiver.base);
+}
+
+bool semanticOwnershipBranchPromotable(Node branch,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (branch.kind == NK_NULL_LITERAL
+            || semanticExpressionOwnsResult(branch, state, vars)) {
+        return true;
+    }
+    return semanticManagedResultType(
+        semanticInferType(branch, state, vars), state);
+}
+
+bool semanticConditionalOwnsResult(Node expression, Node left, Node right,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (!semanticManagedResultType(
+            semanticInferType(expression, state, vars), state)) {
+        return false;
+    }
+    bool ownsBranch = semanticExpressionOwnsResult(left, state, vars)
+        || semanticExpressionOwnsResult(right, state, vars);
+    return ownsBranch
+        && semanticOwnershipBranchPromotable(left, state, vars)
+        && semanticOwnershipBranchPromotable(right, state, vars);
 }
 
 bool semanticKnownLanguageCall(Node call,
@@ -52,44 +96,83 @@ bool semanticKnownLanguageCall(Node call,
 bool semanticExpressionOwnsResult(Node? expression,
         SemanticValidationState state, Map<string, Node> vars) {
     if (expression == null) { return false; }
-    if (expression.kind == NK_NEW_EXPR) { return true; }
+    Node? result = semanticInferType(expression, state, vars);
+    bool managedResult = semanticManagedResultType(result, state);
+    if (expression.kind == NK_NEW_EXPR
+            || expression.kind == NK_LIST_LITERAL
+            || expression.kind == NK_MAP_LITERAL
+            || expression.kind == NK_BRACE_INITIALIZER) {
+        return managedResult;
+    }
     if (expression.kind == NK_CAST_EXPR) {
-        return semanticExpressionOwnsResult(expression.expr, state, vars);
+        return managedResult
+            && semanticExpressionOwnsResult(expression.expr, state, vars);
+    }
+    if (expression.kind == NK_F_STRING_LITERAL) {
+        int index = 0;
+        while (index < expression.parts.len) {
+            if (expression.parts.get(index).kind == NK_F_STRING_EXPR) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
     }
     if (expression.kind == NK_CALL_EXPR) {
-        Node? result = semanticInferType(expression, state, vars);
-        return semanticManagedResultType(result, state)
-            && semanticKnownLanguageCall(expression, state, vars);
+        if (!managedResult) { return false; }
+        if (isStringType(result)) {
+            return semanticStringCallOwnsResult(expression, state, vars);
+        }
+        return semanticKnownLanguageCall(expression, state, vars);
     }
     if (expression.kind == NK_FIELD_ACCESS_EXPR
             || expression.kind == NK_INDEX_EXPR) {
-        Node? result = semanticInferType(expression, state, vars);
-        if (!semanticManagedResultType(result, state)) { return false; }
+        if (!managedResult) { return false; }
         if (semanticExpressionOwnsResult(
                 expression.obj, state, vars)) { return true; }
         if (expression.kind == NK_INDEX_EXPR) {
             Node? receiver = semanticInferType(
                 expression.obj, state, vars);
-            return receiver != null && receiver.generic_args.len > 0
-                && state.analyzed.isGenericClass(receiver.base);
+            return receiver != null
+                && !semanticRawIndexedPointer(receiver, state.analyzed)
+                && semanticValidIndexedGetter(semanticIndexedMethod(
+                    receiver, "get", state.analyzed));
         }
         return false;
     }
     if (expression.kind == NK_TERNARY_EXPR) {
-        Node? result = semanticInferType(expression, state, vars);
-        return semanticManagedResultType(result, state)
-            && (semanticExpressionOwnsResult(
-                    expression.true_expr, state, vars)
-                || semanticExpressionOwnsResult(
-                    expression.false_expr, state, vars));
+        return semanticConditionalOwnsResult(expression,
+            expression.true_expr, expression.false_expr, state, vars);
     }
     if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
-        Node? result = semanticInferType(expression, state, vars);
-        return semanticManagedResultType(result, state)
-            && (semanticExpressionOwnsResult(
-                    expression.left, state, vars)
-                || semanticExpressionOwnsResult(
-                    expression.right, state, vars));
+        return semanticConditionalOwnsResult(expression,
+            expression.left, expression.right, state, vars);
+    }
+    if (expression.kind == NK_BINARY_EXPR && managedResult) {
+        if (expression.op == "+" && isStringType(result)) { return true; }
+        Node? left = semanticInferType(expression.left, state, vars);
+        if (left == null) { return false; }
+        string magic = semanticBinaryOperatorMethod(expression.op);
+        if (magic == "") { return false; }
+        if (state.analyzed.isClass(left.base)) {
+            return state.analyzed.classMethod(left.base, magic) != null;
+        }
+        if (state.analyzed.isGenericClass(left.base)) {
+            return state.analyzed.genericClassMethod(left.base, magic) != null;
+        }
+    }
+    if (expression.kind == NK_UNARY_EXPR && managedResult
+            && expression.op == "-") {
+        Node? operand = semanticInferType(expression.operand, state, vars);
+        if (operand == null) { return false; }
+        if (state.analyzed.isClass(operand.base)) {
+            return state.analyzed.classMethod(
+                operand.base, "__neg__") != null;
+        }
+        if (state.analyzed.isGenericClass(operand.base)) {
+            return state.analyzed.genericClassMethod(
+                operand.base, "__neg__") != null;
+        }
     }
     return false;
 }

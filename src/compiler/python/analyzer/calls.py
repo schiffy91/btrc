@@ -12,6 +12,8 @@ class CallValidationMixin:
     def _analyze_call(self, expr):
         if isinstance(expr.callee, Identifier):
             self._analyze_identifier_value(expr.callee, direct_callee=True)
+        elif isinstance(expr.callee, FieldAccessExpr):
+            self._analyze_field_access(expr.callee, call_target=True)
         else:
             self._analyze_expr(expr.callee)
         for arg in expr.args:
@@ -75,6 +77,12 @@ class CallValidationMixin:
                 expr.col,
                 gpu_dispatch=function.is_gpu,
             )
+            self._validate_consuming_arguments(
+                function,
+                expr.args,
+                expr.arg_names,
+                function.name,
+            )
             return
 
         symbol = self.scope.lookup(name)
@@ -119,6 +127,12 @@ class CallValidationMixin:
                 substitutions,
                 (*cls.generic_params, *method.generic_params),
             )
+            self._validate_consuming_arguments(
+                method,
+                expr.args,
+                expr.arg_names,
+                f"{cls.name}.{callee.field}",
+            )
             self._collect_method_instance(expr, cls, method, None, substitutions)
             return
 
@@ -145,6 +159,12 @@ class CallValidationMixin:
             expr.col,
             substitutions,
             (*cls.generic_params, *method.generic_params),
+        )
+        self._validate_consuming_arguments(
+            method,
+            expr.args,
+            expr.arg_names,
+            f"{cls.name}.{callee.field}",
         )
         self._collect_method_instance(expr, cls, method, receiver_type, substitutions)
 
@@ -245,4 +265,10 @@ class CallValidationMixin:
             return
         self._validate_call_signature(
             cls.name, cls.constructor.params, args, arg_names, line, col, substitutions, cls.generic_params
+        )
+        self._validate_consuming_arguments(
+            cls.constructor,
+            args,
+            arg_names,
+            cls.name,
         )

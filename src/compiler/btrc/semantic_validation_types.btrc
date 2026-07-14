@@ -13,6 +13,9 @@ class SemanticValidationState {
     public int loopDepth;
     public int breakDepth;
     public bool gpuCallable;
+    public Node? callable;
+    public Map<string, bool> parameterNames;
+    public Map<string, bool> borrowedBindings;
     /* Partially evaluated simple-enum constants, keyed by `Enum.member`.
      * The known map distinguishes a legitimate unknown macro-derived value
      * from a missing/invalid member. */
@@ -28,9 +31,18 @@ class SemanticValidationState {
         self.loopDepth = 0;
         self.breakDepth = 0;
         self.gpuCallable = false;
+        self.callable = null;
+        self.parameterNames = {};
+        self.borrowedBindings = {};
         self.enumConstantValues = {};
         self.enumConstantKnown = {};
     }
+}
+
+bool semanticScalarVoid(Node? typeExpr) {
+    return typeExpr != null && typeExpr.base == "void"
+        && typeExpr.pointer_depth == 0 && !typeExpr.is_array
+        && typeExpr.generic_args.len == 0;
 }
 
 void semanticValidationFail(string message, Node site) {
@@ -135,68 +147,70 @@ bool semanticSameTypeShape(Node left, Node right, Analyzed analyzed) {
 
 bool semanticAssignmentCompatible(Node? target, Node? source,
         SemanticValidationState state) {
-    target = semanticResolveAliases(target, state);
-    source = semanticResolveAliases(source, state);
-    if (target == null || source == null) { return false; }
-    if (semanticTypeContainsParams(target, state.typeParams)
-            || semanticTypeContainsParams(source, state.typeParams)) {
+    Node? resolvedTarget = semanticResolveAliases(target, state);
+    Node? resolvedSource = semanticResolveAliases(source, state);
+    if (resolvedTarget == null || resolvedSource == null) { return false; }
+    if (semanticTypeContainsParams(resolvedTarget, state.typeParams)
+            || semanticTypeContainsParams(resolvedSource, state.typeParams)) {
         return true;
     }
-    if (semanticIsNullType(source)) {
-        return semanticIsReferenceType(target, state.analyzed)
-            || state.interfaces.has(target.base);
+    if (semanticIsNullType(resolvedSource)) {
+        return semanticIsReferenceType(resolvedTarget, state.analyzed)
+            || state.interfaces.has(resolvedTarget.base);
     }
-    if (semanticSameTypeShape(target, source, state.analyzed)) { return true; }
+    if (semanticSameTypeShape(
+            resolvedTarget, resolvedSource, state.analyzed)) { return true; }
     /* C array-to-pointer decay is directional.  Do not collapse both shapes to
      * one effective depth: a pointer cannot initialize an array declaration. */
-    if (source.is_array && !target.is_array
-            && target.base == source.base
-            && target.pointer_depth == source.pointer_depth + 1
+    if (resolvedSource.is_array && !resolvedTarget.is_array
+            && resolvedTarget.base == resolvedSource.base
+            && resolvedTarget.pointer_depth == resolvedSource.pointer_depth + 1
             && semanticGenericArgsEqual(
-                target.generic_args, source.generic_args)) {
+                resolvedTarget.generic_args, resolvedSource.generic_args)) {
         return true;
     }
-    if (numericIsType(target, state.analyzed)
-            && numericIsType(source, state.analyzed)
-            && target.base != "bool" && source.base != "bool") {
+    if (numericIsType(resolvedTarget, state.analyzed)
+            && numericIsType(resolvedSource, state.analyzed)
+            && resolvedTarget.base != "bool" && resolvedSource.base != "bool") {
         return true;
     }
-    if (isSemanticScalarString(target)
-            && semanticIsCStringPointer(source)) {
+    if (isSemanticScalarString(resolvedTarget)
+            && semanticIsCStringPointer(resolvedSource)) {
         return true;
     }
-    if (semanticIsCStringPointer(target)
-            && isSemanticScalarString(source)) {
+    if (semanticIsCStringPointer(resolvedTarget)
+            && isSemanticScalarString(resolvedSource)) {
         return true;
     }
-    if (semanticIsVoidPointer(target)
-            && semanticIsReferenceType(source, state.analyzed)) {
+    if (semanticIsVoidPointer(resolvedTarget)
+            && semanticIsReferenceType(resolvedSource, state.analyzed)) {
         return true;
     }
-    if (semanticIsVoidPointer(source)
-            && semanticIsReferenceType(target, state.analyzed)) {
+    if (semanticIsVoidPointer(resolvedSource)
+            && semanticIsReferenceType(resolvedTarget, state.analyzed)) {
         return true;
     }
-    bool targetNominal = state.analyzed.isClass(target.base)
-        || state.analyzed.isGenericClass(target.base);
-    bool sourceNominal = state.analyzed.isClass(source.base)
-        || state.analyzed.isGenericClass(source.base);
-    if (state.interfaces.has(target.base) && sourceNominal) {
+    bool targetNominal = state.analyzed.isClass(resolvedTarget.base)
+        || state.analyzed.isGenericClass(resolvedTarget.base);
+    bool sourceNominal = state.analyzed.isClass(resolvedSource.base)
+        || state.analyzed.isGenericClass(resolvedSource.base);
+    if (state.interfaces.has(resolvedTarget.base) && sourceNominal) {
         return semanticClassImplements(
-            state, source.base, target.base);
+            state, resolvedSource.base, resolvedTarget.base);
     }
-    if (state.interfaces.has(target.base)
-            && state.interfaces.has(source.base)) {
+    if (state.interfaces.has(resolvedTarget.base)
+            && state.interfaces.has(resolvedSource.base)) {
         return semanticInterfaceExtends(
-            state, source.base, target.base);
+            state, resolvedSource.base, resolvedTarget.base);
     }
     if (targetNominal && sourceNominal) {
         return semanticSpecializationIsSubtype(
-            source, target, state.analyzed);
+            resolvedSource, resolvedTarget, state.analyzed);
     }
-    if (isSemanticScalarString(target)
-            && state.analyzed.isClass(source.base)) {
-        Node? method = state.analyzed.classMethod(source.base, "toString");
+    if (isSemanticScalarString(resolvedTarget)
+            && state.analyzed.isClass(resolvedSource.base)) {
+        Node? method = state.analyzed.classMethod(
+            resolvedSource.base, "toString");
         return method != null && method.kind == NK_METHOD_DECL
             && method.params.len == 0 && method.return_type != null
             && method.return_type.base == "string";
@@ -217,18 +231,18 @@ bool semanticBoolType(Node? typeExpr) {
 
 void semanticRejectRuntimeInterfaceType(Node? typeExpr, Node site,
         SemanticValidationState state) {
-    typeExpr = semanticResolveAliases(typeExpr, state);
-    if (typeExpr == null) { return; }
-    if (state.typeParams.has(typeExpr.base)) { return; }
-    if (state.interfaces.has(typeExpr.base)) {
-        semanticValidationFail("Interface type '" + typeExpr.base
+    Node? resolvedType = semanticResolveAliases(typeExpr, state);
+    if (resolvedType == null) { return; }
+    if (state.typeParams.has(resolvedType.base)) { return; }
+    if (state.interfaces.has(resolvedType.base)) {
+        semanticValidationFail("Interface type '" + resolvedType.base
             + "' is compile-time-only and cannot be used as a runtime value type",
             site);
     }
     int index = 0;
-    while (index < typeExpr.generic_args.len) {
+    while (index < resolvedType.generic_args.len) {
         semanticRejectRuntimeInterfaceType(
-            typeExpr.generic_args.get(index), site, state);
+            resolvedType.generic_args.get(index), site, state);
         index = index + 1;
     }
 }

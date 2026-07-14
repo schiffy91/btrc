@@ -50,7 +50,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
         previous_return_owned = gen.current_return_owned
         gen.current_return_c_type = "void"
         gen.current_return_type = None
-        body_stmts = lower_block(gen, dtor.body).stmts
+        body_stmts = lower_block(gen, dtor.body, local_bindings=["self"]).stmts
         gen.current_return_type = previous_return_type
         gen.current_return_c_type = previous_return_c_type
         gen.current_return_owned = previous_return_owned
@@ -127,7 +127,11 @@ def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
         gen.current_return_c_type = ret_type
         gen.current_return_type = method.return_type
         gen.current_return_owned = True
-        body = lower_block(gen, method.body)
+        body = lower_block(
+            gen,
+            method.body,
+            local_bindings=["self", *(parameter.name for parameter in method.params)],
+        )
         gen.current_return_type = previous_return_type
         gen.current_return_c_type = previous_return_c_type
         gen.current_return_owned = previous_return_owned

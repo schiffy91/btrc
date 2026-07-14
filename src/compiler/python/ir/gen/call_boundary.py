@@ -109,7 +109,17 @@ def sequence_call_boundary(
                 "__btrc_kept_operand_cleanup",
                 activate_cleanup,
             )
-            suffix.extend(_release_and_clear(gen, retained, operand.type_expr))
+            suffix.extend(
+                _release_and_clear(
+                    gen,
+                    retained,
+                    operand.type_expr,
+                    declarations,
+                    fresh_temp,
+                    record_decl,
+                    operand.c_type,
+                )
+            )
         if operand.owned:
             if operand.transferred:
                 suffix.append(
@@ -120,7 +130,17 @@ def sequence_call_boundary(
                     )
                 )
             else:
-                suffix.extend(_release_and_clear(gen, value, operand.type_expr))
+                suffix.extend(
+                    _release_and_clear(
+                        gen,
+                        value,
+                        operand.type_expr,
+                        declarations,
+                        fresh_temp,
+                        record_decl,
+                        operand.c_type,
+                    )
+                )
         overrides[id(operand.node)] = value
 
     call = build_call(overrides)
@@ -177,12 +197,30 @@ def _register_temporary(
     prefix.extend(cleanup_exprs)
 
 
-def _release_and_clear(gen, value, type_expr):
+def _release_and_clear(
+    gen,
+    value,
+    type_expr,
+    declarations,
+    fresh_temp,
+    record_decl,
+    c_type,
+):
     from .arc_ops import poll_release_batch
 
+    saved_decl = _temporary(
+        fresh_temp,
+        record_decl,
+        "__btrc_released_operand",
+        c_type,
+        IRLiteral(text="NULL"),
+    )
+    declarations.append(saved_decl)
+    saved = IRVar(name=saved_decl.name)
     expressions = [
-        release_value(gen, value, type_expr),
+        IRBinOp(left=saved, op="=", right=value),
         IRBinOp(left=value, op="=", right=IRLiteral(text="NULL")),
+        release_value(gen, saved, type_expr),
     ]
     flush = poll_release_batch(
         gen,

@@ -9,6 +9,7 @@ from ..ast_nodes import (
     TypeExpr,
     VarDeclStmt,
 )
+from ..type_identity import is_semantic_scalar_void
 from .core import SymbolInfo
 
 
@@ -37,7 +38,7 @@ class VariableDeclarationAnalysisMixin:
                 if define_binding:
                     self.scope.define(stmt.name, self._var_symbol(stmt))
                 return
-            if inferred.base == "void" and inferred.pointer_depth == 0:
+            if is_semantic_scalar_void(inferred):
                 self._error(
                     f"Cannot assign void expression to variable '{stmt.name}'",
                     stmt.line,
@@ -102,7 +103,7 @@ class VariableDeclarationAnalysisMixin:
                 stmt.line,
                 stmt.col,
             )
-            if init_type and init_type.base == "void" and init_type.pointer_depth == 0:
+            if is_semantic_scalar_void(init_type):
                 self._error(f"Cannot assign void expression to variable '{stmt.name}'", stmt.line, stmt.col)
             elif init_type and stmt.type and not self._types_compatible(stmt.type, init_type):
                 is_empty_literal = (

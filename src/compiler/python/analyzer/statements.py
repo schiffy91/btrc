@@ -63,7 +63,7 @@ class StatementsMixin:
                         stmt.line,
                         stmt.col,
                     )
-                if self.current_return_type and self.current_return_type.base == "void":
+                if self._is_nonpointer_void_object(self.current_return_type):
                     self._error("Void function or method cannot return a value", stmt.line, stmt.col)
                 elif self.current_return_type:
                     ret_type = self._infer_type(stmt.value)
@@ -85,7 +85,7 @@ class StatementsMixin:
                             stmt.line,
                             stmt.col,
                         )
-            elif self.current_return_type and self.current_return_type.base != "void":
+            elif self.current_return_type and not self._is_nonpointer_void_object(self.current_return_type):
                 self._error(
                     f"Non-void function or method must return '{self._format_type(self.current_return_type)}'",
                     stmt.line,

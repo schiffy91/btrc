@@ -91,7 +91,28 @@ def _emit_scope_release(
                 )
             )
             continue
-        stmts.append(IRExprStmt(expr=release_emitted_value(gen, IRVar(name=local.name), local.type_name)))
+        value_decl = IRVarDecl(
+            c_type=CType(text=_emitted_value_c_type(local.type_name)),
+            name=gen.fresh_temp("__btrc_scope_released"),
+            init=IRVar(name=local.name),
+        )
+        gen._func_var_decls.append(value_decl)
+        stmts.extend(
+            [
+                value_decl,
+                IRAssign(
+                    target=IRVar(name=local.name),
+                    value=IRLiteral(text="NULL"),
+                ),
+                IRExprStmt(
+                    expr=release_emitted_value(
+                        gen,
+                        IRVar(name=value_decl.name),
+                        local.type_name,
+                    )
+                ),
+            ]
+        )
     boundary = flush_release_batch if force else poll_release_batch
     flush = boundary(
         gen,
@@ -104,6 +125,12 @@ def _emit_scope_release(
     if flush is not None:
         stmts.append(IRExprStmt(expr=flush))
     return stmts
+
+
+def _emitted_value_c_type(type_name: str) -> str:
+    from .managed_values import STRING_RUNTIME_NAME
+
+    return "char*" if type_name == STRING_RUNTIME_NAME else f"{type_name}*"
 
 
 def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:

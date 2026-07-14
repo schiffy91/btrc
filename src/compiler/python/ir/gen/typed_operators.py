@@ -12,6 +12,7 @@ from ...operator_semantics import (
     is_scalar_string_type,
     type_label,
 )
+from ...reference_semantics import is_c_string_pointer
 from ..nodes import (
     CType,
     IRBinOp,
@@ -55,7 +56,12 @@ def lower_typed_binary(
     """Lower an operation owned by the shared portable type contract."""
     left_type = canonical_operator_type(context, left_type)
     right_type = canonical_operator_type(context, right_type)
-    if operator == "+" and is_scalar_string_type(left_type) and is_scalar_string_type(right_type):
+    if (
+        operator == "+"
+        and (is_scalar_string_type(left_type) or is_c_string_pointer(left_type))
+        and (is_scalar_string_type(right_type) or is_c_string_pointer(right_type))
+        and (is_scalar_string_type(left_type) or is_scalar_string_type(right_type))
+    ):
         _use(context, "__btrc_strcat")
         _use(context, "__btrc_str_track")
         joined = IRCall(

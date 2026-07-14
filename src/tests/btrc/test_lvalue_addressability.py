@@ -156,10 +156,14 @@ MUTATIONS = (
 
 
 @pytest.mark.parametrize(
-    "shape,source,target", TARGET_SHAPES, ids=lambda value: value if isinstance(value, str) else None
+    "shape,source,target",
+    TARGET_SHAPES,
+    ids=[shape[0] for shape in TARGET_SHAPES],
 )
 @pytest.mark.parametrize(
-    "operation,mutation,diagnostic", MUTATIONS, ids=lambda value: value if isinstance(value, str) else None
+    "operation,mutation,diagnostic",
+    MUTATIONS,
+    ids=[mutation[0] for mutation in MUTATIONS],
 )
 def test_by_value_projection_mutation_is_rejected_with_compiler_parity(
     semantic_btrcc: Path,
@@ -203,6 +207,9 @@ def test_address_preserving_storage_controls_have_runtime_parity(
     reference, reference_source = _compile_reference_source(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
+    expected_initializer = "static Box globalBox = {{0, 0}};"
+    assert expected_initializer in selfhost_source.read_text()
+    assert expected_initializer in reference_source.read_text()
     _strict_build_and_run(selfhost_source, tmp_path / "selfhost-addressable-controls")
     _strict_build_and_run(reference_source, tmp_path / "reference-addressable-controls")
 
@@ -258,8 +265,8 @@ def test_const_receiver_chain_mutation_is_rejected_with_compiler_parity(
     "source,diagnostic",
     (
         ("int foo() { return 1; } int bar() { return 2; } void run() { foo = bar; }", "not assignable"),
-        ("enum Color { RED, GREEN } void run() { RED = GREEN; }", "not assignable"),
-        ("enum Color { RED, GREEN } void run() { Color* value = &RED; }", "Unary operator '&'"),
+        ("enum Color { RED, GREEN }; void run() { RED = GREEN; }", "not assignable"),
+        ("enum Color { RED, GREEN }; void run() { Color* value = &RED; }", "Unary operator '&'"),
     ),
 )
 def test_nonstorage_designators_are_rejected_with_compiler_parity(

@@ -81,11 +81,14 @@ class ExpressionContractsMixin:
 
     def _is_raw_pointer_value(self, type_expr) -> bool:
         type_expr = self._canonical_type(type_expr)
+        nominal_reference = bool(
+            type_expr
+            and (type_expr.base in self.class_table or type_expr.base in self.interface_table)
+        )
         return bool(
             type_expr
             and (type_expr.pointer_depth > 0 or type_expr.is_array)
-            and type_expr.base not in self.class_table
-            and type_expr.base not in self.interface_table
+            and (type_expr.is_array or not nominal_reference or type_expr.pointer_depth > 1)
         )
 
     def _validate_binary_expr(self, expression):
@@ -183,7 +186,7 @@ class ExpressionContractsMixin:
             )
 
     def _validate_index_expr(self, expression):
-        from ..index_protocol import indexed_protocol_info
+        from ..index_protocol import indexed_protocol
 
         object_type = self._infer_type(expression.obj)
         index_type = self._infer_type(expression.index)
@@ -192,19 +195,27 @@ class ExpressionContractsMixin:
         expected_index = None
         if object_type.base == "Map" and len(object_type.generic_args) == 2:
             expected_index = object_type.generic_args[0]
-        protocol = indexed_protocol_info(object_type, self.class_table)
+        protocol = indexed_protocol(object_type, self.class_table)
         if expected_index is None and protocol is not None:
-            getter = protocol.methods.get("get")
-            setter = protocol.methods.get("set")
-            method = getter or setter
-            if method and method.params:
+            assigning = self._assignment_target_depth > 0
+            # Mutation validation checks the exact getter/setter operations.
+            # Reads alone consume the getter contract here.
+            method = None if assigning else protocol.getter
+            if method is not None:
                 expected_index = method.params[0].type
                 if object_type.generic_args:
-                    substitutions = dict(zip(protocol.generic_params, object_type.generic_args))
+                    substitutions = protocol.substitutions(object_type)
                     expected_index = self._substitute_type(expected_index, substitutions)
-            if getter is None and self._assignment_target_depth == 0:
+            if not assigning and protocol.getter is None:
                 self._error(
                     f"Type '{self._format_type(object_type)}' has no indexed getter",
+                    expression.line,
+                    expression.col,
+                )
+            elif not assigning:
+                self._validate_indexed_method_access(
+                    protocol,
+                    protocol.getter,
                     expression.line,
                     expression.col,
                 )
@@ -226,7 +237,7 @@ class ExpressionContractsMixin:
         elif integral_index and index_type and not self._is_integral_value(index_type):
             self._error("Index expression must have an integral type", expression.index.line, expression.index.col)
 
-        indexable = expected_index is not None or integral_index
+        indexable = expected_index is not None or integral_index or protocol is not None
         if not indexable:
             self._error(f"Type '{self._format_type(object_type)}' is not indexable", expression.line, expression.col)
 

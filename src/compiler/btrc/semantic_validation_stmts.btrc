@@ -24,8 +24,7 @@ void semanticValidateVariable(Node declaration,
         "Initializer for '" + declaration.name + "'", state, vars);
     Node? actual = semanticInferType(
         declaration.initializer, state, vars);
-    if (actual != null && actual.base == "void"
-            && actual.pointer_depth == 0) {
+    if (semanticScalarVoid(actual)) {
         semanticValidationFail("Cannot assign void expression to variable '"
             + declaration.name + "'", declaration);
     }
@@ -53,6 +52,7 @@ void semanticValidateVariable(Node declaration,
     semanticRejectThreadHandleCopy(
         declared, actual, declaration.initializer, declaration, state);
     vars.put(declaration.name, declared);
+    state.borrowedBindings.remove(declaration.name);
 }
 
 void semanticValidateReturn(Node statement, SemanticValidationState state,
@@ -63,8 +63,7 @@ void semanticValidateReturn(Node statement, SemanticValidationState state,
     Node expectedReturn = state.returnType;
     semanticValidateTypedInitializer(expectedReturn, statement.value_node,
         "Return value", state, vars);
-    bool returnsVoid = expectedReturn.base == "void"
-        && expectedReturn.pointer_depth == 0;
+    bool returnsVoid = semanticScalarVoid(expectedReturn);
     if (statement.value_node == null) {
         if (!returnsVoid) {
             semanticValidationFail("Non-void function or method must return '"

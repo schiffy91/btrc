@@ -30,16 +30,28 @@ def owns_result(gen, expression) -> bool:
         result_type = gen.analyzed.node_types.get(id(expression))
         return bool(result_type and result_type.base in gen.analyzed.class_table)
     if isinstance(expression, CastExpr):
-        return owns_result(gen, expression.expr)
+        result_type = gen.analyzed.node_types.get(id(expression))
+        return _is_managed_type(gen, result_type) and owns_result(gen, expression.expr)
     if isinstance(expression, FStringLiteral):
         return any(isinstance(part, FStringExpr) for part in expression.parts)
     if isinstance(expression, AssignExpr):
         result_type = gen.analyzed.node_types.get(id(expression))
         target = expression.target
+        from .assignment_ownership import virtual_assignment_target
+
         return bool(
             _is_managed_type(gen, result_type)
-            and isinstance(target, (FieldAccessExpr, IndexExpr))
-            and owns_result(gen, target.obj)
+            and (
+                (
+                    isinstance(target, (FieldAccessExpr, IndexExpr))
+                    and owns_result(gen, target.obj)
+                )
+                or (
+                    expression.op == "="
+                    and virtual_assignment_target(gen, target)
+                    and owns_result(gen, expression.value)
+                )
+            )
         )
     if isinstance(expression, (FieldAccessExpr, IndexExpr)):
         result_type = gen.analyzed.node_types.get(id(expression))

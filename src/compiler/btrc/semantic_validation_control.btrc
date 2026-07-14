@@ -61,6 +61,8 @@ bool semanticDirectTerminal(Node statement) {
 void semanticValidateBlock(Node? block, SemanticValidationState state,
         Map<string, Node> outerVars) {
     if (block == null) { return; }
+    Map<string, bool> previousBorrowedBindings =
+        semanticCloneFlags(state.borrowedBindings);
     Map<string, bool> noReservedNames = {};
     semanticValidateDirectLocalNames(block, noReservedNames);
     Map<string, Node> vars = semanticCloneTypes(outerVars);
@@ -76,4 +78,5 @@ void semanticValidateBlock(Node? block, SemanticValidationState state,
         terminal = semanticDirectTerminal(statement);
         index = index + 1;
     }
+    state.borrowedBindings = previousBorrowedBindings;
 }

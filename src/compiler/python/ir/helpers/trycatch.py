@@ -87,7 +87,7 @@ TRYCATCH = {
         ),
         depends_on=["__btrc_trycatch_globals", "__btrc_safe_realloc"],
     ),
-    "__btrc_register_cleanup": HelperDef(
+    "__btrc_register_cleanup_kind": HelperDef(
         c_source=(
             "static inline void __btrc_register_cleanup_kind(void** ptr_ref, __btrc_cleanup_fn fn, __btrc_visit_fn visit, int direct) {\n"
             "    if (!ptr_ref || !fn) return;\n"
@@ -121,11 +121,6 @@ TRYCATCH = {
             "    __btrc_cleanup_stack[__btrc_cleanup_top].visit = visit;\n"
             "    __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;\n"
             "    __btrc_cleanup_stack[__btrc_cleanup_top].direct = direct;\n"
-            "}\n"
-            "static inline void __btrc_register_cleanup(\n"
-            "        void** ptr_ref, __btrc_cleanup_fn fn,\n"
-            "        __btrc_visit_fn visit) {\n"
-            "    __btrc_register_cleanup_kind(ptr_ref, fn, visit, 0);\n"
             "}"
         ),
         depends_on=[
@@ -134,6 +129,16 @@ TRYCATCH = {
             "__btrc_safe_realloc",
         ],
     ),
+    "__btrc_register_cleanup": HelperDef(
+        c_source=(
+            "static inline void __btrc_register_cleanup(\n"
+            "        void** ptr_ref, __btrc_cleanup_fn fn,\n"
+            "        __btrc_visit_fn visit) {\n"
+            "    __btrc_register_cleanup_kind(ptr_ref, fn, visit, 0);\n"
+            "}"
+        ),
+        depends_on=["__btrc_register_cleanup_kind"],
+    ),
     "__btrc_register_direct_cleanup": HelperDef(
         c_source=(
             "static inline void __btrc_register_direct_cleanup(\n"
@@ -141,7 +146,7 @@ TRYCATCH = {
             "    __btrc_register_cleanup_kind(ptr_ref, fn, NULL, 1);\n"
             "}"
         ),
-        depends_on=["__btrc_register_cleanup"],
+        depends_on=["__btrc_register_cleanup_kind"],
     ),
     "__btrc_run_cleanups": HelperDef(
         c_source=(

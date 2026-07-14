@@ -9,6 +9,7 @@ from ..ast_nodes import (
     KeepStmt,
     LambdaExpr,
     NullLiteral,
+    SelfExpr,
     SpawnExpr,
     TernaryExpr,
 )
@@ -191,6 +192,13 @@ class ValueContractsMixin:
     def _validate_ownership_operand(self, statement):
         expression = statement.expr
         operand_type = self._canonical_type(self._infer_type(expression))
+        if isinstance(expression, SelfExpr) and not isinstance(statement, KeepStmt):
+            self._error(
+                "Managed method receiver 'self' is borrowed and cannot be consumed",
+                statement.line,
+                statement.col,
+            )
+            return
         if not self._is_lvalue(expression):
             self._error("Ownership operation requires an assignable value", statement.line, statement.col)
             return
@@ -203,14 +211,14 @@ class ValueContractsMixin:
         indirect = (isinstance(expression, FieldAccessExpr) and self._is_property_projection(expression)) or (
             isinstance(expression, IndexExpr) and self._is_protocol_index_projection(expression)
         )
-        if not isinstance(statement, KeepStmt) and indirect:
+        if indirect:
             self._error(
                 f"{operation} cannot target a property or protocol index; store it in a direct lvalue first",
                 statement.line,
                 statement.col,
             )
             return
-        if not isinstance(statement, KeepStmt) and not self._is_lifetime_stable_storage(expression):
+        if not self._is_lifetime_stable_storage(expression):
             self._error(
                 f"{operation} requires storage rooted in a stable owner; bind temporary owners to a local first",
                 statement.line,
@@ -221,12 +229,25 @@ class ValueContractsMixin:
             expression, statement.line, statement.col
         ):
             return
+        self._validate_managed_parameter_consumption(
+            statement,
+            expression,
+            operand_type,
+        )
         if operand_type and operand_type.base in {"Mutex", "Thread"}:
             self._error(
                 f"{operation} is not valid for type '{self._format_type(operand_type)}'",
                 statement.line,
                 statement.col,
             )
+            return
+        if (
+            isinstance(statement, DeleteStmt)
+            and operand_type
+            and not operand_type.is_array
+            and operand_type.pointer_depth > 0
+            and operand_type.base != "__fn_ptr"
+        ):
             return
         if operand_type and operand_type.base not in self.class_table and not operand_type.generic_args:
             type_params = set(

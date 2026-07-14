@@ -40,8 +40,19 @@ if TYPE_CHECKING:
 
 def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
     """Return a sequenced assignment expression, or ``None`` if unmanaged."""
-    if node.op != "=" or not isinstance(node.target, FieldAccessExpr):
+    if not isinstance(node.target, FieldAccessExpr):
         return None
+    static_type = _static_managed_field_type(gen, node.target)
+    if static_type is not None:
+        from .expressions import lower_expr
+        from .local_arc import lower_managed_slot_assignment
+
+        return lower_managed_slot_assignment(
+            gen,
+            node,
+            lower_expr(gen, node.target),
+            static_type,
+        )
     receiver_type = gen.analyzed.node_types.get(id(node.target.obj))
     if not receiver_type or receiver_type.base not in gen.analyzed.class_table:
         return None
@@ -78,9 +89,19 @@ def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
         arrow=True,
     )
 
+    if node.op != "=":
+        return _lower_managed_field_compound(
+            gen,
+            node,
+            receiver_decl,
+            receiver,
+            target,
+            field_type,
+        )
     value = _lower_value(gen, node.value, field_type)
     value_type = gen.analyzed.node_types.get(id(node.value))
     value = upcast_class_pointer(gen, field_type, value_type, value)
+    owned = _is_owned_value(gen, node.value)
     value_decl = _temp_decl(gen, "__btrc_field_new", type_to_c(field_type), None)
     new_value = IRVar(name=value_decl.name)
 
@@ -89,7 +110,6 @@ def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
         IRBinOp(left=new_value, op="=", right=value),
     ]
     declarations = [receiver_decl, value_decl]
-    owned = _is_owned_value(gen, node.value)
     if is_class_type(gen, field_type):
         sequence.append(
             replace_edge_value(
@@ -123,6 +143,86 @@ def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
     )
 
 
+def _lower_managed_field_compound(
+    gen,
+    node,
+    receiver_decl,
+    receiver,
+    target,
+    field_type,
+):
+    from .expressions import lower_expr
+    from .managed_compound import (
+        lower_managed_compound_operator,
+        managed_compound_keeps_rhs,
+    )
+    from .managed_updates import lower_managed_compound_update
+
+    right_type = gen.analyzed.node_types.get(id(node.value)) or field_type
+    class_edge = is_class_type(gen, field_type)
+
+    def commit(old, replacement):
+        if class_edge:
+            return [
+                replace_edge_value(
+                    gen,
+                    target,
+                    replacement,
+                    field_type,
+                    receiver,
+                    adopt=True,
+                )
+            ]
+        return [
+            unlink_edge_value(gen, old, field_type, receiver),
+            adopt_edge_value(gen, replacement, field_type, receiver),
+            IRBinOp(left=target, op="=", right=replacement),
+        ]
+
+    update = lower_managed_compound_update(
+        gen,
+        value_type=field_type,
+        right_type=right_type,
+        old_expr=target,
+        right_expr=_lower_value(gen, node.value, field_type),
+        compute=lambda old, right: lower_managed_compound_operator(
+            gen,
+            node,
+            old,
+            right,
+            field_type,
+            right_type,
+            fresh_temp=gen.fresh_temp,
+        ),
+        commit=commit,
+        result_expr=lambda: target,
+        old_temporary_owned=False,
+        right_owned=bool(is_managed_type(gen, right_type) and _is_owned_value(gen, node.value)),
+        right_keep=managed_compound_keeps_rhs(gen, field_type, node.op[:-1]),
+        release_replaced_old=not class_edge,
+        commit_releases_old=class_edge,
+        result_owned=False,
+        transfer_before_commit=class_edge,
+        c_type=type_to_c,
+        fresh_temp=gen.fresh_temp,
+        record_decl=gen._func_var_decls.append,
+        cleanup_active=gen.exception_cleanup_active(),
+    )
+    return IRStmtExpr(
+        stmts=[receiver_decl],
+        result=IRCommaExpr(
+            expressions=[
+                IRBinOp(
+                    left=receiver,
+                    op="=",
+                    right=lower_expr(gen, node.target.obj),
+                ),
+                update,
+            ]
+        ),
+    )
+
+
 def _temp_decl(gen, prefix: str, c_type: str, init) -> IRVarDecl:
     declaration = IRVarDecl(
         c_type=CType(text=c_type),
@@ -151,3 +251,15 @@ def _is_owned_value(gen, value) -> bool:
     from .ownership import owns_result
 
     return owns_result(gen, value)
+
+
+def _static_managed_field_type(gen, target):
+    from ...ast_nodes import Identifier
+
+    if not isinstance(target.obj, Identifier):
+        return None
+    class_info = gen.analyzed.class_table.get(target.obj.name)
+    field = class_info.static_fields.get(target.field) if class_info else None
+    if field is None or not is_managed_type(gen, field.type):
+        return None
+    return gen.analyzed.node_types.get(id(target)) or field.type

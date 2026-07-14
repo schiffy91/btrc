@@ -1387,6 +1387,9 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         if (leftType != null) { return leftType; }
         return rightType;
     }
+    if (node.kind == NK_ASSIGN_EXPR) {
+        return inferType(node.target, a, varTypes);
+    }
     if (node.kind == NK_UNARY_EXPR) {
         Node? operandType = inferType(node.operand, a, varTypes);
         if (operandType == null) { return null; }
@@ -1583,14 +1586,20 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             }
             if (ot != null && a.isClass(ot.base)) {
                 Node? mm = a.classMethod(ot.base, method);
-                if (mm != null && mm.kind == NK_METHOD_DECL) { return mm.return_type; }
+                if (mm != null && mm.kind == NK_METHOD_DECL) {
+                    Map<string, Node> noClassArgs = {};
+                    return resolveGenericType(mm.return_type,
+                        methodCallTypeMap(a, node, mm, noClassArgs));
+                }
                 if (mm != null && mm.kind == NK_PROPERTY_DECL) { return mm.type; }
             }
             /* Generic instance method call: resolve return type via type map. */
             if (ot != null && ot.generic_args.len > 0 && a.isGenericClass(ot.base)) {
                 Node? mm = a.genericClassMethod(ot.base, method);
                 if (mm != null && mm.kind == NK_METHOD_DECL) {
-                    return resolveGenericType(mm.return_type, genericTypeMap(a, ot));
+                    Map<string, Node> classArgs = genericTypeMap(a, ot);
+                    return resolveGenericType(mm.return_type,
+                        methodCallTypeMap(a, node, mm, classArgs));
                 }
                 if (mm != null && mm.kind == NK_PROPERTY_DECL) {
                     return resolveGenericType(mm.type, genericTypeMap(a, ot));
@@ -1884,6 +1893,33 @@ Map<string, Node> genericTypeMap(Analyzed a, Node instanceType) {
         i = i + 1;
     }
     return tm;
+}
+
+/* Merge receiver-class and per-call method substitutions for semantic return
+ * inference. Generic-method instance collection records the latter by call
+ * identity; leaving them out here exposes an unresolved `U` even though IR
+ * generation already targets the correct monomorphized method. */
+Map<string, Node> methodCallTypeMap(Analyzed a, Node call, Node method,
+        Map<string, Node> classArguments) {
+    Map<string, Node> substitutions = {};
+    Vector<string> classNames = classArguments.keys();
+    int classIndex = 0;
+    while (classIndex < classNames.len) {
+        string name = classNames.get(classIndex);
+        substitutions.put(name, classArguments.get(name));
+        classIndex = classIndex + 1;
+    }
+    string callKey = astNodeKey(call);
+    if (!a.methodGenCallArgs.has(callKey)) { return substitutions; }
+    Vector<Node> methodArguments = a.methodGenCallArgs.get(callKey);
+    int methodIndex = 0;
+    while (methodIndex < method.generic_params.len
+            && methodIndex < methodArguments.len) {
+        substitutions.put(method.generic_params.get(methodIndex),
+            methodArguments.get(methodIndex));
+        methodIndex = methodIndex + 1;
+    }
+    return substitutions;
 }
 
 /* Find a member (field/method/property) in a generic class decl by name. */

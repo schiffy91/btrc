@@ -78,7 +78,9 @@ class FunctionsMixin:
 
     def _analyze_method(self, method):
         prev_method = self.current_method
+        prev_callable = self.current_callable
         self.current_method = method
+        self.current_callable = method
         prev_gpu = self.in_gpu_function
         self.in_gpu_function = method.is_gpu
         prev_return_type = self.current_return_type
@@ -135,7 +137,7 @@ class FunctionsMixin:
         if (
             not is_constructor
             and method.return_type
-            and method.return_type.base != "void"
+            and not self._is_nonpointer_void_object(method.return_type)
             and method.body
             and not self._block_must_terminate(method.body)
         ):
@@ -148,6 +150,7 @@ class FunctionsMixin:
 
         self._pop_scope()
         self.current_method = prev_method
+        self.current_callable = prev_callable
         self.in_gpu_function = prev_gpu
         self.current_return_type = prev_return_type
 
@@ -174,12 +177,15 @@ class FunctionsMixin:
             self._pop_scope()
         if prop.setter_body:
             self.current_return_type = TypeExpr(base="void")
+            previous_virtual_setter = self.in_virtual_setter
+            self.in_virtual_setter = True
             self._push_scope()
             self_type = self._current_self_type()
             self.scope.define("self", SymbolInfo("self", self_type, "param"))
             self.scope.define("value", SymbolInfo("value", prop.type, "param"))
             self._analyze_root_block(prop.setter_body)
             self._pop_scope()
+            self.in_virtual_setter = previous_virtual_setter
         self.current_method = prev_method
         self.current_return_type = prev_return_type
 
@@ -192,6 +198,8 @@ class FunctionsMixin:
         )
 
     def _analyze_function(self, func):
+        prev_callable = self.current_callable
+        self.current_callable = func
         prev_gpu = self.in_gpu_function
         self.in_gpu_function = func.is_gpu
         prev_return_type = self.current_return_type
@@ -243,12 +251,13 @@ class FunctionsMixin:
 
         if (
             func.return_type
-            and func.return_type.base != "void"
+            and not self._is_nonpointer_void_object(func.return_type)
             and func.body
             and not self._block_must_terminate(func.body)
         ):
             self._error(f"Function '{func.name}' has non-void return type but no return statement", func.line, func.col)
 
         self._pop_scope()
+        self.current_callable = prev_callable
         self.in_gpu_function = prev_gpu
         self.current_return_type = prev_return_type

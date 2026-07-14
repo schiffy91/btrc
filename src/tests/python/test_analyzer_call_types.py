@@ -130,6 +130,17 @@ def test_pointer_to_function_pointer_is_not_directly_callable():
     assert _has(errors, "is not callable")
 
 
+def test_declared_collection_name_does_not_make_a_data_field_callable():
+    errors = _errors("""
+        class Map<K, V> { public int size; }
+        void run() {
+            Map<int, int> values = new Map<int, int>();
+            values.size();
+        }
+    """)
+    assert _has(errors, "is not callable")
+
+
 def test_method_dispatch_mode_is_enforced_at_the_call_site():
     errors = _errors("""
         class Item {

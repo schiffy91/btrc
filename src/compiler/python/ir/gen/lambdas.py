@@ -96,20 +96,39 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
     # C function and must not inherit the parent's ARC-managed variables.
     from .isolated_context import isolated_function_context
 
+    local_bindings = [param.name for param in node.params]
+    local_bindings.extend(capture.name for capture in node.captures)
     with isolated_function_context(gen, ret_type, return_type):
         if isinstance(node.body, LambdaBlock) and node.body.body:
             from .statements import lower_block
 
-            block = lower_block(gen, node.body.body)
+            block = lower_block(
+                gen,
+                node.body.body,
+                local_bindings=local_bindings,
+            )
             body_stmts.extend(block.stmts)
         elif isinstance(node.body, LambdaExprBody) and node.body.expression:
             from .expressions import lower_expr
             from .stringable import coerce_value_to_string
 
-            expr = lower_expr(gen, node.body.expression)
-            expr_type = gen.analyzed.node_types.get(id(node.body.expression))
-            expr = coerce_value_to_string(gen, return_type, expr_type, expr)
-            body_stmts.append(IRReturn(value=expr))
+            gen.push_local_ownership_scope()
+            try:
+                for name in local_bindings:
+                    gen.declare_local_ownership(name)
+                expr = lower_expr(gen, node.body.expression)
+                expr_type = gen.analyzed.node_types.get(
+                    id(node.body.expression)
+                )
+                expr = coerce_value_to_string(
+                    gen,
+                    return_type,
+                    expr_type,
+                    expr,
+                )
+                body_stmts.append(IRReturn(value=expr))
+            finally:
+                gen.pop_local_ownership_scope()
 
     gen.module.function_defs.append(
         IRFunctionDef(

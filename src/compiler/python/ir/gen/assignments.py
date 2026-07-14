@@ -23,16 +23,25 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
         mark_borrowed_cycle_seeds(gen._managed_vars_stack)
     target_nodes = _target_operands(gen, node.target)
     if target_nodes:
+        from .assignment_ownership import virtual_assignment_target
         from .managed_values import is_managed_type
+        from .ownership import owns_result
         from .ownership_boundary import sequence_owned_operands
 
         result_type = gen.analyzed.node_types.get(id(node))
+        rhs_supplies_result = bool(
+            node.op == "="
+            and virtual_assignment_target(gen, node.target)
+            and owns_result(gen, node.value)
+        )
         sequenced = sequence_owned_operands(
             gen,
             target_nodes,
             build=lambda: _lower_plain_assignment(gen, node),
             result_type=result_type,
-            promote_result=bool(is_managed_type(gen, result_type)),
+            promote_result=bool(
+                is_managed_type(gen, result_type) and not rhs_supplies_result
+            ),
         )
         if sequenced is not None:
             return sequenced
@@ -46,12 +55,6 @@ def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     managed_local = lower_managed_local_assignment(gen, node)
     if managed_local is not None:
         return managed_local
-
-    from .property_arc import lower_managed_property_assignment
-
-    managed_property = lower_managed_property_assignment(gen, node)
-    if managed_property is not None:
-        return managed_property
 
     from .field_arc import lower_managed_field_assignment
 

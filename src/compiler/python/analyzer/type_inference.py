@@ -117,19 +117,19 @@ class TypeInferenceMixin(_IterationInferenceMixin):
                 and (obj_type.base not in self.class_table or obj_type.pointer_depth > 1)
             ):
                 return replace(obj_type, pointer_depth=obj_type.pointer_depth - 1)
-            from ..index_protocol import indexed_protocol_info
+            from ..index_protocol import indexed_protocol
 
-            cls = indexed_protocol_info(obj_type, self.class_table)
-            if cls is not None:
-                getter = cls.methods.get("get")
-                setter = cls.methods.get("set")
+            protocol = indexed_protocol(obj_type, self.class_table)
+            if protocol is not None:
+                getter = protocol.getter
+                setter = protocol.setter
                 value_type = None
-                if getter is not None and len(getter.params) == 1:
+                if getter is not None:
                     value_type = getter.return_type
-                elif setter is not None and len(setter.params) == 2:
+                elif setter is not None:
                     value_type = setter.params[1].type
-                if value_type is not None and cls.generic_params and obj_type.generic_args:
-                    substitutions = dict(zip(cls.generic_params, obj_type.generic_args))
+                if value_type is not None and obj_type.generic_args:
+                    substitutions = protocol.substitutions(obj_type)
                     value_type = self._substitute_type(value_type, substitutions)
                 if value_type is not None:
                     return value_type
@@ -224,6 +224,9 @@ class TypeInferenceMixin(_IterationInferenceMixin):
             if expr.field == "tag":
                 return TypeExpr(base="int")
             return None
+        if obj_type and obj_type.base in {"Array", "List", "Map", "Set", "Vector"}:
+            if expr.field in {"len", "length", "size"}:
+                return TypeExpr(base="int", is_const=obj_type.is_const)
         if isinstance(expr.obj, FieldAccessExpr) and isinstance(expr.obj.obj, FieldAccessExpr):
             data_expr = expr.obj.obj
             if isinstance(data_expr.obj, (Identifier, FieldAccessExpr)):

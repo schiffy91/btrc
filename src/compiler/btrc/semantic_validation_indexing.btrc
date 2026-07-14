@@ -3,13 +3,28 @@
 Node? semanticIndexedMethod(
         Node objectType, string name, Analyzed analyzed) {
     if (analyzed.isGenericClass(objectType.base)
-            && objectType.pointer_depth == 0) {
+            && objectType.pointer_depth <= 1) {
         return analyzed.genericClassMethod(objectType.base, name);
     }
     if (analyzed.isClass(objectType.base)) {
         return analyzed.classMethod(objectType.base, name);
     }
     return null;
+}
+
+bool semanticValidIndexedGetter(Node? method) {
+    return method != null && method.access != "class"
+        && method.generic_params.len == 0
+        && method.params.len == 1 && !method.params.get(0).keep_
+        && method.return_type != null
+        && !semanticScalarVoid(method.return_type);
+}
+
+bool semanticValidIndexedSetter(Node? method) {
+    return method != null && method.access != "class"
+        && method.generic_params.len == 0
+        && method.params.len == 2 && !method.params.get(0).keep_
+        && semanticScalarVoid(method.return_type);
 }
 
 Node semanticResolvedIndexedType(
@@ -24,11 +39,10 @@ Node semanticResolvedIndexedType(
 
 bool semanticRawIndexedPointer(Node objectType, Analyzed analyzed) {
     if (objectType.pointer_depth <= 0) { return false; }
-    /* Ordinary class instances carry one source pointer level; T* adds a
-     * second.  Generic class instances use depth zero, so their explicit
-     * pointer storage starts at one. */
-    if (analyzed.isGenericClass(objectType.base)) { return true; }
-    if (analyzed.isClass(objectType.base)) {
+    /* All inferred class instances carry one implicit pointer level; only an
+     * additional level is raw pointer storage rather than the index protocol. */
+    if (analyzed.isClass(objectType.base)
+            || analyzed.isGenericClass(objectType.base)) {
         return objectType.pointer_depth > 1;
     }
     return true;
@@ -54,14 +68,14 @@ Node? semanticIndexResultType(Node? objectType, Analyzed analyzed) {
     }
     Node? getter = semanticIndexedMethod(objectType, "get", analyzed);
     Node? result = null;
-    if (getter != null && getter.params.len == 1
-            && getter.return_type != null
-            && getter.return_type.base != "void") {
-        result = getter.return_type;
+    if (semanticValidIndexedGetter(getter)) {
+        Node concreteGetter = getter;
+        result = concreteGetter.return_type;
     } else {
         Node? setter = semanticIndexedMethod(objectType, "set", analyzed);
-        if (setter != null && setter.params.len == 2) {
-            result = setter.params.get(1).type;
+        if (semanticValidIndexedSetter(setter)) {
+            Node concreteSetter = setter;
+            result = concreteSetter.params.get(1).type;
         }
     }
     if (result == null) { return null; }
@@ -74,6 +88,22 @@ Node? semanticIndexParameterType(
     if (method.params.len == 0) { return null; }
     return semanticResolvedIndexedType(
         method.params.get(0).type, objectType, analyzed);
+}
+
+Node? semanticIndexedSetterValueType(Node? target,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (target == null || target.kind != NK_INDEX_EXPR) { return null; }
+    Node? receiver = semanticInferType(target.obj, state, vars);
+    if (receiver == null
+            || semanticRawIndexedPointer(receiver, state.analyzed)) {
+        return null;
+    }
+    Node? setter = semanticIndexedMethod(
+        receiver, "set", state.analyzed);
+    if (!semanticValidIndexedSetter(setter)) { return null; }
+    Node concreteSetter = setter;
+    return semanticResolvedIndexedType(
+        concreteSetter.params.get(1).type, receiver, state.analyzed);
 }
 
 void semanticValidateIndex(Node expression, SemanticValidationState state,
@@ -102,31 +132,28 @@ void semanticValidateIndex(Node expression, SemanticValidationState state,
         }
         return;
     }
-    Node? getter = semanticIndexedMethod(
-        concreteObject, "get", state.analyzed);
-    Node? method = getter;
-    if (method == null && !requireGetter) {
+    Node? method = null;
+    if (requireGetter) {
+        method = semanticIndexedMethod(
+            concreteObject, "get", state.analyzed);
+        if (!semanticValidIndexedGetter(method)) { method = null; }
+    } else {
         method = semanticIndexedMethod(
             concreteObject, "set", state.analyzed);
+        if (!semanticValidIndexedSetter(method)) { method = null; }
     }
-    bool validGetter = getter != null && getter.params.len == 1
-        && getter.return_type != null
-        && getter.return_type.base != "void"
-        && getter.access != "class";
-    bool validSetter = !requireGetter && method != null
-        && method.params.len == 2
-        && method.return_type != null
-        && method.return_type.base == "void"
-        && method.access != "class";
-    if (!validGetter && !validSetter) {
+    if (method == null) {
         semanticValidationFail("Type '"
             + semanticFormatType(concreteObject)
             + (requireGetter
                 ? "' has no indexed getter"
                 : "' has no indexed setter"), expression);
     }
+    Node concreteMethod = method;
+    semanticValidateMethodAccess(
+        concreteObject.base, concreteMethod, state, expression);
     Node expected = semanticIndexParameterType(
-        concreteObject, method, state.analyzed);
+        concreteObject, concreteMethod, state.analyzed);
     if (indexType != null
             && !semanticAssignmentCompatible(expected, indexType, state)) {
         semanticValidationFail("Index expression expects '"
@@ -144,26 +171,27 @@ void semanticValidateIndexedMutation(Node target, bool requireGetter,
         return;
     }
     Node? setter = semanticIndexedMethod(receiver, "set", state.analyzed);
-    if (setter == null) {
+    if (!semanticValidIndexedSetter(setter)) {
         semanticValidationFail("Type '" + semanticFormatType(receiver)
             + "' has no void instance set(index, value) method", site);
         return;
     }
-    if (setter.params.len != 2
-            || setter.access == "class"
-            || setter.return_type == null
-            || setter.return_type.base != "void"
-            || setter.return_type.pointer_depth != 0) {
-        semanticValidationFail("Type '" + semanticFormatType(receiver)
-            + "' has no void instance set(index, value) method", site);
-    }
-    if (requireGetter && semanticIndexedMethod(
-            receiver, "get", state.analyzed) == null) {
+    Node concreteSetter = setter;
+    semanticValidateMethodAccess(
+        receiver.base, concreteSetter, state, site);
+    Node? getter = semanticIndexedMethod(
+        receiver, "get", state.analyzed);
+    if (requireGetter && !semanticValidIndexedGetter(getter)) {
         semanticValidationFail("Type '" + semanticFormatType(receiver)
             + "' has no indexed getter", site);
     }
+    if (requireGetter) {
+        Node concreteGetter = getter;
+        semanticValidateMethodAccess(
+            receiver.base, concreteGetter, state, site);
+    }
     Node expectedIndex = semanticResolvedIndexedType(
-        setter.params.get(0).type, receiver, state.analyzed);
+        concreteSetter.params.get(0).type, receiver, state.analyzed);
     Node? actualIndex = semanticInferType(target.index, state, vars);
     if (actualIndex != null && !semanticAssignmentCompatible(
             expectedIndex, actualIndex, state)) {
@@ -171,9 +199,21 @@ void semanticValidateIndexedMutation(Node target, bool requireGetter,
             + semanticFormatType(expectedIndex) + "' but got '"
             + semanticFormatType(actualIndex) + "'", target.index);
     }
+    if (requireGetter) {
+        Node concreteGetter = getter;
+        Node getterIndex = semanticResolvedIndexedType(
+            concreteGetter.params.get(0).type,
+            receiver, state.analyzed);
+        if (actualIndex != null && !semanticAssignmentCompatible(
+                getterIndex, actualIndex, state)) {
+            semanticValidationFail("Indexed getter expects index type '"
+                + semanticFormatType(getterIndex) + "' but got '"
+                + semanticFormatType(actualIndex) + "'", target.index);
+        }
+    }
 
     Node expectedValue = semanticResolvedIndexedType(
-        setter.params.get(1).type, receiver, state.analyzed);
+        concreteSetter.params.get(1).type, receiver, state.analyzed);
     Node? actualValue = semanticIndexResultType(receiver, state.analyzed);
     if (site.kind == NK_ASSIGN_EXPR && site.op == "=") {
         actualValue = semanticInferType(site.value_node, state, vars);

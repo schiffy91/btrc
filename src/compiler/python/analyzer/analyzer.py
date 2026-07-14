@@ -5,6 +5,7 @@ from .aggregate_layout import AggregateLayoutContractsMixin
 from .array_contracts import ArrayContractsMixin
 from .builtin_calls import BuiltinCallValidationMixin
 from .call_arguments import CallArgumentBindingMixin
+from .call_consumption import CallConsumptionContractsMixin
 from .call_targets import CallTargetContractsMixin
 from .call_type_inference import CallTypeInferenceMixin
 from .callable_values import CallableValueValidationMixin
@@ -29,7 +30,9 @@ from .declaration_validation import RegisteredDeclarationValidationMixin
 from .enum_contracts import EnumContractsMixin
 from .exceptions import ExceptionAnalysisMixin
 from .expression_contracts import ExpressionContractsMixin
+from .expression_ownership import ExpressionOwnershipContractsMixin
 from .expressions import ExpressionsMixin
+from .for_in_analysis import ForInAnalysisMixin
 from .functions import FunctionsMixin
 from .generated_symbols import GeneratedSymbolContractsMixin
 from .generic_intrinsics import GenericIntrinsicValidationMixin
@@ -37,13 +40,16 @@ from .generic_methods import GenericMethodsMixin
 from .generic_validation import GenericValidationMixin
 from .hierarchy import HierarchyValidationMixin
 from .identifier_contracts import IdentifierContractsMixin
+from .indexed_updates import IndexedUpdateContractsMixin
 from .initializers import InitializerValidationMixin
 from .lambdas import LambdaAnalysisMixin
 from .lvalue_contracts import LvalueContractsMixin
+from .managed_rebinds import ManagedRebindContractsMixin
 from .nullable_control_flow import NullableControlFlowMixin
 from .nullable_flow import NullableFlowMixin
 from .occurrences import OccurrencesMixin
 from .operator_inference import OperatorInferenceMixin
+from .parameter_consumption import ParameterConsumptionContractsMixin
 from .qualification import QualificationMixin
 from .registration import RegistrationMixin
 from .registration_declarations import DeclarationRegistrationMixin
@@ -90,16 +96,22 @@ class Analyzer(
     GenericIntrinsicValidationMixin,
     BuiltinCallValidationMixin,
     CallArgumentBindingMixin,
+    ExpressionOwnershipContractsMixin,
+    CallConsumptionContractsMixin,
     CallValidationMixin,
     LvalueContractsMixin,
+    IndexedUpdateContractsMixin,
+    ManagedRebindContractsMixin,
     UpdateContractsMixin,
     ExpressionContractsMixin,
+    ParameterConsumptionContractsMixin,
     ValueContractsMixin,
     ExceptionAnalysisMixin,
     NullableFlowMixin,
     NullableControlFlowMixin,
     LambdaAnalysisMixin,
     SwitchContractsMixin,
+    ForInAnalysisMixin,
     ControlFlowAnalysisMixin,
     TypeNormalizationMixin,
     CycleAnalysisMixin,

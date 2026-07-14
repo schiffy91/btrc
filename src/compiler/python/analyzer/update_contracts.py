@@ -3,7 +3,7 @@
 from ..ast_nodes import (
     FieldAccessExpr,
     FloatLiteral,
-    IndexExpr,
+    Identifier,
     IntLiteral,
     NullLiteral,
 )
@@ -34,11 +34,33 @@ class UpdateContractsMixin:
         self._validate_indexed_update(
             expression.target,
             require_getter=expression.op != "=",
+            value=expression.value,
             line=expression.line,
             col=expression.col,
         )
 
         target = self._infer_type(expression.target)
+        canonical_target = self._canonical_type(target)
+        if self._reject_borrowed_managed_rebind(
+            expression,
+            canonical_target,
+        ):
+            return
+        virtual_target = self._is_virtual_update_target(expression.target)
+        if (
+            expression.op != "="
+            and canonical_target is not None
+            and (canonical_target.base in self.class_table or canonical_target.base == "string")
+        ):
+            supported_physical = isinstance(expression.target, (Identifier, FieldAccessExpr)) and not virtual_target
+            if not supported_physical:
+                self._error(
+                    "Managed compound updates require a direct local/global or physical field; "
+                    "use an explicit local value and simple store for virtual or indirect targets",
+                    expression.line,
+                    expression.col,
+                )
+                return
         if self._validate_fixed_array_assignment(target, expression):
             return
         self._contextualize_generic_constructor(target, expression.value)
@@ -108,6 +130,9 @@ class UpdateContractsMixin:
             )
 
     def _validate_unary_expr(self, expression):
+        if expression.op == "&":
+            self._validate_address_operand(expression)
+            return
         operand_type = self._infer_type(expression.operand)
         if operand_type is None:
             return
@@ -119,11 +144,7 @@ class UpdateContractsMixin:
                 unary=True,
             )
             return
-        if expression.op == "&":
-            valid = self._is_lifetime_stable_storage(expression.operand) or (
-                getattr(expression.operand, "name", None) in self.function_table
-            )
-        elif expression.op == "*":
+        if expression.op == "*":
             valid = operand_type.pointer_depth > 0 or operand_type.is_array
         elif expression.op in ("++", "--"):
             valid = self._is_lvalue(expression.operand) and (
@@ -136,7 +157,11 @@ class UpdateContractsMixin:
                     expression.operand, require_getter=True, line=expression.line, col=expression.col
                 )
                 self._validate_indexed_update(
-                    expression.operand, require_getter=True, line=expression.line, col=expression.col
+                    expression.operand,
+                    require_getter=True,
+                    value=None,
+                    line=expression.line,
+                    col=expression.col,
                 )
         elif expression.op in ("+", "-"):
             valid = self._is_numeric_value(operand_type)
@@ -168,27 +193,13 @@ class UpdateContractsMixin:
         if require_getter and not prop.has_getter:
             self._error(f"Property '{target.field}' has no getter", line, col)
 
-    def _validate_indexed_update(self, target, *, require_getter, line, col):
-        if not isinstance(target, IndexExpr):
-            return
-        receiver_type = self._infer_type(target.obj)
-        from ..index_protocol import indexed_protocol_info
-
-        class_info = indexed_protocol_info(receiver_type, self.class_table)
-        if class_info is None:
-            return
-        if "set" not in class_info.methods:
-            self._error(f"Type '{receiver_type.base}' has no indexed setter", line, col)
-        if require_getter and "get" not in class_info.methods:
-            self._error(f"Type '{receiver_type.base}' has no indexed getter", line, col)
-
     def _validate_mutable_target(self, target, line, col) -> bool:
         target_type = self._canonical_type(self._infer_type(target))
-        if self._target_has_const_receiver(target):
-            self._error("Cannot modify through a const-qualified receiver", line, col)
-            return False
         if target_type is not None and target_type.is_const and not self._is_pointer_value(target_type):
             self._error("Cannot modify const-qualified storage", line, col)
+            return False
+        if self._target_has_const_receiver(target):
+            self._error("Cannot modify through a const-qualified receiver", line, col)
             return False
         if self._aggregate_has_const_member(target_type):
             self._error(

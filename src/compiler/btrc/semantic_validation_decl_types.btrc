@@ -93,9 +93,7 @@ void semanticValidateDeclaredType(Node? typeExpr, string subject,
                 site);
         }
     }
-    if (role != "return" && canonical != null
-            && canonical.base == "void"
-            && canonical.pointer_depth == 0) {
+    if (role != "return" && semanticScalarVoid(canonical)) {
         semanticValidationFail(subject
             + " cannot have scalar/non-pointer void type", site);
     }

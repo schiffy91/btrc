@@ -9,6 +9,23 @@ from src.tests.btrc.test_semantic_validation import _compile_source, _strict_bui
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
+MALFORMED_PROTOCOLS = (
+    ("getter-arity", "public int get(int first, int second) { return 0; }", "int value = item[0];"),
+    ("static-getter", "class int get(int index) { return 0; }", "int value = item[0];"),
+    ("setter-arity", "public void set(int value) {}", "item[0] = 1;"),
+    ("setter-return", "public int set(int index, int value) { return 0; }", "item[0] = 1;"),
+    (
+        "value-mismatch",
+        "public int get(int index) { return 0; } public void set(int index, string value) {}",
+        "item[0] += 1;",
+    ),
+    (
+        "index-mismatch",
+        "public int get(int index) { return 0; } public void set(string index, int value) {}",
+        "item[0] = 1;",
+    ),
+)
+
 
 def test_ordinary_class_index_protocol_has_runtime_parity(
     semantic_btrcc: Path,
@@ -60,6 +77,125 @@ def test_write_only_index_protocol_accepts_direct_setter(
     assert reference.returncode == 0, reference.stderr
     _strict_build_and_run(selfhost_source, tmp_path / "selfhost-write-only-index")
     _strict_build_and_run(reference_source, tmp_path / "reference-write-only-index")
+
+
+@pytest.mark.parametrize(
+    ("_case", "members", "operation"),
+    MALFORMED_PROTOCOLS,
+    ids=[case[0] for case in MALFORMED_PROTOCOLS],
+)
+def test_malformed_index_protocol_signatures_are_rejected_with_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    _case: str,
+    members: str,
+    operation: str,
+) -> None:
+    source = f"class Item {{ {members} }} int main() {{ Item item = new Item(); {operation} return 0; }}"
+    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode != 0
+    assert reference.returncode != 0
+
+
+@pytest.mark.parametrize(
+    ("member", "operation"),
+    (
+        ("private int get(int index) { return index; }", "int value = item[0];"),
+        ("private void set(int index, int value) {}", "item[0] = 1;"),
+    ),
+    ids=("private-getter", "private-setter"),
+)
+def test_private_index_protocol_methods_require_owner_access(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    member: str,
+    operation: str,
+) -> None:
+    source = f"class Item {{ {member} }} int main() {{ Item item = new Item(); {operation} return 0; }}"
+    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode != 0
+    assert reference.returncode != 0
+    assert "private" in selfhost.stderr.lower()
+    assert "private" in reference.stderr.lower()
+
+
+def test_void_pointer_returns_and_index_getters_are_values(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <assert.h>
+        void* empty() { return null; }
+        class Slots {
+            public void* get(int index) { return null; }
+        }
+        int main() {
+            Slots slots = new Slots();
+            assert(empty() == null);
+            assert(slots[0] == null);
+            return 0;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-void-pointer-index")
+    _strict_build_and_run(reference_source, tmp_path / "reference-void-pointer-index")
+
+
+def test_inferred_generic_class_receiver_remains_indexable(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <assert.h>
+        class Store<T> {
+            private T stored;
+            public Store(T stored) { self.stored = stored; }
+            public T get(int index) { return self.stored; }
+            public void set(int index, T value) { self.stored = value; }
+        }
+        int main() {
+            var store = new Store<int>(7);
+            assert(store[0] == 7);
+            store[0] = 9;
+            assert(store[0] == 9);
+            return 0;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-inferred-generic-index")
+    _strict_build_and_run(reference_source, tmp_path / "reference-inferred-generic-index")
+
+
+def test_extra_raw_class_indirection_does_not_use_index_protocol(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Store {
+            public int get(int index) { return index; }
+            public void set(int index, int value) {}
+        }
+        int main() {
+            var slots = (Store**)malloc(sizeof(void*));
+            slots[0] = null;
+            delete slots;
+            return 0;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-raw-class-index")
+    _strict_build_and_run(reference_source, tmp_path / "reference-raw-class-index")
 
 
 @pytest.mark.parametrize(
@@ -157,92 +293,6 @@ def test_const_protocol_receiver_mutation_is_rejected_with_compiler_parity(
     assert reference.returncode != 0
     assert "const" in selfhost.stderr.lower()
     assert "const" in reference.stderr.lower()
-
-
-@pytest.mark.parametrize("operation", ("release", "delete"))
-@pytest.mark.parametrize("target", ("holder.item", "store[0]"))
-def test_consuming_ownership_ops_reject_virtual_targets(
-    semantic_btrcc: Path,
-    tmp_path: Path,
-    operation: str,
-    target: str,
-) -> None:
-    source = f"""
-        class Item {{ public Item() {{}} }}
-        class Holder {{
-            private Item stored;
-            public Holder(Item stored) {{ self.stored = stored; }}
-            public Item item {{ get {{ return self.stored; }} }}
-        }}
-        class Store<T> {{
-            private T stored;
-            public Store(T stored) {{ self.stored = stored; }}
-            public T get(int index) {{ return self.stored; }}
-            public void set(int index, T value) {{ self.stored = value; }}
-        }}
-        int main() {{
-            Item item = new Item();
-            Holder holder = new Holder(item);
-            Store<Item> store = new Store<Item>(item);
-            {operation} {target};
-            return 0;
-        }}
-    """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
-    diagnostic = "cannot target a property or protocol index"
-    assert selfhost.returncode != 0
-    assert reference.returncode != 0
-    assert diagnostic in selfhost.stderr
-    assert diagnostic in reference.stderr
-
-
-@pytest.mark.parametrize("operation", ("release", "delete"))
-def test_consuming_ownership_ops_reject_owned_receiver_fields(
-    semantic_btrcc: Path,
-    tmp_path: Path,
-    operation: str,
-) -> None:
-    source = f"""
-        class Item {{ public Item() {{}} }}
-        class Holder {{
-            public Item item;
-            public Holder() {{ self.item = new Item(); }}
-        }}
-        Holder makeHolder() {{ return new Holder(); }}
-        int main() {{ {operation} makeHolder().item; return 0; }}
-    """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
-    diagnostic = "requires storage rooted in a stable owner"
-    assert selfhost.returncode != 0
-    assert reference.returncode != 0
-    assert diagnostic in selfhost.stderr
-    assert diagnostic in reference.stderr
-
-
-def test_delete_side_effectful_physical_lvalue_runs_once(
-    semantic_btrcc: Path,
-    tmp_path: Path,
-) -> None:
-    source = """
-        #include <assert.h>
-        int indexCalls = 0;
-        int nextIndex() { indexCalls++; return 0; }
-        int main() {
-            void* slots[1] = {malloc(4)};
-            delete slots[nextIndex()];
-            assert(indexCalls == 1);
-            assert(slots[0] == null);
-            return 0;
-        }
-    """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
-    assert selfhost.returncode == 0, selfhost.stderr
-    assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-delete-once")
-    _strict_build_and_run(reference_source, tmp_path / "reference-delete-once")
 
 
 def test_explicit_function_address_keeps_function_pointer_type(

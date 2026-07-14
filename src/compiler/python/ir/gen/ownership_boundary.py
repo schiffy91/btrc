@@ -14,6 +14,7 @@ def sequence_owned_operands(
     build,
     result_type,
     promote_result: bool = False,
+    keep_nodes=(),
 ):
     """Evaluate source operands once and consume each caller-owned value.
 
@@ -22,7 +23,8 @@ def sequence_owned_operands(
     hoisted so source evaluation order remains deterministic.
     """
     specs = []
-    any_owned = False
+    keep_ids = {id(node) for node in keep_nodes}
+    needs_boundary = False
     for node in nodes:
         type_expr = gen.analyzed.node_types.get(id(node))
         # An enclosing boundary owns and will consume an installed override.
@@ -30,11 +32,12 @@ def sequence_owned_operands(
         # borrowed or it would wrap an assignable projection in a non-lvalue
         # statement expression and release the same reference twice.
         owned = bool(id(node) not in gen._owning_temp_overrides and owns_result(gen, node))
-        any_owned = any_owned or owned
-        specs.append((node, type_expr, owned))
-    if not any_owned:
+        keep = id(node) in keep_ids
+        needs_boundary = needs_boundary or owned or keep
+        specs.append((node, type_expr, owned, keep))
+    if not needs_boundary:
         return None
-    if any(type_expr is None for _node, type_expr, _owned in specs):
+    if any(type_expr is None for _node, type_expr, _owned, _keep in specs):
         from .errors import CodegenError
 
         raise CodegenError("owned expression sequencing requires concrete analyzed operand types")
@@ -44,9 +47,10 @@ def sequence_owned_operands(
             node=node,
             type_expr=type_expr,
             c_type=type_to_c(type_expr),
+            keep=keep,
             owned=owned,
         )
-        for node, type_expr, owned in specs
+        for node, type_expr, owned, keep in specs
     ]
 
     def build_with_overrides(overrides):

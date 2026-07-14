@@ -111,75 +111,24 @@ void semanticValidateBinary(Node expression, SemanticValidationState state,
     if (!valid) { semanticOperatorFailure(expression, left, right); }
 }
 
-void semanticValidateAssignment(Node expression,
-        SemanticValidationState state, Map<string, Node> vars) {
-    if (!semanticIsLvalue(expression.target, state, vars)) {
-        semanticValidationFail("Assignment target is not assignable", expression);
-    }
-    semanticRejectShallowStore(expression, state, vars);
-    Node? target = semanticInferType(expression.target, state, vars);
-    Node? source = semanticInferType(expression.value_node, state, vars);
-    if (expression.op == "=") {
-        semanticValidateTypedInitializer(target, expression.value_node,
-            "Assignment", state, vars);
-    }
-    semanticValidatePropertyMutation(expression.target,
-        expression.op != "=", state, vars, expression);
-    semanticValidateIndexedMutation(expression.target,
-        expression.op != "=", state, vars, expression);
-    semanticValidateTargetReceiverMutability(
-        expression.target, state, vars, expression);
-    semanticValidateMutableTarget(target, state, expression);
-    if (target == null || source == null) { return; }
-    if (expression.op == "=") {
-        semanticRejectThreadHandleCopy(
-            target, source, expression.value_node, expression, state);
-        Node? resolvedTarget = semanticResolveAliases(target, state);
-        Node? resolvedSource = semanticResolveAliases(source, state);
-        bool copiedThread = resolvedSource != null
-            && resolvedSource.base == "Thread"
-            && semanticThreadCopySource(expression.value_node);
-        if (resolvedTarget != null && resolvedTarget.base == "Thread"
-                && !copiedThread) {
-            semanticValidationFail(
-                "Thread owner variables are single-assignment; declare a "
-                    + "new owner for a fresh Thread result",
-                expression);
-        }
-        if (!semanticAssignmentCompatible(target, source, state)) {
-            semanticValidationFail("Cannot assign '"
-                + semanticFormatType(source) + "' to '"
-                + semanticFormatType(target) + "'", expression);
-        }
-        return;
-    }
-    semanticValidatePortableNumericMix(expression, target, source,
-        "Compound assignment '" + expression.op + "'", state);
-    if (semanticHasBinaryOverload(
-            target, expression.op.substring(0, expression.op.length() - 1),
-            state)) {
-        return;
-    }
-    string op = expression.op.substring(0, expression.op.length() - 1);
-    bool valid = false;
-    if (op == "+" && isSemanticScalarString(target)
-            && (isSemanticScalarString(source)
-                || semanticIsCStringPointer(source))) {
-        valid = true;
-    } else if (op == "&" || op == "|" || op == "^"
-            || op == "<<" || op == ">>") {
-        valid = semanticIntegralType(target, state.analyzed)
-            && semanticIntegralType(source, state.analyzed);
-    } else {
-        valid = numericIsType(target, state.analyzed)
-            && numericIsType(source, state.analyzed)
-            && target.base != "bool" && source.base != "bool";
-    }
-    if (!valid) { semanticOperatorFailure(expression, target, source); }
-}
-
 void semanticValidateUnary(Node expression, SemanticValidationState state,
         Map<string, Node> vars) {
+    if (expression.op == "&") {
+        bool addressable = semanticIsLifetimeStableStorage(
+                expression.operand, state, vars)
+            || (expression.operand.kind == NK_IDENTIFIER
+                && state.analyzed.funcNames.has(
+                    expression.operand.name));
+        if (!addressable) {
+            Node? invalidType = semanticInferType(
+                expression.operand, state, vars);
+            string spelling = invalidType == null
+                ? "unknown" : semanticFormatType(invalidType);
+            semanticValidationFail("Unary operator '&' is not defined for '"
+                + spelling + "'", expression);
+        }
+        return;
+    }
     Node? operand = semanticInferType(expression.operand, state, vars);
     if (operand == null
             || semanticTypeContainsParams(operand, state.typeParams)) {
@@ -189,13 +138,7 @@ void semanticValidateUnary(Node expression, SemanticValidationState state,
         return;
     }
     bool valid = true;
-    if (expression.op == "&") {
-        valid = semanticIsLifetimeStableStorage(
-            expression.operand, state, vars)
-            || (expression.operand.kind == NK_IDENTIFIER
-                && state.analyzed.funcNames.has(
-                    expression.operand.name));
-    } else if (expression.op == "*") {
+    if (expression.op == "*") {
         valid = operand.pointer_depth > 0 || operand.is_array;
     } else if (expression.op == "++" || expression.op == "--") {
         valid = semanticIsLvalue(expression.operand, state, vars)
@@ -207,9 +150,9 @@ void semanticValidateUnary(Node expression, SemanticValidationState state,
                 true, state, vars, expression);
             semanticValidateIndexedMutation(expression.operand,
                 true, state, vars, expression);
+            semanticValidateMutableTarget(operand, state, expression);
             semanticValidateTargetReceiverMutability(
                 expression.operand, state, vars, expression);
-            semanticValidateMutableTarget(operand, state, expression);
         }
     } else if (expression.op == "+" || expression.op == "-") {
         valid = numericIsType(operand, state.analyzed)
@@ -251,7 +194,10 @@ void semanticValidateExpr(Node? expression, SemanticValidationState state,
     } else if (expression.kind == NK_CALL_EXPR) {
         /* An unresolved direct identifier call is the deliberate C-interop
          * seam.  Validate all other callees as ordinary value expressions. */
-        if (expression.callee == null
+        if (expression.callee != null
+                && expression.callee.kind == NK_FIELD_ACCESS_EXPR) {
+            semanticValidateExpr(expression.callee.obj, state, vars);
+        } else if (expression.callee == null
                 || expression.callee.kind != NK_IDENTIFIER) {
             semanticValidateExpr(expression.callee, state, vars);
         }

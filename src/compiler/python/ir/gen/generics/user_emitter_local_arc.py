@@ -2,20 +2,8 @@
 
 from __future__ import annotations
 
-from ...nodes import (
-    CType,
-    IRBinOp,
-    IRCommaExpr,
-    IRExprStmt,
-    IRStmtExpr,
-    IRVar,
-    IRVarDecl,
-)
-from ..managed_values import (
-    poll_released_values,
-    release_value,
-    retain_value,
-)
+from ...nodes import CType, IRBinOp, IRExprStmt, IRVar, IRVarDecl
+from ..managed_values import poll_released_values, release_value
 from .user_emitter_scopes import managed_local_type
 
 
@@ -23,52 +11,90 @@ def lower_generic_local_assignment(emitter, expression):
     """Replace an owned local without leaking its old reference."""
     from ....ast_nodes import Identifier
 
-    if (
-        expression.op != "="
-        or not isinstance(expression.target, Identifier)
-        or managed_local_type(emitter, expression.target.name) is None
-    ):
+    if not isinstance(expression.target, Identifier) or managed_local_type(emitter, expression.target.name) is None:
         return None
     target_type = emitter._resolve_expr_type(expression.target)
     if not emitter._is_managed_type(target_type):
         return None
 
+    target = IRVar(name=expression.target.name)
+    if expression.op != "=":
+        return _lower_generic_local_compound(
+            emitter,
+            expression,
+            target,
+            target_type,
+        )
     value = emitter._assignment_value(target_type, expression.value)
     value_type = emitter._resolve_expr_type(expression.value)
-    if emitter._gen:
-        from ..upcast import upcast_class_pointer
+    from ..upcast import upcast_class_pointer
 
-        value = upcast_class_pointer(
+    value = upcast_class_pointer(
+        emitter._gen,
+        target_type,
+        value_type,
+        value,
+    )
+    owned = emitter._owns_expr(expression.value)
+
+    from ..managed_replacement import lower_managed_slot_replacement
+
+    return lower_managed_slot_replacement(
+        emitter._gen,
+        target=target,
+        target_type=target_type,
+        value=value,
+        value_owned=owned,
+        c_type=emitter.iter_value_c,
+        fresh_temp=emitter._fresh_temp,
+        record_decl=emitter._func_var_decls.append,
+        cleanup_active=emitter._exception_cleanup_active(),
+        activate_cleanup=emitter._activate_cleanup_registration,
+    )
+
+
+def _lower_generic_local_compound(emitter, expression, target, target_type):
+    from ..managed_compound import (
+        lower_managed_compound_operator,
+        managed_compound_keeps_rhs,
+    )
+    from ..managed_updates import lower_managed_compound_update
+
+    right_type = emitter._resolve_expr_type(expression.value) or target_type
+    return lower_managed_compound_update(
+        emitter._gen,
+        value_type=target_type,
+        right_type=right_type,
+        old_expr=target,
+        right_expr=emitter._assignment_value(target_type, expression.value),
+        compute=lambda old, right: lower_managed_compound_operator(
+            emitter._gen,
+            expression,
+            old,
+            right,
+            target_type,
+            right_type,
+            fresh_temp=emitter._fresh_temp,
+        ),
+        commit=lambda _old, replacement: [
+            IRBinOp(left=target, op="=", right=replacement)
+        ],
+        result_expr=lambda: target,
+        old_temporary_owned=False,
+        right_owned=bool(emitter._is_managed_type(right_type) and emitter._owns_expr(expression.value)),
+        right_keep=managed_compound_keeps_rhs(
             emitter._gen,
             target_type,
-            value_type,
-            value,
-        )
-
-    new_decl = _temporary(emitter, "__btrc_local_new", target_type)
-    old_decl = _temporary(emitter, "__btrc_local_old", target_type)
-    new_value = IRVar(name=new_decl.name)
-    old_value = IRVar(name=old_decl.name)
-    target = IRVar(name=expression.target.name)
-    sequence = [
-        IRBinOp(left=new_value, op="=", right=value),
-        IRBinOp(left=old_value, op="=", right=target),
-    ]
-    if not emitter._owns_expr(expression.value):
-        sequence.append(retain_value(emitter._gen, new_value, target_type))
-    sequence.extend(
-        [
-            release_value(emitter._gen, old_value, target_type),
-            IRBinOp(left=target, op="=", right=new_value),
-        ]
-    )
-    flush = poll_released_values(emitter._gen, target_type)
-    if flush is not None:
-        sequence.append(flush)
-    sequence.append(target)
-    return IRStmtExpr(
-        stmts=[new_decl, old_decl],
-        result=IRCommaExpr(expressions=sequence),
+            expression.op[:-1],
+        ),
+        release_replaced_old=True,
+        commit_releases_old=False,
+        result_owned=False,
+        c_type=emitter.iter_value_c,
+        fresh_temp=emitter._fresh_temp,
+        record_decl=emitter._func_var_decls.append,
+        cleanup_active=emitter._exception_cleanup_active(),
+        activate_cleanup=emitter._activate_cleanup_registration,
     )
 
 

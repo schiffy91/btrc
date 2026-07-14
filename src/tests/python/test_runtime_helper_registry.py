@@ -68,7 +68,9 @@ def test_self_hosted_dependency_edges_cover_checked_runtime_roots():
     required_edges = {
         "__btrc_math_lcm": "__btrc_math_gcd",
         "__btrc_push_try": "__btrc_safe_realloc",
-        "__btrc_register_cleanup": "__btrc_safe_realloc",
+        "__btrc_register_cleanup_kind": "__btrc_safe_realloc",
+        "__btrc_register_cleanup": "__btrc_register_cleanup_kind",
+        "__btrc_register_direct_cleanup": "__btrc_register_cleanup_kind",
         "__btrc_run_cleanups": "__btrc_is_destroyed",
         "__btrc_is_destroyed": "__btrc_destroyed_tracking",
         "__btrc_collect_cycles": "__btrc_suspect_state",

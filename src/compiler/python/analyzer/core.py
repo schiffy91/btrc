@@ -77,6 +77,9 @@ class SymbolInfo:
     # Direct local calls have a dedicated lowering path; aliases, parameters,
     # and returns must reject the value until the language has a closure type.
     captures_environment: bool = False
+    # Whether this lexical binding owns a managed value and can safely replace
+    # it. Parameters and raw iteration projections are borrowed by default.
+    owned_storage: bool = False
 
 
 @dataclass
@@ -165,6 +168,8 @@ class AnalyzerBase:
         self.global_scope: Scope = self.scope
         self.current_class: ClassInfo | None = None
         self.current_method: MethodDecl | None = None
+        self.current_callable = None
+        self.in_virtual_setter: bool = False
         self.current_return_type: TypeExpr | None = None
         self.in_gpu_function: bool = False
         self.node_types: dict[int, TypeExpr] = {}
@@ -265,7 +270,16 @@ class AnalyzerBase:
             forget(self.scope.symbols.values())
         self.scope = self.scope.parent
 
-    def _local_symbol(self, name: str, type_: TypeExpr, kind: str, line: int = 0, col: int = 0) -> SymbolInfo:
+    def _local_symbol(
+        self,
+        name: str,
+        type_: TypeExpr,
+        kind: str,
+        line: int = 0,
+        col: int = 0,
+        *,
+        owned_storage: bool = False,
+    ) -> SymbolInfo:
         """SymbolInfo for a locally-defined symbol, stamped with its def site.
 
         The def site is the (line, col) of the name in the current source file,
@@ -278,4 +292,5 @@ class AnalyzerBase:
             decl_line=line,
             decl_col=col,
             decl_file=self.current_source_file,
+            owned_storage=owned_storage,
         )

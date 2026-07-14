@@ -61,6 +61,7 @@ def lower_block(
     block: Block | None,
     *,
     iteration_bindings=(),
+    local_bindings=(),
 ) -> IRBlock:
     """Lower a btrc Block to an IRBlock."""
     if block is None:
@@ -72,6 +73,8 @@ def lower_block(
     gen._c_array_scopes.append(set())
     stmts = []
     try:
+        for name in local_bindings:
+            gen.declare_local_ownership(name)
         if iteration_bindings:
             from .iteration_bindings import emit_iteration_bindings
 

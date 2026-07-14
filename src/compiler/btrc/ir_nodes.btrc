@@ -40,7 +40,6 @@ enum IRKind {
     IRK_BREAK,
     IRK_CONTINUE,
     IRK_BLOCK,
-    IRK_RAW_C,
     IRK_SWITCH,
     IRK_CASE,
 };
@@ -48,7 +47,7 @@ enum IRKind {
 class IRNode {
     public int kind;
 
-    /* IRLiteral / IRRawC: literal or statement C text */
+    /* IRLiteral: C literal text */
     public string text;
 
     /* IRVar: name. IRCall: named callee. IRBinOp/IRUnaryOp/IRAssign op handling */
@@ -358,16 +357,6 @@ IRNode irBlock(Vector<IRNode> stmts) {
     IRNode n = IRNode();
     n.kind = IRK_BLOCK;
     n.stmts = stmts;
-    return n;
-}
-
-/* IRRawC: a raw C statement (multi-line). The emitter writes each non-blank
- * line at the current indentation (mirrors emitter IRRawC). Used only for the
- * setjmp/longjmp try/catch boilerplate. */
-IRNode irRawC(string text) {
-    IRNode n = IRNode();
-    n.kind = IRK_RAW_C;
-    n.text = text;
     return n;
 }
 
@@ -1512,7 +1501,7 @@ string helperSource(string name) {
     if (name == "__btrc_cleanup_capacity") {
         return "static _Thread_local int __btrc_cleanup_cap = 64;";
     }
-    if (name == "__btrc_register_cleanup") {
+    if (name == "__btrc_register_cleanup_kind") {
         return "static inline void __btrc_register_cleanup_kind(void** ptr_ref, __btrc_cleanup_fn fn, __btrc_visit_fn visit, int direct) {\n"
             + "    if (!ptr_ref || !fn) return;\n"
             + "    for (int i = __btrc_cleanup_top; i >= 0; i--) {\n"
@@ -1545,8 +1534,10 @@ string helperSource(string name) {
             + "    __btrc_cleanup_stack[__btrc_cleanup_top].visit = visit;\n"
             + "    __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;\n"
             + "    __btrc_cleanup_stack[__btrc_cleanup_top].direct = direct;\n"
-            + "}\n"
-            + "static inline void __btrc_register_cleanup(\n"
+            + "}";
+    }
+    if (name == "__btrc_register_cleanup") {
+        return "static inline void __btrc_register_cleanup(\n"
             + "        void** ptr_ref, __btrc_cleanup_fn fn,\n"
             + "        __btrc_visit_fn visit) {\n"
             + "    __btrc_register_cleanup_kind(ptr_ref, fn, visit, 0);\n"
@@ -1972,13 +1963,16 @@ Vector<string> helperDeps(string name) {
         out.push("__btrc_try_level");
         out.push("__btrc_arc_callback_types");
     }
-    else if (name == "__btrc_register_cleanup") {
+    else if (name == "__btrc_register_cleanup_kind") {
         out.push("__btrc_cleanup_types");
         out.push("__btrc_cleanup_capacity");
         out.push("__btrc_safe_realloc");
     }
+    else if (name == "__btrc_register_cleanup") {
+        out.push("__btrc_register_cleanup_kind");
+    }
     else if (name == "__btrc_register_direct_cleanup") {
-        out.push("__btrc_register_cleanup");
+        out.push("__btrc_register_cleanup_kind");
     }
     else if (name == "__btrc_run_cleanups") {
         out.push("__btrc_cleanup_types");
@@ -2243,6 +2237,7 @@ Vector<string> canonicalHelperOrder() {
      * references the __btrc_visit_fn / __btrc_destroy_fn typedefs declared by
      * the cycles helpers, so those must precede it. */
     order.push("__btrc_cleanup_types");
+    order.push("__btrc_register_cleanup_kind");
     order.push("__btrc_register_cleanup");
     order.push("__btrc_register_direct_cleanup");
     order.push("__btrc_discard_cleanups");

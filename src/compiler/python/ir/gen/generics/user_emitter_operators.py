@@ -17,10 +17,25 @@ class _UserGenericOperatorMixin:
 
     def _binary_expr(self, expression) -> IRExpr:
         if expression.op not in {"??", "&&", "||"}:
+            from ..operator_ownership import operator_rhs_keep
+
+            left_type = self._resolve_expr_type(expression.left)
+            right_type = self._resolve_expr_type(expression.right)
+            keep_nodes = (
+                [expression.right]
+                if operator_rhs_keep(
+                    self._gen,
+                    left_type,
+                    expression.op,
+                    right_type,
+                )
+                else []
+            )
             sequenced = self._sequence_owned_nodes(
                 [expression.left, expression.right],
                 expression,
                 lambda: self._binary_expr_plain(expression),
+                keep_nodes=keep_nodes,
             )
             if sequenced is not None:
                 return sequenced
@@ -157,12 +172,23 @@ class _UserGenericOperatorMixin:
         elif isinstance(expression.target, IndexExpr):
             target_nodes = [expression.target.obj, expression.target.index]
         if target_nodes:
+            from ..assignment_ownership import virtual_assignment_target
+            from ..ownership import owns_result
+
             result_type = self._resolve_expr_type(expression)
+            rhs_supplies_result = bool(
+                expression.op == "="
+                and virtual_assignment_target(self._gen, expression.target)
+                and owns_result(self._gen, expression.value)
+            )
             sequenced = self._sequence_owned_nodes(
                 target_nodes,
                 expression,
                 lambda: self._assignment_expr_plain(expression),
-                promote_result=self._is_managed_type(result_type),
+                promote_result=(
+                    self._is_managed_type(result_type)
+                    and not rhs_supplies_result
+                ),
             )
             if sequenced is not None:
                 return sequenced
@@ -174,13 +200,6 @@ class _UserGenericOperatorMixin:
         local_arc = lower_generic_local_assignment(self, expression)
         if local_arc is not None:
             return local_arc
-        from .user_emitter_property_arc import (
-            lower_generic_property_assignment,
-        )
-
-        property_arc = lower_generic_property_assignment(self, expression)
-        if property_arc is not None:
-            return property_arc
         from .user_emitter_field_arc import lower_generic_field_assignment
 
         field_arc = lower_generic_field_assignment(self, expression)
@@ -212,6 +231,7 @@ class _UserGenericOperatorMixin:
         from ....ast_nodes import FieldAccessExpr, SelfExpr
         from ..operators import lower_overloaded_values
         from ..upcast import upcast_class_pointer
+        from ..updates import _lower_virtual_store_boundary
 
         analyzed = self._gen.analyzed
         lvalues = LValueContext(
@@ -244,6 +264,15 @@ class _UserGenericOperatorMixin:
                 lambda target_type, source_type, value: upcast_class_pointer(self._gen, target_type, source_type, value)
             ),
             lower_value=self._assignment_value,
+            store_boundary=lambda node, plan: _lower_virtual_store_boundary(
+                self._gen,
+                node,
+                plan,
+                lower_value=self._assignment_value,
+                coerce=lambda target_type, source_type, value: upcast_class_pointer(
+                    self._gen, target_type, source_type, value
+                ),
+            ),
         )
 
     def _assignment_value(self, target_type, value) -> IRExpr:

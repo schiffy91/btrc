@@ -100,7 +100,13 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
 
         gen._func_var_decls = []
         gen.current_return_c_type = "void"
-        init_stmts.extend(lower_block(gen, constructor.body).stmts)
+        init_stmts.extend(
+            lower_block(
+                gen,
+                constructor.body,
+                local_bindings=["self", *(parameter.name for parameter in constructor.params)],
+            ).stmts
+        )
 
     gen.module.function_defs.append(
         IRFunctionDef(

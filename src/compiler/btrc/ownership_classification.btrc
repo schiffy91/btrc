@@ -1,5 +1,4 @@
 /* Managed-value ownership classification shared by self-hosted IR lowering. */
-
 bool irKnownLanguageCall(IRGen generator, Node call,
         Map<string, Node> varTypes) {
     Node callee = call.callee;
@@ -136,11 +135,17 @@ bool irExpressionOwnsResult(IRGen generator, Node? expression,
     }
     if (expression.kind == NK_ASSIGN_EXPR) {
         Node target = expression.target;
-        return managedResult && target != null
+        bool ownedReceiver = target != null
             && (target.kind == NK_FIELD_ACCESS_EXPR
                 || target.kind == NK_INDEX_EXPR)
             && irExpressionOwnsResult(
                 generator, target.obj, varTypes);
+        Node? virtualType = irVirtualAssignmentValueType(
+            generator, target, varTypes);
+        bool ownedValue = expression.op == "=" && virtualType != null
+            && irContextualExpressionOwnsResult(
+                generator, expression.value_node, virtualType, varTypes);
+        return managedResult && (ownedReceiver || ownedValue);
     }
     if (expression.kind == NK_FIELD_ACCESS_EXPR
             || expression.kind == NK_INDEX_EXPR) {
@@ -151,10 +156,10 @@ bool irExpressionOwnsResult(IRGen generator, Node? expression,
             Node? receiverType = generator.resolvedExpressionType(
                 expression.obj, varTypes);
             return receiverType != null
-                && receiverType.generic_args.len > 0
-                && generator.analyzed.isGenericClass(receiverType.base)
-                && semanticIndexedMethod(
-                    receiverType, "get", generator.analyzed) != null;
+                && !semanticRawIndexedPointer(
+                    receiverType, generator.analyzed)
+                && semanticValidIndexedGetter(semanticIndexedMethod(
+                    receiverType, "get", generator.analyzed));
         }
         return false;
     }

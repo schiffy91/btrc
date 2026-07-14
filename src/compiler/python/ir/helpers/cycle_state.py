@@ -233,7 +233,7 @@ static inline void __btrc_suspect_locked(void* obj, __btrc_visit_fn visit,
         ],
     ),
     "__btrc_suspect": HelperDef(
-        c_source=r"""static void __btrc_suspect(
+        c_source=r"""static inline void __btrc_suspect(
         void* obj, __btrc_visit_fn visit, __btrc_destroy_fn destroy) {
     __btrc_arc_lock_mutation();
     __btrc_suspect_locked(obj, visit, destroy);

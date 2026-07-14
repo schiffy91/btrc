@@ -1,6 +1,7 @@
 """Fail-closed domains for types that become concrete C declarations."""
 
 from ..numeric_semantics import is_known_integer_typedef_name
+from ..type_identity import is_semantic_scalar_void
 from .thread_type_domains import ThreadTypeDomainContractsMixin
 
 _RUNTIME_TYPE_BASES = frozenset(
@@ -149,7 +150,7 @@ class TypeDomainContractsMixin(ThreadTypeDomainContractsMixin):
 
     @staticmethod
     def _is_nonpointer_void_object(type_expr) -> bool:
-        return bool(type_expr and type_expr.base == "void" and type_expr.pointer_depth == 0)
+        return is_semantic_scalar_void(type_expr)
 
     def _contains_thread_storage(self, type_expr) -> bool:
         """Whether a concrete value shape contains a uniquely owned handle."""

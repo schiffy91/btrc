@@ -2,10 +2,10 @@
 
 bool semanticPlainType(Node? typeExpr, string base,
         SemanticValidationState state) {
-    typeExpr = semanticResolveAliases(typeExpr, state);
-    return typeExpr != null && typeExpr.base == base
-        && typeExpr.pointer_depth == 0 && !typeExpr.is_array
-        && typeExpr.generic_args.len == 0;
+    Node? resolvedType = semanticResolveAliases(typeExpr, state);
+    return resolvedType != null && resolvedType.base == base
+        && resolvedType.pointer_depth == 0 && !resolvedType.is_array
+        && resolvedType.generic_args.len == 0;
 }
 
 int semanticMagicArity(string name) {

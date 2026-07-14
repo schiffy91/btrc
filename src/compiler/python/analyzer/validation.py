@@ -4,7 +4,7 @@ from ..ast_nodes import Identifier
 
 
 class ValidationMixin:
-    def _analyze_field_access(self, expr):
+    def _analyze_field_access(self, expr, *, call_target=False):
         if isinstance(expr.obj, Identifier):
             self._analyze_identifier_value(expr.obj, qualification_receiver=True)
         else:
@@ -40,6 +40,14 @@ class ValidationMixin:
             valid = {"get", "set", "destroy"}
             if expr.field not in valid:
                 self._error(f"Mutex<T> has no method '{expr.field}'", expr.line, expr.col)
+            return
+        if obj_type and obj_type.base == "string":
+            if not call_target:
+                self._error(
+                    f"Type 'string' has no field '{expr.field}'; use a string method call",
+                    expr.line,
+                    expr.col,
+                )
             return
         if obj_type and self._validate_tuple_field_access(expr, obj_type):
             return

@@ -4,6 +4,11 @@ string irManagedStringRuntimeType() {
     return "__btrc_managed_string";
 }
 
+string irManagedRuntimeCType(string runtimeType) {
+    if (runtimeType == irManagedStringRuntimeType()) { return "char*"; }
+    return runtimeType + "*";
+}
+
 bool irManagedStringType(IRGen generator, Node? typeExpr) {
     if (typeExpr == null) { return false; }
     Node resolved = generator.resolveBodyType(typeExpr);

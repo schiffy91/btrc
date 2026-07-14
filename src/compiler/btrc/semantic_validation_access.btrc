@@ -1,0 +1,33 @@
+/* Shared access control for explicit calls and indexed protocol sugar. */
+
+string semanticMethodOwner(
+        string className, string methodName, Analyzed analyzed) {
+    if (analyzed.isGenericClass(className)) { return className; }
+    string current = className;
+    while (current != "" && analyzed.classTable.has(current)) {
+        Node declaration = analyzed.classTable.get(current);
+        int index = 0;
+        while (index < declaration.members.len) {
+            Node member = declaration.members.get(index);
+            if (member.kind == NK_METHOD_DECL
+                    && !member.is_constructor
+                    && member.name == methodName) {
+                return current;
+            }
+            index = index + 1;
+        }
+        current = parentName(declaration);
+    }
+    return className;
+}
+
+void semanticValidateMethodAccess(string className, Node method,
+        SemanticValidationState state, Node site) {
+    if (method.access != "private") { return; }
+    string owner = semanticMethodOwner(
+        className, method.name, state.analyzed);
+    if (!state.owner.startsWith(owner + ".")) {
+        semanticValidationFail("Cannot access private method '"
+            + owner + "." + method.name + "'", site);
+    }
+}

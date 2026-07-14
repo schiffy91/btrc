@@ -162,6 +162,10 @@ class _OwnershipStateMixin:
                 return scope[var_name]
         return None
 
+    def local_ownership_declared(self, var_name: str) -> bool:
+        """Whether a lexical binding shadows a same-named module global."""
+        return any(var_name in scope for scope in reversed(self._local_ownership_scopes))
+
     def unregister_managed_var(self, var_name: str) -> None:
         """Stop automatic destruction after an explicit free/delete."""
         for scope in self._managed_vars_stack:

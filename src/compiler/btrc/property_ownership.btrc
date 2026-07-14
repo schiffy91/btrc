@@ -83,11 +83,11 @@ IRNode lowerPropertyStoreWithOwnership(IRGen generator, Node assignment,
     OwnershipBoundary boundary = OwnershipBoundary();
     boundary.addOperand(generator, target.obj, receiverType,
         receiverOwned, false, varTypes);
-    boundary.addOperand(generator, assignment.value_node,
-        actualValueType, valueOwned, false, varTypes);
+    boundary.addCallOperand(generator, assignment.value_node,
+        actualValueType, valueOwned, false, valueOwned, varTypes);
     IRNode lowered = lowerPropertyStoreCore(generator, assignment,
         receiverType, property, varTypes);
     boundary.restore(generator);
     return boundary.finish(generator, lowered,
-        propertyType, receiverOwned);
+        propertyType, receiverOwned && !valueOwned);
 }

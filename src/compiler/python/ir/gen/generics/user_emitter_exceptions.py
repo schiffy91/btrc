@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ...nodes import (
-    CType,
     IRBlock,
     IRCall,
     IRExprStmt,
@@ -72,30 +71,19 @@ class _UserGenericExceptionMixin:
             result.extend(finally_state_declarations(pending_name, error_name))
             catch_block = IRBlock(stmts=capture_finally_error(pending_name, error_name))
         else:
-            catch_stmts = []
-            if statement.catch_block is not None:
-                previous_type = self._var_types.get(statement.catch_var)
-                if statement.catch_var:
-                    from ....ast_nodes import TypeExpr
-
-                    self._var_types[statement.catch_var] = TypeExpr(base="string")
-                try:
-                    catch_stmts = self.emit_stmts(statement.catch_block.statements)
-                finally:
-                    if statement.catch_var:
-                        if previous_type is None:
-                            self._var_types.pop(statement.catch_var, None)
-                        else:
-                            self._var_types[statement.catch_var] = previous_type
+            catch_bindings = []
             if statement.catch_var:
+                from ....ast_nodes import TypeExpr
+                from ..iteration_bindings import IterationBinding
+
                 self._gen.use_helper("__btrc_strdup")
                 self._gen.use_helper("__btrc_str_track")
-                catch_stmts.insert(
-                    0,
-                    IRVarDecl(
-                        c_type=CType(text="char*"),
+                catch_bindings.append(
+                    IterationBinding(
                         name=statement.catch_var,
-                        init=IRCall(
+                        c_type="char*",
+                        type_expr=TypeExpr(base="string"),
+                        value=IRCall(
                             callee="__btrc_str_track",
                             args=[
                                 IRCall(
@@ -106,7 +94,25 @@ class _UserGenericExceptionMixin:
                             ],
                             helper_ref="__btrc_str_track",
                         ),
+                        owned=True,
                     ),
+                )
+            from .user_emitter_scopes import emit_scoped_stmts
+
+            catch_stmts = emit_scoped_stmts(
+                self,
+                (statement.catch_block.statements if statement.catch_block is not None else ()),
+                iteration_bindings=catch_bindings,
+            )
+            if statement.catch_var:
+                declaration_index = next(
+                    index
+                    for index, node in enumerate(catch_stmts)
+                    if isinstance(node, IRVarDecl) and node.name == statement.catch_var
+                )
+                catch_stmts.insert(
+                    declaration_index + 1,
+                    IRExprStmt(expr=IRVar(name=statement.catch_var)),
                 )
             catch_block = IRBlock(stmts=catch_stmts)
 

@@ -19,7 +19,6 @@ def end_manual_destroy_lifetime(gen, expression):
     receiver = callee.obj
     if not isinstance(receiver, Identifier):
         return None
-    gen.unregister_managed_var(receiver.name)
     return IRAssign(
         target=IRVar(name=receiver.name),
         value=IRLiteral(text="NULL"),

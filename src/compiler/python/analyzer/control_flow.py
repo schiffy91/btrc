@@ -4,7 +4,6 @@ from ..ast_nodes import (
     Block,
     BoolLiteral,
     BreakStmt,
-    CallExpr,
     CForStmt,
     DoWhileStmt,
     ElseBlock,
@@ -73,64 +72,6 @@ class ControlFlowAnalysisMixin:
                 self._analyze_stmt(statement)
         finally:
             self._pop_scope()
-
-    def _analyze_for_in(self, stmt):
-        if self._is_range_call(stmt.iterable):
-            # `for x in range(...)` is a structural counting-loop form, even
-            # when the program defines its own `range` function (which applies
-            # in expression position only) — so analyze the arguments without
-            # resolving `range` as a call (no user-arity check on the form).
-            for arg in stmt.iterable.args:
-                self._analyze_expr(arg)
-                self._reject_thread_value_escape(arg, "passed as range arguments")
-            self.loop_depth += 1
-            self.break_depth += 1
-            elem_type = TypeExpr(base="int")
-            self._push_scope()
-            if self._claim_local_binding(stmt.var_name, "loop variable", stmt.line, stmt.col):
-                self.scope.define(
-                    stmt.var_name,
-                    self._local_symbol(stmt.var_name, elem_type, "loop", stmt.line, stmt.col),
-                )
-            self._analyze_nullable_loop_body(stmt.body)
-            self._pop_scope()
-            self.loop_depth -= 1
-            self.break_depth -= 1
-            return
-        self._analyze_expr(stmt.iterable)
-        self.loop_depth += 1
-        self.break_depth += 1
-        iter_type = self._infer_type(stmt.iterable)
-        elem_type = self._get_element_type(iter_type, stmt.line, stmt.col)
-        value_type = None
-        if stmt.var_name2:
-            value_type = self._get_iter_value_type(iter_type, stmt.line, stmt.col)
-        if self._contains_thread_storage(elem_type) or self._contains_thread_storage(value_type):
-            self._error(
-                "for-in loop variables cannot own a Thread handle; declare a fresh local owner inside the loop",
-                stmt.line,
-                stmt.col,
-            )
-        self._push_scope()
-        if elem_type:
-            if self._claim_local_binding(stmt.var_name, "loop variable", stmt.line, stmt.col):
-                self.scope.define(
-                    stmt.var_name,
-                    self._local_symbol(stmt.var_name, elem_type, "loop", stmt.line, stmt.col),
-                )
-        if stmt.var_name2 and value_type:
-            if self._claim_local_binding(stmt.var_name2, "loop variable", stmt.line, stmt.col):
-                self.scope.define(
-                    stmt.var_name2,
-                    self._local_symbol(stmt.var_name2, value_type, "loop", stmt.line, stmt.col),
-                )
-        self._analyze_nullable_loop_body(stmt.body)
-        self._pop_scope()
-        self.loop_depth -= 1
-        self.break_depth -= 1
-
-    def _is_range_call(self, expr) -> bool:
-        return isinstance(expr, CallExpr) and isinstance(expr.callee, Identifier) and expr.callee.name == "range"
 
     def _analyze_parallel_for(self, stmt):
         if self._is_range_call(stmt.iterable):

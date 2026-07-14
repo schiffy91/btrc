@@ -160,13 +160,19 @@ class GenericValidationMixin:
         registered = bool(cls and cls.generic_params and not base_is_parameter)
         runtime = cls is None and key not in self.interface_table and key in _UNREGISTERED_GENERIC_INSTANCE_BASES
         unresolved = any(type_references_names(argument, active) for argument in args)
+        instances = self.generic_instances.setdefault(key, []) if registered or runtime else []
+        normalized = tuple(self._normalize_type_key(argument) for argument in args)
+        if registered and not unresolved and cls is not None and len(args) == len(cls.generic_params):
+            if any(
+                tuple(self._normalize_type_key(argument) for argument in existing) == normalized
+                for existing in instances
+            ):
+                return
         valid = self._validate_generic_specialization(type_expr) if registered else True
         if not ((registered or runtime) and valid and not unresolved):
             return
         if cls is not None and len(args) != len(cls.generic_params):
             return
-        instances = self.generic_instances.setdefault(key, [])
-        normalized = tuple(self._normalize_type_key(argument) for argument in args)
         if not any(
             tuple(self._normalize_type_key(argument) for argument in existing) == normalized for existing in instances
         ):

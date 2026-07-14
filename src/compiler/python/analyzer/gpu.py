@@ -55,7 +55,7 @@ def validate_gpu_function(analyzer: AnalyzerBase, func) -> None:
 
     # Validate return type
     ret = func.return_type
-    if ret and ret.base != "void":
+    if ret and not analyzer._is_nonpointer_void_object(ret):
         if ret.is_array:
             if ret.base not in _GPU_ARRAY_ELEM_TYPES:
                 analyzer._error(

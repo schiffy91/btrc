@@ -18,7 +18,7 @@ def lower_generic_field_assignment(emitter, expression):
     """Retain/store/release a managed field, or return ``None``."""
     from ....ast_nodes import FieldAccessExpr, SelfExpr
 
-    if expression.op != "=" or not isinstance(
+    if not isinstance(
         expression.target,
         FieldAccessExpr,
     ):
@@ -47,15 +47,24 @@ def lower_generic_field_assignment(emitter, expression):
         "__btrc_field_obj",
         receiver_type,
     )
+    receiver = IRVar(name=receiver_decl.name)
+    target = IRFieldAccess(obj=receiver, field=field, arrow=True)
+
+    if expression.op != "=":
+        return _lower_generic_field_compound(
+            emitter,
+            expression,
+            receiver_decl,
+            receiver,
+            target,
+            field_type,
+        )
     value_decl = _temporary(
         emitter,
         "__btrc_field_new",
         field_type,
     )
-    receiver = IRVar(name=receiver_decl.name)
     new_value = IRVar(name=value_decl.name)
-    target = IRFieldAccess(obj=receiver, field=field, arrow=True)
-
     value = emitter._assignment_value(field_type, expression.value)
     value_type = emitter._resolve_expr_type(expression.value)
     from ..upcast import upcast_class_pointer
@@ -66,6 +75,7 @@ def lower_generic_field_assignment(emitter, expression):
         value_type,
         value,
     )
+    owned = emitter._owns_expr(expression.value)
     sequence = [
         IRBinOp(
             left=receiver,
@@ -75,7 +85,6 @@ def lower_generic_field_assignment(emitter, expression):
         IRBinOp(left=new_value, op="=", right=value),
     ]
     declarations = [receiver_decl, value_decl]
-    owned = emitter._owns_expr(expression.value)
     if is_class_type(emitter._gen, field_type):
         sequence.append(
             replace_edge_value(
@@ -119,6 +128,90 @@ def lower_generic_field_assignment(emitter, expression):
     return IRStmtExpr(
         stmts=declarations,
         result=IRCommaExpr(expressions=sequence),
+    )
+
+
+def _lower_generic_field_compound(
+    emitter,
+    expression,
+    receiver_decl,
+    receiver,
+    target,
+    field_type,
+):
+    from ..managed_compound import (
+        lower_managed_compound_operator,
+        managed_compound_keeps_rhs,
+    )
+    from ..managed_updates import lower_managed_compound_update
+
+    right_type = emitter._resolve_expr_type(expression.value) or field_type
+    class_edge = is_class_type(emitter._gen, field_type)
+
+    def commit(old, replacement):
+        if class_edge:
+            return [
+                replace_edge_value(
+                    emitter._gen,
+                    target,
+                    replacement,
+                    field_type,
+                    receiver,
+                    adopt=True,
+                )
+            ]
+        return [
+            unlink_edge_value(emitter._gen, old, field_type, receiver),
+            adopt_edge_value(emitter._gen, replacement, field_type, receiver),
+            IRBinOp(left=target, op="=", right=replacement),
+        ]
+
+    update = lower_managed_compound_update(
+        emitter._gen,
+        value_type=field_type,
+        right_type=right_type,
+        old_expr=target,
+        right_expr=emitter._assignment_value(field_type, expression.value),
+        compute=lambda old, right: lower_managed_compound_operator(
+            emitter._gen,
+            expression,
+            old,
+            right,
+            field_type,
+            right_type,
+            fresh_temp=emitter._fresh_temp,
+        ),
+        commit=commit,
+        result_expr=lambda: target,
+        old_temporary_owned=False,
+        right_owned=bool(emitter._is_managed_type(right_type) and emitter._owns_expr(expression.value)),
+        right_keep=managed_compound_keeps_rhs(
+            emitter._gen,
+            field_type,
+            expression.op[:-1],
+        ),
+        release_replaced_old=not class_edge,
+        commit_releases_old=class_edge,
+        result_owned=False,
+        transfer_before_commit=class_edge,
+        c_type=emitter.iter_value_c,
+        fresh_temp=emitter._fresh_temp,
+        record_decl=emitter._func_var_decls.append,
+        cleanup_active=emitter._exception_cleanup_active(),
+        activate_cleanup=emitter._activate_cleanup_registration,
+    )
+    return IRStmtExpr(
+        stmts=[receiver_decl],
+        result=IRCommaExpr(
+            expressions=[
+                IRBinOp(
+                    left=receiver,
+                    op="=",
+                    right=emitter._expr(expression.target.obj),
+                ),
+                update,
+            ]
+        ),
     )
 
 

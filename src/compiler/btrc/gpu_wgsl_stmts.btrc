@@ -15,6 +15,7 @@ void gpuEmitBlock(GpuWgsl out, Node block) {
 void gpuEmitAssignedLine(GpuWgsl out, Node assignment,
         string targetText, string value, string targetBase,
         string valueBase) {
+    string renderedValue = value;
     string op = assignment.op;
     bool known = op == "=" || op == "+=" || op == "-=" || op == "*="
         || op == "/=" || op == "%=" || op == "&=" || op == "|="
@@ -38,19 +39,23 @@ void gpuEmitAssignedLine(GpuWgsl out, Node assignment,
             "GPU remainder assignment requires integer operands");
     }
     if (op == "^=" && targetBase == "bool") {
-        out.line(targetText + " = " + targetText + " != " + value + ";");
+        out.line(targetText + " = " + targetText + " != "
+            + renderedValue + ";");
         return;
     }
-    if (op == "<<=" || op == ">>=") { value = "u32(" + value + ")"; }
+    if (op == "<<=" || op == ">>=") {
+        renderedValue = "u32(" + renderedValue + ")";
+    }
     if ((op == "/=" || op == "%=") && targetBase == "int") {
         Node binary = Node();
         binary.kind = NK_BINARY_EXPR;
         binary.op = op == "/=" ? "/" : "%";
-        string checked = gpuCheckedArithmetic(out, binary, targetText, value);
+        string checked = gpuCheckedArithmetic(
+            out, binary, targetText, renderedValue);
         out.line(targetText + " = " + checked + ";");
         return;
     }
-    out.line(targetText + " " + op + " " + value + ";");
+    out.line(targetText + " " + op + " " + renderedValue + ";");
 }
 
 void gpuEmitIndexAssignment(GpuWgsl out, Node assignment) {

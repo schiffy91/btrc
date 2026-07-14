@@ -85,6 +85,11 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     int previousLoop = state.loopDepth;
     int previousBreak = state.breakDepth;
     bool previousGpu = state.gpuCallable;
+    Node? previousCallable = state.callable;
+    Map<string, bool> previousParameterNames =
+        semanticCloneFlags(state.parameterNames);
+    Map<string, bool> previousBorrowedBindings =
+        semanticCloneFlags(state.borrowedBindings);
     Map<string, Node> vars = semanticGlobalTypes(state.analyzed);
     Vector<string> classParams = [];
     if (classDeclaration != null) {
@@ -116,12 +121,18 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     state.gpuCallable = callable.is_gpu;
     Map<string, bool> parameterNames = semanticParameterNames(
         callable.params, "callable '" + state.owner + "'");
+    state.callable = callable;
+    state.parameterNames = semanticCloneFlags(parameterNames);
+    state.borrowedBindings = semanticCloneFlags(parameterNames);
+    if (classDeclaration != null && callable.access != "class") {
+        state.borrowedBindings.put("self", true);
+    }
     semanticValidateDirectLocalNames(callable.body_node, parameterNames);
     semanticValidateParameterDefaults(
         callable.params, state, vars, callable);
     semanticValidateBlock(callable.body_node, state, vars);
     bool nonVoid = state.returnType != null
-        && state.returnType.base != "void";
+        && !semanticScalarVoid(state.returnType);
     if (nonVoid && !semanticBlockTerminates(callable.body_node)) {
         semanticValidationFail("Callable '" + state.owner
             + "' has non-void return type but does not return on every path",
@@ -133,6 +144,9 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     state.loopDepth = previousLoop;
     state.breakDepth = previousBreak;
     state.gpuCallable = previousGpu;
+    state.callable = previousCallable;
+    state.parameterNames = previousParameterNames;
+    state.borrowedBindings = previousBorrowedBindings;
 }
 
 void semanticValidateProperty(Node property, Node classDeclaration,
@@ -175,11 +189,6 @@ void semanticValidateClassBodies(Node declaration,
                 "Field '" + declaration.name + "." + member.name + "'",
                 "field", member, state);
             semanticRejectRuntimeInterfaceType(member.type, member, state);
-            if (member.access == "class") {
-                semanticValidationFail("Static field '" + declaration.name
-                    + "." + member.name
-                    + "' is not supported by the self-hosted backend", member);
-            }
             semanticValidateArrayBound(member.type,
                 "field '" + declaration.name + "." + member.name + "'",
                 "field", member, state, fieldVars);

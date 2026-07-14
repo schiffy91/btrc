@@ -1,49 +1,84 @@
-/* Single-evaluation replacement for managed local variables. */
+/* Single-evaluation replacement for managed local/global slots. */
+
+bool irManagedIdentifierSlot(IRGen generator, string name, Node targetType) {
+    if (generator.borrowedLocalBindings.has(name)) { return false; }
+    if (irManagedLocalType(generator, name) != "") { return true; }
+    return irManagedType(generator, targetType)
+        && generator.analyzed.globalHasDefinition.has(name);
+}
 
 IRNode? lowerManagedLocalStore(IRGen generator, Node assignment,
         Map<string, Node> varTypes) {
-    if (assignment.op != "=" || assignment.target == null
-            || assignment.target.kind != NK_IDENTIFIER
-            || irManagedLocalType(
-                generator, assignment.target.name) == "") {
+    if (assignment.target == null
+            || assignment.target.kind != NK_IDENTIFIER) {
         return null;
     }
     Node? targetType = generator.resolvedExpressionType(
         assignment.target, varTypes);
     if (!irManagedType(generator, targetType)) { return null; }
-    Node? valueType = generator.resolvedExpressionType(
-        assignment.value_node, varTypes);
-    IRNode value = generator.lowerAssignedValue(
-        assignment.value_node, targetType, varTypes);
-    value = generator.upcastClassPointer(
-        targetType, valueType, value);
+    Node concreteTargetType = targetType;
+    if (!irManagedIdentifierSlot(generator,
+            assignment.target.name, concreteTargetType)) { return null; }
 
-    string cType = typeToC(targetType, generator.analyzed);
+    IRNode target = generator.lowerExpr(assignment.target, varTypes);
+    return lowerManagedSlotStore(generator, assignment,
+        target, concreteTargetType, varTypes);
+}
+
+IRNode lowerManagedSlotStore(IRGen generator, Node assignment,
+        IRNode target, Node concreteTargetType,
+        Map<string, Node> varTypes) {
+    IRNode value = irLiteral("0");
+    bool owned = true;
+    if (assignment.op == "=") {
+        Node? valueType = generator.resolvedExpressionType(
+            assignment.value_node, varTypes);
+        value = generator.lowerAssignedValue(
+            assignment.value_node, concreteTargetType, varTypes);
+        value = generator.upcastClassPointer(
+            concreteTargetType, valueType, value);
+        owned = irContextualExpressionOwnsResult(
+            generator, assignment.value_node,
+            concreteTargetType, varTypes);
+    } else {
+        return lowerManagedLocalCompoundStore(generator, assignment,
+            target, concreteTargetType, varTypes);
+    }
+
+    string cType = typeToC(concreteTargetType, generator.analyzed);
     string newName = generator.freshTemp("__btrc_local_new");
     string oldName = generator.freshTemp("__btrc_local_old");
-    IRNode newDeclaration = irVarDecl(cType, newName, null);
-    IRNode oldDeclaration = irVarDecl(cType, oldName, null);
+    IRNode newDeclaration = irVarDecl(
+        cType, newName, irLiteral("NULL"));
+    IRNode oldDeclaration = irVarDecl(
+        cType, oldName, irLiteral("NULL"));
     generator.funcVarDecls.push(newDeclaration);
     generator.funcVarDecls.push(oldDeclaration);
     Vector<IRNode> declarations = [];
     declarations.push(newDeclaration);
     declarations.push(oldDeclaration);
+    OwnershipBoundary boundary = OwnershipBoundary();
+    boundary.declarations = declarations;
+    string runtimeType = irManagedRuntimeType(
+        generator, concreteTargetType);
+    boundary.registerCleanup(
+        generator, newDeclaration, newName, runtimeType);
 
-    IRNode target = generator.lowerExpr(
-        assignment.target, varTypes);
     IRNode newValue = irVar(newName);
     IRNode oldValue = irVar(oldName);
-    Vector<IRNode> sequence = [];
+    Vector<IRNode> sequence = boundary.prefix;
     sequence.push(irBinOp(newValue, "=", value));
-    sequence.push(irBinOp(oldValue, "=", target));
-    if (!irContextualExpressionOwnsResult(
-            generator, assignment.value_node, targetType, varTypes)) {
+    if (!owned) {
         sequence.push(irRetainExpression(
-            generator, newValue, targetType));
+            generator, newValue, concreteTargetType));
     }
-    sequence.push(generator.optionalReleaseExpr(oldValue,
-        irManagedRuntimeType(generator, targetType)));
+    sequence.push(irBinOp(oldValue, "=", target));
     sequence.push(irBinOp(target, "=", newValue));
+    sequence.push(irBinOp(newValue, "=", irLiteral("NULL")));
+    sequence.push(generator.optionalReleaseExpr(oldValue, runtimeType));
+    if (irManagedRuntimeCanCycle(generator, runtimeType)) {
+        sequence.push(managedArcPoll(generator));
+    }
     sequence.push(target);
     return irStmtExpr(declarations, irCommaExpr(sequence));
 }

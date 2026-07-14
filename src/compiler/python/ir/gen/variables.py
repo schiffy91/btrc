@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import VarDeclStmt
-from ..nodes import CType, IRCall, IRExprStmt, IRStmt, IRVar, IRVarDecl
+from ..nodes import CType, IRCall, IRExprStmt, IRLiteral, IRStmt, IRVar, IRVarDecl
 from .cleanup_registration import (
     maybe_register_cleanup as _maybe_register_cleanup,
 )
@@ -87,6 +87,11 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
 
             init_type = gen.analyzed.node_types.get(id(node.initializer))
             init = upcast_class_pointer(gen, node.type, init_type, init)
+    concrete_managed = _is_concrete_managed_type(gen, node.type)
+    if init is None and concrete_managed:
+        # An uninitialized managed declaration is still an owned lexical slot.
+        # Start it empty so later replacement and exceptional cleanup are safe.
+        init = IRLiteral(text="NULL")
     var_decl = IRVarDecl(
         c_type=CType(text=c_type),
         name=node.name,
@@ -132,38 +137,41 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                     value=IRVar(name=cap.name),
                 )
             )
+        # Captured calls use the lifted implementation plus environment
+        # directly, so keep the source-level closure slot observably used for
+        # strict C builds while retaining it for non-call references.
+        result.append(
+            IRExprStmt(
+                expr=IRCast(
+                    target_type=CType(text="void"),
+                    expr=IRVar(name=node.name),
+                )
+            )
+        )
         # Track: variable → (lambda fn name, env var name)
         gen._fn_ptr_envs[node.name] = (fn_name, env_var)
 
-    # ARC: every initialized concrete managed local owns its slot. A caller-owned
-    # +1 initializer transfers directly; a borrowed parameter/field/property is
-    # retained once before any source owner can be replaced.  delete/release
-    # null the slot, so later scope cleanup remains safe.
-    if node.initializer and node.type and _is_managed_type(gen, node.type):
+    # ARC: every concrete managed declaration owns its slot, including an empty
+    # declaration that may be assigned later. A caller-owned +1 initializer
+    # transfers directly; a borrowed initializer is retained once.
+    if concrete_managed:
         from .managed_values import (
-            is_string_type,
             retain_value,
             runtime_name,
         )
         from .ownership import owns_result
 
-        cls_info = gen.analyzed.class_table.get(node.type.base)
-        concrete = is_string_type(gen, node.type) or bool(
-            cls_info and (not cls_info.generic_params or node.type.generic_args)
+        arc_type = runtime_name(gen, node.type)
+        owns_initializer = bool(node.initializer and owns_result(gen, node.initializer))
+        if node.initializer and not owns_initializer:
+            result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=node.name), node.type)))
+        gen.register_managed_var(
+            node.name,
+            arc_type,
+            cycle_seed=bool(owns_initializer and not _is_string_type(gen, node.type)),
         )
-
-        if concrete:
-            arc_type = runtime_name(gen, node.type)
-            owns_initializer = owns_result(gen, node.initializer)
-            if not owns_initializer:
-                result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=node.name), node.type)))
-            gen.register_managed_var(
-                node.name,
-                arc_type,
-                cycle_seed=bool(owns_initializer and not is_string_type(gen, node.type)),
-            )
-            gen.declare_local_ownership(node.name, arc_type)
-            _maybe_register_cleanup(gen, node.name, arc_type, result)
+        gen.declare_local_ownership(node.name, arc_type)
+        _maybe_register_cleanup(gen, node.name, arc_type, result)
 
     canonical_type_expr = canonical_type(
         node.type,
@@ -210,3 +218,18 @@ def _is_managed_type(gen: IRGenerator, type_expr) -> bool:
     from .managed_values import is_managed_type
 
     return is_managed_type(gen, type_expr)
+
+
+def _is_string_type(gen: IRGenerator, type_expr) -> bool:
+    from .managed_values import is_string_type
+
+    return is_string_type(gen, type_expr)
+
+
+def _is_concrete_managed_type(gen: IRGenerator, type_expr) -> bool:
+    if type_expr is None or not _is_managed_type(gen, type_expr):
+        return False
+    if _is_string_type(gen, type_expr):
+        return True
+    class_info = gen.analyzed.class_table.get(type_expr.base)
+    return bool(class_info and (not class_info.generic_params or type_expr.generic_args))

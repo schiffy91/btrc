@@ -18,26 +18,11 @@ def test_selfhost_has_no_raw_expression_escape_hatch() -> None:
     assert "/* unknown expr */" not in source
 
 
-def test_raw_statements_are_limited_to_try_bookkeeping() -> None:
-    calls = [
-        line.strip()
-        for path in SELFHOST.rglob("*.btrc")
-        for line in path.read_text().splitlines()
-        if "irRawC(" in line and not line.strip().startswith("IRNode irRawC(")
-    ]
+def test_selfhost_has_no_raw_statement_escape_hatch() -> None:
+    source = "\n".join(path.read_text() for path in SELFHOST.rglob("*.btrc"))
 
-    assert len(calls) == 5
-    assert all(
-        any(
-            fragment in call
-            for fragment in (
-                "__btrc_try_top",
-                "pendingName",
-                "strncpy",
-            )
-        )
-        for call in calls
-    )
+    assert "IRK_RAW_C" not in source
+    assert "irRawC" not in source
 
 
 def test_top_level_declarations_are_typed_end_to_end() -> None:
@@ -183,31 +168,29 @@ def test_selfhost_portability_lowering_is_structured() -> None:
 
 
 def test_destroyed_query_has_its_own_helper_node() -> None:
-    helpers = _source("ir_nodes.btrc")
-    state_start = helpers.index('if (name == "__btrc_destroyed_tracking")')
-    query_start = helpers.index('if (name == "__btrc_is_destroyed")')
-    capacity_start = helpers.index('if (name == "__btrc_destroyed_capacity")')
+    state = _source("cycle_runtime_state.btrc")
+    dependencies = _source("cycle_runtime_helpers.btrc")
+    state_start = state.index('if (name == "__btrc_destroyed_tracking")')
+    query_start = state.index('if (name == "__btrc_is_destroyed")')
+    capacity_start = state.index('if (name == "__btrc_destroyed_capacity")')
 
-    assert "__btrc_is_destroyed(void* ptr)" not in helpers[state_start:query_start]
-    assert "__btrc_is_destroyed(void* ptr)" in helpers[query_start:capacity_start]
-    assert (
-        'out.push("__btrc_destroyed_tracking")'
-        in helpers[
-            helpers.index('else if (name == "__btrc_is_destroyed")') : helpers.index(
-                'else if (name == "__btrc_suspect_state")'
-            )
-        ]
-    )
+    assert "__btrc_is_destroyed(void* ptr)" not in state[state_start:query_start]
+    assert "__btrc_is_destroyed(void* ptr)" in state[query_start:capacity_start]
+    dependency_start = dependencies.index('if (name == "__btrc_is_destroyed")')
+    dependency_end = dependencies.index('if (name == "__btrc_destroyed_tracking_scope")', dependency_start)
+    assert 'out.push("__btrc_destroyed_tracking")' in dependencies[dependency_start:dependency_end]
 
 
 def test_cycle_suspect_callable_is_split_from_thread_state() -> None:
-    helpers = _source("ir_nodes.btrc")
+    state = _source("cycle_runtime_state.btrc")
+    dependencies = _source("cycle_runtime_helpers.btrc")
 
-    assert "static inline void __btrc_suspect(" in helpers
-    assert '"static void __btrc_suspect(' not in helpers
-    assert 'if (name == "__btrc_suspect_state")' in helpers
-    assert 'if (name == "__btrc_suspect")' in helpers
-    assert "__btrc_suspect_buf" not in helpers
+    assert "static inline void __btrc_suspect(" in state
+    assert '"static void __btrc_suspect(' not in state
+    assert 'if (name == "__btrc_suspect_state")' in state
+    assert 'if (name == "__btrc_suspect")' in state
+    assert 'if (name == "__btrc_suspect")' in dependencies
+    assert "__btrc_suspect_buf" not in state + dependencies
 
 
 def test_optional_launder_callable_is_split_from_cleanup_state() -> None:

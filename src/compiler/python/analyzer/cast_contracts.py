@@ -1,5 +1,7 @@
 """Strict-C contracts for explicit casts."""
 
+from ..type_identity import is_semantic_scalar_void
+
 _PRIMITIVE_TYPE_NAMES = frozenset(
     (
         "void",
@@ -99,7 +101,7 @@ class CastContractsMixin:
         return False
 
     def _is_void_value(self, type_expr) -> bool:
-        return bool(type_expr and type_expr.base == "void" and type_expr.pointer_depth == 0 and not type_expr.is_array)
+        return is_semantic_scalar_void(type_expr)
 
     def _is_scalar_cast_value(self, type_expr) -> bool:
         if type_expr is None:

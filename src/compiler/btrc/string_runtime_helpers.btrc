@@ -6,6 +6,7 @@
 
 bool stringOwnershipRuntimeHasHelper(string name) {
     return name == "__btrc_string_registry"
+        || name == "__btrc_string_registry_resize"
         || name == "__btrc_string_adopt"
         || name == "__btrc_string_retain"
         || name == "__btrc_string_release"
@@ -59,9 +60,10 @@ string stringOwnershipRuntimeHelperSource(string name) {
             + "    __btrc_string_entry** slot = &__btrc_string_buckets[index];\n"
             + "    while (*slot && (*slot)->value != value) slot = &(*slot)->next;\n"
             + "    return slot;\n"
-            + "}\n"
-            + "\n"
-            + "static inline void __btrc_string_registry_resize(size_t capacity) {\n"
+            + "}";
+    }
+    if (name == "__btrc_string_registry_resize") {
+        return "static inline void __btrc_string_registry_resize(size_t capacity) {\n"
             + "    __btrc_string_entry** old_buckets = __btrc_string_buckets;\n"
             + "    size_t old_capacity = __btrc_string_bucket_count;\n"
             + "    __btrc_string_entry** buckets = (__btrc_string_entry**)\n"
@@ -208,10 +210,11 @@ string stringOwnershipRuntimeHelperSource(string name) {
 
 Vector<string> stringOwnershipRuntimeHelperDependencies(string name) {
     Vector<string> out = [];
-    if (name == "__btrc_string_registry") {
+    if (name == "__btrc_string_registry_resize") {
+        out.push("__btrc_string_registry");
         out.push("__btrc_safe_calloc");
     } else if (name == "__btrc_string_adopt") {
-        out.push("__btrc_string_registry");
+        out.push("__btrc_string_registry_resize");
         out.push("__btrc_safe_realloc");
     } else if (name == "__btrc_string_retain"
             || name == "__btrc_string_release"
@@ -238,6 +241,7 @@ Vector<string> stringOwnershipRuntimeHelperHeaders(string name) {
 
 void appendStringOwnershipRuntimeHelperOrder(Vector<string> order) {
     order.push("__btrc_string_registry");
+    order.push("__btrc_string_registry_resize");
     order.push("__btrc_string_adopt");
     order.push("__btrc_string_retain");
     order.push("__btrc_string_release");

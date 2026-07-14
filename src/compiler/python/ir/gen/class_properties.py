@@ -164,7 +164,7 @@ def _getter_body(gen, prop, backing, prop_type):
     previous_backing = gen.current_property_backing
     gen.current_property_backing = prop.name if property_needs_backing(prop) else None
     try:
-        body = lower_block(gen, prop.getter_body)
+        body = lower_block(gen, prop.getter_body, local_bindings=["self"])
     finally:
         gen.current_property_backing = previous_backing
         gen.current_return_type = previous_return_type
@@ -254,7 +254,7 @@ def _setter_body(gen, prop, backing):
     previous_backing = gen.current_property_backing
     gen.current_property_backing = prop.name if property_needs_backing(prop) else None
     try:
-        body = lower_block(gen, prop.setter_body)
+        body = lower_block(gen, prop.setter_body, local_bindings=["self", "value"])
     finally:
         gen.current_property_backing = previous_backing
         gen.current_return_type = previous_return_type

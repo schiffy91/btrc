@@ -42,8 +42,15 @@ class _UserGenericOwnershipMixin:
                 return self._string_call_owns_result(expression)
             return self._known_language_call(expression)
         if isinstance(expression, AssignExpr):
+            from ..assignment_ownership import virtual_assignment_target
+
             return bool(
-                isinstance(expression.target, (FieldAccessExpr, IndexExpr)) and self._owns_expr(expression.target.obj)
+                (isinstance(expression.target, (FieldAccessExpr, IndexExpr)) and self._owns_expr(expression.target.obj))
+                or (
+                    expression.op == "="
+                    and virtual_assignment_target(self._gen, expression.target)
+                    and self._owns_expr(expression.value)
+                )
             )
         if isinstance(expression, (FieldAccessExpr, IndexExpr)):
             return self._projection_is_call(expression) or self._owns_expr(expression.obj)

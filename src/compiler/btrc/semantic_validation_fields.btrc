@@ -1,0 +1,60 @@
+/* Field/member projection validation. */
+
+void semanticValidateField(Node expression, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (expression.obj == null) { return; }
+    if (expression.obj.kind == NK_IDENTIFIER) {
+        if (state.analyzed.isEnum(expression.obj.name)) {
+            if (!state.analyzed.enumContains(
+                    expression.obj.name, expression.field)) {
+                semanticValidationFail("Enum '" + expression.obj.name
+                    + "' has no value '" + expression.field + "'",
+                    expression);
+            }
+            return;
+        }
+        if (state.analyzed.isRichEnum(expression.obj.name)
+                || state.analyzed.isClass(expression.obj.name)) {
+            return;
+        }
+    }
+    Node? receiver = semanticInferType(expression.obj, state, vars);
+    if (receiver == null || state.analyzed.isRichEnum(receiver.base)) {
+        return;
+    }
+    if (isStringType(receiver)) {
+        semanticValidationFail("Type 'string' has no field '"
+            + expression.field + "'; use a string method call", expression);
+    }
+    if (receiver.base == "Tuple") {
+        int tupleIndex = tupleFieldIndex(expression.field);
+        if (tupleIndex < 0 || tupleIndex >= receiver.generic_args.len) {
+            semanticValidationFail("Tuple type '"
+                + semanticFormatType(receiver) + "' has no field '"
+                + expression.field + "'", expression);
+        }
+        return;
+    }
+    string structName = structResolvedName(receiver, state.analyzed);
+    if (structName != "") {
+        if (structFieldType(receiver, expression.field,
+                state.analyzed) == null) {
+            semanticValidationFail("Struct '" + structName
+                + "' has no field '" + expression.field + "'", expression);
+        }
+        return;
+    }
+    Node? member = null;
+    if (state.analyzed.isClass(receiver.base)) {
+        member = state.analyzed.classMember(receiver.base, expression.field);
+    } else if (state.analyzed.isGenericClass(receiver.base)) {
+        member = genericMember(
+            state.analyzed, receiver.base, expression.field);
+    } else {
+        return;
+    }
+    if (member == null) {
+        semanticValidationFail("Type '" + semanticFormatType(receiver)
+            + "' has no member '" + expression.field + "'", expression);
+    }
+}

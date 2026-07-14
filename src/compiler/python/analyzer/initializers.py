@@ -1,6 +1,7 @@
 """Type contracts shared by fields, parameters, and local initializers."""
 
 from ..ast_nodes import BraceInitializer, ListLiteral, MapLiteral
+from ..type_identity import is_semantic_scalar_void
 
 
 class InitializerValidationMixin:
@@ -20,7 +21,7 @@ class InitializerValidationMixin:
         actual = self._infer_type(initializer)
         if actual is None:
             return
-        if actual.base == "void" and actual.pointer_depth == 0:
+        if is_semantic_scalar_void(actual):
             self._error(f"{subject} cannot be initialized from a void expression", line, col)
         elif not contextual and not self._types_compatible(expected, actual):
             self._error(

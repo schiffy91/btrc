@@ -73,6 +73,16 @@ class CallTargetContractsMixin:
                 field = cls.static_fields.get(callee.field)
                 return bool(field and self._function_pointer_signature(field.type) is not None)
         receiver = self._infer_type(callee.obj)
+        if (
+            receiver
+            and receiver.base not in self.class_table
+            and receiver.base in {"Array", "List", "Map", "Set", "Vector"}
+        ):
+            # Collection types are recognized before the stdlib declarations
+            # are merged into analyzer-only programs.  Their shared size()
+            # method remains callable in that structural view.
+            if callee.field == "size":
+                return True
         if receiver and receiver.base in self.class_table:
             cls = self.class_table[receiver.base]
             if callee.field in cls.methods:

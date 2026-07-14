@@ -38,17 +38,32 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
     Map<string, bool> usedNames = {};
     collectIdentifiers(expression.body_node, usedNames);
     Vector<string> names = usedNames.keys();
+    Map<string, bool> previousBorrowedBindings =
+        semanticCloneFlags(state.borrowedBindings);
+    Map<string, bool> previousParameterNames =
+        semanticCloneFlags(state.parameterNames);
+    state.borrowedBindings = semanticCloneFlags(parameterNames);
+    /* Lambda parameters are not parameters of state.callable, which remains
+     * the enclosing declaration for the rest of semantic analysis.  Keep the
+     * transfer-contract name set isolated so identical spellings cannot borrow
+     * the enclosing callable's consumption permission. */
+    state.parameterNames = {};
     int captureIndex = 0;
     while (captureIndex < names.len) {
         string name = names.get(captureIndex);
         if (!parameterNames.has(name) && vars.has(name)
-                && !state.analyzed.globalVarTypes.has(name)
-                && semanticContainsThreadStorage(vars.get(name), state)) {
-            semanticValidationFail(
-                "A lambda cannot capture Thread handle '" + name
-                    + "'; join it before capture or create a fresh owner "
-                    + "inside the lambda",
-                expression);
+                && !state.analyzed.globalVarTypes.has(name)) {
+            /* Lifted environment fields are non-owning copies.  Model them as
+             * borrowed lexical proxies even when the enclosing local owns its
+             * slot, so rebind/release validation matches generated code. */
+            state.borrowedBindings.put(name, true);
+            if (semanticContainsThreadStorage(vars.get(name), state)) {
+                semanticValidationFail(
+                    "A lambda cannot capture Thread handle '" + name
+                        + "'; join it before capture or create a fresh owner "
+                        + "inside the lambda",
+                    expression);
+            }
         }
         captureIndex = captureIndex + 1;
     }
@@ -77,8 +92,7 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
         }
     } else if (body != null && body.kind == NK_LAMBDA_BLOCK) {
         semanticValidateBlock(body.body_node, state, bodyVars);
-        bool nonVoid = resultType.base != "void"
-            || resultType.pointer_depth > 0;
+        bool nonVoid = !semanticScalarVoid(resultType);
         if (nonVoid && !semanticBlockTerminates(body.body_node)) {
             semanticValidationFail(
                 "Non-void lambda does not return on every path", expression);
@@ -88,6 +102,8 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
     state.returnType = previousReturn;
     state.loopDepth = previousLoop;
     state.breakDepth = previousBreak;
+    state.borrowedBindings = previousBorrowedBindings;
+    state.parameterNames = previousParameterNames;
 }
 
 void semanticValidateSpawnCaptures(Node expression,

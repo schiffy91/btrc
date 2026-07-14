@@ -442,18 +442,6 @@ class CEmitter {
         }
         if (s.kind == IRK_BREAK) { self.line("break;"); return; }
         if (s.kind == IRK_CONTINUE) { self.line("continue;"); return; }
-        if (s.kind == IRK_RAW_C) {
-            /* Raw C text: emit each non-blank line at the current indentation
-             * (mirrors emitter IRRawC). */
-            Vector<string> parts = splitLines(s.text);
-            int i = 0;
-            while (i < parts.len) {
-                string ln = parts.get(i);
-                if (strStripped(ln) != "") { self.line(ln); }
-                i = i + 1;
-            }
-            return;
-        }
         if (s.kind == IRK_SWITCH) {
             /* switch (val) { case V: <body> default: <body> } — mirrors the
              * IRSwitch branch of emitter._emit_stmt. */

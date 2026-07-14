@@ -49,7 +49,12 @@ class TypeNormalizationMixin:
         # An ``auto_upgraded`` stamp marks pointers synthesized here, so
         # re-analyzing a shared AST (LSP unit caches) stays idempotent instead
         # of reporting its own upgrade as a redundant pointer.
-        if type_expr.pointer_depth > 0 and not type_expr.is_nullable and not auto_upgraded:
+        if type_expr.pointer_depth > 1:
+            # Two or more written levels deliberately describe raw storage
+            # around the class reference (``Item**``), not a second spelling of
+            # the implicit one-level ``Item`` value.
+            return replace(type_expr, generic_args=upgraded_args)
+        if type_expr.pointer_depth == 1 and not type_expr.is_nullable and not auto_upgraded:
             self._error(
                 f"Redundant pointer for class type '{type_expr.base}' — "
                 f"classes are always heap-allocated. "

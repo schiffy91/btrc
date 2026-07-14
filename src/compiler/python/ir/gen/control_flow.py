@@ -211,16 +211,19 @@ def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]
         stmts.extend(finally_state_declarations(pending_name, error_name))
         catch_body = IRBlock(stmts=capture_finally_error(pending_name, error_name))
     else:
-        catch_body = lower_block(gen, node.catch_block)
+        catch_bindings = []
         if node.catch_var:
             gen.use_helper("__btrc_strdup")
             gen.use_helper("__btrc_str_track")
-            catch_body.stmts.insert(
-                0,
-                IRVarDecl(
-                    c_type=CType(text="char*"),
+            from ...ast_nodes import TypeExpr
+            from .iteration_bindings import IterationBinding
+
+            catch_bindings.append(
+                IterationBinding(
                     name=node.catch_var,
-                    init=IRCall(
+                    c_type="char*",
+                    type_expr=TypeExpr(base="string"),
+                    value=IRCall(
                         callee="__btrc_str_track",
                         args=[
                             IRCall(
@@ -231,9 +234,24 @@ def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]
                         ],
                         helper_ref="__btrc_str_track",
                     ),
-                ),
+                    owned=True,
+                )
             )
-            catch_body.stmts.insert(1, IRExprStmt(expr=IRVar(name=node.catch_var)))
+        catch_body = lower_block(
+            gen,
+            node.catch_block,
+            iteration_bindings=catch_bindings,
+        )
+        if node.catch_var:
+            declaration_index = next(
+                index
+                for index, statement in enumerate(catch_body.stmts)
+                if isinstance(statement, IRVarDecl) and statement.name == node.catch_var
+            )
+            catch_body.stmts.insert(
+                declaration_index + 1,
+                IRExprStmt(expr=IRVar(name=node.catch_var)),
+            )
 
     stmts.append(
         IRIf(

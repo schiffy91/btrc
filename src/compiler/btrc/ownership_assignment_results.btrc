@@ -1,0 +1,42 @@
+/* Ownership provenance for virtual property/index assignment results. */
+
+Node? irVirtualAssignmentValueType(IRGen generator, Node? target,
+        Map<string, Node> varTypes) {
+    if (target == null) { return null; }
+    if (target.kind == NK_INDEX_EXPR) {
+        Node? receiver = generator.resolvedExpressionType(
+            target.obj, varTypes);
+        if (receiver == null || semanticRawIndexedPointer(
+                receiver, generator.analyzed)) {
+            return null;
+        }
+        Node? setter = semanticIndexedMethod(
+            receiver, "set", generator.analyzed);
+        if (!semanticValidIndexedSetter(setter)) { return null; }
+        Node concreteSetter = setter;
+        return semanticResolvedIndexedType(
+            concreteSetter.params.get(1).type,
+            receiver, generator.analyzed);
+    }
+    if (target.kind != NK_FIELD_ACCESS_EXPR) { return null; }
+    Node? receiver = generator.resolvedExpressionType(
+        target.obj, varTypes);
+    Node? member = instanceMemberForType(
+        generator.analyzed, receiver, target.field);
+    if (member == null || member.kind != NK_PROPERTY_DECL) {
+        return null;
+    }
+    Node property = member;
+    if (target.obj.kind == NK_SELF_EXPR
+            && propertyNeedsBacking(property)) {
+        return null;
+    }
+    return resolvedInstanceMemberType(
+        generator.analyzed, receiver, property);
+}
+
+bool irVirtualAssignmentTarget(IRGen generator, Node? target,
+        Map<string, Node> varTypes) {
+    return irVirtualAssignmentValueType(
+        generator, target, varTypes) != null;
+}

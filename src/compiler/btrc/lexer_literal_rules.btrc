@@ -102,33 +102,33 @@ bool lexerNarrowCharHexEscape(string content) {
 
 string lexerAppendEscape(
         Lexer lex, string content, string literalKind, int line, int col) {
-    content = content + chr(lex.advance());
+    string result = content + chr(lex.advance());
     if (lex.atEnd()) {
         lex.failLex("Unterminated " + literalKind + " literal", line, col);
-        return content;
+        return result;
     }
 
     char escaped = lex.peek(0);
     if (escaped == '\n') {
-        return content + chr(lex.advance());
+        return result + chr(lex.advance());
     }
     if (escaped == '\r') {
         if (lex.peek(1) == '\n') {
-            content = content + chr(lex.advance());
-            return content + chr(lex.advance());
+            result = result + chr(lex.advance());
+            return result + chr(lex.advance());
         }
         lex.failLex("Unterminated " + literalKind + " literal", line, col);
-        return content;
+        return result;
     }
     if (lexerIsSimpleEscape(escaped)) {
-        return content + chr(lex.advance());
+        return result + chr(lex.advance());
     }
     if (escaped >= '0' && escaped <= '7') {
         int octalValue = 0;
         int count = 0;
         while (count < 3 && lex.peek(0) >= '0' && lex.peek(0) <= '7') {
             char digit = lex.advance();
-            content = content + chr(digit);
+            result = result + chr(digit);
             octalValue = octalValue * 8 + (int)digit - (int)'0';
             count = count + 1;
         }
@@ -137,21 +137,21 @@ string lexerAppendEscape(
                 "Octal escape sequence out of range in " + literalKind + " literal",
                 line, col);
         }
-        return content;
+        return result;
     }
     if (escaped == 'x') {
-        content = content + chr(lex.advance());
+        result = result + chr(lex.advance());
         if (!lexerIsHexDigit(lex.peek(0))) {
             lex.failLex(
                 "Hex escape sequence requires digits in " + literalKind + " literal",
                 line, col);
-            return content;
+            return result;
         }
         int hexValue = 0;
         bool outOfRange = false;
         while (lexerIsHexDigit(lex.peek(0))) {
             char digit = lex.advance();
-            content = content + chr(digit);
+            result = result + chr(digit);
             if (!outOfRange) {
                 hexValue = hexValue * 16 + lexerHexDigitValue(digit);
                 outOfRange = hexValue > 255;
@@ -162,11 +162,11 @@ string lexerAppendEscape(
                 "Hex escape sequence out of range in " + literalKind + " literal",
                 line, col);
         }
-        return content;
+        return result;
     }
     if (escaped == 'u' || escaped == 'U') {
         char prefix = lex.advance();
-        content = content + chr(prefix);
+        result = result + chr(prefix);
         int required = 8;
         if (prefix == 'u') { required = 4; }
         int index = 0;
@@ -176,10 +176,10 @@ string lexerAppendEscape(
                 lex.failLex(
                     "Invalid universal character escape in " + literalKind + " literal",
                     line, col);
-                return content;
+                return result;
             }
             char digit = lex.advance();
-            content = content + chr(digit);
+            result = result + chr(digit);
             universalValue = universalValue * 16LL
                 + (long long)lexerHexDigitValue(digit);
             index = index + 1;
@@ -189,17 +189,17 @@ string lexerAppendEscape(
                 "Invalid universal character escape in " + literalKind + " literal",
                 line, col);
         }
-        return content;
+        return result;
     }
     if (escaped < ' ' || escaped > '~') {
         lex.failLex(
             "Invalid non-ASCII escape in " + literalKind + " literal",
             line, col);
-        return content;
+        return result;
     }
     lex.failLex(
         "Invalid escape sequence '\\" + chr(escaped) + "' in "
             + literalKind + " literal",
         line, col);
-    return content;
+    return result;
 }

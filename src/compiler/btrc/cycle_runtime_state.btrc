@@ -203,7 +203,7 @@ string cycleRuntimeStateSource(string name) {
             + "}";
     }
     if (name == "__btrc_suspect") {
-        return "static void __btrc_suspect(\n"
+        return "static inline void __btrc_suspect(\n"
             + "        void* obj, __btrc_visit_fn visit, __btrc_destroy_fn destroy) {\n"
             + "    __btrc_arc_lock_mutation();\n"
             + "    __btrc_suspect_locked(obj, visit, destroy);\n"

@@ -14,7 +14,6 @@ from ..nodes import (
     CType,
     IRBinOp,
     IRCall,
-    IRCast,
     IRCommaExpr,
     IRExpr,
     IRFieldAccess,
@@ -27,7 +26,6 @@ from ..nodes import (
 )
 from .types import (
     is_direct_generic_instance_reference,
-    is_string_type,
     mangle_generic_type,
     type_to_c,
 )
@@ -71,24 +69,6 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
             obj=obj,
             field=f"_prop_{node.field}",
             arrow=True,
-        )
-
-    # String field access: s.len, s.length → (int)strlen(s)
-    if is_string_type(obj_type) and node.field in ("len", "length"):
-        if node.optional:
-            return _lower_optional_access(
-                gen,
-                obj,
-                obj_type,
-                gen.analyzed.node_types.get(id(node)),
-                lambda receiver: IRCast(
-                    target_type=CType(text="int"),
-                    expr=IRCall(callee="strlen", args=[receiver]),
-                ),
-            )
-        return IRCast(
-            target_type=CType(text="int"),
-            expr=IRCall(callee="strlen", args=[obj]),
         )
 
     # Generic class field access: coll.len → coll->len

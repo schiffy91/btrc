@@ -114,7 +114,7 @@ Node semanticIterableElementType(Node iterableType,
     }
     Node valueType = semanticIterableResolvedType(
         valueMethod.return_type, iterableType, state.analyzed);
-    if (valueType.base == "void" && valueType.pointer_depth == 0) {
+    if (semanticScalarVoid(valueType)) {
         semanticValidationFail("for-in " + methodName
             + "() cannot return void", valueMethod);
     }
@@ -131,6 +131,7 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
 
     Node first = makePrimType("int");
     Node? iterableType = null;
+    bool protocolOwnsFirst = false;
     if (semanticIsRangeForm(statement.iterable)) {
         semanticValidateRangeForm(statement.iterable, state, vars);
         if (statement.var_name2 != null) {
@@ -150,9 +151,18 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
                 semanticValidationFail(
                     "String iteration has exactly one loop variable", statement);
             }
+        } else if (iterableType != null && iterableType.is_array) {
+            first = copyTypeExpr(iterableType);
+            first.is_array = false;
+            first.array_size = null;
+            if (statement.var_name2 != null) {
+                semanticValidationFail(
+                    "Array iteration has exactly one loop variable", statement);
+            }
         } else {
             first = semanticIterableElementType(
                 iterableType, state, statement, false);
+            protocolOwnsFirst = true;
         }
     }
     semanticRejectThreadOwnerShadow(
@@ -164,6 +174,14 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
             statement);
     }
     bodyVars.put(statement.var_name, first);
+    Map<string, bool> previousBorrowedBindings =
+        semanticCloneFlags(state.borrowedBindings);
+    if (semanticManagedOwnershipType(first, state)
+            && !protocolOwnsFirst) {
+        state.borrowedBindings.put(statement.var_name, true);
+    } else {
+        state.borrowedBindings.remove(statement.var_name);
+    }
 
     if (statement.var_name2 != null) {
         semanticValidateDeclaredName(
@@ -184,6 +202,7 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
                 statement);
         }
         bodyVars.put(statement.var_name2, second);
+        state.borrowedBindings.remove(statement.var_name2);
     }
 
     semanticValidateDirectLocalNames(statement.body_node, loopNames);
@@ -192,6 +211,7 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
     state.loopDepth = previousLoop + 1;
     state.breakDepth = previousBreak + 1;
     semanticValidateBlock(statement.body_node, state, bodyVars);
+    state.borrowedBindings = previousBorrowedBindings;
     state.loopDepth = previousLoop;
     state.breakDepth = previousBreak;
 }

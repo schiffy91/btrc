@@ -117,6 +117,17 @@ def is_semantic_scalar_string(type_expr: TypeExpr | None) -> bool:
     return type_expr.pointer_depth - nullable_collapse == 0
 
 
+def is_semantic_scalar_void(type_expr: TypeExpr | None) -> bool:
+    """True only for the scalar ``void`` return domain, never ``void*``."""
+    return bool(
+        type_expr
+        and type_expr.base == "void"
+        and type_expr.pointer_depth == 0
+        and not type_expr.is_array
+        and not type_expr.generic_args
+    )
+
+
 def type_symbol_component(type_expr: TypeExpr) -> str:
     """Injective C-identifier component for one type."""
     legacy = _legacy_component(type_expr)

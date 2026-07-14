@@ -82,7 +82,8 @@ Map<int, bool> ownershipOwnedTransferParams(Node? declaration) {
     int position = 0;
     while (position < statements.len) {
         Node statement = statements.get(position);
-        if (statement.kind == NK_DELETE_STMT
+        if ((statement.kind == NK_DELETE_STMT
+                || statement.kind == NK_RELEASE_STMT)
                 && statement.expr != null
                 && statement.expr.kind == NK_IDENTIFIER
                 && indices.has(statement.expr.name)) {

@@ -1,0 +1,77 @@
+/* Translation-unit storage and ARC replacement for class-access fields. */
+
+Node? irClassStaticField(IRGen generator, Node? projection) {
+    if (projection == null || projection.kind != NK_FIELD_ACCESS_EXPR
+            || projection.obj == null
+            || projection.obj.kind != NK_IDENTIFIER
+            || !generator.analyzed.isClass(projection.obj.name)) {
+        return null;
+    }
+    Node? member = generator.analyzed.classMember(
+        projection.obj.name, projection.field);
+    if (member == null || member.kind != NK_FIELD_DECL
+            || member.access != "class") {
+        return null;
+    }
+    return member;
+}
+
+string irClassStaticFieldName(Node projection) {
+    return projection.obj.name + "_" + projection.field;
+}
+
+void emitClassStaticFields(IRGen generator, Node declaration, IRModule module) {
+    int index = 0;
+    while (index < declaration.members.len) {
+        Node field = declaration.members.get(index);
+        if (field.kind == NK_FIELD_DECL && field.access == "class") {
+            Node storageType = field.type;
+            IRGlobalDecl global;
+            if (field.type.is_array) {
+                storageType = copyTypeExpr(field.type);
+                storageType.is_array = false;
+                storageType.array_size = null;
+            }
+            global = IRGlobalDecl(
+                typeToC(storageType, generator.analyzed),
+                declaration.name + "_" + field.name);
+            global.is_static = true;
+            global.is_volatile = field.type.is_volatile;
+            Map<string, Node> empty = {};
+            if (field.type.is_array) {
+                if (field.type.array_size != null) {
+                    global.array_size = generator.lowerExpr(
+                        field.type.array_size, empty);
+                } else if (field.initializer != null
+                        && (field.initializer.kind == NK_LIST_LITERAL
+                            || field.initializer.kind == NK_BRACE_INITIALIZER)) {
+                    global.array_size = irLiteral(
+                        Strings.fromInt(field.initializer.elements.len));
+                }
+            }
+            if (field.initializer != null) {
+                global.init = lowerStaticInitializer(
+                    generator, field.initializer, field.type, empty);
+            }
+            module.global_decls.push(global);
+        }
+        index = index + 1;
+    }
+}
+
+IRNode? lowerManagedStaticFieldStore(IRGen generator, Node assignment,
+        Map<string, Node> varTypes) {
+    Node? field = irClassStaticField(generator, assignment.target);
+    if (field == null) { return null; }
+    Node? targetType = generator.resolvedExpressionType(
+        assignment.target, varTypes);
+    if (targetType == null || !irManagedType(generator, targetType)) {
+        return null;
+    }
+    return lowerManagedSlotStore(
+        generator,
+        assignment,
+        irVar(irClassStaticFieldName(assignment.target)),
+        targetType,
+        varTypes);
+}

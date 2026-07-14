@@ -94,9 +94,10 @@ class _UserGenericArcMixin(_UserGenericOwnershipMixin):
         build,
         *,
         promote_result=False,
+        keep_nodes=(),
     ):
         """Evaluate source operands once when any operand is caller-owned."""
-        operands = self._owned_node_operands(nodes)
+        operands = self._owned_node_operands(nodes, keep_nodes=keep_nodes)
         if operands is None:
             return None
         return self._sequence_call(
@@ -118,28 +119,31 @@ class _UserGenericArcMixin(_UserGenericOwnershipMixin):
             result_c_type="void",
         )
 
-    def _owned_node_operands(self, nodes):
+    def _owned_node_operands(self, nodes, *, keep_nodes=()):
         specs = []
-        any_owned = False
+        keep_ids = {id(node) for node in keep_nodes}
+        needs_boundary = False
         for node in nodes:
             type_expr = self._resolve_expr_type(node)
             owned = bool(
                 id(node) not in self._arc_overrides and self._is_managed_type(type_expr) and self._owns_expr(node)
             )
-            any_owned = any_owned or owned
-            specs.append((node, type_expr, owned))
-        if not any_owned:
+            keep = id(node) in keep_ids
+            needs_boundary = needs_boundary or owned or keep
+            specs.append((node, type_expr, owned, keep))
+        if not needs_boundary:
             return None
-        for _node, type_expr, _owned in specs:
+        for _node, type_expr, _owned, _keep in specs:
             self._require_operand_type(type_expr)
         return [
             CallOperand(
                 node=node,
                 type_expr=type_expr,
                 c_type=self.iter_value_c(type_expr),
+                keep=keep,
                 owned=owned,
             )
-            for node, type_expr, owned in specs
+            for node, type_expr, owned, keep in specs
         ]
 
     def _call_operands(

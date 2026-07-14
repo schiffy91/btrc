@@ -131,6 +131,8 @@ void semanticValidateCall(Node call, SemanticValidationState state,
             Node functionDecl = state.analyzed.funcTable.get(name);
             semanticValidateSignature(name, functionDecl.params, call,
                 noSubstitutions, state, vars);
+            semanticValidateTransferredArguments(
+                functionDecl, call, state, vars);
             return;
         }
         if (state.analyzed.isClass(name)) {
@@ -149,6 +151,8 @@ void semanticValidateCall(Node call, SemanticValidationState state,
             } else {
                 semanticValidateSignature(name, constructor.params, call,
                     noSubstitutions, state, vars);
+                semanticValidateTransferredArguments(
+                    constructor, call, state, vars);
             }
             return;
         }
@@ -218,8 +222,12 @@ void semanticValidateCall(Node call, SemanticValidationState state,
             semanticValidationFail("Method '" + className + "."
                 + methodName + "' is not a class method", call);
         }
+        semanticValidateMethodAccess(
+            className, concreteMethod, state, call);
         semanticValidateSignature(className + "." + methodName,
             concreteMethod.params, call, noSubstitutions, state, vars);
+        semanticValidateTransferredArguments(
+            concreteMethod, call, state, vars);
         return;
     }
     Node? receiver = semanticInferType(callee.obj, state, vars);
@@ -257,64 +265,12 @@ void semanticValidateCall(Node call, SemanticValidationState state,
         semanticValidationFail("Class method '" + receiver.base + "."
             + methodName + "' must be called on the class", call);
     }
+    semanticValidateMethodAccess(
+        receiver.base, concreteMethod, state, call);
     semanticAddMethodSubstitutions(
         concreteMethod, call, substitutions, state);
     semanticValidateSignature(receiver.base + "." + methodName,
         concreteMethod.params, call, substitutions, state, vars);
-}
-
-void semanticValidateField(Node expression, SemanticValidationState state,
-        Map<string, Node> vars) {
-    if (expression.obj == null) { return; }
-    if (expression.obj.kind == NK_IDENTIFIER) {
-        if (state.analyzed.isEnum(expression.obj.name)) {
-            if (!state.analyzed.enumContains(
-                    expression.obj.name, expression.field)) {
-                semanticValidationFail("Enum '" + expression.obj.name
-                    + "' has no value '" + expression.field + "'",
-                    expression);
-            }
-            return;
-        }
-        if (state.analyzed.isRichEnum(expression.obj.name)
-                || state.analyzed.isClass(expression.obj.name)) {
-            return;
-        }
-    }
-    Node? receiver = semanticInferType(expression.obj, state, vars);
-    if (receiver == null || isStringType(receiver)
-            || state.analyzed.isRichEnum(receiver.base)) {
-        return;
-    }
-    if (receiver.base == "Tuple") {
-        int tupleIndex = tupleFieldIndex(expression.field);
-        if (tupleIndex < 0 || tupleIndex >= receiver.generic_args.len) {
-            semanticValidationFail("Tuple type '"
-                + semanticFormatType(receiver) + "' has no field '"
-                + expression.field + "'", expression);
-        }
-        return;
-    }
-    string structName = structResolvedName(receiver, state.analyzed);
-    if (structName != "") {
-        if (structFieldType(receiver, expression.field,
-                state.analyzed) == null) {
-            semanticValidationFail("Struct '" + structName
-                + "' has no field '" + expression.field + "'", expression);
-        }
-        return;
-    }
-    Node? member = null;
-    if (state.analyzed.isClass(receiver.base)) {
-        member = state.analyzed.classMember(receiver.base, expression.field);
-    } else if (state.analyzed.isGenericClass(receiver.base)) {
-        member = genericMember(
-            state.analyzed, receiver.base, expression.field);
-    } else {
-        return;
-    }
-    if (member == null) {
-        semanticValidationFail("Type '" + semanticFormatType(receiver)
-            + "' has no member '" + expression.field + "'", expression);
-    }
+    semanticValidateTransferredArguments(
+        concreteMethod, call, state, vars);
 }

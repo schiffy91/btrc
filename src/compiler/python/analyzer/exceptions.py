@@ -65,6 +65,7 @@ class ExceptionAnalysisMixin:
                         "catch",
                         statement.line,
                         statement.col,
+                        owned_storage=True,
                     ),
                 )
             self._analyze_root_block(statement.catch_block)

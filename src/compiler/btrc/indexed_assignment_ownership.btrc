@@ -1,0 +1,47 @@
+/* Call-boundary effects for indexed setter sugar. */
+
+IRNode? lowerIndexedAssignmentWithOwnership(IRGen generator, Node expression,
+        Map<string, Node> varTypes) {
+    if (expression.op != "=" || expression.target == null
+            || expression.target.kind != NK_INDEX_EXPR) {
+        return null;
+    }
+    Node target = expression.target;
+    Node? receiver = generator.resolvedExpressionType(
+        target.obj, varTypes);
+    if (receiver == null
+            || semanticRawIndexedPointer(receiver, generator.analyzed)) {
+        return null;
+    }
+    Node? setter = semanticIndexedMethod(
+        receiver, "set", generator.analyzed);
+    if (!semanticValidIndexedSetter(setter)) { return null; }
+    Node concreteSetter = setter;
+    Node valueType = semanticResolvedIndexedType(
+        concreteSetter.params.get(1).type,
+        receiver, generator.analyzed);
+    Node? actualType = generator.resolvedExpressionType(
+        expression.value_node, varTypes);
+    if (actualType == null) { actualType = valueType; }
+    Node concreteActualType = actualType;
+    bool managed = irManagedType(generator, concreteActualType);
+    bool owned = managed && irContextualUnconsumedOwnedResult(
+        generator, expression.value_node, valueType, varTypes);
+    bool keepValue = managed
+        && concreteSetter.params.get(1).keep_;
+    if (!owned && !keepValue) { return null; }
+
+    OwnershipBoundary boundary = OwnershipBoundary();
+    boundary.addCallOperand(generator, expression.value_node,
+        concreteActualType, owned, keepValue, owned, varTypes);
+    IRNode? lowered = generator.lowerIndirectAssignmentCore(
+        expression, varTypes);
+    boundary.restore(generator);
+    if (lowered == null) {
+        fprintf(stderr, "error: indexed setter boundary has no lowering\n");
+        abortGen();
+    }
+    IRNode concreteLowered = lowered;
+    return boundary.finish(
+        generator, concreteLowered, valueType, false);
+}

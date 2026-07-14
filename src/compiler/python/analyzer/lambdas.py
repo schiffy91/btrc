@@ -24,7 +24,15 @@ class LambdaAnalysisMixin:
         scope = self.scope
         while scope is not None and scope is not self.global_scope:
             for name, sym in scope.symbols.items():
-                if name not in outer_symbols and sym.kind in ("variable", "param", "loop", "loop_key", "catch"):
+                if name not in outer_symbols and sym.kind in (
+                    "variable",
+                    "param",
+                    "lambda_param",
+                    "loop",
+                    "loop_key",
+                    "catch",
+                    "capture",
+                ):
                     outer_symbols[name] = sym
             scope = scope.parent
 
@@ -57,7 +65,20 @@ class LambdaAnalysisMixin:
                 )
             self._collect_generic_instances(param.type)
             if param.name not in declared_params:
-                self.scope.define(param.name, self._param_symbol(param))
+                # Lambda parameters are borrowed at this call boundary, but
+                # they are not parameters of ``current_callable`` (which still
+                # describes the enclosing source declaration).  Keep a
+                # distinct kind so ownership-transfer analysis cannot
+                # accidentally inherit an enclosing same-named parameter's
+                # contract.
+                self.scope.define(
+                    param.name,
+                    dataclasses.replace(
+                        self._param_symbol(param),
+                        kind="lambda_param",
+                        owned_storage=False,
+                    ),
+                )
                 declared_params.add(param.name)
         if expr.return_type:
             expr.return_type = self._upgrade_class_type(expr.return_type)
@@ -75,7 +96,11 @@ class LambdaAnalysisMixin:
             self.current_return_type = None
         if isinstance(expr.body, LambdaBlock):
             self._analyze_root_block(expr.body.body)
-            if expr.return_type and expr.return_type.base != "void" and not self._block_must_terminate(expr.body.body):
+            if (
+                expr.return_type
+                and not self._is_nonpointer_void_object(expr.return_type)
+                and not self._block_must_terminate(expr.body.body)
+            ):
                 self._error(
                     "Non-void lambda does not return a value on every path",
                     expr.line,
@@ -131,6 +156,21 @@ class LambdaAnalysisMixin:
         for outer_symbols, captures in self._lambda_contexts:
             if outer_symbols.get(expression.name) is symbol:
                 captures[expression.name] = symbol.type
+        current_outer, _current_captures = self._lambda_contexts[-1]
+        if current_outer.get(expression.name) is symbol:
+            # A capture is copied into the lifted function's environment.  It
+            # therefore borrows the outer value even when the source binding
+            # owns that value.  Install a lexical proxy after recording the
+            # original symbol identity so mutation/ownership validation sees
+            # the representation that code generation actually uses.
+            self.scope.define(
+                expression.name,
+                dataclasses.replace(
+                    symbol,
+                    kind="capture",
+                    owned_storage=False,
+                ),
+            )
 
     def _record_lambda_self(self, expression):
         if not self._lambda_contexts:
@@ -141,6 +181,16 @@ class LambdaAnalysisMixin:
         for outer_symbols, captures in self._lambda_contexts:
             if outer_symbols.get("self") is symbol:
                 captures["self"] = symbol.type
+        current_outer, _current_captures = self._lambda_contexts[-1]
+        if current_outer.get("self") is symbol:
+            self.scope.define(
+                "self",
+                dataclasses.replace(
+                    symbol,
+                    kind="capture",
+                    owned_storage=False,
+                ),
+            )
 
     def _infer_spawn_return_type(self, fn_expr) -> TypeExpr:
         """Infer the return type of a spawned callable (usually a lambda)."""

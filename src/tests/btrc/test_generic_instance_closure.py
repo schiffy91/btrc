@@ -144,6 +144,30 @@ def test_generic_method_tuple_and_complex_callee_run_with_parity(
     _strict_build_and_run(reference_source, tmp_path / "python-generic-tuple")
 
 
+def test_generic_method_return_infers_from_inline_lambda_with_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    fixture = FIXTURES / "generic_method_inline_lambda_runtime.btrc"
+    selfhost, selfhost_source = _compile_source(
+        semantic_btrcc,
+        tmp_path,
+        fixture.read_text(),
+    )
+    reference, reference_source = _compile_reference(tmp_path, fixture)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(
+        selfhost_source,
+        tmp_path / "selfhost-generic-inline-lambda",
+    )
+    _strict_build_and_run(
+        reference_source,
+        tmp_path / "python-generic-inline-lambda",
+    )
+
+
 @pytest.mark.parametrize(
     "fixture_name, diagnostic",
     [

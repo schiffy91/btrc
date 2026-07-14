@@ -17,10 +17,12 @@ Node? semanticInferType(Node? expression, SemanticValidationState state,
 
 bool semanticAliasTypesSame(Node? left, Node? right,
         SemanticValidationState state) {
-    left = semanticResolveAliases(left, state);
-    right = semanticResolveAliases(right, state);
-    if (left == null || right == null) { return left == null && right == null; }
-    return typeShapeKey(left) == typeShapeKey(right);
+    Node? resolvedLeft = semanticResolveAliases(left, state);
+    Node? resolvedRight = semanticResolveAliases(right, state);
+    if (resolvedLeft == null || resolvedRight == null) {
+        return resolvedLeft == null && resolvedRight == null;
+    }
+    return typeShapeKey(resolvedLeft) == typeShapeKey(resolvedRight);
 }
 
 void semanticValidateTypedefs(Node program, SemanticValidationState state) {

@@ -30,13 +30,23 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
         if flattened is not None:
             return flattened
     if node.op not in {"??", "&&", "||"}:
+        from .operator_ownership import operator_rhs_keep
         from .ownership_boundary import sequence_owned_operands
+
+        left_type = gen.analyzed.node_types.get(id(node.left))
+        right_type = gen.analyzed.node_types.get(id(node.right))
+        keep_nodes = (
+            [node.right]
+            if operator_rhs_keep(gen, left_type, node.op, right_type)
+            else []
+        )
 
         sequenced = sequence_owned_operands(
             gen,
             [node.left, node.right],
             build=lambda: _lower_binary_plain(gen, node),
             result_type=gen.analyzed.node_types.get(id(node)),
+            keep_nodes=keep_nodes,
         )
         if sequenced is not None:
             return sequenced
