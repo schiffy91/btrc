@@ -30,10 +30,7 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
         if flattened is not None:
             return flattened
     if node.op not in {"??", "&&", "||"}:
-        from .evaluation_order import (
-            has_observable_effect,
-            operator_boundary_types,
-        )
+        from .evaluation_order import operands_require_order
         from .operator_ownership import operator_rhs_keep
         from .ownership_boundary import sequence_owned_operands
 
@@ -53,13 +50,9 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
             result_type=gen.analyzed.node_types.get(id(node)),
             keep_nodes=keep_nodes,
             pin_nodes=pin_nodes,
-            force=(has_observable_effect(gen, node.left) or has_observable_effect(gen, node.right)),
-            operand_types=operator_boundary_types(
-                gen,
-                node.left,
-                node.right,
-                node.op,
-            ),
+            force=operands_require_order(gen, [node.left, node.right]),
+            allow_trailing_opaque=True,
+            opaque_context=f"operator '{node.op}'",
         )
         if sequenced is not None:
             return sequenced

@@ -235,6 +235,10 @@ bool ownershipExpressionHasEffect(IRGen generator, Node? expression,
         Map<string, Node> varTypes) {
     if (expression == null) { return false; }
     int kind = expression.kind;
+    if (kind == NK_IDENTIFIER) {
+        return generator.resolvedExpressionType(
+            expression, varTypes) == null;
+    }
     if (kind == NK_ASSIGN_EXPR || kind == NK_CALL_EXPR
             || kind == NK_NEW_EXPR || kind == NK_SPAWN_EXPR
             || kind == NK_F_STRING_LITERAL || kind == NK_LIST_LITERAL
@@ -292,6 +296,29 @@ bool ownershipExpressionHasEffect(IRGen generator, Node? expression,
                     receiverType, "get", generator.analyzed));
     }
     return false;
+}
+
+bool ownershipExpressionReorderInert(IRGen generator,
+        Node expression) {
+    int kind = expression.kind;
+    if (kind == NK_INT_LITERAL || kind == NK_FLOAT_LITERAL
+            || kind == NK_STRING_LITERAL || kind == NK_CHAR_LITERAL
+            || kind == NK_BOOL_LITERAL || kind == NK_NULL_LITERAL) {
+        return true;
+    }
+    if (kind == NK_CAST_EXPR) {
+        return ownershipExpressionReorderInert(
+            generator, expression.expr);
+    }
+    if (kind == NK_SIZEOF_EXPR) { return true; }
+    if (kind == NK_UNARY_EXPR && (expression.op == "+"
+            || expression.op == "-" || expression.op == "!"
+            || expression.op == "~")) {
+        return ownershipExpressionReorderInert(
+            generator, expression.operand);
+    }
+    return kind == NK_IDENTIFIER
+        && generator.analyzed.isEnumValue(expression.name);
 }
 
 IRNode lowerOwnedFieldAccess(IRGen generator, Node expression,
@@ -366,10 +393,6 @@ IRNode lowerOwnedBinary(IRGen generator, Node expression,
         expression.left, varTypes);
     Node? rightType = generator.resolvedExpressionType(
         expression.right, varTypes);
-    Node? leftBoundaryType = operatorBoundaryOperandType(
-        generator, expression.op, leftType, rightType, true);
-    Node? rightBoundaryType = operatorBoundaryOperandType(
-        generator, expression.op, rightType, leftType, false);
     Node? overload = ownershipBinaryMethod(
         generator, leftType, expression.op);
     bool leftPinned = !leftOwned && overload != null
@@ -380,24 +403,30 @@ IRNode lowerOwnedBinary(IRGen generator, Node expression,
             generator, leftType, expression.op);
     bool lifetimeRequired = leftOwned || rightOwned
         || leftPinned || rightKeep;
-    bool orderingRequired = ownershipExpressionHasEffect(
-            generator, expression.left, varTypes)
-        || ownershipExpressionHasEffect(
-            generator, expression.right, varTypes);
+    bool leftEffect = ownershipExpressionHasEffect(
+        generator, expression.left, varTypes);
+    bool rightEffect = ownershipExpressionHasEffect(
+        generator, expression.right, varTypes);
+    bool orderingRequired = (leftEffect
+            && !ownershipExpressionReorderInert(
+                generator, expression.right))
+        || (rightEffect && !ownershipExpressionReorderInert(
+                generator, expression.left));
     if (!lifetimeRequired && !orderingRequired) {
         return generator.lowerBinaryCore(expression, varTypes);
     }
-    if ((leftBoundaryType == null || rightBoundaryType == null)
-            && !lifetimeRequired) {
-        return generator.lowerBinaryCore(expression, varTypes);
+    if (leftType == null) {
+        opaqueOperandOrderFail(expression.left,
+            "operator '" + expression.op + "'", false);
     }
-    ownershipRequireType(leftBoundaryType, expression.left);
-    ownershipRequireType(rightBoundaryType, expression.right);
+    ownershipRequireType(leftType, expression.left);
     OwnershipBoundary boundary = OwnershipBoundary();
     boundary.addOperand(generator, expression.left,
-        leftBoundaryType, leftOwned, leftPinned, varTypes);
-    boundary.addOperand(generator, expression.right,
-        rightBoundaryType, rightOwned, rightKeep, varTypes);
+        leftType, leftOwned, leftPinned, varTypes);
+    if (rightType != null) {
+        boundary.addOperand(generator, expression.right,
+            rightType, rightOwned, rightKeep, varTypes);
+    }
     IRNode lowered = generator.lowerBinaryCore(expression, varTypes);
     boundary.restore(generator);
     return boundary.finish(generator, lowered,

@@ -18,13 +18,13 @@ class TerminalClock {
         }
         long long milliseconds = (long long)now.tv_sec * 1000LL;
         long long fraction = (long long)now.tv_nsec / 1000000LL;
-        return milliseconds > LLONG_MAX - fraction
+        return milliseconds > (long long)LLONG_MAX - fraction
             ? LLONG_MAX : milliseconds + fraction;
     }
 
     class long long deadlineAfter(int milliseconds) {
         long long now = TerminalClock.milliseconds();
         long long duration = milliseconds > 0 ? (long long)milliseconds : 0LL;
-        return now > LLONG_MAX - duration ? LLONG_MAX : now + duration;
+        return now > (long long)LLONG_MAX - duration ? LLONG_MAX : now + duration;
     }
 }

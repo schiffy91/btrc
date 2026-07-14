@@ -18,7 +18,8 @@ def sequence_owned_operands(
     keep_nodes=(),
     pin_nodes=(),
     force: bool = False,
-    operand_types=None,
+    allow_trailing_opaque: bool = False,
+    opaque_context: str = "expression",
 ):
     """Evaluate eager source operands once and stabilize managed values.
 
@@ -29,8 +30,8 @@ def sequence_owned_operands(
     keep_ids = {id(node) for node in keep_nodes}
     pin_ids = {id(node) for node in pin_nodes}
     lifetime_required = False
-    for index, node in enumerate(nodes):
-        type_expr = operand_types[index] if operand_types is not None else gen.analyzed.node_types.get(id(node))
+    for node in nodes:
+        type_expr = gen.analyzed.node_types.get(id(node))
         # An enclosing boundary owns and will consume an installed override.
         # Nested field/index/lvalue lowering must treat that stabilized slot as
         # borrowed or it would wrap an assignable projection in a non-lvalue
@@ -43,7 +44,20 @@ def sequence_owned_operands(
     needs_boundary = force or lifetime_required
     if not needs_boundary:
         return None
-    if any(type_expr is None for _node, type_expr, _owned, _keep, _pin in specs):
+    missing = [index for index, spec in enumerate(specs) if spec[1] is None]
+    if missing and allow_trailing_opaque:
+        trailing = len(specs) - 1
+        if missing == [trailing] and trailing > 0:
+            node, _type_expr, owned, keep, pin = specs.pop()
+            if owned or keep or pin:
+                from .evaluation_order import reject_opaque_ordering
+
+                reject_opaque_ordering(node, opaque_context)
+        else:
+            from .evaluation_order import reject_opaque_ordering
+
+            reject_opaque_ordering(specs[missing[0]][0], opaque_context)
+    elif missing:
         if not lifetime_required:
             return None
         from .errors import CodegenError

@@ -9,7 +9,8 @@ import std.daemon_control_files;
 
 class DaemonControlProtocol {
     class string randomToken() {
-        int descriptor = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+        int descriptor = open(
+            "/dev/urandom", (int)O_RDONLY | (int)O_CLOEXEC);
         if (descriptor < 0) { return ""; }
         unsigned char bytes[16];
         int offset = 0;

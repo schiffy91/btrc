@@ -83,7 +83,7 @@ def plan_call_operands(
 ):
     """Describe one call's source-order operands and lifetime guards."""
     from .arguments import bind_arg_nodes_to_params
-    from .evaluation_order import has_observable_effect, operand_c_type
+    from .evaluation_order import has_observable_effect, operand_c_type, operands_require_order
     from .managed_values import is_managed_type
 
     specs = []
@@ -109,8 +109,10 @@ def plan_call_operands(
     )
     effects = [has_observable_effect(gen, argument) for argument, _type_expr, _keep, _owned, _transferred in specs]
     ownership_required = any(keep or owned for _argument, _type_expr, keep, owned, _transferred in specs)
-    types_complete = all(type_expr is not None for _argument, type_expr, *_rest in specs)
-    ordered = force_order and len(specs) > 1 and types_complete and any(effects)
+    ordered = force_order and operands_require_order(
+        gen,
+        [argument for argument, _type_expr, _keep, _owned, _transferred in specs],
+    )
     needs_boundary = ownership_required or ordered
     if not needs_boundary:
         return [], False
@@ -119,7 +121,9 @@ def plan_call_operands(
     final_index = len(specs) - 1
     for index, (argument, type_expr, keep, owned, transferred) in enumerate(specs):
         if type_expr is None:
-            _missing_operand_type()
+            if index == final_index and index > 0 and not (keep or owned):
+                continue
+            _missing_operand_type(argument)
         pin = bool(index < final_index and any(effects[index + 1 :]) and is_managed_type(gen, type_expr) and not owned)
         operands.append(
             CallOperand(
@@ -204,10 +208,14 @@ def _lowerer(gen):
     return lambda node: lower_expr(gen, node)
 
 
-def _missing_operand_type():
-    from .errors import CodegenError
+def _missing_operand_type(argument):
+    from .evaluation_order import reject_opaque_ordering
 
-    raise CodegenError("managed call sequencing requires a concrete analyzed operand type")
+    reject_opaque_ordering(
+        argument,
+        "call arguments",
+        typed_declaration=True,
+    )
 
 
 def _release_stmt(gen, target, argument_type):

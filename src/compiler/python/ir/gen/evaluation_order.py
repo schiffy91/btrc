@@ -5,17 +5,25 @@ from __future__ import annotations
 from ...ast_nodes import (
     AssignExpr,
     BinaryExpr,
+    BoolLiteral,
     BraceInitializer,
     CallExpr,
     CastExpr,
+    CharLiteral,
     FieldAccessExpr,
+    FloatLiteral,
     FStringLiteral,
+    Identifier,
     IndexExpr,
+    IntLiteral,
     LambdaExpr,
     ListLiteral,
     MapLiteral,
     NewExpr,
+    NullLiteral,
+    SizeofExpr,
     SpawnExpr,
+    StringLiteral,
     TernaryExpr,
     TupleLiteral,
     UnaryExpr,
@@ -26,6 +34,10 @@ def has_observable_effect(gen, node, *, type_of=None) -> bool:
     """Whether evaluating ``node`` can change a later operand's value."""
     if node is None:
         return False
+    if isinstance(node, Identifier):
+        if _enum_constant_identifier(gen, node):
+            return False
+        return (type_of or _analyzed_type(gen))(node) is None
     if isinstance(
         node,
         (
@@ -93,6 +105,44 @@ def has_observable_effect(gen, node, *, type_of=None) -> bool:
     return False
 
 
+def reorder_inert(gen, node) -> bool:
+    """Whether evaluating ``node`` cannot observe or change sibling state."""
+    if isinstance(
+        node,
+        (
+            BoolLiteral,
+            CharLiteral,
+            FloatLiteral,
+            IntLiteral,
+            NullLiteral,
+            StringLiteral,
+        ),
+    ):
+        return True
+    if isinstance(node, Identifier):
+        return _enum_constant_identifier(gen, node)
+    if isinstance(node, CastExpr):
+        return reorder_inert(gen, node.expr)
+    if isinstance(node, SizeofExpr):
+        return True
+    if isinstance(node, UnaryExpr) and node.op in {"+", "-", "!", "~"}:
+        return reorder_inert(gen, node.operand)
+    return False
+
+
+def operands_require_order(gen, nodes) -> bool:
+    """Whether unspecified C operand order can change source semantics."""
+    effects = [has_observable_effect(gen, node) for node in nodes]
+    for left_index, left in enumerate(nodes):
+        for right_index in range(left_index + 1, len(nodes)):
+            right = nodes[right_index]
+            if effects[left_index] and not reorder_inert(gen, right):
+                return True
+            if effects[right_index] and not reorder_inert(gen, left):
+                return True
+    return False
+
+
 def _analyzed_type(gen):
     return lambda node: gen.analyzed.node_types.get(id(node))
 
@@ -101,6 +151,11 @@ def _canonical_receiver_type(gen, type_expr):
     from .type_resolution import canonical_type
 
     return canonical_type(type_expr, gen.analyzed.typedef_table)
+
+
+def _enum_constant_identifier(gen, node) -> bool:
+    enum_table = getattr(gen.analyzed, "enum_table", {})
+    return any(node.name in values for values in enum_table.values())
 
 
 def operand_c_type(gen, node, type_expr, *, render):
@@ -113,77 +168,20 @@ def operand_c_type(gen, node, type_expr, *, render):
     return render(type_expr)
 
 
-def operator_boundary_types(gen, left, right, operator: str):
-    """Choose storage types for eager built-in operator sequencing.
+def reject_opaque_ordering(node, context: str, *, typed_declaration: bool = False) -> None:
+    """Reject an opaque C value that cannot be sequenced without guessing its type."""
+    from .errors import CodegenError
 
-    C macros and opaque imported values deliberately have no semantic btrc
-    type.  A compatible concrete peer still supplies the value shape needed to
-    evaluate that opaque operand once without falling back to C's implicit
-    ``int``. Pointer offsets use ``ptrdiff_t``, the only standard integer type
-    guaranteed to represent every defined same-array pointer displacement.
-    The typed operator itself continues to see the operand as unresolved,
-    leaving final compatibility checking to the C compiler.
-    """
-    left_type = gen.analyzed.node_types.get(id(left))
-    right_type = gen.analyzed.node_types.get(id(right))
-    return (
-        _operator_boundary_type(
-            gen,
-            operator,
-            left_type,
-            right_type,
-            is_left=True,
-        ),
-        _operator_boundary_type(
-            gen,
-            operator,
-            right_type,
-            left_type,
-            is_left=False,
-        ),
-    )
-
-
-def _operator_boundary_type(gen, operator, inferred, peer, *, is_left):
-    if inferred is not None or peer is None:
-        return inferred
-    if operator in {"==", "!=", "<", ">", "<=", ">="}:
-        return peer
-
-    from ...ast_nodes import TypeExpr
-    from ...numeric_semantics import is_floating_type, is_numeric_type
-
-    enum_names = frozenset(gen.analyzed.enum_table)
-    peer_is_numeric = is_numeric_type(peer, enum_names)
-    peer_is_integral = peer_is_numeric and not is_floating_type(peer)
-    if operator in {"*", "/", "%"} and peer_is_numeric:
-        return peer
-    if operator in {"&", "|", "^"} and peer_is_integral:
-        return peer
-    if operator in {"<<", ">>"}:
-        return peer if not is_left and peer_is_integral else None
-    if operator in {"+", "-"} and peer_is_numeric:
-        return peer
-    if not _raw_pointer_type(gen, peer):
-        return None
-    if operator == "+":
-        return TypeExpr(base="ptrdiff_t")
-    if operator == "-":
-        return peer if is_left else TypeExpr(base="ptrdiff_t")
-    return None
-
-
-def _raw_pointer_type(gen, type_expr) -> bool:
-    return bool(
-        type_expr
-        and (type_expr.pointer_depth > 0 or type_expr.is_array)
-        and type_expr.base not in gen.analyzed.class_table
-        and type_expr.base not in getattr(gen.analyzed, "interface_table", {})
-    )
+    remedy = "cast it explicitly"
+    if typed_declaration:
+        remedy += " or provide a typed declaration"
+    raise CodegenError(f"opaque C operand at {node.line}:{node.col} precedes an ordered sibling in {context}; {remedy}")
 
 
 __all__ = [
     "has_observable_effect",
     "operand_c_type",
-    "operator_boundary_types",
+    "operands_require_order",
+    "reject_opaque_ordering",
+    "reorder_inert",
 ]

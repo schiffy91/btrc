@@ -66,7 +66,7 @@ IntegerLiteralInfo parseIntegerLiteralInfo(string raw) {
         }
         unsigned long long wideDigit = (unsigned long long)digit;
         unsigned long long wideRadix = (unsigned long long)radix;
-        if (magnitude > (ULLONG_MAX - wideDigit) / wideRadix) {
+        if (magnitude > ((unsigned long long)ULLONG_MAX - wideDigit) / wideRadix) {
             return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
         }
         magnitude = magnitude * wideRadix + wideDigit;

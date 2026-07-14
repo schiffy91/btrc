@@ -300,7 +300,7 @@ class ChildProcessClock {
         }
         long long milliseconds = (long long)seconds * 1000LL;
         long long fraction = (long long)nanoseconds / 1000000LL;
-        return milliseconds > LLONG_MAX - fraction
+        return milliseconds > (long long)LLONG_MAX - fraction
             ? LLONG_MAX : milliseconds + fraction;
     }
 
@@ -317,7 +317,7 @@ class ChildProcessClock {
     class long long deadline(long long now, int timeoutMilliseconds) {
         if (now < 0LL || timeoutMilliseconds < 0) { return -1LL; }
         long long duration = (long long)timeoutMilliseconds;
-        return duration > LLONG_MAX - now
+        return duration > (long long)LLONG_MAX - now
             ? LLONG_MAX : now + duration;
     }
 }
@@ -651,7 +651,8 @@ class ChildProcess {
         int nullDescriptor = -1;
         if (stdout.equals(CommandOutput.suppress())
                 || stderr.equals(CommandOutput.suppress())) {
-            nullDescriptor = open("/dev/null", O_WRONLY | O_CLOEXEC);
+            nullDescriptor = open(
+                "/dev/null", (int)O_WRONLY | (int)O_CLOEXEC);
         }
         if ((stdout.equals(CommandOutput.suppress())
                 || stderr.equals(CommandOutput.suppress()))
@@ -669,7 +670,7 @@ class ChildProcess {
             input = tmpfile();
             if (input != NULL) {
                 size_t inputLength = strlen(stdinData);
-                if (fwrite(stdinData, 1, inputLength, input) != inputLength
+                if ((size_t)fwrite(stdinData, 1, inputLength, input) != inputLength
                         || fflush(input) != 0) {
                     fclose(input);
                     input = NULL;

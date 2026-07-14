@@ -17,7 +17,7 @@ class DaemonControlFiles {
         struct stat status;
         if (lstat(path, &status) != 0 || !S_ISDIR(status.st_mode)
                 || S_ISLNK(status.st_mode)
-                || status.st_uid != geteuid()
+                || (uid_t)status.st_uid != geteuid()
                 || (status.st_mode & (mode_t)0777) != (mode_t)0700) {
             return false;
         }
@@ -36,7 +36,7 @@ class DaemonControlFiles {
         struct stat status;
         if (lstat(path, &status) != 0 || !S_ISDIR(status.st_mode)
                 || S_ISLNK(status.st_mode)
-                || status.st_uid != geteuid()
+                || (uid_t)status.st_uid != geteuid()
                 || (status.st_mode & (mode_t)0022) != (mode_t)0) {
             return false;
         }
@@ -105,7 +105,7 @@ class DaemonControlFiles {
                 || lstat(path, &inspected) != 0
                 || !S_ISREG(inspected.st_mode)
                 || S_ISLNK(inspected.st_mode)
-                || inspected.st_uid != geteuid()
+                || (uid_t)inspected.st_uid != geteuid()
                 || inspected.st_nlink != (nlink_t)1
                 || (inspected.st_mode & (mode_t)0777) != (mode_t)0600) {
             return false;
@@ -121,7 +121,8 @@ class DaemonControlFiles {
                 || inspected.st_size > (off_t)128) {
             return "";
         }
-        int descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+        int descriptor = open(path,
+            (int)O_RDONLY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
         if (descriptor < 0) { return ""; }
         struct stat opened;
         if (fstat(descriptor, &opened) != 0
@@ -161,7 +162,8 @@ class DaemonControlFiles {
             return false;
         }
         int descriptor = open(path,
-            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            (int)O_WRONLY | (int)O_CREAT | (int)O_EXCL
+                | (int)O_NOFOLLOW | (int)O_CLOEXEC,
             (mode_t)0600);
         if (descriptor < 0) { return false; }
         size_t length = strlen(content);
@@ -200,13 +202,14 @@ class DaemonControlFiles {
     class bool prepareLog(string path) {
         if (!DaemonControlFiles.secureParent(path)) { return false; }
         int descriptor = open(path,
-            O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+            (int)O_WRONLY | (int)O_APPEND | (int)O_CREAT
+                | (int)O_NOFOLLOW | (int)O_CLOEXEC,
             (mode_t)0600);
         if (descriptor < 0) { return false; }
         struct stat status;
         bool safe = fstat(descriptor, &status) == 0
             && S_ISREG(status.st_mode)
-            && status.st_uid == geteuid()
+            && (uid_t)status.st_uid == geteuid()
             && status.st_nlink == (nlink_t)1
             && (status.st_mode & (mode_t)0777) == (mode_t)0600;
         bool closed = close(descriptor) == 0;

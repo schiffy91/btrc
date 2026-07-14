@@ -171,7 +171,8 @@ class UnixFileSystem {
         }
 
         int descriptor = openat(parentDescriptor, name,
-            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            (int)O_RDONLY | (int)O_DIRECTORY
+                | (int)O_NOFOLLOW | (int)O_CLOEXEC);
         if (descriptor < 0) { return -1; }
         struct stat opened;
         struct stat root;
@@ -221,7 +222,8 @@ class UnixFileSystem {
         if (path == null || path.isEmpty()) { return -1; }
         bool absolute = path[0] == '/';
         int descriptor = open(absolute ? "/" : ".",
-            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            (int)O_RDONLY | (int)O_DIRECTORY
+                | (int)O_NOFOLLOW | (int)O_CLOEXEC);
         if (descriptor < 0) { return -1; }
         Vector<string> components = Strings.split(path, "/");
         for component in components {
@@ -233,7 +235,8 @@ class UnixFileSystem {
                 return -1;
             }
             int next = openat(descriptor, component,
-                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+                (int)O_RDONLY | (int)O_DIRECTORY
+                    | (int)O_NOFOLLOW | (int)O_CLOEXEC);
             close(descriptor);
             if (next < 0) { return -1; }
             descriptor = next;

@@ -170,7 +170,7 @@ class Timer {
             throw "monotonic clock returned an invalid nanosecond value";
         }
         long long nanoseconds = (long long)seconds * 1000000000LL;
-        if (nanoseconds > LLONG_MAX - (long long)ts.tv_nsec) {
+        if (nanoseconds > (long long)LLONG_MAX - (long long)ts.tv_nsec) {
             throw "monotonic clock is outside Timer's supported range";
         }
         return nanoseconds + (long long)ts.tv_nsec;

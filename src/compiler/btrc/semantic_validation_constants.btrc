@@ -104,25 +104,25 @@ bool semanticConstantMultiplyOverflows(long long left, long long right) {
     if (left == -1) { return right == LLONG_MIN; }
     if (right == -1) { return left == LLONG_MIN; }
     if (left > 0) {
-        if (right > 0) { return left > LLONG_MAX / right; }
-        return right < LLONG_MIN / left;
+        if (right > 0) { return left > (long long)LLONG_MAX / right; }
+        return right < (long long)LLONG_MIN / left;
     }
-    if (right > 0) { return left < LLONG_MIN / right; }
-    return left < LLONG_MAX / right;
+    if (right > 0) { return left < (long long)LLONG_MIN / right; }
+    return left < (long long)LLONG_MAX / right;
 }
 
 SemanticIntegerConstant semanticApplyConstantBinary(
         string op, long long left, long long right) {
     if (op == "+") {
-        if ((right > 0 && left > LLONG_MAX - right)
-                || (right < 0 && left < LLONG_MIN - right)) {
+        if ((right > 0 && left > (long long)LLONG_MAX - right)
+                || (right < 0 && left < (long long)LLONG_MIN - right)) {
             return semanticInvalidConstant();
         }
         return semanticKnownConstant(left + right);
     }
     if (op == "-") {
-        if ((right > 0 && left < LLONG_MIN + right)
-                || (right < 0 && left > LLONG_MAX + right)) {
+        if ((right > 0 && left < (long long)LLONG_MIN + right)
+                || (right < 0 && left > (long long)LLONG_MAX + right)) {
             return semanticInvalidConstant();
         }
         return semanticKnownConstant(left - right);
@@ -146,7 +146,7 @@ SemanticIntegerConstant semanticApplyConstantBinary(
         }
         if (op == "<<") {
             if (left < 0 || (right > 0
-                    && left > (LLONG_MAX >> (int)right))) {
+                    && left > ((long long)LLONG_MAX >> (int)right))) {
                 return semanticInvalidConstant();
             }
             return semanticKnownConstant(left << (int)right);

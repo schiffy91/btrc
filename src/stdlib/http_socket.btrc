@@ -54,7 +54,7 @@ class HttpSocket {
         }
         long long milliseconds = (long long)now.tv_sec * 1000LL;
         long long fraction = (long long)now.tv_nsec / 1000000LL;
-        return milliseconds > LLONG_MAX - fraction
+        return milliseconds > (long long)LLONG_MAX - fraction
             ? LLONG_MAX : milliseconds + fraction;
     }
 
@@ -63,7 +63,7 @@ class HttpSocket {
         if (bounded > 86400) { bounded = 86400; }
         long long now = HttpSocket.nowMilliseconds();
         long long duration = (long long)bounded * 1000LL;
-        return now > LLONG_MAX - duration ? LLONG_MAX : now + duration;
+        return now > (long long)LLONG_MAX - duration ? LLONG_MAX : now + duration;
     }
 
     class bool waitFor(int descriptor, short events, long long deadline) {
@@ -79,7 +79,7 @@ class HttpSocket {
                 ? INT_MAX : (int)remaining;
             int ready = poll(&pending, 1, waitMillis);
             if (ready < 0 && errno == EINTR) { continue; }
-            return ready > 0 && (pending.revents & events) != 0;
+            return ready > 0 && ((int)pending.revents & events) != 0;
         }
         return false;
     }
