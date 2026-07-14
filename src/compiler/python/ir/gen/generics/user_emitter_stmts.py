@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from ...nodes import (
     CType,
-    IRAssign,
     IRBlock,
     IRBreak,
-    IRCall,
     IRContinue,
     IRExpr,
     IRExprStmt,
-    IRLiteral,
     IRStmt,
     IRVar,
     IRVarDecl,
@@ -134,29 +131,30 @@ class _UserGenericStmtMixin(
 
     def _delete_stmt(self, s) -> list[IRStmt]:
         from ..managed_local import mark_borrowed_cycle_seeds
+        from ..manual_destruction import lower_taken_delete
+        from ..persistent_slots import stabilize_persistent_slot
 
         mark_borrowed_cycle_seeds(self._managed_vars_stack)
-        expr = self._expr(s.expr)
+        target = self._expr(s.expr)
         resolved = self._resolve_expr_type(s.expr)
-        destroy_fn = self._class_destroy_fn(resolved)
-        if destroy_fn:
-            from ..arc_ops import arc_type_descriptor
-
-            self._gen.use_helper("__btrc_arc_destroy")
-            destroy = IRCall(
-                callee="__btrc_arc_destroy",
-                helper_ref="__btrc_arc_destroy",
-                args=[expr, arc_type_descriptor(self._gen, resolved)],
-            )
-        elif self._is_string_type(resolved):
-            from ..managed_values import release_value
-
-            destroy = release_value(self._gen, expr, resolved)
-        else:
-            destroy = IRCall(callee="free", args=[expr])
+        target, edge_owner, owner_decls = stabilize_persistent_slot(
+            self._gen,
+            s.expr,
+            target,
+            resolve_type=self._resolve_expr_type,
+            render_type=self.iter_value_c,
+            fresh_temp=self._fresh_temp,
+            record_decl=self._func_var_decls.append,
+            prefix="__btrc_delete_owner",
+        )
         return [
-            IRExprStmt(expr=destroy),
-            IRAssign(target=expr, value=IRLiteral(text="NULL")),
+            *owner_decls,
+            *lower_taken_delete(
+                self._gen,
+                target,
+                resolved,
+                edge_owner=edge_owner,
+            ),
         ]
 
     def _var_decl(self, s) -> list[IRStmt]:

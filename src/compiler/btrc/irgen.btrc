@@ -3783,20 +3783,6 @@ class IRGen {
         return irBlock(statements);
     }
 
-    /* A terminal destroy() nulls the slot.  Preserve lexical ownership so a
-     * later assignment is still released at scope exit; cleanup(NULL) is safe. */
-    public string endManualDestroyLifetime(Node? expr) {
-        if (expr == null || expr.kind != NK_CALL_EXPR) { return ""; }
-        Node callee = expr.callee;
-        if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR) { return ""; }
-        if (callee.field != "destroy") { return ""; }
-        Node recv = callee.obj;
-        if (recv != null && recv.kind == NK_IDENTIFIER) {
-            return recv.name;
-        }
-        return "";
-    }
-
     public void lowerStmtInto(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
         if (tryLowerGpuCpuReturn(self, node, varTypes, out)) { return; }
         if (tryLowerGpuStatement(self, node, varTypes, out)) { return; }
@@ -4078,12 +4064,6 @@ class IRGen {
             } else {
                 out.push(irExprStmt(loweredExpression));
             }
-            /* Only terminal destroy() ends auto-management; free() is
-             * content cleanup and leaves the instance alive. */
-            string destroyedLocal = self.endManualDestroyLifetime(e);
-            if (destroyedLocal != "") {
-                out.push(irAssign(irVar(destroyedLocal), irLiteral("NULL")));
-            }
             return;
         }
         if (node.kind == NK_IF_STMT) {
@@ -4362,33 +4342,17 @@ class IRGen {
         lowerOwnedReturn(self, node, varTypes, out);
     }
 
-    /* Lower delete expr -> X_destroy(obj) (or free for non-class), then obj=NULL
-     * (mirrors control_flow._lower_delete). */
+    /* Lower delete through the shared take-clear destruction boundary. */
     public void lowerDelete(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
         Node? ot = inferType(node.expr, self.analyzed, varTypes);
         /* In a generic body the operand type is `T`/`K`/`V`; resolve it so a
          * generic-instance delete dispatches to the right destructor. */
         if (self.inGenericMethod) { ot = resolveGenericType(ot, self.activeTypeMap); }
         IRNode target = self.lowerExpr(node.expr, varTypes);
-        string slotName = self.freshTemp("__btrc_delete_slot");
-        /* Managed locals are volatile when their addresses live in the unwind
-         * stack. Point at the qualified slot so delete remains warning-clean
-         * both inside and outside lexical try blocks. */
-        out.push(irVarDecl(typeToC(ot, self.analyzed) + " volatile*", slotName,
-            irAddressOf(target)));
-        IRNode obj = irDeref(irVar(slotName));
-        Vector<IRNode> dargs = [];
-        dargs.push(obj);
-        IRNode destroy = irExprStmt(irCall("free", dargs));
-        if (irManagedType(self, ot)) {
-            destroy = irExprStmt(irManagedDestroyValue(
-                self, obj, ot));
-        }
-        Vector<IRNode> destroyBody = [];
-        destroyBody.push(destroy);
-        out.push(irIf(irBinOp(obj, "!=", irLiteral("NULL")),
-            irBlock(destroyBody), null));
-        out.push(irAssign(obj, irLiteral("NULL")));
+        ManagedReleaseSlot deleteSlot = stabilizeManagedReleaseSlot(
+            self, node.expr, target, varTypes, out);
+        lowerTakenDelete(self, deleteSlot.target, ot,
+            deleteSlot.owner, deleteSlot.persistent, out);
     }
 
     /* Remove one owned slot, then route the saved value through the shared

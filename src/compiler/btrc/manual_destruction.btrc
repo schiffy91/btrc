@@ -1,0 +1,33 @@
+/* Take-clear lowering for explicit terminal destruction. */
+
+void lowerTakenDelete(IRGen generator, IRNode target, Node typeNode,
+        IRNode edgeOwner, bool persistent,
+        Vector<IRNode> statements) {
+    string valueC = typeToC(typeNode, generator.analyzed);
+    string slotName = generator.freshTemp("__btrc_delete_slot");
+    string valueName = generator.freshTemp("__btrc_delete_value");
+    statements.push(irVarDecl(
+        valueC + " volatile*", slotName, irAddressOf(target)));
+    statements.push(irVarDecl(
+        valueC, valueName, irDeref(irVar(slotName))));
+
+    IRNode slot = irDeref(irVar(slotName));
+    IRNode value = irVar(valueName);
+    if (persistent && irManagedClassType(generator, typeNode)) {
+        statements.push(irExprStmt(irManagedUnlinkEdge(
+            generator, value, typeNode, edgeOwner)));
+    }
+    statements.push(irAssign(slot, irLiteral("NULL")));
+
+    Vector<IRNode> destroyArgs = [];
+    destroyArgs.push(value);
+    IRNode destroy = irCall("free", destroyArgs);
+    if (irManagedType(generator, typeNode)) {
+        destroy = irManagedDestroyValue(generator, value, typeNode);
+    }
+    Vector<IRNode> destroyBody = [];
+    destroyBody.push(irExprStmt(destroy));
+    statements.push(irIf(
+        irBinOp(value, "!=", irLiteral("NULL")),
+        irBlock(destroyBody), null));
+}

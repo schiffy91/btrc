@@ -12,7 +12,6 @@ from ...ast_nodes import (
 from ..nodes import CType, IRCall, IRExprStmt, IRStmt, IRVar, IRVarDecl
 from .arguments_arc import _release_stmt
 from .expressions import lower_expr
-from .manual_lifetimes import end_manual_destroy_lifetime
 from .ownership import owns_result
 from .types import type_to_c
 
@@ -55,9 +54,6 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
     else:
         statements = [IRExprStmt(expr=lowered)]
 
-    lifetime_end = end_manual_destroy_lifetime(gen, node.expr)
-    if lifetime_end is not None:
-        statements.append(lifetime_end)
     return statements
 
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import FieldAccessExpr, IndexExpr
 from ..c_types import qualify_volatile_object
 from ..nodes import (
     CType,
@@ -17,8 +16,6 @@ from ..nodes import (
     IRCall,
     IRDeref,
     IRExprStmt,
-    IRFieldAccess,
-    IRIndex,
     IRLiteral,
     IRStmt,
     IRVar,
@@ -146,56 +143,6 @@ def _emit_control_exit_release(gen: IRGenerator, targets: set[str]) -> list[IRSt
     return _emit_scope_release(gen.get_control_managed_vars(targets), gen, force=True)
 
 
-def _stabilize_release_edge(gen: IRGenerator, node, expr):
-    """Return one addressable target and its exact persistent-edge owner."""
-    from .managed_values import is_class_type
-    from .types import type_to_c
-
-    owner_expr = None
-    owner_node = None
-    shape = ""
-    if isinstance(node, FieldAccessExpr) and isinstance(expr, IRFieldAccess):
-        owner_node = node.obj
-        owner_expr = expr.obj
-        shape = "field"
-    elif (
-        isinstance(node, IndexExpr)
-        and isinstance(node.obj, FieldAccessExpr)
-        and isinstance(expr, IRIndex)
-        and isinstance(expr.obj, IRFieldAccess)
-    ):
-        owner_node = node.obj.obj
-        owner_expr = expr.obj.obj
-        shape = "index"
-    owner_type = gen.analyzed.node_types.get(id(owner_node)) if owner_node is not None else None
-    if owner_expr is None or not shape or not is_class_type(gen, owner_type):
-        return expr, None, []
-
-    declaration = IRVarDecl(
-        c_type=CType(text=type_to_c(owner_type)),
-        name=gen.fresh_temp("__btrc_release_owner"),
-        init=owner_expr,
-    )
-    gen._func_var_decls.append(declaration)
-    owner = IRVar(name=declaration.name)
-    if shape == "field":
-        target = IRFieldAccess(
-            obj=owner,
-            field=expr.field,
-            arrow=expr.arrow,
-        )
-    else:
-        target = IRIndex(
-            obj=IRFieldAccess(
-                obj=owner,
-                field=expr.obj.field,
-                arrow=expr.obj.arrow,
-            ),
-            index=expr.index,
-        )
-    return target, owner, [declaration]
-
-
 def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
     """Lower an explicit typed ownership release and flush boundary."""
     expr = lower_expr(gen, node.expr)
@@ -212,9 +159,15 @@ def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
         replace_edge_value,
         unlink_edge_value,
     )
+    from .persistent_slots import stabilize_persistent_slot
     from .types import type_to_c
 
-    expr, edge_owner, owner_decls = _stabilize_release_edge(gen, node.expr, expr)
+    expr, edge_owner, owner_decls = stabilize_persistent_slot(
+        gen,
+        node.expr,
+        expr,
+        prefix="__btrc_release_owner",
+    )
 
     value_c = type_to_c(expr_type)
     slot_name = gen.fresh_temp("__btrc_release_slot")

@@ -95,6 +95,7 @@
 #include "class_static_fields.btrc"
 #include "arc_metadata.btrc"
 #include "managed_value_lowering.btrc"
+#include "manual_destruction.btrc"
 #include "ownership_classification.btrc"
 #include "ownership_assignment_results.btrc"
 #include "iteration_ownership.btrc"

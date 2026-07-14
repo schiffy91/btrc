@@ -12,21 +12,11 @@ from ...ast_nodes import (
     SwitchStmt,
 )
 from ..nodes import (
-    CType,
-    IRAddressOf,
-    IRAssign,
-    IRBinOp,
     IRBlock,
-    IRCall,
     IRCase,
-    IRDeref,
-    IRExprStmt,
     IRIf,
-    IRLiteral,
     IRStmt,
     IRSwitch,
-    IRVar,
-    IRVarDecl,
 )
 
 if TYPE_CHECKING:
@@ -130,58 +120,29 @@ def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
 
 
 def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
-    """Lower delete expr → destroy or free, then set the slot to null."""
+    """Lower delete through the shared take-clear destruction boundary."""
     from .managed_local import mark_borrowed_cycle_seeds
+    from .manual_destruction import lower_taken_delete
+    from .persistent_slots import stabilize_persistent_slot
 
     mark_borrowed_cycle_seeds(gen._managed_vars_stack)
-    obj = _lower_expr(gen, node.expr)
+    target = _lower_expr(gen, node.expr)
     obj_type = gen.analyzed.node_types.get(id(node.expr))
-    from ..c_types import qualify_volatile_object
-    from .types import type_to_c
-
-    value_c = type_to_c(obj_type)
-    slot_name = gen.fresh_temp("__btrc_delete_slot")
-    value_name = gen.fresh_temp("__btrc_delete_value")
-    slot_decl = IRVarDecl(
-        c_type=CType(text=f"{qualify_volatile_object(value_c, True)}*"),
-        name=slot_name,
-        init=IRAddressOf(expr=obj),
+    target, edge_owner, owner_decls = stabilize_persistent_slot(
+        gen,
+        node.expr,
+        target,
+        prefix="__btrc_delete_owner",
     )
-    value_decl = IRVarDecl(
-        c_type=CType(text=value_c),
-        name=value_name,
-        init=IRDeref(expr=IRVar(name=slot_name)),
-    )
-    gen._func_var_decls.extend((slot_decl, value_decl))
-    slot = IRDeref(expr=IRVar(name=slot_name))
-    value = IRVar(name=value_name)
-    from .managed_values import is_class_type, is_string_type, release_value
-
-    if is_class_type(gen, obj_type):
-        from .arc_ops import arc_type_descriptor
-
-        helper = "__btrc_arc_destroy"
-        gen.use_helper(helper)
-        stmts = [
-            IRExprStmt(
-                expr=IRCall(
-                    callee=helper,
-                    helper_ref=helper,
-                    args=[value, arc_type_descriptor(gen, obj_type)],
-                )
-            )
-        ]
-    elif is_string_type(gen, obj_type):
-        stmts = [IRExprStmt(expr=release_value(gen, value, obj_type))]
-    else:
-        # Non-class: just free
-        stmts = [IRExprStmt(expr=IRCall(callee="free", args=[value]))]
-    destroy = IRIf(
-        condition=IRBinOp(left=value, op="!=", right=IRLiteral(text="NULL")),
-        then_block=IRBlock(stmts=stmts),
-    )
-    # Clear the exact slot evaluated above so side-effectful lvalues run once.
-    return [slot_decl, value_decl, destroy, IRAssign(target=slot, value=IRLiteral(text="NULL"))]
+    return [
+        *owner_decls,
+        *lower_taken_delete(
+            gen,
+            target,
+            obj_type,
+            edge_owner=edge_owner,
+        ),
+    ]
 
 
 def _lower_expr(gen, node):

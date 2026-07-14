@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from ....ast_nodes import FieldAccessExpr, IndexExpr
 from ...c_types import qualify_volatile_object
 from ...nodes import (
     CType,
@@ -10,8 +9,6 @@ from ...nodes import (
     IRAssign,
     IRDeref,
     IRExprStmt,
-    IRFieldAccess,
-    IRIndex,
     IRLiteral,
     IRStmt,
     IRVar,
@@ -34,50 +31,18 @@ class _UserGenericReleaseMixin:
         if not self._is_managed_type(resolved):
             return []
         expr = self._expr(statement.expr)
+        from ..persistent_slots import stabilize_persistent_slot
 
-        edge_owner = None
-        owner_decls = []
-        owner_node = None
-        owner_expr = None
-        shape = ""
-        if isinstance(statement.expr, FieldAccessExpr) and isinstance(expr, IRFieldAccess):
-            owner_node = statement.expr.obj
-            owner_expr = expr.obj
-            shape = "field"
-        elif (
-            isinstance(statement.expr, IndexExpr)
-            and isinstance(statement.expr.obj, FieldAccessExpr)
-            and isinstance(expr, IRIndex)
-            and isinstance(expr.obj, IRFieldAccess)
-        ):
-            owner_node = statement.expr.obj.obj
-            owner_expr = expr.obj.obj
-            shape = "index"
-        owner_type = self._resolve_expr_type(owner_node) if owner_node is not None else None
-        if owner_expr is not None and is_class_type(self._gen, owner_type):
-            owner_decl = IRVarDecl(
-                c_type=CType(text=self.iter_value_c(owner_type)),
-                name=self._fresh_temp("__btrc_release_owner"),
-                init=owner_expr,
-            )
-            self._func_var_decls.append(owner_decl)
-            owner_decls.append(owner_decl)
-            edge_owner = IRVar(name=owner_decl.name)
-            if shape == "field":
-                expr = IRFieldAccess(
-                    obj=edge_owner,
-                    field=expr.field,
-                    arrow=expr.arrow,
-                )
-            else:
-                expr = IRIndex(
-                    obj=IRFieldAccess(
-                        obj=edge_owner,
-                        field=expr.obj.field,
-                        arrow=expr.obj.arrow,
-                    ),
-                    index=expr.index,
-                )
+        expr, edge_owner, owner_decls = stabilize_persistent_slot(
+            self._gen,
+            statement.expr,
+            expr,
+            resolve_type=self._resolve_expr_type,
+            render_type=self.iter_value_c,
+            fresh_temp=self._fresh_temp,
+            record_decl=self._func_var_decls.append,
+            prefix="__btrc_release_owner",
+        )
 
         slot_name = self._fresh_temp("__btrc_release_slot")
         slot_decl = IRVarDecl(
