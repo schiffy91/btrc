@@ -47,6 +47,7 @@ bool cycleRuntimeHasHelper(string name) {
         || name == "__btrc_arc_destroy_edge"
         || name == "__btrc_cycle_collector_state"
         || name == "__btrc_arc_graph_primitives"
+        || name == "__btrc_arc_abandon_callback_state"
         || name == "__btrc_arc_abandon_queue_state"
         || name == "__btrc_arc_abandon_queue_drain"
         || name == "__btrc_arc_abandon_graph"

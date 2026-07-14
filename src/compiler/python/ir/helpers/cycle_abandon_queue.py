@@ -3,13 +3,16 @@
 from .core import HelperDef
 
 ARC_ABANDON_QUEUE_HELPERS = {
-    "__btrc_arc_abandon_queue_state": HelperDef(
+    "__btrc_arc_abandon_callback_state": HelperDef(
         c_source=r"""typedef void (*__btrc_abandon_drain_fn)(void);
-static _Thread_local void** __btrc_abandon_queue = NULL;
-static _Thread_local int __btrc_abandon_count = 0;
-static _Thread_local int __btrc_abandon_cap = 0;
 static _Thread_local __btrc_abandon_drain_fn
     __btrc_abandon_drain_callback = NULL;""",
+    ),
+    "__btrc_arc_abandon_queue_state": HelperDef(
+        c_source=r"""static _Thread_local void** __btrc_abandon_queue = NULL;
+static _Thread_local int __btrc_abandon_count = 0;
+static _Thread_local int __btrc_abandon_cap = 0;""",
+        depends_on=["__btrc_arc_abandon_callback_state"],
     ),
     "__btrc_arc_abandon_queue_drain": HelperDef(
         c_source=r"""static void __btrc_arc_drain_pending_abandons(void) {
@@ -17,7 +20,7 @@ static _Thread_local __btrc_abandon_drain_fn
         __btrc_abandon_drain_callback;
     if (callback) callback();
 }""",
-        depends_on=["__btrc_arc_abandon_queue_state"],
+        depends_on=["__btrc_arc_abandon_callback_state"],
     ),
     "__btrc_arc_abandon": HelperDef(
         c_source=r"""static void __btrc_arc_drain_abandon_queue(void) {

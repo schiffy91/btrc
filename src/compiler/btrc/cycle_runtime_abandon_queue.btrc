@@ -1,13 +1,16 @@
 /* Deferred partial-construction teardown outside active topology scopes. */
 
 string cycleRuntimeAbandonQueueSource(string name) {
-    if (name == "__btrc_arc_abandon_queue_state") {
+    if (name == "__btrc_arc_abandon_callback_state") {
         return "typedef void (*__btrc_abandon_drain_fn)(void);\n"
-            + "static _Thread_local void** __btrc_abandon_queue = NULL;\n"
-            + "static _Thread_local int __btrc_abandon_count = 0;\n"
-            + "static _Thread_local int __btrc_abandon_cap = 0;\n"
             + "static _Thread_local __btrc_abandon_drain_fn\n"
             + "    __btrc_abandon_drain_callback = NULL;"
+            ;
+    }
+    if (name == "__btrc_arc_abandon_queue_state") {
+        return "static _Thread_local void** __btrc_abandon_queue = NULL;\n"
+            + "static _Thread_local int __btrc_abandon_count = 0;\n"
+            + "static _Thread_local int __btrc_abandon_cap = 0;"
             ;
     }
     if (name == "__btrc_arc_abandon_queue_drain") {

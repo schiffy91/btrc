@@ -201,6 +201,14 @@ def test_throw_roots_the_internal_cleanup_guard_stack():
     assert "__btrc_try_capacity" in push_helpers
 
 
+def test_topology_cleanup_drain_omits_unused_abandon_queue_storage():
+    helpers = {declaration.name for declaration in helper_decls_for_roots({"__btrc_arc_topology_cleanup"})}
+
+    assert "__btrc_arc_abandon_queue_drain" in helpers
+    assert "__btrc_arc_abandon_callback_state" in helpers
+    assert "__btrc_arc_abandon_queue_state" not in helpers
+
+
 def test_cleanup_setjmp_is_confined_to_non_inline_guards():
     cleanup_guard = TRYCATCH["__btrc_run_cleanup_guarded"]
     flush_guard = TRYCATCH["__btrc_flush_cycles_guarded"]

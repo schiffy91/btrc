@@ -43,6 +43,7 @@ SHARED_STATE_HELPER_GROUPS = {
             "__btrc_arc_active_unwinds_state",
             "__btrc_arc_snapshot_state",
             "__btrc_arc_snapshot_gate_state",
+            "__btrc_arc_abandon_callback_state",
             "__btrc_arc_abandon_queue_state",
             "__btrc_arc_topology_state",
             "__btrc_arc_topology_depth_state",

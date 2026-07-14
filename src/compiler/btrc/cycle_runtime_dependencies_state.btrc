@@ -96,7 +96,11 @@ Vector<string> cycleRuntimeStateDependencies(string name) {
         return out;
     }
     if (name == "__btrc_arc_abandon_queue_drain") {
-        out.push("__btrc_arc_abandon_queue_state");
+        out.push("__btrc_arc_abandon_callback_state");
+        return out;
+    }
+    if (name == "__btrc_arc_abandon_queue_state") {
+        out.push("__btrc_arc_abandon_callback_state");
         return out;
     }
     if (name == "__btrc_arc_deferred_state") {

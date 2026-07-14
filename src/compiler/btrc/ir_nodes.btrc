@@ -1738,6 +1738,7 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_arc_lock_state");
     order.push("__btrc_arc_snapshot_state");
     order.push("__btrc_arc_snapshot_gate_state");
+    order.push("__btrc_arc_abandon_callback_state");
     order.push("__btrc_arc_abandon_queue_state");
     order.push("__btrc_arc_shutdown_state");
     order.push("__btrc_arc_active_drains_state");
