@@ -54,9 +54,20 @@ int main() {
         "ZQtb2_41p1n0a0q0k1t19_b6_696e74p0n0a0q0k0"));
     assert(mangleGenericSymbol("Holder", identityArgs1(nested))
         != mangleGenericSymbol("Holder", identityArgs1(flat)));
-    assert(mangleGenericSymbol("Holder_A", identityArgs1(scalar))
-        != mangleGenericSymbol("Holder", identityArgs1(
-            identityType("A_int"))));
+    string holderUnderscore = mangleGenericSymbol(
+        "Holder_A", identityArgs1(scalar));
+    string holderNested = mangleGenericSymbol(
+        "Holder", identityArgs1(identityType("A_int")));
+    assert(holderUnderscore != holderNested);
+
+    Node multiword = identityType("unsigned int");
+    Node underscored = identityType("unsigned_int");
+    assert(typeSymbolComponent(multiword).equals(
+        "ZQtb24_756e7369676e656420696e74p0n0a0q0k0"));
+    assert(typeSymbolComponent(underscored).equals(
+        "ZQtb24_756e7369676e65645f696e74p0n0a0q0k0"));
+    assert(typeSymbolComponent(multiword)
+        != typeSymbolComponent(underscored));
 
     Node leftTail = identityType("a");
     Node rightTail = identityType("p1");
