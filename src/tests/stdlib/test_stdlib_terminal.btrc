@@ -96,8 +96,8 @@ int main() {
     assert(UnixPamPassword.responseCountFor((uid_t)0, (uid_t)123) == 2);
     assert(UnixPamPassword.responseCountFor((uid_t)123, (uid_t)123) == 3);
     assert(UnixPamPassword.responseCountFor((uid_t)123, (uid_t)124) == 0);
-    /* Many diagnostic colons still represent one event per read, and no event
-     * can exceed the root/nonroot response budget. */
+    /* The final response budget remains defense in depth after the ordered
+     * classifier, quiet-boundary, and terminal-state checks. */
     assert(UnixPamPassword.maySendResponse(0, 2, true));
     assert(UnixPamPassword.maySendResponse(1, 2, true));
     assert(!UnixPamPassword.maySendResponse(2, 2, true));

@@ -16,7 +16,9 @@
 
 import std.bytes;
 import std.strings;
+import std.terminal_clock;
 import std.terminal_password;
+import std.terminal_password_exchange;
 
 extern pid_t forkpty(int* amaster, char* name, void* termp, void* winp);
 
@@ -39,31 +41,6 @@ class Terminal {
 
     class string promptPassword(string label) {
         return TerminalPasswordInput.prompt(label);
-    }
-}
-
-class TerminalClock {
-    class long long milliseconds() {
-        struct timespec now;
-        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-            return LLONG_MAX;
-        }
-        if (now.tv_sec < (time_t)0 || now.tv_nsec < 0L
-                || now.tv_nsec >= 1000000000L
-                || (uintmax_t)now.tv_sec
-                    > (uintmax_t)(LLONG_MAX / 1000LL)) {
-            return LLONG_MAX;
-        }
-        long long milliseconds = (long long)now.tv_sec * 1000LL;
-        long long fraction = (long long)now.tv_nsec / 1000000LL;
-        return milliseconds > LLONG_MAX - fraction
-            ? LLONG_MAX : milliseconds + fraction;
-    }
-
-    class long long deadlineAfter(int milliseconds) {
-        long long now = TerminalClock.milliseconds();
-        long long duration = milliseconds > 0 ? (long long)milliseconds : 0LL;
-        return now > LLONG_MAX - duration ? LLONG_MAX : now + duration;
     }
 }
 
@@ -142,58 +119,32 @@ class UnixPamPassword {
     /* Return poll revents, zero for a slice/deadline timeout, or -1 on error. */
     class int pollUntil(int fd, short events, long long deadline,
                         int maxWaitMillis) {
-        while (true) {
-            long long now = TerminalClock.milliseconds();
-            if (deadline <= now) { return 0; }
-            long long remaining = deadline - now;
-            int waitMillis = remaining > (long long)INT_MAX
-                ? INT_MAX : (int)remaining;
-            if (maxWaitMillis > 0 && waitMillis > maxWaitMillis) {
-                waitMillis = maxWaitMillis;
-            }
-            struct pollfd pending;
-            pending.fd = fd;
-            pending.events = events;
-            pending.revents = 0;
-            int ready = poll(&pending, 1, waitMillis);
-            if (ready < 0 && errno == EINTR) { continue; }
-            if (ready < 0) { return -1; }
-            return ready == 0 ? 0 : (int)pending.revents;
-        }
-        return -1;
+        return UnixPasswdPromptExchange.pollUntil(
+            fd, events, deadline, maxWaitMillis);
     }
 
     class bool writeBytesUntil(int fd, char* bytes, size_t length,
                                long long deadline) {
-        size_t offset = 0;
-        while (offset < length) {
-            int events = UnixPamPassword.pollUntil(
-                fd, POLLOUT, deadline, INT_MAX);
-            if (events <= 0 || (events & POLLOUT) == 0) { return false; }
-            ssize_t written = write(fd, bytes + offset, length - offset);
-            if (written > (ssize_t)0) {
-                offset += (size_t)written;
-            } else if (written < (ssize_t)0 && errno == EINTR) {
-                continue;
-            } else if (written < (ssize_t)0
-                    && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                continue;
-            } else {
-                return false;
-            }
-        }
-        return true;
+        return UnixPasswdPromptExchange.writeBytesUntil(
+            fd, bytes, length, deadline);
     }
 
     class bool writeResponseUntil(int fd, string value,
                                   long long deadline) {
         if (fd < 0 || !UnixPamPassword.safeSecret(value)) { return false; }
-        if (!UnixPamPassword.writeBytesUntil(
-                fd, (char*)value, strlen(value), deadline)) {
-            return false;
-        }
-        return UnixPamPassword.writeBytesUntil(
-            fd, (char*)"\n", (size_t)1, deadline);
+        return UnixPasswdPromptExchange.writeResponseUntil(
+            fd, value, deadline);
+    }
+
+    class bool passwordInputHidden(int fd) {
+        return UnixPasswdPromptExchange.passwordInputHidden(fd);
+    }
+
+    class bool answerPasswordPrompts(int fd, char** responses,
+                                     int responseCount,
+                                     long long deadline) {
+        return UnixPasswdPromptExchange.answer(
+            fd, responses, responseCount, deadline);
     }
 
     /* Back-compatible standalone helper with the same bounded secret contract. */
@@ -378,49 +329,17 @@ class UnixPamPassword {
         responses[0] = responseCount == 2 ? newPassword : oldPassword;
         responses[1] = newPassword;
         responses[2] = newPassword;
-        int response = 0;
         long long deadline = TerminalClock.deadlineAfter(30000);
-        char buffer[4096];
-        bool failed = false;
-
-        while (TerminalClock.milliseconds() < deadline
-                && response < responseCount) {
-            int ready = UnixPamPassword.pollUntil(
-                fd, POLLIN, deadline, 1000);
-            if (ready < 0) { failed = true; break; }
-            if (ready == 0) { continue; }
-            if ((ready & POLLIN) == 0) { failed = true; break; }
-            ssize_t n = read(fd, buffer, sizeof(buffer));
-            if (n < (ssize_t)0 && errno == EINTR) { continue; }
-            if (n < (ssize_t)0
-                    && (errno == EAGAIN || errno == EWOULDBLOCK)) { continue; }
-            if (n <= (ssize_t)0) { failed = true; break; }
-            bool prompt = false;
-            /* Collapse every colon in this read to one prompt event. Diagnostic
-             * text containing additional colons can consume at most one entry,
-             * and maySendResponse enforces the selected two/three-secret cap. */
-            for (ssize_t i = 0; i < n; i++) {
-                if (buffer[i] == ':') { prompt = true; }
-            }
-            if (UnixPamPassword.maySendResponse(
-                    response, responseCount, prompt)) {
-                if (!UnixPamPassword.writeResponseUntil(
-                        fd, responses[response], deadline)) {
-                    failed = true;
-                    break;
-                }
-                response++;
-            }
-        }
-
-        if (failed || response < responseCount) {
+        bool answered = UnixPamPassword.answerPasswordPrompts(
+            fd, responses, responseCount, deadline);
+        if (!answered) {
             UnixPamPassword.killPtyAndReap(pid);
             close(fd);
             return false;
         }
         int status = UnixPamPassword.waitForPtyExitUntil(pid, fd, deadline);
         close(fd);
-        return !failed && response == responseCount && status >= 0
+        return answered && status >= 0
             && WIFEXITED(status) && WEXITSTATUS(status) == 0;
     }
 }
