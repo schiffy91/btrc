@@ -424,7 +424,7 @@ class ChildProcessExecutable {
         int capacity = 256;
         char* buffer = (char*)malloc((size_t)capacity);
         if (buffer == NULL) { return ""; }
-        while (getcwd(buffer, (size_t)capacity) == NULL) {
+        while ((char*)getcwd(buffer, (size_t)capacity) == NULL) {
             if (errno != ERANGE || capacity > 1073741823) {
                 free(buffer);
                 return "";
