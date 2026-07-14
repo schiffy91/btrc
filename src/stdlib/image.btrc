@@ -261,6 +261,28 @@ class ImageLoad {
     }
 }
 
+class ImageFileRead {
+    public Bytes bytes;
+    public string error;
+
+    public ImageFileRead(Bytes bytes, string error) {
+        self.bytes = bytes == null ? Bytes() : bytes;
+        self.error = error == null ? "unknown image file error" : error;
+    }
+
+    class ImageFileRead success(Bytes bytes) {
+        return ImageFileRead(bytes, "");
+    }
+
+    class ImageFileRead failure(string error) {
+        return ImageFileRead(Bytes(), error);
+    }
+
+    public bool ok() {
+        return self.error.isEmpty();
+    }
+}
+
 class ImageBinary {
     class bool has(Bytes bytes, long long offset, long long count) {
         if (bytes == null || offset < 0 || count < 0) { return false; }
@@ -620,28 +642,42 @@ class ImageIO {
         return encoded;
     }
 
-    class ImageLoad load(string path) {
+    class ImageFileRead readImageFile(string path, string description) {
         File file = File(path, "rb");
-        if (!file.ok()) { return ImageLoad.failure(f"cannot open image: {path}"); }
+        if (!file.ok()) {
+            return ImageFileRead.failure(
+                f"cannot open {description}: {path}");
+        }
         Bytes bytes = file.readBytes();
-        file.close();
-        return ImageIO.decode(bytes);
+        bool readFailed = file.failed();
+        bool closed = file.close();
+        if (readFailed) {
+            return ImageFileRead.failure(
+                f"cannot read {description}: {path}");
+        }
+        if (!closed) {
+            return ImageFileRead.failure(
+                f"cannot close {description}: {path}");
+        }
+        return ImageFileRead.success(bytes);
+    }
+
+    class ImageLoad load(string path) {
+        ImageFileRead loaded = ImageIO.readImageFile(path, "image");
+        if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
+        return ImageIO.decode(loaded.bytes);
     }
 
     class ImageLoad loadPpm(string path) {
-        File file = File(path, "rb");
-        if (!file.ok()) { return ImageLoad.failure(f"cannot open PPM: {path}"); }
-        Bytes bytes = file.readBytes();
-        file.close();
-        return ImageIO.decodePpm(bytes);
+        ImageFileRead loaded = ImageIO.readImageFile(path, "PPM");
+        if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
+        return ImageIO.decodePpm(loaded.bytes);
     }
 
     class ImageLoad loadBmp(string path) {
-        File file = File(path, "rb");
-        if (!file.ok()) { return ImageLoad.failure(f"cannot open BMP: {path}"); }
-        Bytes bytes = file.readBytes();
-        file.close();
-        return ImageIO.decodeBmp(bytes);
+        ImageFileRead loaded = ImageIO.readImageFile(path, "BMP");
+        if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
+        return ImageIO.decodeBmp(loaded.bytes);
     }
 
     class bool savePpm(Image image, string path) {
