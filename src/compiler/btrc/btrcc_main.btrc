@@ -40,6 +40,7 @@
 #include "semantic_validation_enum_values.btrc"
 #include "semantic_validation_aliases.btrc"
 #include "semantic_validation_thread_types.btrc"
+#include "semantic_validation_mutex_payloads.btrc"
 #include "semantic_validation_static_initializers.btrc"
 #include "semantic_validation_interfaces.btrc"
 #include "semantic_validation_storage.btrc"

@@ -1,0 +1,195 @@
+/* Fail-closed ownership shapes for values copied through Mutex<T>. */
+
+bool semanticMutexRuntimeCollection(string base) {
+    return base == "Array" || base == "List" || base == "Map"
+        || base == "Set" || base == "Vector";
+}
+
+bool semanticMutexUnresolvedParameter(
+        Node typeExpr, SemanticValidationState state) {
+    return state.typeParams.has(typeExpr.base)
+        && typeExpr.generic_args.len == 0
+        && typeExpr.pointer_depth == 0 && !typeExpr.is_array;
+}
+
+bool semanticMutexDirectManagedValue(
+        Node? typeExpr, SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null || canonical.is_array) { return false; }
+    return isSemanticScalarString(canonical)
+        || (canonical.pointer_depth <= 1
+            && (state.analyzed.isClass(canonical.base)
+                || (canonical.generic_args.len > 0
+                    && state.analyzed.isGenericClass(canonical.base))));
+}
+
+/* query: 1 Thread, 2 Mutex, 3 array, 4 unregistered collection,
+ * 5 string/class reference. */
+bool semanticMutexPayloadMatches(Node? typeExpr, int query,
+        Map<string, bool> visiting, SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null
+            || semanticMutexUnresolvedParameter(canonical, state)) {
+        return false;
+    }
+    if (query == 1 && canonical.base == "Thread") { return true; }
+    if (query == 2 && canonical.base == "Mutex") { return true; }
+    if (query == 3 && canonical.is_array) { return true; }
+    if (query == 4 && semanticMutexRuntimeCollection(canonical.base)
+            && !state.analyzed.isGenericClass(canonical.base)) {
+        return true;
+    }
+    if (query == 5 && semanticMutexDirectManagedValue(canonical, state)) {
+        return true;
+    }
+    if (canonical.base == "__fn_ptr") { return false; }
+
+    bool inspectArguments = query != 5 || canonical.base == "Tuple";
+    if (inspectArguments) {
+        int argumentIndex = 0;
+        while (argumentIndex < canonical.generic_args.len) {
+            if (semanticMutexPayloadMatches(
+                    canonical.generic_args.get(argumentIndex), query,
+                    visiting, state)) {
+                return true;
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+    }
+    if (canonical.pointer_depth > 0) { return false; }
+
+    string name = canonical.base;
+    if (name.startsWith("struct ")) {
+        name = name.substring(7, name.length() - 7);
+    }
+    string kind = state.analyzed.structTable.has(name)
+        ? "struct:" : "rich-enum:";
+    string visitKey = kind + name;
+    if (visiting.has(visitKey)) { return false; }
+    Map<string, bool> nested = semanticCloneFlags(visiting);
+    nested.put(visitKey, true);
+    if (state.analyzed.structTable.has(name)) {
+        Node declaration = state.analyzed.structTable.get(name);
+        if (!declaration.is_forward) {
+            int fieldIndex = 0;
+            while (fieldIndex < declaration.fields.len) {
+                if (semanticMutexPayloadMatches(
+                        declaration.fields.get(fieldIndex).type, query,
+                        nested, state)) {
+                    return true;
+                }
+                fieldIndex = fieldIndex + 1;
+            }
+        }
+    }
+    if (state.analyzed.richEnumTable.has(name)) {
+        Node richEnum = state.analyzed.richEnumTable.get(name);
+        int variantIndex = 0;
+        while (variantIndex < richEnum.variants.len) {
+            Node variant = richEnum.variants.get(variantIndex);
+            int parameterIndex = 0;
+            while (parameterIndex < variant.params.len) {
+                if (semanticMutexPayloadMatches(
+                        variant.params.get(parameterIndex).type, query,
+                        nested, state)) {
+                    return true;
+                }
+                parameterIndex = parameterIndex + 1;
+            }
+            variantIndex = variantIndex + 1;
+        }
+    }
+    return false;
+}
+
+string semanticMutexPayloadProblem(
+        Node payload, SemanticValidationState state) {
+    Map<string, bool> visiting = {};
+    if (semanticMutexPayloadMatches(payload, 1, visiting, state)) {
+        return "cannot contain a Thread handle";
+    }
+    visiting = {};
+    if (semanticMutexPayloadMatches(payload, 2, visiting, state)) {
+        return "cannot contain a Mutex handle";
+    }
+    visiting = {};
+    if (semanticMutexPayloadMatches(payload, 3, visiting, state)) {
+        return "cannot contain array storage";
+    }
+    visiting = {};
+    if (semanticMutexPayloadMatches(payload, 4, visiting, state)) {
+        return "cannot contain runtime-owned collection storage without a "
+            + "registered managed class declaration";
+    }
+    if (!semanticMutexDirectManagedValue(payload, state)) {
+        visiting = {};
+        if (semanticMutexPayloadMatches(payload, 5, visiting, state)) {
+            return "aggregate cannot contain string or class references";
+        }
+    }
+    return "";
+}
+
+void semanticValidateMutexPayloadsInType(Node? typeExpr, Node site,
+        SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null) { return; }
+    if (canonical.base == "Mutex" && canonical.generic_args.len == 1) {
+        string problem = semanticMutexPayloadProblem(
+            canonical.generic_args.get(0), state);
+        if (problem != "") {
+            semanticValidationFail(
+                "Mutex<T> payload type " + problem, site);
+        }
+    }
+    int argumentIndex = 0;
+    while (argumentIndex < canonical.generic_args.len) {
+        semanticValidateMutexPayloadsInType(
+            canonical.generic_args.get(argumentIndex), site, state);
+        argumentIndex = argumentIndex + 1;
+    }
+}
+
+void semanticValidateConcreteMutexType(Node? declared,
+        Map<string, Node> substitutions, Node site,
+        SemanticValidationState state) {
+    if (declared == null) { return; }
+    semanticValidateMutexPayloadsInType(
+        resolveGenericType(declared, substitutions), site, state);
+}
+
+void semanticValidateConcreteMutexInstances(
+        SemanticValidationState state) {
+    int instanceIndex = 0;
+    while (instanceIndex < state.analyzed.genericInstances.len) {
+        GenInstance instance =
+            state.analyzed.genericInstances.get(instanceIndex);
+        if (state.analyzed.genericClassTable.has(instance.base)) {
+            Node declaration =
+                state.analyzed.genericClassTable.get(instance.base);
+            Map<string, Node> substitutions = genericClosureClassMap(
+                declaration, instance.args);
+            int memberIndex = 0;
+            while (memberIndex < declaration.members.len) {
+                Node member = declaration.members.get(memberIndex);
+                if (member.kind == NK_FIELD_DECL
+                        || member.kind == NK_PROPERTY_DECL) {
+                    semanticValidateConcreteMutexType(
+                        member.type, substitutions, member, state);
+                } else if (member.kind == NK_METHOD_DECL) {
+                    semanticValidateConcreteMutexType(
+                        member.return_type, substitutions, member, state);
+                    int parameterIndex = 0;
+                    while (parameterIndex < member.params.len) {
+                        Node parameter = member.params.get(parameterIndex);
+                        semanticValidateConcreteMutexType(
+                            parameter.type, substitutions, parameter, state);
+                        parameterIndex = parameterIndex + 1;
+                    }
+                }
+                memberIndex = memberIndex + 1;
+            }
+        }
+        instanceIndex = instanceIndex + 1;
+    }
+}

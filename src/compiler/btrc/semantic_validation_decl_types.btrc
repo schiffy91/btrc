@@ -46,6 +46,7 @@ void semanticValidateDeclaredType(Node? typeExpr, string subject,
             + " cannot carry static/extern storage qualifiers", site);
     }
     Node? canonical = semanticResolveAliases(typeExpr, state);
+    semanticValidateMutexPayloadsInType(typeExpr, site, state);
     if (canonical != null && canonical.base == "Thread"
             && (canonical.pointer_depth > 0 || canonical.is_array
                 || canonical.is_const || canonical.is_nullable)) {

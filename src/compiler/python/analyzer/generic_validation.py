@@ -71,6 +71,12 @@ class GenericValidationMixin:
                 continue
             if not self._validate_nested_class_arguments(owner, resolved, line, col):
                 valid = False
+            if not self._validate_mutex_payloads_in_type(
+                resolved,
+                line=line,
+                col=col,
+            ):
+                valid = False
         return valid
 
     def _validate_nested_class_arguments(self, owner, type_expr, line=0, col=0):

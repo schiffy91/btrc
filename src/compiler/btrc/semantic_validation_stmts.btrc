@@ -13,6 +13,8 @@ void semanticValidateVariable(Node declaration,
         semanticRejectThreadOwnerShadow(
             declaration.name, preliminaryType, vars, declaration, state);
     }
+    semanticValidateMutexPayloadsInType(
+        preliminaryType, declaration, state);
     semanticValidateThreadVariableOwner(
         declaration, preliminaryType, state.owner == "", state);
     semanticValidateVariableStorage(

@@ -255,6 +255,7 @@ void semanticValidateProgram(Node program, Analyzed analyzed) {
     semanticValidateInterfaceDeclarations(program, state);
     semanticValidateProgramEnumValues(program, state);
     semanticValidateAggregateDeclarationTypes(program, state);
+    semanticValidateConcreteMutexInstances(state);
     semanticValidateStructLayouts(program, state);
     semanticValidateDeclarationNames(program);
     semanticValidateDeclarationDuplicates(program, state);

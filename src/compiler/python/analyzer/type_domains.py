@@ -2,6 +2,7 @@
 
 from ..numeric_semantics import is_known_integer_typedef_name
 from ..type_identity import is_semantic_scalar_void
+from .mutex_payload_domains import MutexPayloadDomainContractsMixin
 from .thread_type_domains import ThreadTypeDomainContractsMixin
 
 _RUNTIME_TYPE_BASES = frozenset(
@@ -20,7 +21,10 @@ _RUNTIME_TYPE_BASES = frozenset(
 _EXPLICIT_C_TAG_PREFIXES = ("struct ", "enum ", "union ")
 
 
-class TypeDomainContractsMixin(ThreadTypeDomainContractsMixin):
+class TypeDomainContractsMixin(
+    MutexPayloadDomainContractsMixin,
+    ThreadTypeDomainContractsMixin,
+):
     def _validate_declared_type(
         self,
         type_expr,
@@ -49,6 +53,12 @@ class TypeDomainContractsMixin(ThreadTypeDomainContractsMixin):
                 type_col,
             )
         canonical = self._canonical_type(type_expr)
+        self._validate_mutex_payloads_in_type(
+            type_expr,
+            active_type_params=active_type_params,
+            line=type_line,
+            col=type_col,
+        )
         if (
             canonical
             and canonical.base == "Thread"
