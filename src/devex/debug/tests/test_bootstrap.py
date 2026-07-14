@@ -26,8 +26,21 @@ def test_interpreter_probe_imports_the_adapter_and_lldb(monkeypatch):
     assert bootstrap._can_run_adapter("python", env)
     assert observed == {
         "command": ["python", "-c", "import lldb; import adapter"],
-        "options": {"env": env, "capture_output": True},
+        "options": {
+            "env": env,
+            "capture_output": True,
+            "timeout": bootstrap._PROBE_TIMEOUT_SECONDS,
+        },
     }
+
+
+def test_interpreter_probe_timeout_is_a_failed_candidate(monkeypatch):
+    def timeout(command, **_options):
+        raise subprocess.TimeoutExpired(command, bootstrap._PROBE_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", timeout)
+
+    assert not bootstrap._can_run_adapter("hung-python", {})
 
 
 @pytest.mark.skipif(platform.system() != "Darwin", reason="requires Apple LLDB")

@@ -24,6 +24,8 @@ from src.compiler.python.frontend import (
     _get_stdlib_dir,
     import_spec_paths,
 )
+from src.compiler.python.frontend_limits import ResolutionBudget
+from src.compiler.python.source_io import MAX_SOURCE_BYTES, SourceReadError, read_source
 from src.devex.lsp.package_resolution import PackageResolver
 from src.devex.lsp.unit_cache import (
     cache_path,
@@ -71,12 +73,10 @@ class Workspace(WorkspaceCacheMixin):
         self._stdlib_base_cache: OrderedDict[frozenset, object] = OrderedDict()
         self.overlay_provider = None  # Callable[[str], str | None]
 
-    # -- file units ---------------------------------------------------------
-
     def parse_active(self, path: str, source: str) -> FileUnit:
         """Parse the active document's live buffer (cached by content hash)."""
         path = os.path.abspath(path)
-        sig = ("active", hashlib.sha256(source.encode()).hexdigest())
+        sig = ("active", _live_source_digest(source))
         key = path_identity(path)
         cached = self._cached_file(key)
         if cached and cached[0] == sig:
@@ -90,7 +90,10 @@ class Workspace(WorkspaceCacheMixin):
         key = path_identity(path)
         overlay = self.overlay_provider(path) if self.overlay_provider else None
         if overlay is not None:
-            sig = ("overlay", hashlib.sha256(overlay.encode()).hexdigest())
+            try:
+                sig = ("overlay", _live_source_digest(overlay))
+            except ValueError:
+                return None
             cached = self._cached_file(key)
             if cached and cached[0] == sig:
                 return cached[1]
@@ -98,9 +101,8 @@ class Workspace(WorkspaceCacheMixin):
             self._store_file(key, sig, unit)
             return unit
         try:
-            with open(path) as source_file:
-                text = source_file.read()
-        except OSError:
+            text = read_source(path)
+        except SourceReadError:
             return None
         sig = ("disk", hashlib.sha256(text.encode()).hexdigest())
         cached = self._cached_file(key)
@@ -109,8 +111,6 @@ class Workspace(WorkspaceCacheMixin):
         unit = parse_unit(path, text)
         self._store_file(key, sig, unit)
         return unit
-
-    # -- stdlib units ---------------------------------------------------------
 
     def stdlib_units(self) -> list[FileUnit]:
         # Fast path without the lock: assignment below is atomic and final.
@@ -129,19 +129,22 @@ class Workspace(WorkspaceCacheMixin):
 
     def _load_stdlib_unit(self, path: str) -> FileUnit | None:
         try:
-            with open(path) as f:
-                source = f.read()
-        except OSError:
+            source = read_source(path)
+        except SourceReadError:
             return None
-        cache_dir = _cache_dir()
-        prune_unit_cache(cache_dir)
         content_hash = hashlib.sha256(source.encode()).hexdigest()
-        cached_path = cache_path(cache_dir, _UNIT_CACHE_VERSION, source)
-        cached = load_unit(cached_path, path, content_hash)
-        if cached is not None:
-            return cached
+        cache_dir = None
+        with suppress(OSError):
+            cache_dir = _cache_dir()
+        cached_path = None
+        if cache_dir is not None:
+            prune_unit_cache(cache_dir)
+            cached_path = cache_path(cache_dir, _UNIT_CACHE_VERSION, source)
+            cached = load_unit(cached_path, path, content_hash)
+            if cached is not None:
+                return cached
         unit = parse_unit(path, source)
-        if unit.error is None:
+        if unit.error is None and cached_path is not None:
             with suppress(OSError, TypeError, ValueError):
                 store_unit(cached_path, unit)
         unit.source = ""
@@ -149,14 +152,14 @@ class Workspace(WorkspaceCacheMixin):
         unit.import_specs = []
         return unit
 
-    # -- composition ----------------------------------------------------------
-
     def compose(self, active: FileUnit) -> Composition:
         imported: list[FileUnit] = []
         import_errors: list[tuple[int, str]] = []
         included = {path_identity(active.path)}
+        budget = ResolutionBudget()
+        budget.enter(active.source, active.path, 0)
 
-        def visit(unit: FileUnit, attribute_line: int):
+        def visit(unit: FileUnit, attribute_line: int, depth: int = 0):
             for line, spec in unit.import_specs:
                 attr = line if unit is active else attribute_line
                 try:
@@ -174,10 +177,15 @@ class Workspace(WorkspaceCacheMixin):
                     if u is None:
                         import_errors.append((attr, f"cannot read import '{spec}'"))
                         continue
+                    try:
+                        budget.enter(u.source, ap, depth + 1)
+                    except IncludeResolutionError as error:
+                        import_errors.append((attr, str(error)))
+                        continue
                     if u.error:
                         import_errors.append((attr, f"imported file '{os.path.basename(ap)}': {u.error}"))
                     imported.append(u)
-                    visit(u, attr)
+                    visit(u, attr, depth + 1)
 
         try:
             packages = self._package_resolver.packages_for(active.path)
@@ -209,8 +217,6 @@ class Workspace(WorkspaceCacheMixin):
             program=Program(declarations=decls),
             import_errors=import_errors,
         )
-
-    # -- analysis -------------------------------------------------------------
 
     def analyze(self, comp: Composition):
         """Semantic analysis over the composed program.
@@ -278,3 +284,14 @@ def _cache_dir() -> str:
     """Shared btrc cache dir ($BTRC_CACHE_DIR > project root > user cache);
     never the bare cwd, so the server doesn't litter its launch directory."""
     return resolve_cache_dir()
+
+
+def _live_source_digest(source: str) -> str:
+    """Hash one editor buffer after enforcing the compiler's source limit."""
+    try:
+        encoded = source.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ValueError("document contains invalid Unicode") from error
+    if len(encoded) > MAX_SOURCE_BYTES:
+        raise ValueError(f"document exceeds the {MAX_SOURCE_BYTES}-byte source limit")
+    return hashlib.sha256(encoded).hexdigest()

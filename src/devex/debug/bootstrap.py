@@ -14,6 +14,7 @@ import subprocess
 import sys
 
 _GUARD = "BTRC_DAP_BOOTSTRAPPED"
+_PROBE_TIMEOUT_SECONDS = 15
 
 
 def _can_run_adapter(python: str, env: dict[str, str]) -> bool:
@@ -22,8 +23,9 @@ def _can_run_adapter(python: str, env: dict[str, str]) -> bool:
             [python, "-c", "import lldb; import adapter"],
             env=env,
             capture_output=True,
+            timeout=_PROBE_TIMEOUT_SECONDS,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
     return probe.returncode == 0
 
@@ -45,8 +47,13 @@ def ensure_lldb() -> None:
 
     lldb_exe = shutil.which("lldb") or "/usr/bin/lldb"
     try:
-        pypath = subprocess.check_output([lldb_exe, "-P"], text=True, stderr=subprocess.DEVNULL).strip()
-    except (OSError, subprocess.CalledProcessError) as error:
+        pypath = subprocess.check_output(
+            [lldb_exe, "-P"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        ).strip()
+    except (OSError, subprocess.SubprocessError) as error:
         sys.stderr.write(f"btrc debug adapter: cannot locate lldb ({error}).\n")
         sys.exit(1)
 

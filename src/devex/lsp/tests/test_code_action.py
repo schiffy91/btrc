@@ -98,6 +98,40 @@ def test_import_skipped_when_already_imported(tmp_path):
     assert not any(a.title.startswith("Add import") for a in acts)
 
 
+def test_import_suggestion_excludes_cached_units_from_other_projects(tmp_path):
+    foreign_root = tmp_path / "foreign"
+    active_root = tmp_path / "active"
+    foreign_root.mkdir()
+    active_root.mkdir()
+    foreign = foreign_root / "foreign.btrc"
+    foreign.write_text("class ForeignOnlySuggestion { public int n; }\n")
+    WORKSPACE.get_file_unit(str(foreign))
+
+    app_uri = (active_root / "app.btrc").as_uri()
+    source = "int main() { var item = ForeignOnlySuggestion(); return 0; }\n"
+    result = compute_diagnostics(app_uri, source)
+    actions = _actions(result, app_uri, 0)
+
+    assert not any(action.title.startswith("Add import") for action in actions)
+
+
+def test_import_suggestion_excludes_a_nested_project(tmp_path):
+    (tmp_path / "btrc.toml").write_text("[dependencies]\n")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "btrc.toml").write_text("[dependencies]\n")
+    foreign = nested / "foreign.btrc"
+    foreign.write_text("class NestedProjectOnly { public int n; }\n")
+    WORKSPACE.get_file_unit(str(foreign))
+
+    app_uri = (tmp_path / "app.btrc").as_uri()
+    source = "int main() { var item = NestedProjectOnly(); return 0; }\n"
+    result = compute_diagnostics(app_uri, source)
+    actions = _actions(result, app_uri, 0)
+
+    assert not any(action.title.startswith("Add import") for action in actions)
+
+
 def test_handler(tmp_path):
     src = "class Widget {\n    public int x;\n}\nint main() {\n    var w = Widgt();\n    return 0;\n}\n"
     uri = "file:///h.btrc"

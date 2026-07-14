@@ -31,6 +31,7 @@ from src.devex.lsp.highlights import get_document_highlights
 from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.references import get_references, get_rename_edits, prepare_rename
 from src.devex.lsp.semantic_tokens import LEGEND, get_semantic_tokens
+from src.devex.lsp.server_config import parse_debounce_seconds
 from src.devex.lsp.server_state import (
     _analysis_cache,
     _document_sources,
@@ -55,7 +56,7 @@ logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger("btrc-lsp")
 
 # Debounce window for didChange re-analysis. 0 validates inline (used by tests).
-DEBOUNCE_SECONDS = float(os.environ.get("BTRC_LSP_DEBOUNCE", "0.2"))
+DEBOUNCE_SECONDS = parse_debounce_seconds(os.environ.get("BTRC_LSP_DEBOUNCE"))
 
 
 def _cached_current_result(params):

@@ -133,6 +133,20 @@ def test_uncached_feature_compute_populates_both_caches(monkeypatch):
     assert URI in srv._good_analysis_cache  # good analysis recorded too
 
 
+def test_live_empty_buffer_replaces_stale_nonempty_snapshot(monkeypatch):
+    _install(monkeypatch, "")
+    cached = AnalysisResult(uri=URI, source=SNAP, path=uri_to_path(URI))
+    srv._analysis_cache[URI] = cached
+    srv._good_analysis_cache.pop(URI, None)
+
+    result = srv_state._result_with_current_source(URI, compute_if_missing=False)
+
+    assert result is not None
+    assert result.source == ""
+    assert result.snapshot_source == SNAP
+    srv._analysis_cache.pop(URI, None)
+
+
 def test_uncached_feature_compute_serializes_with_validation(monkeypatch):
     _install(monkeypatch, SAMPLE)
     srv._analysis_cache.pop(URI, None)

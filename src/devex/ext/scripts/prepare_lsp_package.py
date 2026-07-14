@@ -3,8 +3,14 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
+
+_GENERATOR_TIMEOUT_SECONDS = 120
+_MIN_GENERATOR_PYTHON = (3, 13)
 
 
 def _copy_tree(source: Path, target: Path) -> None:
@@ -53,6 +59,7 @@ def _write_server_flake(target: Path) -> None:
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
           packages = [
+            pkgs.git
             (pkgs.python314.withPackages (ps: [ ps.pygls ps.lsprotocol ]))
           ];
         };
@@ -60,6 +67,35 @@ def _write_server_flake(target: Path) -> None:
     };
 }
 """
+    )
+
+
+def _regenerate_builtins(bundle_root: Path) -> None:
+    """Make the staged LSP catalog match the staged compiler and stdlib."""
+    generator = bundle_root / "src" / "compiler" / "python" / "ast" / "gen_builtins.py"
+    if not generator.is_file():
+        return
+    # `make extension` exports the Python from `nix develop`.  Keep the
+    # packaging driver compatible with stock macOS Python while ensuring the
+    # staged compiler generator runs under the compiler's supported runtime.
+    python = _generator_python()
+    subprocess.run(
+        [python, str(generator)],
+        check=True,
+        cwd=bundle_root,
+        timeout=_GENERATOR_TIMEOUT_SECONDS,
+    )
+
+
+def _generator_python() -> str:
+    configured = os.environ.get("BTRC_PACKAGING_PYTHON")
+    if configured:
+        return configured
+    if sys.version_info >= _MIN_GENERATOR_PYTHON:
+        return sys.executable
+    required = ".".join(str(part) for part in _MIN_GENERATOR_PYTHON)
+    raise RuntimeError(
+        f"staged compiler generation requires Python {required}+; run `make extension` or set BTRC_PACKAGING_PYTHON"
     )
 
 
@@ -78,6 +114,7 @@ def prepare(ext_dir: Path, repo_root: Path) -> Path:
     _copy_tree(repo_root / "src" / "stdlib", bundle_root / "src" / "stdlib")
     _copy_tree(repo_root / "src" / "language", bundle_root / "src" / "language")
     _copy_tree(repo_root / "src" / "devex" / "lsp", bundle_root / "src" / "devex" / "lsp")
+    _regenerate_builtins(bundle_root)
 
     _copy_if_exists(repo_root / "src" / "__init__.py", bundle_root / "src" / "__init__.py")
     _copy_if_exists(repo_root / "src" / "devex" / "__init__.py", bundle_root / "src" / "devex" / "__init__.py")

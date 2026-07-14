@@ -73,6 +73,17 @@ def test_reader_rejects_nonstandard_nonfinite_json_numbers():
         DapReader(io.BytesIO(wire)).read()
 
 
+def test_reader_rejects_excessively_nested_json_as_protocol_error():
+    # Python 3.14's iterative decoder accepts substantially deeper arrays
+    # than older releases; this remains well below DAP's 16 MiB body limit.
+    depth = 500_000
+    body = b'{"value":' + (b"[" * depth) + b"0" + (b"]" * depth) + b"}"
+    wire = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
+
+    with pytest.raises(DapProtocolError, match="invalid DAP JSON body"):
+        DapReader(io.BytesIO(wire)).read()
+
+
 def test_writer_uses_utf8_byte_length_without_mutating_the_message():
     stream = io.BytesIO()
     message = {"type": "event", "event": "output", "body": {"output": "λ"}}

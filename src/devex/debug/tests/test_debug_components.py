@@ -1,12 +1,17 @@
 """Focused unit tests for debug build ownership and breakpoint identity."""
 
 import os
+import signal
+import subprocess
+import sys
+import time
 import types
 from pathlib import Path
 
 import builder
 import lldb_session
 import pytest
+import summaries
 
 
 def _materialize_output(command):
@@ -59,10 +64,109 @@ def test_missing_build_tool_is_reported_as_a_build_error(monkeypatch):
     def missing_tool(*_args, **_kwargs):
         raise FileNotFoundError("compiler not found")
 
-    monkeypatch.setattr(builder.subprocess, "run", missing_tool)
+    monkeypatch.setattr(builder.subprocess, "Popen", missing_tool)
 
     with pytest.raises(builder.BuildError, match="transpile failed: compiler not found"):
         builder._run(["missing-btrcpy"], "transpile")
+
+
+def test_hung_build_tool_is_reported_as_a_bounded_build_error(monkeypatch):
+    class HungTool:
+        pid = 123
+        stdout = None
+        stderr = None
+
+        def __init__(self):
+            self.communications = 0
+
+        def communicate(self, **_options):
+            self.communications += 1
+            if self.communications == 1:
+                raise subprocess.TimeoutExpired("hung-btrcpy", builder._BUILD_TIMEOUT_SECONDS)
+            return ("", "")
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            pass
+
+    tool = HungTool()
+    terminated = []
+
+    monkeypatch.setattr(builder.subprocess, "Popen", lambda *_args, **_options: tool)
+    monkeypatch.setattr(builder, "_terminate_process_group", lambda proc: terminated.append(proc))
+
+    with pytest.raises(builder.BuildError, match="transpile timed out after 300 seconds"):
+        builder._run(["hung-btrcpy"], "transpile")
+
+    assert terminated == [tool]
+    assert tool.communications == 2
+
+
+def test_builds_start_in_an_owned_platform_process_group(monkeypatch):
+    monkeypatch.setattr(builder, "_IS_WINDOWS", False)
+    assert builder._process_group_options() == {"start_new_session": True}
+
+    monkeypatch.setattr(builder, "_IS_WINDOWS", True)
+    expected = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    assert builder._process_group_options() == {"creationflags": expected}
+
+
+@pytest.mark.parametrize(
+    "ctype",
+    ["char *", "const char*", "char* volatile", "volatile char * restrict", "_Atomic char*"],
+)
+def test_string_type_recognizes_debug_info_qualifiers(ctype):
+    assert summaries._is_string_type_name(ctype)
+
+
+@pytest.mark.parametrize("ctype", ["char", "char **", "unsigned char *", "btrc_String *"])
+def test_string_type_rejects_non_string_shapes(ctype):
+    assert not summaries._is_string_type_name(ctype)
+
+
+@pytest.mark.parametrize("field", ["__arc", "__rc"])
+def test_arc_headers_are_hidden_from_object_views(field):
+    assert summaries._is_arc_header(field)
+
+
+def test_user_fields_are_not_mistaken_for_arc_headers():
+    assert not summaries._is_arc_header("arc")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group contract")
+def test_hung_build_terminates_descendant_process_group(monkeypatch, tmp_path):
+    child_pid_file = tmp_path / "child.pid"
+    spawner = tmp_path / "spawn_child.py"
+    spawner.write_text(
+        "import pathlib, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(child.pid))\n"
+        "time.sleep(60)\n"
+    )
+    monkeypatch.setattr(builder, "_BUILD_TIMEOUT_SECONDS", 0.5)
+
+    with pytest.raises(builder.BuildError, match=r"timed out after 0\.5 seconds"):
+        builder._run([sys.executable, str(spawner), str(child_pid_file)], "transpile")
+
+    child_pid = int(child_pid_file.read_text())
+    deadline = time.monotonic() + 3
+    while _process_exists(child_pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    try:
+        assert not _process_exists(child_pid)
+    finally:
+        if _process_exists(child_pid):
+            os.kill(child_pid, signal.SIGKILL)
+
+
+def _process_exists(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 class FakeBreakpoint:

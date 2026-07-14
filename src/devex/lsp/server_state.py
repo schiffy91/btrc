@@ -122,13 +122,13 @@ def _result_with_current_source(
             if good:
                 result = good
 
-    if not result and current_source and compute_if_missing:
+    if not result and current_source is not None and compute_if_missing:
         result = _compute_uncached(uri, current_source)
 
     if not result:
         return None
 
-    if current_source and result.source != current_source:
+    if current_source is not None and result.source != current_source:
         result = AnalysisResult(
             uri=result.uri,
             source=current_source,

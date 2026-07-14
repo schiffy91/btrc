@@ -6,7 +6,7 @@ The generated C represents btrc values as tagged C structs. This module turns an
 instance shows its fields by btrc name (hiding the ARC ``__rc`` slot).
 
 Everything is introspected from the value's type (field names ``data``/``len``,
-``keys``/``values``/``occupied``, the leading ``__rc``) rather than hard-coded,
+``keys``/``values``/``occupied``, the leading ARC header) rather than hard-coded,
 so it tracks the stdlib collection layouts without a separate registry.
 """
 
@@ -15,9 +15,19 @@ from __future__ import annotations
 MAX_ELEMS = 100  # cap children/summary length so huge collections stay responsive
 
 
+def _value_type(value):
+    """Return the value's type without top-level C qualifiers."""
+    value_type = value.GetType()
+    get_unqualified = getattr(value_type, "GetUnqualifiedType", None)
+    if get_unqualified is None:
+        return value_type
+    unqualified = get_unqualified()
+    return unqualified if unqualified.IsValid() else value_type
+
+
 def _struct_type(value):
     """Return the pointee struct type for a ``T*`` value, else its own type."""
-    t = value.GetType()
+    t = _value_type(value)
     if t.IsPointerType():
         return t.GetPointeeType()
     return t
@@ -29,24 +39,29 @@ def _type_name(value) -> str:
 
 def _deref(value):
     """Follow one pointer level if needed, returning the struct SBValue."""
-    if value.GetType().IsPointerType():
+    if _value_type(value).IsPointerType():
         return value.Dereference()
     return value
 
 
 def _is_null(value) -> bool:
-    return value.GetType().IsPointerType() and value.GetValueAsUnsigned() == 0
+    return _value_type(value).IsPointerType() and value.GetValueAsUnsigned() == 0
 
 
 def _field_names(struct_val):
     return [struct_val.GetChildAtIndex(i).GetName() for i in range(struct_val.GetNumChildren())]
 
 
+def _is_arc_header(name: str | None) -> bool:
+    """Accept both the current aggregate header and legacy scalar slot."""
+    return name in {"__arc", "__rc"}
+
+
 def classify(value) -> str:
     """One of: string, vector, map, set, object, plain."""
     tn = _type_name(value)
     ctype = value.GetType().GetName() or ""
-    if ctype in ("char *", "const char *", "char*", "const char*"):
+    if _is_string_type_name(ctype):
         return "string"
     if tn.startswith("btrc_Vector_") or tn.startswith("btrc_List_"):
         return "vector"
@@ -54,11 +69,18 @@ def classify(value) -> str:
         return "map"
     if tn.startswith("btrc_Set_"):
         return "set"
-    if value.GetType().IsPointerType():
+    if _value_type(value).IsPointerType():
         st = _struct_type(value)
-        if st.IsValid() and "__rc" in [st.GetFieldAtIndex(i).GetName() for i in range(st.GetNumberOfFields())]:
+        if st.IsValid() and any(_is_arc_header(st.GetFieldAtIndex(i).GetName()) for i in range(st.GetNumberOfFields())):
             return "object"
     return "plain"
+
+
+def _is_string_type_name(ctype: str) -> bool:
+    """Recognize BTRC strings despite C debug-info qualifiers and spacing."""
+    words = ctype.replace("*", " * ").split()
+    unqualified = [word for word in words if word not in {"const", "volatile", "restrict", "_Atomic"}]
+    return unqualified == ["char", "*"]
 
 
 def _elem_summary(elem) -> str:
@@ -139,7 +161,7 @@ def _object_summary(value) -> str:
     tn = _type_name(value)
     fields = []
     for name in _field_names(st):
-        if name == "__rc":
+        if _is_arc_header(name):
             continue
         fields.append(f"{name}={_elem_summary(st.GetChildMemberWithName(name))}")
         if len(fields) >= 12:
@@ -198,7 +220,7 @@ def children(value):
                     out.append((f"[{len(out)}]", keys.GetChildAtIndex(i, 0, True)))
             return out
         if kind == "object":
-            return [(name, st.GetChildMemberWithName(name)) for name in _field_names(st) if name != "__rc"]
+            return [(name, st.GetChildMemberWithName(name)) for name in _field_names(st) if not _is_arc_header(name)]
         return []
     except Exception:
         return []

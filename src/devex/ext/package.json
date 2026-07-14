@@ -152,12 +152,12 @@
         "btrc.serverCommand": {
           "type": "string",
           "default": "btrc-lsp",
-          "description": "Command or absolute path for the btrc language server, defaulting to btrc-lsp. Workspace direnv, shell.nix, or flake.nix takes precedence for relative commands so app repos use their pinned toolchain."
+          "description": "Command or absolute path for the btrc language server, defaulting to btrc-lsp. Workspace direnv takes precedence for relative commands; shell.nix and flake.nix also take precedence when btrc.useNixDevShell is enabled."
         },
         "btrc.useNixDevShell": {
           "type": "boolean",
           "default": true,
-          "description": "When the project has a flake.nix and `nix` is on PATH, run the language server inside the Nix dev shell (which provides the pinned Python 3.13+ with pygls/lsprotocol). A local src/devex/lsp/.venv or an explicit btrc.pythonPath takes precedence, so no manual venv is needed."
+          "description": "When enabled, use a workspace shell.nix or flake.nix to run the language server in its pinned Nix environment. A local src/devex/lsp/.venv or an explicit btrc.pythonPath takes precedence. Disabling this setting bypasses Nix shell discovery but still permits workspace direnv."
         },
         "btrc.trace.server": {
           "type": "string",

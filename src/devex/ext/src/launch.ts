@@ -130,6 +130,8 @@ function workspaceCommandLaunch(
         };
     }
 
+    if (!context.config.useNixDevShell) { return undefined; }
+
     const nixShell = commandPath(context, 'nix-shell');
     const nix = commandPath(context, 'nix');
     const shellNix = path.join(workspaceRoot, 'shell.nix');

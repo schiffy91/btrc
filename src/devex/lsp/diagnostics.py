@@ -170,6 +170,7 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
         active.content_hash,
         tuple((u.path, u.content_hash) for u in comp.imported),
         tuple(u.path for u in comp.stdlib),
+        tuple(comp.import_errors),
     )
     cached = WORKSPACE.get_snapshot(path)
     if cached is not None and cached[0] == fingerprint:

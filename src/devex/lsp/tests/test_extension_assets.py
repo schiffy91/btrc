@@ -7,8 +7,11 @@ launcher path that starts the Python server.
 
 import importlib.util
 import json
+import subprocess
 import tomllib
 from pathlib import Path
+
+import pytest
 
 EXT_DIR = Path(__file__).resolve().parents[2] / "ext"
 REPO_ROOT = EXT_DIR.parents[2]
@@ -112,11 +115,61 @@ def test_extension_packaging_stages_lsp_payload(tmp_path):
     assert (bundle_root / "flake.lock").read_text() == (REPO_ROOT / "flake.lock").read_text()
     bundled_flake = (bundle_root / "flake.nix").read_text()
     assert "Bundled btrc language server" in bundled_flake
+    assert "pkgs.git" in bundled_flake
     assert "ps.pygls ps.lsprotocol" in bundled_flake
     assert not (bundle_root / "src" / "devex" / "lsp" / "tests").exists()
     assert not any(bundle_root.rglob(".DS_Store"))
     assert not any(bundle_root.rglob("*.o"))
     assert not any(bundle_root.rglob("*.a"))
+
+
+def test_extension_packaging_uses_the_explicit_supported_python(tmp_path, monkeypatch):
+    script_path = EXT_DIR / "scripts" / "prepare_lsp_package.py"
+    spec = importlib.util.spec_from_file_location("prepare_lsp_package_runtime", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+
+    bundle_root = tmp_path / "server"
+    generator = bundle_root / "src" / "compiler" / "python" / "ast" / "gen_builtins.py"
+    generator.parent.mkdir(parents=True)
+    generator.write_text("raise AssertionError('test must not execute the generator')\n")
+    calls = []
+
+    def record_run(command, **options):
+        calls.append((command, options))
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setenv("BTRC_PACKAGING_PYTHON", "/nix/store/supported-python/bin/python3")
+    monkeypatch.setattr(module.sys, "executable", "/usr/bin/python3")
+    monkeypatch.setattr(module.subprocess, "run", record_run)
+
+    module._regenerate_builtins(bundle_root)
+
+    assert calls[0][0][0] == "/nix/store/supported-python/bin/python3"
+    assert calls[0][0][0] != module.sys.executable
+    assert calls[0][1]["cwd"] == bundle_root
+
+
+def test_make_extension_exports_the_nix_python_to_packaging():
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    recipe = makefile.split("\nextension:", 1)[1].split("\nextension-install:", 1)[0]
+
+    assert "$(NIX) bash -c" in recipe
+    assert 'BTRC_PACKAGING_PYTHON="$$(command -v python3)"' in recipe
+
+
+def test_extension_packaging_rejects_an_unsupported_implicit_python(monkeypatch):
+    script_path = EXT_DIR / "scripts" / "prepare_lsp_package.py"
+    spec = importlib.util.spec_from_file_location("prepare_lsp_package_unsupported", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    monkeypatch.delenv("BTRC_PACKAGING_PYTHON", raising=False)
+    monkeypatch.setattr(module.sys, "version_info", (3, 9, 6))
+
+    with pytest.raises(RuntimeError, match=r"requires Python 3\.13\+"):
+        module._generator_python()
 
 
 def test_extension_package_keeps_bundled_server_payload():

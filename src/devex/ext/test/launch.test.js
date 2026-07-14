@@ -87,6 +87,65 @@ test('explicit relative serverCommand prefers workspace shell.nix before PATH', 
     assert.deepEqual(launch.args, ['/workspace/shell.nix', '--run', 'btrc-lsp']);
 });
 
+test('useNixDevShell false skips workspace shell.nix and resolves on PATH', () => {
+    const launch = resolveServerLaunch(context([
+        '/workspace/shell.nix',
+        '/bin/nix-shell',
+        '/bin/btrc-lsp',
+    ], {
+        config: { serverCommandExplicit: true, useNixDevShell: false },
+    }));
+
+    assert.equal(launch.source, 'serverCommand');
+    assert.equal(launch.command, '/bin/btrc-lsp');
+    assert.deepEqual(launch.args, []);
+});
+
+test('useNixDevShell false skips workspace flake and resolves on PATH', () => {
+    const launch = resolveServerLaunch(context([
+        '/workspace/flake.nix',
+        '/bin/nix',
+        '/bin/btrc-lsp',
+    ], {
+        config: { serverCommandExplicit: true, useNixDevShell: false },
+    }));
+
+    assert.equal(launch.source, 'serverCommand');
+    assert.equal(launch.command, '/bin/btrc-lsp');
+    assert.deepEqual(launch.args, []);
+});
+
+test('useNixDevShell false skips workspace flake before bundled fallback', () => {
+    const launch = resolveServerLaunch(context([
+        '/workspace/flake.nix',
+        '/extension/server/src/devex/lsp/server.py',
+        '/extension/server/flake.nix',
+        '/bin/nix',
+    ], {
+        config: { useNixDevShell: false },
+    }));
+
+    assert.equal(launch.source, 'bundledServer');
+    assert.equal(launch.command, 'python3');
+    assert.deepEqual(launch.args, ['/extension/server/src/devex/lsp/server.py']);
+});
+
+test('useNixDevShell false still allows workspace direnv', () => {
+    const launch = resolveServerLaunch(context([
+        '/workspace/.envrc',
+        '/workspace/flake.nix',
+        '/bin/direnv',
+        '/bin/nix',
+        '/bin/btrc-lsp',
+    ], {
+        config: { serverCommandExplicit: true, useNixDevShell: false },
+    }));
+
+    assert.equal(launch.source, 'direnv');
+    assert.equal(launch.command, '/bin/direnv');
+    assert.deepEqual(launch.args, ['exec', '/workspace', 'btrc-lsp']);
+});
+
 test('absolute serverCommand is respected directly', () => {
     const launch = resolveServerLaunch(context([
         '/custom/bin/btrc-lsp',

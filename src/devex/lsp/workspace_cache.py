@@ -32,9 +32,14 @@ class WorkspaceCacheMixin:
             while len(self._file_cache) > self._FILE_CACHE_MAX:
                 self._file_cache.popitem(last=False)
 
-    def cached_units(self) -> list[FileUnit]:
+    def cached_units(self, root: str | None = None) -> list[FileUnit]:
+        """Return cached units, optionally constrained to one project tree."""
         with self._cache_lock:
-            return [unit for _signature, unit in self._file_cache.values()]
+            units = [unit for _signature, unit in self._file_cache.values()]
+        if root is None:
+            return units
+        root_key = path_identity(root)
+        return [unit for unit in units if _path_is_within(unit.path, root_key)]
 
     def get_snapshot(self, path: str):
         key = path_identity(path)
@@ -61,3 +66,10 @@ class WorkspaceCacheMixin:
 
 def path_identity(path: str) -> str:
     return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+
+def _path_is_within(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath((path_identity(path), root)) == root
+    except ValueError:
+        return False

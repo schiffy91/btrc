@@ -4,8 +4,12 @@ import json
 import os
 import pickle
 
+import pytest
+
 from src.compiler.python.ast_nodes import ClassDecl, StructDecl
+from src.compiler.python.source_io import SourceReadError
 from src.devex.lsp import unit_cache, units
+from src.devex.lsp import workspace as workspace_module
 from src.devex.lsp.units import _UNIT_CACHE_VERSION, parse_unit
 from src.devex.lsp.workspace import Workspace
 
@@ -113,6 +117,20 @@ def test_parse_failures_are_not_persisted_as_successful_units(tmp_path, monkeypa
     assert not list(cache_dir.glob("lspunit-*.json"))
 
 
+def test_unavailable_cache_does_not_disable_stdlib_analysis(tmp_path, monkeypatch):
+    source_file = tmp_path / "stdlib.btrc"
+    source_file.write_text(_source())
+
+    def unavailable():
+        raise PermissionError("read-only cache root")
+
+    monkeypatch.setattr(workspace_module, "_cache_dir", unavailable)
+    unit = Workspace()._load_stdlib_unit(str(source_file))
+
+    assert unit is not None and unit.error is None
+    assert unit.decls
+
+
 def test_disk_unit_cache_detects_same_size_same_mtime_rewrite(tmp_path):
     path = tmp_path / "changing.btrc"
     path.write_text("class A {}\n")
@@ -127,3 +145,26 @@ def test_disk_unit_cache_detects_same_size_same_mtime_rewrite(tmp_path):
     assert first is not None and second is not None and second is not first
     assert first.decls[0].name == "A"
     assert second.decls[0].name == "B"
+
+
+def test_live_document_and_overlay_sources_share_the_compiler_size_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr(workspace_module, "MAX_SOURCE_BYTES", 4)
+    workspace = Workspace()
+
+    with pytest.raises(ValueError, match="4-byte source limit"):
+        workspace.parse_active(str(tmp_path / "active.btrc"), "12345")
+
+    workspace.overlay_provider = lambda _path: "12345"
+    assert workspace.get_file_unit(str(tmp_path / "import.btrc")) is None
+
+
+def test_disk_units_delegate_to_the_bounded_source_reader(monkeypatch, tmp_path):
+    source_file = tmp_path / "import.btrc"
+    source_file.write_text("class Imported {}\n")
+
+    def reject(_path):
+        raise SourceReadError("source exceeds limit")
+
+    monkeypatch.setattr(workspace_module, "read_source", reject)
+
+    assert Workspace().get_file_unit(str(source_file)) is None

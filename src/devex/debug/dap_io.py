@@ -69,7 +69,7 @@ class DapReader:
                 body.decode("utf-8"),
                 parse_constant=lambda value: _reject_json_constant(value),
             )
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as error:
             raise DapProtocolError(f"invalid DAP JSON body: {error}") from error
         if not isinstance(message, dict):
             raise DapProtocolError("DAP message body must be a JSON object")
