@@ -1,9 +1,13 @@
-/* btrc standard library — daemon specs and simple Unix supervision
+/* btrc standard library — daemon specs and capability-based Unix supervision
  * The stdlib keeps daemon intent declarative. Platform-specific service
  * managers can consume DaemonSpec without changing app code.
  */
 
+import std.daemon_control;
+import std.daemon_control_files;
+import std.daemon_control_protocol;
 import std.process;
+import std.vector;
 
 class DaemonSpec {
     public string name;
@@ -16,8 +20,9 @@ class DaemonSpec {
     public DaemonSpec(string name, Command command) {
         self.name = name;
         self.command = command;
-        self.pidFile = f"/tmp/{name}.pid";
-        self.logFile = f"/tmp/{name}.log";
+        string state = DaemonControlPaths.defaultDirectory();
+        self.pidFile = PathTools.join(state, f"{name}.control");
+        self.logFile = PathTools.join(state, f"{name}.log");
         self.workingDirectory = "";
         self.autoRestart = false;
     }
@@ -42,19 +47,96 @@ class DaemonSpec {
         return self;
     }
 
+    private string renderedCommand() {
+        Vector<string> parts = [ShellWords.quote(self.command.command)];
+        for argument in self.command.arguments {
+            parts.push(ShellWords.quote(argument));
+        }
+        return parts.join(" ");
+    }
+
+    private string supervisorScript() {
+        return "token=$1; command=$2; pid_file=$3; stop_file=$4; "
+            + "probe_prefix=$5; restart=$6; workdir=$7; "
+            + "if [ -n \"$workdir\" ]; then cd \"$workdir\" || exit 126; fi; "
+            + "set -m || exit 125; "
+            + "record=$(printf 'btrc-daemon-v1\\n%s\\n%s' \"$token\" \"$$\") "
+            + "|| exit 125; "
+            + "if ! (set -C; umask 077; printf '%s\\n' \"$record\" "
+            + "> \"$pid_file\") 2>/dev/null; then exit 125; fi; "
+            + "cleanup() { current=$(cat \"$pid_file\" 2>/dev/null) || return; "
+            + "if [ \"$current\" = \"$record\" ]; then "
+            + "rm -f \"$stop_file\" \"$probe_prefix\".*; "
+            + "rm -f \"$pid_file\"; fi; }; "
+            + "service_probe() { for probe_file in \"$probe_prefix\".*; do "
+            + "[ -f \"$probe_file\" ] || continue; "
+            + "case \"$probe_file\" in *.ack) continue ;; esac; "
+            + "probe_value=$(cat \"$probe_file\" 2>/dev/null) || probe_value=; "
+            + "if [ \"$probe_value\" = \"$token\" ]; then "
+            + "ack_file=$probe_file.ack; "
+            + "(set -C; umask 077; printf '%s\\n' \"$token\" "
+            + "> \"$ack_file\") 2>/dev/null || :; fi; "
+            + "rm -f \"$probe_file\"; done; }; "
+            + "stop_requested() { [ -f \"$stop_file\" ] || return 1; "
+            + "stop_value=$(cat \"$stop_file\" 2>/dev/null) || return 1; "
+            + "[ \"$stop_value\" = \"$token\" ]; }; "
+            + "child_alive() { kill -0 \"-$child\" 2>/dev/null; }; "
+            + "while :; do service_probe; "
+            + "if stop_requested; then cleanup; exit 0; fi; "
+            + "/bin/sh -c \"$command\" & child=$!; "
+            + "while child_alive; do service_probe; "
+            + "if stop_requested; then kill -TERM \"-$child\" 2>/dev/null || :; "
+            + "remaining=20; while child_alive "
+            + "&& [ \"$remaining\" -gt 0 ]; do service_probe; "
+            + "sleep 0.05; remaining=$((remaining - 1)); done; "
+            + "if child_alive; then "
+            + "kill -KILL \"-$child\" 2>/dev/null || :; fi; "
+            + "wait \"$child\" 2>/dev/null || :; "
+            + "while child_alive; do service_probe; sleep 0.05; done; "
+            + "cleanup; exit 0; fi; "
+            + "sleep 0.05; done; child_status=0; "
+            + "wait \"$child\" || child_status=$?; service_probe; "
+            + "if stop_requested; then cleanup; exit 0; fi; "
+            + "if [ \"$restart\" != 1 ]; then cleanup; exit \"$child_status\"; fi; "
+            + "sleep 0.1; done";
+    }
+
+    /* This renders the controller's local supervisor. Platform service
+     * managers may continue to consume the declarative fields directly. */
     public string renderStartCommand() {
-        string changeDirectory = self.workingDirectory.isEmpty()
-            ? ""
-            : f"cd {UnixShell.quote(self.workingDirectory)} || exit 1; ";
-        string log = UnixShell.quote(self.logFile);
-        string pid = UnixShell.quote(self.pidFile);
-        /* noclobber makes PID-file creation atomic: an existing file or
-         * symlink fails the start instead of being silently overwritten. */
-        return f"umask 077; {changeDirectory}: >> {log} || exit 1; "
-            + f"nohup {self.command} >> {log} 2>&1 & daemon_pid=$!; "
-            + f"if (set -C; printf '%s\\n' \"$daemon_pid\" > {pid}) 2>/dev/null; "
-            + "then :; else kill -KILL \"$daemon_pid\" 2>/dev/null; "
-            + "wait \"$daemon_pid\" 2>/dev/null; exit 1; fi";
+        if (!DaemonControlPaths.validDaemonName(self.name)
+                || self.command == null || self.command.command == null
+                || self.command.command.isEmpty()) {
+            return "exit 125";
+        }
+        string pidFile = DaemonControlFiles.canonicalFilePath(self.pidFile);
+        string logFile = DaemonControlFiles.canonicalFilePath(self.logFile);
+        if (pidFile.isEmpty() || logFile.isEmpty()
+                || pidFile.equals(logFile)
+                || !DaemonControlFiles.absent(pidFile)
+                || !DaemonControlFiles.safeLogPath(logFile)) {
+            return "exit 125";
+        }
+        self.pidFile = pidFile;
+        self.logFile = logFile;
+        string token = DaemonControlProtocol.randomToken();
+        if (token.isEmpty()) { return "exit 125"; }
+        string stop = DaemonControlPaths.stop(self.pidFile, token);
+        string probePrefix = DaemonControlPaths.probePrefix(
+            self.pidFile, token);
+        string restart = self.autoRestart ? "1" : "0";
+        return "umask 077; nohup /bin/sh -c "
+            + ShellWords.quote(self.supervisorScript())
+            + " btrc-daemon-supervisor "
+            + ShellWords.quote(token) + " "
+            + ShellWords.quote(self.renderedCommand()) + " "
+            + ShellWords.quote(self.pidFile) + " "
+            + ShellWords.quote(stop) + " "
+            + ShellWords.quote(probePrefix) + " "
+            + restart + " "
+            + ShellWords.quote(self.workingDirectory)
+            + " </dev/null >> " + ShellWords.quote(self.logFile)
+            + " 2>&1 &";
     }
 }
 
@@ -66,28 +148,94 @@ class DaemonController {
     }
 
     public ExecResult start(DaemonSpec spec) {
-        return self.shell.run(spec.renderStartCommand());
+        string operation = "daemon start";
+        if (!self.validSpec(spec)) {
+            return self.result(125, "unsafe daemon specification", operation);
+        }
+        if (!DaemonControlFiles.absent(spec.pidFile)) {
+            return self.result(1, "daemon control record already exists",
+                operation);
+        }
+        if (!DaemonControlFiles.prepareLog(spec.logFile)) {
+            return self.result(125, "unsafe daemon log file", operation);
+        }
+        ExecResult launched = self.shell.run(spec.renderStartCommand(),
+            logFailure=false, timeoutMilliseconds=3000);
+        if (!launched.ok()) {
+            return self.result(launched.code, "failed to launch daemon supervisor",
+                operation);
+        }
+        if (!DaemonControlProtocol.waitForRecord(spec.pidFile, 2500)) {
+            return self.result(125, "daemon supervisor did not publish control state",
+                operation);
+        }
+        DaemonControlRecord record = DaemonControlProtocol.record(spec.pidFile);
+        if (!record.valid || !DaemonControlProtocol.probe(spec.pidFile, record)) {
+            return self.result(125, "daemon supervisor failed its liveness handshake",
+                operation);
+        }
+        return self.result(0, "", operation);
     }
 
-    private string validatedPid(DaemonSpec spec) {
-        string pidFile = UnixShell.quote(spec.pidFile);
-        return f"test -f {pidFile} || exit 1; "
-            + f"pid=$(cat {pidFile}) || exit 1; "
-            + "case \"$pid\" in ''|*[!0-9]*) exit 1 ;; esac; "
-            + "test \"$pid\" -gt 1 2>/dev/null || exit 1; ";
+    private ExecResult result(int code, string message, string command) {
+        return ExecResult(code, "", message, command);
+    }
+
+    private bool validSpec(DaemonSpec spec) {
+        if (spec == null || !DaemonControlPaths.validDaemonName(spec.name)
+                || spec.command == null || spec.command.command == null
+                || spec.command.command.isEmpty()
+                || spec.pidFile == null || spec.logFile == null) {
+            return false;
+        }
+        string pidFile = DaemonControlFiles.canonicalFilePath(spec.pidFile);
+        string logFile = DaemonControlFiles.canonicalFilePath(spec.logFile);
+        if (pidFile.isEmpty() || logFile.isEmpty()
+                || pidFile.equals(logFile)) {
+            return false;
+        }
+        spec.pidFile = pidFile;
+        spec.logFile = logFile;
+        return true;
     }
 
     public ExecResult stop(DaemonSpec spec) {
-        string pidFile = UnixShell.quote(spec.pidFile);
-        string command = self.validatedPid(spec)
-            + "if kill \"$pid\"; then "
-            + f"rm -f {pidFile}; else rm -f {pidFile}; exit 1; fi";
-        return self.shell.run(command, logFailure=false);
+        string operation = "daemon stop";
+        if (!self.validSpec(spec)) {
+            return self.result(125, "unsafe daemon specification", operation);
+        }
+        DaemonControlRecord record = DaemonControlProtocol.record(spec.pidFile);
+        if (!record.valid || !DaemonControlProtocol.probe(spec.pidFile, record)) {
+            return self.result(1, "daemon supervisor is not responding", operation);
+        }
+        string stop = DaemonControlPaths.stop(spec.pidFile, record.token);
+        if (!DaemonControlFiles.absent(stop)) {
+            if (!DaemonControlFiles.read(stop).equals(record.token + "\n")) {
+                return self.result(125, "unsafe daemon stop capability", operation);
+            }
+        } else if (!DaemonControlFiles.create(stop, record.token + "\n")) {
+            return self.result(125, "failed to create daemon stop capability",
+                operation);
+        }
+        if (!DaemonControlProtocol.waitForRemoval(
+                spec.pidFile, record, 5000)) {
+            return self.result(124,
+                "daemon did not confirm termination before the deadline",
+                operation);
+        }
+        return self.result(0, "", operation);
     }
 
     public ExecResult status(DaemonSpec spec) {
-        string command = self.validatedPid(spec) + "kill -0 \"$pid\"";
-        return self.shell.run(command, logFailure=false);
+        string operation = "daemon status";
+        if (!self.validSpec(spec)) {
+            return self.result(125, "unsafe daemon specification", operation);
+        }
+        DaemonControlRecord record = DaemonControlProtocol.record(spec.pidFile);
+        if (!record.valid || !DaemonControlProtocol.probe(spec.pidFile, record)) {
+            return self.result(1, "daemon supervisor is not responding", operation);
+        }
+        return self.result(0, "", operation);
     }
 }
 

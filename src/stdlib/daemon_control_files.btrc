@@ -1,0 +1,227 @@
+/* Owner-only filesystem boundary for daemon control capabilities. */
+
+import std.daemon_control;
+import std.fs;
+import std.platform;
+import std.strings;
+
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+class DaemonControlFiles {
+    class bool canonicalPrivateDirectory(string path) {
+        if (!DaemonControlPaths.absolute(path)) { return false; }
+        struct stat status;
+        if (lstat(path, &status) != 0 || !S_ISDIR(status.st_mode)
+                || S_ISLNK(status.st_mode)
+                || status.st_uid != geteuid()
+                || (status.st_mode & (mode_t)0777) != (mode_t)0700) {
+            return false;
+        }
+        char* canonical = realpath(path, NULL);
+        if (canonical == NULL) { return false; }
+        struct stat resolved;
+        bool matches = stat(canonical, &resolved) == 0
+            && resolved.st_dev == status.st_dev
+            && resolved.st_ino == status.st_ino;
+        free(canonical);
+        return matches;
+    }
+
+    class bool ownedHome(string path) {
+        if (!DaemonControlPaths.absolute(path)) { return false; }
+        struct stat status;
+        if (lstat(path, &status) != 0 || !S_ISDIR(status.st_mode)
+                || S_ISLNK(status.st_mode)
+                || status.st_uid != geteuid()
+                || (status.st_mode & (mode_t)0022) != (mode_t)0) {
+            return false;
+        }
+        char* canonical = realpath(path, NULL);
+        if (canonical == NULL) { return false; }
+        struct stat resolved;
+        bool matches = stat(canonical, &resolved) == 0
+            && resolved.st_dev == status.st_dev
+            && resolved.st_ino == status.st_ino;
+        free(canonical);
+        return matches;
+    }
+
+    class bool createPrivateDirectory(string path) {
+        if (mkdir(path, (mode_t)0700) != 0 && errno != EEXIST) {
+            return false;
+        }
+        return DaemonControlFiles.canonicalPrivateDirectory(path);
+    }
+
+    class bool ensureDefaultDirectory() {
+        string root = DaemonControlPaths.defaultDirectory();
+        string home = Environment.get("HOME", "");
+        if (DaemonControlPaths.absolute(home)
+                && root.equals(PathTools.join(
+                    PathTools.join(home, ".btrc"), "daemons"))) {
+            if (!DaemonControlFiles.ownedHome(home)) { return false; }
+            string btrc = PathTools.join(home, ".btrc");
+            if (!DaemonControlFiles.createPrivateDirectory(btrc)) {
+                return false;
+            }
+        }
+        return DaemonControlFiles.createPrivateDirectory(root);
+    }
+
+    class bool secureParent(string path) {
+        if (!DaemonControlPaths.absolute(path)) { return false; }
+        string parent = PathTools.dirname(path);
+        if (parent.equals(DaemonControlPaths.defaultDirectory())
+                && !DaemonControlFiles.ensureDefaultDirectory()) {
+            return false;
+        }
+        return DaemonControlFiles.canonicalPrivateDirectory(parent);
+    }
+
+    /* Canonicalize ancestor aliases once at the controller boundary. The
+     * final directory itself must be a real, private directory rather than a
+     * symlink; subsequent opens therefore use the canonical parent path. */
+    class string canonicalFilePath(string path) {
+        if (!DaemonControlFiles.secureParent(path)) { return ""; }
+        string parent = PathTools.dirname(path);
+        string name = PathTools.basename(path);
+        if (name.isEmpty() || name.equals(".") || name.equals("..")) {
+            return "";
+        }
+        char* canonical = realpath(parent, NULL);
+        if (canonical == NULL) { return ""; }
+        string result = PathTools.join(Strings.copy(canonical), name);
+        free(canonical);
+        return result;
+    }
+
+    class bool secureMetadata(string path, struct stat* status) {
+        struct stat inspected;
+        if (!DaemonControlFiles.secureParent(path)
+                || lstat(path, &inspected) != 0
+                || !S_ISREG(inspected.st_mode)
+                || S_ISLNK(inspected.st_mode)
+                || inspected.st_uid != geteuid()
+                || inspected.st_nlink != (nlink_t)1
+                || (inspected.st_mode & (mode_t)0777) != (mode_t)0600) {
+            return false;
+        }
+        *status = inspected;
+        return true;
+    }
+
+    class string read(string path) {
+        struct stat inspected;
+        if (!DaemonControlFiles.secureMetadata(path, &inspected)
+                || inspected.st_size < (off_t)1
+                || inspected.st_size > (off_t)128) {
+            return "";
+        }
+        int descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+        if (descriptor < 0) { return ""; }
+        struct stat opened;
+        if (fstat(descriptor, &opened) != 0
+                || opened.st_dev != inspected.st_dev
+                || opened.st_ino != inspected.st_ino
+                || opened.st_uid != inspected.st_uid
+                || opened.st_nlink != (nlink_t)1
+                || !S_ISREG(opened.st_mode)
+                || (opened.st_mode & (mode_t)0777) != (mode_t)0600) {
+            close(descriptor);
+            return "";
+        }
+        char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)130);
+        int length = 0;
+        while (length < 129) {
+            ssize_t count = read(descriptor, buffer + length,
+                (size_t)(129 - length));
+            if (count > (ssize_t)0) {
+                length = length + (int)count;
+            } else if (count < (ssize_t)0 && errno == EINTR) {
+                continue;
+            } else {
+                break;
+            }
+        }
+        close(descriptor);
+        if (length < 1 || length > 128) {
+            free(buffer);
+            return "";
+        }
+        buffer[length] = '\0';
+        return __btrc_str_track(buffer);
+    }
+
+    class bool create(string path, string content) {
+        if (content == null || !DaemonControlFiles.secureParent(path)) {
+            return false;
+        }
+        int descriptor = open(path,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            (mode_t)0600);
+        if (descriptor < 0) { return false; }
+        size_t length = strlen(content);
+        size_t offset = (size_t)0;
+        bool written = true;
+        while (offset < length) {
+            ssize_t count = write(descriptor, content + offset,
+                length - offset);
+            if (count > (ssize_t)0) {
+                offset = offset + (size_t)count;
+            } else if (count < (ssize_t)0 && errno == EINTR) {
+                continue;
+            } else {
+                written = false;
+                break;
+            }
+        }
+        bool durable = written && fsync(descriptor) == 0;
+        bool closed = close(descriptor) == 0;
+        if (!durable || !closed) {
+            unlink(path);
+            return false;
+        }
+        return true;
+    }
+
+    class bool remove(string path) {
+        struct stat status;
+        if (lstat(path, &status) != 0) { return errno == ENOENT; }
+        if (!DaemonControlFiles.secureMetadata(path, &status)) {
+            return false;
+        }
+        return unlink(path) == 0;
+    }
+
+    class bool prepareLog(string path) {
+        if (!DaemonControlFiles.secureParent(path)) { return false; }
+        int descriptor = open(path,
+            O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+            (mode_t)0600);
+        if (descriptor < 0) { return false; }
+        struct stat status;
+        bool safe = fstat(descriptor, &status) == 0
+            && S_ISREG(status.st_mode)
+            && status.st_uid == geteuid()
+            && status.st_nlink == (nlink_t)1
+            && (status.st_mode & (mode_t)0777) == (mode_t)0600;
+        bool closed = close(descriptor) == 0;
+        return safe && closed;
+    }
+
+    class bool absent(string path) {
+        struct stat status;
+        if (lstat(path, &status) == 0) { return false; }
+        return errno == ENOENT;
+    }
+
+    class bool safeLogPath(string path) {
+        if (DaemonControlFiles.absent(path)) { return true; }
+        struct stat status;
+        return DaemonControlFiles.secureMetadata(path, &status);
+    }
+}

@@ -1,73 +1,250 @@
-/* DaemonSpec.renderStartCommand quoting composition (Command -> ShellWords ->
- * f-string) and the DaemonController start/status/stop lifecycle.
- * Hermetic: spawns a short `sleep` under a fresh temp dir, with pid/log files
- * there, and always stops it + removes the dir at the end. */
+/* Capability-based daemon supervision: lifecycle, restart behavior, private
+ * state, and adversarial control-file cases. */
 #include <assert.h>
+#include <errno.h>
+#include <signal.h>
+#include <sys/types.h>
+
+bool waitForTextLength(string path, int length, int timeoutMilliseconds) {
+    int attempts = timeoutMilliseconds / 20;
+    while (attempts > 0) {
+        if (Path.readAll(path).len() >= length) { return true; }
+        Timer.sleepMillis(20);
+        attempts--;
+    }
+    return false;
+}
+
+void writeControlRecord(string path, string token, int pid) {
+    assert(Path.writeAll(path,
+        f"btrc-daemon-v1\n{token}\n{pid}\n"));
+    assert(FileSystem.chmod(path, 384) == 0); // 0600
+}
+
+void removeFlatDirectory(string path) {
+    for name in FileSystem.listDir(path) {
+        string child = PathTools.join(path, name);
+        assert(unlink(child) == 0);
+    }
+    assert(rmdir(path) == 0);
+}
 
 int main() {
     string dir = FileSystem.tempDir("btrc_daemon");
     assert(FileSystem.isDir(dir));
+    assert(FileSystem.chmod(dir, 448) == 0); // 0700
 
-    // --- renderStartCommand quoting composition ---
-    // An arg with a space is single-quoted; a workingDirectory with a space is
-    // quoted inside the `cd` prefix; nohup + pid redirection are present.
-    DaemonSpec spec = DaemonSpec("btrctest", Command("echo").arg("hello world"))
-        .cwd("/tmp/with space")
-        .pid(PathTools.join(dir, "x.pid"))
-        .log(PathTools.join(dir, "x.log"))
-        .restart(true);
-    assert(spec.autoRestart);
-    string cmd = spec.renderStartCommand();
-    assert(cmd.contains("'hello world'"));        // arg quoted
-    assert(cmd.contains("cd '/tmp/with space'"));  // cwd quoted in the cd prefix
-    assert(cmd.contains("nohup echo 'hello world'"));
-    assert(cmd.contains("set -C"));                // PID creation is atomic
-
-    // restart(false) flips the flag back.
-    DaemonSpec noRestart = DaemonSpec("d", Command("true")).restart(false);
-    assert(!noRestart.autoRestart);
-
-    // --- live controller lifecycle ---
-    string pidFile = PathTools.join(dir, "live.pid");
+    string pidFile = PathTools.join(dir, "live.control");
     string logFile = PathTools.join(dir, "live.log");
-    DaemonSpec live = DaemonSpec("btrclive", Command("sleep").arg("5"))
+    DaemonSpec rendered = DaemonSpec(
+        "btrctest", Command("echo").arg("hello world"))
+        .cwd("/tmp/with space")
+        .pid(pidFile)
+        .log(logFile)
+        .restart(true);
+    assert(rendered.autoRestart);
+    string command = rendered.renderStartCommand();
+    assert(command.contains("btrc-daemon-supervisor"));
+    assert(command.contains("hello world"));
+    assert(command.contains("set -C"));
+    assert(command.contains("kill -TERM"));
+    assert(command.contains("kill -KILL"));
+    assert(!command.contains("pid=$(cat"));
+
+    DaemonSpec defaults = DaemonSpec("default-path", Command("true"));
+    assert(PathTools.dirname(defaults.pidFile)
+        .equals(DaemonControlPaths.defaultDirectory()));
+    assert(!defaults.pidFile.equals(defaults.logFile));
+    assert(!DaemonSpec("d", Command("true")).restart(false).autoRestart);
+
+    DaemonController controller = DaemonController();
+
+    // Defaults create a stable per-user 0700 state hierarchy rather than
+    // placing predictable control and log files directly in /tmp.
+    string previousHome = Environment.get("HOME", "");
+    string privateHome = FileSystem.tempDir("btrc_daemon_home");
+    assert(FileSystem.chmod(privateHome, 448) == 0);
+    assert(setenv("HOME", privateHome, 1) == 0);
+    DaemonSpec defaultLive = DaemonSpec(
+        "default-live", Command("sleep").arg("20"));
+    assert(controller.start(defaultLive).ok());
+    string defaultState = PathTools.dirname(defaultLive.pidFile);
+    FileStatus defaultStateStatus = FileStatus(defaultState);
+    assert(defaultStateStatus.isDir());
+    assert((defaultStateStatus.mode & 511) == 448);
+    assert(controller.stop(defaultLive).ok());
+    assert(unlink(defaultLive.logFile) == 0);
+    if (previousHome.isEmpty()) {
+        assert(unsetenv("HOME") == 0);
+    } else {
+        assert(setenv("HOME", previousHome, 1) == 0);
+    }
+    assert(rmdir(defaultState) == 0);
+    string btrcState = PathTools.join(privateHome, ".btrc");
+    assert(rmdir(btrcState) == 0);
+    assert(rmdir(privateHome) == 0);
+
+    DaemonSpec live = DaemonSpec("btrclive", Command("sleep").arg("20"))
         .pid(pidFile)
         .log(logFile);
-
-    DaemonController ctl = DaemonController();
-    // start launches the daemon and writes the pid file.
-    ExecResult started = ctl.start(live);
-    assert(started.ok());
+    ExecResult liveStart = controller.start(live);
+    if (!liveStart.ok()) {
+        fprintf(stderr, "daemon start failed (%d): %s\n",
+            liveStart.code, liveStart.err);
+    }
+    assert(liveStart.ok());
     assert(FileSystem.exists(pidFile));
-
-    // status reports the process is alive (kill -0 succeeds).
-    ExecResult st = ctl.status(live);
-    assert(st.ok());
-
-    // stop kills it and removes the pid file.
-    ctl.stop(live);
+    assert(controller.status(live).ok());
+    assert(controller.stop(live).ok());
     assert(!FileSystem.exists(pidFile));
+    assert(!controller.status(live).ok());
 
-    // After stopping, status fails (no pid file).
-    ExecResult after = ctl.status(live);
-    assert(!after.ok());
+    // autoRestart is implemented by the local supervisor, not just retained
+    // as metadata for external service managers.
+    string restartCount = PathTools.join(dir, "restart-count");
+    string restartScript = f"printf x >> {UnixShell.quote(restartCount)}";
+    DaemonSpec restarting = DaemonSpec("restart",
+        Command("/bin/sh").arg("-c").arg(restartScript))
+        .pid(PathTools.join(dir, "restart.control"))
+        .log(PathTools.join(dir, "restart.log"))
+        .restart(true);
+    assert(controller.start(restarting).ok());
+    assert(waitForTextLength(restartCount, 2, 3000));
+    assert(controller.status(restarting).ok());
+    assert(controller.stop(restarting).ok());
+    int stoppedLength = Path.readAll(restartCount).len();
+    Timer.sleepMillis(250);
+    assert(Path.readAll(restartCount).len() == stoppedLength);
 
-    // PID-file contents are data, never shell syntax or kill options.
-    string marker = PathTools.join(dir, "injected");
-    Path.writeAll(pidFile, f"1; touch {marker}");
-    assert(!ctl.status(live).ok());
-    assert(!ctl.stop(live).ok());
+    // A child that ignores TERM is killed after the supervisor's bounded
+    // grace period, including descendants in its process group. The control
+    // record disappears only after the entire group is confirmed gone.
+    string stubbornPid = PathTools.join(dir, "stubborn.control");
+    string descendantFile = PathTools.join(dir, "stubborn-descendant");
+    string stubbornScript = "trap '' TERM; sleep 20 & echo $! > "
+        + UnixShell.quote(descendantFile) + "; wait";
+    DaemonSpec stubborn = DaemonSpec("stubborn",
+        Command("/bin/sh").arg("-c")
+            .arg(stubbornScript))
+        .pid(stubbornPid)
+        .log(PathTools.join(dir, "stubborn.log"));
+    assert(controller.start(stubborn).ok());
+    assert(waitForTextLength(descendantFile, 1, 2000));
+    int descendantPid = DaemonControlRecord.parsePid(
+        Path.readAll(descendantFile).trim());
+    assert(descendantPid > 1);
+    Timer timer = Timer();
+    timer.start();
+    assert(controller.stop(stubborn).ok());
+    timer.stop();
+    assert(timer.elapsedMillis() >= 700.0f);
+    assert(timer.elapsedMillis() < 5000.0f);
+    assert(!FileSystem.exists(stubbornPid));
+    int goneAttempts = 50;
+    while (goneAttempts > 0 && kill((pid_t)descendantPid, 0) == 0) {
+        Timer.sleepMillis(20);
+        goneAttempts--;
+    }
+    errno = 0;
+    assert(kill((pid_t)descendantPid, 0) != 0 && errno == ESRCH);
+
+    // A syntactically valid forged record pointing at an unrelated process
+    // cannot redirect stop(): there is no capability acknowledgement.
+    ExecResult spawned = UnixShell().run(
+        "sleep 20 </dev/null >/dev/null 2>&1 & echo $!",
+        logFailure=false);
+    assert(spawned.ok());
+    int unrelatedPid = DaemonControlRecord.parsePid(spawned.trimmed());
+    assert(unrelatedPid > 1);
+    string forgedPid = PathTools.join(dir, "forged.control");
+    string forgedToken = "0123456789abcdef0123456789abcdef";
+    writeControlRecord(forgedPid, forgedToken, unrelatedPid);
+    DaemonSpec forged = DaemonSpec("forged", Command("true"))
+        .pid(forgedPid)
+        .log(PathTools.join(dir, "forged.log"));
+    assert(!controller.stop(forged).ok());
+    assert(kill((pid_t)unrelatedPid, 0) == 0 || errno == EPERM);
+    kill((pid_t)unrelatedPid, SIGKILL);
+    assert(FileSystem.exists(forgedPid));
+    assert(unlink(forgedPid) == 0);
+
+    // Stale and malformed records are retained for explicit operator recovery;
+    // neither can cause a signal or be mistaken for a running supervisor.
+    string stalePid = PathTools.join(dir, "stale.control");
+    writeControlRecord(stalePid, forgedToken, 2147483647);
+    DaemonSpec stale = DaemonSpec("stale", Command("true"))
+        .pid(stalePid)
+        .log(PathTools.join(dir, "stale.log"));
+    assert(!controller.status(stale).ok());
+    assert(!controller.stop(stale).ok());
+    assert(FileSystem.exists(stalePid));
+    assert(unlink(stalePid) == 0);
+
+    string injected = PathTools.join(dir, "injected.control");
+    string marker = PathTools.join(dir, "injected-marker");
+    assert(Path.writeAll(injected, f"1; touch {marker}"));
+    assert(FileSystem.chmod(injected, 384) == 0);
+    DaemonSpec injection = DaemonSpec("injection", Command("true"))
+        .pid(injected)
+        .log(PathTools.join(dir, "injection.log"));
+    assert(!controller.stop(injection).ok());
     assert(!FileSystem.exists(marker));
-    assert(FileSystem.exists(pidFile));
-    Path.writeAll(pidFile, "-1");
-    assert(!ctl.status(live).ok());
-    assert(!ctl.stop(live).ok());
-    assert(FileSystem.exists(pidFile));
-    FileSystem.removeRecursive(pidFile);
+    assert(FileSystem.exists(injected));
+    assert(unlink(injected) == 0);
 
-    FileSystem.removeRecursive(dir);
+    // A control-file symlink is never followed, removed, or used as authority.
+    string target = PathTools.join(dir, "target");
+    string linkedPid = PathTools.join(dir, "linked.control");
+    assert(Path.writeAll(target, "do-not-change"));
+    assert(FileSystem.chmod(target, 384) == 0);
+    assert(FileSystem.symlink(target, linkedPid) == 0);
+    DaemonSpec linked = DaemonSpec("linked", Command("true"))
+        .pid(linkedPid)
+        .log(PathTools.join(dir, "linked.log"));
+    assert(!controller.status(linked).ok());
+    assert(!controller.stop(linked).ok());
+    assert(Path.readAll(target).equals("do-not-change"));
+    assert(FileSystem.isSymlink(linkedPid));
+    assert(unlink(linkedPid) == 0);
+
+    string linkedLog = PathTools.join(dir, "linked.log");
+    assert(FileSystem.symlink(target, linkedLog) == 0);
+    DaemonSpec unsafeLog = DaemonSpec("unsafe-log", Command("true"))
+        .pid(PathTools.join(dir, "unsafe-log.control"))
+        .log(linkedLog);
+    assert(!controller.start(unsafeLog).ok());
+    assert(Path.readAll(target).equals("do-not-change"));
+    assert(FileSystem.isSymlink(linkedLog));
+    assert(unlink(linkedLog) == 0);
+
+    // Public or attacker-controlled override directories fail closed before
+    // any command or log redirection is attempted.
+    string insecure = FileSystem.tempDir("btrc_daemon_insecure");
+    assert(FileSystem.chmod(insecure, 511) == 0); // 0777
+    string launchedMarker = PathTools.join(dir, "should-not-launch");
+    DaemonSpec unsafe = DaemonSpec("unsafe",
+        Command("touch").arg(launchedMarker))
+        .pid(PathTools.join(insecure, "unsafe.control"))
+        .log(PathTools.join(insecure, "unsafe.log"));
+    assert(!controller.start(unsafe).ok());
+    assert(!FileSystem.exists(launchedMarker));
+    assert(FileSystem.chmod(insecure, 448) == 0);
+    removeFlatDirectory(insecure);
+
+    // The old predictable /tmp file shape is rejected even when it is a
+    // symlink, and the target is left untouched.
+    string publicPid = f"/tmp/btrc-daemon-{Platform.pid()}.control";
+    unlink(publicPid);
+    assert(FileSystem.symlink(target, publicPid) == 0);
+    DaemonSpec publicState = DaemonSpec("public", Command("true"))
+        .pid(publicPid)
+        .log(f"/tmp/btrc-daemon-{Platform.pid()}.log");
+    assert(!controller.start(publicState).ok());
+    assert(Path.readAll(target).equals("do-not-change"));
+    assert(unlink(publicPid) == 0);
+
+    removeFlatDirectory(dir);
     assert(!FileSystem.exists(dir));
-
     print("PASS: test_stdlib_daemon");
     return 0;
 }

@@ -96,16 +96,19 @@ int main(int argc, char** argv) {
     signal.clear();
     assert(!signal.hasEvents());
 
+    string daemonDir = FileSystem.tempDir("btrc_system_daemon");
     DaemonSpec daemon = DaemonSpec("demo", Command("printf").arg("hi"))
-        .pid("/tmp/demo.pid")
-        .log("/tmp/demo.log")
+        .pid(PathTools.join(daemonDir, "demo.control"))
+        .log(PathTools.join(daemonDir, "demo.log"))
         .cwd("/tmp");
     string startCommand = daemon.renderStartCommand();
-    assert(startCommand.contains("nohup printf hi"));
-    assert(startCommand.contains("/tmp/demo.pid"));
+    assert(startCommand.contains("btrc-daemon-supervisor"));
+    assert(startCommand.contains("printf hi"));
+    assert(startCommand.contains("demo.control"));
     DaemonApp daemonApp = DaemonApp("demo", daemon);
     assert(daemonApp.name.equals("demo"));
     assert(daemonApp.daemon.name.equals("demo"));
+    assert(rmdir(daemonDir) == 0);
 
     string path = "/tmp/btrc_stdlib_system_helpers.txt";
     FileSystem.writeText(path, "contents");

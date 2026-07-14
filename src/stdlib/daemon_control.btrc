@@ -1,0 +1,141 @@
+/* Internal daemon-control value types.
+ *
+ * DaemonController is the public API. A PID in a control record is
+ * informational only: controller code never signals it.
+ */
+
+import std.fs;
+import std.platform;
+import std.strings;
+import std.vector;
+
+#include <errno.h>
+#include <limits.h>
+#include <time.h>
+
+class DaemonControlRecord {
+    public bool valid;
+    public string token;
+    public int supervisorPid;
+
+    public DaemonControlRecord() {
+        self.valid = false;
+        self.token = "";
+        self.supervisorPid = -1;
+    }
+
+    class bool validToken(string token) {
+        if (token == null || token.len() != 32) { return false; }
+        for value in token {
+            bool digit = value >= '0' && value <= '9';
+            bool lowerHex = value >= 'a' && value <= 'f';
+            if (!digit && !lowerHex) { return false; }
+        }
+        return true;
+    }
+
+    class int parsePid(string text) {
+        if (text == null || text.isEmpty()) { return -1; }
+        int result = 0;
+        for value in text {
+            if (value < '0' || value > '9') { return -1; }
+            int digit = (int)(value - '0');
+            if (result > 214748364
+                    || (result == 214748364 && digit > 7)) {
+                return -1;
+            }
+            result = result * 10 + digit;
+        }
+        return result > 1 ? result : -1;
+    }
+
+    class DaemonControlRecord parse(string content) {
+        DaemonControlRecord record = DaemonControlRecord();
+        Vector<string> fields = Strings.split(content, "\n");
+        if (fields.len != 4 || !fields.get(0).equals("btrc-daemon-v1")
+                || !fields.get(3).isEmpty()) {
+            return record;
+        }
+        string token = fields.get(1);
+        int pid = DaemonControlRecord.parsePid(fields.get(2));
+        if (!DaemonControlRecord.validToken(token) || pid < 0) {
+            return record;
+        }
+        record.valid = true;
+        record.token = Strings.copy(token);
+        record.supervisorPid = pid;
+        return record;
+    }
+}
+
+class DaemonControlClock {
+    class long long milliseconds() {
+        struct timespec now;
+        now.tv_sec = (time_t)0;
+        now.tv_nsec = 0L;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) { return -1LL; }
+        if ((long long)now.tv_sec > LLONG_MAX / 1000LL) {
+            return LLONG_MAX;
+        }
+        return (long long)now.tv_sec * 1000LL
+            + (long long)now.tv_nsec / 1000000LL;
+    }
+
+    class void pause() {
+        struct timespec delay;
+        delay.tv_sec = (time_t)0;
+        delay.tv_nsec = 20000000L;
+        while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {}
+    }
+
+    class bool before(long long deadline) {
+        long long now = DaemonControlClock.milliseconds();
+        return now >= 0LL && now < deadline;
+    }
+}
+
+class DaemonControlPaths {
+    class bool validDaemonName(string name) {
+        if (name == null || name.isEmpty()
+                || name.equals(".") || name.equals("..")) {
+            return false;
+        }
+        for value in name {
+            bool allowed = Strings.isAlnum(value)
+                || value == '-' || value == '_' || value == '.';
+            if (!allowed) { return false; }
+        }
+        return true;
+    }
+
+    class bool absolute(string path) {
+        return path != null && !path.isEmpty() && path[0] == '/';
+    }
+
+    class string defaultDirectory() {
+        string home = Environment.get("HOME", "");
+        if (DaemonControlPaths.absolute(home)) {
+            return PathTools.join(PathTools.join(home, ".btrc"), "daemons");
+        }
+        string temporary = Environment.get("TMPDIR", "/tmp");
+        if (!DaemonControlPaths.absolute(temporary)) { temporary = "/tmp"; }
+        return PathTools.join(temporary,
+            f"btrc-daemons-{Platform.euid()}");
+    }
+
+    class string stop(string pidFile, string token) {
+        return f"{pidFile}.{token}.stop";
+    }
+
+    class string probePrefix(string pidFile, string token) {
+        return f"{pidFile}.{token}.probe";
+    }
+
+    class string probe(string pidFile, string token, string challenge) {
+        return f"{DaemonControlPaths.probePrefix(pidFile, token)}.{challenge}";
+    }
+
+    class string acknowledgement(string probe) {
+        return probe + ".ack";
+    }
+}
