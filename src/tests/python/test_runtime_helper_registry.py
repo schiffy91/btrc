@@ -149,12 +149,13 @@ def test_python_generic_intrinsics_are_not_macro_helpers():
         assert obsolete not in HASH
 
 
-def test_throw_only_does_not_root_unused_try_capacity():
+def test_throw_roots_the_internal_cleanup_guard_stack():
     throw_helpers = {declaration.name for declaration in helper_decls_for_roots({"__btrc_throw"})}
     push_helpers = {declaration.name for declaration in helper_decls_for_roots({"__btrc_push_try"})}
 
     assert "__btrc_trycatch_globals" in throw_helpers
-    assert "__btrc_try_capacity" not in throw_helpers
+    assert "__btrc_push_try" in throw_helpers
+    assert "__btrc_try_capacity" in throw_helpers
     assert "__btrc_try_capacity" in push_helpers
 
 

@@ -7,12 +7,13 @@ TRYCATCH_CONTROL = {
         c_source=(
             "static _Noreturn void __btrc_throw(const char* msg) {\n"
             '    const char* text = msg ? msg : "Unknown exception";\n'
-            "    if (__btrc_try_top < 0) {\n"
-            '        fprintf(stderr, "Unhandled exception: %s\\n", text);\n'
-            "        exit(1);\n"
-            "    }\n"
             "    strncpy(__btrc_error_msg, text, 1023);\n"
             "    __btrc_error_msg[1023] = '\\0';\n"
+            "    if (__btrc_try_top < 0) {\n"
+            "        __btrc_run_cleanups(-1);\n"
+            '        fprintf(stderr, "Unhandled exception: %s\\n", __btrc_error_msg);\n'
+            "        exit(1);\n"
+            "    }\n"
             "    __btrc_run_cleanups(__btrc_try_top);\n"
             "    int level = __btrc_try_top;\n"
             "    __btrc_try_top--;\n"

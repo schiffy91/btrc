@@ -1784,6 +1784,8 @@ Vector<string> helperDeps(string name) {
     }
     else if (name == "__btrc_run_cleanups") {
         out.push("__btrc_cleanup_types");
+        out.push("__btrc_push_try");
+        out.push("__btrc_safe_realloc");
         out.push("__btrc_destroyed_tracking_scope");
         out.push("__btrc_is_destroyed");
         out.push("__btrc_arc_release");
