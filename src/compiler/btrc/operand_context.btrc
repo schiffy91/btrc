@@ -1,0 +1,28 @@
+/* Concrete storage shapes for eager operators with opaque C operands. */
+
+Node? operatorBoundaryOperandType(IRGen generator, string op,
+        Node? inferred, Node? peer, bool isLeft) {
+    if (inferred != null) { return inferred; }
+    if (peer == null) { return null; }
+    if (semanticIsComparisonOperator(op)) { return peer; }
+    bool peerNumeric = numericIsType(peer, generator.analyzed);
+    bool peerIntegral = peerNumeric && !numericIsFloating(peer);
+    if ((op == "*" || op == "/" || op == "%") && peerNumeric) {
+        return peer;
+    }
+    if ((op == "&" || op == "|" || op == "^") && peerIntegral) {
+        return peer;
+    }
+    if (op == "<<" || op == ">>") {
+        if (!isLeft && peerIntegral) { return peer; }
+        return null;
+    }
+    if ((op == "+" || op == "-") && peerNumeric) { return peer; }
+    if (!semanticRawPointer(peer, generator.analyzed)) { return null; }
+    if (op == "+") { return makePrimType("ptrdiff_t"); }
+    if (op == "-") {
+        if (isLeft) { return peer; }
+        return makePrimType("ptrdiff_t");
+    }
+    return null;
+}

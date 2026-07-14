@@ -100,6 +100,7 @@
 #include "ownership_classification.btrc"
 #include "ownership_assignment_results.btrc"
 #include "iteration_ownership.btrc"
+#include "operand_context.btrc"
 #include "ownership_boundary.btrc"
 #include "managed_update_ownership.btrc"
 #include "indexed_assignment_ownership.btrc"

@@ -18,6 +18,7 @@ def sequence_owned_operands(
     keep_nodes=(),
     pin_nodes=(),
     force: bool = False,
+    operand_types=None,
 ):
     """Evaluate eager source operands once and stabilize managed values.
 
@@ -28,8 +29,8 @@ def sequence_owned_operands(
     keep_ids = {id(node) for node in keep_nodes}
     pin_ids = {id(node) for node in pin_nodes}
     lifetime_required = False
-    for node in nodes:
-        type_expr = gen.analyzed.node_types.get(id(node))
+    for index, node in enumerate(nodes):
+        type_expr = operand_types[index] if operand_types is not None else gen.analyzed.node_types.get(id(node))
         # An enclosing boundary owns and will consume an installed override.
         # Nested field/index/lvalue lowering must treat that stabilized slot as
         # borrowed or it would wrap an assignable projection in a non-lvalue

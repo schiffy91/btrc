@@ -1373,6 +1373,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             streamType.pointer_depth = 1;
             return streamType;
         }
+        if (isCOpaqueValueIdentifier(node.name)) { return null; }
         if (isCIntegerIdentifier(node.name)) { return makePrimType("int"); }
         return null;
     }
@@ -2032,6 +2033,13 @@ bool isCIntegerIdentifier(string name) {
         index = index + 1;
     }
     return sawUpper;
+}
+
+/* Object-like C macros have no safe default ABI.  Keep them unresolved so a
+ * typed use site can supply storage shape without silently narrowing through
+ * the historical implicit-int seam. */
+bool isCOpaqueValueIdentifier(string name) {
+    return name != "errno" && isCIntegerIdentifier(name);
 }
 
 /* True for the btrc `string` scalar (base "string", no generics, depth 0).

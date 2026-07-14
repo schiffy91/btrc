@@ -113,4 +113,77 @@ def operand_c_type(gen, node, type_expr, *, render):
     return render(type_expr)
 
 
-__all__ = ["has_observable_effect", "operand_c_type"]
+def operator_boundary_types(gen, left, right, operator: str):
+    """Choose storage types for eager built-in operator sequencing.
+
+    C macros and opaque imported values deliberately have no semantic btrc
+    type.  A compatible concrete peer still supplies the value shape needed to
+    evaluate that opaque operand once without falling back to C's implicit
+    ``int``. Pointer offsets use ``ptrdiff_t``, the only standard integer type
+    guaranteed to represent every defined same-array pointer displacement.
+    The typed operator itself continues to see the operand as unresolved,
+    leaving final compatibility checking to the C compiler.
+    """
+    left_type = gen.analyzed.node_types.get(id(left))
+    right_type = gen.analyzed.node_types.get(id(right))
+    return (
+        _operator_boundary_type(
+            gen,
+            operator,
+            left_type,
+            right_type,
+            is_left=True,
+        ),
+        _operator_boundary_type(
+            gen,
+            operator,
+            right_type,
+            left_type,
+            is_left=False,
+        ),
+    )
+
+
+def _operator_boundary_type(gen, operator, inferred, peer, *, is_left):
+    if inferred is not None or peer is None:
+        return inferred
+    if operator in {"==", "!=", "<", ">", "<=", ">="}:
+        return peer
+
+    from ...ast_nodes import TypeExpr
+    from ...numeric_semantics import is_floating_type, is_numeric_type
+
+    enum_names = frozenset(gen.analyzed.enum_table)
+    peer_is_numeric = is_numeric_type(peer, enum_names)
+    peer_is_integral = peer_is_numeric and not is_floating_type(peer)
+    if operator in {"*", "/", "%"} and peer_is_numeric:
+        return peer
+    if operator in {"&", "|", "^"} and peer_is_integral:
+        return peer
+    if operator in {"<<", ">>"}:
+        return peer if not is_left and peer_is_integral else None
+    if operator in {"+", "-"} and peer_is_numeric:
+        return peer
+    if not _raw_pointer_type(gen, peer):
+        return None
+    if operator == "+":
+        return TypeExpr(base="ptrdiff_t")
+    if operator == "-":
+        return peer if is_left else TypeExpr(base="ptrdiff_t")
+    return None
+
+
+def _raw_pointer_type(gen, type_expr) -> bool:
+    return bool(
+        type_expr
+        and (type_expr.pointer_depth > 0 or type_expr.is_array)
+        and type_expr.base not in gen.analyzed.class_table
+        and type_expr.base not in getattr(gen.analyzed, "interface_table", {})
+    )
+
+
+__all__ = [
+    "has_observable_effect",
+    "operand_c_type",
+    "operator_boundary_types",
+]

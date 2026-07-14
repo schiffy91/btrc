@@ -33,7 +33,7 @@ from ..ast_nodes import (
     UnaryExpr,
 )
 from ..numeric_literals import float_literal_type
-from .c_call_types import c_integer_identifier
+from .c_call_types import c_integer_identifier, c_opaque_value_identifier
 from .iteration_inference import _IterationInferenceMixin
 
 
@@ -83,6 +83,8 @@ class TypeInferenceMixin(_IterationInferenceMixin):
                 return TypeExpr(base=owner or "int")
             if expr.name in {"stdin", "stdout", "stderr"}:
                 return TypeExpr(base="FILE", pointer_depth=1)
+            if c_opaque_value_identifier(expr.name):
+                return None
             if c_integer_identifier(expr.name):
                 return TypeExpr(base="int")
             return None

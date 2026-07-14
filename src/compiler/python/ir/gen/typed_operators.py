@@ -57,6 +57,8 @@ def lower_typed_binary(
     """Lower an operation owned by the shared portable type contract."""
     left_type = canonical_operator_type(context, left_type)
     right_type = canonical_operator_type(context, right_type)
+    if allow_unresolved_c_operands and (left_type is None or right_type is None):
+        return IRBinOp(left=left, op=operator, right=right)
     if (
         operator == "+"
         and (is_scalar_string_type(left_type) or is_c_string_pointer(left_type))
@@ -77,10 +79,6 @@ def lower_typed_binary(
         )
 
     if operator in {"==", "!=", "<", ">", "<=", ">="}:
-        if allow_unresolved_c_operands and (left_type is None or right_type is None):
-            # Imported C macros/struct fields have no declarations in the AST;
-            # their host compiler remains the authoritative type checker.
-            return IRBinOp(left=left, op=operator, right=right)
         return lower_typed_comparison(operator, left, right, left_type, right_type, context)
 
     if (

@@ -55,5 +55,10 @@ C_POINTER_CALL_RESULTS = {
 
 
 def c_integer_identifier(name: str) -> bool:
-    """Whether an unresolved identifier follows the supported C-macro seam."""
+    """Whether an identifier is accepted by the C integer-constant seam."""
     return name == "errno" or (name.isupper() and name != "NULL")
+
+
+def c_opaque_value_identifier(name: str) -> bool:
+    """Whether C, rather than btrc, determines an identifier's value type."""
+    return name != "errno" and c_integer_identifier(name)

@@ -366,6 +366,10 @@ IRNode lowerOwnedBinary(IRGen generator, Node expression,
         expression.left, varTypes);
     Node? rightType = generator.resolvedExpressionType(
         expression.right, varTypes);
+    Node? leftBoundaryType = operatorBoundaryOperandType(
+        generator, expression.op, leftType, rightType, true);
+    Node? rightBoundaryType = operatorBoundaryOperandType(
+        generator, expression.op, rightType, leftType, false);
     Node? overload = ownershipBinaryMethod(
         generator, leftType, expression.op);
     bool leftPinned = !leftOwned && overload != null
@@ -383,16 +387,17 @@ IRNode lowerOwnedBinary(IRGen generator, Node expression,
     if (!lifetimeRequired && !orderingRequired) {
         return generator.lowerBinaryCore(expression, varTypes);
     }
-    if ((leftType == null || rightType == null) && !lifetimeRequired) {
+    if ((leftBoundaryType == null || rightBoundaryType == null)
+            && !lifetimeRequired) {
         return generator.lowerBinaryCore(expression, varTypes);
     }
-    ownershipRequireType(leftType, expression.left);
-    ownershipRequireType(rightType, expression.right);
+    ownershipRequireType(leftBoundaryType, expression.left);
+    ownershipRequireType(rightBoundaryType, expression.right);
     OwnershipBoundary boundary = OwnershipBoundary();
     boundary.addOperand(generator, expression.left,
-        leftType, leftOwned, leftPinned, varTypes);
+        leftBoundaryType, leftOwned, leftPinned, varTypes);
     boundary.addOperand(generator, expression.right,
-        rightType, rightOwned, rightKeep, varTypes);
+        rightBoundaryType, rightOwned, rightKeep, varTypes);
     IRNode lowered = generator.lowerBinaryCore(expression, varTypes);
     boundary.restore(generator);
     return boundary.finish(generator, lowered,

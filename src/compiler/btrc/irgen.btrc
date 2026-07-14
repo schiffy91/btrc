@@ -6674,6 +6674,12 @@ class IRGen {
 
     public IRNode? lowerTypedBinaryValues(string op,
             IRNode left, IRNode right, Node? leftType, Node? rightType) {
+        /* Unresolved operands from an opaque C context remain C-authoritative.
+         * Preserve the operator as structured IR instead of applying source-
+         * language numeric validation to a type the analyzer cannot see. */
+        if (leftType == null || rightType == null) {
+            return irBinOp(left, op, right);
+        }
         if (op == "+"
                 && (isSemanticScalarString(leftType)
                     || semanticIsCStringPointer(leftType))
