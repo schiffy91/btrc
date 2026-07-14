@@ -23,7 +23,7 @@ int childProbe(int argc, char** argv) {
     }
     if (mode.equals("--timeout-group")) {
         pid_t descendant = fork();
-        if (descendant == 0) {
+        if (descendant == (pid_t)0) {
             usleep(500000);
             FILE* marker = fopen(argv[2], "w");
             if (marker != NULL) {
@@ -34,6 +34,22 @@ int childProbe(int argc, char** argv) {
         }
         // Exit the direct child immediately. Its descendant keeps the capture
         // pipes open, so the run is only bounded if timeout owns the group.
+        return 0;
+    }
+    if (mode.equals("--escaped-pipe")) {
+        pid_t descendant = fork();
+        if (descendant == (pid_t)0) {
+            setsid();
+            usleep(500000);
+            _exit(0);
+        }
+        return 0;
+    }
+    if (mode.equals("--stdin")) {
+        char input[128];
+        size_t count = fread(input, 1, 127, stdin);
+        input[(int)count] = '\0';
+        printf("stdin=%s", input);
         return 0;
     }
     if (mode.equals("--volume")) {
@@ -50,6 +66,23 @@ int main(int argc, char** argv) {
     ChildProcessCapture invalidCapture = ChildProcessCapture(2147483647);
     invalidCapture.readReady();
     assert(invalidCapture.failed && !invalidCapture.open);
+
+    int cloexecPipe[2];
+    assert(ChildProcess.openPipe(cloexecPipe) == 0);
+    assert((fcntl(cloexecPipe[0], F_GETFD) & FD_CLOEXEC) != 0);
+    assert((fcntl(cloexecPipe[1], F_GETFD) & FD_CLOEXEC) != 0);
+    ChildProcess.closePipe(cloexecPipe);
+    assert(ChildProcessClock.milliseconds() >= 0LL);
+    assert(ChildProcessClock.deadline(LLONG_MAX - 2LL, 10) == LLONG_MAX);
+
+    string secret = "pa'ss word";
+    string renderedSecret = "tool --token " + ShellWords.quote(secret);
+    string redacted = ShellWords.redact(renderedSecret, secret);
+    assert(redacted.equals("tool --token ***"));
+    string nestedRendered = ShellWords.quote(renderedSecret);
+    string nestedRedacted = ShellWords.redact(nestedRendered, secret);
+    assert(nestedRedacted.contains("***"));
+    assert(!nestedRedacted.contains("ss word"));
 
     string root = FileSystem.tempDir("btrc child process");
     assert(!root.isEmpty());
@@ -97,6 +130,16 @@ int main(int argc, char** argv) {
     assert(result.stdout().equals(expected));
     assert(!FileSystem.exists(shellMarker));
 
+    ExecResult input = ChildProcess.run(
+        executable, ["--stdin"], stdinData="anonymous input");
+    assert(input.ok());
+    assert(input.stdout().equals("stdin=anonymous input"));
+
+    ExecResult pathOverride = ChildProcess.run(
+        "helper with spaces", ["--probe"], cwd=root,
+        environment=["PATH=" + root], timeoutMilliseconds=2000);
+    assert(pathOverride.code == 23);
+
     bool rejected = false;
     Vector<string> noArguments = [];
     try {
@@ -123,6 +166,13 @@ int main(int argc, char** argv) {
     assert(volume.stdout().len() == 80000);
     assert(volume.stderr().len() == 80000);
 
+    ExecResult bounded = ChildProcess.run(
+        executable, ["--volume"], timeoutMilliseconds=2000,
+        maxStdoutBytes=1024, maxStderrBytes=1024);
+    assert(bounded.code == 125);
+    assert(bounded.stdout().len() <= 1024);
+    assert(bounded.stderr().contains("capture limit"));
+
     string descendantMarker = PathTools.join(root, "descendant survived");
     Timer timer = Timer();
     timer.start();
@@ -137,6 +187,15 @@ int main(int argc, char** argv) {
     assert(timer.elapsedMillis() < 2000.0f);
     usleep(700000);
     assert(!FileSystem.exists(descendantMarker));
+
+    Timer escapedTimer = Timer();
+    escapedTimer.start();
+    ExecResult escaped = ChildProcess.run(
+        executable, ["--escaped-pipe"], timeoutMilliseconds=100);
+    escapedTimer.stop();
+    assert(escaped.code == 124);
+    assert(escaped.wasTimedOut());
+    assert(escapedTimer.elapsedMillis() < 2000.0f);
 
     unsetenv("BTRC_CHILD_OVERRIDE");
     unsetenv("BTRC_CHILD_REMOVE");

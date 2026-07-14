@@ -10,22 +10,120 @@
    spawn/wait, raw-mode Terminal, sockets, Regex, glob/fnmatch) are deliberately
    left out: those are Milestone 2, and stubbing them would link but misbehave. */
 #pragma once
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <windows.h>
 #include <io.h>      /* _mktemp_s */
 #include <direct.h>  /* _mkdir   */
 
-/* Windows has no POSIX symlinks. */
-#ifndef lstat
-#define lstat stat
+/* Process launch has no Windows backend yet and must fail before fork/spawn.
+   Map the POSIX environ symbol to a null, translation-unit-local sentinel so
+   imported process code still cross-compiles without colliding with UCRT's
+   function-like `_environ` macro. */
+#ifdef environ
+#undef environ
+#endif
+static char **btrc_windows_process_environment = NULL;
+#define environ btrc_windows_process_environment
+
+/* Treat every reparse point (including directory junctions) as a link for the
+   stdlib's no-follow filesystem operations. Following a junction during
+   recursive cleanup can otherwise delete data outside the requested tree. */
+#ifndef S_IFLNK
+#define S_IFLNK 0120000
+#endif
+#ifndef S_IFMT
+#define S_IFMT _S_IFMT
 #endif
 #ifndef S_ISLNK
-#define S_ISLNK(m) (0)
+#define S_ISLNK(m) (((m) & S_IFMT) == S_IFLNK)
 #endif
+static inline int btrc_lstat(const char *path, struct stat *status) {
+    (void)btrc_windows_process_environment;
+    if (!path || !status) { errno = EINVAL; return -1; }
+    DWORD attributes = GetFileAttributesA(path);
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        errno = ENOENT;
+        return -1;
+    }
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        memset(status, 0, sizeof(*status));
+        status->st_mode = S_IFLNK;
+        return 0;
+    }
+    return stat(path, status);
+}
+#ifdef lstat
+#undef lstat
+#endif
+#define lstat(path, status) btrc_lstat((path), (status))
+
+/* _unlink cannot remove a directory junction; RemoveDirectory removes the
+   reparse point itself and never traverses its target. */
+static inline int btrc_unlink(const char *path) {
+    if (!path) { errno = EINVAL; return -1; }
+    DWORD attributes = GetFileAttributesA(path);
+    if (attributes != INVALID_FILE_ATTRIBUTES
+            && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+            && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        if (RemoveDirectoryA(path)) { return 0; }
+        errno = EACCES;
+        return -1;
+    }
+    return _unlink(path);
+}
+#ifdef unlink
+#undef unlink
+#endif
+#define unlink(path) btrc_unlink(path)
+
+/* The Windows runtime dispatches recursive deletion to its reparse-aware path
+   walker. POSIX descriptor primitives fail closed if their functions are
+   retained in the same translation unit. */
+#ifndef AT_SYMLINK_NOFOLLOW
+#define AT_SYMLINK_NOFOLLOW 0x100
+#endif
+#ifndef AT_REMOVEDIR
+#define AT_REMOVEDIR 0x200
+#endif
+#ifndef O_DIRECTORY
+#define O_DIRECTORY 0
+#endif
+#ifndef O_NOFOLLOW
+#define O_NOFOLLOW 0
+#endif
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+static inline int btrc_openat(int directory, const char *path, int flags, ...) {
+    (void)directory; (void)path; (void)flags;
+    errno = ENOTSUP;
+    return -1;
+}
+static inline int btrc_fstatat(int directory, const char *path,
+                              struct stat *status, int flags) {
+    (void)directory; (void)path; (void)status; (void)flags;
+    errno = ENOTSUP;
+    return -1;
+}
+static inline int btrc_unlinkat(int directory, const char *path, int flags) {
+    (void)directory; (void)path; (void)flags;
+    errno = ENOTSUP;
+    return -1;
+}
+#define openat(...) btrc_openat(__VA_ARGS__)
+#define fstatat(directory, path, status, flags) \
+    btrc_fstatat((directory), (path), (status), (flags))
+#define unlinkat(directory, path, flags) \
+    btrc_unlinkat((directory), (path), (flags))
+#define fdopendir(descriptor) ((void)(descriptor), (DIR *)0)
+#define dirfd(directory) ((void)(directory), -1)
 
 /* No POSIX uid/gid model on Windows; report the "privileged" sentinel 0. */
 #ifndef geteuid

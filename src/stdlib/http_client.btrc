@@ -1,10 +1,7 @@
 /* HTTPS-capable curl client and platform browser launcher. */
-import std.fs;
 import std.process;
 import std.strings;
 import std.vector;
-
-#include <sys/stat.h>
 
 class HttpClientResponse {
     public int status;
@@ -40,6 +37,13 @@ class HttpClient {
         return self;
     }
 
+    class bool supportedUrl(string url) {
+        if (url == null) { return false; }
+        string normalized = url.toLower();
+        return normalized.startsWith("http://")
+            || normalized.startsWith("https://");
+    }
+
     public HttpClientResponse request(string method, string url,
                                       Vector<string> headers, string body) {
         if (!HttpFraming.token(method) || method.len() > 64) {
@@ -48,8 +52,14 @@ class HttpClient {
         if (!HttpFraming.requestTarget(url) || url.len() > 8192) {
             return HttpClientResponse(0, "", "invalid URL");
         }
+        if (!HttpClient.supportedUrl(url)) {
+            return HttpClientResponse(0, "", "unsupported URL scheme");
+        }
         if (self.maxRequestBytes < 0 || self.maxResponseBytes < 0) {
             return HttpClientResponse(0, "", "HTTP size limits cannot be negative");
+        }
+        if (self.maxResponseBytes > 2147483582) {
+            return HttpClientResponse(0, "", "response size limit is too large");
         }
         if (headers == null) {
             return HttpClientResponse(0, "", "headers cannot be null");
@@ -68,77 +78,73 @@ class HttpClient {
                 && (size_t)strlen(body) > (size_t)self.maxRequestBytes) {
             return HttpClientResponse(0, "", "request body is too large");
         }
-        var dir = FileSystem.tempDir("btrchttp");
-        if (dir.isEmpty()) {
-            return HttpClientResponse(0, "", "could not create temp dir");
-        }
-        /* Everything below runs inside try/finally so the temp dir is removed on
-         * every exit path — normal return, early error return, or an exception
-         * thrown by any step (curl/process/fs). Previously a throw left the temp
-         * dir leaked. */
         int status = 0;
         string responseBody = "";
         string error = "";
-        try {
-            var outFile = PathTools.join(dir, "resp.bin");
-            var bodyFile = PathTools.join(dir, "req.bin");
-            string requestBody = body == null ? "" : body;
-            var hasBody = !requestBody.isEmpty();
-            int curlResponseLimit = self.maxResponseBytes > 0
-                ? self.maxResponseBytes : 1;
-            int curlTimeout = self.timeoutSecs;
-            if (curlTimeout < 1) { curlTimeout = 1; }
-            if (curlTimeout > 86400) { curlTimeout = 86400; }
-            if (hasBody && !FileSystem.writeText(bodyFile, requestBody)) {
-                error = "could not write request body";
-                return HttpClientResponse(0, "", error);
-            }
+        string requestBody = body == null ? "" : body;
+        bool hasBody = !requestBody.isEmpty();
+        int curlResponseLimit = self.maxResponseBytes > 0
+            ? self.maxResponseBytes : 1;
+        int captureLimit = self.maxResponseBytes + 64;
+        int curlTimeout = self.timeoutSecs;
+        if (curlTimeout < 1) { curlTimeout = 1; }
+        if (curlTimeout > 86400) { curlTimeout = 86400; }
+        string statusMarker = "\n__BTRC_HTTP_STATUS__:";
 
-            var command = Command("curl -sS")
-                .flag("--max-time", Strings.fromInt(curlTimeout))
-                .flag("--max-filesize", Strings.fromInt(curlResponseLimit))
-                .flag("-X", method)
-                .flag("-o", outFile)
-                .flag("-w", "%{http_code}");
-            for h in headers {
-                command.flag("-H", h);
-            }
-            if (hasBody) {
-                command.flag("--data-binary", "@" + bodyFile);
-            }
-            command.arg(url);
+        Vector<string> arguments = [
+            "-sS",
+            "--proto", "=http,https",
+            "--proto-redir", "=http,https",
+            "--max-time", Strings.fromInt(curlTimeout),
+            "--max-filesize", Strings.fromInt(curlResponseLimit),
+            "--request", method,
+            "--write-out", statusMarker + "%{http_code}"
+        ];
+        for h in headers {
+            arguments.push("--header");
+            arguments.push(h);
+        }
+        if (hasBody) {
+            arguments.push("--data-binary");
+            arguments.push("@-");
+        }
+        /* The terminator is defense in depth: curl must never interpret any
+         * URL-controlled bytes as another option. */
+        arguments.push("--");
+        arguments.push(url);
 
-            var result = UnixShell().run(command, stderr=CommandOutput.stream(), logFailure=false);
-            string statusText = result.stdout().trim();
+        var result = ChildProcess.run(
+            "curl", arguments,
+            timeoutMilliseconds=curlTimeout * 1000 + 1000,
+            maxStdoutBytes=captureLimit,
+            maxStderrBytes=65536,
+            stdinData=requestBody);
+        int marker = Strings.rfind(result.stdout(), statusMarker);
+        if (marker >= 0) {
+            int statusStart = marker + statusMarker.len();
+            string statusText = result.stdout().substring(
+                statusStart, result.stdout().len() - statusStart);
             bool validStatus = statusText.len() == 3;
             for ch in statusText {
                 if (ch < '0' || ch > '9') { validStatus = false; }
             }
             if (validStatus) { status = Strings.toInt(statusText); }
-            if (status < 100 || status > 599) { status = 0; }
+            responseBody = result.stdout().substring(0, marker);
+        }
+        if (status < 100 || status > 599) { status = 0; }
 
-            if (result.code != 0) {
-                error = f"curl failed (exit {result.code})";
-            } else if (status == 0) {
-                error = "curl returned an invalid HTTP status";
-            } else if (FileSystem.exists(outFile)) {
-                struct stat responseStatus;
-                if (stat(outFile, &responseStatus) != 0) {
-                    status = 0;
-                    error = "could not inspect response body";
-                } else if (responseStatus.st_size < 0
-                        || responseStatus.st_size > (off_t)self.maxResponseBytes) {
-                    status = 0;
-                    error = "response body is too large";
-                } else {
-                    responseBody = FileSystem.readText(outFile);
-                }
-            } else {
-                status = 0;
-                error = "curl did not produce a response body file";
-            }
-        } finally {
-            FileSystem.removeRecursive(dir);
+        if (result.code == 125
+                || responseBody.len() > self.maxResponseBytes) {
+            status = 0;
+            responseBody = "";
+            error = "response body is too large";
+        } else if (result.code != 0) {
+            status = 0;
+            responseBody = "";
+            error = f"curl failed (exit {result.code})";
+        } else if (status == 0) {
+            responseBody = "";
+            error = "curl returned an invalid HTTP status";
         }
         return HttpClientResponse(status, responseBody, error);
     }

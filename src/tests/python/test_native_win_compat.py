@@ -9,6 +9,15 @@ WIN = ROOT / "src" / "stdlib" / "win"
 NATIVE_TESTS = ROOT / "src" / "tests" / "native"
 
 
+def test_windows_filesystem_shims_never_follow_reparse_points() -> None:
+    source = (WIN / "btrc_win_compat.h").read_text()
+    assert "FILE_ATTRIBUTE_REPARSE_POINT" in source
+    assert "RemoveDirectoryA(path)" in source
+    assert "#define lstat stat" not in source
+    assert "btrc_lstat" in source
+    assert "btrc_unlink" in source
+
+
 def test_windows_orphan_header_shims_cover_emitted_stdlib_includes() -> None:
     """Every intentionally orphanable POSIX include must resolve under MinGW."""
     for header in (

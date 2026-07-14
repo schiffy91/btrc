@@ -10,6 +10,7 @@ import std.vector;
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -118,8 +119,24 @@ class UnixFileSystem {
         return UnixFileSystem.mkdirOne(path, mode);
     }
 
-    class int removeRecursive(string path) {
-        if (path == null || path.isEmpty() || path.equals("/")) { return -1; }
+    class bool isCanonicalRoot(string path) {
+        string canonical = UnixFileSystem.realPath(path);
+        if (canonical.isEmpty()) { return false; }
+        bool windows = Platform.isWindows();
+        int rootLength = PathTools.rootLengthFor(canonical, windows);
+        if (rootLength == 0) { return false; }
+        int end = canonical.len() - 1;
+        while (end >= rootLength
+                && PathTools.isSeparatorFor(canonical[end], windows)) {
+            end--;
+        }
+        return end < rootLength;
+    }
+
+    /* Windows cannot provide the POSIX descriptor-relative *at operations.
+     * Its lstat/unlink compatibility shims classify directory reparse points
+     * as links and remove the link itself instead of enumerating its target. */
+    class int removeRecursivePath(string path) {
         FileStatus status = FileStatus(path);
         if (!status.exists() && !status.isSymlink()) { return 0; }
         if (status.isSymlink() || status.isFile()) {
@@ -128,14 +145,141 @@ class UnixFileSystem {
         if (!status.isDir()) {
             return unlink(path);
         }
+        if (UnixFileSystem.isCanonicalRoot(path)) { return -1; }
         Directory dir = Directory(path);
         Vector<string> entries = dir.entries();
         for entry in entries {
             string child = PathTools.join(path, entry);
-            int removed = UnixFileSystem.removeRecursive(child);
+            int removed = UnixFileSystem.removeRecursivePath(child);
             if (removed != 0) { return removed; }
         }
         return rmdir(path);
+    }
+
+    /* Delete one name relative to an already-open directory. Every directory
+     * is opened without following its final component, verified against the
+     * metadata that was inspected, and re-verified before removal. A rename or
+     * symlink swap therefore fails closed instead of redirecting traversal. */
+    class int removeRecursiveAt(int parentDescriptor, string name) {
+        struct stat inspected;
+        if (fstatat(parentDescriptor, name, &inspected,
+                    AT_SYMLINK_NOFOLLOW) != 0) {
+            return errno == ENOENT ? 0 : -1;
+        }
+        if (!S_ISDIR(inspected.st_mode)) {
+            return unlinkat(parentDescriptor, name, 0);
+        }
+
+        int descriptor = openat(parentDescriptor, name,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (descriptor < 0) { return -1; }
+        struct stat opened;
+        struct stat root;
+        if (fstat(descriptor, &opened) != 0 || stat("/", &root) != 0
+                || opened.st_dev != inspected.st_dev
+                || opened.st_ino != inspected.st_ino
+                || (opened.st_dev == root.st_dev
+                    && opened.st_ino == root.st_ino)) {
+            close(descriptor);
+            return -1;
+        }
+
+        DIR* directory = fdopendir(descriptor);
+        if (directory == NULL) {
+            close(descriptor);
+            return -1;
+        }
+        int result = 0;
+        errno = 0;
+        struct dirent* entry = readdir(directory);
+        while (entry != NULL) {
+            string childName = entry->d_name;
+            if (!childName.equals(".") && !childName.equals("..")) {
+                result = UnixFileSystem.removeRecursiveAt(
+                    dirfd(directory), childName);
+                if (result != 0) { break; }
+            }
+            errno = 0;
+            entry = readdir(directory);
+        }
+        if (result == 0 && errno != 0) { result = -1; }
+        if (closedir(directory) != 0 && result == 0) { result = -1; }
+        if (result != 0) { return result; }
+
+        struct stat finalStatus;
+        if (fstatat(parentDescriptor, name, &finalStatus,
+                    AT_SYMLINK_NOFOLLOW) != 0
+                || !S_ISDIR(finalStatus.st_mode)
+                || finalStatus.st_dev != inspected.st_dev
+                || finalStatus.st_ino != inspected.st_ino) {
+            return -1;
+        }
+        return unlinkat(parentDescriptor, name, AT_REMOVEDIR);
+    }
+
+    class int openDirectoryNoFollow(string path) {
+        if (path == null || path.isEmpty()) { return -1; }
+        bool absolute = path[0] == '/';
+        int descriptor = open(absolute ? "/" : ".",
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (descriptor < 0) { return -1; }
+        Vector<string> components = Strings.split(path, "/");
+        for component in components {
+            if (component.isEmpty() || component.equals(".")) { continue; }
+            /* A caller can canonicalize an intentional parent traversal first;
+             * the destructive primitive itself never crosses one implicitly. */
+            if (component.equals("..")) {
+                close(descriptor);
+                return -1;
+            }
+            int next = openat(descriptor, component,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            close(descriptor);
+            if (next < 0) { return -1; }
+            descriptor = next;
+        }
+        return descriptor;
+    }
+
+    /* macOS exposes its system temporary directory through the root-owned
+     * /tmp -> /private/tmp alias. Resolve only that conventional first
+     * component; arbitrary symlink ancestors below it must still fail the
+     * component-by-component O_NOFOLLOW walk. */
+    class string deletionParentPath(string parent) {
+        if (!parent.equals("/tmp") && !parent.startsWith("/tmp/")) {
+            return parent;
+        }
+        string canonicalTemp = UnixFileSystem.realPath("/tmp");
+        if (canonicalTemp.isEmpty()
+                || UnixFileSystem.isCanonicalRoot(canonicalTemp)) {
+            return "";
+        }
+        return canonicalTemp + parent.substring(4, parent.len() - 4);
+    }
+
+    class int removeRecursive(string path) {
+        if (path == null || path.isEmpty()) { return -1; }
+        FileStatus status = FileStatus(path);
+        if (!status.exists() && !status.isSymlink()) { return 0; }
+        if (status.isDir() && !status.isSymlink()
+                && UnixFileSystem.isCanonicalRoot(path)) { return -1; }
+        if (Platform.isWindows()) {
+            return UnixFileSystem.removeRecursivePath(path);
+        }
+
+        string parent = PathTools.dirname(path);
+        string name = PathTools.basename(path);
+        if (name.isEmpty() || name.equals(".") || name.equals("..")) {
+            return -1;
+        }
+        string deletionParent = UnixFileSystem.deletionParentPath(parent);
+        if (deletionParent.isEmpty()) { return -1; }
+        int parentDescriptor = UnixFileSystem.openDirectoryNoFollow(
+            deletionParent);
+        if (parentDescriptor < 0) { return -1; }
+        int result = UnixFileSystem.removeRecursiveAt(parentDescriptor, name);
+        close(parentDescriptor);
+        return result;
     }
 
     class int symlinkPath(string target, string linkPath) {
@@ -197,14 +341,15 @@ class UnixFileSystem {
             return "";
         }
         for ch in prefix {
-            if (ch == '/') { return ""; }
+            if (ch == '/' || ch == '\\' || ch == ':') { return ""; }
         }
         var base = Environment.get("TMPDIR", "/tmp");
         var templatePath = PathTools.join(base, prefix + ".XXXXXX");
         string raw = Strings.copy(templatePath);
         char* result = mkdtemp(raw);
         if (result == NULL) { return ""; }
-        return Strings.copy(result);
+        string canonical = UnixFileSystem.realPath(result);
+        return canonical.isEmpty() ? Strings.copy(result) : canonical;
     }
 }
 
