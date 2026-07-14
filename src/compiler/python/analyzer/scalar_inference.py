@@ -35,7 +35,7 @@ class ScalarInferenceMixin:
                 return TypeExpr(base="long")
             return left
         if operator == "+":
-            if self._is_raw_pointer_value(left) or left.base == "string":
+            if self._is_raw_pointer_value(left):
                 return left
             if self._is_raw_pointer_value(right):
                 return right

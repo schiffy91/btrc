@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..nodes import IRAssign, IRLiteral, IRStmt, IRVar
+from ..nodes import IRAssign, IRExprStmt, IRLiteral, IRStmt, IRVar
 from .managed_local import ManagedLocal
 
 
@@ -24,11 +24,30 @@ def begin_owned_iterable(
     name: str,
     prefix: list[IRStmt],
 ) -> ManagedLocal | None:
-    """Track an owned hoist while its loop body is being lowered."""
-    if not iterable_result_is_owned(gen, expression, type_expr):
+    """Own one managed iterable for the complete lowered loop lifetime.
+
+    A fresh expression transfers its existing +1 into the synthetic local.
+    A borrowed expression is retained after its exact-once hoist.  Registering
+    either form before lowering the body makes return/throw cleanup see it,
+    while the loop control marker keeps it live across continue and break.
+    """
+    from .managed_values import is_managed_type
+
+    if not is_managed_type(gen, type_expr):
         return None
-    from .managed_values import is_string_type, runtime_name
+    from .managed_values import is_string_type, retain_value, runtime_name
     from .variables import _maybe_register_cleanup
+
+    if not iterable_result_is_owned(gen, expression, type_expr):
+        prefix.append(
+            IRExprStmt(
+                expr=retain_value(
+                    gen,
+                    IRVar(name=name),
+                    type_expr,
+                )
+            )
+        )
 
     owner = ManagedLocal(
         name=name,

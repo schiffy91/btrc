@@ -187,6 +187,19 @@ class Managed {
     }
 }
 
+/* Abstract ownership ABI state for lexical __fn_ptr bindings.  Missing from
+ * both vectors means a borrowed C callback; owned means a btrc source callable
+ * returning +1; ambiguous is the conservative join of different paths. */
+class CallableFlowSnapshot {
+    public Vector<string> owned;
+    public Vector<string> ambiguous;
+
+    public CallableFlowSnapshot() {
+        self.owned = [];
+        self.ambiguous = [];
+    }
+}
+
 /* Snapshot of the ARC managed-scope + return context, taken before lowering an
  * isolated body (a lambda / thread wrapper, a separate C function). Holds COPIES
  * of the managed stack + scope starts so the live IRGen fields can be cleared
@@ -209,6 +222,10 @@ class ScopeSnapshot {
     public Vector<string> closureNames;
     public Vector<string> closureFunctions;
     public Vector<string> closureEnvironments;
+    public Vector<string> ownedCallableNames;
+    public Vector<string> ambiguousCallableNames;
+    public Vector<string> callableDeclarations;
+    public Vector<int> callableScopeStarts;
     public Vector<string> borrowedLocalBindings;
     /* COPIES of the func-var-decl accumulator (the IRNode handles), so a lambda
      * body lowers in a fresh decl context and the parent's accumulator is
@@ -232,6 +249,10 @@ class ScopeSnapshot {
         self.closureNames = [];
         self.closureFunctions = [];
         self.closureEnvironments = [];
+        self.ownedCallableNames = [];
+        self.ambiguousCallableNames = [];
+        self.callableDeclarations = [];
+        self.callableScopeStarts = [];
         self.borrowedLocalBindings = [];
         self.funcVarDecls = [];
     }
@@ -355,6 +376,13 @@ class IRGen {
     public int lastLambdaId;
     public Map<string, string> fnPtrEnvFn;
     public Map<string, string> fnPtrEnvVar;
+    /* Function-pointer locals proven to target lifted lambdas or source
+     * functions. These callables use btrc's caller-owned managed-return ABI;
+     * arbitrary C function pointers deliberately do not enter this map. */
+    public Map<string, bool> ownedCallableBindings;
+    public Map<string, bool> ambiguousCallableBindings;
+    public Vector<string> callableScopeDeclarations;
+    public Vector<int> callableScopeStarts;
 
     /* Every local IRVarDecl produced in the function/method body currently being
      * lowered. A try/catch marks ALL of them `volatile`, since any local modified
@@ -363,6 +391,12 @@ class IRGen {
      * body-lowering entry; saved/restored around an isolated (lambda) body.
      * Mirrors generator._func_var_decls + control_flow._lower_try_catch. */
     public Vector<IRNode> funcVarDecls;
+
+    /* One structured take-and-clear adapter per concrete cleanup-slot C type. */
+    public Map<string, string> cleanupTakeAdapters;
+    public Vector<IRFunction> cleanupTakeAdapterDefinitions;
+    public int cleanupSlotCounter;
+    public bool cleanupTakeAdaptersFinalized;
 
     /* Context for lowering explicit enum initializers. Bare references to an
      * earlier member must stay qualified even when the same spelling appears
@@ -406,7 +440,15 @@ class IRGen {
         self.lastLambdaId = 0;
         self.fnPtrEnvFn = {};
         self.fnPtrEnvVar = {};
+        self.ownedCallableBindings = {};
+        self.ambiguousCallableBindings = {};
+        self.callableScopeDeclarations = [];
+        self.callableScopeStarts = [];
         self.funcVarDecls = [];
+        self.cleanupTakeAdapters = {};
+        self.cleanupTakeAdapterDefinitions = [];
+        self.cleanupSlotCounter = 0;
+        self.cleanupTakeAdaptersFinalized = false;
         self.inEnumInitializer = false;
         self.enumLoweringOwner = "";
         self.enumLoweringMembers = {};
@@ -420,6 +462,285 @@ class IRGen {
 
     public bool hasClosureEnv(string name) {
         return self.fnPtrEnvFn.has(name) && self.fnPtrEnvFn.get(name) != "";
+    }
+
+    public bool hasOwnedCallableBinding(string name) {
+        return self.ownedCallableBindings.has(name)
+            && self.ownedCallableBindings.get(name);
+    }
+
+    public bool hasAmbiguousCallableBinding(string name) {
+        return self.ambiguousCallableBindings.has(name)
+            && self.ambiguousCallableBindings.get(name);
+    }
+
+    /* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
+    public int callableBindingAbi(string name) {
+        if (self.hasAmbiguousCallableBinding(name)) { return 2; }
+        if (self.hasOwnedCallableBinding(name)) { return 1; }
+        return 0;
+    }
+
+    public void setCallableBindingAbi(string name, int abi) {
+        self.ownedCallableBindings.remove(name);
+        self.ambiguousCallableBindings.remove(name);
+        if (abi == 1) {
+            self.ownedCallableBindings.put(name, true);
+        } else if (abi == 2) {
+            self.ambiguousCallableBindings.put(name, true);
+        }
+    }
+
+    public int callableExpressionAbi(
+            Node? expression, Map<string, Node> varTypes) {
+        if (expression == null) { return 0; }
+        if (expression.kind == NK_LAMBDA_EXPR) { return 1; }
+        if (expression.kind == NK_IDENTIFIER) {
+            int lexicalAbi = self.callableBindingAbi(expression.name);
+            if (lexicalAbi != 0) { return lexicalAbi; }
+            if (varTypes.has(expression.name)) {
+                Node? lexicalType = resolveTypedefType(
+                    varTypes.get(expression.name),
+                    self.analyzed.typedefTable);
+                if (lexicalType != null
+                        && lexicalType.base == "__fn_ptr") {
+                    return 0;
+                }
+            }
+            if (!self.analyzed.funcTable.has(expression.name)) {
+                return 0;
+            }
+            Node declaration = self.analyzed.funcTable.get(
+                expression.name);
+            if (declaration.body_node != null) { return 1; }
+            return 0;
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.callableExpressionAbi(
+                expression.expr, varTypes);
+        }
+        if (expression.kind == NK_UNARY_EXPR
+                && expression.op == "&") {
+            return self.callableExpressionAbi(
+                expression.operand, varTypes);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            int trueAbi = self.callableExpressionAbi(
+                expression.true_expr, varTypes);
+            int falseAbi = self.callableExpressionAbi(
+                expression.false_expr, varTypes);
+            if (trueAbi == falseAbi) { return trueAbi; }
+            return 2;
+        }
+        return 0;
+    }
+
+    public bool callableTypeHasManagedReturn(Node? type) {
+        if (type == null) { return false; }
+        Node? resolved = self.resolveBodyType(type);
+        resolved = resolveTypedefType(
+            resolved, self.analyzed.typedefTable);
+        return resolved != null
+            && resolved.base == "__fn_ptr"
+            && resolved.generic_args.len > 0
+            && irManagedType(self, resolved.generic_args.get(0));
+    }
+
+    public bool callableDeclaredInActiveScope(string name) {
+        int index = 0;
+        while (index < self.callableScopeDeclarations.len) {
+            if (self.callableScopeDeclarations.get(index) == name) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public bool callableIdentifierIsLexicalLocal(string name) {
+        return self.callableDeclaredInActiveScope(name)
+            || !self.analyzed.globalVarTypes.has(name);
+    }
+
+    public void rejectPersistentCallableEscape(
+            Node? expectedType, Node? value,
+            Map<string, Node> varTypes, string boundary) {
+        if (!self.callableTypeHasManagedReturn(expectedType)
+                || self.callableExpressionAbi(value, varTypes) == 0) {
+            return;
+        }
+        print("Managed-return callback cannot cross " + boundary
+            + "; bare __fn_ptr storage erases its return ABI");
+        abortGen();
+    }
+
+    public void snapshotOwnedCallableBindings(Vector<string> names) {
+        Vector<string> keys = self.ownedCallableBindings.keys();
+        int i = 0;
+        while (i < keys.len) {
+            string name = keys.get(i);
+            if (self.ownedCallableBindings.get(name)) { names.push(name); }
+            i = i + 1;
+        }
+    }
+
+    public void snapshotAmbiguousCallableBindings(Vector<string> names) {
+        Vector<string> keys = self.ambiguousCallableBindings.keys();
+        int i = 0;
+        while (i < keys.len) {
+            string name = keys.get(i);
+            if (self.ambiguousCallableBindings.get(name)) {
+                names.push(name);
+            }
+            i = i + 1;
+        }
+    }
+
+    public void restoreOwnedCallableBindings(Vector<string> names) {
+        Vector<string> keys = self.ownedCallableBindings.keys();
+        int i = 0;
+        while (i < keys.len) {
+            self.ownedCallableBindings.remove(keys.get(i));
+            i = i + 1;
+        }
+        i = 0;
+        while (i < names.len) {
+            self.ownedCallableBindings.put(names.get(i), true);
+            i = i + 1;
+        }
+    }
+
+    public void restoreAmbiguousCallableBindings(Vector<string> names) {
+        Vector<string> keys = self.ambiguousCallableBindings.keys();
+        int i = 0;
+        while (i < keys.len) {
+            self.ambiguousCallableBindings.remove(keys.get(i));
+            i = i + 1;
+        }
+        i = 0;
+        while (i < names.len) {
+            self.ambiguousCallableBindings.put(names.get(i), true);
+            i = i + 1;
+        }
+    }
+
+    public CallableFlowSnapshot snapshotCallableFlow() {
+        CallableFlowSnapshot flow = CallableFlowSnapshot();
+        self.snapshotOwnedCallableBindings(flow.owned);
+        self.snapshotAmbiguousCallableBindings(flow.ambiguous);
+        return flow;
+    }
+
+    public void restoreCallableFlow(CallableFlowSnapshot flow) {
+        self.restoreOwnedCallableBindings(flow.owned);
+        self.restoreAmbiguousCallableBindings(flow.ambiguous);
+    }
+
+    public bool callableFlowHas(Vector<string> names, string name) {
+        int i = 0;
+        while (i < names.len) {
+            if (names.get(i) == name) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    public int callableFlowAbi(CallableFlowSnapshot flow, string name) {
+        if (self.callableFlowHas(flow.ambiguous, name)) { return 2; }
+        if (self.callableFlowHas(flow.owned, name)) { return 1; }
+        return 0;
+    }
+
+    public void appendCallableFlowKeys(
+            CallableFlowSnapshot flow, Vector<string> keys) {
+        int i = 0;
+        while (i < flow.owned.len) {
+            string name = flow.owned.get(i);
+            if (!self.callableFlowHas(keys, name)) { keys.push(name); }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < flow.ambiguous.len) {
+            string name = flow.ambiguous.get(i);
+            if (!self.callableFlowHas(keys, name)) { keys.push(name); }
+            i = i + 1;
+        }
+    }
+
+    public void joinCallableFlows(Vector<CallableFlowSnapshot> flows) {
+        if (flows.len == 0) { return; }
+        Vector<string> keys = [];
+        int i = 0;
+        while (i < flows.len) {
+            self.appendCallableFlowKeys(flows.get(i), keys);
+            i = i + 1;
+        }
+        CallableFlowSnapshot joined = CallableFlowSnapshot();
+        i = 0;
+        while (i < keys.len) {
+            string name = keys.get(i);
+            int abi = self.callableFlowAbi(flows.get(0), name);
+            int path = 1;
+            while (path < flows.len) {
+                if (self.callableFlowAbi(flows.get(path), name) != abi) {
+                    abi = 2;
+                }
+                path = path + 1;
+            }
+            if (abi == 1) { joined.owned.push(name); }
+            else if (abi == 2) { joined.ambiguous.push(name); }
+            i = i + 1;
+        }
+        self.restoreCallableFlow(joined);
+    }
+
+    public CallableFlowSnapshot beginCallableScope() {
+        CallableFlowSnapshot enclosing = self.snapshotCallableFlow();
+        self.callableScopeStarts.push(
+            self.callableScopeDeclarations.len);
+        return enclosing;
+    }
+
+    public void recordCallableDeclaration(string name) {
+        if (self.callableScopeStarts.len > 0) {
+            self.callableScopeDeclarations.push(name);
+        }
+        self.setCallableBindingAbi(name, 0);
+    }
+
+    public bool callableDeclaredSince(int start, string name) {
+        int i = start;
+        while (i < self.callableScopeDeclarations.len) {
+            if (self.callableScopeDeclarations.get(i) == name) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    public void finishCallableScope(CallableFlowSnapshot enclosing) {
+        int start = self.callableScopeDeclarations.len;
+        if (self.callableScopeStarts.len > 0) {
+            start = self.callableScopeStarts.pop();
+        }
+        CallableFlowSnapshot current = self.snapshotCallableFlow();
+        Vector<string> keys = [];
+        self.appendCallableFlowKeys(enclosing, keys);
+        self.appendCallableFlowKeys(current, keys);
+        self.restoreCallableFlow(enclosing);
+        int i = 0;
+        while (i < keys.len) {
+            string name = keys.get(i);
+            if (!self.callableDeclaredSince(start, name)) {
+                self.setCallableBindingAbi(
+                    name, self.callableFlowAbi(current, name));
+            }
+            i = i + 1;
+        }
+        while (self.callableScopeDeclarations.len > start) {
+            self.callableScopeDeclarations.pop();
+        }
     }
 
     public void snapshotClosureEnvs(
@@ -713,6 +1034,23 @@ class IRGen {
             snap.closureNames,
             snap.closureFunctions,
             snap.closureEnvironments);
+        self.snapshotOwnedCallableBindings(snap.ownedCallableNames);
+        self.snapshotAmbiguousCallableBindings(
+            snap.ambiguousCallableNames);
+        int callableDeclaration = 0;
+        while (callableDeclaration
+                < self.callableScopeDeclarations.len) {
+            snap.callableDeclarations.push(
+                self.callableScopeDeclarations.get(
+                    callableDeclaration));
+            callableDeclaration = callableDeclaration + 1;
+        }
+        int callableStart = 0;
+        while (callableStart < self.callableScopeStarts.len) {
+            snap.callableScopeStarts.push(
+                self.callableScopeStarts.get(callableStart));
+            callableStart = callableStart + 1;
+        }
         Vector<string> borrowed = self.snapshotBorrowedLocalBindings();
         int borrowedIndex = 0;
         while (borrowedIndex < borrowed.len) {
@@ -730,6 +1068,17 @@ class IRGen {
         while (self.controlCleanupStarts.len > 0) { self.controlCleanupStarts.pop(); }
         while (self.funcVarDecls.len > 0) { self.funcVarDecls.pop(); }
         self.clearClosureEnvs();
+        Vector<string> noOwnedCallables = [];
+        self.restoreOwnedCallableBindings(noOwnedCallables);
+        Vector<string> noAmbiguousCallables = [];
+        self.restoreAmbiguousCallableBindings(
+            noAmbiguousCallables);
+        while (self.callableScopeDeclarations.len > 0) {
+            self.callableScopeDeclarations.pop();
+        }
+        while (self.callableScopeStarts.len > 0) {
+            self.callableScopeStarts.pop();
+        }
         Vector<string> noBorrowedBindings = [];
         self.restoreBorrowedLocalBindings(noBorrowedBindings);
         self.inTryDepth = 0;
@@ -790,6 +1139,27 @@ class IRGen {
             snap.closureNames,
             snap.closureFunctions,
             snap.closureEnvironments);
+        self.restoreOwnedCallableBindings(snap.ownedCallableNames);
+        self.restoreAmbiguousCallableBindings(
+            snap.ambiguousCallableNames);
+        while (self.callableScopeDeclarations.len > 0) {
+            self.callableScopeDeclarations.pop();
+        }
+        int callableDeclaration = 0;
+        while (callableDeclaration < snap.callableDeclarations.len) {
+            self.callableScopeDeclarations.push(
+                snap.callableDeclarations.get(callableDeclaration));
+            callableDeclaration = callableDeclaration + 1;
+        }
+        while (self.callableScopeStarts.len > 0) {
+            self.callableScopeStarts.pop();
+        }
+        int callableStart = 0;
+        while (callableStart < snap.callableScopeStarts.len) {
+            self.callableScopeStarts.push(
+                snap.callableScopeStarts.get(callableStart));
+            callableStart = callableStart + 1;
+        }
         self.restoreBorrowedLocalBindings(
             snap.borrowedLocalBindings);
         self.currentReturnCType = snap.retC;
@@ -813,56 +1183,27 @@ class IRGen {
             return;
         }
         self.markCleanupRegistration();
-        /* Mark the matching IRVarDecl volatile so (a) the post-delete `var = NULL`
-         * write is not optimized away (avoids a double-free) and (b) the variable
-         * survives a longjmp with a determinate value (C11 7.13.2.1). Mirrors
-         * variables._maybe_register_cleanup. Scan stmts back-to-front for the decl. */
-        int si = stmts.len - 1;
-        while (si >= 0) {
-            IRNode s = stmts.get(si);
-            if (s.kind == IRK_VAR_DECL && s.name == varName) {
-                s.is_volatile = true;
-                si = -1;
-            } else {
-                si = si - 1;
-            }
-        }
-        self.useHelper("__btrc_register_cleanup");
-        Vector<IRNode> cargs = [];
-        cargs.push(irCast("void**", irAddressOf(irVar(varName))));
-        cargs.push(irVar(destroyFn));
+        IRNode declaration = requireCleanupSlotDeclaration(
+            stmts, varName);
         /* Pass the exact layout visitor so a throw can traverse owned fields.
          * Layouts without outgoing managed edges pass NULL. */
+        IRNode visitor = irLiteral("NULL");
         if (clsName != "" && managedClassNeedsVisitor(self, clsName)) {
-            cargs.push(irVar(cycleVisitorName(clsName)));
-        } else {
-            cargs.push(irLiteral("NULL"));
+            visitor = irVar(cycleVisitorName(clsName));
         }
-        stmts.push(irExprStmt(irCall("__btrc_register_cleanup", cargs)));
+        stmts.push(irExprStmt(registerCleanupSlot(self, declaration,
+            irVar(destroyFn), visitor, false)));
     }
 
     public void maybeRegisterDirectCleanup(string varName, string cleanupFn,
             Vector<IRNode> stmts) {
         if (!self.programHasExceptions) { return; }
         self.markCleanupRegistration();
-        int index = stmts.len - 1;
-        while (index >= 0) {
-            IRNode statement = stmts.get(index);
-            if (statement.kind == IRK_VAR_DECL
-                    && statement.name == varName) {
-                statement.is_volatile = true;
-                index = -1;
-            } else {
-                index = index - 1;
-            }
-        }
+        IRNode declaration = requireCleanupSlotDeclaration(
+            stmts, varName);
         self.useHelper(cleanupFn);
-        self.useHelper("__btrc_register_direct_cleanup");
-        Vector<IRNode> args = [];
-        args.push(irCast("void**", irAddressOf(irVar(varName))));
-        args.push(irVar(cleanupFn));
-        stmts.push(irExprStmt(
-            irCall("__btrc_register_direct_cleanup", args)));
+        stmts.push(irExprStmt(registerCleanupSlot(self, declaration,
+            irVar(cleanupFn), null, true)));
     }
 
     /* Drop a variable from auto-management across all open scopes (the user is
@@ -967,7 +1308,9 @@ class IRGen {
         self.emitMethodGenericInstances(m);
         self.emitDeclarations(prog, m);
         self.emitFunctionPointerTypedefs(m);
+        finalizeCleanupTakeAdapters(self, m);
         applySetjmpVolatility(m);
+        validateCleanupSlots(m);
         /* Stage 5 — reachability DCE (functions then structs), then helpers.
          * Mirrors optimizer.optimize: dead helpers are pruned via usedHelpers
          * tracking in collectHelpers (called last). */
@@ -1238,6 +1581,11 @@ class IRGen {
      * `extern`/`volatile` qualifiers layer on. `extern` is a declaration only —
      * never emit an initializer for it. */
     public void emitGlobalVar(Node d, IRModule m) {
+        if (d.initializer != null) {
+            Map<string, Node> globalTypes = {};
+            self.rejectPersistentCallableEscape(
+                d.type, d.initializer, globalTypes, "global storage");
+        }
         if (d.type != null && d.type.is_array && d.type.array_size != null) {
             Node elementType = Node();
             elementType.kind = NK_TYPE_EXPR;
@@ -1943,7 +2291,9 @@ class IRGen {
                     string ret = typeToC(e.sig.return_type, self.analyzed);
                     IRFunctionDecl wrapper = IRFunctionDecl(
                         name + "_" + e.name, ret, false);
-                    wrapper.params.push(IRParam(name + "*", "self"));
+                    if (e.sig.access != "class") {
+                        wrapper.params.push(IRParam(name + "*", "self"));
+                    }
                     int wrapperParam = 0;
                     while (wrapperParam < e.sig.params.len) {
                         Node parameter = e.sig.params.get(wrapperParam);
@@ -2459,9 +2809,11 @@ class IRGen {
                 fn.name = name + "_" + e.name;
                 string ret = typeToC(mem.return_type, self.analyzed);
                 fn.return_type = ret;
-                fn.params.push(IRParam(name + "*", "self"));
                 Vector<IRNode> callArgs = [];
-                callArgs.push(irCast(par + "*", irVar("self")));
+                if (mem.access != "class") {
+                    fn.params.push(IRParam(name + "*", "self"));
+                    callArgs.push(irCast(par + "*", irVar("self")));
+                }
                 int j = 0;
                 while (j < mem.params.len) {
                     Node p = mem.params.get(j);
@@ -2819,11 +3171,14 @@ class IRGen {
         self.currentClass = "";
         self.resetFuncVarDecls();
         if (d.body_node != null) {
+            CallableFlowSnapshot functionCallables =
+                self.snapshotCallableFlow();
             /* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
              * (see gotchas), which would lower the body twice and desync the
              * fresh-temp counter. */
             IRNode b = self.lowerBlock(d.body_node, varTypes);
             fn.body = b;
+            self.restoreCallableFlow(functionCallables);
         }
         return fn;
     }
@@ -2851,6 +3206,8 @@ class IRGen {
         Vector<string> closureEnvironments = [];
         self.snapshotClosureEnvs(
             closureNames, closureFunctions, closureEnvironments);
+        CallableFlowSnapshot enclosingCallables =
+            self.beginCallableScope();
         Vector<string> borrowedBindings =
             self.snapshotBorrowedLocalBindings();
         Vector<IRNode> stmts = [];
@@ -2864,6 +3221,7 @@ class IRGen {
             stmts.push(declaration);
             if (declaration.kind == IRK_VAR_DECL) {
                 scopedVarTypes.put(declaration.name, bindingType);
+                self.recordCallableDeclaration(declaration.name);
                 self.funcVarDecls.push(declaration);
                 if (owned.get(binding)
                         && irManagedType(self, bindingType)) {
@@ -2913,6 +3271,7 @@ class IRGen {
         self.popCleanupScope();
         self.restoreClosureEnvs(
             closureNames, closureFunctions, closureEnvironments);
+        self.finishCallableScope(enclosingCallables);
         self.restoreBorrowedLocalBindings(borrowedBindings);
         return irBlock(stmts);
     }
@@ -2934,23 +3293,37 @@ class IRGen {
     /* Lower a loop body with a loop-scope marker so break/continue inside it
      * release exactly the vars declared in the body. Mirrors _lower_loop_body. */
     public IRNode lowerLoopBody(Node block, Map<string, Node> varTypes) {
+        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
         self.pushLoopScope();
         self.pushControlContext("loop");
         IRNode b = self.lowerBlock(block, varTypes);
         self.popControlContext();
         self.popLoopScope();
+        CallableFlowSnapshot bodyFlow = self.snapshotCallableFlow();
+        self.restoreCallableFlow(incoming);
+        Vector<CallableFlowSnapshot> flows = [];
+        flows.push(incoming);
+        flows.push(bodyFlow);
+        self.joinCallableFlows(flows);
         return b;
     }
 
     public IRNode lowerLoopBodyWithBindings(Node block,
             Map<string, Node> varTypes, Vector<IRNode> declarations,
             Vector<Node> types, Vector<bool> owned) {
+        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
         self.pushLoopScope();
         self.pushControlContext("loop");
         IRNode body = self.lowerBlockWithBindings(
             block, varTypes, declarations, types, owned);
         self.popControlContext();
         self.popLoopScope();
+        CallableFlowSnapshot bodyFlow = self.snapshotCallableFlow();
+        self.restoreCallableFlow(incoming);
+        Vector<CallableFlowSnapshot> flows = [];
+        flows.push(incoming);
+        flows.push(bodyFlow);
+        self.joinCallableFlows(flows);
         return body;
     }
 
@@ -3314,7 +3687,9 @@ class IRGen {
                 }
                 IRNode? ainit = null;
                 if (node.initializer != null) {
-                    if (node.initializer.kind == NK_LIST_LITERAL) {
+                    if (node.initializer.kind == NK_LIST_LITERAL
+                            || node.initializer.kind
+                                == NK_BRACE_INITIALIZER) {
                         Vector<IRNode> elements = [];
                         int ai = 0;
                         while (ai < node.initializer.elements.len) {
@@ -3361,6 +3736,11 @@ class IRGen {
             bool directInferredClosure = node.type == null
                 && node.initializer != null
                 && node.initializer.kind == NK_LAMBDA_EXPR;
+            int callableInitializerAbi = 0;
+            if (node.initializer != null) {
+                callableInitializerAbi = self.callableExpressionAbi(
+                    node.initializer, varTypes);
+            }
             if (!directInferredClosure && self.callableValueEscapes(
                     declType, node.initializer, varTypes)) {
                 self.rejectClosureEscape(node);
@@ -3447,12 +3827,20 @@ class IRGen {
             }
             self.funcVarDecls.push(vdecl);
             out.push(vdecl);
+            self.recordCallableDeclaration(node.name);
             /* A same-named ordinary local shadows an enclosing captured-lambda
              * binding for this lexical block. The block snapshot restores the
              * outer binding on exit. */
             if (self.fnPtrEnvFn.has(node.name)) {
                 self.fnPtrEnvFn.put(node.name, "");
                 self.fnPtrEnvVar.put(node.name, "");
+            }
+            Node? callableDeclType = resolveTypedefType(
+                declType, self.analyzed.typedefTable);
+            if (callableDeclType != null
+                    && callableDeclType.base == "__fn_ptr") {
+                self.setCallableBindingAbi(
+                    node.name, callableInitializerAbi);
             }
             /* Capturing lambda assigned to a var: allocate the capture-env struct
              * on the stack and fill it; cast the impl (which has an extra void*
@@ -3833,6 +4221,13 @@ class IRGen {
     }
 
     public void lowerReturn(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
+        if (node.value_node != null) {
+            self.rejectPersistentCallableEscape(
+                self.currentReturnTypeNode,
+                node.value_node,
+                varTypes,
+                "a function return");
+        }
         lowerOwnedReturn(self, node, varTypes, out);
     }
 
@@ -3950,6 +4345,7 @@ class IRGen {
             pendingName = self.freshTemp("__btrc_finally_pending");
             errorName = self.freshTemp("__btrc_finally_error");
         }
+        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
 
         Vector<IRNode> pushTryArgs = [];
         out.push(irExprStmt(irCall("__btrc_push_try", pushTryArgs)));
@@ -3958,6 +4354,8 @@ class IRGen {
         self.inTryDepth = self.inTryDepth + 1;
         self.pushControlContext("try");
         IRNode tryBody = self.lowerBlock(node.try_block, varTypes);
+        CallableFlowSnapshot tryFlow = self.snapshotCallableFlow();
+        self.restoreCallableFlow(incoming);
         self.popControlContext();
         self.inTryDepth = self.inTryDepth - 1;
         /* Normal exit: discard the cleanup registrations (scope release already
@@ -3975,6 +4373,15 @@ class IRGen {
         tryBody.stmts.push(irExprStmt(irUnaryOp(
             "--", irVar("__btrc_try_top"), false)));
 
+        /* A throw can occur after mutating an outer callback.  Seed catch
+         * lowering from the conservative join of entry and try states. */
+        Vector<CallableFlowSnapshot> exceptionalFlows = [];
+        exceptionalFlows.push(incoming);
+        exceptionalFlows.push(tryFlow);
+        self.joinCallableFlows(exceptionalFlows);
+        CallableFlowSnapshot exceptionalEntry =
+            self.snapshotCallableFlow();
+
         /* Pending-exception flag + message buffer, declared before the if. */
         if (finallyOnly) {
             out.push(irVarDecl(
@@ -3986,6 +4393,7 @@ class IRGen {
         /* catch block. */
         Vector<IRNode> catchStmts = [];
         IRNode catchBody = irBlock(catchStmts);
+        CallableFlowSnapshot catchFlow = exceptionalEntry;
         if (finallyOnly) {
             /* No user catch: capture the in-flight exception so the finally can
              * run, then re-throw it after. */
@@ -4028,6 +4436,8 @@ class IRGen {
             catchBody = self.lowerBlockWithBindings(
                 node.catch_block, varTypes,
                 catchBindings, catchTypes, catchOwned);
+            catchFlow = self.snapshotCallableFlow();
+            self.restoreCallableFlow(incoming);
             if (node.catch_var != "") {
                 /* A catch binding may be intentionally ignored. Keep the C
                  * warning contract explicit without textual statement escapes. */
@@ -4044,6 +4454,11 @@ class IRGen {
                     irExprStmt(irVar(node.catch_var)));
             }
         }
+
+        Vector<CallableFlowSnapshot> tryFlows = [];
+        tryFlows.push(tryFlow);
+        tryFlows.push(catchFlow);
+        self.joinCallableFlows(tryFlows);
 
         IRNode frame = irIndex(
             irVar("__btrc_try_stack"), irVar("__btrc_try_top"));
@@ -4074,16 +4489,26 @@ class IRGen {
      * control_flow._lower_switch). A case with no value is the `default:` clause. */
     public IRNode lowerSwitch(Node node, Map<string, Node> varTypes) {
         IRNode val = self.lowerExpr(node.value_node, varTypes);
+        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
+        Vector<CallableFlowSnapshot> caseFlows = [];
+        bool hasDefault = false;
         Vector<IRNode> cases = [];
         self.pushControlContext("switch");
         int i = 0;
         while (i < node.cases.len) {
             Node c = node.cases.get(i);
+            self.restoreCallableFlow(incoming);
+            CallableFlowSnapshot enclosingCase =
+                self.beginCallableScope();
             Map<string, Node> caseTypes = semanticCloneTypes(varTypes);
             Vector<string> caseBorrowedBindings =
                 self.snapshotBorrowedLocalBindings();
             IRNode? caseVal = null;
-            if (c.value_node != null) { caseVal = self.lowerExpr(c.value_node, varTypes); }
+            if (c.value_node != null) {
+                caseVal = self.lowerExpr(c.value_node, varTypes);
+            } else {
+                hasDefault = true;
+            }
             Vector<IRNode> body = [];
             self.pushManagedScope();
             int j = 0;
@@ -4096,20 +4521,35 @@ class IRGen {
             if (fallsThrough) { self.emitScopeRelease(managed, body); }
             self.restoreBorrowedLocalBindings(
                 caseBorrowedBindings);
+            self.finishCallableScope(enclosingCase);
+            caseFlows.push(self.snapshotCallableFlow());
             cases.push(irCase(caseVal, body));
             i = i + 1;
         }
         self.popControlContext();
+        self.restoreCallableFlow(incoming);
+        if (!hasDefault) { caseFlows.push(incoming); }
+        self.joinCallableFlows(caseFlows);
         return irSwitch(val, cases);
     }
 
     public IRNode lowerIf(Node node, Map<string, Node> varTypes) {
         IRNode cond = self.lowerExpr(node.condition, varTypes);
+        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
         IRNode then_b = self.lowerBlock(node.then_block, varTypes);
+        CallableFlowSnapshot thenFlow = self.snapshotCallableFlow();
+        self.restoreCallableFlow(incoming);
         IRNode? else_b = null;
+        CallableFlowSnapshot elseFlow = incoming;
         if (node.else_block != null) {
             else_b = self.lowerElse(node.else_block, varTypes);
+            elseFlow = self.snapshotCallableFlow();
+            self.restoreCallableFlow(incoming);
         }
+        Vector<CallableFlowSnapshot> flows = [];
+        flows.push(thenFlow);
+        flows.push(elseFlow);
+        self.joinCallableFlows(flows);
         return irIf(cond, then_b, else_b);
     }
 
@@ -4128,6 +4568,8 @@ class IRGen {
     }
 
     public IRNode lowerCFor(Node node, Map<string, Node> varTypes) {
+        CallableFlowSnapshot enclosingCallables =
+            self.beginCallableScope();
         Map<string, Node> loopTypes = semanticCloneTypes(varTypes);
         IRNode? init = null;
         if (node.init != null) {
@@ -4157,6 +4599,15 @@ class IRGen {
                 if (declType != null) {
                     loopTypes.put(vd.name, declType);
                 }
+                self.recordCallableDeclaration(vd.name);
+                Node? callableDeclType = resolveTypedefType(
+                    declType, self.analyzed.typedefTable);
+                if (callableDeclType != null
+                        && callableDeclType.base == "__fn_ptr") {
+                    self.setCallableBindingAbi(
+                        vd.name, self.callableExpressionAbi(
+                            vd.initializer, loopTypes));
+                }
                 init = irVarDecl(ct, vd.name, vinit);
             } else if (node.init.kind == NK_FOR_INIT_EXPR) {
                 init = irExprStmt(
@@ -4168,12 +4619,23 @@ class IRGen {
         if (node.condition != null) {
             cond = self.lowerExpr(node.condition, loopTypes);
         }
+        IRNode body = self.lowerLoopBody(node.body_node, loopTypes);
         IRNode? update = null;
         if (node.update != null) {
+            CallableFlowSnapshot beforeUpdate =
+                self.snapshotCallableFlow();
             update = self.lowerExpr(node.update, loopTypes);
+            CallableFlowSnapshot updateFlow =
+                self.snapshotCallableFlow();
+            self.restoreCallableFlow(beforeUpdate);
+            Vector<CallableFlowSnapshot> updateFlows = [];
+            updateFlows.push(beforeUpdate);
+            updateFlows.push(updateFlow);
+            self.joinCallableFlows(updateFlows);
         }
-        IRNode body = self.lowerLoopBody(node.body_node, loopTypes);
-        return irFor(init, cond, update, body);
+        IRNode lowered = irFor(init, cond, update, body);
+        self.finishCallableScope(enclosingCallables);
+        return lowered;
     }
 
     /* Build a loop body block with `prefix` statements prepended to the lowered
@@ -4309,6 +4771,11 @@ class IRGen {
     public void lowerStringForIn(Node node, IRNode irIter, string varName, Map<string, Node> varTypes, Vector<IRNode> out) {
         string idx = self.freshTemp("__i");
         string iterVar = self.freshTemp("__iter");
+        out.push(irVarDecl("char*", iterVar, irIter));
+        Node stringType = makePrimType("string");
+        string ownedRuntimeType = beginOwnedIteration(
+            self, node.iterable, stringType,
+            varTypes, iterVar, out);
         varTypes.put(varName, makePrimType("char"));
         Vector<IRNode> prefix = [];
         prefix.push(irVarDecl("char", varName,
@@ -4324,11 +4791,6 @@ class IRGen {
         IRNode cond = irBinOp(
             irIndex(irVar(iterVar), irVar(idx)), "!=", irLiteral("'\\0'"));
         IRNode upd = irUnaryOp("++", irVar(idx), false);
-        out.push(irVarDecl("char*", iterVar, irIter));
-        Node stringType = makePrimType("string");
-        string ownedRuntimeType = beginOwnedIteration(
-            self, node.iterable, stringType,
-            varTypes, iterVar, out);
         out.push(irFor(forInit, cond, upd, body));
         endOwnedIteration(
             self, iterVar, ownedRuntimeType, out);
@@ -4472,6 +4934,38 @@ class IRGen {
             return lowerOwnedIndex(self, node, varTypes);
         }
         if (node.kind == NK_ASSIGN_EXPR) {
+            int callableAssignmentAbi = 0;
+            bool callableAssignment = node.op == "="
+                && node.target != null
+                && node.target.kind == NK_IDENTIFIER;
+            if (callableAssignment) {
+                callableAssignmentAbi = self.callableExpressionAbi(
+                    node.value_node, varTypes);
+            }
+            Node? callableStorageType = inferType(
+                node.target, self.analyzed, varTypes);
+            bool lexicalCallableTarget = node.target != null
+                && node.target.kind == NK_IDENTIFIER
+                && self.callableIdentifierIsLexicalLocal(
+                    node.target.name);
+            if (node.op == "=" && !lexicalCallableTarget) {
+                string boundary = "persistent storage";
+                if (node.target != null
+                        && node.target.kind == NK_IDENTIFIER) {
+                    boundary = "global storage";
+                } else if (node.target != null
+                        && node.target.kind == NK_FIELD_ACCESS_EXPR) {
+                    boundary = "field storage";
+                } else if (node.target != null
+                        && node.target.kind == NK_INDEX_EXPR) {
+                    boundary = "indexed storage";
+                }
+                self.rejectPersistentCallableEscape(
+                    callableStorageType,
+                    node.value_node,
+                    varTypes,
+                    boundary);
+            }
             IRNode? ownedTarget = lowerOwnedAssignment(
                 self, node, varTypes);
             if (ownedTarget != null) { return ownedTarget; }
@@ -4589,6 +5083,20 @@ class IRGen {
                         node.value_node, tType, varTypes);
                 }
                 value = self.upcastClassPointer(tType, vType, value);
+                Node? callableTargetType = resolveTypedefType(
+                    tType, self.analyzed.typedefTable);
+                if (node.target.kind == NK_IDENTIFIER
+                        && callableTargetType != null
+                        && callableTargetType.base == "__fn_ptr"
+                        && lexicalCallableTarget) {
+                    self.setCallableBindingAbi(
+                        node.target.name, callableAssignmentAbi);
+                }
+                if (tType != null
+                        && node.target.kind != NK_IDENTIFIER) {
+                    return self.lowerDirectStore(
+                        target, value, tType);
+                }
             }
             return irBinOp(target, node.op, value);
         }
@@ -5477,23 +5985,48 @@ class IRGen {
         if (targetType.is_volatile) { pointerType = pointerType + " volatile"; }
         pointerType = pointerType + "*";
         string pointerName = self.freshTemp("__btrc_lvalue");
+        string oldName = self.freshTemp("__btrc_update_old");
+        IRNode pointer = irVar(pointerName);
+        IRNode loaded = irDeref(pointer);
+        IRNode oldValue = irVar(oldName);
+        Vector<IRNode> declarations = [];
+        declarations.push(irVarDecl(pointerType, pointerName, null));
+        declarations.push(irVarDecl(
+            typeToC(targetType, self.analyzed), oldName, null));
+        Vector<IRNode> sequence = [];
+        sequence.push(irBinOp(pointer, "=", irAddressOf(target)));
+        sequence.push(irBinOp(oldValue, "=", loaded));
+        string baseOp = compoundOp.substring(0, compoundOp.length() - 1);
+        IRNode? computed = self.lowerOverloadedValues(
+            baseOp, oldValue, right, targetType, rightType);
+        if (computed == null) {
+            computed = self.lowerTypedBinaryValues(
+                baseOp, oldValue, right, targetType, rightType);
+        }
+        if (computed == null) {
+            computed = irBinOp(oldValue, baseOp, right);
+        }
+        sequence.push(irBinOp(loaded, "=", computed));
+        return irStmtExpr(declarations, irCommaExpr(sequence));
+    }
+
+    public IRNode lowerDirectStore(
+            IRNode target, IRNode value, Node targetType) {
+        string pointerType = typeToC(targetType, self.analyzed);
+        if (targetType.is_volatile) {
+            pointerType = pointerType + " volatile";
+        }
+        pointerType = pointerType + "*";
+        string pointerName = self.freshTemp("__btrc_lvalue");
         IRNode pointer = irVar(pointerName);
         IRNode loaded = irDeref(pointer);
         Vector<IRNode> declarations = [];
-        declarations.push(irVarDecl(pointerType, pointerName, null));
+        declarations.push(irVarDecl(
+            pointerType, pointerName, null));
         Vector<IRNode> sequence = [];
-        sequence.push(irBinOp(pointer, "=", irAddressOf(target)));
-        string baseOp = compoundOp.substring(0, compoundOp.length() - 1);
-        IRNode? computed = self.lowerOverloadedValues(
-            baseOp, loaded, right, targetType, rightType);
-        if (computed == null) {
-            computed = self.lowerTypedBinaryValues(
-                baseOp, loaded, right, targetType, rightType);
-        }
-        if (computed == null) {
-            computed = irBinOp(loaded, baseOp, right);
-        }
-        sequence.push(irBinOp(loaded, "=", computed));
+        sequence.push(irBinOp(
+            pointer, "=", irAddressOf(target)));
+        sequence.push(irBinOp(loaded, "=", value));
         return irStmtExpr(declarations, irCommaExpr(sequence));
     }
 
@@ -6132,26 +6665,11 @@ class IRGen {
         if (op == "??") {
             if (semanticOptionalValueCoalesce(
                     node.left, leftType, rightType, self.analyzed)) {
-                if (left.kind != IRK_STMT_EXPR || left.result == null
-                        || left.result.kind != IRK_COMMA_EXPR
-                        || left.result.args.len == 0) {
-                    self.typedOperatorFail(
-                        "optional-chain coalescing requires structured single-evaluation IR");
-                }
-                IRNode tail = left.result.args.get(left.result.args.len - 1);
-                if (tail.kind != IRK_TERNARY) {
+                if (!irReplaceOptionalPresenceFallback(left, right)) {
                     self.typedOperatorFail(
                         "optional-chain coalescing requires a presence ternary");
                 }
-                Vector<IRNode> sequence = [];
-                int i = 0;
-                while (i + 1 < left.result.args.len) {
-                    sequence.push(left.result.args.get(i));
-                    i = i + 1;
-                }
-                sequence.push(irTernary(
-                    tail.condition, tail.true_expr, right));
-                return irStmtExpr(left.stmts, irCommaExpr(sequence));
+                return left;
             }
             string tmp = self.freshTemp("__nc");
             Node? resultType = leftType;
@@ -6806,6 +7324,29 @@ class IRGen {
                         params.get(paramIndex).type, call.args.get(i),
                         varTypes)) {
                 self.rejectClosureEscape(call.args.get(i));
+            }
+            if (paramIndex >= 0 && paramIndex < params.len) {
+                Node parameter = params.get(paramIndex);
+                Node? expected = resolveTypedefType(
+                    parameter.type, self.analyzed.typedefTable);
+                Node? actual = inferType(
+                    call.args.get(i), self.analyzed, varTypes);
+                actual = resolveTypedefType(
+                    actual, self.analyzed.typedefTable);
+                if (expected != null && expected.base == "__fn_ptr"
+                        && actual != null
+                        && actual.base == "__fn_ptr"
+                        && actual.generic_args.len > 0
+                        && irManagedType(
+                            self, actual.generic_args.get(0))
+                        && self.callableExpressionAbi(
+                            call.args.get(i), varTypes) != 0) {
+                    print("Managed-return callback for parameter '"
+                        + parameter.name + "' erases its source-owned "
+                        + "return ABI; bare __fn_ptr parameters accept only "
+                        + "borrowed C callbacks");
+                    abortGen();
+                }
             }
             i = i + 1;
         }

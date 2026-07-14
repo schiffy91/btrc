@@ -16,66 +16,14 @@ class _UserGenericOperatorMixin:
     """Operator/update lowering shared by monomorphized generic methods."""
 
     def _binary_expr(self, expression) -> IRExpr:
-        if expression.op not in {"??", "&&", "||"}:
-            from ..operator_ownership import operator_rhs_keep
+        from .user_emitter_binary import lower_generic_binary
 
-            left_type = self._resolve_expr_type(expression.left)
-            right_type = self._resolve_expr_type(expression.right)
-            keep_nodes = (
-                [expression.right]
-                if operator_rhs_keep(
-                    self._gen,
-                    left_type,
-                    expression.op,
-                    right_type,
-                )
-                else []
-            )
-            sequenced = self._sequence_owned_nodes(
-                [expression.left, expression.right],
-                expression,
-                lambda: self._binary_expr_plain(expression),
-                keep_nodes=keep_nodes,
-            )
-            if sequenced is not None:
-                return sequenced
-        return self._binary_expr_plain(expression)
+        return lower_generic_binary(self, expression)
 
     def _binary_expr_plain(self, expression) -> IRExpr:
-        from ..operators import lower_overloaded_values
-        from ..typed_operators import lower_typed_binary
+        from .user_emitter_binary import lower_generic_binary_plain
 
-        left = self._expr(expression.left)
-        right = self._expr(expression.right)
-        if expression.op == "??" and self._owns_expr(expression):
-            from .user_emitter_ownership import normalize_owned_branch
-
-            left = normalize_owned_branch(self, expression.left, left)
-            right = normalize_owned_branch(self, expression.right, right)
-        left_type = self._resolve_expr_type(expression.left)
-        right_type = self._resolve_expr_type(expression.right)
-        if self._gen:
-            overloaded = lower_overloaded_values(
-                self._gen,
-                left_type,
-                right_type,
-                expression.op,
-                left,
-                right,
-            )
-            if overloaded is not None:
-                return overloaded
-        lowered = lower_typed_binary(
-            expression.op,
-            left,
-            right,
-            left_type,
-            right_type,
-            operator_context(self._gen, fresh_temp=self._fresh_temp),
-        )
-        if lowered is not None:
-            return lowered
-        return IRBinOp(left=left, op=expression.op, right=right)
+        return lower_generic_binary_plain(self, expression)
 
     def _ternary_expr(self, expression) -> IRExpr:
         from ..typed_operators import lower_typed_ternary
@@ -164,13 +112,25 @@ class _UserGenericOperatorMixin:
             from ..managed_local import mark_borrowed_cycle_seeds
 
             mark_borrowed_cycle_seeds(self._managed_vars_stack)
-        from ....ast_nodes import FieldAccessExpr, IndexExpr
+        from ..assignment_ownership import (
+            assignment_target_operands,
+            kept_target_operands,
+            property_projection,
+        )
 
-        target_nodes = []
-        if isinstance(expression.target, FieldAccessExpr):
-            target_nodes = [expression.target.obj]
-        elif isinstance(expression.target, IndexExpr):
-            target_nodes = [expression.target.obj, expression.target.index]
+        type_of = self._resolve_expr_type
+        target_nodes = assignment_target_operands(
+            expression.target,
+            stabilize_receiver=lambda receiver: bool(
+                self._owns_expr(receiver)
+                or self._is_managed_type(type_of(receiver))
+                or property_projection(
+                    receiver,
+                    type_of=type_of,
+                    class_table=self._gen.analyzed.class_table,
+                )
+            ),
+        )
         if target_nodes:
             from ..assignment_ownership import virtual_assignment_target
             from ..ownership import owns_result
@@ -185,10 +145,14 @@ class _UserGenericOperatorMixin:
                 target_nodes,
                 expression,
                 lambda: self._assignment_expr_plain(expression),
-                promote_result=(
-                    self._is_managed_type(result_type)
-                    and not rhs_supplies_result
+                keep_nodes=kept_target_operands(
+                    expression.target,
+                    target_nodes,
+                    type_of=type_of,
+                    is_managed=self._is_managed_type,
+                    owns=self._owns_expr,
                 ),
+                promote_result=(self._is_managed_type(result_type) and not rhs_supplies_result),
             )
             if sequenced is not None:
                 return sequenced

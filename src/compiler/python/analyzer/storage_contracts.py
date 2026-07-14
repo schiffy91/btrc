@@ -18,6 +18,22 @@ class StorageContractsMixin:
             active_type_params=self._active_storage_type_parameters(),
         )
         canonical = self._canonical_type(type_expr)
+        if (
+            not is_global
+            and type_expr.is_static
+            and canonical is not None
+            and (
+                canonical.base == "string"
+                or canonical.base in self.class_table
+                or canonical.base in self._active_storage_type_parameters()
+            )
+        ):
+            self._error(
+                f"{subject} cannot use managed static-local storage; "
+                "declare an owned lexical value or explicit global owner",
+                declaration.line,
+                declaration.col,
+            )
         contains_thread = self._contains_thread_storage(type_expr)
         outer = self.scope.parent.lookup(declaration.name) if not is_global and self.scope.parent else None
         if contains_thread and outer is not None:

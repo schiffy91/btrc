@@ -37,7 +37,8 @@ void emitAutoPropertyStore(IRGen generator, Node propertyType,
 }
 
 IRNode lowerPropertyStoreCore(IRGen generator, Node assignment,
-        Node receiverType, Node property, Map<string, Node> varTypes) {
+        Node receiverType, Node property, Node propertyType,
+        Map<string, Node> varTypes) {
     Node target = assignment.target;
     IRNode receiver = generator.lowerExpr(target.obj, varTypes);
     IRNode value = generator.lowerExpr(
@@ -47,15 +48,27 @@ IRNode lowerPropertyStoreCore(IRGen generator, Node assignment,
         return irBinOp(irFieldAccess(receiver,
             instanceStorageName(property), true), "=", value);
     }
+    /* A setter is void in C, while the source assignment yields its RHS. Keep
+     * that RHS in one structured temporary: embedding the same lowered IR in
+     * both the call and the result would duplicate any nested declarations and
+     * evaluate side effects twice. */
+    string resultName = generator.freshTemp("__btrc_property_value");
+    IRNode resultDeclaration = irVarDecl(
+        typeToC(propertyType, generator.analyzed), resultName, null);
+    generator.funcVarDecls.push(resultDeclaration);
+    IRNode result = irVar(resultName);
     Vector<IRNode> arguments = [];
     arguments.push(receiver);
-    arguments.push(value);
+    arguments.push(result);
+    Vector<IRNode> declarations = [];
+    declarations.push(resultDeclaration);
     Vector<IRNode> sequence = [];
+    sequence.push(irBinOp(result, "=", value));
     sequence.push(irCall(instanceFunctionPrefix(
         generator.analyzed, receiverType)
             + "_set_" + target.field, arguments));
-    sequence.push(value);
-    return irCommaExpr(sequence);
+    sequence.push(result);
+    return irStmtExpr(declarations, irCommaExpr(sequence));
 }
 
 IRNode lowerPropertyStoreWithOwnership(IRGen generator, Node assignment,
@@ -66,7 +79,7 @@ IRNode lowerPropertyStoreWithOwnership(IRGen generator, Node assignment,
         && propertyNeedsBacking(property);
     if (directBacking) {
         return lowerPropertyStoreCore(generator, assignment,
-            receiverType, property, varTypes);
+            receiverType, property, propertyType, varTypes);
     }
     bool receiverOwned = irUnconsumedOwnedResult(
         generator, target.obj, varTypes);
@@ -74,7 +87,7 @@ IRNode lowerPropertyStoreWithOwnership(IRGen generator, Node assignment,
         generator, assignment.value_node, propertyType, varTypes);
     if (!receiverOwned && !valueOwned) {
         return lowerPropertyStoreCore(generator, assignment,
-            receiverType, property, varTypes);
+            receiverType, property, propertyType, varTypes);
     }
     Node? actualValueType = generator.resolvedExpressionType(
         assignment.value_node, varTypes);
@@ -86,7 +99,7 @@ IRNode lowerPropertyStoreWithOwnership(IRGen generator, Node assignment,
     boundary.addCallOperand(generator, assignment.value_node,
         actualValueType, valueOwned, false, valueOwned, varTypes);
     IRNode lowered = lowerPropertyStoreCore(generator, assignment,
-        receiverType, property, varTypes);
+        receiverType, property, propertyType, varTypes);
     boundary.restore(generator);
     return boundary.finish(generator, lowered,
         propertyType, receiverOwned && !valueOwned);

@@ -4,6 +4,7 @@ import ast
 import re
 from pathlib import Path
 
+from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
 from src.compiler.python.ir.helpers.alloc import ALLOC
 from src.compiler.python.ir.helpers.collections import COLLECTIONS
 from src.compiler.python.ir.helpers.cycles import CYCLES
@@ -16,6 +17,7 @@ from src.compiler.python.ir.helpers.trycatch import TRYCATCH
 
 AUDITED = {name: helper for name, helper in (ALLOC | DIVMOD | MATH | TRYCATCH | HASH | CYCLES | THREADS).items()}
 MIRROR = Path("src/compiler/btrc/ir_nodes.btrc")
+TRYCATCH_MIRROR = Path("src/compiler/btrc/trycatch_runtime_helpers.btrc")
 CYCLE_STATE_MIRROR = Path("src/compiler/btrc/cycle_runtime_state.btrc")
 CYCLE_LOCK_MIRROR = Path("src/compiler/btrc/cycle_runtime_lock.btrc")
 CYCLE_RELEASE_MIRROR = Path("src/compiler/btrc/cycle_runtime_release.btrc")
@@ -46,6 +48,7 @@ def _returned_source(source: str) -> str:
 
 def _mirrored_sources() -> dict[str, str]:
     mirrored = _self_hosted_sources(MIRROR.read_text())
+    mirrored.update(_self_hosted_sources(TRYCATCH_MIRROR.read_text()))
     mirrored.update(_self_hosted_sources(CYCLE_STATE_MIRROR.read_text()))
     mirrored.update(_self_hosted_sources(CYCLE_LOCK_MIRROR.read_text()))
     mirrored.update(_self_hosted_sources(CYCLE_RELEASE_MIRROR.read_text()))
@@ -146,12 +149,22 @@ def test_python_generic_intrinsics_are_not_macro_helpers():
         assert obsolete not in HASH
 
 
+def test_throw_only_does_not_root_unused_try_capacity():
+    throw_helpers = {declaration.name for declaration in helper_decls_for_roots({"__btrc_throw"})}
+    push_helpers = {declaration.name for declaration in helper_decls_for_roots({"__btrc_push_try"})}
+
+    assert "__btrc_trycatch_globals" in throw_helpers
+    assert "__btrc_try_capacity" not in throw_helpers
+    assert "__btrc_try_capacity" in push_helpers
+
+
 def test_self_hosted_order_keeps_tls_cleanup_before_thread_wrappers():
     source = MIRROR.read_text()
     ordered = (
         "__btrc_math_gcd",
         "__btrc_math_lcm",
         "__btrc_trycatch_globals",
+        "__btrc_try_capacity",
         "__btrc_push_try",
         "__btrc_arc_callback_types",
         "__btrc_arc_header_of",

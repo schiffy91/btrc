@@ -203,6 +203,7 @@ def _write_lock(lock_path: str, deps_hash: str, resolved: dict[str, dict], manif
             "packages": packages,
             "schema": LOCK_SCHEMA,
         },
+        file_mode=0o644,
     )
 
 

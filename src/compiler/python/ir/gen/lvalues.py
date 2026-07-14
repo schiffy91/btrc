@@ -78,16 +78,18 @@ class LValuePlan:
 
     def store_result(self, value: IRExpr) -> IRExpr:
         """Store once and yield the assignment expression's value."""
+        return self.wrap(self.store_result_operations(value))
+
+    def store_result_operations(self, value: IRExpr) -> list[IRExpr]:
+        """Return an unwrapped store sequence for a larger transaction."""
         if self.store_yields_value:
-            return self.wrap([self.store(value)])
+            return [self.store(value)]
         result = self.declare_value("__btrc_update_value")
-        return self.wrap(
-            [
-                IRBinOp(left=result, op="=", right=value),
-                self.store(result),
-                result,
-            ]
-        )
+        return [
+            IRBinOp(left=result, op="=", right=value),
+            self.store(result),
+            result,
+        ]
 
 
 def build_lvalue_plan(
@@ -99,7 +101,9 @@ def build_lvalue_plan(
     """Build a single-evaluation plan for a direct, property, or indexed target."""
     value_type = context.type_of(target)
     if value_type is None:
-        raise TypedOperatorError("cannot resolve assignment target type")
+        line = getattr(target, "line", 0)
+        col = getattr(target, "col", 0)
+        raise TypedOperatorError(f"cannot resolve assignment target type for {type(target).__name__} at {line}:{col}")
     if isinstance(target, FieldAccessExpr) and target.optional:
         raise TypedOperatorError("optional-chain expressions are not assignable")
 

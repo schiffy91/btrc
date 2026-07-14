@@ -130,7 +130,9 @@ def _emit_scope_release(
 def _emitted_value_c_type(type_name: str) -> str:
     from .managed_values import STRING_RUNTIME_NAME
 
-    return "char*" if type_name == STRING_RUNTIME_NAME else f"{type_name}*"
+    # A local may shadow the class typedef (``Box Box``); C struct tags live in
+    # a separate namespace and therefore remain usable by generated cleanup.
+    return "char*" if type_name == STRING_RUNTIME_NAME else f"struct {type_name}*"
 
 
 def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:

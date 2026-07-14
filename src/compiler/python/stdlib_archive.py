@@ -34,21 +34,21 @@ Linkage notes:
 
 from __future__ import annotations
 
+import hashlib
 import os
 
 from . import stdlib_archive_validation as _archive_validation
 from .cache_io import atomic_write_json, atomic_write_text
 from .cache_keys import toolchain_hash
 from .stdlib_shared_state import (
-    SHARED_STATE_HELPER_GROUPS,
-    SHARED_STATE_HELPER_NAMES,
+    complete_shared_helpers,
     derive_shared_decls,
     derive_shared_impl,
     externize_toplevel,
+    inline_toplevel_functions,
 )
 
-HEADER_NAME = "btrc_stdlib.h"
-IMPL_NAME = "btrc_stdlib.c"
+HEADER_NAME, IMPL_NAME = _archive_validation.ARCHIVE_ARTIFACT_NAMES
 MANIFEST_NAME = "btrc_stdlib.manifest"
 ArchiveVersionError = _archive_validation.ArchiveVersionError
 MANIFEST_SCHEMA = _archive_validation.MANIFEST_SCHEMA
@@ -111,15 +111,7 @@ def transform_archive_module(module) -> tuple[list[str], dict[str, str]]:
     each helper's ``c_source`` is rewritten to its single-instance .c definition.
     """
     module.validate_declarations()
-    helper_roots = {helper.name for helper in module.helper_decls}
-    completed_roots = set(helper_roots)
-    for group in SHARED_STATE_HELPER_GROUPS.values():
-        if helper_roots & group:
-            completed_roots.update(group)
-    if completed_roots != helper_roots:
-        from .ir.gen.helpers import helper_decls_for_roots
-
-        module.helper_decls = helper_decls_for_roots(completed_roots)
+    module.helper_decls, archive_owned_helpers = complete_shared_helpers(module.helper_decls)
     archive_exports = {
         func.name for func in module.function_defs if _is_generic_symbol(func.name) or func.archive_export
     }
@@ -140,14 +132,21 @@ def transform_archive_module(module) -> tuple[list[str], dict[str, str]]:
     shared_present = []
     shared_decls = {}
     for helper in module.helper_decls:
-        if helper.name in SHARED_STATE_HELPER_NAMES:
+        if helper.name in archive_owned_helpers:
             shared_decls[helper.name] = derive_shared_decls(helper.c_source)
             helper.c_source = derive_shared_impl(helper.c_source)
             shared_present.append(helper.name)
+        else:
+            shared_decls[helper.name] = inline_toplevel_functions(helper.c_source)
     return shared_present, shared_decls
 
 
-def _build_manifest(module, shared_helpers: list[str], stdlib_source: str) -> dict:
+def _build_manifest(
+    module,
+    shared_helpers: list[str],
+    stdlib_source: str,
+    artifacts: dict[str, str] | None = None,
+) -> dict:
     """Identify every top-level element the archive provides, so a program can
     drop its own copy. Named elements key by name; macro records preserve their
     structured signature and replacement tokens.
@@ -155,7 +154,9 @@ def _build_manifest(module, shared_helpers: list[str], stdlib_source: str) -> di
     from .ir.nodes import IRMacroDef
 
     module.validate_declarations()
+    artifacts = artifacts or {HEADER_NAME: "", IMPL_NAME: ""}
     return {
+        "artifacts": {name: hashlib.sha256(content.encode("utf-8")).hexdigest() for name, content in artifacts.items()},
         "schema": MANIFEST_SCHEMA,
         "stdlib_source": _stdlib_source_hash(stdlib_source),
         "toolchain": toolchain_hash("full"),
@@ -193,20 +194,29 @@ def build_archive(out_dir: str, module, stdlib_source: str) -> dict:
 
     header = CEmitter().emit_header(module, shared_decls)
     impl = CEmitter().emit_impl(module, HEADER_NAME, set(shared))
-    manifest = _build_manifest(module, shared, stdlib_source)
+    manifest = _build_manifest(
+        module,
+        shared,
+        stdlib_source,
+        {HEADER_NAME: header, IMPL_NAME: impl},
+    )
 
     # Publish complete files atomically and stamp the manifest last. A failed
     # rebuild can therefore never leave a partially written file advertised as
     # a valid archive.
-    atomic_write_text(os.path.join(out_dir, HEADER_NAME), header)
-    atomic_write_text(os.path.join(out_dir, IMPL_NAME), impl)
-    atomic_write_json(os.path.join(out_dir, MANIFEST_NAME), manifest)
+    atomic_write_text(os.path.join(out_dir, HEADER_NAME), header, file_mode=0o644)
+    atomic_write_text(os.path.join(out_dir, IMPL_NAME), impl, file_mode=0o644)
+    atomic_write_json(os.path.join(out_dir, MANIFEST_NAME), manifest, file_mode=0o644)
     return manifest
 
 
 def load_manifest(stdlib_dir: str, stdlib_source: str) -> dict:
     """Load and validate an archive against the canonical whole stdlib."""
-    return _archive_validation.load_manifest(stdlib_dir, stdlib_source, MANIFEST_NAME)
+    return _archive_validation.load_manifest(
+        stdlib_dir,
+        stdlib_source,
+        MANIFEST_NAME,
+    )
 
 
 def partition_for_archive(module, manifest: dict, header_include: str = HEADER_NAME):

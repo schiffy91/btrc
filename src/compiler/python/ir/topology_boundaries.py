@@ -36,18 +36,17 @@ def install_collection_topology_boundary(gen, function: IRFunctionDef) -> bool:
     gen.use_helper("__btrc_arc_topology_complete")
     if cleanup_enabled:
         gen.use_helper("__btrc_cleanup_mark")
-        gen.use_helper("__btrc_register_direct_cleanup")
         gen.use_helper("__btrc_arc_topology_cleanup")
         gen.use_helper("__btrc_discard_cleanups_to")
 
     _rewrite_block(gen, function, function.body, token, marker)
     if sequence_may_fall_through(function.body.stmts):
         function.body.stmts.extend(_epilogue(token, marker))
-    function.body.stmts[0:0] = _prologue(token, marker)
+    function.body.stmts[0:0] = _prologue(gen, token, marker)
     return True
 
 
-def _prologue(token: str, marker: str | None) -> list:
+def _prologue(gen, token: str, marker: str | None) -> list:
     statements = []
     if marker is not None:
         statements.append(
@@ -61,31 +60,26 @@ def _prologue(token: str, marker: str | None) -> list:
                 ),
             )
         )
-    statements.append(
-        IRVarDecl(
-            c_type=CType(text="void*"),
-            name=token,
-            init=IRCall(
-                callee="__btrc_arc_topology_begin",
-                args=[],
-                helper_ref="__btrc_arc_topology_begin",
-            ),
-            is_volatile=marker is not None,
-        )
+    token_declaration = IRVarDecl(
+        c_type=CType(text="void*"),
+        name=token,
+        init=IRCall(
+            callee="__btrc_arc_topology_begin",
+            args=[],
+            helper_ref="__btrc_arc_topology_begin",
+        ),
     )
+    statements.append(token_declaration)
     if marker is not None:
+        from .gen.cleanup_slots import register_cleanup_slot
+
         statements.append(
             IRExprStmt(
-                expr=IRCall(
-                    callee="__btrc_register_direct_cleanup",
-                    args=[
-                        IRCast(
-                            target_type=CType(text="void**"),
-                            expr=IRAddressOf(expr=IRVar(name=token)),
-                        ),
-                        IRVar(name="__btrc_arc_topology_cleanup"),
-                    ],
-                    helper_ref="__btrc_register_direct_cleanup",
+                expr=register_cleanup_slot(
+                    gen,
+                    token_declaration,
+                    IRVar(name="__btrc_arc_topology_cleanup"),
+                    direct=True,
                 )
             )
         )

@@ -77,7 +77,8 @@ void rewriteTopologyReturns(IRGen generator, IRFunction definition,
 }
 
 Vector<IRNode> irTopologyPrologue(
-        string token, string marker, bool cleanupEnabled) {
+        IRGen generator, string token, string marker,
+        bool cleanupEnabled) {
     Vector<IRNode> output = [];
     if (cleanupEnabled) {
         Vector<IRNode> markArguments = [];
@@ -87,15 +88,11 @@ Vector<IRNode> irTopologyPrologue(
     Vector<IRNode> beginArguments = [];
     IRNode tokenDeclaration = irVarDecl("void*", token,
         irCall("__btrc_arc_topology_begin", beginArguments));
-    tokenDeclaration.is_volatile = cleanupEnabled;
     output.push(tokenDeclaration);
     if (cleanupEnabled) {
-        Vector<IRNode> registerArguments = [];
-        registerArguments.push(
-            irCast("void**", irAddressOf(irVar(token))));
-        registerArguments.push(irVar("__btrc_arc_topology_cleanup"));
-        output.push(irExprStmt(irCall(
-            "__btrc_register_direct_cleanup", registerArguments)));
+        output.push(irExprStmt(registerCleanupSlot(generator,
+            tokenDeclaration, irVar("__btrc_arc_topology_cleanup"),
+            null, true)));
     }
     return output;
 }
@@ -127,7 +124,7 @@ bool installCollectionTopologyBoundary(
         appendIrTopologyEpilogue(definition.body.stmts, token, marker);
     }
     Vector<IRNode> body = irTopologyPrologue(
-        token, marker, cleanupEnabled);
+        generator, token, marker, cleanupEnabled);
     int index = 0;
     while (index < definition.body.stmts.len) {
         body.push(definition.body.stmts.get(index));

@@ -25,6 +25,7 @@ SHARED_STATE_HELPER_GROUPS = {
         {
             "__btrc_try_level",
             "__btrc_trycatch_globals",
+            "__btrc_try_capacity",
         }
     ),
     "cleanup_stack": frozenset(
@@ -54,6 +55,74 @@ SHARED_STATE_HELPER_GROUPS = {
     ),
 }
 SHARED_STATE_HELPER_NAMES = frozenset().union(*SHARED_STATE_HELPER_GROUPS.values())
+
+# A shared state group is useful across translation units only through its
+# stable mutation/lifecycle surface.  Root these entry points deliberately so
+# archive headers never depend on whichever stdlib method happened to call one
+# during the current build.
+SHARED_STATE_API_ROOTS = {
+    "try_stack": frozenset(
+        {
+            "__btrc_push_try",
+            "__btrc_try_state_cleanup",
+        }
+    ),
+    "cleanup_stack": frozenset(
+        {
+            "__btrc_register_cleanup",
+            "__btrc_register_direct_cleanup",
+            "__btrc_try_state_cleanup",
+        }
+    ),
+    "destroyed_log": frozenset(
+        {
+            "__btrc_mark_destroyed",
+            "__btrc_is_destroyed",
+            "__btrc_cycle_state_cleanup",
+        }
+    ),
+    "cycle_suspects": frozenset(
+        {
+            "__btrc_suspect",
+            "__btrc_cycle_state_cleanup",
+        }
+    ),
+    "string_registry": frozenset(
+        {
+            "__btrc_string_retain",
+            "__btrc_string_release",
+            "__btrc_string_live_count",
+        }
+    ),
+}
+
+
+def complete_shared_helpers(helper_decls: list) -> tuple[list, frozenset[str]]:
+    """Complete every reached shared-state group and its archive-owned API.
+
+    API dependencies can reach another mutable-state group, so completion must
+    iterate to a fixed point. Callers receive dependency-ordered declarations
+    plus the exact state/API helpers that need one external archive definition.
+    """
+    helper_roots = {helper.name for helper in helper_decls}
+    active_groups = {group_name for group_name, group in SHARED_STATE_HELPER_GROUPS.items() if helper_roots & group}
+    if not active_groups:
+        return helper_decls, frozenset()
+
+    from .ir.gen.helpers import helper_decls_for_roots
+
+    completed_roots = set(helper_roots)
+    while True:
+        declarations = helper_decls_for_roots(completed_roots)
+        reachable = {helper.name for helper in declarations}
+        active_groups = {group_name for group_name, group in SHARED_STATE_HELPER_GROUPS.items() if reachable & group}
+        required = set()
+        for group_name in active_groups:
+            required.update(SHARED_STATE_HELPER_GROUPS[group_name])
+            required.update(SHARED_STATE_API_ROOTS[group_name])
+        if required <= completed_roots:
+            return declarations, frozenset(required & reachable)
+        completed_roots.update(required)
 
 
 def externize_toplevel(text: str) -> str:
@@ -108,6 +177,23 @@ def _function_definition_prototype(unit: str) -> str | None:
     if "(" not in signature or signature.endswith("="):
         return None
     return signature + ";"
+
+
+def inline_toplevel_functions(c_source: str) -> str:
+    """Make header-local helper function definitions safe when unused.
+
+    Archive APIs move to the implementation, but their private dependencies
+    remain available to both the implementation and program translation units
+    through the public header. C11 ``static inline`` preserves their existing
+    per-translation-unit linkage without triggering ``-Wunused-function``.
+    """
+    out = []
+    for unit in _split_toplevel_units(c_source):
+        if _function_definition_prototype(unit) is not None and unit.startswith("static "):
+            if not unit.startswith("static inline "):
+                unit = "static inline " + unit[len("static ") :]
+        out.append(unit)
+    return "\n".join(out)
 
 
 def derive_shared_decls(c_source: str) -> str:

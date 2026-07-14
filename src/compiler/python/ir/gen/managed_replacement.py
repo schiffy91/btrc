@@ -41,11 +41,9 @@ def lower_managed_slot_replacement(
     sequence = [IRBinOp(left=replacement, op="=", right=value)]
     if not value_owned:
         sequence.append(retain_value(gen, replacement, target_type))
-    if cleanup_active:
-        replacement_decl.is_volatile = True
     cleanup_decls, cleanup_exprs = cleanup_registration(
         gen,
-        replacement,
+        replacement_decl,
         target_type,
         "__btrc_slot_cleanup",
         active=cleanup_active,

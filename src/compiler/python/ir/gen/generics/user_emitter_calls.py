@@ -21,6 +21,11 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             getattr(expression, "arg_names", []) or [],
             receiver,
             owned_transfer_param_indices(declaration),
+            callee=self._evaluated_callee(expression),
+            force_order=self._language_ordered_call(
+                expression,
+                declaration,
+            ),
         )
         if not operands:
             return self._plain_call(expression)
@@ -29,6 +34,26 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             expression,
             lambda: self._plain_call(expression),
         )
+
+    @staticmethod
+    def _evaluated_callee(expression):
+        from ....ast_nodes import FieldAccessExpr, Identifier, LambdaExpr
+
+        callee = expression.callee
+        if isinstance(callee, (Identifier, FieldAccessExpr, LambdaExpr)):
+            return None
+        return callee
+
+    def _language_ordered_call(self, expression, declaration):
+        if declaration is not None:
+            return True
+        from ....ast_nodes import Identifier
+
+        if isinstance(expression.callee, Identifier):
+            if expression.callee.name in {"print", "Mutex"}:
+                return True
+        callee_type = self._resolve_expr_type(expression.callee)
+        return bool(callee_type is not None and callee_type.base == "__fn_ptr")
 
     def _plain_call(self, expression):
         from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr

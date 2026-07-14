@@ -41,6 +41,9 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         self.module.debug = debug
         self._lambda_counter = 0
         self._temp_counter = 0
+        self._cleanup_take_adapters: dict[str, str] = {}
+        self._cleanup_take_adapter_defs = []
+        self._cleanup_take_adapters_finalized = False
         # Track which helpers are needed
         self._used_helpers: set[str] = set()
         # Current class context (for method lowering)
@@ -56,6 +59,13 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         # Lambda capture environment tracking:
         # Maps fn_ptr variable name → env variable name
         self._fn_ptr_envs: dict[str, str] = {}
+        # Lexical function-pointer bindings and their managed-return ABI.
+        # Source functions/lambdas return +1; arbitrary C callbacks are
+        # borrowed. ``ambiguous`` is a conservative control-flow join and is
+        # rejected when the callback returns a managed value.
+        self._callable_return_abis: dict[str, str] = {}
+        self._callable_scope_declarations: list[set[str]] = []
+        self._callable_exception_captures: list[tuple[frozenset[str], list[dict[str, str]]]] = []
         # Last lambda ID assigned (for linking lambda to var decl)
         self._last_lambda_id: int = 0
         # C return type of the function/method currently being lowered. Used to
@@ -89,6 +99,9 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
             self._emit_enums()
             self._emit_declarations()
             self._emit_fn_ptr_typedefs()
+            from .cleanup_slots import finalize_cleanup_take_adapters
+
+            finalize_cleanup_take_adapters(self)
             from .setjmp_volatility import apply_setjmp_volatility
 
             apply_setjmp_volatility(self.module)

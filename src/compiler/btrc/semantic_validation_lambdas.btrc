@@ -42,7 +42,10 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
         semanticCloneFlags(state.borrowedBindings);
     Map<string, bool> previousParameterNames =
         semanticCloneFlags(state.parameterNames);
+    Map<string, bool> previousLocalBindings =
+        semanticCloneFlags(state.localBindings);
     state.borrowedBindings = semanticCloneFlags(parameterNames);
+    state.localBindings = semanticCloneFlags(parameterNames);
     /* Lambda parameters are not parameters of state.callable, which remains
      * the enclosing declaration for the rest of semantic analysis.  Keep the
      * transfer-contract name set isolated so identical spellings cannot borrow
@@ -52,11 +55,12 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
     while (captureIndex < names.len) {
         string name = names.get(captureIndex);
         if (!parameterNames.has(name) && vars.has(name)
-                && !state.analyzed.globalVarTypes.has(name)) {
+                && previousLocalBindings.has(name)) {
             /* Lifted environment fields are non-owning copies.  Model them as
              * borrowed lexical proxies even when the enclosing local owns its
              * slot, so rebind/release validation matches generated code. */
             state.borrowedBindings.put(name, true);
+            state.localBindings.put(name, true);
             if (semanticContainsThreadStorage(vars.get(name), state)) {
                 semanticValidationFail(
                     "A lambda cannot capture Thread handle '" + name
@@ -104,6 +108,7 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
     state.breakDepth = previousBreak;
     state.borrowedBindings = previousBorrowedBindings;
     state.parameterNames = previousParameterNames;
+    state.localBindings = previousLocalBindings;
 }
 
 void semanticValidateSpawnCaptures(Node expression,

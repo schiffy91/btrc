@@ -24,6 +24,9 @@ def isolated_function_context(gen, return_c_type, return_type):
         gen.current_return_type,
         gen.current_return_owned,
         gen._fn_ptr_envs,
+        gen._callable_return_abis,
+        gen._callable_scope_declarations,
+        gen._callable_exception_captures,
         gen._last_lambda_id,
         gen._owning_temp_overrides,
         gen._normalizing_void_main,
@@ -44,6 +47,9 @@ def isolated_function_context(gen, return_c_type, return_type):
     gen.current_return_type = return_type
     gen.current_return_owned = True
     gen._fn_ptr_envs = {}
+    gen._callable_return_abis = {}
+    gen._callable_scope_declarations = []
+    gen._callable_exception_captures = []
     gen._last_lambda_id = 0
     gen._owning_temp_overrides = {}
     gen._normalizing_void_main = False
@@ -67,6 +73,9 @@ def isolated_function_context(gen, return_c_type, return_type):
             gen.current_return_type,
             gen.current_return_owned,
             gen._fn_ptr_envs,
+            gen._callable_return_abis,
+            gen._callable_scope_declarations,
+            gen._callable_exception_captures,
             gen._last_lambda_id,
             gen._owning_temp_overrides,
             gen._normalizing_void_main,

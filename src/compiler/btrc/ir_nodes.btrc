@@ -83,6 +83,9 @@ class IRNode {
     public bool is_volatile;     /* IRVarDecl: emit `volatile` (setjmp/longjmp rule) */
     public bool is_static;       /* IRVarDecl storage class */
     public bool is_extern;       /* IRVarDecl storage class */
+    /* Typed unwind-slot identity shared by one declaration and its calls. */
+    public IRCleanupSlot cleanup_slot;
+    public string helper_ref;    /* Explicit runtime-helper edge on IRCall. */
     public IRNode init;          /* IRVarDecl initializer / IRFor init */
     public IRNode value;         /* IRReturn / IRAssign value */
     public IRNode target;        /* IRAssign target */
@@ -120,6 +123,8 @@ class IRNode {
         self.is_volatile = false;
         self.is_static = false;
         self.is_extern = false;
+        self.cleanup_slot = null;
+        self.helper_ref = "";
         self.init = null;
         self.value = null;
         self.target = null;
@@ -525,6 +530,9 @@ string helperSource(string name) {
     }
     if (stringOwnershipRuntimeHasHelper(name)) {
         return stringOwnershipRuntimeHelperSource(name);
+    }
+    if (trycatchRuntimeHasHelper(name)) {
+        return trycatchRuntimeHelperSource(name);
     }
     if (name == "__btrc_div") {
         return "static inline int __btrc_div_g_int(int a, int b) {\n"
@@ -1431,207 +1439,6 @@ string helperSource(string name) {
             + "    return s;\n"
             + "}";
     }
-    /* --- trycatch category --- */
-    if (name == "__btrc_try_level") {
-        /* The cleanup stack and setjmp stack share this level.  Keeping it
-         * separate lets cleanup-only constructor guards avoid rooting the
-         * otherwise-unused frame capacity, frame pointers, and error buffer.
-         * It changes across setjmp/longjmp, so C11 requires volatile. */
-        return "static _Thread_local volatile int __btrc_try_top = -1;";
-    }
-    if (name == "__btrc_trycatch_globals") {
-        return "/* btrc try/catch runtime (dynamic) */\n"
-            + "static _Thread_local int __btrc_try_cap = 16;\n"
-            + "typedef struct { jmp_buf env; } __btrc_try_frame;\n"
-            + "static _Thread_local __btrc_try_frame** __btrc_try_stack = NULL;\n"
-            + "static _Thread_local char __btrc_error_msg[1024] = \"\";";
-    }
-    if (name == "__btrc_launder_state") {
-        return "static _Thread_local void* volatile __btrc_launder_slot;";
-    }
-    if (name == "__btrc_launder") {
-        return "/* Opaque pointer launder used when returning a freshly-built object\n"
-            + " * out of a try/catch. gcc -O2 (e.g. nix's fortify hardening) runs\n"
-            + " * points-to / store-merging across the setjmp(...)==0 vs catch\n"
-            + " * branches and, for an object that does not otherwise escape, folds\n"
-            + " * the two branches' field inits together -- dropping the catch\n"
-            + " * object's initialization (its fields read back as the other\n"
-            + " * branch's values). Routing the pointer through a volatile slot\n"
-            + " * forces the object to escape, which defeats that miscompilation.\n"
-            + " * Pure C11; the volatile access is the optimization barrier. */\n"
-            + "static inline void* __btrc_launder(void* p) {\n"
-            + "    __btrc_launder_slot = p;\n"
-            + "    return __btrc_launder_slot;\n"
-            + "}";
-    }
-    if (name == "__btrc_push_try") {
-        return "static inline void __btrc_push_try(void) {\n"
-            + "    if (__btrc_try_cap < 1) __btrc_try_cap = 16;\n"
-            + "    if (__btrc_try_top == INT_MAX) { fprintf(stderr, \"btrc: try stack overflow\\n\"); exit(1); }\n"
-            + "    if (!__btrc_try_stack) {\n"
-            + "        if ((size_t)__btrc_try_cap > SIZE_MAX / sizeof(*__btrc_try_stack)) { fprintf(stderr, \"btrc: try stack size overflow\\n\"); exit(1); }\n"
-            + "        __btrc_try_stack = (__btrc_try_frame**)__btrc_safe_realloc(\n"
-            + "            NULL, sizeof(*__btrc_try_stack) * (size_t)__btrc_try_cap);\n"
-            + "        for (int i = 0; i < __btrc_try_cap; i++) __btrc_try_stack[i] = NULL;\n"
-            + "    }\n"
-            + "    if (__btrc_try_top + 1 >= __btrc_try_cap) {\n"
-            + "        if (__btrc_try_cap > INT_MAX / 2) { fprintf(stderr, \"btrc: try stack capacity overflow\\n\"); exit(1); }\n"
-            + "        int old_cap = __btrc_try_cap;\n"
-            + "        int new_cap = __btrc_try_cap * 2;\n"
-            + "        if ((size_t)new_cap > SIZE_MAX / sizeof(*__btrc_try_stack)) { fprintf(stderr, \"btrc: try stack size overflow\\n\"); exit(1); }\n"
-            + "        __btrc_try_stack = (__btrc_try_frame**)__btrc_safe_realloc(\n"
-            + "            __btrc_try_stack, sizeof(*__btrc_try_stack) * (size_t)new_cap);\n"
-            + "        for (int i = old_cap; i < new_cap; i++) __btrc_try_stack[i] = NULL;\n"
-            + "        __btrc_try_cap = new_cap;\n"
-            + "    }\n"
-            + "    __btrc_try_top++;\n"
-            + "    if (!__btrc_try_stack[__btrc_try_top]) {\n"
-            + "        __btrc_try_stack[__btrc_try_top] = (__btrc_try_frame*)\n"
-            + "            __btrc_safe_realloc(NULL, sizeof(__btrc_try_frame));\n"
-            + "    }\n"
-            + "}";
-    }
-    if (name == "__btrc_cleanup_types") {
-        return "/* Cleanup stack: tracks heap resources to free on exception */\n"
-            + "typedef __btrc_destroy_fn __btrc_cleanup_fn;\n"
-            + "typedef struct { void** ptr_ref; __btrc_cleanup_fn fn; __btrc_visit_fn visit; int try_level; int direct; } __btrc_cleanup_entry;\n"
-            + "static _Thread_local __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\n"
-            + "static _Thread_local int __btrc_cleanup_top = -1;";
-    }
-    if (name == "__btrc_cleanup_capacity") {
-        return "static _Thread_local int __btrc_cleanup_cap = 64;";
-    }
-    if (name == "__btrc_register_cleanup_kind") {
-        return "static inline void __btrc_register_cleanup_kind(void** ptr_ref, __btrc_cleanup_fn fn, __btrc_visit_fn visit, int direct) {\n"
-            + "    if (!ptr_ref || !fn) return;\n"
-            + "    for (int i = __btrc_cleanup_top; i >= 0; i--) {\n"
-            + "        __btrc_cleanup_entry* existing = &__btrc_cleanup_stack[i];\n"
-            + "        if (existing->try_level == __btrc_try_top && existing->ptr_ref == ptr_ref) {\n"
-            + "            existing->fn = fn;\n"
-            + "            existing->visit = visit;\n"
-            + "            existing->direct = direct;\n"
-            + "            return;\n"
-            + "        }\n"
-            + "    }\n"
-            + "    if (__btrc_cleanup_cap < 1) __btrc_cleanup_cap = 64;\n"
-            + "    if (!__btrc_cleanup_stack) {\n"
-            + "        if ((size_t)__btrc_cleanup_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, \"btrc: cleanup stack size overflow\\n\"); exit(1); }\n"
-            + "        __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(\n"
-            + "            NULL, sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);\n"
-            + "    }\n"
-            + "    if (__btrc_cleanup_top == INT_MAX) { fprintf(stderr, \"btrc: cleanup stack overflow\\n\"); exit(1); }\n"
-            + "    if (__btrc_cleanup_top + 1 >= __btrc_cleanup_cap) {\n"
-            + "        if (__btrc_cleanup_cap > INT_MAX / 2) { fprintf(stderr, \"btrc: cleanup stack capacity overflow\\n\"); exit(1); }\n"
-            + "        int new_cap = __btrc_cleanup_cap * 2;\n"
-            + "        if ((size_t)new_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, \"btrc: cleanup stack size overflow\\n\"); exit(1); }\n"
-            + "        __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(\n"
-            + "            __btrc_cleanup_stack, sizeof(__btrc_cleanup_entry) * (size_t)new_cap);\n"
-            + "        __btrc_cleanup_cap = new_cap;\n"
-            + "    }\n"
-            + "    __btrc_cleanup_top++;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].ptr_ref = ptr_ref;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].visit = visit;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].direct = direct;\n"
-            + "}";
-    }
-    if (name == "__btrc_register_cleanup") {
-        return "static inline void __btrc_register_cleanup(\n"
-            + "        void** ptr_ref, __btrc_cleanup_fn fn,\n"
-            + "        __btrc_visit_fn visit) {\n"
-            + "    __btrc_register_cleanup_kind(ptr_ref, fn, visit, 0);\n"
-            + "}";
-    }
-    if (name == "__btrc_register_direct_cleanup") {
-        return "static inline void __btrc_register_direct_cleanup(\n"
-            + "        void** ptr_ref, __btrc_cleanup_fn fn) {\n"
-            + "    __btrc_register_cleanup_kind(ptr_ref, fn, NULL, 1);\n"
-            + "}";
-    }
-    if (name == "__btrc_run_cleanups") {
-        return "/* Exception cleanup uses the same typed release atoms as normal\n"
-            + " * scope exit. The destroyed log guards later entries from cascade\n"
-            + " * destruction; owned slots are cleared before one collector flush. */\n"
-            + "static inline void __btrc_run_cleanups(int level) {\n"
-            + "    int base = __btrc_cleanup_top;\n"
-            + "    while (base >= 0 && __btrc_cleanup_stack[base].try_level >= level) { base--; }\n"
-            + "    base++;\n"
-            + "    if (base > __btrc_cleanup_top) { return; }\n"
-            + "    __btrc_destroyed_tracking_begin();\n"
-            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
-            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
-            + "        if (!e->fn || !e->ptr_ref || !*e->ptr_ref) { continue; }\n"
-            + "        void* object = *e->ptr_ref;\n"
-            + "        *e->ptr_ref = NULL;\n"
-            + "        if (e->direct) { e->fn(object); continue; }\n"
-            + "        if (__btrc_is_destroyed(object)) { continue; }\n"
-            + "        __btrc_arc_type type = {e->visit, e->fn};\n"
-            + "        if (e->visit) {\n"
-            + "            __btrc_arc_release(object, &type);\n"
-            + "        } else {\n"
-            + "            __btrc_arc_release_acyclic(object, &type);\n"
-            + "        }\n"
-            + "    }\n"
-            + "    __btrc_flush_cycles();\n"
-            + "    __btrc_destroyed_tracking_end();\n"
-            + "    __btrc_cleanup_top = base - 1;\n"
-            + "}";
-    }
-    if (name == "__btrc_discard_cleanups") {
-        return "static inline void __btrc_discard_cleanups(int level) {\n"
-            + "    while (__btrc_cleanup_top >= 0 &&\n"
-            + "           __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {\n"
-            + "        __btrc_cleanup_top--;\n"
-            + "    }\n"
-            + "}";
-    }
-    if (name == "__btrc_cleanup_mark") {
-        return "static inline int __btrc_cleanup_mark(void) {\n"
-            + "    return __btrc_cleanup_top;\n"
-            + "}";
-    }
-    if (name == "__btrc_discard_cleanups_to") {
-        return "static inline void __btrc_discard_cleanups_to(int mark) {\n"
-            + "    if (mark < -1 || mark > __btrc_cleanup_top) {\n"
-            + "        fprintf(stderr, \"btrc: invalid cleanup scope marker\\n\");\n"
-            + "        exit(1);\n"
-            + "    }\n"
-            + "    __btrc_cleanup_top = mark;\n"
-            + "}";
-    }
-    if (name == "__btrc_throw") {
-        return "static _Noreturn void __btrc_throw(const char* msg) {\n"
-            + "    const char* text = msg ? msg : \"Unknown exception\";\n"
-            + "    if (__btrc_try_top < 0) {\n"
-            + "        fprintf(stderr, \"Unhandled exception: %s\\n\", text);\n"
-            + "        exit(1);\n"
-            + "    }\n"
-            + "    strncpy(__btrc_error_msg, text, 1023);\n"
-            + "    __btrc_error_msg[1023] = '\\0';\n"
-            + "    __btrc_run_cleanups(__btrc_try_top);\n"
-            + "    int level = __btrc_try_top;\n"
-            + "    __btrc_try_top--;\n"
-            + "    longjmp(__btrc_try_stack[level]->env, 1);\n"
-            + "}";
-    }
-    if (name == "__btrc_try_state_cleanup") {
-        return "static void __btrc_try_state_cleanup(void) {\n"
-            + "    for (int i = 0; i < __btrc_try_cap; i++) {\n"
-            + "        free(__btrc_try_stack ? __btrc_try_stack[i] : NULL);\n"
-            + "    }\n"
-            + "    free(__btrc_try_stack);\n"
-            + "    free(__btrc_cleanup_stack);\n"
-            + "    __btrc_try_stack = NULL;\n"
-            + "    __btrc_cleanup_stack = NULL;\n"
-            + "    __btrc_try_cap = 16;\n"
-            + "    __btrc_cleanup_cap = 64;\n"
-            + "    __btrc_try_top = -1;\n"
-            + "    __btrc_cleanup_top = -1;\n"
-            + "    __btrc_error_msg[0] = '\\0';\n"
-            + "    __btrc_launder_slot = NULL;\n"
-            + "}";
-    }
     /* --- hash category --- */
     if (name == "__btrc_hash_real") {
         return "static inline unsigned int __btrc_hash_real(long double value) {\n"
@@ -1957,6 +1764,7 @@ Vector<string> helperDeps(string name) {
     }
     else if (name == "__btrc_push_try") {
         out.push("__btrc_trycatch_globals");
+        out.push("__btrc_try_capacity");
         out.push("__btrc_safe_realloc");
     }
     else if (name == "__btrc_cleanup_types") {
@@ -1993,6 +1801,7 @@ Vector<string> helperDeps(string name) {
     }
     else if (name == "__btrc_try_state_cleanup") {
         out.push("__btrc_trycatch_globals");
+        out.push("__btrc_try_capacity");
         out.push("__btrc_cleanup_types");
         out.push("__btrc_cleanup_capacity");
         out.push("__btrc_launder_state");
@@ -2179,6 +1988,7 @@ Vector<string> canonicalHelperOrder() {
     /* trycatch (registry.py category order: after string/math, before hash) */
     order.push("__btrc_try_level");
     order.push("__btrc_trycatch_globals");
+    order.push("__btrc_try_capacity");
     order.push("__btrc_cleanup_capacity");
     order.push("__btrc_launder_state");
     order.push("__btrc_launder");

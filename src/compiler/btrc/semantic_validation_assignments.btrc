@@ -107,16 +107,12 @@ bool semanticManagedRebindSourceNeedsOwner(Node? source, Node? target,
     if (source == null || target == null) { return false; }
     if (source.kind == NK_NULL_LITERAL
             || source.kind == NK_STRING_LITERAL
-            || source.kind == NK_CHAR_LITERAL
-            || source.kind == NK_IDENTIFIER) {
+            || source.kind == NK_CHAR_LITERAL) {
         return false;
     }
     if (source.kind == NK_CAST_EXPR) {
         return semanticManagedRebindSourceNeedsOwner(
             source.expr, target, state, vars);
-    }
-    if (source.kind == NK_FIELD_ACCESS_EXPR) {
-        return semanticExpressionOwnsResult(source, state, vars);
     }
     if (source.kind == NK_TERNARY_EXPR) {
         return semanticManagedRebindSourceNeedsOwner(
@@ -124,7 +120,13 @@ bool semanticManagedRebindSourceNeedsOwner(Node? source, Node? target,
             || semanticManagedRebindSourceNeedsOwner(
                 source.false_expr, target, state, vars);
     }
-    /* Calls, protocol getters, f-strings, concatenation, constructors, and
-     * aggregate factories may return a fresh +1. */
+    if (source.kind == NK_IDENTIFIER) {
+        /* Resolve through the active lexical borrowed-binding set. Copying a
+         * borrowed capture/parameter into another borrowed proxy is raw and
+         * lifetime-bounded; an owned local or same-spelled global is not. */
+        return !state.borrowedBindings.has(source.name);
+    }
+    /* Projections may die with a different owner; calls, f-strings,
+     * constructors, and operators may return a fresh +1. */
     return true;
 }

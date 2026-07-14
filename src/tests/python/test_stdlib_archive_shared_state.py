@@ -9,14 +9,18 @@ import pytest
 
 from src.compiler.python import stdlib_archive as archive
 from src.compiler.python.cli_archive import build_stdlib_archive
+from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
 from src.compiler.python.ir.helpers.cycles import CYCLES
 from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
 from src.compiler.python.ir.helpers.trycatch import TRYCATCH
+from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.stdlib_shared_state import (
+    SHARED_STATE_API_ROOTS,
     SHARED_STATE_HELPER_GROUPS,
     SHARED_STATE_HELPER_NAMES,
     derive_shared_decls,
     derive_shared_impl,
+    inline_toplevel_functions,
 )
 from src.tests.python.stdlib_archive_state_fixture import PROGRAM_SOURCE
 
@@ -28,7 +32,7 @@ ARCHIVE_PROBE_SOURCE = r"""
 
 static unsigned char destroyed_tokens[300];
 static unsigned char cleanup_tokens[130];
-static void* cleanup_slots[130];
+static void* volatile cleanup_slots[130];
 
 static void noop_destroy(void* object) {
     (void)object;
@@ -69,7 +73,15 @@ void archive_release_managed_string(char* value) {
     __btrc_string_release(value);
 }
 
-static void register_cleanup_slot(void** ptr_ref, __btrc_cleanup_fn fn) {
+static void* take_cleanup_slot(void* raw) {
+    void* volatile* slot = (void* volatile*)raw;
+    void* value = *slot;
+    *slot = NULL;
+    return value;
+}
+
+static void register_cleanup_slot(
+        void* volatile* slot, __btrc_cleanup_fn fn) {
     if (__btrc_cleanup_cap < 1) __btrc_cleanup_cap = 64;
     if (!__btrc_cleanup_stack) {
         __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
@@ -82,10 +94,12 @@ static void register_cleanup_slot(void** ptr_ref, __btrc_cleanup_fn fn) {
             sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);
     }
     __btrc_cleanup_top++;
-    __btrc_cleanup_stack[__btrc_cleanup_top].ptr_ref = ptr_ref;
+    __btrc_cleanup_stack[__btrc_cleanup_top].slot = (void*)slot;
+    __btrc_cleanup_stack[__btrc_cleanup_top].take = take_cleanup_slot;
     __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;
     __btrc_cleanup_stack[__btrc_cleanup_top].visit = NULL;
     __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;
+    __btrc_cleanup_stack[__btrc_cleanup_top].direct = 1;
 }
 
 int archive_grow_shared_state(void) {
@@ -117,6 +131,7 @@ int archive_verify_program_growth_and_reset(void) {
     if (__btrc_destroyed_count != 3 || __btrc_destroyed_cap < 3) return 20;
     if (__btrc_cleanup_top != 2 || __btrc_cleanup_cap < 3) return 21;
     if (__btrc_suspect_count != 1 || __btrc_suspect_cap < 1) return 22;
+    atomic_store_explicit(&__btrc_tracking, 0, memory_order_release);
     __btrc_cycle_state_cleanup();
     __btrc_try_state_cleanup();
     if (__btrc_destroyed != NULL || __btrc_destroyed_count != 0
@@ -137,6 +152,7 @@ def test_mutable_helper_groups_have_complete_ownership():
             {
                 "__btrc_try_level",
                 "__btrc_trycatch_globals",
+                "__btrc_try_capacity",
             }
         ),
         "cleanup_stack": frozenset(
@@ -168,10 +184,16 @@ def test_mutable_helper_groups_have_complete_ownership():
     expected_names = frozenset().union(*SHARED_STATE_HELPER_GROUPS.values())
     assert expected_groups == SHARED_STATE_HELPER_GROUPS
     assert expected_names == SHARED_STATE_HELPER_NAMES
+    assert set(SHARED_STATE_API_ROOTS) == set(expected_groups)
+    assert "__btrc_suspect" in SHARED_STATE_API_ROOTS["cycle_suspects"]
+    assert "__btrc_cycle_state_cleanup" in SHARED_STATE_API_ROOTS["destroyed_log"]
+    assert "__btrc_try_state_cleanup" in SHARED_STATE_API_ROOTS["try_stack"]
 
     state_contracts = (
         (
-            TRYCATCH["__btrc_try_level"].c_source + TRYCATCH["__btrc_trycatch_globals"].c_source,
+            TRYCATCH["__btrc_try_level"].c_source
+            + TRYCATCH["__btrc_trycatch_globals"].c_source
+            + TRYCATCH["__btrc_try_capacity"].c_source,
             ("__btrc_try_stack", "__btrc_try_top", "__btrc_try_cap"),
         ),
         (
@@ -207,6 +229,30 @@ def test_mutable_helper_groups_have_complete_ownership():
         assert all(symbol in source for symbol in symbols)
 
 
+@pytest.mark.parametrize(
+    ("root", "expected_groups"),
+    [
+        ("__btrc_try_level", {"try_stack", "cleanup_stack"}),
+        ("__btrc_destroyed_tracking", {"destroyed_log", "cycle_suspects"}),
+    ],
+)
+def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expected_groups):
+    module = IRModule(helper_decls=helper_decls_for_roots({root}))
+
+    archive_owned, declarations = archive.transform_archive_module(module)
+    expected = set()
+    for group_name in expected_groups:
+        expected.update(SHARED_STATE_HELPER_GROUPS[group_name])
+        expected.update(SHARED_STATE_API_ROOTS[group_name])
+
+    assert expected <= set(archive_owned)
+    assert expected <= {helper.name for helper in module.helper_decls}
+    for name in expected:
+        assert "static " not in declarations[name]
+        helper = next(helper for helper in module.helper_decls if helper.name == name)
+        assert "static " not in helper.c_source
+
+
 def test_string_registry_declarations_are_derived_without_initializers():
     source = "\n".join(STRING_OWNERSHIP[name].c_source for name in SHARED_STATE_HELPER_GROUPS["string_registry"])
     declarations = derive_shared_decls(source)
@@ -223,6 +269,22 @@ def test_string_registry_declarations_are_derived_without_initializers():
     assert "typedef struct __btrc_string_entry" not in implementation
     assert "atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;" in implementation
     assert "size_t __btrc_string_live_count(void) {" in implementation
+
+
+def test_archive_header_inlines_private_noninline_helpers():
+    source = "\n".join(
+        (
+            "static int state = 0;",
+            "static void cleanup(void) { state = 0; }",
+            "static inline int current(void) { return state; }",
+        )
+    )
+
+    header_source = inline_toplevel_functions(source)
+
+    assert "static int state = 0;" in header_source
+    assert "static inline void cleanup(void)" in header_source
+    assert header_source.count("static inline int current(void)") == 1
 
 
 def _compile_object(

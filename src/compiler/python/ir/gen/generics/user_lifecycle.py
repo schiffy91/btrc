@@ -128,9 +128,20 @@ def _emit_init(gen, mangled, ctor, ctor_params, emitter) -> IRFunctionDef:
 
 def _emit_new(gen, mangled, ctor, ctor_params, has_visitor) -> IRFunctionDef:
     ctor_args = [IRVar(name=param.name) for param in ctor.params] if ctor else []
+    self_declaration = IRVarDecl(
+        c_type=CType(text=f"{mangled}*"),
+        name="self",
+        init=IRCast(
+            target_type=CType(text=f"{mangled}*"),
+            expr=IRCall(
+                callee="malloc",
+                args=[IRSizeof(operand=CType(text=mangled))],
+            ),
+        ),
+    )
     cleanup_before, cleanup_after = constructor_cleanup_guard(
         gen,
-        "self",
+        self_declaration,
         f"{mangled}_destroy",
         cycle_visitor_symbol(mangled) if has_visitor else None,
     )
@@ -140,17 +151,7 @@ def _emit_new(gen, mangled, ctor, ctor_params, has_visitor) -> IRFunctionDef:
         params=list(ctor_params),
         body=IRBlock(
             stmts=[
-                IRVarDecl(
-                    c_type=CType(text=f"{mangled}*"),
-                    name="self",
-                    init=IRCast(
-                        target_type=CType(text=f"{mangled}*"),
-                        expr=IRCall(
-                            callee="malloc",
-                            args=[IRSizeof(operand=CType(text=mangled))],
-                        ),
-                    ),
-                ),
+                self_declaration,
                 IRExprStmt(
                     expr=IRCall(
                         callee="memset",

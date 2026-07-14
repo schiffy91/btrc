@@ -21,8 +21,7 @@ class ParameterConsumptionContractsMixin:
             return
         if symbol.kind in {"capture", "lambda_param"} and not symbol.owned_storage:
             self._error(
-                "Borrowed managed lambda bindings cannot be released or deleted; "
-                "bind an owned local first",
+                "Borrowed managed lambda bindings cannot be released or deleted; bind an owned local first",
                 statement.line,
                 statement.col,
             )

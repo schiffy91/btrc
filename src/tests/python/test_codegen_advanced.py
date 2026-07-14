@@ -189,5 +189,7 @@ def test_nested_lambda_environment_mapping_is_function_local():
         }
     """)
     main = c.split("int main(void)", 1)[1]
-    assert "return (outer() + inner());" in main
+    outer_call = main.index(" = outer()")
+    inner_call = main.index(" = inner()")
+    assert outer_call < inner_call
     assert "__inner_env" not in main

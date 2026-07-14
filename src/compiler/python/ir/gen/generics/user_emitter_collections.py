@@ -41,12 +41,11 @@ def lower_collection_literal(emitter, target: str, literal, target_type=None):
 
     result = value
     if cleanup_active:
-        temporary_decl.is_volatile = True
         from ..temporary_cleanup import cleanup_registration
 
         cleanup_decls, cleanup_exprs = cleanup_registration(
             emitter._gen,
-            value,
+            temporary_decl,
             target_type,
             "__btrc_collection_cleanup",
             active=True,

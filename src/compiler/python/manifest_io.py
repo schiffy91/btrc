@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
+
+from .cache_io import open_regular_binary
 
 MAX_MANIFEST_BYTES = 1024 * 1024
 
 
 def load_manifest(path: str) -> dict:
     """Load one manifest without allowing unbounded input allocation."""
-    with open(path, "rb") as manifest_file:
+    manifest_file = open_regular_binary(path, follow_symlinks=True)
+    if manifest_file is None:
+        raise ValueError(f"package manifest '{path}' is not a regular file")
+    with manifest_file:
+        if os.fstat(manifest_file.fileno()).st_size > MAX_MANIFEST_BYTES:
+            raise ValueError(f"package manifest '{path}' exceeds the {MAX_MANIFEST_BYTES}-byte limit")
         encoded = manifest_file.read(MAX_MANIFEST_BYTES + 1)
     if len(encoded) > MAX_MANIFEST_BYTES:
         raise ValueError(f"package manifest '{path}' exceeds the {MAX_MANIFEST_BYTES}-byte limit")

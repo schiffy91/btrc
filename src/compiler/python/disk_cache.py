@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 
-from .cache_io import atomic_write_text
+from .cache_io import atomic_write_text, open_regular_binary
 from .cache_keys import resolve_cache_dir, toolchain_hash
 
 MAX_C_CACHE_BYTES = 256 * 1024 * 1024
@@ -37,7 +37,12 @@ def get_cached(resolved_source: str, input_path: str | None = None) -> str | Non
     try:
         key = _cache_key(resolved_source)
         path = os.path.join(resolve_cache_dir(input_path), f"{key}.c")
-        with open(path, "rb") as cache_file:
+        cache_file = open_regular_binary(path)
+        if cache_file is None:
+            return None
+        with cache_file:
+            if os.fstat(cache_file.fileno()).st_size > MAX_C_CACHE_BYTES:
+                return None
             encoded = cache_file.read(MAX_C_CACHE_BYTES + 1)
         if len(encoded) > MAX_C_CACHE_BYTES:
             return None

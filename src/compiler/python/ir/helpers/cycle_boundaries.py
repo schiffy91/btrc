@@ -40,7 +40,7 @@ CYCLE_BOUNDARY_HELPERS = {
     ),
     "__btrc_cycle_state_cleanup": HelperDef(
         c_source=(
-            "static void __btrc_cycle_state_cleanup(void) {\n"
+            "static inline void __btrc_cycle_state_cleanup(void) {\n"
             "    __btrc_flush_cycles();\n"
             "    __btrc_arc_drain_deferred();\n"
             "    __btrc_arc_lock_mutation();\n"

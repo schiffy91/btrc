@@ -89,6 +89,30 @@ def _compile_source(
     return result, generated
 
 
+def _compile_reference_source(
+    tmp_path: Path,
+    source: str,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    program = tmp_path / "reference.btrc"
+    generated = tmp_path / "reference.c"
+    program.write_text(source)
+    result = _run(
+        [
+            "python3",
+            "-m",
+            "src.compiler.python.main",
+            str(program),
+            "--no-stdlib",
+            "--no-cache",
+            "-o",
+            str(generated),
+        ],
+        env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "reference-cache")},
+        timeout=120,
+    )
+    return result, generated
+
+
 def _strict_build_and_run(generated: Path, output: Path) -> None:
     build = _run(
         [
@@ -228,6 +252,126 @@ def test_scalar_string_join_is_rejected(semantic_btrcc: Path, tmp_path: Path) ->
     result, _ = _compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert "Type 'string' has no method 'join'" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "source, diagnostic",
+    [
+        (
+            "enum class Color { Red, Blue } int main() { return Color.Missing; }",
+            "Rich enum 'Color' has no variant 'Missing'",
+        ),
+        (
+            "enum class Color { Red, Blue } int main() { return Color.Missing(); }",
+            "Rich enum 'Color' has no variant 'Missing'",
+        ),
+        (
+            "enum class Color { Red, Blue } int main() { Color value = Color.Red; return value.missing; }",
+            "Rich enum 'Color' has no field 'missing'",
+        ),
+        (
+            "class Box { class int value; } int main() { return Box.missing; }",
+            "Class 'Box' has no static field or method 'missing'",
+        ),
+        (
+            "class Box { public int value; } int main() { return Box.value; }",
+            "Instance member 'value' cannot be accessed on class 'Box'",
+        ),
+        (
+            "class Base { class int value; } class Child extends Base {} int main() { return Child.value; }",
+            "Class 'Child' has no static field or method 'value'",
+        ),
+        (
+            "class Box { class int value; } int main() { Box box = Box(); return box.value; }",
+            "Class 'Box' has no field or method 'value'",
+        ),
+        (
+            "class Box { private int value; } int read(Box box) { return box.value; } int main() { return 0; }",
+            "Cannot access private field 'value' of class 'Box'",
+        ),
+        (
+            "class Box { private int value; } void write(Box box) { box.value = 1; } int main() { return 0; }",
+            "Cannot access private field 'value' of class 'Box'",
+        ),
+        (
+            "class Box { private int value { get; set; } } "
+            "int read(Box box) { return box.value; } int main() { return 0; }",
+            "Cannot access private property 'value' of class 'Box'",
+        ),
+        (
+            "class Box { private int value { get; set; } } "
+            "void write(Box box) { box.value = 1; } int main() { return 0; }",
+            "Cannot access private property 'value' of class 'Box'",
+        ),
+        (
+            "class Base { private int value; } class Child extends Base { "
+            "public int read() { return self.value; } } int main() { return 0; }",
+            "Cannot access private field 'value' of class 'Base'",
+        ),
+    ],
+)
+def test_member_projection_diagnostics_match_reference(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+    diagnostic: str,
+) -> None:
+    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = _compile_reference_source(tmp_path, source)
+
+    assert selfhost.returncode == 1
+    assert reference.returncode == 1
+    assert diagnostic in selfhost.stderr
+    assert diagnostic in reference.stderr
+
+
+def test_inherited_class_method_wrappers_match_reference_abi(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        int saved = 0;
+        class Base {
+            class int sum(int left, int right) { return left + right; }
+            class void remember(int value) { saved = value; }
+        }
+        class Child extends Base {}
+        int main() {
+            Child.remember(40);
+            return Child.sum(saved, 2) == 42 ? 0 : 1;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-class-method")
+    _strict_build_and_run(reference_source, tmp_path / "reference-class-method")
+
+
+def test_type_name_shadowing_uses_instance_member_lookup(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Box {
+            public int value;
+            public Box(int value) { self.value = value; }
+        }
+        int read() {
+            Box Box = Box(42);
+            return Box.value;
+        }
+        int main() { return read() == 42 ? 0 : 1; }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-shadowing")
+    _strict_build_and_run(reference_source, tmp_path / "reference-shadowing")
 
 
 @pytest.mark.parametrize(

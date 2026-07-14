@@ -12,7 +12,7 @@ void archive_release_managed_string(char* value);
 
 static unsigned char destroyed_tokens[3];
 static unsigned char cleanup_tokens[3];
-static void* cleanup_slots[3];
+static void* volatile cleanup_slots[3];
 
 static void noop_destroy(void* object) {
     (void)object;
@@ -37,7 +37,15 @@ static __btrc_arc_header suspect_node = {
     NULL,
 };
 
-static void register_cleanup_slot(void** ptr_ref, __btrc_cleanup_fn fn) {
+static void* take_cleanup_slot(void* raw) {
+    void* volatile* slot = (void* volatile*)raw;
+    void* value = *slot;
+    *slot = NULL;
+    return value;
+}
+
+static void register_cleanup_slot(
+        void* volatile* slot, __btrc_cleanup_fn fn) {
     if (__btrc_cleanup_cap < 1) __btrc_cleanup_cap = 64;
     if (!__btrc_cleanup_stack) {
         __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
@@ -50,10 +58,12 @@ static void register_cleanup_slot(void** ptr_ref, __btrc_cleanup_fn fn) {
             sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);
     }
     __btrc_cleanup_top++;
-    __btrc_cleanup_stack[__btrc_cleanup_top].ptr_ref = ptr_ref;
+    __btrc_cleanup_stack[__btrc_cleanup_top].slot = (void*)slot;
+    __btrc_cleanup_stack[__btrc_cleanup_top].take = take_cleanup_slot;
     __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;
     __btrc_cleanup_stack[__btrc_cleanup_top].visit = NULL;
     __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;
+    __btrc_cleanup_stack[__btrc_cleanup_top].direct = 1;
 }
 
 int main(void) {
@@ -90,6 +100,7 @@ int main(void) {
     if (__btrc_cleanup_top != 129 || __btrc_cleanup_cap < 130) return 7;
     if (__btrc_suspect_count != 1 || __btrc_suspect_cap < 1) return 8;
 
+    atomic_store_explicit(&__btrc_tracking, 0, memory_order_release);
     __btrc_cycle_state_cleanup();
     __btrc_try_state_cleanup();
     if (__btrc_destroyed != NULL || __btrc_destroyed_count != 0

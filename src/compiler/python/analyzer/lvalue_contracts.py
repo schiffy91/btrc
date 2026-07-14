@@ -73,9 +73,7 @@ class LvalueContractsMixin:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
-        valid = self._is_lifetime_stable_storage(operand) or (
-            getattr(operand, "name", None) in self.function_table
-        )
+        valid = self._is_lifetime_stable_storage(operand) or (getattr(operand, "name", None) in self.function_table)
         if valid:
             return
         operand_type = self._infer_type(operand)

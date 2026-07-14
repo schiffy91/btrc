@@ -650,8 +650,8 @@ class ImageIO {
         File file = File(path, "wb");
         if (!file.ok()) { return false; }
         bool wrote = file.writeBytes(encoded);
-        file.close();
-        return wrote;
+        bool closed = file.close();
+        return wrote && closed;
     }
 
     class bool saveBmp(Image image, string path, int bitsPerPixel = 32,
@@ -661,7 +661,7 @@ class ImageIO {
         File file = File(path, "wb");
         if (!file.ok()) { return false; }
         bool wrote = file.writeBytes(encoded);
-        file.close();
-        return wrote;
+        bool closed = file.close();
+        return wrote && closed;
     }
 }

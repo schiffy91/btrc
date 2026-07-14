@@ -43,6 +43,17 @@ def test_write_if_missing_publishes_complete_content_without_temp_files(tmp_path
     assert not list(tmp_path.glob(".btrc-output-*"))
 
 
+def test_write_if_missing_fsyncs_parent_after_temp_cleanup(tmp_path, monkeypatch):
+    path = tmp_path / "btrc_rt.h"
+    observed = []
+    monkeypatch.setattr(cli_io, "fsync_parent_directory", lambda target: observed.append(target))
+
+    assert cli_io.write_output_if_missing(str(path), "generated")
+
+    assert observed == [str(path)]
+    assert not list(tmp_path.glob(".btrc-output-*"))
+
+
 def test_write_if_missing_publish_failure_leaves_no_partial_file(tmp_path, monkeypatch, capsys):
     path = tmp_path / "btrc_rt.h"
 
@@ -69,6 +80,25 @@ def test_atomic_output_uses_normal_umask_permissions(tmp_path):
     cli_io.write_output(str(output), "generated")
 
     assert stat.S_IMODE(output.stat().st_mode) == stat.S_IMODE(reference.stat().st_mode)
+
+
+def test_atomic_output_fsyncs_parent_after_replacement(tmp_path, monkeypatch):
+    output = tmp_path / "program.c"
+    observed = []
+    monkeypatch.setattr(cli_io, "fsync_parent_directory", lambda target: observed.append(target))
+
+    cli_io.write_output(str(output), "generated")
+
+    assert observed == [str(output)]
+
+
+def test_atomic_output_does_not_require_posix_fchmod(tmp_path, monkeypatch):
+    output = tmp_path / "program.c"
+    monkeypatch.delattr(cli_io.os, "fchmod", raising=False)
+
+    cli_io.write_output(str(output), "generated")
+
+    assert output.read_text(encoding="utf-8") == "generated"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX device contract")

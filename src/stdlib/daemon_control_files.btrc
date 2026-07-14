@@ -168,7 +168,7 @@ class DaemonControlFiles {
         size_t offset = (size_t)0;
         bool written = true;
         while (offset < length) {
-            ssize_t count = write(descriptor, content + offset,
+            ssize_t count = write(descriptor, (char*)content + offset,
                 length - offset);
             if (count > (ssize_t)0) {
                 offset = offset + (size_t)count;

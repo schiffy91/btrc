@@ -57,6 +57,14 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
 
     for member in decl.members:
         if isinstance(member, FieldDecl) and member.access != "class" and member.initializer:
+            from .callable_boundaries import reject_persistent_callable_escape
+
+            reject_persistent_callable_escape(
+                gen,
+                member.type,
+                member.initializer,
+                "field storage",
+            )
             target = IRFieldAccess(
                 obj=IRVar(name="self"),
                 field=member.name,
@@ -105,6 +113,7 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
                 gen,
                 constructor.body,
                 local_bindings=["self", *(parameter.name for parameter in constructor.params)],
+                callable_bindings=constructor.params,
             ).stmts
         )
 
@@ -120,24 +129,25 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
     from .constructor_cleanup import constructor_cleanup_guard
     from .cycle_metadata import cycle_visitor_symbol, type_needs_visitor
 
+    self_declaration = IRVarDecl(
+        c_type=CType(text=f"{name}*"),
+        name="self",
+        init=IRCast(
+            target_type=CType(text=f"{name}*"),
+            expr=IRCall(
+                callee="malloc",
+                args=[IRSizeof(operand=CType(text=name))],
+            ),
+        ),
+    )
     cleanup_before, cleanup_after = constructor_cleanup_guard(
         gen,
-        "self",
+        self_declaration,
         f"{name}_destroy",
         cycle_visitor_symbol(name) if type_needs_visitor(gen, TypeExpr(base=name), set()) else None,
     )
     new_stmts = [
-        IRVarDecl(
-            c_type=CType(text=f"{name}*"),
-            name="self",
-            init=IRCast(
-                target_type=CType(text=f"{name}*"),
-                expr=IRCall(
-                    callee="malloc",
-                    args=[IRSizeof(operand=CType(text=name))],
-                ),
-            ),
-        ),
+        self_declaration,
         IRExprStmt(
             expr=IRCall(
                 callee="memset",

@@ -261,7 +261,7 @@ string cycleRuntimeReleaseSource(string name) {
             + "}";
     }
     if (name == "__btrc_cycle_state_cleanup") {
-        return "static void __btrc_cycle_state_cleanup(void) {\n"
+        return "static inline void __btrc_cycle_state_cleanup(void) {\n"
             + "    __btrc_flush_cycles();\n"
             + "    __btrc_arc_drain_deferred();\n"
             + "    __btrc_arc_lock_mutation();\n"

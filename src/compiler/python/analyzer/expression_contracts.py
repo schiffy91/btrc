@@ -82,8 +82,7 @@ class ExpressionContractsMixin:
     def _is_raw_pointer_value(self, type_expr) -> bool:
         type_expr = self._canonical_type(type_expr)
         nominal_reference = bool(
-            type_expr
-            and (type_expr.base in self.class_table or type_expr.base in self.interface_table)
+            type_expr and (type_expr.base in self.class_table or type_expr.base in self.interface_table)
         )
         return bool(
             type_expr
@@ -149,10 +148,9 @@ class ExpressionContractsMixin:
             valid = self._is_integral_value(left) and self._is_integral_value(right)
         elif operator in ("+", "-"):
             numeric = self._is_numeric_value(left) and self._is_numeric_value(right)
-            pointer_offset = (
-                (self._is_raw_pointer_value(left) or (operator == "+" and left.base == "string"))
-                and self._is_integral_value(right)
-            ) or (operator == "+" and self._is_integral_value(left) and self._is_raw_pointer_value(right))
+            pointer_offset = (self._is_raw_pointer_value(left) and self._is_integral_value(right)) or (
+                operator == "+" and self._is_integral_value(left) and self._is_raw_pointer_value(right)
+            )
             pointer_difference = (
                 operator == "-"
                 and self._is_raw_pointer_value(left)

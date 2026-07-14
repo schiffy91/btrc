@@ -1437,8 +1437,19 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return classPtrType(node.type);
     }
     if (node.kind == NK_FIELD_ACCESS_EXPR) {
-        /* Qualified static reference (ClassName.field on a class name) has no
-         * value type here; only instance field access infers a type. */
+        /* A class-qualified field is translation-unit storage, but its value
+         * still has the declaration's type.  Nested projections and managed
+         * static replacement both rely on this result. */
+        if (node.obj != null && node.obj.kind == NK_IDENTIFIER
+                && a.isClass(node.obj.name)) {
+            Node? staticMember = a.classMember(
+                node.obj.name, node.field);
+            if (staticMember != null
+                    && staticMember.kind == NK_FIELD_DECL
+                    && staticMember.access == "class") {
+                return staticMember.type;
+            }
+        }
         if (node.obj != null && node.obj.kind == NK_IDENTIFIER
                 && a.isEnum(node.obj.name)
                 && a.enumContains(node.obj.name, node.field)) {

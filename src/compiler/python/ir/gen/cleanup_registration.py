@@ -5,29 +5,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..nodes import (
-    CType,
-    IRAddressOf,
-    IRCall,
-    IRCast,
     IRExprStmt,
     IRLiteral,
     IRStmt,
     IRVar,
-    IRVarDecl,
 )
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
 
 
-def _mark_cleanup_slot(gen: IRGenerator, var_name: str, stmts: list[IRStmt]) -> None:
+def _activate_cleanup_slot(gen: IRGenerator, var_name: str, stmts: list[IRStmt]):
     gen.mark_cleanup_registration()
-    # The unwind registry holds this slot's address.  Keep nulling writes
-    # observable so optimized builds cannot leave a stale resource pointer.
-    for statement in reversed(stmts):
-        if isinstance(statement, IRVarDecl) and statement.name == var_name:
-            statement.is_volatile = True
-            break
+    from .cleanup_slots import require_cleanup_slot_declaration
+
+    return require_cleanup_slot_declaration(stmts, var_name)
 
 
 def maybe_register_cleanup(
@@ -48,25 +40,20 @@ def maybe_register_cleanup(
     if cls_name == STRING_RUNTIME_NAME:
         maybe_register_direct_cleanup(gen, var_name, destroy_fn, stmts)
         return
-    _mark_cleanup_slot(gen, var_name, stmts)
-    gen.use_helper("__btrc_register_cleanup")
+    declaration = _activate_cleanup_slot(gen, var_name, stmts)
     if managed_type_has_visitor(gen, cls_name):
         visit_arg = IRVar(name=cycle_visitor_symbol(cls_name))
     else:
         visit_arg = IRLiteral(text="NULL")
+    from .cleanup_slots import register_cleanup_slot
+
     stmts.append(
         IRExprStmt(
-            expr=IRCall(
-                callee="__btrc_register_cleanup",
-                args=[
-                    IRCast(
-                        target_type=CType(text="void**"),
-                        expr=IRAddressOf(expr=IRVar(name=var_name)),
-                    ),
-                    IRVar(name=destroy_fn),
-                    visit_arg,
-                ],
-                helper_ref="__btrc_register_cleanup",
+            expr=register_cleanup_slot(
+                gen,
+                declaration,
+                IRVar(name=destroy_fn),
+                visitor=visit_arg,
             )
         )
     )
@@ -82,21 +69,17 @@ def maybe_register_direct_cleanup(
     if not gen.exception_cleanup_active():
         return
 
-    _mark_cleanup_slot(gen, var_name, stmts)
+    declaration = _activate_cleanup_slot(gen, var_name, stmts)
     gen.use_helper(cleanup_fn)
-    gen.use_helper("__btrc_register_direct_cleanup")
+    from .cleanup_slots import register_cleanup_slot
+
     stmts.append(
         IRExprStmt(
-            expr=IRCall(
-                callee="__btrc_register_direct_cleanup",
-                args=[
-                    IRCast(
-                        target_type=CType(text="void**"),
-                        expr=IRAddressOf(expr=IRVar(name=var_name)),
-                    ),
-                    IRVar(name=cleanup_fn),
-                ],
-                helper_ref="__btrc_register_direct_cleanup",
+            expr=register_cleanup_slot(
+                gen,
+                declaration,
+                IRVar(name=cleanup_fn),
+                direct=True,
             )
         )
     )

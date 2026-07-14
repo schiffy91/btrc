@@ -32,6 +32,7 @@ from src.compiler.python.ast.gen_builtins_spec import (
     INTRINSIC_FUNCTIONS,
     INTRINSIC_STRING_MEMBERS,
 )
+from src.compiler.python.cli_io import write_output
 
 __all__ = [
     "INTRINSIC_COLLECTION_MEMBERS",
@@ -64,8 +65,7 @@ def _classify_stdlib():
 def main():
     collection_data, static_data = _classify_stdlib()
     content = render_builtins(collection_data, static_data)
-    with open(OUTPUT, "w") as output_file:
-        output_file.write(content)
+    write_output(OUTPUT, content)
     print(f"Generated {OUTPUT}")
 
     print(f"  STRING_MEMBERS: {len(INTRINSIC_STRING_MEMBERS)} members (intrinsic)")

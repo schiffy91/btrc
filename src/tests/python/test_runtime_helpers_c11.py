@@ -37,6 +37,7 @@ HELPER_ORDER = (
     *((HASH, name) for name in HASH),
     (TRYCATCH, "__btrc_try_level"),
     (TRYCATCH, "__btrc_trycatch_globals"),
+    (TRYCATCH, "__btrc_try_capacity"),
     (TRYCATCH, "__btrc_launder_state"),
     (TRYCATCH, "__btrc_launder"),
     (TRYCATCH, "__btrc_push_try"),
@@ -113,9 +114,13 @@ def test_direct_cleanup_helper_is_warning_clean_without_indirect_wrapper(tmp_pat
     source.write_text(
         f"{HEADERS}\n{runtime}\n"
         "static void cleanup(void* value) { (void)value; }\n"
+        "static void* take(void* raw) {\n"
+        "    void* volatile* slot = (void* volatile*)raw;\n"
+        "    void* value = *slot; *slot = NULL; return value;\n"
+        "}\n"
         "int main(void) {\n"
-        "    void* value = NULL;\n"
-        "    __btrc_register_direct_cleanup(&value, cleanup);\n"
+        "    void* volatile value = NULL;\n"
+        "    __btrc_register_direct_cleanup((void*)&value, take, cleanup);\n"
         "    return __btrc_cleanup_top == 0 ? 0 : 1;\n"
         "}\n"
     )
@@ -149,14 +154,19 @@ typedef struct TestNode {
     struct TestNode* child;
 } TestNode;
 static const __btrc_arc_type test_type;
-static void test_visit(
-        void* raw, __btrc_field_visit_fn fn, void* context) {
+static void test_visit(void* raw, __btrc_field_visit_fn fn, void* context) {
     TestNode* node = (TestNode*)raw;
     fn((void**)&node->child, &test_type, context);
 }
 static void test_destroy(void* raw) { free(raw); }
 static const __btrc_arc_type test_type = {test_visit, test_destroy};
 static void test_cleanup(void* raw) { (void)raw; }
+static void* test_take(void* raw) {
+    void* volatile* slot = (void* volatile*)raw;
+    void* value = *slot;
+    *slot = NULL;
+    return value;
+}
 static void* return_arg(void* arg) { return arg; }
 
 int main(void) {
@@ -199,13 +209,15 @@ int main(void) {
     for (int i = 0; i < 80; i++) __btrc_push_try();
     if (__btrc_try_top != 79 || __btrc_try_cap < 80) return 12;
     __btrc_try_top = -1;
-    void* cleanup_ptrs[80];
+    void* volatile cleanup_ptrs[80];
     for (int i = 0; i < 80; i++) {
         cleanup_ptrs[i] = (void*)(intptr_t)(i + 1);
-        __btrc_register_cleanup(&cleanup_ptrs[i], test_cleanup, NULL);
+        __btrc_register_cleanup(
+            (void*)&cleanup_ptrs[i], test_take, test_cleanup, NULL);
     }
     if (__btrc_cleanup_top != 79 || __btrc_cleanup_cap < 80) return 13;
-    __btrc_register_cleanup(&cleanup_ptrs[79], test_cleanup, NULL);
+    __btrc_register_cleanup(
+        (void*)&cleanup_ptrs[79], test_take, test_cleanup, NULL);
     if (__btrc_cleanup_top != 79) return 24;
     __btrc_try_state_cleanup();
 

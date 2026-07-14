@@ -33,6 +33,10 @@ void semanticValidateSwitch(Node statement, SemanticValidationState state,
         Node caseClause = statement.cases.get(caseIndex);
         semanticValidateExpr(caseClause.value_node, state, vars);
         Map<string, Node> caseVars = semanticCloneTypes(vars);
+        Map<string, bool> previousCaseLocals =
+            semanticCloneFlags(state.localBindings);
+        Map<string, bool> previousCaseBorrowed =
+            semanticCloneFlags(state.borrowedBindings);
         int statementIndex = 0;
         bool terminal = false;
         while (statementIndex < caseClause.body_nlist.len) {
@@ -46,6 +50,8 @@ void semanticValidateSwitch(Node statement, SemanticValidationState state,
             terminal = semanticDirectTerminal(bodyStatement);
             statementIndex = statementIndex + 1;
         }
+        state.localBindings = previousCaseLocals;
+        state.borrowedBindings = previousCaseBorrowed;
         caseIndex = caseIndex + 1;
     }
     state.breakDepth = previousBreak;
@@ -63,6 +69,8 @@ void semanticValidateBlock(Node? block, SemanticValidationState state,
     if (block == null) { return; }
     Map<string, bool> previousBorrowedBindings =
         semanticCloneFlags(state.borrowedBindings);
+    Map<string, bool> previousLocalBindings =
+        semanticCloneFlags(state.localBindings);
     Map<string, bool> noReservedNames = {};
     semanticValidateDirectLocalNames(block, noReservedNames);
     Map<string, Node> vars = semanticCloneTypes(outerVars);
@@ -79,4 +87,5 @@ void semanticValidateBlock(Node? block, SemanticValidationState state,
         index = index + 1;
     }
     state.borrowedBindings = previousBorrowedBindings;
+    state.localBindings = previousLocalBindings;
 }

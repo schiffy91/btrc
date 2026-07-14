@@ -241,6 +241,12 @@ def test_invalid_declaration_contracts_are_rejected(
         """,
         """
             int main() {
+                int values[2] = {};
+                return values[0] == 0 && values[1] == 0 ? 0 : 1;
+            }
+        """,
+        """
+            int main() {
                 char* values[1];
                 values[0] = "ok";
                 return strcmp(values[0], "ok");

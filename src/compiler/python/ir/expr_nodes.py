@@ -44,6 +44,21 @@ class IRVar(IRExpr):
     name: str = ""
 
 
+@dataclass(frozen=True)
+class IRCleanupSlot:
+    """Typed automatic slot held by the exception-cleanup registry."""
+
+    name: str
+    c_type: CType
+    take_function: str
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.take_function:
+            raise ValueError("cleanup slot names and take functions must not be empty")
+        if not isinstance(self.c_type, CType):
+            raise TypeError("IRCleanupSlot.c_type must be CType")
+
+
 @dataclass
 class IRBinOp(IRExpr):
     """Binary operator."""
@@ -76,6 +91,7 @@ class IRCall(IRExpr):
     callee: str | IRExpr = ""
     args: list[IRExpr] = field(default_factory=list)
     helper_ref: str = ""
+    cleanup_slot: IRCleanupSlot | None = None
 
 
 @dataclass

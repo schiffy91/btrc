@@ -38,7 +38,10 @@ if TYPE_CHECKING:
 
 def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     """Lower a function/method call."""
+    from .callable_boundaries import reject_unsafe_managed_callback_arguments
     from .expressions import lower_expr
+
+    reject_unsafe_managed_callback_arguments(gen, node)
 
     if isinstance(node.callee, LambdaExpr):
         from .lambdas import lower_immediate_lambda_call

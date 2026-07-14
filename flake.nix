@@ -127,7 +127,9 @@
         lspPython = pkgs.python314.withPackages (ps: [ ps.pygls ps.lsprotocol ]);
         btrcpy = pkgs.writeShellApplication {
           name = "btrcpy";
-          runtimeInputs = [ pkgs.python314 ];
+          # Git-backed btrc.toml dependencies are a production compiler feature;
+          # the installed app must not rely on an ambient host Git executable.
+          runtimeInputs = [ pkgs.python314 pkgs.git ];
           text = ''
             export PYTHONPATH="${runtimeSource}''${PYTHONPATH:+:$PYTHONPATH}"
             exec ${pkgs.python314}/bin/python3 -m src.compiler.python.main "$@"
@@ -135,7 +137,9 @@
         };
         btrc-lsp = pkgs.writeShellApplication {
           name = "btrc-lsp";
-          runtimeInputs = [ lspPython ];
+          # LSP composition resolves the same locked Git dependencies as the
+          # CLI, including inside minimal editor launch environments.
+          runtimeInputs = [ lspPython pkgs.git ];
           text = ''
             export PYTHONPATH="${runtimeSource}''${PYTHONPATH:+:$PYTHONPATH}"
             exec python3 -m src.devex.lsp.server "$@"

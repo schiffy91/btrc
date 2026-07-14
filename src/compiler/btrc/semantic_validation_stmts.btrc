@@ -53,6 +53,9 @@ void semanticValidateVariable(Node declaration,
         declared, actual, declaration.initializer, declaration, state);
     vars.put(declaration.name, declared);
     state.borrowedBindings.remove(declaration.name);
+    if (state.owner != "") {
+        state.localBindings.put(declaration.name, true);
+    }
 }
 
 void semanticValidateReturn(Node statement, SemanticValidationState state,
@@ -94,6 +97,8 @@ void semanticValidateReturn(Node statement, SemanticValidationState state,
 
 void semanticValidateCFor(Node statement, SemanticValidationState state,
         Map<string, Node> vars) {
+    Map<string, bool> previousLocalBindings =
+        semanticCloneFlags(state.localBindings);
     Map<string, Node> loopVars = semanticCloneTypes(vars);
     if (statement.init != null) {
         if (statement.init.kind == NK_FOR_INIT_VAR) {
@@ -145,12 +150,15 @@ void semanticValidateCFor(Node statement, SemanticValidationState state,
     semanticRejectThreadObservation(statement.update, state, loopVars);
     state.loopDepth = previousLoop;
     state.breakDepth = previousBreak;
+    state.localBindings = previousLocalBindings;
 }
 
 void semanticValidateTry(Node statement, SemanticValidationState state,
         Map<string, Node> vars) {
     semanticValidateBlock(statement.try_block, state, vars);
     if (statement.catch_block != null) {
+        Map<string, bool> previousCatchLocals =
+            semanticCloneFlags(state.localBindings);
         Map<string, Node> catchVars = semanticCloneTypes(vars);
         Map<string, bool> catchNames = {};
         Node catchType = statement.catch_type;
@@ -162,10 +170,12 @@ void semanticValidateTry(Node statement, SemanticValidationState state,
                 statement.catch_var, catchType, vars, statement, state);
             catchNames.put(statement.catch_var, true);
             catchVars.put(statement.catch_var, catchType);
+            state.localBindings.put(statement.catch_var, true);
         }
         semanticValidateDirectLocalNames(
             statement.catch_block, catchNames);
         semanticValidateBlock(statement.catch_block, state, catchVars);
+        state.localBindings = previousCatchLocals;
     }
     if (statement.finally_block != null) {
         semanticValidateBlock(statement.finally_block, state, vars);

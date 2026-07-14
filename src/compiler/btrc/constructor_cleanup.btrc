@@ -10,24 +10,20 @@ string beginConstructorCleanup(IRGen generator, string selfName,
     if (!generator.programHasExceptions) { return ""; }
 
     generator.useHelper("__btrc_cleanup_mark");
-    generator.useHelper("__btrc_register_cleanup");
     string marker = generator.freshTemp(
         "__btrc_constructor_cleanup");
     Vector<IRNode> markArguments = [];
     output.push(irVarDecl("int", marker,
         irCall("__btrc_cleanup_mark", markArguments)));
 
-    Vector<IRNode> cleanupArguments = [];
-    cleanupArguments.push(irCast(
-        "void**", irAddressOf(irVar(selfName))));
-    cleanupArguments.push(irVar(emittedName + "_destroy"));
+    IRNode declaration = requireCleanupSlotDeclaration(
+        output, selfName);
+    IRNode visitor = irLiteral("NULL");
     if (managedClassNeedsVisitor(generator, emittedName)) {
-        cleanupArguments.push(irVar(cycleVisitorName(emittedName)));
-    } else {
-        cleanupArguments.push(irLiteral("NULL"));
+        visitor = irVar(cycleVisitorName(emittedName));
     }
-    output.push(irExprStmt(irCall(
-        "__btrc_register_cleanup", cleanupArguments)));
+    output.push(irExprStmt(registerCleanupSlot(generator, declaration,
+        irVar(emittedName + "_destroy"), visitor, false)));
     return marker;
 }
 

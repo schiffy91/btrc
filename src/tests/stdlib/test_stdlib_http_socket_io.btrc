@@ -6,12 +6,20 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <errno.h>
+#include <signal.h>
+
+volatile sig_atomic_t pipeSignals = 0;
+
+void countPipeSignal(int signalNumber) {
+    if (signalNumber == SIGPIPE) { pipeSignals++; }
+}
 
 bool sendText(int descriptor, string text) {
     size_t length = strlen(text);
     size_t sent = 0;
     while (sent < length) {
-        ssize_t count = send(descriptor, text + sent, length - sent, 0);
+        ssize_t count = send(
+            descriptor, (char*)text + sent, length - sent, 0);
         if (count > (ssize_t)0) { sent = sent + (size_t)count; }
         else if (count < (ssize_t)0 && errno == EINTR) { continue; }
         else { return false; }
@@ -34,12 +42,24 @@ Bytes readToClose(int descriptor) {
 int main() {
     HttpServer server = HttpServer(0);
 
+    signal(SIGPIPE, countPipeSignal);
+
     HttpServer lifecycle = HttpServer(0);
     assert(lifecycle.start());
     assert(lifecycle.fd >= 0);
+    assert((fcntl(lifecycle.fd, F_GETFD, 0) & FD_CLOEXEC) != 0);
+    raise(SIGPIPE);
+    assert((int)pipeSignals == 1);  /* Preserve caller signal policy. */
     lifecycle.stop();
     assert(lifecycle.fd == -1);
     assert(lifecycle.start());
+    lifecycle.timeoutSecs = 1;
+    Timer acceptTimer = Timer();
+    acceptTimer.start();
+    assert(lifecycle.acceptConn() == -1);
+    acceptTimer.stop();
+    assert(acceptTimer.elapsedMillis() >= 700.0f);
+    assert(acceptTimer.elapsedMillis() < 5000.0f);
     lifecycle.stop();
 
     int limitedPair[2];
@@ -55,12 +75,59 @@ int main() {
 
     int blockedPair[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, blockedPair) == 0);
+    server.timeoutSecs = 1;
     int descriptorFlags = fcntl(blockedPair[0], F_GETFL, 0);
     assert(descriptorFlags >= 0);
     assert(fcntl(blockedPair[0], F_SETFL, descriptorFlags | O_NONBLOCK) == 0);
-    assert(!server.trySendAll(blockedPair[0], "x".repeat(200000)));
+    int sendBuffer = 1024;
+    assert(setsockopt(blockedPair[0], SOL_SOCKET, SO_SNDBUF,
+                      &sendBuffer, sizeof(sendBuffer)) == 0);
+    Timer sendTimer = Timer();
+    sendTimer.start();
+    assert(!server.trySendAll(blockedPair[0], "x".repeat(1000000)));
+    sendTimer.stop();
+    assert(sendTimer.elapsedMillis() >= 700.0f);
+    assert(sendTimer.elapsedMillis() < 5000.0f);
     close(blockedPair[0]);
     close(blockedPair[1]);
+
+    /* Exercise the per-send SIGPIPE suppression itself, independently of the
+     * full-buffer timeout above. */
+    int closedPair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, closedPair) == 0);
+    close(closedPair[1]);
+    assert(HttpSocket.sendNoSignal(
+        closedPair[0], (char*)"x", (size_t)1) < 0LL);
+    assert((int)pipeSignals == 1);
+    close(closedPair[0]);
+    server.timeoutSecs = 15;
+
+    /* A peer that dribbles one byte inside each socket timeout cannot extend
+     * the request forever: readRequest uses one absolute deadline. */
+    int slowPair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, slowPair) == 0);
+    int slowWriter = (int)fork();
+    assert(slowWriter >= 0);
+    if (slowWriter == 0) {
+        close(slowPair[1]);
+        for (int index = 0; index < 20; index++) {
+            if (!sendText(slowPair[0], "G")) { _exit(0); }
+            poll(NULL, 0, 200);
+        }
+        _exit(0);
+    }
+    close(slowPair[0]);
+    server.timeoutSecs = 1;
+    Timer slowTimer = Timer();
+    slowTimer.start();
+    assert(server.readRequestRawBytes(slowPair[1]).isEmpty());
+    slowTimer.stop();
+    assert(slowTimer.elapsedMillis() >= 700.0f);
+    assert(slowTimer.elapsedMillis() < 5000.0f);
+    close(slowPair[1]);
+    kill(slowWriter, SIGKILL);
+    waitpid(slowWriter, NULL, 0);
+    server.timeoutSecs = 15;
 
     /* Header delimiter and body span several fixed-size recv buffers. */
     int largePair[2];
@@ -121,9 +188,9 @@ int main() {
      * respond() shuts down the write side promised by Connection: close. */
     int responsePair[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, responsePair) == 0);
-    int sendBuffer = 1024;
+    int responseSendBuffer = 1024;
     assert(setsockopt(responsePair[0], SOL_SOCKET, SO_SNDBUF,
-                      &sendBuffer, sizeof(sendBuffer)) == 0);
+                      &responseSendBuffer, sizeof(responseSendBuffer)) == 0);
     struct timeval receiveTimeout;
     receiveTimeout.tv_sec = 2;
     receiveTimeout.tv_usec = 0;
@@ -169,6 +236,8 @@ int main() {
     assert(!emptyText.contains("must-not-send"));
     server.closeConn(emptyPair[0]);
     close(emptyPair[1]);
+
+    signal(SIGPIPE, SIG_DFL);
 
     print("PASS: test_stdlib_http_socket_io");
     return 0;

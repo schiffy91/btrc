@@ -24,6 +24,11 @@ def _compile_both(semantic_btrcc: Path, tmp_path: Path):
     reference, reference_source = compile_reference_source(tmp_path, source, "exception-cross-function-cleanup")
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
+    emitted = selfhost_source.read_text()
+    assert "typedef void* (*__btrc_cleanup_take_fn)(void*);" in emitted
+    assert "Token* volatile* typed_slot" in emitted
+    assert "__btrc_register_cleanup(((void*)(&" in emitted
+    assert "void** ptr_ref" not in emitted
     return selfhost_source, reference_source
 
 

@@ -45,7 +45,13 @@ class _UserGenericOwnershipMixin:
             from ..assignment_ownership import virtual_assignment_target
 
             return bool(
-                (isinstance(expression.target, (FieldAccessExpr, IndexExpr)) and self._owns_expr(expression.target.obj))
+                (
+                    isinstance(expression.target, (FieldAccessExpr, IndexExpr))
+                    and (
+                        self._owns_expr(expression.target.obj)
+                        or self._assignment_pins_borrowed_target(expression.target)
+                    )
+                )
                 or (
                     expression.op == "="
                     and virtual_assignment_target(self._gen, expression.target)
@@ -83,6 +89,36 @@ class _UserGenericOwnershipMixin:
                 unary=True,
             )
         return False
+
+    def _assignment_pins_borrowed_target(self, target):
+        from ..assignment_ownership import (
+            assignment_target_operands,
+            kept_target_operands,
+            property_projection,
+        )
+
+        type_of = self._resolve_expr_type
+        operands = assignment_target_operands(
+            target,
+            stabilize_receiver=lambda receiver: bool(
+                self._owns_expr(receiver)
+                or self._is_managed_type(type_of(receiver))
+                or property_projection(
+                    receiver,
+                    type_of=type_of,
+                    class_table=self._gen.analyzed.class_table,
+                )
+            ),
+        )
+        return bool(
+            kept_target_operands(
+                target,
+                operands,
+                type_of=type_of,
+                is_managed=self._is_managed_type,
+                owns=self._owns_expr,
+            )
+        )
 
     def _known_language_call(self, expression):
         from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr

@@ -1,0 +1,212 @@
+#include <assert.h>
+
+/* Test-only observer: keep compiler-private spelling out of the semantic AST
+ * while letting strict C verify that every borrowed string pin is released. */
+#define btrcTestStringEntryCount() (__btrc_string_entry_count)
+
+int sequencesAlive = 0;
+int ownersAlive = 0;
+
+class Sequence {
+    public int base;
+
+    public Sequence(int base) {
+        self.base = base;
+        sequencesAlive++;
+    }
+
+    public int iterLen() {
+        assert(sequencesAlive == 1);
+        return 4;
+    }
+
+    public int iterGet(int index) {
+        assert(sequencesAlive == 1);
+        return self.base + index;
+    }
+
+    public void __del__() {
+        sequencesAlive--;
+    }
+}
+
+class Owner {
+    public Sequence field;
+
+    public Sequence property {
+        get { return self.field; }
+    }
+
+    public Owner(int base) {
+        ownersAlive++;
+        self.field = new Sequence(base);
+    }
+
+    public void __del__() {
+        ownersAlive--;
+    }
+}
+
+void assertReleased() {
+    assert(sequencesAlive == 0);
+    assert(ownersAlive == 0);
+}
+
+int destroyDirectIterable(int base) {
+    Sequence sequence = new Sequence(base);
+    int sum = 0;
+    for value in sequence {
+        if (value == base) { sequence = null; }
+        sum += value;
+    }
+    assertReleased();
+    return sum;
+}
+
+int destroyFieldOwner(int base) {
+    Owner owner = new Owner(base);
+    int sum = 0;
+    for value in owner.field {
+        if (value == base) { delete owner; }
+        sum += value;
+    }
+    assertReleased();
+    return sum;
+}
+
+int destroyPropertyOwnerWithContinue(int base) {
+    Owner owner = new Owner(base);
+    int sum = 0;
+    for value in owner.property {
+        if (value == base) {
+            delete owner;
+            continue;
+        }
+        sum += value;
+    }
+    assertReleased();
+    return sum;
+}
+
+int destroyPropertyOwnerWithBreak(int base) {
+    Owner owner = new Owner(base);
+    int first = -1;
+    for value in owner.property {
+        delete owner;
+        first = value;
+        break;
+    }
+    assertReleased();
+    return first;
+}
+
+int destroyPropertyOwnerWithReturn(int base) {
+    Owner owner = new Owner(base);
+    for value in owner.property {
+        delete owner;
+        return value;
+    }
+    return -1;
+}
+
+void destroyPropertyOwnerWithThrow(int base) {
+    try {
+        Owner owner = new Owner(base);
+        for value in owner.property {
+            assert(value == base);
+            delete owner;
+            throw "borrowed iterable failure";
+        }
+        assert(false);
+    } catch (string error) {
+        assert(error.equals("borrowed iterable failure"));
+    }
+    assertReleased();
+}
+
+int replaceBorrowedString() {
+    int marker = 7;
+    string text = f"AB{marker}CD";
+    int count = 0;
+    int sum = 0;
+    for character in text {
+        if (count == 0) { text = f"replacement-{marker}"; }
+        count++;
+        sum += (int)character;
+    }
+    assert(count == 5);
+    return sum;
+}
+
+int returnFromBorrowedString() {
+    int marker = 8;
+    string text = f"R{marker}";
+    for character in text {
+        text = f"replacement-{marker}";
+        return (int)character;
+    }
+    return -1;
+}
+
+void throwFromBorrowedString() {
+    try {
+        int marker = 9;
+        string text = f"T{marker}";
+        for character in text {
+            assert((int)character == 84);
+            text = f"replacement-{marker}";
+            throw "borrowed string failure";
+        }
+        assert(false);
+    } catch (string error) {
+        assert(error.equals("borrowed string failure"));
+    }
+}
+
+class GenericRunner<T> {
+    public int destroyPropertyOwner(int base) {
+        Owner owner = new Owner(base);
+        int sum = 0;
+        for value in owner.property {
+            if (value == base) { delete owner; }
+            sum += value;
+        }
+        assertReleased();
+        return sum;
+    }
+
+    public int returnFromBorrowedString() {
+        int marker = 6;
+        string text = f"G{marker}";
+        for character in text {
+            text = f"replacement-{marker}";
+            return (int)character;
+        }
+        return -1;
+    }
+}
+
+int main() {
+    GenericRunner<int> runner = new GenericRunner<int>();
+    for (int iteration = 0; iteration < 32; iteration++) {
+        int base = iteration * 100;
+        assert(destroyDirectIterable(base) == base * 4 + 6);
+        assert(destroyFieldOwner(base) == base * 4 + 6);
+        assert(destroyPropertyOwnerWithContinue(base) == base * 3 + 6);
+        assert(destroyPropertyOwnerWithBreak(base) == base);
+        assert(destroyPropertyOwnerWithReturn(base) == base);
+        assertReleased();
+        destroyPropertyOwnerWithThrow(base);
+        assert(replaceBorrowedString() == 321);
+        assert((int)btrcTestStringEntryCount() == 0);
+        assert(returnFromBorrowedString() == 82);
+        assert((int)btrcTestStringEntryCount() == 0);
+        throwFromBorrowedString();
+        assert((int)btrcTestStringEntryCount() == 0);
+        assert(runner.destroyPropertyOwner(base) == base * 4 + 6);
+        assert(runner.returnFromBorrowedString() == 71);
+        assert((int)btrcTestStringEntryCount() == 0);
+        assertReleased();
+    }
+    return 0;
+}

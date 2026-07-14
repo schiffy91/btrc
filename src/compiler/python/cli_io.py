@@ -8,6 +8,7 @@ import secrets
 import stat
 import sys
 
+from .cache_io import fsync_parent_directory
 from .source_io import SourceReadError, read_source
 
 
@@ -48,8 +49,10 @@ def _stage_output(target: str, content: str) -> str:
                 continue
         else:
             raise FileExistsError("could not allocate a unique temporary output file")
-        with contextlib.suppress(OSError):
-            os.fchmod(descriptor, stat.S_IMODE(os.stat(target).st_mode))
+        fchmod = getattr(os, "fchmod", None)
+        if fchmod is not None:
+            with contextlib.suppress(OSError):
+                fchmod(descriptor, stat.S_IMODE(os.stat(target).st_mode))
         output_file = os.fdopen(descriptor, "w", encoding="utf-8", newline="\n")
         descriptor = -1
         with output_file:
@@ -83,6 +86,7 @@ def write_output(path: str, content: str) -> None:
             return
         temporary_path = _stage_output(target, content)
         os.replace(temporary_path, target)
+        fsync_parent_directory(target)
     except (OSError, UnicodeError) as error:
         print(f"error: cannot write output file {path!r}: {error}", file=sys.stderr)
         raise SystemExit(1) from error
@@ -95,12 +99,14 @@ def write_output(path: str, content: str) -> None:
 def write_output_if_missing(path: str, content: str) -> bool:
     """Atomically create output without clobbering a concurrent user file."""
     temporary_path = None
+    published = False
     try:
         temporary_path = _stage_output(path, content)
         if os.name == "nt":
             os.rename(temporary_path, path)  # Windows rename is no-clobber.
         else:
             os.link(temporary_path, path)
+        published = True
     except FileExistsError:
         return False
     except (OSError, UnicodeError) as error:
@@ -110,4 +116,6 @@ def write_output_if_missing(path: str, content: str) -> bool:
         if temporary_path is not None:
             with contextlib.suppress(FileNotFoundError):
                 os.remove(temporary_path)
+    if published:
+        fsync_parent_directory(path)
     return True

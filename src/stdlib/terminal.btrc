@@ -3,10 +3,13 @@
 #include <termios.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include <poll.h>
 #include <pwd.h>
-#include <grp.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
@@ -14,7 +17,7 @@
 import std.bytes;
 import std.strings;
 
-extern int forkpty(int* amaster, char* name, void* termp, void* winp);
+extern pid_t forkpty(int* amaster, char* name, void* termp, void* winp);
 
 class Terminal {
     class string readLine() {
@@ -46,12 +49,16 @@ class Terminal {
             restore = tcsetattr(STDIN_FILENO, TCSANOW, &hidden) == 0;
         }
 
-        var value = Terminal.readLine();
-        if (restore) {
-            tcsetattr(STDIN_FILENO, TCSANOW, &previous);
+        string value = "";
+        try {
+            value = Terminal.readLine();
+        } finally {
+            if (restore) {
+                tcsetattr(STDIN_FILENO, TCSANOW, &previous);
+            }
+            fprintf(stderr, "\n");
+            fflush(stderr);
         }
-        fprintf(stderr, "\n");
-        fflush(stderr);
         return value;
     }
 }
@@ -60,40 +67,239 @@ class TerminalClock {
     class long long milliseconds() {
         struct timespec now;
         if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-            return (long long)time(NULL) * 1000LL;
+            return LLONG_MAX;
         }
-        return (long long)now.tv_sec * 1000LL
-            + (long long)now.tv_nsec / 1000000LL;
+        if (now.tv_sec < (time_t)0 || now.tv_nsec < 0L
+                || now.tv_nsec >= 1000000000L
+                || (uintmax_t)now.tv_sec
+                    > (uintmax_t)(LLONG_MAX / 1000LL)) {
+            return LLONG_MAX;
+        }
+        long long milliseconds = (long long)now.tv_sec * 1000LL;
+        long long fraction = (long long)now.tv_nsec / 1000000LL;
+        return milliseconds > LLONG_MAX - fraction
+            ? LLONG_MAX : milliseconds + fraction;
+    }
+
+    class long long deadlineAfter(int milliseconds) {
+        long long now = TerminalClock.milliseconds();
+        long long duration = milliseconds > 0 ? (long long)milliseconds : 0LL;
+        return now > LLONG_MAX - duration ? LLONG_MAX : now + duration;
     }
 }
 
 class UnixPamPassword {
     class bool safeSecret(string value) {
         return value != null
+            && value.len() <= 4096
             && !value.contains("\n")
             && !value.contains("\r");
     }
 
-    class bool writeResponse(int fd, string value) {
-        size_t length = strlen(value);
+    class string passwdExecutable() {
+        if (access("/run/wrappers/bin/passwd", X_OK) == 0) {
+            return "/run/wrappers/bin/passwd";
+        }
+        if (access("/run/current-system/sw/bin/passwd", X_OK) == 0) {
+            return "/run/current-system/sw/bin/passwd";
+        }
+        if (access("/usr/bin/passwd", X_OK) == 0) {
+            return "/usr/bin/passwd";
+        }
+        if (access("/bin/passwd", X_OK) == 0) { return "/bin/passwd"; }
+        return "";
+    }
+
+    /* Root may select a target account and is not asked for its current
+     * password. An unprivileged caller may only change its own account. */
+    class int responseCountFor(uid_t effectiveUser, uid_t targetUser) {
+        if (effectiveUser == (uid_t)0) { return 2; }
+        return effectiveUser == targetUser ? 3 : 0;
+    }
+
+    class bool maySendResponse(int sent, int selected, bool promptSeen) {
+        return promptSeen && sent >= 0 && selected > 0 && sent < selected;
+    }
+
+    class size_t initialAccountBufferSize() {
+        long suggested = sysconf(_SC_GETPW_R_SIZE_MAX);
+        if (suggested < 1024L) { return (size_t)16384; }
+        if (suggested > 1048576L) { return (size_t)1048576; }
+        return (size_t)suggested;
+    }
+
+    class int descriptorCloseBound() {
+        struct rlimit limit;
+        if (getrlimit(RLIMIT_NOFILE, &limit) != 0) { return -1; }
+        uintmax_t bound = (uintmax_t)limit.rlim_cur;
+        if (bound == (uintmax_t)RLIM_INFINITY
+                || bound < (uintmax_t)3
+                || bound > (uintmax_t)1048576) {
+            return -1;
+        }
+        return (int)bound;
+    }
+
+    /* Called only in the post-fork child. close() and integer iteration are
+     * async-signal-safe; every unrelated descriptor is gone before execve. */
+    class void closeDescriptorsForExec(int bound) {
+        for (int descriptor = 3; descriptor < bound; descriptor++) {
+            close(descriptor);
+        }
+    }
+
+    class bool configureMaster(int fd) {
+        if (fd < 0) { return false; }
+        int descriptorFlags = fcntl(fd, F_GETFD, 0);
+        if (descriptorFlags < 0
+                || fcntl(fd, F_SETFD, descriptorFlags | FD_CLOEXEC) < 0) {
+            return false;
+        }
+        int statusFlags = fcntl(fd, F_GETFL, 0);
+        return statusFlags >= 0
+            && fcntl(fd, F_SETFL, statusFlags | O_NONBLOCK) == 0;
+    }
+
+    /* Return poll revents, zero for a slice/deadline timeout, or -1 on error. */
+    class int pollUntil(int fd, short events, long long deadline,
+                        int maxWaitMillis) {
+        while (true) {
+            long long now = TerminalClock.milliseconds();
+            if (deadline <= now) { return 0; }
+            long long remaining = deadline - now;
+            int waitMillis = remaining > (long long)INT_MAX
+                ? INT_MAX : (int)remaining;
+            if (maxWaitMillis > 0 && waitMillis > maxWaitMillis) {
+                waitMillis = maxWaitMillis;
+            }
+            struct pollfd pending;
+            pending.fd = fd;
+            pending.events = events;
+            pending.revents = 0;
+            int ready = poll(&pending, 1, waitMillis);
+            if (ready < 0 && errno == EINTR) { continue; }
+            if (ready < 0) { return -1; }
+            return ready == 0 ? 0 : (int)pending.revents;
+        }
+        return -1;
+    }
+
+    class bool writeBytesUntil(int fd, char* bytes, size_t length,
+                               long long deadline) {
         size_t offset = 0;
         while (offset < length) {
-            ssize_t written = write(
-                fd, (char*)value + offset, length - offset);
+            int events = UnixPamPassword.pollUntil(
+                fd, POLLOUT, deadline, INT_MAX);
+            if (events <= 0 || (events & POLLOUT) == 0) { return false; }
+            ssize_t written = write(fd, bytes + offset, length - offset);
             if (written > (ssize_t)0) {
                 offset += (size_t)written;
             } else if (written < (ssize_t)0 && errno == EINTR) {
+                continue;
+            } else if (written < (ssize_t)0
+                    && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 continue;
             } else {
                 return false;
             }
         }
-        while (true) {
-            ssize_t written = write(fd, "\n", 1);
-            if (written == (ssize_t)1) { return true; }
-            if (written < (ssize_t)0 && errno == EINTR) { continue; }
+        return true;
+    }
+
+    class bool writeResponseUntil(int fd, string value,
+                                  long long deadline) {
+        if (fd < 0 || !UnixPamPassword.safeSecret(value)) { return false; }
+        if (!UnixPamPassword.writeBytesUntil(
+                fd, (char*)value, strlen(value), deadline)) {
             return false;
         }
+        return UnixPamPassword.writeBytesUntil(
+            fd, (char*)"\n", (size_t)1, deadline);
+    }
+
+    /* Back-compatible standalone helper with the same bounded secret contract. */
+    class bool writeResponse(int fd, string value) {
+        return UnixPamPassword.writeResponseUntil(
+            fd, value, TerminalClock.deadlineAfter(30000));
+    }
+
+    /* SIGKILL normally makes the following wait immediate.  We deliberately
+     * prefer guaranteed child cleanup over returning at the deadline while a
+     * live child or zombie remains. A dedicated reaper would be required to
+     * promise both a hard return bound and guaranteed cleanup. */
+    class int killAndReap(pid_t processId) {
+        if (processId <= (pid_t)0) { return -1; }
+        kill(processId, SIGKILL);
+        int status = 0;
+        pid_t waited = waitpid(processId, &status, 0);
+        while (waited < (pid_t)0 && errno == EINTR) {
+            waited = waitpid(processId, &status, 0);
+        }
+        return -1;
+    }
+
+    /* forkpty establishes the child as a session/process-group leader. Stop
+     * that group first so a PAM helper cannot outlive a timed-out passwd, then
+     * always target and reap the leader as the portable fallback. */
+    class int killPtyAndReap(pid_t processId) {
+        if (processId <= (pid_t)0) { return -1; }
+        kill(-processId, SIGKILL);
+        return UnixPamPassword.killAndReap(processId);
+    }
+
+    /* Wait against the caller's absolute deadline.  A backend that accepts
+     * every prompt and then stalls must not escape the password-change bound. */
+    class int waitForExitUntil(pid_t processId, long long deadline) {
+        if (processId <= (pid_t)0) { return -1; }
+        int status = 0;
+        while (true) {
+            pid_t waited = waitpid(processId, &status, WNOHANG);
+            if (waited == processId) { return status; }
+            if (waited < (pid_t)0 && errno != EINTR) { return -1; }
+            if (TerminalClock.milliseconds() >= deadline) {
+                return UnixPamPassword.killAndReap(processId);
+            }
+            poll(NULL, 0, 10);
+        }
+        return -1;
+    }
+
+    /* Keep the PTY alive until passwd exits: closing its last master first can
+     * deliver SIGHUP to the slave's foreground process group. Drain output so a
+     * verbose backend cannot fill the PTY and deadlock before exit. */
+    class int waitForPtyExitUntil(pid_t processId, int fd,
+                                  long long deadline) {
+        if (processId <= (pid_t)0 || fd < 0) { return -1; }
+        int status = 0;
+        char output[4096];
+        while (true) {
+            pid_t waited = waitpid(processId, &status, WNOHANG);
+            if (waited == processId) { return status; }
+            if (waited < (pid_t)0 && errno != EINTR) { return -1; }
+            if (TerminalClock.milliseconds() >= deadline) {
+                return UnixPamPassword.killPtyAndReap(processId);
+            }
+            int events = UnixPamPassword.pollUntil(
+                fd, POLLIN, deadline, 50);
+            if (events < 0) {
+                return UnixPamPassword.killPtyAndReap(processId);
+            }
+            if ((events & POLLIN) != 0) {
+                int reads = 0;
+                while (reads < 16) {
+                    ssize_t count = read(fd, output, sizeof(output));
+                    if (count > (ssize_t)0) {
+                        reads++;
+                        continue;
+                    }
+                    if (count < (ssize_t)0 && errno == EINTR) { continue; }
+                    break;
+                }
+            } else if (events != 0) {
+                poll(NULL, 0, 10);
+            }
+        }
+        return -1;
     }
 
     class bool change(string user, string oldPassword, string newPassword) {
@@ -102,55 +308,125 @@ class UnixPamPassword {
                 || !UnixPamPassword.safeSecret(newPassword)) {
             return false;
         }
-        struct passwd* pw = getpwnam(user);
-        if (pw == NULL) { return false; }
+        /* getpwnam_r never exposes a partial record: ERANGE grows a
+         * caller-owned buffer up to a documented 1 MiB ceiling, then fails
+         * closed if the NSS record still cannot be represented. */
+        struct passwd account;
+        struct passwd* pw = NULL;
+        size_t accountCapacity = UnixPamPassword.initialAccountBufferSize();
+        char* accountBuffer = (char*)malloc(accountCapacity);
+        if (accountBuffer == NULL) { return false; }
+        int lookup = ERANGE;
+        while (true) {
+            pw = NULL;
+            lookup = getpwnam_r(
+                user, &account, accountBuffer, accountCapacity, &pw);
+            if (lookup != ERANGE || accountCapacity >= (size_t)1048576) {
+                break;
+            }
+            size_t nextCapacity = accountCapacity * (size_t)2;
+            if (nextCapacity > (size_t)1048576) {
+                nextCapacity = (size_t)1048576;
+            }
+            char* grown = (char*)realloc(accountBuffer, nextCapacity);
+            if (grown == NULL) {
+                free(accountBuffer);
+                return false;
+            }
+            accountBuffer = grown;
+            accountCapacity = nextCapacity;
+        }
+        if (lookup != 0 || pw == NULL) {
+            free(accountBuffer);
+            return false;
+        }
+        uid_t targetUser = pw->pw_uid;
+        string homeDirectory = pw->pw_dir == NULL
+            ? "/" : Strings.copy(pw->pw_dir);
+        free(accountBuffer);
+
+        string executable = UnixPamPassword.passwdExecutable();
+        int responseCount = UnixPamPassword.responseCountFor(
+            geteuid(), targetUser);
+        if (executable.isEmpty() || responseCount == 0) { return false; }
+
+        /* Everything the child will consume is materialized before forkpty.
+         * The child branch performs only execve/_exit, preserving the immediate
+         * exec boundary required by multithreaded callers. */
+        char* childArguments[3];
+        childArguments[0] = executable;
+        childArguments[1] = NULL;
+        childArguments[2] = NULL;
+        /* Root executes `passwd user`; non-root self-service leaves argv[1]
+         * null and therefore executes plain `passwd`. */
+        if (responseCount == 2) { childArguments[1] = user; }
+
+        string homeEnvironment = "HOME=" + homeDirectory;
+        string userEnvironment = "USER=" + user;
+        string lognameEnvironment = "LOGNAME=" + user;
+        char* childEnvironment[7];
+        childEnvironment[0] = (char*)"PATH=/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin";
+        childEnvironment[1] = (char*)"LC_ALL=C";
+        childEnvironment[2] = (char*)"LANG=C";
+        childEnvironment[3] = homeEnvironment;
+        childEnvironment[4] = userEnvironment;
+        childEnvironment[5] = lognameEnvironment;
+        childEnvironment[6] = NULL;
+
+        /* RLIMIT_NOFILE's current finite limit is the allocation ceiling for
+         * new descriptors. Reject unsupported limits instead of silently
+         * leaking a caller descriptor into the privileged executable. */
+        int descriptorBound = UnixPamPassword.descriptorCloseBound();
+        if (descriptorBound < 3) { return false; }
 
         int fd = -1;
         pid_t pid = forkpty(&fd, NULL, NULL, NULL);
         if (pid < (pid_t)0) { return false; }
 
         if (pid == (pid_t)0) {
-            if ((geteuid() == (uid_t)0
-                    && initgroups(user, pw->pw_gid) != 0)
-                    || setgid(pw->pw_gid) != 0
-                    || setuid(pw->pw_uid) != 0
-                    || setenv("HOME", pw->pw_dir, 1) != 0
-                    || setenv("USER", user, 1) != 0
-                    || setenv("LOGNAME", user, 1) != 0
-                    || setenv("PATH", "/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin", 1) != 0) {
-                _exit(126);
-            }
-            execlp("passwd", "passwd", (char*)NULL);
+            UnixPamPassword.closeDescriptorsForExec(descriptorBound);
+            execve(executable, childArguments, childEnvironment);
             _exit(127);
         }
 
+        if (!UnixPamPassword.configureMaster(fd)) {
+            UnixPamPassword.killPtyAndReap(pid);
+            if (fd >= 0) { close(fd); }
+            return false;
+        }
+
         char* responses[3];
-        responses[0] = oldPassword;
+        responses[0] = responseCount == 2 ? newPassword : oldPassword;
         responses[1] = newPassword;
         responses[2] = newPassword;
         int response = 0;
-        long long deadline = TerminalClock.milliseconds() + 30000LL;
+        long long deadline = TerminalClock.deadlineAfter(30000);
         char buffer[4096];
         bool failed = false;
 
-        while (TerminalClock.milliseconds() < deadline && response < 3) {
-            struct pollfd input;
-            input.fd = fd;
-            input.events = POLLIN;
-            input.revents = 0;
-            int ready = poll(&input, 1, 1000);
-            if (ready < 0 && errno == EINTR) { continue; }
+        while (TerminalClock.milliseconds() < deadline
+                && response < responseCount) {
+            int ready = UnixPamPassword.pollUntil(
+                fd, POLLIN, deadline, 1000);
             if (ready < 0) { failed = true; break; }
             if (ready == 0) { continue; }
+            if ((ready & POLLIN) == 0) { failed = true; break; }
             ssize_t n = read(fd, buffer, sizeof(buffer));
             if (n < (ssize_t)0 && errno == EINTR) { continue; }
-            if (n <= (ssize_t)0) { break; }
+            if (n < (ssize_t)0
+                    && (errno == EAGAIN || errno == EWOULDBLOCK)) { continue; }
+            if (n <= (ssize_t)0) { failed = true; break; }
             bool prompt = false;
+            /* Collapse every colon in this read to one prompt event. Diagnostic
+             * text containing additional colons can consume at most one entry,
+             * and maySendResponse enforces the selected two/three-secret cap. */
             for (ssize_t i = 0; i < n; i++) {
                 if (buffer[i] == ':') { prompt = true; }
             }
-            if (prompt) {
-                if (!UnixPamPassword.writeResponse(fd, responses[response])) {
+            if (UnixPamPassword.maySendResponse(
+                    response, responseCount, prompt)) {
+                if (!UnixPamPassword.writeResponseUntil(
+                        fd, responses[response], deadline)) {
                     failed = true;
                     break;
                 }
@@ -158,14 +434,14 @@ class UnixPamPassword {
             }
         }
 
-        if (failed || response < 3) { kill(pid, SIGKILL); }
-        close(fd);
-        int status = 0;
-        pid_t waited = waitpid(pid, &status, 0);
-        while (waited < (pid_t)0 && errno == EINTR) {
-            waited = waitpid(pid, &status, 0);
+        if (failed || response < responseCount) {
+            UnixPamPassword.killPtyAndReap(pid);
+            close(fd);
+            return false;
         }
-        return !failed && response == 3 && waited == pid
+        int status = UnixPamPassword.waitForPtyExitUntil(pid, fd, deadline);
+        close(fd);
+        return !failed && response == responseCount && status >= 0
             && WIFEXITED(status) && WEXITSTATUS(status) == 0;
     }
 }

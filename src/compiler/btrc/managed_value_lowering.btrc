@@ -6,7 +6,9 @@ string irManagedStringRuntimeType() {
 
 string irManagedRuntimeCType(string runtimeType) {
     if (runtimeType == irManagedStringRuntimeType()) { return "char*"; }
-    return runtimeType + "*";
+    /* A lexical value may legally shadow the class typedef (Box Box). The
+     * struct tag remains visible in C's separate tag namespace. */
+    return "struct " + runtimeType + "*";
 }
 
 bool irManagedStringType(IRGen generator, Node? typeExpr) {

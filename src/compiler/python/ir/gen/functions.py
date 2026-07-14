@@ -55,7 +55,12 @@ def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
     gen.current_return_type = decl.return_type
     gen.current_return_owned = True
     gen._normalizing_void_main = bool(name == "main" and decl.return_type.base == "void")
-    body = lower_block(gen, decl.body, local_bindings=[parameter.name for parameter in decl.params])
+    body = lower_block(
+        gen,
+        decl.body,
+        local_bindings=[parameter.name for parameter in decl.params],
+        callable_bindings=decl.params,
+    )
     gen._normalizing_void_main = previous_void_main
     gen.current_return_type = previous_return_type
     gen.current_return_c_type = previous_return_c_type

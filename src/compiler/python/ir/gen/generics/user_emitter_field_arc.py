@@ -16,13 +16,28 @@ from ..managed_values import (
 
 def lower_generic_field_assignment(emitter, expression):
     """Retain/store/release a managed field, or return ``None``."""
-    from ....ast_nodes import FieldAccessExpr, SelfExpr
+    from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
 
     if not isinstance(
         expression.target,
         FieldAccessExpr,
     ):
         return None
+    if isinstance(expression.target.obj, Identifier):
+        owner = emitter._gen.analyzed.class_table.get(expression.target.obj.name)
+        static_field = owner.static_fields.get(expression.target.field) if owner is not None else None
+        static_type = emitter._resolve_expr_type(expression.target)
+        if static_field is not None and emitter._is_managed_type(static_type):
+            from .user_emitter_local_arc import (
+                lower_generic_managed_slot_assignment,
+            )
+
+            return lower_generic_managed_slot_assignment(
+                emitter,
+                expression,
+                IRVar(name=(f"{expression.target.obj.name}_{expression.target.field}")),
+                static_type,
+            )
     receiver_type = emitter._resolve_expr_type(expression.target.obj)
     field_type = emitter._member_type(
         receiver_type,
@@ -171,6 +186,7 @@ def _lower_generic_field_compound(
         value_type=field_type,
         right_type=right_type,
         old_expr=target,
+        current_expr=target,
         right_expr=emitter._assignment_value(field_type, expression.value),
         compute=lambda old, right: lower_managed_compound_operator(
             emitter._gen,
@@ -189,10 +205,9 @@ def _lower_generic_field_compound(
             emitter._gen,
             field_type,
             expression.op[:-1],
+            right_type,
         ),
         release_replaced_old=not class_edge,
-        commit_releases_old=class_edge,
-        result_owned=False,
         transfer_before_commit=class_edge,
         c_type=emitter.iter_value_c,
         fresh_temp=emitter._fresh_temp,

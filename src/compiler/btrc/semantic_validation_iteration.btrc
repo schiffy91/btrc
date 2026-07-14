@@ -176,6 +176,9 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
     bodyVars.put(statement.var_name, first);
     Map<string, bool> previousBorrowedBindings =
         semanticCloneFlags(state.borrowedBindings);
+    Map<string, bool> previousLocalBindings =
+        semanticCloneFlags(state.localBindings);
+    state.localBindings.put(statement.var_name, true);
     if (semanticManagedOwnershipType(first, state)
             && !protocolOwnsFirst) {
         state.borrowedBindings.put(statement.var_name, true);
@@ -203,6 +206,7 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
         }
         bodyVars.put(statement.var_name2, second);
         state.borrowedBindings.remove(statement.var_name2);
+        state.localBindings.put(statement.var_name2, true);
     }
 
     semanticValidateDirectLocalNames(statement.body_node, loopNames);
@@ -212,6 +216,7 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
     state.breakDepth = previousBreak + 1;
     semanticValidateBlock(statement.body_node, state, bodyVars);
     state.borrowedBindings = previousBorrowedBindings;
+    state.localBindings = previousLocalBindings;
     state.loopDepth = previousLoop;
     state.breakDepth = previousBreak;
 }

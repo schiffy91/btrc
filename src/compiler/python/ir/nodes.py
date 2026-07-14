@@ -17,6 +17,7 @@ from .expr_nodes import (
     IRBinOp,
     IRCall,
     IRCast,
+    IRCleanupSlot,
     IRCommaExpr,
     IRCompoundLiteral,
     IRDeref,
@@ -114,6 +115,7 @@ class IRVarDecl(IRStmt):
     is_volatile: bool = False
     is_static: bool = False
     is_extern: bool = False
+    cleanup_slot: IRCleanupSlot | None = None
 
 
 @dataclass

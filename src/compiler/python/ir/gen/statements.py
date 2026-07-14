@@ -62,11 +62,22 @@ def lower_block(
     *,
     iteration_bindings=(),
     local_bindings=(),
+    callable_bindings=(),
+    callable_abis=(),
 ) -> IRBlock:
     """Lower a btrc Block to an IRBlock."""
     if block is None:
         return IRBlock()
     enclosing_closures = gen._fn_ptr_envs.copy()
+    from .callable_provenance import (
+        begin_callable_scope,
+        bind_borrowed_callable,
+        bind_callable_abi,
+        declare_callable_shadow,
+        finish_callable_scope,
+    )
+
+    enclosing_callables = begin_callable_scope(gen)
     marker = gen.push_cleanup_scope()
     gen.push_managed_scope()
     gen.push_local_ownership_scope()
@@ -75,6 +86,15 @@ def lower_block(
     try:
         for name in local_bindings:
             gen.declare_local_ownership(name)
+            declare_callable_shadow(gen, name)
+        for binding in callable_bindings:
+            if isinstance(binding, tuple):
+                name, type_expr = binding
+            else:
+                name, type_expr = binding.name, binding.type
+            bind_borrowed_callable(gen, name, type_expr)
+        for binding, return_abi in callable_abis:
+            bind_callable_abi(gen, binding.name, binding.type, return_abi)
         if iteration_bindings:
             from .iteration_bindings import emit_iteration_bindings
 
@@ -102,6 +122,7 @@ def lower_block(
         gen.pop_local_ownership_scope()
         gen.pop_cleanup_scope()
         gen._fn_ptr_envs = enclosing_closures
+        finish_callable_scope(gen, enclosing_callables)
     return IRBlock(stmts=stmts)
 
 
@@ -230,10 +251,26 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
 
 
 def _lower_loop_body(gen: IRGenerator, body: Block | None, *, iteration_bindings=()) -> IRBlock:
+    from .callable_provenance import (
+        join_callable_flows,
+        lower_isolated_callable_flow,
+        snapshot_callable_flow,
+    )
+
+    incoming = snapshot_callable_flow(gen)
     gen.push_loop_scope()
     gen.push_control_context("loop")
     try:
-        return lower_block(gen, body, iteration_bindings=iteration_bindings)
+        lowered, body_flow = lower_isolated_callable_flow(
+            gen,
+            lambda: lower_block(
+                gen,
+                body,
+                iteration_bindings=iteration_bindings,
+            ),
+        )
     finally:
         gen.pop_control_context()
         gen.pop_loop_scope()
+    join_callable_flows(gen, incoming, body_flow)
+    return lowered

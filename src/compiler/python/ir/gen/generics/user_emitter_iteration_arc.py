@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...nodes import CType, IRAssign, IRLiteral, IRStmt, IRVar, IRVarDecl
+from ...nodes import CType, IRAssign, IRExprStmt, IRLiteral, IRStmt, IRVar, IRVarDecl
 from ..managed_local import ManagedLocal
 
 
@@ -13,13 +13,22 @@ def begin_owned_iterable(
     name: str,
     prefix: list[IRStmt],
 ) -> ManagedLocal | None:
-    """Track a fresh iterable until all loop exit paths are lowered."""
-    if not emitter._owns_expr(expression):
-        return None
+    """Own a fresh or borrowed iterable until every loop exit is lowered."""
     if not emitter._is_managed_type(type_expr):
         return None
-    from ..managed_values import is_string_type, runtime_name
+    from ..managed_values import is_string_type, retain_value, runtime_name
     from .user_emitter_scopes import register_managed_local
+
+    if not emitter._owns_expr(expression):
+        prefix.append(
+            IRExprStmt(
+                expr=retain_value(
+                    emitter._gen,
+                    IRVar(name=name),
+                    type_expr,
+                )
+            )
+        )
 
     owner = ManagedLocal(
         name=name,

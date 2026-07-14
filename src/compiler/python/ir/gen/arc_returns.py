@@ -45,6 +45,14 @@ def lower_return(gen: IRGenerator, node: ReturnStmt) -> list[IRStmt]:
         value = IRLiteral(text="0") if gen._normalizing_void_main else None
         return _emit_return_release(gen, None) + try_pop + cleanup_discard + [IRReturn(value=value)]
 
+    from .callable_boundaries import reject_persistent_callable_escape
+
+    reject_persistent_callable_escape(
+        gen,
+        gen.current_return_type,
+        node.value,
+        "a function return",
+    )
     lowered = lower_expr(gen, node.value)
     # Lowering the value can register temporary exception cleanups.  Query the
     # active marker and try helpers only afterward so the return discards every

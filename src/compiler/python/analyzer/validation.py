@@ -13,6 +13,19 @@ class ValidationMixin:
         if (
             isinstance(expr.obj, Identifier)
             and self.scope.lookup(expr.obj.name) is None
+            and expr.obj.name in self.rich_enum_table
+        ):
+            declaration = self.rich_enum_table[expr.obj.name]
+            if not call_target and not any(variant.name == expr.field for variant in declaration.variants):
+                self._error(
+                    f"Rich enum '{declaration.name}' has no variant '{expr.field}'",
+                    expr.line,
+                    expr.col,
+                )
+            return
+        if (
+            isinstance(expr.obj, Identifier)
+            and self.scope.lookup(expr.obj.name) is None
             and expr.obj.name in self.class_table
         ):
             self._validate_static_member_access(expr, self.class_table[expr.obj.name])
@@ -40,6 +53,14 @@ class ValidationMixin:
             valid = {"get", "set", "destroy"}
             if expr.field not in valid:
                 self._error(f"Mutex<T> has no method '{expr.field}'", expr.line, expr.col)
+            return
+        if obj_type and obj_type.base in self.rich_enum_table:
+            if expr.field not in {"tag", "data"}:
+                self._error(
+                    f"Rich enum '{obj_type.base}' has no field '{expr.field}'",
+                    expr.line,
+                    expr.col,
+                )
             return
         if obj_type and obj_type.base == "string":
             if not call_target:

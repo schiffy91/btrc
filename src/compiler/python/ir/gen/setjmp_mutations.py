@@ -100,6 +100,10 @@ class _MutationCollector:
 
     def _statement(self, statement, bound) -> None:
         if isinstance(statement, IRVarDecl):
+            # C block scope starts after the declarator.  A VLA bound can
+            # therefore still name (and mutate) an outer declaration with the
+            # same spelling, while the initializer resolves to the new object.
+            self._expression(statement.array_size, bound)
             bound.add(statement.name)
             self._expression(statement.init, bound)
         elif isinstance(statement, IRAssign):

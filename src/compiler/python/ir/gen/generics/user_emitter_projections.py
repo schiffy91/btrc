@@ -34,11 +34,15 @@ def lower_generic_index(emitter, expression):
 
 
 def _plain_field_access(emitter, expression):
-    from ....ast_nodes import SelfExpr
+    from ....ast_nodes import Identifier, SelfExpr
     from ...nodes import IRVar
 
     receiver_type = emitter._resolve_expr_type(expression.obj)
     field = expression.field
+    if isinstance(expression.obj, Identifier) and emitter._gen is not None:
+        owner = emitter._gen.analyzed.class_table.get(expression.obj.name)
+        if owner is not None and field in owner.static_fields:
+            return IRVar(name=f"{expression.obj.name}_{field}")
     class_info = (
         emitter._gen.analyzed.class_table.get(receiver_type.base)
         if emitter._gen is not None and receiver_type is not None

@@ -125,7 +125,8 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
         ],
     )
     manifest = sa._build_manifest(archive_module, [], "stdlib source")
-    assert manifest["schema"] == sa.MANIFEST_SCHEMA == 4
+    assert manifest["schema"] == sa.MANIFEST_SCHEMA == 5
+    assert set(manifest["artifacts"]) == {sa.HEADER_NAME, sa.IMPL_NAME}
 
     mod = IRModule(
         preprocessor_decls=[
@@ -238,21 +239,26 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     impl = (out / sa.IMPL_NAME).read_text()
     assert "#ifndef BTRC_STDLIB_H" in header
     assert "extern void** __btrc_destroyed;" in header
-    assert "extern _Atomic int __btrc_destroyed_count;" in header
+    assert "extern _Atomic int __btrc_tracking;" in header
+    assert "extern int __btrc_destroyed_count;" in header
     assert "extern int __btrc_destroyed_cap;" in header
     assert "extern _Thread_local __btrc_cleanup_entry* __btrc_cleanup_stack;" in header
     assert "extern _Thread_local int __btrc_cleanup_cap;" in header
     assert "extern void** __btrc_suspects;" in header
     assert "extern int __btrc_suspect_cap;" in header
+    assert "void __btrc_cycle_state_cleanup(void);" in header
+    assert "static void __btrc_cycle_state_cleanup(void)" not in header
     assert "_Thread_local void** __btrc_destroyed" not in header
     assert "_Thread_local void** __btrc_suspects" not in header
     assert "static _Thread_local int __btrc_cleanup_cap" not in header
     assert "void** __btrc_destroyed = NULL;" in impl
-    assert "_Atomic int __btrc_destroyed_count = 0;" in impl
+    assert "_Atomic int __btrc_tracking = 0;" in impl
+    assert "int __btrc_destroyed_count = 0;" in impl
     assert "int __btrc_destroyed_cap = 0;" in impl
     assert "_Thread_local int __btrc_cleanup_cap = 64;" in impl
     assert "void** __btrc_suspects = NULL;" in impl
     assert "int __btrc_suspect_cap = 0;" in impl
+    assert "void __btrc_cycle_state_cleanup(void) {" in impl
     assert "_Thread_local void** __btrc_destroyed" not in impl
     assert "_Thread_local void** __btrc_suspects" not in impl
 

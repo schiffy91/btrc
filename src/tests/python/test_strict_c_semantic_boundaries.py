@@ -153,6 +153,22 @@ def test_exact_and_underfull_fixed_array_initializers_remain_valid():
     assert result.errors == []
 
 
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_empty_fixed_array_initializer_is_normalized_to_strict_c11(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    _, generated = _emit("""
+        int main() {
+            int values[2] = {};
+            return values[0] == 0 && values[1] == 0 ? 0 : 1;
+        }
+    """)
+    assert "int values[2] = {0};" in generated
+    _compile_and_run(generated, tmp_path, c_compiler)
+
+
 def test_fixed_array_assignment_is_rejected():
     errors = _errors("""
         void run() { int source[2]; int target[2]; target = source; }

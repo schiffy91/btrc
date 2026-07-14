@@ -7,6 +7,7 @@ as $BTRC_CACHE_DIR > btrc.toml project root > user cache dir — never the
 bare cwd.
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -207,6 +208,9 @@ def test_stale_stdlib_ast_is_not_served_after_toolchain_change(tmp_path, monkeyp
 
 def _archive_manifest(stdlib_source: str, **overrides):
     manifest = {
+        "artifacts": {
+            name: hashlib.sha256(b"").hexdigest() for name in (stdlib_archive.HEADER_NAME, stdlib_archive.IMPL_NAME)
+        },
         "schema": stdlib_archive.MANIFEST_SCHEMA,
         "stdlib_source": stdlib_archive._stdlib_source_hash(stdlib_source),
         "toolchain": cache_keys.toolchain_hash("full"),
@@ -217,11 +221,78 @@ def _archive_manifest(stdlib_source: str, **overrides):
     return manifest
 
 
+def _write_archive(tmp_path, manifest, artifacts=None):
+    artifacts = artifacts or {
+        stdlib_archive.HEADER_NAME: "/* header */\n",
+        stdlib_archive.IMPL_NAME: "/* implementation */\n",
+    }
+    manifest = dict(manifest)
+    manifest["artifacts"] = {
+        name: hashlib.sha256(content.encode()).hexdigest() for name, content in artifacts.items() if content is not None
+    }
+    # Preserve the complete artifact-name schema even for a deliberately
+    # missing file; its expected hash remains part of the manifest.
+    for name, content_hash in _archive_manifest("")["artifacts"].items():
+        manifest["artifacts"].setdefault(name, content_hash)
+    (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(manifest))
+    for name, content in artifacts.items():
+        if content is not None:
+            (tmp_path / name).write_text(content)
+
+
 def test_archive_manifest_is_stamped_and_validated(tmp_path):
     source = "stdlib source"
     manifest = _archive_manifest(source)
-    (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(manifest))
+    _write_archive(tmp_path, manifest)
     assert stdlib_archive.load_manifest(str(tmp_path), source)["types"] == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="final-symlink archive contract is POSIX-only")
+def test_archive_validation_accepts_final_symlink_manifest_and_artifacts(tmp_path):
+    source = "stdlib source"
+    _write_archive(tmp_path, _archive_manifest(source))
+    for name in (
+        stdlib_archive.MANIFEST_NAME,
+        stdlib_archive.HEADER_NAME,
+        stdlib_archive.IMPL_NAME,
+    ):
+        path = tmp_path / name
+        target = tmp_path / f"{name}.real"
+        path.rename(target)
+        path.symlink_to(target.name)
+
+    assert stdlib_archive.load_manifest(str(tmp_path), source)["types"] == []
+
+
+@pytest.mark.parametrize(
+    ("name", "content", "message"),
+    [
+        (stdlib_archive.HEADER_NAME, None, "incomplete"),
+        (stdlib_archive.IMPL_NAME, "", "invalid"),
+    ],
+)
+def test_archive_manifest_rejects_missing_or_empty_artifacts(tmp_path, name, content, message):
+    source = "stdlib source"
+    manifest = _archive_manifest(source)
+    artifacts = {
+        stdlib_archive.HEADER_NAME: "/* header */\n",
+        stdlib_archive.IMPL_NAME: "/* implementation */\n",
+    }
+    artifacts[name] = content
+    _write_archive(tmp_path, manifest, artifacts)
+
+    with pytest.raises(stdlib_archive.ArchiveVersionError, match=message):
+        stdlib_archive.load_manifest(str(tmp_path), source)
+
+
+def test_archive_manifest_rejects_modified_artifact(tmp_path):
+    source = "stdlib source"
+    _write_archive(tmp_path, _archive_manifest(source))
+    with open(tmp_path / stdlib_archive.HEADER_NAME, "a") as header:
+        header.write("/* tampered */\n")
+
+    with pytest.raises(stdlib_archive.ArchiveVersionError, match="modified"):
+        stdlib_archive.load_manifest(str(tmp_path), source)
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,8 @@
-/* Exact lifetime for a fresh managed value hoisted by `for-in` lowering.
+/* Exact lifetime for a managed value hoisted by `for-in` lowering.
+ *
+ * A fresh result transfers its +1 into the synthetic local. A borrowed result
+ * is retained after its exact-once hoist, so destructive body effects cannot
+ * invalidate the loop's receiver.
  *
  * The synthetic owner is visible to return/throw lowering while the body is
  * generated, but sits outside the loop control marker. Continue therefore
@@ -8,9 +12,12 @@
 string beginOwnedIteration(IRGen generator, Node expression,
         Node typeExpr, Map<string, Node> varTypes, string name,
         Vector<IRNode> prefix) {
-    if (!irUnconsumedOwnedResult(generator, expression, varTypes)
-            || !irManagedType(generator, typeExpr)) {
+    if (!irManagedType(generator, typeExpr)) {
         return "";
+    }
+    if (!irUnconsumedOwnedResult(generator, expression, varTypes)) {
+        prefix.push(irExprStmt(irManagedRetainValue(
+            generator, irVar(name), typeExpr)));
     }
     string runtimeType = irManagedRuntimeType(generator, typeExpr);
     generator.registerManagedVar(name, runtimeType);

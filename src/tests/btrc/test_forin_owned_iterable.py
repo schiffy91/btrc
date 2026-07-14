@@ -1,4 +1,4 @@
-"""Exact-once ownership contracts for fresh ``for-in`` iterables."""
+"""Exact-once ownership contracts for managed ``for-in`` iterables."""
 
 from pathlib import Path
 
@@ -17,6 +17,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURE = REPO / "src/tests/btrc/fixtures/forin_owned_iterable_runtime.btrc"
 BINDING_FIXTURE = REPO / "src/tests/btrc/fixtures/forin_managed_binding_runtime.btrc"
+BORROWED_FIXTURE = REPO / "src/tests/btrc/fixtures/forin_borrowed_iterable_runtime.btrc"
 
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path, fixture=FIXTURE):
@@ -39,6 +40,25 @@ def test_fresh_forin_iterables_are_sanitizer_clean(semantic_btrcc: Path, tmp_pat
     selfhost_source, reference_source = _compile_both(semantic_btrcc, tmp_path)
     sanitized_build_and_run(selfhost_source, tmp_path / "selfhost-forin-owned-san")
     sanitized_build_and_run(reference_source, tmp_path / "reference-forin-owned-san")
+
+
+def test_borrowed_forin_iterables_survive_destructive_body_effects(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    selfhost_source, reference_source = _compile_both(semantic_btrcc, tmp_path, BORROWED_FIXTURE)
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-borrowed")
+    _strict_build_and_run(reference_source, tmp_path / "reference-forin-borrowed")
+
+
+def test_borrowed_forin_iterables_are_sanitizer_clean(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    require_sanitizers(tmp_path)
+    selfhost_source, reference_source = _compile_both(semantic_btrcc, tmp_path, BORROWED_FIXTURE)
+    sanitized_build_and_run(selfhost_source, tmp_path / "selfhost-forin-borrowed-san")
+    sanitized_build_and_run(reference_source, tmp_path / "reference-forin-borrowed-san")
 
 
 def test_managed_forin_bindings_release_on_every_exit(semantic_btrcc: Path, tmp_path: Path) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier
+from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier, LambdaExpr
 from ..nodes import IRCommaExpr, IRExprStmt
 from .call_boundary import CallOperand, sequence_call_boundary
 from .ownership import owns_result
@@ -36,7 +36,9 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
         node.args,
         _arg_names(node),
         receiver=receiver,
+        callee=_evaluated_callee(node),
         transferred_params=owned_transfer_param_indices(declaration),
+        force_order=_language_ordered_call(gen, node, declaration),
     )
     if not needs_boundary:
         return _lower_call(gen, node)
@@ -75,16 +77,23 @@ def plan_call_operands(
     arg_names,
     *,
     receiver=None,
+    callee=None,
     transferred_params=frozenset(),
+    force_order: bool = True,
 ):
-    """Describe one call's source-order operands and ARC obligations."""
+    """Describe one call's source-order operands and lifetime guards."""
     from .arguments import bind_arg_nodes_to_params
-
-    receiver_type = gen.analyzed.node_types.get(id(receiver)) if receiver is not None else None
+    from .evaluation_order import has_observable_effect, operand_c_type
     from .managed_values import is_managed_type
 
-    receiver_owned = bool(is_managed_type(gen, receiver_type) and owns_result(gen, receiver))
-    specs = [
+    specs = []
+    for value in (callee, receiver):
+        if value is None:
+            continue
+        type_expr = gen.analyzed.node_types.get(id(value))
+        managed = is_managed_type(gen, type_expr)
+        specs.append((value, type_expr, False, bool(managed and owns_result(gen, value)), False))
+    specs.extend(
         _argument_spec(
             gen,
             params,
@@ -97,32 +106,33 @@ def plan_call_operands(
             ast_args,
             arg_names,
         )
-    ]
-    needs_boundary = receiver_owned or any(keep or owned for _argument, _type_expr, keep, owned, _transferred in specs)
+    )
+    effects = [has_observable_effect(gen, argument) for argument, _type_expr, _keep, _owned, _transferred in specs]
+    ownership_required = any(keep or owned for _argument, _type_expr, keep, owned, _transferred in specs)
+    types_complete = all(type_expr is not None for _argument, type_expr, *_rest in specs)
+    ordered = force_order and len(specs) > 1 and types_complete and any(effects)
+    needs_boundary = ownership_required or ordered
     if not needs_boundary:
         return [], False
 
     operands = []
-    if receiver is not None:
-        if receiver_type is None:
-            _missing_operand_type()
-        operands.append(
-            CallOperand(
-                node=receiver,
-                type_expr=receiver_type,
-                c_type=type_to_c(receiver_type),
-                owned=receiver_owned,
-            )
-        )
-    for argument, type_expr, keep, owned, transferred in specs:
+    final_index = len(specs) - 1
+    for index, (argument, type_expr, keep, owned, transferred) in enumerate(specs):
         if type_expr is None:
             _missing_operand_type()
+        pin = bool(index < final_index and any(effects[index + 1 :]) and is_managed_type(gen, type_expr) and not owned)
         operands.append(
             CallOperand(
                 node=argument,
                 type_expr=type_expr,
-                c_type=type_to_c(type_expr),
+                c_type=operand_c_type(
+                    gen,
+                    argument,
+                    type_expr,
+                    render=type_to_c,
+                ),
                 keep=keep,
+                pin=pin,
                 owned=owned,
                 transferred=transferred,
             )
@@ -169,6 +179,23 @@ def _instance_receiver(gen, node):
     ):
         return None
     return receiver
+
+
+def _evaluated_callee(node):
+    """Return a side-effecting callable value that precedes call arguments."""
+    callee = node.callee
+    if isinstance(callee, (Identifier, FieldAccessExpr, LambdaExpr)):
+        return None
+    return callee
+
+
+def _language_ordered_call(gen, node, declaration) -> bool:
+    if declaration is not None:
+        return True
+    if isinstance(node.callee, Identifier) and node.callee.name in {"print", "Mutex"}:
+        return True
+    callee_type = gen.analyzed.node_types.get(id(node.callee))
+    return bool(callee_type is not None and callee_type.base == "__fn_ptr")
 
 
 def _lowerer(gen):

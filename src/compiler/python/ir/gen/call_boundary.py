@@ -30,6 +30,7 @@ class CallOperand:
     type_expr: object
     c_type: str
     keep: bool = False
+    pin: bool = False
     owned: bool = False
     transferred: bool = False
 
@@ -51,6 +52,7 @@ def sequence_call_boundary(
     """Evaluate operands once, invoke, then release call-owned references."""
     declarations = []
     prefix = []
+    handoffs = []
     suffix = []
     overrides = {}
 
@@ -73,7 +75,7 @@ def sequence_call_boundary(
         if operand.owned:
             _register_temporary(
                 gen,
-                value,
+                declaration,
                 operand.type_expr,
                 declarations,
                 prefix,
@@ -82,7 +84,7 @@ def sequence_call_boundary(
                 "__btrc_call_operand_cleanup",
                 activate_cleanup,
             )
-        if operand.keep:
+        if operand.keep or operand.pin:
             retained_decl = _temporary(
                 fresh_temp,
                 record_decl,
@@ -100,7 +102,7 @@ def sequence_call_boundary(
             )
             _register_temporary(
                 gen,
-                retained,
+                retained_decl,
                 operand.type_expr,
                 declarations,
                 prefix,
@@ -120,14 +122,27 @@ def sequence_call_boundary(
                     operand.c_type,
                 )
             )
+        call_value = value
         if operand.owned:
             if operand.transferred:
-                suffix.append(
-                    IRBinOp(
-                        left=value,
-                        op="=",
-                        right=IRLiteral(text="NULL"),
-                    )
+                handoff_decl = _temporary(
+                    fresh_temp,
+                    record_decl,
+                    "__btrc_transferred_operand",
+                    operand.c_type,
+                    IRLiteral(text="NULL"),
+                )
+                declarations.append(handoff_decl)
+                call_value = IRVar(name=handoff_decl.name)
+                handoffs.extend(
+                    [
+                        IRBinOp(left=call_value, op="=", right=value),
+                        IRBinOp(
+                            left=value,
+                            op="=",
+                            right=IRLiteral(text="NULL"),
+                        ),
+                    ]
                 )
             else:
                 suffix.extend(
@@ -141,10 +156,10 @@ def sequence_call_boundary(
                         operand.c_type,
                     )
                 )
-        overrides[id(operand.node)] = value
+        overrides[id(operand.node)] = call_value
 
     call = build_call(overrides)
-    sequence = list(prefix)
+    sequence = [*prefix, *handoffs]
     if result_c_type is not None and result_c_type != "void":
         result_decl = _temporary(
             fresh_temp,
@@ -152,6 +167,11 @@ def sequence_call_boundary(
             "__btrc_call_result",
             result_c_type,
         )
+        # GCC's -Wclobbered tracks this synthesized result across a later
+        # setjmp even when the declaration's lexical block has ended (notably
+        # Terminal.promptPassword). Stable storage metadata is harmless for
+        # ordinary calls and keeps strict -Werror builds deterministic.
+        result_decl.is_volatile = True
         declarations.append(result_decl)
         result = IRVar(name=result_decl.name)
         sequence.append(IRBinOp(left=result, op="=", right=call))
@@ -173,7 +193,7 @@ def sequence_call_boundary(
 
 def _register_temporary(
     gen,
-    value,
+    declaration,
     type_expr,
     declarations,
     prefix,
@@ -186,7 +206,7 @@ def _register_temporary(
 
     cleanup_decls, cleanup_exprs = cleanup_registration(
         gen,
-        value,
+        declaration,
         type_expr,
         flag_prefix,
         active=cleanup_active,

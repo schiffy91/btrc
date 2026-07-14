@@ -82,7 +82,6 @@ def lower_long_string_concat(gen, node):
     _register_cleanup(
         gen,
         accumulator_decl,
-        accumulator,
         result_type,
         declarations,
         sequence,
@@ -180,7 +179,6 @@ def _temporary(gen, prefix: str, c_type: str) -> IRVarDecl:
 def _register_cleanup(
     gen,
     declaration,
-    value,
     type_expr,
     declarations,
     sequence,
@@ -188,12 +186,11 @@ def _register_cleanup(
 ):
     cleanup_declarations, cleanup_expressions = cleanup_registration(
         gen,
-        value,
+        declaration,
         type_expr,
         prefix,
         active=gen.exception_cleanup_active(),
     )
-    declaration.is_volatile = bool(cleanup_expressions)
     declarations.extend(cleanup_declarations)
     sequence.extend(cleanup_expressions)
 
@@ -215,7 +212,6 @@ def _evaluate_leaf(
         _register_cleanup(
             gen,
             declaration,
-            value,
             type_expr,
             declarations,
             sequence,

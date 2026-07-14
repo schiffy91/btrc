@@ -60,6 +60,66 @@ def test_child_cannot_access_parent_private_members():
     assert _has(errors, "private method 'hidden'")
 
 
+def test_qualified_member_access_rejects_wrong_storage_shape():
+    errors = _errors("""
+        class Base { class int inheritedStatic; }
+        class Child extends Base { public int instanceValue; }
+        int run() {
+            Child child = Child();
+            return Child.missing + Child.instanceValue
+                + Child.inheritedStatic + child.inheritedStatic;
+        }
+    """)
+
+    assert _has(errors, "has no static field or method 'missing'")
+    assert _has(errors, "instance member 'instancevalue'")
+    assert _has(errors, "has no static field or method 'inheritedstatic'")
+    assert _has(errors, "has no field or method 'inheritedstatic'")
+
+
+def test_local_can_shadow_type_name_for_instance_member_access():
+    errors = _errors("""
+        class Box { public int value; }
+        int read() {
+            Box Box = Box();
+            return Box.value;
+        }
+    """)
+
+    assert errors == []
+
+
+def test_qualified_rich_enum_variant_must_exist():
+    errors = _errors("""
+        enum class Color { Red, Blue }
+        int run() {
+            Color value = Color.Red;
+            Color other = Color.Missing();
+            return Color.Missing + value.missing;
+        }
+    """)
+
+    assert _has(errors, "rich enum 'color' has no variant 'missing'")
+    assert _has(errors, "rich enum 'color' has no field 'missing'")
+
+
+def test_private_fields_and_properties_reject_reads_and_writes():
+    errors = _errors("""
+        class Secret {
+            private int field;
+            private int property { get; set; }
+        }
+        int read(Secret value) { return value.field + value.property; }
+        void write(Secret value) {
+            value.field = 1;
+            value.property = 2;
+        }
+    """)
+
+    assert sum("private field 'field'" in error.lower() for error in errors) == 2
+    assert sum("private property 'property'" in error.lower() for error in errors) == 2
+
+
 def test_explicit_property_bodies_obey_return_contracts():
     errors = _errors("""
         class Broken {

@@ -90,6 +90,8 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
         semanticCloneFlags(state.parameterNames);
     Map<string, bool> previousBorrowedBindings =
         semanticCloneFlags(state.borrowedBindings);
+    Map<string, bool> previousLocalBindings =
+        semanticCloneFlags(state.localBindings);
     Map<string, Node> vars = semanticGlobalTypes(state.analyzed);
     Vector<string> classParams = [];
     if (classDeclaration != null) {
@@ -124,8 +126,10 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     state.callable = callable;
     state.parameterNames = semanticCloneFlags(parameterNames);
     state.borrowedBindings = semanticCloneFlags(parameterNames);
+    state.localBindings = semanticCloneFlags(parameterNames);
     if (classDeclaration != null && callable.access != "class") {
         state.borrowedBindings.put("self", true);
+        state.localBindings.put("self", true);
     }
     semanticValidateDirectLocalNames(callable.body_node, parameterNames);
     semanticValidateParameterDefaults(
@@ -147,6 +151,7 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     state.callable = previousCallable;
     state.parameterNames = previousParameterNames;
     state.borrowedBindings = previousBorrowedBindings;
+    state.localBindings = previousLocalBindings;
 }
 
 void semanticValidateProperty(Node property, Node classDeclaration,

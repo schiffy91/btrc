@@ -74,12 +74,20 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         )
 
     # Rich enum constructor: Color.RGB(255, 0, 0) → Color_RGB(255, 0, 0)
-    if isinstance(obj_node, Identifier) and obj_node.name in gen.analyzed.rich_enum_table:
+    if (
+        isinstance(obj_node, Identifier)
+        and obj_node.name in gen.analyzed.rich_enum_table
+        and not gen.local_ownership_declared(obj_node.name)
+    ):
         args = lower_arg_values(gen, node.args)
         return IRCall(callee=f"{obj_node.name}_{method_name}", args=args)
 
     # Static method call: ClassName.method(args) → ClassName_method(args)
-    if isinstance(obj_node, Identifier) and obj_node.name in gen.analyzed.class_table:
+    if (
+        isinstance(obj_node, Identifier)
+        and obj_node.name in gen.analyzed.class_table
+        and not gen.local_ownership_declared(obj_node.name)
+    ):
         args = lower_arg_values(gen, node.args)
         cls_info = gen.analyzed.class_table[obj_node.name]
         method = cls_info.methods.get(method_name)

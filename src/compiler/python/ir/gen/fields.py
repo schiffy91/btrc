@@ -92,16 +92,25 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
     if (
         isinstance(node.obj, Identifier)
         and node.obj.name in gen.analyzed.enum_table
+        and not gen.local_ownership_declared(node.obj.name)
         and node.field in gen.analyzed.enum_table[node.obj.name]
     ):
         return IRVar(name=f"{node.obj.name}_{node.field}")
 
     # Rich enum variant tag: Color.RGB → Color_RGB_TAG
-    if isinstance(node.obj, Identifier) and node.obj.name in gen.analyzed.rich_enum_table:
+    if (
+        isinstance(node.obj, Identifier)
+        and node.obj.name in gen.analyzed.rich_enum_table
+        and not gen.local_ownership_declared(node.obj.name)
+    ):
         return IRVar(name=f"{node.obj.name}_{node.field}_TAG")
 
     # Static method/field on a class name: ClassName.field
-    if isinstance(node.obj, Identifier) and node.obj.name in gen.analyzed.class_table:
+    if (
+        isinstance(node.obj, Identifier)
+        and node.obj.name in gen.analyzed.class_table
+        and not gen.local_ownership_declared(node.obj.name)
+    ):
         # This is a static reference — will be handled by method call lowering
         # if it's a call, but for field-only access emit ClassName_field
         return IRVar(name=f"{node.obj.name}_{node.field}")

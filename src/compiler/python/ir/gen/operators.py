@@ -30,14 +30,16 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
         if flattened is not None:
             return flattened
     if node.op not in {"??", "&&", "||"}:
+        from .evaluation_order import has_observable_effect
         from .operator_ownership import operator_rhs_keep
         from .ownership_boundary import sequence_owned_operands
 
         left_type = gen.analyzed.node_types.get(id(node.left))
         right_type = gen.analyzed.node_types.get(id(node.right))
-        keep_nodes = (
-            [node.right]
-            if operator_rhs_keep(gen, left_type, node.op, right_type)
+        keep_nodes = [node.right] if operator_rhs_keep(gen, left_type, node.op, right_type) else []
+        pin_nodes = (
+            [node.left]
+            if overloaded_binary_method(gen, left_type, node.op) is not None and is_managed_type(gen, left_type)
             else []
         )
 
@@ -47,6 +49,8 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
             build=lambda: _lower_binary_plain(gen, node),
             result_type=gen.analyzed.node_types.get(id(node)),
             keep_nodes=keep_nodes,
+            pin_nodes=pin_nodes,
+            force=(has_observable_effect(gen, node.left) or has_observable_effect(gen, node.right)),
         )
         if sequenced is not None:
             return sequenced
@@ -108,7 +112,33 @@ def lower_overloaded_values(
 ) -> IRExpr | None:
     """Lower one class operation from already-resolved operand types."""
 
-    op_map = {
+    method = overloaded_binary_method(gen, left_type, op)
+    if method is None:
+        return None
+
+    if method.params:
+        from .upcast import upcast_class_pointer
+
+        right = upcast_class_pointer(gen, method.params[0].type, right_type, right)
+    class_name = (
+        mangle_generic_type(left_type.base, left_type.generic_args) if left_type.generic_args else left_type.base
+    )
+    return IRCall(callee=f"{class_name}_{_operator_method_name(op)}", args=[left, right])
+
+
+def overloaded_binary_method(gen: IRGenerator, left_type, op: str):
+    """Return the source method implementing an overloaded binary operator."""
+    magic = _operator_method_name(op)
+    if not magic or not left_type:
+        return None
+    cls_info = gen.analyzed.class_table.get(left_type.base)
+    if cls_info is None:
+        return None
+    return cls_info.methods.get(magic)
+
+
+def _operator_method_name(op: str) -> str | None:
+    return {
         "+": "__add__",
         "-": "__sub__",
         "*": "__mul__",
@@ -120,23 +150,7 @@ def lower_overloaded_values(
         ">": "__gt__",
         "<=": "__le__",
         ">=": "__ge__",
-    }
-    magic = op_map.get(op)
-    if not magic or not left_type:
-        return None
-    cls_info = gen.analyzed.class_table.get(left_type.base)
-    if cls_info is None or magic not in cls_info.methods:
-        return None
-
-    method = cls_info.methods[magic]
-    if method.params:
-        from .upcast import upcast_class_pointer
-
-        right = upcast_class_pointer(gen, method.params[0].type, right_type, right)
-    class_name = (
-        mangle_generic_type(left_type.base, left_type.generic_args) if left_type.generic_args else left_type.base
-    )
-    return IRCall(callee=f"{class_name}_{magic}", args=[left, right])
+    }.get(op)
 
 
 def _lower_unary(gen: IRGenerator, node: UnaryExpr) -> IRExpr:

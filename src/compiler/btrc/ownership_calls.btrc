@@ -116,7 +116,51 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
         }
         parameterIndex = parameterIndex + 1;
     }
+    if (ownershipOperandsHaveConcreteTypes(result)) {
+        int pinIndex = 0;
+        while (pinIndex + 1 < result.len) {
+            OwnershipCallOperand operand = result.get(pinIndex);
+            bool laterEffect = false;
+            int laterIndex = pinIndex + 1;
+            while (laterIndex < result.len) {
+                if (ownershipExpressionHasEffect(generator,
+                        result.get(laterIndex).expression, varTypes)) {
+                    laterEffect = true;
+                }
+                laterIndex = laterIndex + 1;
+            }
+            if (laterEffect && !operand.owned
+                    && irManagedType(generator, operand.typeExpr)) {
+                operand.keepValue = true;
+            }
+            pinIndex = pinIndex + 1;
+        }
+    }
     return result;
+}
+
+bool ownershipOperandsHaveConcreteTypes(
+        Vector<OwnershipCallOperand> operands) {
+    int index = 0;
+    while (index < operands.len) {
+        if (operands.get(index).typeExpr == null) { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
+bool ownershipOperandsHaveEffect(IRGen generator,
+        Vector<OwnershipCallOperand> operands,
+        Map<string, Node> varTypes) {
+    int index = 0;
+    while (index < operands.len) {
+        if (ownershipExpressionHasEffect(
+                generator, operands.get(index).expression, varTypes)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
 }
 
 Node? ownershipInstanceReceiver(IRGen generator, Node call) {
@@ -132,9 +176,19 @@ Node? ownershipInstanceReceiver(IRGen generator, Node call) {
     return receiver;
 }
 
-bool ownershipCallNeedsBoundary(bool receiverOwned,
+Node? ownershipEvaluatedCallee(Node call) {
+    Node? callee = call.callee;
+    if (callee == null || callee.kind == NK_IDENTIFIER
+            || callee.kind == NK_FIELD_ACCESS_EXPR
+            || callee.kind == NK_LAMBDA_EXPR) {
+        return null;
+    }
+    return callee;
+}
+
+bool ownershipCallNeedsBoundary(bool receiverGuarded, bool forceOrder,
         Vector<OwnershipCallOperand> operands) {
-    if (receiverOwned) { return true; }
+    if (receiverGuarded || forceOrder) { return true; }
     int index = 0;
     while (index < operands.len) {
         OwnershipCallOperand operand = operands.get(index);
@@ -151,11 +205,16 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
             && call.callee.optional) {
         return generator.lowerCallCore(call, varTypes);
     }
-    Vector<Node> params = ownershipParamsForCall(
+    Node? declaration = ownershipCallableForCall(
         generator, call, varTypes);
+    Vector<Node> params = [];
+    if (declaration != null) { params = declaration.params; }
     Vector<OwnershipCallOperand> operands = ownershipCallOperands(
         generator, call, params, varTypes);
     Node? receiver = ownershipInstanceReceiver(generator, call);
+    if (receiver == null) {
+        receiver = ownershipEvaluatedCallee(call);
+    }
     Node? receiverType = null;
     bool receiverOwned = false;
     if (receiver != null) {
@@ -164,14 +223,31 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
         receiverOwned = irManagedType(generator, receiverType)
             && irUnconsumedOwnedResult(generator, receiver, varTypes);
     }
-    if (!ownershipCallNeedsBoundary(receiverOwned, operands)) {
+    bool operandsComplete = ownershipOperandsHaveConcreteTypes(operands);
+    bool operandEffect = ownershipOperandsHaveEffect(
+        generator, operands, varTypes);
+    bool receiverPinned = receiver != null && operandEffect
+        && operandsComplete && irManagedType(generator, receiverType)
+        && !receiverOwned;
+    Node? calleeType = generator.resolvedExpressionType(
+        call.callee, varTypes);
+    bool languageCall = declaration != null
+        || (calleeType != null && calleeType.base == "__fn_ptr");
+    bool receiverEffect = receiver != null
+        && ownershipExpressionHasEffect(generator, receiver, varTypes);
+    bool forceOrder = languageCall && (receiverEffect || operandEffect)
+        && operandsComplete
+        && (receiver == null || receiverType != null)
+        && operands.len + (receiver == null ? 0 : 1) > 1;
+    if (!ownershipCallNeedsBoundary(
+            receiverOwned || receiverPinned, forceOrder, operands)) {
         return generator.lowerCallCore(call, varTypes);
     }
     OwnershipBoundary boundary = OwnershipBoundary();
     if (receiver != null) {
         ownershipRequireType(receiverType, receiver);
         boundary.addOperand(generator, receiver, receiverType,
-            receiverOwned, false, varTypes);
+            receiverOwned, receiverPinned, varTypes);
     }
     int index = 0;
     while (index < operands.len) {
@@ -205,7 +281,10 @@ IRNode lowerNewWithOwnership(IRGen generator, Node expression,
     if (constructor != null) { params = constructor.params; }
     Vector<OwnershipCallOperand> operands = ownershipCallOperands(
         generator, expression, params, varTypes);
-    if (!ownershipCallNeedsBoundary(false, operands)) {
+    bool forceOrder = operands.len > 1
+        && ownershipOperandsHaveConcreteTypes(operands)
+        && ownershipOperandsHaveEffect(generator, operands, varTypes);
+    if (!ownershipCallNeedsBoundary(false, forceOrder, operands)) {
         return generator.lowerNewCore(expression, varTypes);
     }
     OwnershipBoundary boundary = OwnershipBoundary();

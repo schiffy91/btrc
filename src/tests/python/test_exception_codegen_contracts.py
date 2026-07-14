@@ -191,9 +191,16 @@ def test_cleanup_scope_markers_precede_registration_and_normal_discard():
         }
     """)
 
-    marker = emitted.rindex("__btrc_cleanup_mark()")
+    item_declaration = emitted.index("Item* volatile item")
+    marker = emitted.rfind("__btrc_cleanup_mark()", 0, item_declaration)
     registration = emitted.index("__btrc_register_cleanup(", marker)
-    assert "((void**)(&item))" in emitted[registration : registration + 160]
+    registration_text = emitted[registration : registration + 220]
+    assert "((void*)(&item))" in registration_text
+    assert re.search(r"__btrc_cleanup_take_\d+", registration_text)
+    assert "Item* volatile* typed_slot" in emitted
+    assert "void** ptr_ref" not in emitted
+    adapter = emitted.index("static void* __btrc_cleanup_take_")
+    assert emitted.index("struct Item {") < adapter < emitted.index("Item* Item_new(void) {")
     discard = emitted.index("__btrc_discard_cleanups_to(", marker)
     throw = emitted.rindex("__btrc_throw(")
     assert marker < registration < discard < throw
@@ -256,14 +263,19 @@ def test_string_exception_cleanup_uses_non_arc_unwind_path():
         }
     """)
 
-    assert ("__btrc_register_direct_cleanup(((void**)(&managed)), __btrc_string_release_cleanup)") in emitted
-    assert ("__btrc_register_cleanup(((void**)(&managed)), __btrc_string_release_cleanup") not in emitted
+    assert re.search(
+        r"__btrc_register_direct_cleanup\(\(\(void\*\)\(&managed\)\), "
+        r"__btrc_cleanup_take_\d+, __btrc_string_release_cleanup\)",
+        emitted,
+    )
+    assert "__btrc_register_cleanup(((void*)(&managed))" not in emitted
 
 
 def test_string_pointer_arithmetic_is_a_borrowed_c_operand():
     emitted = emit_c("""
         bool matchesAt(string text, int offset) {
-            return strncmp(text + offset, "x", 1) == 0;
+            char* raw = (char*)text;
+            return strncmp(raw + offset, "x", 1) == 0;
         }
         int main() { return matchesAt("ax", 1) ? 0 : 1; }
     """)
@@ -271,5 +283,5 @@ def test_string_pointer_arithmetic_is_a_borrowed_c_operand():
     start = emitted.index("bool matchesAt(")
     end = emitted.index("\n}", start)
     body = emitted[start:end]
-    assert 'strncmp((text + offset), "x", 1)' in body
+    assert 'strncmp((raw + offset), "x", 1)' in body
     assert "__btrc_string_release" not in body

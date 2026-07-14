@@ -21,6 +21,10 @@ from ...ast_nodes import (
     UnaryExpr,
 )
 from ...index_protocol import indexed_protocol_info
+from .assignment_result_ownership import (
+    assignment_pins_borrowed_target as _assignment_pins_borrowed_target,
+)
+from .callable_provenance import known_language_call
 from .types import is_generic_class_type, mangle_generic_type
 
 
@@ -44,7 +48,7 @@ def owns_result(gen, expression) -> bool:
             and (
                 (
                     isinstance(target, (FieldAccessExpr, IndexExpr))
-                    and owns_result(gen, target.obj)
+                    and (owns_result(gen, target.obj) or _assignment_pins_borrowed_target(gen, target))
                 )
                 or (
                     expression.op == "="
@@ -204,44 +208,6 @@ def _string_call_owns_result(gen, expression: CallExpr) -> bool:
     if callee.field != "toString" or receiver_type is None:
         return False
     return bool(receiver_type.base != "bool" and receiver_type.base not in gen.analyzed.enum_table)
-
-
-def known_language_call(gen, expression: CallExpr) -> bool:
-    callee = expression.callee
-    if isinstance(callee, Identifier):
-        return bool(callee.name in gen.analyzed.class_table or callee.name in gen.analyzed.function_table)
-    if not isinstance(callee, FieldAccessExpr):
-        return False
-
-    receiver = callee.obj
-    if isinstance(receiver, Identifier):
-        static_info = gen.analyzed.class_table.get(receiver.name)
-        if static_info is not None and callee.field in static_info.methods:
-            return True
-    receiver_type = gen.analyzed.node_types.get(id(receiver))
-    if receiver_type is None:
-        return False
-    from .type_resolution import canonical_type
-
-    receiver_type = canonical_type(
-        receiver_type,
-        gen.analyzed.typedef_table,
-    )
-    if receiver_type is None:
-        return False
-    if receiver_type.base == "Thread" and callee.field == "join":
-        # The worker's managed return reference is transferred through the
-        # pthread payload; join consumes that payload and yields the same +1.
-        return True
-    if receiver_type.base == "Mutex" and callee.field == "get":
-        # Managed values are retained while the mutex is locked, so get()
-        # transfers that new external ownership unit to its caller.
-        return True
-    class_info = gen.analyzed.class_table.get(receiver_type.base)
-    if class_info is not None and callee.field in class_info.methods:
-        return True
-    interface_info = getattr(gen.analyzed, "interface_table", {}).get(receiver_type.base)
-    return bool(interface_info is not None and callee.field in interface_info.methods)
 
 
 def projection_is_owned_call(gen, expression) -> bool:

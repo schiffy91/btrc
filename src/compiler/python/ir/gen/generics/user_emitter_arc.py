@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from ..arguments import bind_arg_nodes_to_params
 from ..call_boundary import CallOperand, sequence_call_boundary
+from ..evaluation_order import has_observable_effect, operand_c_type
+from .user_emitter_call_metadata import _UserGenericCallMetadataMixin
 from .user_emitter_ownership import _UserGenericOwnershipMixin
 
 _INFER_RESULT = object()
 
 
-class _UserGenericArcMixin(_UserGenericOwnershipMixin):
+class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipMixin):
     def _new_with_arc(self, expression):
         """Lower ``new`` with the same boundary used for ordinary calls."""
         params = []
@@ -28,6 +30,8 @@ class _UserGenericArcMixin(_UserGenericOwnershipMixin):
             getattr(expression, "arg_names", []) or [],
             None,
             owned_transfer_param_indices(constructor),
+            callee=None,
+            force_order=True,
         )
         if not operands:
             return self._new_expr_plain(expression)
@@ -95,9 +99,16 @@ class _UserGenericArcMixin(_UserGenericOwnershipMixin):
         *,
         promote_result=False,
         keep_nodes=(),
+        pin_nodes=(),
+        force=False,
     ):
-        """Evaluate source operands once when any operand is caller-owned."""
-        operands = self._owned_node_operands(nodes, keep_nodes=keep_nodes)
+        """Evaluate eager operands once and stabilize managed values."""
+        operands = self._owned_node_operands(
+            nodes,
+            keep_nodes=keep_nodes,
+            pin_nodes=pin_nodes,
+            force=force,
+        )
         if operands is None:
             return None
         return self._sequence_call(
@@ -119,31 +130,49 @@ class _UserGenericArcMixin(_UserGenericOwnershipMixin):
             result_c_type="void",
         )
 
-    def _owned_node_operands(self, nodes, *, keep_nodes=()):
+    def _owned_node_operands(
+        self,
+        nodes,
+        *,
+        keep_nodes=(),
+        pin_nodes=(),
+        force=False,
+    ):
         specs = []
         keep_ids = {id(node) for node in keep_nodes}
-        needs_boundary = False
+        pin_ids = {id(node) for node in pin_nodes}
+        lifetime_required = False
         for node in nodes:
             type_expr = self._resolve_expr_type(node)
             owned = bool(
                 id(node) not in self._arc_overrides and self._is_managed_type(type_expr) and self._owns_expr(node)
             )
             keep = id(node) in keep_ids
-            needs_boundary = needs_boundary or owned or keep
-            specs.append((node, type_expr, owned, keep))
+            pin = id(node) in pin_ids and not owned
+            lifetime_required = lifetime_required or owned or keep or pin
+            specs.append((node, type_expr, owned, keep, pin))
+        needs_boundary = force or lifetime_required
         if not needs_boundary:
             return None
-        for _node, type_expr, _owned, _keep in specs:
+        if not lifetime_required and any(type_expr is None for _node, type_expr, _owned, _keep, _pin in specs):
+            return None
+        for _node, type_expr, _owned, _keep, _pin in specs:
             self._require_operand_type(type_expr)
         return [
             CallOperand(
                 node=node,
                 type_expr=type_expr,
-                c_type=self.iter_value_c(type_expr),
+                c_type=operand_c_type(
+                    self._gen,
+                    node,
+                    type_expr,
+                    render=self.iter_value_c,
+                ),
                 keep=keep,
+                pin=pin,
                 owned=owned,
             )
-            for node, type_expr, owned, keep in specs
+            for node, type_expr, owned, keep, pin in specs
         ]
 
     def _call_operands(
@@ -153,13 +182,20 @@ class _UserGenericArcMixin(_UserGenericOwnershipMixin):
         arg_names,
         receiver,
         transferred_params=frozenset(),
+        *,
+        callee=None,
+        force_order=True,
     ):
         if not self._gen:
             return []
         bindings = bind_arg_nodes_to_params(params, ast_args, arg_names)
-        receiver_type = self._resolve_expr_type(receiver) if receiver is not None else None
-        receiver_owned = bool(self._is_managed_type(receiver_type) and self._owns_expr(receiver))
         specs = []
+        for value in (callee, receiver):
+            if value is None:
+                continue
+            value_type = self._resolve_expr_type(value)
+            value_owned = bool(self._is_managed_type(value_type) and self._owns_expr(value))
+            specs.append((value, value_type, False, value_owned, False))
         for param_index, argument, _is_default in bindings:
             param = params[param_index] if param_index is not None and param_index < len(params) else None
             argument_type = self._resolve_expr_type(argument)
@@ -176,75 +212,43 @@ class _UserGenericArcMixin(_UserGenericOwnershipMixin):
                     bool(owned and param_index in transferred_params),
                 )
             )
-        if not receiver_owned and not any(keep or owned for _argument, _type, keep, owned, _transferred in specs):
+        effects = [
+            has_observable_effect(
+                self._gen,
+                argument,
+                type_of=self._resolve_expr_type,
+            )
+            for argument, _type, _keep, _owned, _transferred in specs
+        ]
+        ownership_required = any(keep or owned for _argument, _type, keep, owned, _transferred in specs)
+        types_complete = all(type_expr is not None for _argument, type_expr, _keep, _owned, _transferred in specs)
+        if not ownership_required and not (force_order and len(specs) > 1 and types_complete and any(effects)):
             return []
 
         operands = []
-        if receiver is not None:
-            self._require_operand_type(receiver_type)
-            operands.append(
-                CallOperand(
-                    node=receiver,
-                    type_expr=receiver_type,
-                    c_type=self.iter_value_c(receiver_type),
-                    owned=receiver_owned,
-                )
-            )
-        for argument, argument_type, keep, owned, transferred in specs:
+        final_index = len(specs) - 1
+        for index, (argument, argument_type, keep, owned, transferred) in enumerate(specs):
             self._require_operand_type(argument_type)
+            pin = bool(
+                index < final_index and any(effects[index + 1 :]) and self._is_managed_type(argument_type) and not owned
+            )
             operands.append(
                 CallOperand(
                     node=argument,
                     type_expr=argument_type,
-                    c_type=self.iter_value_c(argument_type),
+                    c_type=operand_c_type(
+                        self._gen,
+                        argument,
+                        argument_type,
+                        render=self.iter_value_c,
+                    ),
                     keep=keep,
+                    pin=pin,
                     owned=owned,
                     transferred=transferred,
                 )
             )
         return operands
-
-    def _callable_for_call(self, expression):
-        from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
-
-        if not self._gen:
-            return None
-        callee = expression.callee
-        if isinstance(callee, Identifier):
-            class_info = self._gen.analyzed.class_table.get(callee.name)
-            if class_info is not None:
-                return class_info.constructor
-            return self._gen.analyzed.function_table.get(callee.name)
-        if not isinstance(callee, FieldAccessExpr):
-            return None
-        if isinstance(callee.obj, SelfExpr):
-            return self._cls_info.methods.get(callee.field) if self._cls_info else None
-        if isinstance(callee.obj, Identifier):
-            class_info = self._gen.analyzed.class_table.get(callee.obj.name)
-            if class_info is not None:
-                method = class_info.methods.get(callee.field)
-                if method is not None:
-                    return method
-        receiver_type = self._resolve_expr_type(callee.obj)
-        class_info = self._gen.analyzed.class_table.get(receiver_type.base) if receiver_type is not None else None
-        return class_info.methods.get(callee.field) if class_info else None
-
-    def _params_for_call(self, expression):
-        declaration = self._callable_for_call(expression)
-        return declaration.params if declaration is not None else []
-
-    def _instance_receiver(self, expression):
-        from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
-
-        callee = expression.callee
-        if not isinstance(callee, FieldAccessExpr):
-            return None
-        if isinstance(callee.obj, SelfExpr):
-            return None
-        if isinstance(callee.obj, Identifier) and self._gen:
-            if callee.obj.name in self._gen.analyzed.class_table:
-                return None
-        return callee.obj
 
 
 __all__ = ["_UserGenericArcMixin"]

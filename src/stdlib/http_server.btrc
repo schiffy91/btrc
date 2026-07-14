@@ -58,7 +58,8 @@ class HttpServer {
 
     public Bytes readRequestRawBytes(int c) {
         return HttpSocket.readRequest(
-            c, self.maxHeaderBytes, self.maxBodyBytes, self.maxRequestBytes);
+            c, self.maxHeaderBytes, self.maxBodyBytes, self.maxRequestBytes,
+            self.timeoutSecs);
     }
 
     /* Text-only compatibility view; use bodyBytes for binary requests. */
@@ -245,7 +246,7 @@ class HttpServer {
     }
 
     public bool trySendAll(int c, string data) {
-        return HttpSocket.sendAll(c, data);
+        return HttpSocket.sendAll(c, data, self.timeoutSecs);
     }
 
     /* Back-compatible fire-and-forget wrapper. */
@@ -255,18 +256,19 @@ class HttpServer {
 
     public void respond(int c, HttpResponse resp) {
         if (c < 0) { return; }
-        if (resp == null) {
-            resp = HttpResponse.error(500, "Internal Server Error");
+        HttpResponse response = resp;
+        if (response == null) {
+            response = HttpResponse.error(500, "Internal Server Error");
         }
-        int status = resp.status;
+        int status = response.status;
         /* This API emits a final response, so informational statuses are not
          * representable without a following response. */
         if (status < 200 || status > 599) { status = 500; }
-        string body = resp.body == null ? "" : resp.body;
+        string body = response.body == null ? "" : response.body;
         if (status == 204 || status == 205 || status == 304) {
             body = "";
         }
-        string contentType = resp.contentType;
+        string contentType = response.contentType;
         if (contentType == null || contentType.isEmpty()
                 || contentType.len() > 1024 || !HttpFraming.fieldValue(contentType)) {
             contentType = "application/octet-stream";
@@ -274,8 +276,8 @@ class HttpServer {
         long long bodyLength = (long long)strlen(body);
         string phrase = self.reason(status);
         string head = f"HTTP/1.1 {status} {phrase}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyLength}\r\nCache-Control: no-store\r\nConnection: close\r\n";
-        if (resp.extraHeaders != null) {
-            for h in resp.extraHeaders {
+        if (response.extraHeaders != null) {
+            for h in response.extraHeaders {
                 if (!HttpFraming.headerLine(h)) { continue; }
                 int colon = Strings.find(h, ":", 0);
                 string name = h.substring(0, colon).toLower();
@@ -287,8 +289,11 @@ class HttpServer {
             }
         }
         head = head + "\r\n";
-        bool sent = self.trySendAll(c, head);
-        if (sent && !body.isEmpty()) { self.trySendAll(c, body); }
+        long long deadline = HttpSocket.deadlineAfter(self.timeoutSecs);
+        bool sent = HttpSocket.sendAllUntil(c, head, deadline);
+        if (sent && !body.isEmpty()) {
+            HttpSocket.sendAllUntil(c, body, deadline);
+        }
         shutdown(c, SHUT_WR);
     }
 }

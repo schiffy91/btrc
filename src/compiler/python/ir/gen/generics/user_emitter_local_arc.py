@@ -18,6 +18,21 @@ def lower_generic_local_assignment(emitter, expression):
         return None
 
     target = IRVar(name=expression.target.name)
+    return lower_generic_managed_slot_assignment(
+        emitter,
+        expression,
+        target,
+        target_type,
+    )
+
+
+def lower_generic_managed_slot_assignment(
+    emitter,
+    expression,
+    target,
+    target_type,
+):
+    """Replace or compound-update one persistent managed slot."""
     if expression.op != "=":
         return _lower_generic_local_compound(
             emitter,
@@ -66,6 +81,7 @@ def _lower_generic_local_compound(emitter, expression, target, target_type):
         value_type=target_type,
         right_type=right_type,
         old_expr=target,
+        current_expr=target,
         right_expr=emitter._assignment_value(target_type, expression.value),
         compute=lambda old, right: lower_managed_compound_operator(
             emitter._gen,
@@ -76,9 +92,7 @@ def _lower_generic_local_compound(emitter, expression, target, target_type):
             right_type,
             fresh_temp=emitter._fresh_temp,
         ),
-        commit=lambda _old, replacement: [
-            IRBinOp(left=target, op="=", right=replacement)
-        ],
+        commit=lambda _old, replacement: [IRBinOp(left=target, op="=", right=replacement)],
         result_expr=lambda: target,
         old_temporary_owned=False,
         right_owned=bool(emitter._is_managed_type(right_type) and emitter._owns_expr(expression.value)),
@@ -86,10 +100,9 @@ def _lower_generic_local_compound(emitter, expression, target, target_type):
             emitter._gen,
             target_type,
             expression.op[:-1],
+            right_type,
         ),
         release_replaced_old=True,
-        commit_releases_old=False,
-        result_owned=False,
         c_type=emitter.iter_value_c,
         fresh_temp=emitter._fresh_temp,
         record_decl=emitter._func_var_decls.append,
@@ -128,4 +141,5 @@ def _temporary(emitter, prefix: str, type_expr) -> IRVarDecl:
 __all__ = [
     "lower_generic_expression_statement",
     "lower_generic_local_assignment",
+    "lower_generic_managed_slot_assignment",
 ]

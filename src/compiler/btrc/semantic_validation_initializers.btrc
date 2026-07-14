@@ -88,9 +88,13 @@ void semanticValidateInitializerValue(Node expected, Node value,
             semanticValidationFail(subject
                 + " requires an array initializer", value);
         }
-        if (value.elements.len == 0) {
+        /* A fixed-bound empty initializer is normalized by structured IR to
+         * strict-C11 `{0}`.  Only an unsized array lacks enough information
+         * to form an object. */
+        if (value.elements.len == 0 && canonical.array_size == null) {
             semanticValidationFail(subject
-                + " cannot use an empty strict-C11 array initializer", value);
+                + " cannot infer an array bound from an empty initializer",
+                value);
         }
         semanticValidateInitializerElements(
             semanticArrayElementType(canonical), value.elements,

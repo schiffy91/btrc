@@ -23,7 +23,6 @@ def _lower_range_for(gen, var_name: str, args: list, body) -> list[IRStmt]:
     from .expressions import lower_expr
     from .statements import _lower_loop_body
 
-    body_block = _lower_loop_body(gen, body)
     start = IRLiteral(text="0")
     end = IRLiteral(text="0")
     step = IRLiteral(text="1")
@@ -35,6 +34,7 @@ def _lower_range_for(gen, var_name: str, args: list, body) -> list[IRStmt]:
             end = lower_expr(gen, args[1])
         if len(args) >= 3:
             step = lower_expr(gen, args[2])
+    body_block = _lower_loop_body(gen, body)
 
     condition = IRBinOp(left=IRVar(name=var_name), op="<", right=end)
     update = IRUnaryOp(op="++", operand=IRVar(name=var_name), prefix=False)
@@ -57,30 +57,56 @@ def _lower_range_for(gen, var_name: str, args: list, body) -> list[IRStmt]:
 
 def _lower_c_for(gen, node: CForStmt) -> IRFor:
     """Lower a C-style for statement."""
+    from .callable_provenance import (
+        begin_callable_scope,
+        bind_local_callable,
+        finish_callable_scope,
+        join_callable_flows,
+        lower_isolated_callable_flow,
+        snapshot_callable_flow,
+    )
     from .expressions import lower_expr
     from .statements import _lower_loop_body
 
-    init_node = None
-    if isinstance(node.init, ForInitVar):
-        declaration = node.init.var_decl
-        c_type = type_to_c(declaration.type) if declaration.type else "int"
-        initializer = lower_expr(gen, declaration.initializer) if declaration.initializer else None
-        init_node = IRVarDecl(
-            c_type=CType(text=c_type),
-            name=declaration.name,
-            init=initializer,
-        )
-    elif isinstance(node.init, ForInitExpr):
-        init_node = IRExprStmt(expr=lower_expr(gen, node.init.expression))
+    enclosing = begin_callable_scope(gen)
+    try:
+        init_node = None
+        if isinstance(node.init, ForInitVar):
+            declaration = node.init.var_decl
+            c_type = type_to_c(declaration.type) if declaration.type else "int"
+            initializer = lower_expr(gen, declaration.initializer) if declaration.initializer else None
+            bind_local_callable(
+                gen,
+                declaration.name,
+                declaration.type,
+                declaration.initializer,
+            )
+            init_node = IRVarDecl(
+                c_type=CType(text=c_type),
+                name=declaration.name,
+                init=initializer,
+            )
+        elif isinstance(node.init, ForInitExpr):
+            init_node = IRExprStmt(expr=lower_expr(gen, node.init.expression))
 
-    condition = lower_expr(gen, node.condition) if node.condition else IRLiteral(text="1")
-    update = lower_expr(gen, node.update) if node.update else None
-    return IRFor(
-        init=init_node,
-        condition=condition,
-        update=update,
-        body=_lower_loop_body(gen, node.body),
-    )
+        condition = lower_expr(gen, node.condition) if node.condition else IRLiteral(text="1")
+        body = _lower_loop_body(gen, node.body)
+        update = None
+        if node.update:
+            before_update = snapshot_callable_flow(gen)
+            update, update_flow = lower_isolated_callable_flow(
+                gen,
+                lambda: lower_expr(gen, node.update),
+            )
+            join_callable_flows(gen, before_update, update_flow)
+        return IRFor(
+            init=init_node,
+            condition=condition,
+            update=update,
+            body=body,
+        )
+    finally:
+        finish_callable_scope(gen, enclosing)
 
 
 __all__ = ["_lower_c_for", "_lower_range_for"]

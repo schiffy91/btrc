@@ -76,6 +76,9 @@ class IRModule:
         """Reject malformed declarations and a stale derived type order."""
 
         self._validate_declaration_schema()
+        from .cleanup_validation import validate_cleanup_slots
+
+        validate_cleanup_slots(self)
         from .declaration_order import plan_type_declarations
 
         planned = plan_type_declarations(self)

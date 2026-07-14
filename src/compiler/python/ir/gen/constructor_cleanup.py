@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from ..nodes import (
     CType,
-    IRAddressOf,
     IRCall,
-    IRCast,
     IRExprStmt,
     IRLiteral,
     IRVar,
@@ -17,7 +15,7 @@ from .feature_scan import uses_trycatch
 
 def constructor_cleanup_guard(
     gen,
-    self_name: str,
+    self_declaration: IRVarDecl,
     target_destroy_name: str,
     visit_name: str | None = None,
 ):
@@ -25,8 +23,9 @@ def constructor_cleanup_guard(
     if not _program_uses_exceptions(gen):
         return [], []
     gen.use_helper("__btrc_cleanup_mark")
-    gen.use_helper("__btrc_register_cleanup")
     gen.use_helper("__btrc_discard_cleanups_to")
+    from .cleanup_slots import register_cleanup_slot
+
     mark = gen.fresh_temp("__btrc_constructor_cleanup")
     before = [
         IRVarDecl(
@@ -39,17 +38,11 @@ def constructor_cleanup_guard(
             ),
         ),
         IRExprStmt(
-            expr=IRCall(
-                callee="__btrc_register_cleanup",
-                args=[
-                    IRCast(
-                        target_type=CType(text="void**"),
-                        expr=IRAddressOf(expr=IRVar(name=self_name)),
-                    ),
-                    IRVar(name=target_destroy_name),
-                    IRVar(name=visit_name) if visit_name is not None else IRLiteral(text="NULL"),
-                ],
-                helper_ref="__btrc_register_cleanup",
+            expr=register_cleanup_slot(
+                gen,
+                self_declaration,
+                IRVar(name=target_destroy_name),
+                visitor=IRVar(name=visit_name) if visit_name is not None else IRLiteral(text="NULL"),
             )
         ),
     ]

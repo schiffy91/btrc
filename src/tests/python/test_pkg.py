@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 import shutil
+import stat
 import subprocess
 
 import pytest
@@ -24,6 +25,25 @@ def test_find_manifest_none(tmp_path):
     d = tmp_path / "nowhere"
     d.mkdir()
     assert pkg.find_manifest(str(d)) is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="final-symlink manifest contract is POSIX-only")
+def test_resolve_accepts_final_symlink_manifest(tmp_path):
+    target = tmp_path / "manifest-source.toml"
+    target.write_text("[package]\nname = 'linked'\n")
+    manifest = tmp_path / "btrc.toml"
+    manifest.symlink_to(target.name)
+
+    assert pkg.resolve(str(manifest)) == {}
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes are unavailable")
+def test_resolve_rejects_nonregular_manifest(tmp_path):
+    manifest = tmp_path / "btrc.toml"
+    os.mkfifo(manifest)
+
+    with pytest.raises(ValueError, match="not a regular file"):
+        pkg.resolve(str(manifest))
 
 
 def test_package_timeout_becomes_resolution_error(tmp_path, monkeypatch):
@@ -68,6 +88,8 @@ def test_resolve_path_dep_writes_lock(tmp_path):
     assert lock["packages"]["mathx"]["path"] == os.path.join("..", "mathx")
     assert lock["manifest_hash"] == pkg._deps_hash({"mathx": {"path": "../mathx"}})
     assert lock["schema"] == pkg.LOCK_SCHEMA
+    if os.name != "nt":
+        assert stat.S_IMODE((app / "btrc.lock").stat().st_mode) == 0o644
 
     # A fresh resolve trusts the still-matching lock and resolves the relative
     # path back against the lock's own directory.

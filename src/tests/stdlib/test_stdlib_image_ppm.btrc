@@ -3,6 +3,8 @@ import std.image;
 import std.fs;
 
 #include <assert.h>
+#include <signal.h>
+#include <sys/resource.h>
 
 int main() {
     Image source = Image(2, 1);
@@ -48,6 +50,19 @@ int main() {
     assert(loaded.ok());
     assert(loaded.image.diff(source).exact());
     assert(!ImageIO.loadPpm(PathTools.join(dir, "missing.ppm")).ok());
+
+    /* A small stdio write may be accepted into userspace buffering and fail
+     * only during fclose.  savePpm must surface that close-time failure. */
+    struct rlimit originalLimit;
+    assert(getrlimit(RLIMIT_FSIZE, &originalLimit) == 0);
+    struct rlimit zeroLimit = originalLimit;
+    zeroLimit.rlim_cur = 0;
+    signal(SIGXFSZ, SIG_IGN);
+    assert(setrlimit(RLIMIT_FSIZE, &zeroLimit) == 0);
+    assert(!ImageIO.savePpm(source, PathTools.join(dir, "disk-full.ppm")));
+    assert(setrlimit(RLIMIT_FSIZE, &originalLimit) == 0);
+    signal(SIGXFSZ, SIG_DFL);
+
     FileSystem.removeRecursive(dir);
 
     print("PASS: test_stdlib_image_ppm");

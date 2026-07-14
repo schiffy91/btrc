@@ -31,22 +31,43 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
     sequence.push(irBinOp(receiver, "=",
         generator.lowerExpr(receiverExpression, varTypes)));
 
-    string receiverRuntimeType = "";
-    if (receiverOwned && irManagedType(generator, receiverType)) {
-        receiverRuntimeType = irManagedRuntimeType(
-            generator, receiverType);
-        OwnershipBoundary receiverCleanup = OwnershipBoundary();
-        receiverCleanup.registerCleanup(generator, receiverDeclaration,
-            receiverName, receiverRuntimeType);
-        ownershipAppendAll(sequence, receiverCleanup.prefix);
-    }
-
     Vector<Node> params = ownershipParamsForCall(
         generator, call, varTypes);
     Vector<OwnershipCallOperand> operands = ownershipCallOperands(
         generator, call, params, varTypes);
+    bool operandsComplete = ownershipOperandsHaveConcreteTypes(operands);
+    bool operandEffect = ownershipOperandsHaveEffect(
+        generator, operands, varTypes);
+    bool receiverPinned = operandEffect && operandsComplete
+        && irManagedType(generator, receiverType) && !receiverOwned;
+    string receiverRuntimeType = "";
+    IRNode receiverSaved = irLiteral("NULL");
+    if ((receiverOwned || receiverPinned)
+            && irManagedType(generator, receiverType)) {
+        receiverRuntimeType = irManagedRuntimeType(
+            generator, receiverType);
+        if (receiverPinned) {
+            sequence.push(irRetainExpression(
+                generator, receiver, receiverType));
+        }
+        OwnershipBoundary receiverCleanup = OwnershipBoundary();
+        receiverCleanup.registerCleanup(generator, receiverDeclaration,
+            receiverName, receiverRuntimeType);
+        ownershipAppendAll(sequence, receiverCleanup.prefix);
+        string savedName = generator.freshTemp(
+            "__btrc_optional_receiver_release");
+        IRNode savedDeclaration = irVarDecl(
+            typeToC(receiverType, generator.analyzed),
+            savedName, irLiteral("NULL"));
+        generator.funcVarDecls.push(savedDeclaration);
+        declarations.push(savedDeclaration);
+        receiverSaved = irVar(savedName);
+    }
+
+    bool forceArgumentOrder = operands.len > 1 && operandsComplete
+        && operandEffect;
     bool argumentBoundary = ownershipCallNeedsBoundary(
-        false, operands);
+        false, forceArgumentOrder, operands);
     OwnershipBoundary boundary = OwnershipBoundary();
     if (argumentBoundary) {
         int operandIndex = 0;
@@ -81,6 +102,7 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
     Vector<IRNode> trueSequence = [];
     if (argumentBoundary) {
         ownershipAppendAll(trueSequence, boundary.prefix);
+        ownershipAppendAll(trueSequence, boundary.handoffs);
     }
     Node? resultType = generator.resolvedExpressionType(
         call, varTypes);
@@ -97,9 +119,11 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
             irBinOp(receiver, "!=", irLiteral("NULL")),
             irCommaExpr(trueSequence), irCast("void", irLiteral("0"))));
         if (receiverRuntimeType != "") {
-            sequence.push(generator.optionalReleaseExpr(receiver,
+            sequence.push(irBinOp(receiverSaved, "=", receiver));
+            sequence.push(irBinOp(
+                receiver, "=", irLiteral("NULL")));
+            sequence.push(generator.optionalReleaseExpr(receiverSaved,
                 receiverRuntimeType));
-            sequence.push(irBinOp(receiver, "=", irLiteral("NULL")));
         }
         sequence.push(irCast("void", irLiteral("0")));
         return irStmtExpr(declarations, irCommaExpr(sequence));
@@ -128,9 +152,10 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
             generator.optionalCallZero(resultType)));
     sequence.push(guarded);
     if (receiverRuntimeType != "") {
-        sequence.push(generator.optionalReleaseExpr(receiver,
-            receiverRuntimeType));
+        sequence.push(irBinOp(receiverSaved, "=", receiver));
         sequence.push(irBinOp(receiver, "=", irLiteral("NULL")));
+        sequence.push(generator.optionalReleaseExpr(receiverSaved,
+            receiverRuntimeType));
     }
     sequence.push(irVar(resultName));
     return irStmtExpr(declarations, irCommaExpr(sequence));

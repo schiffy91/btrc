@@ -83,6 +83,35 @@ def test_lambda_capture_uses_resolved_outer_binding():
     assert [capture.name for capture in callback.captures] == ["value"]
 
 
+def test_borrowed_capture_can_rebind_from_another_resolved_capture():
+    program, analyzed = _analyze("""
+        class Item { public Item() {} }
+        Item? value = null;
+        void run() {
+            Item value = new Item();
+            Item other = new Item();
+            var callback = () => { value = other; };
+        }
+    """)
+    assert analyzed.errors == []
+    callback, _ = _initializer(program)
+    assert [capture.name for capture in callback.captures] == ["other", "value"]
+
+
+def test_borrowed_capture_cannot_rebind_from_lambda_owned_local():
+    _, analyzed = _analyze("""
+        class Item { public Item() {} }
+        void run() {
+            Item value = new Item();
+            var callback = () => {
+                Item owner = new Item();
+                value = owner;
+            };
+        }
+    """)
+    assert any("Borrowed managed bindings cannot be rebound" in error for error in analyzed.errors)
+
+
 def test_capturing_lambda_cannot_initialize_or_alias_bare_fn_ptr():
     _, analyzed = _analyze("""
         void run() {

@@ -1,11 +1,32 @@
 /* Managed-value ownership classification shared by self-hosted IR lowering. */
+/* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
+int irCallableReturnAbi(IRGen generator, Node? expression,
+        Map<string, Node> varTypes) {
+    return generator.callableExpressionAbi(expression, varTypes);
+}
+
+bool irCallableHasOwnedReturnAbi(IRGen generator, Node? expression,
+        Map<string, Node> varTypes) {
+    return irCallableReturnAbi(generator, expression, varTypes) == 1;
+}
+
 bool irKnownLanguageCall(IRGen generator, Node call,
         Map<string, Node> varTypes) {
     Node callee = call.callee;
     if (callee == null) { return false; }
+    int callableAbi = irCallableReturnAbi(
+        generator, callee, varTypes);
+    if (callableAbi == 2) {
+        print("Managed-return __fn_ptr call has ambiguous ownership ABI "
+            + "after control flow; keep source and foreign callbacks in "
+            + "separate bindings");
+        abortGen();
+    }
+    if (callableAbi == 1) {
+        return true;
+    }
     if (callee.kind == NK_IDENTIFIER) {
-        return generator.analyzed.funcTable.has(callee.name)
-            || generator.analyzed.isClass(callee.name)
+        return generator.analyzed.isClass(callee.name)
             || generator.analyzed.isGenericClass(callee.name);
     }
     if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
@@ -138,8 +159,10 @@ bool irExpressionOwnsResult(IRGen generator, Node? expression,
         bool ownedReceiver = target != null
             && (target.kind == NK_FIELD_ACCESS_EXPR
                 || target.kind == NK_INDEX_EXPR)
-            && irExpressionOwnsResult(
-                generator, target.obj, varTypes);
+            && (irExpressionOwnsResult(
+                    generator, target.obj, varTypes)
+                || irAssignmentPinsBorrowedTarget(
+                    generator, target, varTypes));
         Node? virtualType = irVirtualAssignmentValueType(
             generator, target, varTypes);
         bool ownedValue = expression.op == "=" && virtualType != null

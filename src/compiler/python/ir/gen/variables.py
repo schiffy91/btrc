@@ -104,32 +104,33 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     # environment mapping below only when this initializer is itself a
     # capturing lambda.
     gen._fn_ptr_envs.pop(node.name, None)
+    from .callable_provenance import bind_local_callable
+
+    bind_local_callable(gen, node.name, node.type, node.initializer)
 
     # Lambda capture struct allocation: when var = lambda_with_captures,
     # allocate the capture struct on the stack and fill it with captured values.
-    # The captured lambda's C function has an extra void* param that doesn't
-    # match the typedef, so we cast it for storage and call it directly
-    # (bypassing the function pointer) when the variable is invoked.
+    # The captured lambda's C function has an extra void* param and therefore
+    # cannot inhabit the plain function-pointer typedef. Calls use the lifted
+    # implementation plus environment directly; semantic analysis rejects
+    # every escaping/non-call use of this closure-only binding.
     from ...ast_nodes import LambdaExpr
 
     if isinstance(node.initializer, LambdaExpr) and node.initializer.captures:
-        from ..nodes import IRAssign, IRCast, IRFieldAccess
+        from ..nodes import IRAssign, IRFieldAccess
 
         lambda_id = gen._last_lambda_id
         fn_name = f"__btrc_lambda_{lambda_id}"
         env_struct = f"__btrc_lambda_{lambda_id}_env"
         env_var = f"__{node.name}_env"
-        # Cast the captured lambda to the typedef type for storage
-        var_decl.init = IRCast(
-            target_type=CType(text=c_type),
-            expr=IRVar(name=fn_name),
+        result.pop()
+        gen._func_var_decls.pop()
+        env_decl = IRVarDecl(
+            c_type=CType(text=f"struct {env_struct}"),
+            name=env_var,
         )
-        result.append(
-            IRVarDecl(
-                c_type=CType(text=f"struct {env_struct}"),
-                name=env_var,
-            )
-        )
+        gen._func_var_decls.append(env_decl)
+        result.append(env_decl)
         for cap in node.initializer.captures:
             result.append(
                 IRAssign(
@@ -137,17 +138,6 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                     value=IRVar(name=cap.name),
                 )
             )
-        # Captured calls use the lifted implementation plus environment
-        # directly, so keep the source-level closure slot observably used for
-        # strict C builds while retaining it for non-call references.
-        result.append(
-            IRExprStmt(
-                expr=IRCast(
-                    target_type=CType(text="void"),
-                    expr=IRVar(name=node.name),
-                )
-            )
-        )
         # Track: variable → (lambda fn name, env var name)
         gen._fn_ptr_envs[node.name] = (fn_name, env_var)
 

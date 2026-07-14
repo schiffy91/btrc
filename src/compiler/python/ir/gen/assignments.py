@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import AssignExpr, FieldAccessExpr, IndexExpr
+from ...ast_nodes import AssignExpr
 from ..nodes import IRExpr
 
 if TYPE_CHECKING:
@@ -14,38 +14,69 @@ if TYPE_CHECKING:
 def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     """Lower one assignment after enforcing aggregate/operand ownership."""
     from .aggregate_ownership import reject_shallow_store
+    from .callable_boundaries import reject_erasing_callable_assignment
 
     reject_shallow_store(gen, node)
+    reject_erasing_callable_assignment(gen, node)
     target_type = gen.analyzed.node_types.get(id(node.target))
     if target_type is not None and target_type.base in gen.analyzed.class_table:
         from .managed_local import mark_borrowed_cycle_seeds
 
         mark_borrowed_cycle_seeds(gen._managed_vars_stack)
-    target_nodes = _target_operands(gen, node.target)
+    from .assignment_ownership import (
+        assignment_target_operands,
+        kept_target_operands,
+        property_projection,
+    )
+    from .managed_values import is_managed_type
+    from .ownership import owns_result
+
+    def type_of(expression):
+        return gen.analyzed.node_types.get(id(expression))
+
+    target_nodes = assignment_target_operands(
+        node.target,
+        stabilize_receiver=lambda receiver: bool(
+            owns_result(gen, receiver)
+            or is_managed_type(gen, type_of(receiver))
+            or property_projection(
+                receiver,
+                type_of=type_of,
+                class_table=gen.analyzed.class_table,
+            )
+        ),
+    )
+    lowered = None
     if target_nodes:
         from .assignment_ownership import virtual_assignment_target
-        from .managed_values import is_managed_type
-        from .ownership import owns_result
         from .ownership_boundary import sequence_owned_operands
 
         result_type = gen.analyzed.node_types.get(id(node))
         rhs_supplies_result = bool(
-            node.op == "="
-            and virtual_assignment_target(gen, node.target)
-            and owns_result(gen, node.value)
+            node.op == "=" and virtual_assignment_target(gen, node.target) and owns_result(gen, node.value)
         )
         sequenced = sequence_owned_operands(
             gen,
             target_nodes,
             build=lambda: _lower_plain_assignment(gen, node),
             result_type=result_type,
-            promote_result=bool(
-                is_managed_type(gen, result_type) and not rhs_supplies_result
+            keep_nodes=kept_target_operands(
+                node.target,
+                target_nodes,
+                type_of=type_of,
+                is_managed=lambda type_expr: is_managed_type(gen, type_expr),
+                owns=lambda expression: owns_result(gen, expression),
             ),
+            promote_result=bool(is_managed_type(gen, result_type) and not rhs_supplies_result),
         )
         if sequenced is not None:
-            return sequenced
-    return _lower_plain_assignment(gen, node)
+            lowered = sequenced
+    if lowered is None:
+        lowered = _lower_plain_assignment(gen, node)
+    from .callable_provenance import rebind_local_callable
+
+    rebind_local_callable(gen, node)
+    return lowered
 
 
 def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
@@ -90,39 +121,6 @@ def _lower_gpu_assignment(gen: IRGenerator, node: AssignExpr):
         node.target,
         target,
     )
-
-
-def _target_operands(gen, target):
-    """Return target dependencies in source evaluation order."""
-    if isinstance(target, FieldAccessExpr):
-        return _receiver_operands(gen, target.obj)
-    if isinstance(target, IndexExpr):
-        return [*_receiver_operands(gen, target.obj), target.index]
-    # A later owned index still forces a boundary. Keep the receiver leaf in
-    # the operand list so it is evaluated before that index; the boundary is a
-    # no-op when every collected operand is borrowed.
-    return [target]
-
-
-def _receiver_operands(gen, receiver):
-    from .ownership import owns_result
-
-    if owns_result(gen, receiver):
-        return [receiver]
-    # A property is a value-producing getter even though its syntax is a field
-    # projection. Stabilize the getter result itself when it feeds a later
-    # projection; raw fields recurse so nested struct targets remain lvalues.
-    if isinstance(receiver, FieldAccessExpr) and _is_property_projection(gen, receiver):
-        return [receiver]
-    return _target_operands(gen, receiver)
-
-
-def _is_property_projection(gen, expression: FieldAccessExpr) -> bool:
-    receiver_type = gen.analyzed.node_types.get(id(expression.obj))
-    if receiver_type is None:
-        return False
-    class_info = gen.analyzed.class_table.get(receiver_type.base)
-    return bool(class_info is not None and expression.field in class_info.properties)
 
 
 __all__ = ["lower_assignment_expr"]

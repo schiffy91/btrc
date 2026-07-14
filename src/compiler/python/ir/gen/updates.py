@@ -5,8 +5,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ...ast_nodes import AssignExpr, TypeExpr, UnaryExpr
-from ..nodes import IRBinOp, IRExpr, IRLiteral, IRUnaryOp
+from ...ast_nodes import AssignExpr, FieldAccessExpr, Identifier, TypeExpr, UnaryExpr
+from ..nodes import (
+    IRAddressOf,
+    IRBinOp,
+    IRCommaExpr,
+    IRExpr,
+    IRFieldAccess,
+    IRLiteral,
+    IRStmtExpr,
+    IRUnaryOp,
+    IRVar,
+)
 from .lvalues import LValueContext, LValuePlan, build_lvalue_plan, lvalue_kind
 from .operator_context import OperatorLoweringContext
 from .typed_operators import lower_typed_binary
@@ -32,7 +42,7 @@ def lower_assignment(context: UpdateContext, node: AssignExpr) -> IRExpr:
     """Lower simple or compound assignment with one target/RHS evaluation."""
     target_type = context.lvalues.type_of(node.target)
     kind = lvalue_kind(context.lvalues, node.target)
-    if node.op == "=" and kind == "direct":
+    if node.op == "=" and kind == "direct" and isinstance(node.target, Identifier):
         right = context.lower_value(target_type, node.value)
         right_type = context.lvalues.type_of(node.value)
         value = context.coerce_assignment(target_type, right_type, right)
@@ -41,6 +51,10 @@ def lower_assignment(context: UpdateContext, node: AssignExpr) -> IRExpr:
             op="=",
             right=value,
         )
+    if node.op == "=" and target_type is None:
+        unresolved = _lower_unresolved_field_store(context, node)
+        if unresolved is not None:
+            return unresolved
     plan = build_lvalue_plan(context.lvalues, node.target, require_load=node.op != "=")
     if node.op == "=" and context.store_boundary is not None:
         bounded = context.store_boundary(node, plan)
@@ -53,12 +67,13 @@ def lower_assignment(context: UpdateContext, node: AssignExpr) -> IRExpr:
         return plan.store_result(value)
 
     assert plan.load is not None
+    old = plan.declare_value("__btrc_update_old")
     operator = node.op[:-1]
-    value = context.lower_overload(plan.value_type, right_type, operator, plan.load, right)
+    value = context.lower_overload(plan.value_type, right_type, operator, old, right)
     if value is None:
         value = lower_typed_binary(
             operator,
-            plan.load,
+            old,
             right,
             plan.value_type,
             right_type,
@@ -66,9 +81,61 @@ def lower_assignment(context: UpdateContext, node: AssignExpr) -> IRExpr:
             allow_unresolved_c_operands=(context.allow_unresolved_c_operands),
         )
     if value is None:
-        value = IRBinOp(left=plan.load, op=operator, right=right)
+        value = IRBinOp(left=old, op=operator, right=right)
     value = context.coerce_assignment(plan.value_type, right_type, value)
-    return plan.store_result(value)
+    return plan.wrap(
+        [
+            IRBinOp(left=old, op="=", right=plan.load),
+            *plan.store_result_operations(value),
+        ]
+    )
+
+
+def _lower_unresolved_field_store(context: UpdateContext, node: AssignExpr):
+    """Sequence a foreign-struct field store without knowing the field type."""
+    target = node.target
+    if not isinstance(target, FieldAccessExpr) or target.optional:
+        return None
+    fields = []
+    base = target
+    while isinstance(base, FieldAccessExpr) and not base.optional:
+        fields.append((base.field, base.arrow))
+        base = base.obj
+    fields.reverse()
+    base_type = context.lvalues.type_of(base)
+    if base_type is None:
+        return None
+    receiver_decl = context.lvalues.declare(
+        "__btrc_lvalue_obj",
+        base_type,
+        pointer=not fields[0][1],
+    )
+    receiver = IRVar(name=receiver_decl.name)
+    lowered_receiver = context.lvalues.lower_expr(base)
+    if not fields[0][1]:
+        lowered_receiver = IRAddressOf(expr=lowered_receiver)
+    right_type = context.lvalues.type_of(node.value)
+    value = context.coerce_assignment(
+        None,
+        right_type,
+        context.lower_value(None, node.value),
+    )
+    field = receiver
+    for index, (field_name, arrow) in enumerate(fields):
+        field = IRFieldAccess(
+            obj=field,
+            field=field_name,
+            arrow=True if index == 0 else arrow,
+        )
+    return IRStmtExpr(
+        stmts=[receiver_decl],
+        result=IRCommaExpr(
+            expressions=[
+                IRBinOp(left=receiver, op="=", right=lowered_receiver),
+                IRBinOp(left=field, op="=", right=value),
+            ]
+        ),
+    )
 
 
 def lower_incdec(context: UpdateContext, node: UnaryExpr) -> IRExpr:
@@ -144,9 +211,7 @@ def generator_update_context(gen) -> UpdateContext:
             node,
             plan,
             lower_value=lambda target_type, value: _lower_assignment_value(gen, target_type, value),
-            coerce=lambda target_type, source_type, value: upcast_class_pointer(
-                gen, target_type, source_type, value
-            ),
+            coerce=lambda target_type, source_type, value: upcast_class_pointer(gen, target_type, source_type, value),
         ),
         allow_unresolved_c_operands=True,
     )

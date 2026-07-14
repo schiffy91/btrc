@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .call_boundary import CallOperand, sequence_call_boundary
+from .evaluation_order import operand_c_type
 from .ownership import owns_result
 from .types import type_to_c
 
@@ -15,16 +16,18 @@ def sequence_owned_operands(
     result_type,
     promote_result: bool = False,
     keep_nodes=(),
+    pin_nodes=(),
+    force: bool = False,
 ):
-    """Evaluate source operands once and consume each caller-owned value.
+    """Evaluate eager source operands once and stabilize managed values.
 
-    Returns ``None`` when no operand owns a reference, letting callers keep a
-    minimal direct IR shape. When any operand is owned, every operand is
-    hoisted so source evaluation order remains deterministic.
+    ``force`` establishes source order even for scalar operands. ``pin_nodes``
+    keeps borrowed managed values alive while later operands execute.
     """
     specs = []
     keep_ids = {id(node) for node in keep_nodes}
-    needs_boundary = False
+    pin_ids = {id(node) for node in pin_nodes}
+    lifetime_required = False
     for node in nodes:
         type_expr = gen.analyzed.node_types.get(id(node))
         # An enclosing boundary owns and will consume an installed override.
@@ -33,11 +36,15 @@ def sequence_owned_operands(
         # statement expression and release the same reference twice.
         owned = bool(id(node) not in gen._owning_temp_overrides and owns_result(gen, node))
         keep = id(node) in keep_ids
-        needs_boundary = needs_boundary or owned or keep
-        specs.append((node, type_expr, owned, keep))
+        pin = id(node) in pin_ids and not owned
+        lifetime_required = lifetime_required or owned or keep or pin
+        specs.append((node, type_expr, owned, keep, pin))
+    needs_boundary = force or lifetime_required
     if not needs_boundary:
         return None
-    if any(type_expr is None for _node, type_expr, _owned, _keep in specs):
+    if any(type_expr is None for _node, type_expr, _owned, _keep, _pin in specs):
+        if not lifetime_required:
+            return None
         from .errors import CodegenError
 
         raise CodegenError("owned expression sequencing requires concrete analyzed operand types")
@@ -46,11 +53,17 @@ def sequence_owned_operands(
         CallOperand(
             node=node,
             type_expr=type_expr,
-            c_type=type_to_c(type_expr),
+            c_type=operand_c_type(
+                gen,
+                node,
+                type_expr,
+                render=type_to_c,
+            ),
             keep=keep,
+            pin=pin,
             owned=owned,
         )
-        for node, type_expr, owned, keep in specs
+        for node, type_expr, owned, keep, pin in specs
     ]
 
     def build_with_overrides(overrides):

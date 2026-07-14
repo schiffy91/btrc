@@ -631,6 +631,7 @@ class CEmitter {
         }
         if (e.kind == IRK_INITIALIZER_LIST) {
             string values = "";
+            if (e.args.len == 0) { values = "0"; }
             int i = 0;
             while (i < e.args.len) {
                 if (i > 0) { values = values + ", "; }

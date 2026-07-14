@@ -185,6 +185,22 @@ void semanticValidateCall(Node call, SemanticValidationState state,
             noSubstitutions, state, vars);
         return;
     }
+    if (callee.kind == NK_FIELD_ACCESS_EXPR
+            && callee.obj != null
+            && callee.obj.kind == NK_IDENTIFIER
+            && !vars.has(callee.obj.name)
+            && state.analyzed.isRichEnum(callee.obj.name)) {
+        Node? variant = semanticResolveRichEnumVariant(
+            callee.obj.name, callee.field, state.analyzed);
+        if (variant == null) {
+            semanticValidationFail("Rich enum '" + callee.obj.name
+                + "' has no variant '" + callee.field + "'", call);
+        }
+        Node concreteVariant = variant;
+        semanticValidateSignature(callee.obj.name + "." + callee.field,
+            concreteVariant.params, call, noSubstitutions, state, vars);
+        return;
+    }
     Node? calleeType = directFunctionPointerType(
         semanticInferType(callee, state, vars), state.analyzed);
     if (calleeType != null) {

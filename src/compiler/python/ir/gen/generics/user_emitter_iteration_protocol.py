@@ -140,6 +140,26 @@ def lower_string_forin(emitter, statement) -> list:
 
     iterable = emitter._fresh_temp("__iter")
     index = emitter._fresh_temp("__i")
+    string_type = TypeExpr(base="string")
+    result = [
+        IRVarDecl(
+            c_type=CType(text="char*"),
+            name=iterable,
+            init=emitter._expr(statement.iterable),
+        )
+    ]
+    from .user_emitter_iteration_arc import (
+        begin_owned_iterable,
+        finish_owned_iterable,
+    )
+
+    owner = begin_owned_iterable(
+        emitter,
+        statement.iterable,
+        string_type,
+        iterable,
+        result,
+    )
     body = emitter._loop_stmts(
         statement.body.statements,
         iteration_bindings=[
@@ -152,12 +172,7 @@ def lower_string_forin(emitter, statement) -> list:
             )
         ],
     )
-    return [
-        IRVarDecl(
-            c_type=CType(text="char*"),
-            name=iterable,
-            init=emitter._expr(statement.iterable),
-        ),
+    result.append(
         IRFor(
             init=IRVarDecl(
                 c_type=CType(text="int"),
@@ -171,8 +186,10 @@ def lower_string_forin(emitter, statement) -> list:
             ),
             update=IRUnaryOp(op="++", operand=IRVar(name=index), prefix=False),
             body=IRBlock(stmts=body),
-        ),
-    ]
+        )
+    )
+    result.extend(finish_owned_iterable(emitter, owner))
+    return result
 
 
 __all__ = ["lower_iterable_forin", "lower_string_forin"]

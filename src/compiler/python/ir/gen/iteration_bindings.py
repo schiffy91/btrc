@@ -23,6 +23,9 @@ def emit_iteration_bindings(gen, bindings) -> list[IRStmt]:
     result: list[IRStmt] = []
     for binding in bindings:
         gen.declare_local_ownership(binding.name)
+        from .callable_provenance import bind_borrowed_callable
+
+        bind_borrowed_callable(gen, binding.name, binding.type_expr)
         declaration = IRVarDecl(
             c_type=CType(text=binding.c_type),
             name=binding.name,

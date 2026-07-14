@@ -122,37 +122,29 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
 
     mangled = mangle_generic_type(iter_type.base, iter_type.generic_args) if iter_type.generic_args else iter_type.base
 
-    # Hoist non-trivial iterables (calls, field chains) into a temp so the
-    # expression is evaluated exactly once: ir_iter feeds iterLen once and
-    # iterGet/iterValueAt on every iteration, so inlining a call re-invokes
-    # it per iteration.
+    # Hoist every managed iterable. Besides exact-once evaluation, the named
+    # slot can own a fresh result or retain a borrowed projection/call for the
+    # entire loop, even if the body destroys or rebinds its original owner.
     from .iteration_ownership import (
         begin_owned_iterable,
         finish_owned_iterable,
-        iterable_result_is_owned,
     )
 
-    owns_iterable = iterable_result_is_owned(gen, node.iterable, iter_type)
-    hoist_decl = None
-    if owns_iterable or not isinstance(ir_iter, IRVar):
-        tmp_iter = gen.fresh_temp("__iter")
-        iter_c_type = type_to_c(iter_type)
-        if not iter_c_type.endswith("*"):
-            iter_c_type += "*"
-        hoist_decl = IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter)
-        ir_iter = IRVar(name=tmp_iter)
+    tmp_iter = gen.fresh_temp("__iter")
+    iter_c_type = type_to_c(iter_type)
+    if not iter_c_type.endswith("*"):
+        iter_c_type += "*"
+    hoist_decl = IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter)
+    ir_iter = IRVar(name=tmp_iter)
 
-    stmts: list[IRStmt] = []
-    owner = None
-    if hoist_decl is not None:
-        stmts.append(hoist_decl)
-        owner = begin_owned_iterable(
-            gen,
-            node.iterable,
-            iter_type,
-            hoist_decl.name,
-            stmts,
-        )
+    stmts: list[IRStmt] = [hoist_decl]
+    owner = begin_owned_iterable(
+        gen,
+        node.iterable,
+        iter_type,
+        hoist_decl.name,
+        stmts,
+    )
 
     idx = gen.fresh_temp("__i")
     n_var = gen.fresh_temp("__n")

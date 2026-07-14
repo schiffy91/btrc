@@ -189,6 +189,15 @@ class _ModuleGenerationMixin:
                 lower_preprocessor(self, decl)
 
     def _emit_global_var(self, decl: VarDeclStmt, *, force_external=False):
+        if decl.initializer is not None:
+            from .callable_boundaries import reject_persistent_callable_escape
+
+            reject_persistent_callable_escape(
+                self,
+                decl.type,
+                decl.initializer,
+                "global storage",
+            )
         if (
             decl.type
             and decl.type.is_array

@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from ..nodes import (
     CType,
-    IRAddressOf,
     IRBinOp,
-    IRCall,
-    IRCast,
     IRCommaExpr,
     IRLiteral,
     IRTernary,
@@ -24,7 +21,7 @@ from .managed_values import (
 
 def cleanup_registration(
     gen,
-    slot: IRVar,
+    slot: IRVarDecl,
     type_expr,
     prefix: str,
     *,
@@ -39,8 +36,6 @@ def cleanup_registration(
         return [], []
     (activate_cleanup or gen.mark_cleanup_registration)()
     string_cleanup = is_string_type(gen, type_expr)
-    register_helper = "__btrc_register_direct_cleanup" if string_cleanup else "__btrc_register_cleanup"
-    gen.use_helper(register_helper)
     fresh_temp = fresh_temp or gen.fresh_temp
     flag_decl = IRVarDecl(
         c_type=CType(text="bool"),
@@ -53,19 +48,14 @@ def cleanup_registration(
     destroy = cleanup_destroy_symbol(emitted_name)
     if emitted_name == STRING_RUNTIME_NAME:
         gen.use_helper(destroy)
-    args = [
-        IRCast(
-            target_type=CType(text="void**"),
-            expr=IRAddressOf(expr=slot),
-        ),
+    from .cleanup_slots import register_cleanup_slot
+
+    register = register_cleanup_slot(
+        gen,
+        slot,
         IRVar(name=destroy),
-    ]
-    if not string_cleanup:
-        args.append(_visit_value(gen, type_expr))
-    register = IRCall(
-        callee=register_helper,
-        args=args,
-        helper_ref=register_helper,
+        visitor=None if string_cleanup else _visit_value(gen, type_expr),
+        direct=string_cleanup,
     )
     register_once = IRTernary(
         condition=flag,

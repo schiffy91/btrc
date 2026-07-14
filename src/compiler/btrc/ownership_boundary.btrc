@@ -3,6 +3,7 @@
 class OwnershipBoundary {
     public Vector<IRNode> declarations;
     public Vector<IRNode> prefix;
+    public Vector<IRNode> handoffs;
     public Vector<IRNode> suffix;
     public Vector<string> overrideKeys;
     public Vector<int> overrideHadValues;
@@ -11,6 +12,7 @@ class OwnershipBoundary {
     public OwnershipBoundary() {
         self.declarations = [];
         self.prefix = [];
+        self.handoffs = [];
         self.suffix = [];
         self.overrideKeys = [];
         self.overrideHadValues = [];
@@ -35,27 +37,25 @@ class OwnershipBoundary {
     public void registerCleanup(IRGen generator, IRNode declaration,
             string name, string runtimeType) {
         if (!generator.programHasExceptions) { return; }
+        if (declaration.name != name) {
+            cleanupSlotContractFail(
+                "cleanup declaration/name mismatch: " + name);
+        }
         generator.markCleanupRegistration();
-        declaration.is_volatile = true;
-        Vector<IRNode> arguments = [];
-        arguments.push(irCast("void**", irAddressOf(irVar(name))));
         string cleanupSymbol = irManagedCleanupSymbol(
             generator, runtimeType);
-        arguments.push(irVar(cleanupSymbol));
         if (runtimeType == irManagedStringRuntimeType()) {
-            generator.useHelper("__btrc_register_direct_cleanup");
-            self.prefix.push(irCall(
-                "__btrc_register_direct_cleanup", arguments));
+            self.prefix.push(registerCleanupSlot(generator, declaration,
+                irVar(cleanupSymbol), null, true));
             return;
         }
-        generator.useHelper("__btrc_register_cleanup");
+        IRNode visitor = irLiteral("NULL");
         if (irManagedRuntimeCanCycle(generator, runtimeType)
                 && managedClassNeedsVisitor(generator, runtimeType)) {
-            arguments.push(irVar(cycleVisitorName(runtimeType)));
-        } else {
-            arguments.push(irLiteral("NULL"));
+            visitor = irVar(cycleVisitorName(runtimeType));
         }
-        self.prefix.push(irCall("__btrc_register_cleanup", arguments));
+        self.prefix.push(registerCleanupSlot(generator, declaration,
+            irVar(cleanupSymbol), visitor, false));
     }
 
     public void addOperand(IRGen generator, Node expression, Node typeExpr,
@@ -87,12 +87,13 @@ class OwnershipBoundary {
         }
         string name = generator.freshTemp("__btrc_operand");
         IRNode declaration = irVarDecl(
-            typeToC(typeExpr, generator.analyzed), name, null);
+            ownershipOperandCType(generator, expression, typeExpr),
+            name, null);
         self.declarations.push(declaration);
         generator.funcVarDecls.push(declaration);
         IRNode value = irVar(name);
         self.prefix.push(irBinOp(value, "=", lowered));
-        self.rememberOverride(generator, expression, value);
+        IRNode callValue = value;
 
         if (owned && runtimeType != "") {
             self.registerCleanup(
@@ -101,7 +102,17 @@ class OwnershipBoundary {
                 self.appendReleaseAndClear(
                     generator, value, typeExpr, runtimeType);
             } else {
-                self.suffix.push(irBinOp(
+                string handoffName = generator.freshTemp(
+                    "__btrc_transferred_operand");
+                IRNode handoffDeclaration = irVarDecl(
+                    typeToC(typeExpr, generator.analyzed),
+                    handoffName, irLiteral("NULL"));
+                self.declarations.push(handoffDeclaration);
+                generator.funcVarDecls.push(handoffDeclaration);
+                callValue = irVar(handoffName);
+                self.handoffs.push(irBinOp(
+                    callValue, "=", value));
+                self.handoffs.push(irBinOp(
                     value, "=", irLiteral("NULL")));
             }
         }
@@ -120,6 +131,7 @@ class OwnershipBoundary {
             self.appendReleaseAndClear(
                 generator, kept, typeExpr, runtimeType);
         }
+        self.rememberOverride(generator, expression, callValue);
     }
 
     public void appendReleaseAndClear(IRGen generator, IRNode value,
@@ -156,6 +168,11 @@ class OwnershipBoundary {
     public IRNode finish(IRGen generator, IRNode expression,
             Node? resultType, bool promoteResult) {
         Vector<IRNode> sequence = self.prefix;
+        int handoffIndex = 0;
+        while (handoffIndex < self.handoffs.len) {
+            sequence.push(self.handoffs.get(handoffIndex));
+            handoffIndex = handoffIndex + 1;
+        }
         bool isVoid = resultType != null
             && resultType.base == "void"
             && resultType.pointer_depth == 0;
@@ -176,6 +193,9 @@ class OwnershipBoundary {
         string resultName = generator.freshTemp("__btrc_boundary_result");
         IRNode resultDeclaration = irVarDecl(
             resultC, resultName, null);
+        /* GCC tracks this compiler-generated object across a later setjmp even
+         * when its source expression block has ended. */
+        resultDeclaration.is_volatile = true;
         self.declarations.push(resultDeclaration);
         generator.funcVarDecls.push(resultDeclaration);
         IRNode result = irVar(resultName);
@@ -200,6 +220,78 @@ void ownershipRequireType(Node? typeExpr, Node expression) {
     fprintf(stderr, "error: managed ownership boundary at %d:%d requires a concrete type\n",
         expression.line, expression.col);
     abortGen();
+}
+
+string ownershipOperandCType(
+        IRGen generator, Node expression, Node typeExpr) {
+    if (expression.kind == NK_IDENTIFIER
+            && generator.analyzed.isEnumValue(expression.name)) {
+        return "int";
+    }
+    return typeToC(typeExpr, generator.analyzed);
+}
+
+bool ownershipExpressionHasEffect(IRGen generator, Node? expression,
+        Map<string, Node> varTypes) {
+    if (expression == null) { return false; }
+    int kind = expression.kind;
+    if (kind == NK_ASSIGN_EXPR || kind == NK_CALL_EXPR
+            || kind == NK_NEW_EXPR || kind == NK_SPAWN_EXPR
+            || kind == NK_F_STRING_LITERAL || kind == NK_LIST_LITERAL
+            || kind == NK_MAP_LITERAL || kind == NK_BRACE_INITIALIZER
+            || kind == NK_LAMBDA_EXPR) {
+        return true;
+    }
+    if (kind == NK_UNARY_EXPR) {
+        return expression.op == "++" || expression.op == "--"
+            || ownershipExpressionHasEffect(
+                generator, expression.operand, varTypes);
+    }
+    if (kind == NK_BINARY_EXPR) {
+        return ownershipExpressionHasEffect(
+                generator, expression.left, varTypes)
+            || ownershipExpressionHasEffect(
+                generator, expression.right, varTypes);
+    }
+    if (kind == NK_TERNARY_EXPR) {
+        return ownershipExpressionHasEffect(
+                generator, expression.condition, varTypes)
+            || ownershipExpressionHasEffect(
+                generator, expression.true_expr, varTypes)
+            || ownershipExpressionHasEffect(
+                generator, expression.false_expr, varTypes);
+    }
+    if (kind == NK_CAST_EXPR) {
+        return ownershipExpressionHasEffect(
+            generator, expression.expr, varTypes);
+    }
+    if (kind == NK_FIELD_ACCESS_EXPR) {
+        if (expression.optional || ownershipExpressionHasEffect(
+                generator, expression.obj, varTypes)) {
+            return true;
+        }
+        Node? receiverType = generator.resolvedExpressionType(
+            expression.obj, varTypes);
+        Node? member = instanceMemberForType(
+            generator.analyzed, receiverType, expression.field);
+        return member != null && member.kind == NK_PROPERTY_DECL;
+    }
+    if (kind == NK_INDEX_EXPR) {
+        if (ownershipExpressionHasEffect(
+                    generator, expression.obj, varTypes)
+                || ownershipExpressionHasEffect(
+                    generator, expression.index, varTypes)) {
+            return true;
+        }
+        Node? receiverType = generator.resolvedExpressionType(
+            expression.obj, varTypes);
+        if (receiverType == null) { return false; }
+        return !semanticRawIndexedPointer(receiverType, generator.analyzed)
+            && semanticValidIndexedGetter(
+                semanticIndexedMethod(
+                    receiverType, "get", generator.analyzed));
+    }
+    return false;
 }
 
 IRNode lowerOwnedFieldAccess(IRGen generator, Node expression,
@@ -274,22 +366,50 @@ IRNode lowerOwnedBinary(IRGen generator, Node expression,
         expression.left, varTypes);
     Node? rightType = generator.resolvedExpressionType(
         expression.right, varTypes);
+    Node? overload = ownershipBinaryMethod(
+        generator, leftType, expression.op);
+    bool leftPinned = !leftOwned && overload != null
+        && irManagedType(generator, leftType);
     bool rightKeep = leftType != null && rightType != null
         && irManagedType(generator, rightType)
         && irManagedCompoundKeepsRhs(
             generator, leftType, expression.op);
-    if (!leftOwned && !rightOwned && !rightKeep) {
+    bool lifetimeRequired = leftOwned || rightOwned
+        || leftPinned || rightKeep;
+    bool orderingRequired = ownershipExpressionHasEffect(
+            generator, expression.left, varTypes)
+        || ownershipExpressionHasEffect(
+            generator, expression.right, varTypes);
+    if (!lifetimeRequired && !orderingRequired) {
+        return generator.lowerBinaryCore(expression, varTypes);
+    }
+    if ((leftType == null || rightType == null) && !lifetimeRequired) {
         return generator.lowerBinaryCore(expression, varTypes);
     }
     ownershipRequireType(leftType, expression.left);
     ownershipRequireType(rightType, expression.right);
     OwnershipBoundary boundary = OwnershipBoundary();
     boundary.addOperand(generator, expression.left,
-        leftType, leftOwned, false, varTypes);
+        leftType, leftOwned, leftPinned, varTypes);
     boundary.addOperand(generator, expression.right,
         rightType, rightOwned, rightKeep, varTypes);
     IRNode lowered = generator.lowerBinaryCore(expression, varTypes);
     boundary.restore(generator);
     return boundary.finish(generator, lowered,
         generator.resolvedExpressionType(expression, varTypes), false);
+}
+
+Node? ownershipBinaryMethod(
+        IRGen generator, Node? leftType, string op) {
+    if (leftType == null) { return null; }
+    string magic = semanticBinaryOperatorMethod(op);
+    if (magic == "") { return null; }
+    if (generator.analyzed.isClass(leftType.base)) {
+        return generator.analyzed.classMethod(leftType.base, magic);
+    }
+    if (generator.analyzed.isGenericClass(leftType.base)) {
+        return generator.analyzed.genericClassMethod(
+            leftType.base, magic);
+    }
+    return null;
 }

@@ -50,6 +50,9 @@ void emitClassStaticFields(IRGen generator, Node declaration, IRModule module) {
                 }
             }
             if (field.initializer != null) {
+                generator.rejectPersistentCallableEscape(
+                    field.type, field.initializer, empty,
+                    "class field storage");
                 global.init = lowerStaticInitializer(
                     generator, field.initializer, field.type, empty);
             }

@@ -94,9 +94,10 @@ void collectSetjmpMutationSequence(Vector<IRNode> statements,
 void collectSetjmpStatementMutations(IRNode statement,
         Map<string, bool> bound, Map<string, bool> modified) {
     if (statement.kind == IRK_VAR_DECL) {
-        /* C block scope starts at the declarator, including its initializer. */
-        bound.put(statement.name, true);
+        /* A VLA bound is evaluated before the new declarator is bound; its
+         * initializer resolves to the newly declared object. */
         collectSetjmpExpressionMutations(statement.array_size, bound, modified);
+        bound.put(statement.name, true);
         collectSetjmpExpressionMutations(statement.init, bound, modified);
         return;
     }
@@ -177,7 +178,8 @@ bool expressionContainsSetjmp(IRNode? node) {
             || expressionContainsSetjmp(node.value)
             || expressionContainsSetjmp(node.target)
             || expressionContainsSetjmp(node.update)
-            || expressionContainsSetjmp(node.result)) {
+            || expressionContainsSetjmp(node.result)
+            || expressionContainsSetjmp(node.array_size)) {
         return true;
     }
     int i = 0;

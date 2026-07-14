@@ -24,6 +24,7 @@ def lower_managed_compound_update(
     value_type,
     right_type,
     old_expr: IRExpr,
+    current_expr: IRExpr,
     right_expr: IRExpr,
     compute: Callable[[IRExpr, IRExpr], IRExpr],
     commit: Callable[[IRExpr, IRExpr], list[IRExpr]],
@@ -32,8 +33,6 @@ def lower_managed_compound_update(
     right_owned: bool,
     right_keep: bool,
     release_replaced_old: bool,
-    commit_releases_old: bool,
-    result_owned: bool,
     transfer_before_commit: bool = False,
     c_type: Callable[[object], str],
     fresh_temp: Callable[[str], str],
@@ -63,29 +62,36 @@ def lower_managed_compound_update(
         fresh_temp,
         record_decl,
     )
-    declarations = [old_decl, right_decl, replacement_decl]
+    current_decl = _temporary(
+        value_type,
+        "__btrc_update_current",
+        c_type,
+        fresh_temp,
+        record_decl,
+    )
+    declarations = [old_decl, right_decl, replacement_decl, current_decl]
     old = IRVar(name=old_decl.name)
     right = IRVar(name=right_decl.name)
     replacement = IRVar(name=replacement_decl.name)
+    current = IRVar(name=current_decl.name)
     sequence = [IRBinOp(left=old, op="=", right=old_expr)]
-    if old_temporary_owned:
-        _guard(
-            gen,
-            old_decl,
-            old,
-            value_type,
-            declarations,
-            sequence,
-            cleanup_active,
-            fresh_temp,
-            activate_cleanup,
-        )
+    if not old_temporary_owned:
+        sequence.append(retain_value(gen, old, value_type))
+    _guard(
+        gen,
+        old_decl,
+        value_type,
+        declarations,
+        sequence,
+        cleanup_active,
+        fresh_temp,
+        activate_cleanup,
+    )
     sequence.append(IRBinOp(left=right, op="=", right=right_expr))
     if right_owned:
         _guard(
             gen,
             right_decl,
-            right,
             right_type,
             declarations,
             sequence,
@@ -113,7 +119,6 @@ def lower_managed_compound_update(
         _guard(
             gen,
             kept_decl,
-            kept,
             right_type,
             declarations,
             sequence,
@@ -124,7 +129,6 @@ def lower_managed_compound_update(
     _guard(
         gen,
         replacement_decl,
-        replacement,
         value_type,
         declarations,
         sequence,
@@ -133,6 +137,9 @@ def lower_managed_compound_update(
         activate_cleanup,
     )
     sequence.append(IRBinOp(left=replacement, op="=", right=compute(old, right)))
+    # The RHS may itself rebind the target.  Commit against the value that is
+    # in the slot now; ``old`` is a separate +1 pin used only by the operator.
+    sequence.append(IRBinOp(left=current, op="=", right=current_expr))
 
     commit_value = replacement
     if transfer_before_commit:
@@ -151,14 +158,14 @@ def lower_managed_compound_update(
                 _clear(replacement),
             ]
         )
-    sequence.extend(commit(old, commit_value))
-    if not transfer_before_commit and not result_owned:
+    sequence.extend(commit(current, commit_value))
+    if not transfer_before_commit:
         sequence.append(_clear(replacement))
-    if release_replaced_old or old_temporary_owned:
+    if release_replaced_old:
         sequence.extend(
             _release_and_clear(
                 gen,
-                old,
+                current,
                 value_type,
                 declarations,
                 c_type,
@@ -166,6 +173,17 @@ def lower_managed_compound_update(
                 record_decl,
             )
         )
+    sequence.extend(
+        _release_and_clear(
+            gen,
+            old,
+            value_type,
+            declarations,
+            c_type,
+            fresh_temp,
+            record_decl,
+        )
+    )
     if kept is not None:
         sequence.extend(
             _release_and_clear(
@@ -191,41 +209,20 @@ def lower_managed_compound_update(
             )
         )
 
-    released_types = []
-    if release_replaced_old or old_temporary_owned or commit_releases_old:
-        released_types.append(value_type)
+    released_types = [value_type]
     if right_owned or right_keep:
         released_types.append(right_type)
     flush = poll_released_values(gen, *released_types)
     if flush is not None:
         sequence.append(flush)
 
-    if result_owned:
-        result_decl = _temporary(
-            value_type,
-            "__btrc_update_result",
-            c_type,
-            fresh_temp,
-            record_decl,
-        )
-        declarations.append(result_decl)
-        result = IRVar(name=result_decl.name)
-        sequence.extend(
-            [
-                IRBinOp(left=result, op="=", right=replacement),
-                _clear(replacement),
-                result,
-            ]
-        )
-    else:
-        sequence.append(result_expr())
+    sequence.append(result_expr())
     return IRStmtExpr(stmts=declarations, result=IRCommaExpr(expressions=sequence))
 
 
 def _guard(
     gen,
     declaration,
-    value,
     type_expr,
     declarations,
     sequence,
@@ -233,11 +230,9 @@ def _guard(
     fresh_temp,
     activate_cleanup,
 ):
-    if cleanup_active:
-        declaration.is_volatile = True
     guard_decls, guard_exprs = cleanup_registration(
         gen,
-        value,
+        declaration,
         type_expr,
         "__btrc_update_cleanup",
         active=cleanup_active,

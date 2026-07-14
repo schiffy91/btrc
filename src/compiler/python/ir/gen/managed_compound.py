@@ -41,17 +41,15 @@ def lower_managed_compound_operator(
             operator_context(gen, fresh_temp=fresh_temp),
         )
     if result is None:
-        raise CodegenError(
-            f"managed compound operator '{assignment.op}' has no structured lowering"
-        )
+        raise CodegenError(f"managed compound operator '{assignment.op}' has no structured lowering")
     return result
 
 
-def managed_compound_keeps_rhs(gen, target_type, operator: str) -> bool:
+def managed_compound_keeps_rhs(gen, target_type, operator: str, right_type) -> bool:
     """Whether the overloaded operator requests a call-duration RHS guard."""
     from .operator_ownership import operator_rhs_keep
 
-    return operator_rhs_keep(gen, target_type, operator, target_type)
+    return operator_rhs_keep(gen, target_type, operator, right_type)
 
 
 __all__ = ["lower_managed_compound_operator", "managed_compound_keeps_rhs"]

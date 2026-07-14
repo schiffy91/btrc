@@ -254,7 +254,12 @@ def _setter_body(gen, prop, backing):
     previous_backing = gen.current_property_backing
     gen.current_property_backing = prop.name if property_needs_backing(prop) else None
     try:
-        body = lower_block(gen, prop.setter_body, local_bindings=["self", "value"])
+        body = lower_block(
+            gen,
+            prop.setter_body,
+            local_bindings=["self", "value"],
+            callable_bindings=[("value", prop.type)],
+        )
     finally:
         gen.current_property_backing = previous_backing
         gen.current_return_type = previous_return_type

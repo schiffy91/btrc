@@ -75,7 +75,7 @@ class Regex {
         if (len <= 0) { return ""; }
         char* out = (char*)__btrc_safe_realloc(
             null, (size_t)len + (size_t)1);
-        memcpy(out, text + so, (size_t)len);
+        memcpy(out, (char*)text + so, (size_t)len);
         out[len] = '\0';
         return __btrc_str_track(out);
     }
@@ -176,7 +176,7 @@ class Regex {
         int offset = 0;
         while (offset <= tlen) {
             int eflags = offset > 0 ? REG_NOTBOL : 0;
-            if (regexec(&re, text + offset, 1, m, eflags) != 0) { break; }
+            if (regexec(&re, (char*)text + offset, 1, m, eflags) != 0) { break; }
             int so = (int)m[0].rm_so;
             int eo = (int)m[0].rm_eo;
             result.push(Regex.slice(text, offset + so, offset + eo));
@@ -223,7 +223,7 @@ class Regex {
         bool replacedAny = false;
         while (offset <= tlen) {
             int eflags = offset > 0 ? REG_NOTBOL : 0;
-            if (regexec(&re, text + offset, 1, m, eflags) != 0) { break; }
+            if (regexec(&re, (char*)text + offset, 1, m, eflags) != 0) { break; }
             int so = offset + (int)m[0].rm_so;
             int eo = offset + (int)m[0].rm_eo;
             /* Copy the unmatched run [offset, so) verbatim. */
@@ -235,7 +235,7 @@ class Regex {
                 cap = nextCapacity;
                 out = (char*)__btrc_safe_realloc(out, (size_t)cap);
             }
-            memcpy(out + olen, text + offset, (size_t)runlen);
+            memcpy(out + olen, (char*)text + offset, (size_t)runlen);
             olen = olen + runlen;
             /* Insert the replacement (literal). */
             memcpy(out + olen, replacement, (size_t)replen);
@@ -271,7 +271,7 @@ class Regex {
                 cap = tailCapacity;
                 out = (char*)__btrc_safe_realloc(out, (size_t)cap);
             }
-            memcpy(out + olen, text + offset, (size_t)taillen);
+            memcpy(out + olen, (char*)text + offset, (size_t)taillen);
             olen = olen + taillen;
         }
         regfree(&re);

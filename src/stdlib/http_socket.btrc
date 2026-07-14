@@ -8,15 +8,90 @@ import std.bytes;
 #include <sys/time.h>
 #include <unistd.h>
 #include <string.h>
-#include <signal.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <poll.h>
+#include <stdint.h>
+#include <time.h>
 
 class HttpSocket {
+    class bool configureDescriptor(int descriptor, bool nonblocking) {
+        int descriptorFlags = fcntl(descriptor, F_GETFD, 0);
+        if (descriptorFlags < 0
+                || fcntl(descriptor, F_SETFD,
+                         descriptorFlags | FD_CLOEXEC) < 0) {
+            return false;
+        }
+        if (!nonblocking) { return true; }
+        int statusFlags = fcntl(descriptor, F_GETFL, 0);
+        return statusFlags >= 0
+            && fcntl(descriptor, F_SETFL, statusFlags | O_NONBLOCK) == 0;
+    }
+
+    /* Linux and Darwin both expose per-send SIGPIPE suppression through
+     * MSG_NOSIGNAL.  Keeping the platform detail behind this seam avoids the
+     * process-global signal mutation that a reusable socket library must never
+     * perform. MSG_NOSIGNAL is not generic POSIX; adding another Unix target
+     * requires extending this single compatibility seam. */
+    class long long sendNoSignal(int descriptor, char* data, size_t length) {
+        return (long long)send(descriptor, data, length, MSG_NOSIGNAL);
+    }
+
+    class long long nowMilliseconds() {
+        struct timespec now;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+            /* Never mix wall and monotonic clock domains across successive
+             * deadline samples.  Saturation makes every pending wait fail
+             * closed if the monotonic clock is unavailable. */
+            return LLONG_MAX;
+        }
+        if (now.tv_sec < (time_t)0 || now.tv_nsec < 0L
+                || now.tv_nsec >= 1000000000L) { return LLONG_MAX; }
+        if ((uintmax_t)now.tv_sec
+                > (uintmax_t)(LLONG_MAX / 1000LL)) {
+            return LLONG_MAX;
+        }
+        long long milliseconds = (long long)now.tv_sec * 1000LL;
+        long long fraction = (long long)now.tv_nsec / 1000000LL;
+        return milliseconds > LLONG_MAX - fraction
+            ? LLONG_MAX : milliseconds + fraction;
+    }
+
+    class long long deadlineAfter(int timeoutSecs) {
+        int bounded = timeoutSecs > 0 ? timeoutSecs : 1;
+        if (bounded > 86400) { bounded = 86400; }
+        long long now = HttpSocket.nowMilliseconds();
+        long long duration = (long long)bounded * 1000LL;
+        return now > LLONG_MAX - duration ? LLONG_MAX : now + duration;
+    }
+
+    class bool waitFor(int descriptor, short events, long long deadline) {
+        while (true) {
+            long long now = HttpSocket.nowMilliseconds();
+            if (deadline <= now) { return false; }
+            long long remaining = deadline - now;
+            struct pollfd pending;
+            pending.fd = descriptor;
+            pending.events = events;
+            pending.revents = 0;
+            int waitMillis = remaining > (long long)INT_MAX
+                ? INT_MAX : (int)remaining;
+            int ready = poll(&pending, 1, waitMillis);
+            if (ready < 0 && errno == EINTR) { continue; }
+            return ready > 0 && (pending.revents & events) != 0;
+        }
+        return false;
+    }
+
     class int openListener(int port, bool bindAny) {
         if (port < 0 || port > 65535) { return -1; }
-        signal(SIGPIPE, SIG_IGN);
         int descriptor = socket(AF_INET, SOCK_STREAM, 0);
         if (descriptor < 0) { return -1; }
+        if (!HttpSocket.configureDescriptor(descriptor, true)) {
+            close(descriptor);
+            return -1;
+        }
         int yes = 1;
         if (setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR,
                        &yes, sizeof(yes)) < 0) {
@@ -41,13 +116,21 @@ class HttpSocket {
         struct sockaddr_in client;
         socklen_t clientLength = sizeof(client);
         int descriptor = -1;
+        long long deadline = HttpSocket.deadlineAfter(timeoutSecs);
         while (descriptor < 0) {
+            if (!HttpSocket.waitFor(listener, POLLIN, deadline)) { return -1; }
             clientLength = sizeof(client);
             descriptor = accept(listener, (struct sockaddr*)&client, &clientLength);
-            if (descriptor < 0 && errno != EINTR) { return -1; }
+            if (descriptor < 0 && errno != EINTR && errno != EAGAIN
+                    && errno != EWOULDBLOCK) { return -1; }
+        }
+        if (!HttpSocket.configureDescriptor(descriptor, true)) {
+            close(descriptor);
+            return -1;
         }
         struct timeval timeout;
         timeout.tv_sec = timeoutSecs > 0 ? timeoutSecs : 1;
+        if (timeout.tv_sec > (time_t)86400) { timeout.tv_sec = (time_t)86400; }
         timeout.tv_usec = 0;
         if (setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO,
                        &timeout, sizeof(timeout)) < 0
@@ -70,19 +153,31 @@ class HttpSocket {
     }
 
     class Bytes readRequest(int descriptor, int maxHeaderBytes,
-                            int maxBodyBytes, int maxRequestBytes) {
+                            int maxBodyBytes, int maxRequestBytes,
+                            int timeoutSecs) {
         Bytes data = Bytes();
         if (descriptor < 0 || maxHeaderBytes < 4 || maxBodyBytes < 0
                 || maxRequestBytes < maxHeaderBytes) {
             return HttpSocket.emptyBytes();
         }
+        /* Deadlines require every syscall after poll() to remain nonblocking;
+         * callers may supply a socket that did not come from acceptConnection. */
+        if (!HttpSocket.configureDescriptor(descriptor, true)) {
+            return HttpSocket.emptyBytes();
+        }
         int headerEnd = -1;
         int contentLength = -1;
         int transferEncoding = -1;
+        long long deadline = HttpSocket.deadlineAfter(timeoutSecs);
         char buffer[8192];
         while (true) {
+            if (!HttpSocket.waitFor(descriptor, POLLIN, deadline)) {
+                return HttpSocket.emptyBytes();
+            }
             ssize_t count = recv(descriptor, buffer, sizeof(buffer), 0);
             if (count < (ssize_t)0 && errno == EINTR) { continue; }
+            if (count < (ssize_t)0
+                    && (errno == EAGAIN || errno == EWOULDBLOCK)) { continue; }
             if (count <= (ssize_t)0
                     || (long long)count
                         > (long long)(maxRequestBytes - data.len)) {
@@ -130,21 +225,34 @@ class HttpSocket {
         return HttpSocket.emptyBytes();
     }
 
-    class bool sendAll(int descriptor, string data) {
+    class bool sendAllUntil(int descriptor, string data,
+                            long long deadline) {
         if (descriptor < 0 || data == null) { return false; }
-        signal(SIGPIPE, SIG_IGN);
+        if (!HttpSocket.configureDescriptor(descriptor, true)) { return false; }
         size_t total = strlen(data);
         size_t sent = 0;
         while (sent < total) {
-            ssize_t count = send(descriptor, data + sent, total - sent, 0);
-            if (count > (ssize_t)0) {
+            if (!HttpSocket.waitFor(descriptor, POLLOUT, deadline)) {
+                return false;
+            }
+            long long count = HttpSocket.sendNoSignal(
+                descriptor, (char*)data + sent, total - sent);
+            if (count > 0LL) {
                 sent = sent + (size_t)count;
-            } else if (count < (ssize_t)0 && errno == EINTR) {
+            } else if (count < 0LL && errno == EINTR) {
+                continue;
+            } else if (count < 0LL
+                    && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 continue;
             } else {
                 return false;
             }
         }
         return true;
+    }
+
+    class bool sendAll(int descriptor, string data, int timeoutSecs) {
+        return HttpSocket.sendAllUntil(
+            descriptor, data, HttpSocket.deadlineAfter(timeoutSecs));
     }
 }

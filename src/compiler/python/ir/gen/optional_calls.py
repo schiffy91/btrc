@@ -17,7 +17,7 @@ from ..nodes import (
     IRVarDecl,
 )
 from .arc_ops import release_if_present
-from .arguments import arg_names_for
+from .arguments import arg_names_for, bind_arg_nodes_to_params
 from .arguments_arc import plan_call_operands
 from .call_boundary import sequence_call_boundary
 from .optional_values import optional_zero_value
@@ -50,17 +50,25 @@ def lower_optional_method_call(gen, node: CallExpr):
             right=lower_expr(gen, receiver_node),
         )
     ]
-    receiver_suffix = _owned_receiver_cleanup(
+    declaration = callable_for_call(gen, node)
+    params = declaration.params if declaration is not None else []
+    from .evaluation_order import has_observable_effect
+
+    has_later_operand = any(
+        has_observable_effect(gen, argument)
+        for _index, argument, _default in bind_arg_nodes_to_params(
+            params, node.args, arg_names_for(node, len(node.args))
+        )
+    )
+    receiver_suffix = _receiver_cleanup(
         gen,
-        receiver,
+        receiver_decl,
         receiver_type,
         receiver_node,
         declarations,
         prelude,
+        pin_borrowed=has_later_operand,
     )
-
-    declaration = callable_for_call(gen, node)
-    params = declaration.params if declaration is not None else []
     operands, needs_boundary = plan_call_operands(
         gen,
         params,
@@ -124,21 +132,32 @@ def lower_optional_method_call(gen, node: CallExpr):
     )
 
 
-def _owned_receiver_cleanup(
+def _receiver_cleanup(
     gen,
-    receiver,
+    receiver_decl,
     receiver_type,
     receiver_node,
     declarations,
     prelude,
+    *,
+    pin_borrowed,
 ):
-    if receiver_type is None or not owns_result(gen, receiver_node):
+    receiver = IRVar(name=receiver_decl.name)
+    owned = bool(receiver_type is not None and owns_result(gen, receiver_node))
+    from .managed_values import is_managed_type
+
+    pinned = bool(receiver_type is not None and pin_borrowed and not owned and is_managed_type(gen, receiver_type))
+    if not owned and not pinned:
         return []
+    if pinned:
+        from .managed_values import retain_value
+
+        prelude.append(retain_value(gen, receiver, receiver_type))
     from .temporary_cleanup import cleanup_registration
 
     cleanup_decls, cleanup_exprs = cleanup_registration(
         gen,
-        receiver,
+        receiver_decl,
         receiver_type,
         "__btrc_optional_receiver_cleanup",
     )
@@ -146,9 +165,18 @@ def _owned_receiver_cleanup(
     prelude.extend(cleanup_exprs)
     from .arc_ops import poll_release_batch
 
+    saved_decl = _temp_decl(
+        gen,
+        "__btrc_optional_receiver_release",
+        type_to_c(receiver_type),
+        IRLiteral(text="NULL"),
+    )
+    declarations.append(saved_decl)
+    saved = IRVar(name=saved_decl.name)
     suffix = [
-        release_if_present(gen, receiver, receiver_type),
+        IRBinOp(left=saved, op="=", right=receiver),
         IRBinOp(left=receiver, op="=", right=IRLiteral(text="NULL")),
+        release_if_present(gen, saved, receiver_type),
     ]
     flush = poll_release_batch(gen, types=[receiver_type])
     if flush is not None:

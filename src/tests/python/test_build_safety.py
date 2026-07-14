@@ -109,6 +109,8 @@ def test_optional_native_backends_only_skip_missing_dependencies():
     makefile = MAKEFILE.read_text()
 
     assert makefile.count(" -E ") >= 3
+    assert "$$CC" not in makefile
+    assert makefile.count("$(CC)") >= 7
     assert '|| echo "GPU runtime skipped' not in makefile
     assert '|| echo "GUI window backend skipped' not in makefile
     assert '|| echo "GUI font backend skipped' not in makefile
@@ -128,6 +130,26 @@ def test_btrcc_c_rebuilds_for_every_input_category():
     for source in representative_inputs:
         output = _make_dry_run("--what-if", source, "dist/btrcc.c")
         assert "python3 -m src.compiler.python.main" in output, source
+
+
+def test_btrcc_regenerates_ast_dependencies_before_transpiling():
+    output = _make_dry_run("--what-if", "src/language/ast.asdl", "dist/btrcc.c")
+
+    python_ast = "python3 src/compiler/python/ast/asdl_python.py"
+    btrc_ast = "python3 src/compiler/python/ast/gen_btrc_ast.py"
+    transpile = "python3 -m src.compiler.python.main"
+    assert python_ast in output
+    assert btrc_ast in output
+    assert output.index(python_ast) < output.index(transpile)
+    assert output.index(btrc_ast) < output.index(transpile)
+
+
+def test_explicit_ast_generation_targets_force_regeneration():
+    python_output = _make_dry_run("ast-generate", "NIX=")
+    btrc_output = _make_dry_run("ast-generate-btrc", "NIX=")
+
+    assert "python3 src/compiler/python/ast/asdl_python.py" in python_output
+    assert "python3 src/compiler/python/ast/gen_btrc_ast.py" in btrc_output
 
 
 def test_clean_covers_generated_and_runtime_build_directories():
@@ -173,6 +195,8 @@ def test_extension_build_uses_locked_dependencies():
     assert manifest["devDependencies"]["@types/vscode"] == "1.85.0"
     assert manifest["devDependencies"]["@types/node"].startswith("^18.")
     assert (REPO_ROOT / "src" / "devex" / "ext" / "package-lock.json").exists()
+    output = _make_dry_run("extension")
+    assert output.index("gen_builtins.py") < output.index("npm ci")
 
 
 def test_python_wheel_preserves_import_namespace_and_runtime_sources():
@@ -194,6 +218,8 @@ def test_nix_runtime_packages_use_the_filtered_runtime_source():
     flake = (REPO_ROOT / "flake.nix").read_text()
 
     assert 'export PYTHONPATH="${runtimeSource}' in flake
+    assert "runtimeInputs = [ pkgs.python314 pkgs.git ];" in flake
+    assert "runtimeInputs = [ lspPython pkgs.git ];" in flake
     assert '"src/compiler/python/"' in flake
     assert '"src/devex/lsp/"' in flake
     assert '"src/compiler/python/tests/"' in flake

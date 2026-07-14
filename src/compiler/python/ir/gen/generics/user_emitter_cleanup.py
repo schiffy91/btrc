@@ -1,15 +1,10 @@
 """Exception-cleanup registration for monomorphized generic bodies."""
 
 from ...nodes import (
-    CType,
-    IRAddressOf,
-    IRCall,
-    IRCast,
     IRExprStmt,
     IRLiteral,
     IRStmt,
     IRVar,
-    IRVarDecl,
 )
 
 
@@ -22,10 +17,9 @@ def register_exception_cleanup(
     if not exception_cleanup_active(emitter):
         return
     mark_cleanup_registration(emitter)
-    for statement in reversed(statements):
-        if isinstance(statement, IRVarDecl) and statement.name == name:
-            statement.is_volatile = True
-            break
+    from ..cleanup_slots import register_cleanup_slot, require_cleanup_slot_declaration
+
+    declaration = require_cleanup_slot_declaration(statements, name)
     from ..arc_cycles import managed_type_has_visitor
     from ..cycle_metadata import cycle_visitor_symbol
     from ..managed_values import STRING_RUNTIME_NAME, cleanup_destroy_symbol
@@ -33,24 +27,17 @@ def register_exception_cleanup(
     destroy = cleanup_destroy_symbol(type_name)
     if type_name == STRING_RUNTIME_NAME:
         emitter._gen.use_helper(destroy)
-        emitter._gen.use_helper("__btrc_register_direct_cleanup")
         statements.append(
             IRExprStmt(
-                expr=IRCall(
-                    callee="__btrc_register_direct_cleanup",
-                    args=[
-                        IRCast(
-                            target_type=CType(text="void**"),
-                            expr=IRAddressOf(expr=IRVar(name=name)),
-                        ),
-                        IRVar(name=destroy),
-                    ],
-                    helper_ref="__btrc_register_direct_cleanup",
+                expr=register_cleanup_slot(
+                    emitter._gen,
+                    declaration,
+                    IRVar(name=destroy),
+                    direct=True,
                 )
             )
         )
         return
-    emitter._gen.use_helper("__btrc_register_cleanup")
     visitor = (
         IRVar(name=cycle_visitor_symbol(type_name))
         if managed_type_has_visitor(emitter._gen, type_name)
@@ -58,17 +45,11 @@ def register_exception_cleanup(
     )
     statements.append(
         IRExprStmt(
-            expr=IRCall(
-                callee="__btrc_register_cleanup",
-                args=[
-                    IRCast(
-                        target_type=CType(text="void**"),
-                        expr=IRAddressOf(expr=IRVar(name=name)),
-                    ),
-                    IRVar(name=destroy),
-                    visitor,
-                ],
-                helper_ref="__btrc_register_cleanup",
+            expr=register_cleanup_slot(
+                emitter._gen,
+                declaration,
+                IRVar(name=destroy),
+                visitor=visitor,
             )
         )
     )

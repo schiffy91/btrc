@@ -98,6 +98,11 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
 
     local_bindings = [param.name for param in node.params]
     local_bindings.extend(capture.name for capture in node.captures)
+    from .callable_provenance import BORROWED_RETURN
+
+    capture_abis = [
+        (capture, gen._callable_return_abis.get(capture.name, BORROWED_RETURN)) for capture in node.captures
+    ]
     with isolated_function_context(gen, ret_type, return_type):
         if isinstance(node.body, LambdaBlock) and node.body.body:
             from .statements import lower_block
@@ -106,20 +111,33 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
                 gen,
                 node.body.body,
                 local_bindings=local_bindings,
+                callable_bindings=node.params,
+                callable_abis=capture_abis,
             )
             body_stmts.extend(block.stmts)
         elif isinstance(node.body, LambdaExprBody) and node.body.expression:
+            from .callable_provenance import (
+                begin_callable_scope,
+                bind_borrowed_callable,
+                bind_callable_abi,
+                declare_callable_shadow,
+                finish_callable_scope,
+            )
             from .expressions import lower_expr
             from .stringable import coerce_value_to_string
 
             gen.push_local_ownership_scope()
+            enclosing_callables = begin_callable_scope(gen)
             try:
                 for name in local_bindings:
                     gen.declare_local_ownership(name)
+                    declare_callable_shadow(gen, name)
+                for parameter in node.params:
+                    bind_borrowed_callable(gen, parameter.name, parameter.type)
+                for capture, return_abi in capture_abis:
+                    bind_callable_abi(gen, capture.name, capture.type, return_abi)
                 expr = lower_expr(gen, node.body.expression)
-                expr_type = gen.analyzed.node_types.get(
-                    id(node.body.expression)
-                )
+                expr_type = gen.analyzed.node_types.get(id(node.body.expression))
                 expr = coerce_value_to_string(
                     gen,
                     return_type,
@@ -128,6 +146,7 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
                 )
                 body_stmts.append(IRReturn(value=expr))
             finally:
+                finish_callable_scope(gen, enclosing_callables)
                 gen.pop_local_ownership_scope()
 
     gen.module.function_defs.append(

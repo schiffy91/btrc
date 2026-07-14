@@ -96,6 +96,69 @@ def test_fstring_cannot_replace_borrowed_parameter(
     )
 
 
+def test_shorter_lived_owner_cannot_replace_borrowed_parameter(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Item { public Item() {} }
+        void inspect(Item borrowed) {
+            Item owner = new Item();
+            borrowed = owner;
+        }
+        int main() {
+            Item item = new Item();
+            inspect(item);
+            return 0;
+        }
+    """
+    _assert_rejected_by_both(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "Borrowed managed bindings cannot be rebound",
+    )
+
+
+def test_managed_static_local_is_rejected_until_lifetime_is_supported(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Item { public Item() {} }
+        int touch() {
+            static Item item = null;
+            return item == null ? 0 : 1;
+        }
+        int main() { return touch(); }
+    """
+    _assert_rejected_by_both(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "cannot use managed static-local storage",
+    )
+
+
+def test_managed_string_pointer_arithmetic_is_rejected(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        string tail() {
+            string base = "abcdef".substring(0, 6);
+            return base + 1;
+        }
+        int main() { return 0; }
+    """
+    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode != 0
+    assert reference.returncode != 0
+    assert "operator '+' is not defined" in selfhost.stderr.lower()
+    assert "operator '+' is not defined" in reference.stderr.lower()
+
+
 @pytest.mark.parametrize("operation", ("release", "delete"))
 def test_managed_receiver_cannot_be_consumed(
     semantic_btrcc: Path,
@@ -155,3 +218,30 @@ def test_raw_array_loop_binding_cannot_take_fresh_owner(
         source,
         "Borrowed managed bindings cannot be rebound",
     )
+
+
+def test_consuming_handoff_is_cleared_before_a_throwing_call(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Bomb {
+            public Bomb() {}
+            public void __del__() { throw "boom"; }
+        }
+        void consume(Bomb value) { release value; }
+        int main() {
+            try {
+                consume(new Bomb());
+            } catch (string error) {
+                return error == "boom" ? 0 : 2;
+            }
+            return 1;
+        }
+    """
+    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-throwing-handoff")
+    _strict_build_and_run(reference_c, tmp_path / "reference-throwing-handoff")

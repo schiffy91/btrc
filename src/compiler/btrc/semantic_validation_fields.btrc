@@ -1,9 +1,71 @@
 /* Field/member projection validation. */
 
+void semanticValidateClassProjection(Node expression,
+        string className, SemanticValidationState state) {
+    if (semanticValidateResolvedMemberAccess(className, expression.field,
+            NK_FIELD_DECL, true, false, "field", state, expression)) {
+        return;
+    }
+    if (semanticValidateResolvedMemberAccess(className, expression.field,
+            NK_METHOD_DECL, true, true, "method", state, expression)) {
+        return;
+    }
+    string instanceMethodOwner = semanticResolveMemberOwner(
+        className, expression.field, NK_METHOD_DECL,
+        false, true, state.analyzed);
+    if (instanceMethodOwner != "") {
+        semanticValidationFail("Method '" + expression.field
+            + "' is not a class method, cannot access it statically",
+            expression);
+    }
+    string instanceFieldOwner = semanticResolveMemberOwner(
+        className, expression.field, NK_FIELD_DECL,
+        false, true, state.analyzed);
+    string instancePropertyOwner = semanticResolveMemberOwner(
+        className, expression.field, NK_PROPERTY_DECL,
+        false, true, state.analyzed);
+    if (instanceFieldOwner != "" || instancePropertyOwner != "") {
+        semanticValidationFail("Instance member '" + expression.field
+            + "' cannot be accessed on class '" + className + "'",
+            expression);
+    }
+    semanticValidationFail("Class '" + className
+        + "' has no static field or method '" + expression.field + "'",
+        expression);
+}
+
+void semanticValidateInstanceProjection(Node expression,
+        Node receiver, SemanticValidationState state) {
+    if (semanticValidateResolvedMemberAccess(receiver.base, expression.field,
+            NK_PROPERTY_DECL, false, true, "property", state, expression)) {
+        return;
+    }
+    if (semanticValidateResolvedMemberAccess(receiver.base, expression.field,
+            NK_FIELD_DECL, false, true, "field", state, expression)) {
+        return;
+    }
+    if (semanticValidateResolvedMemberAccess(receiver.base, expression.field,
+            NK_METHOD_DECL, false, true, "method", state, expression)) {
+        return;
+    }
+    string classMethodOwner = semanticResolveMemberOwner(
+        receiver.base, expression.field, NK_METHOD_DECL,
+        true, true, state.analyzed);
+    if (classMethodOwner != "") {
+        semanticValidationFail("Class method '" + expression.field
+            + "' must be accessed on '" + receiver.base
+            + "', not on an instance", expression);
+    }
+    semanticValidationFail("Class '" + receiver.base
+        + "' has no field or method '" + expression.field + "'",
+        expression);
+}
+
 void semanticValidateField(Node expression, SemanticValidationState state,
         Map<string, Node> vars) {
     if (expression.obj == null) { return; }
-    if (expression.obj.kind == NK_IDENTIFIER) {
+    if (expression.obj.kind == NK_IDENTIFIER
+            && !vars.has(expression.obj.name)) {
         if (state.analyzed.isEnum(expression.obj.name)) {
             if (!state.analyzed.enumContains(
                     expression.obj.name, expression.field)) {
@@ -13,13 +75,29 @@ void semanticValidateField(Node expression, SemanticValidationState state,
             }
             return;
         }
-        if (state.analyzed.isRichEnum(expression.obj.name)
-                || state.analyzed.isClass(expression.obj.name)) {
+        if (state.analyzed.isRichEnum(expression.obj.name)) {
+            if (semanticResolveRichEnumVariant(expression.obj.name,
+                    expression.field, state.analyzed) == null) {
+                semanticValidationFail("Rich enum '" + expression.obj.name
+                    + "' has no variant '" + expression.field + "'",
+                    expression);
+            }
+            return;
+        }
+        if (state.analyzed.isClass(expression.obj.name)
+                || state.analyzed.isGenericClass(expression.obj.name)) {
+            semanticValidateClassProjection(
+                expression, expression.obj.name, state);
             return;
         }
     }
     Node? receiver = semanticInferType(expression.obj, state, vars);
-    if (receiver == null || state.analyzed.isRichEnum(receiver.base)) {
+    if (receiver == null) { return; }
+    if (state.analyzed.isRichEnum(receiver.base)) {
+        if (expression.field != "tag" && expression.field != "data") {
+            semanticValidationFail("Rich enum '" + receiver.base
+                + "' has no field '" + expression.field + "'", expression);
+        }
         return;
     }
     if (isStringType(receiver)) {
@@ -44,17 +122,8 @@ void semanticValidateField(Node expression, SemanticValidationState state,
         }
         return;
     }
-    Node? member = null;
-    if (state.analyzed.isClass(receiver.base)) {
-        member = state.analyzed.classMember(receiver.base, expression.field);
-    } else if (state.analyzed.isGenericClass(receiver.base)) {
-        member = genericMember(
-            state.analyzed, receiver.base, expression.field);
-    } else {
-        return;
-    }
-    if (member == null) {
-        semanticValidationFail("Type '" + semanticFormatType(receiver)
-            + "' has no member '" + expression.field + "'", expression);
+    if (state.analyzed.isClass(receiver.base)
+            || state.analyzed.isGenericClass(receiver.base)) {
+        semanticValidateInstanceProjection(expression, receiver, state);
     }
 }

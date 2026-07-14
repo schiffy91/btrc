@@ -131,6 +131,7 @@ def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
             gen,
             method.body,
             local_bindings=["self", *(parameter.name for parameter in method.params)],
+            callable_bindings=method.params,
         )
         gen.current_return_type = previous_return_type
         gen.current_return_c_type = previous_return_c_type

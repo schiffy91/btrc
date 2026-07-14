@@ -11,6 +11,30 @@ class Counter {
     }
 }
 
+class ScalarCounter {
+    public int value;
+    public ScalarCounter(int value) { self.value = value; }
+    public ScalarCounter __add__(keep int amount) {
+        return ScalarCounter(self.value + amount);
+    }
+}
+
+class ScalarCounterHolder {
+    public ScalarCounter value;
+    public ScalarCounterHolder(ScalarCounter value) { self.value = value; }
+    public void add(int amount) { self.value += amount; }
+}
+
+class GenericScalarCounterHolder<T> {
+    public ScalarCounter value;
+    public GenericScalarCounterHolder(ScalarCounter value) { self.value = value; }
+    public void add(int amount) {
+        ScalarCounter local = self.value;
+        local += amount;
+        self.value += amount;
+    }
+}
+
 int main() {
     Counter value = Counter(40);
     Counter two = Counter(2);
@@ -18,6 +42,20 @@ int main() {
     assert(value.value == 42);
     value -= two;
     assert(value.value == 40);
+
+    /* A keep-qualified scalar operator parameter must never be ARC-managed.
+     * Exercise reference local/field and monomorphized local/field lowering. */
+    ScalarCounter scalar = ScalarCounter(10);
+    scalar += 2;
+    assert(scalar.value == 12);
+    ScalarCounterHolder holder = ScalarCounterHolder(scalar);
+    holder.add(3);
+    assert(holder.value.value == 15);
+    GenericScalarCounterHolder<int> generic =
+        GenericScalarCounterHolder(holder.value);
+    generic.add(4);
+    assert(generic.value.value == 19);
+
     print("PASS: test_class_compound_assignment");
     return 0;
 }

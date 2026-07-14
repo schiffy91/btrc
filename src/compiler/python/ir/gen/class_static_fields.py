@@ -23,6 +23,15 @@ def emit_static_fields(gen: IRGenerator, declaration: ClassDecl) -> None:
             continue
         field_type, array_size = _static_field_type(gen, field)
         initializer = field.initializer
+        if initializer is not None:
+            from .callable_boundaries import reject_persistent_callable_escape
+
+            reject_persistent_callable_escape(
+                gen,
+                field.type,
+                initializer,
+                "class field storage",
+            )
         if isinstance(initializer, (BraceInitializer, ListLiteral)):
             init = lower_static_initializer(gen, initializer)
         else:

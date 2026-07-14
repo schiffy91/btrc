@@ -10,8 +10,6 @@ from ...ast_nodes import (
     ElseIf,
     IfStmt,
     SwitchStmt,
-    ThrowStmt,
-    TryCatchStmt,
 )
 from ..nodes import (
     CType,
@@ -30,64 +28,104 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .try_stack import (
-    capture_finally_error,
-    finally_error_message,
-    finally_state_declarations,
-    pop_try_frames,
-    setjmp_success_condition,
-)
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
 
 # Re-export iteration lowering so statements.py can import from one place
 from .iterations import _lower_c_for, _lower_for_in, _lower_range_for  # noqa: F401
+from .try_control import _lower_throw, _lower_try_catch  # noqa: F401
 
 
 def _lower_if(gen: IRGenerator, node: IfStmt) -> IRIf:
+    from .callable_provenance import (
+        join_callable_flows,
+        lower_isolated_callable_flow,
+        snapshot_callable_flow,
+    )
     from .statements import lower_block
 
     cond = _lower_expr(gen, node.condition)
-    then = lower_block(gen, node.then_block)
+    incoming = snapshot_callable_flow(gen)
+    then, then_flow = lower_isolated_callable_flow(
+        gen,
+        lambda: lower_block(gen, node.then_block),
+    )
     else_block = None
+    else_flow = incoming
     if node.else_block:
         if isinstance(node.else_block, ElseBlock):
-            else_block = lower_block(gen, node.else_block.body)
+            else_block, else_flow = lower_isolated_callable_flow(
+                gen,
+                lambda: lower_block(gen, node.else_block.body),
+            )
         elif isinstance(node.else_block, ElseIf):
             # Chain: else if → IRIf inside an else block
-            inner = _lower_if(gen, node.else_block.if_stmt)
+            inner, else_flow = lower_isolated_callable_flow(
+                gen,
+                lambda: _lower_if(gen, node.else_block.if_stmt),
+            )
             else_block = IRBlock(stmts=[inner])
+    join_callable_flows(gen, then_flow, else_flow)
     return IRIf(condition=cond, then_block=then, else_block=else_block)
 
 
 def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
     from .arc import _emit_scope_release
+    from .callable_provenance import (
+        begin_callable_scope,
+        finish_callable_scope,
+        join_callable_flows,
+        lower_isolated_callable_flow,
+        restore_callable_flow,
+        snapshot_callable_flow,
+    )
     from .statements import lower_stmt
 
     val = _lower_expr(gen, node.value)
+    incoming = snapshot_callable_flow(gen)
     cases = []
+    case_flows = []
+    fallthrough_flow = None
     gen.push_control_context("switch")
     try:
         for c in node.cases:
             case_val = _lower_expr(gen, c.value) if c.value else None
-            case_stmts = []
-            gen.push_managed_scope()
-            try:
-                for s in c.body:
-                    case_stmts.extend(lower_stmt(gen, s))
-            except Exception:
-                gen.pop_managed_scope()
-                raise
-            from ..completion import sequence_may_fall_through
 
-            falls_through = sequence_may_fall_through(case_stmts)
-            managed = gen.pop_managed_scope()
-            if falls_through:
-                case_stmts.extend(_emit_scope_release(managed, gen))
-            cases.append(IRCase(value=case_val, body=case_stmts))
+            restore_callable_flow(gen, incoming)
+            if fallthrough_flow is not None:
+                join_callable_flows(gen, incoming, fallthrough_flow)
+
+            def lower_case(case=c, value=case_val):
+                enclosing = begin_callable_scope(gen)
+                case_stmts = []
+                gen.push_managed_scope()
+                try:
+                    for statement in case.body:
+                        case_stmts.extend(lower_stmt(gen, statement))
+                except Exception:
+                    gen.pop_managed_scope()
+                    raise
+                finally:
+                    finish_callable_scope(gen, enclosing)
+                from ..completion import sequence_may_fall_through
+
+                falls_through = sequence_may_fall_through(case_stmts)
+                managed = gen.pop_managed_scope()
+                if falls_through:
+                    case_stmts.extend(_emit_scope_release(managed, gen))
+                return IRCase(value=value, body=case_stmts), falls_through
+
+            lowered_result, case_flow = lower_isolated_callable_flow(gen, lower_case)
+            lowered_case, falls_through = lowered_result
+            cases.append(lowered_case)
+            case_flows.append(case_flow)
+            fallthrough_flow = case_flow if falls_through else None
     finally:
         gen.pop_control_context()
+    if not any(case.value is None for case in node.cases):
+        case_flows.append(incoming)
+    join_callable_flows(gen, *case_flows)
     return IRSwitch(value=val, cases=cases)
 
 
@@ -144,152 +182,6 @@ def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
     )
     # Clear the exact slot evaluated above so side-effectful lvalues run once.
     return [slot_decl, value_decl, destroy, IRAssign(target=slot, value=IRLiteral(text="NULL"))]
-
-
-def _require_setjmp(gen: IRGenerator):
-    """Ensure <setjmp.h> is included.
-
-    Registered at the lowering site so try/catch/throw anywhere — including
-    inside lambda bodies, which the generator's declaration pre-scan does
-    not reach — always pulls in the header.
-    """
-    gen.require_runtime_include("setjmp.h")
-
-
-def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
-    """Lower try/catch to setjmp/longjmp boilerplate."""
-    # Mark that everything lowered for this construct (try body, catch, finally)
-    # lives inside a try/catch, so class-pointer returns get laundered against
-    # the gcc -O2 setjmp cross-branch miscompilation (see _lower_return).
-    gen.in_trycatch_depth += 1
-    try:
-        return _lower_try_catch_inner(gen, node)
-    finally:
-        gen.in_trycatch_depth -= 1
-
-
-def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
-    from .statements import lower_block
-
-    _require_setjmp(gen)
-    gen.use_helper("__btrc_trycatch_globals")
-    gen.use_helper("__btrc_push_try")
-    gen.use_helper("__btrc_throw")
-    stmts: list[IRStmt] = []
-    finally_only = node.catch_block is None and node.finally_block is not None
-    pending_name = gen.fresh_temp("__btrc_finally_pending") if finally_only else ""
-    error_name = gen.fresh_temp("__btrc_finally_error") if finally_only else ""
-
-    stmts.append(IRExprStmt(expr=IRCall(callee="__btrc_push_try", args=[], helper_ref="__btrc_push_try")))
-
-    # if (setjmp(...) == 0) { try block } else { catch block }
-    gen.in_try_depth += 1
-    gen.push_control_context("try")
-    try:
-        try_body = lower_block(gen, node.try_block)
-    finally:
-        gen.pop_control_context()
-        gen.in_try_depth -= 1
-    # Normal exit: discard cleanup registrations (scope release already freed them)
-    # then decrement try level
-    if gen._used_helpers & {
-        "__btrc_register_cleanup",
-        "__btrc_register_direct_cleanup",
-    }:
-        gen.use_helper("__btrc_discard_cleanups")
-        try_body.stmts.append(
-            IRExprStmt(
-                expr=IRCall(
-                    callee="__btrc_discard_cleanups",
-                    args=[IRVar(name="__btrc_try_top")],
-                    helper_ref="__btrc_discard_cleanups",
-                )
-            )
-        )
-    try_body.stmts.extend(pop_try_frames(1))
-    if finally_only:
-        stmts.extend(finally_state_declarations(pending_name, error_name))
-        catch_body = IRBlock(stmts=capture_finally_error(pending_name, error_name))
-    else:
-        catch_bindings = []
-        if node.catch_var:
-            gen.use_helper("__btrc_strdup")
-            gen.use_helper("__btrc_str_track")
-            from ...ast_nodes import TypeExpr
-            from .iteration_bindings import IterationBinding
-
-            catch_bindings.append(
-                IterationBinding(
-                    name=node.catch_var,
-                    c_type="char*",
-                    type_expr=TypeExpr(base="string"),
-                    value=IRCall(
-                        callee="__btrc_str_track",
-                        args=[
-                            IRCall(
-                                callee="__btrc_strdup",
-                                args=[IRVar(name="__btrc_error_msg")],
-                                helper_ref="__btrc_strdup",
-                            )
-                        ],
-                        helper_ref="__btrc_str_track",
-                    ),
-                    owned=True,
-                )
-            )
-        catch_body = lower_block(
-            gen,
-            node.catch_block,
-            iteration_bindings=catch_bindings,
-        )
-        if node.catch_var:
-            declaration_index = next(
-                index
-                for index, statement in enumerate(catch_body.stmts)
-                if isinstance(statement, IRVarDecl) and statement.name == node.catch_var
-            )
-            catch_body.stmts.insert(
-                declaration_index + 1,
-                IRExprStmt(expr=IRVar(name=node.catch_var)),
-            )
-
-    stmts.append(
-        IRIf(
-            condition=setjmp_success_condition(),
-            then_block=try_body,
-            else_block=catch_body,
-        )
-    )
-
-    if node.finally_block:
-        finally_stmts = lower_block(gen, node.finally_block)
-        stmts.extend(finally_stmts.stmts)
-        if finally_only:
-            stmts.append(
-                IRIf(
-                    condition=IRVar(name=pending_name),
-                    then_block=IRBlock(
-                        stmts=[
-                            IRExprStmt(
-                                expr=IRCall(
-                                    callee="__btrc_throw",
-                                    args=[finally_error_message(error_name)],
-                                    helper_ref="__btrc_throw",
-                                )
-                            )
-                        ]
-                    ),
-                )
-            )
-
-    return stmts
-
-
-def _lower_throw(gen: IRGenerator, node: ThrowStmt) -> list[IRStmt]:
-    _require_setjmp(gen)
-    gen.use_helper("__btrc_throw")
-    expr = _lower_expr(gen, node.expr)
-    return [IRExprStmt(expr=IRCall(callee="__btrc_throw", args=[expr], helper_ref="__btrc_throw"))]
 
 
 def _lower_expr(gen, node):
