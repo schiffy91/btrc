@@ -194,12 +194,15 @@ def test_cycle_suspect_callable_is_split_from_thread_state() -> None:
 
 
 def test_optional_launder_callable_is_split_from_cleanup_state() -> None:
-    helpers = _source("ir_nodes.btrc")
+    runtime = _source("trycatch_runtime_helpers.btrc")
+    dependencies = _source("ir_nodes.btrc")
 
-    assert 'if (name == "__btrc_launder_state")' in helpers
-    assert 'if (name == "__btrc_launder")' in helpers
-    cleanup = helpers[
-        helpers.index('else if (name == "__btrc_try_state_cleanup")') : helpers.index("/* threads dependency edges")
+    assert 'if (name == "__btrc_launder_state")' in runtime
+    assert 'if (name == "__btrc_launder")' in runtime
+    cleanup = dependencies[
+        dependencies.index('else if (name == "__btrc_try_state_cleanup")') : dependencies.index(
+            "/* threads dependency edges"
+        )
     ]
     assert 'out.push("__btrc_launder_state")' in cleanup
     assert 'out.push("__btrc_launder")' not in cleanup
