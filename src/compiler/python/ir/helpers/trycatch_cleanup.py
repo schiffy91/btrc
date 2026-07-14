@@ -79,6 +79,42 @@ TRYCATCH_CLEANUP = {
         ),
         depends_on=["__btrc_register_cleanup_kind"],
     ),
+    "__btrc_run_cleanup_guarded": HelperDef(
+        c_source=(
+            "static void __btrc_run_cleanup_guarded(\n"
+            "        __btrc_cleanup_entry entry, void* object) {\n"
+            "    __btrc_push_try();\n"
+            "    int guard_level = __btrc_try_top;\n"
+            "    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) return;\n"
+            "    if (entry.direct) {\n"
+            "        entry.fn(object);\n"
+            "    } else {\n"
+            "        __btrc_arc_type type = {entry.visit, entry.fn};\n"
+            "        if (entry.visit) __btrc_arc_release(object, &type);\n"
+            "        else __btrc_arc_release_acyclic(object, &type);\n"
+            "    }\n"
+            "    __btrc_try_top--;\n"
+            "}"
+        ),
+        depends_on=[
+            "__btrc_cleanup_types",
+            "__btrc_push_try",
+            "__btrc_arc_release",
+            "__btrc_arc_release_acyclic",
+        ],
+    ),
+    "__btrc_flush_cycles_guarded": HelperDef(
+        c_source=(
+            "static void __btrc_flush_cycles_guarded(void) {\n"
+            "    __btrc_push_try();\n"
+            "    int guard_level = __btrc_try_top;\n"
+            "    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) return;\n"
+            "    __btrc_flush_cycles();\n"
+            "    __btrc_try_top--;\n"
+            "}"
+        ),
+        depends_on=["__btrc_push_try", "__btrc_flush_cycles"],
+    ),
     "__btrc_run_cleanups": HelperDef(
         c_source=(
             "static inline void __btrc_run_cleanups(int level) {\n"
@@ -102,26 +138,10 @@ TRYCATCH_CLEANUP = {
             "        void* object = entry.take(entry.slot);\n"
             "        if (!object) continue;\n"
             "        if (!entry.direct && __btrc_is_destroyed(object)) continue;\n"
-            "        __btrc_push_try();\n"
-            "        int guard_level = __btrc_try_top;\n"
-            "        if (setjmp(__btrc_try_stack[guard_level]->env) == 0) {\n"
-            "            if (entry.direct) {\n"
-            "                entry.fn(object);\n"
-            "            } else {\n"
-            "                __btrc_arc_type type = {entry.visit, entry.fn};\n"
-            "                if (entry.visit) __btrc_arc_release(object, &type);\n"
-            "                else __btrc_arc_release_acyclic(object, &type);\n"
-            "            }\n"
-            "            __btrc_try_top--;\n"
-            "        }\n"
+            "        __btrc_run_cleanup_guarded(entry, object);\n"
             "        memcpy(__btrc_error_msg, primary_error, sizeof primary_error);\n"
             "    }\n"
-            "    __btrc_push_try();\n"
-            "    int flush_guard_level = __btrc_try_top;\n"
-            "    if (setjmp(__btrc_try_stack[flush_guard_level]->env) == 0) {\n"
-            "        __btrc_flush_cycles();\n"
-            "        __btrc_try_top--;\n"
-            "    }\n"
+            "    __btrc_flush_cycles_guarded();\n"
             "    memcpy(__btrc_error_msg, primary_error, sizeof primary_error);\n"
             "    __btrc_destroyed_tracking_end();\n"
             "    free(entries);\n"
@@ -129,13 +149,11 @@ TRYCATCH_CLEANUP = {
         ),
         depends_on=[
             "__btrc_cleanup_types",
-            "__btrc_push_try",
             "__btrc_safe_realloc",
             "__btrc_destroyed_tracking_scope",
             "__btrc_is_destroyed",
-            "__btrc_arc_release",
-            "__btrc_arc_release_acyclic",
-            "__btrc_flush_cycles",
+            "__btrc_run_cleanup_guarded",
+            "__btrc_flush_cycles_guarded",
         ],
     ),
     "__btrc_discard_cleanups": HelperDef(

@@ -74,6 +74,8 @@ def test_self_hosted_dependency_edges_cover_checked_runtime_roots():
         "__btrc_register_cleanup_kind": "__btrc_safe_realloc",
         "__btrc_register_cleanup": "__btrc_register_cleanup_kind",
         "__btrc_register_direct_cleanup": "__btrc_register_cleanup_kind",
+        "__btrc_run_cleanup_guarded": "__btrc_arc_release",
+        "__btrc_flush_cycles_guarded": "__btrc_flush_cycles",
         "__btrc_run_cleanups": "__btrc_is_destroyed",
         "__btrc_is_destroyed": "__btrc_destroyed_tracking",
         "__btrc_collect_cycles": "__btrc_suspect_state",
@@ -159,6 +161,22 @@ def test_throw_roots_the_internal_cleanup_guard_stack():
     assert "__btrc_try_capacity" in push_helpers
 
 
+def test_cleanup_setjmp_is_confined_to_non_inline_guards():
+    cleanup_guard = TRYCATCH["__btrc_run_cleanup_guarded"]
+    flush_guard = TRYCATCH["__btrc_flush_cycles_guarded"]
+    run_cleanups = TRYCATCH["__btrc_run_cleanups"]
+
+    assert cleanup_guard.c_source.startswith("static void __btrc_run_cleanup_guarded(")
+    assert flush_guard.c_source.startswith("static void __btrc_flush_cycles_guarded(")
+    assert cleanup_guard.c_source.count("setjmp(") == 1
+    assert flush_guard.c_source.count("setjmp(") == 1
+    assert "setjmp(" not in run_cleanups.c_source
+    assert "__btrc_run_cleanup_guarded(entry, object);" in run_cleanups.c_source
+    assert "__btrc_flush_cycles_guarded();" in run_cleanups.c_source
+    assert "__btrc_run_cleanup_guarded" in run_cleanups.depends_on
+    assert "__btrc_flush_cycles_guarded" in run_cleanups.depends_on
+
+
 def test_self_hosted_order_keeps_tls_cleanup_before_thread_wrappers():
     source = MIRROR.read_text()
     ordered = (
@@ -191,6 +209,9 @@ def test_self_hosted_order_keeps_tls_cleanup_before_thread_wrappers():
         "__btrc_arc_topology_complete",
         "__btrc_cycle_state_cleanup",
         "__btrc_cleanup_types",
+        "__btrc_run_cleanup_guarded",
+        "__btrc_flush_cycles_guarded",
+        "__btrc_run_cleanups",
         "__btrc_try_state_cleanup",
         "__btrc_thread_spawn",
         "__btrc_thread_join",

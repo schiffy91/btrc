@@ -133,7 +133,11 @@ class _LexicalVisibilityPass:
         elif isinstance(statement, IRExprStmt):
             self._simple(visible, statement.expr)
         elif isinstance(statement, IRIf):
-            modified = mutated_names(statement.then_block) if contains_setjmp(statement.condition) else None
+            modified = (
+                mutated_names(statement.then_block) | mutated_names(statement.else_block)
+                if contains_setjmp(statement.condition)
+                else None
+            )
             self._process_expression(statement.condition, visible, modified)
             self.block(statement.then_block, visible)
             self.block(statement.else_block, visible)

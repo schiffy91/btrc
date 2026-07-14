@@ -1782,15 +1782,23 @@ Vector<string> helperDeps(string name) {
     else if (name == "__btrc_register_direct_cleanup") {
         out.push("__btrc_register_cleanup_kind");
     }
-    else if (name == "__btrc_run_cleanups") {
+    else if (name == "__btrc_run_cleanup_guarded") {
         out.push("__btrc_cleanup_types");
         out.push("__btrc_push_try");
+        out.push("__btrc_arc_release");
+        out.push("__btrc_arc_release_acyclic");
+    }
+    else if (name == "__btrc_flush_cycles_guarded") {
+        out.push("__btrc_push_try");
+        out.push("__btrc_flush_cycles");
+    }
+    else if (name == "__btrc_run_cleanups") {
+        out.push("__btrc_cleanup_types");
         out.push("__btrc_safe_realloc");
         out.push("__btrc_destroyed_tracking_scope");
         out.push("__btrc_is_destroyed");
-        out.push("__btrc_arc_release");
-        out.push("__btrc_arc_release_acyclic");
-        out.push("__btrc_flush_cycles");
+        out.push("__btrc_run_cleanup_guarded");
+        out.push("__btrc_flush_cycles_guarded");
     }
     else if (name == "__btrc_discard_cleanups"
             || name == "__btrc_cleanup_mark"
@@ -2055,6 +2063,8 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_discard_cleanups");
     order.push("__btrc_cleanup_mark");
     order.push("__btrc_discard_cleanups_to");
+    order.push("__btrc_run_cleanup_guarded");
+    order.push("__btrc_flush_cycles_guarded");
     order.push("__btrc_run_cleanups");
     order.push("__btrc_throw");
     order.push("__btrc_try_state_cleanup");

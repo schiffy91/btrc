@@ -69,7 +69,7 @@ def _take_adapter() -> IRFunctionDef:
     )
 
 
-def test_current_setjmp_ignores_writes_performed_only_in_its_catch_branch():
+def test_current_setjmp_preserves_values_written_in_its_catch_branch():
     aggregate = IRVarDecl(CType("struct Probe"), "aggregate")
     branch = IRIf(
         condition=_setjmp_condition(),
@@ -88,7 +88,7 @@ def test_current_setjmp_ignores_writes_performed_only_in_its_catch_branch():
 
     apply_setjmp_volatility(module)
 
-    assert not aggregate.is_volatile
+    assert aggregate.is_volatile
 
 
 def test_vla_bound_write_resolves_before_the_new_declaration_is_bound():

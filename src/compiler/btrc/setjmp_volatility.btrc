@@ -196,6 +196,14 @@ void scanSetjmpStatement(IRNode statement, Vector<IRNode> visible,
         if (expressionContainsSetjmp(statement.condition)) {
             Map<string, bool> modified = setjmpMutatedNames(
                 statement.then_block);
+            Map<string, bool> catchModified = setjmpMutatedNames(
+                statement.else_block);
+            Vector<string> catchNames = catchModified.keys();
+            int catchIndex = 0;
+            while (catchIndex < catchNames.len) {
+                modified.put(catchNames.get(catchIndex), true);
+                catchIndex = catchIndex + 1;
+            }
             processSetjmpExpression(statement.condition, visible, params,
                 modified, true);
         } else {
