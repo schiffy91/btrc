@@ -185,6 +185,11 @@ void semanticValidateExpr(Node? expression, SemanticValidationState state,
             semanticValidateExpr(expression.target.index, state, vars);
             semanticValidateIndex(expression.target, state, vars,
                 expression.op != "=");
+        } else if (expression.target != null
+                && expression.target.kind == NK_FIELD_ACCESS_EXPR) {
+            semanticValidateExpr(expression.target.obj, state, vars);
+            semanticValidateField(
+                expression.target, expression.op != "=", state, vars);
         } else {
             semanticValidateExpr(expression.target, state, vars);
         }
@@ -212,7 +217,7 @@ void semanticValidateExpr(Node? expression, SemanticValidationState state,
         semanticValidateIndex(expression, state, vars, true);
     } else if (expression.kind == NK_FIELD_ACCESS_EXPR) {
         semanticValidateExpr(expression.obj, state, vars);
-        semanticValidateField(expression, state, vars);
+        semanticValidateField(expression, true, state, vars);
     } else if (expression.kind == NK_TERNARY_EXPR) {
         semanticValidateExpr(expression.condition, state, vars);
         semanticValidateCondition(

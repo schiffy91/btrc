@@ -68,7 +68,7 @@ class InitializerValidationMixin:
                 element_line,
                 element_col,
             )
-        self.node_types[id(initializer)] = expected
+        self._record_node_type(initializer, expected)
         self._collect_generic_instances(expected)
         return True
 
@@ -86,7 +86,7 @@ class InitializerValidationMixin:
                 element_types = expected.generic_args
         elif isinstance(initializer, MapLiteral) and expected.base == "Map" and len(expected.generic_args) == 2:
             self._validate_map_initializer(expected, initializer, subject, line, col)
-            self.node_types[id(initializer)] = expected
+            self._record_node_type(initializer, expected)
             self._collect_generic_instances(expected)
             return True
 
@@ -95,7 +95,7 @@ class InitializerValidationMixin:
         expected_element = element_types[0]
         for element in initializer.elements:
             self._validate_collection_element(expected_element, element, subject, line, col)
-        self.node_types[id(initializer)] = expected
+        self._record_node_type(initializer, expected)
         self._collect_generic_instances(expected)
         return True
 

@@ -61,7 +61,7 @@ def validate_gpu_call(context: GpuValidationContext, call: CallExpr) -> None:
         result_base = bases[0] if bases else "float"
     else:
         result_base = "float"
-    context.analyzer.node_types[id(call)] = TypeExpr(base=result_base)
+    context.analyzer._record_node_type(call, TypeExpr(base=result_base))
 
 
 def validate_gpu_cast(context: GpuValidationContext, cast: CastExpr) -> None:

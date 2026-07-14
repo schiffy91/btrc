@@ -11,15 +11,35 @@ string irManagedRuntimeCType(string runtimeType) {
     return "struct " + runtimeType + "*";
 }
 
+Node irManagedResolvedType(IRGen generator, Node typeExpr) {
+    Node resolved = generator.resolveBodyType(typeExpr);
+    Map<string, bool> visited = {};
+    /* Resolve the owning alias chain without collapsing typedef spellings
+     * inside generic arguments, which remain specialization identities. */
+    while (resolved.generic_args.len == 0
+            && generator.analyzed.typedefTable.has(resolved.base)) {
+        if (visited.has(resolved.base)) {
+            typedefSemanticFail(
+                "Cyclic typedef involving '" + resolved.base + "'",
+                typeExpr);
+        }
+        visited.put(resolved.base, true);
+        resolved = composeTypedefType(
+            resolved,
+            generator.analyzed.typedefTable.get(resolved.base));
+    }
+    return resolved;
+}
+
 bool irManagedStringType(IRGen generator, Node? typeExpr) {
     if (typeExpr == null) { return false; }
-    Node resolved = generator.resolveBodyType(typeExpr);
+    Node resolved = irManagedResolvedType(generator, typeExpr);
     return isStringType(resolved);
 }
 
 bool irManagedClassType(IRGen generator, Node? typeExpr) {
     if (typeExpr == null) { return false; }
-    Node resolved = generator.resolveBodyType(typeExpr);
+    Node resolved = irManagedResolvedType(generator, typeExpr);
     /* Substitution can add an indirection: inside Vector<T>, the template
      * field T* resolves to Item** for T = Item*. Raw backing storage is not a
      * managed Item value. */
@@ -35,7 +55,7 @@ bool irManagedType(IRGen generator, Node? typeExpr) {
 }
 
 string irManagedRuntimeType(IRGen generator, Node typeExpr) {
-    Node resolved = generator.resolveBodyType(typeExpr);
+    Node resolved = irManagedResolvedType(generator, typeExpr);
     if (isStringType(resolved)) { return irManagedStringRuntimeType(); }
     if (resolved.generic_args.len > 0
             && generator.analyzed.isGenericClass(resolved.base)) {

@@ -45,6 +45,7 @@ from .initializers import InitializerValidationMixin
 from .lambdas import LambdaAnalysisMixin
 from .lvalue_contracts import LvalueContractsMixin
 from .managed_rebinds import ManagedRebindContractsMixin
+from .node_type_storage import NodeTypeStorageMixin
 from .nullable_control_flow import NullableControlFlowMixin
 from .nullable_flow import NullableFlowMixin
 from .occurrences import OccurrencesMixin
@@ -72,6 +73,7 @@ from .variable_declarations import VariableDeclarationAnalysisMixin
 class Analyzer(
     QualificationMixin,
     TypeUtilsMixin,
+    NodeTypeStorageMixin,
     ConstantExpressionMixin,
     StorageInitializerContractsMixin,
     AggregateContractsMixin,

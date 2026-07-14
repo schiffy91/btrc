@@ -124,7 +124,7 @@ class VariableDeclarationAnalysisMixin:
                 and stmt.type.generic_args
                 and isinstance(stmt.initializer, (ListLiteral, MapLiteral, BraceInitializer))
             ):
-                self.node_types[id(stmt.initializer)] = stmt.type
+                self._record_node_type(stmt.initializer, stmt.type)
                 self._collect_generic_instances(stmt.type)
         self._validate_variable_storage(stmt, is_global=is_global)
         if define_binding:

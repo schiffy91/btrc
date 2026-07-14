@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 def set_gpu_type(context: GpuValidationContext, expression, base: str) -> None:
-    context.analyzer.node_types[id(expression)] = TypeExpr(base=base)
+    context.analyzer._record_node_type(expression, TypeExpr(base=base))
 
 
 def copy_gpu_type(context: GpuValidationContext, result, operand) -> None:

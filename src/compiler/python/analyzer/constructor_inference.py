@@ -22,7 +22,7 @@ class ConstructorInferenceMixin:
             and len(expected.generic_args) == len(cls.generic_params)
         ):
             return False
-        self.node_types[id(expression)] = expected
+        self._record_node_type(expression, expected)
         self._collect_generic_instances(expected)
         if cls.constructor:
             substitutions = dict(zip(cls.generic_params, expected.generic_args))

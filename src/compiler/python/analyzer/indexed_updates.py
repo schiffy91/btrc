@@ -65,7 +65,7 @@ class IndexedUpdateContractsMixin:
             actual_value = self._substitute_type(getter.return_type, substitutions)
         else:
             actual_value = self._infer_type(value)
-            self.node_types[id(target)] = expected_value
+            self._record_node_type(target, expected_value)
         if actual_value is not None and not self._types_compatible(
             expected_value,
             actual_value,

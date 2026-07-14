@@ -144,7 +144,7 @@ def validate_gpu_expr(context: GpuValidationContext, expression, *, update: bool
             ):
                 context.error("bitwise operands must have the same int or bool GPU type", expression)
             elif left_type is not None and left_type.base == "bool":
-                context.analyzer.node_types[id(expression)] = TypeExpr(base="bool")
+                context.analyzer._record_node_type(expression, TypeExpr(base="bool"))
         set_binary_result_type(context, expression)
         return
     if isinstance(expression, UnaryExpr):

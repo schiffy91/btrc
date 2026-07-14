@@ -44,11 +44,9 @@ class TypeInferenceMixin(_IterationInferenceMixin):
             return None
         cached = self.node_types.get(id(expr))
         if cached is not None:
-            return cached
+            return self._record_node_type(expr, cached)
         result = self._infer_type_uncached(expr)
-        if result is not None:
-            self.node_types[id(expr)] = result
-        return result
+        return self._record_node_type(expr, result)
 
     def _infer_type_uncached(self, expr) -> TypeExpr | None:
         if isinstance(expr, IntLiteral):

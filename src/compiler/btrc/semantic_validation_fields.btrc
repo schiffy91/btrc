@@ -35,9 +35,21 @@ void semanticValidateClassProjection(Node expression,
 }
 
 void semanticValidateInstanceProjection(Node expression,
-        Node receiver, SemanticValidationState state) {
+        Node receiver, bool requireGetter,
+        SemanticValidationState state) {
     if (semanticValidateResolvedMemberAccess(receiver.base, expression.field,
             NK_PROPERTY_DECL, false, true, "property", state, expression)) {
+        string owner = semanticResolveMemberOwner(
+            receiver.base, expression.field, NK_PROPERTY_DECL,
+            false, true, state.analyzed);
+        Node? property = semanticDeclaredMember(
+            owner, expression.field, NK_PROPERTY_DECL,
+            false, state.analyzed);
+        if (requireGetter && property != null && !property.has_getter) {
+            semanticValidationFail(
+                "Property '" + expression.field + "' has no getter",
+                expression);
+        }
         return;
     }
     if (semanticValidateResolvedMemberAccess(receiver.base, expression.field,
@@ -61,8 +73,8 @@ void semanticValidateInstanceProjection(Node expression,
         expression);
 }
 
-void semanticValidateField(Node expression, SemanticValidationState state,
-        Map<string, Node> vars) {
+void semanticValidateField(Node expression, bool requireGetter,
+        SemanticValidationState state, Map<string, Node> vars) {
     if (expression.obj == null) { return; }
     if (expression.obj.kind == NK_IDENTIFIER
             && !vars.has(expression.obj.name)) {
@@ -124,6 +136,7 @@ void semanticValidateField(Node expression, SemanticValidationState state,
     }
     if (state.analyzed.isClass(receiver.base)
             || state.analyzed.isGenericClass(receiver.base)) {
-        semanticValidateInstanceProjection(expression, receiver, state);
+        semanticValidateInstanceProjection(
+            expression, receiver, requireGetter, state);
     }
 }

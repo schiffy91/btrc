@@ -217,9 +217,10 @@ def _is_string_type(gen: IRGenerator, type_expr) -> bool:
 
 
 def _is_concrete_managed_type(gen: IRGenerator, type_expr) -> bool:
-    if type_expr is None or not _is_managed_type(gen, type_expr):
+    concrete = canonical_type(type_expr, gen.analyzed.typedef_table)
+    if concrete is None or not _is_managed_type(gen, concrete):
         return False
-    if _is_string_type(gen, type_expr):
+    if _is_string_type(gen, concrete):
         return True
-    class_info = gen.analyzed.class_table.get(type_expr.base)
-    return bool(class_info and (not class_info.generic_params or type_expr.generic_args))
+    class_info = gen.analyzed.class_table.get(concrete.base)
+    return bool(class_info and (not class_info.generic_params or concrete.generic_args))

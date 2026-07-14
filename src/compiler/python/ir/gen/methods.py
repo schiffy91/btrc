@@ -27,10 +27,7 @@ if TYPE_CHECKING:
     from .generator import IRGenerator
 
 
-# Dispatch views over the shared spec (src/compiler/python/string_methods.py):
-# methods that map directly to runtime helpers, the subset whose helper
-# returns a new heap string (needs str_track wrapping), and the conversion
-# methods lowered to C stdlib calls.
+# Dispatch views over the shared string-method specification.
 _STRING_METHODS = {name: spec.helper for name, spec in STRING_METHODS.items() if spec.helper}
 _STRING_TRACK_METHODS = {name for name, spec in STRING_METHODS.items() if spec.tracked}
 _STRING_CONVERSION_METHODS = STRING_CONVERSIONS
@@ -103,18 +100,15 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         gen.analyzed.typedef_table,
     )
 
-    # String methods (helper-backed)
-    if is_string_type(obj_type) and method_name in _STRING_METHODS:
+    if is_string_type(resolved_obj_type) and method_name in _STRING_METHODS:
         return _lower_string_method(gen, obj, method_name, args)
 
-    # String special methods (equals, charLen, etc.)
-    if is_string_type(obj_type):
+    if is_string_type(resolved_obj_type):
         special = _lower_string_special(gen, obj, method_name, args)
         if special is not None:
             return special
 
-    # String conversion methods (stdlib)
-    if is_string_type(obj_type) and method_name in _STRING_CONVERSION_METHODS:
+    if is_string_type(resolved_obj_type) and method_name in _STRING_CONVERSION_METHODS:
         c_func, cast_to = _STRING_CONVERSION_METHODS[method_name]
         args = [obj]
         if c_func in {"strtof", "strtod"}:
@@ -127,8 +121,7 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             return IRCast(target_type=CType(text=cast_to), expr=call)
         return call
 
-    # String length
-    if is_string_type(obj_type) and method_name in ("length", "len", "byteLen"):
+    if is_string_type(resolved_obj_type) and method_name in ("length", "len", "byteLen"):
         return IRCast(
             target_type=CType(text="int"),
             expr=IRCall(callee="strlen", args=[obj]),
@@ -136,14 +129,14 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
 
     # toString: if the class defines its own, use class dispatch; else built-in
     if method_name == "toString":
-        if obj_type and obj_type.base in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[obj_type.base]
+        if resolved_obj_type and resolved_obj_type.base in gen.analyzed.class_table:
+            cls_info = gen.analyzed.class_table[resolved_obj_type.base]
             if "toString" in cls_info.methods:
                 pass  # fall through to class method dispatch below
             else:
-                return _lower_to_string(gen, obj, obj_type, args)
+                return _lower_to_string(gen, obj, resolved_obj_type, args)
         else:
-            return _lower_to_string(gen, obj, obj_type, args)
+            return _lower_to_string(gen, obj, resolved_obj_type, args)
 
     # Thread<T> methods: .join() → __btrc_thread_join with unboxing
     if resolved_obj_type and resolved_obj_type.base == "Thread" and resolved_obj_type.generic_args:
@@ -160,13 +153,16 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         )
 
     # Class method: obj.method(args) → ClassName_method(obj, args)
-    if obj_type and obj_type.base in gen.analyzed.class_table:
-        cls_info = gen.analyzed.class_table[obj_type.base]
+    if resolved_obj_type and resolved_obj_type.base in gen.analyzed.class_table:
+        cls_info = gen.analyzed.class_table[resolved_obj_type.base]
         # Use mangled name for generic class instances
-        if obj_type.generic_args and cls_info.generic_params:
-            callee_prefix = mangle_generic_type(obj_type.base, obj_type.generic_args)
+        if resolved_obj_type.generic_args and cls_info.generic_params:
+            callee_prefix = mangle_generic_type(
+                resolved_obj_type.base,
+                resolved_obj_type.generic_args,
+            )
         else:
-            callee_prefix = obj_type.base
+            callee_prefix = resolved_obj_type.base
         # Check if it's a property getter called as method
         if method_name in cls_info.properties:
             return IRCall(callee=f"{callee_prefix}_get_{method_name}", args=[obj])
@@ -176,8 +172,15 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             # Upcast args whose declared param type is a class type parameter
             # (e.g. Vector<Animal>.push(T) where T resolves to Animal): a
             # subclass element pointer must be cast to the resolved element type.
-            if obj_type.generic_args and cls_info.generic_params and len(node.args) == len(args):
-                args = _upcast_generic_method_args(gen, cls_info, obj_type, method, node.args, args)
+            if resolved_obj_type.generic_args and cls_info.generic_params and len(node.args) == len(args):
+                args = _upcast_generic_method_args(
+                    gen,
+                    cls_info,
+                    resolved_obj_type,
+                    method,
+                    node.args,
+                    args,
+                )
         # Generic method: dispatch to the monomorphized instance for the method
         # type args inferred at this call site (e.g. mapTo<string>).
         if method and getattr(method, "generic_params", None):
@@ -185,8 +188,17 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             if method_args is not None:
                 from .generics.methods_mono import generic_method_instance_name
 
-                class_args = list(obj_type.generic_args) if (obj_type.generic_args and cls_info.generic_params) else []
-                callee = generic_method_instance_name(obj_type.base, class_args, method_name, method_args)
+                class_args = (
+                    list(resolved_obj_type.generic_args)
+                    if (resolved_obj_type.generic_args and cls_info.generic_params)
+                    else []
+                )
+                callee = generic_method_instance_name(
+                    resolved_obj_type.base,
+                    class_args,
+                    method_name,
+                    method_args,
+                )
                 return IRCall(callee=callee, args=[obj] + args)
         return IRCall(
             callee=f"{callee_prefix}_{method_name}",
@@ -198,7 +210,7 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         callee=IRFieldAccess(
             obj=obj,
             field=method_name,
-            arrow=bool(obj_type and obj_type.pointer_depth > 0),
+            arrow=bool(resolved_obj_type and resolved_obj_type.pointer_depth > 0),
         ),
         args=args,
     )

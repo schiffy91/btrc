@@ -41,7 +41,7 @@ class ExceptionAnalysisMixin:
             if catch_type is not None:
                 catch_type = self._upgrade_class_type(catch_type)
                 self._collect_generic_instances(catch_type)
-                self.node_types[id(statement)] = catch_type
+                self._record_node_type(statement, catch_type)
                 if not (catch_type.base == "string" and catch_type.pointer_depth == 0):
                     self._error(
                         f"Catch type '{catch_type.base}' is not supported — "

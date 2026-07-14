@@ -95,7 +95,7 @@ class ExpressionsMixin:
                 if node is not expr:
                     node_t = self._infer_type(node)
                     if node_t:
-                        self.node_types[id(node)] = node_t
+                        self._record_node_type(node, node_t)
         elif isinstance(expr, UnaryExpr):
             self._analyze_expr(expr.operand)
             if expr.op == "&":
@@ -276,4 +276,4 @@ class ExpressionsMixin:
 
         inferred = self._infer_type(expr)
         if inferred:
-            self.node_types[id(expr)] = inferred
+            self._record_node_type(expr, inferred)
