@@ -93,7 +93,7 @@ def _epilogue(token: str, marker: str | None) -> list:
                 callee="__btrc_arc_topology_complete",
                 args=[
                     IRCast(
-                        target_type=CType(text="void**"),
+                        target_type=CType(text="void* volatile*"),
                         expr=IRAddressOf(expr=IRVar(name=token)),
                     )
                 ],

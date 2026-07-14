@@ -10,6 +10,7 @@ from ..nodes import (
     IRBinOp,
     IRBlock,
     IRCall,
+    IRCast,
     IRDeref,
     IRExprStmt,
     IRIf,
@@ -17,46 +18,59 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
+from .lvalues import value_c_type
 from .types import type_to_c
 
 
 def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
     """Move one lvalue to a temporary, clear its slot, then destroy it."""
-    value_c = type_to_c(type_expr)
+    from .managed_values import is_class_type, is_string_type, release_value
+
+    value_c = value_c_type(type_expr, gen.analyzed.class_table, type_to_c)
     slot_name = gen.fresh_temp("__btrc_delete_slot")
-    value_name = gen.fresh_temp("__btrc_delete_value")
     slot_decl = IRVarDecl(
         c_type=CType(text=f"{qualify_volatile_object(value_c, True)}*"),
         name=slot_name,
         init=IRAddressOf(expr=target),
     )
+    gen._func_var_decls.append(slot_decl)
+
+    if is_class_type(gen, type_expr):
+        from .arc_ops import arc_type_descriptor
+        from .cleanup_slots import ensure_arc_slot_adapter
+
+        helper = "__btrc_arc_destroy_edge" if edge_owner is not None else "__btrc_arc_destroy_slot"
+        access = ensure_arc_slot_adapter(gen, CType(text=value_c))
+        gen.use_helper(helper)
+        args = [
+            IRCast(target_type=CType(text="volatile void*"), expr=IRVar(name=slot_name)),
+            IRVar(name=access),
+        ]
+        if edge_owner is not None:
+            args.append(edge_owner)
+        args.append(arc_type_descriptor(gen, type_expr))
+        return [
+            slot_decl,
+            IRExprStmt(
+                expr=IRCall(
+                    callee=helper,
+                    helper_ref=helper,
+                    args=args,
+                )
+            ),
+        ]
+
+    value_name = gen.fresh_temp("__btrc_delete_value")
     value_decl = IRVarDecl(
         c_type=CType(text=value_c),
         name=value_name,
         init=IRDeref(expr=IRVar(name=slot_name)),
     )
-    gen._func_var_decls.extend((slot_decl, value_decl))
+    gen._func_var_decls.append(value_decl)
     slot = IRDeref(expr=IRVar(name=slot_name))
     value = IRVar(name=value_name)
 
-    from .managed_values import (
-        is_class_type,
-        is_string_type,
-        release_value,
-        unlink_edge_value,
-    )
-
-    if is_class_type(gen, type_expr):
-        from .arc_ops import arc_type_descriptor
-
-        helper = "__btrc_arc_destroy"
-        gen.use_helper(helper)
-        destroy = IRCall(
-            callee=helper,
-            helper_ref=helper,
-            args=[value, arc_type_descriptor(gen, type_expr)],
-        )
-    elif is_string_type(gen, type_expr):
+    if is_string_type(gen, type_expr):
         destroy = release_value(gen, value, type_expr)
     else:
         destroy = IRCall(callee="free", args=[value])
@@ -70,17 +84,6 @@ def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
         then_block=IRBlock(stmts=[IRExprStmt(expr=destroy)]),
     )
     statements = [slot_decl, value_decl]
-    if edge_owner is not None and is_class_type(gen, type_expr):
-        statements.append(
-            IRExprStmt(
-                expr=unlink_edge_value(
-                    gen,
-                    value,
-                    type_expr,
-                    edge_owner,
-                )
-            )
-        )
     statements.extend(
         [
             IRAssign(target=slot, value=IRLiteral(text="NULL")),

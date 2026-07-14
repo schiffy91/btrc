@@ -410,6 +410,8 @@ class IRGen {
 
     /* One structured take-and-clear adapter per concrete cleanup-slot C type. */
     public Map<string, string> cleanupTakeAdapters;
+    public Map<string, string> arcSlotAdapters;
+    public Map<string, string> mutexValueAdapters;
     public Vector<IRFunction> cleanupTakeAdapterDefinitions;
     public int cleanupSlotCounter;
     public bool cleanupTakeAdaptersFinalized;
@@ -463,6 +465,8 @@ class IRGen {
         self.callableExceptionCaptures = [];
         self.funcVarDecls = [];
         self.cleanupTakeAdapters = {};
+        self.arcSlotAdapters = {};
+        self.mutexValueAdapters = {};
         self.cleanupTakeAdapterDefinitions = [];
         self.cleanupSlotCounter = 0;
         self.cleanupTakeAdaptersFinalized = false;
@@ -1917,20 +1921,14 @@ class IRGen {
         int np = 0;
         while (np < ctorParams.len) { newFn.params.push(ctorParams.get(np)); np = np + 1; }
         Vector<IRNode> nbody = [];
-        Vector<IRNode> sizeofArgs = [];
-        sizeofArgs.push(irVar(mangled));
-        Vector<IRNode> mallocArgs = [];
-        mallocArgs.push(irCall("sizeof", sizeofArgs));
-        nbody.push(irVarDecl(mangled + "*", "self", irCast(mangled + "*", irCall("malloc", mallocArgs))));
-        Vector<IRNode> memsetArgs = [];
-        memsetArgs.push(irVar("self"));
-        memsetArgs.push(irLiteral("0"));
-        Vector<IRNode> sizeofArgs2 = [];
-        sizeofArgs2.push(irVar(mangled));
-        memsetArgs.push(irCall("sizeof", sizeofArgs2));
-        nbody.push(irExprStmt(irCall("memset", memsetArgs)));
+        self.useHelper("__btrc_safe_calloc");
+        Vector<IRNode> callocArgs = [];
+        callocArgs.push(irLiteral("1"));
+        callocArgs.push(irSizeofType(mangled));
+        nbody.push(irVarDecl(mangled + "*", "self",
+            irCast(mangled + "*", irCall("__btrc_safe_calloc", callocArgs))));
         string cleanupMark = beginConstructorCleanup(
-            self, "self", mangled, nbody);
+            self, "self", nbody);
         Vector<IRNode> initArgs = [];
         initArgs.push(irVar("self"));
         int ia = 0;
@@ -1978,10 +1976,15 @@ class IRGen {
         Vector<IRNode> dbody = [];
         dbody.push(irVarDecl(
             mangled + "*", "self", irCast(mangled + "*", irVar("object"))));
-        if (hasDestructorHook) {
-            dbody.push(callDestructorHook(mangled));
+        bool hasGenericFieldReleases =
+            self.emitGenericFieldReleases(decl, typeMap, dbody);
+        if (hasGenericFieldReleases) {
+            self.useHelper("__btrc_mark_destroyed");
+            Vector<IRNode> markArgs = [];
+            markArgs.push(irVar("self"));
+            dbody.push(irExprStmt(
+                irCall("__btrc_mark_destroyed", markArgs)));
         }
-        self.emitGenericFieldReleases(decl, typeMap, dbody);
         Vector<IRNode> freeArgs = [];
         freeArgs.push(irVar("self"));
         dbody.push(irExprStmt(irCall("free", freeArgs)));
@@ -1989,7 +1992,8 @@ class IRGen {
         m.functions.push(dFn);
         emitGenericCycleVisitor(self, inst, decl, typeMap, m);
         emitArcDescriptor(self, m, mangled,
-            genericInstanceNeedsVisitor(self.analyzed, inst));
+            genericInstanceNeedsVisitor(self.analyzed, inst),
+            hasDestructorHook);
 
         /* --- methods --- */
         int m2 = 0;
@@ -2242,20 +2246,24 @@ class IRGen {
 
     /* Emit compiler-owned ARC field releases for a generic instance using
      * resolved field types. The source __del__ lives in a separate hook. */
-    public void emitGenericFieldReleases(
+    public bool emitGenericFieldReleases(
             Node decl, Map<string, Node> typeMap, Vector<IRNode> body) {
+        bool emitted = false;
         int i = 0;
         while (i < decl.members.len) {
             Node mem = decl.members.get(i);
             string storage = instanceStorageName(mem);
             if (storage != "") {
                 Node rt = resolveGenericType(mem.type, typeMap);
-                if (irManagedType(self, rt)) {
+                if (mutexPayloadType(self.analyzed, rt) != null
+                        || irManagedType(self, rt)) {
                     body.push(self.fieldReleaseStmt(storage, rt));
+                    emitted = true;
                 }
             }
             i = i + 1;
         }
+        return emitted;
     }
 
     /* Emit a class: struct def + method forward decls + constructor +
@@ -2267,9 +2275,10 @@ class IRGen {
         emitClassStaticFields(self, decl, m);
         self.emitMethodForwardDecls(decl, m);
         self.emitConstructor(decl, m);
-        self.emitDestructor(decl, m);
+        bool hasDestructorHook = self.emitDestructor(decl, m);
         emitArcDescriptor(self, m, decl.name,
-            classNeedsCycleVisitor(self, decl.name));
+            classNeedsCycleVisitor(self, decl.name),
+            hasDestructorHook);
 
         /* Own methods + properties (skip constructor + __del__). */
         Map<string, bool> ownMethods = {};
@@ -2504,7 +2513,12 @@ class IRGen {
                 bool ownedInitializer =
                     irContextualExpressionOwnsResult(
                         self, mem.initializer, mem.type, ctorVars);
-                if (irManagedClassType(self, mem.type)) {
+                if (mutexPayloadType(
+                        self.analyzed, mem.type) != null) {
+                    body.push(irExprStmt(replaceMutexField(
+                        self, field, consumeMutexHandle(self, v),
+                        irVar("self"))));
+                } else if (irManagedClassType(self, mem.type)) {
                     body.push(irExprStmt(irManagedReplaceEdge(
                         self, field, v, mem.type, irVar("self"),
                         ownedInitializer)));
@@ -2536,22 +2550,20 @@ class IRGen {
         initFn.body = irBlock(body);
         m.functions.push(initFn);
 
-        /* X_new: malloc + memset + init + return. */
+        /* X_new: checked zeroed allocation + init + return. */
         IRFunction newFn = IRFunction();
         newFn.name = name + "_new";
         newFn.return_type = name + "*";
         Vector<IRNode> nbody = [];
-        Vector<IRNode> mallocArgs = [];
-        mallocArgs.push(irSizeofType(name));
-        IRNode mallocCall = irCast(name + "*", irCall("malloc", mallocArgs));
-        nbody.push(irVarDecl(name + "*", "self", mallocCall));
-        Vector<IRNode> memsetArgs = [];
-        memsetArgs.push(irVar("self"));
-        memsetArgs.push(irLiteral("0"));
-        memsetArgs.push(irSizeofType(name));
-        nbody.push(irExprStmt(irCall("memset", memsetArgs)));
+        self.useHelper("__btrc_safe_calloc");
+        Vector<IRNode> callocArgs = [];
+        callocArgs.push(irLiteral("1"));
+        callocArgs.push(irSizeofType(name));
+        IRNode callocCall = irCast(
+            name + "*", irCall("__btrc_safe_calloc", callocArgs));
+        nbody.push(irVarDecl(name + "*", "self", callocCall));
         string cleanupMark = beginConstructorCleanup(
-            self, "self", name, nbody);
+            self, "self", nbody);
         Vector<IRNode> initArgs = [];
         initArgs.push(irVar("self"));
         if (ctor != null) {
@@ -2588,7 +2600,7 @@ class IRGen {
 
     /* Emit an isolated source __del__ hook followed by X_destroy(self), whose
      * field detachment and free cannot be bypassed by a source return. */
-    public void emitDestructor(Node decl, IRModule m) {
+    public bool emitDestructor(Node decl, IRModule m) {
         string name = decl.name;
         IRFunction fn = IRFunction();
         fn.name = name + "_destroy";
@@ -2614,7 +2626,6 @@ class IRGen {
                 k = k + 1;
             }
             m.functions.push(buildDestructorHook(name, hookBody));
-            body.push(callDestructorHook(name));
         }
         /* Release class-instance fields (own + inherited), in source order. */
         bool hasFieldReleases = self.emitFieldReleases(name, body);
@@ -2637,6 +2648,8 @@ class IRGen {
         if (classNeedsCycleVisitor(self, name)) {
             self.emitVisitor(name, m);
         }
+        return dtor != null && dtor.kind == NK_METHOD_DECL
+            && dtor.body_node != null;
     }
 
     /* Emit an exactly type-erased `X_visit(void*, callback)` which calls fn on
@@ -2704,7 +2717,11 @@ class IRGen {
         while (i < fields.len) {
             Node fd = fields.get(i);
             Node ft = fd.type;
-            if (irManagedType(self, ft)) {
+            if (mutexPayloadType(self.analyzed, ft) != null) {
+                body.push(self.fieldReleaseStmt(
+                    instanceStorageName(fd), ft));
+                any = true;
+            } else if (irManagedType(self, ft)) {
                 body.push(self.fieldReleaseStmt(
                     instanceStorageName(fd), ft));
                 if (irManagedClassType(self, ft)) { any = true; }
@@ -2819,6 +2836,12 @@ class IRGen {
     /* Typed field release; the enclosing scope owns the collector flush. */
     public IRNode fieldReleaseStmt(string field, Node typeExpr) {
         IRNode fa = irFieldAccess(irVar("self"), field, true);
+        if (mutexPayloadType(self.analyzed, typeExpr) != null) {
+            Vector<IRNode> mutexStatements = [];
+            mutexStatements.push(irExprStmt(
+                destroyMutexField(self, fa)));
+            return irBlock(mutexStatements);
+        }
         if (irManagedClassType(self, typeExpr)) {
             Vector<IRNode> atomicStatements = [];
             atomicStatements.push(irExprStmt(irManagedReplaceEdge(
@@ -2992,6 +3015,12 @@ class IRGen {
             IRFunction fn = m.functions.get(fi);
             if (fn.body != null) { scanHelpersInNode(fn.body, used); }
             fi = fi + 1;
+        }
+        int globalHelperIndex = 0;
+        while (globalHelperIndex < m.global_decls.len) {
+            scanHelpersInNode(
+                m.global_decls.get(globalHelperIndex).init, used);
+            globalHelperIndex = globalHelperIndex + 1;
         }
         int declarationIndex = 0;
         while (declarationIndex < m.preprocessor_decls.len) {
@@ -3548,6 +3577,10 @@ class IRGen {
             self.analyzed, ot, fd);
         if (resolvedFieldType == null) { return null; }
         Node ft = resolvedFieldType;
+        if (mutexPayloadType(self.analyzed, ft) != null) {
+            return lowerMutexFieldAssignment(
+                self, node, ot, ft, storage, varTypes);
+        }
         /* Class instances and concrete generic collection instances own ARC
          * slots.  A substituted generic may instead be raw storage (for
          * example Vector<T>.data becomes Item**); classify the resolved shape
@@ -5684,6 +5717,7 @@ class IRGen {
         IRNode context = irLiteral("NULL");
         IRNode contextSize = irLiteral("0");
         IRNode callback = irLiteral("NULL");
+        IRNode raiseCallback = irLiteral("NULL");
         if (resolved != null && !(resolved.base == "void"
                 && resolved.pointer_depth == 0)) {
             if (isStringType(resolved)) {
@@ -5694,7 +5728,9 @@ class IRGen {
                     self, irManagedRuntimeType(self, resolved));
                 contextSize = irSizeofType("__btrc_arc_type");
                 self.useHelper("__btrc_thread_arc_dispose");
+                self.useHelper("__btrc_throw");
                 callback = irVar("__btrc_thread_arc_dispose");
+                raiseCallback = irVar("__btrc_throw");
             } else if (self.threadResultRequiresBox(resolved)) {
                 self.useHelper("__btrc_thread_box_dispose");
                 callback = irVar("__btrc_thread_box_dispose");
@@ -5703,6 +5739,7 @@ class IRGen {
         args.push(context);
         args.push(contextSize);
         args.push(callback);
+        args.push(raiseCallback);
     }
 
     /* Lower a spawn(lambda) expression to a lifted pthread wrapper function
@@ -5722,6 +5759,7 @@ class IRGen {
             IRNode fnExpr = self.lowerExpr(fn, varTypes);
             Vector<IRNode> sargs = [];
             sargs.push(irCast("void*(*)(void*)", fnExpr));
+            sargs.push(irLiteral("NULL"));
             sargs.push(irLiteral("NULL"));
             Node? fnType = self.resolvedExpressionType(fn, varTypes);
             Node? resultType = null;
@@ -5766,6 +5804,8 @@ class IRGen {
             }
             self.curModule.struct_defs.push(sd);
         }
+        string argDisposer = emitSpawnCaptureDisposer(
+            self, capNames, varTypes, envName, spawnId);
 
         /* --- Build the wrapper: void* wrapper(void* __arg) --- */
         IRFunction wfn = IRFunction();
@@ -5789,9 +5829,6 @@ class IRGen {
             }
         }
 
-        /* Capture cleanup (ARC release of class captures + free env). */
-        Vector<IRNode> cleanup = self.spawnCaptureCleanup(fn, capNames, varTypes);
-
         /* Lower the lambda body in an isolated ARC/return context. */
         ScopeSnapshot snap = self.enterIsolatedScope(retC, retType);
 
@@ -5814,7 +5851,7 @@ class IRGen {
         if (lb != null && lb.kind == NK_LAMBDA_BLOCK && lb.body_node != null) {
             IRNode blk = self.lowerBlock(lb.body_node, bodyVars);
             Vector<IRNode> lowered = self.rewriteThreadStatements(
-                blk.stmts, retType, fn, capNames, varTypes);
+                blk.stmts, retType);
             int li = 0;
             while (li < lowered.len) { wbody.push(lowered.get(li)); li = li + 1; }
         } else if (lb != null && lb.kind == NK_LAMBDA_EXPR_BODY && lb.expression != null) {
@@ -5824,7 +5861,7 @@ class IRGen {
             Vector<IRNode> returned = [];
             lowerOwnedReturn(self, returnNode, bodyVars, returned);
             Vector<IRNode> lowered = self.rewriteThreadStatements(
-                returned, retType, fn, capNames, varTypes);
+                returned, retType);
             int li = 0;
             while (li < lowered.len) {
                 wbody.push(lowered.get(li));
@@ -5834,10 +5871,9 @@ class IRGen {
 
         self.exitIsolatedScope(snap);
 
-        /* Ensure the wrapper always returns void* (cleanup first when present). */
+        /* Ensure the borrowed-capture entry always returns void*. The thread
+         * runtime owns and disposes the capture environment afterward. */
         if (wbody.len == 0 || wbody.get(wbody.len - 1).kind != IRK_RETURN) {
-            int cli = 0;
-            while (cli < cleanup.len) { wbody.push(cleanup.get(cli)); cli = cli + 1; }
             wbody.push(irReturn(irLiteral("NULL")));
         }
 
@@ -5849,6 +5885,7 @@ class IRGen {
         if (!hasCaptures) {
             Vector<IRNode> sargs = [];
             sargs.push(fnPtr);
+            sargs.push(irLiteral("NULL"));
             sargs.push(irLiteral("NULL"));
             self.appendThreadResultDisposal(sargs, retType);
             return irCall("__btrc_thread_spawn", sargs);
@@ -5884,45 +5921,17 @@ class IRGen {
         Vector<IRNode> sargs2 = [];
         sargs2.push(fnPtr);
         sargs2.push(irCast("void*", irVar(seVar)));
+        sargs2.push(irVar(argDisposer));
         self.appendThreadResultDisposal(sargs2, retType);
         IRNode spawnCall = irCall("__btrc_thread_spawn", sargs2);
         sequence.push(spawnCall);
         return irStmtExpr(declarations, irCommaExpr(sequence));
     }
 
-    /* Build capture-cleanup statements for a spawn wrapper: ARC release each
-     * class-typed capture, then free the env struct. Mirrors
-     * threads._build_capture_cleanup. */
-    public Vector<IRNode> spawnCaptureCleanup(Node fn, Vector<string> capNames,
-                                              Map<string, Node> varTypes) {
-        Vector<IRNode> out = [];
-        if (capNames.len == 0) { return out; }
-        int i = 0;
-        while (i < capNames.len) {
-            string cn = capNames.get(i);
-            Node? ct = varTypes.get(cn);
-            if (irManagedType(self, ct)) {
-                /* The shared typed ARC adapter owns descriptor selection,
-                 * decrement/zero handling, and cycle-candidate buffering. */
-                string runtimeType = irManagedRuntimeType(self, ct);
-                out.push(irExprStmt(irManagedReleaseRuntime(
-                    self, irVar(cn), runtimeType)));
-            }
-            i = i + 1;
-        }
-        Vector<IRNode> fargs = [];
-        fargs.push(irVar("__env"));
-        out.push(irExprStmt(irCall("free", fargs)));
-        return out;
-    }
-
-    /* Rewrite every return in a structured wrapper body. A return value is
-     * evaluated and boxed before capture cleanup, then returned from a fresh
-     * void* temp. Try/catch lowers to IRIf, so the same recursive walk covers it
-     * together with ordinary if/loops/switches. Mirrors thread_returns.py. */
+    /* Rewrite every return in a structured worker-entry body. The entry only
+     * borrows captures; its runtime-owned argument disposer runs afterward. */
     public Vector<IRNode> rewriteThreadStatements(
-            Vector<IRNode> statements, Node? retType, Node fn,
-            Vector<string> capNames, Map<string, Node> varTypes) {
+            Vector<IRNode> statements, Node? retType) {
         Vector<IRNode> out = [];
         int i = 0;
         while (i < statements.len) {
@@ -5931,47 +5940,34 @@ class IRGen {
                 IRNode? value = null;
                 if (stmt.value != null) { value = stmt.value; }
                 IRNode boxed = self.boxThreadResult(value, retType);
-                Vector<IRNode> cleanup = self.spawnCaptureCleanup(
-                    fn, capNames, varTypes);
-                if (cleanup.len == 0) {
-                    out.push(irReturn(boxed));
-                } else {
-                    string resultName = self.freshTemp("__btrc_thread_result");
-                    out.push(irVarDecl("void*", resultName, boxed));
-                    int ci = 0;
-                    while (ci < cleanup.len) {
-                        out.push(cleanup.get(ci));
-                        ci = ci + 1;
-                    }
-                    out.push(irReturn(irVar(resultName)));
-                }
+                out.push(irReturn(boxed));
             } else {
                 if (stmt.kind == IRK_IF) {
                     if (stmt.then_block != null) {
                         stmt.then_block.stmts = self.rewriteThreadStatements(
-                            stmt.then_block.stmts, retType, fn, capNames, varTypes);
+                            stmt.then_block.stmts, retType);
                     }
                     if (stmt.else_block != null) {
                         stmt.else_block.stmts = self.rewriteThreadStatements(
-                            stmt.else_block.stmts, retType, fn, capNames, varTypes);
+                            stmt.else_block.stmts, retType);
                     }
                 } else if (stmt.kind == IRK_WHILE || stmt.kind == IRK_DO_WHILE
                         || stmt.kind == IRK_FOR) {
                     if (stmt.body != null) {
                         stmt.body.stmts = self.rewriteThreadStatements(
-                            stmt.body.stmts, retType, fn, capNames, varTypes);
+                            stmt.body.stmts, retType);
                     }
                 } else if (stmt.kind == IRK_SWITCH) {
                     int caseIndex = 0;
                     while (caseIndex < stmt.args.len) {
                         IRNode caseNode = stmt.args.get(caseIndex);
                         caseNode.stmts = self.rewriteThreadStatements(
-                            caseNode.stmts, retType, fn, capNames, varTypes);
+                            caseNode.stmts, retType);
                         caseIndex = caseIndex + 1;
                     }
                 } else if (stmt.kind == IRK_BLOCK) {
                     stmt.stmts = self.rewriteThreadStatements(
-                        stmt.stmts, retType, fn, capNames, varTypes);
+                        stmt.stmts, retType);
                 }
                 out.push(stmt);
             }
@@ -6029,8 +6025,7 @@ class IRGen {
         if (method == "destroy") {
             self.useHelper("__btrc_mutex_val_destroy");
             Vector<IRNode> dargs = [];
-            dargs.push(self.consumeOpaqueHandle(
-                obj, "__btrc_mutex_val_t", "__btrc_mutex"));
+            dargs.push(consumeMutexHandle(self, obj));
             return irCall("__btrc_mutex_val_destroy", dargs);
         }
         /* Unknown Mutex method: fall back to __btrc_mutex_val_<method>(obj, ...). */
@@ -6051,7 +6046,11 @@ class IRGen {
             nargs.push(irLiteral("NULL"));
             nargs.push(irLiteral("0"));
             nargs.push(irLiteral("NULL"));
+            nargs.push(irLiteral("NULL"));
+            nargs.push(irLiteral("NULL"));
             nargs.push(irLiteral("0"));
+            nargs.push(irLiteral("NULL"));
+            nargs.push(irLiteral("NULL"));
             nargs.push(irLiteral("NULL"));
             nargs.push(irLiteral("NULL"));
             return irCall("__btrc_mutex_val_create", nargs);
@@ -6068,27 +6067,42 @@ class IRGen {
         IRNode descriptorSize = irLiteral("0");
         IRNode retain = irLiteral("NULL");
         IRNode releaseCallback = irLiteral("NULL");
+        IRNode finalizeCallback = irLiteral("NULL");
+        IRNode raiseCallback = irLiteral("NULL");
+        IRNode access = irLiteral("NULL");
+        IRNode slotAccess = irLiteral("NULL");
         if (isStringType(concreteType)) {
+            access = irVar(ensureMutexValueAdapter(self, valueC));
             self.useHelper("__btrc_mutex_string_retain");
             self.useHelper("__btrc_mutex_string_release");
             retain = irVar("__btrc_mutex_string_retain");
             releaseCallback = irVar("__btrc_mutex_string_release");
         } else if (irManagedType(self, concreteType)) {
+            access = irVar(ensureMutexValueAdapter(self, valueC));
+            slotAccess = irVar(ensureArcSlotAdapter(self, valueC));
             descriptor = managedArcDescriptor(
                 self, irManagedRuntimeType(self, concreteType));
             descriptorSize = irSizeofType("__btrc_arc_type");
             self.useHelper("__btrc_mutex_arc_retain");
             self.useHelper("__btrc_mutex_arc_release");
+            self.useHelper("__btrc_mutex_arc_finalize");
+            self.useHelper("__btrc_throw");
             retain = irVar("__btrc_mutex_arc_retain");
             releaseCallback = irVar("__btrc_mutex_arc_release");
+            finalizeCallback = irVar("__btrc_mutex_arc_finalize");
+            raiseCallback = irVar("__btrc_throw");
         }
         Vector<IRNode> cargs = [];
         cargs.push(boxed);
         cargs.push(irSizeofType(valueC));
+        cargs.push(access);
+        cargs.push(slotAccess);
         cargs.push(descriptor);
         cargs.push(descriptorSize);
         cargs.push(retain);
         cargs.push(releaseCallback);
+        cargs.push(finalizeCallback);
+        cargs.push(raiseCallback);
         return irCall("__btrc_mutex_val_create", cargs);
     }
 
@@ -8638,7 +8652,7 @@ void scanHelpersInNode(IRNode? n, Map<string, bool> used) {
 }
 
 /* True if any declaration in the program uses try/catch or throw (mirrors
- * generator._uses_trycatch). A deep recursive walk of body-bearing fields. */
+ * feature_scan.program_uses_trycatch). */
 bool programUsesTrycatch(Node prog) {
     int i = 0;
     while (i < prog.declarations.len) {
@@ -8648,45 +8662,75 @@ bool programUsesTrycatch(Node prog) {
     return false;
 }
 
-/* Recursively scan a node's body-bearing fields for NK_THROW_STMT /
- * NK_TRY_CATCH_STMT. Conservative deep walk over the statement/control-flow
- * child fields of the fat Node. */
+bool nodeVectorUsesTrycatch(Vector<Node> nodes) {
+    int i = 0;
+    while (i < nodes.len) {
+        if (nodeUsesTrycatch(nodes.get(i))) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+/* Recursively scan every AST-owned Node field for exception syntax. Lambda
+ * bodies are expression-owned: reaching body_node is insufficient unless the
+ * walk first reaches a VarDecl initializer, call argument, or other enclosing
+ * expression. The parser AST is an acyclic ownership tree. */
 bool nodeUsesTrycatch(Node? n) {
     if (n == null) { return false; }
     if (n.kind == NK_THROW_STMT || n.kind == NK_TRY_CATCH_STMT) { return true; }
-    /* statement list (Block / Program-like). */
-    int i = 0;
-    while (i < n.statements.len) {
-        if (nodeUsesTrycatch(n.statements.get(i))) { return true; }
-        i = i + 1;
-    }
-    /* class members / methods. */
-    int mi = 0;
-    while (mi < n.members.len) {
-        if (nodeUsesTrycatch(n.members.get(mi))) { return true; }
-        mi = mi + 1;
-    }
-    /* switch cases. */
-    int ci = 0;
-    while (ci < n.cases.len) {
-        Node cc = n.cases.get(ci);
-        int bj = 0;
-        while (bj < cc.body_nlist.len) {
-            if (nodeUsesTrycatch(cc.body_nlist.get(bj))) { return true; }
-            bj = bj + 1;
-        }
-        ci = ci + 1;
-    }
-    /* single-node body / control-flow children. */
+    if (nodeVectorUsesTrycatch(n.declarations)) { return true; }
+    if (nodeVectorUsesTrycatch(n.members)) { return true; }
+    if (nodeVectorUsesTrycatch(n.methods)) { return true; }
+    if (nodeVectorUsesTrycatch(n.fields)) { return true; }
+    if (nodeVectorUsesTrycatch(n.values)) { return true; }
+    if (nodeVectorUsesTrycatch(n.variants)) { return true; }
+    if (nodeVectorUsesTrycatch(n.generic_args)) { return true; }
+    if (nodeVectorUsesTrycatch(n.params)) { return true; }
+    if (nodeVectorUsesTrycatch(n.statements)) { return true; }
+    if (nodeVectorUsesTrycatch(n.cases)) { return true; }
+    if (nodeVectorUsesTrycatch(n.body_nlist)) { return true; }
+    if (nodeVectorUsesTrycatch(n.args)) { return true; }
+    if (nodeVectorUsesTrycatch(n.elements)) { return true; }
+    if (nodeVectorUsesTrycatch(n.entries)) { return true; }
+    if (nodeVectorUsesTrycatch(n.parts)) { return true; }
+    if (nodeVectorUsesTrycatch(n.captures)) { return true; }
+    if (nodeUsesTrycatch(n.spec)) { return true; }
+    if (nodeUsesTrycatch(n.return_type)) { return true; }
     if (nodeUsesTrycatch(n.body_node)) { return true; }
-    if (nodeUsesTrycatch(n.then_block)) { return true; }
-    if (nodeUsesTrycatch(n.else_block)) { return true; }
-    if (nodeUsesTrycatch(n.if_stmt)) { return true; }
-    if (nodeUsesTrycatch(n.try_block)) { return true; }
-    if (nodeUsesTrycatch(n.catch_block)) { return true; }
-    if (nodeUsesTrycatch(n.finally_block)) { return true; }
+    if (nodeUsesTrycatch(n.original)) { return true; }
+    if (nodeUsesTrycatch(n.array_size)) { return true; }
+    if (nodeUsesTrycatch(n.type)) { return true; }
+    if (nodeUsesTrycatch(n.default_)) { return true; }
+    if (nodeUsesTrycatch(n.initializer)) { return true; }
     if (nodeUsesTrycatch(n.getter_body)) { return true; }
     if (nodeUsesTrycatch(n.setter_body)) { return true; }
+    if (nodeUsesTrycatch(n.value_node)) { return true; }
+    if (nodeUsesTrycatch(n.condition)) { return true; }
+    if (nodeUsesTrycatch(n.then_block)) { return true; }
+    if (nodeUsesTrycatch(n.else_block)) { return true; }
+    if (nodeUsesTrycatch(n.iterable)) { return true; }
+    if (nodeUsesTrycatch(n.init)) { return true; }
+    if (nodeUsesTrycatch(n.update)) { return true; }
+    if (nodeUsesTrycatch(n.expr)) { return true; }
+    if (nodeUsesTrycatch(n.try_block)) { return true; }
+    if (nodeUsesTrycatch(n.catch_type)) { return true; }
+    if (nodeUsesTrycatch(n.catch_block)) { return true; }
+    if (nodeUsesTrycatch(n.finally_block)) { return true; }
+    if (nodeUsesTrycatch(n.if_stmt)) { return true; }
+    if (nodeUsesTrycatch(n.var_decl)) { return true; }
+    if (nodeUsesTrycatch(n.expression)) { return true; }
+    if (nodeUsesTrycatch(n.left)) { return true; }
+    if (nodeUsesTrycatch(n.right)) { return true; }
+    if (nodeUsesTrycatch(n.operand)) { return true; }
+    if (nodeUsesTrycatch(n.callee)) { return true; }
+    if (nodeUsesTrycatch(n.obj)) { return true; }
+    if (nodeUsesTrycatch(n.index)) { return true; }
+    if (nodeUsesTrycatch(n.target_type)) { return true; }
+    if (nodeUsesTrycatch(n.true_expr)) { return true; }
+    if (nodeUsesTrycatch(n.false_expr)) { return true; }
+    if (nodeUsesTrycatch(n.target)) { return true; }
+    if (nodeUsesTrycatch(n.fn)) { return true; }
+    if (nodeUsesTrycatch(n.key)) { return true; }
     return false;
 }
 

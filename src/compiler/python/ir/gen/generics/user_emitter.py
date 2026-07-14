@@ -271,6 +271,18 @@ class _UserGenericEmitter(
         from ..types import mangle_generic_type
 
         resolved = self._resolve(e.type)
+        if self._gen and resolved.base == "Mutex":
+            if len(e.args) != 1 or not resolved.generic_args:
+                from ..errors import CodegenError
+
+                raise CodegenError("Mutex construction requires one initial value")
+            from ..mutex_values import create_mutex_value
+
+            return create_mutex_value(
+                self._gen,
+                self._expr(e.args[0]),
+                resolved.generic_args[0],
+            )
         if resolved.generic_args:
             mangled = mangle_generic_type(resolved.base, resolved.generic_args)
         else:

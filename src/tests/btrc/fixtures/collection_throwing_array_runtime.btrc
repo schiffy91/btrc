@@ -1,0 +1,56 @@
+#include <assert.h>
+
+int destroyed = 0;
+int firstCalls = 0;
+int secondCalls = 0;
+int thirdCalls = 0;
+int trace = 0;
+
+class ArrayDrop {
+    public int id;
+
+    public ArrayDrop(int id) { self.id = id; }
+
+    public void __del__() {
+        destroyed++;
+        trace = trace * 10 + self.id;
+        if (self.id == 1) {
+            firstCalls++;
+            throw "array-first";
+        }
+        if (self.id == 2) {
+            secondCalls++;
+            throw "array-second";
+        }
+        thirdCalls++;
+    }
+}
+
+int main() {
+    {
+        Array<ArrayDrop> values = new Array<ArrayDrop>(3);
+        values.set(0, new ArrayDrop(1));
+        values.set(1, new ArrayDrop(2));
+        values.set(2, new ArrayDrop(3));
+
+        bool caughtFirst = false;
+        try {
+            values.free();
+        } catch (string error) {
+            caughtFirst = error.equals("array-first");
+        }
+
+        assert(caughtFirst);
+        assert(values.data == null);
+        assert(values.len == 0);
+        assert(destroyed == 3);
+        assert(firstCalls == 1 && secondCalls == 1 && thirdCalls == 1);
+        assert(trace == 123);
+
+        values.free();
+        assert(destroyed == 3 && trace == 123);
+    }
+
+    assert(destroyed == 3 && trace == 123);
+    return 0;
+}

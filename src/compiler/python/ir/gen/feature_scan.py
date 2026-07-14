@@ -1,88 +1,70 @@
 """Feature-presence scans used to select runtime dependencies."""
 
-from ...ast_nodes import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
+from __future__ import annotations
+
+from dataclasses import fields, is_dataclass
+
+from ...ast_nodes import ThrowStmt, TryCatchStmt
 
 
 def uses_trycatch(decl) -> bool:
-    """Return whether a declaration contains exception syntax."""
+    """Return whether an AST declaration contains exception syntax.
 
-    if isinstance(decl, FunctionDecl):
-        return _block_uses_trycatch(getattr(decl, "body", None))
-    if isinstance(decl, ClassDecl):
-        for member in decl.members:
-            if isinstance(member, MethodDecl) and _block_uses_trycatch(member.body):
-                return True
-            if isinstance(member, PropertyDecl):
-                if _block_uses_trycatch(member.getter_body) or _block_uses_trycatch(member.setter_body):
-                    return True
-    return False
+    Exception capability is a module-wide ownership contract: a try frame in a
+    lambda may catch a throw from an allocating constructor several calls away.
+    Walk every generated AST field instead of maintaining a second, incomplete
+    list of statement shapes.  The identity set keeps the conservative walk
+    safe if an analyzer ever introduces shared or cyclic annotations.
+    """
+
+    return _value_uses_trycatch(decl, set())
+
+
+def program_uses_trycatch(program) -> bool:
+    """Return whether any declaration establishes an exception contract.
+
+    This deliberately runs before dead-code elimination.  A reachable bundled
+    stdlib try frame can catch a throw that crosses user or stdlib callees, so
+    source provenance is not a safe substitute for a whole-program call graph.
+    """
+
+    return any(uses_trycatch(declaration) for declaration in getattr(program, "declarations", ()))
+
+
+def _value_uses_trycatch(value, seen: set[int]) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (ThrowStmt, TryCatchStmt)):
+        return True
+    if not (is_dataclass(value) or isinstance(value, (dict, list, tuple, set, frozenset))):
+        return False
+
+    identity = id(value)
+    if identity in seen:
+        return False
+    seen.add(identity)
+    if isinstance(value, dict):
+        return any(_value_uses_trycatch(item, seen) for pair in value.items() for item in pair)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_value_uses_trycatch(item, seen) for item in value)
+    return any(_value_uses_trycatch(getattr(value, field.name), seen) for field in fields(value))
 
 
 def _block_uses_trycatch(block) -> bool:
-    from ...ast_nodes import (
-        Block,
-        CForStmt,
-        DoWhileStmt,
-        ElseBlock,
-        ElseIf,
-        ForInStmt,
-        IfStmt,
-        SwitchStmt,
-        ThrowStmt,
-        TryCatchStmt,
-        WhileStmt,
-    )
+    """Compatibility entry point for callers scanning one block."""
 
-    if not isinstance(block, Block):
-        return False
-    for statement in block.statements:
-        if isinstance(statement, (TryCatchStmt, ThrowStmt)):
-            return True
-        if isinstance(statement, IfStmt):
-            if _block_uses_trycatch(statement.then_block):
-                return True
-            alternate = statement.else_block
-            if isinstance(alternate, ElseBlock):
-                if _block_uses_trycatch(alternate.body):
-                    return True
-            elif isinstance(alternate, ElseIf):
-                if _stmt_uses_trycatch(alternate.if_stmt):
-                    return True
-        elif isinstance(statement, (WhileStmt, DoWhileStmt, ForInStmt, CForStmt)):
-            if _block_uses_trycatch(statement.body):
-                return True
-        elif isinstance(statement, SwitchStmt):
-            if any(_stmt_uses_trycatch(child) for case in statement.cases for child in case.body):
-                return True
-    return False
+    return _value_uses_trycatch(block, set())
 
 
 def _stmt_uses_trycatch(statement) -> bool:
-    from ...ast_nodes import (
-        CForStmt,
-        DoWhileStmt,
-        ElseBlock,
-        ElseIf,
-        ForInStmt,
-        IfStmt,
-        SwitchStmt,
-        ThrowStmt,
-        TryCatchStmt,
-        WhileStmt,
-    )
+    """Compatibility entry point for callers scanning one statement."""
 
-    if isinstance(statement, (TryCatchStmt, ThrowStmt)):
-        return True
-    if isinstance(statement, IfStmt):
-        if _block_uses_trycatch(statement.then_block):
-            return True
-        alternate = statement.else_block
-        if isinstance(alternate, ElseBlock):
-            return _block_uses_trycatch(alternate.body)
-        if isinstance(alternate, ElseIf):
-            return _stmt_uses_trycatch(alternate.if_stmt)
-    elif isinstance(statement, (WhileStmt, DoWhileStmt, ForInStmt, CForStmt)):
-        return _block_uses_trycatch(statement.body)
-    elif isinstance(statement, SwitchStmt):
-        return any(_stmt_uses_trycatch(child) for case in statement.cases for child in case.body)
-    return False
+    return _value_uses_trycatch(statement, set())
+
+
+__all__ = [
+    "_block_uses_trycatch",
+    "_stmt_uses_trycatch",
+    "program_uses_trycatch",
+    "uses_trycatch",
+]

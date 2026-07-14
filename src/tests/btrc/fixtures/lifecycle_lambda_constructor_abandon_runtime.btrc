@@ -1,0 +1,63 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int lambdaAbandonChildrenAlive = 0;
+int lambdaAbandonChildHooks = 0;
+int lambdaAbandonOwnerHooks = 0;
+
+class LambdaAbandonChild {
+    public LambdaAbandonChild() {
+        lambdaAbandonChildrenAlive++;
+    }
+
+    public void __del__() {
+        lambdaAbandonChildrenAlive--;
+        lambdaAbandonChildHooks++;
+    }
+}
+
+class LambdaAbandonOwner {
+    public LambdaAbandonChild child;
+
+    public LambdaAbandonOwner() {
+        self.child = new LambdaAbandonChild();
+        var fail = () => { throw "lambda constructor failure"; };
+        fail();
+    }
+
+    public void __del__() {
+        lambdaAbandonOwnerHooks++;
+    }
+}
+
+void attemptLambdaConstruction() {
+    var run = () => {
+        bool caught = false;
+        try {
+            LambdaAbandonOwner value = new LambdaAbandonOwner();
+            assert(value == null);
+        } catch (string error) {
+            caught = error.equals("lambda constructor failure");
+        }
+        assert(caught);
+        return 0;
+    };
+    assert(run() == 0);
+}
+
+int main() {
+    attemptLambdaConstruction();
+    assert(lambdaAbandonChildrenAlive == 0);
+    assert(lambdaAbandonChildHooks == 1);
+    assert(lambdaAbandonOwnerHooks == 0);
+
+    arc_test_allocation_checkpoint();
+    attemptLambdaConstruction();
+    assert(lambdaAbandonChildrenAlive == 0);
+    assert(lambdaAbandonChildHooks == 2);
+    assert(lambdaAbandonOwnerHooks == 0);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

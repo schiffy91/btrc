@@ -78,6 +78,9 @@ IRNode managedArcDescriptor(IRGen generator, string emittedName) {
     Vector<string> fields = [];
     fields.push("visit");
     fields.push("destroy");
+    fields.push("hook");
+    fields.push("guard");
+    fields.push("raise");
     Vector<IRNode> values = [];
     if (managedClassNeedsVisitor(generator, emittedName)) {
         values.push(irVar(cycleVisitorName(emittedName)));
@@ -85,6 +88,9 @@ IRNode managedArcDescriptor(IRGen generator, string emittedName) {
         values.push(irLiteral("NULL"));
     }
     values.push(irVar(emittedName + "_destroy"));
+    values.push(irLiteral("NULL"));
+    values.push(irLiteral("NULL"));
+    values.push(irLiteral("NULL"));
     return irAddressOf(irCompoundLiteral(
         "__btrc_arc_type", fields, values));
 }
@@ -148,10 +154,11 @@ IRNode managedArcReleaseEdge(IRGen generator, IRNode value,
 
 IRNode managedArcReplaceEdge(IRGen generator, IRNode slot,
         IRNode replacement, string emittedName, IRNode owner,
-        bool adopt) {
+        string access, bool adopt) {
     generator.useHelper("__btrc_arc_replace_edge");
     Vector<IRNode> arguments = [];
-    arguments.push(irAddressOf(slot));
+    arguments.push(irCast("volatile void*", irAddressOf(slot)));
+    arguments.push(irVar(access));
     arguments.push(replacement);
     arguments.push(owner);
     arguments.push(managedArcDescriptor(generator, emittedName));
@@ -163,13 +170,17 @@ IRNode managedArcReplaceEdge(IRGen generator, IRNode slot,
     return irCall("__btrc_arc_replace_edge", arguments);
 }
 
-IRNode managedArcDestroy(IRGen generator, IRNode value,
-        string emittedName) {
-    generator.useHelper("__btrc_arc_destroy");
+IRNode managedArcDestroySlot(IRGen generator, IRNode slot, string access,
+        string emittedName, IRNode owner, bool persistent) {
+    string helper = "__btrc_arc_destroy_slot";
+    if (persistent) { helper = "__btrc_arc_destroy_edge"; }
+    generator.useHelper(helper);
     Vector<IRNode> arguments = [];
-    arguments.push(value);
+    arguments.push(irCast("volatile void*", slot));
+    arguments.push(irVar(access));
+    if (persistent) { arguments.push(owner); }
     arguments.push(managedArcDescriptor(generator, emittedName));
-    return irCall("__btrc_arc_destroy", arguments);
+    return irCall(helper, arguments);
 }
 
 IRNode managedArcFlush(IRGen generator) {

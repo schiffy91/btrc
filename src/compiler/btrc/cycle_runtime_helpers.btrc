@@ -3,16 +3,6 @@ bool cycleRuntimeHasHelper(string name) {
         || name == "__btrc_arc_header_of"
         || name == "__btrc_arc_type_of"
         || name == "__btrc_arc_validate"
-        || name == "__btrc_arc_lock_state"
-        || name == "__btrc_arc_snapshot_state"
-        || name == "__btrc_arc_mutation_lock"
-        || name == "__btrc_arc_topology_state"
-        || name == "__btrc_arc_topology_depth_state"
-        || name == "__btrc_arc_topology_begin"
-        || name == "__btrc_arc_topology_leave"
-        || name == "__btrc_arc_topology_cleanup"
-        || name == "__btrc_arc_topology_complete"
-        || name == "__btrc_arc_deferred_state"
         || name == "__btrc_destroyed_tracking"
         || name == "__btrc_destroyed_tracking_scope"
         || name == "__btrc_is_destroyed"
@@ -22,12 +12,26 @@ bool cycleRuntimeHasHelper(string name) {
         || name == "__btrc_suspect_capacity"
         || name == "__btrc_ptr_hash"
         || name == "__btrc_suspect_locked"
+        || name == "__btrc_suspect"
+        || name == "__btrc_arc_lock_state"
+        || name == "__btrc_arc_shutdown_state"
+        || name == "__btrc_arc_active_drains_state"
+        || name == "__btrc_arc_active_unwinds_state"
+        || name == "__btrc_arc_snapshot_state"
+        || name == "__btrc_arc_snapshot_gate_state"
+        || name == "__btrc_arc_exclusive_snapshot"
+        || name == "__btrc_arc_mutation_lock"
+        || name == "__btrc_arc_topology_state"
+        || name == "__btrc_arc_topology_depth_state"
+        || name == "__btrc_arc_topology_begin"
+        || name == "__btrc_arc_topology_leave"
+        || name == "__btrc_arc_topology_cleanup"
+        || name == "__btrc_arc_topology_complete"
+        || name == "__btrc_arc_deferred_state"
         || name == "__btrc_arc_reverse_state"
         || name == "__btrc_arc_register_incoming"
         || name == "__btrc_arc_unregister_incoming"
         || name == "__btrc_arc_reverse_proves_live"
-        || name == "__btrc_suspect"
-        || name == "__btrc_collect_cycles"
         || name == "__btrc_arc_retain"
         || name == "__btrc_arc_retain_edge"
         || name == "__btrc_arc_adopt_edge"
@@ -38,231 +42,53 @@ bool cycleRuntimeHasHelper(string name) {
         || name == "__btrc_arc_release"
         || name == "__btrc_arc_release_edge"
         || name == "__btrc_arc_release_acyclic"
-        || name == "__btrc_arc_destroy"
         || name == "__btrc_arc_invalidate"
+        || name == "__btrc_arc_destroy_slot"
+        || name == "__btrc_arc_destroy_edge"
+        || name == "__btrc_cycle_collector_state"
+        || name == "__btrc_arc_graph_primitives"
+        || name == "__btrc_arc_abandon_queue_state"
+        || name == "__btrc_arc_abandon_queue_drain"
+        || name == "__btrc_arc_abandon_graph"
+        || name == "__btrc_arc_abandon"
+        || name == "__btrc_collect_cycles_once"
+        || name == "__btrc_arc_drain"
+        || name == "__btrc_collect_cycles"
         || name == "__btrc_poll_cycles"
         || name == "__btrc_flush_cycles"
+        || name == "__btrc_arc_thread_state_cleanup"
         || name == "__btrc_cycle_state_cleanup";
 }
-
 string cycleRuntimeHelperSource(string name) {
     string source = cycleRuntimeStateSource(name);
     if (source != "") { return source; }
     source = cycleRuntimeLockSource(name);
     if (source != "") { return source; }
+    source = cycleRuntimeSnapshotSource(name);
+    if (source != "") { return source; }
     source = cycleRuntimeIncomingSource(name);
     if (source != "") { return source; }
-    if (name == "__btrc_collect_cycles") {
-        return cycleRuntimeCollectorPrefix()
-            + cycleRuntimeCollectorSuffix();
-    }
-    return cycleRuntimeReleaseSource(name);
+    source = cycleRuntimeRetainSource(name);
+    if (source != "") { return source; }
+    source = cycleRuntimeReleaseSource(name);
+    if (source != "") { return source; }
+    source = cycleRuntimeLifecycleSource(name);
+    if (source != "") { return source; }
+    source = cycleRuntimeGraphSource(name);
+    if (source != "") { return source; }
+    source = cycleRuntimeAbandonSource(name);
+    if (source != "") { return source; }
+    source = cycleRuntimeAbandonQueueSource(name);
+    if (source != "") { return source; }
+    source = cycleRuntimeCollectorSource(name);
+    if (source != "") { return source; }
+    source = cycleRuntimeDrainSource(name);
+    if (source != "") { return source; }
+    return cycleRuntimeBoundarySource(name);
 }
 
 Vector<string> cycleRuntimeHelperDependencies(string name) {
-    Vector<string> out = [];
-    if (name == "__btrc_arc_header_of") {
-        out.push("__btrc_arc_callback_types");
-        return out;
-    }
-    if (name == "__btrc_arc_deferred_state") {
-        out.push("__btrc_arc_callback_types");
-        out.push("__btrc_arc_lock_state");
-        out.push("__btrc_safe_realloc");
-        return out;
-    }
-    if (name == "__btrc_arc_mutation_lock") {
-        out.push("__btrc_arc_lock_state");
-        out.push("__btrc_arc_snapshot_state");
-        return out;
-    }
-    if (name == "__btrc_arc_topology_begin") {
-        out.push("__btrc_arc_lock_state");
-        out.push("__btrc_arc_snapshot_state");
-        out.push("__btrc_arc_topology_state");
-        out.push("__btrc_arc_topology_depth_state");
-        return out;
-    }
-    if (name == "__btrc_arc_topology_leave") {
-        out.push("__btrc_arc_lock_state");
-        out.push("__btrc_arc_topology_state");
-        out.push("__btrc_arc_topology_depth_state");
-        return out;
-    }
-    if (name == "__btrc_arc_topology_cleanup") {
-        out.push("__btrc_arc_topology_leave");
-        return out;
-    }
-    if (name == "__btrc_arc_topology_complete") {
-        out.push("__btrc_arc_topology_leave");
-        out.push("__btrc_flush_cycles");
-        return out;
-    }
-    if (name == "__btrc_arc_type_of") {
-        out.push("__btrc_arc_header_of");
-        return out;
-    }
-    if (name == "__btrc_arc_validate") {
-        out.push("__btrc_arc_header_of");
-        return out;
-    }
-    if (name == "__btrc_is_destroyed") {
-        out.push("__btrc_destroyed_tracking");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_destroyed_tracking_scope") {
-        out.push("__btrc_destroyed_tracking");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_mark_destroyed") {
-        out.push("__btrc_destroyed_tracking");
-        out.push("__btrc_destroyed_capacity");
-        out.push("__btrc_safe_realloc");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_suspect_state") {
-        out.push("__btrc_arc_callback_types");
-        return out;
-    }
-    if (name == "__btrc_suspect_locked") {
-        out.push("__btrc_suspect_state");
-        out.push("__btrc_suspect_capacity");
-        out.push("__btrc_ptr_hash");
-        out.push("__btrc_safe_realloc");
-        out.push("__btrc_arc_type_of");
-        out.push("__btrc_arc_validate");
-        return out;
-    }
-    if (name == "__btrc_suspect") {
-        out.push("__btrc_suspect_locked");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_arc_register_incoming") {
-        out.push("__btrc_arc_header_of");
-        out.push("__btrc_safe_realloc");
-        return out;
-    }
-    if (name == "__btrc_arc_unregister_incoming") {
-        out.push("__btrc_arc_header_of");
-        return out;
-    }
-    if (name == "__btrc_arc_reverse_proves_live") {
-        out.push("__btrc_arc_reverse_state");
-        out.push("__btrc_arc_validate");
-        out.push("__btrc_ptr_hash");
-        out.push("__btrc_safe_realloc");
-        return out;
-    }
-    if (name == "__btrc_collect_cycles") {
-        out.push("__btrc_suspect_state");
-        out.push("__btrc_ptr_hash");
-        out.push("__btrc_safe_realloc");
-        out.push("__btrc_arc_unregister_incoming");
-        out.push("__btrc_arc_type_of");
-        out.push("__btrc_arc_validate");
-        out.push("__btrc_arc_lock_state");
-        out.push("__btrc_arc_snapshot_state");
-        out.push("__btrc_arc_topology_state");
-        out.push("__btrc_arc_deferred_state");
-        return out;
-    }
-    if (name == "__btrc_arc_retain") {
-        out.push("__btrc_arc_validate");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_arc_retain_edge") {
-        out.push("__btrc_arc_register_incoming");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_arc_adopt_edge") {
-        out.push("__btrc_arc_register_incoming");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_arc_unlink_edge") {
-        out.push("__btrc_arc_unregister_incoming");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_forget_suspect") {
-        out.push("__btrc_suspect_state");
-        out.push("__btrc_ptr_hash");
-        return out;
-    }
-    if (name == "__btrc_arc_release_impl") {
-        out.push("__btrc_suspect_locked");
-        out.push("__btrc_arc_reverse_proves_live");
-        out.push("__btrc_forget_suspect");
-        out.push("__btrc_arc_deferred_state");
-        return out;
-    }
-    if (name == "__btrc_arc_replace_edge") {
-        out.push("__btrc_arc_release_impl");
-        out.push("__btrc_arc_register_incoming");
-        out.push("__btrc_arc_unregister_incoming");
-        out.push("__btrc_arc_mutation_lock");
-        out.push("__btrc_arc_deferred_state");
-        return out;
-    }
-    if (name == "__btrc_arc_release") {
-        out.push("__btrc_arc_release_impl");
-        out.push("__btrc_arc_mutation_lock");
-        out.push("__btrc_arc_deferred_state");
-        return out;
-    }
-    if (name == "__btrc_arc_release_edge") {
-        out.push("__btrc_arc_release_impl");
-        out.push("__btrc_arc_mutation_lock");
-        out.push("__btrc_arc_deferred_state");
-        return out;
-    }
-    if (name == "__btrc_arc_release_acyclic") {
-        out.push("__btrc_arc_type_of");
-        out.push("__btrc_arc_validate");
-        out.push("__btrc_arc_mutation_lock");
-        out.push("__btrc_arc_deferred_state");
-        return out;
-    }
-    if (name == "__btrc_arc_destroy") {
-        out.push("__btrc_forget_suspect");
-        out.push("__btrc_arc_type_of");
-        out.push("__btrc_arc_validate");
-        out.push("__btrc_arc_mutation_lock");
-        out.push("__btrc_arc_deferred_state");
-        return out;
-    }
-    if (name == "__btrc_arc_invalidate") {
-        out.push("__btrc_arc_validate");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_poll_cycles") {
-        out.push("__btrc_collect_cycles");
-        out.push("__btrc_arc_mutation_lock");
-        return out;
-    }
-    if (name == "__btrc_flush_cycles") {
-        out.push("__btrc_collect_cycles");
-        out.push("__btrc_arc_mutation_lock");
-        out.push("__btrc_arc_topology_state");
-        return out;
-    }
-    if (name == "__btrc_cycle_state_cleanup") {
-        out.push("__btrc_flush_cycles");
-        out.push("__btrc_suspect_capacity");
-        out.push("__btrc_destroyed_tracking");
-        out.push("__btrc_destroyed_capacity");
-        out.push("__btrc_arc_reverse_state");
-        out.push("__btrc_arc_deferred_state");
-        out.push("__btrc_arc_mutation_lock");
-        out.push("__btrc_arc_topology_state");
-        return out;
-    }
-    return out;
+    Vector<string> out = cycleRuntimeStateDependencies(name);
+    if (out.len > 0) { return out; }
+    return cycleRuntimeLifecycleDependencies(name);
 }

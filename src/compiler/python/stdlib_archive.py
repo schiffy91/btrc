@@ -40,6 +40,11 @@ import os
 from . import stdlib_archive_validation as _archive_validation
 from .cache_io import atomic_write_json, atomic_write_text
 from .cache_keys import toolchain_hash
+from .stdlib_archive_helpers import (
+    ARCHIVE_HELPER_API_NAMES,
+    derive_archive_api_decls,
+    derive_archive_api_impl,
+)
 from .stdlib_shared_state import (
     complete_shared_helpers,
     derive_shared_decls,
@@ -133,8 +138,18 @@ def transform_archive_module(module) -> tuple[list[str], dict[str, str]]:
     shared_decls = {}
     for helper in module.helper_decls:
         if helper.name in archive_owned_helpers:
-            shared_decls[helper.name] = derive_shared_decls(helper.c_source)
-            helper.c_source = derive_shared_impl(helper.c_source)
+            if helper.name in ARCHIVE_HELPER_API_NAMES:
+                shared_decls[helper.name] = derive_archive_api_decls(
+                    helper.c_source,
+                    helper.name,
+                )
+                helper.c_source = derive_archive_api_impl(
+                    helper.c_source,
+                    helper.name,
+                )
+            else:
+                shared_decls[helper.name] = derive_shared_decls(helper.c_source)
+                helper.c_source = derive_shared_impl(helper.c_source)
             shared_present.append(helper.name)
         else:
             shared_decls[helper.name] = inline_toplevel_functions(helper.c_source)

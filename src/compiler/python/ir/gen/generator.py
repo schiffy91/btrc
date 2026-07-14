@@ -44,6 +44,8 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         self._cleanup_take_adapters: dict[str, str] = {}
         self._cleanup_take_adapter_defs = []
         self._cleanup_take_adapters_finalized = False
+        self._arc_slot_adapters: dict[str, str] = {}
+        self._mutex_value_adapters: dict[str, str] = {}
         # Track which helpers are needed
         self._used_helpers: set[str] = set()
         # Current class context (for method lowering)

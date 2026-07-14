@@ -89,7 +89,9 @@ TRYCATCH_CLEANUP = {
             "    if (entry.direct) {\n"
             "        entry.fn(object);\n"
             "    } else {\n"
-            "        __btrc_arc_type type = {entry.visit, entry.fn};\n"
+            "        __btrc_arc_type type = {\n"
+            "            .visit = entry.visit, .destroy = entry.fn,\n"
+            "            .hook = NULL, .guard = NULL, .raise = NULL};\n"
             "        if (entry.visit) __btrc_arc_release(object, &type);\n"
             "        else __btrc_arc_release_acyclic(object, &type);\n"
             "    }\n"
@@ -102,6 +104,47 @@ TRYCATCH_CLEANUP = {
             "__btrc_arc_release",
             "__btrc_arc_release_acyclic",
         ],
+    ),
+    "__btrc_arc_guard_hook": HelperDef(
+        c_source=(
+            "static int __btrc_arc_guard_hook(\n"
+            "        __btrc_hook_fn hook, void* object,\n"
+            "        char* error, size_t error_capacity) {\n"
+            "    char ambient[sizeof __btrc_error_msg];\n"
+            "    memcpy(ambient, __btrc_error_msg, sizeof ambient);\n"
+            "    if (error && error_capacity) error[0] = '\\0';\n"
+            "    __btrc_push_try();\n"
+            "    int guard_level = __btrc_try_top;\n"
+            "    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) {\n"
+            "        if (error && error_capacity) {\n"
+            "            strncpy(error, __btrc_error_msg, error_capacity - 1);\n"
+            "            error[error_capacity - 1] = '\\0';\n"
+            "        }\n"
+            "        memcpy(__btrc_error_msg, ambient, sizeof ambient);\n"
+            "        return 1;\n"
+            "    }\n"
+            "    hook(object);\n"
+            "    __btrc_try_top--;\n"
+            "    memcpy(__btrc_error_msg, ambient, sizeof ambient);\n"
+            "    return 0;\n"
+            "}"
+        ),
+        depends_on=[
+            "__btrc_arc_callback_types",
+            "__btrc_push_try",
+        ],
+    ),
+    "__btrc_raise_captured": HelperDef(
+        c_source=(
+            "static _Noreturn void __btrc_raise_captured(\n"
+            "        __btrc_raise_fn raise, const char* message) {\n"
+            "    if (raise) raise(message);\n"
+            '    fprintf(stderr, "Unhandled exception: %s\\n", message);\n'
+            "    exit(1);\n"
+            "}"
+        ),
+        depends_on=["__btrc_arc_callback_types"],
+        required_headers=["stdio.h", "stdlib.h"],
     ),
     "__btrc_flush_cycles_guarded": HelperDef(
         c_source=(
@@ -129,13 +172,20 @@ TRYCATCH_CLEANUP = {
             "    memcpy(entries, &__btrc_cleanup_stack[base],\n"
             "        sizeof(__btrc_cleanup_entry) * (size_t)count);\n"
             "    __btrc_cleanup_top = base - 1;\n"
+            '    if ((size_t)count > SIZE_MAX / sizeof(void*)) { fprintf(stderr, "btrc: cleanup object batch size overflow\\n"); exit(1); }\n'
+            "    void** objects = (void**)__btrc_safe_realloc(\n"
+            "        NULL, sizeof(void*) * (size_t)count);\n"
+            "    for (int i = count - 1; i >= 0; i--) {\n"
+            "        __btrc_cleanup_entry entry = entries[i];\n"
+            "        objects[i] = (!entry.fn || !entry.slot || !entry.take)\n"
+            "            ? NULL : entry.take(entry.slot);\n"
+            "    }\n"
             "    char primary_error[sizeof __btrc_error_msg];\n"
             "    memcpy(primary_error, __btrc_error_msg, sizeof primary_error);\n"
             "    __btrc_destroyed_tracking_begin();\n"
             "    for (int i = count - 1; i >= 0; i--) {\n"
             "        __btrc_cleanup_entry entry = entries[i];\n"
-            "        if (!entry.fn || !entry.slot || !entry.take) continue;\n"
-            "        void* object = entry.take(entry.slot);\n"
+            "        void* object = objects[i];\n"
             "        if (!object) continue;\n"
             "        if (!entry.direct && __btrc_is_destroyed(object)) continue;\n"
             "        __btrc_run_cleanup_guarded(entry, object);\n"
@@ -144,6 +194,7 @@ TRYCATCH_CLEANUP = {
             "    __btrc_flush_cycles_guarded();\n"
             "    memcpy(__btrc_error_msg, primary_error, sizeof primary_error);\n"
             "    __btrc_destroyed_tracking_end();\n"
+            "    free(objects);\n"
             "    free(entries);\n"
             "}"
         ),

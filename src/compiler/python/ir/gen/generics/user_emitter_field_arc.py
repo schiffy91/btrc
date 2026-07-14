@@ -43,7 +43,7 @@ def lower_generic_field_assignment(emitter, expression):
         receiver_type,
         expression.target.field,
     )
-    if receiver_type is None or not emitter._is_managed_type(field_type):
+    if receiver_type is None:
         return None
 
     field = expression.target.field
@@ -56,6 +56,24 @@ def lower_generic_field_assignment(emitter, expression):
         return None
     if backing_property:
         field = f"_prop_{field}"
+
+    from ..mutex_fields import lower_mutex_field_store, mutex_value_type
+
+    if mutex_value_type(emitter._gen, field_type) is not None:
+        return lower_mutex_field_store(
+            emitter._gen,
+            expression,
+            receiver_type=receiver_type,
+            field_type=field_type,
+            field_name=field,
+            lower_expr=emitter._expr,
+            lower_value=emitter._assignment_value,
+            c_type=emitter.iter_value_c,
+            fresh_temp=emitter._fresh_temp,
+            record_decl=emitter._func_var_decls.append,
+        )
+    if not emitter._is_managed_type(field_type):
+        return None
 
     receiver_decl = _temporary(
         emitter,

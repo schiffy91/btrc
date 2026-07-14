@@ -2,8 +2,8 @@
 
 A few runtime helper groups carry *process-global* mutable state that must be a
 single instance shared by the archive and every program that links it (the
-try/catch stacks, the cleanup stack, the destroyed-pointer guard, and the cycle
-suspect queue, and the managed-string registry). Every pointer, index/count,
+try/catch stacks, the cleanup stack, the complete ARC runtime domain, and the
+managed-string registry). Every pointer, index/count,
 capacity, lock, and callback-table member of each group must have the same
 linkage. The archive defines them once with external linkage and the public
 header publishes matching declarations.
@@ -26,6 +26,7 @@ SHARED_STATE_HELPER_GROUPS = {
             "__btrc_try_level",
             "__btrc_trycatch_globals",
             "__btrc_try_capacity",
+            "__btrc_launder_state",
         }
     ),
     "cleanup_stack": frozenset(
@@ -34,16 +35,24 @@ SHARED_STATE_HELPER_GROUPS = {
             "__btrc_cleanup_capacity",
         }
     ),
-    "destroyed_log": frozenset(
+    "arc_runtime": frozenset(
         {
+            "__btrc_arc_lock_state",
+            "__btrc_arc_shutdown_state",
+            "__btrc_arc_active_drains_state",
+            "__btrc_arc_active_unwinds_state",
+            "__btrc_arc_snapshot_state",
+            "__btrc_arc_snapshot_gate_state",
+            "__btrc_arc_abandon_queue_state",
+            "__btrc_arc_topology_state",
+            "__btrc_arc_topology_depth_state",
+            "__btrc_arc_deferred_state",
             "__btrc_destroyed_tracking",
             "__btrc_destroyed_capacity",
-        }
-    ),
-    "cycle_suspects": frozenset(
-        {
             "__btrc_suspect_state",
             "__btrc_suspect_capacity",
+            "__btrc_arc_reverse_state",
+            "__btrc_cycle_collector_state",
         }
     ),
     "string_registry": frozenset(
@@ -74,17 +83,31 @@ SHARED_STATE_API_ROOTS = {
             "__btrc_try_state_cleanup",
         }
     ),
-    "destroyed_log": frozenset(
+    "arc_runtime": frozenset(
         {
+            "__btrc_arc_retain",
+            "__btrc_arc_retain_edge",
+            "__btrc_arc_adopt_edge",
+            "__btrc_arc_unlink_edge",
+            "__btrc_arc_replace_edge",
+            "__btrc_arc_release",
+            "__btrc_arc_release_edge",
+            "__btrc_arc_release_acyclic",
+            "__btrc_arc_destroy_slot",
+            "__btrc_arc_destroy_edge",
+            "__btrc_arc_abandon",
+            "__btrc_arc_invalidate",
+            "__btrc_suspect",
+            "__btrc_collect_cycles",
+            "__btrc_poll_cycles",
+            "__btrc_flush_cycles",
+            "__btrc_arc_thread_state_cleanup",
+            "__btrc_cycle_state_cleanup",
             "__btrc_mark_destroyed",
             "__btrc_is_destroyed",
-            "__btrc_cycle_state_cleanup",
-        }
-    ),
-    "cycle_suspects": frozenset(
-        {
-            "__btrc_suspect",
-            "__btrc_cycle_state_cleanup",
+            "__btrc_arc_topology_begin",
+            "__btrc_arc_topology_complete",
+            "__btrc_arc_topology_cleanup",
         }
     ),
     "string_registry": frozenset(
@@ -110,16 +133,21 @@ def complete_shared_helpers(helper_decls: list) -> tuple[list, frozenset[str]]:
         return helper_decls, frozenset()
 
     from .ir.gen.helpers import helper_decls_for_roots
+    from .stdlib_archive_helpers import ARCHIVE_HELPER_API_GROUPS
 
     completed_roots = set(helper_roots)
     while True:
         declarations = helper_decls_for_roots(completed_roots)
         reachable = {helper.name for helper in declarations}
         active_groups = {group_name for group_name, group in SHARED_STATE_HELPER_GROUPS.items() if reachable & group}
-        required = set()
+        active_api_groups = {group_name for group_name, group in ARCHIVE_HELPER_API_GROUPS.items() if reachable & group}
+        shared_required = set()
         for group_name in active_groups:
-            required.update(SHARED_STATE_HELPER_GROUPS[group_name])
-            required.update(SHARED_STATE_API_ROOTS[group_name])
+            shared_required.update(SHARED_STATE_HELPER_GROUPS[group_name])
+            shared_required.update(SHARED_STATE_API_ROOTS[group_name])
+        required = set(shared_required)
+        for group_name in active_api_groups:
+            required.update(ARCHIVE_HELPER_API_GROUPS[group_name])
         if required <= completed_roots:
             return declarations, frozenset(required & reachable)
         completed_roots.update(required)

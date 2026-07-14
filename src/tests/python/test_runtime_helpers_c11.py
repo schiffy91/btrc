@@ -154,12 +154,26 @@ typedef struct TestNode {
     struct TestNode* child;
 } TestNode;
 static const __btrc_arc_type test_type;
+static void* test_slot_access(
+        volatile void* raw, void* expected, void* replacement, int commit) {
+    TestNode* volatile* slot = (TestNode* volatile*)raw;
+    TestNode* current = *slot;
+    if (commit && current == (TestNode*)expected)
+        *slot = (TestNode*)replacement;
+    return (void*)current;
+}
 static void test_visit(void* raw, __btrc_field_visit_fn fn, void* context) {
     TestNode* node = (TestNode*)raw;
-    fn((void**)&node->child, &test_type, context);
+    fn((volatile void*)&node->child, test_slot_access, &test_type, context);
 }
 static void test_destroy(void* raw) { free(raw); }
-static const __btrc_arc_type test_type = {test_visit, test_destroy};
+static const __btrc_arc_type test_type = {
+    .visit = test_visit,
+    .destroy = test_destroy,
+    .hook = NULL,
+    .guard = NULL,
+    .raise = NULL,
+};
 static void test_cleanup(void* raw) { (void)raw; }
 static void* test_take(void* raw) {
     void* volatile* slot = (void* volatile*)raw;
@@ -196,6 +210,7 @@ int main(void) {
     node->arc.rc = 2;
     node->arc.edge_rc = 2;
     node->arc.type = &test_type;
+    node->arc.state = __BTRC_ARC_LIVE;
     __btrc_suspect(node, test_visit, test_destroy);
     __btrc_suspect(node, test_visit, test_destroy);
     if (__btrc_suspect_count != 1) return 10;
@@ -203,7 +218,6 @@ int main(void) {
     if (__btrc_suspect_count != 0 || node->arc.rc != 2
             || node->arc.edge_rc != 2
             || node->arc.live_witness != node) return 11;
-    __btrc_cycle_state_cleanup();
     free(node);
 
     for (int i = 0; i < 80; i++) __btrc_push_try();
@@ -223,14 +237,15 @@ int main(void) {
 
     void* token = (void*)(intptr_t)41;
     __btrc_thread_t* thread = __btrc_thread_spawn(
-        return_arg, token, NULL, 0, NULL);
+        return_arg, token, NULL, NULL, 0, NULL, NULL);
     if (__btrc_thread_join(thread) != token) return 14;
 
     int* initial = (int*)malloc(sizeof *initial);
     if (!initial) return 15;
     *initial = 41;
     __btrc_mutex_val_t* mutex = __btrc_mutex_val_create(
-        initial, sizeof *initial, NULL, 0, NULL, NULL);
+        initial, sizeof *initial, NULL, NULL, NULL, 0,
+        NULL, NULL, NULL, NULL);
     int* snapshot = (int*)__btrc_mutex_val_get(mutex);
     if (!snapshot || *snapshot != 41 || snapshot == initial) return 16;
     free(snapshot);
@@ -243,6 +258,7 @@ int main(void) {
     free(snapshot);
     __btrc_mutex_val_destroy(mutex);
     __btrc_mutex_val_destroy(NULL);
+    __btrc_cycle_state_cleanup();
     return 0;
 }
 """

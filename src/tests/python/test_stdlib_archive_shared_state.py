@@ -14,10 +14,16 @@ from src.compiler.python.ir.helpers.cycles import CYCLES
 from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
 from src.compiler.python.ir.helpers.trycatch import TRYCATCH
 from src.compiler.python.ir.nodes import IRModule
+from src.compiler.python.stdlib_archive_helpers import (
+    ARCHIVE_HELPER_API_GROUPS,
+    ARCHIVE_HELPER_API_NAMES,
+)
 from src.compiler.python.stdlib_shared_state import (
     SHARED_STATE_API_ROOTS,
     SHARED_STATE_HELPER_GROUPS,
     SHARED_STATE_HELPER_NAMES,
+    _function_definition_prototype,
+    _split_toplevel_units,
     derive_shared_decls,
     derive_shared_impl,
     inline_toplevel_functions,
@@ -46,15 +52,21 @@ static void no_children(
 }
 
 static const __btrc_arc_type suspect_type = {
-    no_children,
-    noop_destroy,
+    .visit = no_children,
+    .destroy = noop_destroy,
+    .hook = NULL,
+    .guard = NULL,
+    .raise = NULL,
 };
 static __btrc_arc_header suspect_node = {
-    1,
-    1,
-    NULL,
-    &suspect_type,
-    NULL,
+    .rc = 1,
+    .edge_rc = 1,
+    .live_witness = NULL,
+    .type = &suspect_type,
+    .incoming = NULL,
+    .deferred_next = NULL,
+    .suppress_hook = 0,
+    .state = __BTRC_ARC_LIVE,
 };
 
 char* archive_make_managed_string(void) {
@@ -131,7 +143,7 @@ int archive_verify_program_growth_and_reset(void) {
     if (__btrc_destroyed_count != 3 || __btrc_destroyed_cap < 3) return 20;
     if (__btrc_cleanup_top != 2 || __btrc_cleanup_cap < 3) return 21;
     if (__btrc_suspect_count != 1 || __btrc_suspect_cap < 1) return 22;
-    atomic_store_explicit(&__btrc_tracking, 0, memory_order_release);
+    __btrc_tracking = 0;
     __btrc_cycle_state_cleanup();
     __btrc_try_state_cleanup();
     if (__btrc_destroyed != NULL || __btrc_destroyed_count != 0
@@ -153,6 +165,7 @@ def test_mutable_helper_groups_have_complete_ownership():
                 "__btrc_try_level",
                 "__btrc_trycatch_globals",
                 "__btrc_try_capacity",
+                "__btrc_launder_state",
             }
         ),
         "cleanup_stack": frozenset(
@@ -161,16 +174,24 @@ def test_mutable_helper_groups_have_complete_ownership():
                 "__btrc_cleanup_capacity",
             }
         ),
-        "destroyed_log": frozenset(
+        "arc_runtime": frozenset(
             {
+                "__btrc_arc_lock_state",
+                "__btrc_arc_shutdown_state",
+                "__btrc_arc_active_drains_state",
+                "__btrc_arc_active_unwinds_state",
+                "__btrc_arc_snapshot_state",
+                "__btrc_arc_snapshot_gate_state",
+                "__btrc_arc_abandon_queue_state",
+                "__btrc_arc_topology_state",
+                "__btrc_arc_topology_depth_state",
+                "__btrc_arc_deferred_state",
                 "__btrc_destroyed_tracking",
                 "__btrc_destroyed_capacity",
-            }
-        ),
-        "cycle_suspects": frozenset(
-            {
                 "__btrc_suspect_state",
                 "__btrc_suspect_capacity",
+                "__btrc_arc_reverse_state",
+                "__btrc_cycle_collector_state",
             }
         ),
         "string_registry": frozenset(
@@ -185,16 +206,23 @@ def test_mutable_helper_groups_have_complete_ownership():
     assert expected_groups == SHARED_STATE_HELPER_GROUPS
     assert expected_names == SHARED_STATE_HELPER_NAMES
     assert set(SHARED_STATE_API_ROOTS) == set(expected_groups)
-    assert "__btrc_suspect" in SHARED_STATE_API_ROOTS["cycle_suspects"]
-    assert "__btrc_cycle_state_cleanup" in SHARED_STATE_API_ROOTS["destroyed_log"]
+    assert "__btrc_suspect" in SHARED_STATE_API_ROOTS["arc_runtime"]
+    assert "__btrc_cycle_state_cleanup" in SHARED_STATE_API_ROOTS["arc_runtime"]
+    assert "__btrc_arc_thread_state_cleanup" in SHARED_STATE_API_ROOTS["arc_runtime"]
     assert "__btrc_try_state_cleanup" in SHARED_STATE_API_ROOTS["try_stack"]
 
     state_contracts = (
         (
             TRYCATCH["__btrc_try_level"].c_source
             + TRYCATCH["__btrc_trycatch_globals"].c_source
-            + TRYCATCH["__btrc_try_capacity"].c_source,
-            ("__btrc_try_stack", "__btrc_try_top", "__btrc_try_cap"),
+            + TRYCATCH["__btrc_try_capacity"].c_source
+            + TRYCATCH["__btrc_launder_state"].c_source,
+            (
+                "__btrc_try_stack",
+                "__btrc_try_top",
+                "__btrc_try_cap",
+                "__btrc_launder_slot",
+            ),
         ),
         (
             TRYCATCH["__btrc_cleanup_types"].c_source + TRYCATCH["__btrc_cleanup_capacity"].c_source,
@@ -229,11 +257,38 @@ def test_mutable_helper_groups_have_complete_ownership():
         assert all(symbol in source for symbol in symbols)
 
 
+def test_all_cross_tu_runtime_storage_has_one_explicit_owner_group():
+    runtime_families = (CYCLES, TRYCATCH, STRING_OWNERSHIP)
+    mutable_helpers = set()
+    for helpers in runtime_families:
+        for name, helper in helpers.items():
+            for unit in _split_toplevel_units(helper.c_source):
+                declaration = unit.lstrip()
+                if declaration.startswith("typedef"):
+                    continue
+                if _function_definition_prototype(unit) is not None:
+                    continue
+                if declaration.startswith("static ") and not declaration.startswith("static const "):
+                    mutable_helpers.add(name)
+
+    assert mutable_helpers <= SHARED_STATE_HELPER_NAMES
+    assert {
+        name
+        for name, helper in CYCLES.items()
+        if any(
+            unit.lstrip().startswith("static ")
+            and not unit.lstrip().startswith("static const ")
+            and _function_definition_prototype(unit) is None
+            for unit in _split_toplevel_units(helper.c_source)
+        )
+    } == SHARED_STATE_HELPER_GROUPS["arc_runtime"]
+
+
 @pytest.mark.parametrize(
     ("root", "expected_groups"),
     [
         ("__btrc_try_level", {"try_stack", "cleanup_stack"}),
-        ("__btrc_destroyed_tracking", {"destroyed_log", "cycle_suspects"}),
+        ("__btrc_destroyed_tracking", {"arc_runtime"}),
     ],
 )
 def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expected_groups):
@@ -251,6 +306,44 @@ def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expect
         assert "static " not in declarations[name]
         helper = next(helper for helper in module.helper_decls if helper.name == name)
         assert "static " not in helper.c_source
+
+
+def test_worker_arc_state_finalizer_has_cross_tu_linkage():
+    module = IRModule(helper_decls=helper_decls_for_roots({"__btrc_thread_spawn"}))
+
+    archive_owned, declarations = archive.transform_archive_module(module)
+    cleanup_name = "__btrc_arc_thread_state_cleanup"
+    assert cleanup_name in archive_owned
+    assert "void __btrc_arc_thread_state_finalize(void);" in declarations[cleanup_name]
+    cleanup = next(helper for helper in module.helper_decls if helper.name == cleanup_name)
+    assert cleanup.c_source.startswith("void __btrc_arc_thread_state_finalize(void)")
+    assert "\nvoid __btrc_arc_thread_state_cleanup(void)" in cleanup.c_source
+    spawn = next(helper for helper in module.helper_decls if helper.name == "__btrc_thread_spawn")
+    assert "__btrc_arc_thread_state_finalize();" in spawn.c_source
+
+
+def test_archive_completes_the_thread_handle_lifecycle_api():
+    module = IRModule(helper_decls=helper_decls_for_roots({"__btrc_thread_spawn"}))
+
+    archive_owned, declarations = archive.transform_archive_module(module)
+    helpers = {helper.name for helper in module.helper_decls}
+    lifecycle = ARCHIVE_HELPER_API_GROUPS["thread_handle"]
+
+    assert lifecycle <= helpers
+    assert lifecycle == ARCHIVE_HELPER_API_NAMES
+    assert lifecycle <= set(archive_owned)
+    assert "__btrc_thread_t* __btrc_thread_spawn(" in declarations["__btrc_thread_spawn"]
+    assert "void* __btrc_thread_join(" in declarations["__btrc_thread_join"]
+    assert "void __btrc_thread_free(" in declarations["__btrc_thread_free"]
+    assert "static " not in declarations["__btrc_thread_spawn"]
+    assert "__btrc_thread_guard" not in declarations["__btrc_thread_spawn"]
+    spawn = next(helper for helper in module.helper_decls if helper.name == "__btrc_thread_spawn")
+    assert spawn.c_source.startswith("static int __btrc_thread_guard(")
+    assert "\n__btrc_thread_t* __btrc_thread_spawn(" in spawn.c_source
+    assert {"__btrc_thread_finish", "__btrc_thread_destroy_handle"} <= helpers
+    assert {"__btrc_thread_finish", "__btrc_thread_destroy_handle"}.isdisjoint(archive_owned)
+    assert "__btrc_thread_finish" not in lifecycle
+    assert "__btrc_thread_destroy_handle" not in lifecycle
 
 
 def test_string_registry_declarations_are_derived_without_initializers():

@@ -30,7 +30,7 @@ from ..cycle_metadata import (
     register_cycle_classification,
     register_cycle_visitor,
 )
-from ..destructor_hooks import call_destructor_hook
+from ..destructor_hooks import destructor_hook_name
 from ..parameters import lower_source_param
 from .core import _resolve_type
 from .user_destructors import (
@@ -69,7 +69,7 @@ def emit_generic_lifecycle(
     )
     definitions = [
         _emit_init(gen, mangled, ctor, ctor_params, emitter),
-        _emit_new(gen, mangled, ctor, ctor_params, has_visitor),
+        _emit_new(gen, mangled, ctor, ctor_params),
     ]
     if destructor_hook is not None:
         definitions.append(destructor_hook)
@@ -79,7 +79,6 @@ def emit_generic_lifecycle(
             mangled,
             cls_info,
             type_map,
-            has_destructor_hook=destructor_hook is not None,
         )
     )
     gen.module.function_defs.extend(definitions)
@@ -97,6 +96,7 @@ def emit_generic_lifecycle(
         gen,
         mangled,
         cycle_visitor_symbol(mangled) if has_visitor else None,
+        destructor_hook_name(mangled) if destructor_hook is not None else None,
     )
     return declarations, definitions
 
@@ -146,7 +146,7 @@ def _emit_init(gen, mangled, ctor, ctor_params, emitter) -> IRFunctionDef:
     )
 
 
-def _emit_new(gen, mangled, ctor, ctor_params, has_visitor) -> IRFunctionDef:
+def _emit_new(gen, mangled, ctor, ctor_params) -> IRFunctionDef:
     ctor_args = [IRVar(name=param.name) for param in ctor.params] if ctor else []
     self_declaration = IRVarDecl(
         c_type=CType(text=f"{mangled}*"),
@@ -154,17 +154,17 @@ def _emit_new(gen, mangled, ctor, ctor_params, has_visitor) -> IRFunctionDef:
         init=IRCast(
             target_type=CType(text=f"{mangled}*"),
             expr=IRCall(
-                callee="malloc",
-                args=[IRSizeof(operand=CType(text=mangled))],
+                callee="__btrc_safe_calloc",
+                args=[
+                    IRLiteral(text="1"),
+                    IRSizeof(operand=CType(text=mangled)),
+                ],
+                helper_ref="__btrc_safe_calloc",
             ),
         ),
     )
-    cleanup_before, cleanup_after = constructor_cleanup_guard(
-        gen,
-        self_declaration,
-        f"{mangled}_destroy",
-        cycle_visitor_symbol(mangled) if has_visitor else None,
-    )
+    gen.use_helper("__btrc_safe_calloc")
+    cleanup_before, cleanup_after = constructor_cleanup_guard(gen, self_declaration)
     return IRFunctionDef(
         name=f"{mangled}_new",
         return_type=CType(text=f"{mangled}*"),
@@ -172,16 +172,6 @@ def _emit_new(gen, mangled, ctor, ctor_params, has_visitor) -> IRFunctionDef:
         body=IRBlock(
             stmts=[
                 self_declaration,
-                IRExprStmt(
-                    expr=IRCall(
-                        callee="memset",
-                        args=[
-                            IRVar(name="self"),
-                            IRLiteral(text="0"),
-                            IRSizeof(operand=CType(text=mangled)),
-                        ],
-                    )
-                ),
                 *cleanup_before,
                 IRExprStmt(
                     expr=IRCall(
@@ -202,11 +192,9 @@ def _emit_destroy(
     mangled,
     cls_info,
     type_map,
-    *,
-    has_destructor_hook: bool,
 ) -> IRFunctionDef:
-    body_stmts = [call_destructor_hook(mangled)] if has_destructor_hook else []
-    body_stmts.extend(build_generic_field_release_stmts(cls_info, type_map, gen))
+    field_releases = build_generic_field_release_stmts(cls_info, type_map, gen)
+    body_stmts = list(field_releases)
     body_stmts.insert(
         0,
         IRVarDecl(
@@ -215,6 +203,17 @@ def _emit_destroy(
             init=IRCast(target_type=CType(text=f"{mangled}*"), expr=IRVar(name="object")),
         ),
     )
+    if field_releases:
+        gen.use_helper("__btrc_mark_destroyed")
+        body_stmts.append(
+            IRExprStmt(
+                expr=IRCall(
+                    callee="__btrc_mark_destroyed",
+                    args=[IRVar(name="self")],
+                    helper_ref="__btrc_mark_destroyed",
+                )
+            )
+        )
     body_stmts.append(IRExprStmt(expr=IRCall(callee="free", args=[IRVar(name="self")])))
     return IRFunctionDef(
         name=f"{mangled}_destroy",

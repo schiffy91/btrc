@@ -3,7 +3,8 @@
 Vector<IRNode> irTopologyEpilogue(string token, string marker) {
     Vector<IRNode> output = [];
     Vector<IRNode> completeArguments = [];
-    completeArguments.push(irCast("void**", irAddressOf(irVar(token))));
+    completeArguments.push(irCast(
+        "void* volatile*", irAddressOf(irVar(token))));
     output.push(irExprStmt(irCall(
         "__btrc_arc_topology_complete", completeArguments)));
     if (marker != "") {

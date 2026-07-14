@@ -23,12 +23,6 @@ IRFunction buildDestructorHook(
     }
     hook.body = irBlock(hookBody);
     hook.is_static = true;
+    hook.archive_export = true;
     return hook;
-}
-
-IRNode callDestructorHook(string ownerName) {
-    Vector<IRNode> arguments = [];
-    arguments.push(irVar("self"));
-    return irExprStmt(irCall(
-        destructorHookName(ownerName), arguments));
 }

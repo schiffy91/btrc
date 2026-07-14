@@ -5,7 +5,6 @@ from __future__ import annotations
 from ..nodes import (
     CType,
     IRBlock,
-    IRCall,
     IRCast,
     IRExprStmt,
     IRFunctionDef,
@@ -49,21 +48,11 @@ def build_destructor_hook(
             ]
         ),
         is_static=True,
-    )
-
-
-def call_destructor_hook(owner_name: str) -> IRExprStmt:
-    """Call one hidden hook from its compiler-owned terminal destructor."""
-    return IRExprStmt(
-        expr=IRCall(
-            callee=destructor_hook_name(owner_name),
-            args=[IRVar(name="self")],
-        )
+        archive_export=True,
     )
 
 
 __all__ = [
     "build_destructor_hook",
-    "call_destructor_hook",
     "destructor_hook_name",
 ]

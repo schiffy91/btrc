@@ -6,6 +6,7 @@ from ..nodes import (
     CType,
     IRAddressOf,
     IRCall,
+    IRCast,
     IRCompoundLiteral,
     IRLiteral,
     IRVar,
@@ -77,6 +78,9 @@ def arc_type_descriptor(gen, type_expr):
                     IRVar(name=visitor) if visitor else IRLiteral(text="NULL"),
                 ),
                 ("destroy", IRVar(name=destroy_name(gen, type_expr))),
+                ("hook", IRLiteral(text="NULL")),
+                ("guard", IRLiteral(text="NULL")),
+                ("raise", IRLiteral(text="NULL")),
             ],
         )
     )
@@ -97,6 +101,9 @@ def emitted_type_descriptor(gen, emitted_name: str):
                     IRVar(name=visitor) if visitor else IRLiteral(text="NULL"),
                 ),
                 ("destroy", IRVar(name=f"{emitted_name}_destroy")),
+                ("hook", IRLiteral(text="NULL")),
+                ("guard", IRLiteral(text="NULL")),
+                ("raise", IRLiteral(text="NULL")),
             ],
         )
     )
@@ -130,13 +137,25 @@ def release_edge_if_present(gen, value, type_expr, replacement=None) -> IRCall:
 
 def replace_edge(gen, slot, replacement, type_expr, owner, *, adopt: bool) -> IRCall:
     """Replace one persistent class edge as a single topology transaction."""
+    from .cleanup_slots import ensure_arc_slot_adapter
+    from .lvalues import value_c_type
+    from .types import type_to_c
+
     helper = "__btrc_arc_replace_edge"
+    access = ensure_arc_slot_adapter(
+        gen,
+        CType(text=value_c_type(type_expr, gen.analyzed.class_table, type_to_c)),
+    )
     gen.use_helper(helper)
     return IRCall(
         callee=helper,
         helper_ref=helper,
         args=[
-            IRAddressOf(expr=slot),
+            IRCast(
+                target_type=CType(text="volatile void*"),
+                expr=IRAddressOf(expr=slot),
+            ),
+            IRVar(name=access),
             replacement,
             owner,
             arc_type_descriptor(gen, type_expr),

@@ -63,6 +63,20 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
 
         if isinstance(expression.callee, Identifier):
             name = expression.callee.name
+            if self._gen and name == "Mutex":
+                if len(args) != 1:
+                    from ..errors import CodegenError
+
+                    raise CodegenError("Mutex construction requires one initial value")
+                mutex_type = self._resolve_expr_type(expression)
+                value_type = (
+                    mutex_type.generic_args[0]
+                    if mutex_type is not None and mutex_type.generic_args
+                    else self._resolve_expr_type(expression.args[0])
+                )
+                from ..mutex_values import create_mutex_value
+
+                return create_mutex_value(self._gen, args[0], value_type)
             intrinsic = lower_generic_intrinsic(
                 name,
                 args,

@@ -46,6 +46,16 @@ def build_generic_field_release_stmts(cls_info, type_map, gen):
         # their normal representation pointer elsewhere in the pipeline.
         if resolved is None or resolved.pointer_depth > 1:
             continue
+        from ..mutex_fields import destroy_mutex_field, mutex_value_type
+
+        if mutex_value_type(gen, resolved) is not None:
+            field_expr = IRFieldAccess(
+                obj=IRVar(name="self"),
+                field=field_name,
+                arrow=True,
+            )
+            stmts.append(IRExprStmt(expr=destroy_mutex_field(gen, field_expr)))
+            continue
         from ..managed_values import is_managed_type
 
         if is_managed_type(gen, resolved):

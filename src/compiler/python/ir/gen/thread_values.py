@@ -88,7 +88,7 @@ def thread_result_disposal_args(
     null = IRLiteral(text="NULL")
     zero = IRLiteral(text="0")
     if canonical is None or is_scalar_void(canonical):
-        return [null, zero, null]
+        return [null, zero, null, null]
 
     from .managed_values import is_class_type, is_string_type
 
@@ -97,6 +97,7 @@ def thread_result_disposal_args(
             null,
             zero,
             _disposal_callback(gen, "__btrc_thread_string_dispose"),
+            null,
         ]
     if is_class_type(gen, canonical):
         from .arc_ops import arc_type_descriptor
@@ -105,14 +106,16 @@ def thread_result_disposal_args(
             arc_type_descriptor(gen, canonical),
             IRSizeof(operand=CType(text="__btrc_arc_type")),
             _disposal_callback(gen, "__btrc_thread_arc_dispose"),
+            _disposal_callback(gen, "__btrc_throw"),
         ]
     if _requires_box(gen, canonical):
         return [
             null,
             zero,
             _disposal_callback(gen, "__btrc_thread_box_dispose"),
+            null,
         ]
-    return [null, zero, null]
+    return [null, zero, null, null]
 
 
 def _disposal_callback(gen: IRGenerator, name: str):

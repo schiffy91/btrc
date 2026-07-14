@@ -1,0 +1,131 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int workerCleanupAlive = 0;
+int workerCleanupHooks = 0;
+int workerResultAlive = 0;
+int workerResultHooks = 0;
+bool throwWorkerCleanup = false;
+
+class WorkerCleanupNode {
+    public int id;
+    public WorkerCleanupNode next;
+
+    public WorkerCleanupNode(int id) {
+        self.id = id;
+        self.next = null;
+        workerCleanupAlive++;
+    }
+
+    public void __del__() {
+        workerCleanupAlive--;
+        workerCleanupHooks++;
+        if (throwWorkerCleanup && self.id == 1) {
+            throw "worker cleanup failure";
+        }
+    }
+}
+
+class WorkerCleanupResult {
+    public int value;
+
+    public WorkerCleanupResult(int value) {
+        self.value = value;
+        workerResultAlive++;
+    }
+
+    public void __del__() {
+        workerResultAlive--;
+        workerResultHooks++;
+        if (throwWorkerCleanup) {
+            throw "worker result disposal failure";
+        }
+    }
+}
+
+Thread<int> spawnWorkerWithCapturedCycle(Mutex<int> gate) {
+    WorkerCleanupNode first = new WorkerCleanupNode(1);
+    WorkerCleanupNode second = new WorkerCleanupNode(2);
+    first.next = second;
+    second.next = first;
+    Thread<int> worker = spawn(() => {
+        while (gate.get() == 0) {}
+        return first.id + 72;
+    });
+    return worker;
+}
+
+Thread<WorkerCleanupResult> spawnResultWorkerWithCapturedCycle(
+        Mutex<int> gate) {
+    WorkerCleanupNode first = new WorkerCleanupNode(1);
+    WorkerCleanupNode second = new WorkerCleanupNode(2);
+    first.next = second;
+    second.next = first;
+    Thread<WorkerCleanupResult> worker = spawn(() => {
+        while (gate.get() == 0) {}
+        return new WorkerCleanupResult(first.id + 72);
+    });
+    return worker;
+}
+
+bool catchJoinedWorkerCleanup() {
+    Mutex<int> gate = Mutex(0);
+    Thread<int> worker = spawnWorkerWithCapturedCycle(gate);
+    bool caught = false;
+    try {
+        gate.set(1);
+        int result = worker.join();
+        assert(result == 73);
+    } catch (string error) {
+        caught = error.equals("worker cleanup failure");
+    }
+    gate.destroy();
+    return caught;
+}
+
+bool catchFreedWorkerCleanup() {
+    Mutex<int> gate = Mutex(0);
+    bool caught = false;
+    try {
+        {
+            Thread<WorkerCleanupResult> worker =
+                spawnResultWorkerWithCapturedCycle(gate);
+            gate.set(1);
+        }
+    } catch (string error) {
+        caught = error.equals("worker cleanup failure");
+    }
+    gate.destroy();
+    return caught;
+}
+
+int main() {
+    /* Warm process-lifetime collector and caller try-state allocations before
+     * asserting that worker TLS, the boxed result, and its handle are gone. */
+    assert(!catchJoinedWorkerCleanup());
+    assert(!catchFreedWorkerCleanup());
+    assert(workerCleanupAlive == 0);
+    assert(workerCleanupHooks == 4);
+    assert(workerResultAlive == 0);
+    assert(workerResultHooks == 1);
+
+    throwWorkerCleanup = true;
+    arc_test_allocation_checkpoint();
+    assert(catchJoinedWorkerCleanup());
+    assert(workerCleanupAlive == 0);
+    assert(workerCleanupHooks == 6);
+    assert(arc_test_allocation_delta() == 0);
+
+    arc_test_allocation_checkpoint();
+    assert(catchFreedWorkerCleanup());
+    assert(workerCleanupAlive == 0);
+    assert(workerCleanupHooks == 8);
+    /* The result hook also fails while implicit free reclaims it. The earlier
+     * worker cleanup failure remains primary, and both resources are gone. */
+    assert(workerResultAlive == 0);
+    assert(workerResultHooks == 2);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

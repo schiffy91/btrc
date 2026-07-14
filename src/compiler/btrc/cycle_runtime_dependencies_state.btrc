@@ -1,0 +1,124 @@
+/* Dependency metadata for ARC state, lock, and incoming-edge atoms. */
+
+Vector<string> cycleRuntimeStateDependencies(string name) {
+    Vector<string> out = [];
+    if (name == "__btrc_arc_header_of") {
+        out.push("__btrc_arc_callback_types");
+        return out;
+    }
+    if (name == "__btrc_arc_type_of") {
+        out.push("__btrc_arc_header_of");
+        return out;
+    }
+    if (name == "__btrc_arc_validate") {
+        out.push("__btrc_arc_header_of");
+        return out;
+    }
+    if (name == "__btrc_destroyed_tracking_scope") {
+        out.push("__btrc_destroyed_tracking");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_active_unwinds_state");
+        return out;
+    }
+    if (name == "__btrc_is_destroyed") {
+        out.push("__btrc_destroyed_tracking");
+        out.push("__btrc_arc_mutation_lock");
+        return out;
+    }
+    if (name == "__btrc_mark_destroyed") {
+        out.push("__btrc_destroyed_tracking");
+        out.push("__btrc_destroyed_capacity");
+        out.push("__btrc_safe_realloc");
+        out.push("__btrc_arc_mutation_lock");
+        return out;
+    }
+    if (name == "__btrc_suspect_state") {
+        out.push("__btrc_arc_callback_types");
+        return out;
+    }
+    if (name == "__btrc_suspect_locked") {
+        out.push("__btrc_suspect_state");
+        out.push("__btrc_suspect_capacity");
+        out.push("__btrc_ptr_hash");
+        out.push("__btrc_safe_realloc");
+        out.push("__btrc_arc_type_of");
+        out.push("__btrc_arc_validate");
+        return out;
+    }
+    if (name == "__btrc_suspect") {
+        out.push("__btrc_suspect_locked");
+        out.push("__btrc_arc_mutation_lock");
+        return out;
+    }
+    if (name == "__btrc_arc_mutation_lock") {
+        out.push("__btrc_arc_lock_state");
+        out.push("__btrc_arc_snapshot_state");
+        out.push("__btrc_arc_shutdown_state");
+        return out;
+    }
+    if (name == "__btrc_arc_topology_begin") {
+        out.push("__btrc_arc_lock_state");
+        out.push("__btrc_arc_snapshot_state");
+        out.push("__btrc_arc_snapshot_gate_state");
+        out.push("__btrc_arc_shutdown_state");
+        out.push("__btrc_arc_topology_state");
+        out.push("__btrc_arc_topology_depth_state");
+        return out;
+    }
+    if (name == "__btrc_arc_exclusive_snapshot") {
+        out.push("__btrc_arc_lock_state");
+        out.push("__btrc_arc_snapshot_state");
+        out.push("__btrc_arc_snapshot_gate_state");
+        out.push("__btrc_arc_shutdown_state");
+        out.push("__btrc_arc_topology_state");
+        out.push("__btrc_arc_topology_depth_state");
+        return out;
+    }
+    if (name == "__btrc_arc_topology_leave") {
+        out.push("__btrc_arc_lock_state");
+        out.push("__btrc_arc_shutdown_state");
+        out.push("__btrc_arc_topology_state");
+        out.push("__btrc_arc_topology_depth_state");
+        return out;
+    }
+    if (name == "__btrc_arc_topology_cleanup") {
+        out.push("__btrc_arc_topology_leave");
+        out.push("__btrc_arc_abandon_queue_drain");
+        out.push("__btrc_flush_cycles");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_topology_complete") {
+        out.push("__btrc_arc_topology_leave");
+        out.push("__btrc_arc_abandon_queue_drain");
+        out.push("__btrc_flush_cycles");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_abandon_queue_drain") {
+        out.push("__btrc_arc_abandon_queue_state");
+        return out;
+    }
+    if (name == "__btrc_arc_deferred_state") {
+        out.push("__btrc_arc_callback_types");
+        out.push("__btrc_arc_header_of");
+        return out;
+    }
+    if (name == "__btrc_arc_register_incoming") {
+        out.push("__btrc_arc_header_of");
+        out.push("__btrc_safe_realloc");
+        return out;
+    }
+    if (name == "__btrc_arc_unregister_incoming") {
+        out.push("__btrc_arc_header_of");
+        return out;
+    }
+    if (name == "__btrc_arc_reverse_proves_live") {
+        out.push("__btrc_arc_reverse_state");
+        out.push("__btrc_arc_validate");
+        out.push("__btrc_ptr_hash");
+        out.push("__btrc_safe_realloc");
+        return out;
+    }
+    return out;
+}

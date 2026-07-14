@@ -17,16 +17,39 @@ from src.compiler.python.ir.helpers.trycatch import TRYCATCH
 
 AUDITED = {name: helper for name, helper in (ALLOC | DIVMOD | MATH | TRYCATCH | HASH | CYCLES | THREADS).items()}
 MIRROR = Path("src/compiler/btrc/ir_nodes.btrc")
-TRYCATCH_MIRROR = Path("src/compiler/btrc/trycatch_runtime_helpers.btrc")
-CYCLE_STATE_MIRROR = Path("src/compiler/btrc/cycle_runtime_state.btrc")
-CYCLE_LOCK_MIRROR = Path("src/compiler/btrc/cycle_runtime_lock.btrc")
-CYCLE_RELEASE_MIRROR = Path("src/compiler/btrc/cycle_runtime_release.btrc")
-CYCLE_INCOMING_MIRROR = Path("src/compiler/btrc/cycle_runtime_incoming.btrc")
-CYCLE_COLLECTOR_MIRRORS = (
-    Path("src/compiler/btrc/cycle_runtime_collector_prefix.btrc"),
-    Path("src/compiler/btrc/cycle_runtime_collector_suffix.btrc"),
+TRYCATCH_SOURCE_MIRRORS = tuple(
+    Path(f"src/compiler/btrc/trycatch_runtime_{suffix}.btrc") for suffix in ("state", "cleanup", "control")
 )
-CYCLE_DEPENDENCY_MIRROR = Path("src/compiler/btrc/cycle_runtime_helpers.btrc")
+TRYCATCH_DEPENDENCY_MIRROR = Path("src/compiler/btrc/trycatch_runtime_dependencies.btrc")
+CYCLE_SOURCE_MIRRORS = tuple(
+    Path(f"src/compiler/btrc/cycle_runtime_{suffix}.btrc")
+    for suffix in (
+        "state",
+        "lock",
+        "snapshot",
+        "incoming",
+        "retain",
+        "release",
+        "lifecycle",
+        "collector_prefix",
+        "abandon",
+        "abandon_queue",
+        "collector_suffix",
+        "drain",
+        "boundaries",
+    )
+)
+THREAD_SOURCE_MIRRORS = (
+    Path("src/compiler/btrc/thread_runtime_threads.btrc"),
+    Path("src/compiler/btrc/thread_runtime_mutex_core.btrc"),
+    Path("src/compiler/btrc/thread_runtime_mutex_ops.btrc"),
+    Path("src/compiler/btrc/thread_runtime_mutex_owner.btrc"),
+)
+CYCLE_DEPENDENCY_MIRRORS = (
+    Path("src/compiler/btrc/cycle_runtime_dependencies_state.btrc"),
+    Path("src/compiler/btrc/cycle_runtime_dependencies_lifecycle.btrc"),
+)
+THREAD_DEPENDENCY_MIRROR = Path("src/compiler/btrc/thread_runtime_helpers.btrc")
 
 
 def _self_hosted_sources(source: str) -> dict[str, str]:
@@ -41,19 +64,14 @@ def _self_hosted_sources(source: str) -> dict[str, str]:
     return blocks
 
 
-def _returned_source(source: str) -> str:
-    literals = re.findall(r'"(?:\\.|[^"\\])*"', source)
-    return "".join(ast.literal_eval(item) for item in literals)
-
-
 def _mirrored_sources() -> dict[str, str]:
     mirrored = _self_hosted_sources(MIRROR.read_text())
-    mirrored.update(_self_hosted_sources(TRYCATCH_MIRROR.read_text()))
-    mirrored.update(_self_hosted_sources(CYCLE_STATE_MIRROR.read_text()))
-    mirrored.update(_self_hosted_sources(CYCLE_LOCK_MIRROR.read_text()))
-    mirrored.update(_self_hosted_sources(CYCLE_RELEASE_MIRROR.read_text()))
-    mirrored.update(_self_hosted_sources(CYCLE_INCOMING_MIRROR.read_text()))
-    mirrored["__btrc_collect_cycles"] = "".join(_returned_source(path.read_text()) for path in CYCLE_COLLECTOR_MIRRORS)
+    for path in (
+        *TRYCATCH_SOURCE_MIRRORS,
+        *CYCLE_SOURCE_MIRRORS,
+        *THREAD_SOURCE_MIRRORS,
+    ):
+        mirrored.update(_self_hosted_sources(path.read_text()))
     return mirrored
 
 
@@ -65,9 +83,24 @@ def test_self_hosted_non_string_sources_exactly_match_python_registry():
         assert mirrored[name] == helper.c_source, name
 
 
+def test_split_runtime_families_have_no_legacy_helper_branches():
+    source = MIRROR.read_text()
+    helper_sources = source[source.index("string helperSource") : source.index("Vector<string> helperDeps")]
+    helper_dependencies = source[
+        source.index("Vector<string> helperDeps") : source.index("Vector<string> helperHeaders")
+    ]
+
+    for name in set(CYCLES) | set(TRYCATCH) | set(THREADS):
+        marker = f'if (name == "{name}")'
+        assert marker not in helper_sources, name
+        assert marker not in helper_dependencies, name
+
+
 def test_self_hosted_dependency_edges_cover_checked_runtime_roots():
     source = MIRROR.read_text()
-    cycle_source = CYCLE_DEPENDENCY_MIRROR.read_text()
+    cycle_source = "\n".join(path.read_text() for path in CYCLE_DEPENDENCY_MIRRORS)
+    trycatch_source = TRYCATCH_DEPENDENCY_MIRROR.read_text()
+    thread_source = THREAD_DEPENDENCY_MIRROR.read_text()
     required_edges = {
         "__btrc_math_lcm": "__btrc_math_gcd",
         "__btrc_push_try": "__btrc_safe_realloc",
@@ -78,12 +111,14 @@ def test_self_hosted_dependency_edges_cover_checked_runtime_roots():
         "__btrc_flush_cycles_guarded": "__btrc_flush_cycles",
         "__btrc_run_cleanups": "__btrc_is_destroyed",
         "__btrc_is_destroyed": "__btrc_destroyed_tracking",
-        "__btrc_collect_cycles": "__btrc_suspect_state",
+        "__btrc_collect_cycles": "__btrc_arc_drain",
+        "__btrc_collect_cycles_once": "__btrc_suspect_state",
         "__btrc_arc_header_of": "__btrc_arc_callback_types",
         "__btrc_arc_type_of": "__btrc_arc_header_of",
         "__btrc_arc_validate": "__btrc_arc_header_of",
-        "__btrc_arc_deferred_state": "__btrc_arc_lock_state",
+        "__btrc_arc_deferred_state": "__btrc_arc_header_of",
         "__btrc_arc_mutation_lock": "__btrc_arc_snapshot_state",
+        "__btrc_arc_exclusive_snapshot": "__btrc_arc_snapshot_gate_state",
         "__btrc_arc_topology_begin": "__btrc_arc_topology_state",
         "__btrc_arc_topology_leave": "__btrc_arc_topology_depth_state",
         "__btrc_arc_topology_cleanup": "__btrc_arc_topology_leave",
@@ -100,6 +135,7 @@ def test_self_hosted_dependency_edges_cover_checked_runtime_roots():
         "__btrc_arc_replace_edge": "__btrc_arc_release_impl",
         "__btrc_arc_release_acyclic": "__btrc_arc_validate",
         "__btrc_cycle_state_cleanup": "__btrc_flush_cycles",
+        "__btrc_arc_thread_state_cleanup": "__btrc_arc_abandon_queue_drain",
         "__btrc_thread_spawn": "__btrc_try_state_cleanup",
         "__btrc_thread_finish": "__btrc_thread_spawn",
         "__btrc_thread_destroy_handle": "__btrc_thread_spawn",
@@ -117,7 +153,11 @@ def test_self_hosted_dependency_edges_cover_checked_runtime_roots():
 
     for helper, dependency in required_edges.items():
         if helper in CYCLES:
-            dependency_source = cycle_source[cycle_source.index("cycleRuntimeHelperDependencies") :]
+            dependency_source = cycle_source
+        elif helper in TRYCATCH:
+            dependency_source = trycatch_source
+        elif helper in THREADS:
+            dependency_source = thread_source[thread_source.index("threadRuntimeHelperDependencies") :]
         else:
             dependency_source = source[source.index("helperDeps") :]
         marker = f'if (name == "{helper}")'
@@ -189,36 +229,42 @@ def test_self_hosted_order_keeps_tls_cleanup_before_thread_wrappers():
         "__btrc_arc_header_of",
         "__btrc_arc_type_of",
         "__btrc_arc_validate",
+        "__btrc_destroyed_tracking",
         "__btrc_arc_lock_state",
         "__btrc_arc_snapshot_state",
+        "__btrc_arc_snapshot_gate_state",
         "__btrc_arc_mutation_lock",
+        "__btrc_is_destroyed",
         "__btrc_arc_topology_state",
         "__btrc_arc_topology_depth_state",
         "__btrc_arc_topology_begin",
         "__btrc_arc_topology_leave",
-        "__btrc_arc_topology_cleanup",
         "__btrc_arc_deferred_state",
-        "__btrc_destroyed_tracking",
-        "__btrc_is_destroyed",
+        "__btrc_arc_unregister_incoming",
+        "__btrc_flush_cycles",
+        "__btrc_arc_topology_cleanup",
+        "__btrc_arc_topology_complete",
         "__btrc_arc_reverse_state",
         "__btrc_arc_register_incoming",
-        "__btrc_arc_unregister_incoming",
         "__btrc_arc_reverse_proves_live",
         "__btrc_collect_cycles",
-        "__btrc_flush_cycles",
-        "__btrc_arc_topology_complete",
         "__btrc_cycle_state_cleanup",
         "__btrc_cleanup_types",
         "__btrc_run_cleanup_guarded",
         "__btrc_flush_cycles_guarded",
         "__btrc_run_cleanups",
         "__btrc_try_state_cleanup",
-        "__btrc_thread_spawn",
-        "__btrc_thread_join",
     )
     positions = [source.index(f'order.push("{name}")') for name in ordered]
 
     assert positions == sorted(positions)
+    thread_source = THREAD_DEPENDENCY_MIRROR.read_text()
+    thread_order = ("__btrc_thread_spawn", "__btrc_thread_join")
+    thread_positions = [thread_source.index(f'order.push("{name}")') for name in thread_order]
+    assert thread_positions == sorted(thread_positions)
+    assert source.index('order.push("__btrc_try_state_cleanup")') < source.index(
+        "appendThreadRuntimeHelperOrder(order)"
+    )
 
 
 def test_collection_templates_guard_null_containers_and_callbacks():

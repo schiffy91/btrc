@@ -65,14 +65,24 @@ def test_spawn_is_an_ordinary_call_with_structured_dynamic_entry():
 
     [spawn] = _spawn_calls(module)
     assert spawn.helper_ref == "__btrc_thread_spawn"
-    entry, capture, context, context_size, disposer = spawn.args
+    (
+        entry,
+        capture,
+        arg_disposer,
+        context,
+        context_size,
+        disposer,
+        result_raise,
+    ) = spawn.args
     assert isinstance(entry, IRCast)
     assert entry.target_type.text == "void*(*)(void*)"
     assert isinstance(entry.expr, IRTernary)
     assert capture == IRLiteral(text="NULL")
+    assert arg_disposer == IRLiteral(text="NULL")
     assert context == IRLiteral(text="NULL")
     assert context_size == IRLiteral(text="0")
     assert disposer == IRLiteral(text="NULL")
+    assert result_raise == IRLiteral(text="NULL")
 
 
 def test_spawn_call_drives_helper_and_wrapper_reachability():
@@ -91,8 +101,13 @@ def test_spawn_call_drives_helper_and_wrapper_reachability():
     helpers = {helper.name for helper in module.helper_decls}
     assert "__btrc_thread_spawn" in helpers
     assert "__btrc_launder_state" in helpers
-    assert "__btrc_suspect_state" not in helpers
-    assert "__btrc_suspect" not in helpers
+    # Every worker has a final ARC drain, even when this particular lambda
+    # captures no managed value. Cleanup failures are guarded in the worker
+    # and transferred through the generic caller-thread raise callback.
+    assert "__btrc_arc_thread_state_cleanup" in helpers
+    assert "__btrc_arc_guard_hook" in helpers
+    assert "__btrc_throw" in helpers
+    assert "__btrc_suspect_state" in helpers
     assert "__btrc_launder" not in helpers
 
 

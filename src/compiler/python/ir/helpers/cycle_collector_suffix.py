@@ -1,14 +1,17 @@
 """Snapshot, liveness, and reclaim half of the cycle-collector C runtime."""
 
 CYCLE_COLLECTOR_SUFFIX = r"""static void __btrc_cycle_snapshot_edge(
-        void** field, const __btrc_arc_type* type, void* opaque) {
+        volatile void* slot_storage, __btrc_arc_slot_access_fn access,
+        const __btrc_arc_type* type, void* opaque) {
     __btrc_cycle_context* context = (__btrc_cycle_context*)opaque;
-    if (!field || !*field) return;
-    if (__btrc_cycle_find_slot(context, field) >= 0) return;
+    if (!slot_storage || !access) return;
+    void* object = access(slot_storage, NULL, NULL, 0);
+    if (!object) return;
+    if (__btrc_cycle_find_slot(context, slot_storage) >= 0) return;
     if (context->slot_cap == 0
             || context->edge_count >= context->slot_cap / 2)
         __btrc_cycle_grow_slots(context);
-    int target = __btrc_cycle_add_object(context, *field, type);
+    int target = __btrc_cycle_add_object(context, object, type);
     if (context->vertices[target].internal == INT_MAX)
         __btrc_cycle_fail("cycle incoming-edge overflow");
     context->vertices[target].internal++;
@@ -28,26 +31,16 @@ CYCLE_COLLECTOR_SUFFIX = r"""static void __btrc_cycle_snapshot_edge(
     __btrc_cycle_reserve_edges(context, context->edge_count + 1);
     int edge = context->edge_count++;
     context->edges[edge] = (__btrc_cycle_edge){
-        field, context->source, target,
+        slot_storage, access, context->source, target,
         context->vertices[context->source].first_edge};
     context->vertices[context->source].first_edge = edge;
-    size_t slot = __btrc_ptr_hash(field)
+    size_t slot = __btrc_ptr_hash((const void*)slot_storage)
         & ((size_t)context->slot_cap - 1);
     while (context->slot_marks[slot] == context->slot_epoch)
         slot = (slot + 1) & ((size_t)context->slot_cap - 1);
     context->slot_marks[slot] = context->slot_epoch;
-    context->slot_keys[slot] = field;
+    context->slot_keys[slot] = slot_storage;
     context->slot_values[slot] = edge;
-}
-static void __btrc_cycle_reset_context(__btrc_cycle_context* context) {
-    context->vertex_count = 0;
-    context->edge_count = 0;
-    context->source = -1;
-    context->queue_count = 0;
-    __btrc_cycle_next_epoch(&context->object_epoch,
-        context->object_marks, context->object_cap);
-    __btrc_cycle_next_epoch(&context->slot_epoch,
-        context->slot_marks, context->slot_cap);
 }
 static void __btrc_cycle_snapshot(__btrc_cycle_context* context) {
     int seeds = __btrc_suspect_count;
@@ -58,7 +51,9 @@ static void __btrc_cycle_snapshot(__btrc_cycle_context* context) {
         __btrc_arc_header* header = __btrc_arc_header_of(object);
         if (header->rc > header->edge_rc) continue;
         __btrc_arc_type fallback = {
-            __btrc_visit_table[i], __btrc_destroy_table[i]};
+            .visit = __btrc_visit_table[i],
+            .destroy = __btrc_destroy_table[i],
+            .hook = NULL, .guard = NULL, .raise = NULL};
         int root = __btrc_cycle_add_object(context, object, &fallback);
         if (context->vertices[root].state == 0) {
             context->vertices[root].state = 3;
@@ -132,19 +127,21 @@ static void __btrc_cycle_reclaim(__btrc_cycle_context* context) {
     for (int i = 0; i < context->edge_count; i++) {
         __btrc_cycle_edge* edge = &context->edges[i];
         if (context->vertices[edge->source].live) continue;
-        if (*edge->slot != context->vertices[edge->target].object)
+        void* target_object = context->vertices[edge->target].object;
+        if (edge->access(edge->slot_storage,
+                target_object, NULL, 1) != target_object)
             __btrc_cycle_fail("managed graph changed during cycle collection");
         __btrc_arc_unregister_incoming(
             context->vertices[edge->target].object,
             context->vertices[edge->source].object);
-        *edge->slot = NULL;
         __btrc_arc_header* target = __btrc_arc_header_of(
             context->vertices[edge->target].object);
         if (target->rc <= 0 || target->edge_rc <= 0)
             __btrc_cycle_fail("managed edge count underflow");
         target->rc--;
         target->edge_rc--;
-        __btrc_arc_validate(context->vertices[edge->target].object);
+        if (target->rc > 0)
+            __btrc_arc_validate(context->vertices[edge->target].object);
     }
     for (int i = 0; i < context->vertex_count; i++) {
         __btrc_cycle_vertex* vertex = &context->vertices[i];
@@ -152,20 +149,40 @@ static void __btrc_cycle_reclaim(__btrc_cycle_context* context) {
         __btrc_arc_header* header = __btrc_arc_header_of(vertex->object);
         if (header->rc != 0 || header->edge_rc != 0)
             __btrc_cycle_fail("dead cycle retained an owned reference");
-        __btrc_arc_defer_destroy_locked(
-            vertex->object, vertex->destroy);
+        if (header->incoming != NULL)
+            __btrc_cycle_fail("dead cycle retained an incoming owner");
+        __btrc_forget_suspect(vertex->object);
+        __btrc_arc_enqueue_locked(vertex->object);
     }
 }
-static void __btrc_collect_cycles(void) {
+static int __btrc_collect_cycles_once(void) {
     __btrc_arc_lock_raw();
-    if (__btrc_collecting || __btrc_suspect_count == 0) {
+    if (__btrc_arc_shutdown) {
         __btrc_arc_unlock_raw();
-        return;
+        fprintf(stderr, "btrc: ARC operation after shutdown\n");
+        exit(1);
+    }
+    if (__btrc_suspect_count == 0) {
+        __btrc_arc_unlock_raw();
+        return 0;
+    }
+    if (__btrc_collecting) {
+        __btrc_arc_topology_flush_pending = 1;
+        __btrc_arc_unlock_raw();
+        return 2;
+    }
+    if (atomic_load_explicit(
+                &__btrc_arc_snapshot_pending, memory_order_acquire)
+            || atomic_load_explicit(
+                &__btrc_arc_snapshotting, memory_order_acquire)) {
+        __btrc_arc_topology_flush_pending = 1;
+        __btrc_arc_unlock_raw();
+        return 2;
     }
     if (__btrc_arc_topology_active > 0) {
         __btrc_arc_topology_flush_pending = 1;
         __btrc_arc_unlock_raw();
-        return;
+        return 2;
     }
     __btrc_collecting = 1;
     __btrc_arc_topology_flush_pending = 0;
@@ -184,7 +201,7 @@ static void __btrc_collect_cycles(void) {
     atomic_store_explicit(
         &__btrc_arc_snapshotting, 0, memory_order_release);
     __btrc_arc_unlock_raw();
-    __btrc_arc_drain_deferred();
+    return 1;
 }
 """
 

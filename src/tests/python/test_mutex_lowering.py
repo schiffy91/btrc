@@ -72,7 +72,8 @@ def test_mutex_destroy_consumes_an_addressable_handle():
     """)
 
     destroy = next(
-        line for line in generated.splitlines() if "__btrc_mutex_val_destroy(" in line and "static void" not in line
+        line
+        for line in generated.splitlines()
+        if "__btrc_mutex_val_destroy(" in line and "__btrc_mutex_val_take(" in line
     )
-    assert "__btrc_mutex_val_t* volatile* __btrc_mutex_slot" in generated
-    assert "= NULL" in destroy
+    assert "__btrc_mutex_val_take((&value))" in destroy

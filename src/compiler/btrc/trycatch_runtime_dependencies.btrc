@@ -1,0 +1,59 @@
+/* Canonical dependency metadata for the split try/catch runtime. */
+
+Vector<string> trycatchRuntimeHelperDependencies(string name) {
+    Vector<string> out = [];
+    if (name == "__btrc_trycatch_globals") {
+        out.push("__btrc_try_level");
+    } else if (name == "__btrc_launder") {
+        out.push("__btrc_launder_state");
+    } else if (name == "__btrc_push_try") {
+        out.push("__btrc_trycatch_globals");
+        out.push("__btrc_try_capacity");
+        out.push("__btrc_safe_realloc");
+    } else if (name == "__btrc_cleanup_types") {
+        out.push("__btrc_try_level");
+        out.push("__btrc_arc_callback_types");
+    } else if (name == "__btrc_register_cleanup_kind") {
+        out.push("__btrc_cleanup_types");
+        out.push("__btrc_cleanup_capacity");
+        out.push("__btrc_safe_realloc");
+    } else if (name == "__btrc_register_cleanup") {
+        out.push("__btrc_register_cleanup_kind");
+    } else if (name == "__btrc_register_direct_cleanup") {
+        out.push("__btrc_register_cleanup_kind");
+    } else if (name == "__btrc_run_cleanup_guarded") {
+        out.push("__btrc_cleanup_types");
+        out.push("__btrc_push_try");
+        out.push("__btrc_arc_release");
+        out.push("__btrc_arc_release_acyclic");
+    } else if (name == "__btrc_arc_guard_hook") {
+        out.push("__btrc_arc_callback_types");
+        out.push("__btrc_push_try");
+    } else if (name == "__btrc_raise_captured") {
+        out.push("__btrc_arc_callback_types");
+    } else if (name == "__btrc_flush_cycles_guarded") {
+        out.push("__btrc_push_try");
+        out.push("__btrc_flush_cycles");
+    } else if (name == "__btrc_run_cleanups") {
+        out.push("__btrc_cleanup_types");
+        out.push("__btrc_safe_realloc");
+        out.push("__btrc_destroyed_tracking_scope");
+        out.push("__btrc_is_destroyed");
+        out.push("__btrc_run_cleanup_guarded");
+        out.push("__btrc_flush_cycles_guarded");
+    } else if (name == "__btrc_discard_cleanups"
+            || name == "__btrc_cleanup_mark"
+            || name == "__btrc_discard_cleanups_to") {
+        out.push("__btrc_cleanup_types");
+    } else if (name == "__btrc_throw") {
+        out.push("__btrc_trycatch_globals");
+        out.push("__btrc_run_cleanups");
+    } else if (name == "__btrc_try_state_cleanup") {
+        out.push("__btrc_trycatch_globals");
+        out.push("__btrc_try_capacity");
+        out.push("__btrc_cleanup_types");
+        out.push("__btrc_cleanup_capacity");
+        out.push("__btrc_launder_state");
+    }
+    return out;
+}

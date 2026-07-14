@@ -87,6 +87,10 @@ def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     if managed_local is not None:
         return managed_local
 
+    mutex_field = _lower_mutex_field_assignment(gen, node)
+    if mutex_field is not None:
+        return mutex_field
+
     from .field_arc import lower_managed_field_assignment
 
     managed_field = lower_managed_field_assignment(gen, node)
@@ -100,6 +104,51 @@ def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     from .updates import generator_update_context, lower_assignment
 
     return lower_assignment(generator_update_context(gen), node)
+
+
+def _lower_mutex_field_assignment(gen: IRGenerator, node: AssignExpr):
+    """Route direct class Mutex fields through owner-aware replacement."""
+    from ...ast_nodes import FieldAccessExpr, SelfExpr
+
+    if not isinstance(node.target, FieldAccessExpr):
+        return None
+    receiver_type = gen.analyzed.node_types.get(id(node.target.obj))
+    if receiver_type is None or receiver_type.base not in gen.analyzed.class_table:
+        return None
+    class_info = gen.analyzed.class_table[receiver_type.base]
+    field_name = node.target.field
+    field = class_info.fields.get(field_name)
+    backing_property = bool(
+        field is None and isinstance(node.target.obj, SelfExpr) and gen.current_property_backing == field_name
+    )
+    prop = class_info.properties.get(field_name) if backing_property else None
+    if field is None and prop is None:
+        return None
+    field_type = gen.analyzed.node_types.get(id(node.target)) or (field.type if field is not None else prop.type)
+    from .mutex_fields import lower_mutex_field_store, mutex_value_type
+
+    if mutex_value_type(gen, field_type) is None:
+        return None
+    from .expressions import lower_expr
+    from .types import type_to_c
+    from .updates import _lower_assignment_value
+
+    return lower_mutex_field_store(
+        gen,
+        node,
+        receiver_type=receiver_type,
+        field_type=field_type,
+        field_name=f"_prop_{field_name}" if backing_property else field_name,
+        lower_expr=lambda expression: lower_expr(gen, expression),
+        lower_value=lambda target_type, value: _lower_assignment_value(
+            gen,
+            target_type,
+            value,
+        ),
+        c_type=type_to_c,
+        fresh_temp=gen.fresh_temp,
+        record_decl=gen._func_var_decls.append,
+    )
 
 
 def _lower_gpu_assignment(gen: IRGenerator, node: AssignExpr):

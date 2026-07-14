@@ -27,10 +27,18 @@ void appendArcHeaderInitialization(
         irAddressOf(irVar(arcDescriptorSymbol(emittedName)))));
     output.push(irAssign(
         arcHeaderMember(irVar("self"), "incoming"), irLiteral("NULL")));
+    output.push(irAssign(
+        arcHeaderMember(irVar("self"), "deferred_next"), irLiteral("NULL")));
+    output.push(irAssign(
+        arcHeaderMember(irVar("self"), "suppress_hook"), irLiteral("0")));
+    /* Publish LIVE only after every other header member is initialized. */
+    output.push(irAssign(
+        arcHeaderMember(irVar("self"), "state"),
+        irVar("__BTRC_ARC_LIVE")));
 }
 
 void emitArcDescriptor(IRGen generator, IRModule module,
-        string emittedName, bool hasVisitor) {
+        string emittedName, bool hasVisitor, bool hasHook) {
     generator.useHelper("__btrc_arc_callback_types");
     IRGlobalDecl descriptor = IRGlobalDecl(
         "const __btrc_arc_type", arcDescriptorSymbol(emittedName));
@@ -41,6 +49,27 @@ void emitArcDescriptor(IRGen generator, IRModule module,
         values.push(irLiteral("NULL"));
     }
     values.push(irVar(emittedName + "_destroy"));
+    if (hasHook) {
+        string hookName = destructorHookName(emittedName);
+        generator.useHelper("__btrc_arc_guard_hook");
+        generator.useHelper("__btrc_throw");
+        values.push(irVar(hookName));
+        values.push(irVar("__btrc_arc_guard_hook"));
+        values.push(irVar("__btrc_throw"));
+        IRFunctionDecl hookDeclaration = IRFunctionDecl(
+            hookName, "void", true);
+        hookDeclaration.params.push(IRParam("void*", "object"));
+        module.function_decls.push(hookDeclaration);
+    } else {
+        values.push(irLiteral("NULL"));
+        values.push(irLiteral("NULL"));
+        if (generator.programHasExceptions) {
+            generator.useHelper("__btrc_throw");
+            values.push(irVar("__btrc_throw"));
+        } else {
+            values.push(irLiteral("NULL"));
+        }
+    }
     descriptor.init = irInitializerList(values);
     module.global_decls.push(descriptor);
 }

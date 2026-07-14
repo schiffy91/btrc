@@ -1,3 +1,5 @@
+/* Generated-equivalent runtime text kept in parity with the Python compiler. */
+
 string cycleRuntimeIncomingSource(string name) {
     if (name == "__btrc_arc_reverse_state") {
         return "/* Scratch state for exact reverse-root classification. */\n"
@@ -7,7 +9,8 @@ string cycleRuntimeIncomingSource(string name) {
             + "static unsigned int* __btrc_reverse_marks = NULL;\n"
             + "static int __btrc_reverse_key_cap = 0;\n"
             + "static int __btrc_reverse_count = 0;\n"
-            + "static unsigned int __btrc_reverse_epoch = 0;";
+            + "static unsigned int __btrc_reverse_epoch = 0;"
+            ;
     }
     if (name == "__btrc_arc_register_incoming") {
         return "static void __btrc_arc_register_incoming(\n"
@@ -22,7 +25,8 @@ string cycleRuntimeIncomingSource(string name) {
             + "    incoming->next = __btrc_arc_header_of(object)->incoming;\n"
             + "    __btrc_arc_header_of(object)->incoming = incoming;\n"
             + "    if (owner != object) __btrc_arc_header_of(object)->live_witness = owner;\n"
-            + "}";
+            + "}"
+            ;
     }
     if (name == "__btrc_arc_unregister_incoming") {
         return "static void __btrc_arc_unregister_incoming(\n"
@@ -51,7 +55,8 @@ string cycleRuntimeIncomingSource(string name) {
             + "            }\n"
             + "        }\n"
             + "    }\n"
-            + "}";
+            + "}"
+            ;
     }
     if (name == "__btrc_arc_reverse_proves_live") {
         return "static void __btrc_reverse_reserve_queue(int needed) {\n"
@@ -132,7 +137,8 @@ string cycleRuntimeIncomingSource(string name) {
             + "            __btrc_reverse_add(edge->owner);\n"
             + "    }\n"
             + "    return 0;\n"
-            + "}";
+            + "}"
+            ;
     }
     return "";
 }

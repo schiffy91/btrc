@@ -160,6 +160,27 @@ def test_mutex_contracts_have_strict_compiler_parity(
         _strict_matrix(artifact, tmp_path)
 
 
+def test_managed_mutex_callbacks_are_strict_aliasing_clean(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    compiled = _compile_pair(
+        semantic_btrcc,
+        tmp_path,
+        MANAGED_RUNTIME.read_text(),
+        "mutex-managed-strict-aliasing",
+    )
+    for compiler_name, generated in compiled:
+        for compiler in COMPILERS:
+            output = tmp_path / f"{compiler_name}-{Path(compiler).name}-strict-aliasing"
+            _build_and_run(
+                generated,
+                output,
+                compiler,
+                ("-O3", "-fstrict-aliasing"),
+            )
+
+
 @pytest.mark.parametrize(
     "fixture,name",
     [

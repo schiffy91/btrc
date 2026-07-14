@@ -1,0 +1,83 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int mutexSetAlive = 0;
+int mutexSetDestroyed = 0;
+bool throwFromMutexSetCycle = false;
+
+class MutexSetCycleNode {
+    public int id;
+    public MutexSetCycleNode next;
+
+    public MutexSetCycleNode(int id) {
+        self.id = id;
+        self.next = null;
+        mutexSetAlive++;
+    }
+
+    public void __del__() {
+        mutexSetAlive--;
+        mutexSetDestroyed++;
+        if (throwFromMutexSetCycle && self.id == 1) {
+            throw "first mutex set failure";
+        }
+        if (throwFromMutexSetCycle && self.id == 2) {
+            throw "second mutex set failure";
+        }
+    }
+}
+
+MutexSetCycleNode makeMutexSetCycle() {
+    MutexSetCycleNode first = new MutexSetCycleNode(1);
+    MutexSetCycleNode second = new MutexSetCycleNode(2);
+    first.next = second;
+    second.next = first;
+    return first;
+}
+
+bool replaceMutexSetCycle(bool shouldThrow) {
+    int destroyedBefore = mutexSetDestroyed;
+    throwFromMutexSetCycle = shouldThrow;
+
+    MutexSetCycleNode root = makeMutexSetCycle();
+    Mutex<MutexSetCycleNode> owner = Mutex(root);
+    release root;
+    MutexSetCycleNode replacement = new MutexSetCycleNode(9);
+
+    bool caughtFirst = false;
+    try {
+        owner.set(replacement);
+    } catch (string error) {
+        caughtFirst = error.equals("first mutex set failure");
+    }
+
+    /* set() commits the replacement, then synchronously forces the old SCC.
+     * Every old hook runs, while the first callback error is rethrown only
+     * after the old value box and cycle have completed teardown. */
+    assert(caughtFirst == shouldThrow);
+    assert(mutexSetAlive == 1);
+    assert(mutexSetDestroyed == destroyedBefore + 2);
+
+    MutexSetCycleNode snapshot = owner.get();
+    assert(snapshot.id == 9);
+    release snapshot;
+    release replacement;
+    throwFromMutexSetCycle = false;
+    owner.destroy();
+    assert(mutexSetAlive == 0);
+    assert(mutexSetDestroyed == destroyedBefore + 3);
+    return caughtFirst;
+}
+
+int main() {
+    assert(!replaceMutexSetCycle(false));
+    assert(mutexSetDestroyed == 3);
+
+    arc_test_allocation_checkpoint();
+    assert(replaceMutexSetCycle(true));
+    assert(mutexSetDestroyed == 6);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

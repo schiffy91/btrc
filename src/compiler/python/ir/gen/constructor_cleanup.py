@@ -6,24 +6,22 @@ from ..nodes import (
     CType,
     IRCall,
     IRExprStmt,
-    IRLiteral,
     IRVar,
     IRVarDecl,
 )
-from .feature_scan import uses_trycatch
+from .feature_scan import program_uses_trycatch
 
 
 def constructor_cleanup_guard(
     gen,
     self_declaration: IRVarDecl,
-    target_destroy_name: str,
-    visit_name: str | None = None,
 ):
     """Return registration/discard statements around a throwing init call."""
-    if not _program_uses_exceptions(gen):
+    if not program_uses_exceptions(gen):
         return [], []
     gen.use_helper("__btrc_cleanup_mark")
     gen.use_helper("__btrc_discard_cleanups_to")
+    gen.use_helper("__btrc_arc_abandon")
     from .cleanup_slots import register_cleanup_slot
 
     mark = gen.fresh_temp("__btrc_constructor_cleanup")
@@ -41,8 +39,8 @@ def constructor_cleanup_guard(
             expr=register_cleanup_slot(
                 gen,
                 self_declaration,
-                IRVar(name=target_destroy_name),
-                visitor=IRVar(name=visit_name) if visit_name is not None else IRLiteral(text="NULL"),
+                IRVar(name="__btrc_arc_abandon"),
+                direct=True,
             )
         ),
     ]
@@ -58,18 +56,12 @@ def constructor_cleanup_guard(
     return before, after
 
 
-def _program_uses_exceptions(gen) -> bool:
-    # A freestanding translation unit cannot assume a TLS runtime. Explicit
-    # try/catch lowering remains authoritative when the source requests it;
-    # constructor wrappers must not pull hosted cleanup state merely because
-    # the appended stdlib contains exception syntax elsewhere.
-    if gen.freestanding:
-        return False
-    cached = getattr(gen, "_program_uses_exceptions", None)
-    if cached is None:
-        cached = any(uses_trycatch(declaration) for declaration in gen.analyzed.program.declarations)
-        gen._program_uses_exceptions = cached
-    return cached
+def program_uses_exceptions(gen) -> bool:
+    """Return the module-wide ownership contract for throwing constructors."""
+    cached = getattr(gen, "program_has_exceptions", None)
+    if cached is not None:
+        return bool(cached)
+    return program_uses_trycatch(gen.analyzed.program)
 
 
-__all__ = ["constructor_cleanup_guard"]
+__all__ = ["constructor_cleanup_guard", "program_uses_exceptions"]

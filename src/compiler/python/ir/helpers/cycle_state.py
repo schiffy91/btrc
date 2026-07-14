@@ -8,6 +8,11 @@ ARC_STATE_HELPERS = {
 typedef int __btrc_arc_count;
 typedef struct __btrc_arc_type __btrc_arc_type;
 typedef struct __btrc_arc_incoming __btrc_arc_incoming;
+typedef enum {
+    __BTRC_ARC_LIVE = 1,
+    __BTRC_ARC_QUEUED = 2,
+    __BTRC_ARC_DESTROYING = 3
+} __btrc_arc_state;
 typedef struct __btrc_arc_header {
     __btrc_arc_count rc;
     __btrc_arc_count edge_rc;
@@ -15,19 +20,32 @@ typedef struct __btrc_arc_header {
     void* live_witness;
     const __btrc_arc_type* type;
     __btrc_arc_incoming* incoming;
+    void* deferred_next;
+    unsigned char suppress_hook;
+    __btrc_arc_state state;
 } __btrc_arc_header;
 struct __btrc_arc_incoming {
     void* owner;
     __btrc_arc_incoming* next;
 };
 typedef void (*__btrc_destroy_fn)(void*);
+typedef void* (*__btrc_arc_slot_access_fn)(
+    volatile void*, void*, void*, int);
 typedef void (*__btrc_field_visit_fn)(
-    void**, const __btrc_arc_type*, void*);
+    volatile void*, __btrc_arc_slot_access_fn,
+    const __btrc_arc_type*, void*);
 typedef void (*__btrc_visit_fn)(
     void*, __btrc_field_visit_fn, void*);
+typedef void (*__btrc_hook_fn)(void*);
+typedef int (*__btrc_hook_guard_fn)(
+    __btrc_hook_fn, void*, char*, size_t);
+typedef void (*__btrc_raise_fn)(const char*);
 struct __btrc_arc_type {
     __btrc_visit_fn visit;
     __btrc_destroy_fn destroy;
+    __btrc_hook_fn hook;
+    __btrc_hook_guard_fn guard;
+    __btrc_raise_fn raise;
 };""",
     ),
     "__btrc_arc_header_of": HelperDef(
@@ -49,9 +67,21 @@ struct __btrc_arc_type {
         c_source=r"""static inline void __btrc_arc_validate(void* object) {
     if (!object) return;
     __btrc_arc_header* header = __btrc_arc_header_of(object);
-    if (header->rc < 0 || header->edge_rc < 0
-            || header->edge_rc > header->rc || !header->type
-            || !header->type->destroy) {
+    int live = header->state == __BTRC_ARC_LIVE
+        && header->rc > 0 && header->edge_rc >= 0
+        && header->edge_rc <= header->rc
+        && header->deferred_next == NULL && !header->suppress_hook;
+    int queued = header->state == __BTRC_ARC_QUEUED
+        && header->rc == 0 && header->edge_rc == 0
+        && header->live_witness == NULL && header->incoming == NULL;
+    int destroying = header->state == __BTRC_ARC_DESTROYING
+        && header->rc == 0 && header->edge_rc == 0
+        && header->live_witness == NULL && header->incoming == NULL
+        && header->deferred_next == NULL && !header->suppress_hook;
+    if ((!live && !queued && !destroying) || !header->type
+            || !header->type->destroy
+            || (header->type->hook
+                && (!header->type->guard || !header->type->raise))) {
         fprintf(stderr, "btrc: invalid ARC header\n");
         exit(1);
     }
@@ -61,43 +91,53 @@ struct __btrc_arc_type {
     "__btrc_destroyed_tracking": HelperDef(
         c_source=(
             "/* ARC cascade-destroy tracking: avoid reading freed memory */\n"
-            "static _Atomic int __btrc_tracking = 0;\n"
-            "static void** __btrc_destroyed = NULL;\n"
-            "static int __btrc_destroyed_count = 0;"
+            "static _Thread_local int __btrc_tracking = 0;\n"
+            "static _Thread_local void** __btrc_destroyed = NULL;\n"
+            "static _Thread_local int __btrc_destroyed_count = 0;"
         ),
-        required_headers=["stdatomic.h"],
     ),
     "__btrc_destroyed_tracking_scope": HelperDef(
         c_source=r"""static void __btrc_destroyed_tracking_begin(void) {
     __btrc_arc_lock_mutation();
-    int active = atomic_load_explicit(
-        &__btrc_tracking, memory_order_relaxed);
-    if (active == 0) __btrc_destroyed_count = 0;
+    int active = __btrc_tracking;
+    if (active == 0) {
+        __btrc_destroyed_count = 0;
+        if (__btrc_arc_active_unwinds == INT_MAX) {
+            fprintf(stderr, "btrc: active unwind count overflow\n");
+            exit(1);
+        }
+        __btrc_arc_active_unwinds++;
+    }
     if (active == INT_MAX) {
         fprintf(stderr, "btrc: destroyed tracking depth overflow\n");
         exit(1);
     }
-    atomic_store_explicit(
-        &__btrc_tracking, active + 1, memory_order_release);
+    __btrc_tracking = active + 1;
     __btrc_arc_unlock_mutation();
 }
 static void __btrc_destroyed_tracking_end(void) {
     __btrc_arc_lock_mutation();
-    int active = atomic_load_explicit(
-        &__btrc_tracking, memory_order_relaxed);
+    int active = __btrc_tracking;
     if (active <= 0) {
         fprintf(stderr, "btrc: unbalanced destroyed tracking scope\n");
         exit(1);
     }
     active--;
-    atomic_store_explicit(
-        &__btrc_tracking, active, memory_order_release);
-    if (active == 0) __btrc_destroyed_count = 0;
+    __btrc_tracking = active;
+    if (active == 0) {
+        __btrc_destroyed_count = 0;
+        if (__btrc_arc_active_unwinds <= 0) {
+            fprintf(stderr, "btrc: invalid active unwind count\n");
+            exit(1);
+        }
+        __btrc_arc_active_unwinds--;
+    }
     __btrc_arc_unlock_mutation();
 }""",
         depends_on=[
             "__btrc_destroyed_tracking",
             "__btrc_arc_mutation_lock",
+            "__btrc_arc_active_unwinds_state",
         ],
     ),
     "__btrc_is_destroyed": HelperDef(
@@ -115,14 +155,13 @@ static void __btrc_destroyed_tracking_end(void) {
         depends_on=["__btrc_destroyed_tracking", "__btrc_arc_mutation_lock"],
     ),
     "__btrc_destroyed_capacity": HelperDef(
-        c_source="static int __btrc_destroyed_cap = 0;",
+        c_source="static _Thread_local int __btrc_destroyed_cap = 0;",
     ),
     "__btrc_mark_destroyed": HelperDef(
         c_source=r"""static void __btrc_mark_destroyed(void* ptr) {
     if (!ptr) return;
     __btrc_arc_lock_mutation();
-    if (!atomic_load_explicit(
-            &__btrc_tracking, memory_order_acquire)) {
+    if (!__btrc_tracking) {
         __btrc_arc_unlock_mutation();
         return;
     }
@@ -191,7 +230,9 @@ static inline void __btrc_suspect_locked(void* obj, __btrc_visit_fn visit,
     __btrc_arc_validate(obj);
     __btrc_arc_header* header = __btrc_arc_header_of(obj);
     if (header->rc > header->edge_rc) return;
-    __btrc_arc_type fallback = {visit, destroy};
+    __btrc_arc_type fallback = {
+        .visit = visit, .destroy = destroy,
+        .hook = NULL, .guard = NULL, .raise = NULL};
     const __btrc_arc_type* type = __btrc_arc_type_of(obj, &fallback);
     if (!type || !type->visit || !type->destroy) return;
     if (__btrc_suspect_key_cap == 0

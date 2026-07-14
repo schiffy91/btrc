@@ -6,12 +6,14 @@ from ..nodes import (
     CType,
     IRAddressOf,
     IRAssign,
+    IRBinOp,
     IRBlock,
     IRCall,
     IRCast,
     IRCleanupSlot,
     IRDeref,
     IRFunctionDef,
+    IRIf,
     IRLiteral,
     IRParam,
     IRReturn,
@@ -99,6 +101,32 @@ def _ensure_take_adapter(gen, slot_type: CType) -> str:
     return name
 
 
+def ensure_arc_slot_adapter(gen, slot_type: CType) -> str:
+    """Return an exact-typed transactional access callback for one ARC slot."""
+
+    adapters = gen._arc_slot_adapters
+    existing = adapters.get(slot_type.text)
+    if existing is not None:
+        return existing
+    name = f"__btrc_arc_slot_access_{len(adapters) + 1}"
+    adapters[slot_type.text] = name
+    gen._cleanup_take_adapter_defs.append(_delete_slot_adapter(name, slot_type))
+    return name
+
+
+def ensure_mutex_value_adapter(gen, value_type: CType) -> str:
+    """Return an exact-typed load callback for opaque Mutex box storage."""
+
+    adapters = gen._mutex_value_adapters
+    existing = adapters.get(value_type.text)
+    if existing is not None:
+        return existing
+    name = f"__btrc_mutex_value_access_{len(adapters) + 1}"
+    adapters[value_type.text] = name
+    gen._cleanup_take_adapter_defs.append(_mutex_value_adapter(name, value_type))
+    return name
+
+
 def _take_adapter(name: str, slot_type: CType) -> IRFunctionDef:
     typed_slot_type = CType(text=f"{slot_type} volatile*")
     raw_name = "raw_slot"
@@ -140,7 +168,88 @@ def _take_adapter(name: str, slot_type: CType) -> IRFunctionDef:
     )
 
 
+def _delete_slot_adapter(name: str, slot_type: CType) -> IRFunctionDef:
+    typed_slot_type = CType(text=f"{slot_type} volatile*")
+    raw_name = "raw_slot"
+    expected_name = "expected"
+    typed_name = "typed_slot"
+    current_name = "current"
+    typed_slot = IRVar(name=typed_name)
+    current = IRVar(name=current_name)
+    return IRFunctionDef(
+        name=name,
+        return_type=CType(text="void*"),
+        params=[
+            IRParam(c_type=CType(text="volatile void*"), name=raw_name),
+            IRParam(c_type=CType(text="void*"), name=expected_name),
+            IRParam(c_type=CType(text="void*"), name="replacement"),
+            IRParam(c_type=CType(text="int"), name="replace_if_equal"),
+        ],
+        body=IRBlock(
+            stmts=[
+                IRVarDecl(
+                    c_type=typed_slot_type,
+                    name=typed_name,
+                    init=IRCast(target_type=typed_slot_type, expr=IRVar(name=raw_name)),
+                ),
+                IRVarDecl(c_type=slot_type, name=current_name, init=IRDeref(expr=typed_slot)),
+                IRIf(
+                    condition=IRBinOp(
+                        left=IRVar(name="replace_if_equal"),
+                        op="&&",
+                        right=IRBinOp(
+                            left=current,
+                            op="==",
+                            right=IRCast(target_type=slot_type, expr=IRVar(name=expected_name)),
+                        ),
+                    ),
+                    then_block=IRBlock(
+                        stmts=[
+                            IRAssign(
+                                target=IRDeref(expr=typed_slot),
+                                value=IRCast(
+                                    target_type=slot_type,
+                                    expr=IRVar(name="replacement"),
+                                ),
+                            )
+                        ]
+                    ),
+                ),
+                IRReturn(value=IRCast(target_type=CType(text="void*"), expr=current)),
+            ]
+        ),
+        is_static=True,
+    )
+
+
+def _mutex_value_adapter(name: str, value_type: CType) -> IRFunctionDef:
+    storage_type = CType(text=f"{value_type} const*")
+    return IRFunctionDef(
+        name=name,
+        return_type=CType(text="void*"),
+        params=[IRParam(c_type=CType(text="const void*"), name="raw_storage")],
+        body=IRBlock(
+            stmts=[
+                IRReturn(
+                    value=IRCast(
+                        target_type=CType(text="void*"),
+                        expr=IRDeref(
+                            expr=IRCast(
+                                target_type=storage_type,
+                                expr=IRVar(name="raw_storage"),
+                            )
+                        ),
+                    )
+                )
+            ]
+        ),
+        is_static=True,
+    )
+
+
 __all__ = [
+    "ensure_arc_slot_adapter",
+    "ensure_mutex_value_adapter",
     "finalize_cleanup_take_adapters",
     "register_cleanup_slot",
     "require_cleanup_slot_declaration",

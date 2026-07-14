@@ -46,29 +46,47 @@ typedef struct Node {{
 static const __btrc_arc_type node_type;
 static _Atomic int destroyed = 0;
 
+static void* node_slot_access(
+        volatile void* raw, void* expected, void* replacement, int commit) {{
+    Node* volatile* slot = (Node* volatile*)raw;
+    Node* current = *slot;
+    if (commit && current == (Node*)expected)
+        *slot = (Node*)replacement;
+    return (void*)current;
+}}
+
 static void node_visit(
         void* raw, __btrc_field_visit_fn visit, void* context) {{
     Node* node = (Node*)raw;
-    visit((void**)&node->next, &node_type, context);
-    visit((void**)&node->alternate, &node_type, context);
+    visit((volatile void*)&node->next, node_slot_access, &node_type, context);
+    visit((volatile void*)&node->alternate, node_slot_access, &node_type, context);
 }}
 
 static void node_destroy(void* raw) {{
     Node* node = (Node*)raw;
     __btrc_arc_replace_edge(
-        &node->next, NULL, node, &node_type, 0);
+        (volatile void*)&node->next, node_slot_access,
+        NULL, node, &node_type, 0);
     __btrc_arc_replace_edge(
-        &node->alternate, NULL, node, &node_type, 0);
+        (volatile void*)&node->alternate, node_slot_access,
+        NULL, node, &node_type, 0);
     atomic_fetch_add_explicit(&destroyed, 1, memory_order_relaxed);
     free(node);
 }}
 
-static const __btrc_arc_type node_type = {{node_visit, node_destroy}};
+static const __btrc_arc_type node_type = {{
+    .visit = node_visit,
+    .destroy = node_destroy,
+    .hook = NULL,
+    .guard = NULL,
+    .raise = NULL,
+}};
 
 static Node* new_node(void) {{
     Node* node = (Node*)__btrc_safe_calloc(1, sizeof(Node));
     node->arc.rc = 1;
     node->arc.type = &node_type;
+    node->arc.state = __BTRC_ARC_LIVE;
     return node;
 }}
 
@@ -86,40 +104,62 @@ static const __btrc_arc_type bag_type;
 static const __btrc_arc_type bag_owner_type;
 static _Atomic int bags_destroyed = 0;
 
+static void* bag_slot_access(
+        volatile void* raw, void* expected, void* replacement, int commit) {{
+    Bag* volatile* slot = (Bag* volatile*)raw;
+    Bag* current = *slot;
+    if (commit && current == (Bag*)expected)
+        *slot = (Bag*)replacement;
+    return (void*)current;
+}}
+
 static void bag_visit(
         void* raw, __btrc_field_visit_fn visit, void* context) {{
     Bag* bag = (Bag*)raw;
-    visit((void**)&bag->slots[0], &node_type, context);
-    visit((void**)&bag->slots[1], &node_type, context);
+    visit((volatile void*)&bag->slots[0], node_slot_access, &node_type, context);
+    visit((volatile void*)&bag->slots[1], node_slot_access, &node_type, context);
 }}
 
 static void bag_destroy(void* raw) {{
     Bag* bag = (Bag*)raw;
     __btrc_arc_replace_edge(
-        &bag->slots[0], NULL, bag, &node_type, 0);
+        (volatile void*)&bag->slots[0], node_slot_access,
+        NULL, bag, &node_type, 0);
     __btrc_arc_replace_edge(
-        &bag->slots[1], NULL, bag, &node_type, 0);
+        (volatile void*)&bag->slots[1], node_slot_access,
+        NULL, bag, &node_type, 0);
     atomic_fetch_add_explicit(&bags_destroyed, 1, memory_order_relaxed);
     free(bag);
 }}
 
-static const __btrc_arc_type bag_type = {{bag_visit, bag_destroy}};
+static const __btrc_arc_type bag_type = {{
+    .visit = bag_visit,
+    .destroy = bag_destroy,
+    .hook = NULL,
+    .guard = NULL,
+    .raise = NULL,
+}};
 
 static void bag_owner_visit(
         void* raw, __btrc_field_visit_fn visit, void* context) {{
     BagOwner* owner = (BagOwner*)raw;
-    visit((void**)&owner->bag, &bag_type, context);
+    visit((volatile void*)&owner->bag, bag_slot_access, &bag_type, context);
 }}
 
 static void bag_owner_destroy(void* raw) {{
     BagOwner* owner = (BagOwner*)raw;
     __btrc_arc_replace_edge(
-        &owner->bag, NULL, owner, &bag_type, 0);
+        (volatile void*)&owner->bag, bag_slot_access,
+        NULL, owner, &bag_type, 0);
     free(owner);
 }}
 
 static const __btrc_arc_type bag_owner_type = {{
-    bag_owner_visit, bag_owner_destroy
+    .visit = bag_owner_visit,
+    .destroy = bag_owner_destroy,
+    .hook = NULL,
+    .guard = NULL,
+    .raise = NULL,
 }};
 
 typedef struct {{
@@ -130,8 +170,8 @@ typedef struct {{
 static void* bag_swap_worker(void* raw) {{
     BagArgs* args = (BagArgs*)raw;
     for (int i = 0; i < args->iterations; i++) {{
-        void* outer = __btrc_arc_topology_begin();
-        void* inner = __btrc_arc_topology_begin();
+        void* volatile outer = __btrc_arc_topology_begin();
+        void* volatile inner = __btrc_arc_topology_begin();
         Node* temporary = args->bag->slots[0];
         args->bag->slots[0] = args->bag->slots[1];
         for (volatile int delay = 0; delay < 40; delay++) {{}}
@@ -164,7 +204,8 @@ static void* replace_worker(void* raw) {{
         Node* next = (i % 3 == 0) ? NULL
             : ((i & 1) ? args->first : args->second);
         __btrc_arc_replace_edge(
-            &args->owner->next, next, args->owner, &node_type, 0);
+            (volatile void*)&args->owner->next, node_slot_access,
+            next, args->owner, &node_type, 0);
     }}
     return NULL;
 }}
@@ -185,19 +226,60 @@ static void* cycle_worker(void* raw) {{
         Node* first = new_node();
         Node* second = new_node();
         __btrc_arc_replace_edge(
-            &first->next, second, first, &node_type, 1);
+            (volatile void*)&first->next, node_slot_access,
+            second, first, &node_type, 1);
         __btrc_arc_replace_edge(
-            &second->next, first, second, &node_type, 1);
+            (volatile void*)&second->next, node_slot_access,
+            first, second, &node_type, 1);
         __btrc_suspect(first, node_visit, node_destroy);
         __btrc_collect_cycles();
     }}
     return NULL;
 }}
 
+static void* topology_blocked_release_worker(void* raw) {{
+    __btrc_arc_release(raw, &node_type);
+    return NULL;
+}}
+
+static int test_topology_join_handoff(void) {{
+    int before = atomic_load_explicit(&destroyed, memory_order_relaxed);
+    Node* owner = new_node();
+    Node* first = new_node();
+    Node* second = new_node();
+    __btrc_arc_replace_edge(
+        (volatile void*)&first->next, node_slot_access,
+        second, first, &node_type, 1);
+    __btrc_arc_replace_edge(
+        (volatile void*)&second->next, node_slot_access,
+        first, second, &node_type, 0);
+    __btrc_arc_replace_edge(
+        (volatile void*)&owner->next, node_slot_access,
+        first, owner, &node_type, 1);
+
+    void* volatile topology = __btrc_arc_topology_begin();
+    pthread_t worker;
+    if (pthread_create(
+            &worker, NULL, topology_blocked_release_worker, owner)) return 11;
+    /* The worker must finish while this unrelated topology scope is active. */
+    if (pthread_join(worker, NULL)) return 12;
+    if (atomic_load_explicit(&destroyed, memory_order_relaxed) != before + 1)
+        return 13;
+    if (__btrc_suspect_count == 0 || !__btrc_arc_topology_flush_pending)
+        return 14;
+    __btrc_arc_topology_complete(&topology);
+    if (atomic_load_explicit(&destroyed, memory_order_relaxed) != before + 3)
+        return 15;
+    return 0;
+}}
+
 int main(void) {{
+    int handoff = test_topology_join_handoff();
+    if (handoff) return handoff;
     Bag* bag = (Bag*)__btrc_safe_calloc(1, sizeof(Bag));
     bag->arc.rc = 1;
     bag->arc.type = &bag_type;
+    bag->arc.state = __BTRC_ARC_LIVE;
     bag->slots[0] = new_node();
     bag->slots[1] = new_node();
     __btrc_arc_adopt_edge(bag->slots[0], bag);
@@ -206,6 +288,7 @@ int main(void) {{
         1, sizeof(BagOwner));
     bag_owner->arc.rc = 1;
     bag_owner->arc.type = &bag_owner_type;
+    bag_owner->arc.state = __BTRC_ARC_LIVE;
     bag_owner->bag = bag;
     __btrc_arc_adopt_edge(bag, bag_owner);
 
@@ -218,7 +301,8 @@ int main(void) {{
     if (pthread_join(bag_threads[0], NULL)) return 8;
     if (pthread_join(bag_threads[1], NULL)) return 9;
     __btrc_arc_replace_edge(
-        &bag_owner->bag, NULL, bag_owner, &bag_type, 0);
+        (volatile void*)&bag_owner->bag, bag_slot_access,
+        NULL, bag_owner, &bag_type, 0);
     __btrc_arc_release(bag_owner, &bag_owner_type);
 
     Node* owner = new_node();
@@ -236,12 +320,13 @@ int main(void) {{
         if (pthread_join(threads[i], NULL)) return 4;
 
     __btrc_arc_replace_edge(
-        &owner->next, NULL, owner, &node_type, 0);
+        (volatile void*)&owner->next, node_slot_access,
+        NULL, owner, &node_type, 0);
     __btrc_arc_release(owner, &node_type);
     __btrc_arc_release(first, &node_type);
     __btrc_arc_release(second, &node_type);
     __btrc_flush_cycles();
-    if (atomic_load_explicit(&destroyed, memory_order_relaxed) != 6005)
+    if (atomic_load_explicit(&destroyed, memory_order_relaxed) != 6008)
         return 5;
     if (atomic_load_explicit(&bags_destroyed, memory_order_relaxed) != 1)
         return 10;

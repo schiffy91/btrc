@@ -4,9 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..nodes import CType, IRCall, IRLiteral, IRSizeof, IRVar
+from ..nodes import (
+    CType,
+    IRAddressOf,
+    IRCall,
+    IRDeref,
+    IRFieldAccess,
+    IRIndex,
+    IRLiteral,
+    IRSizeof,
+    IRVar,
+)
 from .errors import CodegenError
-from .handle_values import consume_addressable_handle
 from .value_boxes import (
     box_exact_value,
     canonical_value_type,
@@ -24,7 +33,16 @@ def create_mutex_value(gen: IRGenerator, value, value_type: TypeExpr):
     canonical = canonical_value_type(gen, value_type)
     if canonical is None:
         raise CodegenError("cannot resolve Mutex value type")
-    context, context_size, retain, release = _ownership_callbacks(gen, canonical)
+    (
+        access,
+        slot_access,
+        context,
+        context_size,
+        retain,
+        release,
+        finalize,
+        raise_callback,
+    ) = _ownership_callbacks(gen, canonical)
     gen.use_helper("__btrc_mutex_val_create")
     return IRCall(
         callee="__btrc_mutex_val_create",
@@ -36,10 +54,14 @@ def create_mutex_value(gen: IRGenerator, value, value_type: TypeExpr):
                 prefix="__btrc_mutex",
             ),
             IRSizeof(operand=CType(text=value_storage_c_type(canonical))),
+            access,
+            slot_access,
             context,
             context_size,
             retain,
             release,
+            finalize,
+            raise_callback,
         ],
         helper_ref="__btrc_mutex_val_create",
     )
@@ -85,12 +107,14 @@ def set_mutex_value(
 
 
 def consume_mutex_handle(gen: IRGenerator, obj):
-    """Move an addressable mutex handle before destroying it."""
-    return consume_addressable_handle(
-        gen,
-        obj,
-        handle_c_type="__btrc_mutex_val_t",
-        prefix="__btrc_mutex",
+    """Take an addressable handle through the owner-aware runtime atom."""
+    if not isinstance(obj, (IRVar, IRFieldAccess, IRIndex, IRDeref)):
+        return obj
+    gen.use_helper("__btrc_mutex_val_take")
+    return IRCall(
+        callee="__btrc_mutex_val_take",
+        args=[IRAddressOf(expr=obj)],
+        helper_ref="__btrc_mutex_val_take",
     )
 
 
@@ -98,23 +122,52 @@ def _ownership_callbacks(gen: IRGenerator, value_type: TypeExpr):
     from .managed_values import is_class_type, is_string_type
 
     if is_string_type(gen, value_type):
+        access = _value_access(gen, value_type)
         return (
+            access,
+            IRLiteral(text="NULL"),
             IRLiteral(text="NULL"),
             IRLiteral(text="0"),
             _callback(gen, "__btrc_mutex_string_retain"),
             _callback(gen, "__btrc_mutex_string_release"),
+            IRLiteral(text="NULL"),
+            IRLiteral(text="NULL"),
         )
     if is_class_type(gen, value_type):
         from .arc_ops import arc_type_descriptor
 
         return (
+            _value_access(gen, value_type),
+            _slot_access(gen, value_type),
             arc_type_descriptor(gen, value_type),
             IRSizeof(operand=CType(text="__btrc_arc_type")),
             _callback(gen, "__btrc_mutex_arc_retain"),
             _callback(gen, "__btrc_mutex_arc_release"),
+            _callback(gen, "__btrc_mutex_arc_finalize"),
+            _callback(gen, "__btrc_throw"),
         )
     null = IRLiteral(text="NULL")
-    return null, IRLiteral(text="0"), null, null
+    return null, null, null, IRLiteral(text="0"), null, null, null, null
+
+
+def _value_access(gen: IRGenerator, value_type: TypeExpr):
+    from .cleanup_slots import ensure_mutex_value_adapter
+
+    name = ensure_mutex_value_adapter(
+        gen,
+        CType(text=value_storage_c_type(value_type)),
+    )
+    return IRVar(name=name)
+
+
+def _slot_access(gen: IRGenerator, value_type: TypeExpr):
+    from .cleanup_slots import ensure_arc_slot_adapter
+
+    name = ensure_arc_slot_adapter(
+        gen,
+        CType(text=value_storage_c_type(value_type)),
+    )
+    return IRVar(name=name)
 
 
 def _callback(gen: IRGenerator, name: str):

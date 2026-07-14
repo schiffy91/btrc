@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .feature_scan import uses_trycatch
+from .feature_scan import program_uses_trycatch
 from .managed_local import ManagedLocal
 
 if TYPE_CHECKING:
@@ -16,13 +16,12 @@ class _OwnershipStateMixin:
 
     def _init_ownership_state(self, analyzed: AnalyzedProgram, *, freestanding: bool) -> None:
         # A callee cannot know whether its caller owns the active setjmp frame.
-        # Hosted exception-capable modules therefore register every managed
-        # local with the dynamic cleanup stack, including in lexical callees
-        # that contain no try statement themselves.
-        self.program_has_exceptions = any(uses_trycatch(declaration) for declaration in analyzed.program.declarations)
-        # Broad registration requires hosted TLS. Freestanding code retains
-        # lexical-try registration without importing dormant TLS dependencies.
-        self.cross_function_cleanup_enabled = self.program_has_exceptions and not freestanding
+        # Exception-capable modules therefore register every managed local with
+        # the dynamic cleanup stack, including lexical callees that contain no
+        # try statement themselves. This contract is identical in freestanding
+        # code because the runtime seam explicitly supports setjmp/longjmp.
+        self.program_has_exceptions = program_uses_trycatch(analyzed.program)
+        self.cross_function_cleanup_enabled = self.program_has_exceptions
         self._managed_vars_stack: list[list[ManagedLocal]] = []
         # Explicit None entries keep a borrowed inner declaration from finding
         # an owned outer declaration with the same name.

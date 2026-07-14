@@ -21,7 +21,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .destructor_hooks import build_destructor_hook, call_destructor_hook
+from .destructor_hooks import build_destructor_hook, destructor_hook_name
 from .managed_values import (
     is_class_type,
     is_managed_type,
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from .generator import IRGenerator
 
 
-def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
+def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> str | None:
     """Emit ClassName_destroy(self) which frees internal resources."""
     name = decl.name
     dtor = cls_info.methods.get("__del__")
@@ -69,25 +69,36 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
             init=IRCast(target_type=CType(text=f"{name}*"), expr=IRVar(name="object")),
         )
     ]
-    if hook is not None:
-        body_stmts.append(call_destructor_hook(name))
-
     # ARC: release owned pointer-type fields (rc-- then destroy at zero)
     # Class types have pointer_depth=1 in analyzer (always heap-allocated).
     # Skip pointer_depth > 1 (double-pointers / raw arrays).
-    has_class_field_releases = False
+    has_owned_field_cleanup = False
     for fname, fd in cls_info.instance_storage:
         if fd.type and fd.type.pointer_depth > 1:
+            continue
+        from .mutex_fields import (
+            destroy_mutex_field,
+            mutex_value_type,
+        )
+
+        if mutex_value_type(gen, fd.type) is not None:
+            field = IRFieldAccess(
+                obj=IRVar(name="self"),
+                field=fname,
+                arrow=True,
+            )
+            body_stmts.append(IRExprStmt(expr=destroy_mutex_field(gen, field)))
+            has_owned_field_cleanup = True
             continue
         # Generic class fields use their compiler-owned terminal destructor;
         # source lifecycle behavior is explicit in an isolated ``__del__`` hook.
         if is_managed_type(gen, fd.type):
             body_stmts.append(_emit_field_release(gen, fname, fd.type))
-            has_class_field_releases = has_class_field_releases or is_class_type(gen, fd.type)
+            has_owned_field_cleanup = has_owned_field_cleanup or is_class_type(gen, fd.type)
 
     # Mark cascade destruction before freeing. The helper itself checks the
     # process-wide unwind scope under the ARC mutation lock.
-    if has_class_field_releases:
+    if has_owned_field_cleanup:
         gen.use_helper("__btrc_mark_destroyed")
         body_stmts.append(
             IRExprStmt(
@@ -109,6 +120,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
             body=IRBlock(stmts=body_stmts),
         )
     )
+    return destructor_hook_name(name) if hook is not None else None
 
 
 def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):

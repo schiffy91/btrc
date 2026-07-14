@@ -35,6 +35,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
+from .thread_captures import emit_capture_disposer, managed_capture_type
 from .thread_returns import rewrite_thread_returns
 from .thread_values import thread_result_disposal_args
 from .types import type_to_c
@@ -80,6 +81,13 @@ def lower_spawn(gen: IRGenerator, node):
             cap_fields.append(IRStructField(c_type=CType(text=c_type), name=cap.name))
         gen.module.struct_forwards.append(IRStructForward(name=env_name))
         gen.module.struct_defs.append(IRStructDef(name=env_name, fields=cap_fields))
+
+    arg_disposer = emit_capture_disposer(
+        gen,
+        fn,
+        env_name,
+        spawn_id,
+    )
 
     # Build wrapper function: void* wrapper(void* __arg)
     body_stmts = _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type)
@@ -134,7 +142,7 @@ def lower_spawn(gen: IRGenerator, node):
                 )
             )
             # Keep each direct managed capture alive until worker cleanup.
-            capture_type = _managed_capture_type(gen, cap)
+            capture_type = managed_capture_type(gen, cap)
             if capture_type is not None:
                 from .managed_values import retain_value
 
@@ -148,6 +156,7 @@ def lower_spawn(gen: IRGenerator, node):
                 target_type=CType(text="void*"),
                 expr=IRVar(name=se_var),
             ),
+            IRVar(name=arg_disposer),
         )
         sequence.append(spawn_call)
         return IRStmtExpr(
@@ -163,6 +172,7 @@ def _spawn_call(
     fn_expr: IRExpr,
     result_type,
     capture_arg: IRExpr | None = None,
+    arg_disposer: IRExpr | None = None,
 ) -> IRCall:
     """Build an ordinary helper call for the pthread entry ABI."""
 
@@ -174,6 +184,7 @@ def _spawn_call(
                 expr=fn_expr,
             ),
             capture_arg if capture_arg is not None else IRLiteral(text="NULL"),
+            arg_disposer if arg_disposer is not None else IRLiteral(text="NULL"),
             *thread_result_disposal_args(gen, result_type),
         ],
         helper_ref="__btrc_thread_spawn",
@@ -206,9 +217,6 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type
                 )
             )
 
-    def capture_cleanup():
-        return _build_capture_cleanup(gen, fn, has_captures)
-
     # Lambda body — isolate managed scope so captures from outer scope
     # don't get released inside the wrapper function
     from .isolated_context import isolated_function_context
@@ -218,7 +226,7 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type
             from .statements import lower_block
 
             block = lower_block(gen, fn.body.body)
-            rewritten = rewrite_thread_returns(gen, block, return_type, capture_cleanup)
+            rewritten = rewrite_thread_returns(gen, block, return_type)
             body_stmts.extend(rewritten.stmts)
         elif isinstance(fn.body, LambdaExprBody) and fn.body.expression:
             from ...ast_nodes import ReturnStmt
@@ -234,50 +242,12 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type
                 gen,
                 returned,
                 return_type,
-                capture_cleanup,
             )
             body_stmts.extend(returned.stmts)
 
     # A structured final statement may not cover every path. Keep the C wrapper
-    # total and clean the environment on any fallthrough path as well.
+    # total; the runtime owns and disposes the capture environment afterward.
     if not body_stmts or not isinstance(body_stmts[-1], IRReturn):
-        body_stmts.extend(capture_cleanup())
         body_stmts.append(IRReturn(value=IRLiteral(text="NULL")))
 
     return body_stmts
-
-
-def _build_capture_cleanup(gen, fn, has_captures):
-    """Release managed captures through typed ARC, then free the environment."""
-    from ..nodes import IRCall, IRExprStmt
-    from .managed_values import release_value
-
-    if not has_captures:
-        return []
-    stmts = []
-    for cap in fn.captures:
-        capture_type = _managed_capture_type(gen, cap)
-        if capture_type is not None:
-            stmts.append(
-                IRExprStmt(
-                    expr=release_value(
-                        gen,
-                        IRVar(name=cap.name),
-                        capture_type,
-                    )
-                )
-            )
-    stmts.append(IRExprStmt(expr=IRCall(callee="free", args=[IRVar(name="__env")])))
-    return stmts
-
-
-def _managed_capture_type(gen, capture):
-    """Return one direct managed capture type, excluding arrays/raw pointers."""
-    capture_type = capture.type
-    if capture_type is None or capture_type.is_array or capture_type.pointer_depth > 1:
-        return None
-    from .managed_values import is_managed_type
-
-    if not is_managed_type(gen, capture_type):
-        return None
-    return capture_type

@@ -50,7 +50,12 @@ def generic_instance_needs_visitor(
 
         substitutions = dict(zip(info.generic_params, arguments))
         return any(
-            field.type is not None and visit_action(gen, _resolve_type(field.type, substitutions), seen) is not None
+            field.type is not None
+            and _type_has_visit_action(
+                gen,
+                _resolve_type(field.type, substitutions),
+                seen,
+            )
             for _name, field in info.instance_storage
         )
     finally:
@@ -134,7 +139,7 @@ def type_needs_visitor(gen, type_expr: TypeExpr, seen: set[tuple] | None = None)
     if type_expr.generic_args:
         return generic_instance_needs_visitor(gen, type_expr.base, list(type_expr.generic_args), seen)
     return any(
-        getattr(field, "type", None) is not None and visit_action(gen, field.type, set()) is not None
+        getattr(field, "type", None) is not None and _type_has_visit_action(gen, field.type, set())
         for _name, field in info.instance_storage
     )
 
@@ -216,12 +221,25 @@ def _outgoing_managed_types(gen, type_expr: TypeExpr) -> list[TypeExpr]:
         ]
     else:
         candidates = [field.type for _name, field in info.instance_storage if field.type is not None]
-    return [
-        runtime_type
-        for candidate in candidates
-        if _is_managed_reference(gen, candidate)
-        for runtime_type in runtime_type_candidates(gen, candidate)
-    ]
+    outgoing = []
+    for candidate in candidates:
+        from .mutex_fields import mutex_value_type
+
+        mutex_target = mutex_value_type(gen, candidate)
+        if mutex_target is not None and _is_managed_reference(gen, mutex_target):
+            outgoing.extend(runtime_type_candidates(gen, mutex_target))
+        elif _is_managed_reference(gen, candidate):
+            outgoing.extend(runtime_type_candidates(gen, candidate))
+    return outgoing
+
+
+def _type_has_visit_action(gen, type_expr: TypeExpr, seen: set[tuple]) -> bool:
+    from .mutex_fields import mutex_holds_class
+
+    return visit_action(gen, type_expr, seen) is not None or mutex_holds_class(
+        gen,
+        type_expr,
+    )
 
 
 def _is_managed_reference(gen, type_expr: TypeExpr | None) -> bool:

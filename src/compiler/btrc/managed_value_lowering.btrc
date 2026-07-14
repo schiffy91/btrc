@@ -150,17 +150,18 @@ IRNode irManagedReplaceEdge(IRGen generator, IRNode slot,
         print("internal compiler error: transactional edge is not a class");
         abortGen();
     }
+    string access = ensureArcSlotAdapter(
+        generator, typeToC(typeExpr, generator.analyzed));
     return managedArcReplaceEdge(generator, slot, replacement,
-        irManagedRuntimeType(generator, typeExpr), owner, adopt);
+        irManagedRuntimeType(generator, typeExpr), owner, access, adopt);
 }
 
-IRNode irManagedDestroyValue(
-        IRGen generator, IRNode value, Node typeExpr) {
-    if (irManagedStringType(generator, typeExpr)) {
-        return irManagedReleaseValue(generator, value, typeExpr);
-    }
-    return managedArcDestroy(generator, value,
-        irManagedRuntimeType(generator, typeExpr));
+IRNode irManagedDestroySlot(IRGen generator, IRNode slot,
+        Node typeExpr, IRNode owner, bool persistent) {
+    string access = ensureArcSlotAdapter(
+        generator, typeToC(typeExpr, generator.analyzed));
+    return managedArcDestroySlot(generator, slot, access,
+        irManagedRuntimeType(generator, typeExpr), owner, persistent);
 }
 
 IRNode irRetainExpression(

@@ -9,7 +9,6 @@ from ...ast_nodes import (
     FieldDecl,
     ListLiteral,
     MapLiteral,
-    TypeExpr,
 )
 from ..nodes import (
     CType,
@@ -71,7 +70,21 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
                 arrow=True,
             )
             value = _lower_field_init(gen, member)
-            if is_class_type(gen, member.type):
+            from .mutex_fields import mutex_value_type, replace_mutex_field
+            from .mutex_values import consume_mutex_handle
+
+            if mutex_value_type(gen, member.type) is not None:
+                init_stmts.append(
+                    IRExprStmt(
+                        expr=replace_mutex_field(
+                            gen,
+                            target,
+                            consume_mutex_handle(gen, value),
+                            IRVar(name="self"),
+                        )
+                    )
+                )
+            elif is_class_type(gen, member.type):
                 from .ownership import owns_result
 
                 init_stmts.append(
@@ -127,7 +140,6 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
     )
 
     from .constructor_cleanup import constructor_cleanup_guard
-    from .cycle_metadata import cycle_visitor_symbol, type_needs_visitor
 
     self_declaration = IRVarDecl(
         c_type=CType(text=f"{name}*"),
@@ -135,29 +147,19 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
         init=IRCast(
             target_type=CType(text=f"{name}*"),
             expr=IRCall(
-                callee="malloc",
-                args=[IRSizeof(operand=CType(text=name))],
+                callee="__btrc_safe_calloc",
+                args=[
+                    IRLiteral(text="1"),
+                    IRSizeof(operand=CType(text=name)),
+                ],
+                helper_ref="__btrc_safe_calloc",
             ),
         ),
     )
-    cleanup_before, cleanup_after = constructor_cleanup_guard(
-        gen,
-        self_declaration,
-        f"{name}_destroy",
-        cycle_visitor_symbol(name) if type_needs_visitor(gen, TypeExpr(base=name), set()) else None,
-    )
+    gen.use_helper("__btrc_safe_calloc")
+    cleanup_before, cleanup_after = constructor_cleanup_guard(gen, self_declaration)
     new_stmts = [
         self_declaration,
-        IRExprStmt(
-            expr=IRCall(
-                callee="memset",
-                args=[
-                    IRVar(name="self"),
-                    IRLiteral(text="0"),
-                    IRSizeof(operand=CType(text=name)),
-                ],
-            )
-        ),
         *cleanup_before,
         IRExprStmt(
             expr=IRCall(

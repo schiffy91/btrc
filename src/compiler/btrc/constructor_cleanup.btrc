@@ -6,7 +6,7 @@
  * reclaimed by the same destructor used after a successful construction. */
 
 string beginConstructorCleanup(IRGen generator, string selfName,
-        string emittedName, Vector<IRNode> output) {
+        Vector<IRNode> output) {
     if (!generator.programHasExceptions) { return ""; }
 
     generator.useHelper("__btrc_cleanup_mark");
@@ -18,12 +18,9 @@ string beginConstructorCleanup(IRGen generator, string selfName,
 
     IRNode declaration = requireCleanupSlotDeclaration(
         output, selfName);
-    IRNode visitor = irLiteral("NULL");
-    if (managedClassNeedsVisitor(generator, emittedName)) {
-        visitor = irVar(cycleVisitorName(emittedName));
-    }
+    generator.useHelper("__btrc_arc_abandon");
     output.push(irExprStmt(registerCleanupSlot(generator, declaration,
-        irVar(emittedName + "_destroy"), visitor, false)));
+        irVar("__btrc_arc_abandon"), irLiteral("NULL"), true)));
     return marker;
 }
 

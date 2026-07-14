@@ -37,10 +37,19 @@ typedef struct Node {
 static const __btrc_arc_type node_type;
 static int destroyed[64];
 
+static void* node_slot_access(
+        volatile void* raw, void* expected, void* replacement, int commit) {
+    Node* volatile* slot = (Node* volatile*)raw;
+    Node* current = *slot;
+    if (commit && current == (Node*)expected)
+        *slot = (Node*)replacement;
+    return (void*)current;
+}
+
 static void node_visit(void* raw, __btrc_field_visit_fn visit, void* context) {
     Node* node = (Node*)raw;
-    visit((void**)&node->next, &node_type, context);
-    visit((void**)&node->alternate, &node_type, context);
+    visit((volatile void*)&node->next, node_slot_access, &node_type, context);
+    visit((volatile void*)&node->alternate, node_slot_access, &node_type, context);
 }
 
 static void remove_slot(Node* owner, Node** slot);
@@ -54,12 +63,19 @@ static void node_destroy(void* raw) {
     free(node);
 }
 
-static const __btrc_arc_type node_type = {node_visit, node_destroy};
+static const __btrc_arc_type node_type = {
+    .visit = node_visit,
+    .destroy = node_destroy,
+    .hook = NULL,
+    .guard = NULL,
+    .raise = NULL,
+};
 
 static Node* new_node(int id) {
     Node* node = (Node*)__btrc_safe_calloc(1, sizeof(Node));
     node->arc.rc = 1;
     node->arc.type = &node_type;
+    node->arc.state = __BTRC_ARC_LIVE;
     node->id = id;
     return node;
 }
@@ -67,23 +83,27 @@ static Node* new_node(int id) {
 static void adopt_slot(Node* owner, Node** slot, Node* value) {
     if (*slot) abort();
     __btrc_arc_replace_edge(
-        slot, value, owner, &node_type, 1);
+        (volatile void*)slot, node_slot_access,
+        value, owner, &node_type, 1);
 }
 
 static void retain_slot(Node* owner, Node** slot, Node* value) {
     if (*slot) abort();
     __btrc_arc_replace_edge(
-        slot, value, owner, &node_type, 0);
+        (volatile void*)slot, node_slot_access,
+        value, owner, &node_type, 0);
 }
 
 static void remove_slot(Node* owner, Node** slot) {
     __btrc_arc_replace_edge(
-        slot, NULL, owner, &node_type, 0);
+        (volatile void*)slot, node_slot_access,
+        NULL, owner, &node_type, 0);
 }
 
 static void replace_slot(Node* owner, Node** slot, Node* value) {
     __btrc_arc_replace_edge(
-        slot, value, owner, &node_type, 1);
+        (volatile void*)slot, node_slot_access,
+        value, owner, &node_type, 1);
 }
 
 static void release_external(Node* node) {

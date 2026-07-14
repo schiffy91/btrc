@@ -30,6 +30,12 @@ bool genericCycleManagedType(Analyzed analyzed, Node? typeExpr) {
 
 void genericCycleAppendRuntimeTypes(
         Analyzed analyzed, Node typeExpr, Vector<Node> output) {
+    Node? mutexPayload = mutexPayloadType(analyzed, typeExpr);
+    if (mutexPayload != null) {
+        genericCycleAppendRuntimeTypes(
+            analyzed, mutexPayload, output);
+        return;
+    }
     if (!genericCycleManagedType(analyzed, typeExpr)) { return; }
     if (typeExpr.generic_args.len == 0
             && analyzed.isClass(typeExpr.base)) {
@@ -171,7 +177,11 @@ bool genericInstanceNeedsVisitor(Analyzed analyzed, GenInstance instance) {
         Node field = declaration.members.get(member);
         if (instanceStorageName(field) != "") {
             Node resolved = resolveGenericType(field.type, substitutions);
-            if (genericCycleManagedType(analyzed, resolved)) { return true; }
+            if (genericCycleManagedType(analyzed, resolved)
+                    || mutexPayloadIsManagedClass(
+                        analyzed, resolved)) {
+                return true;
+            }
         }
         member = member + 1;
     }
@@ -185,8 +195,11 @@ bool classNeedsCycleVisitor(IRGen generator, string className) {
         generator.analyzed, className, fields);
     int field = 0;
     while (field < fields.len) {
+        Node fieldType = fields.get(field).type;
         if (genericCycleManagedType(
-                generator.analyzed, fields.get(field).type)) {
+                generator.analyzed, fieldType)
+                || mutexPayloadIsManagedClass(
+                    generator.analyzed, fieldType)) {
             return true;
         }
         field = field + 1;
@@ -255,7 +268,9 @@ void emitGenericCycleVisitor(IRGen generator, GenInstance instance,
             string storageName = instanceStorageName(member);
             if (storageName != "") {
                 Node resolved = resolveGenericType(member.type, substitutions);
-                if (genericCycleManagedType(generator.analyzed, resolved)) {
+                if (genericCycleManagedType(generator.analyzed, resolved)
+                        || mutexPayloadIsManagedClass(
+                            generator.analyzed, resolved)) {
                     IRNode field = irFieldAccess(
                         irVar("self"), storageName, true);
                     if (appendGenericCycleFieldVisit(generator, resolved,

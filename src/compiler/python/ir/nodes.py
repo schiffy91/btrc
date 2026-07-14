@@ -116,6 +116,7 @@ class IRVarDecl(IRStmt):
     is_static: bool = False
     is_extern: bool = False
     cleanup_slot: IRCleanupSlot | None = None
+    is_cycle_return_temp: bool = False
 
 
 @dataclass

@@ -7,7 +7,10 @@ bool isPublicCollectionBase(string name) {
 
 bool irContainsCyclableRelease(IRNode? node) {
     if (node == null) { return false; }
-    if (node.kind == IRK_CALL && node.callee == "__btrc_arc_release") {
+    if (node.kind == IRK_CALL
+            && (node.callee == "__btrc_arc_release"
+                || node.callee == "__btrc_arc_release_edge"
+                || node.callee == "__btrc_arc_replace_edge")) {
         return true;
     }
     if (irContainsCyclableRelease(node.left)
@@ -60,39 +63,67 @@ bool irSequenceEndsWithCycleFlush(Vector<IRNode> statements) {
         && irIsForcedCycleFlush(statements.get(statements.len - 1));
 }
 
-void rewriteNestedCycleReturns(IRNode node) {
+bool irIsMaterializedCycleReturn(
+        Vector<IRNode> statements, IRNode statement) {
+    if (statements.len < 2
+            || !irSequenceEndsWithCycleFlush(statements)
+            || statement.value == null
+            || statement.value.kind != IRK_VAR) {
+        return false;
+    }
+    IRNode declaration = statements.get(statements.len - 2);
+    return declaration.kind == IRK_VAR_DECL
+        && declaration.is_cycle_return_temp
+        && declaration.name == statement.value.name;
+}
+
+void rewriteNestedCycleReturns(IRGen generator,
+        IRFunction definition, IRNode node) {
     if (node.kind == IRK_BLOCK) {
-        rewriteCycleReturns(node);
+        rewriteCycleReturns(generator, definition, node);
     } else if (node.kind == IRK_IF) {
-        rewriteCycleReturns(node.then_block);
+        rewriteCycleReturns(generator, definition, node.then_block);
         if (node.else_block != null) {
-            rewriteCycleReturns(node.else_block);
+            rewriteCycleReturns(generator, definition, node.else_block);
         }
     } else if (node.kind == IRK_WHILE
             || node.kind == IRK_DO_WHILE
             || node.kind == IRK_FOR) {
-        rewriteCycleReturns(node.body);
+        rewriteCycleReturns(generator, definition, node.body);
     } else if (node.kind == IRK_SWITCH) {
         int index = 0;
         while (index < node.args.len) {
             IRNode branch = node.args.get(index);
-            rewriteCycleReturns(branch);
+            rewriteCycleReturns(generator, definition, branch);
             index = index + 1;
         }
     } else if (node.kind == IRK_CASE) {
-        rewriteCycleReturns(node);
+        rewriteCycleReturns(generator, definition, node);
     }
 }
 
-void rewriteCycleReturns(IRNode block) {
+void rewriteCycleReturns(IRGen generator,
+        IRFunction definition, IRNode block) {
     Vector<IRNode> rewritten = [];
     int index = 0;
     while (index < block.stmts.len) {
         IRNode statement = block.stmts.get(index);
-        rewriteNestedCycleReturns(statement);
-        if (statement.kind == IRK_RETURN
-                && !irSequenceEndsWithCycleFlush(rewritten)) {
-            rewritten.push(irForcedCycleFlush());
+        rewriteNestedCycleReturns(generator, definition, statement);
+        if (statement.kind == IRK_RETURN) {
+            bool materialized = irIsMaterializedCycleReturn(
+                rewritten, statement);
+            if (statement.value != null && !materialized) {
+                string result = generator.freshTemp(
+                    "__btrc_cycle_return");
+                IRNode declaration = irVarDecl(
+                    definition.return_type, result, statement.value);
+                declaration.is_cycle_return_temp = true;
+                rewritten.push(declaration);
+                statement.value = irVar(result);
+            }
+            if (!irSequenceEndsWithCycleFlush(rewritten)) {
+                rewritten.push(irForcedCycleFlush());
+            }
         }
         rewritten.push(statement);
         index = index + 1;
@@ -102,7 +133,7 @@ void rewriteCycleReturns(IRNode block) {
 
 void forceCycleBoundary(IRGen generator, IRFunction definition) {
     generator.useHelper("__btrc_flush_cycles");
-    rewriteCycleReturns(definition.body);
+    rewriteCycleReturns(generator, definition, definition.body);
     if (irSequenceMayFallThrough(definition.body.stmts)
             && !irSequenceEndsWithCycleFlush(definition.body.stmts)) {
         definition.body.stmts.push(irForcedCycleFlush());

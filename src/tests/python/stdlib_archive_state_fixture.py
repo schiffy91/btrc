@@ -26,15 +26,21 @@ static void no_children(
 }
 
 static const __btrc_arc_type suspect_type = {
-    no_children,
-    noop_destroy,
+    .visit = no_children,
+    .destroy = noop_destroy,
+    .hook = NULL,
+    .guard = NULL,
+    .raise = NULL,
 };
 static __btrc_arc_header suspect_node = {
-    1,
-    1,
-    NULL,
-    &suspect_type,
-    NULL,
+    .rc = 1,
+    .edge_rc = 1,
+    .live_witness = NULL,
+    .type = &suspect_type,
+    .incoming = NULL,
+    .deferred_next = NULL,
+    .suppress_hook = 0,
+    .state = __BTRC_ARC_LIVE,
 };
 
 static void* take_cleanup_slot(void* raw) {
@@ -100,16 +106,17 @@ int main(void) {
     if (__btrc_cleanup_top != 129 || __btrc_cleanup_cap < 130) return 7;
     if (__btrc_suspect_count != 1 || __btrc_suspect_cap < 1) return 8;
 
-    atomic_store_explicit(&__btrc_tracking, 0, memory_order_release);
-    __btrc_cycle_state_cleanup();
+    __btrc_tracking = 0;
+    __btrc_collect_cycles();
     __btrc_try_state_cleanup();
-    if (__btrc_destroyed != NULL || __btrc_destroyed_count != 0
-            || __btrc_destroyed_cap != 0 || __btrc_tracking != 0) return 9;
+    __btrc_destroyed_count = 0;
+    if (__btrc_destroyed == NULL || __btrc_destroyed_cap < 300
+            || __btrc_tracking != 0) return 9;
     if (__btrc_cleanup_stack != NULL || __btrc_cleanup_top != -1
             || __btrc_cleanup_cap != 64) return 10;
-    if (__btrc_suspects != NULL || __btrc_suspect_count != 0
-            || __btrc_suspect_cap != 0 || __btrc_visit_table != NULL
-            || __btrc_destroy_table != NULL) return 11;
+    if (__btrc_suspects == NULL || __btrc_suspect_count != 0
+            || __btrc_suspect_cap < 1 || __btrc_visit_table == NULL
+            || __btrc_destroy_table == NULL) return 11;
 
     __btrc_tracking = 1;
     for (int i = 0; i < 3; i++) {

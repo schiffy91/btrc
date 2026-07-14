@@ -41,6 +41,9 @@ IRNode cycleEdgeDescriptor(IRGen generator, Node typeExpr) {
     Vector<string> fields = [];
     fields.push("visit");
     fields.push("destroy");
+    fields.push("hook");
+    fields.push("guard");
+    fields.push("raise");
     Vector<IRNode> values = [];
     if ((typeExpr.generic_args.len > 0
                 && genericTypeHasCycleVisitor(generator, typeExpr))
@@ -51,14 +54,20 @@ IRNode cycleEdgeDescriptor(IRGen generator, Node typeExpr) {
         values.push(irLiteral("NULL"));
     }
     values.push(irVar(emitted + "_destroy"));
+    values.push(irLiteral("NULL"));
+    values.push(irLiteral("NULL"));
+    values.push(irLiteral("NULL"));
     return irAddressOf(irCompoundLiteral(
         "__btrc_arc_type", fields, values));
 }
 
 void appendCycleCallback(IRGen generator, Node typeExpr, IRNode slot,
         Vector<IRNode> output) {
+    string access = ensureArcSlotAdapter(
+        generator, typeToC(typeExpr, generator.analyzed));
     Vector<IRNode> arguments = [];
-    arguments.push(irCast("void**", irAddressOf(slot)));
+    arguments.push(irCast("volatile void*", irAddressOf(slot)));
+    arguments.push(irVar(access));
     arguments.push(cycleEdgeDescriptor(generator, typeExpr));
     arguments.push(irVar("context"));
     Vector<IRNode> thenBody = [];
@@ -72,6 +81,10 @@ bool appendClassCycleFieldVisit(IRGen generator, Node typeExpr,
             || typeExpr.is_array) {
         return false;
     }
+    if (appendMutexCycleFieldVisit(
+            generator, typeExpr, slot, output)) {
+        return true;
+    }
     if (genericCycleManagedType(generator.analyzed, typeExpr)) {
         appendCycleCallback(generator, typeExpr, slot, output);
         return true;
@@ -84,6 +97,10 @@ bool appendGenericCycleFieldVisit(IRGen generator, Node typeExpr,
     if (typeExpr == null || typeExpr.pointer_depth > 1
             || typeExpr.is_array) {
         return false;
+    }
+    if (appendMutexCycleFieldVisit(
+            generator, typeExpr, slot, output)) {
+        return true;
     }
     if (!genericCycleManagedType(generator.analyzed, typeExpr)) { return false; }
     appendCycleCallback(generator, typeExpr, slot, output);

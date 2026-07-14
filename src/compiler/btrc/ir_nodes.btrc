@@ -83,6 +83,7 @@ class IRNode {
     public bool is_volatile;     /* IRVarDecl: emit `volatile` (setjmp/longjmp rule) */
     public bool is_static;       /* IRVarDecl storage class */
     public bool is_extern;       /* IRVarDecl storage class */
+    public bool is_cycle_return_temp; /* Boundary-pass provenance marker. */
     /* Typed unwind-slot identity shared by one declaration and its calls. */
     public IRCleanupSlot cleanup_slot;
     public string helper_ref;    /* Explicit runtime-helper edge on IRCall. */
@@ -123,6 +124,7 @@ class IRNode {
         self.is_volatile = false;
         self.is_static = false;
         self.is_extern = false;
+        self.is_cycle_return_temp = false;
         self.cleanup_slot = null;
         self.helper_ref = "";
         self.init = null;
@@ -533,6 +535,9 @@ string helperSource(string name) {
     }
     if (trycatchRuntimeHasHelper(name)) {
         return trycatchRuntimeHelperSource(name);
+    }
+    if (threadRuntimeHasHelper(name)) {
+        return threadRuntimeHelperSource(name);
     }
     if (name == "__btrc_div") {
         return "static inline int __btrc_div_g_int(int a, int b) {\n"
@@ -1465,210 +1470,6 @@ string helperSource(string name) {
             + "    return h;\n"
             + "}";
     }
-    /* --- threads category (pthread wrappers; mirrors helpers/threads.py) --- */
-    if (name == "__btrc_thread_spawn") {
-        return "typedef void (*__btrc_thread_result_dispose)(void*, void*);\n"
-            + "typedef struct {\n"
-            + "    void* (*fn)(void*);\n"
-            + "    void* arg;\n"
-            + "    void* result;\n"
-            + "    void* result_context;\n"
-            + "    __btrc_thread_result_dispose dispose_result;\n"
-            + "    pthread_t handle;\n"
-            + "} __btrc_thread_t;\n"
-            + "\n"
-            + "static void* __btrc_thread_wrapper(void* raw) {\n"
-            + "    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n"
-            + "    void* result = t->fn(t->arg);\n"
-            + "    __btrc_try_state_cleanup();\n"
-            + "    t->result = result;\n"
-            + "    return NULL;\n"
-            + "}\n"
-            + "\n"
-            + "static __btrc_thread_t* __btrc_thread_spawn(\n"
-            + "        void* (*fn)(void*), void* arg,\n"
-            + "        const void* result_context, size_t context_size,\n"
-            + "        __btrc_thread_result_dispose dispose_result) {\n"
-            + "    if (!fn) { fprintf(stderr, \"btrc: cannot spawn a null thread function\\n\"); exit(1); }\n"
-            + "    if ((!result_context) != (context_size == 0) || (result_context && !dispose_result)) { fprintf(stderr, \"btrc: invalid thread result disposal context\\n\"); exit(1); }\n"
-            + "    __btrc_thread_t* t = (__btrc_thread_t*)__btrc_safe_realloc(\n"
-            + "        NULL, sizeof(__btrc_thread_t));\n"
-            + "    t->fn = fn;\n"
-            + "    t->arg = arg;\n"
-            + "    t->result = NULL;\n"
-            + "    t->result_context = NULL;\n"
-            + "    if (context_size != 0) {\n"
-            + "        t->result_context = __btrc_safe_realloc(NULL, context_size);\n"
-            + "        memcpy(t->result_context, result_context, context_size);\n"
-            + "    }\n"
-            + "    t->dispose_result = dispose_result;\n"
-            + "    int err = pthread_create(&t->handle, NULL, __btrc_thread_wrapper, t);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: pthread_create failed (%d)\\n\", err); free(t->result_context); free(t); exit(1); }\n"
-            + "    return t;\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_finish") {
-        return "static void __btrc_thread_finish(__btrc_thread_t* t) {\n"
-            + "    int err = pthread_join(t->handle, NULL);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: pthread_join failed (%d)\\n\", err); exit(1); }\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_destroy_handle") {
-        return "static void __btrc_thread_destroy_handle(__btrc_thread_t* t) {\n"
-            + "    free(t->result_context);\n"
-            + "    free(t);\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_box_dispose") {
-        return "static inline void __btrc_thread_box_dispose(\n"
-            + "        void* result, void* context) {\n"
-            + "    (void)context;\n"
-            + "    free(result);\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_arc_dispose") {
-        return "static inline void __btrc_thread_arc_dispose(\n"
-            + "        void* result, void* context) {\n"
-            + "    __btrc_arc_release(\n"
-            + "        result, (const __btrc_arc_type*)context);\n"
-            + "    __btrc_poll_cycles();\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_string_dispose") {
-        return "static inline void __btrc_thread_string_dispose(\n"
-            + "        void* result, void* context) {\n"
-            + "    (void)context;\n"
-            + "    __btrc_string_release((char*)result);\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_join") {
-        return "static void* __btrc_thread_join(__btrc_thread_t* t) {\n"
-            + "    if (!t) { fprintf(stderr, \"btrc: cannot join a consumed thread handle\\n\"); exit(1); }\n"
-            + "    __btrc_thread_finish(t);\n"
-            + "    void* result = t->result;\n"
-            + "    __btrc_thread_destroy_handle(t);\n"
-            + "    return result;\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_free") {
-        return "static void __btrc_thread_free(void* raw) {\n"
-            + "    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n"
-            + "    if (!t) return;\n"
-            + "    __btrc_thread_finish(t);\n"
-            + "    if (t->dispose_result)\n"
-            + "        t->dispose_result(t->result, t->result_context);\n"
-            + "    __btrc_thread_destroy_handle(t);\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_val_create") {
-        return "typedef void (*__btrc_mutex_value_callback)(\n"
-            + "    void*, void*);\n"
-            + "typedef struct {\n"
-            + "    pthread_mutex_t lock;\n"
-            + "    void* value;\n"
-            + "    size_t size;\n"
-            + "    void* context;\n"
-            + "    __btrc_mutex_value_callback retain;\n"
-            + "    __btrc_mutex_value_callback release;\n"
-            + "} __btrc_mutex_val_t;\n"
-            + "\n"
-            + "static __btrc_mutex_val_t* __btrc_mutex_val_create(\n"
-            + "        void* initial, size_t size,\n"
-            + "        const void* context, size_t context_size,\n"
-            + "        __btrc_mutex_value_callback retain,\n"
-            + "        __btrc_mutex_value_callback release) {\n"
-            + "    if (!initial || size == 0) { fprintf(stderr, \"btrc: Mutex requires an initial value\\n\"); exit(1); }\n"
-            + "    if ((!retain) != (!release)) { fprintf(stderr, \"btrc: invalid Mutex ownership callbacks\\n\"); free(initial); exit(1); }\n"
-            + "    if ((!context) != (context_size == 0)) { fprintf(stderr, \"btrc: invalid Mutex ownership context\\n\"); free(initial); exit(1); }\n"
-            + "    __btrc_mutex_val_t* m = (__btrc_mutex_val_t*)__btrc_safe_realloc(\n"
-            + "        NULL, sizeof(__btrc_mutex_val_t));\n"
-            + "    int err = pthread_mutex_init(&m->lock, NULL);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex init failed (%d)\\n\", err); free(initial); free(m); exit(1); }\n"
-            + "    m->value = initial;\n"
-            + "    m->size = size;\n"
-            + "    m->context = NULL;\n"
-            + "    if (context_size != 0) {\n"
-            + "        m->context = __btrc_safe_realloc(NULL, context_size);\n"
-            + "        memcpy(m->context, context, context_size);\n"
-            + "    }\n"
-            + "    m->retain = retain;\n"
-            + "    m->release = release;\n"
-            + "    if (m->retain) m->retain(*(void**)m->value, m->context);\n"
-            + "    return m;\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_arc_retain") {
-        return "static void __btrc_mutex_arc_retain(\n"
-            + "        void* value, void* context) {\n"
-            + "    (void)context;\n"
-            + "    (void)__btrc_arc_retain(value);\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_arc_release") {
-        return "static void __btrc_mutex_arc_release(\n"
-            + "        void* value, void* context) {\n"
-            + "    __btrc_arc_release(value, (const __btrc_arc_type*)context);\n"
-            + "    __btrc_poll_cycles();\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_string_retain") {
-        return "static void __btrc_mutex_string_retain(\n"
-            + "        void* value, void* context) {\n"
-            + "    (void)context;\n"
-            + "    (void)__btrc_string_retain((char*)value);\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_string_release") {
-        return "static void __btrc_mutex_string_release(\n"
-            + "        void* value, void* context) {\n"
-            + "    (void)context;\n"
-            + "    __btrc_string_release((char*)value);\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_val_get") {
-        return "static void* __btrc_mutex_val_get(__btrc_mutex_val_t* m) {\n"
-            + "    if (!m) { fprintf(stderr, \"btrc: cannot get a null Mutex\\n\"); exit(1); }\n"
-            + "    void* copy = __btrc_safe_realloc(NULL, m->size);\n"
-            + "    int err = pthread_mutex_lock(&m->lock);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex lock failed (%d)\\n\", err); exit(1); }\n"
-            + "    memcpy(copy, m->value, m->size);\n"
-            + "    if (m->retain) m->retain(*(void**)copy, m->context);\n"
-            + "    err = pthread_mutex_unlock(&m->lock);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex unlock failed (%d)\\n\", err); exit(1); }\n"
-            + "    return copy;\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_val_set") {
-        return "static void __btrc_mutex_val_set(__btrc_mutex_val_t* m, void* val) {\n"
-            + "    if (!m || !val) { fprintf(stderr, \"btrc: cannot set a null Mutex\\n\"); free(val); exit(1); }\n"
-            + "    if (m->retain) m->retain(*(void**)val, m->context);\n"
-            + "    int err = pthread_mutex_lock(&m->lock);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex lock failed (%d)\\n\", err); exit(1); }\n"
-            + "    void* old = m->value;\n"
-            + "    m->value = val;\n"
-            + "    err = pthread_mutex_unlock(&m->lock);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex unlock failed (%d)\\n\", err); exit(1); }\n"
-            + "    if (m->release) m->release(*(void**)old, m->context);\n"
-            + "    free(old);\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_val_destroy") {
-        return "static void __btrc_mutex_val_destroy(__btrc_mutex_val_t* m) {\n"
-            + "    if (!m) return;\n"
-            + "    int err = pthread_mutex_lock(&m->lock);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex lock failed (%d)\\n\", err); exit(1); }\n"
-            + "    void* old = m->value;\n"
-            + "    m->value = NULL;\n"
-            + "    err = pthread_mutex_unlock(&m->lock);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex unlock failed (%d)\\n\", err); exit(1); }\n"
-            + "    err = pthread_mutex_destroy(&m->lock);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex destroy failed (%d)\\n\", err); exit(1); }\n"
-            + "    if (m->release) m->release(*(void**)old, m->context);\n"
-            + "    free(old);\n"
-            + "    free(m->context);\n"
-            + "    free(m);\n"
-            + "}";
-    }
     return "";
 }
 
@@ -1680,6 +1481,12 @@ Vector<string> helperDeps(string name) {
     }
     if (stringOwnershipRuntimeHasHelper(name)) {
         return stringOwnershipRuntimeHelperDependencies(name);
+    }
+    if (trycatchRuntimeHasHelper(name)) {
+        return trycatchRuntimeHelperDependencies(name);
+    }
+    if (threadRuntimeHasHelper(name)) {
+        return threadRuntimeHelperDependencies(name);
     }
     Vector<string> out = [];
     if (name == "__btrc_parseInt") { out.push("__btrc_parseLong"); }
@@ -1758,122 +1565,6 @@ Vector<string> helperDeps(string name) {
     }
     /* math category dependency edges (mirrors math.py depends_on). */
     else if (name == "__btrc_math_lcm") { out.push("__btrc_math_gcd"); }
-    /* trycatch category dependency edges (mirrors trycatch.py depends_on). */
-    else if (name == "__btrc_trycatch_globals") {
-        out.push("__btrc_try_level");
-    }
-    else if (name == "__btrc_push_try") {
-        out.push("__btrc_trycatch_globals");
-        out.push("__btrc_try_capacity");
-        out.push("__btrc_safe_realloc");
-    }
-    else if (name == "__btrc_cleanup_types") {
-        out.push("__btrc_try_level");
-        out.push("__btrc_arc_callback_types");
-    }
-    else if (name == "__btrc_register_cleanup_kind") {
-        out.push("__btrc_cleanup_types");
-        out.push("__btrc_cleanup_capacity");
-        out.push("__btrc_safe_realloc");
-    }
-    else if (name == "__btrc_register_cleanup") {
-        out.push("__btrc_register_cleanup_kind");
-    }
-    else if (name == "__btrc_register_direct_cleanup") {
-        out.push("__btrc_register_cleanup_kind");
-    }
-    else if (name == "__btrc_run_cleanup_guarded") {
-        out.push("__btrc_cleanup_types");
-        out.push("__btrc_push_try");
-        out.push("__btrc_arc_release");
-        out.push("__btrc_arc_release_acyclic");
-    }
-    else if (name == "__btrc_flush_cycles_guarded") {
-        out.push("__btrc_push_try");
-        out.push("__btrc_flush_cycles");
-    }
-    else if (name == "__btrc_run_cleanups") {
-        out.push("__btrc_cleanup_types");
-        out.push("__btrc_safe_realloc");
-        out.push("__btrc_destroyed_tracking_scope");
-        out.push("__btrc_is_destroyed");
-        out.push("__btrc_run_cleanup_guarded");
-        out.push("__btrc_flush_cycles_guarded");
-    }
-    else if (name == "__btrc_discard_cleanups"
-            || name == "__btrc_cleanup_mark"
-            || name == "__btrc_discard_cleanups_to") {
-        out.push("__btrc_cleanup_types");
-    }
-    else if (name == "__btrc_throw") {
-        out.push("__btrc_trycatch_globals");
-        out.push("__btrc_run_cleanups");
-    }
-    else if (name == "__btrc_try_state_cleanup") {
-        out.push("__btrc_trycatch_globals");
-        out.push("__btrc_try_capacity");
-        out.push("__btrc_cleanup_types");
-        out.push("__btrc_cleanup_capacity");
-        out.push("__btrc_launder_state");
-    }
-    /* threads dependency edges (mirrors helpers/threads.py depends_on): the
-     * join/free/mutex-accessor helpers reference the typedef + globals declared
-     * by their spawn/create root helper. */
-    else if (name == "__btrc_thread_spawn") {
-        out.push("__btrc_safe_realloc");
-        out.push("__btrc_try_state_cleanup");
-    }
-    else if (name == "__btrc_thread_finish") {
-        out.push("__btrc_thread_spawn");
-    }
-    else if (name == "__btrc_thread_destroy_handle") {
-        out.push("__btrc_thread_spawn");
-    }
-    else if (name == "__btrc_thread_box_dispose") {
-        out.push("__btrc_thread_spawn");
-    }
-    else if (name == "__btrc_thread_arc_dispose") {
-        out.push("__btrc_thread_spawn");
-        out.push("__btrc_arc_release");
-        out.push("__btrc_poll_cycles");
-    }
-    else if (name == "__btrc_thread_string_dispose") {
-        out.push("__btrc_thread_spawn");
-        out.push("__btrc_string_release");
-    }
-    else if (name == "__btrc_thread_join") {
-        out.push("__btrc_thread_finish");
-        out.push("__btrc_thread_destroy_handle");
-    }
-    else if (name == "__btrc_thread_free") {
-        out.push("__btrc_thread_finish");
-        out.push("__btrc_thread_destroy_handle");
-    }
-    else if (name == "__btrc_mutex_val_create") {
-        out.push("__btrc_safe_realloc");
-    }
-    else if (name == "__btrc_mutex_arc_retain") {
-        out.push("__btrc_mutex_val_create");
-        out.push("__btrc_arc_retain");
-    }
-    else if (name == "__btrc_mutex_arc_release") {
-        out.push("__btrc_mutex_val_create");
-        out.push("__btrc_arc_release");
-        out.push("__btrc_poll_cycles");
-    }
-    else if (name == "__btrc_mutex_string_retain") {
-        out.push("__btrc_mutex_val_create");
-        out.push("__btrc_string_retain");
-    }
-    else if (name == "__btrc_mutex_string_release") {
-        out.push("__btrc_mutex_val_create");
-        out.push("__btrc_string_release");
-    }
-    else if (name == "__btrc_mutex_val_get") { out.push("__btrc_mutex_val_create"); }
-    else if (name == "__btrc_mutex_val_set"
-            || name == "__btrc_mutex_val_destroy") {
-        out.push("__btrc_mutex_val_create");
-    }
     return out;
 }
 
@@ -1884,11 +1575,28 @@ Vector<string> helperHeaders(string name) {
     if (stringOwnershipRuntimeHasHelper(name)) {
         return stringOwnershipRuntimeHelperHeaders(name);
     }
+    if (threadRuntimeHasHelper(name)) {
+        return threadRuntimeHelperHeaders(name);
+    }
     Vector<string> out = [];
     if (name == "__btrc_arc_lock_state"
             || name == "__btrc_arc_snapshot_state"
-            || name == "__btrc_destroyed_tracking") {
+            || name == "__btrc_arc_snapshot_gate_state") {
         out.push("stdatomic.h");
+    }
+    else if (name == "__btrc_arc_exclusive_snapshot") {
+        out.push("limits.h");
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_abandon_graph") {
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_abandon") {
+        out.push("limits.h");
+        out.push("stdint.h");
+        out.push("stdio.h");
+        out.push("stdlib.h");
     }
     else if (name == "__btrc_arc_topology_begin") {
         out.push("limits.h");
@@ -1896,6 +1604,20 @@ Vector<string> helperHeaders(string name) {
         out.push("stdlib.h");
     }
     else if (name == "__btrc_arc_topology_leave") {
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_deferred_state") {
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_drain") {
+        out.push("limits.h");
+        out.push("stdio.h");
+        out.push("stdlib.h");
+        out.push("string.h");
+    }
+    else if (name == "__btrc_raise_captured") {
         out.push("stdio.h");
         out.push("stdlib.h");
     }
@@ -2012,16 +1734,15 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_arc_header_of");
     order.push("__btrc_arc_type_of");
     order.push("__btrc_arc_validate");
+    order.push("__btrc_destroyed_tracking");
     order.push("__btrc_arc_lock_state");
     order.push("__btrc_arc_snapshot_state");
+    order.push("__btrc_arc_snapshot_gate_state");
+    order.push("__btrc_arc_abandon_queue_state");
+    order.push("__btrc_arc_shutdown_state");
+    order.push("__btrc_arc_active_drains_state");
+    order.push("__btrc_arc_active_unwinds_state");
     order.push("__btrc_arc_mutation_lock");
-    order.push("__btrc_arc_topology_state");
-    order.push("__btrc_arc_topology_depth_state");
-    order.push("__btrc_arc_topology_begin");
-    order.push("__btrc_arc_topology_leave");
-    order.push("__btrc_arc_topology_cleanup");
-    order.push("__btrc_arc_deferred_state");
-    order.push("__btrc_destroyed_tracking");
     order.push("__btrc_destroyed_tracking_scope");
     order.push("__btrc_is_destroyed");
     order.push("__btrc_destroyed_capacity");
@@ -2029,28 +1750,44 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_suspect_state");
     order.push("__btrc_suspect_capacity");
     order.push("__btrc_ptr_hash");
-    order.push("__btrc_arc_reverse_state");
-    order.push("__btrc_arc_register_incoming");
-    order.push("__btrc_arc_unregister_incoming");
-    order.push("__btrc_arc_reverse_proves_live");
     order.push("__btrc_suspect_locked");
     order.push("__btrc_suspect");
+    order.push("__btrc_arc_topology_state");
+    order.push("__btrc_arc_topology_depth_state");
+    order.push("__btrc_arc_exclusive_snapshot");
+    order.push("__btrc_arc_topology_begin");
+    order.push("__btrc_arc_topology_leave");
+    order.push("__btrc_arc_deferred_state");
+    order.push("__btrc_cycle_collector_state");
+    order.push("__btrc_arc_graph_primitives");
+    order.push("__btrc_arc_unregister_incoming");
+    order.push("__btrc_forget_suspect");
+    order.push("__btrc_collect_cycles_once");
+    order.push("__btrc_arc_drain");
+    order.push("__btrc_arc_abandon_graph");
+    order.push("__btrc_flush_cycles");
+    order.push("__btrc_arc_abandon_queue_drain");
+    order.push("__btrc_arc_topology_cleanup");
+    order.push("__btrc_arc_topology_complete");
+    order.push("__btrc_arc_reverse_state");
+    order.push("__btrc_arc_register_incoming");
+    order.push("__btrc_arc_reverse_proves_live");
     order.push("__btrc_arc_retain");
     order.push("__btrc_arc_retain_edge");
     order.push("__btrc_arc_adopt_edge");
     order.push("__btrc_arc_unlink_edge");
-    order.push("__btrc_forget_suspect");
     order.push("__btrc_arc_release_impl");
     order.push("__btrc_arc_replace_edge");
     order.push("__btrc_arc_release");
     order.push("__btrc_arc_release_edge");
     order.push("__btrc_arc_release_acyclic");
-    order.push("__btrc_arc_destroy");
     order.push("__btrc_arc_invalidate");
+    order.push("__btrc_arc_destroy_slot");
+    order.push("__btrc_arc_destroy_edge");
+    order.push("__btrc_arc_abandon");
     order.push("__btrc_collect_cycles");
     order.push("__btrc_poll_cycles");
-    order.push("__btrc_flush_cycles");
-    order.push("__btrc_arc_topology_complete");
+    order.push("__btrc_arc_thread_state_cleanup");
     order.push("__btrc_cycle_state_cleanup");
     /* run_cleanups + throw are emitted AFTER the cycles machinery: the
      * cycle-safe unwinder calls __btrc_collect_cycles / __btrc_suspect and
@@ -2063,28 +1800,14 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_discard_cleanups");
     order.push("__btrc_cleanup_mark");
     order.push("__btrc_discard_cleanups_to");
+    order.push("__btrc_arc_guard_hook");
+    order.push("__btrc_raise_captured");
     order.push("__btrc_run_cleanup_guarded");
     order.push("__btrc_flush_cycles_guarded");
     order.push("__btrc_run_cleanups");
     order.push("__btrc_throw");
     order.push("__btrc_try_state_cleanup");
-    /* threads (pthread wrappers; spawn/create roots first so their typedefs +
-     * globals precede the dependent accessors). */
-    order.push("__btrc_thread_spawn");
-    order.push("__btrc_thread_finish");
-    order.push("__btrc_thread_destroy_handle");
-    order.push("__btrc_thread_box_dispose");
-    order.push("__btrc_thread_arc_dispose");
-    order.push("__btrc_thread_string_dispose");
-    order.push("__btrc_thread_join");
-    order.push("__btrc_thread_free");
-    order.push("__btrc_mutex_val_create");
-    order.push("__btrc_mutex_arc_retain");
-    order.push("__btrc_mutex_arc_release");
-    order.push("__btrc_mutex_string_retain");
-    order.push("__btrc_mutex_string_release");
-    order.push("__btrc_mutex_val_get");
-    order.push("__btrc_mutex_val_set");
-    order.push("__btrc_mutex_val_destroy");
+    /* pthread/Mutex helpers. */
+    appendThreadRuntimeHelperOrder(order);
     return order;
 }

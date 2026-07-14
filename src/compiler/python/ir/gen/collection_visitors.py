@@ -48,6 +48,14 @@ def slot_visit_stmts(gen, type_expr: TypeExpr, slot: IRExpr) -> list:
     action = visit_action(gen, type_expr, set())
     if action is None:
         return []
+    from .cleanup_slots import ensure_arc_slot_adapter
+    from .lvalues import value_c_type
+    from .types import type_to_c
+
+    access = ensure_arc_slot_adapter(
+        gen,
+        CType(text=value_c_type(type_expr, gen.analyzed.class_table, type_to_c)),
+    )
     edge_type = IRCompoundLiteral(
         c_type=CType(text="__btrc_arc_type"),
         fields=[
@@ -66,9 +74,10 @@ def slot_visit_stmts(gen, type_expr: TypeExpr, slot: IRExpr) -> list:
         callee=IRVar(name="fn"),
         args=[
             IRCast(
-                target_type=CType(text="void**"),
+                target_type=CType(text="volatile void*"),
                 expr=IRAddressOf(expr=slot),
             ),
+            IRVar(name=access),
             IRAddressOf(expr=edge_type),
             IRVar(name="context"),
         ],

@@ -54,7 +54,8 @@ void collectStructuredHelperRoots(IRModule m, Map<string, bool> used) {
 
     int globalIndex = 0;
     while (globalIndex < m.global_decls.len) {
-        rootArcCallbackAbiType(m.global_decls.get(globalIndex).c_type, used);
+        IRGlobalDecl global = m.global_decls.get(globalIndex);
+        rootArcCallbackAbiType(global.c_type, used);
         globalIndex = globalIndex + 1;
     }
 

@@ -29,8 +29,8 @@ def test_delete_takes_and_clears_before_throwing_destructor(
         main = generated[generated.rindex("int main(") :]
         assert main.count("selectedIndex()") == 1
         owner = main.index("selectedIndex()")
-        unlink = main.index("__btrc_arc_unlink_edge(", owner)
-        clear = main.index(" = NULL;", unlink)
-        destroy = main.index("__btrc_arc_destroy(", clear)
-        assert owner < unlink < clear < destroy
+        destroy = main.index("__btrc_arc_destroy_edge(", owner)
+        assert owner < destroy
+        assert "__btrc_arc_slot_access_" in main[destroy : destroy + 300]
+        assert "__btrc_arc_destroy(" not in generated
         _strict_matrix(artifact, tmp_path)

@@ -51,6 +51,73 @@ string ensureCleanupTakeAdapter(IRGen generator, string slotType) {
     return name;
 }
 
+IRFunction arcSlotAccessAdapter(string name, string slotType) {
+    string pointerType = slotType + " volatile*";
+    IRFunction definition = IRFunction();
+    definition.name = name;
+    definition.return_type = "void*";
+    definition.is_static = true;
+    definition.params.push(IRParam("volatile void*", "raw_slot"));
+    definition.params.push(IRParam("void*", "expected"));
+    definition.params.push(IRParam("void*", "replacement"));
+    definition.params.push(IRParam("int", "replace_if_equal"));
+    Vector<IRNode> body = [];
+    body.push(irVarDecl(pointerType, "typed_slot",
+        irCast(pointerType, irVar("raw_slot"))));
+    body.push(irVarDecl(slotType, "current",
+        irDeref(irVar("typed_slot"))));
+    Vector<IRNode> clearBody = [];
+    clearBody.push(irAssign(
+        irDeref(irVar("typed_slot")),
+        irCast(slotType, irVar("replacement"))));
+    body.push(irIf(irBinOp(
+        irBinOp(irVar("replace_if_equal"), "!=", irLiteral("0")),
+        "&&",
+        irBinOp(irVar("current"), "==",
+            irCast(slotType, irVar("expected")))),
+        irBlock(clearBody), null));
+    body.push(irReturn(irCast("void*", irVar("current"))));
+    definition.body = irBlock(body);
+    return definition;
+}
+
+string ensureArcSlotAdapter(IRGen generator, string slotType) {
+    if (generator.arcSlotAdapters.has(slotType)) {
+        return generator.arcSlotAdapters.get(slotType);
+    }
+    string name = "__btrc_arc_slot_access_" + Strings.fromInt(
+        generator.arcSlotAdapters.len + 1);
+    generator.arcSlotAdapters.put(slotType, name);
+    generator.cleanupTakeAdapterDefinitions.push(
+        arcSlotAccessAdapter(name, slotType));
+    return name;
+}
+
+IRFunction mutexValueAccessAdapter(string name, string valueType) {
+    IRFunction definition = IRFunction();
+    definition.name = name;
+    definition.return_type = "void*";
+    definition.is_static = true;
+    definition.params.push(IRParam("const void*", "raw_storage"));
+    Vector<IRNode> body = [];
+    body.push(irReturn(irCast("void*", irDeref(irCast(
+        valueType + " const*", irVar("raw_storage"))))));
+    definition.body = irBlock(body);
+    return definition;
+}
+
+string ensureMutexValueAdapter(IRGen generator, string valueType) {
+    if (generator.mutexValueAdapters.has(valueType)) {
+        return generator.mutexValueAdapters.get(valueType);
+    }
+    string name = "__btrc_mutex_value_access_" + Strings.fromInt(
+        generator.mutexValueAdapters.len + 1);
+    generator.mutexValueAdapters.put(valueType, name);
+    generator.cleanupTakeAdapterDefinitions.push(
+        mutexValueAccessAdapter(name, valueType));
+    return name;
+}
+
 IRNode registerCleanupSlot(IRGen generator, IRNode declaration,
         IRNode cleanupFunction, IRNode? visitor, bool direct) {
     if (declaration.kind != IRK_VAR_DECL || declaration.is_static
