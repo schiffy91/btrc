@@ -1,0 +1,39 @@
+/* Injectable strict-C11 boundaries for daemon-control monotonic time. */
+#include <assert.h>
+
+int main() {
+    long long minimum = LLONG_MIN;
+    long long maximum = LLONG_MAX;
+    long long boundarySecondsWide = maximum / 1000LL;
+    uintmax_t boundarySeconds = (uintmax_t)boundarySecondsWide;
+    long long remainder = maximum - boundarySecondsWide * 1000LL;
+    long boundaryNanoseconds = (long)remainder * 1000000L;
+
+    assert(DaemonControlClock.millisecondsFrom((uintmax_t)0, 0L) == 0LL);
+    assert(DaemonControlClock.millisecondsFrom(
+        (uintmax_t)12, 345678901L) == 12345LL);
+    assert(DaemonControlClock.millisecondsFrom(
+        (uintmax_t)0, -1L) == -1LL);
+    assert(DaemonControlClock.millisecondsFrom(
+        (uintmax_t)0, 1000000000L) == -1LL);
+    assert(DaemonControlClock.millisecondsFrom(
+        boundarySeconds, boundaryNanoseconds) == maximum);
+    if (remainder < 999LL) {
+        long overflowingNanoseconds = (long)(remainder + 1LL) * 1000000L;
+        assert(DaemonControlClock.millisecondsFrom(
+            boundarySeconds, overflowingNanoseconds) == maximum);
+    }
+    assert(DaemonControlClock.millisecondsFrom(
+        boundarySeconds + (uintmax_t)1, 0L) == maximum);
+
+    assert(DaemonControlClock.deadline(0LL, 0) == 0LL);
+    assert(DaemonControlClock.deadline(1250LL, 750) == 2000LL);
+    assert(DaemonControlClock.deadline(maximum, 0) == maximum);
+    assert(DaemonControlClock.deadline(maximum - 10LL, 10) == maximum);
+    assert(DaemonControlClock.deadline(maximum - 9LL, 10) == maximum);
+    assert(DaemonControlClock.deadline(minimum, 0) == -1LL);
+    assert(DaemonControlClock.deadline(0LL, -1) == -1LL);
+
+    print("PASS: test_stdlib_daemon_clock");
+    return 0;
+}

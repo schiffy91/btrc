@@ -51,7 +51,7 @@ class DaemonControlProtocol {
             return false;
         }
         long long now = DaemonControlClock.milliseconds();
-        long long deadline = now < 0LL ? -1LL : now + 1500LL;
+        long long deadline = DaemonControlClock.deadline(now, 1500);
         int attempts = 0;
         bool acknowledged = false;
         while (attempts < 75 && (deadline < 0LL
@@ -71,8 +71,8 @@ class DaemonControlProtocol {
 
     class bool waitForRecord(string pidFile, int timeoutMilliseconds) {
         long long now = DaemonControlClock.milliseconds();
-        long long deadline = now < 0LL
-            ? -1LL : now + (long long)timeoutMilliseconds;
+        long long deadline = DaemonControlClock.deadline(
+            now, timeoutMilliseconds);
         int attempts = timeoutMilliseconds / 20 + 1;
         while (attempts > 0 && (deadline < 0LL
                 || DaemonControlClock.before(deadline))) {
@@ -87,8 +87,8 @@ class DaemonControlProtocol {
                               DaemonControlRecord original,
                               int timeoutMilliseconds) {
         long long now = DaemonControlClock.milliseconds();
-        long long deadline = now < 0LL
-            ? -1LL : now + (long long)timeoutMilliseconds;
+        long long deadline = DaemonControlClock.deadline(
+            now, timeoutMilliseconds);
         int attempts = timeoutMilliseconds / 20 + 1;
         while (attempts > 0 && (deadline < 0LL
                 || DaemonControlClock.before(deadline))) {

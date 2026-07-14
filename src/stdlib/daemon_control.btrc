@@ -11,6 +11,7 @@ import std.vector;
 
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include <time.h>
 
 class DaemonControlRecord {
@@ -69,16 +70,34 @@ class DaemonControlRecord {
 }
 
 class DaemonControlClock {
+    class long long millisecondsFrom(uintmax_t seconds, long nanoseconds) {
+        if (nanoseconds < 0L || nanoseconds >= 1000000000L) {
+            return -1LL;
+        }
+        if (seconds > (uintmax_t)(LLONG_MAX / 1000LL)) {
+            return LLONG_MAX;
+        }
+        long long milliseconds = (long long)seconds * 1000LL;
+        long long fraction = (long long)nanoseconds / 1000000LL;
+        return milliseconds > LLONG_MAX - fraction
+            ? LLONG_MAX : milliseconds + fraction;
+    }
+
     class long long milliseconds() {
         struct timespec now;
         now.tv_sec = (time_t)0;
         now.tv_nsec = 0L;
         if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) { return -1LL; }
-        if ((long long)now.tv_sec > LLONG_MAX / 1000LL) {
-            return LLONG_MAX;
-        }
-        return (long long)now.tv_sec * 1000LL
-            + (long long)now.tv_nsec / 1000000LL;
+        if (now.tv_sec < (time_t)0) { return -1LL; }
+        return DaemonControlClock.millisecondsFrom(
+            (uintmax_t)now.tv_sec, now.tv_nsec);
+    }
+
+    class long long deadline(long long now, int timeoutMilliseconds) {
+        if (now < 0LL || timeoutMilliseconds < 0) { return -1LL; }
+        long long duration = (long long)timeoutMilliseconds;
+        return duration > LLONG_MAX - now
+            ? LLONG_MAX : now + duration;
     }
 
     class void pause() {
