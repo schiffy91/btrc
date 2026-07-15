@@ -1,6 +1,7 @@
 """ARC header, destroyed-object tracking, and cycle candidate state."""
 
 from .core import HelperDef
+from .cycle_suspects import ARC_SUSPECT_HELPERS
 
 ARC_STATE_HELPERS = {
     "__btrc_arc_callback_types": HelperDef(
@@ -165,6 +166,11 @@ static void __btrc_destroyed_tracking_end(void) {
         __btrc_arc_unlock_mutation();
         return;
     }
+    if (__btrc_destroyed_count < 0 || __btrc_destroyed_cap < 0
+            || __btrc_destroyed_count > __btrc_destroyed_cap) {
+        fprintf(stderr, "btrc: invalid destroyed tracking capacity\n");
+        exit(1);
+    }
     for (int i = 0; i < __btrc_destroyed_count; i++) {
         if (__btrc_destroyed[i] != ptr) continue;
         __btrc_arc_unlock_mutation();
@@ -174,8 +180,9 @@ static void __btrc_destroyed_tracking_end(void) {
         if (__btrc_destroyed_cap > INT_MAX / 2) { fprintf(stderr, "btrc: destroyed tracking overflow\n"); exit(1); }
         int new_cap = __btrc_destroyed_cap ? __btrc_destroyed_cap * 2 : 256;
         if ((size_t)new_cap > SIZE_MAX / sizeof(void*)) { fprintf(stderr, "btrc: destroyed tracking size overflow\n"); exit(1); }
+        size_t bytes = sizeof(void*) * (size_t)new_cap;
         __btrc_destroyed = (void**)__btrc_safe_realloc(
-            __btrc_destroyed, sizeof(void*) * (size_t)new_cap);
+            __btrc_destroyed, bytes);
         __btrc_destroyed_cap = new_cap;
     }
     __btrc_destroyed[__btrc_destroyed_count++] = ptr;
@@ -188,100 +195,7 @@ static void __btrc_destroyed_tracking_end(void) {
             "__btrc_arc_mutation_lock",
         ],
     ),
-    "__btrc_suspect_state": HelperDef(
-        c_source=r"""/* ARC cycle detection: suspect buffer */
-static void** __btrc_suspects = NULL;
-static int __btrc_suspect_count = 0;
-static __btrc_visit_fn* __btrc_visit_table = NULL;
-static __btrc_destroy_fn* __btrc_destroy_table = NULL;
-static void** __btrc_suspect_keys = NULL;
-static int __btrc_suspect_key_cap = 0;""",
-        depends_on=["__btrc_arc_callback_types"],
-    ),
-    "__btrc_suspect_capacity": HelperDef(
-        c_source="static int __btrc_suspect_cap = 0;",
-    ),
-    "__btrc_ptr_hash": HelperDef(
-        c_source=r"""static size_t __btrc_ptr_hash(const void* ptr) {
-    uintptr_t value = (uintptr_t)ptr;
-    value ^= value >> 17;
-    value ^= value >> 9;
-    return (size_t)value;
-}""",
-    ),
-    "__btrc_suspect_locked": HelperDef(
-        c_source=r"""static void __btrc_grow_suspect_keys_locked(void) {
-    if (__btrc_suspect_key_cap > INT_MAX / 2) { fprintf(stderr, "btrc: cycle suspect hash overflow\n"); exit(1); }
-    int cap = __btrc_suspect_key_cap ? __btrc_suspect_key_cap * 2 : 256;
-    void** keys = (void**)calloc((size_t)cap, sizeof(void*));
-    if (!keys) { fprintf(stderr, "btrc: cycle suspect hash allocation failed\n"); exit(1); }
-    for (int i = 0; i < __btrc_suspect_count; i++) {
-        size_t index = __btrc_ptr_hash(__btrc_suspects[i]) & ((size_t)cap - 1);
-        while (keys[index]) index = (index + 1) & ((size_t)cap - 1);
-        keys[index] = __btrc_suspects[i];
-    }
-    free(__btrc_suspect_keys);
-    __btrc_suspect_keys = keys;
-    __btrc_suspect_key_cap = cap;
-}
-static inline void __btrc_suspect_locked(void* obj, __btrc_visit_fn visit,
-                           __btrc_destroy_fn destroy) {
-    if (!obj) return;
-    __btrc_arc_validate(obj);
-    __btrc_arc_header* header = __btrc_arc_header_of(obj);
-    if (header->rc > header->edge_rc) return;
-    __btrc_arc_type fallback = {
-        .visit = visit, .destroy = destroy,
-        .hook = NULL, .guard = NULL, .raise = NULL};
-    const __btrc_arc_type* type = __btrc_arc_type_of(obj, &fallback);
-    if (!type || !type->visit || !type->destroy) return;
-    if (__btrc_suspect_key_cap == 0
-            || __btrc_suspect_count >= __btrc_suspect_key_cap / 2)
-        __btrc_grow_suspect_keys_locked();
-    size_t key = __btrc_ptr_hash(obj)
-        & ((size_t)__btrc_suspect_key_cap - 1);
-    while (__btrc_suspect_keys[key]) {
-        if (__btrc_suspect_keys[key] == obj) return;
-        key = (key + 1) & ((size_t)__btrc_suspect_key_cap - 1);
-    }
-    if (__btrc_suspect_count >= __btrc_suspect_cap) {
-        if (__btrc_suspect_cap > INT_MAX / 2) { fprintf(stderr, "btrc: cycle suspect overflow\n"); exit(1); }
-        int new_cap = __btrc_suspect_cap ? __btrc_suspect_cap * 2 : 256;
-        if ((size_t)new_cap > SIZE_MAX / sizeof(void*)
-                || (size_t)new_cap > SIZE_MAX / sizeof(__btrc_visit_fn)
-                || (size_t)new_cap > SIZE_MAX / sizeof(__btrc_destroy_fn)) { fprintf(stderr, "btrc: cycle suspect size overflow\n"); exit(1); }
-        __btrc_suspects = (void**)__btrc_safe_realloc(
-            __btrc_suspects, sizeof(void*) * (size_t)new_cap);
-        __btrc_visit_table = (__btrc_visit_fn*)__btrc_safe_realloc(
-            __btrc_visit_table, sizeof(__btrc_visit_fn) * (size_t)new_cap);
-        __btrc_destroy_table = (__btrc_destroy_fn*)__btrc_safe_realloc(
-            __btrc_destroy_table, sizeof(__btrc_destroy_fn) * (size_t)new_cap);
-        __btrc_suspect_cap = new_cap;
-    }
-    __btrc_suspects[__btrc_suspect_count] = obj;
-    __btrc_visit_table[__btrc_suspect_count] = type->visit;
-    __btrc_destroy_table[__btrc_suspect_count] = type->destroy;
-    __btrc_suspect_keys[key] = obj;
-    __btrc_suspect_count++;
-}""",
-        depends_on=[
-            "__btrc_suspect_state",
-            "__btrc_suspect_capacity",
-            "__btrc_ptr_hash",
-            "__btrc_safe_realloc",
-            "__btrc_arc_type_of",
-            "__btrc_arc_validate",
-        ],
-    ),
-    "__btrc_suspect": HelperDef(
-        c_source=r"""static inline void __btrc_suspect(
-        void* obj, __btrc_visit_fn visit, __btrc_destroy_fn destroy) {
-    __btrc_arc_lock_mutation();
-    __btrc_suspect_locked(obj, visit, destroy);
-    __btrc_arc_unlock_mutation();
-}""",
-        depends_on=["__btrc_suspect_locked", "__btrc_arc_mutation_lock"],
-    ),
+    **ARC_SUSPECT_HELPERS,
 }
 
 __all__ = ["ARC_STATE_HELPERS"]

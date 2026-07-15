@@ -55,6 +55,11 @@ static void __btrc_arc_abandon(void* object) {
         fprintf(stderr, "btrc: invalid deferred construction abandon\n");
         exit(1);
     }
+    if (__btrc_abandon_count < 0 || __btrc_abandon_cap < 0
+            || __btrc_abandon_count > __btrc_abandon_cap) {
+        fprintf(stderr, "btrc: invalid construction abandon capacity\n");
+        exit(1);
+    }
     for (int i = 0; i < __btrc_abandon_count; i++) {
         if (__btrc_abandon_queue[i] == object) {
             fprintf(stderr, "btrc: duplicate deferred construction abandon\n");
@@ -76,8 +81,9 @@ static void __btrc_arc_abandon(void* object) {
             fprintf(stderr, "btrc: construction abandon size overflow\n");
             exit(1);
         }
+        size_t bytes = sizeof(void*) * (size_t)cap;
         __btrc_abandon_queue = (void**)__btrc_safe_realloc(
-            __btrc_abandon_queue, sizeof(void*) * (size_t)cap);
+            __btrc_abandon_queue, bytes);
         __btrc_abandon_cap = cap;
     }
     __btrc_abandon_queue[__btrc_abandon_count++] = object;

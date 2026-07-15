@@ -92,6 +92,7 @@ Vector<string> cycleRuntimeLifecycleDependencies(string name) {
     if (name == "__btrc_arc_graph_primitives") {
         out.push("__btrc_cycle_collector_state");
         out.push("__btrc_ptr_hash");
+        out.push("__btrc_safe_calloc");
         out.push("__btrc_safe_realloc");
         out.push("__btrc_arc_type_of");
         out.push("__btrc_arc_validate");
@@ -156,6 +157,7 @@ Vector<string> cycleRuntimeLifecycleDependencies(string name) {
         return out;
     }
     if (name == "__btrc_arc_thread_state_cleanup") {
+        out.push("__btrc_arc_abandon_queue_state");
         out.push("__btrc_arc_abandon_queue_drain");
         out.push("__btrc_arc_drain");
         out.push("__btrc_arc_mutation_lock");

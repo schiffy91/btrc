@@ -40,6 +40,7 @@ Vector<string> cycleRuntimeStateDependencies(string name) {
         out.push("__btrc_suspect_state");
         out.push("__btrc_suspect_capacity");
         out.push("__btrc_ptr_hash");
+        out.push("__btrc_safe_calloc");
         out.push("__btrc_safe_realloc");
         out.push("__btrc_arc_type_of");
         out.push("__btrc_arc_validate");
@@ -121,6 +122,7 @@ Vector<string> cycleRuntimeStateDependencies(string name) {
         out.push("__btrc_arc_reverse_state");
         out.push("__btrc_arc_validate");
         out.push("__btrc_ptr_hash");
+        out.push("__btrc_safe_calloc");
         out.push("__btrc_safe_realloc");
         return out;
     }

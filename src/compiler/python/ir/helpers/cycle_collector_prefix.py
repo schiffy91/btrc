@@ -50,60 +50,92 @@ static void __btrc_cycle_fail(const char* message) {
     fprintf(stderr, "btrc: %s\n", message);
     exit(1);
 }
+static int __btrc_cycle_next_capacity(
+        int capacity, const char* message) {
+    if (capacity < 0 || capacity > INT_MAX / 2)
+        __btrc_cycle_fail(message);
+    return capacity ? capacity * 2 : 256;
+}
+static size_t __btrc_cycle_capacity_bytes(
+        int capacity, size_t element_size, const char* message) {
+    if (capacity < 0 || (element_size != 0
+            && (size_t)capacity > SIZE_MAX / element_size))
+        __btrc_cycle_fail(message);
+    return (size_t)capacity * element_size;
+}
 static void __btrc_cycle_next_epoch(
         unsigned int* epoch, unsigned int* marks, int cap) {
     (*epoch)++;
     if (*epoch == 0) {
-        if (marks) memset(marks, 0, sizeof(unsigned int) * (size_t)cap);
+        if (marks) {
+            size_t bytes = __btrc_cycle_capacity_bytes(
+                cap, sizeof(unsigned int), "cycle epoch size overflow");
+            memset(marks, 0, bytes);
+        }
         *epoch = 1;
     }
 }
 static void __btrc_cycle_reserve_vertices(
         __btrc_cycle_context* context, int needed) {
+    if (needed < 0 || context->vertex_cap < 0)
+        __btrc_cycle_fail("cycle vertex overflow");
     if (needed <= context->vertex_cap) return;
-    int cap = context->vertex_cap ? context->vertex_cap : 256;
-    while (cap < needed) {
-        if (cap > INT_MAX / 2) __btrc_cycle_fail("cycle vertex overflow");
-        cap *= 2;
-    }
+    int cap = context->vertex_cap;
+    while (cap < needed)
+        cap = __btrc_cycle_next_capacity(cap, "cycle vertex overflow");
+    size_t bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(__btrc_cycle_vertex), "cycle vertex size overflow");
     context->vertices = (__btrc_cycle_vertex*)__btrc_safe_realloc(
-        context->vertices, sizeof(__btrc_cycle_vertex) * (size_t)cap);
+        context->vertices, bytes);
     context->vertex_cap = cap;
 }
 static void __btrc_cycle_reserve_edges(
         __btrc_cycle_context* context, int needed) {
+    if (needed < 0 || context->edge_cap < 0)
+        __btrc_cycle_fail("cycle edge overflow");
     if (needed <= context->edge_cap) return;
-    int cap = context->edge_cap ? context->edge_cap : 256;
-    while (cap < needed) {
-        if (cap > INT_MAX / 2) __btrc_cycle_fail("cycle edge overflow");
-        cap *= 2;
-    }
+    int cap = context->edge_cap;
+    while (cap < needed)
+        cap = __btrc_cycle_next_capacity(cap, "cycle edge overflow");
+    size_t bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(__btrc_cycle_edge), "cycle edge size overflow");
     context->edges = (__btrc_cycle_edge*)__btrc_safe_realloc(
-        context->edges, sizeof(__btrc_cycle_edge) * (size_t)cap);
+        context->edges, bytes);
     context->edge_cap = cap;
 }
 static void __btrc_cycle_reserve_queue(
         __btrc_cycle_context* context, int needed) {
+    if (needed < 0 || context->queue_cap < 0)
+        __btrc_cycle_fail("cycle queue overflow");
     if (needed <= context->queue_cap) return;
-    int cap = context->queue_cap ? context->queue_cap : 256;
-    while (cap < needed) {
-        if (cap > INT_MAX / 2) __btrc_cycle_fail("cycle queue overflow");
-        cap *= 2;
-    }
+    int cap = context->queue_cap;
+    while (cap < needed)
+        cap = __btrc_cycle_next_capacity(cap, "cycle queue overflow");
+    size_t bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(int), "cycle queue size overflow");
     context->queue = (int*)__btrc_safe_realloc(
-        context->queue, sizeof(int) * (size_t)cap);
+        context->queue, bytes);
     context->queue_cap = cap;
 }
+static void __btrc_cycle_push_queue(
+        __btrc_cycle_context* context, int value) {
+    if (context->queue_count < 0 || context->queue_count == INT_MAX)
+        __btrc_cycle_fail("cycle queue overflow");
+    __btrc_cycle_reserve_queue(context, context->queue_count + 1);
+    context->queue[context->queue_count++] = value;
+}
 static void __btrc_cycle_grow_objects(__btrc_cycle_context* context) {
-    if (context->object_cap > INT_MAX / 2)
-        __btrc_cycle_fail("cycle object hash overflow");
-    int cap = context->object_cap ? context->object_cap * 2 : 256;
-    void** keys = (void**)calloc((size_t)cap, sizeof(void*));
-    int* values = (int*)malloc(sizeof(int) * (size_t)cap);
-    unsigned int* marks = (unsigned int*)calloc(
-        (size_t)cap, sizeof(unsigned int));
-    if (!keys || !values || !marks)
-        __btrc_cycle_fail("cycle object hash allocation failed");
+    int cap = __btrc_cycle_next_capacity(
+        context->object_cap, "cycle object hash overflow");
+    size_t key_bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(void*), "cycle object hash size overflow");
+    size_t value_bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(int), "cycle object hash size overflow");
+    size_t mark_bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(unsigned int), "cycle object hash size overflow");
+    void** keys = (void**)__btrc_safe_calloc(1, key_bytes);
+    int* values = (int*)__btrc_safe_realloc(NULL, value_bytes);
+    unsigned int* marks = (unsigned int*)__btrc_safe_calloc(1, mark_bytes);
     for (int i = 0; i < context->vertex_count; i++) {
         void* object = context->vertices[i].object;
         size_t slot = __btrc_ptr_hash(object) & ((size_t)cap - 1);
@@ -147,6 +179,8 @@ static int __btrc_cycle_add_object(__btrc_cycle_context* context,
             __btrc_cycle_fail("conflicting runtime types for cycle object");
         return found;
     }
+    if (context->vertex_count < 0 || context->vertex_count == INT_MAX)
+        __btrc_cycle_fail("cycle vertex overflow");
     if (context->object_cap == 0
             || context->vertex_count >= context->object_cap / 2)
         __btrc_cycle_grow_objects(context);
@@ -164,16 +198,18 @@ static int __btrc_cycle_add_object(__btrc_cycle_context* context,
     return index;
 }
 static void __btrc_cycle_grow_slots(__btrc_cycle_context* context) {
-    if (context->slot_cap > INT_MAX / 2)
-        __btrc_cycle_fail("cycle slot hash overflow");
-    int cap = context->slot_cap ? context->slot_cap * 2 : 256;
-    volatile void** keys = (volatile void**)calloc(
-        (size_t)cap, sizeof(volatile void*));
-    int* values = (int*)malloc(sizeof(int) * (size_t)cap);
-    unsigned int* marks = (unsigned int*)calloc(
-        (size_t)cap, sizeof(unsigned int));
-    if (!keys || !values || !marks)
-        __btrc_cycle_fail("cycle slot hash allocation failed");
+    int cap = __btrc_cycle_next_capacity(
+        context->slot_cap, "cycle slot hash overflow");
+    size_t key_bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(volatile void*), "cycle slot hash size overflow");
+    size_t value_bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(int), "cycle slot hash size overflow");
+    size_t mark_bytes = __btrc_cycle_capacity_bytes(
+        cap, sizeof(unsigned int), "cycle slot hash size overflow");
+    volatile void** keys = (volatile void**)__btrc_safe_calloc(
+        1, key_bytes);
+    int* values = (int*)__btrc_safe_realloc(NULL, value_bytes);
+    unsigned int* marks = (unsigned int*)__btrc_safe_calloc(1, mark_bytes);
     for (int i = 0; i < context->edge_count; i++) {
         volatile void* storage = context->edges[i].slot_storage;
         size_t slot = __btrc_ptr_hash((const void*)storage)

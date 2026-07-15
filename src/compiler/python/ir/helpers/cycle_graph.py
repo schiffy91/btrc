@@ -15,6 +15,7 @@ ARC_GRAPH_HELPERS = {
         depends_on=[
             "__btrc_cycle_collector_state",
             "__btrc_ptr_hash",
+            "__btrc_safe_calloc",
             "__btrc_safe_realloc",
             "__btrc_arc_type_of",
             "__btrc_arc_validate",

@@ -56,6 +56,7 @@ CYCLE_BOUNDARY_HELPERS = {
             "}"
         ),
         depends_on=[
+            "__btrc_arc_abandon_queue_state",
             "__btrc_arc_abandon_queue_drain",
             "__btrc_arc_drain",
             "__btrc_arc_mutation_lock",

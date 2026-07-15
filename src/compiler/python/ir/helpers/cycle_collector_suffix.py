@@ -24,10 +24,11 @@ CYCLE_COLLECTOR_SUFFIX = r"""static void __btrc_cycle_snapshot_edge(
             target_vertex->live = 1;
         } else {
             target_vertex->state = 3;
-            __btrc_cycle_reserve_queue(context, context->queue_count + 1);
-            context->queue[context->queue_count++] = target;
+            __btrc_cycle_push_queue(context, target);
         }
     }
+    if (context->edge_count < 0 || context->edge_count == INT_MAX)
+        __btrc_cycle_fail("cycle edge overflow");
     __btrc_cycle_reserve_edges(context, context->edge_count + 1);
     int edge = context->edge_count++;
     context->edges[edge] = (__btrc_cycle_edge){
@@ -57,14 +58,16 @@ static void __btrc_cycle_snapshot(__btrc_cycle_context* context) {
         int root = __btrc_cycle_add_object(context, object, &fallback);
         if (context->vertices[root].state == 0) {
             context->vertices[root].state = 3;
-            __btrc_cycle_reserve_queue(context, context->queue_count + 1);
-            context->queue[context->queue_count++] = root;
+            __btrc_cycle_push_queue(context, root);
         }
     }
     __btrc_suspect_count = 0;
-    if (__btrc_suspect_keys)
-        memset(__btrc_suspect_keys, 0,
-            sizeof(void*) * (size_t)__btrc_suspect_key_cap);
+    if (__btrc_suspect_keys) {
+        size_t bytes = __btrc_cycle_capacity_bytes(
+            __btrc_suspect_key_cap, sizeof(void*),
+            "cycle suspect hash size overflow");
+        memset(__btrc_suspect_keys, 0, bytes);
+    }
     int head = 0;
     while (head < context->queue_count) {
         int scanned = context->queue[head++];

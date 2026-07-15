@@ -132,7 +132,7 @@ def test_snapshot_cycle_generated_c_omits_destroyed_query():
     """)
 
     assert "static int __btrc_is_destroyed(" not in c_source
-    assert "static void __btrc_collect_cycles(" in c_source
+    assert "static int __btrc_flush_cycles(" in c_source
 
 
 def test_exception_cleanup_generated_c_retains_destroyed_query():

@@ -19,6 +19,8 @@ ARC_ABANDON_HELPERS = {
     if (context->vertices[target].internal == INT_MAX)
         __btrc_cycle_fail("partial-construction edge overflow");
     context->vertices[target].internal++;
+    if (context->edge_count < 0 || context->edge_count == INT_MAX)
+        __btrc_cycle_fail("cycle edge overflow");
     __btrc_cycle_reserve_edges(context, context->edge_count + 1);
     int edge = context->edge_count++;
     context->edges[edge] = (__btrc_cycle_edge){
@@ -34,8 +36,7 @@ ARC_ABANDON_HELPERS = {
     context->slot_values[slot] = edge;
     if (context->vertices[target].state == 0) {
         context->vertices[target].state = 3;
-        __btrc_cycle_reserve_queue(context, context->queue_count + 1);
-        context->queue[context->queue_count++] = target;
+        __btrc_cycle_push_queue(context, target);
     }
 }
 
@@ -55,7 +56,7 @@ static void __btrc_abandon_snapshot(
         vertex->root = 1;
         if (vertex->state == 0) {
             vertex->state = 3;
-            context->queue[context->queue_count++] = root_index;
+            __btrc_cycle_push_queue(context, root_index);
         }
     }
     int head = 0;

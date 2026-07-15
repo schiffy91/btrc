@@ -60,33 +60,48 @@ static unsigned int __btrc_reverse_epoch = 0;""",
         depends_on=["__btrc_arc_header_of"],
     ),
     "__btrc_arc_reverse_proves_live": HelperDef(
-        c_source=r"""static void __btrc_reverse_reserve_queue(int needed) {
-    if (needed <= __btrc_reverse_queue_cap) return;
-    int cap = __btrc_reverse_queue_cap ? __btrc_reverse_queue_cap : 256;
-    while (cap < needed) {
-        if (cap > INT_MAX / 2) {
-            fprintf(stderr, "btrc: reverse ARC queue overflow\n");
-            exit(1);
-        }
-        cap *= 2;
+        c_source=r"""static int __btrc_reverse_next_capacity(
+        int capacity, const char* message) {
+    if (capacity < 0 || capacity > INT_MAX / 2) {
+        fprintf(stderr, "btrc: %s\n", message);
+        exit(1);
     }
+    return capacity ? capacity * 2 : 256;
+}
+static size_t __btrc_reverse_capacity_bytes(
+        int capacity, size_t element_size, const char* message) {
+    if (capacity < 0 || (element_size != 0
+            && (size_t)capacity > SIZE_MAX / element_size)) {
+        fprintf(stderr, "btrc: %s\n", message);
+        exit(1);
+    }
+    return (size_t)capacity * element_size;
+}
+static void __btrc_reverse_reserve_queue(int needed) {
+    if (needed < 0 || __btrc_reverse_queue_cap < 0) {
+        fprintf(stderr, "btrc: reverse ARC queue overflow\n");
+        exit(1);
+    }
+    if (needed <= __btrc_reverse_queue_cap) return;
+    int cap = __btrc_reverse_queue_cap;
+    while (cap < needed)
+        cap = __btrc_reverse_next_capacity(
+            cap, "reverse ARC queue overflow");
+    size_t bytes = __btrc_reverse_capacity_bytes(
+        cap, sizeof(void*), "reverse ARC queue size overflow");
     __btrc_reverse_queue = (void**)__btrc_safe_realloc(
-        __btrc_reverse_queue, sizeof(void*) * (size_t)cap);
+        __btrc_reverse_queue, bytes);
     __btrc_reverse_queue_cap = cap;
 }
 static void __btrc_reverse_grow_keys(void) {
-    if (__btrc_reverse_key_cap > INT_MAX / 2) {
-        fprintf(stderr, "btrc: reverse ARC hash overflow\n");
-        exit(1);
-    }
-    int cap = __btrc_reverse_key_cap ? __btrc_reverse_key_cap * 2 : 256;
-    void** keys = (void**)calloc((size_t)cap, sizeof(void*));
-    unsigned int* marks = (unsigned int*)calloc(
-        (size_t)cap, sizeof(unsigned int));
-    if (!keys || !marks) {
-        fprintf(stderr, "btrc: reverse ARC hash allocation failed\n");
-        exit(1);
-    }
+    int cap = __btrc_reverse_next_capacity(
+        __btrc_reverse_key_cap, "reverse ARC hash overflow");
+    size_t key_bytes = __btrc_reverse_capacity_bytes(
+        cap, sizeof(void*), "reverse ARC hash size overflow");
+    size_t mark_bytes = __btrc_reverse_capacity_bytes(
+        cap, sizeof(unsigned int), "reverse ARC hash size overflow");
+    void** keys = (void**)__btrc_safe_calloc(1, key_bytes);
+    unsigned int* marks = (unsigned int*)__btrc_safe_calloc(1, mark_bytes);
     for (int i = 0; i < __btrc_reverse_count; i++) {
         void* object = __btrc_reverse_queue[i];
         size_t slot = __btrc_ptr_hash(object) & ((size_t)cap - 1);
@@ -103,6 +118,10 @@ static void __btrc_reverse_grow_keys(void) {
 }
 static int __btrc_reverse_add(void* object) {
     if (!object) return 0;
+    if (__btrc_reverse_count < 0 || __btrc_reverse_count == INT_MAX) {
+        fprintf(stderr, "btrc: reverse ARC count overflow\n");
+        exit(1);
+    }
     if (__btrc_reverse_key_cap == 0
             || __btrc_reverse_count >= __btrc_reverse_key_cap / 2)
         __btrc_reverse_grow_keys();
@@ -122,9 +141,12 @@ static int __btrc_arc_reverse_proves_live(void* object) {
     __btrc_reverse_count = 0;
     __btrc_reverse_epoch++;
     if (__btrc_reverse_epoch == 0) {
-        if (__btrc_reverse_marks)
-            memset(__btrc_reverse_marks, 0,
-                sizeof(unsigned int) * (size_t)__btrc_reverse_key_cap);
+        if (__btrc_reverse_marks) {
+            size_t bytes = __btrc_reverse_capacity_bytes(
+                __btrc_reverse_key_cap, sizeof(unsigned int),
+                "reverse ARC hash size overflow");
+            memset(__btrc_reverse_marks, 0, bytes);
+        }
         __btrc_reverse_epoch = 1;
     }
     __btrc_reverse_add(object);
@@ -143,6 +165,7 @@ static int __btrc_arc_reverse_proves_live(void* object) {
             "__btrc_arc_reverse_state",
             "__btrc_arc_validate",
             "__btrc_ptr_hash",
+            "__btrc_safe_calloc",
             "__btrc_safe_realloc",
         ],
     ),
