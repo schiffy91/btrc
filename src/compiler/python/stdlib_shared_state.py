@@ -59,6 +59,11 @@ SHARED_STATE_HELPER_GROUPS = {
     "string_registry": frozenset(
         {
             "__btrc_string_registry",
+            "__btrc_string_registry_lock_state",
+            "__btrc_string_registry_lock",
+            "__btrc_string_registry_hash",
+            "__btrc_string_registry_slot",
+            "__btrc_string_registry_count",
             "__btrc_string_registry_resize",
             "__btrc_string_live_count",
         }

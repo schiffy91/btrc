@@ -198,6 +198,11 @@ def test_mutable_helper_groups_have_complete_ownership():
         "string_registry": frozenset(
             {
                 "__btrc_string_registry",
+                "__btrc_string_registry_lock_state",
+                "__btrc_string_registry_lock",
+                "__btrc_string_registry_hash",
+                "__btrc_string_registry_slot",
+                "__btrc_string_registry_count",
                 "__btrc_string_registry_resize",
                 "__btrc_string_live_count",
             }
@@ -244,7 +249,9 @@ def test_mutable_helper_groups_have_complete_ownership():
             ),
         ),
         (
-            STRING_OWNERSHIP["__btrc_string_registry"].c_source,
+            STRING_OWNERSHIP["__btrc_string_registry"].c_source
+            + STRING_OWNERSHIP["__btrc_string_registry_lock_state"].c_source
+            + STRING_OWNERSHIP["__btrc_string_registry_count"].c_source,
             (
                 "__btrc_string_lock",
                 "__btrc_string_inline_buckets",

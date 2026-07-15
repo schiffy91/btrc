@@ -3,6 +3,9 @@
 from .core import HelperDef
 
 STRING_COMMON = {
+    "__btrc_string_or_empty": HelperDef(
+        c_source=('static inline const char* __btrc_string_or_empty(const char* s) {\n    return s ? s : "";\n}'),
+    ),
     "__btrc_string_length": HelperDef(
         c_source=(
             "static inline int __btrc_string_length(const char* s) {\n"

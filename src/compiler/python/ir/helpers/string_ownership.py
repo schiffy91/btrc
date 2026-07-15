@@ -9,13 +9,15 @@ typedef struct __btrc_string_entry {
     struct __btrc_string_entry* next;
 } __btrc_string_entry;
 
-static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;
 static __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};
 static __btrc_string_entry** __btrc_string_buckets =
     __btrc_string_inline_buckets;
 static size_t __btrc_string_bucket_count = 64;
-static size_t __btrc_string_entry_count = 0;
+""".strip()
 
+_REGISTRY_LOCK_STATE_SOURCE = "static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;"
+
+_REGISTRY_LOCK_SOURCE = r"""
 static inline void __btrc_string_registry_lock(void) {
     unsigned int delay = 1;
     while (atomic_flag_test_and_set_explicit(
@@ -30,7 +32,9 @@ static inline void __btrc_string_registry_lock(void) {
 static inline void __btrc_string_registry_unlock(void) {
     atomic_flag_clear_explicit(&__btrc_string_lock, memory_order_release);
 }
+""".strip()
 
+_REGISTRY_HASH_SOURCE = r"""
 static inline size_t __btrc_string_hash(char* value, size_t buckets) {
     uintptr_t bits = (uintptr_t)(void*)value;
     bits ^= bits >> 17;
@@ -38,7 +42,9 @@ static inline size_t __btrc_string_hash(char* value, size_t buckets) {
     bits ^= bits >> 11;
     return (size_t)(bits % (uintptr_t)buckets);
 }
+""".strip()
 
+_REGISTRY_SLOT_SOURCE = r"""
 static inline __btrc_string_entry** __btrc_string_slot(char* value) {
     size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);
     __btrc_string_entry** slot = &__btrc_string_buckets[index];
@@ -46,6 +52,8 @@ static inline __btrc_string_entry** __btrc_string_slot(char* value) {
     return slot;
 }
 """.strip()
+
+_REGISTRY_COUNT_SOURCE = "static size_t __btrc_string_entry_count = 0;"
 
 _REGISTRY_RESIZE_SOURCE = r"""
 static inline void __btrc_string_registry_resize(size_t capacity) {
@@ -85,17 +93,35 @@ static inline size_t __btrc_string_live_count(void) {
 
 
 STRING_OWNERSHIP = {
-    "__btrc_string_registry": HelperDef(
-        c_source=_REGISTRY_SOURCE,
+    "__btrc_string_registry": HelperDef(c_source=_REGISTRY_SOURCE),
+    "__btrc_string_registry_lock_state": HelperDef(
+        c_source=_REGISTRY_LOCK_STATE_SOURCE,
         required_headers=["stdatomic.h"],
     ),
+    "__btrc_string_registry_lock": HelperDef(
+        c_source=_REGISTRY_LOCK_SOURCE,
+        depends_on=["__btrc_string_registry_lock_state"],
+    ),
+    "__btrc_string_registry_hash": HelperDef(c_source=_REGISTRY_HASH_SOURCE),
+    "__btrc_string_registry_slot": HelperDef(
+        c_source=_REGISTRY_SLOT_SOURCE,
+        depends_on=["__btrc_string_registry", "__btrc_string_registry_hash"],
+    ),
+    "__btrc_string_registry_count": HelperDef(c_source=_REGISTRY_COUNT_SOURCE),
     "__btrc_string_registry_resize": HelperDef(
         c_source=_REGISTRY_RESIZE_SOURCE,
-        depends_on=["__btrc_string_registry", "__btrc_safe_calloc"],
+        depends_on=[
+            "__btrc_string_registry",
+            "__btrc_string_registry_hash",
+            "__btrc_safe_calloc",
+        ],
     ),
     "__btrc_string_adopt": HelperDef(
         depends_on=[
             "__btrc_string_registry_resize",
+            "__btrc_string_registry_slot",
+            "__btrc_string_registry_lock",
+            "__btrc_string_registry_count",
             "__btrc_safe_realloc",
         ],
         c_source=r"""
@@ -133,7 +159,7 @@ static inline char* __btrc_string_adopt(char* value) {
 """.strip(),
     ),
     "__btrc_string_retain": HelperDef(
-        depends_on=["__btrc_string_registry"],
+        depends_on=["__btrc_string_registry_slot", "__btrc_string_registry_lock"],
         c_source=r"""
 static inline char* __btrc_string_retain(char* value) {
     if (!value) return NULL;
@@ -155,7 +181,11 @@ static inline char* __btrc_string_retain(char* value) {
 """.strip(),
     ),
     "__btrc_string_release": HelperDef(
-        depends_on=["__btrc_string_registry"],
+        depends_on=[
+            "__btrc_string_registry_slot",
+            "__btrc_string_registry_lock",
+            "__btrc_string_registry_count",
+        ],
         c_source=r"""
 static inline void __btrc_string_release(char* value) {
     if (!value) return;
@@ -197,7 +227,7 @@ static inline void __btrc_string_release(char* value) {
         ),
     ),
     "__btrc_string_live_count": HelperDef(
-        depends_on=["__btrc_string_registry"],
+        depends_on=["__btrc_string_registry_lock", "__btrc_string_registry_count"],
         c_source=_LIVE_COUNT_SOURCE,
     ),
 }

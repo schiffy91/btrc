@@ -38,6 +38,25 @@ EXPECTED_OPERATION_HELPERS = (
     "__btrc_join",
 )
 
+_BRANCH_START_PATTERN = re.compile(
+    r"^    (?:\} )?(?:else )?if \((.*?)\) \{",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _named_branch_values(source: str, value_pattern: str) -> dict[str, list[str]]:
+    values: dict[str, list[str]] = {}
+    matches = list(_BRANCH_START_PATTERN.finditer(source))
+    for index, match in enumerate(matches):
+        condition = match.group(1)
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        body = source[match.end() : end]
+        names = re.findall(r'name == "([^"]+)"', condition)
+        branch_values = re.findall(value_pattern, body)
+        for name in names:
+            values[name] = branch_values
+    return values
+
 
 def test_split_registry_preserves_public_names_and_emission_order():
     grouped_names = (
@@ -82,11 +101,8 @@ def test_common_helpers_precede_public_string_operations():
 
 def test_self_hosted_string_helper_source_exactly_matches_python_registry():
     ir_source = Path("src/compiler/btrc/ir_nodes.btrc").read_text()
-    ownership_source = (
-        Path("src/compiler/btrc/string_runtime_helpers.btrc")
-        .read_text()
-        .split("Vector<string> stringOwnershipRuntimeHelperDependencies", 1)[0]
-    )
+    ownership_runtime = Path("src/compiler/btrc/string_runtime_helpers.btrc").read_text()
+    ownership_source = ownership_runtime.split("Vector<string> stringOwnershipRuntimeHelperDependencies", 1)[0]
     blocks: dict[str, str] = {}
     pattern = re.compile(
         r'^    if \(name == "([^"]+)"\) \{\n(.*?)^    \}',
@@ -100,5 +116,31 @@ def test_self_hosted_string_helper_source_exactly_matches_python_registry():
     for name, helper in (STRING_OWNERSHIP | STRING_POOL | STRING).items():
         assert blocks.get(name) == helper.c_source, name
 
-    order_positions = [ir_source.index(f'order.push("{name}")') for name in STRING]
-    assert order_positions == sorted(order_positions)
+    ownership_dependencies = ownership_runtime.split("Vector<string> stringOwnershipRuntimeHelperDependencies", 1)[
+        1
+    ].split("Vector<string> stringOwnershipRuntimeHelperHeaders", 1)[0]
+    dependency_map = _named_branch_values(ownership_dependencies, r'out\.push\("([^"]+)"\)')
+    ownership_helpers = STRING_OWNERSHIP | STRING_POOL
+    ownership_runtime_helpers = ownership_helpers | {
+        name: STRING[name] for name in ("__btrc_string_or_empty", "__btrc_string_alloc")
+    }
+    for name, helper in ownership_runtime_helpers.items():
+        assert dependency_map.get(name, []) == helper.depends_on, name
+
+    ownership_headers = ownership_runtime.split("Vector<string> stringOwnershipRuntimeHelperHeaders", 1)[1].split(
+        "void appendStringOwnershipRuntimeHelperOrder", 1
+    )[0]
+    header_map = _named_branch_values(ownership_headers, r'out\.push\("([^"]+)"\)')
+    for name, helper in ownership_runtime_helpers.items():
+        assert header_map.get(name, []) == helper.required_headers, name
+
+    helper_dependencies = ir_source.split("Vector<string> helperDeps", 1)[1].split("Vector<string> helperHeaders", 1)[0]
+    helper_dependency_map = _named_branch_values(helper_dependencies, r'out\.push\("([^"]+)"\)')
+    for name, helper in STRING.items():
+        if name not in {"__btrc_string_or_empty", "__btrc_string_alloc"}:
+            assert helper_dependency_map.get(name, []) == helper.depends_on, name
+
+    ownership_order = ownership_runtime.split("void appendStringOwnershipRuntimeHelperOrder", 1)[1]
+    assert re.findall(r'order\.push\("([^"]+)"\)', ownership_order) == [*ownership_helpers]
+    string_order = ir_source.split("/* string — STRING_COMMON */", 1)[1].split("/* math */", 1)[0]
+    assert re.findall(r'order\.push\("([^"]+)"\)', string_order) == [*STRING]

@@ -5,7 +5,13 @@
  */
 
 bool stringOwnershipRuntimeHasHelper(string name) {
-    return name == "__btrc_string_registry"
+    return name == "__btrc_string_or_empty"
+        || name == "__btrc_string_registry"
+        || name == "__btrc_string_registry_lock_state"
+        || name == "__btrc_string_registry_lock"
+        || name == "__btrc_string_registry_hash"
+        || name == "__btrc_string_registry_slot"
+        || name == "__btrc_string_registry_count"
         || name == "__btrc_string_registry_resize"
         || name == "__btrc_string_adopt"
         || name == "__btrc_string_retain"
@@ -18,6 +24,11 @@ bool stringOwnershipRuntimeHasHelper(string name) {
 }
 
 string stringOwnershipRuntimeHelperSource(string name) {
+    if (name == "__btrc_string_or_empty") {
+        return "static inline const char* __btrc_string_or_empty(const char* s) {\n"
+            + "    return s ? s : \"\";\n"
+            + "}";
+    }
     if (name == "__btrc_string_registry") {
         return "typedef struct __btrc_string_entry {\n"
             + "    char* value;\n"
@@ -25,14 +36,16 @@ string stringOwnershipRuntimeHelperSource(string name) {
             + "    struct __btrc_string_entry* next;\n"
             + "} __btrc_string_entry;\n"
             + "\n"
-            + "static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;\n"
             + "static __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\n"
             + "static __btrc_string_entry** __btrc_string_buckets =\n"
             + "    __btrc_string_inline_buckets;\n"
-            + "static size_t __btrc_string_bucket_count = 64;\n"
-            + "static size_t __btrc_string_entry_count = 0;\n"
-            + "\n"
-            + "static inline void __btrc_string_registry_lock(void) {\n"
+            + "static size_t __btrc_string_bucket_count = 64;";
+    }
+    if (name == "__btrc_string_registry_lock_state") {
+        return "static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;";
+    }
+    if (name == "__btrc_string_registry_lock") {
+        return "static inline void __btrc_string_registry_lock(void) {\n"
             + "    unsigned int delay = 1;\n"
             + "    while (atomic_flag_test_and_set_explicit(\n"
             + "            &__btrc_string_lock, memory_order_acquire)) {\n"
@@ -45,22 +58,27 @@ string stringOwnershipRuntimeHelperSource(string name) {
             + "\n"
             + "static inline void __btrc_string_registry_unlock(void) {\n"
             + "    atomic_flag_clear_explicit(&__btrc_string_lock, memory_order_release);\n"
-            + "}\n"
-            + "\n"
-            + "static inline size_t __btrc_string_hash(char* value, size_t buckets) {\n"
+            + "}";
+    }
+    if (name == "__btrc_string_registry_hash") {
+        return "static inline size_t __btrc_string_hash(char* value, size_t buckets) {\n"
             + "    uintptr_t bits = (uintptr_t)(void*)value;\n"
             + "    bits ^= bits >> 17;\n"
             + "    bits *= (uintptr_t)0xed5ad4bbU;\n"
             + "    bits ^= bits >> 11;\n"
             + "    return (size_t)(bits % (uintptr_t)buckets);\n"
-            + "}\n"
-            + "\n"
-            + "static inline __btrc_string_entry** __btrc_string_slot(char* value) {\n"
+            + "}";
+    }
+    if (name == "__btrc_string_registry_slot") {
+        return "static inline __btrc_string_entry** __btrc_string_slot(char* value) {\n"
             + "    size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);\n"
             + "    __btrc_string_entry** slot = &__btrc_string_buckets[index];\n"
             + "    while (*slot && (*slot)->value != value) slot = &(*slot)->next;\n"
             + "    return slot;\n"
             + "}";
+    }
+    if (name == "__btrc_string_registry_count") {
+        return "static size_t __btrc_string_entry_count = 0;";
     }
     if (name == "__btrc_string_registry_resize") {
         return "static inline void __btrc_string_registry_resize(size_t capacity) {\n"
@@ -210,16 +228,31 @@ string stringOwnershipRuntimeHelperSource(string name) {
 
 Vector<string> stringOwnershipRuntimeHelperDependencies(string name) {
     Vector<string> out = [];
-    if (name == "__btrc_string_registry_resize") {
+    if (name == "__btrc_string_registry_lock") {
+        out.push("__btrc_string_registry_lock_state");
+    } else if (name == "__btrc_string_registry_slot") {
         out.push("__btrc_string_registry");
+        out.push("__btrc_string_registry_hash");
+    } else if (name == "__btrc_string_registry_resize") {
+        out.push("__btrc_string_registry");
+        out.push("__btrc_string_registry_hash");
         out.push("__btrc_safe_calloc");
     } else if (name == "__btrc_string_adopt") {
         out.push("__btrc_string_registry_resize");
+        out.push("__btrc_string_registry_slot");
+        out.push("__btrc_string_registry_lock");
+        out.push("__btrc_string_registry_count");
         out.push("__btrc_safe_realloc");
-    } else if (name == "__btrc_string_retain"
-            || name == "__btrc_string_release"
-            || name == "__btrc_string_live_count") {
-        out.push("__btrc_string_registry");
+    } else if (name == "__btrc_string_retain") {
+        out.push("__btrc_string_registry_slot");
+        out.push("__btrc_string_registry_lock");
+    } else if (name == "__btrc_string_release") {
+        out.push("__btrc_string_registry_slot");
+        out.push("__btrc_string_registry_lock");
+        out.push("__btrc_string_registry_count");
+    } else if (name == "__btrc_string_live_count") {
+        out.push("__btrc_string_registry_lock");
+        out.push("__btrc_string_registry_count");
     } else if (name == "__btrc_string_release_cleanup") {
         out.push("__btrc_string_release");
     } else if (name == "__btrc_str_track") {
@@ -233,7 +266,7 @@ Vector<string> stringOwnershipRuntimeHelperDependencies(string name) {
 
 Vector<string> stringOwnershipRuntimeHelperHeaders(string name) {
     Vector<string> out = [];
-    if (name == "__btrc_string_registry") {
+    if (name == "__btrc_string_registry_lock_state") {
         out.push("stdatomic.h");
     }
     return out;
@@ -241,6 +274,11 @@ Vector<string> stringOwnershipRuntimeHelperHeaders(string name) {
 
 void appendStringOwnershipRuntimeHelperOrder(Vector<string> order) {
     order.push("__btrc_string_registry");
+    order.push("__btrc_string_registry_lock_state");
+    order.push("__btrc_string_registry_lock");
+    order.push("__btrc_string_registry_hash");
+    order.push("__btrc_string_registry_slot");
+    order.push("__btrc_string_registry_count");
     order.push("__btrc_string_registry_resize");
     order.push("__btrc_string_adopt");
     order.push("__btrc_string_retain");

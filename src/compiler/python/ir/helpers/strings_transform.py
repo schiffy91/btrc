@@ -134,20 +134,20 @@ STRING_TRANSFORM = {
         ),
     ),
     "__btrc_repeat": HelperDef(
-        depends_on=["__btrc_safe_realloc", "__btrc_string_length", "__btrc_string_alloc"],
+        depends_on=["__btrc_string_length", "__btrc_string_alloc"],
         c_source=(
             "static inline char* __btrc_repeat(const char* s, int count) {\n"
             + NULL_RET_EMPTY
-            + "    if (count <= 0) { char* r = (char*)__btrc_safe_realloc(NULL, 1); r[0] = '\\0'; return r; }\n"
+            + "    if (count <= 0) return __btrc_string_alloc(0);\n"
             "    int slen = __btrc_string_length(s);\n"
-            "    if (slen > 0 && count > (INT_MAX - 1) / slen) {\n"
+            "    if (slen == 0) return __btrc_string_alloc(0);\n"
+            "    if (slen > 0 && count > INT_MAX / slen) {\n"
             '        fprintf(stderr, "btrc: string repeat overflow\\n"); exit(1);\n'
             "    }\n"
             "    int total = slen * count;\n"
-            "    char* result = (char*)__btrc_safe_realloc(NULL, (size_t)total + 1);\n"
+            "    char* result = __btrc_string_alloc(total);\n"
             "    for (int i = 0; i < count; i++)\n"
             "        memcpy(result + (size_t)i * (size_t)slen, s, (size_t)slen);\n"
-            "    result[total] = '\\0';\n"
             "    return result;\n"
             "}"
         ),
@@ -205,7 +205,6 @@ STRING_TRANSFORM = {
         depends_on=[
             *_ALLOC,
             "__btrc_ascii_lower",
-            "__btrc_ascii_space",
             "__btrc_ascii_upper",
         ],
         c_source=(
@@ -220,7 +219,12 @@ STRING_TRANSFORM = {
         ),
     ),
     "__btrc_title": HelperDef(
-        depends_on=[*_ALLOC, "__btrc_ascii_lower", "__btrc_ascii_upper"],
+        depends_on=[
+            *_ALLOC,
+            "__btrc_ascii_lower",
+            "__btrc_ascii_space",
+            "__btrc_ascii_upper",
+        ],
         c_source=(
             "static inline char* __btrc_title(const char* s) {\n"
             + NULL_RET_EMPTY
