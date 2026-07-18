@@ -158,13 +158,14 @@ class CEmitter(
 
     # --- Output helpers ---
     def _line(self, text: str):
-        """Emit a line with current indentation."""
-        if text.strip():
-            if self._dbg_enabled:
-                self._emit_line_directive()
-            self._lines.append("    " * self._indent + text)
-        else:
-            self._lines.append("")
+        """Emit physical lines with current indentation."""
+        for part in text.split("\n"):
+            if part.strip():
+                if self._dbg_enabled:
+                    self._emit_line_directive()
+                self._lines.append("    " * self._indent + part)
+            else:
+                self._lines.append("")
 
     def _raw(self, text: str):
         """Emit raw text without indentation adjustment."""

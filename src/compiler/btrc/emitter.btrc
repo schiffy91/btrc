@@ -532,6 +532,39 @@ class CEmitter {
 
     /* --- expression emission (matches emitter_exprs.py exactly) --- */
 
+    public string compound(string opening, Vector<string> values,
+            string closing, string inlineSeparator,
+            string lineSeparator) {
+        string inlineText = opening;
+        int index = 0;
+        while (index < values.len) {
+            if (index > 0) {
+                inlineText = inlineText + inlineSeparator;
+            }
+            inlineText = inlineText + values.get(index);
+            index = index + 1;
+        }
+        inlineText = inlineText + closing;
+        if (inlineText.length() <= 1000 && !stringHasLineBreak(inlineText)) {
+            return inlineText;
+        }
+        string multiline = opening + "\n";
+        index = 0;
+        while (index < values.len) {
+            if (index > 0) {
+                multiline = multiline + lineSeparator;
+            }
+            multiline = multiline + values.get(index);
+            index = index + 1;
+        }
+        return multiline + "\n" + closing;
+    }
+
+    public string delimited(string opening, Vector<string> values,
+            string closing) {
+        return self.compound(opening, values, closing, ", ", ",\n");
+    }
+
     public string condExpr(IRNode e) {
         string result = self.expr(e);
         int n = result.length();
@@ -566,7 +599,8 @@ class CEmitter {
     }
 
     public string discardedExpr(IRNode e) {
-        return f"(void)({self.expr(e)})";
+        Vector<string> values = [self.expr(e)];
+        return self.compound("(void)(", values, ")", "", "\n");
     }
 
     public string expr(IRNode e) {
@@ -578,92 +612,116 @@ class CEmitter {
         if (e.kind == IRK_LITERAL) { return e.text; }
         if (e.kind == IRK_VAR) { return e.name; }
         if (e.kind == IRK_BINOP) {
-            return f"({self.expr(e.left)} {e.op} {self.expr(e.right)})";
+            Vector<string> values = [
+                self.expr(e.left), e.op, self.expr(e.right)
+            ];
+            return self.compound("(", values, ")", " ", "\n");
         }
         if (e.kind == IRK_COMMA_EXPR) {
-            string out = "(";
+            Vector<string> values = [];
             int i = 0;
             while (i < e.args.len) {
-                if (i > 0) { out = out + ", "; }
-                out = out + self.expr(e.args.get(i));
+                values.push(self.expr(e.args.get(i)));
                 i = i + 1;
             }
-            return out + ")";
+            return self.delimited("(", values, ")");
         }
         if (e.kind == IRK_UNARYOP) {
+            Vector<string> values = [self.expr(e.operand)];
             if (e.prefix) {
-                return f"({e.op}{self.expr(e.operand)})";
+                return self.compound(
+                    "(" + e.op, values, ")", "", "\n");
             }
-            return f"({self.expr(e.operand)}{e.op})";
+            return self.compound(
+                "(", values, e.op + ")", "", "\n");
         }
         if (e.kind == IRK_CALL) {
-            string args = "";
+            Vector<string> args = [];
             int i = 0;
             while (i < e.args.len) {
-                if (i > 0) { args = args + ", "; }
-                args = args + self.expr(e.args.get(i));
+                args.push(self.expr(e.args.get(i)));
                 i = i + 1;
             }
             string callee = e.callee;
             if (e.expr != null) { callee = self.expr(e.expr); }
-            return f"{callee}({args})";
+            Vector<string> call = [callee, self.delimited("(", args, ")")];
+            return self.compound("", call, "", "", "\n");
         }
         if (e.kind == IRK_FIELD_ACCESS) {
             string op = ".";
             if (e.arrow) { op = "->"; }
-            return f"{self.expr(e.obj)}{op}{e.field}";
+            Vector<string> values = [self.expr(e.obj), op + e.field];
+            return self.compound("", values, "", "", "\n");
         }
         if (e.kind == IRK_CAST) {
-            return f"(({e.target_type}){self.expr(e.expr)})";
+            Vector<string> values = [self.expr(e.expr)];
+            return self.compound("((" + e.target_type + ")",
+                values, ")", "", "\n");
         }
         if (e.kind == IRK_TERNARY) {
-            return f"({self.expr(e.condition)} ? {self.expr(e.true_expr)} : {self.expr(e.false_expr)})";
+            Vector<string> values = [
+                self.expr(e.condition), "?", self.expr(e.true_expr),
+                ":", self.expr(e.false_expr)
+            ];
+            return self.compound("(", values, ")", " ", "\n");
         }
         if (e.kind == IRK_SIZEOF) {
             if (e.operand != null) {
-                return f"sizeof({self.expr(e.operand)})";
+                Vector<string> operand = [self.expr(e.operand)];
+                return self.compound(
+                    "sizeof(", operand, ")", "", "\n");
             }
             if (e.target_type == "") {
                 print("internal compiler error: IRSizeof has no operand");
                 abortGen();
             }
-            return f"sizeof({e.target_type})";
+            Vector<string> values = [e.target_type];
+            return self.compound(
+                "sizeof(", values, ")", "", "\n");
         }
         if (e.kind == IRK_INITIALIZER_LIST) {
-            string values = "";
-            if (e.args.len == 0) { values = "0"; }
+            Vector<string> values = [];
+            if (e.args.len == 0) { values.push("0"); }
             int i = 0;
             while (i < e.args.len) {
-                if (i > 0) { values = values + ", "; }
-                values = values + self.expr(e.args.get(i));
+                values.push(self.expr(e.args.get(i)));
                 i = i + 1;
             }
-            return "{" + values + "}";
+            return self.delimited("{", values, "}");
         }
         if (e.kind == IRK_COMPOUND_LITERAL) {
             if (e.target_type == "" || e.field_names.len != e.args.len) {
                 print("internal compiler error: malformed IRCompoundLiteral");
                 abortGen();
             }
-            string fields = "";
-            if (e.args.len == 0) { fields = "0"; }
+            Vector<string> fields = [];
+            if (e.args.len == 0) { fields.push("0"); }
             int i = 0;
             while (i < e.args.len) {
-                if (i > 0) { fields = fields + ", "; }
-                fields = fields + "." + e.field_names.get(i)
-                    + " = " + self.expr(e.args.get(i));
+                Vector<string> value = [self.expr(e.args.get(i))];
+                fields.push(self.compound(
+                    "." + e.field_names.get(i) + " = ",
+                    value, "", "", "\n"));
                 i = i + 1;
             }
-            return f"({e.target_type})" + "{" + fields + "}";
+            Vector<string> literal = [self.delimited("{", fields, "}")];
+            return self.compound(
+                "(" + e.target_type + ")", literal, "", "", "\n");
         }
         if (e.kind == IRK_INDEX) {
-            return f"{self.expr(e.obj)}[{self.expr(e.index)}]";
+            Vector<string> indexValue = [self.expr(e.index)];
+            string index = self.compound(
+                "[", indexValue, "]", "", "\n");
+            Vector<string> values = [self.expr(e.obj), index];
+            return self.compound("", values, "", "", "\n");
         }
         if (e.kind == IRK_ADDRESS_OF) {
-            return f"(&{self.expr(e.expr)})";
+            Vector<string> values = [self.expr(e.expr)];
+            return self.compound("(&", values, ")", "", "\n");
         }
         if (e.kind == IRK_DEREF) {
-            return f"(*{self.expr(e.expr)})";
+            Vector<string> values = [self.expr(e.expr)];
+            return self.compound("(*", values, ")", "", "\n");
         }
         if (e.kind == IRK_STMT_EXPR) {
             /* Only uninitialized declarations may be hoisted. Runtime work must
@@ -701,10 +759,16 @@ class CEmitter {
     /* --- output helpers (matches emitter.py _line) --- */
 
     public void line(string text) {
-        if (strStripped(text) != "") {
-            self.lines.push(indentStr(self.indent) + text);
-        } else {
-            self.lines.push("");
+        Vector<string> parts = splitLines(text);
+        int index = 0;
+        while (index < parts.len) {
+            string part = parts.get(index);
+            if (strStripped(part) != "") {
+                self.lines.push(indentStr(self.indent) + part);
+            } else {
+                self.lines.push("");
+            }
+            index = index + 1;
         }
     }
 
@@ -722,6 +786,15 @@ string rstripNewlines(string s) {
     int end = s.length();
     while (end > 0 && s[end - 1] == '\n') { end = end - 1; }
     return s.substring(0, end);
+}
+
+bool stringHasLineBreak(string value) {
+    int index = 0;
+    while (index < value.length()) {
+        if (value[index] == '\n' || value[index] == '\r') { return true; }
+        index = index + 1;
+    }
+    return false;
 }
 
 /* Split a string on '\n' into its lines (no trailing empty element unless the

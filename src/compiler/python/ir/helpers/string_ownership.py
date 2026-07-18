@@ -35,8 +35,8 @@ static inline void __btrc_string_registry_unlock(void) {
 """.strip()
 
 _REGISTRY_HASH_SOURCE = r"""
-static inline size_t __btrc_string_hash(char* value, size_t buckets) {
-    uintptr_t bits = (uintptr_t)(void*)value;
+static inline size_t __btrc_string_hash(const char* value, size_t buckets) {
+    uintptr_t bits = (uintptr_t)(const void*)value;
     bits ^= bits >> 17;
     bits *= (uintptr_t)0xed5ad4bbU;
     bits ^= bits >> 11;
@@ -45,7 +45,7 @@ static inline size_t __btrc_string_hash(char* value, size_t buckets) {
 """.strip()
 
 _REGISTRY_SLOT_SOURCE = r"""
-static inline __btrc_string_entry** __btrc_string_slot(char* value) {
+static inline __btrc_string_entry** __btrc_string_slot(const char* value) {
     size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);
     __btrc_string_entry** slot = &__btrc_string_buckets[index];
     while (*slot && (*slot)->value != value) slot = &(*slot)->next;
@@ -161,7 +161,7 @@ static inline char* __btrc_string_adopt(char* value) {
     "__btrc_string_retain": HelperDef(
         depends_on=["__btrc_string_registry_slot", "__btrc_string_registry_lock"],
         c_source=r"""
-static inline char* __btrc_string_retain(char* value) {
+static inline char* __btrc_string_retain(const char* value) {
     if (!value) return NULL;
     __btrc_string_registry_lock();
     if (__btrc_string_bucket_count != 0) {
@@ -176,7 +176,7 @@ static inline char* __btrc_string_retain(char* value) {
         }
     }
     __btrc_string_registry_unlock();
-    return value;
+    return (char*)value;
 }
 """.strip(),
     ),
@@ -187,7 +187,7 @@ static inline char* __btrc_string_retain(char* value) {
             "__btrc_string_registry_count",
         ],
         c_source=r"""
-static inline void __btrc_string_release(char* value) {
+static inline void __btrc_string_release(const char* value) {
     if (!value) return;
     __btrc_string_entry* removed = NULL;
     __btrc_string_entry** retired_buckets = NULL;
@@ -222,7 +222,7 @@ static inline void __btrc_string_release(char* value) {
         depends_on=["__btrc_string_release"],
         c_source=(
             "static inline void __btrc_string_release_cleanup(void* value) {\n"
-            "    __btrc_string_release((char*)value);\n"
+            "    __btrc_string_release((const char*)value);\n"
             "}"
         ),
     ),

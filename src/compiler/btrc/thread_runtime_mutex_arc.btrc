@@ -38,7 +38,7 @@ string threadRuntimeMutexArcSource(string name) {
             + "        void* context, void* owner) {\n"
             + "    (void)context;\n"
             + "    (void)owner;\n"
-            + "    (void)__btrc_string_retain((char*)access(storage));\n"
+            + "    (void)__btrc_string_retain((const char*)access(storage));\n"
             + "}";
     }
     if (name == "__btrc_mutex_string_release") {
@@ -47,7 +47,7 @@ string threadRuntimeMutexArcSource(string name) {
             + "        void* context, void* owner) {\n"
             + "    (void)context;\n"
             + "    (void)owner;\n"
-            + "    __btrc_string_release((char*)access(storage));\n"
+            + "    __btrc_string_release((const char*)access(storage));\n"
             + "}";
     }
     if (name == "__btrc_mutex_arc_type") {

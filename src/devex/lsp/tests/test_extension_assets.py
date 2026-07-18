@@ -7,7 +7,10 @@ launcher path that starts the Python server.
 
 import importlib.util
 import json
+import os
+import stat
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -121,6 +124,51 @@ def test_extension_packaging_stages_lsp_payload(tmp_path):
     assert not any(bundle_root.rglob(".DS_Store"))
     assert not any(bundle_root.rglob("*.o"))
     assert not any(bundle_root.rglob("*.a"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory modes model the Nix store")
+def test_extension_packaging_regenerates_inside_read_only_source_copy(tmp_path, monkeypatch):
+    script_path = EXT_DIR / "scripts" / "prepare_lsp_package.py"
+    spec = importlib.util.spec_from_file_location("prepare_lsp_package_read_only", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+
+    repo = tmp_path / "repo"
+    generator = repo / "src" / "compiler" / "python" / "ast" / "gen_builtins.py"
+    generator.parent.mkdir(parents=True)
+    generator.write_text(
+        "from pathlib import Path\n"
+        "root = Path(__file__).resolve().parents[4]\n"
+        "target = root / 'src/devex/lsp/builtins.py'\n"
+        "temporary = target.with_name('.builtins.tmp')\n"
+        "temporary.write_text('generated\\n')\n"
+        "temporary.replace(target)\n"
+    )
+    (repo / "src" / "stdlib").mkdir(parents=True)
+    (repo / "src" / "stdlib" / "core.btrc").write_text("class Core {}\n")
+    (repo / "src" / "language").mkdir(parents=True)
+    (repo / "src" / "language" / "grammar.ebnf").write_text("@keywords\n")
+    lsp_source = repo / "src" / "devex" / "lsp"
+    lsp_source.mkdir(parents=True)
+    source_builtins = lsp_source / "builtins.py"
+    source_builtins.write_text("stale\n")
+    source_mode = stat.S_IMODE(lsp_source.stat().st_mode)
+    lsp_source.chmod(0o555)
+    source_builtins.chmod(0o444)
+    monkeypatch.setenv("BTRC_PACKAGING_PYTHON", sys.executable)
+
+    try:
+        bundle = module.prepare(ext_dir=tmp_path / "ext", repo_root=repo)
+        assert stat.S_IMODE(lsp_source.stat().st_mode) == 0o555
+    finally:
+        lsp_source.chmod(source_mode)
+
+    staged_lsp = bundle / "src" / "devex" / "lsp"
+    assert (staged_lsp / "builtins.py").read_text() == "generated\n"
+    assert stat.S_IMODE(staged_lsp.stat().st_mode) & stat.S_IWUSR
+    assert source_builtins.read_text() == "stale\n"
+    assert stat.S_IMODE(source_builtins.stat().st_mode) == 0o444
 
 
 def test_extension_packaging_uses_the_explicit_supported_python(tmp_path, monkeypatch):

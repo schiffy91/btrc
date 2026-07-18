@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,13 @@ def _copy_tree(source: Path, target: Path) -> None:
             "*.vsix",
         ),
     )
+    # Nix store directories are immutable (typically mode 0555), and
+    # copytree preserves those directory modes.  The copied payload is a
+    # disposable staging tree: restore owner-write permission there so atomic
+    # generators can create sibling temporary files without touching source.
+    for directory, _subdirectories, _files in os.walk(target):
+        path = Path(directory)
+        path.chmod(stat.S_IMODE(path.stat().st_mode) | stat.S_IWUSR)
 
 
 def _copy_if_exists(source: Path, target: Path) -> None:

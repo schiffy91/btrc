@@ -149,7 +149,7 @@ THREADS = {
             "static inline void __btrc_thread_string_dispose(\n"
             "        void* result, void* context) {\n"
             "    (void)context;\n"
-            "    __btrc_string_release((char*)result);\n"
+            "    __btrc_string_release((const char*)result);\n"
             "}"
         ),
         depends_on=["__btrc_thread_spawn", "__btrc_string_release"],

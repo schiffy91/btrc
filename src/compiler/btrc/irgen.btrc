@@ -3831,6 +3831,8 @@ class IRGen {
         if (tryLowerGpuCpuReturn(self, node, varTypes, out)) { return; }
         if (tryLowerGpuStatement(self, node, varTypes, out)) { return; }
         if (node.kind == NK_VAR_DECL_STMT) {
+            bool externalDeclaration = node.type != null
+                && node.type.is_extern && node.initializer == null;
             /* C array local: `int arr[] = {5,3,1}` / `int buf[N]`. The element
              * type is the base (NOT a pointer), the name carries the `[size]`/`[]`
              * suffix, and a list-literal initializer becomes a raw C aggregate
@@ -3883,6 +3885,10 @@ class IRGen {
                     self.gpuHost.array_lengths.put(node.name, arrayLength);
                 } else {
                     self.gpuHost.unknown_array_lengths.put(node.name, true);
+                }
+                if (externalDeclaration) {
+                    out.push(irExprStmt(irSizeofExpr(
+                        irAddressOf(irVar(node.name)))));
                 }
                 return;
             }
@@ -3953,7 +3959,8 @@ class IRGen {
                 }
             }
             if (init == null && declType != null
-                    && irManagedType(self, declType)) {
+                    && irManagedType(self, declType)
+                    && !externalDeclaration) {
                 /* Empty managed declarations are owned lexical slots too.
                  * Initialize them before registering cleanup so a later
                  * assignment and every exit path can replace/release safely. */
@@ -3979,6 +3986,16 @@ class IRGen {
             if (self.fnPtrEnvFn.has(node.name)) {
                 self.fnPtrEnvFn.put(node.name, "");
                 self.fnPtrEnvVar.put(node.name, "");
+            }
+            if (externalDeclaration) {
+                /* GCC diagnoses an otherwise legal unused block-scope extern
+                 * under -Wunused-variable. Its address inside sizeof is a
+                 * portable unevaluated use and needs no storage or definition.
+                 * Return before managed ownership registration: an extern
+                 * declaration does not introduce an owned lexical slot. */
+                out.push(irExprStmt(irSizeofExpr(
+                    irAddressOf(irVar(node.name)))));
+                return;
             }
             Node? callableDeclType = resolveTypedefType(
                 declType, self.analyzed.typedefTable);
@@ -4070,6 +4087,33 @@ class IRGen {
         }
         if (node.kind == NK_EXPR_STMT) {
             Node e = node.expr;
+            /* The hosted C assert macro stringifies its argument.  Freeze the
+             * source condition into structured IR first so deep lowering does
+             * not create an overlength string literal.  The explicit discard
+             * preserves btrc's eager call semantics under NDEBUG while keeping
+             * strict unused-variable builds clean. */
+            if (e.kind == NK_CALL_EXPR
+                    && e.callee != null
+                    && e.callee.kind == NK_IDENTIFIER
+                    && e.callee.name == "assert"
+                    && e.args.len == 1
+                    && (e.arg_names.len == 0
+                        || (e.arg_names.len == 1
+                            && e.arg_names.get(0) == ""))) {
+                string conditionName = self.freshTemp(
+                    "__btrc_assert_condition");
+                IRNode conditionDeclaration = irVarDecl(
+                    "bool", conditionName,
+                    self.lowerExpr(e.args.get(0), varTypes));
+                self.funcVarDecls.push(conditionDeclaration);
+                out.push(conditionDeclaration);
+                out.push(irExprStmt(irCast(
+                    "void", irVar(conditionName))));
+                Vector<IRNode> assertArgs = [];
+                assertArgs.push(irVar(conditionName));
+                out.push(irExprStmt(irCall("assert", assertArgs)));
+                return;
+            }
             if (e.kind == NK_CALL_EXPR
                     && e.callee != null
                     && e.callee.kind == NK_FIELD_ACCESS_EXPR

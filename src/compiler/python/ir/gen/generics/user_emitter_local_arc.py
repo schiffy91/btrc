@@ -127,7 +127,18 @@ def _lower_generic_local_compound(emitter, expression, target, target_type):
 def lower_generic_expression_statement(emitter, expression):
     """Consume a discarded caller-owned result at the statement boundary."""
     from ....ast_nodes import CallExpr, FieldAccessExpr
+    from ..macro_boundaries import lower_assert_statement
     from ..managed_values import is_mutex_type
+
+    assertion = lower_assert_statement(
+        expression,
+        lower_condition=emitter._expr,
+        fresh_temp=emitter._fresh_temp,
+        record_decl=emitter._func_var_decls.append,
+        hosted=not emitter._gen.freestanding,
+    )
+    if assertion is not None:
+        return assertion
 
     if (
         isinstance(expression, CallExpr)

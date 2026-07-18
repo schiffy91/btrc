@@ -23,6 +23,34 @@ from .nodes import (
     IRVarDecl,
 )
 
+_INLINE_EXPRESSION_LIMIT = 1000
+
+
+def _compound(
+    opening: str,
+    values: list[str],
+    closing: str,
+    *,
+    inline_separator: str = "",
+    line_separator: str = "\n",
+) -> str:
+    """Keep one structured expression group within the inline budget."""
+    inline = opening + inline_separator.join(values) + closing
+    if "\n" not in inline and len(inline) <= _INLINE_EXPRESSION_LIMIT:
+        return inline
+    return opening + "\n" + line_separator.join(values) + "\n" + closing
+
+
+def _delimited(opening: str, values: list[str], closing: str) -> str:
+    """Format a structured expression list without oversized C lines."""
+    return _compound(
+        opening,
+        values,
+        closing,
+        inline_separator=", ",
+        line_separator=",\n",
+    )
+
 
 class _ExprEmitterMixin:
     """Mixin providing expression rendering for CEmitter.
@@ -67,7 +95,7 @@ class _ExprEmitterMixin:
 
     def _discarded_expr(self, expr: IRExpr) -> str:
         """Render an expression whose value is intentionally discarded."""
-        return f"(void)({self._expr(expr)})"
+        return _compound("(void)(", [self._expr(expr)], ")")
 
     def _expr(self, expr: IRExpr) -> str:
         if expr is None:
@@ -80,52 +108,76 @@ class _ExprEmitterMixin:
             return expr.name
 
         elif isinstance(expr, IRBinOp):
-            return f"({self._expr(expr.left)} {expr.op} {self._expr(expr.right)})"
+            return _compound(
+                "(",
+                [self._expr(expr.left), expr.op, self._expr(expr.right)],
+                ")",
+                inline_separator=" ",
+            )
 
         elif isinstance(expr, IRCommaExpr):
-            return "(" + ", ".join(self._expr(item) for item in expr.expressions) + ")"
+            return _delimited(
+                "(",
+                [self._expr(item) for item in expr.expressions],
+                ")",
+            )
 
         elif isinstance(expr, IRUnaryOp):
             if expr.prefix:
-                return f"({expr.op}{self._expr(expr.operand)})"
-            else:
-                return f"({self._expr(expr.operand)}{expr.op})"
+                return _compound(f"({expr.op}", [self._expr(expr.operand)], ")")
+            return _compound("(", [self._expr(expr.operand)], f"{expr.op})")
 
         elif isinstance(expr, IRCall):
-            args = ", ".join(self._expr(a) for a in expr.args)
+            args = _delimited("(", [self._expr(arg) for arg in expr.args], ")")
             callee = expr.callee if isinstance(expr.callee, str) else self._expr(expr.callee)
-            return f"{callee}({args})"
+            return _compound("", [callee, args], "")
 
         elif isinstance(expr, IRFieldAccess):
             op = "->" if expr.arrow else "."
-            return f"{self._expr(expr.obj)}{op}{expr.field}"
+            return _compound("", [self._expr(expr.obj), f"{op}{expr.field}"], "")
 
         elif isinstance(expr, IRCast):
-            return f"(({expr.target_type}){self._expr(expr.expr)})"
+            return _compound(f"(({expr.target_type})", [self._expr(expr.expr)], ")")
 
         elif isinstance(expr, IRTernary):
-            return f"({self._expr(expr.condition)} ? {self._expr(expr.true_expr)} : {self._expr(expr.false_expr)})"
+            return _compound(
+                "(",
+                [
+                    self._expr(expr.condition),
+                    "?",
+                    self._expr(expr.true_expr),
+                    ":",
+                    self._expr(expr.false_expr),
+                ],
+                ")",
+                inline_separator=" ",
+            )
 
         elif isinstance(expr, IRSizeof):
             operand = self._expr(expr.operand) if isinstance(expr.operand, IRExpr) else str(expr.operand)
-            return f"sizeof({operand})"
+            return _compound("sizeof(", [operand], ")")
 
         elif isinstance(expr, IRInitializerList):
-            values = ", ".join(self._expr(value) for value in expr.elements)
-            return "{" + (values or "0") + "}"
+            values = [self._expr(value) for value in expr.elements] or ["0"]
+            return _delimited("{", values, "}")
 
         elif isinstance(expr, IRCompoundLiteral):
-            fields = ", ".join(f".{name} = {self._expr(value)}" for name, value in expr.fields)
-            return f"({expr.c_type})" + "{" + (fields or "0") + "}"
+            fields = [_compound(f".{name} = ", [self._expr(value)], "") for name, value in expr.fields] or ["0"]
+            return _compound(
+                f"({expr.c_type})",
+                [_delimited("{", fields, "}")],
+                "",
+            )
 
         elif isinstance(expr, IRIndex):
-            return f"{self._expr(expr.obj)}[{self._expr(expr.index)}]"
+            index = _compound("[", [self._expr(expr.index)], "]")
+            return _compound("", [self._expr(expr.obj), index], "")
 
         elif isinstance(expr, IRAddressOf):
-            return f"(&{self._expr(expr.expr)})"
+            return _compound("(&", [self._expr(expr.expr)], ")")
 
         elif isinstance(expr, IRDeref):
-            return f"(*{self._expr(expr.expr)})"
+            return _compound("(*", [self._expr(expr.expr)], ")")
 
         elif isinstance(expr, IRStmtExpr):
             # Only declarations are safe to hoist out of a control-sensitive

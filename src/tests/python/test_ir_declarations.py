@@ -473,6 +473,43 @@ def test_local_storage_qualifiers_are_declaration_metadata():
     assert "extern int external;" in emitted
 
 
+@pytest.mark.parametrize("c_compiler", COMPILERS)
+def test_unused_local_extern_has_portable_unevaluated_use(tmp_path, c_compiler):
+    module = _generate("""
+        void declareExternal() {
+            extern int external_only_declaration;
+        }
+        int main() {
+            declareExternal();
+            return 0;
+        }
+    """)
+    emitted = CEmitter().emit(module)
+    assert "extern int external_only_declaration;" in emitted
+    assert "sizeof((&external_only_declaration))" in emitted
+
+    source = tmp_path / "unused_local_extern.c"
+    executable = tmp_path / "unused_local_extern"
+    source.write_text(emitted)
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
 def test_fixed_array_global_has_structured_declarator():
     module = IRModule(
         global_decls=[

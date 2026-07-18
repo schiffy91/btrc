@@ -24,10 +24,10 @@ def lower_managed_compound_update(
     value_type,
     right_type,
     old_expr: IRExpr,
-    current_expr: IRExpr,
+    current_expr: IRExpr | None,
     right_expr: IRExpr,
     compute: Callable[[IRExpr, IRExpr], IRExpr],
-    commit: Callable[[IRExpr, IRExpr], list[IRExpr]],
+    commit: Callable[[IRExpr | None, IRExpr], list[IRExpr]],
     result_expr: Callable[[], IRExpr],
     old_temporary_owned: bool,
     right_owned: bool,
@@ -41,6 +41,8 @@ def lower_managed_compound_update(
     activate_cleanup: Callable[[], None] | None = None,
 ) -> IRExpr:
     """Evaluate, replace, and clean one managed value exactly once."""
+    if release_replaced_old != (current_expr is not None):
+        raise ValueError("managed update current snapshot must match release policy")
     old_decl = _temporary(
         value_type,
         "__btrc_update_old",
@@ -62,18 +64,22 @@ def lower_managed_compound_update(
         fresh_temp,
         record_decl,
     )
-    current_decl = _temporary(
-        value_type,
-        "__btrc_update_current",
-        c_type,
-        fresh_temp,
-        record_decl,
-    )
-    declarations = [old_decl, right_decl, replacement_decl, current_decl]
+    current_decl = None
+    if current_expr is not None:
+        current_decl = _temporary(
+            value_type,
+            "__btrc_update_current",
+            c_type,
+            fresh_temp,
+            record_decl,
+        )
+    declarations = [old_decl, right_decl, replacement_decl]
+    if current_decl is not None:
+        declarations.append(current_decl)
     old = IRVar(name=old_decl.name)
     right = IRVar(name=right_decl.name)
     replacement = IRVar(name=replacement_decl.name)
-    current = IRVar(name=current_decl.name)
+    current = IRVar(name=current_decl.name) if current_decl is not None else None
     sequence = [IRBinOp(left=old, op="=", right=old_expr)]
     if not old_temporary_owned:
         sequence.append(retain_value(gen, old, value_type))
@@ -139,7 +145,8 @@ def lower_managed_compound_update(
     sequence.append(IRBinOp(left=replacement, op="=", right=compute(old, right)))
     # The RHS may itself rebind the target.  Commit against the value that is
     # in the slot now; ``old`` is a separate +1 pin used only by the operator.
-    sequence.append(IRBinOp(left=current, op="=", right=current_expr))
+    if current is not None and current_expr is not None:
+        sequence.append(IRBinOp(left=current, op="=", right=current_expr))
 
     commit_value = replacement
     if transfer_before_commit:
@@ -162,6 +169,7 @@ def lower_managed_compound_update(
     if not transfer_before_commit:
         sequence.append(_clear(replacement))
     if release_replaced_old:
+        assert current is not None
         sequence.extend(
             _release_and_clear(
                 gen,

@@ -198,7 +198,7 @@ def _lower_generic_field_compound(
         value_type=field_type,
         right_type=right_type,
         old_expr=target,
-        current_expr=target,
+        current_expr=None if class_edge else target,
         right_expr=emitter._assignment_value(field_type, expression.value),
         compute=lambda old, right: lower_managed_compound_operator(
             emitter._gen,

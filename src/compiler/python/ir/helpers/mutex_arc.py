@@ -53,7 +53,7 @@ MUTEX_ARC = {
         void* context, void* owner) {
     (void)context;
     (void)owner;
-    (void)__btrc_string_retain((char*)access(storage));
+    (void)__btrc_string_retain((const char*)access(storage));
 }""",
         depends_on=["__btrc_mutex_val_types", "__btrc_string_retain"],
     ),
@@ -63,7 +63,7 @@ MUTEX_ARC = {
         void* context, void* owner) {
     (void)context;
     (void)owner;
-    __btrc_string_release((char*)access(storage));
+    __btrc_string_release((const char*)access(storage));
 }""",
         depends_on=["__btrc_mutex_val_types", "__btrc_string_release"],
     ),

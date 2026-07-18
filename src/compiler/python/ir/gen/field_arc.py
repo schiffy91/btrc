@@ -193,7 +193,7 @@ def _lower_managed_field_compound(
         value_type=field_type,
         right_type=right_type,
         old_expr=target,
-        current_expr=target,
+        current_expr=None if class_edge else target,
         right_expr=_lower_value(gen, node.value, field_type),
         compute=lambda old, right: lower_managed_compound_operator(
             gen,

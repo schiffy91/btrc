@@ -9,7 +9,9 @@ string irManagedMutexRuntimeType() {
 }
 
 string irManagedRuntimeCType(string runtimeType) {
-    if (runtimeType == irManagedStringRuntimeType()) { return "char*"; }
+    if (runtimeType == irManagedStringRuntimeType()) {
+        return "const char*";
+    }
     if (runtimeType == irManagedMutexRuntimeType()) {
         return "__btrc_mutex_val_t*";
     }

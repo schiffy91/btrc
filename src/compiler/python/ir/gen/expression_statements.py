@@ -18,6 +18,18 @@ from .types import type_to_c
 
 def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
     """Lower one expression and release any discarded caller-owned result."""
+    from .macro_boundaries import lower_assert_statement
+
+    assertion = lower_assert_statement(
+        node.expr,
+        lower_condition=lambda condition: lower_expr(gen, condition),
+        fresh_temp=gen.fresh_temp,
+        record_decl=gen._func_var_decls.append,
+        hosted=not gen.freestanding,
+    )
+    if assertion is not None:
+        return assertion
+
     destroy_receiver = _mutex_destroy_receiver(gen, node.expr)
     if destroy_receiver is not None:
         from .arc import lower_release_expression

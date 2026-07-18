@@ -129,7 +129,7 @@ def _emitted_value_c_type(type_name: str) -> str:
     # A local may shadow the class typedef (``Box Box``); C struct tags live in
     # a separate namespace and therefore remain usable by generated cleanup.
     if type_name == STRING_RUNTIME_NAME:
-        return "char*"
+        return "const char*"
     if type_name == MUTEX_RUNTIME_NAME:
         return "__btrc_mutex_val_t*"
     return f"struct {type_name}*"

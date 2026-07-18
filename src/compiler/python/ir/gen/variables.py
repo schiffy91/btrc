@@ -9,7 +9,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import VarDeclStmt
-from ..nodes import CType, IRCall, IRExprStmt, IRLiteral, IRStmt, IRVar, IRVarDecl
+from ..nodes import (
+    CType,
+    IRAddressOf,
+    IRCall,
+    IRExprStmt,
+    IRLiteral,
+    IRSizeof,
+    IRStmt,
+    IRVar,
+    IRVarDecl,
+)
 from .cleanup_registration import (
     maybe_register_cleanup as _maybe_register_cleanup,
 )
@@ -31,12 +41,15 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     # Record every local, including borrowed values, so a shadowing declaration
     # cannot inherit an outer variable's ownership classification.
     gen.declare_local_ownership(node.name)
+    external_declaration = bool(node.type and node.type.is_extern and node.initializer is None)
 
     # Handle array types: int arr[5] or int nums[]
     if node.type and node.type.is_array:
         from .array_variables import lower_array_var_decl
 
         result = lower_array_var_decl(gen, node, _storage_metadata(node))
+        if external_declaration:
+            result.append(_mark_external_declaration_used(node.name))
         gen._fn_ptr_envs.pop(node.name, None)
         return result
 
@@ -106,7 +119,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
             )
             init = upcast_class_pointer(gen, node.type, init_type, init)
     concrete_managed = _is_concrete_managed_type(gen, node.type)
-    if init is None and concrete_managed:
+    if init is None and concrete_managed and not external_declaration:
         # An uninitialized managed declaration is still an owned lexical slot.
         # Start it empty so later replacement and exceptional cleanup are safe.
         init = IRLiteral(text="NULL")
@@ -125,6 +138,12 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     from .callable_provenance import bind_local_callable
 
     bind_local_callable(gen, node.name, node.type, node.initializer)
+    if external_declaration:
+        # GCC diagnoses an otherwise legal unused block-scope extern under
+        # -Wunused-variable. Taking its address inside sizeof is an unevaluated,
+        # portable use: it needs neither storage nor a link-time definition.
+        result.append(_mark_external_declaration_used(node.name))
+        return result
 
     # Lambda capture struct allocation: when var = lambda_with_captures,
     # allocate the capture struct on the stack and fill it with captured values.
@@ -223,6 +242,10 @@ def _storage_metadata(node: VarDeclStmt) -> dict[str, bool]:
         "is_extern": bool(getattr(type_expr, "is_extern", False)),
         "is_volatile": bool(getattr(type_expr, "is_volatile", False)),
     }
+
+
+def _mark_external_declaration_used(name: str) -> IRExprStmt:
+    return IRExprStmt(expr=IRSizeof(operand=IRAddressOf(expr=IRVar(name=name))))
 
 
 def _managed_type_name(gen: IRGenerator, type_expr) -> str:

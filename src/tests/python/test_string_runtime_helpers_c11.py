@@ -44,10 +44,10 @@ int main(void) {
 int main(void) { __btrc_string_registry_lock(); __btrc_string_registry_unlock(); return 0; }
 """,
     "__btrc_string_registry_hash": """
-int main(void) { char value = 0; return __btrc_string_hash(&value, 64) < 64 ? 0 : 1; }
+int main(void) { const char value = 0; return __btrc_string_hash(&value, 64) < 64 ? 0 : 1; }
 """,
     "__btrc_string_registry_slot": """
-int main(void) { char value = 0; return *__btrc_string_slot(&value) == NULL ? 0 : 1; }
+int main(void) { const char value = 0; return *__btrc_string_slot(&value) == NULL ? 0 : 1; }
 """,
     "__btrc_string_registry_count": """
 int main(void) { return __btrc_string_entry_count == 0 ? 0 : 1; }
@@ -69,12 +69,12 @@ int main(void) {
 """,
     "__btrc_string_retain": """
 int main(void) {
-    char value[] = "borrowed";
+    const char value[] = "borrowed";
     return __btrc_string_retain(value) == value ? 0 : 1;
 }
 """,
     "__btrc_string_release": """
-int main(void) { char value[] = "borrowed"; __btrc_string_release(value); return 0; }
+int main(void) { const char value[] = "borrowed"; __btrc_string_release(value); return 0; }
 """,
     "__btrc_string_release_cleanup": """
 int main(void) { char value[] = "borrowed"; __btrc_string_release_cleanup(value); return 0; }
