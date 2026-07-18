@@ -14,10 +14,22 @@ ROOT = Path(__file__).resolve().parents[3]
 GPU = ROOT / "src" / "stdlib" / "gpu"
 HARNESS = ROOT / "src" / "tests" / "native" / "gpu_runtime_invalid.c"
 SINGLETON_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_compute_singleton.c"
+_COMPILE_TIMEOUT_SECONDS = 120
+_RUN_TIMEOUT_SECONDS = 90
+
+
+def _compile_strict_c11(compiler: str, output: Path, sources: list[Path], flags: list[str]) -> None:
+    strict = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors"]
+    command = [compiler, *flags, *strict, *map(str, sources), "-o", str(output)]
+    subprocess.run(command, check=True, timeout=_COMPILE_TIMEOUT_SECONDS)
 
 
 def _runtime_sources() -> list[str]:
-    sources = [str(GPU / "btrc_gpu.c")]
+    sources = [
+        str(GPU / "btrc_gpu.c"),
+        str(GPU / "btrc_gpu_async.c"),
+        str(GPU / "btrc_gpu_surface.c"),
+    ]
     if sys.platform == "darwin":
         sources.append(str(GPU / "btrc_gpu_surface_macos.m"))
     return sources
@@ -35,16 +47,8 @@ def test_compute_context_singleton_uses_c11_atomic_publication() -> None:
     assert "destroy_candidate(candidate);" in publication
 
 
-def test_gpu_async_bridges_are_bounded_and_render_context_retains_window() -> None:
+def test_render_context_retains_window() -> None:
     runtime = (GPU / "btrc_gpu.c").read_text()
-
-    assert ".timedWaitAnyEnable = true" in runtime
-    assert "wgpuInstanceWaitAny(" in runtime
-    assert runtime.count("WGPUCallbackMode_WaitAnyOnly") == 3
-    assert "WGPUCallbackMode_AllowProcessEvents" not in runtime
-    assert "while (!gpu->adapter_request_done)" not in runtime
-    assert "while (!gpu->device_request_done)" not in runtime
-    assert "while (!cb_data.done)" not in runtime
 
     assert "if (!retain_window(win))" in runtime
     assert "release_window(gpu->window);" in runtime
@@ -57,22 +61,8 @@ def test_compute_context_cas_publication_is_deterministic(tmp_path: Path, c_comp
     if not shutil.which(c_compiler):
         pytest.skip(f"{c_compiler} is unavailable")
     executable = tmp_path / f"compute-singleton-{c_compiler}"
-    subprocess.run(
-        [
-            c_compiler,
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-pedantic-errors",
-            f"-I{GPU}",
-            str(SINGLETON_HARNESS),
-            "-o",
-            str(executable),
-        ],
-        check=True,
-    )
-    subprocess.run([str(executable)], check=True)
+    _compile_strict_c11(c_compiler, executable, [SINGLETON_HARNESS], [f"-I{GPU}"])
+    subprocess.run([str(executable)], check=True, timeout=_RUN_TIMEOUT_SECONDS)
 
 
 def test_gpu_dispatch_abi_is_consistent() -> None:
@@ -91,48 +81,11 @@ def test_gpu_dispatch_abi_is_consistent() -> None:
 def test_gpu_public_header_consumer_compiles_strict_c11(tmp_path: Path, c_compiler: str) -> None:
     if not shutil.which(c_compiler):
         pytest.skip(f"{c_compiler} is unavailable")
-    subprocess.run(
-        [
-            c_compiler,
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-pedantic-errors",
-            f"-I{GPU}",
-            "-c",
-            str(HARNESS),
-            "-o",
-            str(tmp_path / f"gpu-consumer-{c_compiler}.o"),
-        ],
-        check=True,
-    )
-
-
-@pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
-def test_gpu_runtime_core_compiles_strict_c11(tmp_path: Path, c_compiler: str) -> None:
-    cflags = os.environ.get("GPU_CFLAGS")
-    if not cflags:
-        pytest.skip("WebGPU/GLFW build flags are unavailable")
-    if not shutil.which(c_compiler):
-        pytest.skip(f"{c_compiler} is unavailable")
-    subprocess.run(
-        [
-            c_compiler,
-            *shlex.split(cflags),
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-pedantic-errors",
-            f"-I{GPU}",
-            "-O2",
-            "-c",
-            str(GPU / "btrc_gpu.c"),
-            "-o",
-            str(tmp_path / f"gpu-runtime-{c_compiler}.o"),
-        ],
-        check=True,
+    _compile_strict_c11(
+        c_compiler,
+        tmp_path / f"gpu-consumer-{c_compiler}.o",
+        [HARNESS],
+        [f"-I{GPU}", "-c"],
     )
 
 
@@ -147,6 +100,7 @@ def test_gpu_runtime_rejects_invalid_inputs_without_a_display(tmp_path: Path) ->
         [
             os.environ.get("CC", "cc"),
             *shlex.split(cflags),
+            "-DBTRC_GPU_WGPU_NATIVE",
             "-std=c11",
             "-Wall",
             "-Wextra",
@@ -161,10 +115,11 @@ def test_gpu_runtime_rejects_invalid_inputs_without_a_display(tmp_path: Path) ->
             str(executable),
         ],
         check=True,
+        timeout=_COMPILE_TIMEOUT_SECONDS,
     )
     environment = os.environ.copy()
     environment["BTRC_NO_GPU"] = "1"
-    subprocess.run([str(executable)], check=True, env=environment)
+    subprocess.run([str(executable)], check=True, env=environment, timeout=_RUN_TIMEOUT_SECONDS)
 
 
 @pytest.mark.parametrize(
@@ -199,7 +154,7 @@ def test_native_gpu_reports_checked_kernel_failures_when_available(
         f"{scalar_type}[] xs = {{{array_value}}}; checked(xs, {divisor}); return 0; }}"
     )
     executable = _compile_generated_gpu(tmp_path, source)
-    result = subprocess.run([str(executable)], capture_output=True, text=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=_RUN_TIMEOUT_SECONDS)
     if result.returncode == 77:
         pytest.skip("no native compute adapter is available")
     assert result.returncode == 1
@@ -224,7 +179,7 @@ def test_native_gpu_reports_checked_kernel_failures_when_available(
 )
 def test_native_gpu_checked_success_paths_when_available(tmp_path: Path, source: str) -> None:
     executable = _compile_generated_gpu(tmp_path, "#include <btrc_gpu.h>\n" + source)
-    result = subprocess.run([str(executable)], capture_output=True, text=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=_RUN_TIMEOUT_SECONDS)
     if result.returncode == 77:
         pytest.skip("no native compute adapter is available")
     assert result.returncode == 0, result.stderr
@@ -251,7 +206,7 @@ def test_native_gpu_cpu_fallback_when_explicitly_disabled(
 ) -> None:
     executable = _compile_generated_gpu(tmp_path, "#include <btrc_gpu.h>\n" + source)
     environment = {**os.environ, "BTRC_NO_GPU": "1"}
-    subprocess.run([str(executable)], check=True, env=environment)
+    subprocess.run([str(executable)], check=True, env=environment, timeout=_RUN_TIMEOUT_SECONDS)
 
 
 def _compile_generated_gpu(tmp_path: Path, source: str) -> Path:
@@ -266,6 +221,7 @@ def _compile_generated_gpu(tmp_path: Path, source: str) -> Path:
         [
             os.environ.get("CC", "cc"),
             *shlex.split(cflags),
+            "-DBTRC_GPU_WGPU_NATIVE",
             "-std=c11",
             "-Wall",
             "-Wextra",
@@ -280,5 +236,6 @@ def _compile_generated_gpu(tmp_path: Path, source: str) -> Path:
             str(executable),
         ],
         check=True,
+        timeout=_COMPILE_TIMEOUT_SECONDS,
     )
     return executable

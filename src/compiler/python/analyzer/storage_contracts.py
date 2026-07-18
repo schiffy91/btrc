@@ -18,6 +18,12 @@ class StorageContractsMixin:
             active_type_params=self._active_storage_type_parameters(),
         )
         canonical = self._canonical_type(type_expr)
+        if canonical and canonical.base == "Mutex" and (is_global or canonical.is_static or canonical.is_extern):
+            self._error(
+                f"{subject} cannot own a Mutex handle with static storage until managed global teardown is supported",
+                declaration.line,
+                declaration.col,
+            )
         if (
             not is_global
             and type_expr.is_static
@@ -167,6 +173,25 @@ class StorageContractsMixin:
         context = "static" if field.access == "class" else "field"
         self._validate_array_bound(field.type, subject, context)
         canonical = self._canonical_type(field.type)
+        if (
+            field.access != "class"
+            and field.initializer is not None
+            and canonical is not None
+            and canonical.is_array
+            and isinstance(field.initializer, (BraceInitializer, ListLiteral))
+        ):
+            self._error(
+                f"{subject} has only temporary compound-literal backing; "
+                "array-valued class field defaults require persistent backing storage",
+                field.line,
+                field.col,
+            )
+        if field.access == "class" and canonical and canonical.base == "Mutex":
+            self._error(
+                f"Static {subject.lower()} cannot own a Mutex handle until managed global teardown is supported",
+                field.line,
+                field.col,
+            )
         if (
             field.access != "class"
             and field.initializer is not None

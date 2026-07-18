@@ -26,7 +26,8 @@ bool irKnownLanguageCall(IRGen generator, Node call,
         return true;
     }
     if (callee.kind == NK_IDENTIFIER) {
-        return generator.analyzed.isClass(callee.name)
+        return callee.name == "Mutex"
+            || generator.analyzed.isClass(callee.name)
             || generator.analyzed.isGenericClass(callee.name);
     }
     if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
@@ -170,9 +171,9 @@ bool irExpressionOwnsResult(IRGen generator, Node? expression,
                     generator, target, varTypes));
         Node? virtualType = irVirtualAssignmentValueType(
             generator, target, varTypes);
-        bool ownedValue = expression.op == "=" && virtualType != null
-            && irContextualExpressionOwnsResult(
-                generator, expression.value_node, virtualType, varTypes);
+        bool ownedValue = virtualType != null
+            && irVirtualAssignmentRhsOwnsResult(
+                generator, expression, virtualType);
         return managedResult && (ownedReceiver || ownedValue);
     }
     if (expression.kind == NK_FIELD_ACCESS_EXPR
@@ -180,6 +181,11 @@ bool irExpressionOwnsResult(IRGen generator, Node? expression,
         if (!managedResult) { return false; }
         if (irExpressionOwnsResult(
                 generator, expression.obj, varTypes)) { return true; }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR
+                && irPropertyGetterProjection(
+                    generator, expression, varTypes)) {
+            return true;
+        }
         if (expression.kind == NK_INDEX_EXPR) {
             Node? receiverType = generator.resolvedExpressionType(
                 expression.obj, varTypes);
@@ -261,6 +267,26 @@ bool irContextualExpressionOwnsResult(IRGen generator, Node? expression,
         || expression.kind == NK_BRACE_INITIALIZER;
     if (aggregate && irManagedType(generator, expectedType)) {
         return true;
+    }
+    if (expression.kind == NK_CALL_EXPR
+            && irManagedStringType(generator, expectedType)
+            && irStringCallOwnsResult(generator, expression, varTypes)) {
+        return true;
+    }
+    if (expression.kind == NK_CALL_EXPR
+            && irManagedType(generator, expectedType)
+            && irKnownLanguageCall(generator, expression, varTypes)) {
+        return true;
+    }
+    if (expression.kind == NK_F_STRING_LITERAL
+            && irManagedStringType(generator, expectedType)) {
+        int partIndex = 0;
+        while (partIndex < expression.parts.len) {
+            if (expression.parts.get(partIndex).kind == NK_F_STRING_EXPR) {
+                return true;
+            }
+            partIndex = partIndex + 1;
+        }
     }
     return irExpressionOwnsResult(generator, expression, varTypes);
 }

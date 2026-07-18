@@ -33,6 +33,7 @@ Vector<string> cycleRuntimeLifecycleDependencies(string name) {
     }
     if (name == "__btrc_arc_release_impl") {
         out.push("__btrc_suspect_locked");
+        out.push("__btrc_arc_incoming_teardown_pending");
         out.push("__btrc_arc_reverse_proves_live");
         out.push("__btrc_forget_suspect");
         out.push("__btrc_arc_deferred_state");

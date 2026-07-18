@@ -9,6 +9,13 @@ Node semanticArrayElementType(Node arrayType) {
     return element;
 }
 
+bool semanticContextualAggregateInitializer(Node? initializer) {
+    return initializer != null
+        && (initializer.kind == NK_BRACE_INITIALIZER
+            || initializer.kind == NK_LIST_LITERAL
+            || initializer.kind == NK_MAP_LITERAL);
+}
+
 void semanticValidateInitializerValue(Node expected, Node value,
         string subject, SemanticValidationState state,
         Map<string, Node> vars);
@@ -106,6 +113,27 @@ void semanticValidateInitializerValue(Node expected, Node value,
             && value.kind == NK_BRACE_INITIALIZER) {
         semanticValidateStructInitializer(
             canonical, value, subject, state, vars);
+        return;
+    }
+    if (canonical.base == "Tuple" && canonical.pointer_depth == 0
+            && value.kind == NK_BRACE_INITIALIZER) {
+        if (value.elements.len > canonical.generic_args.len) {
+            semanticValidationFail(subject + " has "
+                + Strings.fromInt(value.elements.len)
+                + " initializer elements but tuple '"
+                + semanticFormatType(canonical) + "' has "
+                + Strings.fromInt(canonical.generic_args.len)
+                + " fields", value);
+        }
+        int tupleIndex = 0;
+        while (tupleIndex < value.elements.len) {
+            semanticValidateInitializerValue(
+                canonical.generic_args.get(tupleIndex),
+                value.elements.get(tupleIndex),
+                subject + " field '_" + Strings.fromInt(tupleIndex) + "'",
+                state, vars);
+            tupleIndex = tupleIndex + 1;
+        }
         return;
     }
     if (value.kind == NK_BRACE_INITIALIZER

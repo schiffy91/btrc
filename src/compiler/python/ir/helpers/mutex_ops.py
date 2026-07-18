@@ -1,134 +1,62 @@
-"""Mutex managed-ownership and value-operation runtime helpers."""
+"""Locked get/set operations for ARC-managed ``Mutex<T>`` nodes."""
 
 from .core import HelperDef
 
 MUTEX_OPS = {
-    "__btrc_mutex_arc_retain": HelperDef(
-        c_source=(
-            "static void __btrc_mutex_arc_retain(\n"
-            "        const void* storage, __btrc_mutex_value_access access,\n"
-            "        void* context, void* owner) {\n"
-            "    (void)context;\n"
-            "    if (owner)\n"
-            "        (void)__btrc_arc_retain_edge(access(storage), owner);\n"
-            "    else\n"
-            "        (void)__btrc_arc_retain(access(storage));\n"
-            "}"
-        ),
-        depends_on=[
-            "__btrc_mutex_val_types",
-            "__btrc_arc_retain",
-            "__btrc_arc_retain_edge",
-        ],
-    ),
-    "__btrc_mutex_arc_release": HelperDef(
-        c_source=(
-            "static void __btrc_mutex_arc_release(\n"
-            "        const void* storage, __btrc_mutex_value_access access,\n"
-            "        void* context, void* owner) {\n"
-            "    void* object = access(storage);\n"
-            "    if (owner) {\n"
-            "        (void)__btrc_arc_unlink_edge(object, owner);\n"
-            "        (void)__btrc_arc_release_edge(\n"
-            "            object, (const __btrc_arc_type*)context, NULL);\n"
-            "    } else {\n"
-            "        (void)__btrc_arc_release(\n"
-            "            object, (const __btrc_arc_type*)context);\n"
-            "    }\n"
-            "}"
-        ),
-        depends_on=[
-            "__btrc_mutex_val_types",
-            "__btrc_arc_release",
-            "__btrc_arc_release_edge",
-            "__btrc_arc_unlink_edge",
-        ],
-    ),
-    "__btrc_mutex_arc_finalize": HelperDef(
-        c_source=(
-            "static void __btrc_mutex_arc_finalize(void* context) {\n"
-            "    (void)context;\n"
-            "    (void)__btrc_flush_cycles();\n"
-            "}"
-        ),
-        depends_on=["__btrc_mutex_val_types", "__btrc_flush_cycles"],
-    ),
-    "__btrc_mutex_string_retain": HelperDef(
-        c_source=(
-            "static void __btrc_mutex_string_retain(\n"
-            "        const void* storage, __btrc_mutex_value_access access,\n"
-            "        void* context, void* owner) {\n"
-            "    (void)context;\n"
-            "    (void)owner;\n"
-            "    (void)__btrc_string_retain((char*)access(storage));\n"
-            "}"
-        ),
-        depends_on=["__btrc_mutex_val_types", "__btrc_string_retain"],
-    ),
-    "__btrc_mutex_string_release": HelperDef(
-        c_source=(
-            "static void __btrc_mutex_string_release(\n"
-            "        const void* storage, __btrc_mutex_value_access access,\n"
-            "        void* context, void* owner) {\n"
-            "    (void)context;\n"
-            "    (void)owner;\n"
-            "    __btrc_string_release((char*)access(storage));\n"
-            "}"
-        ),
-        depends_on=["__btrc_mutex_val_types", "__btrc_string_release"],
-    ),
     "__btrc_mutex_val_get": HelperDef(
-        c_source=(
-            "static void* __btrc_mutex_val_get(__btrc_mutex_val_t* m) {\n"
-            '    if (!m) { fprintf(stderr, "btrc: cannot get a null Mutex\\n"); exit(1); }\n'
-            "    void* copy = __btrc_safe_realloc(NULL, m->size);\n"
-            "    void* topology = m->slot_access\n"
-            "        ? __btrc_arc_topology_begin() : NULL;\n"
-            "    int err = pthread_mutex_lock(&m->lock);\n"
-            '    if (err != 0) { fprintf(stderr, "btrc: mutex lock failed (%d)\\n", err); free(copy); exit(1); }\n'
-            "    memcpy(copy, m->value, m->size);\n"
-            '    char first_error[1024] = "";\n'
-            "    int retain_failed = m->retain\n"
-            "        && __btrc_mutex_value_callback_guard(\n"
-            "            m->retain, copy, m->access, m->context,\n"
-            "            NULL, first_error, sizeof first_error);\n"
-            "    int has_error = retain_failed;\n"
-            "    __btrc_raise_fn saved_raise = m->raise;\n"
-            "    err = pthread_mutex_unlock(&m->lock);\n"
-            '    if (err != 0) { fprintf(stderr, "btrc: mutex unlock failed (%d)\\n", err); free(copy); exit(1); }\n'
-            "    int should_flush = topology\n"
-            "        && __btrc_arc_topology_leave(topology);\n"
-            "    if (should_flush && m->finalize) {\n"
-            '        char finalize_error[1024] = "";\n'
-            "        int finalize_failed = __btrc_mutex_finalize_callback_guard(\n"
-            "            m->finalize, m->context,\n"
-            "            finalize_error, sizeof finalize_error);\n"
-            "        if (finalize_failed && !has_error) {\n"
-            "            memcpy(first_error, finalize_error, sizeof first_error);\n"
-            "            has_error = 1;\n"
-            "        }\n"
-            "    }\n"
-            "    if (has_error) {\n"
-            "        if (m->release && !retain_failed) {\n"
-            '            char rollback_error[1024] = "";\n'
-            "            (void)__btrc_mutex_value_callback_guard(\n"
-            "                m->release, copy, m->access, m->context, NULL,\n"
-            "                rollback_error, sizeof rollback_error);\n"
-            "            if (m->finalize) {\n"
-            '                char rollback_finalize[1024] = "";\n'
-            "                (void)__btrc_mutex_finalize_callback_guard(\n"
-            "                    m->finalize, m->context, rollback_finalize,\n"
-            "                    sizeof rollback_finalize);\n"
-            "            }\n"
-            "        }\n"
-            "        free(copy);\n"
-            "        __btrc_raise_captured(saved_raise, first_error);\n"
-            "    }\n"
-            "    return copy;\n"
-            "}"
-        ),
+        c_source=r"""static void* __btrc_mutex_val_get(__btrc_mutex_val_t* m) {
+    if (!m) {
+        fprintf(stderr, "btrc: cannot get a null Mutex\n");
+        exit(1);
+    }
+    void* copy = __btrc_safe_realloc(NULL, m->size);
+    void* topology = m->slot_access
+        ? __btrc_arc_topology_begin() : NULL;
+    int err = pthread_mutex_lock(&m->lock);
+    if (err != 0) {
+        fprintf(stderr, "btrc: mutex lock failed (%d)\n", err);
+        free(copy);
+        exit(1);
+    }
+    memcpy(copy, m->value, m->size);
+    char first_error[1024] = "";
+    int retain_failed = m->retain
+        && __btrc_mutex_value_callback_guard(
+            m->retain, copy, m->access, m->context,
+            NULL, first_error, sizeof first_error);
+    int has_error = retain_failed;
+    __btrc_raise_fn saved_raise = m->raise;
+    err = pthread_mutex_unlock(&m->lock);
+    if (err != 0) {
+        fprintf(stderr, "btrc: mutex unlock failed (%d)\n", err);
+        free(copy);
+        exit(1);
+    }
+    int should_flush = topology
+        && __btrc_arc_topology_leave(topology);
+    if (should_flush && m->finalize) {
+        char finalize_error[1024] = "";
+        int finalize_failed = __btrc_mutex_finalize_callback_guard(
+            m->finalize, m->context,
+            finalize_error, sizeof finalize_error);
+        if (finalize_failed && !has_error) {
+            memcpy(first_error, finalize_error, sizeof first_error);
+            has_error = 1;
+        }
+    }
+    if (has_error) {
+        if (m->release && !retain_failed) {
+            char rollback_error[1024] = "";
+            (void)__btrc_mutex_value_callback_guard(
+                m->release, copy, m->access, m->context,
+                NULL, rollback_error, sizeof rollback_error);
+        }
+        free(copy);
+        __btrc_raise_captured(saved_raise, first_error);
+    }
+    return copy;
+}""",
         depends_on=[
-            "__btrc_mutex_val_types",
             "__btrc_mutex_value_callback_guard",
             "__btrc_mutex_finalize_callback_guard",
             "__btrc_arc_topology_begin",
@@ -139,99 +67,58 @@ MUTEX_OPS = {
         required_headers=["string.h"],
     ),
     "__btrc_mutex_val_set": HelperDef(
-        c_source=(
-            "static void __btrc_mutex_val_set(__btrc_mutex_val_t* m, void* val) {\n"
-            '    if (!m || !val) { fprintf(stderr, "btrc: cannot set a null Mutex\\n"); free(val); exit(1); }\n'
-            "    void* topology = m->slot_access\n"
-            "        ? __btrc_arc_topology_begin() : NULL;\n"
-            "    int err = pthread_mutex_lock(&m->lock);\n"
-            '    if (err != 0) { fprintf(stderr, "btrc: mutex lock failed (%d)\\n", err); free(val); exit(1); }\n'
-            "    void* owner = m->owner;\n"
-            '    char first_error[1024] = "";\n'
-            "    int has_error = m->retain\n"
-            "        && __btrc_mutex_value_callback_guard(\n"
-            "            m->retain, val, m->access, m->context, owner,\n"
-            "            first_error, sizeof first_error);\n"
-            "    void* old = NULL;\n"
-            "    if (!has_error) {\n"
-            "        old = m->value;\n"
-            "        m->value = val;\n"
-            "    }\n"
-            "    err = pthread_mutex_unlock(&m->lock);\n"
-            '    if (err != 0) { fprintf(stderr, "btrc: mutex unlock failed (%d)\\n", err); exit(1); }\n'
-            "    if (!has_error && m->release)\n"
-            "        has_error = __btrc_mutex_value_callback_guard(\n"
-            "            m->release, old, m->access, m->context, owner,\n"
-            "            first_error, sizeof first_error);\n"
-            "    (void)(topology && __btrc_arc_topology_leave(topology));\n"
-            "    if (m->finalize) {\n"
-            '        char finalize_error[1024] = "";\n'
-            "        int finalize_failed = __btrc_mutex_finalize_callback_guard(\n"
-            "            m->finalize, m->context,\n"
-            "            finalize_error, sizeof finalize_error);\n"
-            "        if (finalize_failed && !has_error) {\n"
-            "            memcpy(first_error, finalize_error, sizeof first_error);\n"
-            "            has_error = 1;\n"
-            "        }\n"
-            "    }\n"
-            "    __btrc_raise_fn saved_raise = m->raise;\n"
-            "    free(has_error && !old ? val : old);\n"
-            "    if (has_error)\n"
-            "        __btrc_raise_captured(saved_raise, first_error);\n"
-            "}"
-        ),
+        c_source=r"""static void __btrc_mutex_val_set(
+        __btrc_mutex_val_t* m, void* val) {
+    if (!m || !val) {
+        fprintf(stderr, "btrc: cannot set a null Mutex\n");
+        free(val);
+        exit(1);
+    }
+    void* topology = m->slot_access
+        ? __btrc_arc_topology_begin() : NULL;
+    int err = pthread_mutex_lock(&m->lock);
+    if (err != 0) {
+        fprintf(stderr, "btrc: mutex lock failed (%d)\n", err);
+        free(val);
+        exit(1);
+    }
+    char first_error[1024] = "";
+    int has_error = m->retain
+        && __btrc_mutex_value_callback_guard(
+            m->retain, val, m->access, m->context, m,
+            first_error, sizeof first_error);
+    void* old = NULL;
+    if (!has_error) {
+        old = m->value;
+        m->value = val;
+    }
+    err = pthread_mutex_unlock(&m->lock);
+    if (err != 0) {
+        fprintf(stderr, "btrc: mutex unlock failed (%d)\n", err);
+        exit(1);
+    }
+    if (!has_error && m->release)
+        has_error = __btrc_mutex_value_callback_guard(
+            m->release, old, m->access, m->context, m,
+            first_error, sizeof first_error);
+    int should_flush = topology
+        && __btrc_arc_topology_leave(topology);
+    if (should_flush && m->finalize) {
+        char finalize_error[1024] = "";
+        int finalize_failed = __btrc_mutex_finalize_callback_guard(
+            m->finalize, m->context,
+            finalize_error, sizeof finalize_error);
+        if (finalize_failed && !has_error) {
+            memcpy(first_error, finalize_error, sizeof first_error);
+            has_error = 1;
+        }
+    }
+    __btrc_raise_fn saved_raise = m->raise;
+    free(old ? old : val);
+    if (has_error)
+        __btrc_raise_captured(saved_raise, first_error);
+}""",
         depends_on=[
-            "__btrc_mutex_val_types",
-            "__btrc_mutex_value_callback_guard",
-            "__btrc_mutex_finalize_callback_guard",
-            "__btrc_arc_topology_begin",
-            "__btrc_arc_topology_leave",
-            "__btrc_raise_captured",
-        ],
-        required_headers=["string.h"],
-    ),
-    "__btrc_mutex_val_destroy": HelperDef(
-        c_source=(
-            "static void __btrc_mutex_val_destroy(__btrc_mutex_val_t* m) {\n"
-            "    if (!m) return;\n"
-            "    void* topology = m->slot_access\n"
-            "        ? __btrc_arc_topology_begin() : NULL;\n"
-            "    int err = pthread_mutex_lock(&m->lock);\n"
-            '    if (err != 0) { fprintf(stderr, "btrc: mutex lock failed (%d)\\n", err); exit(1); }\n'
-            "    void* old = m->value;\n"
-            "    void* owner = m->owner;\n"
-            "    m->value = NULL;\n"
-            "    m->owner = NULL;\n"
-            "    err = pthread_mutex_unlock(&m->lock);\n"
-            '    if (err != 0) { fprintf(stderr, "btrc: mutex unlock failed (%d)\\n", err); exit(1); }\n'
-            "    err = pthread_mutex_destroy(&m->lock);\n"
-            '    if (err != 0) { fprintf(stderr, "btrc: mutex destroy failed (%d)\\n", err); exit(1); }\n'
-            '    char first_error[1024] = "";\n'
-            "    int has_error = m->release\n"
-            "        && __btrc_mutex_value_callback_guard(\n"
-            "            m->release, old, m->access, m->context,\n"
-            "            owner, first_error, sizeof first_error);\n"
-            "    (void)(topology && __btrc_arc_topology_leave(topology));\n"
-            "    if (m->finalize) {\n"
-            '        char finalize_error[1024] = "";\n'
-            "        int finalize_failed = __btrc_mutex_finalize_callback_guard(\n"
-            "            m->finalize, m->context,\n"
-            "            finalize_error, sizeof finalize_error);\n"
-            "        if (finalize_failed && !has_error) {\n"
-            "            memcpy(first_error, finalize_error, sizeof first_error);\n"
-            "            has_error = 1;\n"
-            "        }\n"
-            "    }\n"
-            "    __btrc_raise_fn saved_raise = m->raise;\n"
-            "    free(old);\n"
-            "    free(m->context);\n"
-            "    free(m);\n"
-            "    if (has_error)\n"
-            "        __btrc_raise_captured(saved_raise, first_error);\n"
-            "}"
-        ),
-        depends_on=[
-            "__btrc_mutex_val_types",
             "__btrc_mutex_value_callback_guard",
             "__btrc_mutex_finalize_callback_guard",
             "__btrc_arc_topology_begin",

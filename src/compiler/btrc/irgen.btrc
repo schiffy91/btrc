@@ -111,7 +111,9 @@ string fnPtrTypedefName(Node t, Analyzed a) {
          * before a later typedef names it in a return or parameter type. */
         int component = 0;
         while (component < t.generic_args.len) {
-            typeToC(t.generic_args.get(component), a);
+            Node? canonical = resolveTypedefType(
+                t.generic_args.get(component), a.typedefTable);
+            if (canonical != null) { typeToC(canonical, a); }
             component = component + 1;
         }
         a.fnPtrTypes.put(mangled, t);
@@ -153,11 +155,13 @@ string typeToC(Node t, Analyzed a) {
     /* int/float/double/char/void/long/short/size_t map to themselves;
      * user classes also map to their own name (pointer applied below). */
     int depth = t.pointer_depth;
-    /* A nullable `?` contributes one pointer level so value types can be boxed
-     * (int? -> int*), but `string` is already char* (a pointer), so a nullable
-     * string must collapse back to char* rather than char** — mirrors the
-     * reference type_to_c fix (gcc 15 rejects char* = char**). */
-    if (t.is_nullable && base == "string") { depth = depth - 1; }
+    /* A nullable `?` contributes one pointer level so value types can be boxed.
+     * Collapse that synthetic level when the resolved representation is
+     * already a reference (string, or a substituted class T with depth > 1),
+     * matching the reference type_to_c contract. */
+    if (t.is_nullable && (c.endsWith("*") || depth > 1)) {
+        depth = depth - 1;
+    }
     int p = 0;
     while (p < depth) { c = c + "*"; p = p + 1; }
     /* Class types are reference types: append one pointer level if the source
@@ -877,7 +881,10 @@ class IRGen {
      * -> the concrete element type) while lowering a monomorphized generic
      * method body; identity otherwise. */
     public Node resolveBodyType(Node? t) {
-        if (self.inGenericMethod) { return resolveGenericType(t, self.activeTypeMap); }
+        if (self.inGenericMethod) {
+            return resolveGenericType(
+                t, self.activeTypeMap, self.analyzed);
+        }
         if (t == null) { return makePrimType("void"); }
         return t;
     }
@@ -1304,8 +1311,9 @@ class IRGen {
         /* Pass the exact layout visitor so a throw can traverse owned fields.
          * Layouts without outgoing managed edges pass NULL. */
         IRNode visitor = irLiteral("NULL");
-        if (clsName != "" && managedClassNeedsVisitor(self, clsName)) {
-            visitor = irVar(cycleVisitorName(clsName));
+        string visitorSymbol = managedVisitorSymbol(self, clsName);
+        if (visitorSymbol != "") {
+            visitor = irVar(visitorSymbol);
         }
         stmts.push(irExprStmt(registerCleanupSlot(self, declaration,
             irVar(destroyFn), visitor, false)));
@@ -1420,6 +1428,8 @@ class IRGen {
         if (self.programHasExceptions) { requireSystemInclude(m, "setjmp.h"); }
         self.emitForwardDecls(prog, m);
         registerGpuKernels(self, prog, m);
+        lowerTypedefDeclarations(prog, m, self.analyzed);
+        self.emitStructDefinitions(prog, m);
         self.emitGenericInstances(m);
         self.emitMethodGenericInstances(m);
         self.emitDeclarations(prog, m);
@@ -1447,15 +1457,25 @@ class IRGen {
             Node typeExpr = self.analyzed.fnPtrTypes.get(name);
             string returnType = "void";
             if (typeExpr.generic_args.len > 0) {
-                returnType = typeToC(
-                    typeExpr.generic_args.get(0), self.analyzed);
+                Node? canonicalReturn = resolveTypedefType(
+                    typeExpr.generic_args.get(0),
+                    self.analyzed.typedefTable);
+                if (canonicalReturn != null) {
+                    returnType = typeToC(
+                        canonicalReturn, self.analyzed);
+                }
             }
             IRFunctionPointerTypedef declaration =
                 IRFunctionPointerTypedef(name, returnType);
             int parameter = 1;
             while (parameter < typeExpr.generic_args.len) {
-                declaration.param_types.push(typeToC(
-                    typeExpr.generic_args.get(parameter), self.analyzed));
+                Node? canonicalParameter = resolveTypedefType(
+                    typeExpr.generic_args.get(parameter),
+                    self.analyzed.typedefTable);
+                if (canonicalParameter != null) {
+                    declaration.param_types.push(typeToC(
+                        canonicalParameter, self.analyzed));
+                }
                 parameter = parameter + 1;
             }
             m.function_pointer_typedefs.push(declaration);
@@ -1467,7 +1487,6 @@ class IRGen {
      * def + method forward decls + init/new/destroy/methods functions; functions
      * lower to a single function. Mirrors _emit_declarations. */
     public void emitDeclarations(Node prog, IRModule m) {
-        lowerTypedefDeclarations(prog, m, self.analyzed);
         Map<string, bool> externallyDefinedGlobals = {};
         int globalDeclarationIndex = 0;
         while (globalDeclarationIndex < prog.declarations.len) {
@@ -1480,13 +1499,6 @@ class IRGen {
                 externallyDefinedGlobals.put(declaration.name, true);
             }
             globalDeclarationIndex = globalDeclarationIndex + 1;
-        }
-        Vector<Node> orderedStructs = semanticOrderedStructDefinitions(
-            prog, self.analyzed.structTable);
-        int structIndex = 0;
-        while (structIndex < orderedStructs.len) {
-            self.emitStructDecl(orderedStructs.get(structIndex), m);
-            structIndex = structIndex + 1;
         }
         int i = 0;
         while (i < prog.declarations.len) {
@@ -1508,7 +1520,8 @@ class IRGen {
                     string fret = typeToC(d.return_type, self.analyzed);
                     if (fret == "") { fret = "void"; }
                     IRFunctionDecl declaration =
-                        IRFunctionDecl(d.name, fret, false);
+                        IRFunctionDecl(sourceFunctionCName(
+                            self.analyzed, d.name), fret, false);
                     int fp = 0;
                     while (fp < d.params.len) {
                         Node pp = d.params.get(fp);
@@ -1541,6 +1554,20 @@ class IRGen {
                 self.emitPreprocessor(d, m);
             }
             i = i + 1;
+        }
+    }
+
+    /* Raw by-value structs must be complete before a monomorphized generic
+     * struct embeds them. Keep their semantic dependency order as a dedicated
+     * type-declaration phase, matching the reference pipeline's _emit_structs
+     * before _emit_generic_collections. */
+    public void emitStructDefinitions(Node prog, IRModule m) {
+        Vector<Node> ordered = semanticOrderedStructDefinitions(
+            prog, self.analyzed.structTable);
+        int index = 0;
+        while (index < ordered.len) {
+            self.emitStructDecl(ordered.get(index), m);
+            index = index + 1;
         }
     }
 
@@ -1797,7 +1824,8 @@ class IRGen {
             Node mem = decl.members.get(fi);
             string storage = instanceStorageName(mem);
             if (storage != "") {
-                Node rt = resolveGenericType(mem.type, typeMap);
+                Node rt = resolveGenericType(
+                    mem.type, typeMap, self.analyzed);
                 sd.fields.push(IRStructField(
                     typeToC(rt, self.analyzed), storage));
             }
@@ -1812,7 +1840,8 @@ class IRGen {
             int p = 0;
             while (p < ctor.params.len) {
                 Node pp = ctor.params.get(p);
-                Node rt = resolveGenericType(pp.type, typeMap);
+                Node rt = resolveGenericType(
+                    pp.type, typeMap, self.analyzed);
                 ctorParams.push(IRParam(typeToC(rt, self.analyzed), pp.name));
                 p = p + 1;
             }
@@ -1847,7 +1876,9 @@ class IRGen {
             if (mem.kind == NK_METHOD_DECL && !mem.is_constructor
                     && mem.name != "__del__"
                     && mem.generic_params.len == 0) {
-                Node rrt = resolveGenericType(mem.return_type, typeMap);
+                Node rrt = resolveGenericType(
+                    mem.return_type, typeMap,
+                    self.analyzed);
                 string retC = typeToC(rrt, self.analyzed);
                 IRFunctionDecl methodDeclaration = IRFunctionDecl(
                     mangled + "_" + mem.name, retC, true);
@@ -1855,7 +1886,8 @@ class IRGen {
                 int k = 0;
                 while (k < mem.params.len) {
                     Node pp = mem.params.get(k);
-                    Node rt = resolveGenericType(pp.type, typeMap);
+                    Node rt = resolveGenericType(
+                        pp.type, typeMap, self.analyzed);
                     methodDeclaration.params.push(IRParam(
                         typeToC(rt, self.analyzed), pp.name));
                     k = k + 1;
@@ -1891,16 +1923,18 @@ class IRGen {
         while (ip < ctorParams.len) { initFn.params.push(ctorParams.get(ip)); ip = ip + 1; }
         Vector<IRNode> ibody = [];
         appendArcHeaderInitialization(mangled, ibody);
+        self.currentReturnCType = "void";
+        self.currentReturnTypeNode = null;
+        self.currentReturnOwned = true;
+        self.resetFuncVarDecls();
+        Map<string, Node> genericCtorVars = genericInitializerVarTypes(
+            self, inst, ctor, typeMap);
+        appendInstanceFieldInitializers(
+            self, decl, genericCtorVars, true, typeMap, ibody);
         Vector<IRNode> ctorBodyStmts = [];
         if (ctor != null && ctor.body_node != null) {
-            self.currentReturnCType = "void";
-            self.currentReturnTypeNode = null;
-            self.currentReturnOwned = true;
-            self.currentReturnTypeNode = null;
-            self.currentReturnOwned = true;
-            self.resetFuncVarDecls();
-            Map<string, Node> vt = self.genericMethodVarTypes(inst, ctor, typeMap);
-            IRNode blk = self.lowerBlock(ctor.body_node, vt);
+            IRNode blk = self.lowerBlock(
+                ctor.body_node, genericCtorVars);
             int b = 0;
             while (b < blk.stmts.len) { ctorBodyStmts.push(blk.stmts.get(b)); b = b + 1; }
         }
@@ -2004,7 +2038,9 @@ class IRGen {
                     && mem.generic_params.len == 0) {
                 IRFunction fn = IRFunction();
                 fn.name = mangled + "_" + mem.name;
-                Node rrt = resolveGenericType(mem.return_type, typeMap);
+                Node rrt = resolveGenericType(
+                    mem.return_type, typeMap,
+                    self.analyzed);
                 string retC = typeToC(rrt, self.analyzed);
                 fn.return_type = retC;
                 fn.is_static = true;
@@ -2012,7 +2048,8 @@ class IRGen {
                 int mp2 = 0;
                 while (mp2 < mem.params.len) {
                     Node pp = mem.params.get(mp2);
-                    Node rt = resolveGenericType(pp.type, typeMap);
+                    Node rt = resolveGenericType(
+                        pp.type, typeMap, self.analyzed);
                     fn.params.push(IRParam(typeToC(rt, self.analyzed), pp.name));
                     mp2 = mp2 + 1;
                 }
@@ -2112,7 +2149,8 @@ class IRGen {
         }
 
         /* Resolved return + params. */
-        Node rrt = resolveGenericType(method.return_type, typeMap);
+        Node rrt = resolveGenericType(
+            method.return_type, typeMap, self.analyzed);
         string retC = typeToC(rrt, self.analyzed);
 
         IRFunctionDecl declaration = IRFunctionDecl(fnName, retC, true);
@@ -2120,7 +2158,8 @@ class IRGen {
         int fp = 0;
         while (fp < method.params.len) {
             Node pp = method.params.get(fp);
-            Node rt = resolveGenericType(pp.type, typeMap);
+            Node rt = resolveGenericType(
+                pp.type, typeMap, self.analyzed);
             declaration.params.push(IRParam(
                 typeToC(rt, self.analyzed), pp.name));
             fp = fp + 1;
@@ -2163,7 +2202,8 @@ class IRGen {
         int pp2 = 0;
         while (pp2 < method.params.len) {
             Node pp = method.params.get(pp2);
-            Node rt = resolveGenericType(pp.type, typeMap);
+            Node rt = resolveGenericType(
+                pp.type, typeMap, self.analyzed);
             fn.params.push(IRParam(typeToC(rt, self.analyzed), pp.name));
             pp2 = pp2 + 1;
         }
@@ -2180,7 +2220,8 @@ class IRGen {
         int vp = 0;
         while (vp < method.params.len) {
             Node pp = method.params.get(vp);
-            vt.put(pp.name, resolveGenericType(pp.type, typeMap));
+            vt.put(pp.name, resolveGenericType(
+                pp.type, typeMap, self.analyzed));
             vp = vp + 1;
         }
 
@@ -2227,7 +2268,8 @@ class IRGen {
         int i = 0;
         while (i < method.params.len) {
             Node p = method.params.get(i);
-            vt.put(p.name, resolveGenericType(p.type, typeMap));
+            vt.put(p.name, resolveGenericType(
+                p.type, typeMap, self.analyzed));
             i = i + 1;
         }
         return vt;
@@ -2254,9 +2296,9 @@ class IRGen {
             Node mem = decl.members.get(i);
             string storage = instanceStorageName(mem);
             if (storage != "") {
-                Node rt = resolveGenericType(mem.type, typeMap);
-                if (mutexPayloadType(self.analyzed, rt) != null
-                        || irManagedType(self, rt)) {
+                Node rt = resolveGenericType(
+                    mem.type, typeMap, self.analyzed);
+                if (irManagedType(self, rt)) {
                     body.push(self.fieldReleaseStmt(storage, rt));
                     emitted = true;
                 }
@@ -2488,61 +2530,16 @@ class IRGen {
         }
         Vector<IRNode> body = [];
         appendArcHeaderInitialization(name, body);
-        /* Field default initializers (own fields only — mirrors Python). */
-        int j = 0;
-        while (j < decl.members.len) {
-            Node mem = decl.members.get(j);
-            if (mem.kind == NK_FIELD_DECL && mem.initializer != null) {
-                Map<string, Node> ctorVars = self.ctorVarTypes(decl, ctor);
-                /* Collection literals: thread the declared field type so the
-                 * mangled collection name matches the field (e.g. `Vector<string>
-                 * = []` lowers to `btrc_Vector_string_new`, not the int-inferred
-                 * fallback). Mirrors _lower_field_init in classes.py. */
-                IRNode v = irLiteral("NULL");
-                if (mem.initializer.kind == NK_LIST_LITERAL) {
-                    v = self.lowerListLiteral(mem.initializer, ctorVars, mem.type);
-                } else if (mem.initializer.kind == NK_MAP_LITERAL) {
-                    v = self.lowerMapLiteral(mem.initializer, ctorVars, mem.type);
-                } else if (mem.initializer.kind == NK_BRACE_INITIALIZER) {
-                    v = self.lowerBraceInit(mem.initializer, ctorVars, mem.type);
-                } else {
-                    v = self.lowerExpr(mem.initializer, ctorVars);
-                }
-                IRNode field = irFieldAccess(
-                    irVar("self"), mem.name, true);
-                bool ownedInitializer =
-                    irContextualExpressionOwnsResult(
-                        self, mem.initializer, mem.type, ctorVars);
-                if (mutexPayloadType(
-                        self.analyzed, mem.type) != null) {
-                    body.push(irExprStmt(replaceMutexField(
-                        self, field, consumeMutexHandle(self, v),
-                        irVar("self"))));
-                } else if (irManagedClassType(self, mem.type)) {
-                    body.push(irExprStmt(irManagedReplaceEdge(
-                        self, field, v, mem.type, irVar("self"),
-                        ownedInitializer)));
-                } else {
-                    body.push(irAssign(field, v));
-                    if (irManagedType(self, mem.type)
-                            && ownedInitializer) {
-                        body.push(irExprStmt(
-                            irManagedAdoptEdge(
-                                self, field, mem.type, irVar("self"))));
-                    } else if (irManagedType(self, mem.type)) {
-                        body.push(irExprStmt(
-                            irManagedRetainEdge(
-                                self, field, mem.type, irVar("self"))));
-                    }
-                }
-            }
-            j = j + 1;
-        }
+        self.currentReturnCType = "void";
+        self.currentReturnTypeNode = null;
+        self.currentReturnOwned = true;
+        self.resetFuncVarDecls();
+        Map<string, Node> ctorVars = self.ctorVarTypes(decl, ctor);
+        Map<string, Node> noTypeMap = {};
+        appendInstanceFieldInitializers(
+            self, decl, ctorVars, false, noTypeMap, body);
         /* Constructor body (user code). */
         if (ctor != null && ctor.body_node != null) {
-            self.currentReturnCType = "void";
-            self.resetFuncVarDecls();
-            Map<string, Node> ctorVars = self.ctorVarTypes(decl, ctor);
             IRNode blk = self.lowerBlock(ctor.body_node, ctorVars);
             int k = 0;
             while (k < blk.stmts.len) { body.push(blk.stmts.get(k)); k = k + 1; }
@@ -2717,14 +2714,10 @@ class IRGen {
         while (i < fields.len) {
             Node fd = fields.get(i);
             Node ft = fd.type;
-            if (mutexPayloadType(self.analyzed, ft) != null) {
+            if (irManagedType(self, ft)) {
                 body.push(self.fieldReleaseStmt(
                     instanceStorageName(fd), ft));
-                any = true;
-            } else if (irManagedType(self, ft)) {
-                body.push(self.fieldReleaseStmt(
-                    instanceStorageName(fd), ft));
-                if (irManagedClassType(self, ft)) { any = true; }
+                if (irManagedArcType(self, ft)) { any = true; }
             }
             i = i + 1;
         }
@@ -2836,13 +2829,7 @@ class IRGen {
     /* Typed field release; the enclosing scope owns the collector flush. */
     public IRNode fieldReleaseStmt(string field, Node typeExpr) {
         IRNode fa = irFieldAccess(irVar("self"), field, true);
-        if (mutexPayloadType(self.analyzed, typeExpr) != null) {
-            Vector<IRNode> mutexStatements = [];
-            mutexStatements.push(irExprStmt(
-                destroyMutexField(self, fa)));
-            return irBlock(mutexStatements);
-        }
-        if (irManagedClassType(self, typeExpr)) {
+        if (irManagedArcType(self, typeExpr)) {
             Vector<IRNode> atomicStatements = [];
             atomicStatements.push(irExprStmt(irManagedReplaceEdge(
                 self, fa, irLiteral("NULL"), typeExpr,
@@ -3129,7 +3116,7 @@ class IRGen {
                     && d.body_node != null && d.name != "main") {
                 string ret = typeToC(d.return_type, self.analyzed);
                 IRFunctionDecl functionDeclaration = IRFunctionDecl(
-                    d.name, ret, false);
+                    sourceFunctionCName(self.analyzed, d.name), ret, false);
                 int parameter = 0;
                 while (parameter < d.params.len) {
                     Node sourceParameter = d.params.get(parameter);
@@ -3208,6 +3195,33 @@ class IRGen {
             }
             i = i + 1;
         }
+        int instanceIndex = 0;
+        while (instanceIndex < self.analyzed.genericInstances.len) {
+            GenInstance instance = self.analyzed.genericInstances.get(
+                instanceIndex);
+            if (self.analyzed.genericClassTable.has(instance.base)) {
+                Node genericDeclaration =
+                    self.analyzed.genericClassTable.get(instance.base);
+                Node concreteInstanceType = makePrimType(instance.base);
+                concreteInstanceType.generic_args = instance.args;
+                Map<string, Node> substitutions = genericTypeMap(
+                    self.analyzed, concreteInstanceType);
+                int memberIndex = 0;
+                while (memberIndex < genericDeclaration.members.len) {
+                    Node genericMember = genericDeclaration.members.get(
+                        memberIndex);
+                    if (genericMember.kind == NK_FIELD_DECL
+                            || genericMember.kind == NK_PROPERTY_DECL) {
+                        self.collectTupleTypes(resolveGenericType(
+                            genericMember.type, substitutions,
+                            self.analyzed),
+                            seen, order, tupleTypes);
+                    }
+                    memberIndex = memberIndex + 1;
+                }
+            }
+            instanceIndex = instanceIndex + 1;
+        }
         int s = 0;
         while (s < order.len) {
             string mangled = order.get(s);
@@ -3266,7 +3280,7 @@ class IRGen {
              * type from the initializer (Python catches this via node_types). */
             if (n.type == null && n.initializer != null) {
                 Map<string, Node> vt = {};
-                Node? it = inferType(n.initializer, self.analyzed, vt);
+                Node? it = self.resolvedExpressionType(n.initializer, vt);
                 self.collectTupleTypes(it, seen, order, tupleTypes);
             }
         }
@@ -3313,7 +3327,7 @@ class IRGen {
     public IRFunction lowerFunction(Node d) {
         self.gpuHost.clear();
         IRFunction fn = IRFunction();
-        fn.name = d.name;
+        fn.name = sourceFunctionCName(self.analyzed, d.name);
         string ret = typeToC(d.return_type, self.analyzed);
         /* main() with void return -> int (matches functions.py). */
         if (d.name == "main" && ret == "void") { ret = "int"; }
@@ -3577,16 +3591,10 @@ class IRGen {
             self.analyzed, ot, fd);
         if (resolvedFieldType == null) { return null; }
         Node ft = resolvedFieldType;
-        if (mutexPayloadType(self.analyzed, ft) != null) {
-            return lowerMutexFieldAssignment(
-                self, node, ot, ft, storage, varTypes);
-        }
         /* Class instances and concrete generic collection instances own ARC
          * slots.  A substituted generic may instead be raw storage (for
          * example Vector<T>.data becomes Item**); classify the resolved shape
          * before generating object-header accesses. */
-        bool ftGeneric = ft.generic_args.len > 0
-            && self.analyzed.isGenericClass(ft.base);
         if (!irManagedType(self, ft)) { return null; }
 
         /* Evaluate receiver and RHS exactly once, then make lowerExpr's final
@@ -3600,26 +3608,16 @@ class IRGen {
         bool receiverOwned = irExpressionOwnsResult(
             self, tgt.obj, varTypes);
 
-        Node? vt = self.resolvedExpressionType(node.value_node, varTypes);
         string valueC = typeToC(ft, self.analyzed);
         IRNode field = irFieldAccess(obj, storage, true);
         if (node.op != "=") {
             return lowerManagedFieldCompoundStore(self, node,
                 objDecl, obj, field, ft, varTypes);
         }
-        IRNode valueExpr = irLiteral("NULL");
-        if (node.value_node.kind == NK_BRACE_INITIALIZER && ftGeneric) {
-            valueExpr = self.lowerBraceInit(node.value_node, varTypes, ft);
-        } else if (node.value_node.kind == NK_MAP_LITERAL && ftGeneric) {
-            valueExpr = self.lowerMapLiteral(node.value_node, varTypes, ft);
-        } else if (node.value_node.kind == NK_LIST_LITERAL && ftGeneric) {
-            valueExpr = self.lowerListLiteral(node.value_node, varTypes, ft);
-        } else {
-            valueExpr = self.lowerExpr(node.value_node, varTypes);
-        }
-        valueExpr = self.upcastClassPointer(ft, vt, valueExpr);
-        bool owned = irContextualExpressionOwnsResult(
+        PreparedValue prepared = prepareTargetValue(
             self, node.value_node, ft, varTypes);
+        IRNode valueExpr = prepared.value;
+        bool owned = prepared.owned;
         string valueName = self.freshTemp("__btrc_field_new");
         IRNode valueDecl = irVarDecl(valueC, valueName, null);
         self.funcVarDecls.push(valueDecl);
@@ -3632,7 +3630,7 @@ class IRGen {
         sequence.push(irBinOp(
             obj, "=", self.lowerExpr(tgt.obj, varTypes)));
         sequence.push(irBinOp(newValue, "=", valueExpr));
-        if (irManagedClassType(self, ft)) {
+        if (irManagedArcType(self, ft)) {
             sequence.push(irManagedReplaceEdge(
                 self, field, newValue, ft, obj, owned));
         } else {
@@ -3719,7 +3717,8 @@ class IRGen {
         if (callee.kind == NK_LAMBDA_EXPR) { return callee.params; }
         if (callee.kind == NK_FIELD_ACCESS_EXPR) {
             Node objN = callee.obj;
-            Node? ot = inferType(objN, self.analyzed, self.callParamVarTypes);
+            Node? ot = self.resolvedExpressionType(
+                objN, self.callParamVarTypes);
             if (ot != null && self.analyzed.isClass(ot.base)) {
                 Node? m = self.analyzed.classMethod(ot.base, callee.field);
                 if (m != null && m.kind == NK_METHOD_DECL) { return m.params; }
@@ -3777,7 +3776,7 @@ class IRGen {
         int idx = 0;
         while (idx < node.args.len) {
             Node arg = node.args.get(idx);
-            Node? at = inferType(arg, self.analyzed, varTypes);
+            Node? at = self.resolvedExpressionType(arg, varTypes);
             if (!irManagedType(self, at)) { idx = idx + 1; continue; }
             bool isKeep = keepSet.has(idx);
             bool isOwning = self.isOwningTempArg(arg);
@@ -3910,19 +3909,11 @@ class IRGen {
             string ct = "int";
             if (declType != null) { ct = typeToC(declType, self.analyzed); }
             IRNode? init = null;
+            bool initializerOwned = false;
+            Node? initializerEffectiveType = null;
             if (node.initializer != null) {
-                /* Collection literals: thread the declared type so the mangled
-                 * collection name matches the declaration (mirrors the analyzer
-                 * stamping node_types from the declared type). */
-                if (node.initializer.kind == NK_LIST_LITERAL) {
-                    init = self.lowerListLiteral(node.initializer, varTypes, declType);
-                } else if (node.initializer.kind == NK_MAP_LITERAL) {
-                    init = self.lowerMapLiteral(node.initializer, varTypes, declType);
-                } else if (node.initializer.kind == NK_BRACE_INITIALIZER) {
-                    init = self.lowerBraceInit(node.initializer, varTypes, declType);
-                } else {
-                    init = self.lowerExpr(node.initializer, varTypes);
-                }
+                init = self.lowerAssignedValueRaw(
+                    node.initializer, declType, varTypes);
                 /* Generic constructor call: Box(42) lowers as a plain call
                  * `Box(42)` (Box isn't a non-generic class); rewrite it to the
                  * mangled `btrc_Box_int_new(42)` using the declared generic args
@@ -3948,25 +3939,17 @@ class IRGen {
                         init = irCall(mangled + "_new", newArgs);
                     }
                 }
-                /* Implicit class->string coercion: `string s = ClassWithToString();`
-                 * wraps the init in `<Class>_toString(...)` (mirrors
-                 * variables._lower_var_decl's coerce_value_to_string). */
                 if (init != null) {
-                    Node? initType = inferType(node.initializer, self.analyzed, varTypes);
-                    init = self.coerceToString(declType, initType, init);
-                }
-                /* Upcast: storing a subclass instance in a base-class variable
-                 * needs an explicit cast — sibling struct pointers are otherwise
-                 * incompatible C (gcc 15 rejects `Error* = KeyError*`). Mirrors
-                 * variables._lower_var_decl's _is_subclass + IRCast branch. */
-                if (init != null && declType != null
-                        && self.analyzed.isClass(declType.base)
-                        && declType.generic_args.len == 0) {
-                    Node? initType2 = inferType(node.initializer, self.analyzed, varTypes);
-                    if (initType2 != null && initType2.base != declType.base
-                            && self.analyzed.isSubclass(initType2.base, declType.base)) {
-                        init = irCast(ct, init);
-                    }
+                    Node? initType = self.resolvedExpressionType(
+                        node.initializer, varTypes);
+                    bool sourceOwned = irContextualExpressionOwnsResult(
+                        self, node.initializer, declType, varTypes);
+                    PreparedValue prepared = prepareLoweredTargetValue(
+                        self, node.initializer, declType, initType,
+                        init, sourceOwned, varTypes);
+                    init = prepared.value;
+                    initializerOwned = prepared.owned;
+                    initializerEffectiveType = prepared.effectiveType;
                 }
             }
             if (init == null && declType != null
@@ -4037,17 +4020,28 @@ class IRGen {
                     self.fnPtrEnvVar.put(node.name, evar);
                 }
             }
+            /* A C-compatible raw pointer can still carry managed provenance,
+             * notably `char* value = __btrc_string_alloc(...)` in the stdlib.
+             * Preserve the prepared initializer's effective domain so lexical
+             * cleanup and return transfer remain exact. */
+            Node? managedSlotType = null;
+            if (declType != null && irManagedType(self, declType)) {
+                managedSlotType = declType;
+            } else if (initializerEffectiveType != null
+                    && irManagedType(self, initializerEffectiveType)) {
+                managedSlotType = initializerEffectiveType;
+            }
             /* Every concrete managed local owns its lexical slot, including an
              * empty declaration assigned later. A borrowed initializer is
              * retained; a source +1 transfers directly. */
-            if (declType != null && irManagedType(self, declType)) {
-                string runtimeType = irManagedRuntimeType(self, declType);
+            if (managedSlotType != null) {
+                string runtimeType = irManagedRuntimeType(
+                    self, managedSlotType);
                 if (node.initializer != null
-                        && !irContextualExpressionOwnsResult(
-                        self, node.initializer, declType, varTypes)) {
+                        && !initializerOwned) {
                     out.push(irExprStmt(
                         irRetainExpression(
-                            self, irVar(node.name), declType)));
+                            self, irVar(node.name), managedSlotType)));
                 }
                 self.registerManagedVar(node.name, runtimeType);
                 self.maybeRegisterCleanup(node.name,
@@ -4076,6 +4070,18 @@ class IRGen {
         }
         if (node.kind == NK_EXPR_STMT) {
             Node e = node.expr;
+            if (e.kind == NK_CALL_EXPR
+                    && e.callee != null
+                    && e.callee.kind == NK_FIELD_ACCESS_EXPR
+                    && e.callee.field == "destroy") {
+                Node? receiverType = self.resolvedExpressionType(
+                    e.callee.obj, varTypes);
+                if (irManagedMutexType(self, receiverType)) {
+                    self.lowerReleaseExpression(
+                        e.callee.obj, varTypes, out);
+                    return;
+                }
+            }
             /* Call/new boundaries consume owned operands internally. If the
              * full expression itself yields +1 and its value is discarded,
              * consume that reference at the end of this full expression. */
@@ -4162,9 +4168,10 @@ class IRGen {
             return;
         }
         if (node.kind == NK_KEEP_STMT) {
-            Node? kt = inferType(node.expr, self.analyzed, varTypes);
+            Node? kt = self.resolvedExpressionType(node.expr, varTypes);
             if (self.inGenericMethod) {
-                kt = resolveGenericType(kt, self.activeTypeMap);
+                kt = resolveGenericType(
+                    kt, self.activeTypeMap, self.analyzed);
             }
             if (irManagedType(self, kt)) {
                 string valueName = self.freshTemp("__btrc_keep_value");
@@ -4225,11 +4232,23 @@ class IRGen {
     /* True when `sourceType` is a class with a no-arg `toString()` returning
      * string (mirrors stringable.has_to_string). */
     public bool sourceHasToString(Node? sourceType) {
-        if (sourceType == null || !self.analyzed.isClass(sourceType.base)) { return false; }
-        Node? ts = self.analyzed.classMethod(sourceType.base, "toString");
+        if (sourceType == null || sourceType.is_array
+                || semanticValueDepth(sourceType, self.analyzed) != 1) {
+            return false;
+        }
+        Node? ts = null;
+        if (self.analyzed.isClass(sourceType.base)) {
+            ts = self.analyzed.classMethod(sourceType.base, "toString");
+        } else if (self.analyzed.isGenericClass(sourceType.base)) {
+            ts = self.analyzed.genericClassMethod(
+                sourceType.base, "toString");
+        } else {
+            return false;
+        }
         if (ts == null || ts.kind != NK_METHOD_DECL) { return false; }
         if (ts.params.len > 0) { return false; }
-        if (ts.return_type == null || ts.return_type.base != "string") { return false; }
+        if (ts.return_type == null
+                || !isSemanticScalarString(ts.return_type)) { return false; }
         return true;
     }
 
@@ -4243,16 +4262,6 @@ class IRGen {
         Vector<IRNode> ca = [];
         ca.push(value);
         return irCall(prefix + "_toString", ca);
-    }
-
-    /* Implicit class->string coercion (mirrors stringable.coerce_value_to_string
-     * / coerce_to_string_param). When `targetType` is `string` and `sourceType`
-     * is a class with a no-arg `toString()` returning string, wrap `value` in
-     * `<Prefix>_toString(value)`. Otherwise return `value` unchanged. */
-    public IRNode coerceToString(Node? targetType, Node? sourceType, IRNode value) {
-        if (targetType == null || targetType.base != "string") { return value; }
-        if (!self.sourceHasToString(sourceType)) { return value; }
-        return self.toStringCall(sourceType, value);
     }
 
     /* Wrap `value` in an explicit (Base*) cast for a Derived->Base upcast.
@@ -4273,17 +4282,10 @@ class IRGen {
         return irCast(typeToC(targetType, self.analyzed), value);
     }
 
-    /* Apply both string coercion and Derived->Base upcasting to one call
-     * argument (mirrors arguments._coerce_arg). */
-    public IRNode coerceArg(Node? paramType, Node? srcType, IRNode value) {
-        IRNode v = self.coerceToString(paramType, srcType, value);
-        return self.upcastClassPointer(paramType, srcType, v);
-    }
-
     /* Upcast Derived->Base generic-constructor args against the RESOLVED generic
      * param types. A generic class's constructor declares its params using the
      * unresolved type params (e.g. `E error`), so the upcast in
-     * orderArgsForParams / coerceArg can't fire (`E` isn't a class). Here the
+     * orderArgsForParams cannot resolve (`E` isn't a class). Here the
      * `instanceType` (e.g. Result<int, Error>) gives the {T->int, E->Error} map,
      * so the 3rd param resolves to `Error` and a `ValueError*` arg gets the
      * `(Error*)` cast it needs (gcc 15 rejects the bare sibling-pointer pass).
@@ -4299,8 +4301,11 @@ class IRGen {
         Map<string, Node> typeMap = genericTypeMap(self.analyzed, instanceType);
         int i = 0;
         while (i < args.len && i < ctor.params.len && i < astArgs.len) {
-            Node resolved = resolveGenericType(ctor.params.get(i).type, typeMap);
-            Node? src = inferType(astArgs.get(i), self.analyzed, varTypes);
+            Node resolved = resolveGenericType(
+                ctor.params.get(i).type, typeMap,
+                self.analyzed);
+            Node? src = self.resolvedExpressionType(
+                astArgs.get(i), varTypes);
             args.set(i, self.upcastClassPointer(resolved, src, args.get(i)));
             i = i + 1;
         }
@@ -4389,10 +4394,13 @@ class IRGen {
 
     /* Lower delete through the shared take-clear destruction boundary. */
     public void lowerDelete(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
-        Node? ot = inferType(node.expr, self.analyzed, varTypes);
+        Node? ot = self.resolvedExpressionType(node.expr, varTypes);
         /* In a generic body the operand type is `T`/`K`/`V`; resolve it so a
          * generic-instance delete dispatches to the right destructor. */
-        if (self.inGenericMethod) { ot = resolveGenericType(ot, self.activeTypeMap); }
+        if (self.inGenericMethod) {
+            ot = resolveGenericType(
+                ot, self.activeTypeMap, self.analyzed);
+        }
         IRNode target = self.lowerExpr(node.expr, varTypes);
         ManagedReleaseSlot deleteSlot = stabilizeManagedReleaseSlot(
             self, node.expr, target, varTypes, out);
@@ -4404,10 +4412,18 @@ class IRGen {
      * typed release atom. Clearing first keeps collector visitors from seeing
      * an ownership edge after its count has already been decremented. */
     public void lowerRelease(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
-        Node? et = inferType(node.expr, self.analyzed, varTypes);
+        self.lowerReleaseExpression(node.expr, varTypes, out);
+    }
+
+    public void lowerReleaseExpression(Node expression,
+            Map<string, Node> varTypes, Vector<IRNode> out) {
+        Node? et = self.resolvedExpressionType(expression, varTypes);
         /* In a monomorphized generic body the operand type is `T`/`K`/`V`; resolve
          * it to the concrete element type so the destructor (or skip) is correct. */
-        if (self.inGenericMethod) { et = resolveGenericType(et, self.activeTypeMap); }
+        if (self.inGenericMethod) {
+            et = resolveGenericType(
+                et, self.activeTypeMap, self.analyzed);
+        }
         /* Primitive values have no ownership unit. Managed strings and class
          * references both dispatch through the shared ownership domain. */
         if (!irManagedType(self, et)) {
@@ -4415,9 +4431,9 @@ class IRGen {
             print("internal compiler error: non-managed release reached IR generation");
             abortGen();
         }
-        IRNode target = self.lowerExpr(node.expr, varTypes);
+        IRNode target = self.lowerExpr(expression, varTypes);
         ManagedReleaseSlot releaseSlot = stabilizeManagedReleaseSlot(
-            self, node.expr, target, varTypes, out);
+            self, expression, target, varTypes, out);
         target = releaseSlot.target;
         string slotName = self.freshTemp("__btrc_release_slot");
         out.push(irVarDecl(typeToC(et, self.analyzed) + " volatile*", slotName,
@@ -4425,7 +4441,7 @@ class IRGen {
         IRNode slot = irDeref(irVar(slotName));
         string runtimeType = irManagedRuntimeType(self, et);
         bool persistentSlot = releaseSlot.persistent;
-        if (persistentSlot && irManagedClassType(self, et)) {
+        if (persistentSlot && irManagedArcType(self, et)) {
             out.push(irExprStmt(irManagedReplaceEdge(
                 self, slot, irLiteral("NULL"), et,
                 releaseSlot.owner, false)));
@@ -4739,8 +4755,8 @@ class IRGen {
                 Node vd = node.init.var_decl;
                 Node? declType = vd.type;
                 if (declType == null) {
-                    declType = inferType(
-                        vd.initializer, self.analyzed, loopTypes);
+                    declType = self.resolvedExpressionType(
+                        vd.initializer, loopTypes);
                 }
                 string ct = typeToC(declType, self.analyzed);
                 IRNode? vinit = null;
@@ -4836,7 +4852,7 @@ class IRGen {
             return;
         }
 
-        Node? iterType = inferType(iterable, self.analyzed, loopTypes);
+        Node? iterType = self.resolvedExpressionType(iterable, loopTypes);
         IRNode irIter = self.lowerExpr(iterable, loopTypes);
 
         /* Iterable protocol: generic class with iterLen + iterGet methods. */
@@ -5060,11 +5076,16 @@ class IRGen {
                 if (owner != "") { owner = owner + "_"; }
                 return irLiteral(owner + node.name);
             }
+            if (self.analyzed.funcTable.has(node.name)
+                    && !varTypes.has(node.name)) {
+                return irVar(sourceFunctionCName(
+                    self.analyzed, node.name));
+            }
             return irVar(node.name);
         }
         if (node.kind == NK_SELF_EXPR) { return irVar("self"); }
         if (node.kind == NK_SUPER_EXPR) {
-            Node? parentType = inferType(node, self.analyzed, varTypes);
+            Node? parentType = self.resolvedExpressionType(node, varTypes);
             if (parentType == null) {
                 print("internal compiler error: unresolved super expression");
                 abortGen();
@@ -5104,8 +5125,8 @@ class IRGen {
                 callableAssignmentAbi = self.callableExpressionAbi(
                     node.value_node, varTypes);
             }
-            Node? callableStorageType = inferType(
-                node.target, self.analyzed, varTypes);
+            Node? callableStorageType = self.resolvedExpressionType(
+                node.target, varTypes);
             bool lexicalCallableTarget = node.target != null
                 && node.target.kind == NK_IDENTIFIER
                 && self.callableIdentifierIsLexicalLocal(
@@ -5131,8 +5152,8 @@ class IRGen {
             IRNode? ownedTarget = lowerOwnedAssignment(
                 self, node, varTypes);
             if (ownedTarget != null) { return ownedTarget; }
-            Node? closureTargetType = inferType(
-                node.target, self.analyzed, varTypes);
+            Node? closureTargetType = self.resolvedExpressionType(
+                node.target, varTypes);
             if (self.callableValueEscapes(
                     closureTargetType, node.value_node, varTypes)) {
                 self.rejectClosureEscape(node);
@@ -5176,7 +5197,8 @@ class IRGen {
                     && node.target.kind == NK_INDEX_EXPR
                     && !self.inGenericMethod) {
                 Node itgt = node.target;
-                Node? iott = inferType(itgt.obj, self.analyzed, varTypes);
+                Node? iott = self.resolvedExpressionType(
+                    itgt.obj, varTypes);
                 /* Only a collection VALUE (pointer_depth 0) routes through _set;
                  * a raw `T*`/`T**` pointer field (e.g. `self.data` inside a
                  * generic collection method, resolved to `Vector<Obj>*`) is a
@@ -5204,7 +5226,8 @@ class IRGen {
                     && (node.value_node.kind == NK_BRACE_INITIALIZER
                         || node.value_node.kind == NK_MAP_LITERAL
                         || node.value_node.kind == NK_LIST_LITERAL)) {
-                Node? tt = inferType(node.target, self.analyzed, varTypes);
+                Node? tt = self.resolvedExpressionType(
+                    node.target, varTypes);
                 if (tt != null && tt.generic_args.len > 0
                         && self.analyzed.isGenericClass(tt.base)) {
                     IRNode tgt2 = self.lowerExpr(node.target, varTypes);
@@ -5238,8 +5261,10 @@ class IRGen {
              * incompatible C (gcc 15 rejects `Animal* = Dog*`). Mirrors
              * fields._lower_assign's upcast_class_pointer (the `=` branch). */
             if (node.op == "=") {
-                Node? tType = inferType(node.target, self.analyzed, varTypes);
-                Node? vType = inferType(node.value_node, self.analyzed, varTypes);
+                Node? tType = self.resolvedExpressionType(
+                    node.target, varTypes);
+                Node? vType = self.resolvedExpressionType(
+                    node.value_node, varTypes);
                 if (tType != null) {
                     value = self.lowerAssignedValue(
                         node.value_node, tType, varTypes);
@@ -5541,8 +5566,10 @@ class IRGen {
             int b = 0;
             while (b < blk.stmts.len) { body.push(blk.stmts.get(b)); b = b + 1; }
         } else if (lb != null && lb.kind == NK_LAMBDA_EXPR_BODY && lb.expression != null) {
-            IRNode rexpr = self.lowerExpr(lb.expression, bodyVars);
-            body.push(irReturn(rexpr));
+            Node returnNode = Node();
+            returnNode.kind = NK_RETURN_STMT;
+            returnNode.value_node = lb.expression;
+            lowerOwnedReturn(self, returnNode, bodyVars, body);
         }
 
         self.exitIsolatedScope(snap);
@@ -6023,10 +6050,10 @@ class IRGen {
             return irCall("__btrc_mutex_val_set", sargs);
         }
         if (method == "destroy") {
-            self.useHelper("__btrc_mutex_val_destroy");
-            Vector<IRNode> dargs = [];
-            dargs.push(consumeMutexHandle(self, obj));
-            return irCall("__btrc_mutex_val_destroy", dargs);
+            fprintf(stderr,
+                "error: Mutex.destroy() must be a standalone expression statement\n");
+            abortGen();
+            return irLiteral("0");
         }
         /* Unknown Mutex method: fall back to __btrc_mutex_val_<method>(obj, ...). */
         Vector<IRNode> fargs = [];
@@ -6055,7 +6082,8 @@ class IRGen {
             nargs.push(irLiteral("NULL"));
             return irCall("__btrc_mutex_val_create", nargs);
         }
-        Node? argType = inferType(node.args.get(0), self.analyzed, varTypes);
+        Node? argType = self.resolvedExpressionType(
+            node.args.get(0), varTypes);
         if (node.kind == NK_NEW_EXPR && node.type.generic_args.len > 0) {
             argType = node.type.generic_args.get(0);
         }
@@ -6106,8 +6134,14 @@ class IRGen {
         return irCall("__btrc_mutex_val_create", cargs);
     }
 
-    public IRNode lowerAssignedValue(Node valueNode, Node targetType,
+    public IRNode lowerAssignedValueRaw(Node valueNode, Node? targetType,
             Map<string, Node> varTypes) {
+        if (self.owningTempOverrides.len > 0) {
+            string key = astNodeKey(valueNode);
+            if (self.owningTempOverrides.has(key)) {
+                return self.owningTempOverrides.get(key);
+            }
+        }
         if (valueNode.kind == NK_LIST_LITERAL) {
             return self.lowerListLiteral(valueNode, varTypes, targetType);
         }
@@ -6117,7 +6151,32 @@ class IRGen {
         if (valueNode.kind == NK_BRACE_INITIALIZER) {
             return self.lowerBraceInit(valueNode, varTypes, targetType);
         }
+        if (valueNode.kind == NK_TUPLE_LITERAL && targetType != null) {
+            Node concreteTarget = self.resolveBodyType(targetType);
+            if (concreteTarget.base == "Tuple") {
+                Vector<string> fields = [];
+                Vector<IRNode> values = [];
+                int index = 0;
+                while (index < valueNode.elements.len
+                        && index < concreteTarget.generic_args.len) {
+                    fields.push("_" + Strings.fromInt(index));
+                    values.push(self.lowerAssignedValue(
+                        valueNode.elements.get(index),
+                        concreteTarget.generic_args.get(index), varTypes));
+                    index = index + 1;
+                }
+                return irCompoundLiteral(
+                    typeToC(concreteTarget, self.analyzed),
+                    fields, values);
+            }
+        }
         return self.lowerExpr(valueNode, varTypes);
+    }
+
+    public IRNode lowerAssignedValue(Node valueNode, Node? targetType,
+            Map<string, Node> varTypes) {
+        return prepareTargetValue(
+            self, valueNode, targetType, varTypes).value;
     }
 
     public IRNode lowerDirectCompound(string compoundOp,
@@ -6237,7 +6296,7 @@ class IRGen {
                     self.analyzed, receiverType);
                 string setter = prefix + "_set_" + target.field;
                 if (node.op == "=") {
-                    IRNode value = self.lowerAssignedValue(
+                    IRNode value = self.lowerAssignedValueRaw(
                         node.value_node, valueType, varTypes);
                     Node? sourceType = self.resolvedExpressionType(
                         node.value_node, varTypes);
@@ -6301,6 +6360,14 @@ class IRGen {
                 }
                 Node? indexType = self.resolvedExpressionType(
                     target.index, varTypes);
+                Node? setterForIndex = semanticIndexedMethod(
+                    receiverType, "set", self.analyzed);
+                if (semanticValidIndexedSetter(setterForIndex)) {
+                    Node concreteSetterForIndex = setterForIndex;
+                    indexType = semanticResolvedIndexedType(
+                        concreteSetterForIndex.params.get(0).type,
+                        receiverType, self.analyzed);
+                }
                 if (valueType == null || indexType == null) {
                     self.typedOperatorFail(
                         "cannot resolve collection assignment target type");
@@ -6327,15 +6394,20 @@ class IRGen {
                 Vector<IRNode> sequence = [];
                 sequence.push(irBinOp(
                     receiver, "=", self.lowerExpr(target.obj, varTypes)));
-                sequence.push(irBinOp(
-                    index, "=", self.lowerExpr(target.index, varTypes)));
+                IRNode indexValue = self.lowerExpr(
+                    target.index, varTypes);
+                Node? sourceIndexType = self.resolvedExpressionType(
+                    target.index, varTypes);
+                indexValue = self.upcastClassPointer(
+                    indexType, sourceIndexType, indexValue);
+                sequence.push(irBinOp(index, "=", indexValue));
                 string prefix = receiverType.base;
                 if (self.analyzed.isGenericClass(receiverType.base)) {
                     prefix = mangleGenericType(
                         receiverType.base, receiverType.generic_args);
                 }
                 if (node.op == "=") {
-                    IRNode value = self.lowerAssignedValue(
+                    IRNode value = self.lowerAssignedValueRaw(
                         node.value_node, valueType, varTypes);
                     Node? sourceType = self.resolvedExpressionType(
                         node.value_node, varTypes);
@@ -6537,9 +6609,13 @@ class IRGen {
             return gpuContextualExprType(
                 expression, self.analyzed, varTypes);
         }
-        Node? result = inferType(expression, self.analyzed, varTypes);
+        Node? result = inferSpecializationType(
+            expression, self.analyzed, varTypes);
         if (result != null && self.inGenericMethod) {
-            result = resolveGenericType(result, self.activeTypeMap);
+            result = resolveGenericType(
+                result, self.activeTypeMap, self.analyzed);
+            result = resolveOuterTypedefType(
+                result, self.analyzed.typedefTable);
         }
         return result;
     }
@@ -6870,7 +6946,8 @@ class IRGen {
         /* Operator overloading: -obj -> ClassName___neg__(obj) for a class with
          * a __neg__ method. */
         if (op == "-" && node.prefix) {
-            Node? ot = inferType(node.operand, self.analyzed, varTypes);
+            Node? ot = self.resolvedExpressionType(
+                node.operand, varTypes);
             if (!self.inGenericMethod && ot != null && self.analyzed.isClass(ot.base)) {
                 Node? mm = self.analyzed.classMethod(ot.base, "__neg__");
                 if (mm != null && mm.kind == NK_METHOD_DECL) {
@@ -6919,7 +6996,8 @@ class IRGen {
                 concreteExpected.base, concreteExpected.generic_args);
             elementExpected = concreteExpected.generic_args.get(0);
         } else if (node.elements.len > 0) {
-            Node? et = inferType(node.elements.get(0), self.analyzed, varTypes);
+            Node? et = self.resolvedExpressionType(
+                node.elements.get(0), varTypes);
             if (et != null) {
                 Node vt = makePrimType("Vector");
                 Vector<Node> ga = [];
@@ -6936,7 +7014,10 @@ class IRGen {
         string tmp = self.freshTemp("__list");
         Vector<IRNode> declarations = [];
         Vector<IRNode> newArgs = [];
-        declarations.push(irVarDecl(mangled + "*", tmp, null));
+        IRNode declaration = irVarDecl(
+            mangled + "*", tmp, irLiteral("NULL"));
+        declarations.push(declaration);
+        self.funcVarDecls.push(declaration);
         Vector<IRNode> sequence = [];
         sequence.push(irBinOp(
             irVar(tmp), "=", irCall(mangled + "_new", newArgs)));
@@ -6955,8 +7036,8 @@ class IRGen {
                 operands, expectedTypes, varTypes));
             i = i + 1;
         }
-        sequence.push(irVar(tmp));
-        return irStmtExpr(declarations, irCommaExpr(sequence));
+        return finishOwnedConstruction(
+            self, declaration, mangled, declarations, sequence);
     }
 
     /* Lower a tuple literal `(a, b, ...)` to a C compound literal
@@ -6968,7 +7049,8 @@ class IRGen {
         Vector<Node> elemTypes = [];
         int i = 0;
         while (i < node.elements.len) {
-            Node? et = inferType(node.elements.get(i), self.analyzed, varTypes);
+            Node? et = self.resolvedExpressionType(
+                node.elements.get(i), varTypes);
             if (et == null) {
                 Node fallback = Node();
                 fallback.kind = NK_TYPE_EXPR;
@@ -7014,8 +7096,10 @@ class IRGen {
             valueExpected = concreteExpected.generic_args.get(1);
         } else if (node.entries.len > 0) {
             Node ent0 = node.entries.get(0);
-            Node? kt = inferType(ent0.key, self.analyzed, varTypes);
-            Node? vt = inferType(ent0.value_node, self.analyzed, varTypes);
+            Node? kt = self.resolvedExpressionType(
+                ent0.key, varTypes);
+            Node? vt = self.resolvedExpressionType(
+                ent0.value_node, varTypes);
             if (kt != null && vt != null) {
                 Node mt = makePrimType("Map");
                 Vector<Node> ga = [];
@@ -7037,7 +7121,10 @@ class IRGen {
         string tmp = self.freshTemp("__map");
         Vector<IRNode> declarations = [];
         Vector<IRNode> newArgs = [];
-        declarations.push(irVarDecl(mangled + "*", tmp, null));
+        IRNode declaration = irVarDecl(
+            mangled + "*", tmp, irLiteral("NULL"));
+        declarations.push(declaration);
+        self.funcVarDecls.push(declaration);
         Vector<IRNode> sequence = [];
         sequence.push(irBinOp(
             irVar(tmp), "=", irCall(mangled + "_new", newArgs)));
@@ -7059,8 +7146,8 @@ class IRGen {
                 operands, expectedTypes, varTypes));
             i = i + 1;
         }
-        sequence.push(irVar(tmp));
-        return irStmtExpr(declarations, irCommaExpr(sequence));
+        return finishOwnedConstruction(
+            self, declaration, mangled, declarations, sequence);
     }
 
     /* Lower a brace initializer (mirrors expressions.lower_expr BraceInitializer):
@@ -7068,10 +7155,27 @@ class IRGen {
      * empty {} otherwise -> NULL; non-empty -> {e1, e2, ...} raw expr. */
     public IRNode lowerBraceInit(Node node, Map<string, Node> varTypes, Node? expected) {
         if (expected != null && expected.pointer_depth == 0) {
-            Node aggregateType = expected;
+            Node aggregateType = self.resolveBodyType(expected);
             Node? resolved = resolveTypedefType(
-                expected, self.analyzed.typedefTable);
+                aggregateType, self.analyzed.typedefTable);
             if (resolved != null) { aggregateType = resolved; }
+            if (aggregateType.base == "Tuple") {
+                Vector<string> tupleFields = [];
+                Vector<IRNode> tupleValues = [];
+                int tupleIndex = 0;
+                while (tupleIndex < node.elements.len
+                        && tupleIndex < aggregateType.generic_args.len) {
+                    tupleFields.push("_" + Strings.fromInt(tupleIndex));
+                    tupleValues.push(self.lowerAssignedValue(
+                        node.elements.get(tupleIndex),
+                        aggregateType.generic_args.get(tupleIndex),
+                        varTypes));
+                    tupleIndex = tupleIndex + 1;
+                }
+                return irCompoundLiteral(
+                    typeToC(aggregateType, self.analyzed),
+                    tupleFields, tupleValues);
+            }
             string structName = semanticStructTypeName(
                 aggregateType, self.analyzed);
             if (structName != ""
@@ -7111,27 +7215,15 @@ class IRGen {
         return irInitializerList(elements);
     }
 
-    /* Coerce a single ordered arg into its parameter's string type when the
-     * source AST node is a class with toString() (mirrors stringable.
-     * coerce_to_string_param). `srcNode` is the source AST arg (a written arg or
-     * a param default), used to infer the value's type. */
-    public IRNode coerceArgToParam(Node param, Node? srcNode, IRNode value,
-            Map<string, Node> varTypes) {
-        if (srcNode == null) { return value; }
-        Node? srcType = inferType(srcNode, self.analyzed, varTypes);
-        return self.coerceToString(param.type, srcType, value);
-    }
-
     /* Return IR args in parameter order, filling omitted defaults (mirrors
      * arguments.order_args_for_params). `params` are Param Nodes (with .name /
      * .default_); `irArgs` are the already-lowered call args in source order;
      * `argNames` are the written keyword names ("" for positional). Positional-
      * only calls keep order and append trailing defaults; named calls expand to
      * the full declared parameter list and may skip optional middle params.
-     * Applies the reference's coerce_to_string_param step per slot: when a
-     * parameter's type is `string` and the supplying arg (written or default)
-     * is a class with a no-arg toString()->string, the arg is wrapped in
-     * <Class>_toString(...) (mirrors arguments.order_args_for_params). */
+     * Target conversions and ownership are prepared in source order by the
+     * surrounding call boundary; this routine only performs pure positional
+     * reordering and default-slot selection. */
     public Vector<IRNode> orderArgsForParams(Vector<Node> params,
             Vector<string> argNames, Vector<IRNode> irArgs,
             Vector<Node> astArgs, Map<string, Node> varTypes) {
@@ -7162,11 +7254,13 @@ class IRGen {
                     if (sourceNode.kind == NK_BRACE_INITIALIZER
                             || sourceNode.kind == NK_LIST_LITERAL
                             || sourceNode.kind == NK_MAP_LITERAL) {
-                        av = self.lowerAssignedValue(
+                        av = self.lowerAssignedValueRaw(
                             sourceNode, params.get(k).type, varTypes);
                     }
-                    Node? st = inferType(astArgs.get(k), self.analyzed, varTypes);
-                    av = self.coerceArg(params.get(k).type, st, av);
+                    Node? st = self.resolvedExpressionType(
+                        astArgs.get(k), varTypes);
+                    av = self.upcastClassPointer(
+                        params.get(k).type, st, av);
                 }
                 result.push(av);
                 k = k + 1;
@@ -7175,10 +7269,12 @@ class IRGen {
             while (idx < params.len) {
                 Node pp = params.get(idx);
                 if (pp.default_ != null) {
-                    IRNode dv = self.lowerAssignedValue(
+                    IRNode dv = self.lowerAssignedValueRaw(
                         pp.default_, pp.type, varTypes);
-                    Node? dt = inferType(pp.default_, self.analyzed, varTypes);
-                    result.push(self.coerceArg(pp.type, dt, dv));
+                    Node? dt = self.resolvedExpressionType(
+                        pp.default_, varTypes);
+                    result.push(self.upcastClassPointer(
+                        pp.type, dt, dv));
                 } else {
                     result.push(irLiteral("0"));
                 }
@@ -7227,19 +7323,21 @@ class IRGen {
                     if (sourceNode.kind == NK_BRACE_INITIALIZER
                             || sourceNode.kind == NK_LIST_LITERAL
                             || sourceNode.kind == NK_MAP_LITERAL) {
-                        av = self.lowerAssignedValue(
+                        av = self.lowerAssignedValueRaw(
                             sourceNode, pp.type, varTypes);
                     }
-                    Node? st = inferType(astArgs.get(src), self.analyzed, varTypes);
-                    av = self.coerceArg(pp.type, st, av);
+                    Node? st = self.resolvedExpressionType(
+                        astArgs.get(src), varTypes);
+                    av = self.upcastClassPointer(pp.type, st, av);
                 }
                 out.push(av);
             } else {
                 if (pp.default_ != null) {
-                    IRNode dv = self.lowerAssignedValue(
+                    IRNode dv = self.lowerAssignedValueRaw(
                         pp.default_, pp.type, varTypes);
-                    Node? dt = inferType(pp.default_, self.analyzed, varTypes);
-                    out.push(self.coerceArg(pp.type, dt, dv));
+                    Node? dt = self.resolvedExpressionType(
+                        pp.default_, varTypes);
+                    out.push(self.upcastClassPointer(pp.type, dt, dv));
                 } else {
                     out.push(irLiteral("0"));
                 }
@@ -7394,13 +7492,16 @@ class IRGen {
                     }
                     return irSizeofType("void");
                 }
-                /* len(s): strlen on a string arg, else x->len (collection). */
+                /* Semantic string length is nullable-safe and centralized in
+                 * the checked runtime helper; collection length is a field. */
                 if (name == "len" && node.args.len > 0) {
-                    Node? at = inferType(node.args.get(0), self.analyzed, varTypes);
+                    Node? at = self.resolvedExpressionType(
+                        node.args.get(0), varTypes);
                     if (isStringType(at)) {
+                        self.useHelper("__btrc_string_length");
                         Vector<IRNode> la = [];
                         la.push(args.get(0));
-                        return irCast("int", irCall("strlen", la));
+                        return irCall("__btrc_string_length", la);
                     }
                     return irFieldAccess(args.get(0), "len", true);
                 }
@@ -7424,7 +7525,8 @@ class IRGen {
                         fnDecl.params, node.arg_names, args, node.args, varTypes);
                 }
             }
-            return irCall(name, args);
+            return irCall(sourceFunctionCName(
+                self.analyzed, name), args);
         }
         if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR) {
             return self.lowerMethodCall(node, varTypes);
@@ -7497,8 +7599,8 @@ class IRGen {
                 Node parameter = params.get(paramIndex);
                 Node? expected = resolveTypedefType(
                     parameter.type, self.analyzed.typedefTable);
-                Node? actual = inferType(
-                    call.args.get(i), self.analyzed, varTypes);
+                Node? actual = self.resolvedExpressionType(
+                    call.args.get(i), varTypes);
                 actual = resolveTypedefType(
                     actual, self.analyzed.typedefTable);
                 if (expected != null && expected.base == "__fn_ptr"
@@ -7619,8 +7721,8 @@ class IRGen {
         int argumentIndex = 0;
         while (argumentIndex < node.args.len) {
             Node argument = node.args.get(argumentIndex);
-            Node? argumentType = inferType(
-                argument, self.analyzed, varTypes);
+            Node? argumentType = self.resolvedExpressionType(
+                argument, varTypes);
             if (argumentType != null) {
                 Node resolvedArgumentType = self.resolveBodyType(argumentType);
                 bool managed = self.analyzed.isClass(resolvedArgumentType.base)
@@ -7750,7 +7852,7 @@ class IRGen {
         string method = fa.field;
         Node objNode = fa.obj;
         Node? callableType = directFunctionPointerType(
-            inferType(fa, self.analyzed, varTypes), self.analyzed);
+            self.resolvedExpressionType(fa, varTypes), self.analyzed);
         if (callableType != null) {
             bool wasOptional = fa.optional;
             fa.optional = false;
@@ -7779,7 +7881,7 @@ class IRGen {
             return irCall(objNode.name + "_" + method, sargs);
         }
         /* Instance method call: dispatch on the object's class. */
-        Node? ot = inferType(objNode, self.analyzed, varTypes);
+        Node? ot = self.resolvedExpressionType(objNode, varTypes);
         /* Builtin string instance methods (mirrors methods.lower_method_call's
          * is_string_type branches). Receiver lowered + args lowered first so the
          * fresh-temp counter advances identically. */
@@ -7872,8 +7974,10 @@ class IRGen {
                         Node gpt = gm.params.get(ua).type;
                         if (gpt != null && gtm.has(gpt.base)
                                 && gpt.generic_args.len == 0) {
-                            Node resolved = resolveGenericType(gpt, gtm);
-                            Node? gst = inferType(node.args.get(ua), self.analyzed, varTypes);
+                            Node resolved = resolveGenericType(
+                                gpt, gtm, self.analyzed);
+                            Node? gst = self.resolvedExpressionType(
+                                node.args.get(ua), varTypes);
                             gmargs.set(ua, self.upcastClassPointer(resolved, gst, gmargs.get(ua)));
                         }
                         ua = ua + 1;
@@ -8029,7 +8133,10 @@ class IRGen {
          * unresolved `btrc_ListNode_T_new`. Mirrors user_emitter resolving the
          * new-expr type via _resolve before mangling. */
         Node newType = node.type;
-        if (self.inGenericMethod) { newType = resolveGenericType(newType, self.activeTypeMap); }
+        if (self.inGenericMethod) {
+            newType = resolveGenericType(
+                newType, self.activeTypeMap, self.analyzed);
+        }
         string baseName = node.type.base;
         string typeName = newType.base;
         if (newType.generic_args.len > 0 && self.analyzed.isGenericClass(typeName)) {
@@ -8197,6 +8304,8 @@ class IRGen {
     public IRNode lowerFString(Node node, Map<string, Node> varTypes) {
         string tmp = self.freshTemp("__fstr");
         string fmt = "";
+        OwnershipBoundary interpolationBoundary = OwnershipBoundary();
+        bool hasInterpolationBoundary = false;
         Vector<IRNode> argDecls = [];
         Vector<IRNode> argAssignments = [];
         Vector<IRNode> args = [];
@@ -8206,6 +8315,39 @@ class IRGen {
             if (part.kind == NK_F_STRING_TEXT) {
                 fmt = fmt + replacePercent(part.text);
             } else if (part.kind == NK_F_STRING_EXPR) {
+                Node interpolation = part.expression;
+                Node? sourceType = self.resolvedExpressionType(
+                    interpolation, varTypes);
+                Node? targetType = sourceType;
+                bool converts = requiresTargetStringConversion(
+                    self, makePrimType("string"), sourceType);
+                if (converts) { targetType = makePrimType("string"); }
+                bool owns = irContextualUnconsumedOwnedResult(
+                    self, interpolation, targetType, varTypes);
+                bool laterEffect = false;
+                int laterPartIndex = i + 1;
+                while (laterPartIndex < node.parts.len) {
+                    Node laterPart = node.parts.get(laterPartIndex);
+                    if (laterPart.kind == NK_F_STRING_EXPR
+                            && ownershipExpressionHasEffect(
+                                self, laterPart.expression, varTypes)) {
+                        laterEffect = true;
+                    }
+                    laterPartIndex = laterPartIndex + 1;
+                }
+                bool pinBorrowed = laterEffect && !owns && !converts
+                    && irManagedType(self, sourceType);
+                if (owns || converts || pinBorrowed) {
+                    PreparedValue prepared = prepareCallTargetValue(
+                        self, interpolation, targetType, varTypes);
+                    ownershipRequireType(
+                        prepared.effectiveType, interpolation);
+                    Node effectiveType = prepared.effectiveType;
+                    interpolationBoundary.addLoweredOperand(
+                        self, interpolation, effectiveType,
+                        prepared.value, prepared.owned, pinBorrowed);
+                    hasInterpolationBoundary = true;
+                }
                 string spec = self.lowerFStringInterp(
                     part, tmp, args.len, argDecls, argAssignments, args, varTypes);
                 fmt = fmt + spec;
@@ -8216,7 +8358,6 @@ class IRGen {
         if (args.len == 0) {
             return irLiteral("\"" + fmt + "\"");
         }
-        self.useHelper("__btrc_str_track");
         self.useHelper("__btrc_string_alloc");
         string lenVar = tmp + "_len";
         string bufVar = tmp + "_buf";
@@ -8228,15 +8369,12 @@ class IRGen {
         measureArgs.push(fmtLit);
         int a = 0;
         while (a < args.len) { measureArgs.push(args.get(a)); a = a + 1; }
-        /* char* __buf = __btrc_str_track(__btrc_string_alloc(__len)); */
+        /* __btrc_string_alloc already returns an adopted managed string. */
         IRNode lenPlus1 = irBinOp(
             irCast("size_t", irVar(lenVar)), "+", irLiteral("1"));
         Vector<IRNode> allocArgs = [];
         allocArgs.push(irVar(lenVar));
         IRNode allocated = irCall("__btrc_string_alloc", allocArgs);
-        Vector<IRNode> trackArgs = [];
-        trackArgs.push(allocated);
-        IRNode trackCall = irCall("__btrc_str_track", trackArgs);
         /* snprintf(__buf, __len + 1, "fmt", args...); */
         Vector<IRNode> writeArgs = [];
         writeArgs.push(irVar(bufVar));
@@ -8264,10 +8402,16 @@ class IRGen {
             si = si + 1;
         }
         sequence.push(irBinOp(irVar(lenVar), "=", irCall("snprintf", measureArgs)));
-        sequence.push(irBinOp(irVar(bufVar), "=", trackCall));
+        sequence.push(irBinOp(irVar(bufVar), "=", allocated));
         sequence.push(irCall("snprintf", writeArgs));
         sequence.push(irVar(bufVar));
-        return irStmtExpr(declarations, irCommaExpr(sequence));
+        IRNode result = irStmtExpr(
+            declarations, irCommaExpr(sequence));
+        if (!hasInterpolationBoundary) { return result; }
+        interpolationBoundary.resultOwned = true;
+        interpolationBoundary.restore(self);
+        return interpolationBoundary.finish(
+            self, result, makePrimType("string"), false);
     }
 
     /* Lower one f-string interpolation. Appends an arg-decl (evaluated once) and
@@ -8278,19 +8422,17 @@ class IRGen {
             Vector<IRNode> args, Map<string, Node> varTypes) {
         Node ex = part.expression;
         IRNode irValue = self.lowerExpr(ex, varTypes);
-        Node? argType = inferType(ex, self.analyzed, varTypes);
-        string fmt = formatSpec(argType);
+        Node? argType = self.resolvedExpressionType(ex, varTypes);
+        Node? effectiveType = argType;
+        string fmt = printfFormatSpec(self, argType);
         string cType = "int";
         if (argType != null) { cType = typeToC(argType, self.analyzed); }
 
-        /* Implicit class->string coercion: interpolating a class value with a
-         * no-arg toString() formats as `%s` over `<Class>_toString(value)`
-         * (mirrors fstrings._lower_interpolation's has_to_string branch). */
-        IRNode coercedInterp = self.coerceToString(makePrimType("string"), argType, irValue);
-        if (coercedInterp != irValue) {
-            irValue = coercedInterp;
+        if (requiresTargetStringConversion(
+                self, makePrimType("string"), argType)) {
             fmt = "%s";
             cType = "char*";
+            effectiveType = makePrimType("string");
         }
 
         /* Untracked type: force %s for string-producing expressions (mirrors
@@ -8310,19 +8452,14 @@ class IRGen {
             if (fmt == "%s") { cType = "char*"; } else { cType = "int"; }
         }
 
-        bool isBool = argType != null && argType.base == "bool";
-        if (isBool) { cType = "bool"; fmt = "%s"; }
-
         /* Hoist the value into a temp so it evaluates exactly once. */
         string argVar = tmp + "_arg" + Strings.fromInt(index);
         argDecls.push(irVarDecl(cType, argVar, null));
         argAssignments.push(irBinOp(irVar(argVar), "=", irValue));
-        IRNode irArg = irVar(argVar);
-        if (isBool) {
-            irArg = irTernary(irArg, irLiteral("\"true\""), irLiteral("\"false\""));
-        }
-        args.push(irArg);
-        return fmt;
+        PrintfArg adapted = adaptPrintfArg(
+            self, irVar(argVar), effectiveType, fmt);
+        args.push(adapted.value);
+        return adapted.formatSpec;
     }
 
     /* print(...) -> printf with format string (matches calls.py _lower_print). */
@@ -8338,8 +8475,14 @@ class IRGen {
         while (i < node.args.len) {
             Node arg = node.args.get(i);
             IRNode irArg = self.lowerExpr(arg, varTypes);
-            Node? at = inferType(arg, self.analyzed, varTypes);
-            string spec = formatSpec(at);
+            Node? at = self.resolvedExpressionType(arg, varTypes);
+            Node? boundaryType = at;
+            string spec = printfFormatSpec(self, at);
+            if (requiresTargetStringConversion(
+                    self, makePrimType("string"), at)) {
+                spec = "%s";
+                boundaryType = makePrimType("string");
+            }
             /* Force %s for known string-producing exprs when type is untracked
              * (mirrors _lower_print's arg_type is None branch). */
             if (at == null) {
@@ -8362,14 +8505,11 @@ class IRGen {
                     }
                 }
             }
-            /* bool -> ternary: val ? "true" : "false" */
-            if (at != null && at.base == "bool") {
-                irArg = irTernary(irArg, irLiteral("\"true\""), irLiteral("\"false\""));
-                spec = "%s";
-            }
+            PrintfArg adapted = adaptPrintfArg(
+                self, irArg, boundaryType, spec);
             if (i > 0) { fmt = fmt + " "; }
-            fmt = fmt + spec;
-            irArgs.push(irArg);
+            fmt = fmt + adapted.formatSpec;
+            irArgs.push(adapted.value);
             i = i + 1;
         }
         fmt = fmt + "\\n";
@@ -8462,36 +8602,6 @@ bool stringMethodTracked(string method) {
         return true;
     }
     return false;
-}
-
-/* printf format specifier for a type (mirrors types.py format_spec_for_type). */
-string formatSpec(Node? t) {
-    if (t == null) { return "%d"; }
-    string base = t.base;
-    if (t.pointer_depth > 0) { return "%s"; }
-    if (base == "int" || base == "short" || base == "short int"
-            || base == "signed int" || base == "signed short"
-            || base == "signed short int") { return "%d"; }
-    if (base == "byte" || base == "uint" || base == "unsigned int"
-            || base == "unsigned short" || base == "unsigned short int"
-            || base == "unsigned char") { return "%u"; }
-    if (base == "long" || base == "long int" || base == "signed long"
-            || base == "signed long int") { return "%ld"; }
-    if (base == "unsigned long" || base == "unsigned long int") { return "%lu"; }
-    if (base == "long long" || base == "long long int"
-            || base == "signed long long" || base == "signed long long int") {
-        return "%lld";
-    }
-    if (base == "unsigned long long" || base == "unsigned long long int") {
-        return "%llu";
-    }
-    if (base == "size_t") { return "%zu"; }
-    if (base == "float" || base == "double") { return "%f"; }
-    if (base == "long double") { return "%Lf"; }
-    if (base == "char") { return "%c"; }
-    if (base == "string") { return "%s"; }
-    if (base == "bool") { return "%s"; }
-    return "%d";
 }
 
 /* Render an IR expression to inline C text (mirrors expressions.py _expr_text,

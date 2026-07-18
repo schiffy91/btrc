@@ -57,6 +57,14 @@ void semanticValidateVariableStorage(Node declaration,
     subject = subject + declaration.name + "'";
     semanticValidateDeclaredType(
         declaration.type, subject, "object", declaration, state);
+    Node? canonical = semanticResolveAliases(declaration.type, state);
+    if (canonical != null && canonical.base == "Mutex"
+            && (isGlobal || canonical.is_static
+                || canonical.is_extern)) {
+        semanticValidationFail(subject
+            + " cannot own a Mutex handle with static storage until "
+            + "managed global teardown is supported", declaration);
+    }
     if (declaration.type != null) {
         if (!isGlobal && declaration.type.is_static
                 && (semanticManagedOwnershipType(

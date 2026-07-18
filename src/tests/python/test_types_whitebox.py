@@ -65,7 +65,7 @@ def test_element_type_c():
 
 def test_format_spec_for_type_all_branches():
     assert format_spec_for_type(None) == "%d"
-    assert format_spec_for_type(T("int", pointer_depth=1)) == "%s"  # pointer
+    assert format_spec_for_type(T("int", pointer_depth=1)) == "%p"
     assert format_spec_for_type(T("int")) == "%d"
     assert format_spec_for_type(T("long")) == "%ld"
     assert format_spec_for_type(T("double")) == "%f"

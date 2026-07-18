@@ -1,4 +1,4 @@
-"""Ownership-domain dispatch for class references and managed strings."""
+"""Ownership-domain dispatch for ARC references and managed strings."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from ...type_identity import is_semantic_scalar_string
 from ..nodes import CType, IRCall, IRCast, IRLiteral
 
 STRING_RUNTIME_NAME = "__btrc_managed_string"
+MUTEX_RUNTIME_NAME = "__btrc_managed_mutex"
 
 
 def is_string_type(gen, type_expr) -> bool:
@@ -17,25 +18,60 @@ def is_string_type(gen, type_expr) -> bool:
 def is_class_type(gen, type_expr) -> bool:
     """Whether ``type_expr`` uses the class ARC header domain."""
     canonical = _canonical(gen, type_expr)
+    depth = (
+        canonical.pointer_depth - int(canonical.is_nullable and canonical.pointer_depth > 1)
+        if canonical is not None
+        else 0
+    )
     return bool(
-        canonical is not None
-        and not canonical.is_array
-        and canonical.pointer_depth <= 1
-        and canonical.base in gen.analyzed.class_table
+        canonical is not None and not canonical.is_array and depth <= 1 and canonical.base in gen.analyzed.class_table
     )
 
 
+def is_mutex_type(gen, type_expr) -> bool:
+    """Whether ``type_expr`` is one direct ARC-managed ``Mutex<T>``."""
+    canonical = _canonical(gen, type_expr)
+    depth = (
+        canonical.pointer_depth - int(canonical.is_nullable and canonical.pointer_depth > 0)
+        if canonical is not None
+        else 0
+    )
+    return bool(
+        canonical is not None
+        and not canonical.is_array
+        and depth == 0
+        and canonical.base == "Mutex"
+        and len(canonical.generic_args or ()) == 1
+    )
+
+
+def is_arc_type(gen, type_expr) -> bool:
+    """Whether a value starts with the common ARC object header."""
+    return is_class_type(gen, type_expr) or is_mutex_type(gen, type_expr)
+
+
 def is_managed_type(gen, type_expr) -> bool:
-    return is_string_type(gen, type_expr) or is_class_type(gen, type_expr)
+    return is_string_type(gen, type_expr) or is_arc_type(gen, type_expr)
 
 
 def runtime_name(gen, type_expr) -> str:
     """Return the scope bookkeeping name for a managed value type."""
     if is_string_type(gen, type_expr):
         return STRING_RUNTIME_NAME
+    if is_mutex_type(gen, type_expr):
+        return MUTEX_RUNTIME_NAME
     from .ownership import managed_type_name
 
     return managed_type_name(gen, _canonical(gen, type_expr))
+
+
+def managed_local_value_type(type_expr, emitted_name: str | None):
+    """Recover the managed value domain retained by an ownership-provenance slot."""
+    if emitted_name == STRING_RUNTIME_NAME:
+        from ...ast_nodes import TypeExpr
+
+        return TypeExpr(base="string")
+    return type_expr
 
 
 def retain_value(gen, value, type_expr):
@@ -103,8 +139,8 @@ def unlink_edge_value(gen, value, type_expr, owner=None):
 
 def replace_edge_value(gen, slot, replacement, type_expr, owner, *, adopt: bool):
     """Replace one class edge atomically; strings use their side-table path."""
-    if not is_class_type(gen, type_expr):
-        raise ValueError("transactional edge replacement requires a class type")
+    if not is_arc_type(gen, type_expr):
+        raise ValueError("transactional edge replacement requires an ARC type")
     from .arc_ops import replace_edge
 
     return replace_edge(
@@ -123,7 +159,7 @@ def poll_released_values(gen, *type_exprs):
 
     return poll_release_batch(
         gen,
-        types=[value for value in type_exprs if is_class_type(gen, value)],
+        types=[value for value in type_exprs if is_arc_type(gen, value)],
     )
 
 
@@ -133,7 +169,7 @@ def flush_released_values(gen, *type_exprs):
 
     return flush_release_batch(
         gen,
-        types=[value for value in type_exprs if is_class_type(gen, value)],
+        types=[value for value in type_exprs if is_arc_type(gen, value)],
     )
 
 
@@ -153,6 +189,8 @@ def release_emitted_value(gen, value, emitted_name: str):
 def cleanup_destroy_symbol(emitted_name: str) -> str:
     if emitted_name == STRING_RUNTIME_NAME:
         return "__btrc_string_release_cleanup"
+    if emitted_name == MUTEX_RUNTIME_NAME:
+        return "__btrc_mutex_arc_destroy"
     return f"{emitted_name}_destroy"
 
 
@@ -179,14 +217,18 @@ def _no_op():
 
 
 __all__ = [
+    "MUTEX_RUNTIME_NAME",
     "STRING_RUNTIME_NAME",
     "adopt_edge_value",
     "cleanup_destroy_symbol",
     "destroy_symbol",
     "flush_released_values",
+    "is_arc_type",
     "is_class_type",
     "is_managed_type",
+    "is_mutex_type",
     "is_string_type",
+    "managed_local_value_type",
     "poll_released_values",
     "release_edge_value",
     "release_emitted_value",

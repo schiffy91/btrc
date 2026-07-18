@@ -6,11 +6,7 @@ from typing import TYPE_CHECKING
 
 from ..nodes import (
     CType,
-    IRAddressOf,
     IRCall,
-    IRDeref,
-    IRFieldAccess,
-    IRIndex,
     IRLiteral,
     IRSizeof,
     IRVar,
@@ -106,18 +102,6 @@ def set_mutex_value(
     )
 
 
-def consume_mutex_handle(gen: IRGenerator, obj):
-    """Take an addressable handle through the owner-aware runtime atom."""
-    if not isinstance(obj, (IRVar, IRFieldAccess, IRIndex, IRDeref)):
-        return obj
-    gen.use_helper("__btrc_mutex_val_take")
-    return IRCall(
-        callee="__btrc_mutex_val_take",
-        args=[IRAddressOf(expr=obj)],
-        helper_ref="__btrc_mutex_val_take",
-    )
-
-
 def _ownership_callbacks(gen: IRGenerator, value_type: TypeExpr):
     from .managed_values import is_class_type, is_string_type
 
@@ -176,7 +160,6 @@ def _callback(gen: IRGenerator, name: str):
 
 
 __all__ = [
-    "consume_mutex_handle",
     "create_mutex_value",
     "get_mutex_value",
     "set_mutex_value",

@@ -21,7 +21,7 @@ from ..nodes import (
     IRVarDecl,
 )
 from .managed_values import (
-    is_class_type,
+    is_arc_type,
     is_managed_type,
     poll_released_values,
     release_edge_value,
@@ -181,7 +181,7 @@ def _setter_body(gen, prop, backing):
                 field=backing,
                 arrow=True,
             )
-            if is_class_type(gen, prop.type):
+            if is_arc_type(gen, prop.type):
                 stmts = [
                     IRExprStmt(
                         expr=replace_edge_value(

@@ -109,21 +109,23 @@ static void leaf_destroy(void* raw) {
     free(raw);
 }
 
+static void* pointer_access(const void* raw) {
+    return *(void* const*)raw;
+}
+
 static void external_visit(
         void* raw, __btrc_field_visit_fn visit, void* context) {
     External* external = (External*)raw;
-    __btrc_mutex_val_visit(external->mutex, visit, context);
+    visit((volatile void*)&external->mutex,
+        slot_access, &__btrc_mutex_arc_descriptor, context);
 }
 
 static void external_destroy(void* raw) {
     External* external = (External*)raw;
-    __btrc_mutex_val_t* mutex = external->mutex;
     if (__btrc_arc_replace_edge(
-            (volatile void*)mutex->value, slot_access,
-            NULL, external, &leaf_type, 0)) abort();
-    if (pthread_mutex_destroy(&mutex->lock)) abort();
-    free(mutex->value);
-    free(mutex);
+            (volatile void*)&external->mutex, slot_access,
+            NULL, external, &__btrc_mutex_arc_descriptor, 0)) abort();
+    if (external->mutex) abort();
     atomic_fetch_add_explicit(
         &external_destroys, 1, memory_order_relaxed);
     free(external);
@@ -211,18 +213,17 @@ static External* new_external(Leaf* leaf) {
     External* external =
         (External*)__btrc_safe_calloc(1, sizeof(*external));
     initialize_header(&external->arc, &external_type);
-    __btrc_mutex_val_t* mutex =
-        (__btrc_mutex_val_t*)__btrc_safe_calloc(1, sizeof(*mutex));
-    if (pthread_mutex_init(&mutex->lock, NULL)) abort();
-    mutex->value = __btrc_safe_calloc(1, sizeof(void*));
-    mutex->size = sizeof(void*);
-    mutex->slot_access = slot_access;
-    mutex->context = (void*)&leaf_type;
-    mutex->owner = external;
-    external->mutex = mutex;
+    void** initial = (void**)__btrc_safe_calloc(1, sizeof(void*));
+    *initial = leaf;
+    __btrc_mutex_val_t* mutex = __btrc_mutex_val_create(
+        initial, sizeof(void*), pointer_access, slot_access,
+        &leaf_type, sizeof(leaf_type),
+        __btrc_mutex_arc_retain, __btrc_mutex_arc_release,
+        __btrc_mutex_arc_finalize, unexpected_raise);
+    __btrc_arc_release(leaf, &leaf_type);
     if (__btrc_arc_replace_edge(
-            (volatile void*)mutex->value, slot_access,
-            leaf, external, &leaf_type, 1)) abort();
+            (volatile void*)&external->mutex, slot_access,
+            mutex, external, &__btrc_mutex_arc_descriptor, 1)) abort();
     return external;
 }
 

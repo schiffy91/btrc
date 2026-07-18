@@ -58,6 +58,23 @@ string cycleRuntimeIncomingSource(string name) {
             + "}"
             ;
     }
+    if (name == "__btrc_arc_incoming_teardown_pending") {
+        return "static int __btrc_arc_incoming_teardown_pending(\n"
+            + "        void* object) {\n"
+            + "    __btrc_arc_header* header = __btrc_arc_header_of(object);\n"
+            + "    if (!header->incoming) return 0;\n"
+            + "    for (__btrc_arc_incoming* edge = header->incoming;\n"
+            + "            edge; edge = edge->next) {\n"
+            + "        void* owner = edge->owner;\n"
+            + "        if (!owner || owner == object) return 0;\n"
+            + "        __btrc_arc_validate(owner);\n"
+            + "        if (__btrc_arc_header_of(owner)->state != __BTRC_ARC_DESTROYING)\n"
+            + "            return 0;\n"
+            + "    }\n"
+            + "    return 1;\n"
+            + "}"
+            ;
+    }
     if (name == "__btrc_arc_reverse_proves_live") {
         return "static int __btrc_reverse_next_capacity(\n"
             + "        int capacity, const char* message) {\n"

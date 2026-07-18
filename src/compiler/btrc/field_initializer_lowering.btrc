@@ -1,0 +1,85 @@
+/* Source-order instance field defaults shared by ordinary and generic classes. */
+
+Map<string, Node> genericInitializerVarTypes(IRGen generator,
+        GenInstance instance, Node? constructor,
+        Map<string, Node> typeMap) {
+    Map<string, Node> variables = generator.seededVarTypes();
+    Node selfType = Node();
+    selfType.kind = NK_TYPE_EXPR;
+    selfType.base = instance.base;
+    selfType.generic_args = instance.args;
+    selfType.pointer_depth = 1;
+    variables.put("self", selfType);
+    if (constructor != null) {
+        int index = 0;
+        while (index < constructor.params.len) {
+            Node parameter = constructor.params.get(index);
+            variables.put(parameter.name,
+                resolveGenericType(parameter.type, typeMap,
+                    generator.analyzed));
+            index = index + 1;
+        }
+    }
+    return variables;
+}
+
+Node instanceInitializerFieldType(IRGen generator, Node field,
+        bool generic, Map<string, Node> typeMap) {
+    if (generic) {
+        return resolveGenericType(
+            field.type, typeMap, generator.analyzed);
+    }
+    return generator.resolveBodyType(field.type);
+}
+
+void rejectInstanceArrayDefaultAtCodegen(Node field, Node fieldType) {
+    if (!fieldType.is_array || field.initializer == null) { return; }
+    if (field.initializer.kind != NK_BRACE_INITIALIZER
+            && field.initializer.kind != NK_LIST_LITERAL) { return; }
+    fprintf(stderr,
+        "error: array-valued class field default '%s' requires persistent backing storage at %d:%d\n",
+        field.name, field.line, field.col);
+    abortGen();
+}
+
+void appendInstanceFieldInitializers(IRGen generator, Node declaration,
+        Map<string, Node> variables, bool generic,
+        Map<string, Node> typeMap, Vector<IRNode> body) {
+    int index = 0;
+    while (index < declaration.members.len) {
+        Node field = declaration.members.get(index);
+        string storage = instanceStorageName(field);
+        if (field.kind == NK_FIELD_DECL && field.access != "class"
+                && storage != "" && field.initializer != null) {
+            Node fieldType = instanceInitializerFieldType(
+                generator, field, generic, typeMap);
+            rejectInstanceArrayDefaultAtCodegen(field, fieldType);
+            generator.rejectPersistentCallableEscape(
+                fieldType, field.initializer, variables,
+                "instance field storage");
+            PreparedValue prepared = prepareTargetValue(
+                generator, field.initializer, fieldType, variables);
+            IRNode target = irFieldAccess(
+                irVar("self"), storage, true);
+            if (irManagedArcType(generator, fieldType)) {
+                body.push(irExprStmt(irManagedReplaceEdge(
+                    generator, target, prepared.value, fieldType,
+                    irVar("self"), prepared.owned)));
+            } else {
+                body.push(irAssign(target, prepared.value));
+                if (irManagedType(generator, fieldType)) {
+                    if (prepared.owned) {
+                        body.push(irExprStmt(irManagedAdoptEdge(
+                            generator, target, fieldType,
+                            irVar("self"))));
+                    } else {
+                        body.push(irExprStmt(irManagedRetainEdge(
+                            generator, target, fieldType,
+                            irVar("self"))));
+                    }
+                }
+            }
+        }
+        index = index + 1;
+    }
+}

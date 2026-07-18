@@ -26,7 +26,7 @@ from .types import type_to_c
 def managed_capture_type(gen, capture):
     """Return a direct managed capture type, excluding arrays/raw pointers."""
     capture_type = capture.type
-    if capture_type is None or capture_type.is_array or capture_type.pointer_depth > 1:
+    if capture_type is None or capture_type.is_array:
         return None
     from .managed_values import is_managed_type
 

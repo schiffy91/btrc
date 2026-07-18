@@ -91,6 +91,7 @@ class LvalueContractsMixin:
             and (
                 result_type.base in self.class_table
                 or result_type.base in self._MANAGED_COLLECTION_BASES
+                or result_type.base == "Mutex"
                 or is_semantic_scalar_string(result_type)
             )
         )
@@ -183,6 +184,7 @@ class LvalueContractsMixin:
                 type_expr.pointer_depth > 0
                 or type_expr.is_array
                 or type_expr.base == "string"
+                or type_expr.base == "Mutex"
                 or type_expr.base in self.class_table
             )
         )

@@ -929,7 +929,7 @@ class UnixShell {
     }
 
     class void logError(string message) {
-        fprintf(stderr, "%s\n", message);
+        fprintf(stderr, "%s\n", __btrc_string_or_empty(message));
     }
 
     public void chroot(string path) {

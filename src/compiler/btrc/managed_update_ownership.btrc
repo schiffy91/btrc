@@ -62,16 +62,33 @@ class ManagedUpdateOperands {
         Node? resolvedRight = generator.resolvedExpressionType(
             assignment.value_node, varTypes);
         if (resolvedRight == null) { resolvedRight = targetType; }
-        self.rightType = resolvedRight;
+        Node? rightTarget = resolvedRight;
+        Node? overload = ownershipBinaryMethod(
+            generator, targetType, assignment.op.substring(
+                0, assignment.op.length() - 1));
+        if (overload != null && overload.params.len > 0) {
+            rightTarget = generator.resolveBodyType(
+                overload.params.get(0).type);
+            if (targetType.generic_args.len > 0
+                    && generator.analyzed.isGenericClass(targetType.base)) {
+                rightTarget = resolveGenericType(
+                    overload.params.get(0).type,
+                    genericTypeMap(generator.analyzed, targetType),
+                    generator.analyzed);
+            }
+        }
+        PreparedValue prepared = prepareCallTargetValue(
+            generator, assignment.value_node,
+            rightTarget, varTypes);
+        ownershipRequireType(
+            prepared.effectiveType, assignment.value_node);
+        self.rightType = prepared.effectiveType;
         bool managedRight = irManagedType(generator, self.rightType);
-        bool rightOwned = managedRight
-            && irContextualUnconsumedOwnedResult(generator,
-                assignment.value_node, self.rightType, varTypes);
+        bool rightOwned = managedRight && prepared.owned;
         bool rightKeep = managedRight && irManagedCompoundKeepsRhs(
             generator, targetType, assignment.op.substring(
                 0, assignment.op.length() - 1));
-        IRNode loweredRight = generator.lowerAssignedValue(
-            assignment.value_node, targetType, varTypes);
+        IRNode loweredRight = prepared.value;
         if (rightOwned || rightKeep) {
             self.boundary.addLoweredCallOperand(generator,
                 assignment.value_node, self.rightType, loweredRight,
@@ -181,7 +198,7 @@ IRNode lowerManagedFieldCompoundStore(IRGen generator, Node assignment,
     sequence.push(irBinOp(
         operands.currentValue, "=", target));
     string runtimeType = irManagedRuntimeType(generator, targetType);
-    if (irManagedClassType(generator, targetType)) {
+    if (irManagedArcType(generator, targetType)) {
         string transferName = generator.freshTemp(
             "__btrc_update_transfer");
         IRNode transferDeclaration = irVarDecl(

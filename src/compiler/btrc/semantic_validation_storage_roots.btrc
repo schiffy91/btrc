@@ -28,7 +28,7 @@ bool semanticTemporaryManagedType(Node? typeExpr,
         || state.analyzed.isClass(base)
         || state.analyzed.isGenericClass(base)
         || base == "Array" || base == "List" || base == "Map"
-        || base == "Set" || base == "Vector";
+        || base == "Set" || base == "Vector" || base == "Mutex";
 }
 
 bool semanticHasTemporaryManagedOwner(Node? expression,
@@ -69,11 +69,7 @@ bool semanticHasTemporaryManagedOwner(Node? expression,
                 target.obj, state, vars);
         bool virtualOwnedValue = expression.op == "="
             && semanticIsVirtualUpdateTarget(target, state, vars)
-            && (semanticHasTemporaryManagedOwner(
-                    expression.value_node, state, vars)
-                || expression.value_node.kind == NK_LIST_LITERAL
-                || expression.value_node.kind == NK_MAP_LITERAL
-                || expression.value_node.kind == NK_BRACE_INITIALIZER);
+            && managedResult;
         return ownedReceiver || virtualOwnedValue;
     }
     if (expression.kind == NK_BINARY_EXPR && expression.op != "??"
@@ -104,6 +100,10 @@ bool semanticHasTemporaryManagedOwner(Node? expression,
             expression.obj, state, vars);
     }
     if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+        if (managedResult && semanticPropertyDispatchProjection(
+                expression, state, vars)) {
+            return true;
+        }
         return semanticHasTemporaryManagedOwner(
             expression.obj, state, vars);
     }

@@ -25,7 +25,7 @@ def build_generic_destructor_hook(cls_info, type_map, mangled, gen):
     emitter = _UserGenericEmitter(
         type_map,
         mangled,
-        lambda type_expr: type_to_c(_resolve_type(type_expr, type_map)),
+        lambda type_expr: type_to_c(_resolve_type(type_expr, type_map, gen.analyzed.typedef_table)),
         gen=gen,
         cls_info=cls_info,
     )
@@ -41,20 +41,8 @@ def build_generic_field_release_stmts(cls_info, type_map, gen):
     stmts = []
 
     for field_name, field in cls_info.instance_storage:
-        resolved = _resolve_type(field.type, type_map) if field.type else None
-        # Explicit pointer layers are borrowed/raw storage. Class values gain
-        # their normal representation pointer elsewhere in the pipeline.
-        if resolved is None or resolved.pointer_depth > 1:
-            continue
-        from ..mutex_fields import destroy_mutex_field, mutex_value_type
-
-        if mutex_value_type(gen, resolved) is not None:
-            field_expr = IRFieldAccess(
-                obj=IRVar(name="self"),
-                field=field_name,
-                arrow=True,
-            )
-            stmts.append(IRExprStmt(expr=destroy_mutex_field(gen, field_expr)))
+        resolved = _resolve_type(field.type, type_map, gen.analyzed.typedef_table) if field.type else None
+        if resolved is None:
             continue
         from ..managed_values import is_managed_type
 
@@ -65,7 +53,7 @@ def build_generic_field_release_stmts(cls_info, type_map, gen):
 
 def _field_release(gen, field_name: str, field_type) -> IRBlock:
     from ..managed_values import (
-        is_class_type,
+        is_arc_type,
         release_edge_value,
         replace_edge_value,
         unlink_edge_value,
@@ -73,7 +61,7 @@ def _field_release(gen, field_name: str, field_type) -> IRBlock:
     from ..types import type_to_c
 
     field = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
-    if is_class_type(gen, field_type):
+    if is_arc_type(gen, field_type):
         return IRBlock(
             stmts=[
                 IRExprStmt(

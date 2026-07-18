@@ -25,6 +25,11 @@ def lookup_class_info(gen: IRGenerator, class_name: str):
 
 def managed_type_has_visitor(gen: IRGenerator, class_name: str) -> bool:
     """Whether normal or generic lowering provides a visitor for this C type."""
+    from .managed_values import MUTEX_RUNTIME_NAME
+
+    if class_name == MUTEX_RUNTIME_NAME:
+        gen.use_helper("__btrc_mutex_arc_type")
+        return True
     from .cycle_metadata import emitted_type_has_visitor
 
     if emitted_type_has_visitor(gen, class_name):
@@ -36,6 +41,20 @@ def managed_type_has_visitor(gen: IRGenerator, class_name: str) -> bool:
 
         return type_needs_visitor(gen, TypeExpr(base=info.name), set())
     return False
+
+
+def managed_visitor_symbol(gen: IRGenerator, type_name: str) -> str | None:
+    """Return the runtime visitor symbol for scope bookkeeping metadata."""
+    from .managed_values import MUTEX_RUNTIME_NAME
+
+    if type_name == MUTEX_RUNTIME_NAME:
+        gen.use_helper("__btrc_mutex_arc_type")
+        return "__btrc_mutex_arc_visit"
+    if not managed_type_has_visitor(gen, type_name):
+        return None
+    from .cycle_metadata import cycle_visitor_symbol
+
+    return cycle_visitor_symbol(type_name)
 
 
 def emit_phased_scope_release(
@@ -52,4 +71,5 @@ __all__ = [
     "emit_phased_scope_release",
     "lookup_class_info",
     "managed_type_has_visitor",
+    "managed_visitor_symbol",
 ]

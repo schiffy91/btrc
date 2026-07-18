@@ -23,7 +23,7 @@ from ..nodes import (
 )
 from .destructor_hooks import build_destructor_hook, destructor_hook_name
 from .managed_values import (
-    is_class_type,
+    is_arc_type,
     is_managed_type,
     release_edge_value,
     replace_edge_value,
@@ -69,32 +69,15 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> s
             init=IRCast(target_type=CType(text=f"{name}*"), expr=IRVar(name="object")),
         )
     ]
-    # ARC: release owned pointer-type fields (rc-- then destroy at zero)
-    # Class types have pointer_depth=1 in analyzer (always heap-allocated).
-    # Skip pointer_depth > 1 (double-pointers / raw arrays).
+    # ARC: release every direct managed field (rc-- then destroy at zero).
+    # Domain classification excludes explicit raw storage layers.
     has_owned_field_cleanup = False
     for fname, fd in cls_info.instance_storage:
-        if fd.type and fd.type.pointer_depth > 1:
-            continue
-        from .mutex_fields import (
-            destroy_mutex_field,
-            mutex_value_type,
-        )
-
-        if mutex_value_type(gen, fd.type) is not None:
-            field = IRFieldAccess(
-                obj=IRVar(name="self"),
-                field=fname,
-                arrow=True,
-            )
-            body_stmts.append(IRExprStmt(expr=destroy_mutex_field(gen, field)))
-            has_owned_field_cleanup = True
-            continue
         # Generic class fields use their compiler-owned terminal destructor;
         # source lifecycle behavior is explicit in an isolated ``__del__`` hook.
         if is_managed_type(gen, fd.type):
             body_stmts.append(_emit_field_release(gen, fname, fd.type))
-            has_owned_field_cleanup = has_owned_field_cleanup or is_class_type(gen, fd.type)
+            has_owned_field_cleanup = has_owned_field_cleanup or is_arc_type(gen, fd.type)
 
     # Mark cascade destruction before freeing. The helper itself checks the
     # process-wide unwind scope under the ARC mutation lock.
@@ -210,7 +193,7 @@ def emit_inherited_methods(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInf
 def _emit_field_release(gen, field_name: str, field_type) -> IRBlock:
     """Release one internal field without a reentrant collector flush."""
     fa = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
-    if is_class_type(gen, field_type):
+    if is_arc_type(gen, field_type):
         return IRBlock(
             stmts=[
                 IRExprStmt(

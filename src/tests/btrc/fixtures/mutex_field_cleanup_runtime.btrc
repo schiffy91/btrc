@@ -7,7 +7,10 @@ int mutexFieldPayloadAlive = 0;
 int mutexFieldPayloadHooks = 0;
 int mutexSelfAlive = 0;
 int mutexSelfHooks = 0;
-Mutex<int> defaultMutexSource;
+
+Mutex<int> defaultMutexSource() {
+    return Mutex(41);
+}
 
 class MutexFieldPayload {
     public MutexFieldPayload() {
@@ -71,7 +74,7 @@ class ScalarMutexFieldOwner {
 }
 
 class DefaultMutexFieldOwner {
-    public Mutex<int> stored = defaultMutexSource;
+    public Mutex<int> stored = defaultMutexSource();
 
     public DefaultMutexFieldOwner() {}
 }
@@ -172,12 +175,9 @@ int main() {
     assert(mutexFieldPayloadAlive == 0);
     assert(mutexFieldPayloadHooks == 2);
 
-    defaultMutexSource = Mutex(41);
     DefaultMutexFieldOwner defaultOwner =
         new DefaultMutexFieldOwner();
-    /* A field default initializer is a move boundary. The source slot must be
-     * cleared before either alias can be destroyed. */
-    defaultMutexSource.destroy();
+    /* A returned default value transfers one ARC reference into the field. */
     assert(defaultOwner.stored.get() == 41);
     delete defaultOwner;
 
@@ -218,8 +218,8 @@ int main() {
     assert(mutexFieldPayloadHooks == hooksBeforeMove);
     moveTarget.moveFrom(moveSource);
 
-    /* Taking a bound RHS first converts its hidden edge to an external root.
-     * Cross-owner commit consumes the destination and leaves the source null. */
+    /* Cross-owner assignment aliases the source handle while consuming the
+     * destination's previous handle. Either alias may then release its share. */
     assert(mutexFieldPayloadAlive == 1);
     assert(mutexFieldPayloadHooks == hooksBeforeMove + 1);
     moveSource.stored.destroy();

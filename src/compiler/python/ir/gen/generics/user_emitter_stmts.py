@@ -167,18 +167,44 @@ class _UserGenericStmtMixin(
             self._var_types[s.name] = resolved
         if s.initializer:
             init = self._var_init_expr(s)
+            from ..prepared_values import prepare_generic_value
+
+            prepared = prepare_generic_value(
+                self,
+                s.initializer,
+                resolved,
+                lowered=init,
+            )
+            init = prepared.value
+            from ..upcast import upcast_class_pointer
+
+            init = upcast_class_pointer(
+                self._gen,
+                resolved,
+                prepared.effective_type,
+                init,
+            )
             declaration = IRVarDecl(c_type=CType(text=c_type), name=s.name, init=init)
         else:
+            prepared = None
             declaration = IRVarDecl(c_type=CType(text=c_type), name=s.name)
         self._func_var_decls.append(declaration)
         result = [declaration]
-        if resolved is not None and s.initializer is not None and self._is_managed_type(resolved):
-            owns_initializer = self._owns_expr(s.initializer)
+        ownership_type = resolved
+        if (
+            not self._is_managed_type(ownership_type)
+            and prepared is not None
+            and prepared.owned
+            and self._is_managed_type(prepared.effective_type)
+        ):
+            ownership_type = prepared.effective_type
+        if ownership_type is not None and s.initializer is not None and self._is_managed_type(ownership_type):
+            owns_initializer = prepared.owned
             if not owns_initializer:
                 from ..managed_values import retain_value
 
-                result.append(IRExprStmt(expr=retain_value(self._gen, IRVar(name=s.name), resolved)))
-            register_managed_local(self, s.name, resolved, owns_initializer, result)
+                result.append(IRExprStmt(expr=retain_value(self._gen, IRVar(name=s.name), ownership_type)))
+            register_managed_local(self, s.name, ownership_type, owns_initializer, result)
         return result
 
     def _var_init_expr(self, s) -> IRExpr:

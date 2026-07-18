@@ -412,6 +412,7 @@ def _compile_object(
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
 
 
@@ -460,6 +461,7 @@ def test_shared_capacity_growth_and_reset_cross_archive_boundary(
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     binary = output / "shared_state"
     subprocess.run(
@@ -480,5 +482,6 @@ def test_shared_capacity_growth_and_reset_cross_archive_boundary(
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
-    subprocess.run([binary], check=True, capture_output=True, text=True)
+    subprocess.run([binary], check=True, capture_output=True, text=True, timeout=30)

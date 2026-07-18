@@ -62,7 +62,7 @@ def test_mutex_evaluates_initializer_before_transport_allocation():
     assert initializer.index("nextValue()") < initializer.index("__btrc_safe_realloc")
 
 
-def test_mutex_destroy_consumes_an_addressable_handle():
+def test_mutex_destroy_clears_and_releases_an_owned_arc_slot():
     generated = emit_c("""
         int main() {
             Mutex<int> value = Mutex(1);
@@ -71,9 +71,10 @@ def test_mutex_destroy_consumes_an_addressable_handle():
         }
     """)
 
-    destroy = next(
-        line
-        for line in generated.splitlines()
-        if "__btrc_mutex_val_destroy(" in line and "__btrc_mutex_val_take(" in line
-    )
-    assert "__btrc_mutex_val_take((&value))" in destroy
+    assert "__btrc_mutex_val_take" not in generated
+    assert "__btrc_mutex_val_destroy" not in generated
+    slot = generated.index("__btrc_mutex_val_t* volatile* __btrc_release_slot")
+    clear = generated.index("= NULL", slot)
+    release = generated.index("__btrc_arc_release_acyclic", clear)
+    assert slot < clear < release
+    assert "(&__btrc_mutex_arc_descriptor)" in generated[release:]

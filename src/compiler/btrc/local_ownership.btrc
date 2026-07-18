@@ -31,15 +31,11 @@ IRNode lowerManagedSlotStore(IRGen generator, Node assignment,
     IRNode value = irLiteral("0");
     bool owned = true;
     if (assignment.op == "=") {
-        Node? valueType = generator.resolvedExpressionType(
-            assignment.value_node, varTypes);
-        value = generator.lowerAssignedValue(
-            assignment.value_node, concreteTargetType, varTypes);
-        value = generator.upcastClassPointer(
-            concreteTargetType, valueType, value);
-        owned = irContextualExpressionOwnsResult(
+        PreparedValue prepared = prepareTargetValue(
             generator, assignment.value_node,
             concreteTargetType, varTypes);
+        value = prepared.value;
+        owned = prepared.owned;
     } else {
         return lowerManagedLocalCompoundStore(generator, assignment,
             target, concreteTargetType, varTypes);

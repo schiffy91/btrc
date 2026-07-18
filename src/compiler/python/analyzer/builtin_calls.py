@@ -54,6 +54,8 @@ class BuiltinCallValidationMixin:
                     signatures[callee.field],
                     expression,
                 )
+                if callee.field == "destroy":
+                    self._validate_mutex_destroy_receiver(expression)
             else:
                 self._error(
                     f"Mutex<T> has no method '{callee.field}'",

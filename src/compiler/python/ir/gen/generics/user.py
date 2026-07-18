@@ -24,16 +24,16 @@ def _register_transitive_generic_deps(gen: IRGenerator, cls_info, type_map: dict
     so the while-changed loop in core.py emits it.
     """
     for _name, fd in cls_info.instance_storage:
-        resolved = _resolve_type(fd.type, type_map)
+        resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table)
         _register_if_generic(gen, resolved)
     # Also scan method return types and parameter types
     for method in cls_info.methods.values():
         if method.return_type:
-            resolved = _resolve_type(method.return_type, type_map)
+            resolved = _resolve_type(method.return_type, type_map, gen.analyzed.typedef_table)
             _register_if_generic(gen, resolved, method.generic_params)
         for p in method.params:
             if p.type:
-                resolved = _resolve_type(p.type, type_map)
+                resolved = _resolve_type(p.type, type_map, gen.analyzed.typedef_table)
                 _register_if_generic(gen, resolved, method.generic_params)
 
 
@@ -75,7 +75,7 @@ def _emit_user_generic_instance(gen: IRGenerator, base_name: str, args: list[Typ
     # Recursively emit transitive field-type dependencies FIRST
     if seen is not None:
         for _name, fd in cls_info.instance_storage:
-            resolved = _resolve_type(fd.type, type_map)
+            resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table)
             if resolved.generic_args and resolved.base in gen.analyzed.class_table:
                 dep_cls = gen.analyzed.class_table[resolved.base]
                 if dep_cls.generic_params:
@@ -94,7 +94,7 @@ def _emit_user_generic_instance(gen: IRGenerator, base_name: str, args: list[Typ
     # an ordinary class; its descriptor is emitted by the lifecycle pass.
     fields = [arc_header_field(gen)]
     for name, fd in cls_info.instance_storage:
-        resolved = _resolve_type(fd.type, type_map)
+        resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table)
         fields.append(IRStructField(c_type=CType(text=type_to_c(resolved)), name=name))
     gen.module.struct_defs.append(IRStructDef(name=mangled, fields=fields))
 

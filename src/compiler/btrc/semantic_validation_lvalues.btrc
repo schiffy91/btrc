@@ -98,6 +98,23 @@ bool semanticIsPropertyProjection(Node expression,
     return member != null && member.kind == NK_PROPERTY_DECL;
 }
 
+bool semanticPropertyDispatchProjection(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+    if (expression.obj.kind == NK_SELF_EXPR
+            || expression.obj.kind == NK_SUPER_EXPR) {
+        return false;
+    }
+    Node? receiverType = semanticInferType(expression.obj, state, vars);
+    if (receiverType == null) { return false; }
+    Node? member = semanticLvalueMember(
+        receiverType, expression.field, state);
+    if (member == null || member.kind != NK_PROPERTY_DECL) {
+        return false;
+    }
+    return true;
+}
+
 bool semanticRawLvaluePointer(Node? typeExpr,
         SemanticValidationState state) {
     Node? resolvedType = semanticResolveAliases(typeExpr, state);

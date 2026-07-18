@@ -6,6 +6,11 @@ from dataclasses import dataclass
 
 from ...ast_nodes import TypeExpr
 from ...cycle_symbols import cycle_visitor_symbol
+from .cycle_type_resolution import (
+    canonical_cycle_type,
+    cycle_type_key,
+    substitute_cycle_type,
+)
 from .types import mangle_generic_type
 
 BUILTIN_COLLECTION_LAYOUTS = {
@@ -34,7 +39,7 @@ def generic_instance_needs_visitor(
     info = gen.analyzed.class_table.get(base)
     if info is None or not info.generic_params:
         return False
-    key = (base, tuple(_type_key(argument) for argument in arguments))
+    key = (base, tuple(cycle_type_key(argument) for argument in arguments))
     seen = set() if seen is None else seen
     if key in seen:
         return False
@@ -46,14 +51,12 @@ def generic_instance_needs_visitor(
                 return False
             # List owns heap ListNode objects even when T itself is scalar.
             return base == "List" or any(visit_action(gen, argument, seen) is not None for argument in arguments)
-        from .generics.core import _resolve_type
-
         substitutions = dict(zip(info.generic_params, arguments))
         return any(
             field.type is not None
             and _type_has_visit_action(
                 gen,
-                _resolve_type(field.type, substitutions),
+                substitute_cycle_type(gen, field.type, substitutions),
                 seen,
             )
             for _name, field in info.instance_storage
@@ -64,6 +67,12 @@ def generic_instance_needs_visitor(
 
 def visitor_for_type(gen, type_expr: TypeExpr) -> str | None:
     """Return the concrete visitor symbol used for exception cleanup."""
+    type_expr = canonical_cycle_type(gen, type_expr) or type_expr
+    from .managed_values import is_mutex_type
+
+    if is_mutex_type(gen, type_expr):
+        gen.use_helper("__btrc_mutex_arc_type")
+        return "__btrc_mutex_arc_visit"
     if not type_needs_visitor(gen, type_expr, set()):
         return None
     if type_expr.generic_args:
@@ -118,7 +127,14 @@ def visit_action(gen, type_expr: TypeExpr, seen: set[tuple]) -> DirectVisitActio
     so the collector could otherwise reclaim elements that are still reachable
     through a separately retained collection object.
     """
-    if type_expr.is_array or type_expr.pointer_depth > 1:
+    type_expr = canonical_cycle_type(gen, type_expr) or type_expr
+    if type_expr.is_array:
+        return None
+    from .managed_values import MUTEX_RUNTIME_NAME, is_class_type, is_mutex_type
+
+    if is_mutex_type(gen, type_expr):
+        return DirectVisitAction(MUTEX_RUNTIME_NAME)
+    if not is_class_type(gen, type_expr):
         return None
     info = gen.analyzed.class_table.get(type_expr.base)
     if info is None:
@@ -131,7 +147,14 @@ def visit_action(gen, type_expr: TypeExpr, seen: set[tuple]) -> DirectVisitActio
 
 def type_needs_visitor(gen, type_expr: TypeExpr, seen: set[tuple] | None = None) -> bool:
     """Whether this concrete representation has managed outgoing edges."""
-    if type_expr.is_array or type_expr.pointer_depth > 1:
+    type_expr = canonical_cycle_type(gen, type_expr) or type_expr
+    if type_expr.is_array:
+        return False
+    from .managed_values import is_class_type, is_mutex_type
+
+    if is_mutex_type(gen, type_expr):
+        return True
+    if not is_class_type(gen, type_expr):
         return False
     info = gen.analyzed.class_table.get(type_expr.base)
     if info is None:
@@ -164,10 +187,11 @@ def _concrete_type_may_cycle(gen, type_expr: TypeExpr) -> bool:
     acyclic wrapper may point *into* a cyclic component without being part of
     that component itself, so it can use synchronous reference counting.
     """
+    type_expr = canonical_cycle_type(gen, type_expr) or type_expr
     if not _is_managed_reference(gen, type_expr):
         return False
-    info = gen.analyzed.class_table[type_expr.base]
-    if info.generic_params and not type_expr.generic_args:
+    info = gen.analyzed.class_table.get(type_expr.base)
+    if info is not None and info.generic_params and not type_expr.generic_args:
         return True
     root = _emitted_name(type_expr)
     cache = getattr(gen, "_cycle_may_cache", None)
@@ -196,8 +220,16 @@ def _concrete_type_may_cycle(gen, type_expr: TypeExpr) -> bool:
 def _outgoing_managed_types(gen, type_expr: TypeExpr) -> list[TypeExpr]:
     from .polymorphic_cycles import runtime_type_candidates
 
+    type_expr = canonical_cycle_type(gen, type_expr) or type_expr
     if not _is_managed_reference(gen, type_expr):
         return []
+    from .managed_values import is_mutex_type
+
+    if is_mutex_type(gen, type_expr):
+        payload = type_expr.generic_args[0]
+        if not _is_managed_reference(gen, payload):
+            return []
+        return list(runtime_type_candidates(gen, payload))
     info = gen.analyzed.class_table[type_expr.base]
     arguments = list(type_expr.generic_args)
     if arguments and type_expr.base in BUILTIN_COLLECTION_LAYOUTS:
@@ -214,57 +246,34 @@ def _outgoing_managed_types(gen, type_expr: TypeExpr) -> list[TypeExpr]:
 
     substitutions = dict(zip(info.generic_params, arguments))
     if substitutions:
-        from .generics.core import _resolve_type
-
         candidates = [
-            _resolve_type(field.type, substitutions) for _name, field in info.instance_storage if field.type is not None
+            substitute_cycle_type(gen, field.type, substitutions)
+            for _name, field in info.instance_storage
+            if field.type is not None
         ]
     else:
         candidates = [field.type for _name, field in info.instance_storage if field.type is not None]
     outgoing = []
     for candidate in candidates:
-        from .mutex_fields import mutex_value_type
-
-        mutex_target = mutex_value_type(gen, candidate)
-        if mutex_target is not None and _is_managed_reference(gen, mutex_target):
-            outgoing.extend(runtime_type_candidates(gen, mutex_target))
-        elif _is_managed_reference(gen, candidate):
+        if _is_managed_reference(gen, candidate):
             outgoing.extend(runtime_type_candidates(gen, candidate))
     return outgoing
 
 
 def _type_has_visit_action(gen, type_expr: TypeExpr, seen: set[tuple]) -> bool:
-    from .mutex_fields import mutex_holds_class
-
-    return visit_action(gen, type_expr, seen) is not None or mutex_holds_class(
-        gen,
-        type_expr,
-    )
+    return visit_action(gen, type_expr, seen) is not None
 
 
 def _is_managed_reference(gen, type_expr: TypeExpr | None) -> bool:
-    return bool(
-        type_expr is not None
-        and not type_expr.is_array
-        and type_expr.pointer_depth <= 1
-        and type_expr.base in gen.analyzed.class_table
-    )
+    from .managed_values import is_arc_type
+
+    return bool(type_expr is not None and is_arc_type(gen, type_expr))
 
 
 def _emitted_name(type_expr: TypeExpr) -> str:
     if type_expr.generic_args:
         return mangle_generic_type(type_expr.base, type_expr.generic_args)
     return type_expr.base
-
-
-def _type_key(type_expr: TypeExpr) -> tuple:
-    return (
-        type_expr.base,
-        type_expr.pointer_depth,
-        type_expr.is_array,
-        type_expr.is_nullable,
-        tuple(_type_key(argument) for argument in type_expr.generic_args),
-    )
 
 
 __all__ = [

@@ -52,8 +52,11 @@ int main() {
     Node flat = identityType("A_int_p1");
     assert(typeSymbolComponent(nested).equals(
         "ZQtb2_41p1n0a0q0k1t19_b6_696e74p0n0a0q0k0"));
-    assert(mangleGenericSymbol("Holder", identityArgs1(nested))
-        != mangleGenericSymbol("Holder", identityArgs1(flat)));
+    string nestedHolder = mangleGenericSymbol(
+        "Holder", identityArgs1(nested));
+    string flatHolder = mangleGenericSymbol(
+        "Holder", identityArgs1(flat));
+    assert(nestedHolder != flatHolder);
     string holderUnderscore = mangleGenericSymbol(
         "Holder_A", identityArgs1(scalar));
     string holderNested = mangleGenericSymbol(
@@ -118,14 +121,38 @@ int main() {
     Node nullableText = identityType("string");
     nullableText.pointer_depth = 1;
     nullableText.is_nullable = true;
+    Node normalizedNullableText = identityType("string");
+    normalizedNullableText.is_nullable = true;
     Node textArray = identityType("string");
     textArray.is_array = true;
     Node rawTextPointer = identityType("string");
     rawTextPointer.pointer_depth = 1;
     assert(isSemanticScalarString(text));
     assert(isSemanticScalarString(nullableText));
+    assert(isSemanticScalarString(normalizedNullableText));
     assert(!isSemanticScalarString(textArray));
     assert(!isSemanticScalarString(rawTextPointer));
+
+    Node nullableParameter = identityType("T");
+    nullableParameter.pointer_depth = 1;
+    nullableParameter.is_nullable = true;
+    Node explicitPointerParameter = identityType("T");
+    explicitPointerParameter.pointer_depth = 2;
+    explicitPointerParameter.is_nullable = true;
+    Node classReference = identityType("Item");
+    classReference.pointer_depth = 1;
+    Node arrayReference = identityType("int");
+    arrayReference.is_array = true;
+    assert(typeSubstitutionPointerDepth(
+        nullableParameter, classReference) == 1);
+    assert(typeSubstitutionPointerDepth(
+        explicitPointerParameter, classReference) == 2);
+    assert(typeSubstitutionPointerDepth(
+        nullableParameter, scalar) == 1);
+    assert(typeSubstitutionPointerDepth(
+        nullableParameter, text) == 0);
+    assert(typeSubstitutionPointerDepth(
+        nullableParameter, arrayReference) == 0);
 
     Map<string, bool> names = {};
     names.put("U", true);

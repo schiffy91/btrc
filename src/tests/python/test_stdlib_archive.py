@@ -238,28 +238,28 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     header = (out / sa.HEADER_NAME).read_text()
     impl = (out / sa.IMPL_NAME).read_text()
     assert "#ifndef BTRC_STDLIB_H" in header
-    assert "extern void** __btrc_destroyed;" in header
-    assert "extern _Atomic int __btrc_tracking;" in header
-    assert "extern int __btrc_destroyed_count;" in header
-    assert "extern int __btrc_destroyed_cap;" in header
+    assert "extern _Thread_local void** __btrc_destroyed;" in header
+    assert "extern _Thread_local int __btrc_tracking;" in header
+    assert "extern _Thread_local int __btrc_destroyed_count;" in header
+    assert "extern _Thread_local int __btrc_destroyed_cap;" in header
     assert "extern _Thread_local __btrc_cleanup_entry* __btrc_cleanup_stack;" in header
     assert "extern _Thread_local int __btrc_cleanup_cap;" in header
     assert "extern void** __btrc_suspects;" in header
     assert "extern int __btrc_suspect_cap;" in header
     assert "void __btrc_cycle_state_cleanup(void);" in header
     assert "static void __btrc_cycle_state_cleanup(void)" not in header
-    assert "_Thread_local void** __btrc_destroyed" not in header
+    assert "static _Thread_local void** __btrc_destroyed" not in header
     assert "_Thread_local void** __btrc_suspects" not in header
     assert "static _Thread_local int __btrc_cleanup_cap" not in header
-    assert "void** __btrc_destroyed = NULL;" in impl
-    assert "_Atomic int __btrc_tracking = 0;" in impl
-    assert "int __btrc_destroyed_count = 0;" in impl
-    assert "int __btrc_destroyed_cap = 0;" in impl
+    assert "_Thread_local void** __btrc_destroyed = NULL;" in impl
+    assert "_Thread_local int __btrc_tracking = 0;" in impl
+    assert "_Thread_local int __btrc_destroyed_count = 0;" in impl
+    assert "_Thread_local int __btrc_destroyed_cap = 0;" in impl
     assert "_Thread_local int __btrc_cleanup_cap = 64;" in impl
     assert "void** __btrc_suspects = NULL;" in impl
     assert "int __btrc_suspect_cap = 0;" in impl
     assert "void __btrc_cycle_state_cleanup(void) {" in impl
-    assert "_Thread_local void** __btrc_destroyed" not in impl
+    assert "static _Thread_local void** __btrc_destroyed" not in impl
     assert "_Thread_local void** __btrc_suspects" not in impl
 
 
@@ -290,8 +290,13 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
         ],
         check=True,
         cwd=str(std),
+        timeout=120,
     )
-    subprocess.run(["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")], check=True)
+    subprocess.run(
+        ["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")],
+        check=True,
+        timeout=60,
+    )
 
     prog = tmp_path / "p.btrc"
     prog.write_text(CROSS_BOUNDARY_PROG)
@@ -301,8 +306,12 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     run_main(monkeypatch, ["--no-cache", str(prog), "-o", inline_c])
     capsys.readouterr()
     inline_bin = str(tmp_path / "inline_bin")
-    subprocess.run([cc, "-std=c11", inline_c, "-o", inline_bin, "-lm", "-lpthread"], check=True)
-    inline_out = subprocess.run([inline_bin], capture_output=True, text=True)
+    subprocess.run(
+        [cc, "-std=c11", inline_c, "-o", inline_bin, "-lm", "-lpthread"],
+        check=True,
+        timeout=120,
+    )
+    inline_out = subprocess.run([inline_bin], capture_output=True, text=True, timeout=30)
 
     # Reference build.
     ref_c = str(tmp_path / "ref.c")
@@ -310,9 +319,11 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     ref_bin = str(tmp_path / "ref_bin")
     subprocess.run(
-        [cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"], check=True
+        [cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"],
+        check=True,
+        timeout=120,
     )
-    ref_out = subprocess.run([ref_bin], capture_output=True, text=True)
+    ref_out = subprocess.run([ref_bin], capture_output=True, text=True, timeout=30)
 
     # Byte-identical behaviour — the whole point.
     assert ref_out.returncode == 0, ref_out.stderr
@@ -360,8 +371,13 @@ def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
         ],
         check=True,
         cwd=str(std),
+        timeout=120,
     )
-    subprocess.run(["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")], check=True)
+    subprocess.run(
+        ["ar", "rcs", str(std / "libbtrc.a"), str(std / "btrc_stdlib.o")],
+        check=True,
+        timeout=60,
+    )
 
     prog = tmp_path / "throw.btrc"
     prog.write_text(ARCHIVE_THROW_PROG)
@@ -370,9 +386,11 @@ def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     ref_bin = str(tmp_path / "throw_bin")
     subprocess.run(
-        [cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"], check=True
+        [cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"],
+        check=True,
+        timeout=120,
     )
-    ref_out = subprocess.run([ref_bin], capture_output=True, text=True)
+    ref_out = subprocess.run([ref_bin], capture_output=True, text=True, timeout=30)
 
     assert ref_out.returncode == 0, ref_out.stderr
     assert ref_out.stdout.strip() == "caught"

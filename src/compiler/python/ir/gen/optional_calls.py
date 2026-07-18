@@ -51,7 +51,14 @@ def lower_optional_method_call(gen, node: CallExpr):
         )
     ]
     declaration = callable_for_call(gen, node)
-    params = declaration.params if declaration is not None else []
+    from .call_contracts import resolved_params_for_call
+
+    params = resolved_params_for_call(gen, node)
+    plain_callee = replace(node.callee, optional=False)
+    plain_node = replace(node, callee=plain_callee)
+    from .callable_fields import callable_field_signature
+
+    callable_field = callable_field_signature(gen, node.callee) is not None
     from .evaluation_order import has_observable_effect
 
     has_later_operand = any(
@@ -60,6 +67,8 @@ def lower_optional_method_call(gen, node: CallExpr):
             params, node.args, arg_names_for(node, len(node.args))
         )
     )
+    from .receiver_pinning import receiver_pin_required
+
     receiver_suffix = _receiver_cleanup(
         gen,
         receiver_decl,
@@ -67,26 +76,45 @@ def lower_optional_method_call(gen, node: CallExpr):
         receiver_node,
         declarations,
         prelude,
-        pin_borrowed=has_later_operand,
+        pin_borrowed=receiver_pin_required(
+            gen,
+            receiver_node,
+            declared_call=declaration is not None,
+            later_effect=has_later_operand,
+            owned_local_type=gen.managed_local_type,
+        ),
     )
     operands, needs_boundary = plan_call_operands(
         gen,
         params,
         node.args,
         arg_names_for(node, len(node.args)),
+        callee=node.callee if callable_field else None,
         transferred_params=owned_transfer_param_indices(declaration),
     )
     result_type = gen.analyzed.node_types.get(id(node))
 
+    def lower_guarded_operand(value):
+        previous = gen._owning_temp_overrides.get(id(receiver_node))
+        gen._owning_temp_overrides[id(receiver_node)] = receiver
+        try:
+            return lower_expr(gen, plain_callee if value is node.callee else value)
+        finally:
+            if previous is None:
+                gen._owning_temp_overrides.pop(id(receiver_node), None)
+            else:
+                gen._owning_temp_overrides[id(receiver_node)] = previous
+
     def build_call(overrides):
         all_overrides = {id(receiver_node): receiver, **overrides}
+        if id(node.callee) in overrides:
+            all_overrides[id(plain_callee)] = overrides[id(node.callee)]
         previous = {key: gen._owning_temp_overrides.get(key) for key in all_overrides}
         gen._owning_temp_overrides.update(all_overrides)
         try:
             from .methods import lower_method_call
 
-            plain_callee = replace(node.callee, optional=False)
-            return lower_method_call(gen, replace(node, callee=plain_callee))
+            return lower_method_call(gen, plain_node)
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -98,12 +126,14 @@ def lower_optional_method_call(gen, node: CallExpr):
         call = sequence_call_boundary(
             gen,
             operands,
-            lower_expr=lambda value: lower_expr(gen, value),
+            lower_expr=lower_guarded_operand,
             build_call=build_call,
             result_c_type=(type_to_c(result_type) if result_type is not None else None),
             fresh_temp=gen.fresh_temp,
             cleanup_active=gen.exception_cleanup_active(),
             record_decl=gen._func_var_decls.append,
+            result_type=result_type,
+            result_owned=owns_result(gen, node),
         )
     else:
         call = build_call({})
@@ -114,6 +144,7 @@ def lower_optional_method_call(gen, node: CallExpr):
         result_type,
         receiver_suffix,
         declarations,
+        result_owned=owns_result(gen, node),
     )
     prelude.append(
         IRTernary(
@@ -144,9 +175,16 @@ def _receiver_cleanup(
 ):
     receiver = IRVar(name=receiver_decl.name)
     owned = bool(receiver_type is not None and owns_result(gen, receiver_node))
+    from .evaluation_order import borrowed_value_can_be_pinned
     from .managed_values import is_managed_type
 
-    pinned = bool(receiver_type is not None and pin_borrowed and not owned and is_managed_type(gen, receiver_type))
+    pinned = bool(
+        receiver_type is not None
+        and pin_borrowed
+        and borrowed_value_can_be_pinned(receiver_node)
+        and not owned
+        and is_managed_type(gen, receiver_type)
+    )
     if not owned and not pinned:
         return []
     if pinned:
@@ -190,6 +228,8 @@ def _release_receiver_after_call(
     result_type,
     suffix,
     declarations,
+    *,
+    result_owned,
 ):
     if not suffix:
         return call
@@ -203,8 +243,43 @@ def _release_receiver_after_call(
         declarations.append(result_decl)
         result = IRVar(name=result_decl.name)
         sequence.append(IRBinOp(left=result, op="=", right=call))
+        from .managed_values import is_managed_type
+
+        protect_result = bool(result_owned and is_managed_type(gen, result_type) and gen.exception_cleanup_active())
+        if protect_result:
+            from .temporary_cleanup import cleanup_registration
+
+            cleanup_decls, cleanup_exprs = cleanup_registration(
+                gen,
+                result_decl,
+                result_type,
+                "__btrc_optional_result_cleanup",
+            )
+            declarations.extend(cleanup_decls)
+            sequence.extend(cleanup_exprs)
+            handoff_decl = _temp_decl(
+                gen,
+                "__btrc_optional_result_handoff",
+                type_to_c(result_type),
+                IRLiteral(text="NULL"),
+            )
+            declarations.append(handoff_decl)
+            handoff = IRVar(name=handoff_decl.name)
         sequence.extend(suffix)
-        sequence.append(result)
+        if protect_result:
+            sequence.extend(
+                [
+                    IRBinOp(left=handoff, op="=", right=result),
+                    IRBinOp(
+                        left=result,
+                        op="=",
+                        right=IRLiteral(text="NULL"),
+                    ),
+                    handoff,
+                ]
+            )
+        else:
+            sequence.append(result)
     else:
         sequence.append(call)
         sequence.extend(suffix)

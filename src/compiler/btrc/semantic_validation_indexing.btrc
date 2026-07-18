@@ -32,7 +32,8 @@ Node semanticResolvedIndexedType(
     if (analyzed.isGenericClass(objectType.base)
             && objectType.generic_args.len > 0) {
         return resolveGenericType(
-            declared, genericTypeMap(analyzed, objectType));
+            declared, genericTypeMap(analyzed, objectType),
+            analyzed);
     }
     return declared;
 }
@@ -217,9 +218,15 @@ void semanticValidateIndexedMutation(Node target, bool requireGetter,
     Node? actualValue = semanticIndexResultType(receiver, state.analyzed);
     if (site.kind == NK_ASSIGN_EXPR && site.op == "=") {
         actualValue = semanticInferType(site.value_node, state, vars);
+        semanticValidateTypedInitializer(
+            expectedValue, site.value_node,
+            "Indexed setter value", state, vars);
     }
-    if (actualValue != null && !semanticAssignmentCompatible(
-            expectedValue, actualValue, state)) {
+    if (actualValue != null
+            && !(site.kind == NK_ASSIGN_EXPR
+                && semanticContextualAggregateInitializer(site.value_node))
+            && !semanticAssignmentCompatible(
+                expectedValue, actualValue, state)) {
         semanticValidationFail("Indexed setter expects value type '"
             + semanticFormatType(expectedValue) + "' but got '"
             + semanticFormatType(actualValue) + "'", site);

@@ -6,19 +6,18 @@ string threadRuntimeMutexCoreSource(string name) {
             + "    const void*, __btrc_mutex_value_access, void*, void*);\n"
             + "typedef void (*__btrc_mutex_finalize_callback)(void*);\n"
             + "typedef struct {\n"
+            + "    __btrc_arc_header arc;\n"
             + "    pthread_mutex_t lock;\n"
             + "    void* value;\n"
             + "    size_t size;\n"
             + "    __btrc_mutex_value_access access;\n"
             + "    __btrc_arc_slot_access_fn slot_access;\n"
             + "    void* context;\n"
-            + "    void* owner;\n"
             + "    __btrc_mutex_value_callback retain;\n"
             + "    __btrc_mutex_value_callback release;\n"
             + "    __btrc_mutex_finalize_callback finalize;\n"
             + "    __btrc_raise_fn raise;\n"
-            + "} __btrc_mutex_val_t;"
-            ;
+            + "} __btrc_mutex_val_t;";
     }
     if (name == "__btrc_mutex_value_callback_guard") {
         return "typedef struct {\n"
@@ -29,8 +28,7 @@ string threadRuntimeMutexCoreSource(string name) {
             + "    void* owner;\n"
             + "} __btrc_mutex_value_call;\n"
             + "static void __btrc_mutex_value_callback_thunk(void* raw) {\n"
-            + "    __btrc_mutex_value_call* call =\n"
-            + "        (__btrc_mutex_value_call*)raw;\n"
+            + "    __btrc_mutex_value_call* call = (__btrc_mutex_value_call*)raw;\n"
             + "    call->callback(\n"
             + "        call->storage, call->access, call->context, call->owner);\n"
             + "}\n"
@@ -44,8 +42,7 @@ string threadRuntimeMutexCoreSource(string name) {
             + "    return __btrc_arc_guard_hook(\n"
             + "        __btrc_mutex_value_callback_thunk,\n"
             + "        &call, error, error_capacity);\n"
-            + "}"
-            ;
+            + "}";
     }
     if (name == "__btrc_mutex_finalize_callback_guard") {
         return "typedef struct {\n"
@@ -64,8 +61,7 @@ string threadRuntimeMutexCoreSource(string name) {
             + "    return __btrc_arc_guard_hook(\n"
             + "        __btrc_mutex_finalize_callback_thunk,\n"
             + "        &call, error, error_capacity);\n"
-            + "}"
-            ;
+            + "}";
     }
     if (name == "__btrc_mutex_val_create") {
         return "static __btrc_mutex_val_t* __btrc_mutex_val_create(\n"
@@ -77,23 +73,32 @@ string threadRuntimeMutexCoreSource(string name) {
             + "        __btrc_mutex_value_callback release,\n"
             + "        __btrc_mutex_finalize_callback finalize,\n"
             + "        __btrc_raise_fn raise) {\n"
-            + "    if (!initial || size == 0) { fprintf(stderr, \"btrc: Mutex requires an initial value\\n\"); exit(1); }\n"
-            + "    if ((!retain) != (!release)) { fprintf(stderr, \"btrc: invalid Mutex ownership callbacks\\n\"); free(initial); exit(1); }\n"
-            + "    if ((!access) != (!retain)) { fprintf(stderr, \"btrc: invalid Mutex value adapter\\n\"); free(initial); exit(1); }\n"
-            + "    if (slot_access && !retain) { fprintf(stderr, \"btrc: invalid Mutex graph adapter\\n\"); free(initial); exit(1); }\n"
-            + "    if (finalize && !release) { fprintf(stderr, \"btrc: invalid Mutex finalizer callback\\n\"); free(initial); exit(1); }\n"
-            + "    if (raise && !release) { fprintf(stderr, \"btrc: invalid Mutex raise callback\\n\"); free(initial); exit(1); }\n"
-            + "    if ((!context) != (context_size == 0)) { fprintf(stderr, \"btrc: invalid Mutex ownership context\\n\"); free(initial); exit(1); }\n"
+            + "    if (!initial || size == 0) {\n"
+            + "        fprintf(stderr, \"btrc: Mutex requires an initial value\\n\");\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    if ((!retain) != (!release) || (!access) != (!retain)\n"
+            + "            || (slot_access && !retain) || (finalize && !release)\n"
+            + "            || (raise && !release)\n"
+            + "            || ((!context) != (context_size == 0))) {\n"
+            + "        fprintf(stderr, \"btrc: invalid Mutex ownership metadata\\n\");\n"
+            + "        free(initial);\n"
+            + "        exit(1);\n"
+            + "    }\n"
             + "    __btrc_mutex_val_t* m = (__btrc_mutex_val_t*)__btrc_safe_realloc(\n"
             + "        NULL, sizeof(__btrc_mutex_val_t));\n"
+            + "    memset(m, 0, sizeof(*m));\n"
             + "    int err = pthread_mutex_init(&m->lock, NULL);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: mutex init failed (%d)\\n\", err); free(initial); free(m); exit(1); }\n"
+            + "    if (err != 0) {\n"
+            + "        fprintf(stderr, \"btrc: mutex init failed (%d)\\n\", err);\n"
+            + "        free(initial);\n"
+            + "        free(m);\n"
+            + "        exit(1);\n"
+            + "    }\n"
             + "    m->value = initial;\n"
             + "    m->size = size;\n"
             + "    m->access = access;\n"
             + "    m->slot_access = slot_access;\n"
-            + "    m->context = NULL;\n"
-            + "    m->owner = NULL;\n"
             + "    if (context_size != 0) {\n"
             + "        m->context = __btrc_safe_realloc(NULL, context_size);\n"
             + "        memcpy(m->context, context, context_size);\n"
@@ -102,11 +107,15 @@ string threadRuntimeMutexCoreSource(string name) {
             + "    m->release = release;\n"
             + "    m->finalize = finalize;\n"
             + "    m->raise = raise;\n"
+            + "    m->arc.rc = 1;\n"
+            + "    m->arc.edge_rc = 0;\n"
+            + "    m->arc.type = &__btrc_mutex_arc_descriptor;\n"
+            + "    m->arc.state = __BTRC_ARC_LIVE;\n"
             + "    if (m->retain) {\n"
             + "        char error[1024] = \"\";\n"
             + "        if (__btrc_mutex_value_callback_guard(\n"
             + "                m->retain, m->value, m->access, m->context,\n"
-            + "                NULL, error, sizeof error)) {\n"
+            + "                m, error, sizeof error)) {\n"
             + "            __btrc_raise_fn saved_raise = m->raise;\n"
             + "            (void)pthread_mutex_destroy(&m->lock);\n"
             + "            free(m->context);\n"
@@ -116,8 +125,7 @@ string threadRuntimeMutexCoreSource(string name) {
             + "        }\n"
             + "    }\n"
             + "    return m;\n"
-            + "}"
-            ;
+            + "}";
     }
     return "";
 }

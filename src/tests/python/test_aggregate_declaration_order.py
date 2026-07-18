@@ -171,6 +171,12 @@ def test_invalid_aggregate_contracts_are_rejected(source: str, diagnostic: str):
             "#define __btrc_arc_visit_Box 1\nclass Leaf {} class Box { public Leaf value; }",
             "__btrc_arc_visit_Box",
         ),
+        (
+            "#define __btrc_arc_visit_btrc_Holder_Alias 1\n"
+            "class Item {} typedef Item Alias; "
+            "class Holder<T> { public T? value; } Holder<Alias> stored;",
+            "__btrc_arc_visit_btrc_Holder_Alias",
+        ),
     ),
 )
 def test_generated_c_symbol_collisions_are_rejected(source: str, symbol: str):

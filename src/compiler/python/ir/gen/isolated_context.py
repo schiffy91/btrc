@@ -29,6 +29,7 @@ def isolated_function_context(gen, return_c_type, return_type):
         gen._callable_exception_captures,
         gen._last_lambda_id,
         gen._owning_temp_overrides,
+        gen._type_temp_overrides,
         gen._normalizing_void_main,
         gen._c_array_scopes,
     )
@@ -52,6 +53,7 @@ def isolated_function_context(gen, return_c_type, return_type):
     gen._callable_exception_captures = []
     gen._last_lambda_id = 0
     gen._owning_temp_overrides = {}
+    gen._type_temp_overrides = {}
     gen._normalizing_void_main = False
     gen._c_array_scopes = []
     try:
@@ -78,6 +80,7 @@ def isolated_function_context(gen, return_c_type, return_type):
             gen._callable_exception_captures,
             gen._last_lambda_id,
             gen._owning_temp_overrides,
+            gen._type_temp_overrides,
             gen._normalizing_void_main,
             gen._c_array_scopes,
         ) = saved

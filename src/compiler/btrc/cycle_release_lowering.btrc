@@ -21,16 +21,16 @@ ManagedReleaseSlot stabilizeManagedReleaseSlot(IRGen generator,
     int shape = 0;
     if (expression.kind == NK_FIELD_ACCESS_EXPR
             && target.kind == IRK_FIELD_ACCESS) {
-        ownerType = inferType(
-            expression.obj, generator.analyzed, varTypes);
+        ownerType = generator.resolvedExpressionType(
+            expression.obj, varTypes);
         ownerValue = target.obj;
         shape = 1;
     } else if (expression.kind == NK_INDEX_EXPR
             && expression.obj.kind == NK_FIELD_ACCESS_EXPR
             && target.kind == IRK_INDEX
             && target.obj.kind == IRK_FIELD_ACCESS) {
-        ownerType = inferType(
-            expression.obj.obj, generator.analyzed, varTypes);
+        ownerType = generator.resolvedExpressionType(
+            expression.obj.obj, varTypes);
         ownerValue = target.obj.obj;
         shape = 2;
     }
@@ -58,6 +58,10 @@ ManagedReleaseSlot stabilizeManagedReleaseSlot(IRGen generator,
 }
 
 bool managedClassNeedsVisitor(IRGen generator, string emittedName) {
+    if (emittedName == irManagedMutexRuntimeType()) {
+        generator.useHelper("__btrc_mutex_arc_type");
+        return true;
+    }
     if (generator.analyzed.isClass(emittedName)) {
         return classNeedsCycleVisitor(generator, emittedName);
     }
@@ -74,7 +78,22 @@ bool managedClassNeedsVisitor(IRGen generator, string emittedName) {
     return false;
 }
 
+string managedVisitorSymbol(IRGen generator, string emittedName) {
+    if (emittedName == irManagedMutexRuntimeType()) {
+        generator.useHelper("__btrc_mutex_arc_type");
+        return "__btrc_mutex_arc_visit";
+    }
+    if (managedClassNeedsVisitor(generator, emittedName)) {
+        return cycleVisitorName(emittedName);
+    }
+    return "";
+}
+
 IRNode managedArcDescriptor(IRGen generator, string emittedName) {
+    if (emittedName == irManagedMutexRuntimeType()) {
+        generator.useHelper("__btrc_mutex_arc_type");
+        return irAddressOf(irVar("__btrc_mutex_arc_descriptor"));
+    }
     Vector<string> fields = [];
     fields.push("visit");
     fields.push("destroy");
@@ -98,7 +117,7 @@ IRNode managedArcDescriptor(IRGen generator, string emittedName) {
 IRNode managedArcRelease(IRGen generator, IRNode value,
         string emittedName) {
     string helper = "__btrc_arc_release_acyclic";
-    if (managedClassIsCyclable(generator, emittedName)) {
+    if (irManagedRuntimeCanCycle(generator, emittedName)) {
         helper = "__btrc_arc_release";
     }
     generator.useHelper(helper);

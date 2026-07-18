@@ -9,11 +9,14 @@ from ...ast_nodes import (
     FieldAccessExpr,
     FStringLiteral,
     StringLiteral,
+    TypeExpr,
 )
-from ..nodes import IRCall, IRLiteral, IRTernary
+from ..nodes import IRCall, IRFieldAccess, IRLiteral
 from .errors import CodegenError
 from .mutex_values import create_mutex_value
-from .types import format_spec_for_type
+from .printf_args import adapt_printf_arg
+from .type_resolution import canonical_type
+from .types import format_spec_for_type, is_string_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -22,7 +25,18 @@ if TYPE_CHECKING:
 def lower_print(gen: IRGenerator, args: list):
     """Lower ``print`` to one typed ``printf`` call."""
     from .expressions import lower_expr
-    from .stringable import has_to_string, to_string_call
+
+    return lower_typed_print(
+        gen,
+        args,
+        lower_value=lambda arg: lower_expr(gen, arg),
+        resolve_type=lambda arg: gen.analyzed.node_types.get(id(arg)),
+    )
+
+
+def lower_typed_print(gen, args, *, lower_value, resolve_type):
+    """Lower print with caller-provided value and concrete-type resolution."""
+    from .stringable import has_to_string
 
     if not args:
         return IRCall(callee="printf", args=[IRLiteral(text='"\\n"')])
@@ -30,13 +44,17 @@ def lower_print(gen: IRGenerator, args: list):
     formats = []
     ir_args = []
     for arg in args:
-        ir_arg = lower_expr(gen, arg)
-        arg_type = gen.analyzed.node_types.get(id(arg))
+        ir_arg = lower_value(arg)
+        arg_type = canonical_type(
+            resolve_type(arg),
+            gen.analyzed.typedef_table,
+        )
         fmt = format_spec_for_type(arg_type)
+        boundary_type = arg_type
 
         if has_to_string(gen.analyzed, arg_type):
-            ir_arg = to_string_call(gen, arg_type, ir_arg)
             fmt = "%s"
+            boundary_type = TypeExpr(base="string")
 
         if arg_type is None:
             if isinstance(arg, (FStringLiteral, StringLiteral)):
@@ -48,22 +66,28 @@ def lower_print(gen: IRGenerator, args: list):
                 if isinstance(callee, FieldAccessExpr) and callee.field in _STRING_METHODS:
                     fmt = "%s"
 
-        if arg_type and arg_type.base == "bool":
-            ir_arg = IRTernary(
-                condition=ir_arg,
-                true_expr=IRLiteral(text='"true"'),
-                false_expr=IRLiteral(text='"false"'),
-            )
-            fmt = "%s"
-
-        formats.append(fmt)
-        ir_args.append(ir_arg)
+        adapted = adapt_printf_arg(gen, ir_arg, boundary_type, fmt)
+        formats.append(adapted.format_spec)
+        ir_args.append(adapted.value)
 
     format_string = " ".join(formats) + "\\n"
     return IRCall(
         callee="printf",
         args=[IRLiteral(text=f'"{format_string}"'), *ir_args],
     )
+
+
+def lower_len(gen, value, value_type):
+    """Lower semantic string length through the checked runtime helper."""
+    resolved = canonical_type(value_type, gen.analyzed.typedef_table)
+    if is_string_type(resolved):
+        gen.use_helper("__btrc_string_length")
+        return IRCall(
+            callee="__btrc_string_length",
+            args=[value],
+            helper_ref="__btrc_string_length",
+        )
+    return IRFieldAccess(obj=value, field="len", arrow=True)
 
 
 _STRING_METHODS = frozenset(

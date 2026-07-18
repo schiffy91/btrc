@@ -84,7 +84,9 @@ def test_explicit_string_adoption_is_owned_and_materializes_its_helpers():
 
     assert "static inline char* __btrc_str_track" in emitted
     assert "char* owned = __btrc_str_track(raw);" in emitted
-    assert "__btrc_string_release(owned)" in emitted
+    clear = emitted.index("owned = NULL;")
+    release = emitted.index("__btrc_string_release(", clear)
+    assert clear < release
 
 
 @pytest.mark.parametrize(
@@ -195,6 +197,7 @@ def test_native_target_header_hooks_compile_strict_c11(
         ],
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert compiled.returncode == 0, compiled.stderr
 

@@ -13,11 +13,15 @@ void semanticValidateAssignment(Node expression,
             && (semanticManagedOwnershipType(target, state)
                 || isStringType(target))
             && state.borrowedBindings.has(expression.target.name);
+    bool borrowedSelfProjection = borrowedManagedRebind
+        && semanticBorrowedSelfProjection(
+            expression.value_node, expression.target.name, state, vars);
     bool rebindNeedsOwner = expression.op != "="
         || semanticExpressionOwnsResult(
             expression.value_node, state, vars)
-        || semanticManagedRebindSourceNeedsOwner(
-            expression.value_node, target, state, vars);
+        || (!borrowedSelfProjection
+            && semanticManagedRebindSourceNeedsOwner(
+                expression.value_node, target, state, vars));
     if (borrowedManagedRebind && rebindNeedsOwner) {
         semanticValidationFail(
             "Borrowed managed bindings cannot be rebound; declare an "
@@ -70,7 +74,8 @@ void semanticValidateAssignment(Node expression,
                     + "new owner for a fresh Thread result",
                 expression);
         }
-        if (!semanticAssignmentCompatible(target, source, state)) {
+        if (!semanticContextualAggregateInitializer(expression.value_node)
+                && !semanticAssignmentCompatible(target, source, state)) {
             semanticValidationFail("Cannot assign '"
                 + semanticFormatType(source) + "' to '"
                 + semanticFormatType(target) + "'", expression);
@@ -102,9 +107,45 @@ void semanticValidateAssignment(Node expression,
     if (!valid) { semanticOperatorFailure(expression, target, source); }
 }
 
+bool semanticBorrowedSelfProjection(Node? source, string targetName,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (source == null) { return false; }
+    if (source.kind == NK_CAST_EXPR) {
+        return semanticBorrowedSelfProjection(
+            source.expr, targetName, state, vars);
+    }
+    if (source.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+
+    Node? receiverType = semanticInferType(source.obj, state, vars);
+    Node? member = null;
+    if (receiverType != null) {
+        member = semanticLvalueMember(
+            receiverType, source.field, state);
+    }
+    if (member != null && member.kind == NK_PROPERTY_DECL
+            && member.getter_body != null) {
+        return false;
+    }
+
+    Node root = source.obj;
+    while (root.kind == NK_CAST_EXPR) { root = root.expr; }
+    if (root.kind == NK_IDENTIFIER) {
+        return root.name == targetName;
+    }
+    return semanticBorrowedSelfProjection(
+        root, targetName, state, vars);
+}
+
 bool semanticManagedRebindSourceNeedsOwner(Node? source, Node? target,
         SemanticValidationState state, Map<string, Node> vars) {
     if (source == null || target == null) { return false; }
+    Node? sourceType = semanticInferType(source, state, vars);
+    if (semanticRequiresTargetStringConversion(
+            target, sourceType, state)) {
+        /* The source binding may itself be borrowed, but invoking toString()
+         * creates a fresh managed result that a borrowed target cannot own. */
+        return true;
+    }
     if (source.kind == NK_NULL_LITERAL
             || source.kind == NK_STRING_LITERAL
             || source.kind == NK_CHAR_LITERAL) {

@@ -16,7 +16,7 @@ from src.tests.python.test_codegen import emit_c
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
-def test_bare_parameter_substitution_merges_complete_type_metadata():
+def test_nullable_parameter_substitution_merges_metadata_without_stacking_reference_layers():
     use_size = IntLiteral(value=4, raw="4")
     placeholder = TypeExpr(
         base="T",
@@ -43,7 +43,10 @@ def test_bare_parameter_substitution_merges_complete_type_metadata():
 
     assert result.base == "Item"
     assert [argument.base for argument in result.generic_args] == ["int"]
-    assert result.pointer_depth == 3
+    # ``T?`` carries a provisional pointer layer until T is known.  Item** is
+    # already reference-shaped, so nullable annotates that value rather than
+    # turning the array element into Item***.
+    assert result.pointer_depth == 2
     assert result.is_array is True
     assert result.array_size is use_size
     assert result.is_const is True
@@ -175,5 +178,12 @@ def test_generic_string_and_scalar_arrays_compile_and_run_under_strict_c11(
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
-    subprocess.run([binary], check=True, capture_output=True, text=True)
+    subprocess.run(
+        [binary],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )

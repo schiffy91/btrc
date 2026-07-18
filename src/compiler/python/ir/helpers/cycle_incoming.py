@@ -59,6 +59,23 @@ static unsigned int __btrc_reverse_epoch = 0;""",
 }""",
         depends_on=["__btrc_arc_header_of"],
     ),
+    "__btrc_arc_incoming_teardown_pending": HelperDef(
+        c_source=r"""static int __btrc_arc_incoming_teardown_pending(
+        void* object) {
+    __btrc_arc_header* header = __btrc_arc_header_of(object);
+    if (!header->incoming) return 0;
+    for (__btrc_arc_incoming* edge = header->incoming;
+            edge; edge = edge->next) {
+        void* owner = edge->owner;
+        if (!owner || owner == object) return 0;
+        __btrc_arc_validate(owner);
+        if (__btrc_arc_header_of(owner)->state != __BTRC_ARC_DESTROYING)
+            return 0;
+    }
+    return 1;
+}""",
+        depends_on=["__btrc_arc_validate"],
+    ),
     "__btrc_arc_reverse_proves_live": HelperDef(
         c_source=r"""static int __btrc_reverse_next_capacity(
         int capacity, const char* message) {

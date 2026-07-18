@@ -33,6 +33,7 @@ bool semanticIsNullType(Node? typeExpr) {
 int semanticReferenceDepth(Node typeExpr) {
     int depth = typeExpr.pointer_depth;
     if (typeExpr.is_array) { depth = depth + 1; }
+    if (typeExpr.is_nullable && depth > 1) { depth = depth - 1; }
     return depth;
 }
 
@@ -233,6 +234,52 @@ string semanticBinaryOperatorMethod(string op) {
     if (op == "<=") { return "__le__"; }
     if (op == ">=") { return "__ge__"; }
     return "";
+}
+
+Node? operatorOverloadReturnType(Node? receiverType, string op,
+        bool unary, Analyzed analyzed) {
+    if (receiverType == null) { return null; }
+    string methodName = unary && op == "-"
+        ? "__neg__" : semanticBinaryOperatorMethod(op);
+    if (methodName == "") { return null; }
+    Node? method = null;
+    if (analyzed.isClass(receiverType.base)) {
+        method = analyzed.classMethod(receiverType.base, methodName);
+    } else if (analyzed.isGenericClass(receiverType.base)) {
+        method = analyzed.genericClassMethod(
+            receiverType.base, methodName);
+    }
+    if (method == null || method.kind != NK_METHOD_DECL) { return null; }
+    Node concreteMethod = method;
+    if (receiverType.generic_args.len > 0
+            && analyzed.isGenericClass(receiverType.base)) {
+        return resolveGenericType(concreteMethod.return_type,
+            genericTypeMap(analyzed, receiverType),
+            analyzed);
+    }
+    return concreteMethod.return_type;
+}
+
+bool operatorInferenceRawPointer(Node? typeExpr, Analyzed analyzed) {
+    return typeExpr != null
+        && (typeExpr.pointer_depth > 0 || typeExpr.is_array)
+        && !analyzed.isClass(typeExpr.base)
+        && !analyzed.isGenericClass(typeExpr.base);
+}
+
+Node? operatorPointerArithmeticType(Node? left, Node? right,
+        string op, Analyzed analyzed) {
+    if (op == "-" && operatorInferenceRawPointer(left, analyzed)) {
+        if (operatorInferenceRawPointer(right, analyzed)) {
+            return makePrimType("long");
+        }
+        return left;
+    }
+    if (op == "+") {
+        if (operatorInferenceRawPointer(left, analyzed)) { return left; }
+        if (operatorInferenceRawPointer(right, analyzed)) { return right; }
+    }
+    return null;
 }
 
 /* `obj?.value ?? fallback` is a value-domain coalesce, not a null test on the

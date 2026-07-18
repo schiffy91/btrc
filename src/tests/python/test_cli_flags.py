@@ -51,6 +51,17 @@ USES_CONVERSIONS = (
     'float f = "12.5tail".toFloat(); bool b = "false".toBool(); '
     "return i == INT_MIN && n == LONG_MAX && f == 12.5f && !b ? 0 : 1; }\n"
 )
+TARGET_SETJMP_SHIM = r"""
+typedef intptr_t jmp_buf[5];
+#define setjmp(environment) __builtin_setjmp(environment)
+#define longjmp(environment, status) \
+    ((void)(status), __builtin_longjmp(environment, 1))
+"""
+TLS_RUNTIME_SYMBOLS = {
+    "__emutls_get_address",
+    "___emutls_get_address",
+    "___tlv_bootstrap",
+}
 
 
 # --- --debug / #line source map ---
@@ -144,8 +155,9 @@ def test_freestanding_thread_feature_selects_pthread_seam(tmp_path, monkeypatch)
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=30)
 
 
 # --- dead-code elimination + --no-dce ---
@@ -180,10 +192,13 @@ def test_dce_prunes_unused_stdlib_structs(tmp_path, monkeypatch):
     ids=("collections", "numeric-conversions"),
 )
 def test_freestanding_stdlib_links_with_zero_libc(tmp_path, monkeypatch, program):
-    # Core stdlib programs built against the reference implementation must
-    # have zero undefined symbols, including string-to-number conversions.
-    _c, out = compile_btrc(tmp_path, monkeypatch, program, "--freestanding", name="fk")
+    # Reached cleanup guards use a target-owned non-local-control-flow seam.
+    # Core programs then need no libc symbols; C11 TLS may use compiler support.
+    generated, out = compile_btrc(tmp_path, monkeypatch, program, "--freestanding", name="fk")
+    setjmp_shim = tmp_path / "btrc_test_setjmp.h"
+    setjmp_shim.write_text(TARGET_SETJMP_SHIM)
     obj = tmp_path / "fk.o"
+    setjmp_flags = ["-DBTRC_RT_SETJMP_HEADER=<btrc_test_setjmp.h>"] if "BTRC_RT_NEEDS_SETJMP" in generated else []
     r = subprocess.run(
         [
             "gcc",
@@ -194,6 +209,7 @@ def test_freestanding_stdlib_links_with_zero_libc(tmp_path, monkeypatch, program
             "-nostdlib",
             "-DBTRC_FREESTANDING",
             "-DBTRC_FREESTANDING_IMPL",
+            *setjmp_flags,
             f"-I{tmp_path}",
             "-c",
             str(out),
@@ -202,11 +218,14 @@ def test_freestanding_stdlib_links_with_zero_libc(tmp_path, monkeypatch, program
         ],
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert r.returncode == 0, r.stderr
-    nm = subprocess.run(["nm", str(obj)], capture_output=True, text=True)
-    undefined = [ln for ln in nm.stdout.splitlines() if " U " in ln]
-    assert not undefined, "freestanding object has external deps:\n" + "\n".join(undefined)
+    nm = subprocess.run(["nm", str(obj)], capture_output=True, text=True, timeout=30)
+    undefined = [line for line in nm.stdout.splitlines() if " U " in line]
+    allowed = TLS_RUNTIME_SYMBOLS if "_Thread_local" in generated else set()
+    unexpected = [line for line in undefined if line.split()[-1] not in allowed]
+    assert not unexpected, "freestanding object has external deps:\n" + "\n".join(unexpected)
 
 
 @pytest.mark.skipif(shutil.which("gcc") is None and shutil.which("cc") is None, reason="no C compiler")
@@ -240,10 +259,13 @@ int main(void) {
     cc = shutil.which("gcc") or shutil.which("cc")
     binp = tmp_path / "h"
     r = subprocess.run(
-        [cc, "-std=c11", "-w", f"-I{tmp_path}", str(tmp_path / "h.c"), "-o", str(binp)], capture_output=True, text=True
+        [cc, "-std=c11", "-w", f"-I{tmp_path}", str(tmp_path / "h.c"), "-o", str(binp)],
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert r.returncode == 0, r.stderr
-    run = subprocess.run([str(binp)], capture_output=True, text=True)
+    run = subprocess.run([str(binp)], capture_output=True, text=True, timeout=30)
     assert run.returncode == 0, f"{run.returncode} formatter mismatch(es)"
 
 
@@ -253,9 +275,12 @@ def test_debug_build_compiles_and_runs(tmp_path, monkeypatch):
     _c, out = compile_btrc(tmp_path, monkeypatch, USES_VECTOR, "--debug")
     binary = tmp_path / "prog_bin"
     r = subprocess.run(
-        [cc, "-std=c11", "-g", str(out), "-o", str(binary), "-lm", "-lpthread"], capture_output=True, text=True
+        [cc, "-std=c11", "-g", str(out), "-o", str(binary), "-lm", "-lpthread"],
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert r.returncode == 0, r.stderr
-    run = subprocess.run([str(binary)], capture_output=True, text=True)
+    run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
     assert run.returncode == 0
     assert run.stdout.strip() == "10"

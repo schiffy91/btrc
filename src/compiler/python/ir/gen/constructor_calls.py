@@ -27,7 +27,11 @@ def lower_new_expr(gen: IRGenerator, node: NewExpr):
     constructor = None
     if cls_info and cls_info.constructor:
         constructor = cls_info.constructor
-        params = resolved_constructor_params(cls_info, node.type)
+        params = resolved_constructor_params(gen, cls_info, node.type)
+    elif node.type.base == "Mutex" and node.type.generic_args:
+        from ...ast_nodes import Param
+
+        params = [Param(type=node.type.generic_args[0], name="value")]
     from .call_effects import owned_transfer_param_indices
 
     operands, needs_boundary = plan_call_operands(
@@ -61,9 +65,11 @@ def lower_new_expr(gen: IRGenerator, node: NewExpr):
         lower_expr=lambda value: lower_expr(gen, value),
         build_call=build_call,
         result_c_type=type_to_c(result_type),
+        result_type=result_type,
         fresh_temp=gen.fresh_temp,
         cleanup_active=gen.exception_cleanup_active(),
         record_decl=gen._func_var_decls.append,
+        result_owned=True,
     )
 
 
@@ -86,7 +92,7 @@ def _lower_new_plain(gen: IRGenerator, node: NewExpr):
     args = lower_arg_values(gen, node.args)
     cls_info = gen.analyzed.class_table.get(node.type.base)
     if cls_info and cls_info.constructor:
-        params = resolved_constructor_params(cls_info, node.type)
+        params = resolved_constructor_params(gen, cls_info, node.type)
         args = order_args_for_params(
             gen,
             params,

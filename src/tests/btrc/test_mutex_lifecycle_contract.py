@@ -98,26 +98,130 @@ def test_consumed_mutex_access_fails_deterministically(
         assert "cannot get a null Mutex" in run.stderr
 
 
-@pytest.mark.parametrize("operation", ["delete", "keep", "release"])
-def test_mutex_arc_ownership_operations_are_fail_closed(
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            """
+            MutexLifecyclePayload payload = new MutexLifecyclePayload(1);
+            Mutex<MutexLifecyclePayload> value = Mutex(payload);
+            release payload;
+            assert(mutexLifecyclePayloadsAlive == 1);
+            delete value;
+            assert(mutexLifecyclePayloadsAlive == 0);
+            assert(mutexLifecyclePayloadsDestroyed == 1);
+            """,
+            id="delete",
+        ),
+        pytest.param(
+            """
+            MutexLifecyclePayload payload = new MutexLifecyclePayload(2);
+            Mutex<MutexLifecyclePayload> value = Mutex(payload);
+            release payload;
+            assert((int)btrcTestMutexRefCount(value) == 1);
+            keep value;
+            assert((int)btrcTestMutexRefCount(value) == 2);
+            btrcTestReleaseKeptMutex(value);
+            assert((int)btrcTestMutexRefCount(value) == 1);
+            Mutex<MutexLifecyclePayload> alias = value;
+            assert((int)btrcTestMutexRefCount(alias) == 2);
+            release value;
+            assert((int)btrcTestMutexRefCount(alias) == 1);
+            assert(alias.get().id == 2);
+            delete alias;
+            assert(mutexLifecyclePayloadsAlive == 0);
+            assert(mutexLifecyclePayloadsDestroyed == 1);
+            """,
+            id="balanced-keep-release",
+        ),
+    ],
+)
+def test_mutex_supports_arc_ownership_operations(
     semantic_btrcc: Path,
     tmp_path: Path,
-    operation: str,
+    body: str,
 ) -> None:
     source = f"""
+        #include <assert.h>
+        #define btrcTestMutexRefCount(value) ((int)((value)->arc.rc))
+        #define btrcTestReleaseKeptMutex(value) \
+            ((void)__btrc_arc_release((value), (&__btrc_mutex_arc_descriptor)))
+
+        int mutexLifecyclePayloadsAlive = 0;
+        int mutexLifecyclePayloadsDestroyed = 0;
+
+        class MutexLifecyclePayload {{
+            public int id;
+            public MutexLifecyclePayload(int id) {{
+                self.id = id;
+                mutexLifecyclePayloadsAlive++;
+            }}
+            public void __del__() {{
+                mutexLifecyclePayloadsAlive--;
+                mutexLifecyclePayloadsDestroyed++;
+            }}
+        }}
+
         int main() {{
-            Mutex<int> value = Mutex(1);
-            {operation} value;
+            {body}
             return 0;
         }}
+    """
+    compiled = _compile_pair(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "mutex-arc-operation",
+    )
+    for artifact in compiled:
+        _strict_matrix(artifact, tmp_path)
+
+
+def test_destroy_releases_only_the_current_mutex_alias(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <assert.h>
+
+        int main() {
+            Mutex<int> original = Mutex(7);
+            Mutex<int> alias = original;
+            original.destroy();
+            assert(alias.get() == 7);
+            alias.destroy();
+            return 0;
+        }
+    """
+    compiled = _compile_pair(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "mutex-alias-destroy",
+    )
+    for artifact in compiled:
+        _strict_matrix(artifact, tmp_path)
+
+
+def test_destroy_must_be_a_standalone_expression_statement(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        int main() {
+            Mutex<int> value = Mutex(1);
+            for (int index = 0; index < 1; value.destroy()) {
+                index++;
+            }
+            return 0;
+        }
     """
     selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
     reference, _ = _compile_reference(
         tmp_path,
         source,
-        "mutex-invalid-ownership",
+        "mutex-nested-destroy",
     )
-    diagnostic = f"{operation} is not valid for type 'Mutex<int>'"
     for result in (selfhost, reference):
         assert result.returncode != 0
-        assert diagnostic in result.stderr
+        assert "Mutex.destroy() must be a standalone expression statement" in result.stderr

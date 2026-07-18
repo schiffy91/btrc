@@ -146,10 +146,7 @@ def test_generic_allocation_uses_structured_sizeof_type_operands():
     nodes = list(iter_ir_nodes(constructor))
     size_operands = [node.operand for node in nodes if isinstance(node, IRSizeof)]
 
-    assert size_operands == [
-        CType(text="btrc_Crate_int"),
-        CType(text="btrc_Crate_int"),
-    ]
+    assert size_operands == [CType(text="btrc_Crate_int")]
     assert not any(isinstance(node, IRCall) and node.callee == "sizeof" for node in nodes)
 
 

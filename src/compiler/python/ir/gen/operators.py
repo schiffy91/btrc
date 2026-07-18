@@ -29,6 +29,9 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
         flattened = lower_long_string_concat(gen, node)
         if flattened is not None:
             return flattened
+    prepared_overload = _lower_prepared_overload(gen, node)
+    if prepared_overload is not None:
+        return prepared_overload
     if node.op not in {"??", "&&", "||"}:
         from .evaluation_order import operands_require_order
         from .operator_ownership import operator_rhs_keep
@@ -137,6 +140,84 @@ def overloaded_binary_method(gen: IRGenerator, left_type, op: str):
     if cls_info is None:
         return None
     return cls_info.methods.get(magic)
+
+
+def resolved_operator_param_type(gen, left_type, method):
+    """Resolve an overload RHS type against its concrete receiver."""
+    if method is None or not method.params:
+        return None
+    expected = method.params[0].type
+    cls = gen.analyzed.class_table.get(left_type.base) if left_type else None
+    if cls and cls.generic_params and left_type.generic_args:
+        from .type_resolution import substitute_concrete_type
+
+        expected = substitute_concrete_type(
+            expected,
+            dict(zip(cls.generic_params, left_type.generic_args)),
+            gen.analyzed.typedef_table,
+        )
+    return expected
+
+
+def _lower_prepared_overload(gen, node):
+    """Lower an overload whose RHS needs target-directed conversion."""
+    left_type = gen.analyzed.node_types.get(id(node.left))
+    right_type = gen.analyzed.node_types.get(id(node.right))
+    method = overloaded_binary_method(gen, left_type, node.op)
+    expected = resolved_operator_param_type(gen, left_type, method)
+    if expected is None:
+        return None
+    from .prepared_values import prepare_normal_value, requires_string_conversion
+
+    if not requires_string_conversion(gen, expected, right_type):
+        return None
+    left = prepare_normal_value(gen, node.left, left_type)
+    right = prepare_normal_value(gen, node.right, expected)
+    from .call_boundary import CallOperand, sequence_call_boundary
+    from .evaluation_order import borrowed_value_can_be_pinned
+    from .ownership import owns_result
+    from .types import type_to_c
+
+    operands = [
+        CallOperand(
+            node=node.left,
+            type_expr=left.effective_type,
+            c_type=type_to_c(left.effective_type),
+            pin=bool(
+                borrowed_value_can_be_pinned(node.left) and is_managed_type(gen, left.effective_type) and not left.owned
+            ),
+            owned=left.owned,
+            lowered=left.value,
+        ),
+        CallOperand(
+            node=node.right,
+            type_expr=right.effective_type,
+            c_type=type_to_c(right.effective_type),
+            keep=bool(method.params[0].keep),
+            owned=right.owned,
+            lowered=right.value,
+        ),
+    ]
+
+    return sequence_call_boundary(
+        gen,
+        operands,
+        lower_expr=lambda _node: None,
+        build_call=lambda values: lower_overloaded_values(
+            gen,
+            left.effective_type,
+            right.effective_type,
+            node.op,
+            values[id(node.left)],
+            values[id(node.right)],
+        ),
+        result_c_type=type_to_c(gen.analyzed.node_types.get(id(node))),
+        result_type=gen.analyzed.node_types.get(id(node)),
+        fresh_temp=gen.fresh_temp,
+        cleanup_active=gen.exception_cleanup_active(),
+        record_decl=gen._func_var_decls.append,
+        result_owned=owns_result(gen, node),
+    )
 
 
 def _operator_method_name(op: str) -> str | None:

@@ -191,10 +191,58 @@ void semanticRejectOwnedElements(Vector<Node> elements, string aggregate,
     }
 }
 
+Node? semanticShallowElementType(Node aggregate, int index,
+        SemanticValidationState state) {
+    if (aggregate.is_array) {
+        return semanticArrayElementType(aggregate);
+    }
+    if (aggregate.base == "Tuple") {
+        if (index < aggregate.generic_args.len) {
+            return aggregate.generic_args.get(index);
+        }
+        return null;
+    }
+    string structName = semanticStructTypeName(
+        aggregate, state.analyzed);
+    if (structName == "" || !state.analyzed.structTable.has(structName)) {
+        return null;
+    }
+    Node declaration = state.analyzed.structTable.get(structName);
+    if (declaration.is_forward || index >= declaration.fields.len) {
+        return null;
+    }
+    return declaration.fields.get(index).type;
+}
+
+void semanticRejectConvertedShallowElements(Node aggregate,
+        Vector<Node> elements, SemanticValidationState state,
+        Map<string, Node> vars) {
+    int index = 0;
+    while (index < elements.len) {
+        Node element = elements.get(index);
+        Node? expected = semanticShallowElementType(
+            aggregate, index, state);
+        Node? actual = semanticInferType(element, state, vars);
+        if (semanticRequiresTargetStringConversion(
+                expected, actual, state)) {
+            semanticValidationFail(
+                "implicit class-to-string conversion cannot be embedded "
+                    + "in a shallow aggregate because conversion creates "
+                    + "a caller-owned temporary; bind the converted string "
+                    + "to an owner first",
+                element);
+        }
+        semanticRejectShallowInitializer(
+            expected, element, state, vars);
+        index = index + 1;
+    }
+}
+
 void semanticRejectShallowInitializer(Node? expected, Node initializer,
         SemanticValidationState state, Map<string, Node> vars) {
     if (expected == null || (initializer.kind != NK_BRACE_INITIALIZER
-            && initializer.kind != NK_LIST_LITERAL)) { return; }
+            && initializer.kind != NK_LIST_LITERAL
+            && initializer.kind != NK_TUPLE_LITERAL)) { return; }
     Node? canonical = semanticResolveAliases(expected, state);
     if (canonical == null) { return; }
     string structName = semanticStructTypeName(
@@ -202,6 +250,8 @@ void semanticRejectShallowInitializer(Node? expected, Node initializer,
     bool shallow = canonical.is_array || canonical.base == "Tuple"
         || (structName != "" && canonical.pointer_depth == 0);
     if (shallow) {
+        semanticRejectConvertedShallowElements(
+            canonical, initializer.elements, state, vars);
         semanticRejectOwnedElements(initializer.elements,
             "a shallow aggregate", state, vars);
     }

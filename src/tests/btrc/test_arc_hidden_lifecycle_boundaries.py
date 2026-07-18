@@ -55,7 +55,12 @@ def _compiler_environment(compiler: str) -> dict[str, str] | None:
     return environment
 
 
-def _tracked_strict_matrix(compiled: tuple[str, Path], tmp_path: Path) -> None:
+def _tracked_strict_matrix(
+    compiled: tuple[str, Path],
+    tmp_path: Path,
+    *,
+    expected_stdout: str | None = None,
+) -> None:
     for compiler in COMPILERS:
         output = tmp_path / f"{compiled[0]}-{Path(compiler).name}-tracked"
         environment = _compiler_environment(compiler)
@@ -92,6 +97,8 @@ def _tracked_strict_matrix(compiled: tuple[str, Path], tmp_path: Path) -> None:
             timeout=60,
         )
         assert run.returncode == 0, run.stderr
+        if expected_stdout is not None:
+            assert run.stdout == expected_stdout
 
 
 @pytest.mark.parametrize("fixture_name", BOUNDARY_CASES)

@@ -21,4 +21,17 @@ def property_needs_backing(property_decl: PropertyDecl) -> bool:
     )
 
 
-__all__ = ["instance_storage_name", "property_needs_backing"]
+def custom_property_getter(class_table, receiver_type, field: str) -> bool:
+    """Whether a field-shaped read dispatches user-defined getter code."""
+    if receiver_type is None:
+        return False
+    class_info = class_table.get(receiver_type.base)
+    property_decl = class_info.properties.get(field) if class_info else None
+    return bool(property_decl is not None and property_decl.getter_body is not None)
+
+
+__all__ = [
+    "custom_property_getter",
+    "instance_storage_name",
+    "property_needs_backing",
+]

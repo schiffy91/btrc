@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import replace
 
 from .ast_nodes import TypeExpr
 
 _SAFE_BASE = re.compile(r"[A-Za-z][A-Za-z0-9]*\Z")
 _RESERVED_PREFIX = "ZQ"
+_INTRINSIC_REFERENCE_BASES = frozenset(
+    {
+        "Array",
+        "List",
+        "Map",
+        "Mutex",
+        "Set",
+        "Thread",
+        "Vector",
+        "__fn_ptr",
+        "string",
+    }
+)
 _FORBIDDEN_GENERIC_FLAGS = (
     ("is_const", "const"),
     ("is_static", "static"),
@@ -77,20 +91,35 @@ def ensure_supported_generic_arguments(args) -> None:
 def substitute_type_expr(
     type_expr: TypeExpr | None,
     substitutions: dict[str, TypeExpr],
+    *,
+    reference_resolver: Callable[[TypeExpr], TypeExpr | None] | None = None,
 ) -> TypeExpr | None:
-    """Substitute recursively, composing every representable shape modifier."""
+    """Substitute recursively, composing every representable shape modifier.
+
+    ``reference_resolver`` makes typedefs transparent only for shape decisions.
+    The returned value keeps the substitution's source spelling so emitted
+    specialization identities remain stable.
+    """
     if type_expr is None:
         return None
     if type_expr.base in substitutions and not type_expr.generic_args:
         resolved = substitutions[type_expr.base]
-        if type_expr.is_array and resolved.is_array:
+        reference_shape = reference_resolver(resolved) if reference_resolver else resolved
+        reference_shape = reference_shape or resolved
+        if type_expr.is_array and reference_shape.is_array:
             raise TypeShapeError(
                 f"nested array composition for type parameter '{type_expr.base}' is not supported",
                 type_expr,
             )
+        applied_pointer_depth = type_expr.pointer_depth
+        if type_expr.is_nullable and applied_pointer_depth > 0 and _resolved_reference_shape(reference_shape):
+            # ``T?`` adds one reference layer while its target is unknown. Once
+            # T resolves to a reference/handle, nullable annotates that existing
+            # value instead of constructing a pointer-to-reference ABI.
+            applied_pointer_depth -= 1
         return replace(
             resolved,
-            pointer_depth=resolved.pointer_depth + type_expr.pointer_depth,
+            pointer_depth=resolved.pointer_depth + applied_pointer_depth,
             is_array=type_expr.is_array or resolved.is_array,
             array_size=(type_expr.array_size if type_expr.array_size is not None else resolved.array_size),
             is_const=type_expr.is_const or resolved.is_const,
@@ -104,17 +133,30 @@ def substitute_type_expr(
     if type_expr.generic_args:
         return replace(
             type_expr,
-            generic_args=[substitute_type_expr(argument, substitutions) for argument in type_expr.generic_args],
+            generic_args=[
+                substitute_type_expr(
+                    argument,
+                    substitutions,
+                    reference_resolver=reference_resolver,
+                )
+                for argument in type_expr.generic_args
+            ],
         )
     return type_expr
+
+
+def _resolved_reference_shape(type_expr: TypeExpr) -> bool:
+    return bool(type_expr.pointer_depth > 0 or type_expr.is_array or type_expr.base in _INTRINSIC_REFERENCE_BASES)
 
 
 def is_semantic_scalar_string(type_expr: TypeExpr | None) -> bool:
     """True only for string values represented by one collapsed ``char*``."""
     if type_expr is None or type_expr.base != "string" or type_expr.generic_args or type_expr.is_array:
         return False
-    nullable_collapse = 1 if type_expr.is_nullable else 0
-    return type_expr.pointer_depth - nullable_collapse == 0
+    depth = type_expr.pointer_depth
+    if type_expr.is_nullable and depth > 0:
+        depth -= 1
+    return depth == 0
 
 
 def is_semantic_scalar_void(type_expr: TypeExpr | None) -> bool:

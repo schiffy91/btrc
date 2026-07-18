@@ -53,6 +53,27 @@ class TypeDomainContractsMixin(
                 type_col,
             )
         canonical = self._canonical_type(type_expr)
+        if (
+            canonical
+            and canonical.base == "Mutex"
+            and (canonical.pointer_depth > 0 or canonical.is_array or canonical.is_const)
+        ):
+            self._error(
+                "Mutex<T> owner type must be one direct mutable handle; pointer, array, and const Mutex shapes are not supported",
+                type_line,
+                type_col,
+            )
+        if (
+            canonical
+            and canonical.base not in {"Mutex", "__fn_ptr"}
+            and canonical.base not in self.class_table
+            and self._contains_mutex_storage(canonical)
+        ):
+            self._error(
+                f"{subject} cannot embed a Mutex handle in shallow by-value storage; keep Mutex<T> as a direct managed value",
+                type_line,
+                type_col,
+            )
         self._validate_mutex_payloads_in_type(
             type_expr,
             active_type_params=active_type_params,

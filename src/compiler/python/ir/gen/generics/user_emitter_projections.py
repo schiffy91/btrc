@@ -4,16 +4,25 @@ from __future__ import annotations
 
 from ....index_protocol import indexed_protocol_info
 from ...nodes import IRCall, IRFieldAccess, IRIndex
+from ..fields import receiver_uses_arrow
 from ..types import mangle_generic_type
 
 
 def lower_generic_field_access(emitter, expression):
     """Consume an owned receiver while preserving a projected result."""
     result_type = emitter._resolve_expr_type(expression)
+    from ....class_storage import custom_property_getter
+
+    custom_getter = custom_property_getter(
+        emitter._gen.analyzed.class_table,
+        emitter._resolve_expr_type(expression.obj),
+        expression.field,
+    )
     sequenced = emitter._sequence_owned_nodes(
         [expression.obj],
         expression,
         lambda: _plain_field_access(emitter, expression),
+        pin_nodes=[expression.obj] if custom_getter else [],
         promote_result=bool(emitter._is_managed_type(result_type) and not emitter._projection_is_call(expression)),
     )
     if sequenced is not None:
@@ -23,10 +32,17 @@ def lower_generic_field_access(emitter, expression):
 
 def lower_generic_index(emitter, expression):
     """Sequence owned receiver/index values and lower collection get calls."""
+    receiver_type = emitter._resolve_expr_type(expression.obj)
+    protocol_getter = indexed_protocol_info(
+        receiver_type,
+        emitter._gen.analyzed.class_table,
+        method="get",
+    )
     sequenced = emitter._sequence_owned_nodes(
         [expression.obj, expression.index],
         expression,
         lambda: _plain_index(emitter, expression),
+        pin_nodes=[expression.obj] if protocol_getter is not None else [],
     )
     if sequenced is not None:
         return sequenced
@@ -66,7 +82,18 @@ def _plain_field_access(emitter, expression):
             callee=f"{prefix}_get_{field}",
             args=[receiver],
         )
-    return IRFieldAccess(obj=receiver, field=field, arrow=True)
+    return IRFieldAccess(
+        obj=receiver,
+        field=field,
+        arrow=bool(
+            emitter._gen
+            and receiver_uses_arrow(
+                emitter._gen,
+                receiver_type,
+                explicit=expression.arrow,
+            )
+        ),
+    )
 
 
 def _plain_index(emitter, expression):

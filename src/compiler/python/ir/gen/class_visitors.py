@@ -64,19 +64,6 @@ def emit_class_visitor(
             continue
         resolved = resolve_type(field_type) if resolve_type else field_type
         field = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
-        from .mutex_fields import visit_mutex_field
-
-        mutex_visit = visit_mutex_field(
-            gen,
-            resolved,
-            field,
-            IRVar(name="fn"),
-            IRVar(name="context"),
-        )
-        if mutex_visit is not None:
-            body.append(IRExprStmt(expr=mutex_visit))
-            visited = True
-            continue
         field_visits = slot_visit_stmts(gen, resolved, field)
         visited = visited or bool(field_visits)
         body.extend(field_visits)

@@ -16,7 +16,7 @@ from ..nodes import (
 )
 from .arguments import arg_names_for, lower_arg_values, order_args_for_params
 from .expressions import lower_expr
-from .sync_methods import lower_mutex_method, lower_thread_method
+from .sync_methods import lower_consuming_sync_method, lower_sync_method
 from .type_resolution import canonical_type
 from .types import (
     is_string_type,
@@ -92,13 +92,17 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             args = order_args_for_params(gen, method.params, node.args, arg_names_for(node, len(node.args)), args)
         return IRCall(callee=f"{obj_node.name}_{method_name}", args=args)
 
-    obj = lower_expr(gen, obj_node)
-    args = lower_arg_values(gen, node.args)
     obj_type = gen.analyzed.node_types.get(id(obj_node))
     resolved_obj_type = canonical_type(
         obj_type,
         gen.analyzed.typedef_table,
     )
+    consuming = lower_consuming_sync_method(gen, obj_node, method_name, resolved_obj_type)
+    if consuming is not None:
+        return consuming
+
+    obj = lower_expr(gen, obj_node)
+    args = lower_arg_values(gen, node.args)
 
     if is_string_type(resolved_obj_type) and method_name in _STRING_METHODS:
         return _lower_string_method(gen, obj, method_name, args)
@@ -138,19 +142,9 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         else:
             return _lower_to_string(gen, obj, resolved_obj_type, args)
 
-    # Thread<T> methods: .join() → __btrc_thread_join with unboxing
-    if resolved_obj_type and resolved_obj_type.base == "Thread" and resolved_obj_type.generic_args:
-        return lower_thread_method(gen, obj, method_name, resolved_obj_type)
-
-    # Mutex<T> methods: .get(), .set(), .destroy()
-    if resolved_obj_type and resolved_obj_type.base == "Mutex" and resolved_obj_type.generic_args:
-        return lower_mutex_method(
-            gen,
-            obj,
-            method_name,
-            resolved_obj_type,
-            args,
-        )
+    sync = lower_sync_method(gen, obj_node, obj, method_name, resolved_obj_type, args)
+    if sync is not None:
+        return sync
 
     # Class method: obj.method(args) → ClassName_method(obj, args)
     if resolved_obj_type and resolved_obj_type.base in gen.analyzed.class_table:

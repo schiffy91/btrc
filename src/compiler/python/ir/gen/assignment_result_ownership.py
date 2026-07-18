@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 
 def assignment_pins_borrowed_target(gen, target) -> bool:
     """Whether assignment lowering promotes a borrowed target receiver."""
@@ -39,4 +41,35 @@ def assignment_pins_borrowed_target(gen, target) -> bool:
     )
 
 
-__all__ = ["assignment_pins_borrowed_target"]
+def virtual_assignment_rhs_owns_result(
+    gen,
+    target,
+    value,
+    *,
+    type_of: Callable,
+    owns: Callable,
+) -> bool:
+    """Whether setter lowering must preserve the RHS as an owned result."""
+    from .assignment_ownership import virtual_assignment_target
+
+    if not virtual_assignment_target(gen, target):
+        return False
+    from .managed_values import is_managed_type
+
+    if is_managed_type(gen, type_of(target)):
+        return True
+    if owns(value):
+        return True
+    from .prepared_values import requires_string_conversion
+
+    return requires_string_conversion(
+        gen,
+        type_of(target),
+        type_of(value),
+    )
+
+
+__all__ = [
+    "assignment_pins_borrowed_target",
+    "virtual_assignment_rhs_owns_result",
+]

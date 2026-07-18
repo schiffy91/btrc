@@ -34,7 +34,8 @@ void genericClosureSeedParameters(Node method,
     int index = 0;
     while (index < method.params.len) {
         Node parameter = method.params.get(index);
-        Node resolved = resolveGenericType(parameter.type, substitutions);
+        Node resolved = resolveGenericType(
+            parameter.type, substitutions, analyzed);
         genericClosureRegisterType(
             resolved, substitutions, unresolved, analyzed);
         variables.put(parameter.name, resolved);
@@ -57,7 +58,8 @@ void genericClosureScanProperty(Node property,
     Map<string, Node> setterVariables =
         genericClosureCopyTypes(baseVariables);
     setterVariables.put(
-        "value", resolveGenericType(property.type, substitutions));
+        "value", resolveGenericType(
+            property.type, substitutions, analyzed));
     genericClosureWalkNode(property.setter_body, substitutions,
         unresolved, analyzed, setterVariables);
 }

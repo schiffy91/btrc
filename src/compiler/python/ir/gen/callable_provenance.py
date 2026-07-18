@@ -78,7 +78,7 @@ def known_language_call(gen, expression) -> bool:
         return True
     callee = expression.callee
     if isinstance(callee, Identifier):
-        return callee.name in gen.analyzed.class_table
+        return callee.name == "Mutex" or callee.name in gen.analyzed.class_table
     if not isinstance(callee, FieldAccessExpr):
         return False
 
@@ -113,7 +113,9 @@ def bind_local_callable(gen, name: str, type_expr, initializer) -> None:
     resolved = canonical_type(type_expr, gen.analyzed.typedef_table)
     if resolved is None or resolved.base != "__fn_ptr":
         gen._callable_return_abis.pop(name, None)
+        gen._callable_types.pop(name, None)
         return
+    gen._callable_types[name] = resolved
     gen._callable_return_abis[name] = (
         callable_return_abi(gen, initializer) if initializer is not None else BORROWED_RETURN
     )
@@ -137,6 +139,7 @@ def declare_callable_shadow(gen, name: str) -> None:
     if gen._callable_scope_declarations:
         gen._callable_scope_declarations[-1].add(name)
     gen._callable_return_abis.pop(name, None)
+    gen._callable_types.pop(name, None)
 
 
 def rebind_local_callable(gen, assignment) -> None:
@@ -177,21 +180,26 @@ def _record_exceptional_callable_flow(gen) -> None:
             states.append(state)
 
 
-def begin_callable_scope(gen) -> dict[str, str]:
+def begin_callable_scope(gen):
     """Open a lexical scope and return its enclosing ABI state."""
-    enclosing = gen._callable_return_abis.copy()
+    enclosing = (
+        gen._callable_return_abis.copy(),
+        gen._callable_types.copy(),
+    )
     gen._callable_scope_declarations.append(set())
     return enclosing
 
 
-def finish_callable_scope(gen, enclosing: dict[str, str]) -> None:
+def finish_callable_scope(gen, enclosing) -> None:
     """Drop inner declarations while preserving mutations of outer slots."""
+    enclosing_abis, enclosing_types = enclosing
     declared = gen._callable_scope_declarations.pop()
     current = gen._callable_return_abis
-    result = enclosing.copy()
-    for name in enclosing.keys() - declared:
-        result[name] = current.get(name, enclosing[name])
+    result = enclosing_abis.copy()
+    for name in enclosing_abis.keys() - declared:
+        result[name] = current.get(name, enclosing_abis[name])
     gen._callable_return_abis = result
+    gen._callable_types = enclosing_types
 
 
 def snapshot_callable_flow(gen) -> dict[str, str]:

@@ -247,11 +247,37 @@ string mangleFunctionPointerSymbol(Vector<Node> args) {
     return "__btrc_fn_ZQf" + typeIdentityEncodeTypes(args);
 }
 
+bool typeResolvedReferenceShape(Node typeExpr) {
+    return typeExpr.pointer_depth > 0 || typeExpr.is_array
+        || typeExpr.base == "Array" || typeExpr.base == "List"
+        || typeExpr.base == "Map" || typeExpr.base == "Mutex"
+        || typeExpr.base == "Set" || typeExpr.base == "Thread"
+        || typeExpr.base == "Vector" || typeExpr.base == "__fn_ptr"
+        || typeExpr.base == "string";
+}
+
+int typeAppliedSubstitutionPointerDepth(
+        Node placeholder, bool referenceShape) {
+    int applied = placeholder.pointer_depth;
+    if (placeholder.is_nullable && applied > 0
+            && referenceShape) {
+        applied = applied - 1;
+    }
+    return applied;
+}
+
+int typeSubstitutionPointerDepth(Node placeholder, Node resolved) {
+    return resolved.pointer_depth
+        + typeAppliedSubstitutionPointerDepth(
+            placeholder, typeResolvedReferenceShape(resolved));
+}
+
 bool isSemanticScalarString(Node? typeExpr) {
     if (typeExpr == null || typeExpr.base != "string"
             || typeExpr.generic_args.len > 0 || typeExpr.is_array) {
         return false;
     }
-    int nullableCollapse = typeExpr.is_nullable ? 1 : 0;
-    return typeExpr.pointer_depth - nullableCollapse == 0;
+    int depth = typeExpr.pointer_depth;
+    if (typeExpr.is_nullable && depth > 0) { depth = depth - 1; }
+    return depth == 0;
 }

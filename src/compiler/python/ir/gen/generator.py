@@ -66,6 +66,7 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         # borrowed. ``ambiguous`` is a conservative control-flow join and is
         # rejected when the callback returns a managed value.
         self._callable_return_abis: dict[str, str] = {}
+        self._callable_types: dict[str, TypeExpr] = {}
         self._callable_scope_declarations: list[set[str]] = []
         self._callable_exception_captures: list[tuple[frozenset[str], list[dict[str, str]]]] = []
         # Last lambda ID assigned (for linking lambda to var decl)
@@ -85,6 +86,7 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         # into a temp var so it can be released after the call. Maps the AST arg
         # node id -> the IRVar that replaces it during call lowering.
         self._owning_temp_overrides: dict[int, IRVar] = {}
+        self._type_temp_overrides: dict[int, object] = {}
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""

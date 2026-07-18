@@ -61,6 +61,17 @@ class InitializerValidationMixin:
         for element, (field_name, field_type) in zip(initializer.elements, fields):
             element_line = getattr(element, "line", line)
             element_col = getattr(element, "col", col)
+            if self._requires_string_conversion(
+                field_type,
+                self._infer_type(element),
+            ):
+                self._error(
+                    "Implicit class-to-string conversion is not supported "
+                    f"inside {aggregate_name}; prepare an owned string local "
+                    f"for field '{field_name}' first",
+                    element_line,
+                    element_col,
+                )
             self._validate_typed_initializer(
                 field_type,
                 element,
@@ -94,6 +105,17 @@ class InitializerValidationMixin:
             return False
         expected_element = element_types[0]
         for element in initializer.elements:
+            if expected.is_array and self._requires_string_conversion(
+                expected_element,
+                self._infer_type(element),
+            ):
+                self._error(
+                    "Implicit class-to-string conversion is not supported "
+                    "inside a shallow array initializer; prepare owned "
+                    "string locals first",
+                    getattr(element, "line", line),
+                    getattr(element, "col", col),
+                )
             self._validate_collection_element(expected_element, element, subject, line, col)
         self._record_node_type(initializer, expected)
         self._collect_generic_instances(expected)

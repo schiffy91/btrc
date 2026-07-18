@@ -17,40 +17,31 @@ void lowerOwnedReturn(IRGen generator, Node statement,
     }
 
     Node expression = statement.value_node;
-    IRNode value = generator.lowerExpr(expression, varTypes);
-    if (generator.currentReturnTypeNode != null
-            && expression.kind != NK_IDENTIFIER) {
-        value = generator.lowerAssignedValue(
-            expression, generator.currentReturnTypeNode, varTypes);
-    }
-    Node? valueType = generator.resolvedExpressionType(
-        expression, varTypes);
-    value = generator.coerceToString(
-        generator.currentReturnTypeNode, valueType, value);
-
     Node? returnType = generator.currentReturnTypeNode;
     if (returnType != null) {
         returnType = generator.resolveBodyType(returnType);
         returnType = resolveTypedefType(
             returnType, generator.analyzed.typedefTable);
     }
-    value = generator.upcastClassPointer(
-        returnType, valueType, value);
+    PreparedValue prepared = prepareTargetValue(
+        generator, expression, returnType, varTypes);
+    IRNode value = prepared.value;
     bool managedValue = irManagedType(generator, returnType);
     bool managedReturn = managedValue
         && generator.currentReturnOwned;
     bool expressionOwned = managedValue
-        && irContextualExpressionOwnsResult(
-            generator, expression, returnType, varTypes);
+        && prepared.owned;
     bool localOwned = false;
     string returnedLocal = "";
-    if (managedValue && expression.kind == NK_IDENTIFIER
+    if (!prepared.converted && managedValue
+            && expression.kind == NK_IDENTIFIER
             && irManagedLocalType(
                 generator, expression.name) != "") {
         localOwned = true;
         if (managedReturn) { returnedLocal = expression.name; }
     }
-    if (returnType != null && returnType.base == "Thread"
+    if (!prepared.converted && returnType != null
+            && returnType.base == "Thread"
             && expression.kind == NK_IDENTIFIER
             && generator.localCleanupKind(expression.name) == "thread") {
         returnedLocal = expression.name;
@@ -58,7 +49,8 @@ void lowerOwnedReturn(IRGen generator, Node statement,
 
     if (managedValue && !generator.currentReturnOwned
             && (expressionOwned || localOwned
-                || irBorrowsFromManagedLocal(generator, expression))) {
+                || (!prepared.converted
+                    && irBorrowsFromManagedLocal(generator, expression)))) {
         fprintf(stderr, "error: borrowed property getter cannot return an owned temporary or a value borrowed from a local owner\n");
         abortGen();
     }
@@ -86,6 +78,18 @@ void lowerOwnedReturn(IRGen generator, Node statement,
     if (promoteBorrowed) {
         output.push(irExprStmt(irRetainExpression(
             generator, result, returnType)));
+    }
+    if (managedReturn && returnedLocal == "") {
+        /* A destructor in the release batch may throw across this return.
+         * Register the in-flight owned result so longjmp cannot strand it.
+         * Returned managed locals already own registered source slots. */
+        string runtimeType = irManagedRuntimeType(
+            generator, returnType);
+        generator.maybeRegisterCleanup(
+            temporaryName,
+            irManagedCleanupSymbol(generator, runtimeType),
+            runtimeType,
+            output);
     }
     int releaseIndex = 0;
     while (releaseIndex < releases.len) {

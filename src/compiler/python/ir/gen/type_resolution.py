@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ...ast_nodes import TypeExpr
+from ...type_identity import substitute_type_expr
 
 
 def canonical_type(
@@ -50,4 +51,17 @@ def function_pointer_signature(type_expr, typedefs):
     return resolved.generic_args
 
 
-__all__ = ["canonical_type", "function_pointer_signature"]
+def substitute_concrete_type(type_expr, substitutions, typedefs):
+    """Substitute generics using canonical typedef targets for shape only."""
+    return substitute_type_expr(
+        type_expr,
+        substitutions,
+        reference_resolver=lambda value: canonical_type(value, typedefs),
+    )
+
+
+__all__ = [
+    "canonical_type",
+    "function_pointer_signature",
+    "substitute_concrete_type",
+]

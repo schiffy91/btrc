@@ -16,6 +16,12 @@ def lower_managed_local_assignment(gen, node: AssignExpr):
     target_type = gen.analyzed.node_types.get(id(node.target))
     if not _owned_identifier_slot(gen, node.target, target_type):
         return None
+    from .managed_values import managed_local_value_type
+
+    target_type = managed_local_value_type(
+        target_type,
+        gen.managed_local_type(node.target.name),
+    )
     if not is_managed_type(gen, target_type):
         return None
 
@@ -33,9 +39,17 @@ def lower_managed_slot_assignment(gen, node, target, target_type):
     if node.op != "=":
         return _lower_managed_slot_compound(gen, node, target, target_type)
     value = _lower_assignment_value(gen, target_type, node.value)
-    value_type = gen.analyzed.node_types.get(id(node.value))
+    from .prepared_values import prepare_normal_value
+
+    prepared = prepare_normal_value(
+        gen,
+        node.value,
+        target_type,
+        lowered=value,
+    )
+    value = prepared.value
+    value_type = prepared.effective_type
     value = upcast_class_pointer(gen, target_type, value_type, value)
-    owned = owns_result(gen, node.value)
     from .managed_replacement import lower_managed_slot_replacement
 
     return lower_managed_slot_replacement(
@@ -43,7 +57,7 @@ def lower_managed_slot_assignment(gen, node, target, target_type):
         target=target,
         target_type=target_type,
         value=value,
-        value_owned=owned,
+        value_owned=prepared.owned,
         c_type=type_to_c,
         fresh_temp=gen.fresh_temp,
         record_decl=gen._func_var_decls.append,

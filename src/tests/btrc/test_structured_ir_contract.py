@@ -66,9 +66,10 @@ def test_top_level_declarations_are_typed_end_to_end() -> None:
     assert 'substring(0, 15) == "typedef struct "' not in emitter
     assert 'substring(0, 8) == "typedef "' not in emitter
     registration = generator[generator.index("string fnPtrTypedefName(") : generator.index("string typeToC(")]
-    assert registration.index("typeToC(t.generic_args.get(component), a)") < (
-        registration.index("a.fnPtrOrder.push(mangled)")
-    )
+    canonicalize = registration.index("Node? canonical = resolveTypedefType(")
+    register_nested = registration.index("typeToC(canonical, a)")
+    register_outer = registration.index("a.fnPtrOrder.push(mangled)")
+    assert canonicalize < register_nested < register_outer
 
 
 def test_preprocessor_ir_is_validated_and_emitted_structurally() -> None:
@@ -169,21 +170,22 @@ def test_selfhost_portability_lowering_is_structured() -> None:
 
 def test_destroyed_query_has_its_own_helper_node() -> None:
     state = _source("cycle_runtime_state.btrc")
-    dependencies = _source("cycle_runtime_helpers.btrc")
+    dependencies = _source("cycle_runtime_dependencies_state.btrc")
     state_start = state.index('if (name == "__btrc_destroyed_tracking")')
     query_start = state.index('if (name == "__btrc_is_destroyed")')
     capacity_start = state.index('if (name == "__btrc_destroyed_capacity")')
 
     assert "__btrc_is_destroyed(void* ptr)" not in state[state_start:query_start]
     assert "__btrc_is_destroyed(void* ptr)" in state[query_start:capacity_start]
-    dependency_start = dependencies.index('if (name == "__btrc_is_destroyed")')
-    dependency_end = dependencies.index('if (name == "__btrc_destroyed_tracking_scope")', dependency_start)
+    marker = 'if (name == "__btrc_is_destroyed")'
+    dependency_start = dependencies.index(marker)
+    dependency_end = dependencies.index("if (name ==", dependency_start + len(marker))
     assert 'out.push("__btrc_destroyed_tracking")' in dependencies[dependency_start:dependency_end]
 
 
 def test_cycle_suspect_callable_is_split_from_thread_state() -> None:
     state = _source("cycle_runtime_state.btrc")
-    dependencies = _source("cycle_runtime_helpers.btrc")
+    dependencies = _source("cycle_runtime_dependencies_state.btrc")
 
     assert "static inline void __btrc_suspect(" in state
     assert '"static void __btrc_suspect(' not in state
@@ -194,16 +196,12 @@ def test_cycle_suspect_callable_is_split_from_thread_state() -> None:
 
 
 def test_optional_launder_callable_is_split_from_cleanup_state() -> None:
-    runtime = _source("trycatch_runtime_helpers.btrc")
-    dependencies = _source("ir_nodes.btrc")
+    runtime = _source("trycatch_runtime_state.btrc")
+    dependencies = _source("trycatch_runtime_dependencies.btrc")
 
     assert 'if (name == "__btrc_launder_state")' in runtime
     assert 'if (name == "__btrc_launder")' in runtime
-    cleanup = dependencies[
-        dependencies.index('else if (name == "__btrc_try_state_cleanup")') : dependencies.index(
-            "/* threads dependency edges"
-        )
-    ]
+    cleanup = dependencies[dependencies.index('else if (name == "__btrc_try_state_cleanup")') :]
     assert 'out.push("__btrc_launder_state")' in cleanup
     assert 'out.push("__btrc_launder")' not in cleanup
 

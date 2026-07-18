@@ -24,7 +24,7 @@ from ..nodes import (
 )
 from .managed_values import (
     adopt_edge_value,
-    is_class_type,
+    is_arc_type,
     is_managed_type,
     poll_released_values,
     release_edge_value,
@@ -99,9 +99,18 @@ def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
             field_type,
         )
     value = _lower_value(gen, node.value, field_type)
-    value_type = gen.analyzed.node_types.get(id(node.value))
+    from .prepared_values import prepare_normal_value
+
+    prepared = prepare_normal_value(
+        gen,
+        node.value,
+        field_type,
+        lowered=value,
+    )
+    value = prepared.value
+    value_type = prepared.effective_type
     value = upcast_class_pointer(gen, field_type, value_type, value)
-    owned = _is_owned_value(gen, node.value)
+    owned = prepared.owned
     value_decl = _temp_decl(gen, "__btrc_field_new", type_to_c(field_type), None)
     new_value = IRVar(name=value_decl.name)
 
@@ -110,7 +119,7 @@ def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
         IRBinOp(left=new_value, op="=", right=value),
     ]
     declarations = [receiver_decl, value_decl]
-    if is_class_type(gen, field_type):
+    if is_arc_type(gen, field_type):
         sequence.append(
             replace_edge_value(
                 gen,
@@ -159,7 +168,7 @@ def _lower_managed_field_compound(
     from .managed_updates import lower_managed_compound_update
 
     right_type = gen.analyzed.node_types.get(id(node.value)) or field_type
-    class_edge = is_class_type(gen, field_type)
+    class_edge = is_arc_type(gen, field_type)
 
     def commit(old, replacement):
         if class_edge:

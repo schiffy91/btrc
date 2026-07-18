@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from ...ast_nodes import TypeExpr
+from ...reference_semantics import is_c_string_pointer
 from ...type_identity import (
     ensure_supported_generic_arguments,
     is_semantic_scalar_string,
@@ -45,19 +46,19 @@ def type_to_c(t: TypeExpr | None) -> str:
     if base == "__fn_ptr" and t.generic_args:
         return fn_ptr_typedef_name(t)
 
-    # Thread<T> → __btrc_thread_t* (opaque handle, no class struct)
-    if base == "Thread" and t.generic_args:
-        return "__btrc_thread_t*"
-
-    # Mutex<T> → __btrc_mutex_val_t* (opaque handle)
-    if base == "Mutex" and t.generic_args:
-        return "__btrc_mutex_val_t*"
-
     # Const qualifier prefix
     prefix = "const " if getattr(t, "is_const", False) else ""
 
+    # Thread<T> → __btrc_thread_t* (opaque handle, no class struct)
+    if base == "Thread" and t.generic_args:
+        c = "__btrc_thread_t*"
+
+    # Mutex<T> → __btrc_mutex_val_t* (ARC-managed graph node)
+    elif base == "Mutex" and t.generic_args:
+        c = "__btrc_mutex_val_t*"
+
     # Primitives
-    if base in _PRIMITIVE_MAP and not t.generic_args:
+    elif base in _PRIMITIVE_MAP and not t.generic_args:
         c = _PRIMITIVE_MAP[base]
     # Tuple types
     elif base == "Tuple" or base.startswith("("):
@@ -75,7 +76,7 @@ def type_to_c(t: TypeExpr | None) -> str:
     # double-pointering to char** (which older compilers only warned about, but
     # gcc 15 rejects as an incompatible-pointer error).
     depth = t.pointer_depth
-    if t.is_nullable and c.endswith("*"):
+    if t.is_nullable and (c.endswith("*") or depth > 1):
         depth -= 1
     c += "*" * depth
 
@@ -224,7 +225,8 @@ def is_direct_generic_instance_reference(
         return False
     # Analyzer normalization upgrades class values from semantic depth 0 to C
     # reference depth 1.  A composed/raw pointer around that value is depth 2+.
-    return t.pointer_depth <= 1
+    depth = t.pointer_depth - int(t.is_nullable and t.pointer_depth > 1)
+    return depth <= 1
 
 
 def element_type_c(t: TypeExpr) -> str:
@@ -239,8 +241,12 @@ def format_spec_for_type(t: TypeExpr | None) -> str:
     if t is None:
         return "%d"  # Default: most untracked expressions are int
     base = t.base
-    if t.pointer_depth > 0:
-        return "%s"  # Any pointer (char*, etc.) → %s
+    if base == "__fn_ptr":
+        return "%s"  # Rendered as a fixed token; never cast to void*.
+    if is_string_type(t) or is_c_string_pointer(t):
+        return "%s"
+    if type_to_c(t).rstrip().endswith("*") or t.is_array:
+        return "%p"
     if base in ("int", "short", "short int", "signed int", "signed short", "signed short int"):
         return "%d"
     if base in ("byte", "uint", "unsigned int", "unsigned short", "unsigned short int", "unsigned char"):
@@ -261,8 +267,6 @@ def format_spec_for_type(t: TypeExpr | None) -> str:
         return "%Lf"
     if base == "char":
         return "%c"
-    if base == "string":
-        return "%s"
     if base == "bool":
         return "%s"  # Needs special handling: val ? "true" : "false"
     return "%d"  # Default to %d for unknown types

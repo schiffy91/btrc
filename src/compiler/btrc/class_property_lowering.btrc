@@ -92,7 +92,8 @@ Map<string, Node> genericPropertyVarTypes(IRGen generator,
     selfType.pointer_depth = 1;
     variables.put("self", selfType);
     if (includeValue) {
-        variables.put("value", resolveGenericType(property.type, typeMap));
+        variables.put("value", resolveGenericType(
+            property.type, typeMap, generator.analyzed));
     }
     return variables;
 }
@@ -103,7 +104,8 @@ void emitGenericPropertyForwardDecls(IRGen generator, GenInstance instance,
     while (index < declaration.members.len) {
         Node property = declaration.members.get(index);
         if (property.kind == NK_PROPERTY_DECL) {
-            Node resolvedType = resolveGenericType(property.type, typeMap);
+            Node resolvedType = resolveGenericType(
+                property.type, typeMap, generator.analyzed);
             string propertyType = typeToC(
                 resolvedType, generator.analyzed);
             if (property.has_getter) {
@@ -137,7 +139,8 @@ void emitGenericProperties(IRGen generator, GenInstance instance,
     while (index < declaration.members.len) {
         Node property = declaration.members.get(index);
         if (property.kind == NK_PROPERTY_DECL) {
-            Node resolvedType = resolveGenericType(property.type, typeMap);
+            Node resolvedType = resolveGenericType(
+                property.type, typeMap, generator.analyzed);
             string propertyType = typeToC(
                 resolvedType, generator.analyzed);
             string backing = instanceStorageName(property);

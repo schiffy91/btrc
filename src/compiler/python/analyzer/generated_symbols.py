@@ -10,6 +10,7 @@ _CYCLE_COLLECTIONS = frozenset({"Vector", "Array", "List", "Map", "Set"})
 
 class GeneratedSymbolContractsMixin:
     def _managed_storage_type(self, type_expr) -> bool:
+        type_expr = self._canonical_type(type_expr)
         return bool(
             type_expr is not None
             and not type_expr.is_array
@@ -25,7 +26,13 @@ class GeneratedSymbolContractsMixin:
             return base_name == "List" or any(self._managed_storage_type(argument) for argument in arguments)
         substitutions = dict(zip(info.generic_params, arguments))
         return any(
-            self._managed_storage_type(substitute_type_expr(field.type, substitutions))
+            self._managed_storage_type(
+                substitute_type_expr(
+                    field.type,
+                    substitutions,
+                    reference_resolver=self._canonical_type,
+                )
+            )
             for _name, field in info.instance_storage
         )
 

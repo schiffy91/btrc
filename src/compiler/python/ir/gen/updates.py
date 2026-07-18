@@ -179,13 +179,22 @@ def generator_update_context(gen) -> UpdateContext:
     from .expressions import lower_expr
     from .operator_context import operator_context
     from .operators import lower_overloaded_values
+    from .ownership import owns_result
     from .types import type_to_c
     from .upcast import upcast_class_pointer
+    from .virtual_stores import lower_virtual_store_boundary
 
     analyzed = gen.analyzed
+
+    def type_of(node):
+        return gen._type_temp_overrides.get(
+            id(node),
+            analyzed.node_types.get(id(node)),
+        )
+
     lvalues = LValueContext(
         lower_expr=lambda node: lower_expr(gen, node),
-        type_of=lambda node: analyzed.node_types.get(id(node)),
+        type_of=type_of,
         c_type=type_to_c,
         fresh_temp=gen.fresh_temp,
         register_decl=gen._func_var_decls.append,
@@ -206,68 +215,20 @@ def generator_update_context(gen) -> UpdateContext:
             gen, target_type, source_type, value
         ),
         lower_value=lambda target_type, value: _lower_assignment_value(gen, target_type, value),
-        store_boundary=lambda node, plan: _lower_virtual_store_boundary(
+        store_boundary=lambda node, plan: lower_virtual_store_boundary(
             gen,
             node,
             plan,
             lower_value=lambda target_type, value: _lower_assignment_value(gen, target_type, value),
             coerce=lambda target_type, source_type, value: upcast_class_pointer(gen, target_type, source_type, value),
+            render_type=type_to_c,
+            fresh_temp=gen.fresh_temp,
+            cleanup_active=gen.exception_cleanup_active(),
+            record_decl=gen._func_var_decls.append,
+            owns_result=lambda value: owns_result(gen, value),
         ),
         allow_unresolved_c_operands=True,
     )
-
-
-def _lower_virtual_store_boundary(gen, node, plan, *, lower_value, coerce):
-    """Give setter sugar the same owned-argument boundary as a call."""
-    if plan.kind not in {"collection", "property"}:
-        return None
-    from ...index_protocol import indexed_protocol
-    from ..nodes import IRCommaExpr
-    from .call_boundary import CallOperand, sequence_call_boundary
-    from .managed_values import is_managed_type
-    from .ownership import owns_result
-    from .types import type_to_c
-
-    setter = None
-    if plan.kind == "collection":
-        receiver_type = gen.analyzed.node_types.get(id(node.target.obj))
-        protocol = indexed_protocol(receiver_type, gen.analyzed.class_table)
-        setter = protocol.setter if protocol is not None else None
-        if setter is None:
-            return None
-    source_type = gen.analyzed.node_types.get(id(node.value)) or plan.value_type
-    managed = is_managed_type(gen, source_type)
-    owned = bool(managed and owns_result(gen, node.value))
-    keep = bool(managed and setter is not None and setter.params[1].keep)
-    if not owned and not keep:
-        return None
-
-    operand = CallOperand(
-        node=node.value,
-        type_expr=source_type,
-        c_type=type_to_c(source_type),
-        keep=keep,
-        owned=owned,
-        transferred=owned,
-    )
-
-    def build_store(overrides):
-        source = overrides[id(node.value)]
-        value = coerce(plan.value_type, source_type, source)
-        return IRCommaExpr(expressions=[plan.store(value), value])
-
-    boundary = sequence_call_boundary(
-        gen,
-        [operand],
-        lower_expr=lambda value: lower_value(plan.value_type, value),
-        build_call=build_store,
-        result_c_type=type_to_c(plan.value_type),
-        result_type=plan.value_type,
-        fresh_temp=gen.fresh_temp,
-        cleanup_active=gen.exception_cleanup_active(),
-        record_decl=gen._func_var_decls.append,
-    )
-    return plan.wrap([boundary])
 
 
 def _lower_assignment_value(gen, target_type, value) -> IRExpr:

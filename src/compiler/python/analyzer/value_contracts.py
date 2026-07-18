@@ -234,7 +234,7 @@ class ValueContractsMixin:
             expression,
             operand_type,
         )
-        if operand_type and operand_type.base in {"Mutex", "Thread"}:
+        if operand_type and operand_type.base == "Thread":
             self._error(
                 f"{operation} is not valid for type '{self._format_type(operand_type)}'",
                 statement.line,

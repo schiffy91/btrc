@@ -413,7 +413,8 @@ Analyzed analyzeProgram(Node prog) {
         Node d = prog.declarations.get(gv);
         if (d.kind == NK_VAR_DECL_STMT && d.type == null && d.initializer != null) {
             Map<string, Node> empty = {};
-            Node? gt = inferType(d.initializer, a, empty);
+            Node? gt = inferSpecializationType(
+                d.initializer, a, empty);
             if (gt != null) { a.globalVarTypes.put(d.name, gt); }
         }
         gv = gv + 1;
@@ -512,7 +513,8 @@ void collectMethodGenericsStmt(Node s, Analyzed a, Map<string, Node> vt) {
         if (s.type != null) {
             vt.put(s.name, s.type);
         } else if (s.initializer != null) {
-            Node? it = inferType(s.initializer, a, vt);
+            Node? it = inferSpecializationType(
+                s.initializer, a, vt);
             if (it != null) { vt.put(s.name, it); }
         }
     } else if (s.kind == NK_RETURN_STMT) {
@@ -598,7 +600,7 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
     if (objNode != null && objNode.kind == NK_IDENTIFIER && a.isClass(objNode.name)) {
         return;
     }
-    Node? ot = inferType(objNode, a, vt);
+    Node? ot = inferSpecializationType(objNode, a, vt);
     if (ot == null) { return; }
     /* Resolve the owning method declaration (generic instance OR plain class).
      * `classArgs` is a FRESH copy of the receiver's generic args (never an alias
@@ -703,7 +705,7 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
  * (or its nested args) names. */
 void registerSubstitutedGenerics(Node? t, Map<string, Node> subs, Analyzed a) {
     if (t == null) { return; }
-    Node resolved = resolveGenericType(t, subs);
+    Node resolved = resolveGenericType(t, subs, a);
     registerGenericInstance(resolved, a);
 }
 
@@ -721,7 +723,8 @@ void inferMethodTypeArgs(Node call, Node method, Map<string, Node> classSubs,
     }
     int i = 0;
     while (i < method.params.len && i < call.args.len) {
-        Node declared = resolveGenericType(method.params.get(i).type, classSubs);
+        Node declared = resolveGenericType(
+            method.params.get(i).type, classSubs, a);
         Node? actual = argTypeForInference(call.args.get(i), a, vt);
         if (actual != null) {
             unifyTypeParam(declared, actual, tparams, subs);
@@ -747,7 +750,7 @@ Node? argTypeForInference(Node arg, Analyzed a, Map<string, Node> vt) {
         u.generic_args = ga;
         return u;
     }
-    return inferType(arg, a, vt);
+    return inferSpecializationType(arg, a, vt);
 }
 
 /* Structurally unify `declared` (may mention type params) with `actual`,
@@ -847,7 +850,8 @@ void validateNestedClassArguments(string owner, Node? typeExpr, Analyzed a) {
 void validateSpecializedType(string owner, Node? declared,
                              Map<string, Node> substitutions, Analyzed a) {
     if (declared == null) { return; }
-    Node resolved = resolveGenericType(declared, substitutions);
+    Node resolved = resolveGenericType(
+        declared, substitutions, a);
     validateNestedClassArguments(owner, resolved, a);
 }
 
@@ -940,7 +944,7 @@ void registerTransitiveGenericInstances(Analyzed a) {
 bool registerResolvedGenericInstance(Node? t, Map<string, Node> tm,
                                      Map<string, bool> unresolved, Analyzed a) {
     if (t == null) { return false; }
-    Node resolved = resolveGenericType(t, tm);
+    Node resolved = resolveGenericType(t, tm, a);
     int before = a.genericInstances.len;
     registerGenericInstanceWithUnresolved(resolved, a, unresolved);
     return a.genericInstances.len > before;
@@ -965,33 +969,32 @@ void upgradeDeclGenericArgs(Node d, Analyzed a) {
             upgradeBlockGenericArgs(d.body_node, a, unresolved);
         }
     } else if (d.kind == NK_CLASS_DECL) {
-        /* Generic-class members stay as templates; their class parameters are
-         * resolved from already-normalized instance arguments. Non-generic
-         * classes can still own generic methods, whose method parameters must
-         * shadow same-named global classes during this pass. */
-        if (d.generic_params.len == 0) {
-            Map<string, bool> classParameters = {};
-            int i = 0;
-            while (i < d.members.len) {
-                Node mem = d.members.get(i);
-                if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
-                    upgradeTypeGenericArgs(mem.type, a, classParameters);
-                } else if (mem.kind == NK_METHOD_DECL) {
-                    Map<string, bool> unresolved = mergeTypeParameterSets(
-                        classParameters, mem.generic_params);
-                    int p = 0;
-                    while (p < mem.params.len) {
-                        upgradeTypeGenericArgs(
-                            mem.params.get(p).type, a, unresolved);
-                        p = p + 1;
-                    }
-                    upgradeTypeGenericArgs(mem.return_type, a, unresolved);
-                    if (mem.body_node != null) {
-                        upgradeBlockGenericArgs(mem.body_node, a, unresolved);
-                    }
+        /* Keep class parameters as unresolved templates while normalizing every
+         * concrete nested class type. This matters for signatures such as
+         * `Mutex<Payload>` inside a generic class: Payload still has pointer
+         * representation even though an unrelated `T` remains unresolved. */
+        Map<string, bool> classParameters =
+            typeParameterSet(d.generic_params);
+        int i = 0;
+        while (i < d.members.len) {
+            Node mem = d.members.get(i);
+            if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
+                upgradeTypeGenericArgs(mem.type, a, classParameters);
+            } else if (mem.kind == NK_METHOD_DECL) {
+                Map<string, bool> unresolved = mergeTypeParameterSets(
+                    classParameters, mem.generic_params);
+                int p = 0;
+                while (p < mem.params.len) {
+                    upgradeTypeGenericArgs(
+                        mem.params.get(p).type, a, unresolved);
+                    p = p + 1;
                 }
-                i = i + 1;
+                upgradeTypeGenericArgs(mem.return_type, a, unresolved);
+                if (mem.body_node != null) {
+                    upgradeBlockGenericArgs(mem.body_node, a, unresolved);
+                }
             }
+            i = i + 1;
         }
     } else if (d.kind == NK_VAR_DECL_STMT) {
         Map<string, bool> unresolved = {};
@@ -1378,21 +1381,28 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return null;
     }
     if (node.kind == NK_BINARY_EXPR) {
+        Node? leftType = inferSpecializationType(node.left, a, varTypes);
+        Node? rightType = inferSpecializationType(node.right, a, varTypes);
+        Node? overloaded = operatorOverloadReturnType(
+            leftType, node.op, false, a);
+        if (overloaded != null) { return overloaded; }
         /* Comparison/logical ops yield bool. Arithmetic follows the shared,
          * operand-order-independent numeric contract. */
         if (isComparisonOp(node.op)) { return makePrimType("bool"); }
-        Node? leftType = inferType(node.left, a, varTypes);
-        Node? rightType = inferType(node.right, a, varTypes);
+        Node? pointerType = operatorPointerArithmeticType(
+            leftType, rightType, node.op, a);
+        if (pointerType != null) { return pointerType; }
         Node? numericType = numericResultType(leftType, rightType, a);
         if (numericType != null) { return numericType; }
         if (leftType != null) { return leftType; }
         return rightType;
     }
     if (node.kind == NK_ASSIGN_EXPR) {
-        return inferType(node.target, a, varTypes);
+        return inferSpecializationType(node.target, a, varTypes);
     }
     if (node.kind == NK_UNARY_EXPR) {
-        Node? operandType = inferType(node.operand, a, varTypes);
+        Node? operandType = inferSpecializationType(
+            node.operand, a, varTypes);
         if (operandType == null) { return null; }
         if (node.op == "!") { return makePrimType("bool"); }
         if (node.op == "&") {
@@ -1420,6 +1430,9 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 return dereferenced;
             }
         }
+        Node? overloaded = operatorOverloadReturnType(
+            operandType, node.op, true, a);
+        if (overloaded != null) { return overloaded; }
         return operandType;
     }
     if (node.kind == NK_SELF_EXPR) {
@@ -1435,6 +1448,12 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return classPtrType(makeClassTypeExpr(parent));
     }
     if (node.kind == NK_NEW_EXPR) {
+        /* Thread<T> and Mutex<T> are already source-level opaque handles.
+         * Unlike user classes, their TypeExpr must not gain an additional
+         * pointer depth during inference. Mirrors TypeInferencer._infer_type. */
+        if (node.type.base == "Thread" || node.type.base == "Mutex") {
+            return node.type;
+        }
         return classPtrType(node.type);
     }
     if (node.kind == NK_FIELD_ACCESS_EXPR) {
@@ -1456,7 +1475,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 && a.enumContains(node.obj.name, node.field)) {
             return makePrimType(node.obj.name);
         }
-        Node? ot = inferType(node.obj, a, varTypes);
+        Node? ot = inferSpecializationType(node.obj, a, varTypes);
         if (ot != null && ot.base == "Tuple") {
             int tupleIndex = tupleFieldIndex(node.field);
             if (tupleIndex >= 0 && tupleIndex < ot.generic_args.len) {
@@ -1479,7 +1498,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 && node.obj.obj != null
                 && node.obj.obj.kind == NK_FIELD_ACCESS_EXPR) {
             Node dataExpr = node.obj.obj;
-            Node? sType = inferType(dataExpr.obj, a, varTypes);
+            Node? sType = inferSpecializationType(
+                dataExpr.obj, a, varTypes);
             if (sType != null && a.isRichEnum(sType.base)) {
                 Node reDecl = a.richEnumTable.get(sType.base);
                 string variantName = node.obj.field;
@@ -1507,7 +1527,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         if (ot != null && ot.generic_args.len > 0 && a.isGenericClass(ot.base)) {
             Node? fm = genericMember(a, ot.base, node.field);
             if (fm != null && (fm.kind == NK_FIELD_DECL || fm.kind == NK_PROPERTY_DECL)) {
-                return resolveGenericType(fm.type, genericTypeMap(a, ot));
+                return resolveGenericType(
+                    fm.type, genericTypeMap(a, ot), a);
             }
         }
         Node? nativeField = structFieldType(ot, node.field, a);
@@ -1522,8 +1543,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 return callableType.generic_args.get(0);
             }
         }
-        Node? callableCallee = directFunctionPointerType(
-            inferType(callee, a, varTypes), a);
+        Node? callableCallee = directFunctionPointerSpecializationType(
+            inferSpecializationType(callee, a, varTypes), a);
         if (callableCallee != null) {
             return callableCallee.generic_args.get(0);
         }
@@ -1544,7 +1565,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
              * falling back to an integer C temporary. */
             if (callee.name == "Mutex" && node.args.len > 0) {
                 Node mutexType = makePrimType("Mutex");
-                Node? argumentType = inferType(
+                Node? argumentType = inferSpecializationType(
                     node.args.get(0), a, varTypes);
                 if (argumentType == null) {
                     argumentType = makePrimType("int");
@@ -1579,7 +1600,16 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 if (sm != null && sm.kind == NK_METHOD_DECL) { return sm.return_type; }
             }
             /* Instance method call obj.method(...) */
-            Node? ot = inferType(callee.obj, a, varTypes);
+            Node? ot = inferSpecializationType(
+                callee.obj, a, varTypes);
+            if (ot != null && method == "toString"
+                    && ot.pointer_depth == 0 && !ot.is_array
+                    && ot.generic_args.len == 0
+                    && (numericIsType(ot, a) || ot.base == "bool"
+                        || a.isEnum(ot.base)
+                        || a.isRichEnum(ot.base))) {
+                return makePrimType("string");
+            }
             /* Builtin string method: return type from the shared spec. */
             if (isStringType(ot)) {
                 Node? srt = stringMethodReturnType(method);
@@ -1600,8 +1630,10 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 Node? mm = a.classMethod(ot.base, method);
                 if (mm != null && mm.kind == NK_METHOD_DECL) {
                     Map<string, Node> noClassArgs = {};
-                    return resolveGenericType(mm.return_type,
-                        methodCallTypeMap(a, node, mm, noClassArgs));
+                    return resolveGenericType(
+                        mm.return_type,
+                        methodCallTypeMap(a, node, mm, noClassArgs),
+                        a);
                 }
                 if (mm != null && mm.kind == NK_PROPERTY_DECL) { return mm.type; }
             }
@@ -1610,24 +1642,29 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 Node? mm = a.genericClassMethod(ot.base, method);
                 if (mm != null && mm.kind == NK_METHOD_DECL) {
                     Map<string, Node> classArgs = genericTypeMap(a, ot);
-                    return resolveGenericType(mm.return_type,
-                        methodCallTypeMap(a, node, mm, classArgs));
+                    return resolveGenericType(
+                        mm.return_type,
+                        methodCallTypeMap(a, node, mm, classArgs),
+                        a);
                 }
                 if (mm != null && mm.kind == NK_PROPERTY_DECL) {
-                    return resolveGenericType(mm.type, genericTypeMap(a, ot));
+                    return resolveGenericType(
+                        mm.type, genericTypeMap(a, ot), a);
                 }
             }
         }
         return null;
     }
     if (node.kind == NK_INDEX_EXPR) {
-        Node? ot = inferType(node.obj, a, varTypes);
+        Node? ot = inferSpecializationType(node.obj, a, varTypes);
         return semanticIndexResultType(ot, a);
     }
     if (node.kind == NK_CAST_EXPR) { return node.target_type; }
     if (node.kind == NK_TERNARY_EXPR) {
-        Node? trueType = inferType(node.true_expr, a, varTypes);
-        Node? falseType = inferType(node.false_expr, a, varTypes);
+        Node? trueType = inferSpecializationType(
+            node.true_expr, a, varTypes);
+        Node? falseType = inferSpecializationType(
+            node.false_expr, a, varTypes);
         Node? numericType = numericResultType(trueType, falseType, a);
         if (numericType != null) { return numericType; }
         if (semanticIsNullType(trueType) && falseType != null) {
@@ -1641,7 +1678,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     }
     if (node.kind == NK_LIST_LITERAL) {
         if (node.elements.len > 0) {
-            Node? et = inferType(node.elements.get(0), a, varTypes);
+            Node? et = inferSpecializationType(
+                node.elements.get(0), a, varTypes);
             if (et != null) {
                 Node elementType = et;
                 if ((a.isClass(et.base) || a.isGenericClass(et.base))
@@ -1674,7 +1712,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             Node fpt = lambdaFnPtrType(fn, a, varTypes);
             if (fpt.generic_args.len > 0) { ret = fpt.generic_args.get(0); }
         } else if (fn != null) {
-            Node? fnt = inferType(fn, a, varTypes);
+            Node? fnt = inferSpecializationType(fn, a, varTypes);
             if (fnt != null && fnt.base == "__fn_ptr" && fnt.generic_args.len > 0) {
                 ret = fnt.generic_args.get(0);
             }
@@ -1700,7 +1738,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         Vector<Node> ga = [];
         int ti = 0;
         while (ti < node.elements.len) {
-            Node? et = inferType(node.elements.get(ti), a, varTypes);
+            Node? et = inferSpecializationType(
+                node.elements.get(ti), a, varTypes);
             if (et == null) { et = makePrimType("int"); }
             ga.push(copyTypeExprTree(et));
             ti = ti + 1;
@@ -1722,8 +1761,32 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
         inferTypeRaw(node, a, varTypes), a.typedefTable);
 }
 
+/* Match the reference analyzer's stored expression-type domain: expand the
+ * alias naming the value itself, but retain aliases nested in generic
+ * arguments so IR symbol selection agrees with generic-instance collection. */
+Node? inferSpecializationType(
+        Node? node, Analyzed a, Map<string, Node> varTypes) {
+    return resolveOuterTypedefType(
+        inferTypeRaw(node, a, varTypes), a.typedefTable);
+}
+
 Node? directFunctionPointerType(Node? typeExpr, Analyzed a) {
     Node? resolved = resolveTypedefType(typeExpr, a.typedefTable);
+    if (resolved == null || resolved.base != "__fn_ptr"
+            || resolved.pointer_depth != 0 || resolved.is_array
+            || resolved.generic_args.len == 0) {
+        return null;
+    }
+    return resolved;
+}
+
+/* Callable shape for expression inference. The outer alias may name the
+ * callback itself, but aliases inside its result/parameter list remain source
+ * identities until a consumer explicitly requests canonical ABI types. */
+Node? directFunctionPointerSpecializationType(
+        Node? typeExpr, Analyzed a) {
+    Node? resolved = resolveOuterTypedefType(
+        typeExpr, a.typedefTable);
     if (resolved == null || resolved.base != "__fn_ptr"
             || resolved.pointer_depth != 0 || resolved.is_array
             || resolved.generic_args.len == 0) {
@@ -1842,11 +1905,22 @@ void collectIdentifiersList(Vector<Node> xs, Map<string, bool> names) {
 /* Substitute generic type parameters in a TypeExpr using a param-name -> concrete
  * TypeExpr map. Mirrors generics.core._resolve_type. Combines pointer depths when
  * a T* member is resolved against a pointer concrete type. */
-Node resolveGenericType(Node? t, Map<string, Node> typeMap) {
+bool genericSubstitutionReferenceShape(Node typeExpr, Analyzed analyzed) {
+    return typeResolvedReferenceShape(typeExpr)
+        || analyzed.isClass(typeExpr.base)
+        || analyzed.isGenericClass(typeExpr.base);
+}
+
+Node resolveGenericType(Node? t, Map<string, Node> typeMap,
+                        Analyzed analyzed) {
     if (t == null) { return makePrimType("void"); }
     if (typeMap.has(t.base) && t.generic_args.len == 0) {
         Node resolved = typeMap.get(t.base);
-        if (t.is_array && resolved.is_array) {
+        Node referenceShape = resolved;
+        Node? canonical = resolveOuterTypedefType(
+            resolved, analyzed.typedefTable);
+        if (canonical != null) { referenceShape = canonical; }
+        if (t.is_array && referenceShape.is_array) {
             typeShapeFail("nested array composition for type parameter '"
                 + t.base + "' is not supported");
         }
@@ -1854,7 +1928,10 @@ Node resolveGenericType(Node? t, Map<string, Node> typeMap) {
         u.kind = NK_TYPE_EXPR;
         u.base = resolved.base;
         u.generic_args = resolved.generic_args;
-        u.pointer_depth = resolved.pointer_depth + t.pointer_depth;
+        u.pointer_depth = resolved.pointer_depth
+            + typeAppliedSubstitutionPointerDepth(t,
+                genericSubstitutionReferenceShape(
+                    referenceShape, analyzed));
         u.is_array = t.is_array || resolved.is_array;
         if (t.array_size != null) { u.array_size = t.array_size; }
         else { u.array_size = resolved.array_size; }
@@ -1874,7 +1951,8 @@ Node resolveGenericType(Node? t, Map<string, Node> typeMap) {
         Vector<Node> ra = [];
         int i = 0;
         while (i < t.generic_args.len) {
-            ra.push(resolveGenericType(t.generic_args.get(i), typeMap));
+            ra.push(resolveGenericType(
+                t.generic_args.get(i), typeMap, analyzed));
             i = i + 1;
         }
         u.generic_args = ra;

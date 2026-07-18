@@ -46,6 +46,23 @@ void semanticValidateDeclaredType(Node? typeExpr, string subject,
             + " cannot carry static/extern storage qualifiers", site);
     }
     Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical != null && canonical.base == "Mutex"
+            && (canonical.pointer_depth > 0 || canonical.is_array
+                || canonical.is_const)) {
+        semanticValidationFail(
+            "Mutex<T> owner type must be one direct mutable handle; "
+                + "pointer, array, and const Mutex shapes are not supported",
+            site);
+    }
+    if (canonical != null && canonical.base != "Mutex"
+            && canonical.base != "__fn_ptr"
+            && !state.analyzed.isClass(canonical.base)
+            && !state.analyzed.isGenericClass(canonical.base)
+            && semanticContainsMutexStorage(canonical, state)) {
+        semanticValidationFail(subject
+            + " cannot embed a Mutex handle in shallow by-value storage; "
+            + "keep Mutex<T> as a direct managed value", site);
+    }
     semanticValidateMutexPayloadsInType(typeExpr, site, state);
     if (canonical != null && canonical.base == "Thread"
             && (canonical.pointer_depth > 0 || canonical.is_array

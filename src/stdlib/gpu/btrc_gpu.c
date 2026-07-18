@@ -8,40 +8,15 @@
  */
 
 #include "btrc_gpu.h"
+#include "btrc_gpu_async.h"
 #include "btrc_gpu_compute_singleton.h"
+#include "btrc_gpu_surface.h"
 #include <webgpu.h>
 #include <GLFW/glfw3.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* ---- macOS: Metal surface bridge (implemented in Objective-C) ---- */
-#ifdef __APPLE__
-WGPUSurface btrc_gpu_create_surface_macos(
-    WGPUInstance instance, GLFWwindow* window);
-#endif
-
-/* ---- Linux: X11 surface ---- */
-#ifdef __linux__
-#define GLFW_EXPOSE_NATIVE_X11
-#include <GLFW/glfw3native.h>
-
-static WGPUSurface create_surface_linux(WGPUInstance instance, GLFWwindow* window) {
-    Display* x11_display = glfwGetX11Display();
-    Window x11_window = glfwGetX11Window(window);
-
-    WGPUSurfaceSourceXlibWindow src = {
-        .chain = { .sType = WGPUSType_SurfaceSourceXlibWindow },
-        .display = x11_display,
-        .window = (uint64_t)x11_window,
-    };
-    WGPUSurfaceDescriptor desc = {
-        .nextInChain = (WGPUChainedStruct*)&src,
-    };
-    return wgpuInstanceCreateSurface(instance, &desc);
-}
-#endif
 
 /* ================================================================
  * Internal structs
@@ -86,6 +61,7 @@ static bool glfw_initialized = false;
  * synchronous construction/readback.  Bound every such bridge so a wedged
  * driver cannot hang the process forever. */
 static const uint64_t gpu_async_timeout_ns = UINT64_C(30000000000);
+static const uint64_t gpu_async_cancel_drain_timeout_ns = UINT64_C(100000000);
 
 static bool acquire_glfw(void) {
     if (!glfw_initialized) {
@@ -136,26 +112,11 @@ static void discard_frame(GPU_* gpu) {
 }
 
 static WGPUInstance create_gpu_instance(void) {
-    WGPUInstanceDescriptor descriptor = {
-        .features = {
-            .timedWaitAnyEnable = true,
-            .timedWaitAnyMaxCount = 1,
-        },
-    };
-    return wgpuCreateInstance(&descriptor);
-}
-
-static bool wait_for_future(WGPUInstance instance, WGPUFuture future,
-                            const char* operation) {
-    WGPUFutureWaitInfo wait_info = { .future = future };
-    WGPUWaitStatus status = wgpuInstanceWaitAny(
-        instance, 1, &wait_info, gpu_async_timeout_ns);
-    if (status == WGPUWaitStatus_Success && wait_info.completed) {
-        return true;
-    }
-    fprintf(stderr, "[btrc-gpu] %s timed out or could not be waited on: status=%d\n",
-            operation, status);
-    return false;
+    /* Timed WaitAny is optional and some native implementations abort instead
+     * of returning an unsupported-feature status when it is requested. The
+     * async bridge uses zero-timeout exact-future polling where implemented;
+     * the explicit wgpu-native build uses synchronized ProcessEvents. */
+    return wgpuCreateInstance(NULL);
 }
 
 /* ================================================================
@@ -165,52 +126,83 @@ static bool wait_for_future(WGPUInstance instance, WGPUFuture future,
 static void on_adapter(WGPURequestAdapterStatus status, WGPUAdapter adapter,
                        WGPUStringView message, void* ud1, void* ud2) {
     (void)message; (void)ud2;
-    GPU_* gpu = (GPU_*)ud1;
-    if (status == WGPURequestAdapterStatus_Success) {
-        gpu->adapter = adapter;
-    } else {
-        fprintf(stderr, "[btrc-gpu] adapter request failed: status=%d\n", status);
-    }
+    btrc_gpu_async_complete(
+        (BtrcGPUAsync*)ud1, (int)status, (void*)adapter);
 }
 
 static void on_device(WGPURequestDeviceStatus status, WGPUDevice device,
                       WGPUStringView message, void* ud1, void* ud2) {
     (void)message; (void)ud2;
-    GPU_* gpu = (GPU_*)ud1;
-    if (status == WGPURequestDeviceStatus_Success) {
-        gpu->device = device;
-    } else {
-        fprintf(stderr, "[btrc-gpu] device request failed: status=%d\n", status);
-    }
+    btrc_gpu_async_complete(
+        (BtrcGPUAsync*)ud1, (int)status, (void*)device);
+}
+
+static void release_adapter_result(void* result) {
+    if (result) { wgpuAdapterRelease((WGPUAdapter)result); }
+}
+
+static void release_device_result(void* result) {
+    if (result) { wgpuDeviceRelease((WGPUDevice)result); }
 }
 
 static bool request_adapter(GPU_* gpu,
                             const WGPURequestAdapterOptions* options) {
+    BtrcGPUAsync* async = btrc_gpu_async_create(release_adapter_result);
+    if (!async) { return false; }
     WGPUFuture future = wgpuInstanceRequestAdapter(
         gpu->instance, options,
         (WGPURequestAdapterCallbackInfo){
-            .mode = WGPUCallbackMode_WaitAnyOnly,
+            .mode = BTRC_GPU_ASYNC_CALLBACK_MODE,
             .callback = on_adapter,
-            .userdata1 = gpu,
+            .userdata1 = async,
         });
-    if (!wait_for_future(gpu->instance, future, "adapter request")) {
+    int status = 0;
+    void* result = NULL;
+    BtrcGPUAsyncWaitOutcome outcome = btrc_gpu_async_wait(
+        gpu->instance, future, async, gpu_async_timeout_ns, &status, &result);
+    /* On timeout/error, the callback reference survives until immediate caller
+     * teardown drops the instance and delivers CallbackCancelled. */
+    btrc_gpu_async_release(async);
+    if (outcome != BTRC_GPU_ASYNC_COMPLETED ||
+        status != (int)WGPURequestAdapterStatus_Success ||
+        !result) {
+        release_adapter_result(result);
+        fprintf(stderr,
+                "[btrc-gpu] adapter request failed: wait=%d status=%d\n",
+                (int)outcome, status);
         return false;
     }
-    return gpu->adapter != NULL;
+    gpu->adapter = (WGPUAdapter)result;
+    return true;
 }
 
 static bool request_device(GPU_* gpu, const WGPUDeviceDescriptor* descriptor) {
+    BtrcGPUAsync* async = btrc_gpu_async_create(release_device_result);
+    if (!async) { return false; }
     WGPUFuture future = wgpuAdapterRequestDevice(
         gpu->adapter, descriptor,
         (WGPURequestDeviceCallbackInfo){
-            .mode = WGPUCallbackMode_WaitAnyOnly,
+            .mode = BTRC_GPU_ASYNC_CALLBACK_MODE,
             .callback = on_device,
-            .userdata1 = gpu,
+            .userdata1 = async,
         });
-    if (!wait_for_future(gpu->instance, future, "device request")) {
+    int status = 0;
+    void* result = NULL;
+    BtrcGPUAsyncWaitOutcome outcome = btrc_gpu_async_wait(
+        gpu->instance, future, async, gpu_async_timeout_ns, &status, &result);
+    /* The callback reference remains valid through instance cancellation. */
+    btrc_gpu_async_release(async);
+    if (outcome != BTRC_GPU_ASYNC_COMPLETED ||
+        status != (int)WGPURequestDeviceStatus_Success ||
+        !result) {
+        release_device_result(result);
+        fprintf(stderr,
+                "[btrc-gpu] device request failed: wait=%d status=%d\n",
+                (int)outcome, status);
         return false;
     }
-    return gpu->device != NULL;
+    gpu->device = (WGPUDevice)result;
+    return true;
 }
 
 /* ================================================================
@@ -306,21 +298,15 @@ void* btrc_gpu_init(void* win_) {
         return NULL;
     }
 
-    /* Surface */
-#ifdef __APPLE__
-    gpu->surface = btrc_gpu_create_surface_macos(gpu->instance, win->glfw);
-#elif defined(__linux__)
-    gpu->surface = create_surface_linux(gpu->instance, win->glfw);
-#else
-    #error "Unsupported platform — add surface creation for your OS"
-#endif
+    gpu->surface = btrc_gpu_create_surface(gpu->instance, win->glfw);
     if (!gpu->surface) {
         fprintf(stderr, "[btrc-gpu] surface creation failed\n");
         btrc_gpu_destroy(gpu);
         return NULL;
     }
 
-    /* Adapter callbacks run only while this thread processes instance events. */
+    /* Conforming backends wait on this exact future; wgpu-native serializes
+     * event pumping and publishes callback state atomically. */
     WGPURequestAdapterOptions adapter_opts = {
         .compatibleSurface = gpu->surface,
         .featureLevel = WGPUFeatureLevel_Core,
@@ -700,19 +686,15 @@ void btrc_gpu_write_buffer(void* gpu_, void* buf, void* data, int size) {
     wgpuQueueWriteBuffer(gpu->queue, (WGPUBuffer)buf, 0, data, (size_t)size);
 }
 
-typedef struct {
-    bool done;
-    WGPUMapAsyncStatus status;
-} MapCallbackData_;
-
 static void on_buffer_map(WGPUMapAsyncStatus status,
                           WGPUStringView message,
                           void* ud1, void* ud2) {
     (void)message;
-    (void)ud2;
-    MapCallbackData_* data = (MapCallbackData_*)ud1;
-    data->status = status;
-    data->done = true;
+    btrc_gpu_async_complete((BtrcGPUAsync*)ud1, (int)status, ud2);
+}
+
+static void release_buffer_result(void* result) {
+    if (result) { wgpuBufferRelease((WGPUBuffer)result); }
 }
 
 bool btrc_gpu_read_buffer_checked(void* gpu_, void* buf_, void* dst, int size) {
@@ -751,25 +733,49 @@ bool btrc_gpu_read_buffer_checked(void* gpu_, void* buf_, void* dst, int size) {
     wgpuCommandEncoderRelease(enc);
 
     /* Map staging buffer and poll until done */
-    MapCallbackData_ cb_data = { .done = false };
-    WGPUFuture map_future = wgpuBufferMapAsync(
-        staging, WGPUMapMode_Read, 0, (size_t)size,
-        (WGPUBufferMapCallbackInfo){
-            .mode = WGPUCallbackMode_WaitAnyOnly,
-            .callback = on_buffer_map,
-            .userdata1 = &cb_data,
-        });
-
-    if (!wait_for_future(gpu->instance, map_future, "buffer map")) {
-        /* Unmap cancels a pending map without allowing its WaitAnyOnly callback
-         * to run after cb_data leaves this stack frame. */
-        wgpuBufferUnmap(staging);
+    BtrcGPUAsync* async = btrc_gpu_async_create(release_buffer_result);
+    if (!async) {
         wgpuBufferRelease(staging);
         return false;
     }
+    WGPUFuture map_future = wgpuBufferMapAsync(
+        staging, WGPUMapMode_Read, 0, (size_t)size,
+        (WGPUBufferMapCallbackInfo){
+            .mode = BTRC_GPU_ASYNC_CALLBACK_MODE,
+            .callback = on_buffer_map,
+            .userdata1 = async,
+            .userdata2 = staging,
+        });
+    int map_status = 0;
+    void* map_result = NULL;
+    BtrcGPUAsyncWaitOutcome outcome = btrc_gpu_async_wait(
+        gpu->instance, map_future, async, gpu_async_timeout_ns,
+        &map_status, &map_result);
+    if (outcome != BTRC_GPU_ASYNC_COMPLETED) {
+        /* Unmap requests cancellation. Conforming backends drain this future;
+         * wgpu-native uses its serialized event pump. If cancellation is late,
+         * the callback retains state and staging until a later pump/instance drop. */
+        wgpuBufferUnmap(staging);
+        BtrcGPUAsyncWaitOutcome drain = btrc_gpu_async_wait(
+            gpu->instance, map_future, async,
+            gpu_async_cancel_drain_timeout_ns, NULL, NULL);
+        if (drain != BTRC_GPU_ASYNC_COMPLETED) {
+            fprintf(stderr,
+                    "[btrc-gpu] buffer map cancellation pending: wait=%d\n",
+                    (int)drain);
+        }
+        btrc_gpu_async_release(async);
+        return false;
+    }
+    btrc_gpu_async_release(async);
+    if (!map_result) {
+        wgpuBufferRelease(staging);
+        return false;
+    }
+    staging = (WGPUBuffer)map_result;
 
     bool success = false;
-    if (cb_data.status == WGPUMapAsyncStatus_Success) {
+    if ((WGPUMapAsyncStatus)map_status == WGPUMapAsyncStatus_Success) {
         const void* mapped = wgpuBufferGetConstMappedRange(staging, 0, (size_t)size);
         if (mapped) {
             memcpy(dst, mapped, (size_t)size);
@@ -778,7 +784,7 @@ bool btrc_gpu_read_buffer_checked(void* gpu_, void* buf_, void* dst, int size) {
         wgpuBufferUnmap(staging);
     } else {
         fprintf(stderr, "[btrc-gpu] buffer map failed: status=%d\n",
-                cb_data.status);
+                map_status);
     }
     wgpuBufferRelease(staging);
     return success;

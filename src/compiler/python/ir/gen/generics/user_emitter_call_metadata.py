@@ -2,6 +2,21 @@
 
 
 class _UserGenericCallMetadataMixin:
+    def _callable_field(self, expression):
+        from ....ast_nodes import FieldAccessExpr
+
+        if not isinstance(expression.callee, FieldAccessExpr):
+            return False
+        from ..type_resolution import function_pointer_signature
+
+        return (
+            function_pointer_signature(
+                self._resolve_expr_type(expression.callee),
+                self._typedefs(),
+            )
+            is not None
+        )
+
     def _callable_for_call(self, expression):
         from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
 
@@ -28,8 +43,16 @@ class _UserGenericCallMetadataMixin:
         return class_info.methods.get(callee.field) if class_info else None
 
     def _params_for_call(self, expression):
-        declaration = self._callable_for_call(expression)
-        return declaration.params if declaration is not None else []
+        if not self._gen:
+            return []
+        from ..call_contracts import resolved_params_for_call
+
+        return resolved_params_for_call(
+            self._gen,
+            expression,
+            type_of=self._resolve_expr_type,
+            resolve_type=self._resolve,
+        )
 
     def _instance_receiver(self, expression):
         from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr

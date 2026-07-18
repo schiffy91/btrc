@@ -28,7 +28,7 @@
             ruff gcc clang zig gnumake git jq gh nodejs_22 nixd wgpu-native glfw freetype
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
-            pkg-config dbus.dev   # native system-tray (StatusNotifierItem) shim
+            wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
           ];
       };
       files = import ./build { inherit cfg lib; };
@@ -57,7 +57,9 @@
           # btrc-lsp on PATH: the VSCode extension launches the language server
           # via `nix develop <workspace> --command btrc-lsp`.
           packages = cfg.packages pkgs ++ [ self.packages.${system}.btrc-lsp ];
-          GPU_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.wgpu-native.dev}/include/webgpu -I${pkgs.glfw}/include";
+          GPU_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.wgpu-native.dev}/include/webgpu -I${pkgs.glfw}/include"
+            + lib.optionalString pkgs.stdenv.hostPlatform.isLinux
+              " -I${pkgs.wayland.dev}/include";
           GPU_LDFLAGS = "-L${pkgs.wgpu-native}/lib -lwgpu_native -L${pkgs.glfw}/lib -lglfw"
             + lib.optionalString isDarwin
               " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo";

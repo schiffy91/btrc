@@ -19,24 +19,18 @@ bool threadRuntimeHasHelper(string name) {
         || name == "__btrc_mutex_arc_finalize"
         || name == "__btrc_mutex_string_retain"
         || name == "__btrc_mutex_string_release"
+        || name == "__btrc_mutex_arc_type"
         || name == "__btrc_mutex_val_get"
-        || name == "__btrc_mutex_val_set"
-        || name == "__btrc_mutex_val_destroy"
-        || name == "__btrc_mutex_val_bind_owner"
-        || name == "__btrc_mutex_destroy_guard_adapter"
-        || name == "__btrc_mutex_val_take"
-        || name == "__btrc_mutex_val_visit"
-        || name == "__btrc_mutex_val_replace_owner";
+        || name == "__btrc_mutex_val_set";
 }
-
 string threadRuntimeHelperSource(string name) {
     string source = threadRuntimeThreadSource(name);
     if (source != "") { return source; }
     source = threadRuntimeMutexCoreSource(name);
     if (source != "") { return source; }
-    source = threadRuntimeMutexOpsSource(name);
+    source = threadRuntimeMutexArcSource(name);
     if (source != "") { return source; }
-    return threadRuntimeMutexOwnerSource(name);
+    return threadRuntimeMutexOpsSource(name);
 }
 
 Vector<string> threadRuntimeHelperDependencies(string name) {
@@ -107,7 +101,7 @@ Vector<string> threadRuntimeHelperDependencies(string name) {
         return out;
     }
     if (name == "__btrc_mutex_val_create") {
-        out.push("__btrc_mutex_val_types");
+        out.push("__btrc_mutex_arc_type");
         out.push("__btrc_mutex_value_callback_guard");
         out.push("__btrc_raise_captured");
         out.push("__btrc_safe_realloc");
@@ -141,8 +135,15 @@ Vector<string> threadRuntimeHelperDependencies(string name) {
         out.push("__btrc_string_release");
         return out;
     }
-    if (name == "__btrc_mutex_val_get") {
+    if (name == "__btrc_mutex_arc_type") {
         out.push("__btrc_mutex_val_types");
+        out.push("__btrc_arc_topology_begin");
+        out.push("__btrc_arc_topology_leave");
+        out.push("__btrc_mark_destroyed");
+        out.push("__btrc_throw");
+        return out;
+    }
+    if (name == "__btrc_mutex_val_get") {
         out.push("__btrc_mutex_value_callback_guard");
         out.push("__btrc_mutex_finalize_callback_guard");
         out.push("__btrc_arc_topology_begin");
@@ -152,58 +153,8 @@ Vector<string> threadRuntimeHelperDependencies(string name) {
         return out;
     }
     if (name == "__btrc_mutex_val_set") {
-        out.push("__btrc_mutex_val_types");
         out.push("__btrc_mutex_value_callback_guard");
         out.push("__btrc_mutex_finalize_callback_guard");
-        out.push("__btrc_arc_topology_begin");
-        out.push("__btrc_arc_topology_leave");
-        out.push("__btrc_raise_captured");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_destroy") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_mutex_value_callback_guard");
-        out.push("__btrc_mutex_finalize_callback_guard");
-        out.push("__btrc_arc_topology_begin");
-        out.push("__btrc_arc_topology_leave");
-        out.push("__btrc_raise_captured");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_bind_owner") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_mutex_value_callback_guard");
-        out.push("__btrc_mutex_finalize_callback_guard");
-        out.push("__btrc_arc_topology_begin");
-        out.push("__btrc_arc_topology_leave");
-        out.push("__btrc_raise_captured");
-        return out;
-    }
-    if (name == "__btrc_mutex_destroy_guard_adapter") {
-        out.push("__btrc_mutex_val_destroy");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_take") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_mutex_value_callback_guard");
-        out.push("__btrc_mutex_finalize_callback_guard");
-        out.push("__btrc_mutex_destroy_guard_adapter");
-        out.push("__btrc_arc_guard_hook");
-        out.push("__btrc_arc_topology_begin");
-        out.push("__btrc_arc_topology_leave");
-        out.push("__btrc_raise_captured");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_visit") {
-        out.push("__btrc_mutex_val_types");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_replace_owner") {
-        out.push("__btrc_mutex_val_bind_owner");
-        out.push("__btrc_mutex_val_destroy");
-        out.push("__btrc_mutex_destroy_guard_adapter");
-        out.push("__btrc_mutex_arc_finalize");
-        out.push("__btrc_mutex_finalize_callback_guard");
-        out.push("__btrc_arc_guard_hook");
         out.push("__btrc_arc_topology_begin");
         out.push("__btrc_arc_topology_leave");
         out.push("__btrc_raise_captured");
@@ -227,27 +178,16 @@ Vector<string> threadRuntimeHelperHeaders(string name) {
         out.push("string.h");
         return out;
     }
+    if (name == "__btrc_mutex_arc_type") {
+        out.push("stdio.h");
+        out.push("stdlib.h");
+        return out;
+    }
     if (name == "__btrc_mutex_val_get") {
         out.push("string.h");
         return out;
     }
     if (name == "__btrc_mutex_val_set") {
-        out.push("string.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_destroy") {
-        out.push("string.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_bind_owner") {
-        out.push("string.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_take") {
-        out.push("string.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_replace_owner") {
         out.push("string.h");
         return out;
     }
@@ -267,18 +207,13 @@ void appendThreadRuntimeHelperOrder(Vector<string> order) {
     order.push("__btrc_mutex_val_types");
     order.push("__btrc_mutex_value_callback_guard");
     order.push("__btrc_mutex_finalize_callback_guard");
-    order.push("__btrc_mutex_val_create");
     order.push("__btrc_mutex_arc_retain");
     order.push("__btrc_mutex_arc_release");
     order.push("__btrc_mutex_arc_finalize");
     order.push("__btrc_mutex_string_retain");
     order.push("__btrc_mutex_string_release");
+    order.push("__btrc_mutex_arc_type");
+    order.push("__btrc_mutex_val_create");
     order.push("__btrc_mutex_val_get");
     order.push("__btrc_mutex_val_set");
-    order.push("__btrc_mutex_val_destroy");
-    order.push("__btrc_mutex_val_bind_owner");
-    order.push("__btrc_mutex_destroy_guard_adapter");
-    order.push("__btrc_mutex_val_take");
-    order.push("__btrc_mutex_val_visit");
-    order.push("__btrc_mutex_val_replace_owner");
 }

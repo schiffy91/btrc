@@ -31,6 +31,7 @@ bool cycleRuntimeHasHelper(string name) {
         || name == "__btrc_arc_reverse_state"
         || name == "__btrc_arc_register_incoming"
         || name == "__btrc_arc_unregister_incoming"
+        || name == "__btrc_arc_incoming_teardown_pending"
         || name == "__btrc_arc_reverse_proves_live"
         || name == "__btrc_arc_retain"
         || name == "__btrc_arc_retain_edge"

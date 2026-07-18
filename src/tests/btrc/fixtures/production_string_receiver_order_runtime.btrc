@@ -1,0 +1,36 @@
+#include <assert.h>
+#include <string.h>
+
+string receiverText = "abcd";
+
+int mutateReceiver() {
+    receiverText = "wxyz";
+    return 1;
+}
+
+string selectBeforeMutation() {
+    receiverText = "abcd";
+    return receiverText.substring(mutateReceiver(), 2);
+}
+
+class GenericReceiverOrder<T> {
+    public GenericReceiverOrder() {}
+
+    public string select() {
+        receiverText = "abcd";
+        return receiverText.substring(mutateReceiver(), 2);
+    }
+}
+
+int main() {
+    string direct = selectBeforeMutation();
+    assert(strcmp(direct, "bc") == 0);
+    assert(strcmp(receiverText, "wxyz") == 0);
+
+    GenericReceiverOrder<int> generic = new GenericReceiverOrder<int>();
+    string specialized = generic.select();
+    assert(strcmp(specialized, "bc") == 0);
+    assert(strcmp(receiverText, "wxyz") == 0);
+    delete generic;
+    return 0;
+}

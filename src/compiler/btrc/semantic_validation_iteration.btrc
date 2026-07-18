@@ -71,7 +71,8 @@ Node semanticIterableResolvedType(
     if (analyzed.isGenericClass(iterableType.base)
             && iterableType.generic_args.len > 0) {
         return resolveGenericType(
-            declared, genericTypeMap(analyzed, iterableType));
+            declared, genericTypeMap(analyzed, iterableType),
+            analyzed);
     }
     return declared;
 }

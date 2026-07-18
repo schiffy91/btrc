@@ -38,8 +38,14 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
     bool operandsComplete = ownershipOperandsHaveConcreteTypes(operands);
     bool operandEffect = ownershipOperandsHaveEffect(
         generator, operands, varTypes);
-    bool receiverPinned = operandEffect && operandsComplete
-        && irManagedType(generator, receiverType) && !receiverOwned;
+    Node? declaration = ownershipCallableForCall(
+        generator, call, varTypes);
+    bool receiverPinned = irManagedType(generator, receiverType)
+        && !receiverOwned
+        && receiverExpression.kind != NK_SELF_EXPR
+        && receiverExpression.kind != NK_SUPER_EXPR
+        && ((operandEffect && operandsComplete)
+            || declaration != null);
     string receiverRuntimeType = "";
     IRNode receiverSaved = irLiteral("NULL");
     if ((receiverOwned || receiverPinned)
@@ -64,23 +70,6 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
         receiverSaved = irVar(savedName);
     }
 
-    bool forceArgumentOrder = operands.len > 1 && operandsComplete
-        && operandEffect;
-    bool argumentBoundary = ownershipCallNeedsBoundary(
-        false, forceArgumentOrder, operands);
-    OwnershipBoundary boundary = OwnershipBoundary();
-    if (argumentBoundary) {
-        int operandIndex = 0;
-        while (operandIndex < operands.len) {
-            OwnershipCallOperand operand = operands.get(operandIndex);
-            boundary.addCallOperand(generator, operand.expression,
-                operand.typeExpr, operand.owned,
-                operand.keepValue, operand.transferred, varTypes);
-            operandIndex = operandIndex + 1;
-        }
-        ownershipAppendAll(declarations, boundary.declarations);
-    }
-
     string receiverKey = astNodeKey(receiverExpression);
     bool receiverHadOverride = generator.owningTempOverrides.has(
         receiverKey);
@@ -90,15 +79,57 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
             receiverKey);
     }
     generator.owningTempOverrides.put(receiverKey, receiver);
+
+    bool callableField = ownershipCallableFieldCall(
+        generator, call, varTypes);
+    bool callableOrder = callableField && operandsComplete
+        && ownershipCallRequiresOrder(
+            generator, call.callee, operands, varTypes);
+    bool forceArgumentOrder = operandsComplete
+        && ((operands.len > 1 && operandEffect) || callableOrder);
+    bool argumentBoundary = ownershipCallNeedsBoundary(
+        false, forceArgumentOrder, operands);
+    OwnershipBoundary boundary = OwnershipBoundary();
+    if (argumentBoundary) {
+        if (callableField) {
+            Node? projectedType = generator.resolvedExpressionType(
+                call.callee, varTypes);
+            ownershipRequireType(projectedType, call.callee);
+            bool wasOptional = call.callee.optional;
+            call.callee.optional = false;
+            IRNode projected = generator.lowerExpr(
+                call.callee, varTypes);
+            call.callee.optional = wasOptional;
+            boundary.addLoweredCallOperand(generator,
+                call.callee, projectedType, projected,
+                false, false, false);
+        }
+        int operandIndex = 0;
+        while (operandIndex < operands.len) {
+            OwnershipCallOperand operand = operands.get(operandIndex);
+            PreparedValue prepared = prepareCallTargetValue(
+                generator, operand.expression,
+                operand.targetType, varTypes);
+            ownershipRequireType(
+                prepared.effectiveType, operand.expression);
+            Node effectiveType = prepared.effectiveType;
+            boundary.addLoweredCallOperand(generator,
+                operand.expression, effectiveType, prepared.value,
+                prepared.owned, operand.keepValue,
+                prepared.owned && operand.transferred);
+            operandIndex = operandIndex + 1;
+        }
+        ownershipAppendAll(declarations, boundary.declarations);
+    }
+
     IRNode lowered = generator.lowerMethodCallCore(call, varTypes);
+    if (argumentBoundary) { boundary.restore(generator); }
     if (receiverHadOverride) {
         generator.owningTempOverrides.put(
             receiverKey, receiverPrevious);
     } else {
         generator.owningTempOverrides.remove(receiverKey);
     }
-    if (argumentBoundary) { boundary.restore(generator); }
-
     Vector<IRNode> trueSequence = [];
     if (argumentBoundary) {
         ownershipAppendAll(trueSequence, boundary.prefix);
@@ -141,6 +172,18 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
     declarations.push(resultDeclaration);
     trueSequence.push(irBinOp(
         irVar(resultName), "=", lowered));
+    bool protectResult = generator.programHasExceptions
+        && resultType != null
+        && irManagedType(generator, resultType)
+        && irExpressionOwnsResult(generator, call, varTypes);
+    if (protectResult) {
+        string runtimeType = irManagedRuntimeType(
+            generator, resultType);
+        OwnershipBoundary resultCleanup = OwnershipBoundary();
+        resultCleanup.registerCleanup(
+            generator, resultDeclaration, resultName, runtimeType);
+        ownershipAppendAll(trueSequence, resultCleanup.prefix);
+    }
     if (argumentBoundary) {
         ownershipAppendAll(trueSequence, boundary.suffix);
     }
@@ -157,6 +200,20 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
         sequence.push(generator.optionalReleaseExpr(receiverSaved,
             receiverRuntimeType));
     }
-    sequence.push(irVar(resultName));
+    if (protectResult) {
+        string handoffName = generator.freshTemp(
+            "__btrc_optional_result_handoff");
+        IRNode handoffDeclaration = irVarDecl(
+            resultC, handoffName, irLiteral("NULL"));
+        generator.funcVarDecls.push(handoffDeclaration);
+        declarations.push(handoffDeclaration);
+        sequence.push(irBinOp(
+            irVar(handoffName), "=", irVar(resultName)));
+        sequence.push(irBinOp(
+            irVar(resultName), "=", irLiteral("NULL")));
+        sequence.push(irVar(handoffName));
+    } else {
+        sequence.push(irVar(resultName));
+    }
     return irStmtExpr(declarations, irCommaExpr(sequence));
 }

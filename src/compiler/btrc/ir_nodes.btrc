@@ -1777,6 +1777,7 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_arc_topology_complete");
     order.push("__btrc_arc_reverse_state");
     order.push("__btrc_arc_register_incoming");
+    order.push("__btrc_arc_incoming_teardown_pending");
     order.push("__btrc_arc_reverse_proves_live");
     order.push("__btrc_arc_retain");
     order.push("__btrc_arc_retain_edge");

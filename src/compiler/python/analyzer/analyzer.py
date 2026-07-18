@@ -14,6 +14,7 @@ from .cast_contracts import CastContractsMixin
 from .constant_expressions import ConstantExpressionMixin
 from .constructor_inference import ConstructorInferenceMixin
 from .control_flow import ControlFlowAnalysisMixin
+from .conversion_contracts import ConversionContractsMixin
 from .core import (
     AnalyzedProgram,
     AnalyzerBase,
@@ -45,6 +46,7 @@ from .initializers import InitializerValidationMixin
 from .lambdas import LambdaAnalysisMixin
 from .lvalue_contracts import LvalueContractsMixin
 from .managed_rebinds import ManagedRebindContractsMixin
+from .mutex_ownership import MutexOwnershipContractsMixin
 from .node_type_storage import NodeTypeStorageMixin
 from .nullable_control_flow import NullableControlFlowMixin
 from .nullable_flow import NullableFlowMixin
@@ -73,6 +75,7 @@ from .variable_declarations import VariableDeclarationAnalysisMixin
 class Analyzer(
     QualificationMixin,
     TypeUtilsMixin,
+    ConversionContractsMixin,
     NodeTypeStorageMixin,
     ConstantExpressionMixin,
     StorageInitializerContractsMixin,
@@ -107,6 +110,7 @@ class Analyzer(
     UpdateContractsMixin,
     ExpressionContractsMixin,
     ParameterConsumptionContractsMixin,
+    MutexOwnershipContractsMixin,
     ValueContractsMixin,
     ExceptionAnalysisMixin,
     NullableFlowMixin,

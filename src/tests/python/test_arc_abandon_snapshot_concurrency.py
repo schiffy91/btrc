@@ -20,8 +20,10 @@ ROOTS = {
     "__btrc_arc_retain",
     "__btrc_arc_topology_begin",
     "__btrc_arc_topology_complete",
-    "__btrc_mutex_val_types",
-    "__btrc_mutex_val_visit",
+    "__btrc_mutex_val_create",
+    "__btrc_mutex_arc_retain",
+    "__btrc_mutex_arc_release",
+    "__btrc_mutex_arc_finalize",
     "__btrc_cycle_state_cleanup",
 }
 RUNTIME = "\n\n".join(helper.c_source for helper in helper_decls_for_roots(ROOTS))

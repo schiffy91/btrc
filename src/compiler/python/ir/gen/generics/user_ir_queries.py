@@ -121,7 +121,11 @@ def _uses_element_as_string_memory(
     element_vars: set[str],
 ) -> bool:
     for node in iter_ir_nodes(function):
-        if not isinstance(node, IRCall) or not isinstance(node.callee, str) or node.callee not in {"strlen", "memcpy"}:
+        if (
+            not isinstance(node, IRCall)
+            or not isinstance(node.callee, str)
+            or node.callee not in {"strlen", "memcpy", "__btrc_string_length"}
+        ):
             continue
         if any(_contains_element_value(arg, element_vars) for arg in node.args):
             return True

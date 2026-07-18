@@ -5,12 +5,12 @@ from __future__ import annotations
 from ...ast_nodes import (
     CallExpr,
     ExprStmt,
+    FieldAccessExpr,
     NullLiteral,
     SpawnExpr,
     TernaryExpr,
 )
-from ..nodes import CType, IRCall, IRExprStmt, IRStmt, IRVar, IRVarDecl
-from .arguments_arc import _release_stmt
+from ..nodes import CType, IRCall, IRCommaExpr, IRExprStmt, IRStmt, IRVar, IRVarDecl
 from .expressions import lower_expr
 from .ownership import owns_result
 from .types import type_to_c
@@ -18,6 +18,11 @@ from .types import type_to_c
 
 def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
     """Lower one expression and release any discarded caller-owned result."""
+    destroy_receiver = _mutex_destroy_receiver(gen, node.expr)
+    if destroy_receiver is not None:
+        from .arc import lower_release_expression
+
+        return lower_release_expression(gen, destroy_receiver)
     lowered = lower_expr(gen, node.expr)
 
     result_type = gen.analyzed.node_types.get(id(node.expr))
@@ -50,11 +55,38 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
         gen._func_var_decls.append(temporary)
         value = IRVar(name=temporary.name)
         statements = [temporary]
-        statements.append(_release_stmt(gen, value, result_type))
+        statements.append(_release_owned_value(gen, value, result_type))
     else:
         statements = [IRExprStmt(expr=lowered)]
 
     return statements
+
+
+def _release_owned_value(gen, target, value_type):
+    """Build full-expression cleanup for one discarded owned value."""
+    from .arc_ops import poll_release_batch
+    from .managed_values import is_arc_type, release_value
+
+    expressions = [release_value(gen, target, value_type)]
+    flush = poll_release_batch(
+        gen,
+        types=[value_type] if is_arc_type(gen, value_type) else [],
+    )
+    if flush is not None:
+        expressions.append(flush)
+    return IRExprStmt(expr=IRCommaExpr(expressions=expressions))
+
+
+def _mutex_destroy_receiver(gen, expression):
+    if not isinstance(expression, CallExpr) or not isinstance(expression.callee, FieldAccessExpr):
+        return None
+    if expression.callee.field != "destroy":
+        return None
+    receiver = expression.callee.obj
+    receiver_type = gen.analyzed.node_types.get(id(receiver))
+    from .managed_values import is_mutex_type
+
+    return receiver if is_mutex_type(gen, receiver_type) else None
 
 
 def _is_fresh_thread_result(gen, expression, result_type) -> bool:

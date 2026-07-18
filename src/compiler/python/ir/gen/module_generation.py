@@ -24,6 +24,7 @@ from ..nodes import (
     IRTypedefDef,
 )
 from .feature_scan import uses_trycatch
+from .function_symbols import source_function_c_name
 from .parameters import lower_source_param
 from .types import mangle_generic_type, type_to_c
 
@@ -98,7 +99,7 @@ class _ModuleGenerationMixin:
             elif isinstance(decl, FunctionDecl) and decl.body and not decl.is_gpu and decl.name != "main":
                 function_decls.append(
                     IRFunctionDecl(
-                        name=decl.name,
+                        name=source_function_c_name(self.analyzed, decl.name),
                         return_type=CType(text=type_to_c(decl.return_type)),
                         params=[lower_source_param(param) for param in decl.params],
                         is_static=bool(decl.return_type.is_static),

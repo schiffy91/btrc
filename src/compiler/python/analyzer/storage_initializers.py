@@ -20,6 +20,11 @@ from ..ast_nodes import (
 
 class StorageInitializerContractsMixin:
     def _is_static_storage_initializer(self, expression, expected=None) -> bool:
+        if expected is not None and self._requires_string_conversion(
+            expected,
+            self._infer_type(expression),
+        ):
+            return False
         if isinstance(expression, BraceInitializer):
             return all(self._is_static_storage_initializer(item) for item in expression.elements)
         if isinstance(expression, ListLiteral):

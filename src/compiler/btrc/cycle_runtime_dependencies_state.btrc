@@ -118,6 +118,10 @@ Vector<string> cycleRuntimeStateDependencies(string name) {
         out.push("__btrc_arc_header_of");
         return out;
     }
+    if (name == "__btrc_arc_incoming_teardown_pending") {
+        out.push("__btrc_arc_validate");
+        return out;
+    }
     if (name == "__btrc_arc_reverse_proves_live") {
         out.push("__btrc_arc_reverse_state");
         out.push("__btrc_arc_validate");

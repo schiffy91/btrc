@@ -155,7 +155,8 @@ void semanticValidateConcreteMutexType(Node? declared,
         SemanticValidationState state) {
     if (declared == null) { return; }
     semanticValidateMutexPayloadsInType(
-        resolveGenericType(declared, substitutions), site, state);
+        resolveGenericType(declared, substitutions,
+            state.analyzed), site, state);
 }
 
 void semanticValidateConcreteMutexInstances(

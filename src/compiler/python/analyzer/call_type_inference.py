@@ -16,6 +16,24 @@ class CallTypeInferenceMixin:
                 return callable_type.generic_args[0]
         if isinstance(expr.callee, Identifier):
             name = expr.callee.name
+            symbol = self.scope.lookup(name)
+            signature = self._function_pointer_signature(symbol.type if symbol else None)
+            if signature is not None:
+                return signature[0]
+            if name == "Mutex" and expr.args:
+                argument_type = self._infer_type(expr.args[0])
+                return TypeExpr(
+                    base="Mutex",
+                    generic_args=[argument_type or TypeExpr(base="int")],
+                )
+            if name in self.class_table:
+                return self._infer_constructor_call_type(expr, self.class_table[name])
+            if name in self.function_table:
+                return self.function_table[name].return_type
+            if name in {"len", "printf"}:
+                return TypeExpr(base="int")
+            if name == "print":
+                return TypeExpr(base="void")
             if name in C_SCALAR_CALL_RESULTS:
                 return TypeExpr(base=C_SCALAR_CALL_RESULTS[name])
             if name in C_POINTER_CALL_RESULTS:
@@ -31,25 +49,14 @@ class CallTypeInferenceMixin:
                 if name in WGSL_SAME_TYPE_BUILTINS and expr.args:
                     return self._infer_type(expr.args[0])
                 return TypeExpr(base="float")
-            if name == "Mutex" and expr.args:
-                argument_type = self._infer_type(expr.args[0])
-                return TypeExpr(
-                    base="Mutex",
-                    generic_args=[argument_type or TypeExpr(base="int")],
-                )
-            if name in self.class_table:
-                return self._infer_constructor_call_type(expr, self.class_table[name])
-            if name in self.function_table:
-                return self.function_table[name].return_type
-            symbol = self.scope.lookup(name)
-            signature = self._function_pointer_signature(symbol.type if symbol else None)
-            if signature is not None:
-                return signature[0]
         if isinstance(expr.callee, FieldAccessExpr):
             result = self._infer_method_call_type(expr)
             if expr.callee.optional and result is not None and self._is_pointer_value(result):
                 return replace(result, is_nullable=True)
             return result
+        signature = self._function_pointer_signature(self._infer_type(expr.callee))
+        if signature is not None:
+            return signature[0]
         return None
 
     def _infer_method_call_type(self, expr):
@@ -86,6 +93,8 @@ class CallTypeInferenceMixin:
                 return object_type.generic_args[0]
             if callee.field in ("set", "destroy"):
                 return TypeExpr(base="void")
+        if object_type and object_type.base in {"Array", "List", "Map", "Set", "Vector"} and callee.field == "size":
+            return TypeExpr(base="int")
         if object_type and object_type.base in self.class_table:
             cls = self.class_table[object_type.base]
             method = cls.methods.get(callee.field)

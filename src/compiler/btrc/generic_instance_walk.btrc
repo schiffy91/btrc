@@ -15,7 +15,8 @@ Map<string, Node> genericClosureCopyTypes(Map<string, Node> source) {
 void genericClosureRegisterType(Node? typeExpr, Map<string, Node> substitutions,
         Map<string, bool> unresolved, Analyzed analyzed) {
     if (typeExpr == null) { return; }
-    Node resolved = resolveGenericType(typeExpr, substitutions);
+    Node resolved = resolveGenericType(
+        typeExpr, substitutions, analyzed);
     if (resolved.generic_args.len > 0) {
         registerGenericInstanceWithUnresolved(
             resolved, analyzed, unresolved);
@@ -30,9 +31,11 @@ Node? genericClosureExpressionType(Node? expression,
         Map<string, Node> substitutions, Analyzed analyzed,
         Map<string, Node> variables) {
     if (expression == null) { return null; }
-    Node? inferred = inferType(expression, analyzed, variables);
+    Node? inferred = inferSpecializationType(
+        expression, analyzed, variables);
     if (inferred == null) { return null; }
-    return resolveGenericType(inferred, substitutions);
+    return resolveGenericType(
+        inferred, substitutions, analyzed);
 }
 
 Node? genericClosureIterationType(Node? iterableType, Analyzed analyzed) {
@@ -73,7 +76,8 @@ void genericClosureWalkLambda(Node lambda, Map<string, Node> substitutions,
     int parameter = 0;
     while (parameter < lambda.params.len) {
         Node value = lambda.params.get(parameter);
-        Node resolved = resolveGenericType(value.type, substitutions);
+        Node resolved = resolveGenericType(
+            value.type, substitutions, analyzed);
         genericClosureRegisterType(
             resolved, substitutions, unresolved, analyzed);
         nested.put(value.name, resolved);
@@ -84,7 +88,8 @@ void genericClosureWalkLambda(Node lambda, Map<string, Node> substitutions,
     int capture = 0;
     while (capture < lambda.captures.len) {
         Node value = lambda.captures.get(capture);
-        Node resolved = resolveGenericType(value.type, substitutions);
+        Node resolved = resolveGenericType(
+            value.type, substitutions, analyzed);
         genericClosureRegisterType(
             resolved, substitutions, unresolved, analyzed);
         nested.put(value.name, resolved);
@@ -121,7 +126,8 @@ void genericClosureWalkNode(Node? node, Map<string, Node> substitutions,
             unresolved, analyzed, variables);
         Node? declared = null;
         if (node.type != null) {
-            declared = resolveGenericType(node.type, substitutions);
+            declared = resolveGenericType(
+                node.type, substitutions, analyzed);
         } else {
             declared = genericClosureExpressionType(
                 node.initializer, substitutions, analyzed, variables);
@@ -155,7 +161,7 @@ void genericClosureWalkNode(Node? node, Map<string, Node> substitutions,
         Map<string, Node> caught = genericClosureCopyTypes(variables);
         if (node.catch_type != null) {
             Node catchType = resolveGenericType(
-                node.catch_type, substitutions);
+                node.catch_type, substitutions, analyzed);
             genericClosureRegisterType(
                 catchType, substitutions, unresolved, analyzed);
             if (node.catch_var != "") { caught.put(node.catch_var, catchType); }

@@ -11,15 +11,7 @@ from ..nodes import (
     IRLiteral,
     IRVar,
 )
-from .types import is_generic_class_type, mangle_generic_type
-
-
-def destroy_name(gen, type_expr) -> str:
-    """Return the terminal destructor for one analyzed class value."""
-    if is_generic_class_type(type_expr, gen.analyzed.class_table):
-        mangled = mangle_generic_type(type_expr.base, type_expr.generic_args)
-        return f"{mangled}_destroy"
-    return f"{type_expr.base}_destroy"
+from .arc_type_names import destroy_name
 
 
 def retain_if_present(gen, value) -> IRCall:
@@ -66,6 +58,11 @@ def unlink_edge_if_present(gen, value, owner=None) -> IRCall:
 
 def arc_type_descriptor(gen, type_expr):
     """Build the copied runtime descriptor for one concrete managed type."""
+    from .managed_values import is_mutex_type
+
+    if is_mutex_type(gen, type_expr):
+        gen.use_helper("__btrc_mutex_arc_type")
+        return IRAddressOf(expr=IRVar(name="__btrc_mutex_arc_descriptor"))
     from .cycle_metadata import visitor_for_type
 
     visitor = visitor_for_type(gen, type_expr)
@@ -88,10 +85,14 @@ def arc_type_descriptor(gen, type_expr):
 
 def emitted_type_descriptor(gen, emitted_name: str):
     """Build a descriptor when scope metadata already stores the C type name."""
-    from .arc_cycles import managed_type_has_visitor
-    from .cycle_metadata import cycle_visitor_symbol
+    from .managed_values import MUTEX_RUNTIME_NAME
 
-    visitor = cycle_visitor_symbol(emitted_name) if managed_type_has_visitor(gen, emitted_name) else None
+    if emitted_name == MUTEX_RUNTIME_NAME:
+        gen.use_helper("__btrc_mutex_arc_type")
+        return IRAddressOf(expr=IRVar(name="__btrc_mutex_arc_descriptor"))
+    from .arc_cycles import managed_visitor_symbol
+
+    visitor = managed_visitor_symbol(gen, emitted_name)
     return IRAddressOf(
         expr=IRCompoundLiteral(
             c_type=CType(text="__btrc_arc_type"),
@@ -208,6 +209,10 @@ def type_release_can_enqueue(gen, type_expr) -> bool:
 
 def emitted_release_can_enqueue(gen, emitted_name: str) -> bool:
     """Whether a scope-tracked emitted type can add a cycle suspect."""
+    from .managed_values import MUTEX_RUNTIME_NAME
+
+    if emitted_name == MUTEX_RUNTIME_NAME:
+        return True
     from .cycle_metadata import emitted_type_may_cycle
 
     return emitted_type_may_cycle(gen, emitted_name)

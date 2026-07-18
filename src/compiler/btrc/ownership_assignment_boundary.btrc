@@ -144,10 +144,10 @@ IRNode? lowerOwnedAssignment(IRGen generator, Node expression,
         expression, varTypes);
     Node? virtualType = irVirtualAssignmentValueType(
         generator, expression.target, varTypes);
-    bool rhsSuppliesResult = expression.op == "="
-        && virtualType != null
-        && irContextualExpressionOwnsResult(
-            generator, expression.value_node, virtualType, varTypes);
+    bool rhsSuppliesResult = virtualType != null
+        && irVirtualAssignmentRhsOwnsResult(
+            generator, expression, virtualType);
+    boundary.resultOwned = rhsSuppliesResult;
     return boundary.finish(generator, lowered, resultType,
         irManagedType(generator, resultType) && !rhsSuppliesResult);
 }

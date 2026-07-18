@@ -18,7 +18,7 @@ from ...nodes import (
     IRVarDecl,
 )
 from ..managed_values import (
-    is_class_type,
+    is_arc_type,
     is_managed_type,
     poll_released_values,
     release_edge_value,
@@ -34,7 +34,7 @@ def emit_generic_properties(gen, mangled, type_map, cls_info, emitter):
 
     emitted = []
     for name, prop in cls_info.properties.items():
-        resolved = _resolve_type(prop.type, type_map)
+        resolved = _resolve_type(prop.type, type_map, gen.analyzed.typedef_table)
         property_c = emitter.resolve_c(prop.type)
         backing = f"_prop_{name}"
         if prop.has_getter:
@@ -114,7 +114,7 @@ def _setter_body(gen, emitter, prop, resolved, property_c, backing):
     if prop.setter_body is None:
         if not is_managed_type(gen, resolved):
             return IRBlock(stmts=[IRAssign(target=target, value=IRVar(name="value"))])
-        if is_class_type(gen, resolved):
+        if is_arc_type(gen, resolved):
             stmts = [
                 IRExprStmt(
                     expr=replace_edge_value(

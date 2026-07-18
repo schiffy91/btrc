@@ -8,6 +8,7 @@ from ...ast_nodes import (
     LambdaBlock,
     LambdaExpr,
     LambdaExprBody,
+    ReturnStmt,
 )
 from ..nodes import (
     CType,
@@ -21,7 +22,6 @@ from ..nodes import (
     IRFieldAccess,
     IRFunctionDef,
     IRParam,
-    IRReturn,
     IRStmtExpr,
     IRStructDef,
     IRStructField,
@@ -116,6 +116,7 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
             )
             body_stmts.extend(block.stmts)
         elif isinstance(node.body, LambdaExprBody) and node.body.expression:
+            from .arc_returns import lower_return
             from .callable_provenance import (
                 begin_callable_scope,
                 bind_borrowed_callable,
@@ -123,8 +124,6 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
                 declare_callable_shadow,
                 finish_callable_scope,
             )
-            from .expressions import lower_expr
-            from .stringable import coerce_value_to_string
 
             gen.push_local_ownership_scope()
             enclosing_callables = begin_callable_scope(gen)
@@ -136,15 +135,16 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
                     bind_borrowed_callable(gen, parameter.name, parameter.type)
                 for capture, return_abi in capture_abis:
                     bind_callable_abi(gen, capture.name, capture.type, return_abi)
-                expr = lower_expr(gen, node.body.expression)
-                expr_type = gen.analyzed.node_types.get(id(node.body.expression))
-                expr = coerce_value_to_string(
-                    gen,
-                    return_type,
-                    expr_type,
-                    expr,
+                body_stmts.extend(
+                    lower_return(
+                        gen,
+                        ReturnStmt(
+                            value=node.body.expression,
+                            line=node.body.expression.line,
+                            col=node.body.expression.col,
+                        ),
+                    )
                 )
-                body_stmts.append(IRReturn(value=expr))
             finally:
                 finish_callable_scope(gen, enclosing_callables)
                 gen.pop_local_ownership_scope()

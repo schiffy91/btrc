@@ -14,6 +14,12 @@ def lower_generic_local_assignment(emitter, expression):
     if not isinstance(expression.target, Identifier) or managed_local_type(emitter, expression.target.name) is None:
         return None
     target_type = emitter._resolve_expr_type(expression.target)
+    from ..managed_values import managed_local_value_type
+
+    target_type = managed_local_value_type(
+        target_type,
+        managed_local_type(emitter, expression.target.name),
+    )
     if not emitter._is_managed_type(target_type):
         return None
 
@@ -41,7 +47,16 @@ def lower_generic_managed_slot_assignment(
             target_type,
         )
     value = emitter._assignment_value(target_type, expression.value)
-    value_type = emitter._resolve_expr_type(expression.value)
+    from ..prepared_values import prepare_generic_value
+
+    prepared = prepare_generic_value(
+        emitter,
+        expression.value,
+        target_type,
+        lowered=value,
+    )
+    value = prepared.value
+    value_type = prepared.effective_type
     from ..upcast import upcast_class_pointer
 
     value = upcast_class_pointer(
@@ -50,8 +65,6 @@ def lower_generic_managed_slot_assignment(
         value_type,
         value,
     )
-    owned = emitter._owns_expr(expression.value)
-
     from ..managed_replacement import lower_managed_slot_replacement
 
     return lower_managed_slot_replacement(
@@ -59,7 +72,7 @@ def lower_generic_managed_slot_assignment(
         target=target,
         target_type=target_type,
         value=value,
-        value_owned=owned,
+        value_owned=prepared.owned,
         c_type=emitter.iter_value_c,
         fresh_temp=emitter._fresh_temp,
         record_decl=emitter._func_var_decls.append,
@@ -113,6 +126,19 @@ def _lower_generic_local_compound(emitter, expression, target, target_type):
 
 def lower_generic_expression_statement(emitter, expression):
     """Consume a discarded caller-owned result at the statement boundary."""
+    from ....ast_nodes import CallExpr, FieldAccessExpr
+    from ..managed_values import is_mutex_type
+
+    if (
+        isinstance(expression, CallExpr)
+        and isinstance(expression.callee, FieldAccessExpr)
+        and expression.callee.field == "destroy"
+        and is_mutex_type(
+            emitter._gen,
+            emitter._resolve_expr_type(expression.callee.obj),
+        )
+    ):
+        return emitter._release_expression(expression.callee.obj)
     result_type = emitter._resolve_expr_type(expression)
     value = emitter._expr(expression)
     if not emitter._is_managed_type(result_type) or not emitter._owns_expr(expression):

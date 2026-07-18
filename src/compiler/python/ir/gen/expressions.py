@@ -221,6 +221,10 @@ def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
         if name in values:
             prefix = f"{enum_name}_" if enum_name else ""
             return IRVar(name=f"{prefix}{name}")
+    if name in gen.analyzed.function_table and not gen.local_ownership_declared(name):
+        from .function_symbols import source_function_c_name
+
+        return IRVar(name=source_function_c_name(gen.analyzed, name))
     return IRVar(name=name)
 
 

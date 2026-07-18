@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from ...ast_nodes import FieldAccessExpr, Identifier
-from ...type_identity import substitute_type_expr
-from .type_resolution import canonical_type, function_pointer_signature
+from .type_resolution import (
+    canonical_type,
+    function_pointer_signature,
+    substitute_concrete_type,
+)
 
 
 def callable_field_signature(gen, callee: FieldAccessExpr):
@@ -19,11 +22,12 @@ def callable_field_signature(gen, callee: FieldAccessExpr):
 
     if isinstance(callee.obj, Identifier):
         owner = analyzed.class_table.get(callee.obj.name)
-        member = owner.static_fields.get(callee.field) if owner else None
-        return function_pointer_signature(
-            member.type if member else None,
-            analyzed.typedef_table,
-        )
+        if owner is not None and not gen.local_ownership_declared(callee.obj.name):
+            member = owner.static_fields.get(callee.field)
+            return function_pointer_signature(
+                member.type if member else None,
+                analyzed.typedef_table,
+            )
 
     receiver = canonical_type(
         analyzed.node_types.get(id(callee.obj)),
@@ -39,9 +43,10 @@ def callable_field_signature(gen, callee: FieldAccessExpr):
         return None
     member_type = member.type
     if owner.generic_params and receiver.generic_args:
-        member_type = substitute_type_expr(
+        member_type = substitute_concrete_type(
             member_type,
             dict(zip(owner.generic_params, receiver.generic_args)),
+            analyzed.typedef_table,
         )
     return function_pointer_signature(member_type, analyzed.typedef_table)
 

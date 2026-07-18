@@ -25,7 +25,8 @@ class IndexedUpdateContractsMixin:
         getter = protocol.getter
         if setter is None:
             self._error(
-                f"Type '{self._format_type(receiver_type)}' has no void instance set(index, value) method",
+                f"Type '{self._format_type(receiver_type)}' has no indexed setter "
+                "(a void instance set(index, value) method)",
                 line,
                 col,
             )

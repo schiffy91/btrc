@@ -147,8 +147,13 @@ def test_generic_operation_helpers_follow_live_structured_calls():
     assert "static inline unsigned int __btrc_hash_str" in generated["normal"]
     assert "__btrc_hash_real" not in generated["string"]
     assert "__btrc_hash_real" not in generated["normal"]
-    assert "((unsigned int)key)" in generated["int"]
-    assert "uintptr_t" not in generated["int"]
+    int_bucket_start = generated["int"].index(
+        "static int btrc_Operations_int_bucket(btrc_Operations_int* self, int key) {"
+    )
+    int_bucket_end = generated["int"].index("\n}", int_bucket_start)
+    int_bucket = generated["int"][int_bucket_start:int_bucket_end]
+    assert "((unsigned int)key)" in int_bucket
+    assert "uintptr_t" not in int_bucket
     assert "((uintptr_t)" in generated["pointer"]
     assert "__btrc_hash_str" not in generated["dead_hash"]
 
@@ -203,5 +208,6 @@ def test_generic_helper_reachability_is_warning_clean(
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
     subprocess.run([binary], check=True, timeout=15)

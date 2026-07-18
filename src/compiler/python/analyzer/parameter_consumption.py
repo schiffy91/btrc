@@ -74,7 +74,7 @@ class ParameterConsumptionContractsMixin:
     def _possibly_managed_parameter_type(self, type_expr) -> bool:
         if type_expr is None:
             return False
-        if type_expr.base == "string" or type_expr.base in self.class_table:
+        if type_expr.base in {"string", "Mutex"} or type_expr.base in self.class_table:
             return True
         params = set(self.current_class.generic_params if self.current_class else ())
         params.update(getattr(self.current_callable, "generic_params", ()) or ())

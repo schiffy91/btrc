@@ -151,7 +151,7 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
     # Element type from first generic arg. Class values are reference types in
     # btrc, and generic methods are monomorphized with pointer return types for
     # class arguments, so the loop binding must match the concrete iterGet ABI.
-    elem_type = _iter_method_return_type(cls_info, iter_type, "iterGet")
+    elem_type = _iter_method_return_type(gen, cls_info, iter_type, "iterGet")
     elem_c = _iter_value_c(gen, elem_type)
 
     bindings = [
@@ -169,7 +169,12 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
 
     # Two-variable iteration (e.g., for k, v in map): also call iterValueAt
     if var_name2 and "iterValueAt" in cls_info.methods:
-        value_type = _iter_method_return_type(cls_info, iter_type, "iterValueAt")
+        value_type = _iter_method_return_type(
+            gen,
+            cls_info,
+            iter_type,
+            "iterValueAt",
+        )
         v_c = _iter_value_c(gen, value_type)
         bindings.append(
             IterationBinding(
@@ -210,7 +215,7 @@ def _iter_value_c(gen: IRGenerator, t) -> str:
     return c_type
 
 
-def _iter_method_return_type(cls_info, iter_type, method_name):
+def _iter_method_return_type(gen, cls_info, iter_type, method_name):
     """Resolve an iterable protocol method for one concrete instance."""
     method = cls_info.methods[method_name]
     if not cls_info.generic_params:
@@ -218,7 +223,11 @@ def _iter_method_return_type(cls_info, iter_type, method_name):
     from .generics.core import _resolve_type
 
     substitutions = dict(zip(cls_info.generic_params, iter_type.generic_args))
-    return _resolve_type(method.return_type, substitutions)
+    return _resolve_type(
+        method.return_type,
+        substitutions,
+        gen.analyzed.typedef_table,
+    )
 
 
 def _lower_expr(gen, node):

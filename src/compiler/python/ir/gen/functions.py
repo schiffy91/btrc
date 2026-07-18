@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from ...ast_nodes import FunctionDecl
 from ..nodes import CType, IRFunctionDecl, IRFunctionDef
+from .function_symbols import source_function_c_name
 from .parameters import lower_source_param
 from .types import type_to_c
 
@@ -29,12 +30,13 @@ def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
         ret_type = "int"
     params = [lower_source_param(parameter) for parameter in decl.params]
     is_static = bool(decl.return_type and decl.return_type.is_static)
+    c_name = source_function_c_name(gen.analyzed, decl.name)
 
     # A source declaration without a body remains a typed prototype.
     if decl.body is None:
         gen.module.function_decls.append(
             IRFunctionDecl(
-                name=decl.name,
+                name=c_name,
                 return_type=CType(text=ret_type),
                 params=params,
                 is_static=is_static,
@@ -68,7 +70,7 @@ def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
 
     gen.module.function_defs.append(
         IRFunctionDef(
-            name=name,
+            name=c_name,
             return_type=CType(text=ret_type),
             params=params,
             body=body,

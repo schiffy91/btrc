@@ -42,11 +42,8 @@ void semanticValidateVariable(Node declaration,
         declared = actual;
     } else if (actual != null
             && !semanticAssignmentCompatible(declared, actual, state)
-            && declaration.initializer.kind != NK_BRACE_INITIALIZER
-            && !(declaration.initializer.kind == NK_LIST_LITERAL
-                && declaration.initializer.elements.len == 0)
-            && !(declaration.initializer.kind == NK_MAP_LITERAL
-                && declaration.initializer.entries.len == 0)) {
+            && !semanticContextualAggregateInitializer(
+                declaration.initializer)) {
         semanticValidationFail("Cannot assign '" + semanticFormatType(actual)
             + "' to variable '" + declaration.name + "' of type '"
             + semanticFormatType(declared) + "'", declaration);
@@ -81,7 +78,18 @@ void semanticValidateReturn(Node statement, SemanticValidationState state,
             "Void function or method cannot return a value", statement);
     }
     Node? actual = semanticInferType(statement.value_node, state, vars);
-    bool compatible = actual == null
+    if (state.borrowedReturn
+            && semanticRequiresTargetStringConversion(
+                expectedReturn, actual, state)) {
+        semanticValidationFail(
+            "Borrowed property getter cannot return an implicit "
+                + "class-to-string conversion because conversion creates "
+                + "a caller-owned temporary",
+            statement.value_node);
+    }
+    bool compatible = semanticContextualAggregateInitializer(
+            statement.value_node)
+        || actual == null
         || semanticAssignmentCompatible(expectedReturn, actual, state);
     if (!compatible && state.gpuCallable && expectedReturn.is_array) {
         Node elementType = copyTypeExpr(expectedReturn);
@@ -191,7 +199,10 @@ void semanticValidateStmt(Node statement, SemanticValidationState state,
     } else if (statement.kind == NK_RETURN_STMT) {
         semanticValidateReturn(statement, state, vars);
     } else if (statement.kind == NK_EXPR_STMT) {
+        Node? previousStandalone = state.standaloneExpression;
+        state.standaloneExpression = statement.expr;
         semanticValidateExpr(statement.expr, state, vars);
+        state.standaloneExpression = previousStandalone;
         semanticValidateThreadExpressionDiscard(
             statement.expr, state, vars);
     } else if (statement.kind == NK_IF_STMT) {

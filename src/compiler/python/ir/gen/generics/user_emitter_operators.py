@@ -133,13 +133,24 @@ class _UserGenericOperatorMixin:
         )
         if target_nodes:
             from ..assignment_ownership import virtual_assignment_target
-            from ..ownership import owns_result
+            from ..assignment_result_ownership import virtual_assignment_rhs_owns_result
+            from .user_index_targets import prepared_generic_index_targets
 
             result_type = self._resolve_expr_type(expression)
+            prepared_targets = prepared_generic_index_targets(
+                self,
+                expression,
+            )
             rhs_supplies_result = bool(
                 expression.op == "="
                 and virtual_assignment_target(self._gen, expression.target)
-                and owns_result(self._gen, expression.value)
+                and virtual_assignment_rhs_owns_result(
+                    self._gen,
+                    expression.target,
+                    expression.value,
+                    type_of=self._resolve_expr_type,
+                    owns=self._owns_expr,
+                )
             )
             sequenced = self._sequence_owned_nodes(
                 target_nodes,
@@ -153,6 +164,7 @@ class _UserGenericOperatorMixin:
                     owns=self._owns_expr,
                 ),
                 promote_result=(self._is_managed_type(result_type) and not rhs_supplies_result),
+                prepared_values=prepared_targets,
             )
             if sequenced is not None:
                 return sequenced
@@ -195,7 +207,7 @@ class _UserGenericOperatorMixin:
         from ....ast_nodes import FieldAccessExpr, SelfExpr
         from ..operators import lower_overloaded_values
         from ..upcast import upcast_class_pointer
-        from ..updates import _lower_virtual_store_boundary
+        from ..virtual_stores import lower_virtual_store_boundary
 
         analyzed = self._gen.analyzed
         lvalues = LValueContext(
@@ -228,7 +240,7 @@ class _UserGenericOperatorMixin:
                 lambda target_type, source_type, value: upcast_class_pointer(self._gen, target_type, source_type, value)
             ),
             lower_value=self._assignment_value,
-            store_boundary=lambda node, plan: _lower_virtual_store_boundary(
+            store_boundary=lambda node, plan: lower_virtual_store_boundary(
                 self._gen,
                 node,
                 plan,
@@ -236,6 +248,18 @@ class _UserGenericOperatorMixin:
                 coerce=lambda target_type, source_type, value: upcast_class_pointer(
                     self._gen, target_type, source_type, value
                 ),
+                render_type=self.iter_value_c,
+                fresh_temp=self._fresh_temp,
+                cleanup_active=self._exception_cleanup_active(),
+                record_decl=self._func_var_decls.append,
+                owns_result=self._owns_expr,
+                prepare=lambda value, target_type, lowered: _prepare_generic_assignment(
+                    self,
+                    value,
+                    target_type,
+                    lowered,
+                ),
+                activate_cleanup=self._activate_cleanup_registration,
             ),
         )
 
@@ -251,3 +275,14 @@ class _UserGenericOperatorMixin:
 
 
 __all__ = ["_UserGenericOperatorMixin"]
+
+
+def _prepare_generic_assignment(emitter, value, target_type, lowered):
+    from ..prepared_values import prepare_generic_value
+
+    return prepare_generic_value(
+        emitter,
+        value,
+        target_type,
+        lowered=lowered,
+    )

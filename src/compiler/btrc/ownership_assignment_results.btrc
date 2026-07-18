@@ -40,3 +40,29 @@ bool irVirtualAssignmentTarget(IRGen generator, Node? target,
     return irVirtualAssignmentValueType(
         generator, target, varTypes) != null;
 }
+
+bool irPropertyGetterProjection(IRGen generator, Node? expression,
+        Map<string, Node> varTypes) {
+    if (expression == null
+            || expression.kind != NK_FIELD_ACCESS_EXPR) {
+        return false;
+    }
+    if (expression.obj.kind == NK_SELF_EXPR
+            || expression.obj.kind == NK_SUPER_EXPR) {
+        return false;
+    }
+    Node? receiverType = generator.resolvedExpressionType(
+        expression.obj, varTypes);
+    Node? member = instanceMemberForType(
+        generator.analyzed, receiverType, expression.field);
+    if (member == null || member.kind != NK_PROPERTY_DECL) {
+        return false;
+    }
+    return true;
+}
+
+bool irVirtualAssignmentRhsOwnsResult(IRGen generator, Node assignment,
+        Node? targetType) {
+    if (assignment.op != "=" || targetType == null) { return false; }
+    return irManagedType(generator, targetType);
+}

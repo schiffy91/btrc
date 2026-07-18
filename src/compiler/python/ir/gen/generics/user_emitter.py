@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from ...nodes import (
     CType,
     IRCall,
@@ -22,9 +20,6 @@ from .user_emitter_fstrings import _UserGenericFStringMixin
 from .user_emitter_operators import _UserGenericOperatorMixin
 from .user_emitter_scopes import emit_scoped_stmts, reset_scope_state
 from .user_emitter_stmts import _UserGenericStmtMixin
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ["_UserGenericEmitter"]
 
@@ -59,16 +54,19 @@ class _UserGenericEmitter(
 
         self._collection_edge_keeps = bool(cls_info and cls_info.name in PUBLIC_COLLECTION_BASES)
         self._arc_overrides = {}
+        self._arc_type_overrides = {}
         self._current_property_backing = None
         reset_scope_state(self)
 
     def _fresh_temp(self, prefix: str = "__tmp") -> str:
         """Generate a unique temporary variable name."""
+        if self._gen is not None:
+            return self._gen.fresh_temp(prefix)
         self._temp_counter += 1
         return f"{prefix}_{self._temp_counter}"
 
     def resolve_c(self, t):
-        return self._ttc(_resolve_type(t, self.type_map))
+        return self._ttc(_resolve_type(t, self.type_map, self._typedefs()))
 
     def iter_value_c(self, t):
         resolved = self._resolve(t)
@@ -79,7 +77,7 @@ class _UserGenericEmitter(
 
     def _resolve(self, t):
         """Resolve a TypeExpr through the type map."""
-        return _resolve_type(t, self.type_map)
+        return _resolve_type(t, self.type_map, self._typedefs())
 
     def emit_stmts(self, stmts) -> list[IRStmt]:
         """Emit a list of AST statements as a list of IR statements."""
@@ -104,6 +102,7 @@ class _UserGenericEmitter(
         self._return_owned = return_owned
         self._batch_explicit_releases = batch_explicit_releases
         self._arc_overrides = {}
+        self._arc_type_overrides = {}
         self._current_property_backing = None
         reset_scope_state(self)
         if params:
@@ -164,6 +163,10 @@ class _UserGenericEmitter(
 
             return lower_generic_index(self, e)
         if isinstance(e, Identifier):
+            if self._gen and e.name in self._gen.analyzed.function_table and e.name not in self._var_types:
+                from ..function_symbols import source_function_c_name
+
+                return IRVar(name=source_function_c_name(self._gen.analyzed, e.name))
             return IRVar(name=e.name)
         if isinstance(e, IntLiteral):
             return IRLiteral(text=format_c_integer_literal(e.raw, e.value))

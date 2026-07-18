@@ -42,7 +42,15 @@ class _UserGenericOwnershipMixin:
                 return self._string_call_owns_result(expression)
             return self._known_language_call(expression)
         if isinstance(expression, AssignExpr):
-            from ..assignment_ownership import virtual_assignment_target
+            from ..assignment_result_ownership import virtual_assignment_rhs_owns_result
+
+            rhs_owned = virtual_assignment_rhs_owns_result(
+                self._gen,
+                expression.target,
+                expression.value,
+                type_of=self._resolve_expr_type,
+                owns=self._owns_expr,
+            )
 
             return bool(
                 (
@@ -52,14 +60,19 @@ class _UserGenericOwnershipMixin:
                         or self._assignment_pins_borrowed_target(expression.target)
                     )
                 )
-                or (
-                    expression.op == "="
-                    and virtual_assignment_target(self._gen, expression.target)
-                    and self._owns_expr(expression.value)
-                )
+                or (expression.op == "=" and rhs_owned)
             )
         if isinstance(expression, (FieldAccessExpr, IndexExpr)):
-            return self._projection_is_call(expression) or self._owns_expr(expression.obj)
+            custom_getter = False
+            if isinstance(expression, FieldAccessExpr):
+                from ....class_storage import custom_property_getter
+
+                custom_getter = custom_property_getter(
+                    self._gen.analyzed.class_table,
+                    self._resolve_expr_type(expression.obj),
+                    expression.field,
+                )
+            return self._projection_is_call(expression) or custom_getter or self._owns_expr(expression.obj)
         branches = None
         if isinstance(expression, TernaryExpr):
             branches = (expression.true_expr, expression.false_expr)
@@ -126,13 +139,17 @@ class _UserGenericOwnershipMixin:
         callee = expression.callee
         if isinstance(callee, Identifier):
             return bool(
-                callee.name in self._gen.analyzed.class_table or callee.name in self._gen.analyzed.function_table
+                callee.name == "Mutex"
+                or callee.name in self._gen.analyzed.class_table
+                or callee.name in self._gen.analyzed.function_table
             )
         if not isinstance(callee, FieldAccessExpr):
             return False
         if isinstance(callee.obj, SelfExpr):
             return bool(self._cls_info and callee.field in self._cls_info.methods)
         receiver_type = self._resolve_expr_type(callee.obj)
+        if receiver_type is not None and receiver_type.base == "Mutex":
+            return callee.field == "get"
         class_info = self._gen.analyzed.class_table.get(receiver_type.base) if receiver_type is not None else None
         return bool(class_info and callee.field in class_info.methods)
 

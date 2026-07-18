@@ -127,7 +127,13 @@ def _iter_method_return_type(emitter, cls, iter_type, method_name, fallback_inde
         from .core import _resolve_type
 
         substitutions = dict(zip(cls.generic_params, iter_type.generic_args))
-        return emitter._resolve(_resolve_type(method.return_type, substitutions))
+        return emitter._resolve(
+            _resolve_type(
+                method.return_type,
+                substitutions,
+                emitter._typedefs(),
+            )
+        )
     if fallback_index < len(iter_type.generic_args):
         return iter_type.generic_args[fallback_index]
     from ....ast_nodes import TypeExpr

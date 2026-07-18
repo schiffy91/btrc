@@ -17,7 +17,6 @@ from .cleanup_registration import (
     maybe_register_direct_cleanup as _maybe_register_direct_cleanup,
 )
 from .expressions import lower_expr
-from .stringable import coerce_value_to_string
 from .type_resolution import canonical_type
 from .types import type_to_c
 
@@ -43,6 +42,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
 
     c_type = type_to_c(node.type) if node.type else "int"
     init = None
+    prepared = None
     if node.initializer:
         from ...ast_nodes import ListLiteral, MapLiteral
 
@@ -77,15 +77,33 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
                 init = lower_static_initializer(gen, node.initializer)
             else:
                 init = lower_expr(gen, node.initializer)
-            init_type = gen.analyzed.node_types.get(id(node.initializer))
-            init = coerce_value_to_string(gen, node.type, init_type, init)
+
+        init_type = gen.analyzed.node_types.get(id(node.initializer))
+        if node.type and node.type.is_static:
+            from .errors import CodegenError
+            from .prepared_values import requires_string_conversion
+
+            if requires_string_conversion(gen, node.type, init_type):
+                raise CodegenError("static storage cannot use runtime class-to-string conversion")
+        else:
+            from .prepared_values import prepare_normal_value
+
+            prepared = prepare_normal_value(
+                gen,
+                node.initializer,
+                node.type,
+                lowered=init,
+            )
+            init = prepared.value
 
         # Upcast: storing a subclass instance in a base-class variable needs an
         # explicit cast — sibling struct pointers are otherwise incompatible C.
         if node.type:
             from .upcast import upcast_class_pointer
 
-            init_type = gen.analyzed.node_types.get(id(node.initializer))
+            init_type = (
+                prepared.effective_type if prepared is not None else gen.analyzed.node_types.get(id(node.initializer))
+            )
             init = upcast_class_pointer(gen, node.type, init_type, init)
     concrete_managed = _is_concrete_managed_type(gen, node.type)
     if init is None and concrete_managed:
@@ -141,20 +159,33 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         # Track: variable → (lambda fn name, env var name)
         gen._fn_ptr_envs[node.name] = (fn_name, env_var)
 
-    # ARC: every concrete managed declaration owns its slot, including an empty
-    # declaration that may be assigned later. A caller-owned +1 initializer
+    # A C-compatible raw pointer can still carry managed provenance (notably
+    # ``char* value = __btrc_string_alloc(...)`` inside the stdlib). Preserve
+    # that initializer domain so scope cleanup and return transfer stay exact.
+    managed_slot_type = node.type if concrete_managed else None
+    if (
+        managed_slot_type is None
+        and prepared is not None
+        and prepared.owned
+        and _is_managed_type(gen, prepared.effective_type)
+    ):
+        managed_slot_type = prepared.effective_type
+
+    # Every managed declaration owns its slot. A caller-owned +1 initializer
     # transfers directly; a borrowed initializer is retained once.
-    if concrete_managed:
+    if managed_slot_type is not None:
         from .managed_values import (
             retain_value,
             runtime_name,
         )
         from .ownership import owns_result
 
-        arc_type = runtime_name(gen, node.type)
-        owns_initializer = bool(node.initializer and owns_result(gen, node.initializer))
+        arc_type = runtime_name(gen, managed_slot_type)
+        owns_initializer = bool(
+            node.initializer and (prepared.owned if prepared is not None else owns_result(gen, node.initializer))
+        )
         if node.initializer and not owns_initializer:
-            result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=node.name), node.type)))
+            result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=node.name), managed_slot_type)))
         gen.register_managed_var(
             node.name,
             arc_type,
@@ -221,6 +252,10 @@ def _is_concrete_managed_type(gen: IRGenerator, type_expr) -> bool:
     if concrete is None or not _is_managed_type(gen, concrete):
         return False
     if _is_string_type(gen, concrete):
+        return True
+    from .managed_values import is_mutex_type
+
+    if is_mutex_type(gen, concrete):
         return True
     class_info = gen.analyzed.class_table.get(concrete.base)
     return bool(class_info and (not class_info.generic_params or concrete.generic_args))

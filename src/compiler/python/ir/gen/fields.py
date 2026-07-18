@@ -41,11 +41,19 @@ def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
     from .ownership_boundary import sequence_owned_operands
 
     result_type = gen.analyzed.node_types.get(id(node))
+    from ...class_storage import custom_property_getter
+
+    custom_getter = custom_property_getter(
+        gen.analyzed.class_table,
+        gen.analyzed.node_types.get(id(node.obj)),
+        node.field,
+    )
     sequenced = sequence_owned_operands(
         gen,
         [node.obj],
         build=lambda: _lower_field_access_plain(gen, node),
         result_type=result_type,
+        pin_nodes=[node.obj] if custom_getter else [],
         promote_result=bool(is_managed_type(gen, result_type) and not projection_is_owned_call(gen, node)),
     )
     if sequenced is not None:
@@ -146,12 +154,21 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
             lambda receiver: IRFieldAccess(obj=receiver, field=node.field, arrow=True),
         )
 
-    arrow = node.arrow
-    # Determine if we need -> based on the object type
-    if obj_type and (obj_type.pointer_depth > 0 or obj_type.base in gen.analyzed.class_table):
-        arrow = True
+    return IRFieldAccess(
+        obj=obj,
+        field=node.field,
+        arrow=receiver_uses_arrow(gen, obj_type, explicit=node.arrow),
+    )
 
-    return IRFieldAccess(obj=obj, field=node.field, arrow=arrow)
+
+def receiver_uses_arrow(gen: IRGenerator, receiver_type, *, explicit: bool = False) -> bool:
+    """Choose C member syntax from the receiver's concrete storage shape."""
+    if explicit:
+        return True
+    from .type_resolution import canonical_type
+
+    resolved = canonical_type(receiver_type, gen.analyzed.typedef_table)
+    return bool(resolved and (resolved.pointer_depth > 0 or resolved.base in gen.analyzed.class_table))
 
 
 def _lower_optional_access(
@@ -197,12 +214,21 @@ def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
     from .ownership_boundary import sequence_owned_operands
 
     result_type = gen.analyzed.node_types.get(id(node))
+    projection_call = projection_is_owned_call(gen, node)
+    receiver_type = gen.analyzed.node_types.get(id(node.obj))
+    protocol_getter = indexed_protocol_info(
+        receiver_type,
+        gen.analyzed.class_table,
+        method="get",
+    )
     sequenced = sequence_owned_operands(
         gen,
         [node.obj, node.index],
         build=lambda: _lower_index_plain(gen, node),
         result_type=result_type,
-        promote_result=bool(is_managed_type(gen, result_type) and not projection_is_owned_call(gen, node)),
+        pin_nodes=[node.obj] if protocol_getter is not None else [],
+        promote_result=bool(is_managed_type(gen, result_type) and not projection_call),
+        result_owned=bool(is_managed_type(gen, result_type) and projection_call),
     )
     if sequenced is not None:
         return sequenced

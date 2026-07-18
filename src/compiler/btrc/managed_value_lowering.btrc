@@ -4,8 +4,15 @@ string irManagedStringRuntimeType() {
     return "__btrc_managed_string";
 }
 
+string irManagedMutexRuntimeType() {
+    return "__btrc_managed_mutex";
+}
+
 string irManagedRuntimeCType(string runtimeType) {
     if (runtimeType == irManagedStringRuntimeType()) { return "char*"; }
+    if (runtimeType == irManagedMutexRuntimeType()) {
+        return "__btrc_mutex_val_t*";
+    }
     /* A lexical value may legally shadow the class typedef (Box Box). The
      * struct tag remains visible in C's separate tag namespace. */
     return "struct " + runtimeType + "*";
@@ -13,21 +20,12 @@ string irManagedRuntimeCType(string runtimeType) {
 
 Node irManagedResolvedType(IRGen generator, Node typeExpr) {
     Node resolved = generator.resolveBodyType(typeExpr);
-    Map<string, bool> visited = {};
     /* Resolve the owning alias chain without collapsing typedef spellings
      * inside generic arguments, which remain specialization identities. */
-    while (resolved.generic_args.len == 0
-            && generator.analyzed.typedefTable.has(resolved.base)) {
-        if (visited.has(resolved.base)) {
-            typedefSemanticFail(
-                "Cyclic typedef involving '" + resolved.base + "'",
-                typeExpr);
-        }
-        visited.put(resolved.base, true);
-        resolved = composeTypedefType(
-            resolved,
-            generator.analyzed.typedefTable.get(resolved.base));
-    }
+    Node? outer = resolveOuterTypedefType(
+        resolved, generator.analyzed.typedefTable);
+    if (outer == null) { return makePrimType("void"); }
+    resolved = outer;
     return resolved;
 }
 
@@ -40,23 +38,44 @@ bool irManagedStringType(IRGen generator, Node? typeExpr) {
 bool irManagedClassType(IRGen generator, Node? typeExpr) {
     if (typeExpr == null) { return false; }
     Node resolved = irManagedResolvedType(generator, typeExpr);
+    int depth = resolved.pointer_depth;
+    if (resolved.is_nullable && depth > 1) { depth = depth - 1; }
     /* Substitution can add an indirection: inside Vector<T>, the template
      * field T* resolves to Item** for T = Item*. Raw backing storage is not a
      * managed Item value. */
-    if (resolved.is_array || resolved.pointer_depth > 1) { return false; }
+    if (resolved.is_array || depth > 1) { return false; }
     return generator.analyzed.isClass(resolved.base)
         || (resolved.generic_args.len > 0
             && generator.analyzed.isGenericClass(resolved.base));
 }
 
+bool irManagedMutexType(IRGen generator, Node? typeExpr) {
+    if (typeExpr == null) { return false; }
+    Node resolved = irManagedResolvedType(generator, typeExpr);
+    int depth = resolved.pointer_depth;
+    if (resolved.is_nullable && depth > 0) { depth = depth - 1; }
+    return !resolved.is_array
+        && depth == 0
+        && resolved.base == "Mutex"
+        && resolved.generic_args.len == 1;
+}
+
+bool irManagedArcType(IRGen generator, Node? typeExpr) {
+    return irManagedClassType(generator, typeExpr)
+        || irManagedMutexType(generator, typeExpr);
+}
+
 bool irManagedType(IRGen generator, Node? typeExpr) {
     return irManagedStringType(generator, typeExpr)
-        || irManagedClassType(generator, typeExpr);
+        || irManagedArcType(generator, typeExpr);
 }
 
 string irManagedRuntimeType(IRGen generator, Node typeExpr) {
     Node resolved = irManagedResolvedType(generator, typeExpr);
     if (isStringType(resolved)) { return irManagedStringRuntimeType(); }
+    if (irManagedMutexType(generator, resolved)) {
+        return irManagedMutexRuntimeType();
+    }
     if (resolved.generic_args.len > 0
             && generator.analyzed.isGenericClass(resolved.base)) {
         return mangleGenericType(resolved.base, resolved.generic_args);
@@ -65,6 +84,7 @@ string irManagedRuntimeType(IRGen generator, Node typeExpr) {
 }
 
 bool irManagedRuntimeCanCycle(IRGen generator, string runtimeType) {
+    if (runtimeType == irManagedMutexRuntimeType()) { return true; }
     return runtimeType != irManagedStringRuntimeType()
         && managedClassIsCyclable(generator, runtimeType);
 }
@@ -73,6 +93,10 @@ string irManagedCleanupSymbol(IRGen generator, string runtimeType) {
     if (runtimeType == irManagedStringRuntimeType()) {
         generator.useHelper("__btrc_string_release_cleanup");
         return "__btrc_string_release_cleanup";
+    }
+    if (runtimeType == irManagedMutexRuntimeType()) {
+        generator.useHelper("__btrc_mutex_arc_type");
+        return "__btrc_mutex_arc_destroy";
     }
     return runtimeType + "_destroy";
 }
@@ -146,8 +170,8 @@ IRNode irManagedReleaseEdge(IRGen generator, IRNode value,
 
 IRNode irManagedReplaceEdge(IRGen generator, IRNode slot,
         IRNode replacement, Node typeExpr, IRNode owner, bool adopt) {
-    if (!irManagedClassType(generator, typeExpr)) {
-        print("internal compiler error: transactional edge is not a class");
+    if (!irManagedArcType(generator, typeExpr)) {
+        print("internal compiler error: transactional edge is not ARC-managed");
         abortGen();
     }
     string access = ensureArcSlotAdapter(

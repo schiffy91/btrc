@@ -10,6 +10,9 @@ SHELL       := /bin/bash
 NIX         := nix develop --command
 HOST_AR     := $(if $(filter Darwin,$(shell uname -s)),/usr/bin/ar,ar)
 GPU_OBJC    ?= clang
+# The repository links wgpu-native, whose WaitAny entry point aborts. Override
+# this only when linking a conforming webgpu.h implementation such as Dawn.
+GPU_BACKEND_CFLAGS ?= -DBTRC_GPU_WGPU_NATIVE
 NATIVE_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic
 PYTEST      := python3 -m pytest
 # Self-host fixture compiles are memory-heavy; callers may raise this explicitly.
@@ -141,18 +144,31 @@ gpu: ## Build GPU runtime library (skips if deps missing)
 	@$(NIX) bash -c '\
 		D=src/stdlib/gpu && \
 		mkdir -p "$$D/build" && \
-		if ! $(CC) $$GPU_CFLAGS -std=c11 -I"$$D" -E "$$D/btrc_gpu.c" -o /dev/null 2>/dev/null; then \
-			echo "GPU runtime skipped (missing X11/GLFW/wgpu headers)"; exit 0; \
+		rm -f "$$D/build/libbtrc_gpu.a" && \
+		probe_ok=1 && \
+		for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c; do \
+			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) -std=c11 -I"$$D" \
+				-E "$$D/$$source" -o /dev/null 2>/dev/null || probe_ok=0; \
+		done && \
+		if [ "$$(uname -s)" = Darwin ]; then \
+			$(GPU_OBJC) $$GPU_CFLAGS -x objective-c -I"$$D" \
+				-E "$$D/btrc_gpu_surface_macos.m" -o /dev/null 2>/dev/null || probe_ok=0; \
 		fi && \
-		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$D/build/btrc_gpu.o" && \
-		objects="$$D/build/btrc_gpu.o" && \
+		if [ "$$probe_ok" -ne 1 ]; then \
+			echo "GPU runtime skipped (missing windowing/WebGPU headers)"; exit 0; \
+		fi && \
+		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$D/build/btrc_gpu.o" && \
+		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_async.c" -o "$$D/build/btrc_gpu_async.o" && \
+		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_surface.c" -o "$$D/build/btrc_gpu_surface.o" && \
+		objects="$$D/build/btrc_gpu.o $$D/build/btrc_gpu_async.o $$D/build/btrc_gpu_surface.o" && \
 		if [ "$$(uname -s)" = Darwin ]; then \
 			$(GPU_OBJC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
 				-c "$$D/btrc_gpu_surface_macos.m" -o "$$D/build/btrc_gpu_surface_macos.o" && \
 			objects="$$objects $$D/build/btrc_gpu_surface_macos.o"; \
 		fi && \
-		rm -f "$$D/build/libbtrc_gpu.a" && \
 		$(HOST_AR) rcs "$$D/build/libbtrc_gpu.a" $$objects && \
+		$(HOST_AR) t "$$D/build/libbtrc_gpu.a" | grep -q "btrc_gpu_async\\.o$$" && \
+		$(HOST_AR) t "$$D/build/libbtrc_gpu.a" | grep -q "btrc_gpu_surface\\.o$$" && \
 		echo "Built: $$D/build/libbtrc_gpu.a"'
 
 gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)

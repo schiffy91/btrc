@@ -24,13 +24,17 @@ from ...index_protocol import indexed_protocol_info
 from .assignment_result_ownership import (
     assignment_pins_borrowed_target as _assignment_pins_borrowed_target,
 )
+from .assignment_result_ownership import virtual_assignment_rhs_owns_result
 from .callable_provenance import known_language_call
 from .types import is_generic_class_type, mangle_generic_type
 
 
 def owns_result(gen, expression) -> bool:
     """Whether evaluating ``expression`` produces a caller-owned +1 value."""
-    if isinstance(expression, (NewExpr, BraceInitializer, ListLiteral, MapLiteral)):
+    if isinstance(expression, NewExpr):
+        result_type = gen.analyzed.node_types.get(id(expression))
+        return _is_managed_type(gen, result_type)
+    if isinstance(expression, (BraceInitializer, ListLiteral, MapLiteral)):
         result_type = gen.analyzed.node_types.get(id(expression))
         return bool(result_type and result_type.base in gen.analyzed.class_table)
     if isinstance(expression, CastExpr):
@@ -41,7 +45,13 @@ def owns_result(gen, expression) -> bool:
     if isinstance(expression, AssignExpr):
         result_type = gen.analyzed.node_types.get(id(expression))
         target = expression.target
-        from .assignment_ownership import virtual_assignment_target
+        rhs_owned = virtual_assignment_rhs_owns_result(
+            gen,
+            target,
+            expression.value,
+            type_of=lambda value: gen.analyzed.node_types.get(id(value)),
+            owns=lambda value: owns_result(gen, value),
+        )
 
         return bool(
             _is_managed_type(gen, result_type)
@@ -50,18 +60,23 @@ def owns_result(gen, expression) -> bool:
                     isinstance(target, (FieldAccessExpr, IndexExpr))
                     and (owns_result(gen, target.obj) or _assignment_pins_borrowed_target(gen, target))
                 )
-                or (
-                    expression.op == "="
-                    and virtual_assignment_target(gen, target)
-                    and owns_result(gen, expression.value)
-                )
+                or (expression.op == "=" and rhs_owned)
             )
         )
     if isinstance(expression, (FieldAccessExpr, IndexExpr)):
         result_type = gen.analyzed.node_types.get(id(expression))
+        custom_getter = False
+        if isinstance(expression, FieldAccessExpr):
+            from ...class_storage import custom_property_getter
+
+            custom_getter = custom_property_getter(
+                gen.analyzed.class_table,
+                gen.analyzed.node_types.get(id(expression.obj)),
+                expression.field,
+            )
         return bool(
             _is_managed_type(gen, result_type)
-            and (projection_is_owned_call(gen, expression) or owns_result(gen, expression.obj))
+            and (projection_is_owned_call(gen, expression) or custom_getter or owns_result(gen, expression.obj))
         )
     if isinstance(expression, TernaryExpr):
         return _conditional_result_is_owned(
@@ -109,6 +124,10 @@ def owns_result(gen, expression) -> bool:
 
 def managed_type_name(gen, type_expr) -> str:
     """Return the concrete destructor prefix for a managed source type."""
+    from .managed_values import MUTEX_RUNTIME_NAME, is_mutex_type
+
+    if is_mutex_type(gen, type_expr):
+        return MUTEX_RUNTIME_NAME
     if is_generic_class_type(type_expr, gen.analyzed.class_table):
         return mangle_generic_type(type_expr.base, type_expr.generic_args)
     return type_expr.base

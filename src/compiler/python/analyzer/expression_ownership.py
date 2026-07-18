@@ -38,7 +38,14 @@ class ExpressionOwnershipContractsMixin:
             owned_value = (
                 expression.op == "="
                 and self._is_virtual_update_target(target)
-                and self._expression_produces_owned_result(expression.value)
+                and (
+                    managed
+                    or self._expression_produces_owned_result(expression.value)
+                    or self._requires_string_conversion(
+                        result,
+                        self._infer_type(expression.value),
+                    )
+                )
             )
             return managed and (owned_receiver or owned_value)
         if isinstance(expression, (FieldAccessExpr, IndexExpr)):
@@ -46,6 +53,14 @@ class ExpressionOwnershipContractsMixin:
                 return False
             if self._expression_produces_owned_result(expression.obj):
                 return True
+            if isinstance(expression, FieldAccessExpr):
+                from ..class_storage import custom_property_getter
+
+                return custom_property_getter(
+                    self.class_table,
+                    self._canonical_type(self._infer_type(expression.obj)),
+                    expression.field,
+                )
             if not isinstance(expression, IndexExpr):
                 return False
             from ..index_protocol import indexed_protocol
@@ -93,7 +108,7 @@ class ExpressionOwnershipContractsMixin:
             type_expr
             and not type_expr.is_array
             and type_expr.pointer_depth <= 1
-            and (type_expr.base == "string" or type_expr.base in self.class_table)
+            and (type_expr.base in {"string", "Mutex"} or type_expr.base in self.class_table)
         )
 
     def _conditional_produces_owned_result(self, result, branches) -> bool:
@@ -145,7 +160,7 @@ class ExpressionOwnershipContractsMixin:
     def _known_language_call(self, expression) -> bool:
         callee = expression.callee
         if isinstance(callee, Identifier):
-            return callee.name in self.class_table or callee.name in self.function_table
+            return callee.name == "Mutex" or callee.name in self.class_table or callee.name in self.function_table
         if not isinstance(callee, FieldAccessExpr):
             return False
         if isinstance(callee.obj, Identifier):

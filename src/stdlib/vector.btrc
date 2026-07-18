@@ -328,41 +328,38 @@ class Vector<T> implements Iterable {
     }
 
     public string join(string sep) {
-        size_t total = 0;
-        size_t sepLen = strlen(sep);
+        if (sep == null) { sep = ""; }
+        int total = 0;
+        int sepLen = __btrc_string_length(sep);
         for (int i = 0; i < self.len; i++) {
-            size_t itemLength = strlen(self.data[i]);
-            if (itemLength > (size_t)(-1) - total) {
+            int itemLength = __btrc_string_length(self.data[i]);
+            if (itemLength > (int)INT_MAX - total) {
                 fprintf(stderr, "Vector join size overflow\n");
                 exit(1);
             }
             total = total + itemLength;
             if (i < self.len - 1) {
-                if (sepLen > (size_t)(-1) - total) {
+                if (sepLen > (int)INT_MAX - total) {
                     fprintf(stderr, "Vector join size overflow\n");
                     exit(1);
                 }
                 total = total + sepLen;
             }
         }
-        if (total == (size_t)(-1)) {
-            fprintf(stderr, "Vector join size overflow\n");
-            exit(1);
-        }
-        char* result = (char*)__btrc_safe_realloc(
-            null, total + (size_t)1);
-        size_t pos = 0;
+        char* result = __btrc_string_alloc(total);
+        int pos = 0;
         for (int i = 0; i < self.len; i++) {
-            size_t itemLength = strlen(self.data[i]);
-            memcpy(result + pos, self.data[i], itemLength);
+            int itemLength = __btrc_string_length(self.data[i]);
+            if (itemLength > 0) {
+                memcpy(result + pos, self.data[i], (size_t)itemLength);
+            }
             pos = pos + itemLength;
             if (i < self.len - 1) {
-                memcpy(result + pos, sep, sepLen);
+                memcpy(result + pos, sep, (size_t)sepLen);
                 pos = pos + sepLen;
             }
         }
-        result[pos] = '\0';
-        return __btrc_str_track(result);
+        return result;
     }
 
     public string joinToString(string sep) {

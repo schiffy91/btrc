@@ -56,27 +56,33 @@ def lower_collection_literal(emitter, target: str, literal, target_type=None):
         sequence.extend(cleanup_exprs)
 
     if is_list:
+        element_type = target_type.generic_args[0] if target_type is not None and target_type.generic_args else None
         for element in literal.elements:
             sequence.append(
-                emitter._sequence_owned_effect(
-                    [element],
-                    lambda element=element: IRCall(
+                _prepared_effect(
+                    emitter,
+                    [(element, element_type)],
+                    lambda values, element=element: IRCall(
                         callee=f"{target}_push",
-                        args=[value, emitter._expr(element)],
+                        args=[value, values[id(element)]],
                     ),
                 )
             )
     else:
+        key_type, value_type = (
+            target_type.generic_args if target_type is not None and len(target_type.generic_args) == 2 else (None, None)
+        )
         for entry in literal.entries:
             sequence.append(
-                emitter._sequence_owned_effect(
-                    [entry.key, entry.value],
-                    lambda entry=entry: IRCall(
+                _prepared_effect(
+                    emitter,
+                    [(entry.key, key_type), (entry.value, value_type)],
+                    lambda values, entry=entry: IRCall(
                         callee=f"{target}_put",
                         args=[
                             value,
-                            emitter._expr(entry.key),
-                            emitter._expr(entry.value),
+                            values[id(entry.key)],
+                            values[id(entry.value)],
                         ],
                     ),
                 )
@@ -97,6 +103,54 @@ def lower_collection_literal(emitter, target: str, literal, target_type=None):
     return IRStmtExpr(
         stmts=declarations,
         result=IRCommaExpr(expressions=sequence),
+    )
+
+
+def _prepared_effect(emitter, values, build):
+    from ..call_boundary import CallOperand, sequence_call_boundary
+    from ..prepared_values import prepare_generic_value, prepared_value_pin_flags
+
+    prepared = [
+        (
+            node,
+            prepare_generic_value(
+                emitter,
+                node,
+                target_type or emitter._resolve_expr_type(node),
+            ),
+        )
+        for node, target_type in values
+    ]
+    if len(prepared) == 1 and not prepared[0][1].owned:
+        node, value = prepared[0]
+        return build({id(node): value.value})
+    pins = prepared_value_pin_flags(
+        emitter._gen,
+        prepared,
+        type_of=emitter._resolve_expr_type,
+    )
+    operands = []
+    for index, (node, value) in enumerate(prepared):
+        operands.append(
+            CallOperand(
+                node=node,
+                type_expr=value.effective_type,
+                c_type=emitter.iter_value_c(value.effective_type),
+                pin=pins[index],
+                owned=value.owned,
+                lowered=value.value,
+            )
+        )
+    return sequence_call_boundary(
+        emitter._gen,
+        operands,
+        lower_expr=lambda _node: None,
+        build_call=build,
+        result_c_type=None,
+        fresh_temp=emitter._fresh_temp,
+        cleanup_active=emitter._exception_cleanup_active(),
+        record_decl=emitter._func_var_decls.append,
+        activate_cleanup=emitter._activate_cleanup_registration,
     )
 
 

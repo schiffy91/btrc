@@ -100,7 +100,9 @@ class ExpressionContractsMixin:
         operator = expression.op
         if left.base == right.base and self._is_active_type_parameter(left):
             return
-        if self._operator_method(left, operator) is not None:
+        overload = self._operator_method(left, operator)
+        if overload is not None:
+            self._validate_operator_argument(expression, operator, right, overload)
             self._validate_operator_access(left, operator, expression)
             return
         if operator == "+" and is_scalar_string_type(left) and is_scalar_string_type(right):

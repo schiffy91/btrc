@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier, LambdaExpr
-from ..nodes import IRCommaExpr, IRExprStmt
+from ...string_methods import STRING_METHODS
 from .call_boundary import CallOperand, sequence_call_boundary
 from .ownership import owns_result
 from .types import type_to_c
@@ -28,16 +28,27 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
         return _lower_call(gen, node)
 
     declaration = callable_for_call(gen, node)
-    params = declaration.params if declaration is not None else []
-    receiver = _instance_receiver(gen, node)
+    from .call_contracts import resolved_params_for_call
+
+    params = resolved_params_for_call(gen, node)
+    callable_field = _callable_field(gen, node)
+    receiver = None if callable_field else _instance_receiver(gen, node)
+    from .receiver_pinning import receiver_pin_required
+
     operands, needs_boundary = plan_call_operands(
         gen,
         params,
         node.args,
         _arg_names(node),
         receiver=receiver,
-        callee=_evaluated_callee(node),
+        callee=node.callee if callable_field else _evaluated_callee(node),
         transferred_params=owned_transfer_param_indices(declaration),
+        pin_receiver=receiver_pin_required(
+            gen,
+            receiver,
+            declared_call=declaration is not None,
+            owned_local_type=gen.managed_local_type,
+        ),
         force_order=_language_ordered_call(gen, node, declaration),
     )
     if not needs_boundary:
@@ -63,10 +74,12 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
         lower_expr=_lowerer(gen),
         build_call=build_call,
         result_c_type=type_to_c(result_type) if result_type is not None else None,
+        result_type=result_type,
         fresh_temp=gen.fresh_temp,
         cleanup_active=gen.exception_cleanup_active(),
         record_decl=gen._func_var_decls.append,
         promote_result=False,
+        result_owned=owns_result(gen, node),
     )
 
 
@@ -79,11 +92,17 @@ def plan_call_operands(
     receiver=None,
     callee=None,
     transferred_params=frozenset(),
+    pin_receiver: bool = False,
     force_order: bool = True,
 ):
     """Describe one call's source-order operands and lifetime guards."""
     from .arguments import bind_arg_nodes_to_params
-    from .evaluation_order import has_observable_effect, operand_c_type, operands_require_order
+    from .evaluation_order import (
+        borrowed_value_can_be_pinned,
+        has_observable_effect,
+        operand_c_type,
+        operands_require_order,
+    )
     from .managed_values import is_managed_type
 
     specs = []
@@ -92,26 +111,48 @@ def plan_call_operands(
             continue
         type_expr = gen.analyzed.node_types.get(id(value))
         managed = is_managed_type(gen, type_expr)
-        specs.append((value, type_expr, False, bool(managed and owns_result(gen, value)), False))
-    specs.extend(
-        _argument_spec(
-            gen,
-            params,
-            param_index,
-            argument,
-            transferred_params,
+        specs.append(
+            (
+                value,
+                type_expr,
+                None,
+                bool(value is receiver and pin_receiver),
+                bool(managed and owns_result(gen, value)),
+                False,
+            )
         )
-        for param_index, argument, _is_default in bind_arg_nodes_to_params(
-            params,
-            ast_args,
-            arg_names,
+    from .prepared_values import requires_string_conversion
+
+    for param_index, argument, _is_default in bind_arg_nodes_to_params(params, ast_args, arg_names):
+        param = params[param_index] if param_index is not None and 0 <= param_index < len(params) else None
+        source_type = gen.analyzed.node_types.get(id(argument))
+        target_type = param.type if param is not None else source_type
+        converted = requires_string_conversion(gen, target_type, source_type)
+        effective_type = target_type if converted else (source_type or target_type)
+        managed = is_managed_type(gen, effective_type)
+        owned = bool(managed and (converted or owns_result(gen, argument)))
+        specs.append(
+            (
+                argument,
+                effective_type,
+                target_type,
+                bool(managed and param is not None and param.keep),
+                owned,
+                bool(owned and param_index in transferred_params),
+            )
         )
-    )
-    effects = [has_observable_effect(gen, argument) for argument, _type_expr, _keep, _owned, _transferred in specs]
-    ownership_required = any(keep or owned for _argument, _type_expr, keep, owned, _transferred in specs)
+    effects = [
+        bool(
+            target_type is not None
+            and requires_string_conversion(gen, target_type, gen.analyzed.node_types.get(id(argument)))
+        )
+        or has_observable_effect(gen, argument)
+        for argument, _type_expr, target_type, _keep, _owned, _transferred in specs
+    ]
+    ownership_required = any(keep or owned for _argument, _type_expr, _target, keep, owned, _transferred in specs)
     ordered = force_order and operands_require_order(
         gen,
-        [argument for argument, _type_expr, _keep, _owned, _transferred in specs],
+        [argument for argument, _type_expr, _target, _keep, _owned, _transferred in specs],
     )
     needs_boundary = ownership_required or ordered
     if not needs_boundary:
@@ -119,26 +160,51 @@ def plan_call_operands(
 
     operands = []
     final_index = len(specs) - 1
-    for index, (argument, type_expr, keep, owned, transferred) in enumerate(specs):
+    from .expressions import lower_expr
+    from .prepared_values import prepare_value
+
+    for index, (argument, type_expr, target_type, keep, owned, transferred) in enumerate(specs):
         if type_expr is None:
             if index == final_index and index > 0 and not (keep or owned):
                 continue
             _missing_operand_type(argument)
-        pin = bool(index < final_index and any(effects[index + 1 :]) and is_managed_type(gen, type_expr) and not owned)
+        pin = bool(
+            borrowed_value_can_be_pinned(argument)
+            and index < final_index
+            and any(effects[index + 1 :])
+            and is_managed_type(gen, type_expr)
+            and not owned
+        )
+        prepared = None
+        if target_type is not None:
+            prepared = prepare_value(
+                gen,
+                argument,
+                target_type,
+                lower_expr=lambda value: lower_expr(gen, value),
+                type_of=lambda value: gen.analyzed.node_types.get(id(value)),
+                owns_result=lambda value: bool(id(value) not in gen._owning_temp_overrides and owns_result(gen, value)),
+                render_type=type_to_c,
+                fresh_temp=gen.fresh_temp,
+                cleanup_active=gen.exception_cleanup_active(),
+                record_decl=gen._func_var_decls.append,
+            )
+            type_expr = prepared.effective_type
+            owned = prepared.owned
         operands.append(
             CallOperand(
                 node=argument,
                 type_expr=type_expr,
-                c_type=operand_c_type(
-                    gen,
-                    argument,
-                    type_expr,
-                    render=type_to_c,
+                c_type=(
+                    type_to_c(type_expr)
+                    if prepared is not None
+                    else operand_c_type(gen, argument, type_expr, render=type_to_c)
                 ),
                 keep=keep,
                 pin=pin,
                 owned=owned,
                 transferred=transferred,
+                lowered=prepared.value if prepared is not None else None,
             )
         )
     return operands, True
@@ -148,30 +214,6 @@ def _arg_names(node):
     from .arguments import arg_names_for
 
     return arg_names_for(node, len(node.args))
-
-
-def _argument_spec(
-    gen,
-    params,
-    param_index,
-    argument,
-    transferred_params,
-):
-    param = params[param_index] if param_index is not None and 0 <= param_index < len(params) else None
-    type_expr = gen.analyzed.node_types.get(id(argument))
-    if type_expr is None and param is not None:
-        type_expr = param.type
-    from .managed_values import is_managed_type
-
-    managed = is_managed_type(gen, type_expr)
-    owned = bool(managed and owns_result(gen, argument))
-    return (
-        argument,
-        type_expr,
-        bool(managed and param is not None and param.keep),
-        owned,
-        bool(owned and param_index in transferred_params),
-    )
 
 
 def _instance_receiver(gen, node):
@@ -193,11 +235,40 @@ def _evaluated_callee(node):
     return callee
 
 
+def _callable_field(gen, node) -> bool:
+    if not isinstance(node.callee, FieldAccessExpr):
+        return False
+    from .callable_fields import callable_field_signature
+
+    return callable_field_signature(gen, node.callee) is not None
+
+
 def _language_ordered_call(gen, node, declaration) -> bool:
     if declaration is not None:
         return True
-    if isinstance(node.callee, Identifier) and node.callee.name in {"print", "Mutex"}:
+    if isinstance(node.callee, Identifier) and node.callee.name in {
+        "print",
+        "printf",
+        "Mutex",
+    }:
         return True
+    if isinstance(node.callee, FieldAccessExpr):
+        if isinstance(node.callee.obj, Identifier) and node.callee.obj.name in gen.analyzed.rich_enum_table:
+            return True
+        from .type_resolution import canonical_type
+        from .types import is_string_type
+
+        receiver_type = canonical_type(
+            gen.analyzed.node_types.get(id(node.callee.obj)),
+            gen.analyzed.typedef_table,
+        )
+        if is_string_type(receiver_type) and node.callee.field in STRING_METHODS:
+            return True
+        from .managed_values import is_mutex_type
+
+        receiver_type = gen.analyzed.node_types.get(id(node.callee.obj))
+        if is_mutex_type(gen, receiver_type):
+            return True
     callee_type = gen.analyzed.node_types.get(id(node.callee))
     return bool(callee_type is not None and callee_type.base == "__fn_ptr")
 
@@ -218,19 +289,4 @@ def _missing_operand_type(argument):
     )
 
 
-def _release_stmt(gen, target, argument_type):
-    """Statement form used for discarded owned expression results."""
-    from .arc_ops import poll_release_batch
-    from .managed_values import is_class_type, release_value
-
-    expressions = [release_value(gen, target, argument_type)]
-    flush = poll_release_batch(
-        gen,
-        types=[argument_type] if is_class_type(gen, argument_type) else [],
-    )
-    if flush is not None:
-        expressions.append(flush)
-    return IRExprStmt(expr=IRCommaExpr(expressions=expressions))
-
-
-__all__ = ["_release_stmt", "lower_call_with_arc", "plan_call_operands"]
+__all__ = ["lower_call_with_arc", "plan_call_operands"]

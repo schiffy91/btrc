@@ -41,9 +41,12 @@ void semanticValidateNew(Node expression, SemanticValidationState state,
             mutexArgIndex = mutexArgIndex + 1;
         }
         Node expected = expression.type.generic_args.get(0);
-        Node? actual = semanticInferType(
-            expression.args.get(0), state, vars);
+        Node argument = expression.args.get(0);
+        semanticValidateTypedInitializer(expected, argument,
+            "Mutex initializer", state, vars);
+        Node? actual = semanticInferType(argument, state, vars);
         if (actual != null
+                && !semanticContextualAggregateInitializer(argument)
                 && !semanticAssignmentCompatible(expected, actual, state)) {
             semanticValidationFail("Mutex initializer expects '"
                 + semanticFormatType(expected) + "' but got '"

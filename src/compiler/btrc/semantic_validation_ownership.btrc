@@ -5,6 +5,9 @@ bool semanticManagedOwnershipType(
     if (typeExpr == null) { return false; }
     return !typeExpr.is_array && typeExpr.pointer_depth <= 1
         && (isStringType(typeExpr)
+            || (typeExpr.base == "Mutex"
+                && typeExpr.generic_args.len == 1
+                && typeExpr.pointer_depth == 0)
             || state.analyzed.isClass(typeExpr.base)
             || state.analyzed.isGenericClass(typeExpr.base));
 }
@@ -14,6 +17,8 @@ bool semanticRawDeleteType(
     if (typeExpr == null || typeExpr.is_array) { return false; }
     if (state.analyzed.isClass(typeExpr.base)
             || state.analyzed.isGenericClass(typeExpr.base)) { return true; }
+    if (typeExpr.base == "Mutex" && typeExpr.pointer_depth == 0
+            && typeExpr.generic_args.len == 1) { return true; }
     return typeExpr.pointer_depth > 0
         && typeExpr.base != "__fn_ptr";
 }

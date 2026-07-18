@@ -54,18 +54,23 @@ void irRegisterConcatCleanup(IRGen generator, IRNode declaration,
 }
 
 void irReleaseConcatPart(IRGen generator, IRNode value,
-        Node typeExpr, bool owned, Vector<IRNode> sequence) {
-    if (!owned) { return; }
+        Node typeExpr, bool released, Vector<IRNode> sequence) {
+    if (!released) { return; }
     sequence.push(irManagedReleaseValue(generator, value, typeExpr));
     sequence.push(irBinOp(value, "=", irLiteral("NULL")));
 }
 
 void irEvaluateConcatPart(IRGen generator, Node expression,
         Node typeExpr, IRNode declaration, IRNode value, bool owned,
-        Map<string, Node> varTypes, Vector<IRNode> sequence) {
+        bool pinBorrowed, Map<string, Node> varTypes,
+        Vector<IRNode> sequence) {
     sequence.push(irBinOp(value, "=",
         generator.lowerExpr(expression, varTypes)));
-    if (owned) {
+    if (pinBorrowed) {
+        sequence.push(irManagedRetainValue(
+            generator, value, typeExpr));
+    }
+    if (owned || pinBorrowed) {
         irRegisterConcatCleanup(generator, declaration, value.name,
             irManagedRuntimeType(generator, typeExpr), sequence);
     }
@@ -85,6 +90,7 @@ IRNode? lowerLongStringConcat(IRGen generator, Node node,
     Vector<IRNode> values = [];
     Vector<Node> types = [];
     Vector<bool> owned = [];
+    Vector<bool> pinned = [];
 
     int index = 0;
     while (index < leaves.len) {
@@ -100,9 +106,14 @@ IRNode? lowerLongStringConcat(IRGen generator, Node node,
         generator.funcVarDecls.push(declaration);
         values.push(irVar(name));
         types.push(leafType);
-        owned.push(irExpressionOwnsResult(
-            generator, leaf, varTypes));
+        owned.push(irContextualExpressionOwnsResult(
+            generator, leaf, leafType, varTypes));
+        pinned.push(false);
         index = index + 1;
+    }
+    if (!owned.get(0) && ownershipExpressionHasEffect(
+            generator, leaves.get(1), varTypes)) {
+        pinned.set(0, true);
     }
 
     string accumulatorName = generator.freshTemp("__btrc_concat_acc");
@@ -129,7 +140,8 @@ IRNode? lowerLongStringConcat(IRGen generator, Node node,
     while (index < 2) {
         irEvaluateConcatPart(generator, leaves.get(index),
             types.get(index), declarations.get(index),
-            values.get(index), owned.get(index), varTypes, sequence);
+            values.get(index), owned.get(index), pinned.get(index),
+            varTypes, sequence);
         index = index + 1;
     }
     sequence.push(irBinOp(accumulator, "=",
@@ -137,7 +149,7 @@ IRNode? lowerLongStringConcat(IRGen generator, Node node,
     irRegisterConcatCleanup(generator, accumulatorDeclaration,
         accumulatorName, irManagedRuntimeType(generator, resultType), sequence);
     irReleaseConcatPart(generator, values.get(0),
-        types.get(0), owned.get(0), sequence);
+        types.get(0), owned.get(0) || pinned.get(0), sequence);
     irReleaseConcatPart(generator, values.get(1),
         types.get(1), owned.get(1), sequence);
 
@@ -145,7 +157,8 @@ IRNode? lowerLongStringConcat(IRGen generator, Node node,
     while (index < leaves.len) {
         irEvaluateConcatPart(generator, leaves.get(index),
             types.get(index), declarations.get(index),
-            values.get(index), owned.get(index), varTypes, sequence);
+            values.get(index), owned.get(index), pinned.get(index),
+            varTypes, sequence);
         sequence.push(irBinOp(nextValue, "=",
             irTrackedStringConcat(
                 generator, accumulator, values.get(index))));

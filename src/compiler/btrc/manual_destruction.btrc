@@ -7,7 +7,7 @@ void lowerTakenDelete(IRGen generator, IRNode target, Node typeNode,
     string slotName = generator.freshTemp("__btrc_delete_slot");
     statements.push(irVarDecl(
         valueC + " volatile*", slotName, irAddressOf(target)));
-    if (irManagedClassType(generator, typeNode)) {
+    if (irManagedArcType(generator, typeNode)) {
         statements.push(irExprStmt(irManagedDestroySlot(
             generator, irVar(slotName), typeNode,
             edgeOwner, persistent)));

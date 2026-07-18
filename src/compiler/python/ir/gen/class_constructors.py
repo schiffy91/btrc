@@ -29,7 +29,7 @@ from ..nodes import (
 from .arc_metadata import arc_header_initialization
 from .managed_values import (
     adopt_edge_value,
-    is_class_type,
+    is_arc_type,
     is_managed_type,
     replace_edge_value,
     retain_edge_value,
@@ -70,23 +70,24 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
                 arrow=True,
             )
             value = _lower_field_init(gen, member)
-            from .mutex_fields import mutex_value_type, replace_mutex_field
-            from .mutex_values import consume_mutex_handle
+            from .prepared_values import prepare_normal_value
 
-            if mutex_value_type(gen, member.type) is not None:
-                init_stmts.append(
-                    IRExprStmt(
-                        expr=replace_mutex_field(
-                            gen,
-                            target,
-                            consume_mutex_handle(gen, value),
-                            IRVar(name="self"),
-                        )
-                    )
-                )
-            elif is_class_type(gen, member.type):
-                from .ownership import owns_result
+            prepared = prepare_normal_value(
+                gen,
+                member.initializer,
+                member.type,
+                lowered=value,
+            )
+            value = prepared.value
+            from .upcast import upcast_class_pointer
 
+            value = upcast_class_pointer(
+                gen,
+                member.type,
+                prepared.effective_type,
+                value,
+            )
+            if is_arc_type(gen, member.type):
                 init_stmts.append(
                     IRExprStmt(
                         expr=replace_edge_value(
@@ -95,16 +96,14 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
                             value,
                             member.type,
                             IRVar(name="self"),
-                            adopt=owns_result(gen, member.initializer),
+                            adopt=prepared.owned,
                         )
                     )
                 )
             else:
                 init_stmts.append(IRAssign(target=target, value=value))
-            if _is_managed_field(gen, member) and not is_class_type(gen, member.type):
-                from .ownership import owns_result
-
-                edge_op = adopt_edge_value if owns_result(gen, member.initializer) else retain_edge_value
+            if _is_managed_field(gen, member) and not is_arc_type(gen, member.type):
+                edge_op = adopt_edge_value if prepared.owned else retain_edge_value
                 init_stmts.append(
                     IRExprStmt(
                         expr=edge_op(

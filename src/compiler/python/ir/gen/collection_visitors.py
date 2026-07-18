@@ -12,7 +12,6 @@ from ..nodes import (
     IRBlock,
     IRCall,
     IRCast,
-    IRCompoundLiteral,
     IRExpr,
     IRExprStmt,
     IRFieldAccess,
@@ -32,7 +31,6 @@ from .cycle_metadata import (
     cycle_visitor_symbol,
     generic_instance_needs_visitor,
     register_cycle_visitor,
-    type_needs_visitor,
     visit_action,
 )
 from .errors import CodegenError
@@ -56,20 +54,8 @@ def slot_visit_stmts(gen, type_expr: TypeExpr, slot: IRExpr) -> list:
         gen,
         CType(text=value_c_type(type_expr, gen.analyzed.class_table, type_to_c)),
     )
-    edge_type = IRCompoundLiteral(
-        c_type=CType(text="__btrc_arc_type"),
-        fields=[
-            (
-                "visit",
-                (
-                    IRVar(name=cycle_visitor_symbol(action.emitted_name))
-                    if type_needs_visitor(gen, type_expr, set())
-                    else IRLiteral(text="NULL")
-                ),
-            ),
-            ("destroy", IRVar(name=f"{action.emitted_name}_destroy")),
-        ],
-    )
+    from .arc_ops import arc_type_descriptor
+
     call = IRCall(
         callee=IRVar(name="fn"),
         args=[
@@ -78,7 +64,7 @@ def slot_visit_stmts(gen, type_expr: TypeExpr, slot: IRExpr) -> list:
                 expr=IRAddressOf(expr=slot),
             ),
             IRVar(name=access),
-            IRAddressOf(expr=edge_type),
+            arc_type_descriptor(gen, type_expr),
             IRVar(name="context"),
         ],
     )

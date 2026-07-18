@@ -65,6 +65,7 @@ string cycleRuntimeReleaseSource(string name) {
             + "    }\n"
             + "    __btrc_arc_validate(object);\n"
             + "    if (type->visit && header->rc == header->edge_rc\n"
+            + "            && !__btrc_arc_incoming_teardown_pending(object)\n"
             + "            && !__btrc_arc_reverse_proves_live(object))\n"
             + "        __btrc_suspect_locked(object, type->visit, type->destroy);\n"
             + "    return 0;\n"

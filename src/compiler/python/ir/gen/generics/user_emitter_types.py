@@ -6,10 +6,16 @@ from dataclasses import replace
 
 
 class _UserGenericTypeMixin:
+    def _typedefs(self):
+        return self._gen.analyzed.typedef_table if self._gen else None
+
     def _resolve_expr_type(self, expression):
         """Resolve an expression type through this specialization's type map."""
         from ....ast_nodes import FieldAccessExpr, Identifier, IndexExpr, SelfExpr
 
+        override = self._arc_type_overrides.get(id(expression))
+        if override is not None:
+            return override
         if self._gen:
             analyzed_type = self._gen.analyzed.node_types.get(id(expression))
             if analyzed_type:
@@ -50,7 +56,7 @@ class _UserGenericTypeMixin:
         from .core import _resolve_type
 
         substitutions = dict(zip(class_info.generic_params, receiver_type.generic_args))
-        return self._resolve(_resolve_type(member.type, substitutions))
+        return self._resolve(_resolve_type(member.type, substitutions, self._typedefs()))
 
     def _indexed_type(self, container_type):
         if not container_type:
@@ -95,7 +101,11 @@ class _UserGenericTypeMixin:
         return None
 
     def _class_destroy_fn(self, resolved):
-        if not self._gen or not resolved or resolved.pointer_depth > 1 or resolved.is_array:
+        if not self._gen or not resolved:
+            return None
+        from ..managed_values import is_class_type
+
+        if not is_class_type(self._gen, resolved):
             return None
         class_info = self._gen.analyzed.class_table.get(resolved.base)
         if not class_info:

@@ -21,13 +21,22 @@ from ...ast_nodes import (
     MapLiteral,
     NewExpr,
     NullLiteral,
+    SelfExpr,
     SizeofExpr,
     SpawnExpr,
     StringLiteral,
+    SuperExpr,
     TernaryExpr,
     TupleLiteral,
     UnaryExpr,
 )
+
+
+def borrowed_value_can_be_pinned(node) -> bool:
+    """Whether a borrowed expression may be retained for local stabilization."""
+    # Implicit receivers already live for the invocation's dynamic extent.
+    # Retaining them from a destructor would violate ARC's DESTROYING state.
+    return not isinstance(node, (SelfExpr, SuperExpr))
 
 
 def has_observable_effect(gen, node, *, type_of=None) -> bool:
@@ -143,6 +152,36 @@ def operands_require_order(gen, nodes) -> bool:
     return False
 
 
+def source_order_pin_flags(
+    gen,
+    nodes,
+    types,
+    owned,
+    *,
+    type_of=None,
+    is_managed=None,
+    effects=None,
+) -> list[bool]:
+    """Pin earlier borrowed managed values across later side effects."""
+    if effects is None:
+        effects = [has_observable_effect(gen, node, type_of=type_of) for node in nodes]
+    if is_managed is None:
+        from .managed_values import is_managed_type
+
+        def is_managed(value):
+            return is_managed_type(gen, value)
+
+    return [
+        bool(
+            borrowed_value_can_be_pinned(nodes[index])
+            and not owned[index]
+            and is_managed(types[index])
+            and any(effects[index + 1 :])
+        )
+        for index in range(len(nodes))
+    ]
+
+
 def _analyzed_type(gen):
     return lambda node: gen.analyzed.node_types.get(id(node))
 
@@ -179,9 +218,11 @@ def reject_opaque_ordering(node, context: str, *, typed_declaration: bool = Fals
 
 
 __all__ = [
+    "borrowed_value_can_be_pinned",
     "has_observable_effect",
     "operand_c_type",
     "operands_require_order",
     "reject_opaque_ordering",
     "reorder_inert",
+    "source_order_pin_flags",
 ]

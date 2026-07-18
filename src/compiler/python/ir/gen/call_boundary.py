@@ -15,11 +15,16 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .managed_values import (
-    is_class_type,
-    release_value,
-    retain_value,
+from .call_boundary_cleanup import (
+    register_temporary as _register_temporary,
 )
+from .call_boundary_cleanup import (
+    release_and_clear as _release_and_clear,
+)
+from .call_boundary_cleanup import (
+    temporary as _temporary,
+)
+from .managed_values import is_managed_type, retain_value
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,7 @@ class CallOperand:
     pin: bool = False
     owned: bool = False
     transferred: bool = False
+    lowered: object | None = None
 
 
 def sequence_call_boundary(
@@ -48,6 +54,7 @@ def sequence_call_boundary(
     record_decl: Callable[[IRVarDecl], None],
     promote_result: bool = False,
     activate_cleanup: Callable[[], None] | None = None,
+    result_owned: bool = False,
 ):
     """Evaluate operands once, invoke, then release call-owned references."""
     declarations = []
@@ -69,7 +76,7 @@ def sequence_call_boundary(
             IRBinOp(
                 left=value,
                 op="=",
-                right=lower_expr(operand.node),
+                right=operand.lowered if operand.lowered is not None else lower_expr(operand.node),
             )
         )
         if operand.owned:
@@ -90,7 +97,6 @@ def sequence_call_boundary(
                 record_decl,
                 "__btrc_kept_operand",
                 operand.c_type,
-                IRLiteral(text="NULL"),
             )
             declarations.append(retained_decl)
             retained = IRVar(name=retained_decl.name)
@@ -130,7 +136,6 @@ def sequence_call_boundary(
                     record_decl,
                     "__btrc_transferred_operand",
                     operand.c_type,
-                    IRLiteral(text="NULL"),
                 )
                 declarations.append(handoff_decl)
                 call_value = IRVar(name=handoff_decl.name)
@@ -179,8 +184,50 @@ def sequence_call_boundary(
             if result_type is None:
                 raise ValueError("managed result promotion requires its semantic type")
             sequence.append(retain_value(gen, result, result_type))
+        protect_result = bool(
+            cleanup_active
+            and result_type is not None
+            and (result_owned or promote_result)
+            and is_managed_type(gen, result_type)
+        )
+        if protect_result:
+            # Operand cleanup runs after the call and may throw. Register the
+            # newly owned result before that suffix, then transfer it through a
+            # cleared handoff slot once cleanup succeeds.
+            _register_temporary(
+                gen,
+                result_decl,
+                result_type,
+                declarations,
+                sequence,
+                fresh_temp,
+                cleanup_active,
+                "__btrc_call_result_cleanup",
+                activate_cleanup,
+            )
+            handoff_decl = _temporary(
+                fresh_temp,
+                record_decl,
+                "__btrc_call_result_handoff",
+                result_c_type,
+            )
+            declarations.append(handoff_decl)
+            handoff = IRVar(name=handoff_decl.name)
         sequence.extend(suffix)
-        sequence.append(result)
+        if protect_result:
+            sequence.extend(
+                [
+                    IRBinOp(left=handoff, op="=", right=result),
+                    IRBinOp(
+                        left=result,
+                        op="=",
+                        right=IRLiteral(text="NULL"),
+                    ),
+                    handoff,
+                ]
+            )
+        else:
+            sequence.append(result)
     else:
         sequence.append(call)
         sequence.extend(suffix)
@@ -189,82 +236,6 @@ def sequence_call_boundary(
         stmts=declarations,
         result=IRCommaExpr(expressions=sequence),
     )
-
-
-def _register_temporary(
-    gen,
-    declaration,
-    type_expr,
-    declarations,
-    prefix,
-    fresh_temp,
-    cleanup_active,
-    flag_prefix,
-    activate_cleanup,
-):
-    from .temporary_cleanup import cleanup_registration
-
-    cleanup_decls, cleanup_exprs = cleanup_registration(
-        gen,
-        declaration,
-        type_expr,
-        flag_prefix,
-        active=cleanup_active,
-        fresh_temp=fresh_temp,
-        activate_cleanup=activate_cleanup,
-    )
-    declarations.extend(cleanup_decls)
-    prefix.extend(cleanup_exprs)
-
-
-def _release_and_clear(
-    gen,
-    value,
-    type_expr,
-    declarations,
-    fresh_temp,
-    record_decl,
-    c_type,
-):
-    from .arc_ops import poll_release_batch
-
-    saved_decl = _temporary(
-        fresh_temp,
-        record_decl,
-        "__btrc_released_operand",
-        c_type,
-        IRLiteral(text="NULL"),
-    )
-    declarations.append(saved_decl)
-    saved = IRVar(name=saved_decl.name)
-    expressions = [
-        IRBinOp(left=saved, op="=", right=value),
-        IRBinOp(left=value, op="=", right=IRLiteral(text="NULL")),
-        release_value(gen, saved, type_expr),
-    ]
-    flush = poll_release_batch(
-        gen,
-        types=[type_expr] if is_class_type(gen, type_expr) else [],
-    )
-    if flush is not None:
-        expressions.append(flush)
-    return expressions
-
-
-def _temporary(
-    fresh_temp,
-    record_decl,
-    prefix: str,
-    c_type: str,
-    init=None,
-) -> IRVarDecl:
-    declaration = IRVarDecl(
-        c_type=CType(text=c_type),
-        name=fresh_temp(prefix),
-        init=init,
-    )
-    record_decl(declaration)
-    return declaration
 
 
 __all__ = ["CallOperand", "sequence_call_boundary"]

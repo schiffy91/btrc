@@ -27,13 +27,7 @@ import std.vector;
 
 class Strings {
     class int checkedLength(string s) {
-        if (s == null) { return 0; }
-        size_t length = strlen(s);
-        if (length > (size_t)2147483646) {
-            fprintf(stderr, "string length exceeds supported range\n");
-            exit(1);
-        }
-        return (int)length;
+        return __btrc_string_length(s);
     }
 
     class string copy(string s) {

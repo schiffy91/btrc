@@ -5,13 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ..nodes import IRExpr, IRLiteral
-from .stringable import coerce_to_string_param
 from .upcast import upcast_class_pointer
 
 
 def _coerce_arg(gen, target_type, ast_node, value: IRExpr) -> IRExpr:
-    """Apply both string coercion and Derived→Base upcasting to one argument."""
-    value = coerce_to_string_param(gen, target_type, ast_node, value)
+    """Apply Derived→Base upcasting after call-boundary preparation."""
     source_type = gen.analyzed.node_types.get(id(ast_node))
     return upcast_class_pointer(gen, target_type, source_type, value)
 
@@ -69,7 +67,7 @@ def lower_arg_values(gen, args: list) -> list[IRExpr]:
     return [lower_expr(gen, arg) for arg in args]
 
 
-def resolved_constructor_params(cls_info, instance_type):
+def resolved_constructor_params(gen, cls_info, instance_type):
     """Resolve class type parameters in one constructor signature."""
     params = cls_info.constructor.params
     if not (instance_type.generic_args and cls_info.generic_params):
@@ -78,7 +76,17 @@ def resolved_constructor_params(cls_info, instance_type):
     from .generics.core import _resolve_type
 
     type_map = dict(zip(cls_info.generic_params, instance_type.generic_args))
-    return [replace(param, type=_resolve_type(param.type, type_map)) for param in params]
+    return [
+        replace(
+            param,
+            type=_resolve_type(
+                param.type,
+                type_map,
+                gen.analyzed.typedef_table,
+            ),
+        )
+        for param in params
+    ]
 
 
 def order_args_for_params(

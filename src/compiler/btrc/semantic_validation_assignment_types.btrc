@@ -1,0 +1,147 @@
+/* Assignment compatibility and target-directed conversion contracts. */
+
+int semanticAssignmentDepth(Node typeExpr, Analyzed analyzed) {
+    return semanticValueDepth(typeExpr, analyzed);
+}
+
+bool semanticSameTypeShape(Node left, Node right, Analyzed analyzed) {
+    return left.base == right.base
+        && semanticAssignmentDepth(left, analyzed)
+            == semanticAssignmentDepth(right, analyzed)
+        && left.is_array == right.is_array
+        && semanticGenericArgsEqual(left.generic_args, right.generic_args);
+}
+
+/* Callable return types can acquire an implicit reference spelling during
+ * declaration normalization (Item -> Item*, scalar string qualifiers, etc.).
+ * Those spellings have the same C return ABI. Parameter components remain
+ * exact because changing their qualified pointer shape is not ABI-safe. */
+bool semanticCallableAssignmentCompatible(
+        Node target, Node source, Analyzed analyzed) {
+    if (target.base != "__fn_ptr" || source.base != "__fn_ptr"
+            || target.generic_args.len == 0
+            || target.generic_args.len != source.generic_args.len) {
+        return false;
+    }
+    Node targetReturn = target.generic_args.get(0);
+    Node sourceReturn = source.generic_args.get(0);
+    if (targetReturn.base != sourceReturn.base
+            || semanticValueDepth(targetReturn, analyzed)
+                != semanticValueDepth(sourceReturn, analyzed)
+            || targetReturn.is_array != sourceReturn.is_array) {
+        return false;
+    }
+    int index = 1;
+    while (index < target.generic_args.len) {
+        if (typeShapeKey(target.generic_args.get(index))
+                != typeShapeKey(source.generic_args.get(index))) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+bool semanticAssignmentCompatible(Node? target, Node? source,
+        SemanticValidationState state) {
+    Node? resolvedTarget = semanticResolveAliases(target, state);
+    Node? resolvedSource = semanticResolveAliases(source, state);
+    if (resolvedTarget == null || resolvedSource == null) { return false; }
+    if (semanticTypeContainsParams(resolvedTarget, state.typeParams)
+            || semanticTypeContainsParams(resolvedSource, state.typeParams)) {
+        return true;
+    }
+    if (semanticIsNullType(resolvedSource)) {
+        return semanticIsReferenceType(resolvedTarget, state.analyzed)
+            || state.interfaces.has(resolvedTarget.base);
+    }
+    if (semanticSameTypeShape(
+            resolvedTarget, resolvedSource, state.analyzed)) { return true; }
+    if (semanticCallableAssignmentCompatible(
+            resolvedTarget, resolvedSource, state.analyzed)) { return true; }
+    /* C array-to-pointer decay is directional.  Do not collapse both shapes to
+     * one effective depth: a pointer cannot initialize an array declaration. */
+    if (resolvedSource.is_array && !resolvedTarget.is_array
+            && resolvedTarget.base == resolvedSource.base
+            && resolvedTarget.pointer_depth == resolvedSource.pointer_depth + 1
+            && semanticGenericArgsEqual(
+                resolvedTarget.generic_args, resolvedSource.generic_args)) {
+        return true;
+    }
+    if (numericIsType(resolvedTarget, state.analyzed)
+            && numericIsType(resolvedSource, state.analyzed)
+            && resolvedTarget.base != "bool" && resolvedSource.base != "bool") {
+        return true;
+    }
+    if (isSemanticScalarString(resolvedTarget)
+            && semanticIsCStringPointer(resolvedSource)) {
+        return true;
+    }
+    if (semanticIsCStringPointer(resolvedTarget)
+            && isSemanticScalarString(resolvedSource)) {
+        return true;
+    }
+    if (semanticIsVoidPointer(resolvedTarget)
+            && semanticIsReferenceType(resolvedSource, state.analyzed)) {
+        return true;
+    }
+    if (semanticIsVoidPointer(resolvedSource)
+            && semanticIsReferenceType(resolvedTarget, state.analyzed)) {
+        return true;
+    }
+    bool targetNominal = state.analyzed.isClass(resolvedTarget.base)
+        || state.analyzed.isGenericClass(resolvedTarget.base);
+    bool sourceNominal = state.analyzed.isClass(resolvedSource.base)
+        || state.analyzed.isGenericClass(resolvedSource.base);
+    if (state.interfaces.has(resolvedTarget.base) && sourceNominal) {
+        return semanticClassImplements(
+            state, resolvedSource.base, resolvedTarget.base);
+    }
+    if (state.interfaces.has(resolvedTarget.base)
+            && state.interfaces.has(resolvedSource.base)) {
+        return semanticInterfaceExtends(
+            state, resolvedSource.base, resolvedTarget.base);
+    }
+    if (targetNominal && sourceNominal) {
+        return semanticSpecializationIsSubtype(
+            resolvedSource, resolvedTarget, state.analyzed);
+    }
+    if (isSemanticScalarString(resolvedTarget)
+            && semanticSourceHasToString(resolvedSource, state)) {
+        return true;
+    }
+    return false;
+}
+
+bool semanticSourceHasToString(Node? source,
+        SemanticValidationState state) {
+    Node? resolvedSource = semanticResolveAliases(source, state);
+    if (resolvedSource == null || resolvedSource.is_array
+            || semanticValueDepth(
+                resolvedSource, state.analyzed) != 1
+            || (!state.analyzed.isClass(resolvedSource.base)
+                && !state.analyzed.isGenericClass(
+                    resolvedSource.base))) {
+        return false;
+    }
+    Node concreteSource = resolvedSource;
+    Node? method = null;
+    if (state.analyzed.isClass(concreteSource.base)) {
+        method = state.analyzed.classMethod(
+            concreteSource.base, "toString");
+    } else {
+        method = state.analyzed.genericClassMethod(
+            concreteSource.base, "toString");
+    }
+    return method != null && method.kind == NK_METHOD_DECL
+        && method.params.len == 0 && method.return_type != null
+        && isSemanticScalarString(method.return_type);
+}
+
+bool semanticRequiresTargetStringConversion(Node? target, Node? source,
+        SemanticValidationState state) {
+    Node? resolvedTarget = semanticResolveAliases(target, state);
+    return resolvedTarget != null
+        && isSemanticScalarString(resolvedTarget)
+        && semanticSourceHasToString(source, state);
+}

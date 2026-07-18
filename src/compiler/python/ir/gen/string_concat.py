@@ -13,7 +13,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .managed_values import is_string_type, release_value
+from .managed_values import is_string_type, release_value, retain_value
 from .ownership import owns_result
 from .temporary_cleanup import cleanup_registration
 from .types import type_to_c
@@ -44,6 +44,15 @@ def lower_long_string_concat(gen, node):
         leaf_types.append(leaf_type)
         owned.append(owns_result(gen, leaf))
 
+    from .evaluation_order import source_order_pin_flags
+
+    initial_pins = source_order_pin_flags(
+        gen,
+        leaves[:2],
+        leaf_types[:2],
+        owned[:2],
+    )
+
     accumulator_decl = _temporary(gen, "__btrc_concat_acc", c_type)
     next_decl = _temporary(gen, "__btrc_concat_next", c_type)
     result_decl = _temporary(gen, "__btrc_concat_result", c_type)
@@ -59,6 +68,7 @@ def lower_long_string_concat(gen, node):
         declarations[0],
         values[0],
         owned[0],
+        initial_pins[0],
         declarations,
         sequence,
     )
@@ -69,6 +79,7 @@ def lower_long_string_concat(gen, node):
         declarations[1],
         values[1],
         owned[1],
+        False,
         declarations,
         sequence,
     )
@@ -87,7 +98,13 @@ def lower_long_string_concat(gen, node):
         sequence,
         "__btrc_concat_acc_cleanup",
     )
-    _release_leaf(gen, values[0], leaf_types[0], owned[0], sequence)
+    _release_leaf(
+        gen,
+        values[0],
+        leaf_types[0],
+        bool(owned[0] or initial_pins[0]),
+        sequence,
+    )
     _release_leaf(gen, values[1], leaf_types[1], owned[1], sequence)
 
     for index in range(2, len(values)):
@@ -100,6 +117,7 @@ def lower_long_string_concat(gen, node):
             declarations[index],
             leaf,
             owned[index],
+            False,
             declarations,
             sequence,
         )
@@ -202,13 +220,16 @@ def _evaluate_leaf(
     declaration,
     value,
     owned,
+    pinned,
     declarations,
     sequence,
 ) -> None:
     from .expressions import lower_expr
 
     sequence.append(IRBinOp(left=value, op="=", right=lower_expr(gen, node)))
-    if owned:
+    if pinned:
+        sequence.append(retain_value(gen, value, type_expr))
+    if owned or pinned:
         _register_cleanup(
             gen,
             declaration,

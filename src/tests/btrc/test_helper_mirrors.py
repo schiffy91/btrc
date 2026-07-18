@@ -113,8 +113,12 @@ def test_mirrored_helpers_execute_without_libm(
         '    assert("999999999999999999999999".toInt() == 2147483647);\n'
         '    assert("yes".toBool() && !"false".toBool() && !"0".toBool());\n'
         "    assert(7.9 % 2.0 == 1);\n"
-        "    assert(__btrc_hash_real(0.0) == __btrc_hash_real(-0.0));\n"
-        "    assert(__btrc_hash_real(INFINITY) == __btrc_hash_real(INFINITY));\n"
+        "    uint zeroHash = (uint)__btrc_hash_real(0.0);\n"
+        "    uint negativeZeroHash = (uint)__btrc_hash_real(-0.0);\n"
+        "    assert(zeroHash == negativeZeroHash);\n"
+        "    uint infinityHash = (uint)__btrc_hash_real(INFINITY);\n"
+        "    uint sameInfinityHash = (uint)__btrc_hash_real(INFINITY);\n"
+        "    assert(infinityHash == sameInfinityHash);\n"
         "    return 0;\n"
         "}\n",
     )

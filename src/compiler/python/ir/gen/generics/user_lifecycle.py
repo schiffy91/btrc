@@ -37,6 +37,7 @@ from .user_destructors import (
     build_generic_destructor_hook,
     build_generic_field_release_stmts,
 )
+from .user_field_initializers import emit_generic_field_initializers
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator
@@ -90,7 +91,11 @@ def emit_generic_lifecycle(
             mangled,
             args,
             cls_info.instance_storage,
-            lambda field_type: _resolve_type(field_type, type_map),
+            lambda field_type: _resolve_type(
+                field_type,
+                type_map,
+                gen.analyzed.typedef_table,
+            ),
         )
     emit_arc_descriptor(
         gen,
@@ -125,11 +130,17 @@ def _lifecycle_declarations(mangled: str, ctor_params: list[IRParam]) -> list[IR
 
 
 def _emit_init(gen, mangled, ctor, ctor_params, emitter) -> IRFunctionDef:
+    emitter.reset_var_types(ctor.params if ctor else [])
+    field_stmts = emit_generic_field_initializers(
+        gen,
+        emitter._cls_info,
+        emitter.type_map,
+        emitter,
+    )
     body_stmts = []
     if ctor and ctor.body:
-        emitter.reset_var_types(ctor.params)
         body_stmts = emitter.emit_stmts(ctor.body.statements)
-    if not body_stmts:
+    if not field_stmts and not body_stmts:
         body_stmts = [IRExprStmt(expr=IRCast(target_type=CType(text="void"), expr=IRVar(name="self")))]
 
     return IRFunctionDef(
@@ -139,6 +150,7 @@ def _emit_init(gen, mangled, ctor, ctor_params, emitter) -> IRFunctionDef:
         body=IRBlock(
             stmts=[
                 *arc_header_initialization(mangled),
+                *field_stmts,
                 *body_stmts,
             ]
         ),

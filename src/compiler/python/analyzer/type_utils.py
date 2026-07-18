@@ -156,9 +156,15 @@ class TypeUtilsMixin:
             return self._const_conversion_allowed(target, source)
         if source.base == "string" and target.base == "char" and (target.pointer_depth >= 1 or target.is_array):
             return self._const_conversion_allowed(target, source)
-        if target.base == "string" and source.base in self.class_table:
-            method = self.class_table[source.base].methods.get("toString")
-            return bool(method and not method.params and method.return_type and method.return_type.base == "string")
+        from ..string_conversion import requires_class_to_string
+
+        if requires_class_to_string(
+            self.class_table,
+            target,
+            source,
+            canonicalize=self._canonical_type,
+        ):
+            return True
         # ISO C permits object-pointer conversions through void*.
         if (
             target.base == "void"
@@ -286,7 +292,7 @@ class TypeUtilsMixin:
     def _substitute_type(self, t: TypeExpr | None, subs: dict) -> TypeExpr | None:
         """Recursively substitute type parameters in a TypeExpr."""
         try:
-            return substitute_type_expr(t, subs)
+            return substitute_type_expr(t, subs, reference_resolver=self._canonical_type)
         except TypeShapeError as error:
             self._report_type_shape_error(str(error), error.type_expr or t, getattr(t, "line", 0), getattr(t, "col", 0))
             return t

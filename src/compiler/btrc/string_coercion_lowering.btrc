@@ -1,0 +1,105 @@
+/* One target-aware value contract for storage, calls, and returns.
+ *
+ * Class-to-string conversion is an ownership boundary, not a textual wrapper:
+ * the source is evaluated once, an owning source is protected/released, the
+ * nullable receiver is guarded, and the synthesized string result is +1.
+ */
+
+class PreparedValue {
+    public IRNode value;
+    public Node? effectiveType;
+    public bool owned;
+    public bool converted;
+
+    public PreparedValue(IRNode value, Node? effectiveType,
+            bool owned, bool converted) {
+        self.value = value;
+        self.effectiveType = effectiveType;
+        self.owned = owned;
+        self.converted = converted;
+    }
+}
+
+Node? preparedCanonicalType(IRGen generator, Node? typeExpr) {
+    if (typeExpr == null) { return null; }
+    Node concrete = generator.resolveBodyType(typeExpr);
+    Node? resolved = resolveTypedefType(
+        concrete, generator.analyzed.typedefTable);
+    if (resolved != null) { return resolved; }
+    return concrete;
+}
+
+bool requiresTargetStringConversion(IRGen generator,
+        Node? targetType, Node? sourceType) {
+    Node? target = preparedCanonicalType(generator, targetType);
+    Node? source = preparedCanonicalType(generator, sourceType);
+    return target != null && isSemanticScalarString(target)
+        && generator.sourceHasToString(source);
+}
+
+PreparedValue prepareLoweredTargetValue(IRGen generator,
+        Node expression, Node? targetType, Node? sourceType,
+        IRNode lowered, bool sourceOwned,
+        Map<string, Node> varTypes) {
+    Node? target = preparedCanonicalType(generator, targetType);
+    Node? source = preparedCanonicalType(generator, sourceType);
+    if (!requiresTargetStringConversion(generator, target, source)) {
+        IRNode value = generator.upcastClassPointer(
+            target, source, lowered);
+        Node? effective = source;
+        if (target != null && source != null
+                && generator.analyzed.isClass(target.base)
+                && target.generic_args.len == 0
+                && source.base != target.base
+                && generator.analyzed.isSubclass(
+                    source.base, target.base)) {
+            effective = target;
+        }
+        if (effective == null) { effective = target; }
+        return PreparedValue(value, effective, sourceOwned, false);
+    }
+
+    ownershipRequireType(source, expression);
+    Node concreteSource = source;
+    OwnershipBoundary boundary = OwnershipBoundary();
+    bool pinBorrowedReceiver = !sourceOwned
+        && irManagedType(generator, concreteSource)
+        && expression.kind != NK_SELF_EXPR
+        && expression.kind != NK_SUPER_EXPR;
+    boundary.addLoweredOperand(generator, expression,
+        concreteSource, lowered, sourceOwned, pinBorrowedReceiver);
+    IRNode receiver = generator.lowerExpr(expression, varTypes);
+    IRNode converted = irTernary(
+        irBinOp(receiver, "!=", irLiteral("NULL")),
+        generator.toStringCall(concreteSource, receiver),
+        irLiteral("\"\""));
+    boundary.resultOwned = true;
+    boundary.restore(generator);
+    return PreparedValue(
+        boundary.finish(generator, converted, target, false),
+        target, true, true);
+}
+
+PreparedValue prepareTargetValue(IRGen generator, Node expression,
+        Node? targetType, Map<string, Node> varTypes) {
+    Node? sourceType = generator.resolvedExpressionType(
+        expression, varTypes);
+    IRNode lowered = generator.lowerAssignedValueRaw(
+        expression, targetType, varTypes);
+    bool owned = irContextualExpressionOwnsResult(
+        generator, expression, targetType, varTypes);
+    return prepareLoweredTargetValue(generator, expression,
+        targetType, sourceType, lowered, owned, varTypes);
+}
+
+PreparedValue prepareCallTargetValue(IRGen generator, Node expression,
+        Node? targetType, Map<string, Node> varTypes) {
+    Node? sourceType = generator.resolvedExpressionType(
+        expression, varTypes);
+    IRNode lowered = generator.lowerAssignedValueRaw(
+        expression, targetType, varTypes);
+    bool owned = irContextualUnconsumedOwnedResult(
+        generator, expression, targetType, varTypes);
+    return prepareLoweredTargetValue(generator, expression,
+        targetType, sourceType, lowered, owned, varTypes);
+}

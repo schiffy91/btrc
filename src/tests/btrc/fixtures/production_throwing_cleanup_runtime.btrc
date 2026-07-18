@@ -1,0 +1,101 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int cleanupPayloadsAlive = 0;
+int cleanupBombsAlive = 0;
+int cleanupBombHooks = 0;
+int defaultFailureHooks = 0;
+int bodyFailureHooks = 0;
+
+class CleanupPayload {
+    public CleanupPayload() { cleanupPayloadsAlive++; }
+    public void __del__() { cleanupPayloadsAlive--; }
+}
+
+class ReturnCleanupBomb {
+    public ReturnCleanupBomb() { cleanupBombsAlive++; }
+
+    public void __del__() {
+        cleanupBombsAlive--;
+        cleanupBombHooks++;
+        throw "return cleanup failed";
+    }
+}
+
+int failFieldDefault() { throw "field default failed"; }
+
+class DefaultInitializerFailure<T> {
+    public string text = "field" + " default";
+    public Mutex<CleanupPayload> guarded = Mutex(new CleanupPayload());
+    public int unreachable = failFieldDefault();
+    public T? marker = null;
+
+    public DefaultInitializerFailure() { assert(false); }
+    public void __del__() { defaultFailureHooks++; }
+}
+
+class ConstructorBodyFailure<T> {
+    public string text = "constructor" + " body";
+    public Mutex<CleanupPayload> guarded = Mutex(new CleanupPayload());
+    public T? marker = null;
+
+    public ConstructorBodyFailure() { throw "constructor body failed"; }
+    public void __del__() { bodyFailureHooks++; }
+}
+
+Mutex<CleanupPayload> returnMutexBeforeCleanupFailure() {
+    ReturnCleanupBomb bomb = new ReturnCleanupBomb();
+    return Mutex(new CleanupPayload());
+}
+
+void exerciseThrowingCleanup() {
+    bool caughtReturn = false;
+    try {
+        Mutex<CleanupPayload> result = returnMutexBeforeCleanupFailure();
+        assert(result.get() == null);
+    } catch (string error) {
+        caughtReturn = error.equals("return cleanup failed");
+    }
+    assert(caughtReturn);
+    assert(cleanupPayloadsAlive == 0);
+    assert(cleanupBombsAlive == 0);
+
+    bool caughtDefault = false;
+    try {
+        DefaultInitializerFailure<int> value =
+            new DefaultInitializerFailure<int>();
+        assert(value == null);
+    } catch (string error) {
+        caughtDefault = error.equals("field default failed");
+    }
+    assert(caughtDefault);
+    assert(cleanupPayloadsAlive == 0);
+
+    bool caughtBody = false;
+    try {
+        ConstructorBodyFailure<int> value =
+            new ConstructorBodyFailure<int>();
+        assert(value == null);
+    } catch (string error) {
+        caughtBody = error.equals("constructor body failed");
+    }
+    assert(caughtBody);
+    assert(cleanupPayloadsAlive == 0);
+}
+
+int main() {
+    exerciseThrowingCleanup();
+    assert(cleanupBombHooks == 1);
+    assert(defaultFailureHooks == 0);
+    assert(bodyFailureHooks == 0);
+
+    arc_test_allocation_checkpoint();
+    exerciseThrowingCleanup();
+    assert(cleanupBombHooks == 2);
+    assert(defaultFailureHooks == 0);
+    assert(bodyFailureHooks == 0);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

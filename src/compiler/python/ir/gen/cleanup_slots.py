@@ -91,40 +91,56 @@ def finalize_cleanup_take_adapters(gen) -> None:
 
 
 def _ensure_take_adapter(gen, slot_type: CType) -> str:
-    adapters = gen._cleanup_take_adapters
+    adapters = _adapter_registry(gen, "_cleanup_take_adapters")
     existing = adapters.get(slot_type.text)
     if existing is not None:
         return existing
     name = f"__btrc_cleanup_take_{len(adapters) + 1}"
     adapters[slot_type.text] = name
-    gen._cleanup_take_adapter_defs.append(_take_adapter(name, slot_type))
+    _adapter_definitions(gen).append(_take_adapter(name, slot_type))
     return name
 
 
 def ensure_arc_slot_adapter(gen, slot_type: CType) -> str:
     """Return an exact-typed transactional access callback for one ARC slot."""
 
-    adapters = gen._arc_slot_adapters
+    adapters = _adapter_registry(gen, "_arc_slot_adapters")
     existing = adapters.get(slot_type.text)
     if existing is not None:
         return existing
     name = f"__btrc_arc_slot_access_{len(adapters) + 1}"
     adapters[slot_type.text] = name
-    gen._cleanup_take_adapter_defs.append(_delete_slot_adapter(name, slot_type))
+    _adapter_definitions(gen).append(_delete_slot_adapter(name, slot_type))
     return name
 
 
 def ensure_mutex_value_adapter(gen, value_type: CType) -> str:
     """Return an exact-typed load callback for opaque Mutex box storage."""
 
-    adapters = gen._mutex_value_adapters
+    adapters = _adapter_registry(gen, "_mutex_value_adapters")
     existing = adapters.get(value_type.text)
     if existing is not None:
         return existing
     name = f"__btrc_mutex_value_access_{len(adapters) + 1}"
     adapters[value_type.text] = name
-    gen._cleanup_take_adapter_defs.append(_mutex_value_adapter(name, value_type))
+    _adapter_definitions(gen).append(_mutex_value_adapter(name, value_type))
     return name
+
+
+def _adapter_registry(gen, attribute: str) -> dict[str, str]:
+    registry = getattr(gen, attribute, None)
+    if registry is None:
+        registry = {}
+        setattr(gen, attribute, registry)
+    return registry
+
+
+def _adapter_definitions(gen) -> list[IRFunctionDef]:
+    definitions = getattr(gen, "_cleanup_take_adapter_defs", None)
+    if definitions is None:
+        definitions = []
+        gen._cleanup_take_adapter_defs = definitions
+    return definitions
 
 
 def _take_adapter(name: str, slot_type: CType) -> IRFunctionDef:

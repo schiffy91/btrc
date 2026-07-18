@@ -43,6 +43,8 @@ _KNOWN_HELPERS = {
     "__btrc_str_track",
     "__btrc_string_adopt",
     "__btrc_string_alloc",
+    "__btrc_string_length",
+    "__btrc_string_or_empty",
 }
 
 
@@ -52,7 +54,13 @@ def _emit_user_generic_methods(
     """Emit constructor + methods for a user-defined generic class instance."""
     from ..types import type_to_c as ttc
 
-    first_arg_c = ttc(args[0]) if args else "int"
+    if args:
+        from ..type_resolution import canonical_type
+
+        first_arg = canonical_type(args[0], gen.analyzed.typedef_table)
+        first_arg_c = ttc(first_arg)
+    else:
+        first_arg_c = "int"
     emitter = _UserGenericEmitter(type_map, mangled, ttc, gen=gen, cls_info=cls_info)
     function_decls, lifecycle_functions = emit_generic_lifecycle(
         gen, base_name, mangled, args, type_map, cls_info, emitter

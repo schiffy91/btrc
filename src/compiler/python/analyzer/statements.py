@@ -121,7 +121,12 @@ class StatementsMixin:
         elif isinstance(stmt, SwitchStmt):
             self._analyze_switch(stmt)
         elif isinstance(stmt, ExprStmt):
-            self._analyze_expr(stmt.expr)
+            previous_root = self._standalone_expression_root
+            self._standalone_expression_root = stmt.expr
+            try:
+                self._analyze_expr(stmt.expr)
+            finally:
+                self._standalone_expression_root = previous_root
             self._validate_thread_expression_discard(stmt.expr)
         elif isinstance(stmt, DeleteStmt):
             self._analyze_expr(stmt.expr)

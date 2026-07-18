@@ -26,7 +26,8 @@ OWNERSHIP_SOURCE = r"""
     int itemsAlive = 0;
     int keepersAlive = 0;
     int linksAlive = 0;
-    int failuresAlive = 0;
+    int failureConstructionAttempts = 0;
+    int failedOwnerHookCalls = 0;
     int optionalCalls = 0;
 
     class Item {
@@ -72,11 +73,11 @@ OWNERSHIP_SOURCE = r"""
     class Failure {
         public Item? item { get; set; }
         public Failure() {
-            failuresAlive++;
+            failureConstructionAttempts++;
             self.item = new Item(90);
             throw "constructor failure";
         }
-        public void __del__() { failuresAlive--; }
+        public void __del__() { failedOwnerHookCalls++; }
     }
 
     void stash(Holder holder, keep Item value) {
@@ -263,7 +264,8 @@ OWNERSHIP_SOURCE = r"""
         } catch (string error) {
             caught++;
         }
-        assert(caught == 1 && failuresAlive == 0 && itemsAlive == 0);
+        assert(caught == 1 && failureConstructionAttempts == 1
+                && failedOwnerHookCalls == 0 && itemsAlive == 0);
 
         try {
             (new Keeper())?.fail(new Item(60));
@@ -284,7 +286,8 @@ OWNERSHIP_SOURCE = r"""
         optionalOwnership();
         exceptionOwnership();
         assert(itemsAlive == 0 && keepersAlive == 0
-                && linksAlive == 0 && failuresAlive == 0);
+                && linksAlive == 0 && failureConstructionAttempts == 1
+                && failedOwnerHookCalls == 0);
         return 0;
     }
 """

@@ -20,13 +20,13 @@ class UpdateContractsMixin:
             self._error("Division by zero", operand.line, operand.col)
 
     def _validate_assignment(self, expression):
+        if isinstance(expression.target, FieldAccessExpr) and expression.target.optional:
+            self._error("Optional-chain expression is not assignable", expression.line, expression.col)
+            return
         if not self._is_lvalue(expression.target):
             self._error("Assignment target is not assignable", expression.line, expression.col)
             return
         if not self._validate_mutable_target(expression.target, expression.line, expression.col):
-            return
-        if isinstance(expression.target, FieldAccessExpr) and expression.target.optional:
-            self._error("Optional-chain expression is not assignable", expression.line, expression.col)
             return
         self._validate_property_update(
             expression.target, require_getter=expression.op != "=", line=expression.line, col=expression.col
@@ -50,7 +50,7 @@ class UpdateContractsMixin:
         if (
             expression.op != "="
             and canonical_target is not None
-            and (canonical_target.base in self.class_table or canonical_target.base == "string")
+            and (canonical_target.base in self.class_table or canonical_target.base in {"string", "Mutex"})
         ):
             supported_physical = isinstance(expression.target, (Identifier, FieldAccessExpr)) and not virtual_target
             if not supported_physical:

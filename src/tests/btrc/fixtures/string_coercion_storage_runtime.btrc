@@ -1,0 +1,210 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int coercionTokensAlive = 0;
+int coercionTokensDestroyed = 0;
+int coercionRenderCalls = 0;
+
+class CoercionToken {
+    public int value;
+
+    public CoercionToken(int value) {
+        self.value = value;
+        coercionTokensAlive++;
+    }
+
+    public void __del__() {
+        coercionTokensAlive--;
+        coercionTokensDestroyed++;
+    }
+
+    public string toString() {
+        coercionRenderCalls++;
+        return self.value.toString();
+    }
+}
+
+void assertText(string value, int expected) {
+    assert(value != null);
+    assert(value.toInt() == expected);
+}
+
+class CoercionStorage {
+    public string defaulted = new CoercionToken(11);
+    public string direct;
+    public string automatic { get; set; }
+    private string customStored;
+    private string indexedStored;
+
+    public CoercionStorage() {}
+
+    public string custom {
+        get { return self.customStored; }
+        set { self.customStored = value; }
+    }
+
+    public string get(int index) {
+        assert(index == 0);
+        return self.indexedStored;
+    }
+
+    public void set(int index, string value) {
+        assert(index == 0);
+        self.indexedStored = value;
+    }
+}
+
+class GenericCoercionStorage<T> {
+    public string defaulted = new CoercionToken(21);
+    public string direct;
+    public string automatic { get; set; }
+    private string customStored;
+    private string indexedStored;
+
+    public GenericCoercionStorage() {}
+
+    public string custom {
+        get { return self.customStored; }
+        set { self.customStored = value; }
+    }
+
+    public string get(int index) {
+        assert(index == 0);
+        return self.indexedStored;
+    }
+
+    public void set(int index, string value) {
+        assert(index == 0);
+        self.indexedStored = value;
+    }
+
+    public void store(CoercionToken value) {
+        string local = value;
+        assertText(local, value.value);
+        local = value;
+        assertText(local, value.value);
+        self.direct = value;
+        self.automatic = value;
+        self.custom = value;
+        self[0] = value;
+    }
+}
+
+class CoercionOwner {
+    public CoercionToken token;
+
+    public CoercionOwner(CoercionToken token) { self.token = token; }
+
+    public CoercionToken projected {
+        get { return self.token; }
+    }
+}
+
+string returnBorrowedToken(CoercionToken token) { return token; }
+string returnFreshToken(int value) { return new CoercionToken(value); }
+string returnProjectedToken(CoercionOwner owner) { return owner.projected; }
+
+string returnOwnedLocalText(int value) {
+    CoercionToken token = new CoercionToken(value);
+    string text = token;
+    return text;
+}
+
+void exerciseNormalStorage(int base) {
+    int calls = coercionRenderCalls;
+    int destroyed = coercionTokensDestroyed;
+    {
+        CoercionToken token = new CoercionToken(base);
+        string local = token;
+        assertText(local, base);
+        local = token;
+        assertText(local, base);
+
+        CoercionStorage storage = new CoercionStorage();
+        assertText(storage.defaulted, 11);
+        storage.direct = token;
+        storage.automatic = token;
+        storage.custom = token;
+        storage[0] = token;
+        assertText(storage.direct, base);
+        assertText(storage.automatic, base);
+        assertText(storage.custom, base);
+        assertText(storage[0], base);
+        assert(coercionRenderCalls == calls + 7);
+    }
+    assert(coercionTokensAlive == 0);
+    assert(coercionTokensDestroyed == destroyed + 2);
+}
+
+void exerciseGenericStorage(int base) {
+    int calls = coercionRenderCalls;
+    int destroyed = coercionTokensDestroyed;
+    {
+        CoercionToken token = new CoercionToken(base);
+        GenericCoercionStorage<CoercionToken> storage =
+            new GenericCoercionStorage<CoercionToken>();
+        storage.store(token);
+        assertText(storage.defaulted, 21);
+        assertText(storage.direct, base);
+        assertText(storage.automatic, base);
+        assertText(storage.custom, base);
+        assertText(storage[0], base);
+        assert(coercionRenderCalls == calls + 7);
+    }
+    assert(coercionTokensAlive == 0);
+    assert(coercionTokensDestroyed == destroyed + 2);
+}
+
+void exerciseReturnTargets(int base) {
+    int calls = coercionRenderCalls;
+    int destroyed = coercionTokensDestroyed;
+    {
+        CoercionToken borrowed = new CoercionToken(base);
+        string first = returnBorrowedToken(borrowed);
+        string second = returnFreshToken(base + 1);
+        CoercionOwner owner = new CoercionOwner(
+            new CoercionToken(base + 2));
+        string third = returnProjectedToken(owner);
+        string fourth = returnOwnedLocalText(base + 3);
+        assertText(first, base);
+        assertText(second, base + 1);
+        assertText(third, base + 2);
+        assertText(fourth, base + 3);
+        assert(coercionRenderCalls == calls + 4);
+    }
+    assert(coercionTokensAlive == 0);
+    assert(coercionTokensDestroyed == destroyed + 4);
+}
+
+void exerciseNullableTarget() {
+    int calls = coercionRenderCalls;
+    CoercionToken? missing = null;
+    string empty = missing;
+    assert(empty != null);
+    assert(empty.len() == 0);
+    assert(coercionRenderCalls == calls);
+}
+
+void exerciseStorageTargets(int base) {
+    exerciseNormalStorage(base);
+    exerciseGenericStorage(base + 100);
+    exerciseReturnTargets(base + 200);
+    exerciseNullableTarget();
+}
+
+int main() {
+    exerciseStorageTargets(1000);
+    assert(coercionTokensAlive == 0);
+    assert(coercionRenderCalls == 18);
+    assert(coercionTokensDestroyed == 8);
+
+    arc_test_allocation_checkpoint();
+    exerciseStorageTargets(2000);
+    assert(coercionTokensAlive == 0);
+    assert(coercionRenderCalls == 36);
+    assert(coercionTokensDestroyed == 16);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

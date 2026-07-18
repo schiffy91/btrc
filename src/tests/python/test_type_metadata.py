@@ -34,7 +34,7 @@ def test_class_upgrade_preserves_nested_qualifiers():
     assert inner.is_nullable is True
 
 
-def test_generic_substitution_preserves_placeholder_metadata():
+def test_nullable_generic_substitution_preserves_metadata_without_stacking_references():
     analyzer = Analyzer()
     placeholder = TypeExpr(
         base="T",
@@ -53,7 +53,9 @@ def test_generic_substitution_preserves_placeholder_metadata():
     result = analyzer._substitute_type(placeholder, {"T": concrete})
 
     assert result.base == "Item"
-    assert result.pointer_depth == 2
+    # T? uses one provisional reference layer.  Once T resolves to Item*,
+    # nullable annotates that reference instead of producing Item**.
+    assert result.pointer_depth == 1
     assert result.is_array is True
     assert result.is_const is True
     assert result.is_nullable is True
@@ -61,6 +63,18 @@ def test_generic_substitution_preserves_placeholder_metadata():
     assert result.is_extern is True
     assert result.is_volatile is True
     assert (result.line, result.col) == (7, 11)
+
+
+def test_explicit_pointer_layer_on_nullable_generic_still_composes():
+    analyzer = Analyzer()
+    # pointer_depth=2 models T*?: one explicit layer plus the nullable parser
+    # layer.  Substitution removes only the provisional nullable layer.
+    placeholder = TypeExpr(base="T", pointer_depth=2, is_nullable=True)
+    concrete = TypeExpr(base="Item", pointer_depth=1)
+
+    result = analyzer._substitute_type(placeholder, {"T": concrete})
+
+    assert result == TypeExpr(base="Item", pointer_depth=2, is_nullable=True)
 
 
 def test_nested_generic_substitution_preserves_owner_metadata():

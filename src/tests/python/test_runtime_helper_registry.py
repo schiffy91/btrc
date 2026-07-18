@@ -42,8 +42,8 @@ CYCLE_SOURCE_MIRRORS = tuple(
 THREAD_SOURCE_MIRRORS = (
     Path("src/compiler/btrc/thread_runtime_threads.btrc"),
     Path("src/compiler/btrc/thread_runtime_mutex_core.btrc"),
+    Path("src/compiler/btrc/thread_runtime_mutex_arc.btrc"),
     Path("src/compiler/btrc/thread_runtime_mutex_ops.btrc"),
-    Path("src/compiler/btrc/thread_runtime_mutex_owner.btrc"),
 )
 CYCLE_DEPENDENCY_MIRRORS = (
     Path("src/compiler/btrc/cycle_runtime_dependencies_state.btrc"),

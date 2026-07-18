@@ -124,11 +124,15 @@ def _emit_scope_release(
 
 
 def _emitted_value_c_type(type_name: str) -> str:
-    from .managed_values import STRING_RUNTIME_NAME
+    from .managed_values import MUTEX_RUNTIME_NAME, STRING_RUNTIME_NAME
 
     # A local may shadow the class typedef (``Box Box``); C struct tags live in
     # a separate namespace and therefore remain usable by generated cleanup.
-    return "char*" if type_name == STRING_RUNTIME_NAME else f"struct {type_name}*"
+    if type_name == STRING_RUNTIME_NAME:
+        return "char*"
+    if type_name == MUTEX_RUNTIME_NAME:
+        return "__btrc_mutex_val_t*"
+    return f"struct {type_name}*"
 
 
 def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:
@@ -144,15 +148,20 @@ def _emit_control_exit_release(gen: IRGenerator, targets: set[str]) -> list[IRSt
 
 def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
     """Lower an explicit typed ownership release and flush boundary."""
-    expr = lower_expr(gen, node.expr)
-    expr_type = gen.analyzed.node_types.get(id(node.expr))
+    return lower_release_expression(gen, node.expr)
+
+
+def lower_release_expression(gen: IRGenerator, expression) -> list[IRStmt]:
+    """Clear and release one analyzed physical managed slot."""
+    expr = lower_expr(gen, expression)
+    expr_type = gen.analyzed.node_types.get(id(expression))
     from .managed_values import is_managed_type
 
     if not is_managed_type(gen, expr_type):
         return [IRExprStmt(expr=IRCall(callee="free", args=[expr]))]
     from .managed_values import (
         flush_released_values,
-        is_class_type,
+        is_arc_type,
         release_edge_value,
         release_value,
         replace_edge_value,
@@ -163,7 +172,7 @@ def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
 
     expr, edge_owner, owner_decls = stabilize_persistent_slot(
         gen,
-        node.expr,
+        expression,
         expr,
         prefix="__btrc_release_owner",
     )
@@ -178,7 +187,7 @@ def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
     slot = IRDeref(expr=IRVar(name=slot_name))
     gen._func_var_decls.append(slot_decl)
     stmts = [*owner_decls, slot_decl]
-    if edge_owner is not None and is_class_type(gen, expr_type):
+    if edge_owner is not None and is_arc_type(gen, expr_type):
         stmts.append(
             IRExprStmt(
                 expr=replace_edge_value(

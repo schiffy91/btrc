@@ -16,7 +16,6 @@ from ..nodes import (
     IRCall,
     IRCast,
     IRExpr,
-    IRFieldAccess,
     IRSizeof,
     IRVar,
 )
@@ -26,11 +25,11 @@ from .arguments import (
     order_args_for_params,
     resolved_constructor_params,
 )
-from .call_builtins import lower_mutex_constructor, lower_print
+from .call_builtins import lower_len, lower_mutex_constructor, lower_print
 from .errors import CodegenError
+from .function_symbols import source_function_c_name
 from .generic_intrinsics import lower_generic_intrinsic
 from .typed_operators import operator_context
-from .types import is_string_type
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -62,6 +61,7 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     # Regular function call
     if isinstance(node.callee, Identifier):
         name = node.callee.name
+        is_local = gen.local_ownership_declared(name)
 
         # Inside a @gpu CPU-fallback loop, gpu_id() is the loop index.
         if name == "gpu_id" and getattr(gen, "_gpu_cpu_index", None):
@@ -75,6 +75,8 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             "__btrc_str_track",
             "__btrc_string_adopt",
             "__btrc_string_alloc",
+            "__btrc_string_length",
+            "__btrc_string_or_empty",
         }:
             gen.use_helper(name)
             return IRCall(callee=name, args=args, helper_ref=name)
@@ -133,9 +135,7 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
                 return IRSizeof(operand=CType(text="void"))
             if name == "len" and node.args:
                 arg_type = gen.analyzed.node_types.get(id(node.args[0]))
-                if arg_type and is_string_type(arg_type):
-                    return IRCast(target_type=CType(text="int"), expr=IRCall(callee="strlen", args=args))
-                return IRFieldAccess(obj=args[0], field="len", arrow=True)
+                return lower_len(gen, args[0], arg_type)
 
         # Captured lambda call: bypass function pointer, call impl directly
         # with the capture environment as the last argument.
@@ -146,9 +146,11 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             return IRCall(callee=fn_name, args=args)
 
         # Fill in default parameter values if call has fewer args than params
-        args = _fill_defaults(gen, name, node.args, arg_names_for(node, len(node.args)), args)
+        if not is_local:
+            args = _fill_defaults(gen, name, node.args, arg_names_for(node, len(node.args)), args)
 
-        return IRCall(callee=name, args=args)
+        callee = name if is_local else source_function_c_name(gen.analyzed, name)
+        return IRCall(callee=callee, args=args)
 
     # Generic/complex callee
     args = lower_arg_values(gen, node.args)
@@ -190,7 +192,7 @@ def _lower_constructor_call(
             raise CodegenError(f"generic constructor '{class_name}()' has no concrete analyzed call type")
         callee_prefix = mangle_generic_type(class_name, instance_type.generic_args)
         if cls_info.constructor:
-            params = resolved_constructor_params(cls_info, instance_type)
+            params = resolved_constructor_params(gen, cls_info, instance_type)
 
     if params:
         ir_args = order_args_for_params(gen, params, args, arg_names, ir_args)

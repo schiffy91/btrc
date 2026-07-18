@@ -5,7 +5,7 @@ from __future__ import annotations
 from ...nodes import CType, IRBinOp, IRCommaExpr, IRFieldAccess, IRStmtExpr, IRVar, IRVarDecl
 from ..managed_values import (
     adopt_edge_value,
-    is_class_type,
+    is_arc_type,
     poll_released_values,
     release_edge_value,
     replace_edge_value,
@@ -57,21 +57,6 @@ def lower_generic_field_assignment(emitter, expression):
     if backing_property:
         field = f"_prop_{field}"
 
-    from ..mutex_fields import lower_mutex_field_store, mutex_value_type
-
-    if mutex_value_type(emitter._gen, field_type) is not None:
-        return lower_mutex_field_store(
-            emitter._gen,
-            expression,
-            receiver_type=receiver_type,
-            field_type=field_type,
-            field_name=field,
-            lower_expr=emitter._expr,
-            lower_value=emitter._assignment_value,
-            c_type=emitter.iter_value_c,
-            fresh_temp=emitter._fresh_temp,
-            record_decl=emitter._func_var_decls.append,
-        )
     if not emitter._is_managed_type(field_type):
         return None
 
@@ -99,7 +84,16 @@ def lower_generic_field_assignment(emitter, expression):
     )
     new_value = IRVar(name=value_decl.name)
     value = emitter._assignment_value(field_type, expression.value)
-    value_type = emitter._resolve_expr_type(expression.value)
+    from ..prepared_values import prepare_generic_value
+
+    prepared = prepare_generic_value(
+        emitter,
+        expression.value,
+        field_type,
+        lowered=value,
+    )
+    value = prepared.value
+    value_type = prepared.effective_type
     from ..upcast import upcast_class_pointer
 
     value = upcast_class_pointer(
@@ -108,7 +102,7 @@ def lower_generic_field_assignment(emitter, expression):
         value_type,
         value,
     )
-    owned = emitter._owns_expr(expression.value)
+    owned = prepared.owned
     sequence = [
         IRBinOp(
             left=receiver,
@@ -118,7 +112,7 @@ def lower_generic_field_assignment(emitter, expression):
         IRBinOp(left=new_value, op="=", right=value),
     ]
     declarations = [receiver_decl, value_decl]
-    if is_class_type(emitter._gen, field_type):
+    if is_arc_type(emitter._gen, field_type):
         sequence.append(
             replace_edge_value(
                 emitter._gen,
@@ -179,7 +173,7 @@ def _lower_generic_field_compound(
     from ..managed_updates import lower_managed_compound_update
 
     right_type = emitter._resolve_expr_type(expression.value) or field_type
-    class_edge = is_class_type(emitter._gen, field_type)
+    class_edge = is_arc_type(emitter._gen, field_type)
 
     def commit(old, replacement):
         if class_edge:

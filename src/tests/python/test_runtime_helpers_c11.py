@@ -145,6 +145,44 @@ def test_direct_cleanup_helper_is_warning_clean_without_indirect_wrapper(tmp_pat
     assert executed.returncode == 0, executed.stderr
 
 
+@pytest.mark.skipif(not CLANG or sys.platform == "win32", reason="requires Clang")
+def test_retain_only_string_registry_is_warning_clean(tmp_path: Path):
+    helpers = helper_decls_for_roots({"__btrc_string_retain"})
+    names = {helper.name for helper in helpers}
+    assert "__btrc_string_registry" in names
+    assert "__btrc_string_registry_count" not in names
+
+    runtime = "\n\n".join(helper.c_source for helper in helpers)
+    source = tmp_path / "string_retain.c"
+    binary = tmp_path / "string_retain"
+    source.write_text(
+        f"{HEADERS}\n{runtime}\n"
+        "int main(void) {\n"
+        '    char literal[] = "borrowed";\n'
+        "    return __btrc_string_retain(literal) == literal ? 0 : 1;\n"
+        "}\n"
+    )
+    compiled = subprocess.run(
+        [
+            CLANG,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    executed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=15)
+    assert executed.returncode == 0, executed.stderr
+
+
 @pytest.mark.skipif(NO_C11_RUNTIME, reason="requires a pthread C11 compiler")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_runtime_helpers_execute_boundary_cases_under_strict_c11(tmp_path: Path, c_compiler: str):
@@ -256,8 +294,8 @@ int main(void) {
     snapshot = (int*)__btrc_mutex_val_get(mutex);
     if (!snapshot || *snapshot != 73 || snapshot == replacement) return 25;
     free(snapshot);
-    __btrc_mutex_val_destroy(mutex);
-    __btrc_mutex_val_destroy(NULL);
+    __btrc_arc_release(mutex, &__btrc_mutex_arc_descriptor);
+    __btrc_arc_release(NULL, &__btrc_mutex_arc_descriptor);
     __btrc_cycle_state_cleanup();
     return 0;
 }

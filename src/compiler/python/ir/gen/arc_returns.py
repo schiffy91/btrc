@@ -33,10 +33,8 @@ def lower_return(gen: IRGenerator, node: ReturnStmt) -> list[IRStmt]:
     """
     from ...ast_nodes import Identifier
     from .arc import _emit_return_release
-    from .expressions import lower_expr
     from .managed_values import is_managed_type, retain_value
-    from .ownership import owns_result
-    from .stringable import coerce_value_to_string
+    from .prepared_values import prepare_normal_value
     from .type_resolution import canonical_type
 
     if node.value is None:
@@ -53,19 +51,13 @@ def lower_return(gen: IRGenerator, node: ReturnStmt) -> list[IRStmt]:
         node.value,
         "a function return",
     )
-    lowered = lower_expr(gen, node.value)
-    # Lowering the value can register temporary exception cleanups.  Query the
-    # active marker and try helpers only afterward so the return discards every
-    # slot created while evaluating its expression.
-    try_pop = _emit_return_try_pop(gen)
-    cleanup_discard = _emit_return_cleanup_discard(gen)
-    value_type = gen.analyzed.node_types.get(id(node.value))
-    value = coerce_value_to_string(
+    prepared = prepare_normal_value(
         gen,
+        node.value,
         gen.current_return_type,
-        value_type,
-        lowered,
     )
+    value = prepared.value
+    value_type = prepared.effective_type
     from .upcast import upcast_class_pointer
 
     value = upcast_class_pointer(
@@ -76,14 +68,14 @@ def lower_return(gen: IRGenerator, node: ReturnStmt) -> list[IRStmt]:
     )
     managed_value_type = is_managed_type(gen, gen.current_return_type)
     managed_return = managed_value_type and gen.current_return_owned
-    expression_owned = bool(managed_value_type and owns_result(gen, node.value))
+    expression_owned = bool(managed_value_type and prepared.owned)
     owned_value = bool(managed_return and expression_owned)
     returned_local = None
     local_owned = False
     if managed_value_type and isinstance(node.value, Identifier):
         if gen.managed_local_type(node.value.name) is not None:
             local_owned = True
-            if managed_return:
+            if managed_return and not prepared.converted:
                 owned_value = True
                 returned_local = node.value.name
 
@@ -116,6 +108,11 @@ def lower_return(gen: IRGenerator, node: ReturnStmt) -> list[IRStmt]:
 
     release_stmts = _emit_return_release(gen, returned_local)
     promote_borrowed = managed_return and not owned_value
+    # Lowering the value can register temporary exception cleanups. Query the
+    # active marker only after that lowering, and query it again after a return
+    # temporary is registered below.
+    try_pop = _emit_return_try_pop(gen)
+    cleanup_discard = _emit_return_cleanup_discard(gen)
     if not release_stmts and not try_pop and not cleanup_discard and not promote_borrowed:
         return [IRReturn(value=_maybe_launder_return(gen, value))]
 
@@ -128,9 +125,25 @@ def lower_return(gen: IRGenerator, node: ReturnStmt) -> list[IRStmt]:
     promote = []
     if promote_borrowed:
         promote.append(IRExprStmt(expr=retain_value(gen, result, gen.current_return_type)))
+    prefix = [temporary, *promote]
+    if managed_return and returned_local is None:
+        # A later local destructor may throw across this return path. Give the
+        # in-flight caller-owned result its own cleanup slot so that longjmp
+        # cannot strand a fresh result. A returned managed local already has a
+        # registered source slot and must not be registered twice.
+        from .cleanup_registration import maybe_register_cleanup
+        from .managed_values import runtime_name
+
+        runtime_type = runtime_name(gen, gen.current_return_type)
+        maybe_register_cleanup(
+            gen,
+            temporary.name,
+            runtime_type,
+            prefix,
+        )
+        cleanup_discard = _emit_return_cleanup_discard(gen)
     return [
-        temporary,
-        *promote,
+        *prefix,
         *release_stmts,
         *try_pop,
         *cleanup_discard,

@@ -19,7 +19,9 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     reject_shallow_store(gen, node)
     reject_erasing_callable_assignment(gen, node)
     target_type = gen.analyzed.node_types.get(id(node.target))
-    if target_type is not None and target_type.base in gen.analyzed.class_table:
+    from .managed_values import is_arc_type
+
+    if is_arc_type(gen, target_type):
         from .managed_local import mark_borrowed_cycle_seeds
 
         mark_borrowed_cycle_seeds(gen._managed_vars_stack)
@@ -49,11 +51,21 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     lowered = None
     if target_nodes:
         from .assignment_ownership import virtual_assignment_target
+        from .assignment_result_ownership import virtual_assignment_rhs_owns_result
         from .ownership_boundary import sequence_owned_operands
 
         result_type = gen.analyzed.node_types.get(id(node))
+        prepared_targets = _prepared_index_targets(gen, node)
         rhs_supplies_result = bool(
-            node.op == "=" and virtual_assignment_target(gen, node.target) and owns_result(gen, node.value)
+            node.op == "="
+            and virtual_assignment_target(gen, node.target)
+            and virtual_assignment_rhs_owns_result(
+                gen,
+                node.target,
+                node.value,
+                type_of=type_of,
+                owns=lambda value: owns_result(gen, value),
+            )
         )
         sequenced = sequence_owned_operands(
             gen,
@@ -68,6 +80,7 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
                 owns=lambda expression: owns_result(gen, expression),
             ),
             promote_result=bool(is_managed_type(gen, result_type) and not rhs_supplies_result),
+            prepared_values=prepared_targets,
         )
         if sequenced is not None:
             lowered = sequenced
@@ -79,6 +92,42 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     return lowered
 
 
+def _prepared_index_targets(gen, node):
+    """Prepare an indexed setter key against its declared target type."""
+    from ...ast_nodes import IndexExpr
+
+    if not isinstance(node.target, IndexExpr):
+        return {}
+    from ...index_protocol import indexed_protocol
+
+    receiver_type = gen.analyzed.node_types.get(id(node.target.obj))
+    protocol = indexed_protocol(receiver_type, gen.analyzed.class_table)
+    if protocol is None or protocol.setter is None:
+        return {}
+    expected = protocol.setter.params[0].type
+    substitutions = protocol.substitutions(receiver_type)
+    if substitutions:
+        from .type_resolution import substitute_concrete_type
+
+        expected = substitute_concrete_type(
+            expected,
+            substitutions,
+            gen.analyzed.typedef_table,
+        )
+    from .prepared_values import prepare_normal_value, requires_string_conversion
+
+    source = gen.analyzed.node_types.get(id(node.target.index))
+    if not requires_string_conversion(gen, expected, source):
+        return {}
+    return {
+        id(node.target.index): prepare_normal_value(
+            gen,
+            node.target.index,
+            expected,
+        )
+    }
+
+
 def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     """Lower one assignment after any owning target is stabilized."""
     from .local_arc import lower_managed_local_assignment
@@ -86,10 +135,6 @@ def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     managed_local = lower_managed_local_assignment(gen, node)
     if managed_local is not None:
         return managed_local
-
-    mutex_field = _lower_mutex_field_assignment(gen, node)
-    if mutex_field is not None:
-        return mutex_field
 
     from .field_arc import lower_managed_field_assignment
 
@@ -104,51 +149,6 @@ def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     from .updates import generator_update_context, lower_assignment
 
     return lower_assignment(generator_update_context(gen), node)
-
-
-def _lower_mutex_field_assignment(gen: IRGenerator, node: AssignExpr):
-    """Route direct class Mutex fields through owner-aware replacement."""
-    from ...ast_nodes import FieldAccessExpr, SelfExpr
-
-    if not isinstance(node.target, FieldAccessExpr):
-        return None
-    receiver_type = gen.analyzed.node_types.get(id(node.target.obj))
-    if receiver_type is None or receiver_type.base not in gen.analyzed.class_table:
-        return None
-    class_info = gen.analyzed.class_table[receiver_type.base]
-    field_name = node.target.field
-    field = class_info.fields.get(field_name)
-    backing_property = bool(
-        field is None and isinstance(node.target.obj, SelfExpr) and gen.current_property_backing == field_name
-    )
-    prop = class_info.properties.get(field_name) if backing_property else None
-    if field is None and prop is None:
-        return None
-    field_type = gen.analyzed.node_types.get(id(node.target)) or (field.type if field is not None else prop.type)
-    from .mutex_fields import lower_mutex_field_store, mutex_value_type
-
-    if mutex_value_type(gen, field_type) is None:
-        return None
-    from .expressions import lower_expr
-    from .types import type_to_c
-    from .updates import _lower_assignment_value
-
-    return lower_mutex_field_store(
-        gen,
-        node,
-        receiver_type=receiver_type,
-        field_type=field_type,
-        field_name=f"_prop_{field_name}" if backing_property else field_name,
-        lower_expr=lambda expression: lower_expr(gen, expression),
-        lower_value=lambda target_type, value: _lower_assignment_value(
-            gen,
-            target_type,
-            value,
-        ),
-        c_type=type_to_c,
-        fresh_temp=gen.fresh_temp,
-        record_decl=gen._func_var_decls.append,
-    )
 
 
 def _lower_gpu_assignment(gen: IRGenerator, node: AssignExpr):

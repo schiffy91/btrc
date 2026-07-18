@@ -94,7 +94,8 @@ def nominally_related(
 
 
 def _reference_depth(type_expr: TypeExpr) -> int:
-    return type_expr.pointer_depth + int(type_expr.is_array)
+    depth = type_expr.pointer_depth + int(type_expr.is_array)
+    return depth - int(type_expr.is_nullable and depth > 1)
 
 
 def _is_void_pointer(type_expr: TypeExpr) -> bool:

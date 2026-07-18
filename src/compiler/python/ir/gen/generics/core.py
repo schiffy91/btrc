@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
-from ....type_identity import TypeShapeError, substitute_type_expr
+from ....type_identity import TypeShapeError
 from ..errors import CodegenError
+from ..type_resolution import substitute_concrete_type
 from ..types import mangle_generic_type
 
 if TYPE_CHECKING:
@@ -40,9 +41,14 @@ def emit_generic_instances(gen: IRGenerator):
                 _emit_user_generic_instance(gen, base_name, list(args), seen)
 
 
-def _resolve_type(t: TypeExpr | None, type_map: dict[str, TypeExpr]) -> TypeExpr:
+def _resolve_type(
+    t: TypeExpr | None,
+    type_map: dict[str, TypeExpr],
+    typedefs: dict[str, TypeExpr] | None = None,
+) -> TypeExpr:
     """Replace generic parameters while preserving both types' metadata."""
     try:
-        return substitute_type_expr(t, type_map) or TypeExpr(base="void")
+        resolved = substitute_concrete_type(t, type_map, typedefs or {})
+        return resolved or TypeExpr(base="void")
     except TypeShapeError as error:
         raise CodegenError(str(error)) from error

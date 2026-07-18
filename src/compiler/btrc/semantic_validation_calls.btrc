@@ -1,102 +1,5 @@
 /* Function/method calls, field access, and indexing validation. */
 
-int semanticParameterIndex(Vector<Node> params, string name) {
-    int index = 0;
-    while (index < params.len) {
-        if (params.get(index).name == name) { return index; }
-        index = index + 1;
-    }
-    return -1;
-}
-
-void semanticAddMethodSubstitutions(Node method, Node call,
-        Map<string, Node> substitutions, SemanticValidationState state) {
-    if (method.generic_params.len == 0) { return; }
-    string callKey = astNodeKey(call);
-    if (!state.analyzed.methodGenCallArgs.has(callKey)) {
-        semanticValidationFail("Cannot infer generic arguments for method '"
-            + method.name + "'", call);
-    }
-    Vector<Node> arguments = state.analyzed.methodGenCallArgs.get(callKey);
-    if (arguments.len != method.generic_params.len) {
-        semanticValidationFail("Generic method '" + method.name
-            + "' requires " + Strings.fromInt(method.generic_params.len)
-            + " type argument(s)", call);
-    }
-    int index = 0;
-    while (index < method.generic_params.len) {
-        substitutions.put(
-            method.generic_params.get(index), arguments.get(index));
-        index = index + 1;
-    }
-}
-
-void semanticValidateSignature(string label, Vector<Node> params,
-        Node call, Map<string, Node> substitutions,
-        SemanticValidationState state, Map<string, Node> vars) {
-    Map<string, bool> supplied = {};
-    int positional = 0;
-    bool sawNamed = false;
-    int argumentIndex = 0;
-    while (argumentIndex < call.args.len) {
-        string argumentName = "";
-        if (argumentIndex < call.arg_names.len) {
-            argumentName = call.arg_names.get(argumentIndex);
-        }
-        int parameterIndex = -1;
-        if (argumentName != "") {
-            sawNamed = true;
-            parameterIndex = semanticParameterIndex(params, argumentName);
-            if (parameterIndex < 0) {
-                semanticValidationFail("'" + label
-                    + "()' has no parameter named '" + argumentName + "'", call);
-            }
-        } else {
-            if (sawNamed) {
-                semanticValidationFail("'" + label
-                    + "()' positional argument follows named argument", call);
-            }
-            parameterIndex = positional;
-            positional = positional + 1;
-        }
-        if (parameterIndex >= params.len) {
-            semanticValidationFail("'" + label + "()' expects at most "
-                + Strings.fromInt(params.len) + " argument(s) but got "
-                + Strings.fromInt(call.args.len), call);
-        }
-        string suppliedKey = Strings.fromInt(parameterIndex);
-        if (supplied.has(suppliedKey)) {
-            semanticValidationFail("'" + label
-                + "()' got one parameter more than once", call);
-        }
-        supplied.put(suppliedKey, true);
-        Node parameter = params.get(parameterIndex);
-        Node expected = parameter.type;
-        if (substitutions.len > 0) {
-            expected = resolveGenericType(expected, substitutions);
-        }
-        Node argument = call.args.get(argumentIndex);
-        Node? actual = semanticInferType(argument, state, vars);
-        if (actual != null
-                && !semanticAssignmentCompatible(expected, actual, state)) {
-            semanticValidationFail("Argument '" + parameter.name + "' to '"
-                + label + "()' expects '" + semanticFormatType(expected)
-                + "' but got '" + semanticFormatType(actual) + "'", argument);
-        }
-        argumentIndex = argumentIndex + 1;
-    }
-    int parameterIndex = 0;
-    while (parameterIndex < params.len) {
-        Node parameter = params.get(parameterIndex);
-        if (!supplied.has(Strings.fromInt(parameterIndex))
-                && parameter.default_ == null) {
-            semanticValidationFail("'" + label
-                + "()' missing required argument '" + parameter.name + "'", call);
-        }
-        parameterIndex = parameterIndex + 1;
-    }
-}
-
 void semanticValidateCall(Node call, SemanticValidationState state,
         Map<string, Node> vars) {
     int threadArgumentIndex = 0;
@@ -253,6 +156,13 @@ void semanticValidateCall(Node call, SemanticValidationState state,
             && canonicalReceiver.base == "Thread"
             && methodName == "join") {
         semanticValidateThreadJoinReceiver(call);
+        return;
+    }
+    if (canonicalReceiver != null
+            && canonicalReceiver.base == "Mutex"
+            && canonicalReceiver.generic_args.len == 1) {
+        semanticValidateMutexCall(
+            call, canonicalReceiver, state, vars);
         return;
     }
     if (isStringType(receiver)) {

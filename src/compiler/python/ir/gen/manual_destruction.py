@@ -24,7 +24,7 @@ from .types import type_to_c
 
 def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
     """Move one lvalue to a temporary, clear its slot, then destroy it."""
-    from .managed_values import is_class_type, is_string_type, release_value
+    from .managed_values import is_arc_type, is_string_type, release_value
 
     value_c = value_c_type(type_expr, gen.analyzed.class_table, type_to_c)
     slot_name = gen.fresh_temp("__btrc_delete_slot")
@@ -35,7 +35,7 @@ def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
     )
     gen._func_var_decls.append(slot_decl)
 
-    if is_class_type(gen, type_expr):
+    if is_arc_type(gen, type_expr):
         from .arc_ops import arc_type_descriptor
         from .cleanup_slots import ensure_arc_slot_adapter
 

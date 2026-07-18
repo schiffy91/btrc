@@ -16,7 +16,7 @@ from ...nodes import (
 )
 from ..managed_values import (
     flush_released_values,
-    is_class_type,
+    is_arc_type,
     poll_released_values,
     release_edge_value,
     release_value,
@@ -27,15 +27,19 @@ from ..managed_values import (
 
 class _UserGenericReleaseMixin:
     def _release_stmt(self, statement) -> list[IRStmt]:
-        resolved = self._resolve_expr_type(statement.expr)
+        return self._release_expression(statement.expr)
+
+    def _release_expression(self, expression) -> list[IRStmt]:
+        """Clear and release one specialized physical managed slot."""
+        resolved = self._resolve_expr_type(expression)
         if not self._is_managed_type(resolved):
             return []
-        expr = self._expr(statement.expr)
+        expr = self._expr(expression)
         from ..persistent_slots import stabilize_persistent_slot
 
         expr, edge_owner, owner_decls = stabilize_persistent_slot(
             self._gen,
-            statement.expr,
+            expression,
             expr,
             resolve_type=self._resolve_expr_type,
             render_type=self.iter_value_c,
@@ -53,7 +57,7 @@ class _UserGenericReleaseMixin:
         self._func_var_decls.append(slot_decl)
         slot = IRDeref(expr=IRVar(name=slot_name))
         result = [*owner_decls, slot_decl]
-        if edge_owner is not None and is_class_type(self._gen, resolved):
+        if edge_owner is not None and is_arc_type(self._gen, resolved):
             result.append(
                 IRExprStmt(
                     expr=replace_edge_value(

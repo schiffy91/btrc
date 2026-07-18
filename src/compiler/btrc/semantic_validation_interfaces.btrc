@@ -67,7 +67,8 @@ bool semanticMethodSignatureMatches(Node requirement, Node implementation,
         Map<string, Node> substitutions, SemanticValidationState state) {
     Node? expectedReturn = requirement.return_type;
     if (expectedReturn != null && substitutions.len > 0) {
-        expectedReturn = resolveGenericType(expectedReturn, substitutions);
+        expectedReturn = resolveGenericType(expectedReturn, substitutions,
+            state.analyzed);
     }
     if (implementation.kind != NK_METHOD_DECL
             || implementation.is_abstract
@@ -85,7 +86,8 @@ bool semanticMethodSignatureMatches(Node requirement, Node implementation,
         Node actual = implementation.params.get(index);
         Node expectedType = expected.type;
         if (substitutions.len > 0) {
-            expectedType = resolveGenericType(expectedType, substitutions);
+            expectedType = resolveGenericType(expectedType, substitutions,
+                state.analyzed);
         }
         if (!semanticAliasTypesSame(expectedType, actual.type, state)
                 || expected.keep_ != actual.keep_) {

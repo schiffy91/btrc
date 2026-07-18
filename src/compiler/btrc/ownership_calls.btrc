@@ -2,28 +2,137 @@
 
 class OwnershipCallOperand {
     public Node expression;
-    public Node typeExpr;
+    public Node? typeExpr;
+    public Node? targetType;
     public bool owned;
     public bool keepValue;
     public bool transferred;
+    public bool needsConversion;
 
-    public OwnershipCallOperand(Node expression, Node typeExpr,
-            bool owned, bool keepValue, bool transferred) {
+    public OwnershipCallOperand(Node expression, Node? typeExpr,
+            Node? targetType, bool owned, bool keepValue,
+            bool transferred, bool needsConversion) {
         self.expression = expression;
         self.typeExpr = typeExpr;
+        self.targetType = targetType;
         self.owned = owned;
         self.keepValue = keepValue;
         self.transferred = transferred;
+        self.needsConversion = needsConversion;
     }
+}
+
+Node ownershipSyntheticParam(string name, Node typeExpr) {
+    Node parameter = Node();
+    parameter.kind = NK_PARAM;
+    parameter.name = name;
+    parameter.type = typeExpr;
+    return parameter;
+}
+
+Vector<Node> ownershipBuiltinParamsForCall(IRGen generator, Node call,
+        Map<string, Node> varTypes) {
+    Vector<Node> result = [];
+    Node? callee = call.callee;
+    Node? callableType = directFunctionPointerType(
+        generator.resolvedExpressionType(callee, varTypes),
+        generator.analyzed);
+    if (callableType != null) {
+        int callableIndex = 1;
+        while (callableIndex < callableType.generic_args.len) {
+            result.push(ownershipSyntheticParam(
+                Strings.fromInt(callableIndex),
+                callableType.generic_args.get(callableIndex)));
+            callableIndex = callableIndex + 1;
+        }
+        return result;
+    }
+
+    Node? mutexType = null;
+    string method = "";
+    if (call.kind == NK_NEW_EXPR) {
+        mutexType = generator.resolveBodyType(call.type);
+    } else if (callee != null && callee.kind == NK_IDENTIFIER
+            && callee.name == "Mutex") {
+        mutexType = generator.resolvedExpressionType(call, varTypes);
+    } else if (callee != null
+            && callee.kind == NK_FIELD_ACCESS_EXPR) {
+        mutexType = generator.resolvedExpressionType(
+            callee.obj, varTypes);
+        method = callee.field;
+    }
+    Node? payload = mutexPayloadType(generator.analyzed, mutexType);
+    if (payload != null && (method == "" || method == "set")) {
+        result.push(ownershipSyntheticParam("value", payload));
+        return result;
+    }
+
+    if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR) {
+        Node? receiverType = generator.resolvedExpressionType(
+            callee.obj, varTypes);
+        if (isStringType(receiverType)) {
+            if (semanticOneStringArgMethod(callee.field)) {
+                result.push(ownershipSyntheticParam(
+                    "value", makePrimType("string")));
+            } else if (callee.field == "charAt"
+                    || callee.field == "repeat"
+                    || callee.field == "zfill") {
+                result.push(ownershipSyntheticParam(
+                    "value", makePrimType("int")));
+            } else if (callee.field == "substring") {
+                result.push(ownershipSyntheticParam(
+                    "start", makePrimType("int")));
+                result.push(ownershipSyntheticParam(
+                    "length", makePrimType("int")));
+            } else if (callee.field == "find") {
+                result.push(ownershipSyntheticParam(
+                    "value", makePrimType("string")));
+                result.push(ownershipSyntheticParam(
+                    "start", makePrimType("int")));
+            } else if (callee.field == "replace") {
+                result.push(ownershipSyntheticParam(
+                    "old", makePrimType("string")));
+                result.push(ownershipSyntheticParam(
+                    "replacement", makePrimType("string")));
+            } else if (callee.field == "padLeft"
+                    || callee.field == "padRight"
+                    || callee.field == "center") {
+                result.push(ownershipSyntheticParam(
+                    "width", makePrimType("int")));
+                result.push(ownershipSyntheticParam(
+                    "fill", makePrimType("char")));
+            }
+            return result;
+        }
+    }
+
+    if (callee != null && callee.kind == NK_IDENTIFIER
+            && callee.name == "print") {
+        int printIndex = 0;
+        while (printIndex < call.args.len) {
+            Node argument = call.args.get(printIndex);
+            Node? sourceType = generator.resolvedExpressionType(
+                argument, varTypes);
+            Node? targetType = sourceType;
+            if (requiresTargetStringConversion(
+                    generator, makePrimType("string"), sourceType)) {
+                targetType = makePrimType("string");
+            }
+            if (targetType == null) { targetType = makePrimType("int"); }
+            result.push(ownershipSyntheticParam(
+                Strings.fromInt(printIndex), targetType));
+            printIndex = printIndex + 1;
+        }
+    }
+    return result;
 }
 
 Vector<Node> ownershipParamsForCall(IRGen generator, Node call,
         Map<string, Node> varTypes) {
-    Vector<Node> empty = [];
     Node? declaration = ownershipCallableForCall(
         generator, call, varTypes);
-    if (declaration == null) { return empty; }
-    return declaration.params;
+    if (declaration != null) { return declaration.params; }
+    return ownershipBuiltinParamsForCall(generator, call, varTypes);
 }
 
 Node ownershipResolveParamType(IRGen generator, Node call,
@@ -42,7 +151,8 @@ Node ownershipResolveParamType(IRGen generator, Node call,
     if (instanceType != null && instanceType.generic_args.len > 0
             && generator.analyzed.isGenericClass(instanceType.base)) {
         result = resolveGenericType(paramType,
-            genericTypeMap(generator.analyzed, instanceType));
+            genericTypeMap(generator.analyzed, instanceType),
+            generator.analyzed);
     }
     return result;
 }
@@ -78,22 +188,25 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
         }
         Node? argumentType = generator.resolvedExpressionType(
             argument, varTypes);
+        Node? targetType = argumentType;
         bool keepValue = false;
         if (paramIndex >= 0 && paramIndex < params.len) {
             bound.put(paramIndex, true);
             Node parameter = params.get(paramIndex);
-            if (argumentType == null) {
-                argumentType = ownershipResolveParamType(
-                    generator, call, parameter.type, varTypes);
-            }
+            targetType = ownershipResolveParamType(
+                generator, call, parameter.type, varTypes);
+            if (argumentType == null) { argumentType = targetType; }
             keepValue = parameter.keep_;
         }
         bool managed = irManagedType(generator, argumentType);
         bool owned = managed && irContextualUnconsumedOwnedResult(
             generator, argument, argumentType, varTypes);
+        bool targetManaged = irManagedType(generator, targetType);
         result.push(OwnershipCallOperand(argument, argumentType,
-            owned, managed && keepValue,
-            owned && transferredParams.has(paramIndex)));
+            targetType, owned, targetManaged && keepValue,
+            transferredParams.has(paramIndex),
+            requiresTargetStringConversion(
+                generator, targetType, argumentType)));
         index = index + 1;
     }
     int parameterIndex = 0;
@@ -103,16 +216,18 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
             Node argument = parameter.default_;
             Node? argumentType = generator.resolvedExpressionType(
                 argument, varTypes);
-            if (argumentType == null) {
-                argumentType = ownershipResolveParamType(
-                    generator, call, parameter.type, varTypes);
-            }
+            Node targetType = ownershipResolveParamType(
+                generator, call, parameter.type, varTypes);
+            if (argumentType == null) { argumentType = targetType; }
             bool managed = irManagedType(generator, argumentType);
             bool owned = managed && irContextualUnconsumedOwnedResult(
                 generator, argument, argumentType, varTypes);
             result.push(OwnershipCallOperand(argument, argumentType,
-                owned, managed && parameter.keep_,
-                owned && transferredParams.has(parameterIndex)));
+                targetType, owned,
+                irManagedType(generator, targetType) && parameter.keep_,
+                transferredParams.has(parameterIndex),
+                requiresTargetStringConversion(
+                    generator, targetType, argumentType)));
         }
         parameterIndex = parameterIndex + 1;
     }
@@ -218,13 +333,23 @@ Node? ownershipEvaluatedCallee(Node call) {
     return callee;
 }
 
+bool ownershipCallableFieldCall(IRGen generator, Node call,
+        Map<string, Node> varTypes) {
+    return call.callee != null
+        && call.callee.kind == NK_FIELD_ACCESS_EXPR
+        && directFunctionPointerType(
+            generator.resolvedExpressionType(call.callee, varTypes),
+            generator.analyzed) != null;
+}
+
 bool ownershipCallNeedsBoundary(bool receiverGuarded, bool forceOrder,
         Vector<OwnershipCallOperand> operands) {
     if (receiverGuarded || forceOrder) { return true; }
     int index = 0;
     while (index < operands.len) {
         OwnershipCallOperand operand = operands.get(index);
-        if (operand.owned || operand.keepValue) { return true; }
+        if (operand.owned || operand.keepValue
+                || operand.needsConversion) { return true; }
         index = index + 1;
     }
     return false;
@@ -239,11 +364,19 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
     }
     Node? declaration = ownershipCallableForCall(
         generator, call, varTypes);
-    Vector<Node> params = [];
-    if (declaration != null) { params = declaration.params; }
+    Vector<Node> params = ownershipParamsForCall(
+        generator, call, varTypes);
     Vector<OwnershipCallOperand> operands = ownershipCallOperands(
         generator, call, params, varTypes);
-    Node? receiver = ownershipInstanceReceiver(generator, call);
+    Node? receiver = null;
+    if (ownershipCallableFieldCall(generator, call, varTypes)) {
+        /* A callable projection is the actual leading call operand. Freezing
+         * only its receiver would let argument side effects replace the field
+         * before C chooses the function pointer. */
+        receiver = call.callee;
+    } else {
+        receiver = ownershipInstanceReceiver(generator, call);
+    }
     if (receiver == null) {
         receiver = ownershipEvaluatedCallee(call);
     }
@@ -257,12 +390,30 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
     }
     bool operandEffect = ownershipOperandsHaveEffect(
         generator, operands, varTypes);
-    bool receiverPinned = receiver != null && operandEffect
+    bool receiverPinned = receiver != null
         && irManagedType(generator, receiverType)
-        && !receiverOwned;
+        && !receiverOwned
+        && receiver.kind != NK_SELF_EXPR
+        && receiver.kind != NK_SUPER_EXPR
+        && (operandEffect || declaration != null);
     Node? calleeType = generator.resolvedExpressionType(
         call.callee, varTypes);
-    bool languageCall = declaration != null
+    bool orderedFieldCall = call.callee != null
+        && call.callee.kind == NK_FIELD_ACCESS_EXPR
+        && ((receiverType != null
+                && irManagedMutexType(generator, receiverType))
+            || (call.callee.obj != null
+                && call.callee.obj.kind == NK_IDENTIFIER
+                && generator.analyzed.isRichEnum(
+                    call.callee.obj.name)));
+    bool orderedBuiltin = call.callee != null
+        && call.callee.kind == NK_IDENTIFIER
+        && (call.callee.name == "Mutex"
+            || call.callee.name == "print"
+            || call.callee.name == "printf");
+    bool languageCall = declaration != null || params.len > 0
+        || orderedFieldCall
+        || orderedBuiltin
         || (calleeType != null && calleeType.base == "__fn_ptr");
     bool forceOrder = languageCall
         && ownershipCallRequiresOrder(
@@ -293,13 +444,22 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
                     operand.expression, "call arguments", true);
             }
         } else {
-            boundary.addCallOperand(generator, operand.expression,
-                operand.typeExpr, operand.owned, operand.keepValue,
-                operand.transferred, varTypes);
+            PreparedValue prepared = prepareCallTargetValue(
+                generator, operand.expression,
+                operand.targetType, varTypes);
+            ownershipRequireType(
+                prepared.effectiveType, operand.expression);
+            Node effectiveType = prepared.effectiveType;
+            boundary.addLoweredCallOperand(generator,
+                operand.expression, effectiveType, prepared.value,
+                prepared.owned, operand.keepValue,
+                prepared.owned && operand.transferred);
         }
         index = index + 1;
     }
     IRNode lowered = generator.lowerCallCore(call, varTypes);
+    boundary.resultOwned = irExpressionOwnsResult(
+        generator, call, varTypes);
     boundary.restore(generator);
     return boundary.finish(generator, lowered,
         generator.resolvedExpressionType(call, varTypes), false);
@@ -307,14 +467,8 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
 
 IRNode lowerNewWithOwnership(IRGen generator, Node expression,
         Map<string, Node> varTypes) {
-    Node? constructor = generator.analyzed.classConstructor(
-        expression.type.base);
-    if (constructor == null) {
-        constructor = generator.analyzed.genericClassConstructor(
-            expression.type.base);
-    }
-    Vector<Node> params = [];
-    if (constructor != null) { params = constructor.params; }
+    Vector<Node> params = ownershipParamsForCall(
+        generator, expression, varTypes);
     Vector<OwnershipCallOperand> operands = ownershipCallOperands(
         generator, expression, params, varTypes);
     bool forceOrder = operands.len > 1
@@ -327,12 +481,21 @@ IRNode lowerNewWithOwnership(IRGen generator, Node expression,
     int index = 0;
     while (index < operands.len) {
         OwnershipCallOperand operand = operands.get(index);
-        boundary.addCallOperand(generator, operand.expression,
-            operand.typeExpr, operand.owned, operand.keepValue,
-            operand.transferred, varTypes);
+        PreparedValue prepared = prepareCallTargetValue(
+            generator, operand.expression,
+            operand.targetType, varTypes);
+        ownershipRequireType(
+            prepared.effectiveType, operand.expression);
+        Node effectiveType = prepared.effectiveType;
+        boundary.addLoweredCallOperand(generator,
+            operand.expression, effectiveType, prepared.value,
+            prepared.owned, operand.keepValue,
+            prepared.owned && operand.transferred);
         index = index + 1;
     }
     IRNode lowered = generator.lowerNewCore(expression, varTypes);
+    boundary.resultOwned = irManagedType(generator,
+        generator.resolvedExpressionType(expression, varTypes));
     boundary.restore(generator);
     return boundary.finish(generator, lowered,
         generator.resolvedExpressionType(expression, varTypes), false);

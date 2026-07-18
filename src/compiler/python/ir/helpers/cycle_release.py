@@ -67,12 +67,14 @@ ARC_RELEASE_HELPERS = {
     }
     __btrc_arc_validate(object);
     if (type->visit && header->rc == header->edge_rc
+            && !__btrc_arc_incoming_teardown_pending(object)
             && !__btrc_arc_reverse_proves_live(object))
         __btrc_suspect_locked(object, type->visit, type->destroy);
     return 0;
 }""",
         depends_on=[
             "__btrc_suspect_locked",
+            "__btrc_arc_incoming_teardown_pending",
             "__btrc_arc_reverse_proves_live",
             "__btrc_forget_suspect",
             "__btrc_arc_deferred_state",

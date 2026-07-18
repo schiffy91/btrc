@@ -59,7 +59,11 @@ class GenericValidationMixin:
             if declared is None:
                 continue
             try:
-                resolved = substitute_type_expr(declared, substitutions)
+                resolved = substitute_type_expr(
+                    declared,
+                    substitutions,
+                    reference_resolver=self._canonical_type,
+                )
             except TypeShapeError as error:
                 self._report_type_shape_error(
                     f"Generic specialization '{owner}' is invalid: {error}",

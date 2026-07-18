@@ -38,7 +38,11 @@ Node composeTypedefType(Node useType, Node originalType) {
     return result;
 }
 
-Node? resolveTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
+/* Resolve only the alias naming the represented value. Generic arguments keep
+ * their source spelling because they also identify emitted monomorphizations:
+ * Box<Text> and Box<string> may share a C-compatible payload, but they have
+ * distinct generated symbols when both are requested by the source program. */
+Node? resolveOuterTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
     if (typeExpr == null) { return null; }
     Node current = typeExpr;
     Map<string, bool> visited = {};
@@ -50,6 +54,13 @@ Node? resolveTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
         visited.put(current.base, true);
         current = composeTypedefType(current, typedefs.get(current.base));
     }
+    return current;
+}
+
+Node? resolveTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
+    Node? outer = resolveOuterTypedefType(typeExpr, typedefs);
+    if (outer == null) { return null; }
+    Node current = outer;
     if (current.generic_args.len == 0) { return current; }
     Vector<Node> args = [];
     int index = 0;

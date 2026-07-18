@@ -20,8 +20,7 @@ def register_exception_cleanup(
     from ..cleanup_slots import register_cleanup_slot, require_cleanup_slot_declaration
 
     declaration = require_cleanup_slot_declaration(statements, name)
-    from ..arc_cycles import managed_type_has_visitor
-    from ..cycle_metadata import cycle_visitor_symbol
+    from ..arc_cycles import managed_visitor_symbol
     from ..managed_values import STRING_RUNTIME_NAME, cleanup_destroy_symbol
 
     destroy = cleanup_destroy_symbol(type_name)
@@ -38,11 +37,8 @@ def register_exception_cleanup(
             )
         )
         return
-    visitor = (
-        IRVar(name=cycle_visitor_symbol(type_name))
-        if managed_type_has_visitor(emitter._gen, type_name)
-        else IRLiteral(text="NULL")
-    )
+    visitor_name = managed_visitor_symbol(emitter._gen, type_name)
+    visitor = IRVar(name=visitor_name) if visitor_name else IRLiteral(text="NULL")
     statements.append(
         IRExprStmt(
             expr=register_cleanup_slot(

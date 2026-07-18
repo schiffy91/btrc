@@ -170,6 +170,9 @@ class AnalyzerBase:
         self.current_method: MethodDecl | None = None
         self.current_callable = None
         self._previous_statement = None
+        # Only the root expression of an ExprStmt may consume a physical
+        # Mutex slot through `.destroy()`.
+        self._standalone_expression_root = None
         self.in_virtual_setter: bool = False
         self.current_return_type: TypeExpr | None = None
         self.in_gpu_function: bool = False

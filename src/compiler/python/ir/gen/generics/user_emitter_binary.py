@@ -8,6 +8,10 @@ def lower_generic_binary(emitter, expression):
     if expression.op in {"??", "&&", "||"}:
         return lower_generic_binary_plain(emitter, expression)
 
+    prepared = _lower_prepared_overload(emitter, expression)
+    if prepared is not None:
+        return prepared
+
     from ..evaluation_order import has_observable_effect
     from ..operator_ownership import operator_rhs_keep
     from ..operators import overloaded_binary_method
@@ -94,6 +98,86 @@ def lower_generic_binary_plain(emitter, expression):
     if lowered is not None:
         return lowered
     return IRBinOp(left=left, op=expression.op, right=right)
+
+
+def _lower_prepared_overload(emitter, expression):
+    if emitter._gen is None:
+        return None
+    from ..operators import (
+        lower_overloaded_values,
+        overloaded_binary_method,
+        resolved_operator_param_type,
+    )
+    from ..prepared_values import (
+        prepare_generic_value,
+        requires_string_conversion,
+    )
+
+    left_type = emitter._resolve_expr_type(expression.left)
+    right_type = emitter._resolve_expr_type(expression.right)
+    method = overloaded_binary_method(
+        emitter._gen,
+        left_type,
+        expression.op,
+    )
+    expected = resolved_operator_param_type(emitter._gen, left_type, method)
+    if expected is not None:
+        expected = emitter._resolve(expected)
+    if expected is None or not requires_string_conversion(
+        emitter._gen,
+        expected,
+        right_type,
+    ):
+        return None
+
+    left = prepare_generic_value(emitter, expression.left, left_type)
+    right = prepare_generic_value(emitter, expression.right, expected)
+    from ..call_boundary import CallOperand, sequence_call_boundary
+    from ..evaluation_order import borrowed_value_can_be_pinned
+
+    operands = [
+        CallOperand(
+            node=expression.left,
+            type_expr=left.effective_type,
+            c_type=emitter.iter_value_c(left.effective_type),
+            pin=bool(
+                borrowed_value_can_be_pinned(expression.left)
+                and emitter._is_managed_type(left.effective_type)
+                and not left.owned
+            ),
+            owned=left.owned,
+            lowered=left.value,
+        ),
+        CallOperand(
+            node=expression.right,
+            type_expr=right.effective_type,
+            c_type=emitter.iter_value_c(right.effective_type),
+            keep=bool(method.params[0].keep),
+            owned=right.owned,
+            lowered=right.value,
+        ),
+    ]
+    result_type = emitter._resolve_expr_type(expression)
+    return sequence_call_boundary(
+        emitter._gen,
+        operands,
+        lower_expr=lambda _node: None,
+        build_call=lambda values: lower_overloaded_values(
+            emitter._gen,
+            left.effective_type,
+            right.effective_type,
+            expression.op,
+            values[id(expression.left)],
+            values[id(expression.right)],
+        ),
+        result_c_type=emitter.iter_value_c(result_type),
+        result_type=result_type,
+        fresh_temp=emitter._fresh_temp,
+        cleanup_active=emitter._exception_cleanup_active(),
+        record_decl=emitter._func_var_decls.append,
+        activate_cleanup=emitter._activate_cleanup_registration,
+        result_owned=emitter._owns_expr(expression),
+    )
 
 
 __all__ = ["lower_generic_binary", "lower_generic_binary_plain"]

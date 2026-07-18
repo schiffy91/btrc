@@ -17,23 +17,49 @@ IRNode? lowerIndexedAssignmentWithOwnership(IRGen generator, Node expression,
         receiver, "set", generator.analyzed);
     if (!semanticValidIndexedSetter(setter)) { return null; }
     Node concreteSetter = setter;
+    Node indexType = semanticResolvedIndexedType(
+        concreteSetter.params.get(0).type,
+        receiver, generator.analyzed);
     Node valueType = semanticResolvedIndexedType(
         concreteSetter.params.get(1).type,
         receiver, generator.analyzed);
+    Node? actualIndexType = generator.resolvedExpressionType(
+        target.index, varTypes);
+    if (actualIndexType == null) { actualIndexType = indexType; }
     Node? actualType = generator.resolvedExpressionType(
         expression.value_node, varTypes);
     if (actualType == null) { actualType = valueType; }
-    Node concreteActualType = actualType;
-    bool managed = irManagedType(generator, concreteActualType);
-    bool owned = managed && irContextualUnconsumedOwnedResult(
-        generator, expression.value_node, valueType, varTypes);
-    bool keepValue = managed
+    bool targetManaged = irManagedType(generator, valueType);
+    bool keepValue = targetManaged
         && concreteSetter.params.get(1).keep_;
-    if (!owned && !keepValue) { return null; }
+    bool converted = requiresTargetStringConversion(
+        generator, valueType, actualType);
+    bool indexConverted = requiresTargetStringConversion(
+        generator, indexType, actualIndexType);
+    if (!targetManaged && !converted && !indexConverted) {
+        return null;
+    }
 
     OwnershipBoundary boundary = OwnershipBoundary();
-    boundary.addCallOperand(generator, expression.value_node,
-        concreteActualType, owned, keepValue, owned, varTypes);
+    if (indexConverted) {
+        PreparedValue preparedIndex = prepareCallTargetValue(
+            generator, target.index, indexType, varTypes);
+        ownershipRequireType(
+            preparedIndex.effectiveType, target.index);
+        Node effectiveIndexType = preparedIndex.effectiveType;
+        boundary.addLoweredCallOperand(generator,
+            target.index, effectiveIndexType, preparedIndex.value,
+            preparedIndex.owned, false, false);
+    }
+    PreparedValue prepared = prepareCallTargetValue(
+        generator, expression.value_node, valueType, varTypes);
+    ownershipRequireType(
+        prepared.effectiveType, expression.value_node);
+    Node effectiveType = prepared.effectiveType;
+    bool pinBorrowed = targetManaged && !prepared.owned;
+    boundary.addLoweredCallOperand(generator,
+        expression.value_node, effectiveType, prepared.value,
+        prepared.owned, keepValue || pinBorrowed, false);
     IRNode? lowered = generator.lowerIndirectAssignmentCore(
         expression, varTypes);
     boundary.restore(generator);
@@ -43,5 +69,5 @@ IRNode? lowerIndexedAssignmentWithOwnership(IRGen generator, Node expression,
     }
     IRNode concreteLowered = lowered;
     return boundary.finish(
-        generator, concreteLowered, valueType, false);
+        generator, concreteLowered, valueType, targetManaged);
 }

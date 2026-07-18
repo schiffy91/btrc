@@ -124,9 +124,7 @@ def test_calls_binary_constructors_and_generic_bodies_run_left_to_right(
             return 0;
         }
     """
-    for index, generated in enumerate(
-        _compile_both(semantic_btrcc, tmp_path, source)
-    ):
+    for index, generated in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         emitted = generated.read_text()
         assert "__btrc_call_operand" in emitted or "__btrc_operand" in emitted
         _strict_build_and_run(generated, tmp_path / f"sequencing-{index}")
@@ -230,9 +228,7 @@ def test_managed_receivers_survive_later_operands_and_unwind(
             return 0;
         }
     """
-    for index, generated in enumerate(
-        _compile_both(semantic_btrcc, tmp_path, source)
-    ):
+    for index, generated in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         emitted = generated.read_text()
         assert "__btrc_kept_operand" in emitted
         _strict_build_and_run(generated, tmp_path / f"receiver-pin-{index}")
