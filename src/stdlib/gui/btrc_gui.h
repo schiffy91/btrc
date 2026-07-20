@@ -50,5 +50,8 @@ typedef int  (*btrc_font_width_fn)(void* font, char* text);
 typedef int  (*btrc_font_height_fn)(void* font);
 void btrc_gui_install_font_backend(btrc_font_draw_fn draw, btrc_font_width_fn width, btrc_font_height_fn height);
 void btrc_gui_set_font(void* font);   /* NULL restores the bitmap font */
+/* Clear the active font only when it is `font` (used by font destructors). */
+/* Backend calls and active-font changes are serialized across threads. */
+void btrc_gui_clear_font_if_active(void* font);
 
 #endif /* BTRC_GUI_H */

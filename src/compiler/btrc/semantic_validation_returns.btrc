@@ -1,0 +1,124 @@
+/* Conservative all-path return/throw proof for non-void callables. */
+
+bool semanticStatementSequenceTerminates(Vector<Node> statements) {
+    int index = 0;
+    while (index < statements.len) {
+        if (semanticStatementTerminates(statements.get(index))) { return true; }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool semanticBlockTerminates(Node? block) {
+    if (block == null) { return false; }
+    return semanticStatementSequenceTerminates(block.statements);
+}
+
+bool semanticElseTerminates(Node? elseNode) {
+    if (elseNode == null) { return false; }
+    if (elseNode.kind == NK_ELSE_BLOCK) {
+        return semanticBlockTerminates(elseNode.body_node);
+    }
+    if (elseNode.kind == NK_ELSE_IF) {
+        return semanticStatementTerminates(elseNode.if_stmt);
+    }
+    return false;
+}
+
+bool semanticSwitchTerminates(Node statement) {
+    if (statement.cases.len == 0) { return false; }
+    bool hasDefault = false;
+    int index = 0;
+    while (index < statement.cases.len) {
+        Node caseClause = statement.cases.get(index);
+        if (caseClause.value_node == null) { hasDefault = true; }
+        if (!semanticStatementSequenceTerminates(caseClause.body_nlist)) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return hasDefault;
+}
+
+/* Find a break that exits the loop whose body is `node`.  Breaks below a
+ * nested loop or switch target that nested construct and therefore do not make
+ * the outer loop fall through. */
+bool semanticContainsLoopBreak(Node? node) {
+    if (node == null) { return false; }
+    if (node.kind == NK_BREAK_STMT) { return true; }
+    if (node.kind == NK_WHILE_STMT
+            || node.kind == NK_DO_WHILE_STMT
+            || node.kind == NK_C_FOR_STMT
+            || node.kind == NK_FOR_IN_STMT
+            || node.kind == NK_PARALLEL_FOR_STMT
+            || node.kind == NK_SWITCH_STMT) {
+        return false;
+    }
+    if (node.kind == NK_BLOCK) {
+        int index = 0;
+        while (index < node.statements.len) {
+            if (semanticContainsLoopBreak(node.statements.get(index))) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+    if (node.kind == NK_IF_STMT) {
+        if (semanticContainsLoopBreak(node.then_block)) { return true; }
+        if (node.else_block == null) { return false; }
+        if (node.else_block.kind == NK_ELSE_BLOCK) {
+            return semanticContainsLoopBreak(node.else_block.body_node);
+        }
+        if (node.else_block.kind == NK_ELSE_IF) {
+            return semanticContainsLoopBreak(node.else_block.if_stmt);
+        }
+        return false;
+    }
+    if (node.kind == NK_TRY_CATCH_STMT) {
+        return semanticContainsLoopBreak(node.try_block)
+            || semanticContainsLoopBreak(node.catch_block)
+            || semanticContainsLoopBreak(node.finally_block);
+    }
+    return false;
+}
+
+bool semanticStatementTerminates(Node statement) {
+    if (statement.kind == NK_RETURN_STMT
+            || statement.kind == NK_THROW_STMT) {
+        return true;
+    }
+    if (statement.kind == NK_BLOCK) {
+        return semanticBlockTerminates(statement);
+    }
+    if (statement.kind == NK_IF_STMT) {
+        return semanticBlockTerminates(statement.then_block)
+            && semanticElseTerminates(statement.else_block);
+    }
+    if (statement.kind == NK_SWITCH_STMT) {
+        return semanticSwitchTerminates(statement);
+    }
+    if (statement.kind == NK_TRY_CATCH_STMT) {
+        if (semanticBlockTerminates(statement.finally_block)) { return true; }
+        return semanticBlockTerminates(statement.try_block)
+            && statement.catch_block != null
+            && semanticBlockTerminates(statement.catch_block);
+    }
+    if (statement.kind == NK_DO_WHILE_STMT) {
+        return !semanticContainsLoopBreak(statement.body_node)
+            && semanticBlockTerminates(statement.body_node);
+    }
+    if (statement.kind == NK_WHILE_STMT
+            && statement.condition != null
+            && statement.condition.kind == NK_BOOL_LITERAL
+            && statement.condition.value_bool) {
+        return !semanticContainsLoopBreak(statement.body_node)
+            && semanticBlockTerminates(statement.body_node);
+    }
+    if (statement.kind == NK_C_FOR_STMT
+            && statement.condition == null) {
+        return !semanticContainsLoopBreak(statement.body_node)
+            && semanticBlockTerminates(statement.body_node);
+    }
+    return false;
+}

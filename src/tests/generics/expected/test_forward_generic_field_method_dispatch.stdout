@@ -1,0 +1,2 @@
+count=1 value=7
+PASS: test_forward_generic_field_method_dispatch

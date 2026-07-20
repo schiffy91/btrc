@@ -1,0 +1,102 @@
+/* Canonical physical storage for ordinary class instances. */
+
+bool propertyGetterIsAuto(Node property) {
+    return property.kind == NK_PROPERTY_DECL
+        && property.has_getter && property.getter_body == null;
+}
+
+bool propertySetterIsAuto(Node property) {
+    return property.kind == NK_PROPERTY_DECL
+        && property.has_setter && property.setter_body == null;
+}
+
+bool propertyNeedsBacking(Node property) {
+    return propertyGetterIsAuto(property)
+        || propertySetterIsAuto(property);
+}
+
+/* Return the emitted C member name, or "" for a member with no storage. */
+string instanceStorageName(Node member) {
+    if (member.access == "class") { return ""; }
+    if (member.kind == NK_FIELD_DECL) { return member.name; }
+    if (member.kind == NK_PROPERTY_DECL && propertyNeedsBacking(member)) {
+        return "_prop_" + member.name;
+    }
+    return "";
+}
+
+/* Resolve an ordinary or instantiated-generic receiver member. Generic
+ * inheritance is intentionally not synthesized here; unsupported inherited
+ * properties are rejected before IR generation. */
+Node? instanceMemberForType(
+        Analyzed analyzed, Node? receiverType, string memberName) {
+    if (receiverType == null) { return null; }
+    if (analyzed.isClass(receiverType.base)) {
+        return analyzed.classMember(receiverType.base, memberName);
+    }
+    if (receiverType.generic_args.len > 0
+            && analyzed.isGenericClass(receiverType.base)) {
+        return genericMember(analyzed, receiverType.base, memberName);
+    }
+    return null;
+}
+
+Node? resolvedInstanceMemberType(
+        Analyzed analyzed, Node receiverType, Node member) {
+    if (member.type == null) { return null; }
+    if (receiverType.generic_args.len > 0
+            && analyzed.isGenericClass(receiverType.base)) {
+        return resolveGenericType(
+            member.type, genericTypeMap(analyzed, receiverType),
+            analyzed);
+    }
+    return member.type;
+}
+
+string instanceFunctionPrefix(Analyzed analyzed, Node receiverType) {
+    if (receiverType.generic_args.len > 0
+            && analyzed.isGenericClass(receiverType.base)) {
+        return mangleGenericType(
+            receiverType.base, receiverType.generic_args);
+    }
+    return receiverType.base;
+}
+
+void collectMergedClassProperties(Analyzed analyzed, string className,
+        Vector<Node> output, Map<string, int> indices,
+        Map<string, bool> visited) {
+    if (!analyzed.classTable.has(className) || visited.has(className)) {
+        return;
+    }
+    visited.put(className, true);
+    Node declaration = analyzed.classTable.get(className);
+    string parent = parentName(declaration);
+    if (parent != "" && analyzed.classTable.has(parent)) {
+        collectMergedClassProperties(
+            analyzed, parent, output, indices, visited);
+    }
+    int memberIndex = 0;
+    while (memberIndex < declaration.members.len) {
+        Node member = declaration.members.get(memberIndex);
+        if (member.kind == NK_PROPERTY_DECL) {
+            if (indices.has(member.name)) {
+                output.set(indices.get(member.name), member);
+            } else {
+                indices.put(member.name, output.len);
+                output.push(member);
+            }
+        }
+        memberIndex = memberIndex + 1;
+    }
+}
+
+/* Parent-first property view. An override keeps the inherited position while
+ * replacing its declaration, matching merged method ordering. */
+Vector<Node> mergedClassProperties(Analyzed analyzed, string className) {
+    Vector<Node> output = [];
+    Map<string, int> indices = {};
+    Map<string, bool> visited = {};
+    collectMergedClassProperties(
+        analyzed, className, output, indices, visited);
+    return output;
+}

@@ -84,8 +84,7 @@ def scan_directives(source: str) -> list[Directive]:
         if tok.type == TokenType.PREPROCESSOR and first_on_line.get(tok.line) is tok:
             m = CINCLUDE_BTRC_RE.match(tok.value)
             if m and last_on_line.get(tok.line) is tok:
-                directives.append(Directive("btrc_include", m.group(1),
-                                            tok.line, tok.line))
+                directives.append(Directive("btrc_include", m.group(1), tok.line, tok.line))
         i += 1
     return directives
 

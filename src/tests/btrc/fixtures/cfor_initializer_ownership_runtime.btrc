@@ -1,0 +1,169 @@
+#include <assert.h>
+
+int cforAlive = 0;
+int cforDestroyed = 0;
+
+class CForToken {
+    public int value;
+
+    public CForToken(int value) {
+        self.value = value;
+        cforAlive++;
+    }
+
+    public void __del__() {
+        cforAlive--;
+        cforDestroyed++;
+    }
+}
+
+void zeroIterations() {
+    int before = cforDestroyed;
+    for (CForToken token = new CForToken(0); false; token.value++) {
+        assert(false);
+    }
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 1);
+}
+
+void normalExit() {
+    int before = cforDestroyed;
+    for (CForToken token = new CForToken(0);
+            token.value < 3; token.value++) {
+        assert(cforAlive == 1);
+    }
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 1);
+}
+
+void breakExit() {
+    int before = cforDestroyed;
+    for (CForToken token = new CForToken(10); true; token.value++) {
+        assert(cforAlive == 1);
+        break;
+    }
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 1);
+}
+
+void continueExit() {
+    int before = cforDestroyed;
+    int iteration = 0;
+    for (CForToken token = new CForToken(20);
+            iteration < 3; iteration++) {
+        assert(cforAlive == 1);
+        if (iteration < 2) { continue; }
+        assert(token.value == 20);
+    }
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 1);
+}
+
+int returnFromLoop() {
+    for (CForToken token = new CForToken(30); true; token.value++) {
+        return token.value;
+    }
+    return -1;
+}
+
+CForToken transferFromLoop() {
+    for (CForToken token = new CForToken(40); true; token.value++) {
+        return token;
+    }
+    return null;
+}
+
+void throwFromLoop() {
+    for (CForToken token = new CForToken(50); true; token.value++) {
+        throw "c-for failure";
+    }
+}
+
+void throwExit() {
+    int before = cforDestroyed;
+    try {
+        throwFromLoop();
+        assert(false);
+    } catch (string error) {
+        assert(error == "c-for failure");
+    }
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 1);
+}
+
+void conditionalDelete(bool shouldDelete) {
+    int before = cforDestroyed;
+    for (CForToken token = new CForToken(60); true; token.value++) {
+        if (shouldDelete) { delete token; }
+        break;
+    }
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 1);
+}
+
+void skippedDelete() {
+    int before = cforDestroyed;
+    for (CForToken token = new CForToken(70); false; token.value++) {
+        delete token;
+    }
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 1);
+}
+
+void shadowAndRestore() {
+    int before = cforDestroyed;
+    CForToken token = new CForToken(80);
+    for (CForToken token = new CForToken(81); false; token.value++) {
+        assert(false);
+    }
+    assert(cforAlive == 1);
+    assert(cforDestroyed == before + 1);
+    assert(token.value == 80);
+    delete token;
+    assert(cforAlive == 0);
+
+    for (CForToken scoped = new CForToken(82); false; scoped.value++) {
+        assert(false);
+    }
+    int scoped = 42;
+    assert(scoped == 42);
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 3);
+}
+
+void threadInitializer() {
+    int before = cforDestroyed;
+    for (Thread<CForToken> worker = spawn(() => new CForToken(90));
+            false; ) {
+        assert(false);
+    }
+    assert(cforAlive == 0);
+    assert(cforDestroyed == before + 1);
+}
+
+int main() {
+    zeroIterations();
+    normalExit();
+    breakExit();
+    continueExit();
+
+    int beforeReturn = cforDestroyed;
+    assert(returnFromLoop() == 30);
+    assert(cforAlive == 0);
+    assert(cforDestroyed == beforeReturn + 1);
+
+    CForToken transferred = transferFromLoop();
+    assert(cforAlive == 1);
+    assert(transferred.value == 40);
+    delete transferred;
+    assert(cforAlive == 0);
+
+    throwExit();
+    conditionalDelete(false);
+    conditionalDelete(true);
+    skippedDelete();
+    shadowAndRestore();
+    threadInitializer();
+    assert(cforAlive == 0);
+    return 0;
+}

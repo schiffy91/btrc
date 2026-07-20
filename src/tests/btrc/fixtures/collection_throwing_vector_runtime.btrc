@@ -1,0 +1,57 @@
+#include <assert.h>
+
+int destroyed = 0;
+int firstCalls = 0;
+int secondCalls = 0;
+int thirdCalls = 0;
+int trace = 0;
+
+class VectorDrop {
+    public int id;
+
+    public VectorDrop(int id) { self.id = id; }
+
+    public void __del__() {
+        destroyed++;
+        trace = trace * 10 + self.id;
+        if (self.id == 1) {
+            firstCalls++;
+            throw "vector-first";
+        }
+        if (self.id == 2) {
+            secondCalls++;
+            throw "vector-second";
+        }
+        thirdCalls++;
+    }
+}
+
+int main() {
+    {
+        Vector<VectorDrop> values = [];
+        values.push(new VectorDrop(1));
+        values.push(new VectorDrop(2));
+        values.push(new VectorDrop(3));
+
+        bool caughtFirst = false;
+        try {
+            values.free();
+        } catch (string error) {
+            caughtFirst = error.equals("vector-first");
+        }
+
+        assert(caughtFirst);
+        assert(values.data == null);
+        assert(values.len == 0);
+        assert(values.cap == 0);
+        assert(destroyed == 3);
+        assert(firstCalls == 1 && secondCalls == 1 && thirdCalls == 1);
+        assert(trace == 123);
+
+        values.free();
+        assert(destroyed == 3 && trace == 123);
+    }
+
+    assert(destroyed == 3 && trace == 123);
+    return 0;
+}

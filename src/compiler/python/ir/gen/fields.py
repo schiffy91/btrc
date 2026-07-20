@@ -5,30 +5,31 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import (
-    AssignExpr,
-    BraceInitializer,
     FieldAccessExpr,
     Identifier,
     IndexExpr,
-    SelfExpr,
 )
+from ...index_protocol import indexed_protocol_info
 from ..nodes import (
+    CType,
     IRBinOp,
-    IRBlock,
     IRCall,
-    IRCast,
+    IRCommaExpr,
     IRExpr,
-    IRExprStmt,
     IRFieldAccess,
-    IRIf,
+    IRFunctionRef,
     IRIndex,
     IRLiteral,
-    IRStmt,
+    IRStmtExpr,
     IRTernary,
-    IRUnaryOp,
     IRVar,
+    IRVarDecl,
 )
-from .types import is_generic_class_type, is_string_type, mangle_generic_type
+from .types import (
+    is_direct_generic_instance_reference,
+    mangle_generic_type,
+    type_to_c,
+)
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -36,36 +37,98 @@ if TYPE_CHECKING:
 
 def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
     """Lower field access, handling optional chaining and special types."""
+    from .managed_values import is_managed_type
+    from .ownership import projection_is_owned_call
+    from .ownership_boundary import sequence_owned_operands
+
+    result_type = gen.analyzed.node_types.get(id(node))
+    from ...class_storage import custom_property_getter
+
+    custom_getter = custom_property_getter(
+        gen.analyzed.class_table,
+        gen.analyzed.node_types.get(id(node.obj)),
+        node.field,
+    )
+    sequenced = sequence_owned_operands(
+        gen,
+        [node.obj],
+        build=lambda: _lower_field_access_plain(gen, node),
+        result_type=result_type,
+        pin_nodes=[node.obj] if custom_getter else [],
+        promote_result=bool(is_managed_type(gen, result_type) and not projection_is_owned_call(gen, node)),
+    )
+    if sequenced is not None:
+        return sequenced
+    return _lower_field_access_plain(gen, node)
+
+
+def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
+    """Lower one field access after any owning receiver is stabilized."""
     from .expressions import lower_expr
 
     obj = lower_expr(gen, node.obj)
     obj_type = gen.analyzed.node_types.get(id(node.obj))
+    from .parameters import source_field_c_name
 
-    # String field access: s.len, s.length → (int)strlen(s)
-    if is_string_type(obj_type) and node.field in ("len", "length"):
-        return IRCast(target_type="int", expr=IRCall(callee="strlen", args=[obj]))
+    field_name = source_field_c_name(gen.analyzed, node.obj, node.field)
+
+    # A mixed auto/custom accessor addresses its own backing slot via
+    # `self.property`.  All external reads still call the public getter.
+    from ...ast_nodes import SelfExpr
+
+    if isinstance(node.obj, SelfExpr) and gen.current_property_backing == node.field:
+        return IRFieldAccess(
+            obj=obj,
+            field=f"_prop_{node.field}",
+            arrow=True,
+        )
 
     # Generic class field access: coll.len → coll->len
-    if (obj_type and is_generic_class_type(obj_type, gen.analyzed.class_table)
-            and node.field in ("len", "length", "size")):
+    if (
+        obj_type
+        and is_direct_generic_instance_reference(obj_type, gen.analyzed.class_table)
+        and node.field in ("len", "length", "size")
+    ):
+        if node.optional:
+            return _lower_optional_access(
+                gen,
+                obj,
+                obj_type,
+                gen.analyzed.node_types.get(id(node)),
+                lambda receiver: IRFieldAccess(obj=receiver, field="len", arrow=True),
+            )
         return IRFieldAccess(obj=obj, field="len", arrow=True)
 
     # Simple enum value: CfaPattern.RGGB → CfaPattern_RGGB (namespaced access,
     # the qualified counterpart of bare `RGGB`).
-    if (isinstance(node.obj, Identifier)
-            and node.obj.name in gen.analyzed.enum_table
-            and node.field in gen.analyzed.enum_table[node.obj.name]):
-        return IRLiteral(text=f"{node.obj.name}_{node.field}")
+    if (
+        isinstance(node.obj, Identifier)
+        and node.obj.name in gen.analyzed.enum_table
+        and not gen.local_ownership_declared(node.obj.name)
+        and node.field in gen.analyzed.enum_table[node.obj.name]
+    ):
+        return IRVar(name=f"{node.obj.name}_{node.field}")
 
     # Rich enum variant tag: Color.RGB → Color_RGB_TAG
-    if isinstance(node.obj, Identifier) and node.obj.name in gen.analyzed.rich_enum_table:
+    if (
+        isinstance(node.obj, Identifier)
+        and node.obj.name in gen.analyzed.rich_enum_table
+        and not gen.local_ownership_declared(node.obj.name)
+    ):
         return IRVar(name=f"{node.obj.name}_{node.field}_TAG")
 
     # Static method/field on a class name: ClassName.field
-    if isinstance(node.obj, Identifier) and node.obj.name in gen.analyzed.class_table:
-        # This is a static reference — will be handled by method call lowering
-        # if it's a call, but for field-only access emit ClassName_field
-        return IRVar(name=f"{node.obj.name}_{node.field}")
+    if (
+        isinstance(node.obj, Identifier)
+        and node.obj.name in gen.analyzed.class_table
+        and not gen.local_ownership_declared(node.obj.name)
+    ):
+        class_info = gen.analyzed.class_table[node.obj.name]
+        method = class_info.methods.get(node.field)
+        symbol = f"{node.obj.name}_{node.field}"
+        if method is not None and method.access == "class":
+            return IRFunctionRef(name=symbol)
+        return IRVar(name=symbol)
 
     # Property access on class instances
     if obj_type and obj_type.base in gen.analyzed.class_table:
@@ -76,195 +139,134 @@ def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
         else:
             callee_prefix = obj_type.base
         if node.field in cls_info.properties:
-            # self.prop inside the class → use backing field directly
-            if isinstance(node.obj, SelfExpr):
-                return IRFieldAccess(obj=obj, field=f"_prop_{node.field}", arrow=True)
+            if node.optional:
+                return _lower_optional_access(
+                    gen,
+                    obj,
+                    obj_type,
+                    gen.analyzed.node_types.get(id(node)),
+                    lambda receiver: IRCall(
+                        callee=f"{callee_prefix}_get_{node.field}",
+                        args=[receiver],
+                    ),
+                )
             return IRCall(callee=f"{callee_prefix}_get_{node.field}", args=[obj])
 
     if node.optional:
-        # a?.b → (a != NULL ? a->b : default)
-        access = IRFieldAccess(obj=obj, field=node.field, arrow=True)
-        return IRTernary(
-            condition=IRBinOp(left=obj, op="!=",
-                              right=IRLiteral(text="NULL")),
-            true_expr=access,
-            false_expr=IRLiteral(text="0"),
+        return _lower_optional_access(
+            gen,
+            obj,
+            obj_type,
+            gen.analyzed.node_types.get(id(node)),
+            lambda receiver: IRFieldAccess(
+                obj=receiver,
+                field=field_name,
+                arrow=True,
+            ),
         )
 
-    arrow = node.arrow
-    # Determine if we need -> based on the object type
-    if obj_type and (obj_type.pointer_depth > 0 or
-                     obj_type.base in gen.analyzed.class_table):
-        arrow = True
+    return IRFieldAccess(
+        obj=obj,
+        field=field_name,
+        arrow=receiver_uses_arrow(gen, obj_type, explicit=node.arrow),
+    )
 
-    return IRFieldAccess(obj=obj, field=node.field, arrow=arrow)
+
+def receiver_uses_arrow(gen: IRGenerator, receiver_type, *, explicit: bool = False) -> bool:
+    """Choose C member syntax from the receiver's concrete storage shape."""
+    if explicit:
+        return True
+    from .type_resolution import canonical_type
+
+    resolved = canonical_type(receiver_type, gen.analyzed.typedef_table)
+    return bool(resolved and (resolved.pointer_depth > 0 or resolved.base in gen.analyzed.class_table))
+
+
+def _lower_optional_access(
+    gen,
+    receiver,
+    receiver_type,
+    result_type,
+    access_factory,
+) -> IRExpr:
+    """Evaluate one nullable receiver once, then conditionally read its value."""
+    name = gen.fresh_temp("__btrc_optional")
+    temporary = IRVar(name=name)
+    c_type = type_to_c(receiver_type) if receiver_type is not None else "void*"
+    return IRStmtExpr(
+        stmts=[IRVarDecl(c_type=CType(text=c_type), name=name)],
+        result=IRCommaExpr(
+            expressions=[
+                IRBinOp(left=temporary, op="=", right=receiver),
+                IRTernary(
+                    condition=IRBinOp(
+                        left=temporary,
+                        op="!=",
+                        right=IRLiteral(text="NULL"),
+                    ),
+                    true_expr=access_factory(temporary),
+                    false_expr=_optional_zero(gen, result_type),
+                ),
+            ]
+        ),
+    )
+
+
+def _optional_zero(gen, result_type):
+    from .optional_values import optional_zero_value
+
+    return optional_zero_value(gen, result_type)
 
 
 def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
     """Lower index expression: list[i] → List_get(list, i), map[k] → Map_get(map, k)."""
+    from .managed_values import is_managed_type
+    from .ownership import projection_is_owned_call
+    from .ownership_boundary import sequence_owned_operands
+
+    result_type = gen.analyzed.node_types.get(id(node))
+    projection_call = projection_is_owned_call(gen, node)
+    receiver_type = gen.analyzed.node_types.get(id(node.obj))
+    protocol_getter = indexed_protocol_info(
+        receiver_type,
+        gen.analyzed.class_table,
+        method="get",
+    )
+    sequenced = sequence_owned_operands(
+        gen,
+        [node.obj, node.index],
+        build=lambda: _lower_index_plain(gen, node),
+        result_type=result_type,
+        pin_nodes=[node.obj] if protocol_getter is not None else [],
+        promote_result=bool(is_managed_type(gen, result_type) and not projection_call),
+        result_owned=bool(is_managed_type(gen, result_type) and projection_call),
+    )
+    if sequenced is not None:
+        return sequenced
+    return _lower_index_plain(gen, node)
+
+
+def _lower_index_plain(gen: IRGenerator, node: IndexExpr) -> IRExpr:
+    """Lower one index projection after its receiver is stabilized."""
     from .expressions import lower_expr
 
     obj = lower_expr(gen, node.obj)
     index = lower_expr(gen, node.index)
     obj_type = gen.analyzed.node_types.get(id(node.obj))
-    if obj_type and is_generic_class_type(obj_type, gen.analyzed.class_table):
-        mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
-        return IRCall(callee=f"{mangled}_get", args=[obj, index])
+    gpu_lengths = getattr(gen, "_gpu_cpu_array_lengths", None)
+    if gpu_lengths and isinstance(node.obj, Identifier) and node.obj.name in gpu_lengths:
+        gen.use_helper("__btrc_gpu_index_check")
+        index = IRCall(
+            callee="__btrc_gpu_index_check",
+            args=[index, IRVar(name=gpu_lengths[node.obj.name])],
+            helper_ref="__btrc_gpu_index_check",
+        )
+    protocol = indexed_protocol_info(obj_type, gen.analyzed.class_table, method="get")
+    if protocol is not None:
+        prefix = (
+            mangle_generic_type(obj_type.base, obj_type.generic_args)
+            if obj_type.generic_args and protocol.generic_params
+            else obj_type.base
+        )
+        return IRCall(callee=f"{prefix}_get", args=[obj, index])
     return IRIndex(obj=obj, index=index)
-
-
-def get_field_assign_arc_stmts(gen: IRGenerator, node: AssignExpr
-                                ) -> tuple[list[IRStmt], list[IRStmt]]:
-    """Return (pre_stmts, post_stmts) for ARC on field assignment.
-
-    When assigning `obj.field = value` where field is a class-type:
-    - pre_stmts: release old value (if old != NULL, --rc, destroy at zero)
-    - post_stmts: rc++ on new value, register source var as managed
-
-    Returns ([], []) if the field isn't a class type or value is null.
-    """
-    from ...ast_nodes import NewExpr, NullLiteral
-    from .expressions import lower_expr
-    if node.op != "=" or not isinstance(node.target, FieldAccessExpr):
-        return [], []
-    # Skip if assigning null — no ARC needed
-    if isinstance(node.value, NullLiteral):
-        return [], []
-    obj_type = gen.analyzed.node_types.get(id(node.target.obj))
-    if not obj_type or obj_type.base not in gen.analyzed.class_table:
-        return [], []
-    cls_info = gen.analyzed.class_table[obj_type.base]
-    field_name = node.target.field
-    # Look up the field type
-    fd = cls_info.fields.get(field_name)
-    if not fd or not fd.type:
-        return [], []
-    ft = fd.type
-    # Only class-instance fields need keep/release
-    if ft.base not in gen.analyzed.class_table:
-        return [], []
-
-    pre: list[IRStmt] = []
-    post: list[IRStmt] = []
-
-    obj_ir = lower_expr(gen, node.target.obj)
-    old_field = IRFieldAccess(obj=obj_ir, field=field_name, arrow=True)
-
-    # Determine destroy function for old value
-    if ft.generic_args and is_generic_class_type(ft, gen.analyzed.class_table):
-        mangled = mangle_generic_type(ft.base, ft.generic_args)
-        field_cls = gen.analyzed.class_table.get(ft.base)
-        dtor = "free" if field_cls and "free" in field_cls.methods else "destroy"
-        destroy_fn = f"{mangled}_{dtor}"
-    else:
-        destroy_fn = f"{ft.base}_destroy"
-
-    # PRE: release old field value
-    pre.append(IRIf(
-        condition=IRBinOp(left=old_field, op="!=", right=IRLiteral(text="NULL")),
-        then_block=IRBlock(stmts=[IRIf(
-            condition=IRBinOp(
-                left=IRUnaryOp(op="--", operand=IRFieldAccess(
-                    obj=old_field, field="__rc", arrow=True), prefix=True),
-                op="<=", right=IRLiteral(text="0")),
-            then_block=IRBlock(stmts=[IRExprStmt(
-                expr=IRCall(callee=destroy_fn, args=[old_field]))]),
-        )]),
-    ))
-
-    # POST: rc++ on new value — skip if value is `new` (already rc=1 from ctor)
-    if not isinstance(node.value, NewExpr):
-        value_ir = lower_expr(gen, node.value)
-        post.append(IRExprStmt(expr=IRUnaryOp(
-            op="++",
-            operand=IRFieldAccess(obj=value_ir, field="__rc", arrow=True),
-            prefix=False,
-        )))
-
-    # NOTE: We do NOT register the source variable as managed here.
-    # Managed var registration happens at the CALL SITE via keep params,
-    # not inside the method where the field assignment occurs.
-
-    return pre, post
-
-
-def _lower_assign(gen: IRGenerator, node: AssignExpr) -> IRExpr:
-    """Lower assignment expression (compound assignments too)."""
-    from .expressions import lower_expr
-
-    # Property setter: obj.prop = value → ClassName_set_prop(obj, value)
-    if node.op == "=" and isinstance(node.target, FieldAccessExpr):
-        obj_type = gen.analyzed.node_types.get(id(node.target.obj))
-        if obj_type and obj_type.base in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[obj_type.base]
-            if node.target.field in cls_info.properties:
-                obj = lower_expr(gen, node.target.obj)
-                value = lower_expr(gen, node.value)
-                # self.prop = value inside class → backing field
-                if isinstance(node.target.obj, SelfExpr):
-                    backing = IRFieldAccess(obj=obj,
-                                            field=f"_prop_{node.target.field}",
-                                            arrow=True)
-                    return IRBinOp(left=backing, op="=", right=value)
-                return IRCall(
-                    callee=f"{obj_type.base}_set_{node.target.field}",
-                    args=[obj, value])
-
-    # Collection index assignment: list[i] = value → List_set(list, i, value)
-    if node.op == "=" and isinstance(node.target, IndexExpr):
-        obj_type = gen.analyzed.node_types.get(id(node.target.obj))
-        if obj_type and is_generic_class_type(obj_type, gen.analyzed.class_table):
-            mangled = mangle_generic_type(obj_type.base, obj_type.generic_args)
-            obj = lower_expr(gen, node.target.obj)
-            index = lower_expr(gen, node.target.index)
-            value = lower_expr(gen, node.value)
-            return IRCall(callee=f"{mangled}_set", args=[obj, index, value])
-
-    # Empty {} or [] assigned to collection-typed field → collection_new()
-    if node.op == "=" and isinstance(node.value, BraceInitializer) and not node.value.elements:
-        target_type = gen.analyzed.node_types.get(id(node.target))
-        if target_type and is_generic_class_type(target_type, gen.analyzed.class_table):
-            mangled = mangle_generic_type(target_type.base, target_type.generic_args)
-            target = lower_expr(gen, node.target)
-            return IRBinOp(left=target, op="=",
-                           right=IRCall(callee=f"{mangled}_new", args=[]))
-
-    # GPU dispatch result → array: tag dispatch with target for memcpy
-    # (C arrays can't be directly assigned; emitter uses memcpy instead)
-    if node.op == "=":
-        from ...ast_nodes import CallExpr
-        from .gpu import is_gpu_function
-        if (isinstance(node.value, CallExpr)
-                and isinstance(node.value.callee, Identifier)
-                and is_gpu_function(gen, node.value.callee.name)):
-            from ..nodes import IRGpuDispatch
-            target = lower_expr(gen, node.target)
-            value = lower_expr(gen, node.value)
-            if isinstance(value, IRGpuDispatch) and value.output_buffer:
-                from .statements import _quick_text
-                value.assign_target = _quick_text(target)
-                return value  # Emitter handles memcpy readback
-
-    target = lower_expr(gen, node.target)
-    value = lower_expr(gen, node.value)
-
-    # String += → target = __btrc_str_track(__btrc_strcat(target, value))
-    if node.op == "+=" and is_string_type(gen.analyzed.node_types.get(id(node.target))):
-        gen.use_helper("__btrc_strcat")
-        gen.use_helper("__btrc_str_track")
-        cat = IRCall(callee="__btrc_strcat", args=[target, value],
-                     helper_ref="__btrc_strcat")
-        tracked = IRCall(callee="__btrc_str_track", args=[cat],
-                         helper_ref="__btrc_str_track")
-        return IRBinOp(left=target, op="=", right=tracked)
-
-    if node.op == "=":
-        # Upcast: storing a subclass instance into a base-class field/var needs
-        # an explicit cast — sibling struct pointers are otherwise incompatible C.
-        from .upcast import upcast_class_pointer
-        target_type = gen.analyzed.node_types.get(id(node.target))
-        value_type = gen.analyzed.node_types.get(id(node.value))
-        value = upcast_class_pointer(gen, target_type, value_type, value)
-        return IRBinOp(left=target, op="=", right=value)
-    # Compound: +=, -=, *=, etc.
-    return IRBinOp(left=target, op=node.op, right=value)

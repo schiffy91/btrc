@@ -1,0 +1,58 @@
+#include <assert.h>
+
+int itemsAlive = 0;
+
+class Item {
+    public int id;
+
+    public Item(int id) {
+        self.id = id;
+        itemsAlive++;
+    }
+
+    public void __del__() {
+        itemsAlive--;
+    }
+}
+
+void ordinarySwitch(int branch) {
+    switch (branch) {
+        case 1:
+            Item selected = new Item(1);
+            assert(selected.id == 1);
+            break;
+        default:
+            Item fallback = new Item(2);
+            assert(fallback.id == 2);
+            break;
+    }
+    assert(itemsAlive == 0);
+}
+
+class GenericSwitch<T> {
+    public void run(int branch) {
+        switch (branch) {
+            case 1:
+                Item selected = new Item(3);
+                assert(selected.id == 3);
+                break;
+            default:
+                Item fallback = new Item(4);
+                assert(fallback.id == 4);
+                break;
+        }
+        assert(itemsAlive == 0);
+    }
+}
+
+int main() {
+    GenericSwitch<int> runner = new GenericSwitch<int>();
+    for (int iteration = 0; iteration < 32; iteration++) {
+        ordinarySwitch(1);
+        ordinarySwitch(0);
+        runner.run(1);
+        runner.run(0);
+        assert(itemsAlive == 0);
+    }
+    return 0;
+}

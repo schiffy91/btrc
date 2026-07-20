@@ -1,14 +1,11 @@
 """Expression analysis, lambda analysis, and identifier collection."""
 
-import dataclasses
-
 from ..ast_nodes import (
     AssignExpr,
     BinaryExpr,
     BoolLiteral,
     BraceInitializer,
     CallExpr,
-    Capture,
     CastExpr,
     CharLiteral,
     FieldAccessExpr,
@@ -18,9 +15,7 @@ from ..ast_nodes import (
     Identifier,
     IndexExpr,
     IntLiteral,
-    LambdaBlock,
     LambdaExpr,
-    LambdaExprBody,
     ListLiteral,
     MapLiteral,
     NewExpr,
@@ -37,39 +32,47 @@ from ..ast_nodes import (
     TypeExpr,
     UnaryExpr,
 )
-
-_PRIMITIVE_TYPE_NAMES = frozenset((
-    "void", "bool", "char", "short", "int", "long", "float", "double",
-    "string", "unsigned", "signed",
-))
-
-# Builtin generic bases that may appear as bare cast targets
-_BUILTIN_CAST_BASES = frozenset((
-    "Vector", "List", "Map", "Set", "Array", "Thread", "Mutex", "Tuple",
-))
+from .expression_shapes import is_empty_contextual_literal
 
 
 class ExpressionsMixin:
+    def _inside_generic_declaration(self) -> bool:
+        return bool(
+            (self.current_class and self.current_class.generic_params)
+            or (self.current_method and self.current_method.generic_params)
+        )
 
     def _analyze_expr(self, expr):
         if expr is None:
             return
 
-        if isinstance(expr, (IntLiteral, FloatLiteral, StringLiteral,
-                             CharLiteral, BoolLiteral, NullLiteral)):
+        if isinstance(expr, (IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral)):
             pass
         elif isinstance(expr, Identifier):
-            if self.record_occurrences:
-                self._record_identifier(expr)
+            from .default_argument_contracts import (
+                validate_default_macro_context,
+            )
+
+            validate_default_macro_context(self, expr)
+            self._analyze_identifier_value(expr)
         elif isinstance(expr, SelfExpr):
+            self._record_lambda_self(expr)
             self._validate_self(expr)
         elif isinstance(expr, SuperExpr):
-            if not self.current_class:
+            if self._analyzing_constructor_default:
+                self._error(
+                    "Constructor defaults cannot reference 'super' before allocation",
+                    expr.line,
+                    expr.col,
+                )
+            elif not self.current_class:
                 self._error("'super' can only be used inside a class", expr.line, expr.col)
             elif not self.current_class.parent:
                 self._error(
-                    f"'super' cannot be used in class '{self.current_class.name}' "
-                    f"which does not extend another class", expr.line, expr.col)
+                    f"'super' cannot be used in class '{self.current_class.name}' which does not extend another class",
+                    expr.line,
+                    expr.col,
+                )
         elif isinstance(expr, BinaryExpr):
             # Left-leaning chains (a+a+...+a) can be thousands of nodes deep;
             # walk the left spine iteratively to avoid one recursion frame
@@ -79,77 +82,132 @@ class ExpressionsMixin:
                 spine.append(spine[-1].left)
             self._analyze_expr(spine[-1].left)
             for node in reversed(spine):
-                self._analyze_expr(node.right)
-                if node.op in ("/", "%", "/=", "%="):
-                    r = node.right
-                    if (isinstance(r, IntLiteral) and r.value == 0) or \
-                       (isinstance(r, FloatLiteral) and r.value == 0.0):
-                        self._error("Division by zero", r.line, r.col)
+                if node.op in ("&&", "||"):
+                    before_right = set(self._nonnull_paths)
+                    outcome = node.op == "&&"
+                    right_flow = self._analyze_flow_branch(
+                        self._nonnull_facts_for_outcome(node.left, outcome),
+                        lambda node=node: self._analyze_expr(node.right),
+                    )
+                    # The RHS may be skipped. Only facts preserved by both the
+                    # short-circuit path and the evaluated path remain known.
+                    self._nonnull_paths = before_right & right_flow
+                else:
+                    self._analyze_expr(node.right)
+                self._validate_literal_divisor(node.op, node.right)
+                self._validate_binary_expr(node)
                 if node is not expr:
                     node_t = self._infer_type(node)
                     if node_t:
-                        self.node_types[id(node)] = node_t
+                        self._record_node_type(node, node_t)
         elif isinstance(expr, UnaryExpr):
             self._analyze_expr(expr.operand)
+            if expr.op == "&":
+                self._record_nullable_address_escape(expr.operand)
+            self._validate_unary_expr(expr)
         elif isinstance(expr, CallExpr):
             self._analyze_call(expr)
         elif isinstance(expr, IndexExpr):
             self._analyze_expr(expr.obj)
             self._analyze_expr(expr.index)
+            self._validate_index_expr(expr)
         elif isinstance(expr, FieldAccessExpr):
             self._analyze_field_access(expr)
         elif isinstance(expr, AssignExpr):
+            self._assignment_target_depth += 1
             self._analyze_expr(expr.target)
+            self._assignment_target_depth -= 1
             self._analyze_expr(expr.value)
-            # Propagate target type to empty collection literals so that
-            # e.g. `self.x = []` where x is Vector<float> doesn't default
-            # to Vector<int>.
+            self._validate_literal_divisor(expr.op, expr.value)
             if isinstance(expr.value, (ListLiteral, MapLiteral, BraceInitializer)):
                 target_type = self._infer_type(expr.target)
-                if target_type and target_type.generic_args:
-                    is_empty = (isinstance(expr.value, MapLiteral)
-                                and not expr.value.entries) or (
-                                not isinstance(expr.value, MapLiteral)
-                                and not expr.value.elements)
-                    if is_empty:
-                        self.node_types[id(expr.value)] = target_type
+                if target_type:
+                    self._contextualize_aggregate_initializer(
+                        target_type,
+                        expr.value,
+                        "Assignment",
+                        expr.line,
+                        expr.col,
+                    )
+                    self._contextualize_collection_initializer(
+                        target_type,
+                        expr.value,
+                        "Assignment",
+                        expr.line,
+                        expr.col,
+                    )
+            self._validate_assignment(expr)
+            self._validate_opaque_borrow_storage(
+                self._infer_type(expr.target),
+                expr.value,
+                "Assignment",
+                expr.line,
+                expr.col,
+            )
+            self._invalidate_nonnull_target(expr.target)
         elif isinstance(expr, TernaryExpr):
             self._analyze_expr(expr.condition)
-            self._analyze_expr(expr.true_expr)
-            self._analyze_expr(expr.false_expr)
+            self._reject_thread_observation(expr.condition)
+            true_flow = self._analyze_flow_branch(
+                self._nonnull_facts_for_outcome(expr.condition, True),
+                lambda: self._analyze_expr(expr.true_expr),
+            )
+            false_flow = self._analyze_flow_branch(
+                self._nonnull_facts_for_outcome(expr.condition, False),
+                lambda: self._analyze_expr(expr.false_expr),
+            )
+            self._nonnull_paths = self._join_nonnull_flows([true_flow, false_flow])
+            self._validate_ternary_expr(expr)
         elif isinstance(expr, CastExpr):
+            expr.target_type = self._upgrade_class_type(expr.target_type)
             self._collect_generic_instances(expr.target_type)
             self._analyze_expr(expr.expr)
-            self._validate_cast_target(expr)
+            self._validate_cast_expr(expr)
         elif isinstance(expr, SizeofExpr):
             if isinstance(expr.operand, SizeofType):
                 self._collect_generic_instances(expr.operand.type)
             elif isinstance(expr.operand, SizeofExprOp):
                 self._analyze_expr(expr.operand.expr)
+            self._validate_sizeof_operand(expr)
         elif isinstance(expr, ListLiteral):
             for el in expr.elements:
                 self._analyze_expr(el)
+                self._reject_thread_value_escape(el, "embedded in aggregate values")
             if len(expr.elements) >= 2:
-                first_type = self._infer_type(expr.elements[0])
+                first_type = next(
+                    (
+                        self._infer_type(element)
+                        for element in expr.elements
+                        if not is_empty_contextual_literal(element)
+                    ),
+                    None,
+                )
                 if first_type:
-                    for i, el in enumerate(expr.elements[1:], 1):
+                    for i, el in enumerate(expr.elements):
+                        if is_empty_contextual_literal(el):
+                            continue
                         el_type = self._infer_type(el)
                         if el_type and not self._types_compatible(first_type, el_type):
                             self._error(
-                                f"List element {i} has type '{el_type.base}' "
-                                f"but expected '{first_type.base}'",
-                                getattr(el, 'line', 0), getattr(el, 'col', 0))
+                                f"List element {i} has type '{el_type.base}' but expected '{first_type.base}'",
+                                getattr(el, "line", 0),
+                                getattr(el, "col", 0),
+                            )
         elif isinstance(expr, MapLiteral):
             for entry in expr.entries:
                 self._analyze_expr(entry.key)
                 self._analyze_expr(entry.value)
+                self._reject_thread_value_escape(entry.key, "embedded in aggregate values")
+                self._reject_thread_value_escape(entry.value, "embedded in aggregate values")
         elif isinstance(expr, FStringLiteral):
             for part in expr.parts:
                 if isinstance(part, FStringExpr):
                     self._analyze_expr(part.expression)
+                    self._reject_thread_value_escape(part.expression, "formatted as values")
         elif isinstance(expr, TupleLiteral):
             for el in expr.elements:
                 self._analyze_expr(el)
+                self._reject_thread_value_escape(el, "embedded in aggregate values")
             elem_types = []
             for el in expr.elements:
                 t = self._infer_type(el)
@@ -157,6 +215,12 @@ class ExpressionsMixin:
             tuple_type = TypeExpr(base="Tuple", generic_args=elem_types)
             self._collect_generic_instances(tuple_type)
         elif isinstance(expr, LambdaExpr):
+            if self._inside_generic_declaration():
+                self._error(
+                    "Lambda expressions are not supported inside generic declarations",
+                    expr.line,
+                    expr.col,
+                )
             self._analyze_lambda(expr)
         elif isinstance(expr, NewExpr):
             # Upgrade class-typed generic args to pointers before collecting, so
@@ -168,12 +232,57 @@ class ExpressionsMixin:
             self._collect_generic_instances(expr.type)
             for arg in expr.args:
                 self._analyze_expr(arg)
+                self._reject_thread_value_escape(arg, "passed as arguments")
+            if expr.type.base == "Mutex":
+                if any(expr.arg_names or []):
+                    self._error(
+                        "'new Mutex<T>()' does not accept named arguments",
+                        expr.line,
+                        expr.col,
+                    )
+                if len(expr.args) != 1:
+                    self._error(
+                        "'new Mutex<T>()' expects exactly 1 argument",
+                        expr.line,
+                        expr.col,
+                    )
+                elif expr.type.generic_args:
+                    actual = self._infer_type(expr.args[0])
+                    expected = expr.type.generic_args[0]
+                    self._validate_managed_string_source(
+                        expected,
+                        expr.args[0],
+                        "Mutex initializer",
+                        expr.line,
+                        expr.col,
+                    )
+                    if actual and not self._types_compatible(expected, actual):
+                        self._error(
+                            f"Mutex initializer expects "
+                            f"'{self._format_type(expected)}' but got "
+                            f"'{self._format_type(actual)}'",
+                            expr.line,
+                            expr.col,
+                        )
             if expr.type.base in self.class_table:
                 cls = self.class_table[expr.type.base]
-                self._validate_constructor_args(cls, expr.args, expr.arg_names,
-                                                expr.line, expr.col)
+                if cls.is_abstract:
+                    self._error(
+                        f"Cannot instantiate abstract class '{cls.name}'",
+                        expr.line,
+                        expr.col,
+                    )
+                substitutions = dict(zip(cls.generic_params, expr.type.generic_args))
+                self._validate_constructor_args(cls, expr.args, expr.arg_names, expr.line, expr.col, substitutions)
         elif isinstance(expr, SpawnExpr):
+            if self._inside_generic_declaration() and not isinstance(expr.fn, LambdaExpr):
+                self._error(
+                    "spawn expressions are not supported inside generic declarations",
+                    expr.line,
+                    expr.col,
+                )
             self._analyze_expr(expr.fn)
+            self._validate_spawn_expr(expr)
             # Infer Thread<T> where T is the return type of the spawned callable
             ret_type = self._infer_spawn_return_type(expr.fn)
             thread_type = TypeExpr(base="Thread", generic_args=[ret_type])
@@ -181,115 +290,8 @@ class ExpressionsMixin:
         elif isinstance(expr, BraceInitializer):
             for el in expr.elements:
                 self._analyze_expr(el)
+                self._reject_thread_value_escape(el, "embedded in aggregate values")
 
         inferred = self._infer_type(expr)
         if inferred:
-            self.node_types[id(expr)] = inferred
-
-    def _analyze_lambda(self, expr):
-        """Analyze a lambda expression."""
-        prev_return_type = self.current_return_type
-        outer_vars: dict[str, TypeExpr] = {}
-        scope = self.scope
-        while scope is not None and scope is not self.global_scope:
-            for name, sym in scope.symbols.items():
-                if name not in outer_vars and sym.kind in ("variable", "param"):
-                    outer_vars[name] = sym.type
-            scope = scope.parent
-
-        self._push_scope()
-        param_names = set()
-        for param in expr.params:
-            param.type = self._upgrade_class_type(param.type)
-            self._collect_generic_instances(param.type)
-            self.scope.define(param.name, self._param_symbol(param))
-            param_names.add(param.name)
-        if expr.return_type:
-            expr.return_type = self._upgrade_class_type(expr.return_type)
-            self._collect_generic_instances(expr.return_type)
-            self.current_return_type = expr.return_type
-        else:
-            self.current_return_type = None
-        if isinstance(expr.body, LambdaBlock):
-            self._analyze_block(expr.body.body)
-        elif isinstance(expr.body, LambdaExprBody):
-            self._analyze_expr(expr.body.expression)
-
-        used_names: set[str] = set()
-        self._collect_identifiers(expr.body, used_names)
-        captures = []
-        for name in sorted(used_names):
-            if name in param_names:
-                continue
-            if name in outer_vars:
-                captures.append(Capture(name=name, type=outer_vars[name]))
-        expr.captures = captures
-
-        self._pop_scope()
-        self.current_return_type = prev_return_type
-
-    def _validate_cast_target(self, expr):
-        """Flag casts whose single-IDENT target names no known type.
-
-        Only bare-identifier targets are checked: explicit type syntax
-        (pointers, generics, nullable, arrays) stays permissive because it
-        is routinely used for C-interop casts to extern types. Names ending
-        in ``_t`` follow the C/POSIX typedef convention (size_t, mode_t, ...)
-        and are likewise assumed to come from C headers.
-        """
-        t = expr.target_type
-        if (t is None or t.pointer_depth or t.generic_args or t.is_array
-                or t.is_nullable):
-            return
-        base = t.base
-        if not base.isidentifier():
-            return  # multi-word keyword types ("unsigned int", ...)
-        if base in _PRIMITIVE_TYPE_NAMES or base in _BUILTIN_CAST_BASES:
-            return
-        if (base in self.class_table or base in self.interface_table
-                or base in self.enum_table or base in self.rich_enum_table
-                or base in getattr(self, "declared_type_names", ())):
-            return
-        if self.current_class and base in self.current_class.generic_params:
-            return
-        if base.endswith("_t"):
-            return
-        self._error(f"Unknown type '{base}' in cast", expr.line, expr.col)
-
-    def _collect_identifiers(self, node, names):
-        """Walk an AST subtree and collect all Identifier names.
-
-        Generic dataclasses-driven walk: every child field of every node is
-        visited (the previous hardcoded attribute list missed try/catch/
-        finally blocks, so captures inside them were dropped).
-        """
-        if node is None:
-            return
-        if isinstance(node, Identifier):
-            names.add(node.name)
-            return
-        if not dataclasses.is_dataclass(node):
-            return
-        for f in dataclasses.fields(node):
-            child = getattr(node, f.name, None)
-            if isinstance(child, (list, tuple)):
-                for item in child:
-                    if isinstance(item, (list, tuple)):
-                        for sub in item:
-                            if dataclasses.is_dataclass(sub):
-                                self._collect_identifiers(sub, names)
-                    elif dataclasses.is_dataclass(item):
-                        self._collect_identifiers(item, names)
-            elif dataclasses.is_dataclass(child):
-                self._collect_identifiers(child, names)
-
-    def _infer_spawn_return_type(self, fn_expr) -> TypeExpr:
-        """Infer the return type of a spawned callable (usually a lambda)."""
-        if isinstance(fn_expr, LambdaExpr):
-            if fn_expr.return_type:
-                return fn_expr.return_type
-            return self._infer_lambda_return(fn_expr)
-        fn_type = self._infer_type(fn_expr)
-        if fn_type and fn_type.base == "__fn_ptr" and fn_type.generic_args:
-            return fn_type.generic_args[0]
-        return TypeExpr(base="void")
+            self._record_node_type(expr, inferred)

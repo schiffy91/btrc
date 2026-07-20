@@ -1,0 +1,153 @@
+#include <assert.h>
+#include <string.h>
+
+int declarationValue = 7;
+int evaluations = 0;
+int collisionValue = 19;
+
+#define DECLARATION_DEFAULT (declarationValue + 1)
+
+int nextValue() {
+    evaluations = evaluations + 1;
+    return evaluations;
+}
+
+int collisionMethod() {
+    return 23;
+}
+
+int choose(int value = declarationValue) {
+    return value;
+}
+
+int macroDefault(int value = DECLARATION_DEFAULT) {
+    return value;
+}
+
+int chain(int first, int second = first + nextValue(),
+        int third = second + nextValue()) {
+    return first * 100 + second * 10 + third;
+}
+
+const char* declarationFunction(const char* name = __func__) {
+    return name;
+}
+
+const char* declarationFile(const char* name = __FILE__) {
+    return name;
+}
+
+int declarationLine(int line = __LINE__) {
+    return line;
+}
+
+class Item {
+    public int value;
+    public Item(int value = declarationValue) { self.value = value; }
+}
+
+class ConstructorStatics {
+    class int base = 13;
+    public int value;
+    class int seed() { return 17; }
+    public ConstructorStatics(
+            int first = ConstructorStatics.base,
+            int second = ConstructorStatics.seed()) {
+        self.value = first + second;
+    }
+}
+
+class ConstructorGlobalPrecedence {
+    public int collisionValue;
+    public int result;
+    public int collisionMethod() { return 1; }
+    public ConstructorGlobalPrecedence(
+            int first = collisionValue,
+            int second = collisionMethod()) {
+        self.result = first + second;
+    }
+}
+
+Item retainPrior(Item first, Item second = first) {
+    return second;
+}
+
+class Defaults {
+    public int base;
+    public Defaults(int base = declarationValue, int copy = base) {
+        self.base = copy;
+    }
+    public int instance(int first = self.base, int second = first + 1) {
+        return second;
+    }
+    class int staticValue(int value = declarationValue) {
+        return value;
+    }
+    public T generic<T>(T first, T second = first) {
+        return second;
+    }
+}
+
+class Box<T> {
+    public T value;
+    public Box(T first, T second = first) { self.value = second; }
+    public T method(T first = self.value, T second = first) {
+        return second;
+    }
+}
+
+class BaseDefaults {
+    public int base;
+    public BaseDefaults(int base) { self.base = base; }
+    public int inherited(int first = self.base,
+            int second = first + 1) {
+        return second;
+    }
+}
+
+class DerivedDefaults extends BaseDefaults {
+    public DerivedDefaults(int base) { self.base = base; }
+}
+
+int main() {
+    int declarationValue = 99;
+    assert(choose() == 7);
+    assert(macroDefault() == 8);
+    assert(declarationValue == 99);
+
+    evaluations = 0;
+    assert(chain(2) == 235);
+    assert(evaluations == 2);
+    evaluations = 0;
+    assert(chain(2, third=40) == 270);
+    assert(evaluations == 1);
+
+    assert(strcmp(declarationFunction(), "declarationFunction") == 0);
+    assert(strstr(declarationFile(), ".btrc") != null);
+    assert(declarationLine() > 0);
+
+    Defaults defaults = new Defaults();
+    assert(defaults.base == 7);
+    assert(defaults.instance() == 8);
+    assert(Defaults.staticValue() == 7);
+    assert(defaults.generic(4) == 4);
+    Defaults directDefaults = Defaults();
+    assert(directDefaults.base == 7);
+
+    Box<int> box = new Box<int>(5);
+    assert(box.value == 5);
+    assert(box.method() == 5);
+
+    DerivedDefaults derived = new DerivedDefaults(9);
+    assert(derived.inherited() == 10);
+
+    Item original = new Item(12);
+    Item alias = retainPrior(original);
+    assert(alias.value == 12);
+    ConstructorStatics constructorStatics = new ConstructorStatics();
+    assert(constructorStatics.value == 30);
+    ConstructorGlobalPrecedence precedence =
+        new ConstructorGlobalPrecedence();
+    assert(precedence.result == 42);
+    return 0;
+}

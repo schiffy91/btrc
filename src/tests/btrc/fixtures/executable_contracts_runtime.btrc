@@ -1,0 +1,109 @@
+int boundCalls = 0;
+int iterableCalls = 0;
+int lvalueCalls = 0;
+int alive = 0;
+
+int bound(int value) {
+    boundCalls += 1;
+    return value;
+}
+
+class Bag {
+    public int first;
+    public int second;
+
+    public Bag() {
+        self.first = 3;
+        self.second = 4;
+    }
+
+    public int get(int index) {
+        return index == 0 ? self.first : self.second;
+    }
+
+    public void set(int index, int value) {
+        if (index == 0) { self.first = value; }
+        else { self.second = value; }
+    }
+}
+
+class Sequence {
+    public int iterLen() { return 3; }
+    public int iterGet(int index) { return index + 1; }
+}
+
+Sequence makeSequence() {
+    iterableCalls += 1;
+    return new Sequence();
+}
+
+class Item {
+    public Item() { alive += 1; }
+    public void __del__() { alive -= 1; }
+}
+
+class Holder {
+    public Item item;
+    public Holder() { self.item = new Item(); }
+}
+
+Holder sharedHolder;
+
+Holder sameHolder() {
+    lvalueCalls += 1;
+    return sharedHolder;
+}
+
+class Base {
+    public int value;
+    public int read() { return self.value; }
+}
+
+class Child extends Base {
+    public Child(int value) { self.value = value; }
+
+    public int readWithLambdas() {
+        var readSelf = () => self.value;
+        var readParent = () => super.read();
+        var noResult = () => { int local = 1; local += 1; };
+        noResult();
+        return readSelf() + readParent();
+    }
+}
+
+int main() {
+    int raw[2] = {4, 5};
+    if (raw[1] != 5) { return 1; }
+
+    Bag bag = new Bag();
+    bag[1] = 8;
+    bag[1]++;
+    if (bag[0] != 3 || bag[1] != 9) { return 2; }
+
+    int iterableSum = 0;
+    for value in makeSequence() { iterableSum += value; }
+    if (iterableCalls != 1 || iterableSum != 6) { return 3; }
+
+    int rangeSum = 0;
+    for value in range(bound(5), bound(-1), bound(-2)) {
+        rangeSum += value;
+    }
+    if (boundCalls != 3 || rangeSum != 9) { return 4; }
+
+    double cforSum = 0.0;
+    int outer = 7;
+    for (var outer = 0.5; outer < 2.0; outer += 0.5) {
+        cforSum += outer;
+    }
+    if (outer != 7 || cforSum != 3.0) { return 5; }
+
+    Holder holder = new Holder();
+    sharedHolder = holder;
+    Holder deletionTarget = sameHolder();
+    delete deletionTarget.item;
+    if (lvalueCalls != 1 || alive != 0 || holder.item != null) { return 6; }
+
+    Child child = new Child(21);
+    if (child && child.readWithLambdas() == 42) { return 0; }
+    return 7;
+}

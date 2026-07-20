@@ -1,7 +1,5 @@
-/* The SAME object passed to two different `keep`-param sinks: the refcount is
- * incremented once per keep store, so the object must be released the matching
- * number of times before it is destroyed. Pins simultaneous dual ownership of
- * one object by two containers. */
+/* The same object stored by two containers has two field-owned references;
+ * each keep parameter itself is only a call-duration guard. */
 #include <assert.h>
 
 int alive = 0;
@@ -37,8 +35,7 @@ int main() {
     Obj n = new Obj(1);          // rc 1
     assert(alive == 1);
 
-    // Same object into two keep-param sinks: each store does rc++ (keep param)
-    // plus rc++ (field assign).
+    // Each field independently retains the shared object.
     a.store(n);
     b.store(n);
     assert(a.held.id == 1);
@@ -47,14 +44,12 @@ int main() {
     // Delete both containers: each destructor releases its held field once.
     delete a;
     delete b;
-    // n is still alive: the keep-param retains and the original new keep it > 0.
+    // n is still alive through its original local reference.
     assert(alive == 1);
 
-    // Drop the remaining references: keep-param retains then the original.
-    release n;                   // one outstanding retain
-    assert(alive == 1);
-    release n;                   // handle already null after first release
-    assert(alive == 1);
+    // Drop the remaining local owner; there are no hidden call-site aliases.
+    release n;
+    assert(alive == 0);
 
     print("PASS: test_shared_object_two_containers");
     return 0;

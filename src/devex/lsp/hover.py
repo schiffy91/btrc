@@ -4,7 +4,6 @@ Shows type information when hovering over identifiers, keywords,
 class names, and method calls.
 """
 
-
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
@@ -18,7 +17,7 @@ from src.compiler.python.ast_nodes import (
 )
 from src.compiler.python.tokens import Token, TokenType
 from src.devex.lsp.builtins import _MEMBER_TABLES, get_hover_markdown
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current_at
 from src.devex.lsp.utils import (
     find_token_at_position,
     find_token_index,
@@ -52,17 +51,13 @@ def _format_class_info(
         lines.append("\n**Methods:**")
         for mname, mdecl in info.methods.items():
             if isinstance(mdecl, MethodDecl):
-                params = ", ".join(
-                    f"{type_repr(p.type, class_table)} {p.name}" for p in mdecl.params
-                )
+                params = ", ".join(f"{type_repr(p.type, class_table)} {p.name}" for p in mdecl.params)
                 ret = type_repr(mdecl.return_type, class_table)
                 access = mdecl.access
                 lines.append(f"- `{access} {ret} {mname}({params})`")
 
     if info.constructor and isinstance(info.constructor, MethodDecl):
-        params = ", ".join(
-            f"{type_repr(p.type, class_table)} {p.name}" for p in info.constructor.params
-        )
+        params = ", ".join(f"{type_repr(p.type, class_table)} {p.name}" for p in info.constructor.params)
         lines.append(f"\n**Constructor:** `{name}({params})`")
 
     return "\n".join(lines)
@@ -113,9 +108,9 @@ _KEYWORD_DOCS = {
     "sizeof": "Returns the size of a type or expression in bytes.",
     "bool": "Boolean type: `true` or `false`.",
     "keep": "Marks a parameter as stored (refcount incremented at call site) "
-            "or a return type as transferring ownership to the caller.",
+    "or a return type as transferring ownership to the caller.",
     "release": "Decrements the reference count. If the count reaches zero, "
-               "the object is destroyed and memory is freed. Sets the variable to NULL.",
+    "the object is destroyed and memory is freed. Sets the variable to NULL.",
 }
 
 for _tn, _members in _MEMBER_TABLES.items():
@@ -134,15 +129,13 @@ for _tn, _members in _MEMBER_TABLES.items():
 del _tn, _members, _methods, _fields, _parts, _preview, _suffix
 
 
-def get_hover_info(
-    result: AnalysisResult, position: lsp.Position
-) -> lsp.Hover | None:
+def get_hover_info(result: AnalysisResult, position: lsp.Position) -> lsp.Hover | None:
     """Return hover information for the token at the given position."""
-    if not result.tokens:
+    if not result.tokens or not analysis_is_current_at(result, position.line):
         return None
 
     tokens = nav_tokens(result)
-    token = find_token_at_position(tokens, position)
+    token = find_token_at_position(tokens, position, result.source)
     if token is None:
         return None
 
@@ -260,11 +253,7 @@ def _try_variable_hover(
         )
         return f"```btrc\n{type_str} {name}\n```\nParameter of `{vd.owner}`"
     if vd.kind in ("local", "cfor") and isinstance(vd.node, VarDeclStmt):
-        type_str = (
-            type_repr(inferred, class_table)
-            if inferred is not None
-            else _infer_var_type(vd.node, class_table)
-        )
+        type_str = type_repr(inferred, class_table) if inferred is not None else _infer_var_type(vd.node, class_table)
         ctx = "Local variable" if vd.kind == "local" else "Loop variable"
         return f"```btrc\n{type_str} {name}\n```\n{ctx}"
     if vd.kind == "loop":

@@ -1,0 +1,64 @@
+/* Concrete constructor targets inside monomorphized generic bodies. */
+
+Node resolvedGenericConstructorParam(Node source, Node instance,
+        Analyzed analyzed) {
+    return callTargetResolvedParameter(
+        analyzed, source, genericTypeMap(analyzed, instance));
+}
+
+Vector<Node> resolvedGenericConstructorParams(
+        Node constructor, Node instance, Analyzed analyzed) {
+    return callTargetResolvedParameters(
+        analyzed, constructor.params,
+        genericTypeMap(analyzed, instance));
+}
+
+Node? resolvedGenericConstructorInstance(IRGen generator, Node call,
+        string name, Map<string, Node> varTypes) {
+    Node? instance = generator.resolvedExpressionType(call, varTypes);
+    if (instance == null || instance.base != name
+            || !generator.analyzed.genericClassTable.has(name)) {
+        return null;
+    }
+    Node declaration = generator.analyzed.genericClassTable.get(name);
+    if (instance.generic_args.len != declaration.generic_params.len) {
+        return null;
+    }
+    return instance;
+}
+
+Vector<Node> resolvedGenericConstructorCallParams(IRGen generator,
+        Node call, string name, Map<string, Node> varTypes) {
+    Vector<Node> empty = [];
+    Node? constructor = generator.analyzed.genericClassConstructor(name);
+    Node? instance = resolvedGenericConstructorInstance(
+        generator, call, name, varTypes);
+    if (constructor == null || instance == null) { return empty; }
+    return resolvedGenericConstructorParams(
+        constructor, instance, generator.analyzed);
+}
+
+IRNode lowerResolvedGenericConstructorCall(IRGen generator, Node call,
+        string name, Vector<IRNode> args, Map<string, Node> varTypes) {
+    Node? instance = resolvedGenericConstructorInstance(
+        generator, call, name, varTypes);
+    if (instance == null) {
+        generator.typedOperatorFail(
+            "cannot resolve generic constructor instance '" + name + "'");
+        return irInvalidExpr(
+            "cannot resolve generic constructor instance '" + name + "'");
+    }
+    Node? constructor = generator.analyzed.genericClassConstructor(name);
+    if (constructor != null && constructor.params.len > 0) {
+        Map<string, Node> substitutions = genericTypeMap(
+            generator.analyzed, instance);
+        Vector<IRNode> ordered = orderCallTargetArguments(
+            generator, constructor.params, substitutions,
+            call.arg_names, args, call.args, varTypes);
+        return irCall(
+            mangleGenericType(name, instance.generic_args) + "_new",
+            ordered);
+    }
+    return irCall(
+        mangleGenericType(name, instance.generic_args) + "_new", args);
+}

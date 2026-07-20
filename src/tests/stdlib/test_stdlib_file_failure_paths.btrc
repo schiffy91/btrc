@@ -9,8 +9,9 @@ int main() {
     assert(!bad.ok());
     assert(!bad.write("x"));
     assert(!bad.writeLine("x"));
-    bad.flush();        // no-op when not open; must not crash
-    bad.close();        // safe to close an unopened handle
+    assert(!bad.flush());
+    assert(bad.failed());
+    assert(bad.close()); // safe and idempotent on an unopened handle
 
     // Opening a missing file for reading: ok()==false and reads are empty.
     File missing = File("/nonexistent_dir_btrc/y.txt", "r");
@@ -20,7 +21,12 @@ int main() {
     Vector<string> none = missing.readLines();
     assert(none.len == 0);
     assert(missing.eof());      // eof() reports true on a closed/unopened handle
-    missing.close();
+    assert(missing.failed());
+    assert(missing.close());
+
+    File nullHandle = File("/nonexistent_dir_btrc/z.txt", "r");
+    nullHandle.setHandle(NULL);
+    assert(!nullHandle.ok() && nullHandle.failed());
 
     print("PASS: test_stdlib_file_failure_paths");
     return 0;

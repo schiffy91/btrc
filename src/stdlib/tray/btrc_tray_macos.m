@@ -15,6 +15,9 @@
 #import "btrc_tray.h"
 
 #import <Cocoa/Cocoa.h>
+#include <limits.h>
+#include <stdint.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -28,10 +31,10 @@
 @public
     NSStatusItem* statusItem;
     NSMenu*       menu;
-    NSMutableArray<NSString*>* commands;  /* command string per menu item */
+    NSString*     title;
     char*         pendingCommand;         /* last activated command (C-owned) */
     char*         returnedCommand;        /* last command returned to C caller */
-    BOOL          shouldQuit;
+    atomic_bool   shouldQuit;
 }
 - (void)onItem:(id)sender;
 @end
@@ -42,10 +45,10 @@
     if (self) {
         self->statusItem = nil;
         self->menu = nil;
-        self->commands = [[NSMutableArray alloc] init];
+        self->title = @"";
         self->pendingCommand = NULL;
         self->returnedCommand = NULL;
-        self->shouldQuit = NO;
+        atomic_init(&self->shouldQuit, false);
     }
     return self;
 }
@@ -58,8 +61,14 @@
     if (cmd == nil) { return; }
     const char* utf8 = [cmd UTF8String];
     if (utf8 == NULL) { return; }
-    if (self->pendingCommand) { free(self->pendingCommand); }
-    self->pendingCommand = strdup(utf8);
+    size_t length = strlen(utf8);
+    if (length == SIZE_MAX) { return; }
+    size_t size = length + 1;
+    char* replacement = (char*)malloc(size);
+    if (!replacement) { return; }
+    memcpy(replacement, utf8, size);
+    free(self->pendingCommand);
+    self->pendingCommand = replacement;
 }
 @end
 
@@ -79,10 +88,12 @@ void* btrc_tray_create(char* title) {
         NSStatusBar* bar = [NSStatusBar systemStatusBar];
         if (bar == nil) { return NULL; }
         BtrcTrayTarget* t = [[BtrcTrayTarget alloc] init];
+        if (t == nil) { return NULL; }
         t->statusItem = [bar statusItemWithLength:NSVariableStatusItemLength];
         if (t->statusItem == nil) { return NULL; }
         NSString* ttl = title ? [NSString stringWithUTF8String:title] : @"";
         if (ttl == nil) { ttl = @""; }
+        t->title = ttl;
         /* Show the title text until/unless an icon is set. */
         if ([t->statusItem respondsToSelector:@selector(button)] &&
             t->statusItem.button != nil) {
@@ -91,6 +102,11 @@ void* btrc_tray_create(char* title) {
             t->statusItem.title = ttl;
         }
         t->menu = [[NSMenu alloc] initWithTitle:ttl];
+        if (t->menu == nil) {
+            [bar removeStatusItem:t->statusItem];
+            t->statusItem = nil;
+            return NULL;
+        }
         [t->menu setAutoenablesItems:NO];
         /* Retain across the C boundary; released in btrc_tray_destroy. */
         return (void*)CFBridgingRetain(t);
@@ -101,10 +117,21 @@ void btrc_tray_set_icon(void* tray, char* icon_path) {
     if (!tray) { return; }
     @autoreleasepool {
         BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
-        if (!icon_path || icon_path[0] == '\0') { return; }
-        NSString* path = [NSString stringWithUTF8String:icon_path];
-        NSImage* img = [[NSImage alloc] initWithContentsOfFile:path];
-        if (img == nil) { return; }
+        NSString* path = (icon_path && icon_path[0])
+            ? [NSString stringWithUTF8String:icon_path]
+            : nil;
+        NSImage* img = path ? [[NSImage alloc] initWithContentsOfFile:path] : nil;
+        if (img == nil) {
+            if ([t->statusItem respondsToSelector:@selector(button)] &&
+                t->statusItem.button != nil) {
+                t->statusItem.button.image = nil;
+                t->statusItem.button.title = t->title;
+            } else {
+                t->statusItem.image = nil;
+                t->statusItem.title = t->title;
+            }
+            return;
+        }
         /* Template images render as crisp monochrome menu-bar glyphs that adapt
          * to light/dark mode; scale to the standard 18pt menu-bar height. */
         [img setTemplate:YES];
@@ -125,6 +152,7 @@ void btrc_tray_set_tooltip(void* tray, char* tooltip) {
     @autoreleasepool {
         BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
         NSString* tip = tooltip ? [NSString stringWithUTF8String:tooltip] : @"";
+        if (tip == nil) { tip = @""; }
         if ([t->statusItem respondsToSelector:@selector(button)] &&
             t->statusItem.button != nil) {
             t->statusItem.button.toolTip = tip;
@@ -138,16 +166,19 @@ int btrc_tray_add_item(void* tray, char* label, char* command, bool enabled) {
     if (!tray) { return -1; }
     @autoreleasepool {
         BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
+        if (t->menu == nil || [t->menu numberOfItems] >= INT_MAX) { return -1; }
         NSString* lbl = label ? [NSString stringWithUTF8String:label] : @"";
         NSString* cmd = command ? [NSString stringWithUTF8String:command] : @"";
+        if (lbl == nil) { lbl = @""; }
+        if (cmd == nil) { cmd = @""; }
         NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:lbl
                                                       action:@selector(onItem:)
                                                keyEquivalent:@""];
+        if (item == nil) { return -1; }
         [item setTarget:t];
         [item setRepresentedObject:cmd];
         [item setEnabled:(enabled ? YES : NO)];
         [t->menu addItem:item];
-        [t->commands addObject:cmd];
         return (int)([t->menu numberOfItems] - 1);
     }
 }
@@ -182,7 +213,9 @@ bool btrc_tray_run_iteration(void* tray, int timeout_ms) {
     if (!tray) { return false; }
     @autoreleasepool {
         BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
-        if (t->shouldQuit) { return false; }
+        if (atomic_load_explicit(&t->shouldQuit, memory_order_acquire)) {
+            return false;
+        }
         NSApplication* app = [NSApplication sharedApplication];
         NSDate* until;
         if (timeout_ms < 0) {
@@ -199,7 +232,7 @@ bool btrc_tray_run_iteration(void* tray, int timeout_ms) {
             [app sendEvent:ev];
             until = [NSDate dateWithTimeIntervalSinceNow:0];  /* drain backlog */
         }
-        return !t->shouldQuit;
+        return !atomic_load_explicit(&t->shouldQuit, memory_order_acquire);
     }
 }
 
@@ -218,13 +251,27 @@ char* btrc_tray_take_command(void* tray) {
 bool btrc_tray_should_quit(void* tray) {
     if (!tray) { return true; }
     BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
-    return t->shouldQuit ? true : false;
+    return atomic_load_explicit(&t->shouldQuit, memory_order_acquire);
 }
 
 void btrc_tray_request_quit(void* tray) {
     if (!tray) { return; }
-    BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
-    t->shouldQuit = YES;
+    @autoreleasepool {
+        BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
+        atomic_store_explicit(&t->shouldQuit, true, memory_order_release);
+        NSEvent* wake = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                          location:NSZeroPoint
+                                     modifierFlags:0
+                                         timestamp:0
+                                      windowNumber:0
+                                           context:nil
+                                           subtype:0
+                                             data1:0
+                                             data2:0];
+        if (wake) {
+            [[NSApplication sharedApplication] postEvent:wake atStart:NO];
+        }
+    }
 }
 
 void btrc_tray_destroy(void* tray) {
@@ -244,7 +291,7 @@ void btrc_tray_destroy(void* tray) {
             t->returnedCommand = NULL;
         }
         t->menu = nil;
-        t->commands = nil;
+        t->title = nil;
         /* CFBridgingRelease transferred ownership; ARC frees `t` here. */
     }
 }

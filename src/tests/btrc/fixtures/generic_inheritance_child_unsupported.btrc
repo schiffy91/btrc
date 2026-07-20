@@ -1,0 +1,9 @@
+class InheritanceBase {
+    public InheritanceBase() {}
+}
+
+class GenericInheritanceChild<T> extends InheritanceBase {
+    public GenericInheritanceChild() {}
+}
+
+int main() { return 0; }

@@ -1,10 +1,12 @@
 """Shared-state runtime helpers for the precompiled-stdlib archive.
 
-A few runtime helpers carry *process-global* mutable state that must be a single
-instance shared by the archive and every program that links it (the try/catch
-stacks, the cleanup stack, the destroyed-pointer guard). The archive defines
-them once with external linkage and the public header publishes matching
-declarations.
+A few runtime helper groups carry *process-global* mutable state that must be a
+single instance shared by the archive and every program that links it (the
+try/catch stacks, the cleanup stack, the complete ARC runtime domain, and the
+managed-string registry). Every pointer, index/count,
+capacity, lock, and callback-table member of each group must have the same
+linkage. The archive defines them once with external linkage and the public
+header publishes matching declarations.
 
 To prevent the declarations from drifting out of sync with the real helper text
 (the bug class this module exists to kill — e.g. ``__btrc_try_top`` gaining a
@@ -15,19 +17,146 @@ are *derived* from each helper's actual ``c_source`` rather than hardcoded.
 
 from __future__ import annotations
 
-from .ir.emitter import _brace_section_prototype
+# Helper-level ownership groups whose state must be a single shared instance.
+# Keeping these as named groups makes a pointer/count/capacity split visible in
+# review instead of relying on an unrelated flat allow-list.
+SHARED_STATE_HELPER_GROUPS = {
+    "try_stack": frozenset(
+        {
+            "__btrc_try_level",
+            "__btrc_trycatch_globals",
+            "__btrc_try_capacity",
+            "__btrc_launder_state",
+        }
+    ),
+    "cleanup_stack": frozenset(
+        {
+            "__btrc_cleanup_types",
+            "__btrc_cleanup_capacity",
+        }
+    ),
+    "arc_runtime": frozenset(
+        {
+            "__btrc_arc_lock_state",
+            "__btrc_arc_shutdown_state",
+            "__btrc_arc_active_drains_state",
+            "__btrc_arc_active_unwinds_state",
+            "__btrc_arc_snapshot_state",
+            "__btrc_arc_snapshot_gate_state",
+            "__btrc_arc_abandon_callback_state",
+            "__btrc_arc_abandon_queue_state",
+            "__btrc_arc_topology_state",
+            "__btrc_arc_topology_depth_state",
+            "__btrc_arc_deferred_state",
+            "__btrc_destroyed_tracking",
+            "__btrc_destroyed_capacity",
+            "__btrc_suspect_state",
+            "__btrc_suspect_capacity",
+            "__btrc_arc_reverse_state",
+            "__btrc_cycle_collector_state",
+        }
+    ),
+    "string_registry": frozenset(
+        {
+            "__btrc_string_registry",
+            "__btrc_string_registry_lock_state",
+            "__btrc_string_registry_lock",
+            "__btrc_string_registry_hash",
+            "__btrc_string_registry_slot",
+            "__btrc_string_registry_count",
+            "__btrc_string_registry_resize",
+            "__btrc_string_live_count",
+        }
+    ),
+}
+SHARED_STATE_HELPER_NAMES = frozenset().union(*SHARED_STATE_HELPER_GROUPS.values())
 
-# Names of the helpers whose state must be a single shared instance.
-SHARED_STATE_HELPER_NAMES = frozenset({
-    "__btrc_trycatch_globals",
-    # The cleanup stack also carries process-global mutable state that the
-    # exception-cleanup machinery (defined in the archive) walks, so it is a
-    # single instance too. Its typedefs are published verbatim in the header.
-    "__btrc_cleanup_types",
-    # Double-free / use-after-destroy guard: an object freed in one TU must be
-    # seen as destroyed by every other TU, so this table cannot be per-TU.
-    "__btrc_destroyed_tracking",
-})
+# A shared state group is useful across translation units only through its
+# stable mutation/lifecycle surface.  Root these entry points deliberately so
+# archive headers never depend on whichever stdlib method happened to call one
+# during the current build.
+SHARED_STATE_API_ROOTS = {
+    "try_stack": frozenset(
+        {
+            "__btrc_push_try",
+            "__btrc_try_state_cleanup",
+        }
+    ),
+    "cleanup_stack": frozenset(
+        {
+            "__btrc_register_cleanup",
+            "__btrc_register_direct_cleanup",
+            "__btrc_try_state_cleanup",
+        }
+    ),
+    "arc_runtime": frozenset(
+        {
+            "__btrc_arc_retain",
+            "__btrc_arc_retain_edge",
+            "__btrc_arc_adopt_edge",
+            "__btrc_arc_unlink_edge",
+            "__btrc_arc_replace_edge",
+            "__btrc_arc_release",
+            "__btrc_arc_release_edge",
+            "__btrc_arc_release_acyclic",
+            "__btrc_arc_destroy_slot",
+            "__btrc_arc_destroy_edge",
+            "__btrc_arc_abandon",
+            "__btrc_arc_invalidate",
+            "__btrc_suspect",
+            "__btrc_collect_cycles",
+            "__btrc_poll_cycles",
+            "__btrc_flush_cycles",
+            "__btrc_arc_thread_state_cleanup",
+            "__btrc_cycle_state_cleanup",
+            "__btrc_mark_destroyed",
+            "__btrc_is_destroyed",
+            "__btrc_arc_topology_begin",
+            "__btrc_arc_topology_complete",
+            "__btrc_arc_topology_cleanup",
+        }
+    ),
+    "string_registry": frozenset(
+        {
+            "__btrc_string_retain",
+            "__btrc_string_release",
+            "__btrc_string_live_count",
+        }
+    ),
+}
+
+
+def complete_shared_helpers(helper_decls: list) -> tuple[list, frozenset[str]]:
+    """Complete every reached shared-state group and its archive-owned API.
+
+    API dependencies can reach another mutable-state group, so completion must
+    iterate to a fixed point. Callers receive dependency-ordered declarations
+    plus the exact state/API helpers that need one external archive definition.
+    """
+    helper_roots = {helper.name for helper in helper_decls}
+    active_groups = {group_name for group_name, group in SHARED_STATE_HELPER_GROUPS.items() if helper_roots & group}
+    if not active_groups:
+        return helper_decls, frozenset()
+
+    from .ir.gen.helpers import helper_decls_for_roots
+    from .stdlib_archive_helpers import ARCHIVE_HELPER_API_GROUPS
+
+    completed_roots = set(helper_roots)
+    while True:
+        declarations = helper_decls_for_roots(completed_roots)
+        reachable = {helper.name for helper in declarations}
+        active_groups = {group_name for group_name, group in SHARED_STATE_HELPER_GROUPS.items() if reachable & group}
+        active_api_groups = {group_name for group_name, group in ARCHIVE_HELPER_API_GROUPS.items() if reachable & group}
+        shared_required = set()
+        for group_name in active_groups:
+            shared_required.update(SHARED_STATE_HELPER_GROUPS[group_name])
+            shared_required.update(SHARED_STATE_API_ROOTS[group_name])
+        required = set(shared_required)
+        for group_name in active_api_groups:
+            required.update(ARCHIVE_HELPER_API_GROUPS[group_name])
+        if required <= completed_roots:
+            return declarations, frozenset(required & reachable)
+        completed_roots.update(required)
 
 
 def externize_toplevel(text: str) -> str:
@@ -38,9 +167,9 @@ def externize_toplevel(text: str) -> str:
     out = []
     for line in text.split("\n"):
         if line.startswith("static inline "):
-            out.append(line[len("static inline "):])
+            out.append(line[len("static inline ") :])
         elif line.startswith("static "):
-            out.append(line[len("static "):])
+            out.append(line[len("static ") :])
         else:
             out.append(line)
     return "\n".join(out)
@@ -57,8 +186,9 @@ def _split_toplevel_units(c_source: str) -> list[str]:
     depth = 0
     for line in c_source.split("\n"):
         stripped = line.strip()
-        if not cur and (not stripped or stripped.startswith("/*")
-                        or stripped.startswith("*") or stripped.startswith("//")):
+        if not cur and (
+            not stripped or stripped.startswith("/*") or stripped.startswith("*") or stripped.startswith("//")
+        ):
             # Leading comment / blank line before any unit content — skip it.
             continue
         cur.append(line)
@@ -69,6 +199,42 @@ def _split_toplevel_units(c_source: str) -> list[str]:
     if cur:
         units.append("\n".join(cur))
     return units
+
+
+def _function_definition_prototype(unit: str) -> str | None:
+    """Derive a prototype from one raw helper function definition."""
+
+    brace = unit.find("{")
+    if brace < 0:
+        return None
+    signature = unit[:brace].rstrip()
+    if "(" not in signature or signature.endswith("="):
+        return None
+    return signature + ";"
+
+
+def inline_toplevel_functions(c_source: str) -> str:
+    """Make header-local helper function definitions safe when unused.
+
+    Archive APIs move to the implementation, but their private dependencies
+    remain available to both the implementation and program translation units
+    through the public header. C11 ``static inline`` preserves their existing
+    per-translation-unit linkage without triggering ``-Wunused-function``.
+    """
+    out = []
+    for unit in _split_toplevel_units(c_source):
+        if _function_definition_prototype(unit) is not None:
+            lines = unit.split("\n")
+            for index, line in enumerate(lines):
+                if line.startswith("static inline "):
+                    break
+                signature = line.split("{", 1)[0]
+                if line.startswith("static ") and "(" in signature and "=" not in signature:
+                    lines[index] = "static inline " + line[len("static ") :]
+                    break
+            unit = "\n".join(lines)
+        out.append(unit)
+    return "\n".join(out)
 
 
 def derive_shared_decls(c_source: str) -> str:
@@ -82,7 +248,7 @@ def derive_shared_decls(c_source: str) -> str:
         if unit.lstrip().startswith("typedef"):
             out.append(unit)
             continue
-        proto = _brace_section_prototype(unit)
+        proto = _function_definition_prototype(unit)
         if proto is not None:
             # Function definition -> prototype (already extern by default).
             out.append(externize_toplevel(proto))

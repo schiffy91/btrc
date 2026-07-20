@@ -1,6 +1,12 @@
-# btrc Remediation Plan
+# btrc Remediation Plan (historical)
 
-Status: PROPOSAL (2026-06-12). Consolidates the full-codebase audit: four
+Status: **SUPERSEDED**. This 2026-06-12 proposal is retained as an audit trail;
+its findings and test counts describe the repository at that date and must not
+be read as current behavior. Current architectural rules live in `AGENTS.md`,
+current intentional limitations live in `docs/known-language-gaps.md`, and
+`make help`/the executable test suites are the source of truth for verification.
+
+The original proposal consolidated the full-codebase audit: four
 directory audits (compiler, devex, language, stdlib) plus the LSP-v2 session
 review. ~100 findings; every item marked **[proven]** was reproduced by
 executing the actual compiler/LSP in a mirror, not just read.

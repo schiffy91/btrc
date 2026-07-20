@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import os
-import pickle
 import threading
-import time
 from collections import OrderedDict
+from contextlib import suppress
 from dataclasses import dataclass
 
+from src.compiler.python import pkg
 from src.compiler.python.ast_nodes import Program
 from src.compiler.python.cache_keys import resolve_cache_dir
 from src.compiler.python.frontend import (
@@ -24,7 +24,17 @@ from src.compiler.python.frontend import (
     _get_stdlib_dir,
     import_spec_paths,
 )
+from src.compiler.python.frontend_limits import ResolutionBudget
+from src.compiler.python.source_io import MAX_SOURCE_BYTES, SourceReadError, read_source
+from src.devex.lsp.package_resolution import PackageResolver
+from src.devex.lsp.unit_cache import (
+    cache_path,
+    load_unit,
+    prune_unit_cache,
+    store_unit,
+)
 from src.devex.lsp.units import _UNIT_CACHE_VERSION, FileUnit, parse_unit
+from src.devex.lsp.workspace_cache import WorkspaceCacheMixin, path_identity
 
 
 @dataclass
@@ -41,7 +51,7 @@ class Composition:
         return [self.active] + [u for u in self.imported if u.tokens]
 
 
-class Workspace:
+class Workspace(WorkspaceCacheMixin):
     """Owns the unit caches and composes programs for analysis.
 
     ``overlay_provider`` lets the server supply unsaved editor buffers for
@@ -55,53 +65,52 @@ class Workspace:
     _STDLIB_BASE_CACHE_MAX = 4
 
     def __init__(self):
-        self._file_cache: dict[str, tuple[tuple, FileUnit]] = {}  # path -> (sig, unit)
+        self._init_caches()
+        self._package_resolver = PackageResolver()
         self._stdlib_units: list[FileUnit] | None = None
         self._stdlib_lock = threading.Lock()  # one stdlib build/analysis at a time
         # included paths -> AnalyzedProgram, LRU-capped (see _STDLIB_BASE_CACHE_MAX)
         self._stdlib_base_cache: OrderedDict[frozenset, object] = OrderedDict()
-        self.snapshot_cache: dict[str, tuple] = {}  # path -> (fingerprint, AnalysisResult)
         self.overlay_provider = None  # Callable[[str], str | None]
-
-    # -- file units ---------------------------------------------------------
 
     def parse_active(self, path: str, source: str) -> FileUnit:
         """Parse the active document's live buffer (cached by content hash)."""
         path = os.path.abspath(path)
-        sig = ("active", hashlib.sha256(source.encode()).hexdigest())
-        cached = self._file_cache.get(path)
+        sig = ("active", _live_source_digest(source))
+        key = path_identity(path)
+        cached = self._cached_file(key)
         if cached and cached[0] == sig:
             return cached[1]
         unit = parse_unit(path, source)
-        self._file_cache[path] = (sig, unit)
+        self._store_file(key, sig, unit)
         return unit
 
     def get_file_unit(self, path: str) -> FileUnit | None:
         path = os.path.abspath(path)
+        key = path_identity(path)
         overlay = self.overlay_provider(path) if self.overlay_provider else None
         if overlay is not None:
-            sig = ("overlay", hashlib.sha256(overlay.encode()).hexdigest())
-            cached = self._file_cache.get(path)
+            try:
+                sig = ("overlay", _live_source_digest(overlay))
+            except ValueError:
+                return None
+            cached = self._cached_file(key)
             if cached and cached[0] == sig:
                 return cached[1]
             unit = parse_unit(path, overlay)
-            self._file_cache[path] = (sig, unit)
+            self._store_file(key, sig, unit)
             return unit
         try:
-            st = os.stat(path)
-            sig = ("disk", st.st_mtime_ns, st.st_size)
-            cached = self._file_cache.get(path)
-            if cached and cached[0] == sig:
-                return cached[1]
-            with open(path) as f:
-                text = f.read()
-        except OSError:
+            text = read_source(path)
+        except SourceReadError:
             return None
+        sig = ("disk", hashlib.sha256(text.encode()).hexdigest())
+        cached = self._cached_file(key)
+        if cached and cached[0] == sig:
+            return cached[1]
         unit = parse_unit(path, text)
-        self._file_cache[path] = (sig, unit)
+        self._store_file(key, sig, unit)
         return unit
-
-    # -- stdlib units ---------------------------------------------------------
 
     def stdlib_units(self) -> list[FileUnit]:
         # Fast path without the lock: assignment below is atomic and final.
@@ -111,8 +120,7 @@ class Workspace:
         with self._stdlib_lock:
             if self._stdlib_units is None:  # warmup + first didOpen race: build once
                 loaded = [
-                    self._load_stdlib_unit(os.path.join(_get_stdlib_dir(), fname))
-                    for fname in _discover_stdlib_files()
+                    self._load_stdlib_unit(os.path.join(_get_stdlib_dir(), fname)) for fname in _discover_stdlib_files()
                 ]
                 # Single atomic assignment of the filtered list: a concurrent
                 # reader never observes None placeholders.
@@ -121,47 +129,37 @@ class Workspace:
 
     def _load_stdlib_unit(self, path: str) -> FileUnit | None:
         try:
-            with open(path) as f:
-                source = f.read()
-        except OSError:
+            source = read_source(path)
+        except SourceReadError:
             return None
-        key = hashlib.sha256(f"unitv{_UNIT_CACHE_VERSION}\n{source}".encode()).hexdigest()
-        cache_path = os.path.join(_cache_dir(), f"lspunit-{key}.pkl")
-        if os.path.exists(cache_path):
-            try:
-                with open(cache_path, "rb") as f:
-                    unit = pickle.load(f)
-                for decl in unit.decls:
-                    decl.source_file = unit.path
-                return unit
-            except Exception:
-                pass  # corrupt/incompatible: reparse below
+        content_hash = hashlib.sha256(source.encode()).hexdigest()
+        cache_dir = None
+        with suppress(OSError):
+            cache_dir = _cache_dir()
+        cached_path = None
+        if cache_dir is not None:
+            prune_unit_cache(cache_dir)
+            cached_path = cache_path(cache_dir, _UNIT_CACHE_VERSION, source)
+            cached = load_unit(cached_path, path, content_hash)
+            if cached is not None:
+                return cached
         unit = parse_unit(path, source)
-        _prune_unit_cache(_cache_dir())
-        slim = FileUnit(
-            path=unit.path,
-            source="",  # stdlib source not needed post-parse; keeps pickles small
-            content_hash=unit.content_hash,
-            tokens=[],  # stdlib tokens not used by features
-            decls=unit.decls,
-            import_specs=[],
-            defined_names=unit.defined_names,
-        )
-        try:
-            with open(cache_path, "wb") as f:
-                pickle.dump(slim, f, protocol=pickle.HIGHEST_PROTOCOL)
-        except Exception:
-            pass
-        return slim
-
-    # -- composition ----------------------------------------------------------
+        if unit.error is None and cached_path is not None:
+            with suppress(OSError, TypeError, ValueError):
+                store_unit(cached_path, unit)
+        unit.source = ""
+        unit.tokens = []
+        unit.import_specs = []
+        return unit
 
     def compose(self, active: FileUnit) -> Composition:
         imported: list[FileUnit] = []
         import_errors: list[tuple[int, str]] = []
-        included = {active.path}
+        included = {path_identity(active.path)}
+        budget = ResolutionBudget()
+        budget.enter(active.source, active.path, 0)
 
-        def visit(unit: FileUnit, attribute_line: int):
+        def visit(unit: FileUnit, attribute_line: int, depth: int = 0):
             for line, spec in unit.import_specs:
                 attr = line if unit is active else attribute_line
                 try:
@@ -171,21 +169,34 @@ class Workspace:
                     continue
                 for p in paths:
                     ap = os.path.abspath(p)
-                    if ap in included or ap.endswith(".c"):
+                    identity = path_identity(ap)
+                    if identity in included or ap.endswith(".c"):
                         continue
-                    included.add(ap)
+                    included.add(identity)
                     u = self.get_file_unit(ap)
                     if u is None:
                         import_errors.append((attr, f"cannot read import '{spec}'"))
                         continue
+                    try:
+                        budget.enter(u.source, ap, depth + 1)
+                    except IncludeResolutionError as error:
+                        import_errors.append((attr, str(error)))
+                        continue
                     if u.error:
-                        import_errors.append(
-                            (attr, f"imported file '{os.path.basename(ap)}': {u.error}")
-                        )
+                        import_errors.append((attr, f"imported file '{os.path.basename(ap)}': {u.error}"))
                     imported.append(u)
-                    visit(u, attr)
+                    visit(u, attr, depth + 1)
 
-        visit(active, 1)
+        try:
+            packages = self._package_resolver.packages_for(active.path)
+        except IncludeResolutionError as error:
+            packages = {}
+            import_errors.append((1, str(error)))
+        # Package state is document-root-local. ContextVar scoping prevents one
+        # workspace/project from affecting another concurrent LSP analysis and
+        # restores any embedding host's prior context after composition.
+        with pkg.package_context(packages):
+            visit(active, 1)
 
         user_names = set(active.defined_names)
         for u in imported:
@@ -206,8 +217,6 @@ class Workspace:
             program=Program(declarations=decls),
             import_errors=import_errors,
         )
-
-    # -- analysis -------------------------------------------------------------
 
     def analyze(self, comp: Composition):
         """Semantic analysis over the composed program.
@@ -277,26 +286,12 @@ def _cache_dir() -> str:
     return resolve_cache_dir()
 
 
-_UNIT_CACHE_MAX_AGE = 30 * 24 * 3600  # seconds; orphaned pickles outlive a version flip
-_pruned_dirs: set[str] = set()
-
-
-def _prune_unit_cache(cache_dir: str) -> None:
-    """Best-effort, once per process per dir: drop unit pickles older than 30 days."""
-    if cache_dir in _pruned_dirs:
-        return
-    _pruned_dirs.add(cache_dir)
-    cutoff = time.time() - _UNIT_CACHE_MAX_AGE
+def _live_source_digest(source: str) -> str:
+    """Hash one editor buffer after enforcing the compiler's source limit."""
     try:
-        names = os.listdir(cache_dir)
-    except OSError:
-        return
-    for name in names:
-        if not (name.startswith("lspunit-") and name.endswith(".pkl")):
-            continue
-        path = os.path.join(cache_dir, name)
-        try:
-            if os.path.getmtime(path) < cutoff:
-                os.remove(path)
-        except OSError:
-            pass  # raced/permission: stale entries are harmless
+        encoded = source.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ValueError("document contains invalid Unicode") from error
+    if len(encoded) > MAX_SOURCE_BYTES:
+        raise ValueError(f"document exceeds the {MAX_SOURCE_BYTES}-byte source limit")
+    return hashlib.sha256(encoded).hexdigest()

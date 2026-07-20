@@ -20,15 +20,16 @@ def _has(msgs, sub):
 
 
 def test_super_in_non_extending_class_is_error():
-    src = ("class A { public int v; public A() { self.v = super.x; } }\n"
-           "int main() { return 0; }")
+    src = "class A { public int v; public A() { self.v = super.x; } }\nint main() { return 0; }"
     assert _has(errors(src), "super")
 
 
 def test_super_in_extending_class_is_ok():
-    src = ("class A { public int v; public A() { self.v = 1; } }\n"
-           "class B extends A { public int w; public B() { self.w = 2; } }\n"
-           "int main() { B b = new B(); return b.w; }")
+    src = (
+        "class A { public int v; public A() { self.v = 1; } }\n"
+        "class B extends A { public int w; public B() { self.w = 2; } }\n"
+        "int main() { B b = new B(); return b.w; }"
+    )
     # super is valid here (B extends A); no 'super' diagnostic
     assert not _has(errors(src), "cannot be used")
 
@@ -52,16 +53,16 @@ def test_sizeof_type_operand_analyzes():
     assert errors(src) == []
 
 
-def test_interface_value_accepts_implementer():
-    # Assigning a concrete implementer to an interface-typed slot exercises the
-    # interface subtype check.
+def test_interface_value_fails_closed():
+    # Implementations are checked structurally, but interface-typed runtime
+    # values are unavailable in the static-dispatch object model.
     src = """
     interface Speaker { int speak(); }
     class Dog implements Speaker { public int speak() { return 1; } }
     int call(Speaker s) { return s.speak(); }
     int main() { Dog d = new Dog(); return call(d); }
     """
-    assert errors(src) == []
+    assert any("cannot be used as a runtime value" in error for error in errors(src))
 
 
 def test_subclass_accepted_where_base_expected():

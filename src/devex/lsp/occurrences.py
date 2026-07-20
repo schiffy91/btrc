@@ -25,9 +25,10 @@ from dataclasses import dataclass
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import Occurrence
-from src.compiler.python.ast_nodes import Identifier
+from src.compiler.python.ast_nodes import Identifier, TypeExpr
 from src.devex.lsp.diagnostics import AnalysisResult
 from src.devex.lsp.utils import active_decls, find_token_at_position, nav_tokens
+from src.devex.lsp.var_scopes import collect_lexical_vars, find_visible_var_def
 
 # (file | None, line, col) — the canonical key identifying a definition.
 DefSite = tuple
@@ -43,20 +44,37 @@ class OccurrenceIndex:
     by_def_site: dict[DefSite, list[tuple[int, int]]]
     # (line, col) [1-based] -> analyzer-inferred TypeExpr for that identifier
     type_by_position: dict[tuple[int, int], object]
+    # Definition site -> file-qualified identifier uses across active + imports.
+    resolved_by_def_site: dict[DefSite, list[tuple[str | None, int, int]]]
+    # Syntactic type references, which are TypeExpr nodes rather than Identifier.
+    type_positions: dict[str, list[tuple[str | None, int, int]]]
 
 
 def _occ_def_site(occ: Occurrence) -> DefSite:
     return (occ.def_file, occ.def_line, occ.def_col)
 
 
-def _collect_identifiers(node, occ_map: dict[int, Occurrence], out: list) -> None:
-    """Append (Identifier, Occurrence) for every recorded identifier in *node*."""
+def _collect_nodes(
+    node,
+    file: str | None,
+    occ_map: dict[int, Occurrence],
+    identifiers: list,
+    type_positions: dict,
+) -> None:
+    """Collect resolved identifiers and syntactic type sites from one unit."""
     if node is None:
         return
     if isinstance(node, Identifier):
         occ = occ_map.get(id(node))
         if occ is not None:
-            out.append((node, occ))
+            identifiers.append((file, node, occ))
+        return
+    if isinstance(node, TypeExpr):
+        if node.base and node.line and node.col:
+            type_positions.setdefault(node.base, []).append((file, node.line, node.col))
+        for argument in node.generic_args:
+            _collect_nodes(argument, file, occ_map, identifiers, type_positions)
+        _collect_nodes(node.array_size, file, occ_map, identifiers, type_positions)
         return
     if not dataclasses.is_dataclass(node):
         return
@@ -66,11 +84,11 @@ def _collect_identifiers(node, occ_map: dict[int, Occurrence], out: list) -> Non
             for item in child:
                 if isinstance(item, (list, tuple)):
                     for sub in item:
-                        _collect_identifiers(sub, occ_map, out)
+                        _collect_nodes(sub, file, occ_map, identifiers, type_positions)
                 else:
-                    _collect_identifiers(item, occ_map, out)
+                    _collect_nodes(item, file, occ_map, identifiers, type_positions)
         else:
-            _collect_identifiers(child, occ_map, out)
+            _collect_nodes(child, file, occ_map, identifiers, type_positions)
 
 
 def build_index(result: AnalysisResult) -> OccurrenceIndex:
@@ -88,25 +106,62 @@ def build_index(result: AnalysisResult) -> OccurrenceIndex:
     by_position: dict[tuple[int, int], Occurrence] = {}
     by_def_site: dict[DefSite, list[tuple[int, int]]] = {}
     type_by_position: dict[tuple[int, int], object] = {}
+    resolved_by_def_site: dict[DefSite, list[tuple[str | None, int, int]]] = {}
+    type_positions: dict[str, list[tuple[str | None, int, int]]] = {}
 
-    if occ_map:
-        pairs: list = []
-        for decl in active_decls(result):
-            _collect_identifiers(decl, occ_map, pairs)
-        for node, occ in pairs:
-            if not node.line:
-                continue
-            pos = (node.line, node.col)
+    pairs: list = []
+    active = active_decls(result)
+    lexical_vars = collect_lexical_vars(active, result.tokens)
+    for decl in active:
+        _collect_nodes(decl, result.path or None, occ_map, pairs, type_positions)
+    for unit in result.units:
+        if unit.path == result.path:
+            continue
+        for decl in unit.decls:
+            _collect_nodes(decl, unit.path, occ_map, pairs, type_positions)
+    for file, node, occ in pairs:
+        if not node.line:
+            continue
+        pos = (node.line, node.col)
+        site = _occ_def_site(occ)
+        lexical_type = None
+        if file in (None, result.path):
+            var_def = find_visible_var_def(
+                lexical_vars,
+                node.name,
+                node.line,
+                node.col,
+            )
+            if var_def is not None:
+                lexical_site = (
+                    result.path or None,
+                    var_def.line,
+                    var_def.col,
+                )
+                if lexical_site != site:
+                    occ = Occurrence(
+                        kind=var_def.kind,
+                        name=node.name,
+                        def_file=lexical_site[0],
+                        def_line=lexical_site[1],
+                        def_col=lexical_site[2],
+                    )
+                    site = lexical_site
+                    lexical_type = getattr(var_def.node, "type", None)
+        resolved_by_def_site.setdefault(site, []).append((file, *pos))
+        if file in (None, result.path):
             by_position[pos] = occ
-            by_def_site.setdefault(_occ_def_site(occ), []).append(pos)
-            inferred = node_types.get(id(node))
-            if inferred is not None:
-                type_by_position[pos] = inferred
+            by_def_site.setdefault(site, []).append(pos)
+        inferred = lexical_type or node_types.get(id(node))
+        if inferred is not None and file in (None, result.path):
+            type_by_position[pos] = inferred
 
     index = OccurrenceIndex(
         by_position=by_position,
         by_def_site=by_def_site,
         type_by_position=type_by_position,
+        resolved_by_def_site=resolved_by_def_site,
+        type_positions=type_positions,
     )
     result._caches["occ_index"] = index
     return index
@@ -116,13 +171,18 @@ def occurrence_at(result: AnalysisResult, position: lsp.Position) -> Occurrence 
     """The analyzer-resolved occurrence for the identifier at *position*, or None."""
     if result.analyzed is None or not result.tokens:
         return None
-    index = build_index(result)
-    if not index.by_position:
+    token = find_token_at_position(nav_tokens(result), position, result.source)
+    return occurrence_for_token(result, token)
+
+
+def occurrence_for_token(
+    result: AnalysisResult,
+    token,
+) -> Occurrence | None:
+    """Return an occurrence for an already-resolved active-file token."""
+    if token is None or result.analyzed is None:
         return None
-    token = find_token_at_position(nav_tokens(result), position)
-    if token is None:
-        return None
-    return index.by_position.get((token.line, token.col))
+    return build_index(result).by_position.get((token.line, token.col))
 
 
 def type_at(result: AnalysisResult, position: lsp.Position):
@@ -136,15 +196,13 @@ def type_at(result: AnalysisResult, position: lsp.Position):
     index = build_index(result)
     if not index.type_by_position:
         return None
-    token = find_token_at_position(nav_tokens(result), position)
+    token = find_token_at_position(nav_tokens(result), position, result.source)
     if token is None:
         return None
     return index.type_by_position.get((token.line, token.col))
 
 
-def references_to(
-    result: AnalysisResult, def_site: DefSite
-) -> list[tuple[int, int]]:
+def references_to(result: AnalysisResult, def_site: DefSite) -> list[tuple[int, int]]:
     """Active-document identifier positions resolving to *def_site*.
 
     Returns 1-based ``(line, col)`` pairs; empty when the def site has no
@@ -152,3 +210,18 @@ def references_to(
     """
     index = build_index(result)
     return list(index.by_def_site.get(def_site, []))
+
+
+def resolved_references_to(
+    result: AnalysisResult,
+    def_site: DefSite,
+) -> list[tuple[str | None, int, int]]:
+    """File-qualified analyzer-resolved identifiers for one definition site."""
+    index = build_index(result)
+    refs = index.resolved_by_def_site.get(def_site)
+    if refs is not None:
+        return list(refs)
+    # Older/synthetic ASTs can omit active-file provenance.
+    if def_site[0] == result.path:
+        return list(index.resolved_by_def_site.get((None, *def_site[1:]), []))
+    return []

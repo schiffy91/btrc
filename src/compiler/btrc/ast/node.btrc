@@ -1,6 +1,6 @@
 /* Self-hosted btrc AST — fat tagged node.
  *
- * Auto-generated from src/language/ast/ast.asdl by gen_btrc_ast.py.
+ * Auto-generated from src/language/ast.asdl by src/compiler/python/ast/gen_btrc_ast.py.
  * DO NOT EDIT BY HAND. btrc lacks dynamic dispatch/downcast, so the AST
  * is one Node with a `kind` tag + the union of all fields.
  */
@@ -113,6 +113,7 @@ class Node {
     public bool is_gpu;
     public bool keep_return;
     public Vector<Node> fields;
+    public bool is_forward;
     public Vector<Node> values;
     public Vector<Node> variants;
     public Node original;
@@ -128,6 +129,7 @@ class Node {
     public Node array_size;
     public bool is_const;
     public bool is_nullable;
+    public int nullable_outer_depth;
     public bool is_static;
     public bool is_extern;
     public bool is_volatile;
@@ -136,6 +138,7 @@ class Node {
     public bool keep_;
     public string access;
     public Node initializer;
+    public bool is_constructor;
     public bool has_getter;
     public bool has_setter;
     public Node getter_body;
@@ -213,6 +216,7 @@ class Node {
         self.is_gpu = false;
         self.keep_return = false;
         self.fields = [];
+        self.is_forward = false;
         self.values = [];
         self.variants = [];
         self.original = null;
@@ -228,6 +232,7 @@ class Node {
         self.array_size = null;
         self.is_const = false;
         self.is_nullable = false;
+        self.nullable_outer_depth = 0;
         self.is_static = false;
         self.is_extern = false;
         self.is_volatile = false;
@@ -236,6 +241,7 @@ class Node {
         self.keep_ = false;
         self.access = "";
         self.initializer = null;
+        self.is_constructor = false;
         self.has_getter = false;
         self.has_setter = false;
         self.getter_body = null;
@@ -354,6 +360,7 @@ class Node {
             string out = "(StructDecl";
             out = out + "\n" + spaces(2 * (d + 1)) + "name=" + canonStr(self.name);
             out = out + "\n" + spaces(2 * (d + 1)) + "fields=" + canonNodeList(self.fields, d + 1);
+            out = out + "\n" + spaces(2 * (d + 1)) + "is_forward=" + canonBool(self.is_forward);
             out = out + "\n" + spaces(2 * (d + 1)) + "name_line=" + canonInt(self.name_line);
             out = out + "\n" + spaces(2 * (d + 1)) + "name_col=" + canonInt(self.name_col);
             out = out + "\n" + spaces(2 * (d + 1)) + "line=" + canonInt(self.line);
@@ -419,6 +426,7 @@ class Node {
             out = out + "\n" + spaces(2 * (d + 1)) + "array_size=" + canonNode(self.array_size, d + 1);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_const=" + canonBool(self.is_const);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_nullable=" + canonBool(self.is_nullable);
+            out = out + "\n" + spaces(2 * (d + 1)) + "nullable_outer_depth=" + canonInt(self.nullable_outer_depth);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_static=" + canonBool(self.is_static);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_extern=" + canonBool(self.is_extern);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_volatile=" + canonBool(self.is_volatile);
@@ -452,6 +460,7 @@ class Node {
             out = out + "\n" + spaces(2 * (d + 1)) + "access=" + canonStr(self.access);
             out = out + "\n" + spaces(2 * (d + 1)) + "return_type=" + canonNode(self.return_type, d + 1);
             out = out + "\n" + spaces(2 * (d + 1)) + "name=" + canonStr(self.name);
+            out = out + "\n" + spaces(2 * (d + 1)) + "is_constructor=" + canonBool(self.is_constructor);
             out = out + "\n" + spaces(2 * (d + 1)) + "generic_params=" + canonStrList(self.generic_params, d + 1);
             out = out + "\n" + spaces(2 * (d + 1)) + "params=" + canonNodeList(self.params, d + 1);
             out = out + "\n" + spaces(2 * (d + 1)) + "body=" + canonNode(self.body_node, d + 1);

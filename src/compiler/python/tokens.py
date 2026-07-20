@@ -85,61 +85,61 @@ class TokenType(Enum):
     AT_GPU = auto()
 
     # Operators
-    PLUS = auto()          # +
-    MINUS = auto()         # -
-    STAR = auto()          # *
-    SLASH = auto()         # /
-    PERCENT = auto()       # %
-    EQ = auto()            # =
-    EQ_EQ = auto()         # ==
-    BANG_EQ = auto()       # !=
-    LT = auto()            # <
-    GT = auto()            # >
-    LT_EQ = auto()         # <=
-    GT_EQ = auto()         # >=
-    AMP_AMP = auto()       # &&
-    PIPE_PIPE = auto()     # ||
-    BANG = auto()           # !
-    AMP = auto()            # &
-    PIPE = auto()           # |
-    CARET = auto()          # ^
-    TILDE = auto()          # ~
-    LT_LT = auto()         # <<
-    GT_GT = auto()          # >>
-    PLUS_EQ = auto()       # +=
-    MINUS_EQ = auto()      # -=
-    STAR_EQ = auto()       # *=
-    SLASH_EQ = auto()      # /=
-    PERCENT_EQ = auto()    # %=
-    AMP_EQ = auto()        # &=
-    PIPE_EQ = auto()       # |=
-    CARET_EQ = auto()      # ^=
-    LT_LT_EQ = auto()     # <<=
-    GT_GT_EQ = auto()      # >>=
-    PLUS_PLUS = auto()     # ++
-    MINUS_MINUS = auto()   # --
-    ARROW = auto()         # ->
-    FAT_ARROW = auto()     # =>
-    DOT = auto()           # .
-    QUESTION = auto()      # ?
+    PLUS = auto()  # +
+    MINUS = auto()  # -
+    STAR = auto()  # *
+    SLASH = auto()  # /
+    PERCENT = auto()  # %
+    EQ = auto()  # =
+    EQ_EQ = auto()  # ==
+    BANG_EQ = auto()  # !=
+    LT = auto()  # <
+    GT = auto()  # >
+    LT_EQ = auto()  # <=
+    GT_EQ = auto()  # >=
+    AMP_AMP = auto()  # &&
+    PIPE_PIPE = auto()  # ||
+    BANG = auto()  # !
+    AMP = auto()  # &
+    PIPE = auto()  # |
+    CARET = auto()  # ^
+    TILDE = auto()  # ~
+    LT_LT = auto()  # <<
+    GT_GT = auto()  # >>
+    PLUS_EQ = auto()  # +=
+    MINUS_EQ = auto()  # -=
+    STAR_EQ = auto()  # *=
+    SLASH_EQ = auto()  # /=
+    PERCENT_EQ = auto()  # %=
+    AMP_EQ = auto()  # &=
+    PIPE_EQ = auto()  # |=
+    CARET_EQ = auto()  # ^=
+    LT_LT_EQ = auto()  # <<=
+    GT_GT_EQ = auto()  # >>=
+    PLUS_PLUS = auto()  # ++
+    MINUS_MINUS = auto()  # --
+    ARROW = auto()  # ->
+    FAT_ARROW = auto()  # =>
+    DOT = auto()  # .
+    QUESTION = auto()  # ?
     QUESTION_DOT = auto()  # ?.
     QUESTION_QUESTION = auto()  # ??
-    COLON = auto()         # :
-    COMMA = auto()         # ,
-    SEMICOLON = auto()     # ;
+    COLON = auto()  # :
+    COMMA = auto()  # ,
+    SEMICOLON = auto()  # ;
 
     # Delimiters
-    LPAREN = auto()        # (
-    RPAREN = auto()        # )
-    LBRACKET = auto()      # [
-    RBRACKET = auto()      # ]
-    LBRACE = auto()        # {
-    RBRACE = auto()        # }
+    LPAREN = auto()  # (
+    RPAREN = auto()  # )
+    LBRACKET = auto()  # [
+    RBRACKET = auto()  # ]
+    LBRACE = auto()  # {
+    RBRACE = auto()  # }
 
     # Special
     PREPROCESSOR = auto()
-    FSTRING_LIT = auto()   # f"..." raw content (without quotes)
-    PATH_SPEC = auto()     # raw import path: ./x.btrc, ../y, /abs, ~/home
+    FSTRING_LIT = auto()  # f"..." raw content (without quotes)
+    PATH_SPEC = auto()  # raw import path: ./x.btrc, ../y, /abs, ~/home
     EOF = auto()
 
 
@@ -157,6 +157,7 @@ class Token:
 def _build_keyword_table() -> dict[str, TokenType]:
     """Build keyword lookup table, validated against the grammar."""
     from .ebnf import get_grammar_info
+
     gi = get_grammar_info()
     table: dict[str, TokenType] = {}
     for kw in gi.keywords:
@@ -175,6 +176,7 @@ def _build_keyword_table() -> dict[str, TokenType]:
 def _build_operator_table() -> dict[str, TokenType]:
     """Build operator lookup table, validated against the grammar."""
     from .ebnf import get_grammar_info
+
     gi = get_grammar_info()
     table: dict[str, TokenType] = {}
     for op in gi.operators:
@@ -193,6 +195,7 @@ def _build_operator_table() -> dict[str, TokenType]:
 def _build_annotation_table() -> dict[str, TokenType]:
     """Build annotation lookup table, validated against the grammar."""
     from .ebnf import get_grammar_info
+
     gi = get_grammar_info()
     table: dict[str, TokenType] = {}
     for ann in gi.annotations:
@@ -219,9 +222,22 @@ ANNOTATIONS: dict[str, TokenType] = _build_annotation_table()
 
 # Set of token types that represent type keywords (used by parser for disambiguation)
 TYPE_KEYWORDS: set[TokenType] = {
-    TokenType.VOID, TokenType.INT, TokenType.FLOAT, TokenType.DOUBLE,
-    TokenType.CHAR, TokenType.SHORT, TokenType.LONG, TokenType.UNSIGNED,
-    TokenType.SIGNED, TokenType.STRING, TokenType.BOOL,
-    TokenType.STRUCT, TokenType.ENUM, TokenType.UNION,
-    TokenType.CONST, TokenType.STATIC, TokenType.EXTERN, TokenType.VOLATILE,
+    TokenType.VOID,
+    TokenType.INT,
+    TokenType.FLOAT,
+    TokenType.DOUBLE,
+    TokenType.CHAR,
+    TokenType.SHORT,
+    TokenType.LONG,
+    TokenType.UNSIGNED,
+    TokenType.SIGNED,
+    TokenType.STRING,
+    TokenType.BOOL,
+    TokenType.STRUCT,
+    TokenType.ENUM,
+    TokenType.UNION,
+    TokenType.CONST,
+    TokenType.STATIC,
+    TokenType.EXTERN,
+    TokenType.VOLATILE,
 }

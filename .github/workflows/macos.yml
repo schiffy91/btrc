@@ -1,0 +1,71 @@
+name: macOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native-bundle:
+    # macos-15 is the GitHub-hosted Apple Silicon image. Keep the architecture
+    # assertion below so an image-label change fails instead of mislabeling a bundle.
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      # Pin action implementations by commit so moving tags cannot alter CI.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Verify native runner architecture
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          python --version
+          cc --version
+
+      - name: Build the native self-hosted compiler bundle
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python -m src.compiler.python.check_generated
+          mkdir -p dist build/btrcc/macos-arm64
+          python -m src.compiler.python.main \
+            src/compiler/btrc/btrcc_main.btrc --no-cache -o dist/btrcc.c
+          cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+            dist/btrcc.c -o build/btrcc/macos-arm64/btrcc -lm -lpthread
+          file build/btrcc/macos-arm64/btrcc | grep -q "arm64"
+          python -m src.compiler.python.btrcc_bundle \
+            --binary build/btrcc/macos-arm64/btrcc \
+            --target macos-arm64 --output-dir dist --source-root .
+          test -x dist/btrcc-macos-arm64/bin/btrcc
+          test -f dist/btrcc-macos-arm64.tar.gz
+          test -f dist/btrcc-macos-arm64.tar.gz.sha256
+
+      - name: Run the relocated bundle and its strictly compiled output
+        run: |
+          set -euo pipefail
+          unset BTRC_HOME
+          compiler="$GITHUB_WORKSPACE/dist/btrcc-macos-arm64/bin/btrcc"
+          expected_stdlib="$GITHUB_WORKSPACE/dist/btrcc-macos-arm64/share/btrc/stdlib"
+          work=$(mktemp -d "$RUNNER_TEMP/btrcc-macos-smoke.XXXXXX")
+          trap 'rm -rf "$work"' EXIT
+          printf '%s\n' \
+            'int main() {' \
+            '    Vector<string> values = ["relocated", "macos", "bundle"];' \
+            '    print(values.join("-"));' \
+            '    return 0;' \
+            '}' > "$work/program.btrc"
+          actual_stdlib=$(cd "$work" && "$compiler" --stdlib-dir)
+          test "$actual_stdlib" = "$expected_stdlib"
+          (cd "$work" && "$compiler" "$work/program.btrc") > "$work/program.c"
+          cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+            "$work/program.c" -o "$work/program" -lm -lpthread
+          output=$(cd "$work" && ./program)
+          test "$output" = "relocated-macos-bundle"

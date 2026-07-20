@@ -10,9 +10,10 @@ class CliArgs {
     public Vector<string> values;
 
     public CliArgs(int argc, char** argv) {
-        self.program = argc > 0 ? Strings.copy(argv[0]) : "";
+        int count = argc > 0 && argv != null ? argc : 0;
+        self.program = count > 0 ? Strings.copy(argv[0]) : "";
         self.values = [];
-        for (int i = 1; i < argc; i++) {
+        for (int i = 1; i < count; i++) {
             self.values.push(Strings.copy(argv[i]));
         }
     }
@@ -26,7 +27,9 @@ class CliArgs {
     }
 
     public string require(int index, string message) {
-        if (index < 0 || index >= self.values.len) { throw message; }
+        if (index < 0 || index >= self.values.len) {
+            throw message == null ? "required CLI argument is missing" : message;
+        }
         return self.values.get(index);
     }
 
@@ -108,8 +111,12 @@ class CliCommandLine {
 
     class CliCommandLine parseFrom(CliArgs args, int startIndex) {
         var parsed = CliCommandLine();
+        if (args == null) {
+            parsed.errors.push("CLI arguments are null");
+            return parsed;
+        }
         var operandsOnly = false;
-        var index = startIndex;
+        var index = startIndex < 0 ? 0 : startIndex;
         while (index < args.count()) {
             var value = args.get(index);
             if (operandsOnly) {
@@ -127,6 +134,11 @@ class CliCommandLine {
                 if (split >= 0) {
                     var name = value.substring(0, split);
                     var optionValue = value.substring(split + 1, value.len() - split - 1);
+                    if (name.equals("--")) {
+                        parsed.errors.push(f"invalid option: {value}");
+                        index++;
+                        continue;
+                    }
                     parsed.addOption(name, optionValue);
                     index++;
                     continue;
@@ -151,7 +163,36 @@ class CliCommandLine {
     }
 
     class bool isNegativeNumber(string value) {
-        return value.len() > 1 && value[0] == '-' && Strings.isDigit(value[1]);
+        if (value == null || value.len() < 2 || value[0] != '-') { return false; }
+        int index = 1;
+        bool digits = false;
+        bool decimal = false;
+        while (index < value.len()) {
+            char ch = value[index];
+            if (Strings.isDigit(ch)) {
+                digits = true;
+                index++;
+                continue;
+            }
+            if (ch == '.' && !decimal) {
+                decimal = true;
+                index++;
+                continue;
+            }
+            break;
+        }
+        if (!digits) { return false; }
+        if (index < value.len() && (value[index] == 'e' || value[index] == 'E')) {
+            index++;
+            if (index < value.len()
+                    && (value[index] == '+' || value[index] == '-')) {
+                index++;
+            }
+            int exponentStart = index;
+            while (index < value.len() && Strings.isDigit(value[index])) { index++; }
+            if (index == exponentStart) { return false; }
+        }
+        return index == value.len();
     }
 
     public void addOption(string name, string value) {
@@ -206,7 +247,9 @@ class CliHelp {
     }
 
     public CliHelp withWidth(int width) {
-        self.width = width;
+        if (width < 1) { self.width = 1; }
+        else if (width > 4096) { self.width = 4096; }
+        else { self.width = width; }
         return self;
     }
 

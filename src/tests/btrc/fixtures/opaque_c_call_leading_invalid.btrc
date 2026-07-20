@@ -1,0 +1,10 @@
+class Token {}
+
+long long wideReturningLL() { return 7LL; }
+
+#define OPAQUE_WIDE wideReturningLL()
+
+int main() {
+    rawSink(OPAQUE_WIDE, new Token());
+    return 0;
+}

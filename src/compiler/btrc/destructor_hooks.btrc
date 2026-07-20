@@ -1,0 +1,28 @@
+/* Hidden source-destructor hook construction shared by ordinary and generic
+ * class lowering. A source return exits this function, never the terminal
+ * compiler-owned destructor that detaches fields and frees the object. */
+
+string destructorHookName(string ownerName) {
+    return "__btrc_" + ownerName + "_destructor_hook";
+}
+
+IRFunction buildDestructorHook(
+        string ownerName, Vector<IRNode> body) {
+    IRFunction hook = IRFunction();
+    hook.name = destructorHookName(ownerName);
+    hook.return_type = "void";
+    hook.params.push(IRParam("void*", "object"));
+    Vector<IRNode> hookBody = [];
+    hookBody.push(irVarDecl(ownerName + "*", "self",
+        irCast(ownerName + "*", irVar("object"))));
+    hookBody.push(irExprStmt(irCast("void", irVar("self"))));
+    int statement = 0;
+    while (statement < body.len) {
+        hookBody.push(body.get(statement));
+        statement = statement + 1;
+    }
+    hook.body = irBlock(hookBody);
+    hook.is_static = true;
+    hook.archive_export = true;
+    return hook;
+}

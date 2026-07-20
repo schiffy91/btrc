@@ -1,0 +1,16 @@
+#include <assert.h>
+
+class Holder<T> {
+    public T value;
+    public Holder(T value) { self.value = value; }
+    public U transform<U>(__fn_ptr<U, T> callback) {
+        return callback(self.value);
+    }
+}
+
+int main() {
+    Holder<int> holder = new Holder<int>(21);
+    int doubled = holder.transform((int value) => value * 2);
+    assert(doubled == 42);
+    return 0;
+}

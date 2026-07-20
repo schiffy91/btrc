@@ -1,0 +1,8 @@
+class Factory<T> {
+    static int make() { return 1; }
+}
+
+int main() {
+    __fn_ptr<int> callback = Factory.make;
+    return callback();
+}

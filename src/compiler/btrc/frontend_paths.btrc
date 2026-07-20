@@ -1,0 +1,139 @@
+/* Cross-platform lexical path handling for the self-hosted frontend.
+ *
+ * Filesystem canonicalization and lexical normalization are deliberately
+ * separate: diagnostics retain stable source spellings, while include-cycle
+ * identities resolve symlinks and Windows case/separator aliases.  The pure
+ * `For` helpers also make Windows semantics testable on non-Windows hosts. */
+
+bool fePathIsSeparatorFor(char value, bool windows) {
+    return value == '/' || (windows && value == '\\');
+}
+
+bool fePathHasDriveFor(string path, bool windows) {
+    if (!windows || path == null || path.length() < 2) { return false; }
+    char drive = path[0];
+    return ((drive >= 'A' && drive <= 'Z')
+            || (drive >= 'a' && drive <= 'z'))
+        && path[1] == ':';
+}
+
+bool fePathIsAbsoluteFor(string path, bool windows) {
+    if (path == null || path.isEmpty()) { return false; }
+    if (!windows) { return path[0] == '/'; }
+    if (fePathHasDriveFor(path, true)) {
+        return path.length() >= 3 && fePathIsSeparatorFor(path[2], true);
+    }
+    return path.length() >= 2
+        && fePathIsSeparatorFor(path[0], true)
+        && fePathIsSeparatorFor(path[1], true);
+}
+
+bool fePathIsRootRelativeFor(string path, bool windows) {
+    return windows && path != null && !path.isEmpty()
+        && fePathIsSeparatorFor(path[0], true)
+        && !fePathIsAbsoluteFor(path, true);
+}
+
+string fePathSlashFormFor(string path, bool windows) {
+    if (path == null) { return ""; }
+    return windows ? Strings.replace(path, "\\", "/") : Strings.copy(path);
+}
+
+string fePathComposeFor(string path, string current, bool windows) {
+    string input = fePathSlashFormFor(path, windows);
+    string cwd = fePathSlashFormFor(current, windows);
+    if (fePathIsAbsoluteFor(input, windows)) { return input; }
+    if (fePathIsRootRelativeFor(input, windows)) {
+        if (fePathHasDriveFor(cwd, true)) {
+            return cwd.substring(0, 2) + input;
+        }
+        return input;
+    }
+    if (fePathHasDriveFor(input, windows)) {
+        string drive = input.substring(0, 2);
+        string suffix = input.substring(2, input.length() - 2);
+        if (fePathHasDriveFor(cwd, true)
+                && cwd.substring(0, 2).toLower().equals(drive.toLower())) {
+            return cwd + "/" + suffix;
+        }
+        return drive + "/" + suffix;
+    }
+    if (cwd.isEmpty()) { return input; }
+    if (cwd.endsWith("/")) { return cwd + input; }
+    return cwd + "/" + input;
+}
+
+string feNormalizeAbsolutePathFor(string path, string current, bool windows) {
+    string composed = fePathComposeFor(path, current, windows);
+    bool driveRoot = fePathHasDriveFor(composed, windows)
+        && composed.length() >= 3 && composed[2] == '/';
+    bool uncRoot = windows && composed.startsWith("//");
+    bool posixRoot = !windows && composed.startsWith("/");
+    int start = driveRoot ? 3 : (uncRoot ? 2 : (posixRoot ? 1 : 0));
+    int floor = uncRoot ? 2 : 0;
+    Vector<string> parts = Strings.split(
+        composed.substring(start, composed.length() - start), "/");
+    Vector<string> stack = [];
+    int i = 0;
+    while (i < parts.len) {
+        string segment = parts.get(i);
+        if (segment.isEmpty() || segment.equals(".")) {
+            /* Empty and current-directory components have no path identity. */
+        } else if (segment.equals("..")) {
+            if (stack.len > floor) { stack.pop(); }
+        } else {
+            stack.push(segment);
+        }
+        i++;
+    }
+    string out = driveRoot ? composed.substring(0, 3)
+        : (uncRoot ? "//" : (posixRoot ? "/" : ""));
+    int index = 0;
+    while (index < stack.len) {
+        if (!out.isEmpty() && !out.endsWith("/")) { out = out + "/"; }
+        out = out + stack.get(index);
+        index++;
+    }
+    if (out.isEmpty()) {
+        if (driveRoot) { return composed.substring(0, 3); }
+        if (uncRoot) { return "//"; }
+        if (posixRoot) { return "/"; }
+        return ".";
+    }
+    return out;
+}
+
+string feAbsPath(string path) {
+    bool windows = Platform.isWindows();
+    string input = path;
+    /* _fullpath resolves drive-relative paths and the current drive for a
+     * root-relative path.  POSIX stays lexical so source-map spellings do not
+     * unexpectedly follow a symlink. */
+    if (windows) {
+        string nativeAbsolute = PathTools.absolute(path);
+        if (!nativeAbsolute.isEmpty()) { input = nativeAbsolute; }
+    }
+    return feNormalizeAbsolutePathFor(
+        input, FileSystem.currentDirectory(), windows);
+}
+
+string feCanonicalPathIdentity(string path) {
+    bool windows = Platform.isWindows();
+    string canonical = PathTools.absolute(path);
+    if (canonical.isEmpty()) { canonical = feAbsPath(path); }
+    string normalized = feNormalizeAbsolutePathFor(
+        canonical, FileSystem.currentDirectory(), windows);
+    return windows ? normalized.toLower() : normalized;
+}
+
+string feDirName(string path) {
+    return PathTools.dirname(path);
+}
+
+string feBaseName(string path) {
+    return PathTools.basename(path);
+}
+
+string feJoinPath(string left, string right) {
+    return PathTools.join(left, right);
+}

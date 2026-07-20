@@ -15,12 +15,15 @@ from src.compiler.python.ast_nodes import (
     Block,
     CaseClause,
     CForStmt,
+    ClassDecl,
     DoWhileStmt,
     ElseBlock,
     ElseIf,
     ForInitVar,
     ForInStmt,
+    FunctionDecl,
     IfStmt,
+    MethodDecl,
     ParallelForStmt,
     SwitchStmt,
     TryCatchStmt,
@@ -49,9 +52,7 @@ class VarDef:
     owner: str | None = None  # "func" or "Class.method" (params only)
 
 
-def _name_token_pos(
-    tokens: list[Token] | None, name: str, line: int, col: int
-) -> tuple[int, int]:
+def _name_token_pos(tokens: list[Token] | None, name: str, line: int, col: int) -> tuple[int, int]:
     """Position of the first token spelling *name* at/after (line, col)."""
     if tokens:
         for tok in tokens:
@@ -83,16 +84,48 @@ def collect_callable_vars(
     for p in node.params:
         if p.name and p.line:
             line, col = _name_token_pos(tokens, p.name, p.line, p.col)
-            var_defs.append(
-                VarDef(p.name, line, col, scope_start, scope_end, "param", p, owner)
-            )
+            var_defs.append(VarDef(p.name, line, col, scope_start, scope_end, "param", p, owner))
     if node.body:
         _collect_block(var_defs, node.body, tokens, scope_end)
 
 
-def _collect_block(
-    var_defs: list[VarDef], block: Block, tokens: list[Token] | None, block_end: int
-) -> None:
+def collect_lexical_vars(declarations, tokens: list[Token] | None) -> list[VarDef]:
+    """Collect variable-like definitions from active-file callables."""
+    var_defs: list[VarDef] = []
+    for declaration in declarations:
+        if isinstance(declaration, FunctionDecl):
+            collect_callable_vars(var_defs, declaration, tokens)
+        elif isinstance(declaration, ClassDecl):
+            for member in declaration.members:
+                if isinstance(member, MethodDecl):
+                    collect_callable_vars(var_defs, member, tokens, declaration.name)
+    return var_defs
+
+
+def find_visible_var_def(
+    var_defs: list[VarDef],
+    name: str,
+    line: int,
+    col: int,
+) -> VarDef | None:
+    """Return the innermost syntactic definition visible at a position."""
+    best: VarDef | None = None
+    for var_def in var_defs:
+        if var_def.name != name:
+            continue
+        at_def_site = (var_def.line, var_def.col) == (line, col)
+        in_scope = var_def.scope_start <= line <= var_def.scope_end and (var_def.line, var_def.col) <= (line, col)
+        if not (at_def_site or in_scope):
+            continue
+        if best is None or (var_def.scope_start, var_def.line) > (
+            best.scope_start,
+            best.line,
+        ):
+            best = var_def
+    return best
+
+
+def _collect_block(var_defs: list[VarDef], block: Block, tokens: list[Token] | None, block_end: int) -> None:
     """Collect definitions inside *block*; *block_end* is its real end line."""
     for stmt in block.statements:
         _collect_stmt(var_defs, stmt, tokens, block_end)
@@ -138,16 +171,19 @@ def _collect_stmt(var_defs, stmt, tokens, block_end: int) -> None:
             var_decl = stmt.init.var_decl
             if isinstance(var_decl, VarDeclStmt) and var_decl.name and var_decl.line:
                 _add_var(
-                    var_defs, tokens, var_decl.name, var_decl,
-                    (var_decl.line, end), "cfor", var_decl,
+                    var_defs,
+                    tokens,
+                    var_decl.name,
+                    var_decl,
+                    (var_decl.line, end),
+                    "cfor",
+                    var_decl,
                 )
         if stmt.body:
             _collect_block(var_defs, stmt.body, tokens, end)
     elif isinstance(stmt, TryCatchStmt):
         if stmt.try_block:
-            _collect_block(
-                var_defs, stmt.try_block, tokens, _block_end(tokens, stmt.try_block, block_end)
-            )
+            _collect_block(var_defs, stmt.try_block, tokens, _block_end(tokens, stmt.try_block, block_end))
         catch_end = _block_end(tokens, stmt.catch_block, block_end)
         if stmt.catch_var and stmt.catch_block is not None and stmt.catch_block.line:
             # The catch var is confined to the catch block. Its name token sits
@@ -157,22 +193,26 @@ def _collect_stmt(var_defs, stmt, tokens, block_end: int) -> None:
             line, col = _catch_var_pos(tokens, stmt.catch_var, try_end, stmt.catch_block)
             var_defs.append(
                 VarDef(
-                    stmt.catch_var, line, col,
-                    stmt.catch_block.line, catch_end, "catch",
+                    stmt.catch_var,
+                    line,
+                    col,
+                    stmt.catch_block.line,
+                    catch_end,
+                    "catch",
                 )
             )
         if stmt.catch_block:
             _collect_block(var_defs, stmt.catch_block, tokens, catch_end)
         if stmt.finally_block:
             _collect_block(
-                var_defs, stmt.finally_block, tokens,
+                var_defs,
+                stmt.finally_block,
+                tokens,
                 _block_end(tokens, stmt.finally_block, block_end),
             )
     elif isinstance(stmt, IfStmt):
         if stmt.then_block:
-            _collect_block(
-                var_defs, stmt.then_block, tokens, _block_end(tokens, stmt.then_block, block_end)
-            )
+            _collect_block(var_defs, stmt.then_block, tokens, _block_end(tokens, stmt.then_block, block_end))
         if isinstance(stmt.else_block, ElseBlock) and stmt.else_block.body:
             body = stmt.else_block.body
             _collect_block(var_defs, body, tokens, _block_end(tokens, body, block_end))
@@ -191,9 +231,7 @@ def _collect_stmt(var_defs, stmt, tokens, block_end: int) -> None:
                     _collect_stmt(var_defs, s, tokens, end)
 
 
-def _catch_var_pos(
-    tokens: list[Token] | None, name: str, after_line: int, catch_block: Block
-) -> tuple[int, int]:
+def _catch_var_pos(tokens: list[Token] | None, name: str, after_line: int, catch_block: Block) -> tuple[int, int]:
     """Name-token position of a catch variable (last *name* in the header)."""
     best = (catch_block.line, catch_block.col)
     if tokens:

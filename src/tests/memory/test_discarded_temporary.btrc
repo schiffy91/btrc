@@ -1,7 +1,5 @@
-/* A `new` expression used as a bare statement (result not bound to any
- * variable) is NOT registered as a managed local, so it is NOT auto-released at
- * scope exit -- it leaks. Pins the actual behavior of a discarded `new`
- * temporary so the self-hosted compiler matches it. */
+/* A `new` expression used as a bare statement owns its result for the full
+ * expression. ARC releases that result immediately after evaluation. */
 #include <assert.h>
 
 int alive = 0;
@@ -21,20 +19,18 @@ class Obj {
 
 int main() {
     {
-        // Discarded temporary: the returned object is not bound, so ARC does
-        // not track it and scope exit does not release it.
+        // Discarded owned results are released at the full-expression boundary.
         new Obj(1);
-        assert(alive == 1);
+        assert(alive == 0);
     }
-    // The temporary leaks (no handle, never released).
-    assert(alive == 1);
+    assert(alive == 0);
 
-    // A bound managed local, by contrast, IS released at scope exit.
+    // A bound managed local remains alive until its enclosing scope exits.
     {
         Obj o = new Obj(2);
-        assert(alive == 2);
+        assert(alive == 1);
     }
-    assert(alive == 1);   // only the leaked temporary remains
+    assert(alive == 0);
 
     print("PASS: test_discarded_temporary");
     return 0;

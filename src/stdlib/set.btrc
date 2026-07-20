@@ -16,6 +16,20 @@ class Set<T> implements Iterable {
     public int len;
     public int cap;
 
+    private int nextCapacity() {
+        if (self.cap <= 0 || self.cap > 1073741823) {
+            fprintf(stderr, "Set capacity overflow\n");
+            exit(1);
+        }
+        int nextCap = self.cap * 2;
+        if ((size_t)nextCap > (size_t)(-1) / sizeof(T)
+                || (size_t)nextCap > (size_t)(-1) / sizeof(bool)) {
+            fprintf(stderr, "Set allocation size overflow\n");
+            exit(1);
+        }
+        return nextCap;
+    }
+
     public Set() {
         self.cap = 16;
         self.len = 0;
@@ -27,7 +41,7 @@ class Set<T> implements Iterable {
         var oldCap = self.cap;
         var oldKeys = self.keys;
         var oldOccupied = self.occupied;
-        self.cap = self.cap * 2;
+        self.cap = self.nextCapacity();
         self.len = 0;
         self.keys = (T*)__btrc_safe_calloc(self.cap, sizeof(T));
         self.occupied = (bool*)__btrc_safe_calloc(self.cap, sizeof(bool));
@@ -41,7 +55,7 @@ class Set<T> implements Iterable {
     }
 
     public void add(T key) {
-        if (self.len * 4 >= self.cap * 3) { self.resize(); }
+        if (self.len >= self.cap - self.cap / 4) { self.resize(); }
         self.addRetained(key);
     }
 
@@ -114,6 +128,10 @@ class Set<T> implements Iterable {
         self.occupied = null;
         self.cap = 0;
         self.len = 0;
+    }
+
+    public void __del__() {
+        self.free();
     }
 
     public void clear() {

@@ -1,0 +1,190 @@
+/* Dependency metadata for ARC lifecycle, graph, and boundary atoms. */
+
+Vector<string> cycleRuntimeLifecycleDependencies(string name) {
+    Vector<string> out = [];
+    if (name == "__btrc_arc_retain") {
+        out.push("__btrc_arc_validate");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_deferred_state");
+        return out;
+    }
+    if (name == "__btrc_arc_retain_edge") {
+        out.push("__btrc_arc_register_incoming");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_deferred_state");
+        return out;
+    }
+    if (name == "__btrc_arc_adopt_edge") {
+        out.push("__btrc_arc_register_incoming");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_deferred_state");
+        return out;
+    }
+    if (name == "__btrc_arc_unlink_edge") {
+        out.push("__btrc_arc_unregister_incoming");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_deferred_state");
+        return out;
+    }
+    if (name == "__btrc_forget_suspect") {
+        out.push("__btrc_suspect_state");
+        out.push("__btrc_ptr_hash");
+        return out;
+    }
+    if (name == "__btrc_arc_release_impl") {
+        out.push("__btrc_suspect_locked");
+        out.push("__btrc_arc_incoming_teardown_pending");
+        out.push("__btrc_arc_reverse_proves_live");
+        out.push("__btrc_forget_suspect");
+        out.push("__btrc_arc_deferred_state");
+        return out;
+    }
+    if (name == "__btrc_arc_replace_edge") {
+        out.push("__btrc_arc_release_impl");
+        out.push("__btrc_arc_register_incoming");
+        out.push("__btrc_arc_unregister_incoming");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_release") {
+        out.push("__btrc_arc_release_impl");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_release_edge") {
+        out.push("__btrc_arc_release_impl");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_release_acyclic") {
+        out.push("__btrc_arc_type_of");
+        out.push("__btrc_arc_validate");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_invalidate") {
+        out.push("__btrc_arc_validate");
+        out.push("__btrc_arc_mutation_lock");
+        return out;
+    }
+    if (name == "__btrc_arc_destroy_slot") {
+        out.push("__btrc_forget_suspect");
+        out.push("__btrc_arc_type_of");
+        out.push("__btrc_arc_validate");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_deferred_state");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_destroy_edge") {
+        out.push("__btrc_forget_suspect");
+        out.push("__btrc_arc_unregister_incoming");
+        out.push("__btrc_arc_type_of");
+        out.push("__btrc_arc_validate");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_deferred_state");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_graph_primitives") {
+        out.push("__btrc_cycle_collector_state");
+        out.push("__btrc_ptr_hash");
+        out.push("__btrc_safe_calloc");
+        out.push("__btrc_safe_realloc");
+        out.push("__btrc_arc_type_of");
+        out.push("__btrc_arc_validate");
+        return out;
+    }
+    if (name == "__btrc_arc_abandon_graph") {
+        out.push("__btrc_arc_graph_primitives");
+        out.push("__btrc_arc_unregister_incoming");
+        out.push("__btrc_forget_suspect");
+        out.push("__btrc_arc_exclusive_snapshot");
+        out.push("__btrc_arc_deferred_state");
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_abandon") {
+        out.push("__btrc_arc_abandon_graph");
+        out.push("__btrc_arc_abandon_queue_state");
+        out.push("__btrc_safe_realloc");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_topology_state");
+        out.push("__btrc_arc_topology_depth_state");
+        return out;
+    }
+    if (name == "__btrc_collect_cycles_once") {
+        out.push("__btrc_arc_graph_primitives");
+        out.push("__btrc_suspect_state");
+        out.push("__btrc_ptr_hash");
+        out.push("__btrc_safe_realloc");
+        out.push("__btrc_arc_unregister_incoming");
+        out.push("__btrc_forget_suspect");
+        out.push("__btrc_arc_type_of");
+        out.push("__btrc_arc_validate");
+        out.push("__btrc_arc_lock_state");
+        out.push("__btrc_arc_snapshot_state");
+        out.push("__btrc_arc_snapshot_gate_state");
+        out.push("__btrc_arc_topology_state");
+        out.push("__btrc_arc_shutdown_state");
+        out.push("__btrc_arc_deferred_state");
+        return out;
+    }
+    if (name == "__btrc_arc_drain") {
+        out.push("__btrc_arc_deferred_state");
+        out.push("__btrc_collect_cycles_once");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_topology_state");
+        out.push("__btrc_arc_topology_depth_state");
+        out.push("__btrc_arc_shutdown_state");
+        out.push("__btrc_arc_active_drains_state");
+        return out;
+    }
+    if (name == "__btrc_collect_cycles") {
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_poll_cycles") {
+        out.push("__btrc_arc_drain");
+        out.push("__btrc_arc_mutation_lock");
+        return out;
+    }
+    if (name == "__btrc_flush_cycles") {
+        out.push("__btrc_arc_drain");
+        return out;
+    }
+    if (name == "__btrc_arc_thread_state_cleanup") {
+        out.push("__btrc_arc_abandon_queue_state");
+        out.push("__btrc_arc_abandon_queue_drain");
+        out.push("__btrc_arc_drain");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_topology_depth_state");
+        out.push("__btrc_arc_deferred_state");
+        out.push("__btrc_destroyed_tracking");
+        out.push("__btrc_destroyed_capacity");
+        return out;
+    }
+    if (name == "__btrc_cycle_state_cleanup") {
+        out.push("__btrc_flush_cycles");
+        out.push("__btrc_arc_thread_state_cleanup");
+        out.push("__btrc_suspect_capacity");
+        out.push("__btrc_arc_reverse_state");
+        out.push("__btrc_arc_deferred_state");
+        out.push("__btrc_arc_drain");
+        out.push("__btrc_arc_mutation_lock");
+        out.push("__btrc_arc_lock_state");
+        out.push("__btrc_arc_snapshot_state");
+        out.push("__btrc_arc_snapshot_gate_state");
+        out.push("__btrc_arc_shutdown_state");
+        out.push("__btrc_arc_active_drains_state");
+        out.push("__btrc_arc_active_unwinds_state");
+        out.push("__btrc_arc_topology_state");
+        out.push("__btrc_cycle_collector_state");
+        return out;
+    }
+    return out;
+}

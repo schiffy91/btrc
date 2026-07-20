@@ -10,6 +10,7 @@ import time
 
 from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.ir.gen.generator import generate_ir
+from src.compiler.python.ir.nodes import IRInclude
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -27,18 +28,19 @@ def analyze(source: str):
 
 # --- S0-9: child class declared before its parent ---
 
-class TestInheritanceDeclarationOrder:
-    CHILD_FIRST = '''
-        class Child extends Parent {
-            public int childOnly;
-        }
-        class Parent {
-            public int px;
-            public int getPx() { return self.px; }
-        }
-    '''
 
-    PARENT_FIRST = '''
+class TestInheritanceDeclarationOrder:
+    CHILD_FIRST = """
+        class Child extends Parent {
+            public int childOnly;
+        }
+        class Parent {
+            public int px;
+            public int getPx() { return self.px; }
+        }
+    """
+
+    PARENT_FIRST = """
         class Parent {
             public int px;
             public int getPx() { return self.px; }
@@ -46,7 +48,7 @@ class TestInheritanceDeclarationOrder:
         class Child extends Parent {
             public int childOnly;
         }
-    '''
+    """
 
     def test_child_first_inherits_fields_and_methods(self):
         an, _ = analyze(self.CHILD_FIRST)
@@ -69,21 +71,21 @@ class TestInheritanceDeclarationOrder:
         assert list(an.class_table["Child"].fields.keys()) == ["px", "childOnly"]
 
     def test_three_level_chain_any_order(self):
-        src = '''
+        src = """
             class C extends B { public int c; }
             class A { public int a; }
             class B extends A { public int b; }
-        '''
+        """
         an, _ = analyze(src)
         assert list(an.class_table["C"].fields.keys()) == ["a", "b", "c"]
 
     def test_field_use_in_child_first_program(self):
-        src = '''
+        src = """
             class Dog extends Animal {
                 public void speak() { print(self.name); }
             }
             class Animal { public string name; }
-        '''
+        """
         an, _ = analyze(src)
         assert an.errors == []
 
@@ -92,21 +94,21 @@ class TestInheritanceDeclarationOrder:
         assert any("Nope" in e for e in an.errors)
 
     def test_inheritance_cycle_does_not_hang(self):
-        src = '''
+        src = """
             class A extends B { public int a; }
             class B extends A { public int b; }
-        '''
+        """
         an, _ = analyze(src)
         assert any("Circular inheritance" in e for e in an.errors)
 
     def test_constructor_not_inherited(self):
-        src = '''
+        src = """
             class Child extends Parent { public int y; }
             class Parent {
                 public int x;
                 public Parent(int x) { self.x = x; }
             }
-        '''
+        """
         an, _ = analyze(src)
         child = an.class_table["Child"]
         assert child.constructor is None
@@ -115,9 +117,10 @@ class TestInheritanceDeclarationOrder:
 
 # --- S0-10: lambda captures variables used only inside try/catch ---
 
+
 class TestLambdaCaptureTryCatch:
     def test_capture_inside_try_block(self):
-        src = '''
+        src = """
             void f() {
                 int outer = 42;
                 var fn = () => {
@@ -125,13 +128,13 @@ class TestLambdaCaptureTryCatch:
                     return 0;
                 };
             }
-        '''
+        """
         _, prog = analyze(src)
         lam = prog.declarations[0].body.statements[1].initializer
         assert [c.name for c in lam.captures] == ["outer"]
 
     def test_capture_inside_catch_and_finally(self):
-        src = '''
+        src = """
             void f() {
                 int a = 1;
                 int b = 2;
@@ -140,13 +143,13 @@ class TestLambdaCaptureTryCatch:
                     return 0;
                 };
             }
-        '''
+        """
         _, prog = analyze(src)
         lam = prog.declarations[0].body.statements[2].initializer
         assert [c.name for c in lam.captures] == ["a", "b"]
 
     def test_params_and_locals_still_excluded(self):
-        src = '''
+        src = """
             void f() {
                 int outer = 1;
                 var fn = (int p) => {
@@ -155,18 +158,18 @@ class TestLambdaCaptureTryCatch:
                     return local;
                 };
             }
-        '''
+        """
         _, prog = analyze(src)
         lam = prog.declarations[0].body.statements[1].initializer
         assert [c.name for c in lam.captures] == ["outer"]
 
     def test_plain_capture_unchanged(self):
-        src = '''
+        src = """
             void f() {
                 int x = 7;
                 var fn = () => { return x + 1; };
             }
-        '''
+        """
         _, prog = analyze(src)
         lam = prog.declarations[0].body.statements[1].initializer
         assert [c.name for c in lam.captures] == ["x"]
@@ -174,36 +177,41 @@ class TestLambdaCaptureTryCatch:
 
 # --- S0-10b: setjmp.h registered from the try/catch lowering site ---
 
+
 class TestSetjmpInclude:
     def _includes_for(self, src):
         program = parse(src)
         analyzed = Analyzer().analyze(program)
-        return generate_ir(analyzed).includes
+        return [
+            declaration.header
+            for declaration in generate_ir(analyzed).preprocessor_decls
+            if isinstance(declaration, IRInclude)
+        ]
 
     def test_try_inside_lambda_includes_setjmp(self):
-        src = '''
+        src = """
             void f() {
                 var fn = () => {
                     try { print(1); } catch (e) { }
                     return 0;
                 };
             }
-        '''
+        """
         assert "setjmp.h" in self._includes_for(src)
 
     def test_throw_inside_lambda_includes_setjmp(self):
-        src = '''
+        src = """
             void f() {
                 var fn = () => {
                     throw "bad";
                     return 0;
                 };
             }
-        '''
+        """
         assert "setjmp.h" in self._includes_for(src)
 
     def test_top_level_try_includes_setjmp_once(self):
-        src = 'void f() { try { print(1); } catch (e) { } }'
+        src = "void f() { try { print(1); } catch (e) { } }"
         includes = self._includes_for(src)
         assert includes.count("setjmp.h") == 1
 
@@ -213,50 +221,51 @@ class TestSetjmpInclude:
 
 # --- S0-1b: unknown single-IDENT cast targets are diagnosed ---
 
+
 class TestUnknownCastTarget:
     def test_unknown_ident_cast_is_error(self):
         an, _ = analyze("void f(int a) { var x = (Bogus) a; }")
         assert any("Bogus" in e for e in an.errors)
 
     def test_known_class_cast_ok(self):
-        src = '''
+        src = """
             class Foo { public int x; }
             void f(Foo p) { var x = (Foo) p; }
-        '''
+        """
         an, _ = analyze(src)
         assert an.errors == []
 
     def test_enum_cast_ok(self):
-        src = '''
+        src = """
             enum Color { RED, GREEN };
             void f(int a) { var x = (Color) a; }
-        '''
+        """
         an, _ = analyze(src)
         assert an.errors == []
 
     def test_struct_cast_ok(self):
-        src = '''
+        src = """
             struct Point { int x; int y; };
             void f(Point p) { var q = (Point) p; }
-        '''
+        """
         an, _ = analyze(src)
         assert an.errors == []
 
     def test_typedef_cast_ok(self):
-        src = '''
-            typedef unsigned int uint;
-            void f(int a) { var x = (uint) a; }
-        '''
+        src = """
+            typedef unsigned int UnsignedAlias;
+            void f(int a) { var x = (UnsignedAlias) a; }
+        """
         an, _ = analyze(src)
         assert an.errors == []
 
     def test_generic_param_cast_ok(self):
-        src = '''
+        src = """
             class Box<T> {
                 public T val;
                 public T as(T v) { return (T) v; }
             }
-        '''
+        """
         an, _ = analyze(src)
         assert an.errors == []
 
@@ -267,6 +276,7 @@ class TestUnknownCastTarget:
 
 
 # --- S0-14: long binary chains — linear time, no RecursionError ---
+
 
 class TestLongBinaryChains:
     @staticmethod
@@ -291,12 +301,12 @@ class TestLongBinaryChains:
         assert t is not None and t.base == "int"
 
     def test_mixed_type_inference_unchanged(self):
-        src = '''
+        src = """
             void f(int a, float b) {
                 var x = a + b;
                 var y = a + a;
             }
-        '''
+        """
         an, prog = analyze(src)
         x_init = prog.declarations[0].body.statements[0].initializer
         y_init = prog.declarations[0].body.statements[1].initializer

@@ -12,6 +12,7 @@ COLLECTIONS = {
     "List_forEach": HelperDef(
         c_source=(
             "static inline void {name}_forEach({name}* l, void (*fn)({c_type}, void*), void* __ctx) {{\n"
+            "    if (!l || !fn) return;\n"
             "    for (int i = 0; i < l->len; i++) fn(l->data[i], __ctx);\n"
             "}}"
         ),
@@ -20,6 +21,7 @@ COLLECTIONS = {
         c_source=(
             "static inline {name}* {name}_filter({name}* l, bool (*fn)({c_type}, void*), void* __ctx) {{\n"
             "    {name}* result = {name}_new();\n"
+            "    if (!l || !fn) return result;\n"
             "    for (int i = 0; i < l->len; i++) {{\n"
             "        if (fn(l->data[i], __ctx)) {name}_push(result, l->data[i]);\n"
             "    }}\n"
@@ -30,6 +32,7 @@ COLLECTIONS = {
     "List_any": HelperDef(
         c_source=(
             "static inline bool {name}_any({name}* l, bool (*fn)({c_type}, void*), void* __ctx) {{\n"
+            "    if (!l || !fn) return false;\n"
             "    for (int i = 0; i < l->len; i++) {{ if (fn(l->data[i], __ctx)) return true; }}\n"
             "    return false;\n"
             "}}"
@@ -38,6 +41,7 @@ COLLECTIONS = {
     "List_all": HelperDef(
         c_source=(
             "static inline bool {name}_all({name}* l, bool (*fn)({c_type}, void*), void* __ctx) {{\n"
+            "    if (!l || !fn) return false;\n"
             "    for (int i = 0; i < l->len; i++) {{ if (!fn(l->data[i], __ctx)) return false; }}\n"
             "    return true;\n"
             "}}"
@@ -46,6 +50,7 @@ COLLECTIONS = {
     "List_findIndex": HelperDef(
         c_source=(
             "static inline int {name}_findIndex({name}* l, bool (*fn)({c_type}, void*), void* __ctx) {{\n"
+            "    if (!l || !fn) return -1;\n"
             "    for (int i = 0; i < l->len; i++) {{ if (fn(l->data[i], __ctx)) return i; }}\n"
             "    return -1;\n"
             "}}"
@@ -55,6 +60,7 @@ COLLECTIONS = {
         c_source=(
             "static inline {name}* {name}_map({name}* l, {c_type} (*fn)({c_type}, void*), void* __ctx) {{\n"
             "    {name}* result = {name}_new();\n"
+            "    if (!l || !fn) return result;\n"
             "    for (int i = 0; i < l->len; i++) {name}_push(result, fn(l->data[i], __ctx));\n"
             "    return result;\n"
             "}}"
@@ -63,6 +69,7 @@ COLLECTIONS = {
     "List_reduce": HelperDef(
         c_source=(
             "static inline {c_type} {name}_reduce({name}* l, {c_type} init, {c_type} (*fn)({c_type}, {c_type})) {{\n"
+            "    if (!l || !fn) return init;\n"
             "    {c_type} acc = init;\n"
             "    for (int i = 0; i < l->len; i++) acc = fn(acc, l->data[i]);\n"
             "    return acc;\n"
@@ -73,6 +80,7 @@ COLLECTIONS = {
     "Map_forEach": HelperDef(
         c_source=(
             "static inline void {name}_forEach({name}* m, void (*fn)({k_type}, {v_type}, void*), void* __ctx) {{\n"
+            "    if (!m || !fn) return;\n"
             "    for (int i = 0; i < m->cap; i++) {{\n"
             "        if (m->occupied[i]) fn(m->keys[i], m->values[i], __ctx);\n"
             "    }}\n"
@@ -82,6 +90,7 @@ COLLECTIONS = {
     "Map_containsValue": HelperDef(
         c_source=(
             "static inline bool {name}_containsValue({name}* m, {v_type} value) {{\n"
+            "    if (!m) return false;\n"
             "    for (int i = 0; i < m->cap; i++) {{\n"
             "        if (m->occupied[i] && {val_eq}) return true;\n"
             "    }}\n"
@@ -93,6 +102,7 @@ COLLECTIONS = {
     "Set_forEach": HelperDef(
         c_source=(
             "static inline void {name}_forEach({name}* s, void (*fn)({c_type}, void*), void* __ctx) {{\n"
+            "    if (!s || !fn) return;\n"
             "    for (int i = 0; i < s->cap; i++) {{\n"
             "        if (s->occupied[i]) fn(s->keys[i], __ctx);\n"
             "    }}\n"
@@ -103,6 +113,7 @@ COLLECTIONS = {
         c_source=(
             "static inline {name}* {name}_filter({name}* s, bool (*fn)({c_type}, void*), void* __ctx) {{\n"
             "    {name}* result = {name}_new();\n"
+            "    if (!s || !fn) return result;\n"
             "    for (int i = 0; i < s->cap; i++) {{\n"
             "        if (s->occupied[i] && fn(s->keys[i], __ctx)) {{\n"
             "            {name}_add(result, s->keys[i]);\n"
@@ -115,6 +126,7 @@ COLLECTIONS = {
     "Set_any": HelperDef(
         c_source=(
             "static inline bool {name}_any({name}* s, bool (*fn)({c_type}, void*), void* __ctx) {{\n"
+            "    if (!s || !fn) return false;\n"
             "    for (int i = 0; i < s->cap; i++) {{\n"
             "        if (s->occupied[i] && fn(s->keys[i], __ctx)) return true;\n"
             "    }}\n"
@@ -125,6 +137,7 @@ COLLECTIONS = {
     "Set_all": HelperDef(
         c_source=(
             "static inline bool {name}_all({name}* s, bool (*fn)({c_type}, void*), void* __ctx) {{\n"
+            "    if (!s || !fn) return false;\n"
             "    for (int i = 0; i < s->cap; i++) {{\n"
             "        if (s->occupied[i] && !fn(s->keys[i], __ctx)) return false;\n"
             "    }}\n"
@@ -135,6 +148,7 @@ COLLECTIONS = {
     "Set_findIndex": HelperDef(
         c_source=(
             "static inline int {name}_findIndex({name}* s, bool (*fn)({c_type}, void*), void* __ctx) {{\n"
+            "    if (!s || !fn) return -1;\n"
             "    for (int i = 0; i < s->cap; i++) {{\n"
             "        if (s->occupied[i] && fn(s->keys[i], __ctx)) return i;\n"
             "    }}\n"

@@ -1,0 +1,50 @@
+/* Collection growth must preserve ownership and terminate for self-extension. */
+#include <assert.h>
+
+int liveItems = 0;
+
+class TrackedItem {
+    public int id;
+
+    public TrackedItem(int id) {
+        self.id = id;
+        liveItems++;
+    }
+
+    public void __del__() {
+        liveItems--;
+    }
+}
+
+void appendTracked(List<TrackedItem> items, int id) {
+    TrackedItem item = new TrackedItem(id);
+    items.pushBack(item);
+}
+
+int main() {
+    Vector<int> values = [1, 2, 3];
+    values.extend(values);
+    assert(values.size() == 6);
+    assert(values.get(0) == 1 && values.get(3) == 1);
+    assert(values.get(1) == 2 && values.get(4) == 2);
+    assert(values.get(2) == 3 && values.get(5) == 3);
+
+    List<TrackedItem> items = new List<TrackedItem>();
+    appendTracked(items, 10);
+    appendTracked(items, 20);
+    appendTracked(items, 30);
+    assert(liveItems == 3);
+
+    items.remove(0);
+    assert(liveItems == 2);
+    assert(items.front().id == 20);
+    items.remove(items.size() - 1);
+    assert(liveItems == 1);
+    assert(items.back().id == 20);
+    items.remove(0);
+    assert(liveItems == 0);
+    assert(items.isEmpty());
+
+    print("PASS: test_collection_growth_safety");
+    return 0;
+}

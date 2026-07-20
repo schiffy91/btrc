@@ -1,0 +1,71 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int throwingThreadAlive = 0;
+int throwingThreadDestroyed = 0;
+bool throwFromThreadCycle = false;
+
+class ThrowingThreadCycleNode {
+    public ThrowingThreadCycleNode next;
+
+    public ThrowingThreadCycleNode() {
+        self.next = null;
+        throwingThreadAlive++;
+    }
+
+    public void __del__() {
+        throwingThreadAlive--;
+        throwingThreadDestroyed++;
+        if (throwFromThreadCycle) {
+            throw "thread cycle hook failure";
+        }
+    }
+}
+
+ThrowingThreadCycleNode makeThrowingThreadCycle() {
+    ThrowingThreadCycleNode first = new ThrowingThreadCycleNode();
+    ThrowingThreadCycleNode second = new ThrowingThreadCycleNode();
+    first.next = second;
+    second.next = first;
+    return first;
+}
+
+void warmThreadBoundary() {
+    try {
+        Thread<ThrowingThreadCycleNode> worker = spawn(
+            () => makeThrowingThreadCycle()
+        );
+    } catch (string error) {
+        assert(false);
+    }
+}
+
+int main() {
+    warmThreadBoundary();
+    assert(throwingThreadAlive == 0);
+    assert(throwingThreadDestroyed == 2);
+
+    bool caught = false;
+    try {
+        throwFromThreadCycle = true;
+        arc_test_allocation_checkpoint();
+        {
+            Thread<ThrowingThreadCycleNode> worker = spawn(
+                () => makeThrowingThreadCycle()
+            );
+        }
+        assert(false);
+    } catch (string error) {
+        caught = error.equals("thread cycle hook failure");
+    }
+
+    assert(caught);
+    assert(throwingThreadAlive == 0);
+    assert(throwingThreadDestroyed == 4);
+    /* Result disposal may rethrow only after freeing the joined handle and
+     * its copied type context. */
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

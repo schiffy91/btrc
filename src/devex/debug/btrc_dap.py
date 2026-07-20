@@ -12,11 +12,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from bootstrap import ensure_lldb  # noqa: E402
+from bootstrap import ensure_lldb
 
 ensure_lldb()  # may os.execve under a different python and not return
 
-from adapter import main  # noqa: E402  (imports lldb; safe after bootstrap)
+from adapter import main
 
 if __name__ == "__main__":
     main()

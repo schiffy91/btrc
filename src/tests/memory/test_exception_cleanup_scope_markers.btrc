@@ -1,0 +1,43 @@
+#include <assert.h>
+
+int alive = 0;
+
+class Token {
+    public int value;
+
+    public Token(int value) {
+        self.value = value;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+int main() {
+    string caught = "";
+    try {
+        {
+            Token nested = new Token(1);
+            assert(nested.value == 1);
+        }
+        assert(alive == 0);
+
+        for i in range(3) {
+            Token iteration = new Token(i);
+            if (i == 0) { continue; }
+            if (i == 1) { break; }
+        }
+        assert(alive == 0);
+
+        throw "after-normal-exits";
+    } catch (string message) {
+        caught = message;
+    }
+
+    assert(alive == 0);
+    assert(caught.equals("after-normal-exits"));
+    print("PASS: test_exception_cleanup_scope_markers");
+    return 0;
+}

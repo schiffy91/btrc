@@ -5,52 +5,52 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
-from ...nodes import CType, IRStructDef, IRStructField
+from ....type_identity import generic_instance_key, type_references_names
+from ...nodes import CType, IRStructDef, IRStructField, IRStructForward
+from ..arc_metadata import arc_header_field
 from ..types import mangle_generic_type, type_to_c
-from .core import _resolve_type
+from .core import _resolve_type, _resolve_type_c
 from .user_methods import _emit_user_generic_methods
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator
 
 
-def _register_transitive_generic_deps(gen: IRGenerator, cls_info,
-                                       type_map: dict[str, TypeExpr]):
+def _register_transitive_generic_deps(gen: IRGenerator, cls_info, type_map: dict[str, TypeExpr]):
     """Scan resolved field types for generic class references and register them.
 
     When List<string> has a field of type ListNode<T>, resolving T->string
     gives ListNode<string>. This must be registered as a new generic instance
     so the while-changed loop in core.py emits it.
     """
-    for _name, fd in cls_info.fields.items():
-        resolved = _resolve_type(fd.type, type_map)
+    for _name, fd in cls_info.instance_storage:
+        resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table)
         _register_if_generic(gen, resolved)
     # Also scan method return types and parameter types
     for method in cls_info.methods.values():
         if method.return_type:
-            resolved = _resolve_type(method.return_type, type_map)
-            _register_if_generic(gen, resolved)
+            resolved = _resolve_type(method.return_type, type_map, gen.analyzed.typedef_table)
+            _register_if_generic(gen, resolved, method.generic_params)
         for p in method.params:
             if p.type:
-                resolved = _resolve_type(p.type, type_map)
-                _register_if_generic(gen, resolved)
+                resolved = _resolve_type(p.type, type_map, gen.analyzed.typedef_table)
+                _register_if_generic(gen, resolved, method.generic_params)
 
 
-def _register_if_generic(gen: IRGenerator, t: TypeExpr):
+def _register_if_generic(gen: IRGenerator, t: TypeExpr, unresolved=()):
     """Register a resolved type as a generic instance if it's a generic class."""
-    if not t or not t.generic_args:
+    if not t or not t.generic_args or type_references_names(t, unresolved):
         return
     cls = gen.analyzed.class_table.get(t.base)
     if cls and cls.generic_params:
         instances = gen.analyzed.generic_instances.setdefault(t.base, [])
         args_tuple = tuple(t.generic_args)
-        if args_tuple not in instances:
+        target = generic_instance_key(t.base, args_tuple)
+        if not any(generic_instance_key(t.base, existing) == target for existing in instances):
             instances.append(args_tuple)
 
 
-def _emit_user_generic_instance(gen: IRGenerator, base_name: str,
-                                 args: list[TypeExpr],
-                                 seen: set | None = None):
+def _emit_user_generic_instance(gen: IRGenerator, base_name: str, args: list[TypeExpr], seen: set | None = None):
     """Emit a user-defined generic class instance (struct + methods).
 
     The `seen` set tracks already-emitted mangled names. When field types
@@ -74,29 +74,33 @@ def _emit_user_generic_instance(gen: IRGenerator, base_name: str,
 
     # Recursively emit transitive field-type dependencies FIRST
     if seen is not None:
-        for _name, fd in cls_info.fields.items():
-            resolved = _resolve_type(fd.type, type_map)
+        for _name, fd in cls_info.instance_storage:
+            resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table)
             if resolved.generic_args and resolved.base in gen.analyzed.class_table:
                 dep_cls = gen.analyzed.class_table[resolved.base]
                 if dep_cls.generic_params:
-                    dep_mangled = mangle_generic_type(resolved.base,
-                                                      list(resolved.generic_args))
+                    dep_mangled = mangle_generic_type(resolved.base, list(resolved.generic_args))
                     if dep_mangled not in seen:
                         seen.add(dep_mangled)
-                        _emit_user_generic_instance(
-                            gen, resolved.base, list(resolved.generic_args), seen)
+                        _emit_user_generic_instance(gen, resolved.base, list(resolved.generic_args), seen)
 
-    # Emit forward typedef if not already present (for transitive deps
-    # discovered after the initial forward_decls pass in generator.py)
-    fwd = f"typedef struct {mangled} {mangled};"
-    if fwd not in gen.module.forward_decls:
-        gen.module.forward_decls.append(fwd)
+    # Transitive dependencies may be discovered after the initial declaration
+    # pass, so register their typed struct forward on demand.
+    forward = IRStructForward(name=mangled)
+    if forward not in gen.module.struct_forwards:
+        gen.module.struct_forwards.append(forward)
 
-    # Emit struct with resolved types (ARC: __rc as first field)
-    fields = [IRStructField(c_type=CType(text="int"), name="__rc")]
-    for name, fd in cls_info.fields.items():
-        resolved = _resolve_type(fd.type, type_map)
-        fields.append(IRStructField(c_type=CType(text=type_to_c(resolved)), name=name))
+    # A concrete generic instance carries the same first-member ARC header as
+    # an ordinary class; its descriptor is emitted by the lifecycle pass.
+    fields = [arc_header_field(gen)]
+    for name, fd in cls_info.instance_storage:
+        c_type = _resolve_type_c(
+            fd.type,
+            type_map,
+            gen.analyzed.typedef_table,
+            render=type_to_c,
+        )
+        fields.append(IRStructField(c_type=CType(text=c_type), name=name))
     gen.module.struct_defs.append(IRStructDef(name=mangled, fields=fields))
 
     # Emit constructor, destructor, and methods

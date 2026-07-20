@@ -1,0 +1,57 @@
+#include <assert.h>
+
+int destroyed = 0;
+int firstCalls = 0;
+int secondCalls = 0;
+int thirdCalls = 0;
+int trace = 0;
+
+class ListDrop {
+    public int id;
+
+    public ListDrop(int id) { self.id = id; }
+
+    public void __del__() {
+        destroyed++;
+        trace = trace * 10 + self.id;
+        if (self.id == 1) {
+            firstCalls++;
+            throw "list-first";
+        }
+        if (self.id == 2) {
+            secondCalls++;
+            throw "list-second";
+        }
+        thirdCalls++;
+    }
+}
+
+int main() {
+    {
+        List<ListDrop> values = new List<ListDrop>();
+        values.pushBack(new ListDrop(1));
+        values.pushBack(new ListDrop(2));
+        values.pushBack(new ListDrop(3));
+
+        bool caughtFirst = false;
+        try {
+            values.free();
+        } catch (string error) {
+            caughtFirst = error.equals("list-first");
+        }
+
+        assert(caughtFirst);
+        assert(values.head == null);
+        assert(values.tail == null);
+        assert(values.len == 0);
+        assert(destroyed == 3);
+        assert(firstCalls == 1 && secondCalls == 1 && thirdCalls == 1);
+        assert(trace == 123);
+
+        values.free();
+        assert(destroyed == 3 && trace == 123);
+    }
+
+    assert(destroyed == 3 && trace == 123);
+    return 0;
+}

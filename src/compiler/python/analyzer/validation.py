@@ -1,261 +1,180 @@
-"""Call validation, field access checking, self validation, and generics."""
+"""Member access, self validation, and generic instance collection."""
 
-from ..ast_nodes import (
-    FieldAccessExpr,
-    Identifier,
-    TypeExpr,
-)
+from ..ast_nodes import Identifier
 
 
 class ValidationMixin:
-
-    def _normalize_type_key(self, t: TypeExpr) -> tuple:
-        """Create a position-independent key for a TypeExpr (strips line/col)."""
-        generic_args = tuple(
-            self._normalize_type_key(a) for a in (t.generic_args or [])
-        )
-        return (t.base, generic_args, t.pointer_depth,
-                getattr(t, 'is_nullable', False),
-                getattr(t, 'is_array', False),
-                getattr(t, 'array_size', None))
-
-    def _analyze_call(self, expr):
-        self._analyze_expr(expr.callee)
-        for arg in expr.args:
-            self._analyze_expr(arg)
-
-        # Validate gpu_id() builtin
-        if isinstance(expr.callee, Identifier) and expr.callee.name == "gpu_id":
-            if not self.in_gpu_function:
-                self._error("gpu_id() can only be called inside @gpu functions",
-                            expr.line, expr.col)
-            if len(expr.args) > 0:
-                self._error("gpu_id() takes no arguments", expr.line, expr.col)
-
-        if isinstance(expr.callee, Identifier) and expr.callee.name in self.class_table:
-            cls = self.class_table[expr.callee.name]
-            if cls.is_abstract:
-                self._error(f"Cannot instantiate abstract class '{cls.name}'",
-                            expr.line, expr.col)
-            self._validate_constructor_args(cls, expr.args, expr.arg_names,
-                                            expr.line, expr.col)
-        elif isinstance(expr.callee, Identifier) and expr.callee.name in self.function_table:
-            func = self.function_table[expr.callee.name]
-            if func.body is not None:
-                self._validate_call_arity(func.name, func.params, expr.args,
-                                          expr.arg_names, expr.line, expr.col)
-        elif isinstance(expr.callee, FieldAccessExpr):
-            obj_type = self._infer_type(expr.callee.obj)
-            if obj_type and obj_type.base in self.class_table:
-                cls = self.class_table[obj_type.base]
-                method_name = expr.callee.field
-                if method_name in cls.methods:
-                    method = cls.methods[method_name]
-                    self._validate_call_arity(
-                        f"{cls.name}.{method_name}", method.params, expr.args,
-                        expr.arg_names, expr.line, expr.col)
-
-        # Register generic return types from method calls (e.g. Map.keys() → List<K>)
-        if isinstance(expr.callee, FieldAccessExpr):
-            obj_type = self._infer_type(expr.callee.obj)
-            if obj_type and obj_type.base in self.class_table:
-                cls = self.class_table[obj_type.base]
-                method_name = expr.callee.field
-                if method_name in cls.methods:
-                    method = cls.methods[method_name]
-                    ret = method.return_type
-                    if ret and ret.generic_args and cls.generic_params and obj_type.generic_args:
-                        subs = dict(zip(cls.generic_params, obj_type.generic_args))
-                        resolved = self._substitute_type(ret, subs)
-                        if resolved and resolved.generic_args:
-                            self._collect_generic_instances(resolved)
-                    # Generic method (method-level type params): record the
-                    # monomorphization target for this call site.
-                    if method.generic_params:
-                        self._collect_generic_method_instance(
-                            expr, cls, method, obj_type)
-
-    def _arg_names(self, args, arg_names):
-        names = list(arg_names or [])
-        while len(names) < len(args):
-            names.append("")
-        return names
-
-    def _validate_call_arity(self, name, params, args, arg_names, line, col):
-        """Validate argument count for function/method calls."""
-        names = self._arg_names(args, arg_names)
-        if any(names):
-            self._validate_named_call(name, params, args, names, line, col)
-            return
-        required = sum(1 for p in params if p.default is None)
-        max_args = len(params)
-        if len(args) < required:
-            self._error(f"'{name}()' expects at least {required} argument(s) "
-                        f"but got {len(args)}", line, col)
-        elif len(args) > max_args:
-            self._error(f"'{name}()' expects at most {max_args} argument(s) "
-                        f"but got {len(args)}", line, col)
-
-    def _validate_named_call(self, name, params, args, names, line, col):
-        param_names = [p.name for p in params]
-        supplied = set()
-        positional_index = 0
-        saw_named = False
-        for arg_name in names:
-            if arg_name:
-                saw_named = True
-                if arg_name not in param_names:
-                    self._error(f"'{name}()' has no parameter named '{arg_name}'",
-                                line, col)
-                    continue
-                param_index = param_names.index(arg_name)
-                if param_index in supplied:
-                    self._error(f"'{name}()' got argument '{arg_name}' more than once",
-                                line, col)
-                supplied.add(param_index)
-                continue
-
-            if saw_named:
-                self._error(f"'{name}()' positional argument follows named argument",
-                            line, col)
-                continue
-            if positional_index >= len(params):
-                self._error(f"'{name}()' expects at most {len(params)} argument(s) "
-                            f"but got {len(args)}", line, col)
-                continue
-            supplied.add(positional_index)
-            positional_index += 1
-
-        for param_index, param in enumerate(params):
-            if param_index not in supplied and param.default is None:
-                self._error(f"'{name}()' missing required argument '{param.name}'",
-                            line, col)
-
-    def _validate_constructor_args(self, cls, args, arg_names, line, col):
-        """Validate argument count for constructor calls."""
-        if cls.constructor is None:
-            if len(args) > 0:
-                self._error(f"Class '{cls.name}' has no constructor but was called with "
-                            f"{len(args)} argument(s)", line, col)
-            return
-        params = cls.constructor.params
-        names = self._arg_names(args, arg_names)
-        if any(names):
-            self._validate_named_call(cls.name, params, args, names, line, col)
-            return
-        required = sum(1 for p in params if p.default is None)
-        max_args = len(params)
-        if len(args) < required:
-            self._error(f"Constructor '{cls.name}()' expects at least {required} "
-                        f"argument(s) but got {len(args)}", line, col)
-        elif len(args) > max_args:
-            self._error(f"Constructor '{cls.name}()' expects at most {max_args} "
-                        f"argument(s) but got {len(args)}", line, col)
-
-    def _analyze_field_access(self, expr):
-        self._analyze_expr(expr.obj)
+    def _analyze_field_access(self, expr, *, call_target=False):
+        if isinstance(expr.obj, Identifier):
+            self._analyze_identifier_value(expr.obj, qualification_receiver=True)
+        else:
+            self._analyze_expr(expr.obj)
         obj_type = self._infer_type(expr.obj)
+        if (
+            isinstance(expr.obj, Identifier)
+            and self.scope.lookup(expr.obj.name) is None
+            and expr.obj.name in self.rich_enum_table
+        ):
+            declaration = self.rich_enum_table[expr.obj.name]
+            if not call_target and not any(variant.name == expr.field for variant in declaration.variants):
+                self._error(
+                    f"Rich enum '{declaration.name}' has no variant '{expr.field}'",
+                    expr.line,
+                    expr.col,
+                )
+            return
+        if (
+            isinstance(expr.obj, Identifier)
+            and self.scope.lookup(expr.obj.name) is None
+            and expr.obj.name in self.class_table
+        ):
+            self._validate_static_member_access(expr, self.class_table[expr.obj.name])
+            return
         # Nullable safety: warn on non-optional access on nullable types
-        if (obj_type and getattr(obj_type, 'is_nullable', False)
-                and not getattr(expr, 'optional', False)):
+        if (
+            obj_type
+            and getattr(obj_type, "is_nullable", False)
+            and not getattr(expr, "optional", False)
+            and not self._is_known_nonnull(expr.obj)
+        ):
             self._warning(
                 f"Non-optional access '.{expr.field}' on nullable type "
                 f"'{obj_type.base}?' — use '?.{expr.field}' or check for null",
-                expr.line, expr.col)
+                expr.line,
+                expr.col,
+            )
         # Built-in Thread<T> and Mutex<T> method validation
         if obj_type and obj_type.base == "Thread":
             valid = {"join"}
             if expr.field not in valid:
-                self._error(f"Thread<T> has no method '{expr.field}'",
-                            expr.line, expr.col)
+                self._error(f"Thread<T> has no method '{expr.field}'", expr.line, expr.col)
             return
         if obj_type and obj_type.base == "Mutex":
             valid = {"get", "set", "destroy"}
             if expr.field not in valid:
-                self._error(f"Mutex<T> has no method '{expr.field}'",
-                            expr.line, expr.col)
+                self._error(f"Mutex<T> has no method '{expr.field}'", expr.line, expr.col)
+            return
+        if obj_type and obj_type.base in self.rich_enum_table:
+            if expr.field not in {"tag", "data"} and not (call_target and expr.field == "toString"):
+                self._error(
+                    f"Rich enum '{obj_type.base}' has no field '{expr.field}'",
+                    expr.line,
+                    expr.col,
+                )
+            return
+        if obj_type and obj_type.base == "string":
+            if not call_target:
+                self._error(
+                    f"Type 'string' has no field '{expr.field}'; use a string method call",
+                    expr.line,
+                    expr.col,
+                )
+            return
+        if obj_type and self._validate_tuple_field_access(expr, obj_type):
+            return
+        if obj_type and self._validate_struct_field_access(expr, obj_type):
             return
         if obj_type and obj_type.base in self.class_table:
             cls = self.class_table[obj_type.base]
             if expr.field in cls.properties:
                 prop = cls.properties[expr.field]
                 if prop.access == "private":
-                    if self.current_class is None or self.current_class.name != cls.name:
+                    owner = cls.property_owners.get(expr.field, cls.name)
+                    if self.current_class is None or self.current_class.name != owner:
                         self._error(
-                            f"Cannot access private property '{expr.field}' "
-                            f"of class '{cls.name}'", expr.line, expr.col)
+                            f"Cannot access private property '{expr.field}' of class '{owner}'", expr.line, expr.col
+                        )
+                if self._assignment_target_depth == 0 and not prop.has_getter:
+                    self._error(f"Property '{expr.field}' has no getter", expr.line, expr.col)
                 return
             if expr.field in cls.fields:
                 field_decl = cls.fields[expr.field]
                 if field_decl.access == "private":
-                    if self.current_class is None or self.current_class.name != cls.name:
+                    owner = cls.field_owners.get(expr.field, cls.name)
+                    if self.current_class is None or self.current_class.name != owner:
                         self._error(
-                            f"Cannot access private field '{expr.field}' "
-                            f"of class '{cls.name}'", expr.line, expr.col)
+                            f"Cannot access private field '{expr.field}' of class '{owner}'", expr.line, expr.col
+                        )
             elif expr.field in cls.methods:
                 method = cls.methods[expr.field]
-                if method.access == "private":
-                    if self.current_class is None or self.current_class.name != cls.name:
-                        self._error(
-                            f"Cannot access private method '{expr.field}' "
-                            f"of class '{cls.name}'", expr.line, expr.col)
-            else:
-                self._error(
-                    f"Class '{cls.name}' has no field or method '{expr.field}'",
-                    expr.line, expr.col)
-        elif isinstance(expr.obj, Identifier) and expr.obj.name in self.class_table:
-            cls = self.class_table[expr.obj.name]
-            if expr.field in cls.methods:
-                method = cls.methods[expr.field]
-                if method.access != "class":
+                if method.access == "class":
                     self._error(
-                        f"Method '{expr.field}' is not a class method, "
-                        f"cannot call statically", expr.line, expr.col)
+                        f"Class method '{expr.field}' must be accessed on '{cls.name}', not on an instance",
+                        expr.line,
+                        expr.col,
+                    )
+                if method.access == "private":
+                    owner = cls.method_owners.get(expr.field, cls.name)
+                    if self.current_class is None or self.current_class.name != owner:
+                        self._error(
+                            f"Cannot access private method '{expr.field}' of class '{owner}'", expr.line, expr.col
+                        )
+            else:
+                self._error(f"Class '{cls.name}' has no field or method '{expr.field}'", expr.line, expr.col)
+
+    def _validate_static_member_access(self, expression, class_info) -> None:
+        name = expression.field
+        member = class_info.static_fields.get(name)
+        if member is not None:
+            self._validate_private_member_access(
+                member,
+                class_info.field_owners.get(name, class_info.name),
+                "field",
+                name,
+                expression,
+            )
+            return
+        method = class_info.methods.get(name)
+        if method is not None:
+            if method.access != "class":
+                self._error(
+                    f"Method '{name}' is not a class method, cannot access it statically",
+                    expression.line,
+                    expression.col,
+                )
+                return
+            self._validate_private_member_access(
+                method,
+                class_info.method_owners.get(name, class_info.name),
+                "method",
+                name,
+                expression,
+            )
+            return
+        if name in class_info.fields or name in class_info.properties:
+            self._error(
+                f"Instance member '{name}' cannot be accessed on class '{class_info.name}'",
+                expression.line,
+                expression.col,
+            )
+            return
+        self._error(
+            f"Class '{class_info.name}' has no static field or method '{name}'",
+            expression.line,
+            expression.col,
+        )
+
+    def _validate_private_member_access(self, member, owner, kind, name, expression):
+        if member.access == "private" and (self.current_class is None or self.current_class.name != owner):
+            self._error(
+                f"Cannot access private {kind} '{name}' of class '{owner}'",
+                expression.line,
+                expression.col,
+            )
 
     def _validate_self(self, expr):
-        if self.current_class is None:
+        if self._analyzing_constructor_default:
+            self._error(
+                "Constructor defaults cannot reference 'self' before allocation",
+                expr.line,
+                expr.col,
+            )
+        elif self.current_class is None:
             self._error("'self' used outside of a class", expr.line, expr.col)
         elif self.current_method is None:
             self._error("'self' used outside of a method", expr.line, expr.col)
         elif self.current_method.access == "class":
-            self._error("'self' cannot be used in a class (static) method",
-                        expr.line, expr.col)
+            self._error("'self' cannot be used in a class (static) method", expr.line, expr.col)
 
-    # ---- Generic instance collection ----
 
-    def _collect_generic_instances(self, type_expr):
-        if type_expr is None:
-            return
-        if type_expr.generic_args:
-            key = type_expr.base
-            args_tuple = tuple(type_expr.generic_args)
-            # Validate generic arg count from class_table
-            if key in self.class_table:
-                cls = self.class_table[key]
-                expected = len(cls.generic_params) if cls.generic_params else None
-                if expected is not None and len(type_expr.generic_args) != expected:
-                    self._error(
-                        f"Type '{key}' expects {expected} generic argument(s) "
-                        f"but got {len(type_expr.generic_args)}",
-                        getattr(type_expr, 'line', 0), getattr(type_expr, 'col', 0))
-            if key not in self.generic_instances:
-                self.generic_instances[key] = []
-            normalized_new = tuple(self._normalize_type_key(a) for a in args_tuple)
-            already_exists = any(
-                tuple(self._normalize_type_key(a) for a in existing_args) == normalized_new
-                for existing_args in self.generic_instances[key]
-            )
-            if not already_exists:
-                self.generic_instances[key].append(args_tuple)
-            # Register transitive deps from method return types
-            if key in self.class_table:
-                cls = self.class_table[key]
-                if cls.generic_params and len(type_expr.generic_args) == len(cls.generic_params):
-                    subs = dict(zip(cls.generic_params, type_expr.generic_args))
-                    for method in cls.methods.values():
-                        if method.return_type and method.return_type.generic_args:
-                            resolved = self._substitute_type(method.return_type, subs)
-                            if resolved and resolved.generic_args and resolved.base != key:
-                                self._collect_generic_instances(resolved)
-            for arg in type_expr.generic_args:
-                self._collect_generic_instances(arg)
+__all__ = ["ValidationMixin"]

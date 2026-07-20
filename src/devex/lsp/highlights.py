@@ -16,7 +16,7 @@ from __future__ import annotations
 from lsprotocol import types as lsp
 
 from src.compiler.python.tokens import TokenType
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current
 from src.devex.lsp.reference_finders import (
     find_function_references,
     find_member_references,
@@ -24,7 +24,7 @@ from src.devex.lsp.reference_finders import (
     find_variable_references,
 )
 from src.devex.lsp.references import _definition_entry, _locate_symbol
-from src.devex.lsp.utils import nav_tokens
+from src.devex.lsp.utils import nav_tokens, result_location
 
 # Assignment operators whose left operand is being written.
 _ASSIGN_OPS = frozenset({"=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="})
@@ -49,6 +49,8 @@ def _write_positions(tokens, name: str) -> set[tuple[int, int]]:
 
 def get_document_highlights(result: AnalysisResult, position: lsp.Position) -> list[lsp.DocumentHighlight]:
     """All in-scope occurrences of the symbol at *position*, active file only."""
+    if not analysis_is_current(result):
+        return []
     sym = _locate_symbol(result, position)
     if sym is None:
         return []
@@ -76,7 +78,6 @@ def get_document_highlights(result: AnalysisResult, position: lsp.Position) -> l
             continue
         seen.add((line, col))
         hl_kind = lsp.DocumentHighlightKind.Write if (line, col) in writes else lsp.DocumentHighlightKind.Read
-        start = lsp.Position(line=max(0, line - 1), character=max(0, col - 1))
-        end = lsp.Position(line=start.line, character=start.character + len(name))
-        highlights.append(lsp.DocumentHighlight(range=lsp.Range(start=start, end=end), kind=hl_kind))
+        location = result_location(result, line, col, len(name), file=file)
+        highlights.append(lsp.DocumentHighlight(range=location.range, kind=hl_kind))
     return highlights

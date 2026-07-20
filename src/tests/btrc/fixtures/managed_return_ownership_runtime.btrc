@@ -1,0 +1,179 @@
+#include <assert.h>
+
+int itemsAlive = 0;
+int ownersAlive = 0;
+int sinksAlive = 0;
+int defaultEvaluations = 0;
+int defaultTargetCalls = 0;
+
+class Item {
+    public int id;
+    public Item(int id) { self.id = id; itemsAlive++; }
+    public void __del__() { itemsAlive--; }
+}
+
+class Owner {
+    public Item child;
+    public int value;
+    public Owner(int id) {
+        ownersAlive++;
+        self.child = new Item(id);
+        self.value = id;
+    }
+    public void __del__() { ownersAlive--; }
+    public Owner fluent() { return self; }
+}
+
+class Sink {
+    public Sink() { sinksAlive++; }
+    public void __del__() { sinksAlive--; }
+    public bool accept(Item value) { return value != null; }
+    public bool acceptDefault(keep Item value = new Item(61)) {
+        return value != null;
+    }
+}
+
+class PropertyBox {
+    public Item item { get; set; }
+}
+
+class Holder<T> {
+    public T value;
+    public Holder(T value) { self.value = value; }
+    public T get() { return self.value; }
+    public T pass(T value) { return value; }
+}
+
+Owner makeOwner(int id) { return new Owner(id); }
+Item identity(Item value) { return value; }
+
+Item childFromLocal(int id) {
+    Owner owner = new Owner(id);
+    return owner.child;
+}
+
+Item choose(bool fresh, Item existing) {
+    return fresh ? new Item(20) : existing;
+}
+
+Item chooseCoalesced(Item? candidate) {
+    return candidate ?? new Item(30);
+}
+
+void throwingDefault(keep Item value = new Item(41)) {
+    assert(value != null);
+    throw "default failed";
+}
+
+void throwingPrior(Item first, Item second = first) {
+    assert(first == second);
+    throw "prior default failed";
+}
+
+Item failDefaultEvaluation() {
+    defaultEvaluations++;
+    throw "default evaluation failed";
+}
+
+void throwingEvaluation(Item first,
+        Item second = failDefaultEvaluation()) {
+    defaultTargetCalls++;
+}
+
+int main() {
+    {
+        Item original = new Item(1);
+        Item alias = identity(original);
+        assert(alias == original && itemsAlive == 1);
+    }
+    assert(itemsAlive == 0);
+
+    Item escaped = childFromLocal(2);
+    assert(ownersAlive == 0 && itemsAlive == 1 && escaped.id == 2);
+    delete escaped;
+    assert(itemsAlive == 0);
+
+    assert(makeOwner(3).value == 3);
+    assert(ownersAlive == 0 && itemsAlive == 0);
+    Item projected = makeOwner(4).child;
+    assert(ownersAlive == 0 && itemsAlive == 1 && projected.id == 4);
+    delete projected;
+    assert(itemsAlive == 0);
+
+    assert(makeOwner(5) != null);
+    assert(makeOwner(6) != makeOwner(7));
+    makeOwner(8).fluent().fluent();
+    assert(ownersAlive == 0 && itemsAlive == 0);
+
+    {
+        Item existing = new Item(9);
+        choose(true, existing);
+        choose(false, existing);
+        Item selectedFresh = choose(true, existing);
+        Item selectedAlias = choose(false, existing);
+        Item coalescedAlias = chooseCoalesced(existing);
+        Item coalescedFresh = chooseCoalesced(null);
+        assert(selectedFresh.id == 20 && selectedAlias == existing);
+        assert(coalescedAlias == existing && coalescedFresh.id == 30);
+        assert(itemsAlive == 3);
+
+        Sink sink = new Sink();
+        assert(sink.accept(true ? new Item(21) : existing));
+        assert(sink.accept(false ? new Item(22) : existing));
+        assert(itemsAlive == 3);
+    }
+    assert(itemsAlive == 0 && sinksAlive == 0);
+
+    {
+        PropertyBox box = new PropertyBox();
+        Item source = new Item(80);
+        box.item = source;
+        assert(box.item == source && itemsAlive == 1);
+        box.item = new Item(81);
+        assert(box.item.id == 81 && itemsAlive == 2);
+    }
+    assert(itemsAlive == 0);
+
+    {
+        Holder<Item> holder = new Holder<Item>(new Item(70));
+        Item first = holder.get();
+        Item second = holder.pass(first);
+        assert(first == second && first.id == 70 && itemsAlive == 1);
+    }
+    assert(itemsAlive == 0);
+
+    Sink? absent = null;
+    assert(!absent?.acceptDefault());
+    assert(itemsAlive == 0);
+    Sink present = new Sink();
+    assert(present?.acceptDefault());
+    assert(itemsAlive == 0);
+    assert((new Sink())?.accept(new Item(90)));
+    assert(itemsAlive == 0 && sinksAlive == 1);
+
+    int caught = 0;
+    try { throwingDefault(); }
+    catch (string error) { caught++; }
+    assert(caught == 1 && itemsAlive == 0);
+
+    Item prior = new Item(42);
+    try { throwingPrior(prior); }
+    catch (string error) { caught++; }
+    assert(caught == 2 && itemsAlive == 1);
+    delete prior;
+    assert(itemsAlive == 0);
+
+    Item borrowedPrior = new Item(43);
+    try { throwingEvaluation(borrowedPrior); }
+    catch (string error) { caught++; }
+    assert(caught == 3 && itemsAlive == 1);
+    assert(defaultEvaluations == 1 && defaultTargetCalls == 0);
+    delete borrowedPrior;
+    assert(itemsAlive == 0);
+
+    try { throwingEvaluation(new Item(44)); }
+    catch (string error) { caught++; }
+    assert(caught == 4 && itemsAlive == 0);
+    assert(defaultEvaluations == 2 && defaultTargetCalls == 0);
+    return 0;
+}

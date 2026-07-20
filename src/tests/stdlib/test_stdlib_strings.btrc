@@ -32,6 +32,8 @@ int main() {
     /* analysis */
     assert(Strings.count("aXbXc", "X") == 2);
     assert(Strings.find("hello", "ll", 0) == 2);
+    assert(Strings.find("hello", "", 5) == 5);
+    assert(Strings.find("hello", "", 6) == -1);
     assert(Strings.rfind("a.b.c", ".") == 3);
     assert(Strings.compare("a", "b") < 0);
     assert(Strings.lessThan("apple", "banana"));
@@ -41,6 +43,8 @@ int main() {
 
     /* numeric conversion */
     assert(Strings.toInt("  -42 ") == -42);
+    assert(Strings.toInt("999999999999999999") == 2147483647);
+    assert(Strings.toInt("-999999999999999999") == -2147483647 - 1);
     assert(Strings.fromInt(123).equals("123"));
 
     /* char classifiers */

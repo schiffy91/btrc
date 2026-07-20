@@ -1,520 +1,71 @@
-"""Compiler front-end orchestration.
-
-This module owns the source-to-analyzed-AST pipeline:
-
-    include/import resolution -> stdlib composition -> lexing -> parsing
-    -> strict import visibility -> semantic analysis
-
-The CLI owns process concerns such as argument parsing, disk output, C emission,
-and user-facing formatting. Tooling such as the LSP should enter through this
-module instead of rebuilding a partial compiler pipeline.
-"""
+"""Compiler front-end orchestration from source bundle through analysis."""
 
 from __future__ import annotations
 
-import hashlib
 import os
-import pickle
-import re
-import sys
 import time
-from dataclasses import dataclass, field
-from functools import cached_property
 
-from . import pkg
 from .analyzer.analyzer import Analyzer
 from .analyzer.core import AnalyzedProgram
 from .ast_nodes import Program
-from .cache_keys import resolve_cache_dir, toolchain_hash
-from .import_scan import scan_directives
+from .frontend_imports import (
+    IncludeResolutionError,
+    _resolve_includes_mapped,
+    import_spec_paths,
+    resolve_includes,
+    resolve_includes_traced,
+)
+from .frontend_limits import check_combined_source_size
+from .frontend_models import (
+    FrontendParseResult,
+    FrontendResult,
+    FrontendSource,
+    FrontendVisibilityError,
+)
+from .frontend_stdlib import (
+    _STDLIB_AST_VERSION,
+    _cached_stdlib_decls,
+    _defined_stdlib_names,
+    _discover_stdlib_files,
+    _find_stdlib_file,
+    _get_stdlib_dir,
+    get_stdlib_source,
+    get_stdlib_source_mapped,
+)
 from .import_visibility import check_visibility
 from .lexer import Lexer
 from .parser.parser import Parser
-from .pkg import IncludeResolutionError  # canonical import point stays here
-from .tokens import Token
+from .source_provenance import compiler_stdlib_source, stamp_nested_declaration_sources
 
-# Content hash of the lexer/parser/AST sources: cached stdlib ASTs are
-# invalidated automatically by any frontend change (never hand-bumped).
-_STDLIB_AST_VERSION = toolchain_hash("frontend")
-
-# Regex to extract class/interface names from btrc source (for skip-if-redefined)
-_CLASS_NAME_RE = re.compile(
-    r'^\s*(?:abstract\s+)?class\s+(\w+)(?:\s*<[^>\n]+>)?\s*'
-    r'(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?'
-    r'(?:implements\s+\w+(?:\s*,\s*\w+)*\s*)?\{',
-    re.MULTILINE,
-)
-_INTERFACE_NAME_RE = re.compile(
-    r'^\s*interface\s+(\w+)(?:\s*<[^>\n]+>)?\s*'
-    r'(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?\{',
-    re.MULTILINE,
-)
-
-
-@dataclass
-class FrontendSource:
-    """Resolved source bundle passed from include/stdlib resolution into parsing."""
-
-    user_source: str
-    source: str
-    stdlib_source: str = ""
-    provenance: list[str] = field(default_factory=list)
-    source_positions: list[tuple[str, int]] = field(default_factory=list)
-    graph: dict[str, set[str]] = field(default_factory=dict)
-    strict_imports: bool = False
-
-    @cached_property
-    def _user_position_offset(self) -> int:
-        """Index in ``source_positions`` where user-source line entries begin."""
-        return len(self.source_positions) - (self.user_source.count("\n") + 1)
-
-    def map_line(self, line: int, space: str = "combined") -> tuple[str, int] | None:
-        """Translate a 1-based parse-space line to ``(source_file, native_line)``.
-
-        ``space`` is "combined" (stdlib + user concatenation), "user" (resolved
-        user source), or "stdlib" (composed stdlib source). Returns None when
-        unmappable (out of range, or stdlib positions were not requested).
-        """
-        offset = self._user_position_offset
-        if space == "combined":
-            stdlib_lines = self.stdlib_source.count("\n") + 1 if self.stdlib_source else 0
-            if line > stdlib_lines:
-                space, line = "user", line - stdlib_lines
-            else:
-                space = "stdlib"
-        if space == "stdlib":
-            idx, lo, hi = line - 1, 0, offset
-        else:
-            idx, lo, hi = offset + line - 1, offset, len(self.source_positions)
-        if line >= 1 and lo <= idx < hi:
-            return self.source_positions[idx]
-        return None
-
-    def map_diag_line(self, line: int, *, diag_file: str | None = None,
-                      split_spaces: bool = False) -> tuple[str, int] | None:
-        """Resolve a diagnostic position to ``(source_file, native_line)``.
-
-        ``split_spaces`` means stdlib and user code were parsed separately
-        (stdlib AST cache), so each position is native to whichever space
-        produced it; ``diag_file`` (decl ``source_file`` provenance) selects
-        the stdlib space when it names a stdlib-composed file.
-        """
-        if not split_spaces:
-            return self.map_line(line, "combined")
-        offset = self._user_position_offset
-        if diag_file is not None and any(
-            f == diag_file for f, _ in self.source_positions[:offset]
-        ):
-            return self.map_line(line, "stdlib")
-        return self.map_line(line, "user")
-
-
-@dataclass
-class StdlibSource:
-    source: str
-    source_positions: list[tuple[str, int]]
-
-
-@dataclass
-class FrontendParseResult:
-    """Lexer/parser output. ``program`` is absent for token-only requests."""
-
-    tokens: list[Token]
-    program: Program | None = None
-    user_program: Program | None = None
-
-
-@dataclass
-class FrontendResult:
-    """Successful front-end compilation result."""
-
-    source: str
-    user_source: str
-    stdlib_source: str
-    tokens: list[Token]
-    program: Program
-    analyzed: AnalyzedProgram
-    user_program: Program | None = None
-    provenance: list[str] = field(default_factory=list)
-    source_positions: list[tuple[str, int]] = field(default_factory=list)
-    graph: dict[str, set[str]] = field(default_factory=dict)
-
-
-class FrontendVisibilityError(Exception):
-    """Strict-import visibility failures."""
-
-    def __init__(self, errors: list[tuple[str, int, int]]):
-        self.errors = errors
-        super().__init__("strict import visibility failed")
+__all__ = [
+    "_STDLIB_AST_VERSION",
+    "Analyzer",
+    "FrontendParseResult",
+    "FrontendResult",
+    "FrontendSource",
+    "FrontendVisibilityError",
+    "IncludeResolutionError",
+    "_cached_stdlib_decls",
+    "_defined_stdlib_names",
+    "_discover_stdlib_files",
+    "_find_stdlib_file",
+    "_get_stdlib_dir",
+    "analyze_frontend_program",
+    "compile_frontend",
+    "get_stdlib_source",
+    "get_stdlib_source_mapped",
+    "import_spec_paths",
+    "lex_parse_frontend_source",
+    "resolve_frontend_source",
+    "resolve_includes",
+    "resolve_includes_traced",
+    "uses_stdlib_ast_cache",
+]
 
 
 def _timed(profile: dict[str, float] | None, label: str, start: float) -> None:
     if profile is not None:
         profile[label] = time.perf_counter() - start
-
-
-def _cached_stdlib_decls(stdlib_source: str) -> list:
-    """Parse the stdlib once and cache its AST declarations on disk.
-
-    The stdlib is large and identical across programs, so re-lexing/re-parsing
-    it every compile dominates build time. This caches the parsed declarations
-    keyed by the exact stdlib source (which already reflects any user overrides),
-    so subsequent builds skip straight to the user's code. Each CLI invocation
-    is a fresh process, so the unpickled AST is never shared/mutated across runs.
-    """
-    key = hashlib.sha256(
-        f"astv{_STDLIB_AST_VERSION}\n{stdlib_source}".encode()
-    ).hexdigest()
-    path = os.path.join(resolve_cache_dir(), f"stdlib-{key}.ast")
-    if os.path.exists(path):
-        try:
-            with open(path, "rb") as f:
-                return pickle.load(f)
-        except Exception:
-            pass  # corrupt/incompatible cache: reparse below
-    tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
-    decls = Parser(tokens).parse().declarations
-    try:
-        with open(path, "wb") as f:
-            pickle.dump(decls, f, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception:
-        pass
-    return decls
-
-
-def _defined_stdlib_names(source: str) -> set[str]:
-    return set(_CLASS_NAME_RE.findall(source)) | set(_INTERFACE_NAME_RE.findall(source))
-
-
-def _get_stdlib_dir() -> str:
-    """Get the absolute path to the stdlib directory."""
-    # src/compiler/python/frontend.py -> src/stdlib/
-    module_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(module_dir, "..", "..", "stdlib")
-
-
-def _discover_stdlib_files() -> list[str]:
-    """Scan src/stdlib/ and return .btrc filenames in include order.
-
-    vector.btrc comes first (Map/Set/List/Array may depend on Vector), then
-    list.btrc (depends on ListNode + Vector), then strings.btrc because
-    higher-level stdlib modules use Strings.copy(). Process/fs come before
-    app-level modules that construct shell and filesystem helpers.
-    """
-    stdlib_dir = _get_stdlib_dir()
-    if not os.path.isdir(stdlib_dir):
-        return []
-    files = sorted(f for f in os.listdir(stdlib_dir) if f.endswith(".btrc"))
-    priority = [
-        "vector.btrc",
-        "list.btrc",
-        "strings.btrc",
-        "platform.btrc",
-        "process.btrc",
-        "fs.btrc",
-        "daemon.btrc",
-        "ui.btrc",
-    ]
-    ordered = [f for f in priority if f in files]
-    ordered += [f for f in files if f not in priority]
-    return ordered
-
-
-def get_stdlib_source(user_source: str = "") -> str:
-    """Read stdlib sources, skipping classes/interfaces already defined by user."""
-    return get_stdlib_source_mapped(user_source).source
-
-
-def _stdlib_file_source(content: str, path: str) -> tuple[list[str], list[tuple[str, int]]]:
-    """Drop the file's own import directives; the stdlib is composed wholesale."""
-    covered = {
-        ln
-        for d in scan_directives(content)
-        if d.kind == "import"
-        for ln in range(d.start, d.end + 1)
-    }
-    lines = []
-    source_positions = []
-    for line_number, line in enumerate(content.split("\n"), start=1):
-        if line_number in covered:
-            continue
-        lines.append(line)
-        source_positions.append((path, line_number))
-    return lines, source_positions
-
-
-def get_stdlib_source_mapped(user_source: str = "") -> StdlibSource:
-    """Read stdlib sources, skipping classes/interfaces already defined by user."""
-    stdlib_dir = _get_stdlib_dir()
-    user_names = _defined_stdlib_names(user_source)
-
-    lines = []
-    source_positions = []
-    for fname in _discover_stdlib_files():
-        fpath = os.path.join(stdlib_dir, fname)
-        if not os.path.exists(fpath):
-            continue
-        with open(fpath) as f:
-            content = f.read()
-        file_names = _defined_stdlib_names(content)
-        if file_names & user_names:
-            continue
-        file_lines, file_positions = _stdlib_file_source(content, fpath)
-        lines.extend(file_lines)
-        source_positions.extend(file_positions)
-    return StdlibSource(source="\n".join(lines), source_positions=source_positions)
-
-
-def _find_stdlib_file(include_path: str) -> str | None:
-    """Find a stdlib file by root-relative path or basename in subdirectories."""
-    stdlib_dir = _get_stdlib_dir()
-    stdlib_path = os.path.join(stdlib_dir, include_path)
-    if os.path.exists(stdlib_path):
-        return stdlib_path
-
-    fname = os.path.basename(include_path)
-    for entry in os.listdir(stdlib_dir):
-        sub = os.path.join(stdlib_dir, entry)
-        if os.path.isdir(sub):
-            candidate = os.path.join(sub, fname)
-            if os.path.exists(candidate):
-                return candidate
-    return None
-
-
-def _resolve_include_path(include_path: str, source_dir: str) -> str:
-    full_path = os.path.join(source_dir, include_path)
-    if os.path.exists(full_path):
-        return full_path
-
-    stdlib_path = _find_stdlib_file(include_path)
-    if stdlib_path is not None:
-        return stdlib_path
-
-    raise IncludeResolutionError(
-        f"include file '{include_path}' not found\n"
-        f"  searched: {source_dir}\n"
-        f"  searched: {_get_stdlib_dir()}"
-    )
-
-
-def _stdlib_glob_paths() -> list[str]:
-    stdlib_dir = _get_stdlib_dir()
-    return [os.path.join(stdlib_dir, fname) for fname in _discover_stdlib_files()]
-
-
-def _stdlib_module_path(name: str) -> str:
-    """Resolve a single ``std.<name>`` module to its stdlib file path."""
-    stdlib_dir = _get_stdlib_dir()
-    fname = name if name.endswith(".btrc") else f"{name}.btrc"
-    path = _find_stdlib_file(fname)
-    if path is None:
-        raise IncludeResolutionError(
-            f"stdlib import 'std.{name}' not found\n"
-            f"  searched: {stdlib_dir}"
-        )
-    return path
-
-
-def _relative_import_paths(spec: str, source_dir: str) -> list[str]:
-    recursive = spec.endswith("/**")
-    direct_glob = spec.endswith("/*")
-    if recursive or direct_glob:
-        base = spec[:-3] if recursive else spec[:-2]
-        root = base if os.path.isabs(base) else os.path.join(source_dir, base)
-        if not os.path.isdir(root):
-            raise IncludeResolutionError(
-                f"import directory '{spec}' not found\n"
-                f"  searched: {root}"
-            )
-        matches: list[str] = []
-        if recursive:
-            for current, _dirs, files in os.walk(root):
-                for fname in files:
-                    if fname.endswith((".btrc", ".c")):
-                        matches.append(os.path.join(current, fname))
-        else:
-            for fname in os.listdir(root):
-                path = os.path.join(root, fname)
-                if os.path.isfile(path) and fname.endswith((".btrc", ".c")):
-                    matches.append(path)
-        return sorted(matches)
-
-    if os.path.isdir(spec if os.path.isabs(spec) else os.path.join(source_dir, spec)):
-        root = spec if os.path.isabs(spec) else os.path.join(source_dir, spec)
-        return sorted(
-            os.path.join(root, fname)
-            for fname in os.listdir(root)
-            if fname.endswith((".btrc", ".c")) and os.path.isfile(os.path.join(root, fname))
-        )
-
-    path = spec if os.path.isabs(spec) else os.path.join(source_dir, spec)
-    if os.path.exists(path):
-        return [path]
-    return [_resolve_include_path(spec, source_dir)]
-
-
-def import_spec_paths(spec, source_dir: str) -> list[str]:
-    """Resolve a parsed ``import_spec`` AST node to filesystem path(s).
-
-    All path RESOLUTION still lives in the helpers below (stdlib/package/
-    relative); only the *parsing* of the spec moved into the parser, so brace
-    expansion and quote stripping are already done by the time we get here.
-    """
-    from .ast_nodes import (
-        PackagePath,
-        QuotedPath,
-        RelativePath,
-        StdGlob,
-        StdModules,
-    )
-
-    if isinstance(spec, StdGlob):
-        return _stdlib_glob_paths()
-    if isinstance(spec, StdModules):
-        return [_stdlib_module_path(name) for name in spec.names]
-    if isinstance(spec, PackagePath):
-        dotted = ".".join(spec.segments)
-        return (
-            pkg.package_import_paths(dotted)
-            or _relative_import_paths(dotted, source_dir)
-        )
-    if isinstance(spec, (RelativePath, QuotedPath)):
-        path = spec.path
-        return (
-            pkg.package_import_paths(path)
-            or _relative_import_paths(path, source_dir)
-        )
-    raise IncludeResolutionError(f"unsupported import spec: {spec!r}")
-
-
-def _inline_paths(paths: list[str], abs_path: str, line_number: int,
-                  included: set[str], graph: dict[str, set[str]],
-                  out: list[tuple[str, str, int]]) -> None:
-    """Splice resolved import/include targets into ``out`` (recursing)."""
-    for full_path in paths:
-        abs_full = os.path.abspath(full_path)
-        graph[abs_path].add(abs_full)
-        if full_path.endswith(".c"):
-            out.append((f'#include "{abs_full}"', abs_path, line_number))
-            continue
-        with open(full_path) as f:
-            out.extend(_resolve_traced(f.read(), full_path, included, graph))
-
-
-def _resolve_traced(source: str, source_path: str, included: set[str],
-                    graph: dict[str, set[str]]) -> list[tuple[str, str, int]]:
-    """Recursively resolve includes/imports, preserving line provenance.
-
-    Directives are located by the lexer/parser (``scan_directives``), not by a
-    raw line regex, so imports inside comments or strings are never resolved.
-    Each directive's line range is replaced by the imported declarations; every
-    other line is emitted verbatim with its native provenance.
-    """
-    abs_path = os.path.abspath(source_path)
-    source_dir = os.path.dirname(abs_path)
-    graph.setdefault(abs_path, set())
-    if abs_path in included:
-        return []  # circular/repeat include guard; caller still recorded the edge
-    included.add(abs_path)
-
-    directives = scan_directives(source)
-    by_start = {d.start: d for d in directives}
-    covered = {ln for d in directives for ln in range(d.start, d.end + 1)}
-
-    out: list[tuple[str, str, int]] = []
-    for line_number, line in enumerate(source.split("\n"), start=1):
-        directive = by_start.get(line_number)
-        if directive is not None:
-            if directive.kind == "btrc_include":
-                full = os.path.abspath(
-                    _resolve_include_path(directive.payload, source_dir))
-                graph[abs_path].add(full)
-                with open(full) as f:
-                    out.extend(_resolve_traced(f.read(), full, included, graph))
-            else:  # import
-                paths = import_spec_paths(directive.payload, source_dir)
-                _inline_paths(paths, abs_path, line_number, included, graph, out)
-            continue
-        if line_number in covered:
-            continue  # continuation line of a multi-line directive
-        out.append((line, abs_path, line_number))
-
-    return out
-
-
-def _resolve_includes_mapped(
-    source: str,
-    source_path: str,
-    included: set[str] | None = None,
-    *,
-    exit_on_error: bool = True,
-) -> tuple[str, list[str], list[tuple[str, int]], dict[str, set[str]]]:
-    """Resolve imports with both file and original-line mapping."""
-    graph: dict[str, set[str]] = {}
-    try:
-        traced = _resolve_traced(
-            source,
-            source_path,
-            set() if included is None else included,
-            graph,
-        )
-    except IncludeResolutionError as e:
-        if not exit_on_error:
-            raise
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    resolved = "\n".join(text for text, _, _ in traced)
-    provenance = [src for _, src, _ in traced]
-    source_positions = [(src, line) for _, src, line in traced]
-    return resolved, provenance, source_positions, graph
-
-
-def resolve_includes(
-    source: str,
-    source_path: str,
-    included: set[str] | None = None,
-    *,
-    exit_on_error: bool = True,
-) -> str:
-    """Recursively resolve btrc includes/imports by textual inclusion.
-
-    Supported import forms:
-      import std.{cli, fs, process}
-      import std.*
-      import ./file.btrc
-      import ./directory/*
-      import ./directory/**
-    """
-    try:
-        resolved, _, _, _ = _resolve_includes_mapped(
-            source,
-            source_path,
-            included,
-            exit_on_error=False,
-        )
-    except IncludeResolutionError as e:
-        if not exit_on_error:
-            raise
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
-    return resolved
-
-
-def resolve_includes_traced(
-    source: str,
-    source_path: str,
-    *,
-    exit_on_error: bool = True,
-):
-    """Like resolve_includes, but include provenance and the import graph."""
-    resolved, provenance, _, graph = _resolve_includes_mapped(
-        source,
-        source_path,
-        exit_on_error=exit_on_error,
-    )
-    return resolved, provenance, graph
 
 
 def resolve_frontend_source(
@@ -547,6 +98,7 @@ def resolve_frontend_source(
             stdlib_source = get_stdlib_source(user_source)
         _timed(profile, "stdlib_include", start)
 
+    check_combined_source_size(stdlib_source, "\n" if stdlib_source else "", user_source)
     full_source = (stdlib_source + "\n" + user_source) if stdlib_source else user_source
     return FrontendSource(
         user_source=user_source,
@@ -556,6 +108,7 @@ def resolve_frontend_source(
         source_positions=stdlib_positions + source_positions,
         graph=graph,
         strict_imports=strict_imports,
+        root_source_path=os.path.realpath(source_path),
     )
 
 
@@ -571,18 +124,54 @@ def uses_stdlib_ast_cache(
     """True when stdlib and user code are parsed separately (cached stdlib AST),
     i.e. parse positions are native to each part rather than combined-source."""
     return (
-        parse and bool(frontend_source.stdlib_source) and use_ast_cache
-        and not emit_tokens and not emit_ast and not debug
+        parse
+        and bool(frontend_source.stdlib_source)
+        and use_ast_cache
+        and not emit_tokens
+        and not emit_ast
+        and not debug
         and not frontend_source.strict_imports
     )
 
 
 def _stamp_decl_files(decls, frontend_source: FrontendSource, space: str) -> None:
     """Record native-file provenance on top-level decls (feeds ``Diag.file``)."""
+    stdlib_line_count = frontend_source.stdlib_source.count("\n") + 1 if frontend_source.stdlib_source else 0
     for decl in decls:
         pos = frontend_source.map_line(getattr(decl, "line", 0), space)
+        compiler_stdlib = space == "stdlib" or (
+            space == "combined" and stdlib_line_count and getattr(decl, "line", 0) <= stdlib_line_count
+        )
+        if pos is not None and _compiler_resolved_stdlib_import(
+            frontend_source,
+            pos[0],
+        ):
+            compiler_stdlib = True
         if pos is not None:
-            decl.source_file = pos[0]
+            decl.source_file = compiler_stdlib_source(pos[0]) if compiler_stdlib else pos[0]
+        elif compiler_stdlib:
+            # Provenance matters even without detailed stdlib diagnostic mapping.
+            decl.source_file = compiler_stdlib_source()
+        stamp_nested_declaration_sources(decl)
+
+
+def _compiler_resolved_stdlib_import(
+    frontend_source: FrontendSource,
+    path: str,
+) -> bool:
+    """Authenticate canonical stdlib files reached through the import graph."""
+    canonical = os.path.realpath(path)
+    if canonical == frontend_source.root_source_path:
+        return False
+    stdlib_root = os.path.realpath(_get_stdlib_dir())
+    try:
+        if os.path.commonpath((canonical, stdlib_root)) != stdlib_root:
+            return False
+    except (OSError, ValueError):
+        return False
+    return any(
+        canonical == os.path.realpath(imported) for imports in frontend_source.graph.values() for imported in imports
+    )
 
 
 def lex_parse_frontend_source(
@@ -636,9 +225,7 @@ def lex_parse_frontend_source(
         _timed(profile, "parse", start)
 
     if frontend_source.strict_imports:
-        errors = check_visibility(
-            program, frontend_source.provenance, frontend_source.graph
-        )
+        errors = check_visibility(program, frontend_source.provenance, frontend_source.graph)
         if errors:
             raise FrontendVisibilityError(errors)
 
@@ -696,6 +283,7 @@ def compile_frontend(
         tokens=parsed.tokens,
         program=parsed.program,
         analyzed=analyzed,
+        source_bundle=frontend_source,
         user_program=parsed.user_program,
         provenance=frontend_source.provenance,
         source_positions=frontend_source.source_positions,

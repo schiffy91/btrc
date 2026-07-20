@@ -2,16 +2,29 @@
 #include "ast/node.btrc"
 #include "ebnf.btrc"
 #include "lexer.btrc"
+#include "literal_text.btrc"
+#include "numeric_literals.btrc"
 #include "parser.btrc"
+#include "frontend_source_io.btrc"
+#include "driver_output.btrc"
 int main(int argc, char** argv) {
   if (argc < 2) { print("usage: parse <file.btrc>"); return 1; }
-  string gt = Path.readAll("src/language/grammar.ebnf");
+  string gt = feReadRequiredSource("src/language/grammar.ebnf");
   GrammarInfo g = parseGrammar(gt);
-  string src = Path.readAll(Strings.copy(argv[1]));
+  string src = feReadRequiredSource(Strings.copy(argv[1]));
   Lexer lx = Lexer(src, g);
   Vector<Token> toks = lx.tokenize();
+  if (lx.failed) {
+    fprintf(stderr, "error: %s\n", lx.diagnostic);
+    return 1;
+  }
   Parser p = Parser(toks, g);
   Node prog = p.parseProgram();
-  print(prog.canon(0));
-  return 0;
+  if (p.failed) {
+    fprintf(stderr, "error: %s\n", p.diagnostic);
+    return 1;
+  }
+  if (printLineChecked(prog.canon(0))) { return 0; }
+  fprintf(stderr, "parse: error: cannot write standard output\n");
+  return 1;
 }

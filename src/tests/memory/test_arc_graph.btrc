@@ -77,18 +77,17 @@ int main() {
         GraphNode gn = new GraphNode(100);
         assert(node_count == 1);
 
-        // store uses keep param → gn.rc++ at call site (gn registered as managed again)
-        // Inside store: self.held = gn → gn.rc++ (field assign)
+        // keep guards the call; self.held independently retains gn.
         ctr.store(gn);
-        // gn.rc: 1(new, managed) + 1(keep param, managed) + 1(field assign) = 3
+        // After return: gn.rc = 1 (local) + 1 (field) = 2.
 
         assert(ctr.held.id == 100);
 
         delete ctr;
-        // ctr destructor releases ctr.held (gn) → gn.rc = 3 - 1 = 2
+        // ctr destructor releases ctr.held (gn) → gn.rc = 2 - 1 = 1
 
-        // Scope exit: gn managed twice (new + keep), ctr=NULL(skip)
-        // Phase 1: --gn.rc(2→1), --gn.rc(1→0)
+        // Scope exit: gn's local owner is released, ctr=NULL is skipped.
+        // Phase 1: --gn.rc(1→0)
         // Phase 2: gn.rc==0 → destroy gn
     }
     assert(node_count == 0);

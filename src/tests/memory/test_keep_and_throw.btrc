@@ -1,7 +1,6 @@
-/* ARC across exceptions combined with a `keep` param: an object is passed via a
- * keep param to a container, then a throw unwinds the try block. The
- * keep-incremented refcount and the try-block cleanup must net out -- no double
- * free, no spurious leak beyond what the keep retains. */
+/* ARC across exceptions combined with a call-scoped keep guard. The field owns
+ * its stored reference and unwinding releases the local and temporary guard
+ * exactly once. */
 #include <assert.h>
 
 int alive = 0;
@@ -35,7 +34,7 @@ int main() {
     Container c = new Container();
     try {
         Obj n = new Obj(1);   // rc 1, managed in try scope
-        c.store(n);           // keep param rc++ + field assign rc++
+        c.store(n);           // field retains n; call guard is then released
         throw "boom";
     } catch (string e) {
         // try-scope cleanup releases the managed n once on unwind.

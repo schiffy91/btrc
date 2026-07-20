@@ -1,0 +1,275 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int assignmentTokensAlive = 0;
+int assignmentTokensDestroyed = 0;
+int assignmentRenderCalls = 0;
+
+class AssignmentToken {
+    public int value;
+
+    public AssignmentToken(int value) {
+        self.value = value;
+        assignmentTokensAlive++;
+    }
+
+    public void __del__() {
+        assignmentTokensAlive--;
+        assignmentTokensDestroyed++;
+    }
+
+    public string toString() {
+        assignmentRenderCalls++;
+        return self.value.toString();
+    }
+}
+
+void consumeAssignmentResult(
+    string value,
+    int expected,
+    int expectedEntries
+) {
+    assert(value.toInt() == expected);
+    assert((int)__btrc_string_live_count() == expectedEntries);
+}
+
+class VirtualStringSink {
+    public int observed;
+
+    public VirtualStringSink() {}
+
+    public string custom {
+        get { return ""; }
+        set { self.observed = value.toInt(); }
+    }
+
+    public string get(int index) {
+        assert(index == 0);
+        return "";
+    }
+
+    public void set(int index, string value) {
+        assert(index == 0);
+        self.observed = value.toInt();
+    }
+}
+
+class ProjectionStringOwner {
+    public string text;
+
+    public ProjectionStringOwner(string text) { self.text = text; }
+}
+
+class InvalidatingStringSink {
+    public ProjectionStringOwner owner;
+    public int observed;
+
+    public InvalidatingStringSink(ProjectionStringOwner owner) {
+        self.owner = owner;
+    }
+
+    public string custom {
+        get { return ""; }
+        set {
+            self.observed = value.toInt();
+            self.owner.text = (self.observed + 1).toString();
+        }
+    }
+
+    public string get(int index) {
+        assert(index == 0);
+        return "";
+    }
+
+    public void set(int index, string value) {
+        assert(index == 0);
+        self.observed = value.toInt();
+        self.owner.text = (self.observed + 1).toString();
+    }
+}
+
+string mutateProjectionOwner(
+    ProjectionStringOwner owner,
+    int replacement
+) {
+    owner.text = replacement.toString();
+    return "-tail";
+}
+
+class GenericVirtualStringSink<T> {
+    public T marker;
+    public int observed;
+
+    public GenericVirtualStringSink(T marker) { self.marker = marker; }
+
+    public string custom {
+        get { return ""; }
+        set { self.observed = value.toInt(); }
+    }
+
+    public string get(int index) {
+        assert(index == 0);
+        return "";
+    }
+
+    public void set(int index, string value) {
+        assert(index == 0);
+        self.observed = value.toInt();
+    }
+
+    public void exercise(AssignmentToken token) {
+        int baseline = (int)__btrc_string_live_count();
+
+        consumeAssignmentResult(
+            (self.custom = token), token.value, baseline + 1);
+        assert(self.observed == token.value);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        assert((self[0] = token).toInt() == token.value);
+        assert(self.observed == token.value);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        self.custom = token;
+        assert((int)__btrc_string_live_count() == baseline);
+        self[0] = token;
+        assert((int)__btrc_string_live_count() == baseline);
+    }
+}
+
+class GenericBorrowedAssignmentHarness<T> {
+    public T marker;
+
+    public GenericBorrowedAssignmentHarness(T marker) {
+        self.marker = marker;
+    }
+
+    public void exercise(
+        InvalidatingStringSink sink,
+        ProjectionStringOwner owner,
+        int expected,
+        int baseline
+    ) {
+        assert((sink.custom = owner.text).toInt() == expected);
+        assert(sink.observed == expected);
+        assert(owner.text.toInt() == expected + 1);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        sink[0] = owner.text;
+        assert(sink.observed == expected + 1);
+        assert(owner.text.toInt() == expected + 2);
+        assert((int)__btrc_string_live_count() == baseline);
+    }
+
+    public string combine(
+        ProjectionStringOwner owner,
+        int replacement
+    ) {
+        return owner.text + mutateProjectionOwner(owner, replacement);
+    }
+}
+
+void exerciseNormalVirtualAssignments(int base) {
+    int calls = assignmentRenderCalls;
+    int destroyed = assignmentTokensDestroyed;
+    {
+        AssignmentToken token = new AssignmentToken(base);
+        VirtualStringSink sink = new VirtualStringSink();
+        int baseline = (int)__btrc_string_live_count();
+
+        consumeAssignmentResult(
+            (sink.custom = token), base, baseline + 1);
+        assert(sink.observed == base);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        assert((sink[0] = token).toInt() == base);
+        assert(sink.observed == base);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        sink.custom = token;
+        assert((int)__btrc_string_live_count() == baseline);
+        sink[0] = token;
+        assert((int)__btrc_string_live_count() == baseline);
+        assert(assignmentRenderCalls == calls + 4);
+    }
+    assert(assignmentTokensAlive == 0);
+    assert(assignmentTokensDestroyed == destroyed + 1);
+}
+
+void exerciseGenericVirtualAssignments(int base) {
+    int calls = assignmentRenderCalls;
+    int destroyed = assignmentTokensDestroyed;
+    {
+        AssignmentToken token = new AssignmentToken(base);
+        GenericVirtualStringSink<int> sink =
+            new GenericVirtualStringSink<int>(17);
+        sink.exercise(token);
+        assert(assignmentRenderCalls == calls + 4);
+    }
+    assert(assignmentTokensAlive == 0);
+    assert(assignmentTokensDestroyed == destroyed + 1);
+}
+
+void exerciseBorrowedProjectionResults(int base) {
+    {
+        ProjectionStringOwner owner =
+            new ProjectionStringOwner(base.toString());
+        InvalidatingStringSink sink = new InvalidatingStringSink(owner);
+        int baseline = (int)__btrc_string_live_count();
+
+        assert((sink.custom = owner.text).toInt() == base);
+        assert(sink.observed == base);
+        assert(owner.text.toInt() == base + 1);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        assert((sink[0] = owner.text).toInt() == base + 1);
+        assert(sink.observed == base + 1);
+        assert(owner.text.toInt() == base + 2);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        sink.custom = owner.text;
+        assert(sink.observed == base + 2);
+        assert(owner.text.toInt() == base + 3);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        sink[0] = owner.text;
+        assert(sink.observed == base + 3);
+        assert(owner.text.toInt() == base + 4);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        assert(
+            (owner.text + mutateProjectionOwner(owner, base + 5)).equals(
+                f"{base + 4}-tail"));
+        assert(owner.text.toInt() == base + 5);
+        assert((int)__btrc_string_live_count() == baseline);
+
+        GenericBorrowedAssignmentHarness<int> generic =
+            new GenericBorrowedAssignmentHarness<int>(17);
+        generic.exercise(sink, owner, base + 5, baseline);
+        assert(
+            generic.combine(owner, base + 8).equals(
+                f"{base + 7}-tail"));
+        assert(owner.text.toInt() == base + 8);
+        assert((int)__btrc_string_live_count() == baseline);
+    }
+}
+
+void exerciseVirtualAssignments(int base) {
+    exerciseNormalVirtualAssignments(base);
+    exerciseGenericVirtualAssignments(base + 100);
+    exerciseBorrowedProjectionResults(base + 200);
+}
+
+int main() {
+    exerciseVirtualAssignments(1000);
+    assert(assignmentRenderCalls == 8);
+    assert(assignmentTokensDestroyed == 2);
+
+    arc_test_allocation_checkpoint();
+    exerciseVirtualAssignments(2000);
+    assert(assignmentRenderCalls == 16);
+    assert(assignmentTokensDestroyed == 4);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

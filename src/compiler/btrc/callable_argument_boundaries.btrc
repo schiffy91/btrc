@@ -1,0 +1,74 @@
+/* Parameter binding for managed-return callback ABI validation. */
+
+Vector<Node> callableBoundaryFunctionPointerParameters(Node signature) {
+    Vector<Node> parameters = [];
+    int index = 1;
+    while (index < signature.generic_args.len) {
+        Node parameter = Node();
+        parameter.kind = NK_PARAM;
+        parameter.name = Strings.fromInt(index - 1);
+        parameter.type = signature.generic_args.get(index);
+        parameters.push(parameter);
+        index = index + 1;
+    }
+    return parameters;
+}
+
+void rejectUnsafeManagedCallbackArgumentBoundary(IRGen generator,
+        Node parameter, Node argument, Map<string, Node> varTypes) {
+    if (!callableBoundaryUnsafeValue(
+            generator, parameter.type, argument, varTypes)) {
+        return;
+    }
+    print("Managed-return callback for parameter '" + parameter.name
+        + "' erases its source-owned return ABI; bare __fn_ptr parameters "
+        + "accept only borrowed C callbacks");
+    abortGen();
+}
+
+void rejectUnsafeManagedCallbackArgumentsBoundary(IRGen generator,
+        Node call, Vector<Node> parameters,
+        Map<string, Node> varTypes) {
+    if (parameters.len == 0) { return; }
+    Map<string, int> parameterIndices = {};
+    Vector<int> bound = [];
+    int index = 0;
+    while (index < parameters.len) {
+        parameterIndices.put(parameters.get(index).name, index);
+        bound.push(0);
+        index = index + 1;
+    }
+    int positional = 0;
+    index = 0;
+    while (index < call.args.len) {
+        int parameterIndex = positional;
+        string argumentName = "";
+        if (index < call.arg_names.len) {
+            argumentName = call.arg_names.get(index);
+        }
+        if (argumentName != "") {
+            parameterIndex = -1;
+            if (parameterIndices.has(argumentName)) {
+                parameterIndex = parameterIndices.get(argumentName);
+            }
+        } else {
+            positional = positional + 1;
+        }
+        if (parameterIndex >= 0 && parameterIndex < parameters.len) {
+            bound.set(parameterIndex, 1);
+            rejectUnsafeManagedCallbackArgumentBoundary(
+                generator, parameters.get(parameterIndex),
+                call.args.get(index), varTypes);
+        }
+        index = index + 1;
+    }
+    index = 0;
+    while (index < parameters.len) {
+        Node parameter = parameters.get(index);
+        if (bound.get(index) == 0 && parameter.default_ != null) {
+            rejectUnsafeManagedCallbackArgumentBoundary(
+                generator, parameter, parameter.default_, varTypes);
+        }
+        index = index + 1;
+    }
+}

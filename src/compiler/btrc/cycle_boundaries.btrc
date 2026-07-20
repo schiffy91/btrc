@@ -1,0 +1,174 @@
+/* Deterministic drains at observable self-hosted ownership boundaries. */
+
+bool isPublicCollectionBase(string name) {
+    return name == "Array" || name == "List" || name == "Map"
+        || name == "Set" || name == "Vector";
+}
+
+bool irContainsCyclableRelease(IRNode? node) {
+    if (node == null) { return false; }
+    if (node.kind == IRK_CALL
+            && (node.callee == "__btrc_arc_release"
+                || node.callee == "__btrc_arc_release_edge"
+                || node.callee == "__btrc_arc_replace_edge")) {
+        return true;
+    }
+    if (irContainsCyclableRelease(node.left)
+            || irContainsCyclableRelease(node.right)
+            || irContainsCyclableRelease(node.operand)
+            || irContainsCyclableRelease(node.expr)
+            || irContainsCyclableRelease(node.obj)
+            || irContainsCyclableRelease(node.index)
+            || irContainsCyclableRelease(node.condition)
+            || irContainsCyclableRelease(node.true_expr)
+            || irContainsCyclableRelease(node.false_expr)
+            || irContainsCyclableRelease(node.array_size)
+            || irContainsCyclableRelease(node.init)
+            || irContainsCyclableRelease(node.value)
+            || irContainsCyclableRelease(node.target)
+            || irContainsCyclableRelease(node.then_block)
+            || irContainsCyclableRelease(node.else_block)
+            || irContainsCyclableRelease(node.body)
+            || irContainsCyclableRelease(node.update)
+            || irContainsCyclableRelease(node.result)) {
+        return true;
+    }
+    int index = 0;
+    while (index < node.args.len) {
+        if (irContainsCyclableRelease(node.args.get(index))) { return true; }
+        index = index + 1;
+    }
+    index = 0;
+    while (index < node.stmts.len) {
+        if (irContainsCyclableRelease(node.stmts.get(index))) { return true; }
+        index = index + 1;
+    }
+    return false;
+}
+
+IRNode irForcedCycleFlush() {
+    Vector<IRNode> arguments = [];
+    return irExprStmt(irCall("__btrc_flush_cycles", arguments));
+}
+
+bool irIsForcedCycleFlush(IRNode node) {
+    return node.kind == IRK_EXPR_STMT
+        && node.expr != null
+        && node.expr.kind == IRK_CALL
+        && node.expr.callee == "__btrc_flush_cycles";
+}
+
+bool irSequenceEndsWithCycleFlush(Vector<IRNode> statements) {
+    return statements.len > 0
+        && irIsForcedCycleFlush(statements.get(statements.len - 1));
+}
+
+bool irIsMaterializedCycleReturn(
+        Vector<IRNode> statements, IRNode statement) {
+    if (statements.len < 2
+            || !irSequenceEndsWithCycleFlush(statements)
+            || statement.value == null
+            || statement.value.kind != IRK_VAR) {
+        return false;
+    }
+    IRNode declaration = statements.get(statements.len - 2);
+    return declaration.kind == IRK_VAR_DECL
+        && declaration.is_cycle_return_temp
+        && declaration.name == statement.value.name;
+}
+
+void rewriteNestedCycleReturns(IRGen generator,
+        IRFunction definition, IRNode node) {
+    if (node.kind == IRK_BLOCK) {
+        rewriteCycleReturns(generator, definition, node);
+    } else if (node.kind == IRK_IF) {
+        rewriteCycleReturns(generator, definition, node.then_block);
+        if (node.else_block != null) {
+            rewriteCycleReturns(generator, definition, node.else_block);
+        }
+    } else if (node.kind == IRK_WHILE
+            || node.kind == IRK_DO_WHILE
+            || node.kind == IRK_FOR) {
+        rewriteCycleReturns(generator, definition, node.body);
+    } else if (node.kind == IRK_SWITCH) {
+        int index = 0;
+        while (index < node.args.len) {
+            IRNode branch = node.args.get(index);
+            rewriteCycleReturns(generator, definition, branch);
+            index = index + 1;
+        }
+    } else if (node.kind == IRK_CASE) {
+        rewriteCycleReturns(generator, definition, node);
+    }
+}
+
+void rewriteCycleReturns(IRGen generator,
+        IRFunction definition, IRNode block) {
+    Vector<IRNode> rewritten = [];
+    int index = 0;
+    while (index < block.stmts.len) {
+        IRNode statement = block.stmts.get(index);
+        rewriteNestedCycleReturns(generator, definition, statement);
+        if (statement.kind == IRK_RETURN) {
+            bool materialized = irIsMaterializedCycleReturn(
+                rewritten, statement);
+            if (statement.value != null && !materialized) {
+                string result = generator.freshTemp(
+                    "__btrc_cycle_return");
+                IRNode declaration = irVarDecl(
+                    definition.return_type, result, statement.value);
+                declaration.is_cycle_return_temp = true;
+                rewritten.push(declaration);
+                statement.value = irVar(result);
+            }
+            if (!irSequenceEndsWithCycleFlush(rewritten)) {
+                rewritten.push(irForcedCycleFlush());
+            }
+        }
+        rewritten.push(statement);
+        index = index + 1;
+    }
+    block.stmts = rewritten;
+}
+
+void forceCycleBoundary(IRGen generator, IRFunction definition) {
+    generator.useHelper("__btrc_flush_cycles");
+    rewriteCycleReturns(generator, definition, definition.body);
+    if (irSequenceMayFallThrough(definition.body.stmts)
+            && !irSequenceEndsWithCycleFlush(definition.body.stmts)) {
+        definition.body.stmts.push(irForcedCycleFlush());
+    }
+}
+
+bool installReleaseBearingCycleBoundary(
+        IRGen generator, IRFunction definition) {
+    if (definition.body == null
+            || !irContainsCyclableRelease(definition.body)) {
+        return false;
+    }
+    forceCycleBoundary(generator, definition);
+    return true;
+}
+
+void installProgramCycleBoundary(IRGen generator, IRModule module) {
+    bool hasCyclableRelease = false;
+    int index = 0;
+    while (index < module.functions.len) {
+        IRFunction definition = module.functions.get(index);
+        if (definition.body != null
+                && irContainsCyclableRelease(definition.body)) {
+            hasCyclableRelease = true;
+            break;
+        }
+        index = index + 1;
+    }
+    if (!hasCyclableRelease) { return; }
+    index = 0;
+    while (index < module.functions.len) {
+        IRFunction definition = module.functions.get(index);
+        if (definition.name == "main" || definition.name == "btrc_main") {
+            forceCycleBoundary(generator, definition);
+        }
+        index = index + 1;
+    }
+}

@@ -57,6 +57,30 @@ def test_goto_def_param_via_occurrence():
     assert _def_pos(loc) == (0, 12)  # the 'a' parameter name
 
 
+SHADOWED_PARAM = """\
+int convert(int value) {
+    float value = 2.0f;
+    return (int)value;
+}
+"""
+
+
+def test_syntactic_local_shadows_rejected_parameter_binding_during_edit():
+    r = analyze(SHADOWED_PARAM)
+    assert any("Duplicate variable name 'value'" in diagnostic.message for diagnostic in r.diagnostics)
+
+    use = pos_of(SHADOWED_PARAM, "(int)value", offset=5)
+    occ = occurrence_at(r, use)
+    assert occ is not None and occ.kind == "local"
+    assert (occ.def_line, occ.def_col) == (2, 11)
+    assert _def_pos(get_definition(r, use)) == (1, 10)
+
+
+def test_shadowed_parameter_references_follow_the_syntactic_local():
+    use = pos_of(SHADOWED_PARAM, "(int)value", offset=5)
+    assert _ref_positions(SHADOWED_PARAM, use) == [(1, 10), (2, 16)]
+
+
 LOOPVAR = """\
 int main() {
     for x in range(10) {
@@ -165,6 +189,7 @@ def test_hover_shows_inferred_string_type():
 
 
 # --------------------------------------------------------------- index plumbing
+
 
 def test_index_cached_per_snapshot():
     r = analyze(LOCALS)

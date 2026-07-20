@@ -1,0 +1,21 @@
+int printf(int first, int second) { return first * 10 + second; }
+
+class GenericUserPrintfOrder<T> {
+    public GenericUserPrintfOrder() {}
+
+    public int run() {
+        int value = 0;
+        return printf((value = 3), value);
+    }
+}
+
+int main() {
+    int value = 0;
+    if (printf((value = 2), value) != 22) { return 1; }
+
+    GenericUserPrintfOrder<int> generic =
+        new GenericUserPrintfOrder<int>();
+    int result = generic.run();
+    delete generic;
+    return result == 33 ? 0 : 2;
+}

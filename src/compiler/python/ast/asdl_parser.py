@@ -20,11 +20,13 @@ from dataclasses import dataclass, field
 
 # --- Data model ---
 
+
 @dataclass
 class Field:
     """A single field in a constructor or attributes."""
-    type: str          # "expr", "stmt", "string", "int", "bool", etc.
-    name: str          # field name
+
+    type: str  # "expr", "stmt", "string", "int", "bool", etc.
+    name: str  # field name
     seq: bool = False  # True if * (sequence)
     opt: bool = False  # True if ? (optional)
 
@@ -32,6 +34,7 @@ class Field:
 @dataclass
 class Constructor:
     """A single constructor (variant) of a sum type, or a product type."""
+
     name: str
     fields: list[Field] = field(default_factory=list)
 
@@ -40,6 +43,7 @@ class Constructor:
 class Type:
     """A named type definition. Can be a sum type (multiple constructors)
     or a product type (single constructor)."""
+
     name: str
     constructors: list[Constructor] = field(default_factory=list)
     attributes: list[Field] = field(default_factory=list)
@@ -48,18 +52,22 @@ class Type:
 @dataclass
 class Module:
     """The top-level ASDL module."""
+
     name: str
     types: list[Type] = field(default_factory=list)
 
 
 # --- Tokenizer ---
 
-_TOKEN_RE = re.compile(r"""
+_TOKEN_RE = re.compile(
+    r"""
     (--[^\n]*)           |  # line comment
     ([a-zA-Z_][a-zA-Z0-9_]*) |  # identifier
     ([{}()|,=?*])         |  # punctuation
     (\s+)                    # whitespace
-""", re.VERBOSE)
+""",
+    re.VERBOSE,
+)
 
 
 def _tokenize(source: str) -> list[str]:
@@ -77,6 +85,7 @@ def _tokenize(source: str) -> list[str]:
 
 
 # --- Parser ---
+
 
 class ASDLParser:
     """Recursive descent parser for ASDL."""
@@ -98,8 +107,7 @@ class ASDLParser:
     def _expect(self, expected: str) -> str:
         tok = self._advance()
         if tok != expected:
-            raise SyntaxError(
-                f"Expected {expected!r}, got {tok!r} at token {self.pos}")
+            raise SyntaxError(f"Expected {expected!r}, got {tok!r} at token {self.pos}")
         return tok
 
     def parse_module(self) -> Module:
@@ -129,8 +137,7 @@ class ASDLParser:
             attributes = self._parse_field_list()
             self._expect(")")
 
-        return Type(name=name, constructors=constructors,
-                    attributes=attributes)
+        return Type(name=name, constructors=constructors, attributes=attributes)
 
     def _parse_constructor(self) -> Constructor:
         """constructor = id ['(' field { ',' field } ')']"""

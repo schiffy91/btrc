@@ -1,0 +1,24 @@
+#include <assert.h>
+
+enum class Payload {
+    Number(int value),
+    Empty
+}
+
+Payload identity(Payload value) {
+    return value;
+}
+
+class Holder {
+    public Payload value;
+    public Holder(Payload value) { self.value = value; }
+}
+
+int main() {
+    Payload payload = identity(Payload.Number(42));
+    Holder holder = new Holder(payload);
+    assert(holder.value.tag == Payload.Number);
+    assert(holder.value.data.Number.value == 42);
+    print("PASS: test_rich_enum_signatures");
+    return 0;
+}

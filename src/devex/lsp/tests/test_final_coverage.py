@@ -122,7 +122,7 @@ def test_hover_var_in_while_body():
 
 
 def test_hover_forin_second_loop_variable():
-    assert _hb("k, v in m", offset=3) != ""   # the second loop var (var_name2)
+    assert _hb("k, v in m", offset=3) != ""  # the second loop var (var_name2)
 
 
 def test_hover_var_inferred_from_call():
@@ -135,18 +135,19 @@ def test_hover_var_inferred_from_new():
 
 # ---- signatures: static + inherited + nested active param ------------------
 
+
 def test_signature_static_class_method():
-    src = ("class Mathy { public int base; public Mathy(int base) { self.base = base; }\n"
-           "    public int addp(int a, int b) { return a + b; } }\n"
-           "int main() { int r = Mathy.addp(1, 2); return r; }\n")
+    src = (
+        "class Mathy { public int base; public Mathy(int base) { self.base = base; }\n"
+        "    public int addp(int a, int b) { return a + b; } }\n"
+        "int main() { int r = Mathy.addp(1, 2); return r; }\n"
+    )
     s = get_signature_help(analyze(src), pos_of(src, "Mathy.addp(1", offset=11))
     assert s is None or (s.signatures and "addp" in s.signatures[0].label)
 
 
 def test_signature_nested_call_active_param():
-    src = ("int g(int a, int b) { return a + b; }\n"
-           "int f(int x) { return x; }\n"
-           "int main() { return g(f(1), 2); }\n")
+    src = "int g(int a, int b) { return a + b; }\nint f(int x) { return x; }\nint main() { return g(f(1), 2); }\n"
     # cursor on the outer call's second argument, past the nested f(1)
     s = get_signature_help(analyze(src), pos_of(src, ", 2)", offset=2))
     assert s is not None and s.active_parameter == 1
@@ -154,15 +155,16 @@ def test_signature_nested_call_active_param():
 
 # ---- references / rename edge cases ----------------------------------------
 
+
 def test_references_function_exclude_declaration():
     src = "int helper() { return 1; }\nint main() { return helper() + helper(); }\n"
     full = get_references(analyze(src), pos_of(src, "int helper", offset=4), include_declaration=True)
     nodecl = get_references(analyze(src), pos_of(src, "int helper", offset=4), include_declaration=False)
     full_lines = {r.range.start.line for r in full}
     nodecl_lines = {r.range.start.line for r in nodecl}
-    assert 1 in full_lines and 1 in nodecl_lines   # the call site on line 1 is always a ref
-    assert 0 in full_lines                          # the declaration (line 0) is a ref…
-    assert 0 not in nodecl_lines                     # …dropped when excluded
+    assert 1 in full_lines and 1 in nodecl_lines  # the call site on line 1 is always a ref
+    assert 0 in full_lines  # the declaration (line 0) is a ref…
+    assert 0 not in nodecl_lines  # …dropped when excluded
 
 
 def test_rename_none_on_keyword():
@@ -172,6 +174,7 @@ def test_rename_none_on_keyword():
 
 # ---- definition: property + struct -----------------------------------------
 
+
 def test_definition_struct_usage():
     src = "struct Pt { int x; int y; };\nint main() { struct Pt p; p.x = 1; return p.x; }\n"
     loc = get_definition(analyze(src), pos_of(src, "struct Pt p", offset=7))
@@ -179,6 +182,7 @@ def test_definition_struct_usage():
 
 
 # ---- diagnostics: include error --------------------------------------------
+
 
 def test_diagnostics_missing_include_is_tolerated():
     # include resolution failure is caught and falls back to the raw source —

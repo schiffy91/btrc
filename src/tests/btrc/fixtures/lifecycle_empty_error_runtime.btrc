@@ -1,0 +1,48 @@
+#include <assert.h>
+
+int emptyErrorAlive = 0;
+int emptyErrorOwnerHooks = 0;
+int emptyErrorChildHooks = 0;
+
+class EmptyErrorChild {
+    public EmptyErrorChild() {
+        emptyErrorAlive++;
+    }
+
+    public void __del__() {
+        emptyErrorAlive--;
+        emptyErrorChildHooks++;
+    }
+}
+
+class EmptyErrorOwner {
+    public EmptyErrorChild child;
+
+    public EmptyErrorOwner() {
+        self.child = new EmptyErrorChild();
+        emptyErrorAlive++;
+    }
+
+    public void __del__() {
+        emptyErrorAlive--;
+        emptyErrorOwnerHooks++;
+        throw "";
+    }
+}
+
+int main() {
+    bool caughtEmpty = false;
+    try {
+        EmptyErrorOwner owner = new EmptyErrorOwner();
+        delete owner;
+        assert(false);
+    } catch (string error) {
+        caughtEmpty = error.equals("");
+    }
+
+    assert(caughtEmpty);
+    assert(emptyErrorOwnerHooks == 1);
+    assert(emptyErrorChildHooks == 1);
+    assert(emptyErrorAlive == 0);
+    return 0;
+}

@@ -1,0 +1,20 @@
+/* Saturating integer geometry used by GUI layout and widget decoration. */
+class GuiInt {
+    class int clamp(long long value) {
+        if (value > 2147483647LL) { return 2147483647; }
+        if (value < -2147483647LL - 1LL) { return -2147483647 - 1; }
+        return (int)value;
+    }
+
+    class int add(int left, int right) {
+        return GuiInt.clamp((long long)left + (long long)right);
+    }
+
+    class int subtract(int left, int right) {
+        return GuiInt.clamp((long long)left - (long long)right);
+    }
+
+    class int multiply(int left, int right) {
+        return GuiInt.clamp((long long)left * (long long)right);
+    }
+}

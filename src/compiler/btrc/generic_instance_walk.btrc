@@ -1,0 +1,259 @@
+/* Substitution-aware AST walk used by generic-instance closure. */
+
+Map<string, Node> genericClosureCopyTypes(Map<string, Node> source) {
+    Map<string, Node> copy = {};
+    Vector<string> names = source.keys();
+    int index = 0;
+    while (index < names.len) {
+        string name = names.get(index);
+        copy.put(name, source.get(name));
+        index = index + 1;
+    }
+    return copy;
+}
+
+void genericClosureRegisterType(Node? typeExpr, Map<string, Node> substitutions,
+        Map<string, bool> unresolved, Analyzed analyzed) {
+    if (typeExpr == null) { return; }
+    Node resolved = resolveGenericType(
+        typeExpr, substitutions, analyzed);
+    if (resolved.generic_args.len > 0) {
+        registerGenericInstanceWithUnresolved(
+            resolved, analyzed, unresolved);
+    }
+}
+
+bool genericClosureExpressionKind(int kind) {
+    return kind >= NK_INT_LITERAL && kind <= NK_SPAWN_EXPR;
+}
+
+Node? genericClosureExpressionType(Node? expression,
+        Map<string, Node> substitutions, Analyzed analyzed,
+        Map<string, Node> variables) {
+    if (expression == null) { return null; }
+    Node? inferred = inferSpecializationType(
+        expression, analyzed, variables);
+    if (inferred == null) { return null; }
+    return resolveGenericType(
+        inferred, substitutions, analyzed);
+}
+
+Node? genericClosureIterationType(Node? iterableType, Analyzed analyzed) {
+    if (iterableType == null) { return null; }
+    if (isStringType(iterableType)) { return makePrimType("char"); }
+    if (iterableType.generic_args.len > 0) {
+        return iterableType.generic_args.get(0);
+    }
+    if (iterableType.is_array || iterableType.pointer_depth > 0) {
+        if (iterableType.is_array) {
+            return typeWithoutOuterArray(iterableType);
+        }
+        return typeWithoutOuterPointers(iterableType, 1);
+    }
+    return null;
+}
+
+void genericClosureWalkVector(Vector<Node> nodes,
+        Map<string, Node> substitutions, Map<string, bool> unresolved,
+        Analyzed analyzed, Map<string, Node> variables) {
+    int index = 0;
+    while (index < nodes.len) {
+        genericClosureWalkNode(nodes.get(index), substitutions,
+            unresolved, analyzed, variables);
+        index = index + 1;
+    }
+}
+
+void genericClosureWalkLambda(Node lambda, Map<string, Node> substitutions,
+        Map<string, bool> unresolved, Analyzed analyzed,
+        Map<string, Node> variables) {
+    Map<string, Node> nested = genericClosureCopyTypes(variables);
+    genericClosureRegisterType(
+        lambda.return_type, substitutions, unresolved, analyzed);
+    int parameter = 0;
+    while (parameter < lambda.params.len) {
+        Node value = lambda.params.get(parameter);
+        Node resolved = resolveGenericType(
+            value.type, substitutions, analyzed);
+        genericClosureRegisterType(
+            resolved, substitutions, unresolved, analyzed);
+        nested.put(value.name, resolved);
+        genericClosureWalkNode(value.default_, substitutions,
+            unresolved, analyzed, nested);
+        parameter = parameter + 1;
+    }
+    int capture = 0;
+    while (capture < lambda.captures.len) {
+        Node value = lambda.captures.get(capture);
+        Node resolved = resolveGenericType(
+            value.type, substitutions, analyzed);
+        genericClosureRegisterType(
+            resolved, substitutions, unresolved, analyzed);
+        nested.put(value.name, resolved);
+        capture = capture + 1;
+    }
+    genericClosureWalkNode(lambda.body_node, substitutions,
+        unresolved, analyzed, nested);
+    genericClosureWalkNode(lambda.expression, substitutions,
+        unresolved, analyzed, nested);
+}
+
+void genericClosureWalkNode(Node? node, Map<string, Node> substitutions,
+        Map<string, bool> unresolved, Analyzed analyzed,
+        Map<string, Node> variables) {
+    if (node == null) { return; }
+    if (node.kind == NK_TYPE_EXPR) {
+        genericClosureRegisterType(
+            node, substitutions, unresolved, analyzed);
+        genericClosureWalkNode(node.array_size, substitutions,
+            unresolved, analyzed, variables);
+        return;
+    }
+    if (genericClosureExpressionKind(node.kind)) {
+        Node? inferred = genericClosureExpressionType(
+            node, substitutions, analyzed, variables);
+        genericClosureRegisterType(
+            inferred, substitutions, unresolved, analyzed);
+        if (node.kind == NK_CALL_EXPR) {
+            collectMethodGenericCall(node, analyzed, variables);
+        }
+    }
+    if (node.kind == NK_VAR_DECL_STMT) {
+        genericClosureWalkNode(node.initializer, substitutions,
+            unresolved, analyzed, variables);
+        Node? declared = null;
+        if (node.type != null) {
+            declared = resolveGenericType(
+                node.type, substitutions, analyzed);
+        } else {
+            declared = genericClosureExpressionType(
+                node.initializer, substitutions, analyzed, variables);
+        }
+        genericClosureRegisterType(
+            declared, substitutions, unresolved, analyzed);
+        if (declared != null) { variables.put(node.name, declared); }
+        return;
+    }
+    if (node.kind == NK_FOR_IN_STMT
+            || node.kind == NK_PARALLEL_FOR_STMT) {
+        genericClosureWalkNode(node.iterable, substitutions,
+            unresolved, analyzed, variables);
+        Node? iterableType = genericClosureExpressionType(
+            node.iterable, substitutions, analyzed, variables);
+        Node? elementType = genericClosureIterationType(
+            iterableType, analyzed);
+        Map<string, Node> nested = genericClosureCopyTypes(variables);
+        if (elementType != null) { nested.put(node.var_name, elementType); }
+        if (node.var_name2 != null && iterableType != null
+                && iterableType.generic_args.len > 1) {
+            nested.put(node.var_name2, iterableType.generic_args.get(1));
+        }
+        genericClosureWalkNode(node.body_node, substitutions,
+            unresolved, analyzed, nested);
+        return;
+    }
+    if (node.kind == NK_TRY_CATCH_STMT) {
+        genericClosureWalkNode(node.try_block, substitutions,
+            unresolved, analyzed, variables);
+        Map<string, Node> caught = genericClosureCopyTypes(variables);
+        if (node.catch_type != null) {
+            Node catchType = resolveGenericType(
+                node.catch_type, substitutions, analyzed);
+            genericClosureRegisterType(
+                catchType, substitutions, unresolved, analyzed);
+            if (node.catch_var != "") { caught.put(node.catch_var, catchType); }
+        }
+        genericClosureWalkNode(node.catch_block, substitutions,
+            unresolved, analyzed, caught);
+        genericClosureWalkNode(node.finally_block, substitutions,
+            unresolved, analyzed, variables);
+        return;
+    }
+    if (node.kind == NK_LAMBDA_EXPR) {
+        genericClosureWalkLambda(
+            node, substitutions, unresolved, analyzed, variables);
+        return;
+    }
+
+    genericClosureWalkNode(node.return_type, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.body_node, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.type, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.default_, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.initializer, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.getter_body, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.setter_body, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.value_node, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.condition, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.then_block, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.else_block, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.iterable, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.init, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.update, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.expr, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.if_stmt, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.var_decl, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.expression, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.left, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.right, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.operand, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.callee, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.obj, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.index, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.target_type, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.true_expr, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.false_expr, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.target, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.fn, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.key, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkNode(node.array_size, substitutions,
+        unresolved, analyzed, variables);
+
+    genericClosureWalkVector(node.params, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkVector(node.statements, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkVector(node.cases, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkVector(node.body_nlist, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkVector(node.args, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkVector(node.elements, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkVector(node.entries, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkVector(node.parts, substitutions,
+        unresolved, analyzed, variables);
+    genericClosureWalkVector(node.captures, substitutions,
+        unresolved, analyzed, variables);
+}

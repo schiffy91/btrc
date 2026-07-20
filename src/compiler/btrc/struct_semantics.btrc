@@ -1,0 +1,110 @@
+/* Complete-struct layout validation and dependency ordering. */
+
+string structResolvedName(Node? typeExpr, Analyzed analyzed) {
+    if (typeExpr == null) { return ""; }
+    Node resolved = typeExpr;
+    Node? alias = resolveTypedefType(typeExpr, analyzed.typedefTable);
+    if (alias != null) { resolved = alias; }
+    if (resolved.base.startsWith("struct ")) {
+        string explicitName = resolved.base.substring(
+            7, resolved.base.length() - 7);
+        if (analyzed.structTable.has(explicitName)) { return explicitName; }
+        return "";
+    }
+    if (analyzed.structTable.has(resolved.base)) { return resolved.base; }
+    return "";
+}
+
+Node? structFieldType(
+        Node? typeExpr, string fieldName, Analyzed analyzed) {
+    string name = structResolvedName(typeExpr, analyzed);
+    if (name == "" || !analyzed.structTable.has(name)) { return null; }
+    Node declaration = analyzed.structTable.get(name);
+    if (declaration.is_forward) { return null; }
+    int index = 0;
+    while (index < declaration.fields.len) {
+        Node field = declaration.fields.get(index);
+        if (field.name == fieldName) { return field.type; }
+        index = index + 1;
+    }
+    return null;
+}
+
+string semanticStructFieldTarget(
+        Node typeExpr, Map<string, Node> declarations,
+        Map<string, Node> registrations) {
+    if (typeExpr.pointer_depth > 0) { return ""; }
+    if (typeExpr.base.startsWith("struct ")) {
+        return typeExpr.base.substring(7, typeExpr.base.length() - 7);
+    }
+    if (declarations.has(typeExpr.base)
+            || registrations.has(typeExpr.base)) {
+        return typeExpr.base;
+    }
+    return "";
+}
+
+void semanticVisitStructDefinition(string name,
+        Map<string, Node> declarations, Map<string, Node> registrations,
+        Map<string, int> states, Vector<Node> ordered) {
+    if (states.has(name) && states.get(name) == 2) { return; }
+    Node declaration = declarations.get(name);
+    if (states.has(name) && states.get(name) == 1) {
+        semanticValidationFail(
+            "By-value struct dependency cycle involving '" + name + "'",
+            declaration);
+    }
+    states.put(name, 1);
+    int fieldIndex = 0;
+    while (fieldIndex < declaration.fields.len) {
+        Node field = declaration.fields.get(fieldIndex);
+        string target = semanticStructFieldTarget(
+            field.type, declarations, registrations);
+        if (target != "") {
+            if (!declarations.has(target)) {
+                if (registrations.has(target)
+                        && registrations.get(target).is_forward) {
+                    semanticValidationFail("Struct field '" + name + "."
+                        + field.name + "' uses incomplete struct '"
+                        + target + "' by value", field);
+                }
+            } else {
+                semanticVisitStructDefinition(
+                    target, declarations, registrations, states, ordered);
+            }
+        }
+        fieldIndex = fieldIndex + 1;
+    }
+    states.put(name, 2);
+    ordered.push(declaration);
+}
+
+Vector<Node> semanticOrderedStructDefinitions(
+        Node program, Map<string, Node> registrations) {
+    Map<string, Node> declarations = {};
+    Vector<string> sourceOrder = [];
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_STRUCT_DECL
+                && !declaration.is_forward) {
+            declarations.put(declaration.name, declaration);
+            sourceOrder.push(declaration.name);
+        }
+        index = index + 1;
+    }
+    Map<string, int> states = {};
+    Vector<Node> ordered = [];
+    index = 0;
+    while (index < sourceOrder.len) {
+        semanticVisitStructDefinition(sourceOrder.get(index), declarations,
+            registrations, states, ordered);
+        index = index + 1;
+    }
+    return ordered;
+}
+
+void semanticValidateStructLayouts(
+        Node program, SemanticValidationState state) {
+    semanticOrderedStructDefinitions(program, state.analyzed.structTable);
+}

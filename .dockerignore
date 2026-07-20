@@ -1,0 +1,37 @@
+*
+!.devcontainer/
+!.devcontainer/bashrc
+!build/
+!build/*.nix
+!flake.lock
+!flake.nix
+!src/
+!src/compiler/
+!src/compiler/python/
+!src/compiler/python/**
+!src/devex/
+!src/devex/lsp/
+!src/devex/lsp/**
+!src/language/
+!src/language/**
+!src/stdlib/
+!src/stdlib/**
+
+# Runtime/build output inside otherwise admitted source trees never belongs in
+# the container context. The deny-all rule also keeps build/generated and
+# build/out out while admitting only build/*.nix above.
+src/**/__pycache__/
+src/**/*.pyc
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.btrc-cache/
+**/.DS_Store
+src/compiler/python/tests/
+src/devex/lsp/tests/
+src/stdlib/gpu/build/
+src/stdlib/gui/build/
+build/bdist.*/
+build/generated/
+build/lib/
+build/out/

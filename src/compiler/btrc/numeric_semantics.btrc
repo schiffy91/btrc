@@ -1,0 +1,211 @@
+/* Portable numeric domains and canonical expression result types.
+ *
+ * This is the self-hosted mirror of compiler/python/numeric_semantics.py. Keep
+ * these decisions outside IR generation so inference, ordinary expressions,
+ * generic bodies, ternaries, and lvalue updates cannot drift apart. */
+
+bool numericIsScalar(Node? typeExpr) {
+    if (typeExpr == null) { return false; }
+    return typeExpr.pointer_depth == 0 && !typeExpr.is_array
+        && typeExpr.generic_args.len == 0;
+}
+
+bool numericIsFloating(Node? typeExpr) {
+    if (typeExpr == null) { return false; }
+    if (!numericIsScalar(typeExpr)) { return false; }
+    return typeExpr.base == "float" || typeExpr.base == "double"
+        || typeExpr.base == "long double";
+}
+
+bool numericIsStandardTypedef(string base) {
+    return base == "int8_t" || base == "uint8_t"
+        || base == "int16_t" || base == "uint16_t"
+        || base == "int32_t" || base == "uint32_t"
+        || base == "int64_t" || base == "uint64_t"
+        || base == "int_least8_t" || base == "uint_least8_t"
+        || base == "int_least16_t" || base == "uint_least16_t"
+        || base == "int_least32_t" || base == "uint_least32_t"
+        || base == "int_least64_t" || base == "uint_least64_t"
+        || base == "int_fast8_t" || base == "uint_fast8_t"
+        || base == "int_fast16_t" || base == "uint_fast16_t"
+        || base == "int_fast32_t" || base == "uint_fast32_t"
+        || base == "int_fast64_t" || base == "uint_fast64_t"
+        || base == "intptr_t" || base == "uintptr_t"
+        || base == "intmax_t" || base == "uintmax_t"
+        || base == "ptrdiff_t" || base == "size_t"
+        || base == "wchar_t" || base == "wint_t"
+        || base == "sig_atomic_t" || base == "ssize_t"
+        || base == "pid_t" || base == "uid_t" || base == "gid_t"
+        || base == "off_t" || base == "mode_t" || base == "dev_t"
+        || base == "ino_t" || base == "nlink_t"
+        || base == "blksize_t" || base == "blkcnt_t"
+        || base == "time_t" || base == "clock_t"
+        || base == "suseconds_t" || base == "useconds_t"
+        || base == "socklen_t" || base == "tcflag_t";
+}
+
+/* These typedef families have a language-level width/sign contract.  The
+ * remaining C/POSIX integer typedefs deliberately do not: their underlying
+ * type is selected by the target ABI. */
+bool numericIsPortableWidthTypedef(string base) {
+    return base == "int8_t" || base == "uint8_t"
+        || base == "int16_t" || base == "uint16_t"
+        || base == "int32_t" || base == "uint32_t"
+        || base == "int64_t" || base == "uint64_t"
+        || base == "int_least8_t" || base == "uint_least8_t"
+        || base == "int_least16_t" || base == "uint_least16_t"
+        || base == "int_least32_t" || base == "uint_least32_t"
+        || base == "int_least64_t" || base == "uint_least64_t";
+}
+
+bool numericIsAbiDependentTypedef(string base) {
+    return numericIsStandardTypedef(base)
+        && !numericIsPortableWidthTypedef(base);
+}
+
+/* A floating operand determines the result domain without consulting the
+ * integer ABI.  Same-typedef operations preserve that typedef.  Every other
+ * mix involving an ABI-selected integer typedef needs an explicit cast. */
+bool numericIntegerMixIsPortable(Node? left, Node? right) {
+    if (left == null || right == null) { return true; }
+    if (numericIsFloating(left) || numericIsFloating(right)) { return true; }
+    if (left.base == right.base) { return true; }
+    return !numericIsAbiDependentTypedef(left.base)
+        && !numericIsAbiDependentTypedef(right.base);
+}
+
+bool numericIsIntegralBase(string base) {
+    return base == "bool" || base == "byte" || base == "char"
+        || base == "signed char" || base == "unsigned char"
+        || base == "short" || base == "short int"
+        || base == "signed short" || base == "signed short int"
+        || base == "unsigned short" || base == "unsigned short int"
+        || base == "int" || base == "signed" || base == "signed int"
+        || base == "uint" || base == "unsigned" || base == "unsigned int"
+        || base == "long" || base == "long int"
+        || base == "signed long" || base == "signed long int"
+        || base == "unsigned long" || base == "unsigned long int"
+        || base == "long long" || base == "long long int"
+        || base == "signed long long" || base == "signed long long int"
+        || base == "unsigned long long"
+        || base == "unsigned long long int";
+}
+
+bool numericIsType(Node? typeExpr, Analyzed analyzed) {
+    if (typeExpr == null) { return false; }
+    if (!numericIsScalar(typeExpr)) { return false; }
+    string base = typeExpr.base;
+    return numericIsIntegralBase(base) || numericIsFloating(typeExpr)
+        || numericIsStandardTypedef(base) || analyzed.isEnum(base)
+        || base.startsWith("enum ");
+}
+
+bool numericIsUnsignedBase(string base) {
+    if (base == "uint" || base == "unsigned" || base == "unsigned int"
+            || base == "unsigned long" || base == "unsigned long int"
+            || base == "unsigned long long"
+            || base == "unsigned long long int") {
+        return true;
+    }
+    return base == "uint8_t" || base == "uint16_t"
+        || base == "uint32_t" || base == "uint64_t"
+        || base == "uint_least8_t" || base == "uint_least16_t"
+        || base == "uint_least32_t" || base == "uint_least64_t"
+        || base == "uint_fast8_t" || base == "uint_fast16_t"
+        || base == "uint_fast32_t" || base == "uint_fast64_t"
+        || base == "uintptr_t" || base == "uintmax_t"
+        || base == "size_t" || base == "uid_t" || base == "gid_t"
+        || base == "mode_t" || base == "dev_t" || base == "ino_t"
+        || base == "nlink_t" || base == "useconds_t"
+        || base == "socklen_t" || base == "tcflag_t";
+}
+
+int numericIntegralRank(string base, Analyzed analyzed) {
+    if (base == "long long" || base == "long long int"
+            || base == "signed long long" || base == "signed long long int"
+            || base == "unsigned long long"
+            || base == "unsigned long long int") {
+        return 5;
+    }
+    if (base == "long" || base == "long int"
+            || base == "signed long" || base == "signed long int"
+            || base == "unsigned long" || base == "unsigned long int") {
+        return 4;
+    }
+    if (numericIsPortableWidthTypedef(base)) {
+        if (base.contains("64")) { return 5; }
+        return 3;
+    }
+    /* No target-independent rank exists for fast-, pointer-, max-, C library,
+     * or POSIX-selected typedefs.  Portable mixed operations are rejected
+     * before asking for a rank. */
+    if (numericIsAbiDependentTypedef(base)) { return -1; }
+    if (analyzed.isEnum(base) || base.startsWith("enum ")) { return 3; }
+    return 3;
+}
+
+Node? numericResultType(Node? left, Node? right, Analyzed analyzed) {
+    if (!numericIsType(left, analyzed) || !numericIsType(right, analyzed)) {
+        return null;
+    }
+    if (left == null || right == null) { return null; }
+    if (numericIsFloating(left) || numericIsFloating(right)) {
+        if (left.base == "long double" || right.base == "long double") {
+            return makePrimType("long double");
+        }
+        if (left.base == "double" || right.base == "double") {
+            return makePrimType("double");
+        }
+        return makePrimType("float");
+    }
+    if (!numericIntegerMixIsPortable(left, right)) { return null; }
+    if (left.base == right.base && numericIsStandardTypedef(left.base)) {
+        return makePrimType(left.base);
+    }
+    int rank = numericIntegralRank(left.base, analyzed);
+    int rightRank = numericIntegralRank(right.base, analyzed);
+    if (rank < 0 || rightRank < 0) { return null; }
+    if (rightRank > rank) { rank = rightRank; }
+    bool isUnsigned = numericIsUnsignedBase(left.base)
+        || numericIsUnsignedBase(right.base);
+    if (rank >= 5) {
+        if (isUnsigned) { return makePrimType("unsigned long long"); }
+        return makePrimType("long long");
+    }
+    if (rank == 4) {
+        if (isUnsigned) { return makePrimType("unsigned long"); }
+        return makePrimType("long");
+    }
+    if (isUnsigned) { return makePrimType("uint"); }
+    return makePrimType("int");
+}
+
+bool numericOperandsNeedCast(Node left, Node right, Analyzed analyzed) {
+    if (left.base == right.base) { return false; }
+    if (!numericIntegerMixIsPortable(left, right)) { return false; }
+    if (numericIsStandardTypedef(left.base)
+            || numericIsStandardTypedef(right.base)) {
+        return true;
+    }
+    if (numericIsFloating(left) || numericIsFloating(right)) { return false; }
+    bool leftUnsigned = numericIsUnsignedBase(left.base);
+    bool rightUnsigned = numericIsUnsignedBase(right.base);
+    if (leftUnsigned == rightUnsigned) { return false; }
+    int signedRank = numericIntegralRank(left.base, analyzed);
+    int unsignedRank = numericIntegralRank(right.base, analyzed);
+    if (leftUnsigned) {
+        unsignedRank = numericIntegralRank(left.base, analyzed);
+        signedRank = numericIntegralRank(right.base, analyzed);
+    }
+    return signedRank > unsignedRank;
+}
+
+Node? integerLiteralType(string raw) {
+    string name = integerLiteralTypeName(raw);
+    if (name == "") { return null; }
+    return makePrimType(name);
+}
+
+Node floatLiteralType(string raw) {
+    return makePrimType(floatLiteralTypeName(raw));
+}

@@ -15,6 +15,7 @@
  */
 
 #include <btrc_gui.h>
+#include "gui/geometry.btrc"
 
 /* ---- C runtime prototypes ---- */
 void*        btrc_gui_surface_create(int width, int height);
@@ -38,10 +39,10 @@ class Color {
     public int a;
 
     public Color(int r, int g, int b, int a) {
-        self.r = r;
-        self.g = g;
-        self.b = b;
-        self.a = a;
+        self.r = r < 0 ? 0 : (r > 255 ? 255 : r);
+        self.g = g < 0 ? 0 : (g > 255 ? 255 : g);
+        self.b = b < 0 ? 0 : (b > 255 ? 255 : b);
+        self.a = a < 0 ? 0 : (a > 255 ? 255 : a);
     }
 
     class Color rgb(int r, int g, int b) {
@@ -154,12 +155,15 @@ class Gui {
         self.gap = 8;
         self.cursorX = 16;
         self.cursorY = 16;
-        self.contentWidth = surface.width() - 32;
+        self.contentWidth = GuiInt.subtract(surface.width(), 32);
     }
 
     public bool hit(int x, int y, int w, int h) {
-        return self.input.mouseX >= x && self.input.mouseX < x + w
-            && self.input.mouseY >= y && self.input.mouseY < y + h;
+        if (w <= 0 || h <= 0) { return false; }
+        long long mx = (long long)self.input.mouseX;
+        long long my = (long long)self.input.mouseY;
+        return mx >= (long long)x && mx < (long long)x + (long long)w
+            && my >= (long long)y && my < (long long)y + (long long)h;
     }
 
     public void beginFrame() {
@@ -171,29 +175,33 @@ class Gui {
     public void panel(int x, int y, int w, int h) {
         self.surface.fillRect(x, y, w, h, self.theme.panel);
         self.surface.fillRect(x, y, w, 1, self.theme.border);
-        self.surface.fillRect(x, y + h - 1, w, 1, self.theme.border);
+        self.surface.fillRect(x, GuiInt.subtract(GuiInt.add(y, h), 1), w, 1, self.theme.border);
     }
 
     public void label(string text) {
-        self.surface.text(self.cursorX, self.cursorY + 4, text, self.theme.text, self.scale);
-        self.cursorY = self.cursorY + btrc_gui_text_height(self.scale) + self.gap;
+        self.surface.text(self.cursorX, GuiInt.add(self.cursorY, 4), text, self.theme.text, self.scale);
+        self.cursorY = GuiInt.add(
+            GuiInt.add(self.cursorY, btrc_gui_text_height(self.scale)), self.gap);
     }
 
     public void heading(string text) {
-        self.surface.text(self.cursorX, self.cursorY, text, self.theme.accent, self.scale + 1);
-        self.cursorY = self.cursorY + btrc_gui_text_height(self.scale + 1) + self.gap;
+        int headingScale = GuiInt.add(self.scale, 1);
+        self.surface.text(
+            self.cursorX, self.cursorY, text, self.theme.accent, headingScale);
+        self.cursorY = GuiInt.add(
+            GuiInt.add(self.cursorY, btrc_gui_text_height(headingScale)), self.gap);
     }
 
     public void spacer(int px) {
-        self.cursorY = self.cursorY + px;
+        self.cursorY = GuiInt.add(self.cursorY, px);
     }
 
     /* A clickable button. Returns true on the frame it is clicked. */
     public bool button(string text) {
         int th = btrc_gui_text_height(self.scale);
         int tw = btrc_gui_text_width(text, self.scale);
-        int w = tw + 20;
-        int h = th + 12;
+        int w = GuiInt.add(tw, 20);
+        int h = GuiInt.add(th, 12);
         int x = self.cursorX;
         int y = self.cursorY;
         bool hovered = self.hit(x, y, w, h);
@@ -203,12 +211,12 @@ class Gui {
         self.surface.fillRect(x, y, w, h, fill);
         if (!hovered) {
             self.surface.fillRect(x, y, w, 1, self.theme.border);
-            self.surface.fillRect(x, y + h - 1, w, 1, self.theme.border);
+            self.surface.fillRect(x, GuiInt.subtract(GuiInt.add(y, h), 1), w, 1, self.theme.border);
             self.surface.fillRect(x, y, 1, h, self.theme.border);
-            self.surface.fillRect(x + w - 1, y, 1, h, self.theme.border);
+            self.surface.fillRect(GuiInt.subtract(GuiInt.add(x, w), 1), y, 1, h, self.theme.border);
         }
-        self.surface.text(x + 10, y + 6, text, fg, self.scale);
-        self.cursorY = self.cursorY + h + self.gap;
+        self.surface.text(GuiInt.add(x, 10), GuiInt.add(y, 6), text, fg, self.scale);
+        self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
         return clicked;
     }
 
@@ -217,16 +225,20 @@ class Gui {
         int box = btrc_gui_text_height(self.scale);
         int x = self.cursorX;
         int y = self.cursorY;
-        int w = box + 8 + btrc_gui_text_width(text, self.scale);
+        int w = GuiInt.add(
+            GuiInt.add(box, 8), btrc_gui_text_width(text, self.scale));
         bool hovered = self.hit(x, y, w, box);
         bool nv = value;
         if (hovered && self.input.mousePressed) { nv = !value; }
         self.surface.fillRect(x, y, box, box, self.theme.border);
         if (nv) {
-            self.surface.fillRect(x + 3, y + 3, box - 6, box - 6, self.theme.accent);
+            self.surface.fillRect(
+                GuiInt.add(x, 3), GuiInt.add(y, 3),
+                GuiInt.subtract(box, 6), GuiInt.subtract(box, 6), self.theme.accent);
         }
-        self.surface.text(x + box + 8, y, text, self.theme.text, self.scale);
-        self.cursorY = self.cursorY + box + self.gap;
+        self.surface.text(
+            GuiInt.add(GuiInt.add(x, box), 8), y, text, self.theme.text, self.scale);
+        self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, box), self.gap);
         return nv;
     }
 
@@ -237,16 +249,22 @@ class Gui {
         int x = self.cursorX;
         int y = self.cursorY;
         int v = value;
+        if (max <= 0 || w <= 0) {
+            self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
+            return 0;
+        }
+        if (v < 0) { v = 0; }
+        if (v > max) { v = max; }
         if (self.hit(x, y, w, h) && self.input.mouseDown && max > 0) {
             int rel = self.input.mouseX - x;
             if (rel < 0) { rel = 0; }
             if (rel > w) { rel = w; }
-            v = rel * max / w;
+            v = (int)((long long)rel * (long long)max / (long long)w);
         }
         self.surface.fillRect(x, y, w, h, self.theme.border);
-        int fillW = max > 0 ? (v * w / max) : 0;
+        int fillW = (int)((long long)v * (long long)w / (long long)max);
         self.surface.fillRect(x, y, fillW, h, self.theme.accent);
-        self.cursorY = self.cursorY + h + self.gap;
+        self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
         return v;
     }
 }

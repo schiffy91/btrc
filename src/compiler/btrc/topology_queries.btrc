@@ -1,0 +1,188 @@
+/* Structured-IR queries for collection topology mutation boundaries. */
+
+bool irIsTopologyAssignmentOperator(string op) {
+    return op == "=" || op == "+=" || op == "-=" || op == "*="
+        || op == "/=" || op == "%=" || op == "&=" || op == "|="
+        || op == "^=" || op == "<<=" || op == ">>=";
+}
+
+bool irTopologyRootedInSelf(
+        IRNode? node, Map<string, bool> aliases) {
+    if (node == null) { return false; }
+    if (node.kind == IRK_VAR) {
+        return node.name == "self" || aliases.has(node.name);
+    }
+    if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_INDEX) {
+        return irTopologyRootedInSelf(node.obj, aliases);
+    }
+    if (node.kind == IRK_ADDRESS_OF || node.kind == IRK_CAST
+            || node.kind == IRK_DEREF) {
+        return irTopologyRootedInSelf(node.expr, aliases);
+    }
+    if (node.kind == IRK_UNARYOP) {
+        return irTopologyRootedInSelf(node.operand, aliases);
+    }
+    if (node.kind == IRK_BINOP && (node.op == "+" || node.op == "-")) {
+        return irTopologyRootedInSelf(node.left, aliases)
+            || irTopologyRootedInSelf(node.right, aliases);
+    }
+    return false;
+}
+
+bool irIsSelfTopologyStorage(
+        IRNode? node, Map<string, bool> aliases) {
+    if (node == null) { return false; }
+    if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_INDEX) {
+        return irTopologyRootedInSelf(node.obj, aliases);
+    }
+    if (node.kind == IRK_DEREF) {
+        return irTopologyRootedInSelf(node.expr, aliases);
+    }
+    if (node.kind == IRK_UNARYOP && node.op == "*") {
+        return irTopologyRootedInSelf(node.operand, aliases);
+    }
+    return false;
+}
+
+bool irAddTopologyAlias(string name, IRNode? source,
+        Map<string, bool> aliases) {
+    if (aliases.has(name)
+            || !irTopologyRootedInSelf(source, aliases)) {
+        return false;
+    }
+    aliases.put(name, true);
+    return true;
+}
+
+bool irCollectTopologyAliases(
+        IRNode? node, Map<string, bool> aliases) {
+    if (node == null) { return false; }
+    bool changed = false;
+    if (node.kind == IRK_VAR_DECL && node.init != null) {
+        if (irAddTopologyAlias(node.name, node.init, aliases)) {
+            changed = true;
+        }
+    } else if (node.kind == IRK_ASSIGN && node.target != null
+            && node.target.kind == IRK_VAR) {
+        if (irAddTopologyAlias(node.target.name, node.value, aliases)) {
+            changed = true;
+        }
+    } else if (node.kind == IRK_BINOP && node.op == "="
+            && node.left != null && node.left.kind == IRK_VAR) {
+        if (irAddTopologyAlias(node.left.name, node.right, aliases)) {
+            changed = true;
+        }
+    }
+    if (irCollectTopologyAliases(node.left, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.right, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.operand, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.expr, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.obj, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.index, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.condition, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.true_expr, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.false_expr, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.array_size, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.init, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.value, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.target, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.then_block, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.else_block, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.body, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.update, aliases)) { changed = true; }
+    if (irCollectTopologyAliases(node.result, aliases)) { changed = true; }
+    int index = 0;
+    while (index < node.args.len) {
+        if (irCollectTopologyAliases(node.args.get(index), aliases)) {
+            changed = true;
+        }
+        index = index + 1;
+    }
+    index = 0;
+    while (index < node.stmts.len) {
+        if (irCollectTopologyAliases(node.stmts.get(index), aliases)) {
+            changed = true;
+        }
+        index = index + 1;
+    }
+    return changed;
+}
+
+int irTopologyMutatingCallSlot(string callee) {
+    if (callee == "__btrc_arc_replace_edge"
+            || callee == "__btrc_safe_realloc" || callee == "free"
+            || callee == "memcpy" || callee == "memmove"
+            || callee == "memset" || callee == "qsort"
+            || callee == "realloc") {
+        return 0;
+    }
+    return -1;
+}
+
+bool irContainsSelfTopologyMutationWithAliases(
+        IRNode? node, Map<string, bool> aliases) {
+    if (node == null) { return false; }
+    if (node.kind == IRK_ASSIGN
+            && irIsSelfTopologyStorage(node.target, aliases)) {
+        return true;
+    }
+    if (node.kind == IRK_BINOP && irIsTopologyAssignmentOperator(node.op)
+            && irIsSelfTopologyStorage(node.left, aliases)) {
+        return true;
+    }
+    if (node.kind == IRK_UNARYOP
+            && (node.op == "++" || node.op == "--")
+            && irIsSelfTopologyStorage(node.operand, aliases)) {
+        return true;
+    }
+    if (node.kind == IRK_CALL) {
+        int slot = irTopologyMutatingCallSlot(node.callee);
+        if (slot >= 0 && slot < node.args.len
+                && irTopologyRootedInSelf(
+                    node.args.get(slot), aliases)) {
+            return true;
+        }
+    }
+    if (irContainsSelfTopologyMutationWithAliases(node.left, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.right, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.operand, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.expr, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.obj, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.index, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.condition, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.true_expr, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.false_expr, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.array_size, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.init, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.value, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.target, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.then_block, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.else_block, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.body, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.update, aliases)
+            || irContainsSelfTopologyMutationWithAliases(node.result, aliases)) {
+        return true;
+    }
+    int index = 0;
+    while (index < node.args.len) {
+        if (irContainsSelfTopologyMutationWithAliases(
+                node.args.get(index), aliases)) { return true; }
+        index = index + 1;
+    }
+    index = 0;
+    while (index < node.stmts.len) {
+        if (irContainsSelfTopologyMutationWithAliases(
+                node.stmts.get(index), aliases)) { return true; }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool irContainsSelfTopologyMutation(IRNode? node) {
+    Map<string, bool> aliases = {};
+    bool changed = true;
+    while (changed) {
+        changed = irCollectTopologyAliases(node, aliases);
+    }
+    return irContainsSelfTopologyMutationWithAliases(node, aliases);
+}

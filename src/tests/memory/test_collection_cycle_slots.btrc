@@ -1,0 +1,327 @@
+/* Typed collection visitors must traverse every managed storage shape without
+ * touching primitive storage or collecting externally reachable non-cycles. */
+#include <assert.h>
+
+int live_nodes = 0;
+
+class SlotNode {
+    public int id;
+    public SlotNode direct;
+    public SlotNode adopted;
+    public Vector<SlotNode?> vectorLinks;
+    public Array<SlotNode?> arrayLinks;
+    public Map<int, SlotNode?> mapValues;
+    public Map<SlotNode, int> mapKeys;
+    public Set<SlotNode> setKeys;
+    public List<SlotNode?> listLinks;
+
+    public SlotNode(int id) {
+        self.id = id;
+        self.direct = null;
+        self.adopted = null;
+        self.vectorLinks = [];
+        self.arrayLinks = new Array<SlotNode?>(1);
+        self.mapValues = {};
+        self.mapKeys = {};
+        self.setKeys = {};
+        self.listLinks = [];
+        live_nodes++;
+    }
+
+    public void __del__() {
+        live_nodes--;
+    }
+
+    /* User methods named visit must coexist with reserved ARC visitors. */
+    public int visit() {
+        return self.id;
+    }
+
+    public void clearDirect() {
+        self.direct = null;
+    }
+
+    public void makeSelfCycle() {
+        self.direct = self;
+    }
+
+    public SlotNode retainedAlias() {
+        return self;
+    }
+}
+
+/* This wrapper owns a path into a cycle but cannot itself be reached from it.
+ * Its zero-count fast destruction must still seed the downstream component. */
+class DownstreamOwner {
+    public SlotNode node;
+
+    public DownstreamOwner(SlotNode node) {
+        self.node = node;
+    }
+}
+
+void vectorCycle() {
+    SlotNode a = new SlotNode(1);
+    SlotNode b = new SlotNode(2);
+    a.vectorLinks.push(null);
+    a.vectorLinks.push(b);
+    b.vectorLinks.push(a);
+}
+
+void arrayCycle() {
+    SlotNode a = new SlotNode(3);
+    SlotNode b = new SlotNode(4);
+    a.arrayLinks.set(0, b);
+    b.arrayLinks.set(0, a);
+}
+
+void mapValueCycle() {
+    SlotNode a = new SlotNode(5);
+    SlotNode b = new SlotNode(6);
+    a.mapValues.put(1, b);
+    b.mapValues.put(2, a);
+}
+
+void mapKeyCycle() {
+    SlotNode a = new SlotNode(7);
+    SlotNode b = new SlotNode(8);
+    a.mapKeys.put(b, 1);
+    b.mapKeys.put(a, 2);
+}
+
+void setCycle() {
+    SlotNode a = new SlotNode(9);
+    SlotNode b = new SlotNode(10);
+    a.setKeys.add(b);
+    b.setKeys.add(a);
+}
+
+void listCycle() {
+    SlotNode a = new SlotNode(11);
+    SlotNode b = new SlotNode(12);
+    a.listLinks.pushBack(null);
+    a.listLinks.pushBack(b);
+    b.listLinks.pushBack(a);
+}
+
+void directTemporaryCycle() {
+    SlotNode root = new SlotNode(30);
+    root.direct = new SlotNode(31);
+    root.direct.direct = root;
+}
+
+void inlineCollectionTemporaryCycle() {
+    SlotNode root = new SlotNode(32);
+    root.vectorLinks.push(new SlotNode(33));
+    root.vectorLinks.get(0)?.vectorLinks.push(root);
+}
+
+void borrowedAliasBecomesRootless() {
+    SlotNode holder = new SlotNode(34);
+    holder.direct = new SlotNode(35);
+    {
+        SlotNode alias = holder.direct;
+        holder.direct = null;
+        alias.direct = alias;
+    }
+    assert(live_nodes == 1);
+}
+
+void extractedCollectionAliasBecomesRootless() {
+    SlotNode holder = new SlotNode(36);
+    holder.vectorLinks.push(new SlotNode(37));
+    {
+        SlotNode alias = holder.vectorLinks.get(0);
+        holder.vectorLinks.set(0, null);
+        alias.direct = alias;
+    }
+    assert(live_nodes == 1);
+}
+
+void opaqueCallMakesBorrowedAliasRootless() {
+    SlotNode holder = new SlotNode(38);
+    holder.direct = new SlotNode(39);
+    {
+        SlotNode alias = holder.direct;
+        holder.clearDirect();
+        alias.makeSelfCycle();
+    }
+    assert(live_nodes == 1);
+}
+
+void preserveExternalVectorAlias() {
+    Vector<SlotNode?> alias = [];
+    {
+        SlotNode owner = new SlotNode(46);
+        owner.vectorLinks.push(new SlotNode(47));
+        alias = owner.vectorLinks;
+        owner.direct = owner;
+    }
+    assert(alias.get(0) != null);
+    assert(alias.get(0)?.id == 47);
+    alias.clear();
+    assert(live_nodes == 0);
+}
+
+void preserveExternalListNodeAlias() {
+    ListNode<SlotNode?> alias = new ListNode<SlotNode?>(null);
+    {
+        SlotNode owner = new SlotNode(48);
+        owner.listLinks.pushBack(new SlotNode(49));
+        alias = owner.listLinks.head;
+        owner.direct = owner;
+    }
+    assert(alias.value != null);
+    assert(alias.value?.id == 49);
+    alias.value = null;
+    assert(live_nodes == 0);
+}
+
+void preserveLiveRootFirst() {
+    SlotNode root = new SlotNode(40);
+    {
+        SlotNode child = new SlotNode(41);
+        SlotNode live = new SlotNode(42);
+        root.direct = live;
+        live.direct = child;
+    }
+    assert(live_nodes == 3);
+    root.direct = null;
+    assert(live_nodes == 1);
+}
+
+void preserveLiveRootLast() {
+    SlotNode root = new SlotNode(43);
+    {
+        SlotNode live = new SlotNode(44);
+        SlotNode child = new SlotNode(45);
+        root.direct = live;
+        live.direct = child;
+    }
+    assert(live_nodes == 3);
+    root.direct = null;
+    assert(live_nodes == 1);
+}
+
+void acyclicWrapperExposesDownstreamCycle() {
+    DownstreamOwner owner = new DownstreamOwner(null);
+    {
+        SlotNode a = new SlotNode(50);
+        SlotNode b = new SlotNode(51);
+        a.direct = b;
+        b.direct = a;
+        owner.node = a;
+    }
+    assert(live_nodes == 2);
+}
+
+void duplicateOwnedAliasesReachZeroBeforeFlush() {
+    SlotNode original = new SlotNode(52);
+    SlotNode alias = original.retainedAlias();
+    assert(alias == original);
+    assert(live_nodes == 1);
+}
+
+/* The inner owner cycle first becomes proven live through `root`. A managed
+ * method return then contributes a fresh +1 that is adopted into the cycle,
+ * compensating the final external release without changing total rc. The
+ * adopted target must receive a new-edge watermark or the closed SCC leaks. */
+void adoptedMethodReturnClosesOwnerCycle() {
+    SlotNode root = new SlotNode(53);
+    {
+        SlotNode a = new SlotNode(54);
+        SlotNode b = new SlotNode(55);
+        root.direct = a;
+        a.direct = b;
+        b.direct = a;
+    }
+    assert(live_nodes == 3);
+    root.direct.adopted = root.retainedAlias();
+}
+
+void inlineRingCycle() {
+    Vector<SlotNode> ring = [];
+    int i = 0;
+    while (i < 600) {
+        ring.push(new SlotNode(100 + i));
+        i++;
+    }
+    i = 0;
+    while (i < 600) {
+        ring.get(i).direct = ring.get((i + 1) % 600);
+        i++;
+    }
+}
+
+int main() {
+    vectorCycle();
+    assert(live_nodes == 0);
+    arrayCycle();
+    assert(live_nodes == 0);
+    mapValueCycle();
+    assert(live_nodes == 0);
+    mapKeyCycle();
+    assert(live_nodes == 0);
+    setCycle();
+    assert(live_nodes == 0);
+    listCycle();
+    assert(live_nodes == 0);
+    directTemporaryCycle();
+    assert(live_nodes == 0);
+    inlineCollectionTemporaryCycle();
+    assert(live_nodes == 0);
+    borrowedAliasBecomesRootless();
+    assert(live_nodes == 0);
+    extractedCollectionAliasBecomesRootless();
+    assert(live_nodes == 0);
+    opaqueCallMakesBorrowedAliasRootless();
+    assert(live_nodes == 0);
+    preserveExternalVectorAlias();
+    assert(live_nodes == 0);
+    preserveExternalListNodeAlias();
+    assert(live_nodes == 0);
+    preserveLiveRootFirst();
+    assert(live_nodes == 0);
+    preserveLiveRootLast();
+    assert(live_nodes == 0);
+    acyclicWrapperExposesDownstreamCycle();
+    assert(live_nodes == 0);
+    duplicateOwnedAliasesReachZeroBeforeFlush();
+    assert(live_nodes == 0);
+    adoptedMethodReturnClosesOwnerCycle();
+    assert(live_nodes == 0);
+    inlineRingCycle();
+    assert(live_nodes == 0);
+
+    // Exception cleanup registers the concrete Vector visitor, then reclaims
+    // the nodes' collection-mediated cycle after releasing the root vector.
+    try {
+        Vector<SlotNode?> roots = [];
+        SlotNode a = new SlotNode(13);
+        SlotNode b = new SlotNode(14);
+        roots.push(a);
+        roots.push(b);
+        a.vectorLinks.push(b);
+        b.vectorLinks.push(a);
+        throw "collection cycle";
+    } catch (string error) {
+    }
+    assert(live_nodes == 0);
+
+    // A live outer root owns an acyclic child across the child's local scope.
+    SlotNode root = new SlotNode(20);
+    assert(root.visit() == 20);
+    {
+        SlotNode child = new SlotNode(21);
+        root.vectorLinks.push(child);
+    }
+    assert(live_nodes == 2);
+    assert(root.vectorLinks.get(0) != null);
+    root.vectorLinks.clear();
+    assert(live_nodes == 1);
+    delete root;
+    assert(live_nodes == 0);
+
+    print("PASS: test_collection_cycle_slots");
+    return 0;
+}

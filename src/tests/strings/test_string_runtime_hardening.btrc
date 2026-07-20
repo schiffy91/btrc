@@ -1,0 +1,24 @@
+/* Runtime-helper boundary and UTF-8 validity behavior through public methods. */
+
+int main() {
+    assert("abc".find("", 3) == 3);
+    assert("abc".find("a", -20) == 0);
+    assert("abc".find("", 4) == -1);
+
+    assert("abc".substring(-10, 2147483647).equals("abc"));
+    assert("ab".repeat(-4).equals(""));
+
+    string accented = "\xc3\xa9\x61\x42";
+    assert(accented.toUpper().equals("\xc3\xa9\x41\x42"));
+    assert(accented.swapCase().equals("\xc3\xa9\x41\x62"));
+
+    /* Invalid UTF-8 bytes are each one replacement-like character rather than
+     * being silently mistaken for a valid multi-byte scalar. */
+    assert("\xc0\xaf".charLen() == 2);       // overlong encoding
+    assert("\xe2\x82".charLen() == 2);       // truncated sequence
+    assert("\xed\xa0\x80".charLen() == 3);   // encoded surrogate
+    assert("\xf0\x9f\x98\x80".charLen() == 1);
+
+    print("PASS: test_string_runtime_hardening");
+    return 0;
+}

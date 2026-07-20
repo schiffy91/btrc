@@ -1,0 +1,40 @@
+#include <assert.h>
+
+int mutexCycleAlive = 0;
+int mutexCycleDestroyed = 0;
+
+class MutexCycleNode {
+    public MutexCycleNode next;
+
+    public MutexCycleNode() {
+        self.next = null;
+        mutexCycleAlive++;
+    }
+
+    public void __del__() {
+        mutexCycleAlive--;
+        mutexCycleDestroyed++;
+    }
+}
+
+MutexCycleNode makeMutexCycle() {
+    MutexCycleNode first = new MutexCycleNode();
+    MutexCycleNode second = new MutexCycleNode();
+    first.next = second;
+    second.next = first;
+    return first;
+}
+
+int main() {
+    MutexCycleNode root = makeMutexCycle();
+    Mutex<MutexCycleNode> owner = Mutex(root);
+    release root;
+    assert(mutexCycleAlive == 2);
+
+    /* Final handle destruction removes the SCC's last external owner. The
+     * ownership callback must force a cycle pass before destroy returns. */
+    owner.destroy();
+    assert(mutexCycleAlive == 0);
+    assert(mutexCycleDestroyed == 2);
+    return 0;
+}

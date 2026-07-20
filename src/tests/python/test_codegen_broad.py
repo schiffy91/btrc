@@ -24,7 +24,7 @@ def test_inheritance_override_and_upcast():
     """
     c = emit_c(src)
     assert "Dog" in c and "Animal" in c
-    assert "(Animal*)" in c or "(struct Animal*)" in c        # explicit upcast
+    assert "(Animal*)" in c or "(struct Animal*)" in c  # explicit upcast
 
 
 def test_all_operators():
@@ -46,7 +46,9 @@ def test_all_operators():
 def test_compound_assignment_operators():
     src = "int main() { int x = 20; x += 5; x -= 3; x *= 2; x /= 4; x %= 5; return x; }"
     c = emit_c(src)
-    assert "+=" in c and "-=" in c and "*=" in c and "/=" in c and "%=" in c
+    assert "__btrc_div(" in c
+    assert "__btrc_mod(" in c
+    assert "/=" not in c and "%=" not in c
 
 
 def test_casts_and_numeric_types():
@@ -81,7 +83,7 @@ def test_nullable_and_null_checks():
 def test_array_aggregate_initializer():
     src = "int main() { int[] arr = {10, 20, 30}; int[] empty; return arr[1]; }"
     c = emit_c(src)
-    assert re.search(r"int arr\[\]\s*=\s*\{", c), c            # C aggregate init
+    assert re.search(r"int arr\[\]\s*=\s*\{", c), c  # C aggregate init
 
 
 def test_lambda_with_capture_allocates_env():
@@ -94,7 +96,7 @@ def test_lambda_with_capture_allocates_env():
     }
     """
     c = emit_c(src)
-    assert "_env" in c                                          # capture env struct
+    assert "_env" in c  # capture env struct
 
 
 def test_collections_list_map_set_methods():
@@ -126,7 +128,7 @@ def test_arc_early_return_with_managed_local():
     int main() { return pick(1); }
     """
     c = emit_c(src)
-    assert "__btrc_ret" in c or "__rc" in c                    # temp + release ordering
+    assert "__btrc_ret" in c or "__rc" in c  # temp + release ordering
 
 
 def test_while_with_break_and_continue():

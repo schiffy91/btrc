@@ -1,0 +1,15 @@
+class Base<T> {
+    public Base() {}
+}
+
+class Child<T> extends Base {
+    public Child() {}
+}
+
+int main() {
+    Base<int> base = new Base<int>();
+    Child<int> child = new Child<int>();
+    bool same = base == child;
+    bool different = child != base;
+    return same || !different ? 1 : 0;
+}

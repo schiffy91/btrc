@@ -1,0 +1,43 @@
+#include <assert.h>
+
+int alive = 0;
+
+class Box {
+    public int value;
+    public Box(int value) {
+        self.value = value;
+        alive++;
+    }
+    public void __del__() { alive--; }
+}
+
+int main() {
+    Mutex<Box> empty = new Mutex<Box>(null);
+    assert(empty.get() == null);
+    empty.set(null);
+    empty.destroy();
+
+    Box first = new Box(1);
+    Mutex<Box> value = Mutex(first);
+    release first;
+    assert(alive == 1);
+
+    Box snapshot = value.get();
+    assert(snapshot.value == 1);
+
+    Box next = new Box(2);
+    value.set(next);
+    release next;
+    assert(alive == 2);
+
+    release snapshot;
+    assert(alive == 1);
+
+    Box final = value.get();
+    assert(final.value == 2);
+    value.destroy();
+    assert(alive == 1);
+    release final;
+    assert(alive == 0);
+    return 0;
+}

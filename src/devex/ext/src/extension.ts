@@ -6,16 +6,21 @@ import {
 } from 'vscode-languageclient/node';
 import { resolveServerLaunch } from './launch';
 import { findDebugAdapterScript, findBtrcpy } from './debug_launch';
+import { createPythonSupportProbe, PythonSupportProbe } from './python_runtime';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
     outputChannel = vscode.window.createOutputChannel('btrc Language Server');
     context.subscriptions.push(outputChannel);
 
+    const lifecycle = new AbortController();
+    const supportsPython = createPythonSupportProbe({ signal: lifecycle.signal });
+    context.subscriptions.push({ dispose: () => lifecycle.abort() });
+
     const config = vscode.workspace.getConfiguration('btrc');
-    registerDebugging(context, config);
+    registerDebugging(context, config, supportsPython);
     const pythonInspect = config.inspect<string>('pythonPath');
     const pythonExplicit = !!(pythonInspect && (
         pythonInspect.workspaceFolderValue ??
@@ -28,7 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
         serverCommandInspect.globalValue));
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-    const launch = resolveServerLaunch({
+    const launch = await resolveServerLaunch({
         extensionPath: context.extensionPath,
         workspaceRoot,
         config: {
@@ -39,8 +44,11 @@ export function activate(context: vscode.ExtensionContext) {
             useNixDevShell: config.get<boolean>('useNixDevShell', true),
             pythonExplicit,
         },
+        supportsPython,
+        signal: lifecycle.signal,
     });
 
+    if (lifecycle.signal.aborted) { return; }
     if (!launch) {
         vscode.window.showErrorMessage(
             'btrc language server not found. Install `btrc-lsp`, set "btrc.serverCommand", ' +
@@ -103,6 +111,7 @@ export function activate(context: vscode.ExtensionContext) {
 function registerDebugging(
     context: vscode.ExtensionContext,
     config: vscode.WorkspaceConfiguration,
+    supportsPython: PythonSupportProbe,
 ) {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const pythonPath = config.get<string>('pythonPath', 'python3') || 'python3';
@@ -128,7 +137,7 @@ function registerDebugging(
     // Fill in a default config for F5-with-no-launch.json, and auto-detect the
     // btrc compiler command when the user didn't specify one.
     const provider: vscode.DebugConfigurationProvider = {
-        resolveDebugConfiguration(_folder, cfg) {
+        async resolveDebugConfiguration(_folder, cfg, token) {
             if (!cfg.type && !cfg.request && !cfg.name) {
                 const editor = vscode.window.activeTextEditor;
                 if (!editor || editor.document.languageId !== 'btrc') {
@@ -141,7 +150,22 @@ function registerDebugging(
                 cfg.stopOnEntry = false;
             }
             if (!cfg.btrcpy) {
-                const resolved = findBtrcpy(workspaceRoot, pythonPath, context.extensionPath);
+                const cancellation = new AbortController();
+                if (token?.isCancellationRequested) { cancellation.abort(); }
+                const subscription = token?.onCancellationRequested(() => cancellation.abort());
+                let resolved: Awaited<ReturnType<typeof findBtrcpy>>;
+                try {
+                    resolved = await findBtrcpy(
+                        workspaceRoot,
+                        pythonPath,
+                        context.extensionPath,
+                        supportsPython,
+                        cancellation.signal,
+                    );
+                } finally {
+                    subscription?.dispose();
+                }
+                if (token?.isCancellationRequested) { return undefined; }
                 if (resolved) {
                     cfg.btrcpy = resolved.cmd;
                     // btrcpyCwd is the build-step cwd (needed for the `-m` form);

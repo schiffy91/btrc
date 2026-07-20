@@ -1,0 +1,15 @@
+#include <assert.h>
+
+int observedValue = 0;
+
+int opaqueMutatesObservedValue() {
+    observedValue = 1;
+    return 1;
+}
+
+#define OPAQUE_MUTATION opaqueMutatesObservedValue()
+
+int main() {
+    assert(OPAQUE_MUTATION == observedValue);
+    return 0;
+}

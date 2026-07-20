@@ -1,0 +1,60 @@
+/* Structured optional-presence rewriting for null coalescing. */
+
+bool irOptionalPresenceCondition(IRNode? condition) {
+    if (condition == null || condition.kind != IRK_BINOP
+            || condition.op != "!=" || condition.left == null
+            || condition.right == null) {
+        return false;
+    }
+    return condition.left.kind == IRK_VAR
+        && condition.right.kind == IRK_LITERAL
+        && condition.right.text == "NULL";
+}
+
+/* Optional field/call lowering may be wrapped by an ownership boundary. Walk
+ * only the sequencing wrappers introduced by those lowerers, from the result
+ * backwards, and replace the outermost presence miss with the lazy fallback.
+ * A call miss assigns its result slot, so preserve that assignment shape. */
+bool irReplaceOptionalPresenceFallback(
+        IRNode? expression, IRNode fallback) {
+    if (expression == null) { return false; }
+    if (expression.kind == IRK_TERNARY
+            && irOptionalPresenceCondition(expression.condition)) {
+        if (expression.false_expr != null
+                && expression.false_expr.kind == IRK_BINOP
+                && expression.false_expr.op == "=") {
+            expression.false_expr.right = fallback;
+        } else {
+            expression.false_expr = fallback;
+        }
+        return true;
+    }
+    if (expression.kind == IRK_STMT_EXPR) {
+        return irReplaceOptionalPresenceFallback(
+            expression.result, fallback);
+    }
+    if (expression.kind == IRK_COMMA_EXPR) {
+        int index = expression.args.len - 1;
+        while (index >= 0) {
+            if (irReplaceOptionalPresenceFallback(
+                    expression.args.get(index), fallback)) {
+                return true;
+            }
+            index = index - 1;
+        }
+        return false;
+    }
+    if (expression.kind == IRK_BINOP) {
+        if (irReplaceOptionalPresenceFallback(
+                expression.right, fallback)) {
+            return true;
+        }
+        return irReplaceOptionalPresenceFallback(
+            expression.left, fallback);
+    }
+    if (expression.kind == IRK_CAST) {
+        return irReplaceOptionalPresenceFallback(
+            expression.expr, fallback);
+    }
+    return false;
+}

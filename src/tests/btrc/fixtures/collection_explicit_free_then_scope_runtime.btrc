@@ -1,0 +1,80 @@
+int liveCollectionItems = 0;
+int destroyedCollectionItems = 0;
+
+class CollectionItem {
+    public int id;
+
+    public CollectionItem(int id) {
+        self.id = id;
+        liveCollectionItems += 1;
+    }
+
+    public void __del__() {
+        liveCollectionItems -= 1;
+        destroyedCollectionItems += 1;
+    }
+}
+
+int exerciseVector() {
+    {
+        Vector<CollectionItem> values = {};
+        values.push(new CollectionItem(1));
+        values.free();
+        if (liveCollectionItems != 0) { return 11; }
+    }
+    return liveCollectionItems == 0 ? 0 : 12;
+}
+
+int exerciseMap() {
+    {
+        Map<int, CollectionItem> values = {};
+        values.set(2, new CollectionItem(2));
+        values.free();
+        if (liveCollectionItems != 0) { return 21; }
+    }
+    return liveCollectionItems == 0 ? 0 : 22;
+}
+
+int exerciseSet() {
+    {
+        Set<CollectionItem> values = {};
+        values.add(new CollectionItem(3));
+        values.free();
+        if (liveCollectionItems != 0) { return 31; }
+    }
+    return liveCollectionItems == 0 ? 0 : 32;
+}
+
+int exerciseList() {
+    {
+        List<CollectionItem> values = {};
+        values.pushBack(new CollectionItem(4));
+        values.free();
+        if (liveCollectionItems != 0) { return 41; }
+    }
+    return liveCollectionItems == 0 ? 0 : 42;
+}
+
+int exerciseArray() {
+    {
+        Array<CollectionItem> values = new Array<CollectionItem>(1);
+        values.set(0, new CollectionItem(5));
+        values.free();
+        if (liveCollectionItems != 0) { return 51; }
+    }
+    return liveCollectionItems == 0 ? 0 : 52;
+}
+
+int main() {
+    int result = exerciseVector();
+    if (result != 0) { return result; }
+    result = exerciseMap();
+    if (result != 0) { return result; }
+    result = exerciseSet();
+    if (result != 0) { return result; }
+    result = exerciseList();
+    if (result != 0) { return result; }
+    result = exerciseArray();
+    if (result != 0) { return result; }
+    return destroyedCollectionItems == 5 ? 0 : 60;
+}

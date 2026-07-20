@@ -1,0 +1,178 @@
+/* Bounded-depth lowering for long left-associated string concatenations. */
+
+bool irIsScalarStringConcat(IRGen generator, Node node,
+        Map<string, Node> varTypes) {
+    if (node.kind != NK_BINARY_EXPR || node.op != "+") { return false; }
+    return irManagedStringType(generator,
+            generator.resolvedExpressionType(node, varTypes))
+        && irManagedStringType(generator,
+            generator.resolvedExpressionType(node.left, varTypes))
+        && irManagedStringType(generator,
+            generator.resolvedExpressionType(node.right, varTypes));
+}
+
+Vector<Node> irLeftStringConcatLeaves(IRGen generator, Node node,
+        Map<string, Node> varTypes) {
+    Vector<Node> rights = [];
+    Node cursor = node;
+    while (irIsScalarStringConcat(generator, cursor, varTypes)) {
+        rights.push(cursor.right);
+        cursor = cursor.left;
+    }
+    Vector<Node> leaves = [];
+    leaves.push(cursor);
+    int index = rights.len - 1;
+    while (index >= 0) {
+        leaves.push(rights.get(index));
+        index = index - 1;
+    }
+    return leaves;
+}
+
+IRNode irTrackedStringConcat(
+        IRGen generator, IRNode left, IRNode right) {
+    generator.useHelper("__btrc_strcat");
+    generator.useHelper("__btrc_str_track");
+    Vector<IRNode> concatArguments = [];
+    concatArguments.push(left);
+    concatArguments.push(right);
+    Vector<IRNode> trackArguments = [];
+    trackArguments.push(irCall("__btrc_strcat", concatArguments));
+    return irCall("__btrc_str_track", trackArguments);
+}
+
+void irRegisterConcatCleanup(IRGen generator, IRNode declaration,
+        string name, string runtimeType, Vector<IRNode> sequence) {
+    OwnershipBoundary cleanup = OwnershipBoundary();
+    cleanup.registerCleanup(
+        generator, declaration, name, runtimeType);
+    int index = 0;
+    while (index < cleanup.prefix.len) {
+        sequence.push(cleanup.prefix.get(index));
+        index = index + 1;
+    }
+}
+
+void irReleaseConcatPart(IRGen generator, IRNode value,
+        Node typeExpr, bool released, Vector<IRNode> sequence) {
+    if (!released) { return; }
+    sequence.push(irManagedReleaseValue(generator, value, typeExpr));
+    sequence.push(irBinOp(value, "=", irLiteral("NULL")));
+}
+
+void irEvaluateConcatPart(IRGen generator, Node expression,
+        Node typeExpr, IRNode declaration, IRNode value, bool owned,
+        bool pinBorrowed, Map<string, Node> varTypes,
+        Vector<IRNode> sequence) {
+    sequence.push(irBinOp(value, "=",
+        generator.lowerExpr(expression, varTypes)));
+    if (pinBorrowed) {
+        sequence.push(irManagedRetainValue(
+            generator, value, typeExpr));
+    }
+    if (owned || pinBorrowed) {
+        irRegisterConcatCleanup(generator, declaration, value.name,
+            irManagedRuntimeType(generator, typeExpr), sequence);
+    }
+}
+
+IRNode? lowerLongStringConcat(IRGen generator, Node node,
+        Map<string, Node> varTypes) {
+    Vector<Node> leaves = irLeftStringConcatLeaves(
+        generator, node, varTypes);
+    if (leaves.len < 32) { return null; }
+    Node? resultOptional = generator.resolvedExpressionType(
+        node, varTypes);
+    ownershipRequireType(resultOptional, node);
+    Node resultType = resultOptional;
+    string cType = typeToC(resultType, generator.analyzed);
+    Vector<IRNode> declarations = [];
+    Vector<IRNode> values = [];
+    Vector<Node> types = [];
+    Vector<bool> owned = [];
+    Vector<bool> pinned = [];
+
+    int index = 0;
+    while (index < leaves.len) {
+        Node leaf = leaves.get(index);
+        Node? leafOptional = generator.resolvedExpressionType(
+            leaf, varTypes);
+        if (leafOptional == null) { leafOptional = resultType; }
+        Node leafType = leafOptional;
+        string name = generator.freshTemp("__btrc_concat_part");
+        IRNode declaration = irVarDecl(
+            cType, name, irLiteral("NULL"));
+        declarations.push(declaration);
+        generator.funcVarDecls.push(declaration);
+        values.push(irVar(name));
+        types.push(leafType);
+        owned.push(irContextualExpressionOwnsResult(
+            generator, leaf, leafType, varTypes));
+        pinned.push(false);
+        index = index + 1;
+    }
+    if (!owned.get(0) && ownershipExpressionHasEffect(
+            generator, leaves.get(1), varTypes)) {
+        pinned.set(0, true);
+    }
+
+    string accumulatorName = generator.freshTemp("__btrc_concat_acc");
+    string nextName = generator.freshTemp("__btrc_concat_next");
+    string resultName = generator.freshTemp("__btrc_concat_result");
+    IRNode accumulatorDeclaration = irVarDecl(
+        cType, accumulatorName, irLiteral("NULL"));
+    IRNode nextDeclaration = irVarDecl(
+        cType, nextName, irLiteral("NULL"));
+    IRNode resultDeclaration = irVarDecl(
+        cType, resultName, irLiteral("NULL"));
+    declarations.push(accumulatorDeclaration);
+    declarations.push(nextDeclaration);
+    declarations.push(resultDeclaration);
+    generator.funcVarDecls.push(accumulatorDeclaration);
+    generator.funcVarDecls.push(nextDeclaration);
+    generator.funcVarDecls.push(resultDeclaration);
+    IRNode accumulator = irVar(accumulatorName);
+    IRNode nextValue = irVar(nextName);
+    IRNode result = irVar(resultName);
+    Vector<IRNode> sequence = [];
+
+    index = 0;
+    while (index < 2) {
+        irEvaluateConcatPart(generator, leaves.get(index),
+            types.get(index), declarations.get(index),
+            values.get(index), owned.get(index), pinned.get(index),
+            varTypes, sequence);
+        index = index + 1;
+    }
+    sequence.push(irBinOp(accumulator, "=",
+        irTrackedStringConcat(generator, values.get(0), values.get(1))));
+    irRegisterConcatCleanup(generator, accumulatorDeclaration,
+        accumulatorName, irManagedRuntimeType(generator, resultType), sequence);
+    irReleaseConcatPart(generator, values.get(0),
+        types.get(0), owned.get(0) || pinned.get(0), sequence);
+    irReleaseConcatPart(generator, values.get(1),
+        types.get(1), owned.get(1), sequence);
+
+    index = 2;
+    while (index < leaves.len) {
+        irEvaluateConcatPart(generator, leaves.get(index),
+            types.get(index), declarations.get(index),
+            values.get(index), owned.get(index), pinned.get(index),
+            varTypes, sequence);
+        sequence.push(irBinOp(nextValue, "=",
+            irTrackedStringConcat(
+                generator, accumulator, values.get(index))));
+        sequence.push(irManagedReleaseValue(
+            generator, accumulator, resultType));
+        sequence.push(irBinOp(accumulator, "=", irLiteral("NULL")));
+        irReleaseConcatPart(generator, values.get(index),
+            types.get(index), owned.get(index), sequence);
+        sequence.push(irBinOp(accumulator, "=", nextValue));
+        sequence.push(irBinOp(nextValue, "=", irLiteral("NULL")));
+        index = index + 1;
+    }
+    sequence.push(irBinOp(result, "=", accumulator));
+    sequence.push(irBinOp(accumulator, "=", irLiteral("NULL")));
+    sequence.push(result);
+    return irStmtExpr(declarations, irCommaExpr(sequence));
+}

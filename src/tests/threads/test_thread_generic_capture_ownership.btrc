@@ -1,0 +1,100 @@
+#include <assert.h>
+
+int nodeAlive = 0;
+int nodeDestroyed = 0;
+int holderAlive = 0;
+int holderDestroyed = 0;
+int vectorWorkerRuns = 0;
+
+class Holder<T> {
+    public T value;
+
+    public Holder() {
+        self.value = null;
+        holderAlive++;
+    }
+
+    public void __del__() {
+        holderAlive--;
+        holderDestroyed++;
+    }
+}
+
+class Node {
+    public int value;
+    public Holder<Node> link;
+
+    public Node(int value) {
+        self.value = value;
+        self.link = new Holder<Node>();
+        nodeAlive++;
+    }
+
+    public void __del__() {
+        nodeAlive--;
+        nodeDestroyed++;
+    }
+}
+
+Thread<int> spawnVectorWorker(Mutex<int> gate) {
+    Vector<int> values = [17];
+    Thread<int> worker = spawn(() => {
+        while (gate.get() == 0) {}
+        vectorWorkerRuns++;
+        if (values.len == 1) {
+            return values.get(0);
+        }
+        return -1;
+    });
+    return worker;
+}
+
+Thread<int> spawnGenericWorker(Mutex<int> gate) {
+    Node first = new Node(29);
+    Node second = new Node(31);
+    first.link.value = second;
+    second.link.value = first;
+    Holder<Node> root = first.link;
+    Thread<int> worker = spawn(() => {
+        while (gate.get() == 0) {}
+        try {
+            throw "expected";
+        } catch (string error) {
+            if (error == "expected") {
+                return root.value.value;
+            }
+        }
+        return -1;
+    });
+    return worker;
+}
+
+int main() {
+    Mutex<int> vectorGate = Mutex(0);
+    Thread<int> vectorWorker = spawnVectorWorker(vectorGate);
+    assert(vectorWorkerRuns == 0);
+    assert(nodeDestroyed == 0);
+    vectorGate.set(1);
+    assert(vectorWorker.join() == 17);
+    vectorGate.destroy();
+    assert(vectorWorkerRuns == 1);
+    assert(nodeAlive == 0);
+    assert(nodeDestroyed == 0);
+
+    Mutex<int> genericGate = Mutex(0);
+    Thread<int> genericWorker = spawnGenericWorker(genericGate);
+    assert(nodeAlive == 2);
+    assert(nodeDestroyed == 0);
+    assert(holderAlive == 2);
+    assert(holderDestroyed == 0);
+    genericGate.set(1);
+    assert(genericWorker.join() == 31);
+    genericGate.destroy();
+    assert(nodeAlive == 0);
+    assert(nodeDestroyed == 2);
+    assert(holderAlive == 0);
+    assert(holderDestroyed == 2);
+
+    print("PASS: test_thread_generic_capture_ownership");
+    return 0;
+}

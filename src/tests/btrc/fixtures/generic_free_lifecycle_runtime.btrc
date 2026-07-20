@@ -1,0 +1,72 @@
+int liveItems = 0;
+int destroyedItems = 0;
+int explicitFreeCalls = 0;
+int explicitFreeMarkers = 0;
+
+class LifecycleItem {
+    public int id;
+
+    public LifecycleItem(int id) {
+        self.id = id;
+        liveItems += 1;
+    }
+
+    public void __del__() {
+        liveItems -= 1;
+        destroyedItems += 1;
+    }
+}
+
+class Pool<T> {
+    public T item;
+
+    public Pool(T item) {
+        self.item = item;
+    }
+
+    /* This is an ordinary source method, not a lifecycle hook.  Its required
+     * argument makes an implicit call from Pool<T>_destroy ill-typed. */
+    public void free(int marker) {
+        explicitFreeCalls += 1;
+        explicitFreeMarkers += marker;
+    }
+}
+
+int exerciseImplicitScope() {
+    {
+        Pool<LifecycleItem> pool = new Pool<LifecycleItem>(
+            new LifecycleItem(11));
+        if (pool.item.id != 11 || liveItems != 1
+                || explicitFreeCalls != 0) {
+            return 11;
+        }
+    }
+    if (liveItems != 0 || destroyedItems != 1
+            || explicitFreeCalls != 0 || explicitFreeMarkers != 0) {
+        return 12;
+    }
+    return 0;
+}
+
+int exerciseExplicitFreeThenScope() {
+    {
+        Pool<LifecycleItem> pool = new Pool<LifecycleItem>(
+            new LifecycleItem(22));
+        pool.free(73);
+        if (pool.item.id != 22 || liveItems != 1
+                || explicitFreeCalls != 1 || explicitFreeMarkers != 73) {
+            return 21;
+        }
+    }
+    if (liveItems != 0 || destroyedItems != 2
+            || explicitFreeCalls != 1 || explicitFreeMarkers != 73) {
+        return 22;
+    }
+    return 0;
+}
+
+int main() {
+    int result = exerciseImplicitScope();
+    if (result != 0) { return result; }
+    return exerciseExplicitFreeThenScope();
+}

@@ -26,13 +26,13 @@ void neverAllocated() {
     assert(o == null);
 }
 
-// A managed local set to null mid-scope: scope exit skips it (the object it
-// once pointed to leaks, but no double/invalid destruction occurs).
+// Replacing an owned local with null releases its previous reference; scope
+// exit then sees the null slot and remains a no-op.
 void nulledMidScope() {
     Obj a = new Obj(1);
     assert(alive == 1);
-    a = null;        // drop the handle; object leaks (rc still 1)
-    assert(a == null);
+    a = null;
+    assert(a == null && alive == 0);
 }
 
 // delete nulls the handle; the subsequent scope-exit release is a safe no-op.
@@ -47,11 +47,11 @@ int main() {
     neverAllocated();
     assert(alive == 0);   // nothing was ever created
 
-    nulledMidScope();     // leaks one (rc=1, no handle)
-    assert(alive == 1);
+    nulledMidScope();
+    assert(alive == 0);
 
     deleteThenScopeExit();
-    assert(alive == 1);   // still just the earlier leak; b cleaned exactly once
+    assert(alive == 0);   // b was cleaned exactly once
 
     print("PASS: test_delete_null_safe");
     return 0;

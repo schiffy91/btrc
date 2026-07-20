@@ -1,0 +1,24 @@
+/* Assignment delimiters inside quoted TOML keys are data, not the key/value
+ * separator. Basic-string escapes are decoded consistently with JSON escapes. */
+#include <assert.h>
+
+int main() {
+    string doc =
+        "\"a=b\" = \"value\"\n" +
+        "'literal=key' = 'literal'\n" +
+        "\"unicode\\u003dkey\" = \"decoded\\u0021\"\n" +
+        "plain = \"x=y#z\" # comment\n";
+
+    var root = Toml.rootMap(doc);
+    assert(root.getOrDefault("a=b", "").equals("value"));
+    assert(root.getOrDefault("literal=key", "").equals("literal"));
+    assert(root.getOrDefault("unicode=key", "").equals("decoded!"));
+    assert(root.getOrDefault("plain", "").equals("x=y#z"));
+
+    assert(Toml.key("\"a=b\" = 1").equals("a=b"));
+    assert(Toml.value("\"a=b\" = 1").equals("1"));
+    assert(Toml.key("\"a=b\"").equals(""));
+
+    print("PASS: test_stdlib_toml_quoted_keys");
+    return 0;
+}

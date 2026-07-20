@@ -1,0 +1,15 @@
+/* Fail closed when ordered C operands cannot be captured without ABI guesses. */
+
+void opaqueOperandOrderFail(Node expression, string context,
+        bool typedDeclaration) {
+    if (typedDeclaration) {
+        fprintf(stderr,
+            "error: opaque C operand at %d:%d precedes an ordered sibling in %s; cast it explicitly or provide a typed declaration\n",
+            expression.line, expression.col, context);
+    } else {
+        fprintf(stderr,
+            "error: opaque C operand at %d:%d precedes an ordered sibling in %s; cast it explicitly\n",
+            expression.line, expression.col, context);
+    }
+    abortGen();
+}

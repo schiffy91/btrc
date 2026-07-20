@@ -37,5 +37,4 @@ def test_string_concat_in_fstring_and_plus():
 
 def test_malformed_switch_body_is_parse_error():
     with pytest.raises(ParseError):
-        Parser(Lexer("int main() { int x = 1; switch (x) { x = 2; } return 0; }",
-                     "<t>").tokenize()).parse()
+        Parser(Lexer("int main() { int x = 1; switch (x) { x = 2; } return 0; }", "<t>").tokenize()).parse()

@@ -70,6 +70,14 @@ class ExecutionGraph {
         throw f"Unknown graph node: {id}";
     }
 
+    public bool hasNode(string id) {
+        if (id == null) { return false; }
+        for item in self.nodes {
+            if (item.id.equals(id)) { return true; }
+        }
+        return false;
+    }
+
     public Vector<string> defaultTargets() {
         if (!self.defaults.isEmpty()) { return self.defaults; }
         Vector<string> result = [];
@@ -130,22 +138,57 @@ class GraphTraversal {
 
     public int visit(string id) {
         if (self.done.contains(id)) { return 0; }
-        if (self.visiting.contains(id)) {
-            self.error = "Cycle in graph at " + id;
+        if (!self.graph.hasNode(id)) {
+            self.error = "Unknown graph node: " + (id == null ? "" : id);
             return 1;
         }
-        self.visiting.push(id);
-        GraphNode node = self.graph.node(id);
-        for parent in node.after {
-            int parentResult = self.visit(parent);
-            if (parentResult != 0) {
-                self.visiting.removeAll(id);
-                return parentResult;
+
+        /* Explicit DFS frames avoid overflowing the C call stack on deep
+         * dependency chains. nextParent parallels stack and records which
+         * dependency of each frame should be visited next. */
+        Vector<string> stack = [];
+        Vector<int> nextParent = [];
+        stack.push(id);
+        nextParent.push(0);
+
+        while (!stack.isEmpty()) {
+            int top = stack.len - 1;
+            string current = stack.get(top);
+            if (self.done.contains(current)) {
+                self.visiting.removeAll(current);
+                stack.pop();
+                nextParent.pop();
+                continue;
             }
+            if (!self.visiting.contains(current)) {
+                self.visiting.push(current);
+            }
+
+            GraphNode node = self.graph.node(current);
+            int index = nextParent.get(top);
+            if (index < node.after.len) {
+                string parent = node.after.get(index);
+                nextParent.set(top, index + 1);
+                if (self.done.contains(parent)) { continue; }
+                if (!self.graph.hasNode(parent)) {
+                    self.error = "Unknown graph node: " + parent;
+                    return 1;
+                }
+                if (self.visiting.contains(parent)) {
+                    self.error = "Cycle in graph at " + parent;
+                    return 1;
+                }
+                stack.push(parent);
+                nextParent.push(0);
+                continue;
+            }
+
+            self.done.push(current);
+            self.ordered.push(current);
+            self.visiting.removeAll(current);
+            stack.pop();
+            nextParent.pop();
         }
-        self.done.push(id);
-        self.ordered.push(id);
-        self.visiting.removeAll(id);
         return 0;
     }
 

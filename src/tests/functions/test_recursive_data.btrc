@@ -52,12 +52,6 @@ int list_sum(ListNode head) {
     return sum;
 }
 
-void list_free(ListNode head) {
-    // Auto-generated destructor recursively frees next pointers,
-    // so just delete the head to clean up the whole chain.
-    delete head;
-}
-
 // ---- Tree helpers ----
 void tree_insert(TreeNode root, int value) {
     if (value < root.value) {
@@ -95,12 +89,6 @@ bool tree_contains(TreeNode node, int value) {
     return tree_contains(node.right, value);
 }
 
-void tree_free(TreeNode node) {
-    // Auto-generated destructor recursively frees left/right,
-    // so just delete root to clean up the whole tree.
-    delete node;
-}
-
 int main() {
     // ---- Linked list ----
     ListNode head = new ListNode(10);
@@ -118,8 +106,8 @@ int main() {
     assert(head.next.next.next.value == 40);
     assert(head.next.next.next.next == null);
 
-    list_free(head);
-    head = null;
+    // Auto-generated field destruction recursively releases the whole chain.
+    delete head;
 
     // ---- Binary search tree ----
     TreeNode root = new TreeNode(50);
@@ -143,8 +131,8 @@ int main() {
     assert(root.left.left.value == 20);
     assert(root.left.right.value == 40);
 
-    tree_free(root);
-    root = null;
+    // Auto-generated field destruction recursively releases the whole tree.
+    delete root;
 
     print("PASS: test_recursive_data");
     return 0;

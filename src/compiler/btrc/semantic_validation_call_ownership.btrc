@@ -1,0 +1,47 @@
+/* Caller/callee ownership-transfer validation for consuming parameters. */
+
+void semanticValidateTransferredArguments(Node declaration, Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Map<int, bool> transferred = ownershipOwnedTransferParams(declaration);
+    if (transferred.len == 0) { return; }
+    Map<int, bool> supplied = {};
+    int positional = 0;
+    int argumentIndex = 0;
+    while (argumentIndex < call.args.len) {
+        string argumentName = "";
+        if (argumentIndex < call.arg_names.len) {
+            argumentName = call.arg_names.get(argumentIndex);
+        }
+        int parameterIndex = positional;
+        if (argumentName != "") {
+            parameterIndex = semanticParameterIndex(
+                declaration.params, argumentName);
+        } else {
+            positional = positional + 1;
+        }
+        supplied.put(parameterIndex, true);
+        Node argument = call.args.get(argumentIndex);
+        if (transferred.has(parameterIndex)
+                && !semanticExpressionOwnsResult(
+                    argument, state, vars)) {
+            semanticValidationFail("Argument to consuming parameter '"
+                + declaration.params.get(parameterIndex).name
+                + "' must be a fresh caller-owned managed value", argument);
+        }
+        argumentIndex = argumentIndex + 1;
+    }
+    int parameterIndex = 0;
+    while (parameterIndex < declaration.params.len) {
+        Node parameter = declaration.params.get(parameterIndex);
+        if (transferred.has(parameterIndex)
+                && !supplied.has(parameterIndex)
+                && (parameter.default_ == null
+                    || !semanticExpressionOwnsResult(
+                        parameter.default_, state, vars))) {
+            semanticValidationFail("Default for consuming parameter '"
+                + parameter.name
+                + "' must produce a fresh managed value", parameter);
+        }
+        parameterIndex = parameterIndex + 1;
+    }
+}

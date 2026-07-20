@@ -20,5 +20,6 @@ def test_checked_in_builtins_matches_generator_output(tmp_path):
 
     assert out.read_text() == CHECKED_IN.read_text(), (
         "src/devex/lsp/builtins.py is stale — regenerate it with "
-        "`make stubs-generate` (python3 src/language/ast/gen_builtins.py)"
+        "`make stubs-generate` "
+        "(python3 src/compiler/python/ast/gen_builtins.py)"
     )

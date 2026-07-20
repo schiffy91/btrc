@@ -35,7 +35,6 @@ class Font {
 
     public void __del__() {
         if (self.handle != null) {
-            btrc_gui_set_font(null);
             btrc_gui_font_destroy(self.handle);
             self.handle = null;
         }

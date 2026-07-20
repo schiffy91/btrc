@@ -1,4 +1,4 @@
-"""Runtime helper collection: determine which helpers the IR module needs."""
+"""Collect runtime helpers through a validated dependency graph."""
 
 from __future__ import annotations
 
@@ -12,59 +12,85 @@ if TYPE_CHECKING:
     from .generator import IRGenerator
 
 
-def collect_helpers(gen: IRGenerator):
-    """Register all used helpers as IRHelperDecl entries on the module."""
+def _helper_index() -> tuple[dict[str, tuple[str, HelperDef]], list[str]]:
+    index: dict[str, tuple[str, HelperDef]] = {}
+    stable_order: list[str] = []
+    for category, helpers in HELPERS.items():
+        for name, definition in helpers.items():
+            if name in index:
+                raise ValueError(f"duplicate runtime helper registration: {name}")
+            index[name] = (category, definition)
+            stable_order.append(name)
+    return index, stable_order
+
+
+def _dependency_order(
+    roots: set[str],
+    index: dict[str, tuple[str, HelperDef]],
+    stable_order: list[str],
+) -> list[str]:
+    """Return the reachable helper graph in dependency-first stable order."""
+
+    unknown = roots - index.keys()
+    if unknown:
+        raise ValueError(f"unknown runtime helper(s): {', '.join(sorted(unknown))}")
+
+    state: dict[str, int] = {}
+    ordered: list[str] = []
+
+    def visit(name: str, path: tuple[str, ...]) -> None:
+        current = state.get(name, 0)
+        if current == 2:
+            return
+        if current == 1:
+            cycle = " -> ".join((*path, name))
+            raise ValueError(f"runtime helper dependency cycle: {cycle}")
+        state[name] = 1
+        _category, definition = index[name]
+        for dependency in definition.depends_on:
+            if dependency not in index:
+                raise ValueError(f"runtime helper {name} has unknown dependency {dependency}")
+            visit(dependency, (*path, name))
+        state[name] = 2
+        ordered.append(name)
+
+    for name in stable_order:
+        if name in roots:
+            visit(name, ())
+    return ordered
+
+
+def helper_decls_for_roots(roots: set[str]) -> list[IRHelperDecl]:
+    """Materialize a dependency-complete, stable helper declaration list."""
+
+    index, stable_order = _helper_index()
+    ordered = _dependency_order(roots, index, stable_order)
+    declarations = []
+    for name in ordered:
+        category, definition = index[name]
+        declarations.append(
+            IRHelperDecl(
+                category=category,
+                name=name,
+                c_source=definition.c_source,
+                depends_on=list(definition.depends_on),
+                required_headers=list(definition.required_headers),
+            )
+        )
+    return declarations
+
+
+def collect_helpers(gen: IRGenerator) -> None:
+    """Materialize used helpers after validating their dependency graph."""
+
     if not gen._used_helpers:
         return
 
-    # Build reverse map: helper name → (category, HelperDef)
-    name_to_info: dict[str, tuple[str, HelperDef]] = {}
-    for cat, helpers in HELPERS.items():
-        for name, hdef in helpers.items():
-            name_to_info[name] = (cat, hdef)
+    declarations = helper_decls_for_roots(set(gen._used_helpers))
+    for declaration in declarations:
+        for header in declaration.required_headers:
+            gen.require_runtime_include(header)
+    gen.module.helper_decls.extend(declarations)
 
-    # Resolve transitive dependencies
-    needed: set[str] = set(gen._used_helpers)
-    worklist = list(needed)
-    while worklist:
-        name = worklist.pop()
-        if name not in name_to_info:
-            continue
-        cat, hdef = name_to_info[name]
-        for dep in hdef.depends_on:
-            if dep not in needed:
-                needed.add(dep)
-                worklist.append(dep)
 
-    # Also include category-level dependencies
-    needed_cats: set[str] = set()
-    for name in needed:
-        if name in name_to_info:
-            needed_cats.add(name_to_info[name][0])
-
-    # Emit helpers in category order, preserving dependency order
-    category_order = ["alloc", "divmod", "string_pool", "string", "math",
-                      "trycatch", "hash", "collections", "cycles", "threads"]
-    # __btrc_run_cleanups / __btrc_throw are cycle-safe unwinders: they call
-    # __btrc_collect_cycles / __btrc_suspect and reference the
-    # __btrc_visit_fn / __btrc_destroy_fn typedefs declared by the cycles
-    # helpers, so they must be emitted AFTER the cycles category even though
-    # they live in the trycatch category. Defer them and re-append at the end.
-    deferred = ("__btrc_run_cleanups", "__btrc_throw")
-    deferred_decls: list[IRHelperDecl] = []
-    for cat in category_order:
-        if cat not in HELPERS:
-            continue
-        for name, hdef in HELPERS[cat].items():
-            if name in needed:
-                decl = IRHelperDecl(
-                    category=cat,
-                    name=name,
-                    c_source=hdef.c_source,
-                    depends_on=hdef.depends_on,
-                )
-                if name in deferred:
-                    deferred_decls.append(decl)
-                else:
-                    gen.module.helper_decls.append(decl)
-    gen.module.helper_decls.extend(deferred_decls)
+__all__ = ["collect_helpers", "helper_decls_for_roots"]

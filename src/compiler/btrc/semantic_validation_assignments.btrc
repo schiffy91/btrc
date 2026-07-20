@@ -1,0 +1,175 @@
+/* Assignment/update contracts, including borrowed managed binding safety. */
+
+void semanticValidateAssignment(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (!semanticIsLvalue(expression.target, state, vars)) {
+        semanticValidationFail("Assignment target is not assignable", expression);
+    }
+    semanticRejectShallowStore(expression, state, vars);
+    Node? target = semanticInferType(expression.target, state, vars);
+    Node? source = semanticInferType(expression.value_node, state, vars);
+    semanticValidateOpaqueBorrowStorage(
+        target, expression.value_node, "Assignment", state, vars);
+    bool borrowedManagedRebind = expression.target.kind == NK_IDENTIFIER
+            && target != null
+            && (semanticManagedOwnershipType(target, state)
+                || isStringType(target))
+            && state.borrowedBindings.has(expression.target.name);
+    bool borrowedSelfProjection = borrowedManagedRebind
+        && semanticBorrowedSelfProjection(
+            expression.value_node, expression.target.name, state, vars);
+    bool rebindNeedsOwner = expression.op != "="
+        || semanticExpressionOwnsResult(
+            expression.value_node, state, vars)
+        || (!borrowedSelfProjection
+            && semanticManagedRebindSourceNeedsOwner(
+                expression.value_node, target, state, vars));
+    if (borrowedManagedRebind && rebindNeedsOwner) {
+        semanticValidationFail(
+            "Borrowed managed bindings cannot be rebound; declare an "
+                + "owned local before assigning or applying a compound update",
+            expression);
+    }
+    bool virtualTarget = semanticIsVirtualUpdateTarget(
+        expression.target, state, vars);
+    if (expression.op != "=" && target != null
+            && (semanticManagedOwnershipType(target, state)
+                || isStringType(target))) {
+        bool supportedPhysical = expression.target.kind == NK_IDENTIFIER
+            || (expression.target.kind == NK_FIELD_ACCESS_EXPR
+                && !virtualTarget);
+        if (!supportedPhysical) {
+            semanticValidationFail(
+                "Managed compound updates require a direct local/global or "
+                    + "physical field; use an explicit local value and simple "
+                    + "store for virtual or indirect targets",
+                expression);
+        }
+    }
+    if (expression.op == "=") {
+        Node? setterType = semanticIndexedSetterValueType(
+            expression.target, state, vars);
+        if (setterType != null) { target = setterType; }
+        semanticValidateTypedInitializer(target, expression.value_node,
+            "Assignment", state, vars);
+    }
+    semanticValidatePropertyMutation(expression.target,
+        expression.op != "=", state, vars, expression);
+    semanticValidateIndexedMutation(expression.target,
+        expression.op != "=", state, vars, expression);
+    semanticValidateMutableTarget(target, state, expression);
+    semanticValidateTargetReceiverMutability(
+        expression.target, state, vars, expression);
+    if (target == null || source == null) { return; }
+    if (expression.op == "=") {
+        semanticRejectThreadHandleCopy(
+            target, source, expression.value_node, expression, state);
+        Node? resolvedTarget = semanticResolveAliases(target, state);
+        Node? resolvedSource = semanticResolveAliases(source, state);
+        bool copiedThread = resolvedSource != null
+            && resolvedSource.base == "Thread"
+            && semanticThreadCopySource(expression.value_node);
+        if (resolvedTarget != null && resolvedTarget.base == "Thread"
+                && !copiedThread) {
+            semanticValidationFail(
+                "Thread owner variables are single-assignment; declare a "
+                    + "new owner for a fresh Thread result",
+                expression);
+        }
+        if (!semanticContextualAggregateInitializer(expression.value_node)
+                && !semanticAssignmentCompatible(target, source, state)) {
+            semanticValidationFail("Cannot assign '"
+                + semanticFormatType(source) + "' to '"
+                + semanticFormatType(target) + "'", expression);
+        }
+        return;
+    }
+    semanticValidatePortableNumericMix(expression, target, source,
+        "Compound assignment '" + expression.op + "'", state);
+    if (semanticHasBinaryOverload(
+            target, expression.op.substring(0, expression.op.length() - 1),
+            state)) {
+        return;
+    }
+    string op = expression.op.substring(0, expression.op.length() - 1);
+    bool valid = false;
+    if (op == "+" && isSemanticScalarString(target)
+            && (isSemanticScalarString(source)
+                || semanticIsCStringPointer(source))) {
+        valid = true;
+    } else if (op == "&" || op == "|" || op == "^"
+            || op == "<<" || op == ">>") {
+        valid = semanticIntegralType(target, state.analyzed)
+            && semanticIntegralType(source, state.analyzed);
+    } else {
+        valid = numericIsType(target, state.analyzed)
+            && numericIsType(source, state.analyzed)
+            && target.base != "bool" && source.base != "bool";
+    }
+    if (!valid) { semanticOperatorFailure(expression, target, source); }
+}
+
+bool semanticBorrowedSelfProjection(Node? source, string targetName,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (source == null) { return false; }
+    if (source.kind == NK_CAST_EXPR) {
+        return semanticBorrowedSelfProjection(
+            source.expr, targetName, state, vars);
+    }
+    if (source.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+
+    Node? receiverType = semanticInferType(source.obj, state, vars);
+    Node? member = null;
+    if (receiverType != null) {
+        member = semanticLvalueMember(
+            receiverType, source.field, state);
+    }
+    if (member != null && member.kind == NK_PROPERTY_DECL
+            && member.getter_body != null) {
+        return false;
+    }
+
+    Node root = source.obj;
+    while (root.kind == NK_CAST_EXPR) { root = root.expr; }
+    if (root.kind == NK_IDENTIFIER) {
+        return root.name == targetName;
+    }
+    return semanticBorrowedSelfProjection(
+        root, targetName, state, vars);
+}
+
+bool semanticManagedRebindSourceNeedsOwner(Node? source, Node? target,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (source == null || target == null) { return false; }
+    Node? sourceType = semanticInferType(source, state, vars);
+    if (semanticRequiresTargetStringConversion(
+            target, sourceType, state)) {
+        /* The source binding may itself be borrowed, but invoking toString()
+         * creates a fresh managed result that a borrowed target cannot own. */
+        return true;
+    }
+    if (source.kind == NK_NULL_LITERAL
+            || source.kind == NK_STRING_LITERAL
+            || source.kind == NK_CHAR_LITERAL) {
+        return false;
+    }
+    if (source.kind == NK_CAST_EXPR) {
+        return semanticManagedRebindSourceNeedsOwner(
+            source.expr, target, state, vars);
+    }
+    if (source.kind == NK_TERNARY_EXPR) {
+        return semanticManagedRebindSourceNeedsOwner(
+                source.true_expr, target, state, vars)
+            || semanticManagedRebindSourceNeedsOwner(
+                source.false_expr, target, state, vars);
+    }
+    if (source.kind == NK_IDENTIFIER) {
+        /* Resolve through the active lexical borrowed-binding set. Copying a
+         * borrowed capture/parameter into another borrowed proxy is raw and
+         * lifetime-bounded; an owned local or same-spelled global is not. */
+        return !state.borrowedBindings.has(source.name);
+    }
+    /* Projections may die with a different owner; calls, f-strings,
+     * constructors, and operators may return a fresh +1. */
+    return true;
+}

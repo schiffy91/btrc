@@ -1,0 +1,212 @@
+#include <assert.h>
+
+import std.map;
+import std.vector;
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int collectionTokensAlive = 0;
+int collectionTokensDestroyed = 0;
+int collectionRenderCalls = 0;
+
+class CollectionToken {
+    public int value;
+
+    public CollectionToken(int value) {
+        self.value = value;
+        collectionTokensAlive++;
+    }
+
+    public void __del__() {
+        collectionTokensAlive--;
+        collectionTokensDestroyed++;
+    }
+
+    public string toString() {
+        collectionRenderCalls++;
+        return self.value.toString();
+    }
+}
+
+class ProjectedStringOwner {
+    public string text;
+
+    public ProjectedStringOwner(string text) { self.text = text; }
+}
+
+CollectionToken replaceProjectedKey(
+    ProjectedStringOwner owner,
+    int replacement,
+    int result
+) {
+    owner.text = replacement.toString();
+    return new CollectionToken(result);
+}
+
+void assertCollectionText(string value, int expected) {
+    assert(value != null);
+    assert(value.toInt() == expected);
+}
+
+class GenericCollectionHarness<T> {
+    public T marker;
+
+    public GenericCollectionHarness(T marker) { self.marker = marker; }
+
+    public Vector<string> buildVector(
+        CollectionToken first,
+        CollectionToken second
+    ) {
+        Vector<string> values = [first, second];
+        values.push(first);
+        return values;
+    }
+
+    public Map<string, string> buildMap(
+        CollectionToken key,
+        CollectionToken value
+    ) {
+        Map<string, string> result = {key: value};
+        return result;
+    }
+
+    public Map<string, string> buildOrderedMap(
+        ProjectedStringOwner owner,
+        int base
+    ) {
+        Map<string, string> result = {
+            owner.text: replaceProjectedKey(owner, base + 1, base + 2),
+        };
+        return result;
+    }
+}
+
+void exerciseVectorTargets(int base) {
+    int calls = collectionRenderCalls;
+    int destroyed = collectionTokensDestroyed;
+    {
+        Vector<string> values = [
+            new CollectionToken(base),
+            new CollectionToken(base + 1),
+        ];
+        values.push(new CollectionToken(base + 2));
+        values.set(0, new CollectionToken(base + 3));
+        values[1] = new CollectionToken(base + 4);
+        assertCollectionText(values.get(0), base + 3);
+        assertCollectionText(values[1], base + 4);
+        assertCollectionText(values.get(2), base + 2);
+        string joined = values.join(new CollectionToken(9));
+        string expected = f"{base + 3}9{base + 4}9{base + 2}";
+        assert(joined.equals(expected));
+        assert(collectionRenderCalls == calls + 6);
+    }
+    assert(collectionTokensAlive == 0);
+    assert(collectionTokensDestroyed == destroyed + 6);
+}
+
+void exerciseMapTargets(int base) {
+    int calls = collectionRenderCalls;
+    int destroyed = collectionTokensDestroyed;
+    {
+        Map<string, string> values = {
+            new CollectionToken(base): new CollectionToken(base + 1),
+        };
+        values.put(
+            new CollectionToken(base + 2),
+            new CollectionToken(base + 3));
+        values[new CollectionToken(base + 4)] =
+            new CollectionToken(base + 5);
+        assertCollectionText(values.get(base.toString()), base + 1);
+        assertCollectionText(
+            values.get(new CollectionToken(base + 2)), base + 3);
+        assert(values.has(new CollectionToken(base + 4)));
+        assert(collectionRenderCalls == calls + 8);
+    }
+    assert(collectionTokensAlive == 0);
+    assert(collectionTokensDestroyed == destroyed + 8);
+}
+
+void exerciseOrderedMapTargets(int base) {
+    int calls = collectionRenderCalls;
+    int destroyed = collectionTokensDestroyed;
+    {
+        ProjectedStringOwner owner =
+            new ProjectedStringOwner(base.toString());
+        Map<string, string> values = {
+            owner.text: replaceProjectedKey(owner, base + 1, base + 2),
+        };
+        assert(values.has(base.toString()));
+        assertCollectionText(values.get(base.toString()), base + 2);
+        assertCollectionText(owner.text, base + 1);
+        assert(collectionRenderCalls == calls + 1);
+    }
+    assert(collectionTokensAlive == 0);
+    assert(collectionTokensDestroyed == destroyed + 1);
+}
+
+void exerciseMutexTargets(int base) {
+    int calls = collectionRenderCalls;
+    int destroyed = collectionTokensDestroyed;
+    {
+        Mutex<string> value = new Mutex<string>(
+            new CollectionToken(base));
+        assertCollectionText(value.get(), base);
+        value.set(new CollectionToken(base + 1));
+        assertCollectionText(value.get(), base + 1);
+        value.destroy();
+        assert(collectionRenderCalls == calls + 2);
+    }
+    assert(collectionTokensAlive == 0);
+    assert(collectionTokensDestroyed == destroyed + 2);
+}
+
+void exerciseGenericCollectionTargets(int base) {
+    int calls = collectionRenderCalls;
+    int destroyed = collectionTokensDestroyed;
+    {
+        GenericCollectionHarness<int> harness =
+            new GenericCollectionHarness<int>(1);
+        CollectionToken first = new CollectionToken(base);
+        CollectionToken second = new CollectionToken(base + 1);
+        Vector<string> vector = harness.buildVector(first, second);
+        Map<string, string> map = harness.buildMap(first, second);
+        ProjectedStringOwner owner =
+            new ProjectedStringOwner((base + 2).toString());
+        Map<string, string> ordered = harness.buildOrderedMap(
+            owner, base + 2);
+        assertCollectionText(vector.get(0), base);
+        assertCollectionText(vector.get(1), base + 1);
+        assertCollectionText(vector.get(2), base);
+        assertCollectionText(map.get(base.toString()), base + 1);
+        assert(ordered.has((base + 2).toString()));
+        assertCollectionText(ordered.get((base + 2).toString()), base + 4);
+        assertCollectionText(owner.text, base + 3);
+        assert(collectionRenderCalls == calls + 6);
+    }
+    assert(collectionTokensAlive == 0);
+    assert(collectionTokensDestroyed == destroyed + 3);
+}
+
+void exerciseCollectionTargets(int base) {
+    exerciseVectorTargets(base);
+    exerciseMapTargets(base + 100);
+    exerciseOrderedMapTargets(base + 150);
+    exerciseMutexTargets(base + 200);
+    exerciseGenericCollectionTargets(base + 300);
+}
+
+int main() {
+    exerciseCollectionTargets(1000);
+    assert(collectionTokensAlive == 0);
+    assert(collectionRenderCalls == 23);
+    assert(collectionTokensDestroyed == 20);
+
+    arc_test_allocation_checkpoint();
+    exerciseCollectionTargets(2000);
+    assert(collectionTokensAlive == 0);
+    assert(collectionRenderCalls == 46);
+    assert(collectionTokensDestroyed == 40);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

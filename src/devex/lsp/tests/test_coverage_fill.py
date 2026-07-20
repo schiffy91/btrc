@@ -55,21 +55,21 @@ def test_document_symbols_struct_typedef_generic():
 def test_inherited_method_references_via_variable():
     # describe() is inherited by Gen (not overridden); references on the
     # declaration span the inherited call site through a Gen variable.
-    src = ("class Base { public int b; public Base() { self.b = 0; }\n"
-           "             public int describe() { return self.b; } }\n"
-           "class Sub extends Base { public Sub() { self.b = 1; } }\n"
-           "int main() { Sub s = Sub(); return s.describe(); }\n")
+    src = (
+        "class Base { public int b; public Base() { self.b = 0; }\n"
+        "             public int describe() { return self.b; } }\n"
+        "class Sub extends Base { public Sub() { self.b = 1; } }\n"
+        "int main() { Sub s = Sub(); return s.describe(); }\n"
+    )
     refs = get_references(analyze(src), pos_of(src, "public int describe", occurrence=1, offset=11))
     lines = {r.range.start.line for r in refs}
-    assert 3 in lines                            # the s.describe() call
+    assert 3 in lines  # the s.describe() call
 
 
 def test_references_exclude_declaration_for_class():
     src = "class Widget { public int w; public Widget() { self.w = 0; } }\nint main() { Widget x = Widget(); return x.w; }\n"
-    with_decl = get_references(analyze(src), pos_of(src, "class Widget", offset=6),
-                               include_declaration=True)
-    without = get_references(analyze(src), pos_of(src, "class Widget", offset=6),
-                             include_declaration=False)
+    with_decl = get_references(analyze(src), pos_of(src, "class Widget", offset=6), include_declaration=True)
+    without = get_references(analyze(src), pos_of(src, "class Widget", offset=6), include_declaration=False)
     assert len(without) == len(with_decl) - 1
 
 
@@ -80,11 +80,13 @@ def test_completion_static_methods_after_stdlib_class():
 
 
 def test_completion_self_members():
-    src = ("class Counter {\n"
-           "    public int n;\n"
-           "    public Counter() { self.n = 0; }\n"
-           "    public int bump() { return self.n; }\n"
-           "}\n")
+    src = (
+        "class Counter {\n"
+        "    public int n;\n"
+        "    public Counter() { self.n = 0; }\n"
+        "    public int bump() { return self.n; }\n"
+        "}\n"
+    )
     # cursor right after `self.` inside bump()
     names = {i.label for i in get_completions(analyze(src), pos_of(src, "self.n", occurrence=2, offset=5))}
     assert {"n", "bump"} <= names

@@ -1,0 +1,93 @@
+#include <assert.h>
+
+int resurrectionChildrenAlive = 0;
+int retainHookCalls = 0;
+int edgeHookCalls = 0;
+
+class ResurrectionChild {
+    public ResurrectionChild() {
+        resurrectionChildrenAlive++;
+    }
+
+    public void __del__() {
+        resurrectionChildrenAlive--;
+    }
+}
+
+class RetainResurrector {
+    public ResurrectionChild child;
+
+    public RetainResurrector() {
+        self.child = new ResurrectionChild();
+    }
+
+    public void __del__() {
+        retainHookCalls++;
+        retainDestroying(self);
+    }
+}
+
+class EdgeResurrector {
+    public ResurrectionChild child;
+
+    public EdgeResurrector() {
+        self.child = new ResurrectionChild();
+    }
+
+    public void __del__() {
+        edgeHookCalls++;
+        resurrectionSinks[0].stored = self;
+    }
+}
+
+class ResurrectionSink {
+    public EdgeResurrector stored;
+
+    public ResurrectionSink() {
+        self.stored = null;
+    }
+}
+
+ResurrectionSink resurrectionSinks[1];
+
+void retainDestroying(keep RetainResurrector value) {
+    assert(value != null);
+}
+
+void rejectRootRetain() {
+    bool caught = false;
+    try {
+        RetainResurrector value = new RetainResurrector();
+        delete value;
+        assert(false);
+    } catch (string error) {
+        caught = error.equals("cannot retain destroying managed object");
+    }
+    assert(caught && retainHookCalls == 1);
+    assert(resurrectionChildrenAlive == 0);
+}
+
+void rejectNewPersistentEdge() {
+    ResurrectionSink sink = new ResurrectionSink();
+    resurrectionSinks[0] = sink;
+    bool caught = false;
+    try {
+        EdgeResurrector value = new EdgeResurrector();
+        delete value;
+        assert(false);
+    } catch (string error) {
+        caught = error.equals("cannot retain destroying managed object");
+    }
+    assert(caught && edgeHookCalls == 1);
+    assert(resurrectionSinks[0].stored == null);
+    assert(resurrectionChildrenAlive == 0);
+    resurrectionSinks[0] = null;
+    delete sink;
+}
+
+int main() {
+    rejectRootRetain();
+    rejectNewPersistentEdge();
+    assert(resurrectionSinks[0] == null);
+    return 0;
+}

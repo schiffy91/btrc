@@ -11,8 +11,16 @@ class Array<T> implements Iterable {
     public int len;
 
     public Array(int size) {
+        if (size < 0) {
+            fprintf(stderr, "Array size must be non-negative\n");
+            exit(1);
+        }
+        if ((size_t)size > (size_t)(-1) / sizeof(T)) {
+            fprintf(stderr, "Array allocation size overflow\n");
+            exit(1);
+        }
         self.len = size;
-        self.data = (T*)__btrc_safe_calloc(size, sizeof(T));
+        self.data = (T*)__btrc_safe_calloc((size_t)size, sizeof(T));
     }
 
     public T get(int i) {
@@ -79,6 +87,10 @@ class Array<T> implements Iterable {
         free(self.data);
         self.data = null;
         self.len = 0;
+    }
+
+    public void __del__() {
+        self.free();
     }
 
     /* Iterable<T> protocol */

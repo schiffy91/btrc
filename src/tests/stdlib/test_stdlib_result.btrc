@@ -26,6 +26,22 @@ int main() {
     assert(serr.isErr());
     assert(serr.unwrapErr() == 404);
 
+    bool wrongValueRaised = false;
+    try {
+        err.unwrap();
+    } catch (string message) {
+        wrongValueRaised = message.contains("unwrap()");
+    }
+    assert(wrongValueRaised);
+
+    bool wrongErrorRaised = false;
+    try {
+        ok.unwrapErr();
+    } catch (string message) {
+        wrongErrorRaised = message.contains("unwrapErr()");
+    }
+    assert(wrongErrorRaised);
+
     delete ok;
     delete err;
     delete sok;

@@ -1,0 +1,14 @@
+/* Canonical type query for the payload edge of one direct Mutex<T> node. */
+
+Node? mutexPayloadType(Analyzed analyzed, Node? typeExpr) {
+    if (typeExpr == null) { return null; }
+    Node? resolved = resolveTypedefType(
+        typeExpr, analyzed.typedefTable);
+    if (resolved == null || resolved.is_array
+            || resolved.pointer_depth != 0
+            || resolved.base != "Mutex"
+            || resolved.generic_args.len != 1) {
+        return null;
+    }
+    return resolved.generic_args.get(0);
+}

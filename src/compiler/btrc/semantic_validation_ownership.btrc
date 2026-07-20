@@ -1,0 +1,199 @@
+/* Source ownership operations and the ARC/raw-allocation boundary. */
+
+bool semanticManagedOwnershipType(
+        Node? typeExpr, SemanticValidationState state) {
+    if (typeExpr == null) { return false; }
+    return !typeExpr.is_array && typeExpr.pointer_depth <= 1
+        && (isStringType(typeExpr)
+            || (typeExpr.base == "Mutex"
+                && typeExpr.generic_args.len == 1
+                && typeExpr.pointer_depth == 0)
+            || state.analyzed.isClass(typeExpr.base)
+            || state.analyzed.isGenericClass(typeExpr.base));
+}
+
+bool semanticRawDeleteType(
+        Node? typeExpr, SemanticValidationState state) {
+    if (typeExpr == null || typeExpr.is_array) { return false; }
+    if (state.analyzed.isClass(typeExpr.base)
+            || state.analyzed.isGenericClass(typeExpr.base)) { return true; }
+    if (typeExpr.base == "Mutex" && typeExpr.pointer_depth == 0
+            && typeExpr.generic_args.len == 1) { return true; }
+    return typeExpr.pointer_depth > 0
+        && typeExpr.base != "__fn_ptr";
+}
+
+bool semanticThreadJoinReceiverConsumable(Node receiver) {
+    if (receiver.kind == NK_IDENTIFIER || receiver.kind == NK_SPAWN_EXPR
+            || receiver.kind == NK_CALL_EXPR) {
+        return true;
+    }
+    if (receiver.kind == NK_TERNARY_EXPR) {
+        return !semanticThreadCopySource(receiver);
+    }
+    return false;
+}
+
+void semanticValidateThreadJoinReceiver(Node call) {
+    Node callee = call.callee;
+    if (callee.optional
+            || !semanticThreadJoinReceiverConsumable(callee.obj)) {
+        semanticValidationFail(
+            "Thread.join() receiver must be a unique local owner or a "
+                + "fresh Thread result",
+            call);
+    }
+}
+
+void semanticRejectThreadHandleCopy(Node? target, Node? source,
+        Node? value, Node site, SemanticValidationState state) {
+    Node? resolvedTarget = semanticResolveAliases(target, state);
+    Node? resolvedSource = semanticResolveAliases(source, state);
+    if (resolvedTarget == null || resolvedTarget.base != "Thread"
+            || resolvedSource == null || resolvedSource.base != "Thread"
+            || value == null || !semanticThreadCopySource(value)) {
+        return;
+    }
+    semanticValidationFail(
+        "Thread handles cannot be copied; transfer a fresh spawn() or "
+            + "function-call result instead",
+        site);
+}
+
+bool semanticOwnershipUsesIndirectLvalue(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    return semanticIsVirtualUpdateTarget(expression, state, vars);
+}
+
+string semanticOwnershipName(Node statement) {
+    if (statement.kind == NK_DELETE_STMT) { return "delete"; }
+    if (statement.kind == NK_KEEP_STMT) { return "keep"; }
+    return "release";
+}
+
+int semanticCurrentParameterIndex(
+        SemanticValidationState state, string name) {
+    if (state.callable == null) { return -1; }
+    int index = 0;
+    while (index < state.callable.params.len) {
+        if (state.callable.params.get(index).name == name) { return index; }
+        index = index + 1;
+    }
+    return -1;
+}
+
+bool semanticReleaseBalancesKeep(
+        Node statement, SemanticValidationState state) {
+    /* Adjacency proves no intervening statement can exit before releasing the
+     * guard reference supplied by keep. */
+    Node? previous = state.previousStatement;
+    return statement.kind == NK_RELEASE_STMT
+        && previous != null
+        && previous.kind == NK_KEEP_STMT
+        && previous.expr.kind == NK_IDENTIFIER
+        && previous.expr.name == statement.expr.name;
+}
+
+void semanticValidateManagedParameterConsumption(Node statement,
+        Node operand, SemanticValidationState state) {
+    if (statement.kind == NK_KEEP_STMT
+            || statement.expr.kind != NK_IDENTIFIER
+            || !state.borrowedBindings.has(statement.expr.name)
+            || !(semanticManagedOwnershipType(operand, state)
+                || semanticTypeContainsParams(operand, state.typeParams))) {
+        return;
+    }
+    if (semanticReleaseBalancesKeep(statement, state)) { return; }
+    if (!state.parameterNames.has(statement.expr.name)) {
+        semanticValidationFail(
+            "Borrowed managed receiver, capture, or loop bindings cannot be "
+                + "released or deleted; bind an owned local first",
+            statement);
+    }
+    if (state.callable == null) { return; }
+    int index = semanticCurrentParameterIndex(
+        state, statement.expr.name);
+    Node callable = state.callable;
+    bool virtualSetterValue = index >= 0
+        && ((callable.name == "set" && index == 1)
+            || (callable.name.startsWith("set_") && index == 0));
+    if (virtualSetterValue) {
+        semanticValidationFail(
+            "Property/index setter value parameters cannot consume their "
+                + "argument because assignment results must remain valid",
+            statement);
+    }
+    Map<int, bool> transferred = ownershipOwnedTransferParams(
+        callable);
+    if (index < 0 || !transferred.has(index)) {
+        semanticValidationFail(
+            "Managed parameter consumption must be an unconditional leading "
+                + "release/delete so callers can prove ownership transfer",
+            statement);
+    }
+}
+
+void semanticValidateOwnership(Node statement,
+        SemanticValidationState state, Map<string, Node> vars) {
+    semanticValidateExpr(statement.expr, state, vars);
+    string operation = semanticOwnershipName(statement);
+    if (statement.kind != NK_KEEP_STMT
+            && statement.expr.kind == NK_SELF_EXPR) {
+        semanticValidationFail(
+            "Managed method receiver 'self' is borrowed and cannot be consumed",
+            statement);
+    }
+    if (!semanticIsLvalue(statement.expr, state, vars)) {
+        semanticValidationFail(operation
+            + " requires an assignable value", statement);
+    }
+    Node? operand = semanticInferType(statement.expr, state, vars);
+    if (operand == null) {
+        semanticValidationFail("Cannot determine operand type for "
+            + operation, statement);
+    }
+    if (semanticOwnershipUsesIndirectLvalue(
+            statement.expr, state, vars)) {
+        semanticValidationFail(operation
+            + " cannot target a property or protocol index; "
+            + "store it in a direct lvalue first", statement);
+    }
+    if (!semanticIsLifetimeStableStorage(
+            statement.expr, state, vars)) {
+        semanticValidationFail(operation
+            + " requires storage rooted in a stable owner; "
+            + "bind temporary owners to a local first", statement);
+    }
+    if (semanticTypeContainsParams(operand, state.typeParams)) {
+        /* keep/release are intentionally parametric: monomorphization turns
+         * them into ARC operations for managed T and no-ops otherwise.  A
+         * generic class instance such as ListNode<T> also has a concrete
+         * allocation family: monomorphization selects its destroy function.
+         * Only a bare type parameter leaves delete's allocation kind unknown. */
+        if (statement.kind == NK_DELETE_STMT) {
+            if (!semanticManagedOwnershipType(operand, state)) {
+                semanticValidationFail(
+                    "delete requires a concrete allocation type", statement);
+            }
+        } else {
+            semanticValidateManagedParameterConsumption(
+                statement, operand, state);
+            return;
+        }
+    }
+    bool valid = semanticManagedOwnershipType(operand, state);
+    if (statement.kind == NK_DELETE_STMT) {
+        valid = semanticRawDeleteType(operand, state);
+    }
+    if (!valid) {
+        semanticValidationFail(operation + " is not valid for type '"
+            + semanticFormatType(operand) + "'", statement);
+    }
+    semanticValidateManagedParameterConsumption(
+        statement, operand, state);
+    if (statement.kind != NK_KEEP_STMT) {
+        semanticValidateTargetReceiverMutability(
+            statement.expr, state, vars, statement);
+        semanticValidateMutableTarget(operand, state, statement);
+    }
+}

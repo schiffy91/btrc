@@ -15,7 +15,10 @@ int main() {
     assert(!CliCommandLine.isOptionValue("--x"));
     assert(!CliCommandLine.isOptionValue("-abc"));   // '-' then non-digit
     assert(CliCommandLine.isNegativeNumber("-5"));
+    assert(CliCommandLine.isNegativeNumber("-1.25"));
+    assert(CliCommandLine.isNegativeNumber("-1e-3"));
     assert(!CliCommandLine.isNegativeNumber("-x"));
+    assert(!CliCommandLine.isNegativeNumber("-1x"));
     assert(!CliCommandLine.isNegativeNumber("-"));    // too short
 
     // --n -5 -- --x : -5 is consumed as the value of --n, then -- ends options,
@@ -57,6 +60,17 @@ int main() {
     assert(r2.contains("  longsig"));
     // The render is just the one signature line (no extra continuation).
     assert(r2.equals("  longsig"));
+
+    var malformed = CliArgs(0, null);
+    malformed.values.push("--=value");
+    var malformedLine = CliCommandLine.parseFrom(malformed, -10);
+    assert(!malformedLine.ok());
+    assert(malformedLine.errors.get(0).contains("invalid option"));
+
+    var narrow = CliHelp().withWidth(-1);
+    assert(narrow.width == 1);
+    var bounded = CliHelp().withWidth(2147483647);
+    assert(bounded.width == 4096);
 
     print("PASS: test_stdlib_cli_edges");
     return 0;

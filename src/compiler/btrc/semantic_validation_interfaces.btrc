@@ -1,0 +1,282 @@
+/* Interface, abstract-method, and inheritance declaration contracts. */
+
+bool semanticInterfaceExtends(SemanticValidationState state,
+        string child, string parent) {
+    string current = child;
+    Map<string, bool> seen = {};
+    while (current != "" && !seen.has(current)) {
+        if (current == parent) { return true; }
+        seen.put(current, true);
+        if (!state.interfaces.has(current)) { return false; }
+        Node declaration = state.interfaces.get(current);
+        if (declaration.parent == null) { return false; }
+        current = declaration.parent;
+    }
+    return false;
+}
+
+bool semanticClassImplements(SemanticValidationState state,
+        string className, string interfaceName) {
+    string current = className;
+    Map<string, bool> seen = {};
+    while (current != "" && !seen.has(current)) {
+        seen.put(current, true);
+        Node? declaration = null;
+        if (state.analyzed.classTable.has(current)) {
+            declaration = state.analyzed.classTable.get(current);
+        } else if (state.analyzed.genericClassTable.has(current)) {
+            declaration = state.analyzed.genericClassTable.get(current);
+        }
+        if (declaration == null) { return false; }
+        int index = 0;
+        while (index < declaration.interfaces.len) {
+            string implemented = declaration.interfaces.get(index);
+            if (implemented == interfaceName
+                    || semanticInterfaceExtends(
+                        state, implemented, interfaceName)) {
+                return true;
+            }
+            index = index + 1;
+        }
+        current = parentName(declaration);
+    }
+    return false;
+}
+
+Node? semanticInterfaceMethod(SemanticValidationState state,
+        string interfaceName, string methodName) {
+    string current = interfaceName;
+    Map<string, bool> seen = {};
+    while (current != "" && !seen.has(current)) {
+        seen.put(current, true);
+        if (!state.interfaces.has(current)) { return null; }
+        Node declaration = state.interfaces.get(current);
+        int index = 0;
+        while (index < declaration.methods.len) {
+            Node method = declaration.methods.get(index);
+            if (method.name == methodName) { return method; }
+            index = index + 1;
+        }
+        if (declaration.parent == null) { return null; }
+        current = declaration.parent;
+    }
+    return null;
+}
+
+bool semanticMethodSignatureMatches(Node requirement, Node implementation,
+        Map<string, Node> substitutions, SemanticValidationState state) {
+    Node? expectedReturn = requirement.return_type;
+    if (expectedReturn != null && substitutions.len > 0) {
+        expectedReturn = resolveGenericType(expectedReturn, substitutions,
+            state.analyzed);
+    }
+    if (implementation.kind != NK_METHOD_DECL
+            || implementation.is_abstract
+            || expectedReturn == null
+            || implementation.return_type == null
+            || !semanticAliasTypesSame(
+                expectedReturn, implementation.return_type, state)
+            || requirement.params.len != implementation.params.len
+            || requirement.keep_return != implementation.keep_return) {
+        return false;
+    }
+    int index = 0;
+    while (index < requirement.params.len) {
+        Node expected = requirement.params.get(index);
+        Node actual = implementation.params.get(index);
+        Node expectedType = expected.type;
+        if (substitutions.len > 0) {
+            expectedType = resolveGenericType(expectedType, substitutions,
+                state.analyzed);
+        }
+        if (!semanticAliasTypesSame(expectedType, actual.type, state)
+                || expected.keep_ != actual.keep_) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+void semanticValidateInterfaceRequirements(
+        Node classDeclaration, string interfaceName,
+        SemanticValidationState state, Map<string, bool> visited) {
+    if (visited.has(interfaceName)) { return; }
+    if (!state.interfaces.has(interfaceName)) {
+        semanticValidationFail("Class '" + classDeclaration.name
+            + "' implements unknown interface '" + interfaceName + "'",
+            classDeclaration);
+    }
+    visited.put(interfaceName, true);
+    Node interfaceDeclaration = state.interfaces.get(interfaceName);
+    Map<string, Node> substitutions = {};
+    int typeIndex = 0;
+    while (typeIndex < interfaceDeclaration.generic_params.len
+            && typeIndex < classDeclaration.generic_params.len) {
+        substitutions.put(
+            interfaceDeclaration.generic_params.get(typeIndex),
+            makePrimType(classDeclaration.generic_params.get(typeIndex)));
+        typeIndex = typeIndex + 1;
+    }
+    if (interfaceDeclaration.parent != null) {
+        semanticValidateInterfaceRequirements(classDeclaration,
+            interfaceDeclaration.parent, state, visited);
+    }
+    int index = 0;
+    while (index < interfaceDeclaration.methods.len) {
+        Node requirement = interfaceDeclaration.methods.get(index);
+        Node? implementation = null;
+        if (state.analyzed.isGenericClass(classDeclaration.name)) {
+            implementation = state.analyzed.genericClassMethod(
+                classDeclaration.name, requirement.name);
+        } else {
+            implementation = state.analyzed.classMethod(
+                classDeclaration.name, requirement.name);
+        }
+        if (implementation == null) {
+            semanticValidationFail("Class '" + classDeclaration.name
+                + "' does not implement interface method '"
+                + interfaceName + "." + requirement.name + "'",
+                classDeclaration);
+        }
+        Node concreteImplementation = implementation;
+        if (!semanticMethodSignatureMatches(
+                requirement, concreteImplementation, substitutions, state)) {
+            semanticValidationFail("Method '" + classDeclaration.name + "."
+                + requirement.name + "' does not match interface signature '"
+                + interfaceName + "." + requirement.name + "'",
+                concreteImplementation);
+        }
+        if (concreteImplementation.access != "public") {
+            semanticValidationFail("Interface method implementation '"
+                + classDeclaration.name + "." + requirement.name
+                + "' must be public", concreteImplementation);
+        }
+        index = index + 1;
+    }
+}
+
+void semanticValidateConcreteAbstractMethods(
+        Node declaration, SemanticValidationState state) {
+    if (declaration.is_abstract) { return; }
+    Vector<MethodEntry> methods = state.analyzed.mergedMethods(declaration.name);
+    int index = 0;
+    while (index < methods.len) {
+        MethodEntry entry = methods.get(index);
+        if (entry.sig.is_abstract) {
+            semanticValidationFail("Concrete class '" + declaration.name
+                + "' does not implement abstract method '" + entry.name + "'",
+                declaration);
+        }
+        index = index + 1;
+    }
+}
+
+void semanticValidateClassInheritanceCycle(
+        Node declaration, SemanticValidationState state) {
+    string current = declaration.name;
+    Map<string, bool> ancestors = {};
+    while (current != "") {
+        if (ancestors.has(current)) {
+            semanticValidationFail("Class inheritance cycle involving '"
+                + declaration.name + "'", declaration);
+        }
+        ancestors.put(current, true);
+        if (state.analyzed.classTable.has(current)) {
+            current = parentName(state.analyzed.classTable.get(current));
+        } else if (state.analyzed.genericClassTable.has(current)) {
+            current = parentName(
+                state.analyzed.genericClassTable.get(current));
+        } else {
+            current = "";
+        }
+    }
+}
+
+void semanticValidateClassInheritance(
+        Node declaration, SemanticValidationState state) {
+    string parent = parentName(declaration);
+    if (parent != "" && !state.analyzed.isClass(parent)
+            && !state.analyzed.isGenericClass(parent)) {
+        semanticValidationFail("Class '" + declaration.name
+            + "' extends unknown class '" + parent + "'", declaration);
+    }
+    if (parent != "" && (declaration.generic_params.len > 0
+            || state.analyzed.isGenericClass(parent))) {
+        semanticValidationFail("Generic class inheritance is not supported: "
+            + "class '" + declaration.name + "' extends '" + parent + "'",
+            declaration);
+    }
+    semanticValidateClassInheritanceCycle(declaration, state);
+}
+
+void semanticValidateClassContracts(
+        Node declaration, SemanticValidationState state) {
+    semanticValidateClassInheritance(declaration, state);
+    semanticValidateConcreteAbstractMethods(declaration, state);
+    Map<string, bool> visited = {};
+    int index = 0;
+    while (index < declaration.interfaces.len) {
+        semanticValidateInterfaceRequirements(declaration,
+            declaration.interfaces.get(index), state, visited);
+        index = index + 1;
+    }
+}
+
+void semanticValidateInterfaceDeclarations(
+        Node program, SemanticValidationState state) {
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_INTERFACE_DECL) {
+            if (state.interfaces.has(declaration.name)) {
+                semanticValidationFail("Duplicate interface declaration '"
+                    + declaration.name + "'", declaration);
+            }
+            state.interfaces.put(declaration.name, declaration);
+        }
+        index = index + 1;
+    }
+    Vector<string> names = state.interfaces.keys();
+    int interfaceIndex = 0;
+    while (interfaceIndex < names.len) {
+        Node declaration = state.interfaces.get(names.get(interfaceIndex));
+        if (declaration.parent != null
+                && !state.interfaces.has(declaration.parent)) {
+            semanticValidationFail("Interface '" + declaration.name
+                + "' extends unknown interface '" + declaration.parent + "'",
+                declaration);
+        }
+        if (declaration.parent != null
+                && semanticInterfaceExtends(
+                    state, declaration.parent, declaration.name)) {
+            semanticValidationFail("Interface inheritance cycle involving '"
+                + declaration.name + "'", declaration);
+        }
+        Map<string, bool> methodNames = {};
+        int methodIndex = 0;
+        while (methodIndex < declaration.methods.len) {
+            Node method = declaration.methods.get(methodIndex);
+            if (methodNames.has(method.name)) {
+                semanticValidationFail("Duplicate interface method '"
+                    + declaration.name + "." + method.name + "'", method);
+            }
+            methodNames.put(method.name, true);
+            if (declaration.parent != null) {
+                Node? inherited = semanticInterfaceMethod(
+                    state, declaration.parent, method.name);
+                if (inherited != null) {
+                    Node inheritedMethod = inherited;
+                    if (!semanticCallableSignatureSame(
+                            method, inheritedMethod, state)) {
+                        semanticValidationFail("Interface method '"
+                            + declaration.name + "." + method.name
+                            + "' conflicts with inherited signature", method);
+                    }
+                }
+            }
+            methodIndex = methodIndex + 1;
+        }
+        interfaceIndex = interfaceIndex + 1;
+    }
+}

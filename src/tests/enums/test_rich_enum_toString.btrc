@@ -7,7 +7,7 @@ enum class Direction {
 }
 int main() {
     Direction d = Direction.North();
-    string name = Direction_toString(d);
+    string name = d.toString();
     print(name);
     printf("PASS: test_rich_enum_toString\n");
     return 0;

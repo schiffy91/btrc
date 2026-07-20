@@ -18,11 +18,15 @@ class Parser {
     public Vector<Token> tokens;
     public int pos;
     public GrammarInfo grammar;
+    public bool failed;
+    public string diagnostic;
 
     public Parser(Vector<Token> tokens, GrammarInfo grammar) {
         self.tokens = tokens;
         self.pos = 0;
         self.grammar = grammar;
+        self.failed = false;
+        self.diagnostic = "";
     }
 
     /* ---- Token helpers ---- */
@@ -53,14 +57,39 @@ class Parser {
     }
 
     public Token advance() {
-        Token t = self.tokens.get(self.pos);
-        self.pos = self.pos + 1;
+        Token t = self.peek();
+        if (self.pos < self.tokens.len - 1) {
+            self.pos = self.pos + 1;
+        }
         return t;
     }
 
     public Token expect(string ty) {
-        // Lenient: assumes well-formed input (verified on valid programs).
-        return self.advance();
+        Token tok = self.peek();
+        if (tok.type == ty) {
+            return self.advance();
+        }
+        self.failExpected(ty, tok);
+        return tok;
+    }
+
+    /* Record only the first parser failure, then move to EOF so every nested
+     * parse loop unwinds without manufacturing more AST from bad input. The
+     * driver owns presentation and exit status; token helpers never terminate
+     * the process. */
+    public void failExpected(string expected, Token actual) {
+        if (self.failed) { return; }
+        self.failed = true;
+        string message = f"Expected {expected}, got {actual.type} {pyRepr(actual.value)} at {actual.line}:{actual.col}";
+        self.diagnostic = message;
+        self.pos = self.tokens.len - 1;
+    }
+
+    public void failAt(string message, Token actual) {
+        if (self.failed) { return; }
+        self.failed = true;
+        self.diagnostic = message + f" at {actual.line}:{actual.col}";
+        self.pos = self.tokens.len - 1;
     }
 
     public bool matchTok(string ty) {
@@ -83,13 +112,20 @@ class Parser {
             self.tokens.insert(self.pos, synth);
             return Token("GT", ">", tok.line, tok.col);
         }
+        if (tok.type == "GT_EQ") {
+            self.advance();
+            Token synthEq = Token("EQ", "=", tok.line, tok.col + 1);
+            self.tokens.insert(self.pos, synthEq);
+            return Token("GT", ">", tok.line, tok.col);
+        }
         if (tok.type == "GT_GT_EQ") {
             self.advance();
             Token synth2 = Token("GT_EQ", ">=", tok.line, tok.col + 1);
             self.tokens.insert(self.pos, synth2);
             return Token("GT", ">", tok.line, tok.col);
         }
-        return self.advance();
+        self.failExpected("'>'", tok);
+        return tok;
     }
 
     public bool isTypeKeyword(string t) {
@@ -105,9 +141,11 @@ class Parser {
     public Node parseProgram() {
         Node prog = Node();
         prog.kind = NK_PROGRAM;
-        while (!self.atEnd()) {
+        while (!self.atEnd() && !self.failed) {
             Node d = self.parseTopLevelItem();
-            prog.declarations.push(d);
+            if (!self.failed) {
+                prog.declarations.push(d);
+            }
         }
         return prog;
     }
@@ -342,10 +380,12 @@ class Parser {
 
         // Constructor: next is '(' -> the "type" is the name.
         if (self.check("LPAREN")) {
-            return self.parseMethodRest(access, type_expr, type_expr.base, is_gpu,
-                                        tok.line, tok.col,
-                                        type_expr.line, type_expr.col,
-                                        is_abstract_method, keep_return);
+            Node constructor = self.parseMethodRest(
+                access, type_expr, type_expr.base, is_gpu,
+                tok.line, tok.col, type_expr.line, type_expr.col,
+                is_abstract_method, keep_return);
+            constructor.is_constructor = true;
+            return constructor;
         }
 
         Token nameTok = self.expect("IDENT");
@@ -440,6 +480,10 @@ class Parser {
         while (!self.check("RBRACE") && !self.atEnd()) {
             Token tok = self.peek();
             if (tok.type == "IDENT" && tok.value == "get") {
+                if (n.has_getter) {
+                    self.failAt("Duplicate property getter", tok);
+                    return n;
+                }
                 self.advance();
                 n.has_getter = true;
                 if (self.matchTok("SEMICOLON")) {
@@ -449,6 +493,10 @@ class Parser {
                     n.getter_body = gb;
                 }
             } else if (tok.type == "IDENT" && tok.value == "set") {
+                if (n.has_setter) {
+                    self.failAt("Duplicate property setter", tok);
+                    return n;
+                }
                 self.advance();
                 n.has_setter = true;
                 if (self.matchTok("SEMICOLON")) {
@@ -483,6 +531,7 @@ class Parser {
             n.name_col = nameTok.col;
         }
         if (self.matchTok("LBRACE")) {
+            n.is_forward = false;
             while (!self.check("RBRACE") && !self.atEnd()) {
                 Node fdef = self.parseStructField();
                 n.fields.push(fdef);
@@ -490,6 +539,7 @@ class Parser {
             self.expect("RBRACE");
             self.expect("SEMICOLON");
         } else {
+            n.is_forward = true;
             self.expect("SEMICOLON");
         }
         return n;
@@ -498,18 +548,7 @@ class Parser {
     public Node parseStructField() {
         Node ftype = self.parseType();
         Token fnameTok = self.expect("IDENT");
-        if (self.check("LBRACKET")) {
-            self.advance();
-            if (self.check("RBRACKET")) {
-                self.advance();
-                ftype.is_array = true;
-            } else {
-                Node size_expr = self.parseExpression();
-                self.expect("RBRACKET");
-                ftype.is_array = true;
-                ftype.array_size = size_expr;
-            }
-        }
+        self.parseDeclaratorArraySuffix(ftype);
         Node fd = Node();
         fd.kind = NK_FIELD_DEF;
         fd.type = ftype;
@@ -710,6 +749,7 @@ class Parser {
         Node type_expr = self.parseType();
         Token nameTok = self.expect("IDENT");
         string name = nameTok.value;
+        self.parseDeclaratorArraySuffix(type_expr);
 
         if (self.check("LPAREN")) {
             self.expect("LPAREN");
@@ -761,6 +801,136 @@ class Parser {
         return false;
     }
 
+    public string tokenTypeAt(int p) {
+        if (p < 0 || p >= self.tokens.len) { return "EOF"; }
+        return self.tokens.get(p).type;
+    }
+
+    public bool isTypeQualifier(string tt) {
+        return tt == "CONST" || tt == "STATIC"
+            || tt == "EXTERN" || tt == "VOLATILE";
+    }
+
+    public bool isSimpleTypeBase(string tt) {
+        return tt == "VOID" || tt == "INT" || tt == "FLOAT"
+            || tt == "DOUBLE" || tt == "CHAR" || tt == "BOOL"
+            || tt == "STRING" || tt == "IDENT";
+    }
+
+    public bool isGenericFollow(string tt) {
+        return tt == "IDENT" || tt == "STAR" || tt == "LPAREN"
+            || tt == "RPAREN" || tt == "LBRACKET" || tt == "RBRACKET"
+            || tt == "COMMA" || tt == "GT" || tt == "GT_GT"
+            || tt == "SEMICOLON" || tt == "LBRACE" || tt == "EQ"
+            || tt == "QUESTION" || tt == "FUNCTION" || tt == "EOF";
+    }
+
+    /* Return the position after a balanced <...> group, or -1. */
+    public int scanAngleGroup(int p) {
+        if (self.tokenTypeAt(p) != "LT") { return -1; }
+        int depth = 1;
+        p = p + 1;
+        while (p < self.tokens.len) {
+            string tt = self.tokenTypeAt(p);
+            if (tt == "LT") { depth = depth + 1; }
+            else if (tt == "GT") { depth = depth - 1; }
+            else if (tt == "GT_GT") { depth = depth - 2; }
+            else if (tt == "SEMICOLON" || tt == "LBRACE"
+                     || tt == "RBRACE" || tt == "EOF") {
+                return -1;
+            }
+            p = p + 1;
+            if (depth <= 0) { return p; }
+        }
+        return -1;
+    }
+
+    public bool isGenericStartAt(int p) {
+        int end = self.scanAngleGroup(p);
+        return end >= 0 && self.isGenericFollow(self.tokenTypeAt(end));
+    }
+
+    /* Return the position after a C-compatible integer base, or -1. */
+    public int scanIntegerBase(int p) {
+        string tt = self.tokenTypeAt(p);
+        if (tt == "UNSIGNED" || tt == "SIGNED") {
+            p = p + 1;
+            tt = self.tokenTypeAt(p);
+            if (tt == "INT" || tt == "CHAR") { return p + 1; }
+            if (tt == "SHORT") {
+                p = p + 1;
+                if (self.tokenTypeAt(p) == "INT") { return p + 1; }
+                return p;
+            }
+            if (tt == "LONG") {
+                p = p + 1;
+                if (self.tokenTypeAt(p) == "LONG") { p = p + 1; }
+                if (self.tokenTypeAt(p) == "INT") { return p + 1; }
+                return p;
+            }
+            return p;
+        }
+        if (tt == "SHORT") {
+            p = p + 1;
+            if (self.tokenTypeAt(p) == "INT") { return p + 1; }
+            return p;
+        }
+        if (tt == "LONG") {
+            p = p + 1;
+            if (self.tokenTypeAt(p) == "DOUBLE") { return p + 1; }
+            if (self.tokenTypeAt(p) == "LONG") { p = p + 1; }
+            if (self.tokenTypeAt(p) == "INT") { return p + 1; }
+            return p;
+        }
+        return -1;
+    }
+
+    public int scanTupleType(int p) {
+        if (self.tokenTypeAt(p) != "LPAREN") { return -1; }
+        p = self.scanTypeEnd(p + 1);
+        if (p < 0 || self.tokenTypeAt(p) != "COMMA") { return -1; }
+        while (self.tokenTypeAt(p) == "COMMA") {
+            p = self.scanTypeEnd(p + 1);
+            if (p < 0) { return -1; }
+        }
+        if (self.tokenTypeAt(p) != "RPAREN") { return -1; }
+        return p + 1;
+    }
+
+    /* Non-mutating recognizer shared by declarations, casts, and lambdas. */
+    public int scanTypeEnd(int p) {
+        while (self.isTypeQualifier(self.tokenTypeAt(p))) { p = p + 1; }
+
+        int base_end = self.scanIntegerBase(p);
+        if (base_end >= 0) {
+            p = base_end;
+        } else if (self.tokenTypeAt(p) == "STRUCT"
+                   || self.tokenTypeAt(p) == "ENUM"
+                   || self.tokenTypeAt(p) == "UNION") {
+            if (self.tokenTypeAt(p + 1) != "IDENT") { return -1; }
+            p = p + 2;
+        } else if (self.isSimpleTypeBase(self.tokenTypeAt(p))) {
+            p = p + 1;
+        } else if (self.tokenTypeAt(p) == "LPAREN") {
+            int tuple_end = self.scanTupleType(p);
+            if (tuple_end < 0) { return -1; }
+            p = tuple_end;
+        } else {
+            return -1;
+        }
+
+        if (self.tokenTypeAt(p) == "LT" && self.isGenericStartAt(p)) {
+            p = self.scanAngleGroup(p);
+        }
+        if (self.tokenTypeAt(p) == "LBRACKET"
+            && self.tokenTypeAt(p + 1) == "RBRACKET") {
+            p = p + 2;
+        }
+        while (self.tokenTypeAt(p) == "STAR") { p = p + 1; }
+        if (self.tokenTypeAt(p) == "QUESTION") { p = p + 1; }
+        return p;
+    }
+
     public Node parseType() {
         Token tok = self.peek();
         int line = tok.line;
@@ -780,14 +950,23 @@ class Parser {
         }
 
         string base = "";
-        bool tupleReturned = false;
-        Node tupleNode = null;
+        Vector<Node> generic_args = [];
 
         if (self.check("UNSIGNED") || self.check("SIGNED")) {
             base = self.advance().value;
-            if (self.check("INT") || self.check("SHORT") || self.check("LONG") || self.check("CHAR")) {
+            if (self.check("INT") || self.check("CHAR")) {
                 base = base + " " + self.advance().value;
-                if (self.endsWith(base, "long") && self.check("LONG")) {
+            } else if (self.check("SHORT")) {
+                base = base + " " + self.advance().value;
+                if (self.check("INT")) {
+                    base = base + " " + self.advance().value;
+                }
+            } else if (self.check("LONG")) {
+                base = base + " " + self.advance().value;
+                if (self.check("LONG")) {
+                    base = base + " " + self.advance().value;
+                }
+                if (self.check("INT")) {
                     base = base + " " + self.advance().value;
                 }
             }
@@ -795,8 +974,10 @@ class Parser {
             base = self.advance().value;
             if (self.check("LONG")) {
                 base = base + " " + self.advance().value;
-            }
-            if (self.check("INT") || self.check("DOUBLE")) {
+                if (self.check("INT")) {
+                    base = base + " " + self.advance().value;
+                }
+            } else if (self.check("INT") || self.check("DOUBLE")) {
                 base = base + " " + self.advance().value;
             }
         } else if (self.check("SHORT")) {
@@ -817,7 +998,18 @@ class Parser {
             Token idt3 = self.expect("IDENT");
             base = "union " + idt3.value;
         } else if (self.check("LPAREN")) {
-            return self.parseTupleType(line, col);
+            self.expect("LPAREN");
+            base = "Tuple";
+            Node t0 = self.parseType();
+            generic_args.push(t0);
+            self.expect("COMMA");
+            Node t1 = self.parseType();
+            generic_args.push(t1);
+            while (self.matchTok("COMMA")) {
+                Node tN = self.parseType();
+                generic_args.push(tN);
+            }
+            self.expect("RPAREN");
         } else {
             Token baseTok = self.advance();
             base = baseTok.value;
@@ -832,6 +1024,7 @@ class Parser {
         ty.is_static = has_static;
         ty.is_extern = has_extern;
         ty.is_volatile = has_volatile;
+        ty.generic_args = generic_args;
 
         // Generic arguments
         if (self.check("LT") && self.isGenericStart()) {
@@ -867,83 +1060,36 @@ class Parser {
         return ty;
     }
 
-    public bool endsWith(string s, string suf) {
-        int sn = s.length();
-        int fn = suf.length();
-        if (fn > sn) { return false; }
-        string tail = s.substring(sn - fn, fn);
-        return tail == suf;
-    }
-
     public bool isTupleTypeStart() {
-        int save = self.pos;
-        self.pos = self.pos + 1;
-        Token tok = self.peek();
-        if (!self.isTypeKeyword(tok.type) && tok.type != "IDENT") {
-            self.pos = save;
-            return false;
-        }
-        int depth = 1;
-        self.pos = self.pos + 1;
-        bool found_comma = false;
-        while (self.pos < self.tokens.len && depth > 0) {
-            Token t = self.tokens.get(self.pos);
-            if (t.type == "LPAREN") { depth = depth + 1; }
-            else if (t.type == "RPAREN") { depth = depth - 1; }
-            else if (t.type == "COMMA" && depth == 1) { found_comma = true; break; }
-            self.pos = self.pos + 1;
-        }
-        self.pos = save;
-        return found_comma;
-    }
-
-    public Node parseTupleType(int line, int col) {
-        self.expect("LPAREN");
-        Node ty = Node();
-        ty.kind = NK_TYPE_EXPR;
-        ty.base = "Tuple";
-        ty.line = line;
-        ty.col = col;
-        Node t0 = self.parseType();
-        ty.generic_args.push(t0);
-        while (self.matchTok("COMMA")) {
-            Node tN = self.parseType();
-            ty.generic_args.push(tN);
-        }
-        self.expect("RPAREN");
-        return ty;
+        return self.scanTupleType(self.pos) >= 0;
     }
 
     public bool isGenericStart() {
-        int save = self.pos;
-        int depth = 1;
-        self.pos = self.pos + 1;
-        while (self.pos < self.tokens.len && depth > 0) {
-            Token tok = self.tokens.get(self.pos);
-            if (tok.type == "LT") { depth = depth + 1; }
-            else if (tok.type == "GT") { depth = depth - 1; }
-            else if (tok.type == "GT_GT") {
-                depth = depth - 2;
-                if (depth <= 0) { self.pos = self.pos + 1; break; }
-            }
-            else if (tok.type == "SEMICOLON" || tok.type == "LBRACE"
-                     || tok.type == "RBRACE" || tok.type == "EOF") {
-                self.pos = save;
-                return false;
-            }
-            self.pos = self.pos + 1;
+        return self.isGenericStartAt(self.pos);
+    }
+
+    public void parseDeclaratorArraySuffix(Node type_expr) {
+        if (!self.check("LBRACKET")) { return; }
+        if (type_expr.is_array) {
+            self.failExpected("one array dimension (AST/IR cannot represent another)", self.peek());
+            return;
         }
-        if (depth <= 0) {
-            Token tok2 = self.peek();
-            self.pos = save;
-            string tt = tok2.type;
-            return tt == "IDENT" || tt == "STAR" || tt == "LPAREN"
-                || tt == "RPAREN" || tt == "LBRACKET" || tt == "COMMA"
-                || tt == "GT" || tt == "GT_GT" || tt == "SEMICOLON"
-                || tt == "LBRACE" || tt == "EQ";
+        self.advance();
+        if (self.check("RBRACKET")) {
+            self.advance();
+        } else {
+            Node size_expr = self.parseExpression();
+            self.expect("RBRACKET");
+            type_expr.array_size = size_expr;
         }
-        self.pos = save;
-        return false;
+        type_expr.is_array = true;
+        if (type_expr.is_nullable) {
+            type_expr.nullable_outer_depth =
+                type_expr.nullable_outer_depth + 1;
+        }
+        if (self.check("LBRACKET")) {
+            self.failExpected("one array dimension (AST/IR cannot represent another)", self.peek());
+        }
     }
 
     /* ---- Parameters ---- */
@@ -978,18 +1124,7 @@ class Parser {
         p.col = tok.col;
         p.name_line = nameTok.line;
         p.name_col = nameTok.col;
-        if (self.check("LBRACKET")) {
-            self.advance();
-            if (self.check("RBRACKET")) {
-                self.advance();
-                type_expr.is_array = true;
-            } else {
-                Node size_expr = self.parseExpression();
-                self.expect("RBRACKET");
-                type_expr.is_array = true;
-                type_expr.array_size = size_expr;
-            }
-        }
+        self.parseDeclaratorArraySuffix(type_expr);
         if (self.matchTok("EQ")) {
             Node def = self.parseExpression();
             p.default_ = def;
@@ -1126,125 +1261,18 @@ class Parser {
     /* ---- var-decl detection ---- */
 
     public bool isVarDeclStart() {
-        Token tok = self.peek();
-        if (tok.type == "VAR") { return true; }
-        if (self.isTypeKeyword(tok.type)
-            && tok.type != "CONST" && tok.type != "STATIC"
-            && tok.type != "EXTERN" && tok.type != "VOLATILE") {
-            return self.lookaheadIsVarDecl();
-        }
-        if (tok.type == "CONST" || tok.type == "STATIC"
-            || tok.type == "EXTERN" || tok.type == "VOLATILE") {
-            return true;
-        }
-        if (tok.type == "IDENT") {
-            return self.lookaheadIsVarDecl();
-        }
-        if (tok.type == "LPAREN" && self.isTupleTypeStart()) {
-            return self.lookaheadIsVarDecl();
-        }
-        return false;
+        if (self.check("VAR")) { return true; }
+        return self.lookaheadIsVarDecl();
     }
 
     public bool lookaheadIsVarDecl() {
-        if (self.tokens.get(self.pos).type == "VAR") { return true; }
-        int save = self.pos;
-        // Skip qualifiers
-        while (self.tokens.get(self.pos).type == "CONST"
-               || self.tokens.get(self.pos).type == "STATIC"
-               || self.tokens.get(self.pos).type == "EXTERN"
-               || self.tokens.get(self.pos).type == "VOLATILE") {
-            self.pos = self.pos + 1;
-        }
-        Token tok = self.tokens.get(self.pos);
-
-        if (tok.type == "LPAREN") {
-            int depth = 1;
-            self.pos = self.pos + 1;
-            while (self.pos < self.tokens.len && depth > 0) {
-                Token t = self.tokens.get(self.pos);
-                if (t.type == "LPAREN") { depth = depth + 1; }
-                else if (t.type == "RPAREN") { depth = depth - 1; }
-                self.pos = self.pos + 1;
-            }
-            bool result = self.pos < self.tokens.len && self.tokens.get(self.pos).type == "IDENT";
-            self.pos = save;
-            return result;
-        } else if (tok.type == "UNSIGNED" || tok.type == "SIGNED") {
-            self.pos = self.pos + 1;
-            string nt = self.tokens.get(self.pos).type;
-            if (nt == "INT" || nt == "SHORT" || nt == "LONG" || nt == "CHAR") {
-                self.pos = self.pos + 1;
-            }
-        } else if (tok.type == "LONG" || tok.type == "SHORT") {
-            self.pos = self.pos + 1;
-            string nt2 = self.tokens.get(self.pos).type;
-            if (nt2 == "INT" || nt2 == "LONG" || nt2 == "DOUBLE") {
-                self.pos = self.pos + 1;
-            }
-        } else if (tok.type == "STRUCT" || tok.type == "ENUM" || tok.type == "UNION") {
-            self.pos = self.pos + 1;
-            if (self.tokens.get(self.pos).type == "IDENT") {
-                self.pos = self.pos + 1;
-            }
-        } else if (self.isTypeKeyword(tok.type) || tok.type == "IDENT") {
-            self.pos = self.pos + 1;
-        } else {
-            self.pos = save;
+        int type_end = self.scanTypeEnd(self.pos);
+        if (type_end < 0 || self.tokenTypeAt(type_end) != "IDENT") {
             return false;
         }
-
-        // Skip generic args
-        if (self.tokens.get(self.pos).type == "LT") {
-            int depth2 = 1;
-            self.pos = self.pos + 1;
-            while (self.pos < self.tokens.len && depth2 > 0) {
-                Token t2 = self.tokens.get(self.pos);
-                if (t2.type == "LT") { depth2 = depth2 + 1; }
-                else if (t2.type == "GT") { depth2 = depth2 - 1; }
-                else if (t2.type == "GT_GT") { depth2 = depth2 - 2; }
-                else if (t2.type == "SEMICOLON" || t2.type == "LBRACE" || t2.type == "EOF") {
-                    self.pos = save;
-                    return false;
-                }
-                self.pos = self.pos + 1;
-            }
-            if (depth2 != 0) {
-                self.pos = save;
-                return false;
-            }
-        }
-
-        // Skip []
-        if (self.pos < self.tokens.len
-            && self.tokens.get(self.pos).type == "LBRACKET"
-            && self.pos + 1 < self.tokens.len
-            && self.tokens.get(self.pos + 1).type == "RBRACKET") {
-            self.pos = self.pos + 2;
-        }
-
-        // Skip pointers
-        while (self.pos < self.tokens.len && self.tokens.get(self.pos).type == "STAR") {
-            self.pos = self.pos + 1;
-        }
-
-        // Skip nullable `?` only when a clear type suffix
-        if (self.pos < self.tokens.len && self.tokens.get(self.pos).type == "QUESTION") {
-            int q_next = self.pos + 1;
-            int q_after = self.pos + 2;
-            if (q_next < self.tokens.len
-                && self.tokens.get(q_next).type == "IDENT"
-                && q_after < self.tokens.len
-                && (self.tokens.get(q_after).type == "EQ"
-                    || self.tokens.get(q_after).type == "SEMICOLON"
-                    || self.tokens.get(q_after).type == "LBRACKET")) {
-                self.pos = self.pos + 1;
-            }
-        }
-
-        bool result2 = self.pos < self.tokens.len && self.tokens.get(self.pos).type == "IDENT";
-        self.pos = save;
-        return result2;
+        string after_name = self.tokenTypeAt(type_end + 1);
+        return after_name == "EQ" || after_name == "SEMICOLON"
+            || after_name == "LBRACKET";
     }
 
     public Node parseVarDeclStmt() {
@@ -1278,18 +1306,7 @@ class Parser {
         vd.col = tok.col;
         vd.name_line = nameTok.line;
         vd.name_col = nameTok.col;
-        if (self.check("LBRACKET")) {
-            self.advance();
-            if (self.check("RBRACKET")) {
-                self.advance();
-                type_expr.is_array = true;
-            } else {
-                Node size_expr = self.parseExpression();
-                self.expect("RBRACKET");
-                type_expr.is_array = true;
-                type_expr.array_size = size_expr;
-            }
-        }
+        self.parseDeclaratorArraySuffix(type_expr);
         if (self.matchTok("EQ")) {
             Node init = self.parseExpression();
             vd.initializer = init;
@@ -1789,67 +1806,16 @@ class Parser {
     }
 
     public bool isCast() {
-        int save = self.pos;
-        self.pos = self.pos + 1;
-        Token tok = self.peek();
-
-        if (self.isTypeKeyword(tok.type)) {
-            int depth = 1;
-            self.pos = self.pos + 1;
-            while (self.pos < self.tokens.len && depth > 0) {
-                Token t = self.tokens.get(self.pos);
-                if (t.type == "LPAREN") { depth = depth + 1; }
-                else if (t.type == "RPAREN") { depth = depth - 1; }
-                self.pos = self.pos + 1;
-            }
-            if (self.pos < self.tokens.len) {
-                Token next_tok = self.tokens.get(self.pos);
-                self.pos = save;
-                return self.isCastFollow(next_tok.type);
-            }
-            self.pos = save;
+        int type_start = self.pos + 1;
+        int type_end = self.scanTypeEnd(type_start);
+        if (type_end < 0 || self.tokenTypeAt(type_end) != "RPAREN") {
             return false;
         }
-
-        if (tok.type == "IDENT") {
-            self.pos = self.pos + 1;
-            bool explicit_type_syntax = false;
-            if (self.pos < self.tokens.len && self.tokens.get(self.pos).type == "LT") {
-                explicit_type_syntax = true;
-                int depth2 = 1;
-                self.pos = self.pos + 1;
-                while (self.pos < self.tokens.len && depth2 > 0) {
-                    Token t2 = self.tokens.get(self.pos);
-                    if (t2.type == "LT") { depth2 = depth2 + 1; }
-                    else if (t2.type == "GT") { depth2 = depth2 - 1; }
-                    self.pos = self.pos + 1;
-                }
-            }
-            while (self.pos < self.tokens.len && self.tokens.get(self.pos).type == "STAR") {
-                explicit_type_syntax = true;
-                self.pos = self.pos + 1;
-            }
-            if (self.pos < self.tokens.len && self.tokens.get(self.pos).type == "QUESTION") {
-                explicit_type_syntax = true;
-                self.pos = self.pos + 1;
-            }
-            if (self.pos < self.tokens.len && self.tokens.get(self.pos).type == "RPAREN") {
-                self.pos = self.pos + 1;
-                if (self.pos < self.tokens.len) {
-                    Token next_tok2 = self.tokens.get(self.pos);
-                    self.pos = save;
-                    if (explicit_type_syntax) {
-                        return self.isCastFollow(next_tok2.type);
-                    }
-                    return self.isBareIdentCastFollow(next_tok2.type);
-                }
-            }
-            self.pos = save;
-            return false;
-        }
-
-        self.pos = save;
-        return false;
+        string follow = self.tokenTypeAt(type_end + 1);
+        bool bare_ident = self.tokenTypeAt(type_start) == "IDENT"
+            && type_end == type_start + 1;
+        if (bare_ident) { return self.isBareIdentCastFollow(follow); }
+        return self.isCastFollow(follow);
     }
 
     public Node parseCast() {
@@ -1867,18 +1833,8 @@ class Parser {
     }
 
     public bool isSizeofType() {
-        Token tok = self.peek();
-        if (self.isTypeKeyword(tok.type)) { return true; }
-        if (tok.type == "IDENT") {
-            int next_pos = self.pos + 1;
-            if (next_pos < self.tokens.len) {
-                string nt = self.tokens.get(next_pos).type;
-                if (nt == "RPAREN" || nt == "STAR" || nt == "LT") {
-                    return true;
-                }
-            }
-        }
-        return false;
+        int type_end = self.scanTypeEnd(self.pos);
+        return type_end >= 0 && self.tokenTypeAt(type_end) == "RPAREN";
     }
 
     public Node parseSizeof() {
@@ -2063,9 +2019,13 @@ class Parser {
 
         if (tt == "INT_LIT") {
             self.advance();
+            if (integerLiteralTypeName(tok.value) == "") {
+                self.failAt(
+                    "Invalid integer literal '" + tok.value + "'", tok);
+            }
             Node n = Node();
             n.kind = NK_INT_LITERAL;
-            n.value_int = self.intLiteralValue(tok.value);
+            n.value_int = integerLiteralStoredValue(tok.value);
             n.raw = tok.value;
             n.line = tok.line;
             n.col = tok.col;
@@ -2073,9 +2033,11 @@ class Parser {
         }
         if (tt == "FLOAT_LIT") {
             self.advance();
+            string problem = floatLiteralProblem(tok.value);
+            if (problem != "") { self.failAt(problem, tok); }
             Node n = Node();
             n.kind = NK_FLOAT_LITERAL;
-            n.value_float = self.floatLiteralValue(tok.value);
+            n.value_float = (float)floatLiteralDoubleValue(tok.value);
             n.raw = tok.value;
             n.line = tok.line;
             n.col = tok.col;
@@ -2187,11 +2149,8 @@ class Parser {
             return self.parseListLiteral();
         }
 
-        if (tt == "LBRACE" && self.isMapLiteral()) {
-            return self.parseMapLiteral();
-        }
         if (tt == "LBRACE") {
-            return self.parseBraceInitializer();
+            return self.parseMapOrBraceInitializer();
         }
 
         if (tt == "IDENT") {
@@ -2204,8 +2163,7 @@ class Parser {
             return n;
         }
 
-        // Unrecognized — consume to avoid infinite loops.
-        self.advance();
+        self.failExpected("expression", tok);
         Node none = Node();
         return none;
     }
@@ -2256,55 +2214,49 @@ class Parser {
         return n;
     }
 
-    public bool isMapLiteral() {
-        if (self.peekAt(1).type == "RBRACE") { return false; }
-        int save = self.pos;
-        self.pos = self.pos + 1;
-        int depth = 0;
-        bool result = false;
-        bool done = false;
-        while (self.pos < self.tokens.len && !done) {
-            Token t = self.tokens.get(self.pos);
-            if (t.type == "COLON" && depth == 0) {
-                result = true;
-                done = true;
-            } else if (t.type == "LPAREN" || t.type == "LBRACKET" || t.type == "LBRACE") {
-                depth = depth + 1;
-            } else if (t.type == "RPAREN" || t.type == "RBRACKET" || t.type == "RBRACE") {
-                if (depth == 0) { done = true; }
-                else { depth = depth - 1; }
-            } else if (t.type == "SEMICOLON") {
-                done = true;
-            }
-            if (!done) { self.pos = self.pos + 1; }
-        }
-        self.pos = save;
-        return result;
-    }
-
-    public Node parseMapLiteral() {
+    public Node parseMapOrBraceInitializer() {
         Token tok = self.expect("LBRACE");
-        Node n = Node();
-        n.kind = NK_MAP_LITERAL;
-        n.line = tok.line;
-        n.col = tok.col;
-        if (!self.check("RBRACE")) {
-            Node ent0 = self.parseMapEntry();
-            n.entries.push(ent0);
+        if (self.matchTok("RBRACE")) {
+            Node empty = Node();
+            empty.kind = NK_BRACE_INITIALIZER;
+            empty.line = tok.line;
+            empty.col = tok.col;
+            return empty;
+        }
+
+        Node first = self.parseExpression();
+        if (self.matchTok("COLON")) {
+            Node map = Node();
+            map.kind = NK_MAP_LITERAL;
+            map.line = tok.line;
+            map.col = tok.col;
+            Node first_value = self.parseExpression();
+            Node first_entry = self.makeMapEntry(first, first_value);
+            map.entries.push(first_entry);
             while (self.matchTok("COMMA")) {
                 if (self.check("RBRACE")) { break; }
                 Node entN = self.parseMapEntry();
-                n.entries.push(entN);
+                map.entries.push(entN);
             }
+            self.expect("RBRACE");
+            return map;
+        }
+
+        Node brace = Node();
+        brace.kind = NK_BRACE_INITIALIZER;
+        brace.line = tok.line;
+        brace.col = tok.col;
+        brace.elements.push(first);
+        while (self.matchTok("COMMA")) {
+            if (self.check("RBRACE")) { break; }
+            Node eN = self.parseExpression();
+            brace.elements.push(eN);
         }
         self.expect("RBRACE");
-        return n;
+        return brace;
     }
 
-    public Node parseMapEntry() {
-        Node key = self.parseExpression();
-        self.expect("COLON");
-        Node value = self.parseExpression();
+    public Node makeMapEntry(Node key, Node value) {
         Node ent = Node();
         ent.kind = NK_MAP_ENTRY;
         ent.key = key;
@@ -2312,59 +2264,18 @@ class Parser {
         return ent;
     }
 
-    public Node parseBraceInitializer() {
-        Token tok = self.expect("LBRACE");
-        Node n = Node();
-        n.kind = NK_BRACE_INITIALIZER;
-        n.line = tok.line;
-        n.col = tok.col;
-        if (!self.check("RBRACE")) {
-            Node e0 = self.parseExpression();
-            n.elements.push(e0);
-            while (self.matchTok("COMMA")) {
-                if (self.check("RBRACE")) { break; }
-                Node eN = self.parseExpression();
-                n.elements.push(eN);
-            }
-        }
-        self.expect("RBRACE");
-        return n;
+    public Node parseMapEntry() {
+        Node key = self.parseExpression();
+        self.expect("COLON");
+        Node value = self.parseExpression();
+        return self.makeMapEntry(key, value);
     }
 
     /* ---- Lambdas ---- */
 
     public bool isVerboseLambda() {
-        int save = self.pos;
-        while (self.tokens.get(self.pos).type == "CONST"
-               || self.tokens.get(self.pos).type == "STATIC"
-               || self.tokens.get(self.pos).type == "EXTERN"
-               || self.tokens.get(self.pos).type == "VOLATILE") {
-            self.pos = self.pos + 1;
-        }
-        Token tok = self.tokens.get(self.pos);
-        if (self.isTypeKeyword(tok.type) || tok.type == "IDENT") {
-            self.pos = self.pos + 1;
-        } else {
-            self.pos = save;
-            return false;
-        }
-        if (self.tokens.get(self.pos).type == "LT") {
-            int depth = 1;
-            self.pos = self.pos + 1;
-            while (self.pos < self.tokens.len && depth > 0) {
-                Token t = self.tokens.get(self.pos);
-                if (t.type == "LT") { depth = depth + 1; }
-                else if (t.type == "GT") { depth = depth - 1; }
-                else if (t.type == "GT_GT") { depth = depth - 2; }
-                self.pos = self.pos + 1;
-            }
-        }
-        while (self.pos < self.tokens.len && self.tokens.get(self.pos).type == "STAR") {
-            self.pos = self.pos + 1;
-        }
-        bool result = self.pos < self.tokens.len && self.tokens.get(self.pos).type == "FUNCTION";
-        self.pos = save;
-        return result;
+        int type_end = self.scanTypeEnd(self.pos);
+        return type_end >= 0 && self.tokenTypeAt(type_end) == "FUNCTION";
     }
 
     public Node parseVerboseLambda() {
@@ -2389,34 +2300,24 @@ class Parser {
     }
 
     public bool isArrowLambda() {
-        int save = self.pos;
-        self.pos = self.pos + 1;
-        if (self.tokens.get(self.pos).type == "RPAREN") {
-            self.pos = self.pos + 1;
-            bool r0 = self.pos < self.tokens.len && self.tokens.get(self.pos).type == "FAT_ARROW";
-            self.pos = save;
-            return r0;
-        }
-        Token tok = self.tokens.get(self.pos);
-        if (!self.isTypeKeyword(tok.type) && tok.type != "IDENT") {
-            self.pos = save;
-            return false;
-        }
-        int depth = 1;
-        self.pos = self.pos + 1;
-        while (self.pos < self.tokens.len && depth > 0) {
-            Token t = self.tokens.get(self.pos);
-            if (t.type == "LPAREN") { depth = depth + 1; }
-            else if (t.type == "RPAREN") { depth = depth - 1; }
-            else if (t.type == "SEMICOLON" || t.type == "LBRACE" || t.type == "EOF") {
-                self.pos = save;
+        if (!self.check("LPAREN")) { return false; }
+        int depth = 0;
+        int p = self.pos;
+        while (p < self.tokens.len) {
+            string tt = self.tokenTypeAt(p);
+            if (tt == "LPAREN") {
+                depth = depth + 1;
+            } else if (tt == "RPAREN") {
+                depth = depth - 1;
+                if (depth == 0) {
+                    return self.tokenTypeAt(p + 1) == "FAT_ARROW";
+                }
+            } else if (tt == "EOF") {
                 return false;
             }
-            self.pos = self.pos + 1;
+            p = p + 1;
         }
-        bool result = self.pos < self.tokens.len && self.tokens.get(self.pos).type == "FAT_ARROW";
-        self.pos = save;
-        return result;
+        return false;
     }
 
     public Node parseArrowLambda() {
@@ -2555,77 +2456,23 @@ class Parser {
     public Node parseSubExpr(string exprSrc) {
         Lexer lx = Lexer(exprSrc + ";", self.grammar);
         Vector<Token> subToks = lx.tokenize();
+        if (lx.failed) {
+            if (!self.failed) {
+                self.failed = true;
+                self.diagnostic = lx.diagnostic;
+                self.pos = self.tokens.len - 1;
+            }
+            return Node();
+        }
         Parser sub = Parser(subToks, self.grammar);
-        return sub.parseExpression();
-    }
-
-    /* ---- Literal value conversion ---- */
-
-    /* Convert an INT_LIT token value to int, honoring C suffixes and octal. */
-    public int intLiteralValue(string raw) {
-        string body = raw;
-        // strip trailing u/U/l/L suffix chars
-        int bn = body.length();
-        while (bn > 0) {
-            char last = body[bn - 1];
-            if (last == 'u' || last == 'U' || last == 'l' || last == 'L') {
-                body = body.substring(0, bn - 1);
-                bn = bn - 1;
-            } else {
-                break;
-            }
+        Node expr = sub.parseExpression();
+        sub.expect("SEMICOLON");
+        if (sub.failed && !self.failed) {
+            self.failed = true;
+            self.diagnostic = sub.diagnostic;
+            self.pos = self.tokens.len - 1;
         }
-        if (bn == 0) { return 0; }
-        // hex / binary / octal prefixes
-        if (bn >= 2 && body[0] == '0') {
-            char p = body[1];
-            if (p == 'x' || p == 'X') {
-                return self.parseRadix(body.substring(2, bn - 2), 16);
-            }
-            if (p == 'b' || p == 'B') {
-                return self.parseRadix(body.substring(2, bn - 2), 2);
-            }
-            if (p == 'o' || p == 'O') {
-                return self.parseRadix(body.substring(2, bn - 2), 8);
-            }
-            // C-style octal: leading zero, no x/b/o prefix
-            return self.parseRadix(body.substring(1, bn - 1), 8);
-        }
-        return self.parseRadix(body, 10);
+        return expr;
     }
 
-    public int digitVal(char c) {
-        if (c >= '0' && c <= '9') { return (int)c - (int)'0'; }
-        if (c >= 'a' && c <= 'f') { return (int)c - (int)'a' + 10; }
-        if (c >= 'A' && c <= 'F') { return (int)c - (int)'A' + 10; }
-        return 0;
-    }
-
-    public int parseRadix(string s, int radix) {
-        int v = 0;
-        int i = 0;
-        int sn = s.length();
-        while (i < sn) {
-            char c = s[i];
-            v = v * radix + self.digitVal(c);
-            i = i + 1;
-        }
-        return v;
-    }
-
-    /* Convert a FLOAT_LIT token value to float, stripping f/F suffix. */
-    public float floatLiteralValue(string raw) {
-        int rn = raw.length();
-        string body = raw;
-        while (rn > 0) {
-            char last = body[rn - 1];
-            if (last == 'f' || last == 'F') {
-                body = body.substring(0, rn - 1);
-                rn = rn - 1;
-            } else {
-                break;
-            }
-        }
-        return Strings.toFloat(body);
-    }
 }

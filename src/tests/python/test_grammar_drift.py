@@ -45,6 +45,7 @@ def parse_stmt(source: str):
 
 # ---- #1 unary + (PARSER FIX: accepted as C-style no-op) ----
 
+
 class TestUnaryPlus:
     def test_unary_plus_literal(self):
         expr = parse_expr("+5")
@@ -71,6 +72,7 @@ class TestUnaryPlus:
 
 
 # ---- #2 cast disambiguation (mostly already-fixed; spawn is a parser fix) ----
+
 
 class TestCastDisambiguation:
     def test_cast_of_sizeof(self):
@@ -109,6 +111,7 @@ class TestCastDisambiguation:
 
 # ---- #3 try/catch: catch optional, optional type annotation ----
 
+
 class TestTryCatch:
     def test_try_finally_without_catch(self):
         stmt = parse_stmt("try { } finally { }")
@@ -133,6 +136,7 @@ class TestTryCatch:
 
 # ---- #4 static access modifier ----
 
+
 class TestStaticAccess:
     def test_static_member_method(self):
         prog = parse("class C { static int f() { return 1; } }")
@@ -147,6 +151,7 @@ class TestStaticAccess:
 
 
 # ---- #5 member modifier order: abstract @gpu keep ----
+
 
 class TestMemberModifiers:
     def test_keep_field(self):
@@ -175,6 +180,7 @@ class TestMemberModifiers:
 
 # ---- #6 interface: generic params + keep method sigs ----
 
+
 class TestInterfaceDecl:
     def test_generic_interface(self):
         prog = parse("interface Box<T> { int f(); }")
@@ -188,6 +194,7 @@ class TestInterfaceDecl:
 
 
 # ---- #7 struct: anonymous + forward declarations ----
+
 
 class TestStructDecl:
     def test_anonymous_struct(self):
@@ -211,6 +218,7 @@ class TestStructDecl:
 
 # ---- #8 enum: anonymous ----
 
+
 class TestEnumDecl:
     def test_anonymous_enum(self):
         prog = parse("enum { A, B };")
@@ -226,6 +234,7 @@ class TestEnumDecl:
 
 # ---- #9 param: keep qualifier ----
 
+
 class TestKeepParam:
     def test_keep_param(self):
         prog = parse("void f(keep C x) { }")
@@ -239,6 +248,7 @@ class TestKeepParam:
 
 
 # ---- #11 trailing commas in list / map / brace literals ----
+
 
 class TestTrailingCommas:
     def test_list_trailing_comma(self):
@@ -259,6 +269,7 @@ class TestTrailingCommas:
 
 # ---- #12 override / reserved-but-unparseable keywords ----
 
+
 class TestReservedKeywords:
     def test_override_member_is_parse_error(self):
         # `override` is reserved (a keyword) but no member rule consumes it.
@@ -267,6 +278,7 @@ class TestReservedKeywords:
 
 
 # ---- #14 tuple access x.0 works, x.0.1 mis-lexes ----
+
 
 class TestTupleAccess:
     def test_single_tuple_access(self):

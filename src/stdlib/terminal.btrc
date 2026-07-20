@@ -3,111 +3,371 @@
 #include <termios.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/select.h>
+#include <poll.h>
 #include <pwd.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
 
+import std.bytes;
 import std.strings;
+import std.terminal_clock;
+import std.terminal_cstring_array;
+import std.terminal_password;
+import std.terminal_password_exchange;
+import std.vector;
 
-extern int forkpty(int* amaster, char* name, void* termp, void* winp);
+struct winsize;
+extern pid_t forkpty(int* amaster, char* name,
+    const struct termios* termp, const struct winsize* winp);
 
 class Terminal {
     class string readLine() {
-        char buffer[4096];
-        if (fgets(buffer, 4096, stdin) == NULL) { return ""; }
-        int length = (int)strlen(buffer);
-        if (length > 0 && buffer[length - 1] == '\n') {
-            buffer[length - 1] = '\0';
+        Bytes value = Bytes();
+        int byte = fgetc(stdin);
+        while (byte != EOF && byte != '\n') {
+            value.append(byte);
+            byte = fgetc(stdin);
         }
-        return Strings.copy(buffer);
+        return value.toStringLossy();
     }
 
     class string prompt(string label) {
-        fprintf(stderr, "%s", label);
+        fprintf(stderr, "%s", label == null ? "" : label);
         fflush(stderr);
         return Terminal.readLine();
     }
 
     class string promptPassword(string label) {
-        fprintf(stderr, "%s", label);
-        fflush(stderr);
-
-        struct termios previous;
-        struct termios hidden;
-        bool restore = false;
-        if (tcgetattr(STDIN_FILENO, &previous) == 0) {
-            hidden = previous;
-            hidden.c_lflag = hidden.c_lflag & ~ECHO;
-            restore = tcsetattr(STDIN_FILENO, TCSANOW, &hidden) == 0;
-        }
-
-        var value = Terminal.readLine();
-        if (restore) {
-            tcsetattr(STDIN_FILENO, TCSANOW, &previous);
-        }
-        fprintf(stderr, "\n");
-        fflush(stderr);
-        return value;
+        return TerminalPasswordInput.prompt(label);
     }
 }
 
 class UnixPamPassword {
+    /* passwd(1) receives an argv entry, not an opaque account identifier.
+     * Reject option-shaped requested and canonical NSS names rather than
+     * relying on platform-specific support for an option terminator. */
+    class bool safeAccountArgument(string value) {
+        return value != null && !value.isEmpty() && value[0] != '-';
+    }
+
+    class string canonicalAccountArgument(string requested,
+                                           string canonical) {
+        if (!UnixPamPassword.safeAccountArgument(requested)
+                || !UnixPamPassword.safeAccountArgument(canonical)) {
+            return "";
+        }
+        return Strings.copy(canonical);
+    }
+
+    class bool safeSecret(string value) {
+        return value != null
+            && value.len() <= 4096
+            && !value.contains("\n")
+            && !value.contains("\r");
+    }
+
+    class string passwdExecutable() {
+        if (access("/run/wrappers/bin/passwd", X_OK) == 0) {
+            return "/run/wrappers/bin/passwd";
+        }
+        if (access("/run/current-system/sw/bin/passwd", X_OK) == 0) {
+            return "/run/current-system/sw/bin/passwd";
+        }
+        if (access("/usr/bin/passwd", X_OK) == 0) {
+            return "/usr/bin/passwd";
+        }
+        if (access("/bin/passwd", X_OK) == 0) { return "/bin/passwd"; }
+        return "";
+    }
+
+    /* Root may select a target account and is not asked for its current
+     * password. An unprivileged caller may only change its own account. */
+    class int responseCountFor(uid_t effectiveUser, uid_t targetUser) {
+        if (effectiveUser == (uid_t)0) { return 2; }
+        return effectiveUser == targetUser ? 3 : 0;
+    }
+
+    class bool maySendResponse(int sent, int selected, bool promptSeen) {
+        return promptSeen && sent >= 0 && selected > 0 && sent < selected;
+    }
+
+    class size_t initialAccountBufferSize() {
+        long suggested = sysconf(_SC_GETPW_R_SIZE_MAX);
+        if (suggested < 1024L) { return (size_t)16384; }
+        if (suggested > 1048576L) { return (size_t)1048576; }
+        return (size_t)suggested;
+    }
+
+    class int descriptorCloseBound() {
+        return __btrc_descriptor_close_bound();
+    }
+
+    /* Called only in the post-fork child. The runtime helper uses close_range
+     * or a BSD closefrom where available and a precomputed hard-bound loop
+     * everywhere else. */
+    class int closeDescriptorsForExec(int bound) {
+        return __btrc_close_descriptors_from(bound);
+    }
+
+    class bool configureMaster(int fd) {
+        if (fd < 0) { return false; }
+        int descriptorFlags = fcntl(fd, F_GETFD, 0);
+        if (descriptorFlags < 0
+                || fcntl(fd, F_SETFD, descriptorFlags | FD_CLOEXEC) < 0) {
+            return false;
+        }
+        int statusFlags = fcntl(fd, F_GETFL, 0);
+        return statusFlags >= 0
+            && fcntl(fd, F_SETFL, statusFlags | O_NONBLOCK) == 0;
+    }
+
+    /* Return poll revents, zero for a slice/deadline timeout, or -1 on error. */
+    class int pollUntil(int fd, short events, long long deadline,
+                        int maxWaitMillis) {
+        return UnixPasswdPromptExchange.pollUntil(
+            fd, events, deadline, maxWaitMillis);
+    }
+
+    class bool writeBytesUntil(int fd, char* bytes, size_t length,
+                               long long deadline) {
+        return UnixPasswdPromptExchange.writeBytesUntil(
+            fd, bytes, length, deadline);
+    }
+
+    class bool writeResponseUntil(int fd, string value,
+                                  long long deadline) {
+        if (fd < 0 || !UnixPamPassword.safeSecret(value)) { return false; }
+        return UnixPasswdPromptExchange.writeResponseUntil(
+            fd, value, deadline);
+    }
+
+    class bool passwordInputHidden(int fd) {
+        return UnixPasswdPromptExchange.passwordInputHidden(fd);
+    }
+
+    class bool answerPasswordPrompts(int fd, Vector<string> responses,
+                                     int responseCount,
+                                     long long deadline) {
+        return UnixPasswdPromptExchange.answer(
+            fd, responses, responseCount, deadline);
+    }
+
+    /* Back-compatible standalone helper with the same bounded secret contract. */
+    class bool writeResponse(int fd, string value) {
+        return UnixPamPassword.writeResponseUntil(
+            fd, value, TerminalClock.deadlineAfter(30000));
+    }
+
+    /* SIGKILL normally makes the following wait immediate.  We deliberately
+     * prefer guaranteed child cleanup over returning at the deadline while a
+     * live child or zombie remains. A dedicated reaper would be required to
+     * promise both a hard return bound and guaranteed cleanup. */
+    class int killAndReap(pid_t processId) {
+        if (processId <= (pid_t)0) { return -1; }
+        kill(processId, SIGKILL);
+        int status = 0;
+        pid_t waited = waitpid(processId, &status, 0);
+        while (waited < (pid_t)0 && errno == EINTR) {
+            waited = waitpid(processId, &status, 0);
+        }
+        return -1;
+    }
+
+    /* forkpty establishes the child as a session/process-group leader. Stop
+     * that group first so a PAM helper cannot outlive a timed-out passwd, then
+     * always target and reap the leader as the portable fallback. */
+    class int killPtyAndReap(pid_t processId) {
+        if (processId <= (pid_t)0) { return -1; }
+        kill(-processId, SIGKILL);
+        return UnixPamPassword.killAndReap(processId);
+    }
+
+    /* Wait against the caller's absolute deadline.  A backend that accepts
+     * every prompt and then stalls must not escape the password-change bound. */
+    class int waitForExitUntil(pid_t processId, long long deadline) {
+        if (processId <= (pid_t)0) { return -1; }
+        int status = 0;
+        while (true) {
+            pid_t waited = waitpid(processId, &status, WNOHANG);
+            if (waited == processId) { return status; }
+            if (waited < (pid_t)0 && errno != EINTR) { return -1; }
+            if (TerminalClock.milliseconds() >= deadline) {
+                return UnixPamPassword.killAndReap(processId);
+            }
+            poll(NULL, (nfds_t)0, 10);
+        }
+        return -1;
+    }
+
+    /* Keep the PTY alive until passwd exits: closing its last master first can
+     * deliver SIGHUP to the slave's foreground process group. Drain output so a
+     * verbose backend cannot fill the PTY and deadlock before exit. */
+    class int waitForPtyExitUntil(pid_t processId, int fd,
+                                  long long deadline) {
+        if (processId <= (pid_t)0 || fd < 0) { return -1; }
+        int status = 0;
+        char output[4096];
+        while (true) {
+            pid_t waited = waitpid(processId, &status, WNOHANG);
+            if (waited == processId) { return status; }
+            if (waited < (pid_t)0 && errno != EINTR) { return -1; }
+            if (TerminalClock.milliseconds() >= deadline) {
+                return UnixPamPassword.killPtyAndReap(processId);
+            }
+            int events = UnixPamPassword.pollUntil(
+                fd, POLLIN, deadline, 50);
+            if (events < 0) {
+                return UnixPamPassword.killPtyAndReap(processId);
+            }
+            if ((events & POLLIN) != 0) {
+                int reads = 0;
+                while (reads < 16) {
+                    ssize_t count = read(fd, output, sizeof(output));
+                    if (count > (ssize_t)0) {
+                        reads++;
+                        continue;
+                    }
+                    if (count < (ssize_t)0 && errno == EINTR) { continue; }
+                    break;
+                }
+            } else if (events != 0) {
+                poll(NULL, (nfds_t)0, 10);
+            }
+        }
+        return -1;
+    }
+
     class bool change(string user, string oldPassword, string newPassword) {
-        struct passwd* pw = getpwnam(user);
-        if (pw == NULL) { return false; }
+        if (!UnixPamPassword.safeAccountArgument(user)
+                || !UnixPamPassword.safeSecret(oldPassword)
+                || !UnixPamPassword.safeSecret(newPassword)) {
+            return false;
+        }
+        /* getpwnam_r never exposes a partial record: ERANGE grows a
+         * caller-owned buffer up to a documented 1 MiB ceiling, then fails
+         * closed if the NSS record still cannot be represented. */
+        struct passwd account;
+        struct passwd* pw = NULL;
+        size_t accountCapacity = UnixPamPassword.initialAccountBufferSize();
+        char* accountBuffer = (char*)malloc(accountCapacity);
+        if (accountBuffer == NULL) { return false; }
+        int lookup = ERANGE;
+        while (true) {
+            pw = NULL;
+            lookup = getpwnam_r(
+                user, &account, accountBuffer, accountCapacity, &pw);
+            if (lookup != ERANGE || accountCapacity >= (size_t)1048576) {
+                break;
+            }
+            size_t nextCapacity = accountCapacity * (size_t)2;
+            if (nextCapacity > (size_t)1048576) {
+                nextCapacity = (size_t)1048576;
+            }
+            char* grown = (char*)realloc(accountBuffer, nextCapacity);
+            if (grown == NULL) {
+                free(accountBuffer);
+                return false;
+            }
+            accountBuffer = grown;
+            accountCapacity = nextCapacity;
+        }
+        if (lookup != 0 || pw == NULL) {
+            free(accountBuffer);
+            return false;
+        }
+        uid_t targetUser = pw->pw_uid;
+        string canonicalAccount = pw->pw_name == NULL
+            ? "" : Strings.copy(pw->pw_name);
+        string homeDirectory = pw->pw_dir == NULL
+            ? "/" : Strings.copy(pw->pw_dir);
+        free(accountBuffer);
+
+        string passwdAccount = UnixPamPassword.canonicalAccountArgument(
+            user, canonicalAccount);
+        if (passwdAccount.isEmpty()) { return false; }
+
+        string executable = UnixPamPassword.passwdExecutable();
+        int responseCount = UnixPamPassword.responseCountFor(
+            geteuid(), targetUser);
+        if (executable.isEmpty() || responseCount == 0) { return false; }
+
+        /* Everything the child will consume is materialized as independent raw
+         * copies before forkpty. The child branch performs only execve/_exit. */
+        Vector<string> childArgumentValues = [executable];
+        /* Root executes `passwd user`; non-root self-service executes plain
+         * `passwd`. */
+        if (responseCount == 2) { childArgumentValues.push(passwdAccount); }
+        string homeEnvironment = "HOME=" + homeDirectory;
+        string userEnvironment = "USER=" + passwdAccount;
+        string lognameEnvironment = "LOGNAME=" + passwdAccount;
+        Vector<string> childEnvironmentValues = [
+            "PATH=/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "LANG=C",
+            homeEnvironment,
+            userEnvironment,
+            lognameEnvironment,
+        ];
+
+        /* Compute the close ceiling before forkpty. The helper uses the hard
+         * descriptor limit (or Darwin's kernel ceiling), so lowering only the
+         * soft limit cannot hide an already-open descriptor. */
+        int descriptorBound = UnixPamPassword.descriptorCloseBound();
+        char** childArguments = UnixPamCStringArray.copyAll(
+            childArgumentValues);
+        if (childArguments == NULL) { return false; }
+        char** childEnvironment = UnixPamCStringArray.copyAll(
+            childEnvironmentValues);
+        if (childEnvironment == NULL) {
+            UnixPamCStringArray.freeEntries(childArguments);
+            return false;
+        }
 
         int fd = -1;
         pid_t pid = forkpty(&fd, NULL, NULL, NULL);
-        if (pid < 0) { return false; }
+        if (pid < (pid_t)0) {
+            UnixPamCStringArray.freeEntries(childArguments);
+            UnixPamCStringArray.freeEntries(childEnvironment);
+            return false;
+        }
 
-        if (pid == 0) {
-            setgid(pw->pw_gid);
-            setuid(pw->pw_uid);
-            setenv("HOME", pw->pw_dir, 1);
-            setenv("USER", user, 1);
-            setenv("LOGNAME", user, 1);
-            setenv("PATH", "/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin", 1);
-            execlp("passwd", "passwd", (char*)NULL);
+        if (pid == (pid_t)0) {
+            if (UnixPamPassword.closeDescriptorsForExec(descriptorBound) != 0) {
+                _exit(126);
+            }
+            execve(executable, childArguments, childEnvironment);
             _exit(127);
         }
 
-        char* responses[3];
-        responses[0] = oldPassword;
-        responses[1] = newPassword;
-        responses[2] = newPassword;
-        int response = 0;
-        time_t deadline = time(NULL) + 30;
-        char buffer[4096];
+        UnixPamCStringArray.freeEntries(childArguments);
+        UnixPamCStringArray.freeEntries(childEnvironment);
 
-        while (time(NULL) < deadline && response < 3) {
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(fd, &readfds);
-            struct timeval timeout;
-            timeout.tv_sec = 5;
-            timeout.tv_usec = 0;
-            int ready = select(fd + 1, &readfds, NULL, NULL, &timeout);
-            if (ready < 0) { break; }
-            if (ready == 0) { continue; }
-            ssize_t n = read(fd, buffer, sizeof(buffer));
-            if (n <= 0) { break; }
-            bool prompt = false;
-            for (ssize_t i = 0; i < n; i++) {
-                if (buffer[i] == ':') { prompt = true; }
-            }
-            if (prompt) {
-                write(fd, responses[response], strlen(responses[response]));
-                write(fd, "\n", 1);
-                response++;
-                usleep(200000);
-            }
+        if (!UnixPamPassword.configureMaster(fd)) {
+            UnixPamPassword.killPtyAndReap(pid);
+            if (fd >= 0) { close(fd); }
+            return false;
         }
 
+        Vector<string> responses = [
+            responseCount == 2 ? newPassword : oldPassword,
+            newPassword,
+            newPassword,
+        ];
+        long long deadline = TerminalClock.deadlineAfter(30000);
+        bool answered = UnixPamPassword.answerPasswordPrompts(
+            fd, responses, responseCount, deadline);
+        if (!answered) {
+            UnixPamPassword.killPtyAndReap(pid);
+            close(fd);
+            return false;
+        }
+        int status = UnixPamPassword.waitForPtyExitUntil(pid, fd, deadline);
         close(fd);
-        int status = 0;
-        waitpid(pid, &status, 0);
-        return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        return answered && status >= 0
+            && WIFEXITED(status) && WEXITSTATUS(status) == 0;
     }
 }

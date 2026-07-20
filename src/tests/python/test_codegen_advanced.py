@@ -1,7 +1,7 @@
 """Advanced codegen paths: try/catch nesting detection (drives setjmp/longjmp
 plumbing), ARC cleanup for generic-typed fields, interface subtyping, thread
 lambdas with expression bodies, and C-for headers built from varied expressions
-(the _quick_text renderer)."""
+(the structured expression emitter)."""
 
 from src.tests.python.test_codegen import emit_c
 
@@ -56,12 +56,12 @@ def test_arc_cleanup_for_generic_typed_field():
     assert "Bag" in c
 
 
-def test_interface_implementation_and_dispatch():
+def test_interface_implementation_with_concrete_static_dispatch():
     src = """
     interface Speaker { int speak(); }
     class Dog implements Speaker { public int speak() { return 1; } }
     class Cat implements Speaker { public int speak() { return 2; } }
-    int useit(Speaker s) { return s.speak(); }
+    int useit(Dog s) { return s.speak(); }
     int main() { Dog d = new Dog(); return useit(d); }
     """
     c = emit_c(src)
@@ -83,7 +83,7 @@ def test_interface_extends_interface():
 
 
 def test_cfor_header_with_unary_field_and_index():
-    # The C-for header renderer (_quick_text) handles postfix unary, field
+    # Structured C-for emission handles postfix unary, field
     # access (self.x), and index (arr[..]) expressions.
     src = """
     class Counter {
@@ -127,6 +127,7 @@ def test_property_getter_with_managed_local_returns_declared_type():
     # The getter's return temp (if any) must be `int`, never a stray pointer type.
     assert "__auto_type" not in c
     import re
+
     bad = re.search(r"\b(?!int\b)[A-Za-z_]\w*\*? __btrc_ret_\d+ = .*?get\(", c)
     assert bad is None, f"return temp has wrong type: {bad.group(0) if bad else ''}"
 
@@ -144,3 +145,51 @@ def test_thread_lambda_expression_body_with_capture():
     c = emit_c(src)
     assert "__btrc_spawn_wrapper" in c
     assert "__result" in c or "return" in c
+
+
+def test_capturing_iife_materializes_typed_call_site_environment():
+    c = emit_c("""
+        int main() {
+            int offset = 3;
+            return ((int value) => value + offset)(4);
+        }
+    """)
+    assert "struct __btrc_lambda_1_env __btrc_lambda_1_call_env;" in c
+    assert "(__btrc_lambda_1_call_env.offset = offset)" in c
+    assert "(&__btrc_lambda_1_call_env)" in c
+    assert "({" not in c
+
+
+def test_nested_lambda_block_uses_inner_callable_return_type():
+    c = emit_c("""
+        int main() {
+            int offset = 10;
+            var outer = (int x) => {
+                int base = x + offset;
+                var inner = (int y) => y + base;
+                return inner(100);
+            };
+            return outer(5);
+        }
+    """)
+    assert "static int __btrc_lambda_1(" in c
+    assert "return __btrc_lambda_2(100" in c
+
+
+def test_nested_lambda_environment_mapping_is_function_local():
+    c = emit_c("""
+        int main() {
+            var outer = () => {
+                int local = 4;
+                var inner = () => local;
+                return inner();
+            };
+            var inner = () => 7;
+            return outer() + inner();
+        }
+    """)
+    main = c.split("int main(void)", 1)[1]
+    outer_call = main.index(" = outer()")
+    inner_call = main.index(" = inner()")
+    assert outer_call < inner_call
+    assert "__inner_env" not in main

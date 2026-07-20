@@ -1,0 +1,75 @@
+/* HttpClient end-to-end through a deterministic local curl stand-in. */
+#include <assert.h>
+#include <sys/stat.h>
+
+int main() {
+    string oldPath = Environment.get("PATH", "");
+    string oldTemp = Environment.get("TMPDIR", "/tmp");
+    string fixture = FileSystem.tempDir("btrc-http-client-test");
+    assert(!fixture.isEmpty());
+    string curlPath = PathTools.join(fixture, "curl");
+    string argumentLog = PathTools.join(fixture, "argv.log");
+    string script =
+        "#!/bin/sh\n"
+        + "body=''\n"
+        + ": > \"$BTRC_CURL_LOG\"\n"
+        + "for item in \"$@\"; do printf '%s\\n' \"$item\" >> \"$BTRC_CURL_LOG\"; done\n"
+        + "while [ \"$#\" -gt 0 ]; do\n"
+        + "  case \"$1\" in\n"
+        + "    --data-binary) [ \"$2\" = '@-' ] || exit 70; body=$(cat); shift 2 ;;\n"
+        + "    --proto|--proto-redir|--max-time|--max-filesize|--request|--write-out|--header) shift 2 ;;\n"
+        + "    --) shift; break ;;\n"
+        + "    *) shift ;;\n"
+        + "  esac\n"
+        + "done\n"
+        + "if [ -n \"$body\" ]; then printf '%s' \"$body\"; "
+        + "else printf 'local-response'; fi\n"
+        + "printf '\\n__BTRC_HTTP_STATUS__:201'\n";
+    assert(FileSystem.writeText(curlPath, script));
+    assert(chmod(curlPath, 0700) == 0);
+    assert(setenv("PATH", fixture + ":" + oldPath, 1) == 0);
+    assert(setenv("TMPDIR", fixture, 1) == 0);
+    assert(setenv("BTRC_CURL_LOG", argumentLog, 1) == 0);
+
+    string injectionMarker = PathTools.join(fixture, "shell-injection");
+    Vector<string> headers = [
+        "X-Test: local",
+        "X-Injection: ; touch " + injectionMarker
+    ];
+    HttpClient client = HttpClient().timeout(3);
+    HttpClientResponse get = client.get("https://unused.invalid", headers);
+    assert(get.status == 201);
+    assert(get.body.equals("local-response"));
+    assert(get.error.isEmpty());
+    string argvLog = FileSystem.readText(argumentLog);
+    assert(argvLog.contains("--proto\n=http,https\n"));
+    assert(argvLog.contains("--proto-redir\n=http,https\n"));
+    assert(argvLog.endsWith("--\nhttps://unused.invalid\n"));
+    assert(!FileSystem.exists(injectionMarker));
+
+    HttpClientResponse post = client.post(
+        "https://unused.invalid", headers, "request-body");
+    assert(post.status == 201);
+    assert(post.body.equals("request-body"));
+    assert(post.error.isEmpty());
+
+    client.maxResponseBytes = 4;
+    HttpClientResponse bounded = client.get("https://unused.invalid", headers);
+    assert(bounded.status == 0);
+    assert(bounded.error.contains("too large"));
+
+    HttpClientResponse unsupported = client.get("file:///etc/passwd", headers);
+    assert(unsupported.status == 0);
+    assert(unsupported.error.contains("unsupported URL scheme"));
+
+    /* Requests use pipes/anonymous input storage, never named capture files. */
+    Vector<string> remaining = FileSystem.listDir(fixture);
+    assert(remaining.len == 2);
+
+    setenv("PATH", oldPath, 1);
+    setenv("TMPDIR", oldTemp, 1);
+    unsetenv("BTRC_CURL_LOG");
+    assert(FileSystem.removeRecursive(fixture) == 0);
+    print("PASS: test_stdlib_http_client_local");
+    return 0;
+}

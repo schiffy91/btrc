@@ -1,0 +1,74 @@
+/* Compiler-owned C reference boundaries and generic-method claims. */
+
+void semanticValidateGeneratedSymbolReference(Node identifier,
+        SemanticValidationState state, Map<string, Node> vars,
+        bool directCall) {
+    string symbol = identifier.name;
+    if (vars.has(symbol) || state.analyzed.funcTable.has(symbol)
+            || state.analyzed.isClass(symbol)
+            || state.analyzed.isGenericClass(symbol)) {
+        return;
+    }
+    string action = directCall ? "Direct call to" : "Source reference to";
+    if (state.generatedSymbols.has(symbol)) {
+        semanticValidationFail(
+            action + " compiler-generated C symbol '" + symbol
+                + "' for " + state.generatedSymbols.get(symbol)
+                + " is not allowed",
+            identifier);
+    }
+    bool supported = sourceRuntimeHelperSymbol(symbol)
+        || (directCall && sourceRuntimeIntrinsicSymbol(symbol));
+    if (compilerOwnedUnresolvedSymbol(symbol) && !supported) {
+        semanticValidationFail(
+            action + " compiler-owned C symbol '" + symbol
+                + "' is not allowed",
+            identifier);
+    }
+}
+
+void semanticValidateGeneratedSymbolCall(
+        Node call, SemanticValidationState state, Map<string, Node> vars) {
+    if (call.callee == null || call.callee.kind != NK_IDENTIFIER) {
+        return;
+    }
+    semanticValidateGeneratedSymbolReference(
+        call.callee, state, vars, true);
+}
+
+void semanticClaimGpuSymbols(SemanticValidationState state,
+        Map<string, string> symbols, Node declaration) {
+    semanticClaimGeneratedSymbol(state, symbols,
+        declaration.name + "__gpuitem",
+        "CPU item worker for @gpu function '" + declaration.name + "'",
+        declaration);
+    semanticClaimGeneratedSymbol(state, symbols,
+        declaration.name + "__gpucpu",
+        "CPU fallback wrapper for @gpu function '" + declaration.name + "'",
+        declaration);
+}
+
+void semanticClaimGenericMethodSymbols(SemanticValidationState state,
+        Map<string, string> symbols) {
+    int index = 0;
+    while (index < state.analyzed.methodGenInstances.len) {
+        MethodGenInstance instance =
+            state.analyzed.methodGenInstances.get(index);
+        Node? method = null;
+        if (state.analyzed.isGenericClass(instance.classBase)) {
+            method = state.analyzed.genericClassMethod(
+                instance.classBase, instance.methodName);
+        } else if (state.analyzed.isClass(instance.classBase)) {
+            method = state.analyzed.classMethod(
+                instance.classBase, instance.methodName);
+        }
+        if (method != null) {
+            string symbol = genericMethodInstanceName(
+                instance.classBase, instance.classArgs,
+                instance.methodName, instance.methodArgs);
+            semanticClaimGeneratedSymbol(state, symbols, symbol,
+                "generic method instance '" + symbol + "'", method);
+        }
+        index = index + 1;
+    }
+}

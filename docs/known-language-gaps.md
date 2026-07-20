@@ -1,28 +1,59 @@
 # Known language gaps
 
 These are language features the grammar/spec permits (or the docs imply) but the
-**reference Python compiler does not yet correctly lower** — so they fail on
-*both* the reference and the self-hosted (btrcc) compiler. They were surfaced by
-the exhaustive test-coverage sweep (a swarm that enumerated every feature in the
-grammar/ASDL/README and tried to write a passing test for each). No test exists
-for these yet, because a test cannot pass until the compiler is fixed; each is a
-concrete, reproducible fix opportunity.
+reference Python compiler and self-hosted compiler do not yet implement safely.
+The historical numbering is retained so fixes and tests can refer to a stable
+gap ID.
+
+## Open gaps
 
 | # | Feature | Symptom | Where |
 |---|---------|---------|-------|
-| 1 | `typedef` aliases (`typedef int MyInt;`) | parsed into a TypedefDecl but never lowered/emitted; use site references an undeclared C type | no TypedefDecl handler in `ir/gen/` |
-| 2 | `static` on a **local** variable | the storage qualifier is dropped; the local does not persist across calls | statement lowering |
-| 3 | Class-type C-style cast (`(Animal)dog`) | drops the pointer level (`(Animal)x` instead of `(Animal*)x`) → gcc error | cast lowering |
-| 4 | `long long`.toString() | uses the `int` formatter (`__btrc_intToString`), truncating 64-bit values (`long` is fine) | type-dispatched toString |
-| 5 | Rich enum as a param / return / class field / collection element | the tagged-union struct is emitted *after* a forward decl that references it by value → "unknown type" (rich enums kept local to a function work) | emit ordering |
-| 6 | Compound assignment on a class (`obj += other`) | not routed through the `__add__`/`__sub__`/... overload; emits raw `obj += other` on struct pointers → gcc error | `_lower_assign` in `ir/gen/fields.py` |
-| 7 | Nullable class element in a generic collection (`Vector<Box?>`) | `push` doesn't retain a nullable element; the temp's auto-release frees it → use-after-free | generic-collection ARC |
-| 8 | `unsigned long long`, `long long int`, `long long double` base types | parser rejects them though the `base_type` grammar rule permits them (`unsigned long`, `long long`, `long int`, `short int` all work) | parser type parsing |
-| 9 | Multi-dimensional fixed arrays (`int grid[2][3]`) | only a single `[N]` name suffix is accepted | parser var-decl |
-| 10 | Capturing block-body IIFE (`((int k) => { return k + n; })(4)` capturing `n`) | the inline call site omits the closure env arg → "too few arguments" | lambda-capture call lowering |
-| 11 | A **capturing** lambda stored in a bare `__fn_ptr` and called through it (`__fn_ptr<bool,int> p = over; p(1)`) | `__fn_ptr` is a plain C function pointer with no env slot, so the call passes no env and reads garbage where the captured value should be (only "worked" under compilers whose stack garbage happened to read right; gcc 15 returns wrong results). A capturing lambda needs a closure object, not a bare pointer. Either the analyzer should reject the assignment or the language needs a distinct closure type. | `__fn_ptr` typing / lambda-to-fn-ptr lowering |
+| — | Generic class inheritance | A generic class cannot extend another class, and inherited generic properties are not lowered. Both analyzers reject these declarations before code generation. | `python/analyzer/hierarchy.py`, `btrc/semantic_validation_interfaces.btrc`, `btrc/semantic_validation_storage.btrc` |
+| — | Static storage on generic classes | Static fields and properties do not yet have a per-definition versus per-specialization storage model. Both backends reject them explicitly. | `python/analyzer/storage_contracts.py`, `btrc/semantic_validation_storage.btrc` |
+| — | Static methods on generic classes | A class-qualified static method call or method value has no specialization target for the class type parameters. Both analyzers reject the declaration instead of emitting an ambiguous unspecialized symbol. | `python/analyzer/declaration_contracts.py`, `btrc/semantic_validation_storage.btrc` |
+| — | Lambda expressions inside generic declarations | Generic-body lowering does not yet lift lambda declarations and their capture environments for each specialization. Inline lambdas passed to an ordinary generic method are supported; a lambda declared inside a generic class or method body is rejected. | `python/analyzer/expressions.py`, `btrc/semantic_validation_expr_children.btrc` |
+| — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/semantic_validation_expr_children.btrc` |
 
-The self-hosted compiler mirrors the reference, so fixing each in
-`src/compiler/python/` and then in `src/compiler/btrc/` (and adding the test the
-sweep already drafted) closes the gap on both. Everything the compilers *do*
-support is covered by the corpus and passes on both compilers.
+## Intentional syntax limits
+
+Multi-dimensional fixed arrays (`int grid[2][3]`, historical gap 9) are not
+part of the current language grammar or ASDL: a declaration has one optional
+array suffix and `TypeExpr` has one `array_size`. Both parsers now reject a
+second dimension explicitly instead of silently producing a partial AST. Adding
+multiple dimensions would be a language/specification change, not a missing
+implementation of the current grammar.
+
+Grammar keywords are reserved and cannot be used as source identifiers. Code
+generators escape schema field names that collide with those keywords, but that
+internal escaping does not create quoted identifiers in the language.
+
+Tuple element names such as `_0` and `_1` are ordinary postfix members. A
+second tuple access must currently use a parenthesized intermediate—
+`(value._1)._0`—because the unparenthesized numeric-looking boundary in
+`value._1._0` is intentionally not accepted by the lexer. The equivalent
+separate local binding is also supported.
+
+Exceptions carry string messages. A catch may be untyped or bind `string`; a
+different catch annotation is rejected explicitly. The stdlib error classes
+are ordinary values and do not introduce typed exception payloads.
+
+## Closed gaps
+
+| # | Feature | Resolution | Regression test |
+|---|---------|------------|-----------------|
+| 1 | `typedef` aliases | Lowered as typed `IRTypedefDef` declarations and emitted before dependent declarations. | `basics/test_typedef_alias_lowering.btrc` |
+| 2 | Local storage qualifiers | `static`, `extern`, and `volatile` are preserved as `IRVarDecl` metadata in ordinary declarations and loop initializers. | `basics/test_local_storage_qualifiers.btrc` |
+| 3 | Class C-style casts | Class targets lower to pointer C types. Interfaces remain compile-time implementation contracts rather than runtime value types. | `classes/test_class_cast_lowering.btrc` |
+| 4 | Wide and unsigned integer string conversion | Dedicated helpers and matching format specifiers cover `long long`, unsigned integer widths, and `long double`. | `basics/test_wide_integer_strings.btrc` |
+| 5 | Rich enums in by-value declarations | Rich enums use structured tagged-union IR and are completed before callable declarations or class fields that use them by value. | `enums/test_rich_enum_signatures.btrc` |
+| 6 | Class compound assignment | Compound operators call the corresponding overload once and assign its result. | `classes/test_class_compound_assignment.btrc` |
+| 7 | Nullable class element in a generic collection (`Vector<Box?>`) | `keep` and keep-parameter retains are null-guarded in both compilers; generic ownership paths use the terminal destructor. | `memory/test_nullable_generic_arc.btrc`, `memory/test_nullable_ownership_ops.btrc` |
+| 8 | Valid multi-word C integer spellings | The parsers accept the valid signed/unsigned `short`, `long`, and `long long` spellings; invalid `long long double` is no longer treated as a supported base type. | `basics/test_extended_int_types.btrc` |
+| — | Self-host parser diagnostics | Token expectations record one fatal expected/actual diagnostic, unwind to the program boundary, and prevent malformed ASTs from entering analysis or IR generation. | `btrc/test_parser_diagnostics.py` |
+| 10 | Capturing IIFEs | The call site creates a typed stack environment, initializes it in an `IRCommaExpr`, and passes its address to the lifted expression- or block-body lambda. Only the inert declaration is hoisted, so branches and loop conditions retain source evaluation semantics. | `functions/test_lambda_capture_iife.btrc` |
+| 11 | Capturing lambda conversion to bare `__fn_ptr` | A direct inferred local retains its associated environment and is callable through the dedicated closure-local path. Every environment-erasing conversion—explicit storage, aliasing, return, argument, assignment, default/field, or recursively nested collection literal—is rejected once at its source site. Direct `spawn(lambda)` and capturing IIFEs keep dedicated environment-aware lowerings; the self-hosted compiler also fails closed at unsafe IR boundaries. | `python/test_analyzer_lambda_contracts.py`, `functions/test_lambda_capture_local.btrc` |
+| 12 | Self-hosted `@gpu` lowering | `btrcc` now registers typed kernel/buffer/uniform IR, emits collision-safe checked WGSL, builds host dispatch/setup/readback/cleanup as structured C IR, prunes unreachable shaders, and provides per-invocation CPU fallbacks for void and array-output kernels. Checked bounds/arithmetic status is read before user data; post-submit transfer failures fail closed, while pre-submit failures use the CPU worker. The native compute context is acquired through an atomic process singleton. | `btrc/test_gpu_boundary.py`, `btrc/fixtures/gpu_checked_semantics.btrc`, `btrc/fixtures/gpu_compound_semantics.btrc` |
+
+Single-dimensional top-level fixed arrays are also represented by typed
+`IRGlobalDecl` nodes and covered by `basics/test_global_fixed_array.btrc`.

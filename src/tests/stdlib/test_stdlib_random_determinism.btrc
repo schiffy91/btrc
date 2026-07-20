@@ -1,8 +1,6 @@
 /* Random determinism: re-seeding with the same value reproduces the sequence.
- * NOTE: rand() is a single process-global PRNG, so two Random objects do NOT
- * give independent streams — determinism is verified by seed -> collect ->
- * re-seed -> collect, comparing the two runs. Also exercises the seeded gate
- * (seed() sets seeded=true so the first call skips seedTime()). */
+ * Each Random owns an independent PCG stream, and seed() sets the seeded gate
+ * so the first generated value skips seedTime(). */
 #include <assert.h>
 #include "../../stdlib/random.btrc"
 
@@ -20,8 +18,8 @@ int main() {
         assert(v >= 0 && v <= 1000);
     }
 
-    // A different seed gives a (very likely) different first value, proving the
-    // seed actually drives the stream rather than being ignored.
+    // These distinct seeds produce distinct first values in the fixed PCG
+    // stream, proving the seed drives the sequence rather than being ignored.
     rng.seed(7);
     int firstAt7 = rng.randint(0, 1000000);
     rng.seed(8);
@@ -36,7 +34,7 @@ int main() {
     for i in range(10) {
         float r = rng.random();
         assert(r == floats.get(i));
-        assert(r >= 0.0f && r <= 1.0f);
+        assert(r >= 0.0f && r < 1.0f);
     }
 
     // uniform(): same seed reproduces, and stays in range.

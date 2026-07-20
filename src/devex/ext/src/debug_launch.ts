@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { PythonSupportProbe, supportsBtrcPython } from './python_runtime';
 
 /**
  * Locate the btrc debug adapter entry script (btrc_dap.py).
@@ -35,11 +36,19 @@ export interface BtrcpyResolution {
  * Prefers the project's `bin/btrcpy` wrapper, then `python -m
  * src.compiler.python.main` from a source checkout.
  */
-export function findBtrcpy(
+export async function findBtrcpy(
     workspaceRoot: string | undefined,
     pythonPath: string,
     extensionPath?: string,
-): BtrcpyResolution | undefined {
+    supportsPython: PythonSupportProbe = supportsBtrcPython,
+    signal?: AbortSignal,
+): Promise<BtrcpyResolution | undefined> {
+    if (signal?.aborted) { return undefined; }
+    let pythonSupport: Promise<boolean> | undefined;
+    const pythonIsSupported = () => {
+        pythonSupport ??= supportsPython(pythonPath, signal);
+        return pythonSupport;
+    };
     if (workspaceRoot) {
         const wrapper = path.join(workspaceRoot, 'bin', 'btrcpy');
         if (fs.existsSync(wrapper)) {
@@ -47,17 +56,23 @@ export function findBtrcpy(
         }
         const mainPy = path.join(workspaceRoot, 'src', 'compiler', 'python', 'main.py');
         if (fs.existsSync(mainPy)) {
-            return { cmd: [pythonPath, '-m', 'src.compiler.python.main'], cwd: workspaceRoot };
+            if (await pythonIsSupported()) {
+                return { cmd: [pythonPath, '-m', 'src.compiler.python.main'], cwd: workspaceRoot };
+            }
+            if (signal?.aborted) { return undefined; }
         }
     }
     // Fallback: the compiler payload bundled alongside the language server.
     if (extensionPath) {
         const bundled = path.join(extensionPath, 'server', 'src', 'compiler', 'python', 'main.py');
         if (fs.existsSync(bundled)) {
-            return {
-                cmd: [pythonPath, '-m', 'src.compiler.python.main'],
-                cwd: path.join(extensionPath, 'server'),
-            };
+            if (await pythonIsSupported()) {
+                return {
+                    cmd: [pythonPath, '-m', 'src.compiler.python.main'],
+                    cwd: path.join(extensionPath, 'server'),
+                };
+            }
+            if (signal?.aborted) { return undefined; }
         }
     }
     return undefined;

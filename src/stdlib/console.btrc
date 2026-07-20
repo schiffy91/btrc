@@ -9,18 +9,18 @@
 
 class Console {
     class void log(string msg) {
-        printf("%s\n", msg);
+        printf("%s\n", __btrc_string_or_empty(msg));
     }
 
     class void error(string msg) {
-        fprintf(stderr, "%s\n", msg);
+        fprintf(stderr, "%s\n", __btrc_string_or_empty(msg));
     }
 
     class void write(string msg) {
-        printf("%s", msg);
+        printf("%s", __btrc_string_or_empty(msg));
     }
 
     class void writeLine(string msg) {
-        printf("%s\n", msg);
+        printf("%s\n", __btrc_string_or_empty(msg));
     }
 }

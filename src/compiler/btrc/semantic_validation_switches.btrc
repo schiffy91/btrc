@@ -1,0 +1,62 @@
+/* Strict-C integral subject and constant case-label contracts. */
+
+bool semanticKnownSwitchValue(
+        Vector<long long> values, long long candidate) {
+    int index = 0;
+    while (index < values.len) {
+        if (values.get(index) == candidate) { return true; }
+        index = index + 1;
+    }
+    return false;
+}
+
+void semanticValidateSwitchContracts(Node statement,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node? subjectType = semanticInferType(
+        statement.value_node, state, vars);
+    if (subjectType != null
+            && !semanticIntegralType(subjectType, state.analyzed)) {
+        semanticValidationFail("Switch subject must be integral, got '"
+            + semanticFormatType(subjectType) + "'", statement);
+    }
+    Map<string, bool> unrestricted = {};
+    Vector<long long> knownValues = [];
+    int defaults = 0;
+    int index = 0;
+    while (index < statement.cases.len) {
+        Node clause = statement.cases.get(index);
+        if (clause.value_node == null) {
+            defaults = defaults + 1;
+        } else {
+            Node? caseType = semanticInferType(
+                clause.value_node, state, vars);
+            if (caseType != null
+                    && !semanticIntegralType(caseType, state.analyzed)) {
+                semanticValidationFail(
+                    "Switch case must be integral, got '"
+                        + semanticFormatType(caseType) + "'",
+                    clause.value_node);
+            }
+            SemanticIntegerConstant constant = semanticIntegerConstant(
+                clause.value_node, state, false, "", unrestricted);
+            if (!constant.valid) {
+                semanticValidationFail(
+                    "Switch case requires an integral constant expression",
+                    clause.value_node);
+            }
+            if (constant.known) {
+                if (semanticKnownSwitchValue(
+                        knownValues, constant.value)) {
+                    semanticValidationFail("Duplicate switch case value",
+                        clause.value_node);
+                }
+                knownValues.push(constant.value);
+            }
+        }
+        index = index + 1;
+    }
+    if (defaults > 1) {
+        semanticValidationFail(
+            "Switch cannot contain more than one default case", statement);
+    }
+}

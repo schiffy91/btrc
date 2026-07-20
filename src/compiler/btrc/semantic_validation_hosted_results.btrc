@@ -1,0 +1,104 @@
+/* Managed-string storage contracts for hosted raw pointer results. */
+
+bool semanticHostedAliasArgumentIsNull(string name, Node call) {
+    int index = hostedAbiReturnAliasParameter(name);
+    if (index < 0 || index >= call.args.len) { return false; }
+    Node argument = call.args.get(index);
+    while (argument.kind == NK_CAST_EXPR) {
+        argument = argument.expr;
+    }
+    return argument.kind == NK_NULL_LITERAL
+        || (argument.kind == NK_IDENTIFIER && argument.name == "NULL");
+}
+
+string semanticHostedReturnEffectForCall(string name, Node call) {
+    if (semanticHostedAliasArgumentIsNull(name, call)) {
+        string conditional = hostedAbiReturnAliasNullEffect(name);
+        if (conditional != "") { return conditional; }
+    }
+    return hostedAbiReturnEffect(name);
+}
+
+string semanticHostedReturnDeallocatorForCall(string name, Node call) {
+    if (semanticHostedAliasArgumentIsNull(name, call)) {
+        string conditional = hostedAbiReturnAliasNullDeallocator(name);
+        if (conditional != "") { return conditional; }
+    }
+    return hostedAbiReturnDeallocator(name);
+}
+
+string semanticDirectHostedReturnEffect(Node? expression,
+        SemanticValidationState state) {
+    if (expression == null || expression.kind != NK_CALL_EXPR
+            || expression.callee == null
+            || expression.callee.kind != NK_IDENTIFIER
+            || !state.analyzed.hostedCallKeys.has(
+                astNodeKey(expression))) {
+        return "";
+    }
+    return semanticHostedReturnEffectForCall(
+        expression.callee.name, expression);
+}
+
+void semanticValidateManagedStringSource(Node? expected, Node? value,
+        string subject, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (expected == null || value == null) { return; }
+    Node? target = semanticResolveAliases(expected, state);
+    Node? actual = semanticResolveAliases(
+        semanticInferType(value, state, vars), state);
+    if (target == null || actual == null
+            || !isSemanticScalarString(target)
+            || !semanticIsCStringPointer(actual)) {
+        return;
+    }
+    string effect = semanticDirectHostedReturnEffect(value, state);
+    if (effect == "alias" || effect == "independent"
+            || (effect == "fresh"
+                && semanticHostedReturnDeallocatorForCall(
+                    value.callee.name, value) == "free")) {
+        return;
+    }
+    semanticValidationFail(subject
+        + " cannot implicitly convert raw 'char*' storage to managed "
+        + "'string' because its ownership is not proven; transfer fresh "
+        + "storage with __btrc_str_track() or make an explicit copy", value);
+}
+
+void semanticValidateSourceHelperConsumer(string name, int index,
+        Node argument, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (!hostedAbiSourceAdoptingHelper(name, index)) {
+        return;
+    }
+    if (semanticRawLifetimeUsesStaticString(argument, state, vars)) {
+        semanticValidationFail(name
+            + "() cannot adopt static string storage; pass fresh raw heap "
+            + "storage", argument);
+    }
+    Node? managed = semanticOpaqueManagedOrigin(argument, state, vars);
+    if (managed != null) {
+        semanticValidationFail(name
+            + "() cannot adopt an already-managed value of type '"
+            + semanticFormatType(managed)
+            + "'; pass fresh raw heap storage", argument);
+    }
+    Node producer = argument;
+    while (producer.kind == NK_CAST_EXPR) {
+        producer = producer.expr;
+    }
+    if (producer.kind != NK_CALL_EXPR || producer.callee == null
+            || producer.callee.kind != NK_IDENTIFIER
+            || !state.analyzed.hostedCallKeys.has(astNodeKey(producer))) {
+        return;
+    }
+    string producerName = producer.callee.name;
+    string effect = semanticHostedReturnEffectForCall(
+        producerName, producer);
+    string deallocator = semanticHostedReturnDeallocatorForCall(
+        producerName, producer);
+    if (effect == "fresh" && deallocator == "free") { return; }
+    semanticValidationFail(name + "() cannot adopt storage returned by "
+        + producerName + "() because it is not proven fresh "
+        + "free-compatible allocation", argument);
+}

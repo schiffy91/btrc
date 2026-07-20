@@ -1,0 +1,31 @@
+/* Unix conversions remain exact outside the signed 32-bit epoch range. */
+#include <assert.h>
+#include "../../stdlib/datetime.btrc"
+
+int main() {
+    DateTime rollover = DateTime.fromUnix(2147483648LL);
+    assert(rollover.year == 2038);
+    assert(rollover.month == 1 && rollover.day == 19);
+    assert(rollover.hour == 3 && rollover.minute == 14 && rollover.second == 8);
+    assert(rollover.toUnix() == 2147483648LL);
+
+    DateTime future = DateTime(2100, 1, 1, 0, 0, 0);
+    assert(future.toUnix() == 4102444800LL);
+    DateTime futureBack = DateTime.fromUnix(future.toUnix());
+    assert(futureBack.year == 2100 && futureBack.month == 1 && futureBack.day == 1);
+
+    DateTime past = DateTime.fromUnix(-2208988800LL);
+    assert(past.year == 1900 && past.month == 1 && past.day == 1);
+    assert(past.hour == 0 && past.minute == 0 && past.second == 0);
+    assert(past.toUnix() == -2208988800LL);
+
+    /* Negative non-day-aligned timestamps require floor division, not C's
+     * truncation toward zero. */
+    DateTime beforeEpoch = DateTime.fromUnix(-1LL);
+    assert(beforeEpoch.year == 1969 && beforeEpoch.month == 12 && beforeEpoch.day == 31);
+    assert(beforeEpoch.hour == 23 && beforeEpoch.minute == 59 && beforeEpoch.second == 59);
+    assert(beforeEpoch.toUnix() == -1LL);
+
+    print("PASS: test_stdlib_datetime_wide_epoch");
+    return 0;
+}

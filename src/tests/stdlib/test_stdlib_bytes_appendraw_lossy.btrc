@@ -30,6 +30,13 @@ int main() {
     assert(empty.isEmpty());
     assert(empty.toStringLossy().equals(""));
 
+    /* An internal source pointer remains valid even when appending forces the
+     * backing allocation to grow. */
+    Bytes overlapping = Bytes.fromString("1234567");
+    overlapping.appendRaw(overlapping.data + 1, 6);
+    assert(overlapping.length() == 13);
+    assert(overlapping.toStringLossy().equals("1234567234567"));
+
     print("PASS: test_stdlib_bytes_appendraw_lossy");
     return 0;
 }

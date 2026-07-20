@@ -1,6 +1,6 @@
 #include <assert.h>
 
-// Rich enum whose variant payload is a class-pointer; read fields of the
+// Rich enum whose variant payload is a class reference; read fields of the
 // payload object through the union (nested member-access type inference).
 class Point {
     public int x;
@@ -12,7 +12,7 @@ class Point {
 }
 
 enum class Shape {
-    At(Point* p),
+    At(Point p),
     Origin
 }
 

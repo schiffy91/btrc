@@ -1,0 +1,157 @@
+#include <assert.h>
+
+int genericCForAlive = 0;
+int genericCForDrops = 0;
+
+class GenericCForItem<T> {
+    public int id;
+    public int step;
+
+    public GenericCForItem(int id) {
+        self.id = id;
+        self.step = 0;
+        genericCForAlive++;
+    }
+
+    public void __del__() {
+        genericCForAlive--;
+        genericCForDrops++;
+    }
+}
+
+class GenericCForHarness<T> {
+    public void zeroExit() {
+        int before = genericCForDrops;
+        for (GenericCForItem<T> item = new GenericCForItem<T>(1); false;) {
+            assert(item != null);
+        }
+        assert(genericCForAlive == 0);
+        assert(genericCForDrops == before + 1);
+    }
+
+    public void normalExit() {
+        int before = genericCForDrops;
+        for (GenericCForItem<T> item = new GenericCForItem<T>(2);
+                item.step < 3; item.step++) {
+            assert(genericCForAlive == 1);
+        }
+        assert(genericCForAlive == 0);
+        assert(genericCForDrops == before + 1);
+    }
+
+    public void breakExit() {
+        int before = genericCForDrops;
+        for (GenericCForItem<T> item = new GenericCForItem<T>(3); true;) {
+            GenericCForItem<T> body = new GenericCForItem<T>(30);
+            assert(item.id == 3 && body.id == 30);
+            assert(genericCForAlive == 2);
+            break;
+        }
+        assert(genericCForAlive == 0);
+        assert(genericCForDrops == before + 2);
+    }
+
+    public void continueExit() {
+        int before = genericCForDrops;
+        for (GenericCForItem<T> item = new GenericCForItem<T>(4);
+                item.step < 3; item.step++) {
+            assert(genericCForAlive == 1);
+            GenericCForItem<T> body = new GenericCForItem<T>(40 + item.step);
+            assert(body != null && genericCForAlive == 2);
+            if (item.step < 2) {
+                continue;
+            }
+        }
+        assert(genericCForAlive == 0);
+        assert(genericCForDrops == before + 4);
+    }
+
+    public int earlyReturn() {
+        for (GenericCForItem<T> item = new GenericCForItem<T>(5); true;) {
+            GenericCForItem<T> body = new GenericCForItem<T>(50);
+            return item.id + body.id;
+        }
+        return -1;
+    }
+
+    public void throwingExit() {
+        for (GenericCForItem<T> item = new GenericCForItem<T>(6); true;) {
+            GenericCForItem<T> body = new GenericCForItem<T>(60);
+            assert(item.id == 6 && body.id == 60);
+            throw "generic C-for failure";
+        }
+    }
+
+    public void conditionalDelete(bool destroy) {
+        int before = genericCForDrops;
+        for (GenericCForItem<T> item = new GenericCForItem<T>(7); true;) {
+            if (destroy) {
+                delete item;
+            }
+            break;
+        }
+        assert(genericCForAlive == 0);
+        assert(genericCForDrops == before + 1);
+    }
+
+    public int deleteShadow() {
+        GenericCForItem<T> item = new GenericCForItem<T>(8);
+        int before = genericCForDrops;
+        for (GenericCForItem<T> item = new GenericCForItem<T>(80); true;) {
+            delete item;
+            assert(genericCForAlive == 1);
+            break;
+        }
+        assert(genericCForDrops == before + 1);
+        assert(item.id == 8);
+        return item.id;
+    }
+
+    public int typeNameShadow() {
+        GenericCForItem<T> GenericCForItem = new GenericCForItem<T>(9);
+        int before = genericCForDrops;
+        for (GenericCForItem<T> GenericCForItem = new GenericCForItem<T>(90);
+                false;) {
+            assert(GenericCForItem != null);
+        }
+        assert(genericCForAlive == 1);
+        assert(genericCForDrops == before + 1);
+        return GenericCForItem.id;
+    }
+}
+
+int main() {
+    GenericCForHarness<int> harness = new GenericCForHarness<int>();
+    harness.zeroExit();
+    harness.normalExit();
+    harness.breakExit();
+    harness.continueExit();
+
+    int before = genericCForDrops;
+    assert(harness.earlyReturn() == 55);
+    assert(genericCForAlive == 0 && genericCForDrops == before + 2);
+
+    before = genericCForDrops;
+    try {
+        harness.throwingExit();
+        assert(false);
+    } catch (string message) {
+        assert(message != null);
+    }
+    assert(genericCForAlive == 0 && genericCForDrops == before + 2);
+
+    harness.conditionalDelete(false);
+    harness.conditionalDelete(true);
+
+    before = genericCForDrops;
+    assert(harness.deleteShadow() == 8);
+    assert(genericCForAlive == 0 && genericCForDrops == before + 2);
+
+    before = genericCForDrops;
+    assert(harness.typeNameShadow() == 9);
+    assert(genericCForAlive == 0 && genericCForDrops == before + 2);
+
+    delete harness;
+    assert(genericCForAlive == 0);
+    return 0;
+}

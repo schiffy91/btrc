@@ -1,0 +1,56 @@
+#include <assert.h>
+
+class Box {
+    public int value;
+    public Box(int value) { self.value = value; }
+}
+
+int main() {
+    Box initial = new Box(0);
+    Mutex<Box> shared = Mutex(initial);
+    release initial;
+
+    Thread<int> firstWriter = spawn(() => {
+        for (int i = 1; i <= 1000; i++) {
+            Box next = new Box(i);
+            shared.set(next);
+            release next;
+        }
+        return 0;
+    });
+    Thread<int> secondWriter = spawn(() => {
+        for (int i = 1; i <= 1000; i++) {
+            Box next = new Box(i + 10000);
+            shared.set(next);
+            release next;
+        }
+        return 0;
+    });
+    Thread<int> firstReader = spawn(() => {
+        for (int i = 0; i < 2000; i++) {
+            Box snapshot = shared.get();
+            assert(snapshot.value >= 0);
+            release snapshot;
+        }
+        return 0;
+    });
+    Thread<int> secondReader = spawn(() => {
+        for (int i = 0; i < 2000; i++) {
+            Box snapshot = shared.get();
+            assert(snapshot.value >= 0);
+            release snapshot;
+        }
+        return 0;
+    });
+
+    firstWriter.join();
+    secondWriter.join();
+    firstReader.join();
+    secondReader.join();
+
+    Box final = shared.get();
+    assert(final.value > 0);
+    shared.destroy();
+    release final;
+    return 0;
+}

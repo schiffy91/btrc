@@ -4,8 +4,8 @@
  * IR is a fat tagged node: one IRNode with a `kind` tag (IRKind enum) plus the
  * union of every field any IR node needs. The emitter dispatches on `kind`.
  *
- * Only the subset needed for the pure-int --no-stdlib programs is modelled;
- * grow the enum + the constructors as the supported language grows.
+ * The schema covers the production self-hosted surface and grows alongside
+ * the Python IR; source expressions remain typed nodes through C emission.
  */
 
 enum IRKind {
@@ -13,7 +13,9 @@ enum IRKind {
     /* expressions */
     IRK_LITERAL,
     IRK_VAR,
+    IRK_FUNCTION_REF,
     IRK_BINOP,
+    IRK_COMMA_EXPR,
     IRK_UNARYOP,
     IRK_CALL,
     IRK_CAST,
@@ -23,9 +25,10 @@ enum IRKind {
     IRK_ADDRESS_OF,
     IRK_DEREF,
     IRK_SIZEOF,
-    IRK_RAW_EXPR,
+    IRK_INITIALIZER_LIST,
+    IRK_COMPOUND_LITERAL,
     IRK_STMT_EXPR,
-    IRK_TUPLE_LITERAL,
+    IRK_INVALID_EXPR,
     /* statements */
     IRK_VAR_DECL,
     IRK_ASSIGN,
@@ -38,7 +41,6 @@ enum IRKind {
     IRK_BREAK,
     IRK_CONTINUE,
     IRK_BLOCK,
-    IRK_RAW_C,
     IRK_SWITCH,
     IRK_CASE,
 };
@@ -46,10 +48,10 @@ enum IRKind {
 class IRNode {
     public int kind;
 
-    /* IRLiteral / IRRawExpr: literal C text */
+    /* IRLiteral: C literal text */
     public string text;
 
-    /* IRVar: name. IRCall: callee. IRBinOp/IRUnaryOp/IRAssign op handling */
+    /* IRVar/IRFunctionRef: name. IRCall: named callee. */
     public string name;
     public string callee;
     public string op;
@@ -59,13 +61,14 @@ class IRNode {
     public IRNode left;
     public IRNode right;
     public IRNode operand;
-    public IRNode expr;          /* IRCast/IRAddressOf/IRDeref/IRExprStmt operand */
+    public IRNode expr;          /* cast/address/deref/expr-stmt/call-callee operand */
     public IRNode obj;
     public IRNode index;
     public IRNode condition;
     public IRNode true_expr;
     public IRNode false_expr;
     public Vector<IRNode> args;
+    public Vector<string> field_names; /* IRCompoundLiteral designators */
 
     /* IRCast / IRSizeof */
     public string target_type;
@@ -76,7 +79,16 @@ class IRNode {
 
     /* statements */
     public string c_type;        /* IRVarDecl type text */
+    public bool is_array_decl;   /* IRVarDecl declarator carries [] */
+    public IRNode array_size;    /* optional local array/VLA bound */
     public bool is_volatile;     /* IRVarDecl: emit `volatile` (setjmp/longjmp rule) */
+    public bool is_static;       /* IRVarDecl storage class */
+    public bool is_extern;       /* IRVarDecl storage class */
+    public bool is_cycle_return_temp; /* Boundary-pass provenance marker. */
+    public bool falls_through;   /* IRCase: intentionally reaches next case. */
+    /* Typed unwind-slot identity shared by one declaration and its calls. */
+    public IRCleanupSlot cleanup_slot;
+    public string helper_ref;    /* Explicit runtime-helper edge on IRCall. */
     public IRNode init;          /* IRVarDecl initializer / IRFor init */
     public IRNode value;         /* IRReturn / IRAssign value */
     public IRNode target;        /* IRAssign target */
@@ -104,11 +116,20 @@ class IRNode {
         self.true_expr = null;
         self.false_expr = null;
         self.args = [];
+        self.field_names = [];
         self.target_type = "";
         self.field = "";
         self.arrow = false;
         self.c_type = "";
+        self.is_array_decl = false;
+        self.array_size = null;
         self.is_volatile = false;
+        self.is_static = false;
+        self.is_extern = false;
+        self.is_cycle_return_temp = false;
+        self.falls_through = false;
+        self.cleanup_slot = null;
+        self.helper_ref = "";
         self.init = null;
         self.value = null;
         self.target = null;
@@ -130,28 +151,36 @@ IRNode irLiteral(string text) {
     return n;
 }
 
-IRNode irRawExpr(string text) {
+IRNode irInitializerList(Vector<IRNode> elements) {
     IRNode n = IRNode();
-    n.kind = IRK_RAW_EXPR;
-    n.text = text;
+    n.kind = IRK_INITIALIZER_LIST;
+    n.args = elements;
     return n;
 }
 
-/* Tuple literal: a C compound literal `(mangled){._0 = a, ._1 = b, ...}`.
- * `text` holds the mangled struct name (btrc_Tuple_int_int), `args` the lowered
- * element expressions. Reusing `args` lets the DCE/helper walkers cover the
- * element subtrees for free. Mirrors expressions._lower_tuple. */
-IRNode irTupleLiteral(string mangled, Vector<IRNode> elems) {
+/* A typed C compound literal with named field initializers. `field_names` and
+ * `args` are parallel vectors so every initializer remains a traversable IR
+ * expression (mirrors Python IRCompoundLiteral.fields). */
+IRNode irCompoundLiteral(string c_type, Vector<string> field_names,
+        Vector<IRNode> values) {
     IRNode n = IRNode();
-    n.kind = IRK_TUPLE_LITERAL;
-    n.text = mangled;
-    n.args = elems;
+    n.kind = IRK_COMPOUND_LITERAL;
+    n.target_type = c_type;
+    n.field_names = field_names;
+    n.args = values;
     return n;
 }
 
 IRNode irVar(string name) {
     IRNode n = IRNode();
     n.kind = IRK_VAR;
+    n.name = name;
+    return n;
+}
+
+IRNode irFunctionRef(string name) {
+    IRNode n = IRNode();
+    n.kind = IRK_FUNCTION_REF;
     n.name = name;
     return n;
 }
@@ -178,6 +207,14 @@ IRNode irCall(string callee, Vector<IRNode> args) {
     IRNode n = IRNode();
     n.kind = IRK_CALL;
     n.callee = callee;
+    n.args = args;
+    return n;
+}
+
+IRNode irCallExpr(IRNode callee, Vector<IRNode> args) {
+    IRNode n = IRNode();
+    n.kind = IRK_CALL;
+    n.expr = callee;
     n.args = args;
     return n;
 }
@@ -230,10 +267,17 @@ IRNode irDeref(IRNode expr) {
     return n;
 }
 
-IRNode irSizeof(string operand_text) {
+IRNode irSizeofType(string operand_type) {
     IRNode n = IRNode();
     n.kind = IRK_SIZEOF;
-    n.target_type = operand_text;
+    n.target_type = operand_type;
+    return n;
+}
+
+IRNode irSizeofExpr(IRNode operand) {
+    IRNode n = IRNode();
+    n.kind = IRK_SIZEOF;
+    n.operand = operand;
     return n;
 }
 
@@ -243,6 +287,14 @@ IRNode irVarDecl(string c_type, string name, IRNode? init) {
     n.c_type = c_type;
     n.name = name;
     if (init != null) { n.init = init; }
+    return n;
+}
+
+IRNode irArrayVarDecl(string c_type, string name, IRNode? arraySize,
+        IRNode? init) {
+    IRNode n = irVarDecl(c_type, name, init);
+    n.is_array_decl = true;
+    if (arraySize != null) { n.array_size = arraySize; }
     return n;
 }
 
@@ -325,16 +377,6 @@ IRNode irBlock(Vector<IRNode> stmts) {
     return n;
 }
 
-/* IRRawC: a raw C statement (multi-line). The emitter writes each non-blank
- * line at the current indentation (mirrors emitter IRRawC). Used only for the
- * setjmp/longjmp try/catch boilerplate. */
-IRNode irRawC(string text) {
-    IRNode n = IRNode();
-    n.kind = IRK_RAW_C;
-    n.text = text;
-    return n;
-}
-
 /* IRSwitch: `value` is the switch expression; `args` holds the IRCase nodes
  * (mirrors IRSwitch.value/cases). */
 IRNode irSwitch(IRNode value, Vector<IRNode> cases) {
@@ -347,7 +389,7 @@ IRNode irSwitch(IRNode value, Vector<IRNode> cases) {
 
 /* IRCase: one switch case. `value` is the case label expression (null = the
  * `default:` clause); `stmts` is the case body (mirrors IRCase.value/body). */
-IRNode irCase(IRNode? value, Vector<IRNode> body) {
+IRNode irCase(IRNode? value, Vector<IRNode> body, bool fallsThrough) {
     IRNode n = IRNode();
     n.kind = IRK_CASE;
     /* Guard the field store: btrcpy's ARC emits `value->__rc++` on the
@@ -355,6 +397,7 @@ IRNode irCase(IRNode? value, Vector<IRNode> body) {
      * Leaving the field at its constructor default (null) skips that. */
     if (value != null) { n.value = value; }
     n.stmts = body;
+    n.falls_through = fallsThrough;
     return n;
 }
 
@@ -369,14 +412,35 @@ IRNode irStmtExpr(Vector<IRNode> stmts, IRNode result) {
     return n;
 }
 
+/* A standard-C comma expression. Every child is evaluated left-to-right and
+ * the final child is the value of the whole expression. */
+IRNode irCommaExpr(Vector<IRNode> expressions) {
+    IRNode n = IRNode();
+    n.kind = IRK_COMMA_EXPR;
+    n.args = expressions;
+    return n;
+}
+
+/* A deferred typed-operator diagnostic. Generic instances initially contain
+ * every method; function DCE may remove an unreachable invalid specialization.
+ * If the expression survives, the emitter reports its diagnostic and stops. */
+IRNode irInvalidExpr(string message) {
+    IRNode n = IRNode();
+    n.kind = IRK_INVALID_EXPR;
+    n.text = message;
+    return n;
+}
+
 /* --- IR top-level entities (functions + module) --- */
 
 class IRParam {
     public string c_type;
     public string name;
+    public bool is_volatile;
     public IRParam(string c_type, string name) {
         self.c_type = c_type;
         self.name = name;
+        self.is_volatile = false;
     }
 }
 
@@ -384,9 +448,11 @@ class IRParam {
 class IRStructField {
     public string c_type;
     public string name;
+    public IRNode array_size;
     public IRStructField(string c_type, string name) {
         self.c_type = c_type;
         self.name = name;
+        self.array_size = null;
     }
 }
 
@@ -394,9 +460,61 @@ class IRStructField {
 class IRStructDef {
     public string name;
     public Vector<IRStructField> fields;
+    /* Zero means natural alignment; otherwise one supported pragma-pack
+     * alignment that must wrap this exact declaration during emission. */
+    public int pack_alignment;
     public IRStructDef() {
         self.name = "";
         self.fields = [];
+        self.pack_alignment = 0;
+    }
+}
+
+class IRTypedefDef {
+    public string target_type;
+    public string name;
+    public IRTypedefDef(string target_type, string name) {
+        self.target_type = target_type;
+        self.name = name;
+    }
+}
+
+class IRTaggedUnionVariant {
+    public string name;
+    public Vector<IRStructField> fields;
+    public IRTaggedUnionVariant(string name) {
+        self.name = name;
+        self.fields = [];
+    }
+}
+
+class IRTaggedUnionDef {
+    public string name;
+    public string tag_type;
+    public Vector<IRTaggedUnionVariant> variants;
+    public IRTaggedUnionDef(string name, string tag_type) {
+        self.name = name;
+        self.tag_type = tag_type;
+        self.variants = [];
+    }
+}
+
+class IRGlobalDecl {
+    public string c_type;
+    public string name;
+    public IRNode init;
+    public IRNode array_size;
+    public bool is_static;
+    public bool is_extern;
+    public bool is_volatile;
+    public IRGlobalDecl(string c_type, string name) {
+        self.c_type = c_type;
+        self.name = name;
+        self.init = null;
+        self.array_size = null;
+        self.is_static = true;
+        self.is_extern = false;
+        self.is_volatile = false;
     }
 }
 
@@ -406,6 +524,7 @@ class IRFunction {
     public Vector<IRParam> params;
     public IRNode body;      /* IRBlock, or null for a forward-only decl */
     public bool is_static;
+    public bool archive_export;
 
     public IRFunction() {
         self.name = "";
@@ -413,45 +532,111 @@ class IRFunction {
         self.params = [];
         self.body = null;
         self.is_static = false;
+        self.archive_export = false;
     }
 }
 
-class IRModule {
-    public Vector<string> includes;
-    /* Pre-rendered `typedef enum {...} Name;` blocks, emitted BEFORE forward
-     * decls (mirrors module.enum_defs / emitter._emit_enum_def). Functions and
-     * function-pointer typedefs may reference an enum type by name, so the enum
-     * typedef must be declared first. */
-    public Vector<string> enum_defs;
-    public Vector<string> forward_decls;
-    public Vector<IRStructDef> struct_defs;
-    public Vector<IRFunction> functions;
-    /* Pre-rendered C text blocks emitted after struct defs and before functions
-     * (mirrors module.raw_sections): generic _Generic macros and generic-method
-     * forward-declaration blocks. */
-    public Vector<string> raw_sections;
-    /* Ordered, deduplicated runtime-helper C source blocks (post-DCE: only the
-     * ones actually referenced are present). Mirrors module.helper_decls. */
-    public Vector<string> helpers;
-
-    public IRModule() {
-        self.includes = [];
-        self.enum_defs = [];
-        self.forward_decls = [];
-        self.struct_defs = [];
-        self.functions = [];
-        self.raw_sections = [];
-        self.helpers = [];
-    }
-}
-
-/* Runtime-helper C source text (mirrors src/compiler/python/ir/helpers/*). Only
- * the int-subset helpers are modelled; grow as the language widens. Returns ""
- * for an unknown helper name. */
+/* Runtime-helper C source text (mirrors src/compiler/python/ir/helpers/*).
+ * Concrete helpers are modelled here; collection templates are instantiated by
+ * their generic lowering paths. Returns "" for an unknown helper name. */
 string helperSource(string name) {
+    if (cycleRuntimeHasHelper(name)) {
+        return cycleRuntimeHelperSource(name);
+    }
+    if (stringOwnershipRuntimeHasHelper(name)) {
+        return stringOwnershipRuntimeHelperSource(name);
+    }
+    if (trycatchRuntimeHasHelper(name)) {
+        return trycatchRuntimeHelperSource(name);
+    }
+    if (processRuntimeHasHelper(name)) {
+        return processRuntimeHelperSource(name);
+    }
+    if (threadRuntimeHasHelper(name)) {
+        return threadRuntimeHelperSource(name);
+    }
+    if (name == "__btrc_div") {
+        return "static inline int __btrc_div_g_int(int a, int b) {\n"
+            + "    if (b == 0) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    if (a == INT_MIN && b == -1) { fprintf(stderr, \"Integer division overflow\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "static inline unsigned int __btrc_div_g_uint(unsigned int a, unsigned int b) {\n"
+            + "    if (b == 0U) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "static inline long __btrc_div_g_long(long a, long b) {\n"
+            + "    if (b == 0L) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    if (a == LONG_MIN && b == -1L) { fprintf(stderr, \"Integer division overflow\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "static inline unsigned long __btrc_div_g_ulong(unsigned long a, unsigned long b) {\n"
+            + "    if (b == 0UL) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "static inline long long __btrc_div_g_llong(long long a, long long b) {\n"
+            + "    if (b == 0LL) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    if (a == LLONG_MIN && b == -1LL) { fprintf(stderr, \"Integer division overflow\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "static inline unsigned long long __btrc_div_g_ullong(unsigned long long a, unsigned long long b) {\n"
+            + "    if (b == 0ULL) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "static inline float __btrc_div_g_float(float a, float b) {\n"
+            + "    if (b == 0.0F) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "static inline double __btrc_div_g_double(double a, double b) {\n"
+            + "    if (b == 0.0) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "static inline long double __btrc_div_g_ldouble(long double a, long double b) {\n"
+            + "    if (b == 0.0L) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    return a / b;\n}\n"
+            + "#define __btrc_div(a, b) (_Generic(((a) + (b)), \\\n"
+            + "    int: __btrc_div_g_int, unsigned int: __btrc_div_g_uint, \\\n"
+            + "    long: __btrc_div_g_long, unsigned long: __btrc_div_g_ulong, \\\n"
+            + "    long long: __btrc_div_g_llong, unsigned long long: __btrc_div_g_ullong, \\\n"
+            + "    float: __btrc_div_g_float, double: __btrc_div_g_double, \\\n"
+            + "    long double: __btrc_div_g_ldouble)((a), (b)))";
+    }
+    if (name == "__btrc_mod") {
+        return "static inline int __btrc_mod_g_int(int a, int b) {\n"
+            + "    if (b == 0) { fprintf(stderr, \"Modulo by zero\\n\"); exit(1); }\n"
+            + "    if (a == INT_MIN && b == -1) return 0;\n"
+            + "    return a % b;\n}\n"
+            + "static inline unsigned int __btrc_mod_g_uint(unsigned int a, unsigned int b) {\n"
+            + "    if (b == 0U) { fprintf(stderr, \"Modulo by zero\\n\"); exit(1); }\n"
+            + "    return a % b;\n}\n"
+            + "static inline long __btrc_mod_g_long(long a, long b) {\n"
+            + "    if (b == 0L) { fprintf(stderr, \"Modulo by zero\\n\"); exit(1); }\n"
+            + "    if (a == LONG_MIN && b == -1L) return 0L;\n"
+            + "    return a % b;\n}\n"
+            + "static inline unsigned long __btrc_mod_g_ulong(unsigned long a, unsigned long b) {\n"
+            + "    if (b == 0UL) { fprintf(stderr, \"Modulo by zero\\n\"); exit(1); }\n"
+            + "    return a % b;\n}\n"
+            + "static inline long long __btrc_mod_g_llong(long long a, long long b) {\n"
+            + "    if (b == 0LL) { fprintf(stderr, \"Modulo by zero\\n\"); exit(1); }\n"
+            + "    if (a == LLONG_MIN && b == -1LL) return 0LL;\n"
+            + "    return a % b;\n}\n"
+            + "static inline unsigned long long __btrc_mod_g_ullong(unsigned long long a, unsigned long long b) {\n"
+            + "    if (b == 0ULL) { fprintf(stderr, \"Modulo by zero\\n\"); exit(1); }\n"
+            + "    return a % b;\n}\n"
+            + "static inline int __btrc_mod_g_real(long double a, long double b) {\n"
+            + "    /* Converting a real to int is defined exactly when its truncated value is\n"
+            + "       representable.  Reject NaN/infinity and the two open boundary regions\n"
+            + "       before casting, without requiring hosted libm helpers. */\n"
+            + "    const long double lower = (long double)INT_MIN - 1.0L;\n"
+            + "    const long double upper = (long double)INT_MAX + 1.0L;\n"
+            + "    if (a != a || b != b || a <= lower || a >= upper\n"
+            + "            || b <= lower || b >= upper) {\n"
+            + "        fprintf(stderr, \"Floating modulo conversion out of range\\n\"); exit(1);\n"
+            + "    }\n"
+            + "    return __btrc_mod_g_int((int)a, (int)b);\n}\n"
+            + "#define __btrc_mod(a, b) (_Generic(((a) + (b)), \\\n"
+            + "    int: __btrc_mod_g_int, unsigned int: __btrc_mod_g_uint, \\\n"
+            + "    long: __btrc_mod_g_long, unsigned long: __btrc_mod_g_ulong, \\\n"
+            + "    long long: __btrc_mod_g_llong, unsigned long long: __btrc_mod_g_ullong, \\\n"
+            + "    float: __btrc_mod_g_real, double: __btrc_mod_g_real, \\\n"
+            + "    long double: __btrc_mod_g_real)((a), (b)))";
+    }
     if (name == "__btrc_div_int") {
         return "static inline int __btrc_div_int(int a, int b) {\n"
             + "    if (b == 0) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n"
+            + "    if (a == INT_MIN && b == -1) { fprintf(stderr, \"Integer division overflow\\n\"); exit(1); }\n"
             + "    return a / b;\n"
             + "}";
     }
@@ -464,6 +649,7 @@ string helperSource(string name) {
     if (name == "__btrc_mod_int") {
         return "static inline int __btrc_mod_int(int a, int b) {\n"
             + "    if (b == 0) { fprintf(stderr, \"Modulo by zero\\n\"); exit(1); }\n"
+            + "    if (a == INT_MIN && b == -1) return 0;\n"
             + "    return a % b;\n"
             + "}";
     }
@@ -471,7 +657,9 @@ string helperSource(string name) {
     if (name == "__btrc_strdup") {
         return "static inline char* __btrc_strdup(const char* s) {\n"
             + "    if (!s) return NULL;\n"
-            + "    size_t len = strlen(s) + 1;\n"
+            + "    size_t len = strlen(s);\n"
+            + "    if (len == SIZE_MAX) { fprintf(stderr, \"btrc: strdup size overflow\\n\"); exit(1); }\n"
+            + "    len++;\n"
             + "    char* copy = (char*)malloc(len);\n"
             + "    if (!copy) { fprintf(stderr, \"btrc: out of memory (strdup %zu bytes)\\n\", len); exit(1); }\n"
             + "    memcpy(copy, s, len);\n"
@@ -480,129 +668,201 @@ string helperSource(string name) {
     }
     if (name == "__btrc_safe_realloc") {
         return "static inline void* __btrc_safe_realloc(void* ptr, size_t size) {\n"
+            + "    if (size == 0) { free(ptr); return NULL; }\n"
             + "    void* result = realloc(ptr, size);\n"
-            + "    if (!result && size > 0) { fprintf(stderr, \"btrc: out of memory (realloc %zu bytes)\\n\", size); exit(1); }\n"
+            + "    if (!result) { fprintf(stderr, \"btrc: out of memory (realloc %zu bytes)\\n\", size); exit(1); }\n"
             + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_safe_calloc") {
         return "static inline void* __btrc_safe_calloc(size_t count, size_t size) {\n"
+            + "    if (size != 0 && count > SIZE_MAX / size) { fprintf(stderr, \"btrc: calloc size overflow\\n\"); exit(1); }\n"
             + "    void* result = calloc(count, size);\n"
-            + "    if (!result && count > 0) { fprintf(stderr, \"btrc: out of memory (calloc %zu bytes)\\n\", count * size); exit(1); }\n"
+            + "    if (!result && count != 0 && size != 0) { fprintf(stderr, \"btrc: out of memory (calloc %zu bytes)\\n\", count * size); exit(1); }\n"
             + "    return result;\n"
             + "}";
     }
     /* --- string_pool category --- */
     if (name == "__btrc_str_pool_globals") {
-        return "/* btrc string temp pool (dynamic) */\n"
-            + "static int __btrc_str_pool_cap = 256;\n"
-            + "static char** __btrc_str_pool = NULL;\n"
-            + "static int __btrc_str_pool_top = 0;";
+        return "/* btrc string temp pool (dynamic, one pool per thread) */\n"
+            + "static _Thread_local size_t __btrc_str_pool_cap = 256;\n"
+            + "static _Thread_local char** __btrc_str_pool = NULL;\n"
+            + "static _Thread_local size_t __btrc_str_pool_top = 0;";
     }
     if (name == "__btrc_str_track") {
         return "static inline char* __btrc_str_track(char* s) {\n"
+            + "    if (!s) return NULL;\n"
             + "    if (!__btrc_str_pool) {\n"
-            + "        __btrc_str_pool = (char**)malloc(sizeof(char*) * __btrc_str_pool_cap);\n"
+            + "        if (__btrc_str_pool_cap > SIZE_MAX / sizeof(char*)) {\n"
+            + "            fprintf(stderr, \"btrc: string pool overflow\\n\"); exit(1);\n"
+            + "        }\n"
+            + "        __btrc_str_pool = (char**)__btrc_safe_realloc(\n"
+            + "            NULL, sizeof(char*) * __btrc_str_pool_cap);\n"
             + "    }\n"
             + "    if (__btrc_str_pool_top >= __btrc_str_pool_cap) {\n"
+            + "        if (__btrc_str_pool_cap > SIZE_MAX / 2\n"
+            + "                || __btrc_str_pool_cap * 2 > SIZE_MAX / sizeof(char*)) {\n"
+            + "            fprintf(stderr, \"btrc: string pool overflow\\n\"); exit(1);\n"
+            + "        }\n"
             + "        __btrc_str_pool_cap *= 2;\n"
-            + "        __btrc_str_pool = (char**)realloc(__btrc_str_pool, sizeof(char*) * __btrc_str_pool_cap);\n"
-            + "        if (!__btrc_str_pool) { fprintf(stderr, \"btrc: string pool OOM\\n\"); exit(1); }\n"
+            + "        __btrc_str_pool = (char**)__btrc_safe_realloc(\n"
+            + "            __btrc_str_pool, sizeof(char*) * __btrc_str_pool_cap);\n"
             + "    }\n"
             + "    __btrc_str_pool[__btrc_str_pool_top++] = s;\n"
             + "    return s;\n"
             + "}";
     }
+    if (name == "__btrc_str_flush") {
+        return "static inline void __btrc_str_flush(void) {\n"
+            + "    for (size_t i = 0; i < __btrc_str_pool_top; i++) {\n"
+            + "        free(__btrc_str_pool[i]);\n"
+            + "        __btrc_str_pool[i] = NULL;\n"
+            + "    }\n"
+            + "    __btrc_str_pool_top = 0;\n"
+            + "}";
+    }
+    /* --- string category shared primitives (STRING_COMMON) --- */
+    if (name == "__btrc_string_length") {
+        return "static inline int __btrc_string_length(const char* s) {\n"
+            + "    if (!s) return 0;\n"
+            + "    size_t length = strlen(s);\n"
+            + "    if (length > (size_t)INT_MAX) {\n"
+            + "        fprintf(stderr, \"btrc: string length overflow\\n\"); exit(1);\n"
+            + "    }\n"
+            + "    return (int)length;\n"
+            + "}";
+    }
+    if (name == "__btrc_string_alloc") {
+        return "static inline char* __btrc_string_alloc(int length) {\n"
+            + "    if (length < 0) {\n"
+            + "        fprintf(stderr, \"btrc: negative string allocation\\n\"); exit(1);\n"
+            + "    }\n"
+            + "    char* result = (char*)__btrc_safe_realloc(\n"
+            + "        NULL, (size_t)length + 1);\n"
+            + "    result[length] = '\\0';\n"
+            + "    return result;\n"
+            + "}";
+    }
+    if (name == "__btrc_ascii_upper") {
+        return "static inline char __btrc_ascii_upper(char value) {\n"
+            + "    unsigned char byte = (unsigned char)value;\n"
+            + "    return (byte >= 'a' && byte <= 'z') ? (char)(byte - 'a' + 'A') : value;\n"
+            + "}";
+    }
+    if (name == "__btrc_ascii_lower") {
+        return "static inline char __btrc_ascii_lower(char value) {\n"
+            + "    unsigned char byte = (unsigned char)value;\n"
+            + "    return (byte >= 'A' && byte <= 'Z') ? (char)(byte - 'A' + 'a') : value;\n"
+            + "}";
+    }
+    if (name == "__btrc_ascii_space") {
+        return "static inline bool __btrc_ascii_space(char value) {\n"
+            + "    unsigned char byte = (unsigned char)value;\n"
+            + "    return byte == ' ' || (byte >= '\\t' && byte <= '\\r');\n"
+            + "}";
+    }
     /* --- string category (STRING_OPS) --- */
     if (name == "__btrc_substring") {
         return "static inline char* __btrc_substring(const char* s, int start, int len) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int slen = (int)strlen(s);\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int slen = __btrc_string_length(s);\n"
             + "    if (start < 0) start = 0;\n"
             + "    if (start > slen) start = slen;\n"
-            + "    if (start + len > slen) len = slen - start;\n"
             + "    if (len < 0) len = 0;\n"
-            + "    char* result = (char*)malloc(len + 1);\n"
-            + "    strncpy(result, s + start, len);\n"
-            + "    result[len] = '\\0';\n"
+            + "    if (len > slen - start) len = slen - start;\n"
+            + "    char* result = __btrc_string_alloc(len);\n"
+            + "    memcpy(result, s + start, (size_t)len);\n"
             + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_trim") {
         return "static inline char* __btrc_trim(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    while (*s && isspace((unsigned char)*s)) s++;\n"
-            + "    if (*s == '\\0') { char* r = (char*)malloc(1); r[0]='\\0'; return r; }\n"
-            + "    const char* end = s + strlen(s) - 1;\n"
-            + "    while (end > s && isspace((unsigned char)*end)) end--;\n"
-            + "    int len = (int)(end - s + 1);\n"
-            + "    char* result = (char*)malloc(len + 1);\n"
-            + "    strncpy(result, s, len);\n"
-            + "    result[len] = '\\0';\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    int start = 0;\n"
+            + "    while (start < slen && __btrc_ascii_space(s[start])) start++;\n"
+            + "    int end = slen;\n"
+            + "    while (end > start && __btrc_ascii_space(s[end - 1])) end--;\n"
+            + "    int length = end - start;\n"
+            + "    char* result = __btrc_string_alloc(length);\n"
+            + "    memcpy(result, s + start, (size_t)length);\n"
             + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_toUpper") {
         return "static inline char* __btrc_toUpper(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    char* result = (char*)malloc(len + 1);\n"
-            + "    for (int i = 0; i < len; i++) result[i] = (char)toupper((unsigned char)s[i]);\n"
-            + "    result[len] = '\\0';\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    char* result = __btrc_string_alloc(len);\n"
+            + "    for (int i = 0; i < len; i++) result[i] = __btrc_ascii_upper(s[i]);\n"
             + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_toLower") {
         return "static inline char* __btrc_toLower(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    char* result = (char*)malloc(len + 1);\n"
-            + "    for (int i = 0; i < len; i++) result[i] = (char)tolower((unsigned char)s[i]);\n"
-            + "    result[len] = '\\0';\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    char* result = __btrc_string_alloc(len);\n"
+            + "    for (int i = 0; i < len; i++) result[i] = __btrc_ascii_lower(s[i]);\n"
             + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_replace") {
         return "static inline char* __btrc_replace(const char* s, const char* old, const char* rep) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
             + "    if (!old || !old[0]) return __btrc_strdup(s);\n"
             + "    if (!rep) rep = \"\";\n"
-            + "    int slen = (int)strlen(s);\n"
-            + "    int oldlen = (int)strlen(old);\n"
-            + "    int replen = (int)strlen(rep);\n"
-            + "    int cap = slen * 2 + 1;\n"
-            + "    char* result = (char*)malloc(cap);\n"
-            + "    int rlen = 0, i = 0;\n"
-            + "    while (i < slen) {\n"
-            + "        if (i + oldlen <= slen && strncmp(s + i, old, oldlen) == 0) {\n"
-            + "            while (rlen + replen >= cap) { cap *= 2; result = (char*)__btrc_safe_realloc(result, cap); }\n"
-            + "            memcpy(result + rlen, rep, replen);\n"
-            + "            rlen += replen; i += oldlen;\n"
-            + "        } else {\n"
-            + "            if (rlen + 1 >= cap) { cap *= 2; result = (char*)__btrc_safe_realloc(result, cap); }\n"
-            + "            result[rlen++] = s[i++];\n"
-            + "        }\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    int oldlen = __btrc_string_length(old);\n"
+            + "    int replen = __btrc_string_length(rep);\n"
+            + "    int matches = 0;\n"
+            + "    const char* scan = s;\n"
+            + "    while ((scan = strstr(scan, old)) != NULL) { matches++; scan += oldlen; }\n"
+            + "    long long total = (long long)slen\n"
+            + "        + (long long)matches * ((long long)replen - (long long)oldlen);\n"
+            + "    if (total < 0 || total > INT_MAX) {\n"
+            + "        fprintf(stderr, \"btrc: string replace overflow\\n\"); exit(1);\n"
             + "    }\n"
-            + "    result[rlen] = '\\0';\n"
+            + "    char* result = __btrc_string_alloc((int)total);\n"
+            + "    const char* input = s;\n"
+            + "    char* output = result;\n"
+            + "    const char* found;\n"
+            + "    while ((found = strstr(input, old)) != NULL) {\n"
+            + "        size_t prefix = (size_t)(found - input);\n"
+            + "        memcpy(output, input, prefix); output += prefix;\n"
+            + "        memcpy(output, rep, (size_t)replen); output += replen;\n"
+            + "        input = found + oldlen;\n"
+            + "    }\n"
+            + "    memcpy(output, input, strlen(input));\n"
             + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_split") {
         return "static inline char** __btrc_split(const char* s, const char* delim) {\n"
             + "    if (!s || !delim) { char** r = (char**)__btrc_safe_realloc(NULL, sizeof(char*)); r[0] = NULL; return r; }\n"
-            + "    int dlen = (int)strlen(delim);\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    int dlen = __btrc_string_length(delim);\n"
             + "    if (dlen == 0) { fprintf(stderr, \"Empty delimiter in split()\\n\"); exit(1); }\n"
             + "    int cap = 8;\n"
-            + "    char** result = (char**)__btrc_safe_realloc(NULL, sizeof(char*) * cap);\n"
+            + "    char** result = (char**)__btrc_safe_realloc(NULL, sizeof(char*) * (size_t)cap);\n"
             + "    int count = 0;\n"
             + "    const char* p = s;\n"
-            + "    while (*p) {\n"
+            + "    for (;;) {\n"
             + "        const char* found = strstr(p, delim);\n"
-            + "        int seglen = found ? (int)(found - p) : (int)strlen(p);\n"
-            + "        if (count + 2 > cap) { cap *= 2; result = (char**)__btrc_safe_realloc(result, sizeof(char*) * cap); }\n"
-            + "        result[count] = (char*)__btrc_safe_realloc(NULL, seglen + 1);\n"
-            + "        memcpy(result[count], p, seglen);\n"
-            + "        result[count][seglen] = '\\0';\n"
+            + "        int offset = (int)(p - s);\n"
+            + "        int seglen = found ? (int)(found - p) : slen - offset;\n"
+            + "        if (count > INT_MAX - 2) { fprintf(stderr, \"btrc: split result overflow\\n\"); exit(1); }\n"
+            + "        if (count + 2 > cap) {\n"
+            + "            if (cap > INT_MAX / 2\n"
+            + "                    || (size_t)(cap * 2) > SIZE_MAX / sizeof(char*)) {\n"
+            + "                fprintf(stderr, \"btrc: split result overflow\\n\"); exit(1);\n"
+            + "            }\n"
+            + "            cap *= 2;\n"
+            + "            result = (char**)__btrc_safe_realloc(\n"
+            + "                result, sizeof(char*) * (size_t)cap);\n"
+            + "        }\n"
+            + "        result[count] = __btrc_string_alloc(seglen);\n"
+            + "        memcpy(result[count], p, (size_t)seglen);\n"
             + "        count++;\n"
             + "        if (!found) break;\n"
             + "        p = found + dlen;\n"
@@ -613,211 +873,224 @@ string helperSource(string name) {
     }
     if (name == "__btrc_repeat") {
         return "static inline char* __btrc_repeat(const char* s, int count) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    if (count < 0) { fprintf(stderr, \"repeat count must be non-negative\\n\"); exit(1); }\n"
-            + "    if (count == 0) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int slen = (int)strlen(s);\n"
-            + "    if (slen > 0 && count > (INT_MAX - 1) / slen) {\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    if (count <= 0) return __btrc_string_alloc(0);\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    if (slen == 0) return __btrc_string_alloc(0);\n"
+            + "    if (slen > 0 && count > INT_MAX / slen) {\n"
             + "        fprintf(stderr, \"btrc: string repeat overflow\\n\"); exit(1);\n"
             + "    }\n"
-            + "    char* result = (char*)malloc((size_t)slen * count + 1);\n"
-            + "    for (int i = 0; i < count; i++) memcpy(result + i * slen, s, slen);\n"
-            + "    result[slen * count] = '\\0';\n"
+            + "    int total = slen * count;\n"
+            + "    char* result = __btrc_string_alloc(total);\n"
+            + "    for (int i = 0; i < count; i++)\n"
+            + "        memcpy(result + (size_t)i * (size_t)slen, s, (size_t)slen);\n"
             + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_reverse") {
         return "static inline char* __btrc_reverse(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    char* r = (char*)malloc(len + 1);\n"
-            + "    for (int i = 0; i < len; i++) r[i] = s[len - 1 - i];\n"
-            + "    r[len] = '\\0';\n"
-            + "    return r;\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    char* result = __btrc_string_alloc(len);\n"
+            + "    for (int i = 0; i < len; i++) result[i] = s[len - 1 - i];\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_removePrefix") {
         return "static inline char* __btrc_removePrefix(const char* s, const char* prefix) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
             + "    if (!prefix) return __btrc_strdup(s);\n"
-            + "    int plen = (int)strlen(prefix);\n"
-            + "    if (strncmp(s, prefix, plen) == 0) {\n"
-            + "        int rlen = (int)strlen(s) - plen;\n"
-            + "        char* r = (char*)malloc(rlen + 1);\n"
-            + "        memcpy(r, s + plen, rlen + 1);\n"
-            + "        return r;\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    int plen = __btrc_string_length(prefix);\n"
+            + "    if (plen <= slen && memcmp(s, prefix, (size_t)plen) == 0) {\n"
+            + "        int length = slen - plen;\n"
+            + "        char* result = __btrc_string_alloc(length);\n"
+            + "        memcpy(result, s + plen, (size_t)length);\n"
+            + "        return result;\n"
             + "    }\n"
             + "    return __btrc_strdup(s);\n"
             + "}";
     }
     if (name == "__btrc_removeSuffix") {
         return "static inline char* __btrc_removeSuffix(const char* s, const char* suffix) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
             + "    if (!suffix) return __btrc_strdup(s);\n"
-            + "    int slen = (int)strlen(s);\n"
-            + "    int suflen = (int)strlen(suffix);\n"
-            + "    if (slen >= suflen && strcmp(s + slen - suflen, suffix) == 0) {\n"
-            + "        int rlen = slen - suflen;\n"
-            + "        char* r = (char*)malloc(rlen + 1);\n"
-            + "        memcpy(r, s, rlen);\n"
-            + "        r[rlen] = '\\0';\n"
-            + "        return r;\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    int suflen = __btrc_string_length(suffix);\n"
+            + "    if (suflen <= slen\n"
+            + "            && memcmp(s + slen - suflen, suffix, (size_t)suflen) == 0) {\n"
+            + "        int length = slen - suflen;\n"
+            + "        char* result = __btrc_string_alloc(length);\n"
+            + "        memcpy(result, s, (size_t)length);\n"
+            + "        return result;\n"
             + "    }\n"
             + "    return __btrc_strdup(s);\n"
             + "}";
     }
     if (name == "__btrc_capitalize") {
         return "static inline char* __btrc_capitalize(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    char* r = (char*)malloc(len + 1);\n"
-            + "    for (int i = 0; i < len; i++) r[i] = tolower((unsigned char)s[i]);\n"
-            + "    if (len > 0) r[0] = toupper((unsigned char)r[0]);\n"
-            + "    r[len] = '\\0';\n"
-            + "    return r;\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    char* result = __btrc_string_alloc(len);\n"
+            + "    for (int i = 0; i < len; i++) result[i] = __btrc_ascii_lower(s[i]);\n"
+            + "    if (len > 0) result[0] = __btrc_ascii_upper(result[0]);\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_title") {
         return "static inline char* __btrc_title(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    char* r = (char*)malloc(len + 1);\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    char* result = __btrc_string_alloc(len);\n"
             + "    int cap_next = 1;\n"
             + "    for (int i = 0; i < len; i++) {\n"
-            + "        if (isspace((unsigned char)s[i])) { r[i] = s[i]; cap_next = 1; }\n"
-            + "        else if (cap_next) { r[i] = toupper((unsigned char)s[i]); cap_next = 0; }\n"
-            + "        else { r[i] = tolower((unsigned char)s[i]); }\n"
+            + "        if (__btrc_ascii_space(s[i])) { result[i] = s[i]; cap_next = 1; }\n"
+            + "        else if (cap_next) { result[i] = __btrc_ascii_upper(s[i]); cap_next = 0; }\n"
+            + "        else { result[i] = __btrc_ascii_lower(s[i]); }\n"
             + "    }\n"
-            + "    r[len] = '\\0';\n"
-            + "    return r;\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_swapCase") {
         return "static inline char* __btrc_swapCase(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    char* r = (char*)malloc(len + 1);\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    char* result = __btrc_string_alloc(len);\n"
             + "    for (int i = 0; i < len; i++) {\n"
-            + "        if (isupper((unsigned char)s[i])) r[i] = tolower((unsigned char)s[i]);\n"
-            + "        else if (islower((unsigned char)s[i])) r[i] = toupper((unsigned char)s[i]);\n"
-            + "        else r[i] = s[i];\n"
+            + "        unsigned char byte = (unsigned char)s[i];\n"
+            + "        if (byte >= 'A' && byte <= 'Z') result[i] = __btrc_ascii_lower(s[i]);\n"
+            + "        else if (byte >= 'a' && byte <= 'z') result[i] = __btrc_ascii_upper(s[i]);\n"
+            + "        else result[i] = s[i];\n"
             + "    }\n"
-            + "    r[len] = '\\0';\n"
-            + "    return r;\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_padLeft") {
         return "static inline char* __btrc_padLeft(const char* s, int width, char fill) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    if (len >= width) { char* r = (char*)malloc(len + 1); memcpy(r, s, len); r[len] = '\\0'; return r; }\n"
-            + "    char* r = (char*)malloc(width + 1);\n"
-            + "    int pad = width - len;\n"
-            + "    memset(r, fill, pad);\n"
-            + "    memcpy(r + pad, s, len);\n"
-            + "    r[width] = '\\0';\n"
-            + "    return r;\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    int result_len = len >= width ? len : width;\n"
+            + "    char* result = __btrc_string_alloc(result_len);\n"
+            + "    int pad = result_len - len;\n"
+            + "    memset(result, (unsigned char)fill, (size_t)pad);\n"
+            + "    memcpy(result + pad, s, (size_t)len);\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_padRight") {
         return "static inline char* __btrc_padRight(const char* s, int width, char fill) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    if (len >= width) { char* r = (char*)malloc(len + 1); memcpy(r, s, len); r[len] = '\\0'; return r; }\n"
-            + "    char* r = (char*)malloc(width + 1);\n"
-            + "    memcpy(r, s, len);\n"
-            + "    memset(r + len, fill, width - len);\n"
-            + "    r[width] = '\\0';\n"
-            + "    return r;\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    int result_len = len >= width ? len : width;\n"
+            + "    char* result = __btrc_string_alloc(result_len);\n"
+            + "    memcpy(result, s, (size_t)len);\n"
+            + "    memset(result + len, (unsigned char)fill, (size_t)(result_len - len));\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_center") {
         return "static inline char* __btrc_center(const char* s, int width, char fill) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    if (len >= width) { char* r = (char*)malloc(len + 1); memcpy(r, s, len); r[len] = '\\0'; return r; }\n"
-            + "    char* r = (char*)malloc(width + 1);\n"
-            + "    int left = (width - len) / 2;\n"
-            + "    int right = width - len - left;\n"
-            + "    memset(r, fill, left);\n"
-            + "    memcpy(r + left, s, len);\n"
-            + "    memset(r + left + len, fill, right);\n"
-            + "    r[width] = '\\0';\n"
-            + "    return r;\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    int result_len = len >= width ? len : width;\n"
+            + "    char* result = __btrc_string_alloc(result_len);\n"
+            + "    int left = (result_len - len) / 2;\n"
+            + "    int right = result_len - len - left;\n"
+            + "    memset(result, (unsigned char)fill, (size_t)left);\n"
+            + "    memcpy(result + left, s, (size_t)len);\n"
+            + "    memset(result + left + len, (unsigned char)fill, (size_t)right);\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_lstrip") {
         return "static inline char* __btrc_lstrip(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    while (*s && isspace((unsigned char)*s)) s++;\n"
-            + "    char* r = (char*)malloc(strlen(s) + 1);\n"
-            + "    { int __n = (int)strlen(s); memcpy(r, s, __n); r[__n] = '\\0'; }\n"
-            + "    return r;\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    int start = 0;\n"
+            + "    while (start < len && __btrc_ascii_space(s[start])) start++;\n"
+            + "    int result_len = len - start;\n"
+            + "    char* result = __btrc_string_alloc(result_len);\n"
+            + "    memcpy(result, s + start, (size_t)result_len);\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_rstrip") {
         return "static inline char* __btrc_rstrip(const char* s) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    while (len > 0 && isspace((unsigned char)s[len - 1])) len--;\n"
-            + "    char* r = (char*)malloc(len + 1);\n"
-            + "    memcpy(r, s, len);\n"
-            + "    r[len] = '\\0';\n"
-            + "    return r;\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    while (len > 0 && __btrc_ascii_space(s[len - 1])) len--;\n"
+            + "    char* result = __btrc_string_alloc(len);\n"
+            + "    memcpy(result, s, (size_t)len);\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_zfill") {
         return "static inline char* __btrc_zfill(const char* s, int width) {\n"
-            + "    if (!s) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    if (len >= width) return __btrc_strdup(s);\n"
-            + "    char* r = (char*)malloc(width + 1);\n"
-            + "    int pad = width - len;\n"
-            + "    int start = 0;\n"
-            + "    if (s[0] == '-' || s[0] == '+') { r[0] = s[0]; start = 1; }\n"
-            + "    for (int i = start; i < start + pad; i++) r[i] = '0';\n"
-            + "    memcpy(r + start + pad, s + start, len - start);\n"
-            + "    r[width] = '\\0';\n"
-            + "    return r;\n"
+            + "    if (!s) return __btrc_string_alloc(0);\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    int result_len = len >= width ? len : width;\n"
+            + "    char* result = __btrc_string_alloc(result_len);\n"
+            + "    int start = (len > 0 && (s[0] == '-' || s[0] == '+')) ? 1 : 0;\n"
+            + "    int pad = result_len - len;\n"
+            + "    if (start) result[0] = s[0];\n"
+            + "    memset(result + start, '0', (size_t)pad);\n"
+            + "    memcpy(result + start + pad, s + start, (size_t)(len - start));\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_strcat") {
         return "static inline char* __btrc_strcat(const char* a, const char* b) {\n"
-            + "    if (!a && !b) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
+            + "    if (!a && !b) return __btrc_string_alloc(0);\n"
             + "    if (!a) return __btrc_strdup(b);\n"
             + "    if (!b) return __btrc_strdup(a);\n"
-            + "    int la = (int)strlen(a), lb = (int)strlen(b);\n"
-            + "    char* r = (char*)malloc(la + lb + 1);\n"
-            + "    memcpy(r, a, la);\n"
-            + "    memcpy(r + la, b, lb + 1);\n"
-            + "    return r;\n"
+            + "    int left_len = __btrc_string_length(a);\n"
+            + "    int right_len = __btrc_string_length(b);\n"
+            + "    if (right_len > INT_MAX - left_len) {\n"
+            + "        fprintf(stderr, \"btrc: string concatenation overflow\\n\"); exit(1);\n"
+            + "    }\n"
+            + "    int total = left_len + right_len;\n"
+            + "    char* result = __btrc_string_alloc(total);\n"
+            + "    memcpy(result, a, (size_t)left_len);\n"
+            + "    memcpy(result + left_len, b, (size_t)right_len);\n"
+            + "    return result;\n"
             + "}";
     }
     if (name == "__btrc_join") {
         return "static inline char* __btrc_join(char** items, int count, const char* sep) {\n"
-            + "    if (count == 0 || !items) { char* r = (char*)malloc(1); r[0] = '\\0'; return r; }\n"
+            + "    if (count <= 0 || !items) return __btrc_string_alloc(0);\n"
             + "    if (!sep) sep = \"\";\n"
-            + "    int seplen = (int)strlen(sep);\n"
-            + "    size_t total = 0;\n"
-            + "    for (int i = 0; i < count; i++) total += strlen(items[i]);\n"
-            + "    total += (size_t)seplen * (count - 1);\n"
-            + "    char* r = (char*)malloc(total + 1);\n"
-            + "    int pos = 0;\n"
-            + "    for (int i = 0; i < count; i++) {\n"
-            + "        if (i > 0) { memcpy(r + pos, sep, seplen); pos += seplen; }\n"
-            + "        int len = (int)strlen(items[i]);\n"
-            + "        memcpy(r + pos, items[i], len);\n"
-            + "        pos += len;\n"
+            + "    int separator_len = __btrc_string_length(sep);\n"
+            + "    long long total = (long long)separator_len * (long long)(count - 1);\n"
+            + "    if (total > INT_MAX) {\n"
+            + "        fprintf(stderr, \"btrc: string join overflow\\n\"); exit(1);\n"
             + "    }\n"
-            + "    r[pos] = '\\0';\n"
-            + "    return r;\n"
+            + "    for (int i = 0; i < count; i++) {\n"
+            + "        int item_len = __btrc_string_length(items[i]);\n"
+            + "        if (item_len > INT_MAX - (int)total) {\n"
+            + "            fprintf(stderr, \"btrc: string join overflow\\n\"); exit(1);\n"
+            + "        }\n"
+            + "        total += item_len;\n"
+            + "    }\n"
+            + "    char* result = __btrc_string_alloc((int)total);\n"
+            + "    int position = 0;\n"
+            + "    for (int i = 0; i < count; i++) {\n"
+            + "        if (i > 0) {\n"
+            + "            memcpy(result + position, sep, (size_t)separator_len);\n"
+            + "            position += separator_len;\n"
+            + "        }\n"
+            + "        const char* item = items[i] ? items[i] : \"\";\n"
+            + "        int item_len = __btrc_string_length(item);\n"
+            + "        memcpy(result + position, item, (size_t)item_len);\n"
+            + "        position += item_len;\n"
+            + "    }\n"
+            + "    return result;\n"
             + "}";
     }
     /* --- string category (STRING_QUERY) --- */
     if (name == "__btrc_charAt") {
         return "static inline char __btrc_charAt(const char* s, int idx) {\n"
             + "    if (!s) { fprintf(stderr, \"String index on NULL\\n\"); exit(1); }\n"
-            + "    int len = (int)strlen(s);\n"
+            + "    int len = __btrc_string_length(s);\n"
             + "    if (idx < 0 || idx >= len) { fprintf(stderr, \"String index out of bounds: %d (length %d)\\n\", idx, len); exit(1); }\n"
             + "    return s[idx];\n"
             + "}";
@@ -825,477 +1098,392 @@ string helperSource(string name) {
     if (name == "__btrc_indexOf") {
         return "static inline int __btrc_indexOf(const char* s, const char* sub) {\n"
             + "    if (!s || !sub) return -1;\n"
-            + "    char* p = strstr(s, sub);\n"
-            + "    return p ? (int)(p - s) : -1;\n"
+            + "    (void)__btrc_string_length(s);\n"
+            + "    (void)__btrc_string_length(sub);\n"
+            + "    const char* found = strstr(s, sub);\n"
+            + "    return found ? (int)(found - s) : -1;\n"
             + "}";
     }
     if (name == "__btrc_lastIndexOf") {
         return "static inline int __btrc_lastIndexOf(const char* s, const char* sub) {\n"
             + "    if (!s || !sub) return -1;\n"
-            + "    int slen = (int)strlen(s);\n"
-            + "    int sublen = (int)strlen(sub);\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    int sublen = __btrc_string_length(sub);\n"
             + "    if (sublen == 0) return slen;\n"
             + "    for (int i = slen - sublen; i >= 0; i--) {\n"
-            + "        if (strncmp(s + i, sub, sublen) == 0) return i;\n"
+            + "        if (memcmp(s + i, sub, (size_t)sublen) == 0) return i;\n"
             + "    }\n"
             + "    return -1;\n"
             + "}";
     }
     if (name == "__btrc_isEmpty") {
         return "static inline bool __btrc_isEmpty(const char* s) {\n"
-            + "    if (!s) return true;\n"
-            + "    return s[0] == '\\0';\n"
+            + "    return !s || s[0] == '\\0';\n"
             + "}";
     }
     if (name == "__btrc_startsWith") {
         return "static inline bool __btrc_startsWith(const char* s, const char* prefix) {\n"
             + "    if (!s || !prefix) return false;\n"
-            + "    return strncmp(s, prefix, strlen(prefix)) == 0;\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    int prefix_len = __btrc_string_length(prefix);\n"
+            + "    return prefix_len <= slen\n"
+            + "        && memcmp(s, prefix, (size_t)prefix_len) == 0;\n"
             + "}";
     }
     if (name == "__btrc_endsWith") {
         return "static inline bool __btrc_endsWith(const char* s, const char* suffix) {\n"
             + "    if (!s || !suffix) return false;\n"
-            + "    int slen = (int)strlen(s);\n"
-            + "    int suflen = (int)strlen(suffix);\n"
-            + "    if (suflen > slen) return false;\n"
-            + "    return strcmp(s + slen - suflen, suffix) == 0;\n"
+            + "    int slen = __btrc_string_length(s);\n"
+            + "    int suffix_len = __btrc_string_length(suffix);\n"
+            + "    return suffix_len <= slen\n"
+            + "        && memcmp(s + slen - suffix_len, suffix, (size_t)suffix_len) == 0;\n"
             + "}";
     }
     if (name == "__btrc_strContains") {
         return "static inline bool __btrc_strContains(const char* s, const char* sub) {\n"
             + "    if (!s || !sub) return false;\n"
+            + "    (void)__btrc_string_length(s);\n"
+            + "    (void)__btrc_string_length(sub);\n"
             + "    return strstr(s, sub) != NULL;\n"
             + "}";
     }
     if (name == "__btrc_count") {
         return "static inline int __btrc_count(const char* s, const char* sub) {\n"
             + "    if (!s || !sub) return 0;\n"
-            + "    int count = 0;\n"
-            + "    int sublen = (int)strlen(sub);\n"
+            + "    (void)__btrc_string_length(s);\n"
+            + "    int sublen = __btrc_string_length(sub);\n"
             + "    if (sublen == 0) return 0;\n"
-            + "    const char* p = s;\n"
-            + "    while ((p = strstr(p, sub)) != NULL) { count++; p += sublen; }\n"
+            + "    int count = 0;\n"
+            + "    const char* cursor = s;\n"
+            + "    while ((cursor = strstr(cursor, sub)) != NULL) {\n"
+            + "        count++; cursor += sublen;\n"
+            + "    }\n"
             + "    return count;\n"
             + "}";
     }
     if (name == "__btrc_find") {
         return "static inline int __btrc_find(const char* s, const char* sub, int start) {\n"
             + "    if (!s || !sub) return -1;\n"
-            + "    int len = (int)strlen(s);\n"
-            + "    if (start < 0 || start >= len) return -1;\n"
+            + "    int len = __btrc_string_length(s);\n"
+            + "    int sublen = __btrc_string_length(sub);\n"
+            + "    if (start < 0) start = 0;\n"
+            + "    if (start > len) return -1;\n"
+            + "    if (sublen == 0) return start;\n"
             + "    const char* found = strstr(s + start, sub);\n"
-            + "    if (!found) return -1;\n"
-            + "    return (int)(found - s);\n"
+            + "    return found ? (int)(found - s) : -1;\n"
             + "}";
     }
     if (name == "__btrc_isDigitStr") {
         return "static inline bool __btrc_isDigitStr(const char* s) {\n"
-            + "    if (!*s) return false;\n"
-            + "    for (; *s; s++) if (!isdigit((unsigned char)*s)) return false;\n"
+            + "    if (!s || !*s) return false;\n"
+            + "    for (; *s; s++) if (*s < '0' || *s > '9') return false;\n"
             + "    return true;\n"
             + "}";
     }
     if (name == "__btrc_isAlphaStr") {
         return "static inline bool __btrc_isAlphaStr(const char* s) {\n"
-            + "    if (!*s) return false;\n"
-            + "    for (; *s; s++) if (!isalpha((unsigned char)*s)) return false;\n"
+            + "    if (!s || !*s) return false;\n"
+            + "    for (; *s; s++) {\n"
+            + "        unsigned char byte = (unsigned char)*s;\n"
+            + "        if (!((byte >= 'A' && byte <= 'Z')\n"
+            + "                || (byte >= 'a' && byte <= 'z'))) return false;\n"
+            + "    }\n"
             + "    return true;\n"
             + "}";
     }
     if (name == "__btrc_isBlank") {
         return "static inline bool __btrc_isBlank(const char* s) {\n"
-            + "    for (; *s; s++) if (!isspace((unsigned char)*s)) return false;\n"
+            + "    if (!s) return true;\n"
+            + "    for (; *s; s++) if (!__btrc_ascii_space(*s)) return false;\n"
             + "    return true;\n"
             + "}";
     }
     if (name == "__btrc_isUpper") {
         return "static inline bool __btrc_isUpper(const char* s) {\n"
-            + "    if (*s == '\\0') return false;\n"
-            + "    for (; *s; s++) if (!isupper((unsigned char)*s) && !isspace((unsigned char)*s)) return false;\n"
+            + "    if (!s || *s == '\\0') return false;\n"
+            + "    for (; *s; s++) {\n"
+            + "        unsigned char byte = (unsigned char)*s;\n"
+            + "        if (!(byte >= 'A' && byte <= 'Z') && !__btrc_ascii_space(*s))\n"
+            + "            return false;\n"
+            + "    }\n"
             + "    return true;\n"
             + "}";
     }
     if (name == "__btrc_isLower") {
         return "static inline bool __btrc_isLower(const char* s) {\n"
-            + "    if (*s == '\\0') return false;\n"
-            + "    for (; *s; s++) if (!islower((unsigned char)*s) && !isspace((unsigned char)*s)) return false;\n"
+            + "    if (!s || *s == '\\0') return false;\n"
+            + "    for (; *s; s++) {\n"
+            + "        unsigned char byte = (unsigned char)*s;\n"
+            + "        if (!(byte >= 'a' && byte <= 'z') && !__btrc_ascii_space(*s))\n"
+            + "            return false;\n"
+            + "    }\n"
             + "    return true;\n"
             + "}";
     }
     if (name == "__btrc_isAlnumStr") {
         return "static inline bool __btrc_isAlnumStr(const char* s) {\n"
-            + "    if (*s == '\\0') return false;\n"
-            + "    for (; *s; s++) if (!isalnum((unsigned char)*s)) return false;\n"
+            + "    if (!s || *s == '\\0') return false;\n"
+            + "    for (; *s; s++) {\n"
+            + "        unsigned char byte = (unsigned char)*s;\n"
+            + "        if (!((byte >= '0' && byte <= '9')\n"
+            + "                || (byte >= 'A' && byte <= 'Z')\n"
+            + "                || (byte >= 'a' && byte <= 'z'))) return false;\n"
+            + "    }\n"
             + "    return true;\n"
             + "}";
     }
     if (name == "__btrc_utf8_charlen") {
         return "static inline int __btrc_utf8_charlen(const char* s) {\n"
+            + "    if (!s) return 0;\n"
+            + "    int length = __btrc_string_length(s);\n"
             + "    int count = 0;\n"
-            + "    while (*s) {\n"
-            + "        if ((*s & 0xC0) != 0x80) count++;\n"
-            + "        s++;\n"
+            + "    int index = 0;\n"
+            + "    while (index < length) {\n"
+            + "        int remaining = length - index;\n"
+            + "        unsigned char c0 = (unsigned char)s[index];\n"
+            + "        unsigned char c1 = remaining > 1 ? (unsigned char)s[index + 1] : 0;\n"
+            + "        unsigned char c2 = remaining > 2 ? (unsigned char)s[index + 2] : 0;\n"
+            + "        unsigned char c3 = remaining > 3 ? (unsigned char)s[index + 3] : 0;\n"
+            + "        int advance = 1;\n"
+            + "        if (c0 >= 0xC2 && c0 <= 0xDF\n"
+            + "                && c1 >= 0x80 && c1 <= 0xBF) advance = 2;\n"
+            + "        else if (((c0 == 0xE0 && c1 >= 0xA0 && c1 <= 0xBF)\n"
+            + "                    || (c0 >= 0xE1 && c0 <= 0xEC && c1 >= 0x80 && c1 <= 0xBF)\n"
+            + "                    || (c0 == 0xED && c1 >= 0x80 && c1 <= 0x9F)\n"
+            + "                    || (c0 >= 0xEE && c0 <= 0xEF && c1 >= 0x80 && c1 <= 0xBF))\n"
+            + "                && c2 >= 0x80 && c2 <= 0xBF) advance = 3;\n"
+            + "        else if (((c0 == 0xF0 && c1 >= 0x90 && c1 <= 0xBF)\n"
+            + "                    || (c0 >= 0xF1 && c0 <= 0xF3 && c1 >= 0x80 && c1 <= 0xBF)\n"
+            + "                    || (c0 == 0xF4 && c1 >= 0x80 && c1 <= 0x8F))\n"
+            + "                && c2 >= 0x80 && c2 <= 0xBF\n"
+            + "                && c3 >= 0x80 && c3 <= 0xBF) advance = 4;\n"
+            + "        index += advance;\n"
+            + "        count++;\n"
             + "    }\n"
             + "    return count;\n"
             + "}";
     }
     if (name == "__btrc_charLen") {
         return "static inline int __btrc_charLen(const char* s) {\n"
-            + "    int count = 0;\n"
-            + "    for (; *s; s++) { if ((*s & 0xC0) != 0x80) count++; }\n"
-            + "    return count;\n"
+            + "    return __btrc_utf8_charlen(s);\n"
             + "}";
     }
     /* --- string category (STRING_CONVERT) --- */
+    if (name == "__btrc_parseLong") {
+        return "static inline long __btrc_parseLong(const char* s) {\n"
+            + "    if (!s) return 0;\n"
+            + "    while (*s == ' ' || *s == '\\t' || *s == '\\n'\n"
+            + "            || *s == '\\r' || *s == '\\v' || *s == '\\f') ++s;\n"
+            + "    bool negative = false;\n"
+            + "    if (*s == '-' || *s == '+') { negative = *s == '-'; ++s; }\n"
+            + "    unsigned long limit = negative\n"
+            + "        ? (unsigned long)LONG_MAX + 1UL : (unsigned long)LONG_MAX;\n"
+            + "    unsigned long value = 0UL;\n"
+            + "    bool any = false;\n"
+            + "    while (*s >= '0' && *s <= '9') {\n"
+            + "        unsigned long digit = (unsigned long)(*s - '0');\n"
+            + "        any = true;\n"
+            + "        if (value > (limit - digit) / 10UL)\n"
+            + "            return negative ? LONG_MIN : LONG_MAX;\n"
+            + "        value = value * 10UL + digit;\n"
+            + "        ++s;\n"
+            + "    }\n"
+            + "    if (!any) return 0L;\n"
+            + "    if (!negative) return (long)value;\n"
+            + "    if (value == (unsigned long)LONG_MAX + 1UL) return LONG_MIN;\n"
+            + "    return -(long)value;\n"
+            + "}";
+    }
+    if (name == "__btrc_parseInt") {
+        return "static inline int __btrc_parseInt(const char* s) {\n"
+            + "    long value = __btrc_parseLong(s);\n"
+            + "    if (value > INT_MAX) return INT_MAX;\n"
+            + "    if (value < INT_MIN) return INT_MIN;\n"
+            + "    return (int)value;\n"
+            + "}";
+    }
+    if (name == "__btrc_parseBool") {
+        return "static inline bool __btrc_parseBool(const char* s) {\n"
+            + "    return s && *s != '\\0' && strcmp(s, \"false\") != 0\n"
+            + "        && strcmp(s, \"0\") != 0;\n"
+            + "}";
+    }
     if (name == "__btrc_intToString") {
         return "static inline char* __btrc_intToString(int n) {\n"
-            + "    char* buf = (char*)malloc(32);\n"
+            + "    char* buf = __btrc_string_alloc(31);\n"
             + "    snprintf(buf, 32, \"%d\", n);\n"
             + "    return buf;\n"
             + "}";
     }
     if (name == "__btrc_longToString") {
         return "static inline char* __btrc_longToString(long n) {\n"
-            + "    char* buf = (char*)malloc(32);\n"
+            + "    char* buf = __btrc_string_alloc(31);\n"
             + "    snprintf(buf, 32, \"%ld\", n);\n"
+            + "    return buf;\n"
+            + "}";
+    }
+    if (name == "__btrc_longLongToString") {
+        return "static inline char* __btrc_longLongToString(long long n) {\n"
+            + "    char* buf = __btrc_string_alloc(31);\n"
+            + "    snprintf(buf, 32, \"%lld\", n);\n"
+            + "    return buf;\n"
+            + "}";
+    }
+    if (name == "__btrc_uintToString") {
+        return "static inline char* __btrc_uintToString(unsigned int n) {\n"
+            + "    char* buf = __btrc_string_alloc(31);\n"
+            + "    snprintf(buf, 32, \"%u\", n);\n"
+            + "    return buf;\n"
+            + "}";
+    }
+    if (name == "__btrc_ulongToString") {
+        return "static inline char* __btrc_ulongToString(unsigned long n) {\n"
+            + "    char* buf = __btrc_string_alloc(31);\n"
+            + "    snprintf(buf, 32, \"%lu\", n);\n"
+            + "    return buf;\n"
+            + "}";
+    }
+    if (name == "__btrc_ulongLongToString") {
+        return "static inline char* __btrc_ulongLongToString(unsigned long long n) {\n"
+            + "    char* buf = __btrc_string_alloc(31);\n"
+            + "    snprintf(buf, 32, \"%llu\", n);\n"
             + "    return buf;\n"
             + "}";
     }
     if (name == "__btrc_floatToString") {
         return "static inline char* __btrc_floatToString(float f) {\n"
-            + "    char* buf = (char*)malloc(64);\n"
+            + "    char* buf = __btrc_string_alloc(63);\n"
             + "    snprintf(buf, 64, \"%g\", (double)f);\n"
             + "    return buf;\n"
             + "}";
     }
     if (name == "__btrc_doubleToString") {
         return "static inline char* __btrc_doubleToString(double d) {\n"
-            + "    char* buf = (char*)malloc(64);\n"
+            + "    char* buf = __btrc_string_alloc(63);\n"
             + "    snprintf(buf, 64, \"%g\", d);\n"
+            + "    return buf;\n"
+            + "}";
+    }
+    if (name == "__btrc_longDoubleToString") {
+        return "static inline char* __btrc_longDoubleToString(long double d) {\n"
+            + "    char* buf = __btrc_string_alloc(63);\n"
+            + "    snprintf(buf, 64, \"%Lg\", d);\n"
             + "    return buf;\n"
             + "}";
     }
     if (name == "__btrc_charToString") {
         return "static inline char* __btrc_charToString(char c) {\n"
-            + "    char* buf = (char*)malloc(2);\n"
+            + "    char* buf = __btrc_string_alloc(1);\n"
             + "    buf[0] = c; buf[1] = '\\0';\n"
             + "    return buf;\n"
             + "}";
     }
     if (name == "__btrc_fromInt") {
         return "static inline char* __btrc_fromInt(int n) {\n"
-            + "    char* r = (char*)malloc(21);\n"
+            + "    char* r = __btrc_string_alloc(20);\n"
             + "    snprintf(r, 21, \"%d\", n);\n"
             + "    return r;\n"
             + "}";
     }
     if (name == "__btrc_fromFloat") {
         return "static inline char* __btrc_fromFloat(float f) {\n"
-            + "    char* r = (char*)malloc(32);\n"
+            + "    char* r = __btrc_string_alloc(31);\n"
             + "    snprintf(r, 32, \"%g\", (double)f);\n"
             + "    return r;\n"
             + "}";
     }
-    /* --- trycatch category --- */
-    if (name == "__btrc_trycatch_globals") {
-        return "/* btrc try/catch runtime (dynamic) */\n"
-            + "static __thread int __btrc_try_cap = 16;\n"
-            + "static __thread jmp_buf* __btrc_try_stack = NULL;\n"
-            /* __btrc_try_top is incremented before setjmp and decremented by the
-             * throw / normal-exit paths, so its value crosses the setjmp/longjmp
-             * boundary. Per C11 7.13.2.1 an object whose value changes between
-             * setjmp and longjmp has an indeterminate value after the longjmp
-             * unless it is volatile. Marking it volatile also serves as the
-             * optimization barrier that stops gcc -O2 from CSE-merging the work in
-             * the setjmp(...)==0 and catch branches across the branch (which
-             * otherwise drops a returned object's field init -> wrong value). */
-            + "static __thread volatile int __btrc_try_top = -1;\n"
-            + "static __thread char __btrc_error_msg[1024] = \"\";";
-    }
-    if (name == "__btrc_launder") {
-        return "/* Opaque pointer launder used when returning a freshly-built object\n"
-            + " * out of a try/catch. gcc -O2 (e.g. nix's fortify hardening) runs\n"
-            + " * points-to / store-merging across the setjmp(...)==0 vs catch\n"
-            + " * branches and, for an object that does not otherwise escape, folds\n"
-            + " * the two branches' field inits together -- dropping the catch\n"
-            + " * object's initialization (its fields read back as the other\n"
-            + " * branch's values). Routing the pointer through a volatile slot\n"
-            + " * forces the object to escape, which defeats that miscompilation.\n"
-            + " * Pure C11; the volatile access is the optimization barrier. */\n"
-            + "static void* volatile __btrc_launder_slot;\n"
-            + "static inline void* __btrc_launder(void* p) {\n"
-            + "    __btrc_launder_slot = p;\n"
-            + "    return __btrc_launder_slot;\n"
+    /* --- math category --- */
+    if (name == "__btrc_math_factorial") {
+        return "static inline long long __btrc_math_factorial(int n) {\n"
+            + "    if (n < 0) { fprintf(stderr, \"btrc: factorial of negative number\\n\"); exit(1); }\n"
+            + "    if (n > 20) { fprintf(stderr, \"btrc: factorial overflow (n=%d)\\n\", n); exit(1); }\n"
+            + "    long long r = 1;\n"
+            + "    for (int i = 2; i <= n; i++) r *= i;\n"
+            + "    return r;\n"
             + "}";
     }
-    if (name == "__btrc_cleanup_types") {
-        return "/* Cleanup stack: tracks heap resources to free on exception */\n"
-            + "typedef void (*__btrc_cleanup_fn)(void*);\n"
-            + "typedef struct { void** ptr_ref; __btrc_cleanup_fn fn; void* visit; int try_level; } __btrc_cleanup_entry;\n"
-            + "static __thread int __btrc_cleanup_cap = 64;\n"
-            + "static __thread __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\n"
-            + "static __thread int __btrc_cleanup_top = -1;";
-    }
-    if (name == "__btrc_register_cleanup") {
-        return "static inline void __btrc_register_cleanup(void** ptr_ref, __btrc_cleanup_fn fn, void* visit) {\n"
-            + "    if (!__btrc_cleanup_stack) {\n"
-            + "        __btrc_cleanup_stack = (__btrc_cleanup_entry*)malloc(sizeof(__btrc_cleanup_entry) * __btrc_cleanup_cap);\n"
-            + "    }\n"
-            + "    if (__btrc_cleanup_top + 1 >= __btrc_cleanup_cap) {\n"
-            + "        __btrc_cleanup_cap *= 2;\n"
-            + "        __btrc_cleanup_stack = (__btrc_cleanup_entry*)realloc(\n"
-            + "            __btrc_cleanup_stack, sizeof(__btrc_cleanup_entry) * __btrc_cleanup_cap);\n"
-            + "        if (!__btrc_cleanup_stack) { fprintf(stderr, \"btrc: cleanup stack OOM\\n\"); exit(1); }\n"
-            + "    }\n"
-            + "    __btrc_cleanup_top++;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].ptr_ref = ptr_ref;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].visit = visit;\n"
-            + "    __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;\n"
+    if (name == "__btrc_math_gcd") {
+        return "static inline int __btrc_math_gcd(int a, int b) {\n"
+            + "    unsigned int ua = a < 0 ? 0u - (unsigned int)a : (unsigned int)a;\n"
+            + "    unsigned int ub = b < 0 ? 0u - (unsigned int)b : (unsigned int)b;\n"
+            + "    while (ub) { unsigned int t = ub; ub = ua % ub; ua = t; }\n"
+            + "    if (ua > INT_MAX) { fprintf(stderr, \"btrc: gcd result overflow\\n\"); exit(1); }\n"
+            + "    return (int)ua;\n"
             + "}";
     }
-    if (name == "__btrc_run_cleanups") {
-        return "/* Exception cleanup. Non-cyclable managed locals keep the original\n"
-            + " * unconditional-destroy semantics. Cyclable ones (those with a\n"
-            + " * registered visitor) go through the same phased release +\n"
-            + " * trial-deletion cycle collection as a normal scope exit, so\n"
-            + " * unwinding a scope that holds a reference cycle reclaims it without\n"
-            + " * a use-after-free: a plain per-node destroy would cascade-free one\n"
-            + " * node then read freed memory through the other node's back-edge.\n"
-            + " * __btrc_tracking + the destroyed log guard every cross-entry read. */\n"
-            + "static inline void __btrc_run_cleanups(int level) {\n"
-            + "    int base = __btrc_cleanup_top;\n"
-            + "    while (base >= 0 && __btrc_cleanup_stack[base].try_level >= level) { base--; }\n"
-            + "    base++;\n"
-            + "    if (base > __btrc_cleanup_top) { return; }\n"
-            + "    __btrc_tracking = 1;\n"
-            + "    __btrc_destroyed_count = 0;\n"
-            + "    /* Non-cyclable entries: unconditional destroy (original behavior),\n"
-            + "     * but skip any object already cascade-freed by an earlier destroy. */\n"
-            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
-            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
-            + "        if (e->visit) { continue; }\n"
-            + "        if (e->fn && e->ptr_ref && *e->ptr_ref && !__btrc_is_destroyed(*e->ptr_ref)) {\n"
-            + "            e->fn(*e->ptr_ref);\n"
-            + "            *e->ptr_ref = NULL;\n"
-            + "        }\n"
-            + "    }\n"
-            + "    /* Cyclable entries: phased release + cycle collection.\n"
-            + "     * Phase 1 -- drop each managed local's own reference (rc--). */\n"
-            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
-            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
-            + "        if (e->visit && e->ptr_ref && *e->ptr_ref) { (*(int*)*e->ptr_ref)--; }\n"
-            + "    }\n"
-            + "    /* Phase 2 -- destroy objects whose rc hit zero (destroyed-log guarded). */\n"
-            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
-            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
-            + "        if (e->visit && e->fn && e->ptr_ref && *e->ptr_ref\n"
-            + "                && !__btrc_is_destroyed(*e->ptr_ref)\n"
-            + "                && *(int*)*e->ptr_ref <= 0) {\n"
-            + "            e->fn(*e->ptr_ref);\n"
-            + "            *e->ptr_ref = NULL;\n"
-            + "        }\n"
-            + "    }\n"
-            + "    /* Phase 3 -- still-referenced survivors are cycle suspects. */\n"
-            + "    for (int i = __btrc_cleanup_top; i >= base; i--) {\n"
-            + "        __btrc_cleanup_entry* e = &__btrc_cleanup_stack[i];\n"
-            + "        if (e->visit && e->fn && e->ptr_ref && *e->ptr_ref\n"
-            + "                && !__btrc_is_destroyed(*e->ptr_ref)\n"
-            + "                && *(int*)*e->ptr_ref > 0) {\n"
-            + "            __btrc_suspect(*e->ptr_ref, (__btrc_visit_fn)e->visit,\n"
-            + "                           (__btrc_destroy_fn)e->fn);\n"
-            + "        }\n"
-            + "    }\n"
-            + "    /* Phase 4 -- trial-deletion cycle collection over the suspects. */\n"
-            + "    if (__btrc_suspect_count > 0) { __btrc_collect_cycles(); }\n"
-            + "    __btrc_tracking = 0;\n"
-            + "    __btrc_cleanup_top = base - 1;\n"
+    if (name == "__btrc_math_lcm") {
+        return "static inline int __btrc_math_lcm(int a, int b) {\n"
+            + "    if (a == 0 || b == 0) return 0;\n"
+            + "    int g = __btrc_math_gcd(a, b);\n"
+            + "    long long result = ((long long)a / g) * (long long)b;\n"
+            + "    if (result < 0) result = -result;\n"
+            + "    if (result > INT_MAX) { fprintf(stderr, \"btrc: lcm result overflow\\n\"); exit(1); }\n"
+            + "    return (int)result;\n"
             + "}";
     }
-    if (name == "__btrc_discard_cleanups") {
-        return "static inline void __btrc_discard_cleanups(int level) {\n"
-            + "    while (__btrc_cleanup_top >= 0 &&\n"
-            + "           __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {\n"
-            + "        __btrc_cleanup_top--;\n"
-            + "    }\n"
+    if (name == "__btrc_math_fibonacci") {
+        return "static inline int __btrc_math_fibonacci(int n) {\n"
+            + "    if (n <= 0) return 0;\n"
+            + "    if (n == 1) return 1;\n"
+            + "    if (n > 46) { fprintf(stderr, \"btrc: fibonacci result overflow\\n\"); exit(1); }\n"
+            + "    int a = 0, b = 1;\n"
+            + "    for (int i = 2; i <= n; i++) { int t = a + b; a = b; b = t; }\n"
+            + "    return b;\n"
             + "}";
     }
-    if (name == "__btrc_throw") {
-        return "static inline void __btrc_throw(const char* msg) {\n"
-            + "    if (__btrc_try_top < 0) {\n"
-            + "        fprintf(stderr, \"Unhandled exception: %s\\n\", msg);\n"
-            + "        exit(1);\n"
-            + "    }\n"
-            + "    strncpy(__btrc_error_msg, msg, 1023);\n"
-            + "    __btrc_error_msg[1023] = '\\0';\n"
-            + "    __btrc_run_cleanups(__btrc_try_top);\n"
-            + "    longjmp(__btrc_try_stack[__btrc_try_top--], 1);\n"
+    if (name == "__btrc_math_isPrime") {
+        return "static inline bool __btrc_math_isPrime(int n) {\n"
+            + "    if (n < 2) return false;\n"
+            + "    if (n < 4) return true;\n"
+            + "    if (n % 2 == 0 || n % 3 == 0) return false;\n"
+            + "    for (int i = 5; i <= n / i; i += 6)\n"
+            + "        if (n % i == 0 || n % (i + 2) == 0) return false;\n"
+            + "    return true;\n"
+            + "}";
+    }
+    if (name == "__btrc_math_sum_int") {
+        return "static inline int __btrc_math_sum_int(int* data, int size) {\n"
+            + "    if (size <= 0) return 0;\n"
+            + "    if (!data) { fprintf(stderr, \"btrc: sum received null data\\n\"); exit(1); }\n"
+            + "    long long sum = 0;\n"
+            + "    for (int i = 0; i < size; i++) sum += data[i];\n"
+            + "    if (sum < INT_MIN || sum > INT_MAX) { fprintf(stderr, \"btrc: sum result overflow\\n\"); exit(1); }\n"
+            + "    return (int)sum;\n"
+            + "}";
+    }
+    if (name == "__btrc_math_fsum") {
+        return "static inline float __btrc_math_fsum(float* data, int size) {\n"
+            + "    if (size <= 0) return 0.0f;\n"
+            + "    if (!data) { fprintf(stderr, \"btrc: fsum received null data\\n\"); exit(1); }\n"
+            + "    float s = 0.0f;\n"
+            + "    for (int i = 0; i < size; i++) s += data[i];\n"
+            + "    return s;\n"
             + "}";
     }
     /* --- hash category --- */
-    if (name == "__btrc_hash_str") {
-        return "static inline unsigned int __btrc_hash_str(const char* s) {\n"
-            + "    unsigned int h = 5381;\n"
-            + "    while (*s) { h = ((h << 5) + h) + (unsigned char)*s++; }\n"
+    if (name == "__btrc_hash_real") {
+        return "static inline unsigned int __btrc_hash_real(long double value) {\n"
+            + "    if (value == 0.0L) return 0U;\n"
+            + "    /* Hash a canonical-width conversion, not long-double padding.\n"
+            + "       Equal real values convert to equal doubles; unequal values\n"
+            + "       may collide, which is permitted by the hash contract. */\n"
+            + "    double canonical = (double)value;\n"
+            + "    unsigned char bytes[sizeof canonical];\n"
+            + "    memcpy(bytes, &canonical, sizeof canonical);\n"
+            + "    unsigned int h = 2166136261U;\n"
+            + "    for (size_t i = 0; i < sizeof canonical; ++i) {\n"
+            + "        h ^= (unsigned int)bytes[i];\n"
+            + "        h *= 16777619U;\n"
+            + "    }\n"
             + "    return h;\n"
             + "}";
     }
-    /* --- cycles category (ARC cycle detection; mirrors helpers/cycles.py) --- */
-    if (name == "__btrc_destroyed_tracking") {
-        return "/* ARC cascade-destroy tracking: avoid reading freed memory */\n"
-            + "static int __btrc_tracking = 0;\n"
-            + "static void** __btrc_destroyed = NULL;\n"
-            + "static int __btrc_destroyed_count = 0;\n"
-            + "static int __btrc_destroyed_cap = 0;\n"
-            + "static void __btrc_mark_destroyed(void* ptr) {\n"
-            + "    if (__btrc_destroyed_count >= __btrc_destroyed_cap) {\n"
-            + "        __btrc_destroyed_cap = __btrc_destroyed_cap ? __btrc_destroyed_cap * 2 : 256;\n"
-            + "        __btrc_destroyed = (void**)__btrc_safe_realloc(__btrc_destroyed, sizeof(void*) * __btrc_destroyed_cap);\n"
-            + "    }\n"
-            + "    __btrc_destroyed[__btrc_destroyed_count++] = ptr;\n"
-            + "}\n"
-            + "static int __btrc_is_destroyed(void* ptr) {\n"
-            + "    for (int i = 0; i < __btrc_destroyed_count; i++)\n"
-            + "        if (__btrc_destroyed[i] == ptr) return 1;\n"
-            + "    return 0;\n"
-            + "}";
-    }
-    if (name == "__btrc_suspect_buf") {
-        return "/* ARC cycle detection: suspect buffer */\n"
-            + "static void** __btrc_suspects = NULL;\n"
-            + "static int __btrc_suspect_count = 0;\n"
-            + "static int __btrc_suspect_cap = 0;\n"
-            + "typedef void (*__btrc_visit_fn)(void*, void (*)(void**));\n"
-            + "typedef void (*__btrc_destroy_fn)(void*);\n"
-            + "static __btrc_visit_fn* __btrc_visit_table = NULL;\n"
-            + "static __btrc_destroy_fn* __btrc_destroy_table = NULL;\n"
-            + "static void __btrc_suspect(void* obj, __btrc_visit_fn visit,\n"
-            + "                           __btrc_destroy_fn destroy) {\n"
-            + "    if (__btrc_suspect_count >= __btrc_suspect_cap) {\n"
-            + "        __btrc_suspect_cap = __btrc_suspect_cap ? __btrc_suspect_cap * 2 : 256;\n"
-            + "        __btrc_suspects = (void**)__btrc_safe_realloc(__btrc_suspects, sizeof(void*) * __btrc_suspect_cap);\n"
-            + "        __btrc_visit_table = (__btrc_visit_fn*)__btrc_safe_realloc(__btrc_visit_table, sizeof(__btrc_visit_fn) * __btrc_suspect_cap);\n"
-            + "        __btrc_destroy_table = (__btrc_destroy_fn*)__btrc_safe_realloc(__btrc_destroy_table, sizeof(__btrc_destroy_fn) * __btrc_suspect_cap);\n"
-            + "    }\n"
-            + "    __btrc_suspects[__btrc_suspect_count] = obj;\n"
-            + "    __btrc_visit_table[__btrc_suspect_count] = visit;\n"
-            + "    __btrc_destroy_table[__btrc_suspect_count] = destroy;\n"
-            + "    __btrc_suspect_count++;\n"
-            + "}";
-    }
-    if (name == "__btrc_collect_cycles") {
-        return "/* ARC cycle collector: trial deletion with cycle-breaking */\n"
-            + "static void __btrc_trial_dec(void** fp) {\n"
-            + "    if (*fp) { int* rc = (int*)*fp; (*rc)--; }\n"
-            + "}\n"
-            + "static void __btrc_trial_restore(void** fp) {\n"
-            + "    if (*fp) { int* rc = (int*)*fp; (*rc)++; }\n"
-            + "}\n"
-            + "static void __btrc_clear_field(void** fp) {\n"
-            + "    *fp = NULL;\n"
-            + "}\n"
-            + "static void __btrc_collect_cycles(void) {\n"
-            + "    int n = __btrc_suspect_count;\n"
-            + "    if (n == 0) return;\n"
-            + "    /* Phase 1: trial decrement all suspects' cyclable children */\n"
-            + "    for (int i = 0; i < n; i++) {\n"
-            + "        if (__btrc_suspects[i] && __btrc_visit_table[i])\n"
-            + "            __btrc_visit_table[i](__btrc_suspects[i], __btrc_trial_dec);\n"
-            + "    }\n"
-            + "    /* Phase 2: break cycles by NULLing cyclable fields, then destroy */\n"
-            + "    for (int i = 0; i < n; i++) {\n"
-            + "        void* obj = __btrc_suspects[i];\n"
-            + "        if (!obj) continue;\n"
-            + "        int rc = *(int*)obj;\n"
-            + "        if (rc <= 0) {\n"
-            + "            /* NULL cyclable fields to prevent cascade recursion */\n"
-            + "            if (__btrc_visit_table[i])\n"
-            + "                __btrc_visit_table[i](obj, __btrc_clear_field);\n"
-            + "            /* Restore rc for destroy to work, then destroy */\n"
-            + "            *(int*)obj = 1;\n"
-            + "            if (__btrc_destroy_table[i])\n"
-            + "                __btrc_destroy_table[i](obj);\n"
-            + "            __btrc_suspects[i] = NULL;\n"
-            + "        } else {\n"
-            + "            /* Restore trial decrements for still-live objects */\n"
-            + "            if (__btrc_visit_table[i])\n"
-            + "                __btrc_visit_table[i](obj, __btrc_trial_restore);\n"
-            + "        }\n"
-            + "    }\n"
-            + "    __btrc_suspect_count = 0;\n"
-            + "}";
-    }
-    /* --- threads category (pthread wrappers; mirrors helpers/threads.py) --- */
-    if (name == "__btrc_thread_spawn") {
-        return "typedef struct {\n"
-            + "    void* (*fn)(void*);\n"
-            + "    void* arg;\n"
-            + "    void* result;\n"
-            + "    pthread_t handle;\n"
-            + "} __btrc_thread_t;\n"
-            + "\n"
-            + "static void* __btrc_thread_wrapper(void* raw) {\n"
-            + "    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n"
-            + "    t->result = t->fn(t->arg);\n"
-            + "    return NULL;\n"
-            + "}\n"
-            + "\n"
-            + "static __btrc_thread_t* __btrc_thread_spawn(void* (*fn)(void*), void* arg) {\n"
-            + "    __btrc_thread_t* t = (__btrc_thread_t*)malloc(sizeof(__btrc_thread_t));\n"
-            + "    if (!t) { fprintf(stderr, \"btrc: thread alloc failed\\n\"); exit(1); }\n"
-            + "    t->fn = fn;\n"
-            + "    t->arg = arg;\n"
-            + "    t->result = NULL;\n"
-            + "    int err = pthread_create(&t->handle, NULL, __btrc_thread_wrapper, t);\n"
-            + "    if (err != 0) { fprintf(stderr, \"btrc: pthread_create failed\\n\"); free(t); exit(1); }\n"
-            + "    return t;\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_join") {
-        return "static void* __btrc_thread_join(__btrc_thread_t* t) {\n"
-            + "    pthread_join(t->handle, NULL);\n"
-            + "    return t->result;\n"
-            + "}";
-    }
-    if (name == "__btrc_thread_free") {
-        return "static void __btrc_thread_free(__btrc_thread_t* t) {\n"
-            + "    free(t);\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_val_create") {
-        return "typedef struct {\n"
-            + "    pthread_mutex_t lock;\n"
-            + "    void* value;\n"
-            + "} __btrc_mutex_val_t;\n"
-            + "\n"
-            + "static __btrc_mutex_val_t* __btrc_mutex_val_create(void* initial) {\n"
-            + "    __btrc_mutex_val_t* m = (__btrc_mutex_val_t*)malloc(sizeof(__btrc_mutex_val_t));\n"
-            + "    if (!m) { fprintf(stderr, \"btrc: mutex alloc failed\\n\"); exit(1); }\n"
-            + "    if (pthread_mutex_init(&m->lock, NULL) != 0) { fprintf(stderr, \"btrc: mutex init failed\\n\"); free(m); exit(1); }\n"
-            + "    m->value = initial;\n"
-            + "    return m;\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_val_get") {
-        return "static void* __btrc_mutex_val_get(__btrc_mutex_val_t* m) {\n"
-            + "    pthread_mutex_lock(&m->lock);\n"
-            + "    void* v = m->value;\n"
-            + "    pthread_mutex_unlock(&m->lock);\n"
-            + "    return v;\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_val_set") {
-        return "static void __btrc_mutex_val_set(__btrc_mutex_val_t* m, void* val) {\n"
-            + "    pthread_mutex_lock(&m->lock);\n"
-            + "    m->value = val;\n"
-            + "    pthread_mutex_unlock(&m->lock);\n"
-            + "}";
-    }
-    if (name == "__btrc_mutex_val_destroy") {
-        return "static void __btrc_mutex_val_destroy(__btrc_mutex_val_t* m) {\n"
-            + "    pthread_mutex_destroy(&m->lock);\n"
-            + "    free(m);\n"
+    if (name == "__btrc_hash_str") {
+        return "static inline unsigned int __btrc_hash_str(const char* s) {\n"
+            + "    if (!s) return 0;\n"
+            + "    unsigned int h = 5381;\n"
+            + "    while (*s) { h = ((h << 5) + h) + (unsigned char)*s++; }\n"
+            + "    return h;\n"
             + "}";
     }
     return "";
@@ -1304,55 +1492,173 @@ string helperSource(string name) {
 /* Transitive helper dependencies (mirrors HelperDef.depends_on). Returns the
  * list of helpers `name` requires to be emitted first. */
 Vector<string> helperDeps(string name) {
+    if (cycleRuntimeHasHelper(name)) {
+        return cycleRuntimeHelperDependencies(name);
+    }
+    if (stringOwnershipRuntimeHasHelper(name)) {
+        return stringOwnershipRuntimeHelperDependencies(name);
+    }
+    if (trycatchRuntimeHasHelper(name)) {
+        return trycatchRuntimeHelperDependencies(name);
+    }
+    if (processRuntimeHasHelper(name)) {
+        return processRuntimeHelperDependencies(name);
+    }
+    if (threadRuntimeHasHelper(name)) {
+        return threadRuntimeHelperDependencies(name);
+    }
     Vector<string> out = [];
-    if (name == "__btrc_strcat") { out.push("__btrc_strdup"); }
-    else if (name == "__btrc_str_track") { out.push("__btrc_str_pool_globals"); }
-    else if (name == "__btrc_str_flush") { out.push("__btrc_str_pool_globals"); }
-    else if (name == "__btrc_replace") {
+    if (name == "__btrc_parseInt") { out.push("__btrc_parseLong"); }
+    else if (name == "__btrc_string_alloc") { out.push("__btrc_safe_realloc"); }
+    else if (name == "__btrc_str_track") {
+        out.push("__btrc_str_pool_globals");
         out.push("__btrc_safe_realloc");
+    }
+    else if (name == "__btrc_str_flush") { out.push("__btrc_str_pool_globals"); }
+    else if (name == "__btrc_substring" || name == "__btrc_reverse"
+            || name == "__btrc_padLeft" || name == "__btrc_padRight"
+            || name == "__btrc_center" || name == "__btrc_zfill"
+            || name == "__btrc_join") {
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
+    }
+    else if (name == "__btrc_trim" || name == "__btrc_lstrip"
+            || name == "__btrc_rstrip") {
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
+        out.push("__btrc_ascii_space");
+    }
+    else if (name == "__btrc_toUpper") {
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
+        out.push("__btrc_ascii_upper");
+    }
+    else if (name == "__btrc_toLower") {
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
+        out.push("__btrc_ascii_lower");
+    }
+    else if (name == "__btrc_strcat" || name == "__btrc_replace"
+            || name == "__btrc_removePrefix" || name == "__btrc_removeSuffix") {
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
         out.push("__btrc_strdup");
     }
-    else if (name == "__btrc_split") { out.push("__btrc_safe_realloc"); }
-    else if (name == "__btrc_removePrefix") { out.push("__btrc_strdup"); }
-    else if (name == "__btrc_removeSuffix") { out.push("__btrc_strdup"); }
-    else if (name == "__btrc_zfill") { out.push("__btrc_strdup"); }
-    /* trycatch category dependency edges (mirrors trycatch.py depends_on). */
-    else if (name == "__btrc_cleanup_types") { out.push("__btrc_trycatch_globals"); }
-    else if (name == "__btrc_register_cleanup") { out.push("__btrc_cleanup_types"); }
-    else if (name == "__btrc_run_cleanups") {
-        out.push("__btrc_cleanup_types");
-        /* Cycle-safe unwinding reuses the trial-deletion collector + the
-         * destroyed-object tracking, so pull the whole cycles machinery in. */
-        out.push("__btrc_destroyed_tracking");
-        out.push("__btrc_suspect_buf");
-        out.push("__btrc_collect_cycles");
-    }
-    else if (name == "__btrc_discard_cleanups") { out.push("__btrc_cleanup_types"); }
-    else if (name == "__btrc_throw") {
-        out.push("__btrc_trycatch_globals");
-        out.push("__btrc_run_cleanups");
-    }
-    /* threads dependency edges (mirrors helpers/threads.py depends_on): the
-     * join/free/mutex-accessor helpers reference the typedef + globals declared
-     * by their spawn/create root helper. */
-    /* cycles category dependency edges (mirrors helpers/cycles.py depends_on). */
-    else if (name == "__btrc_destroyed_tracking") { out.push("__btrc_safe_realloc"); }
-    else if (name == "__btrc_suspect_buf") {
-        out.push("__btrc_destroyed_tracking");
+    else if (name == "__btrc_split") {
         out.push("__btrc_safe_realloc");
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
     }
-    else if (name == "__btrc_collect_cycles") { out.push("__btrc_suspect_buf"); }
-    else if (name == "__btrc_thread_join") { out.push("__btrc_thread_spawn"); }
-    else if (name == "__btrc_thread_free") { out.push("__btrc_thread_spawn"); }
-    else if (name == "__btrc_mutex_val_get") { out.push("__btrc_mutex_val_create"); }
-    else if (name == "__btrc_mutex_val_set") { out.push("__btrc_mutex_val_create"); }
-    else if (name == "__btrc_mutex_val_destroy") { out.push("__btrc_mutex_val_create"); }
+    else if (name == "__btrc_repeat") {
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
+    }
+    else if (name == "__btrc_capitalize" || name == "__btrc_swapCase") {
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
+        out.push("__btrc_ascii_lower");
+        out.push("__btrc_ascii_upper");
+    }
+    else if (name == "__btrc_title") {
+        out.push("__btrc_string_length");
+        out.push("__btrc_string_alloc");
+        out.push("__btrc_ascii_lower");
+        out.push("__btrc_ascii_space");
+        out.push("__btrc_ascii_upper");
+    }
+    else if (name == "__btrc_charAt" || name == "__btrc_indexOf"
+            || name == "__btrc_lastIndexOf" || name == "__btrc_startsWith"
+            || name == "__btrc_endsWith" || name == "__btrc_strContains"
+            || name == "__btrc_count" || name == "__btrc_find"
+            || name == "__btrc_utf8_charlen") {
+        out.push("__btrc_string_length");
+    }
+    else if (name == "__btrc_isBlank" || name == "__btrc_isUpper"
+            || name == "__btrc_isLower") {
+        out.push("__btrc_ascii_space");
+    }
+    else if (name == "__btrc_charLen") { out.push("__btrc_utf8_charlen"); }
+    else if (name == "__btrc_intToString" || name == "__btrc_longToString"
+            || name == "__btrc_longLongToString" || name == "__btrc_uintToString"
+            || name == "__btrc_ulongToString" || name == "__btrc_ulongLongToString"
+            || name == "__btrc_floatToString" || name == "__btrc_doubleToString"
+            || name == "__btrc_longDoubleToString" || name == "__btrc_charToString"
+            || name == "__btrc_fromInt" || name == "__btrc_fromFloat") {
+        out.push("__btrc_string_alloc");
+    }
+    /* math category dependency edges (mirrors math.py depends_on). */
+    else if (name == "__btrc_math_lcm") { out.push("__btrc_math_gcd"); }
     return out;
 }
 
-/* Canonical emission order of runtime helpers (mirrors registry.py aggregation
- * order, restricted to the modelled int subset). The emitter walks this list
- * and emits the ones marked used (DCE). */
+/* Hosted C headers owned by a concrete runtime helper. Dependency closure is
+ * resolved before this metadata is collected, so transitive consumers inherit
+ * the headers of the helpers they keep. Mirrors HelperDef.required_headers. */
+Vector<string> helperHeaders(string name) {
+    if (stringOwnershipRuntimeHasHelper(name)) {
+        return stringOwnershipRuntimeHelperHeaders(name);
+    }
+    if (processRuntimeHasHelper(name)) {
+        return processRuntimeHelperHeaders(name);
+    }
+    if (threadRuntimeHasHelper(name)) {
+        return threadRuntimeHelperHeaders(name);
+    }
+    Vector<string> out = [];
+    if (name == "__btrc_arc_lock_state"
+            || name == "__btrc_arc_snapshot_state"
+            || name == "__btrc_arc_snapshot_gate_state") {
+        out.push("stdatomic.h");
+    }
+    else if (name == "__btrc_arc_exclusive_snapshot") {
+        out.push("limits.h");
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_abandon_graph") {
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_abandon") {
+        out.push("limits.h");
+        out.push("stdint.h");
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_topology_begin") {
+        out.push("limits.h");
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_topology_leave") {
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_deferred_state") {
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_arc_drain") {
+        out.push("limits.h");
+        out.push("stdio.h");
+        out.push("stdlib.h");
+        out.push("string.h");
+    }
+    else if (name == "__btrc_raise_captured") {
+        out.push("stdio.h");
+        out.push("stdlib.h");
+    }
+    else if (name == "__btrc_trycatch_globals") { out.push("setjmp.h"); }
+    else if (name == "__btrc_thread_spawn"
+            || name == "__btrc_mutex_val_create") {
+        out.push("pthread.h");
+        out.push("string.h");
+    }
+    return out;
+}
+
+/* Canonical emission order of concrete runtime helpers (mirrors registry.py
+ * aggregation order). The emitter walks this list and emits helpers marked used
+ * after dependency closure (DCE). */
 Vector<string> canonicalHelperOrder() {
     Vector<string> order = [];
     /* alloc */
@@ -1360,13 +1666,20 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_safe_realloc");
     order.push("__btrc_safe_calloc");
     /* divmod */
+    order.push("__btrc_div");
+    order.push("__btrc_mod");
     order.push("__btrc_div_int");
     order.push("__btrc_div_double");
     order.push("__btrc_mod_int");
-    /* string_pool */
-    order.push("__btrc_str_pool_globals");
-    order.push("__btrc_str_track");
-    order.push("__btrc_str_flush");
+    /* string ownership + compatibility spellings */
+    appendStringOwnershipRuntimeHelperOrder(order);
+    /* string — STRING_COMMON */
+    order.push("__btrc_string_or_empty");
+    order.push("__btrc_string_length");
+    order.push("__btrc_string_alloc");
+    order.push("__btrc_ascii_upper");
+    order.push("__btrc_ascii_lower");
+    order.push("__btrc_ascii_space");
     /* string — STRING_OPS (insertion order in strings_ops.py) */
     order.push("__btrc_substring");
     order.push("__btrc_trim");
@@ -1408,40 +1721,124 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_utf8_charlen");
     order.push("__btrc_charLen");
     /* string — STRING_CONVERT (insertion order in strings_convert.py) */
+    order.push("__btrc_parseLong");
+    order.push("__btrc_parseInt");
+    order.push("__btrc_parseBool");
     order.push("__btrc_intToString");
     order.push("__btrc_longToString");
+    order.push("__btrc_longLongToString");
+    order.push("__btrc_uintToString");
+    order.push("__btrc_ulongToString");
+    order.push("__btrc_ulongLongToString");
     order.push("__btrc_floatToString");
     order.push("__btrc_doubleToString");
+    order.push("__btrc_longDoubleToString");
     order.push("__btrc_charToString");
     order.push("__btrc_fromInt");
     order.push("__btrc_fromFloat");
+    /* math */
+    order.push("__btrc_math_factorial");
+    order.push("__btrc_math_gcd");
+    order.push("__btrc_math_lcm");
+    order.push("__btrc_math_fibonacci");
+    order.push("__btrc_math_isPrime");
+    order.push("__btrc_math_sum_int");
+    order.push("__btrc_math_fsum");
     /* trycatch (registry.py category order: after string/math, before hash) */
+    order.push("__btrc_try_level");
     order.push("__btrc_trycatch_globals");
-    order.push("__btrc_cleanup_types");
+    order.push("__btrc_try_capacity");
+    order.push("__btrc_cleanup_capacity");
+    order.push("__btrc_launder_state");
     order.push("__btrc_launder");
-    order.push("__btrc_register_cleanup");
-    order.push("__btrc_discard_cleanups");
+    order.push("__btrc_push_try");
     /* hash */
+    order.push("__btrc_hash_real");
     order.push("__btrc_hash_str");
     /* cycles (ARC cycle detection; roots first so their globals/typedefs
      * precede the dependent collector). Mirrors registry.py cycles category. */
+    order.push("__btrc_arc_callback_types");
+    order.push("__btrc_arc_header_of");
+    order.push("__btrc_arc_type_of");
+    order.push("__btrc_arc_validate");
     order.push("__btrc_destroyed_tracking");
-    order.push("__btrc_suspect_buf");
+    order.push("__btrc_arc_lock_state");
+    order.push("__btrc_arc_snapshot_state");
+    order.push("__btrc_arc_snapshot_gate_state");
+    order.push("__btrc_arc_abandon_callback_state");
+    order.push("__btrc_arc_abandon_queue_state");
+    order.push("__btrc_arc_shutdown_state");
+    order.push("__btrc_arc_active_drains_state");
+    order.push("__btrc_arc_active_unwinds_state");
+    order.push("__btrc_arc_mutation_lock");
+    order.push("__btrc_destroyed_tracking_scope");
+    order.push("__btrc_is_destroyed");
+    order.push("__btrc_destroyed_capacity");
+    order.push("__btrc_mark_destroyed");
+    order.push("__btrc_suspect_state");
+    order.push("__btrc_suspect_capacity");
+    order.push("__btrc_ptr_hash");
+    order.push("__btrc_suspect_locked");
+    order.push("__btrc_suspect");
+    order.push("__btrc_arc_topology_state");
+    order.push("__btrc_arc_topology_depth_state");
+    order.push("__btrc_arc_exclusive_snapshot");
+    order.push("__btrc_arc_topology_begin");
+    order.push("__btrc_arc_topology_leave");
+    order.push("__btrc_arc_deferred_state");
+    order.push("__btrc_cycle_collector_state");
+    order.push("__btrc_arc_graph_primitives");
+    order.push("__btrc_arc_unregister_incoming");
+    order.push("__btrc_forget_suspect");
+    order.push("__btrc_collect_cycles_once");
+    order.push("__btrc_arc_drain");
+    order.push("__btrc_arc_abandon_graph");
+    order.push("__btrc_flush_cycles");
+    order.push("__btrc_arc_abandon_queue_drain");
+    order.push("__btrc_arc_topology_cleanup");
+    order.push("__btrc_arc_topology_complete");
+    order.push("__btrc_arc_reverse_state");
+    order.push("__btrc_arc_register_incoming");
+    order.push("__btrc_arc_incoming_teardown_pending");
+    order.push("__btrc_arc_reverse_proves_live");
+    order.push("__btrc_arc_retain");
+    order.push("__btrc_arc_retain_edge");
+    order.push("__btrc_arc_adopt_edge");
+    order.push("__btrc_arc_unlink_edge");
+    order.push("__btrc_arc_release_impl");
+    order.push("__btrc_arc_replace_edge");
+    order.push("__btrc_arc_release");
+    order.push("__btrc_arc_release_edge");
+    order.push("__btrc_arc_release_acyclic");
+    order.push("__btrc_arc_invalidate");
+    order.push("__btrc_arc_destroy_slot");
+    order.push("__btrc_arc_destroy_edge");
+    order.push("__btrc_arc_abandon");
     order.push("__btrc_collect_cycles");
+    order.push("__btrc_poll_cycles");
+    order.push("__btrc_arc_thread_state_cleanup");
+    order.push("__btrc_cycle_state_cleanup");
     /* run_cleanups + throw are emitted AFTER the cycles machinery: the
      * cycle-safe unwinder calls __btrc_collect_cycles / __btrc_suspect and
      * references the __btrc_visit_fn / __btrc_destroy_fn typedefs declared by
      * the cycles helpers, so those must precede it. */
+    order.push("__btrc_cleanup_types");
+    order.push("__btrc_register_cleanup_kind");
+    order.push("__btrc_register_cleanup");
+    order.push("__btrc_register_direct_cleanup");
+    order.push("__btrc_discard_cleanups");
+    order.push("__btrc_cleanup_mark");
+    order.push("__btrc_discard_cleanups_to");
+    order.push("__btrc_arc_guard_hook");
+    order.push("__btrc_raise_captured");
+    order.push("__btrc_run_cleanup_guarded");
+    order.push("__btrc_flush_cycles_guarded");
     order.push("__btrc_run_cleanups");
     order.push("__btrc_throw");
-    /* threads (pthread wrappers; spawn/create roots first so their typedefs +
-     * globals precede the dependent accessors). */
-    order.push("__btrc_thread_spawn");
-    order.push("__btrc_thread_join");
-    order.push("__btrc_thread_free");
-    order.push("__btrc_mutex_val_create");
-    order.push("__btrc_mutex_val_get");
-    order.push("__btrc_mutex_val_set");
-    order.push("__btrc_mutex_val_destroy");
+    order.push("__btrc_try_state_cleanup");
+    /* process helpers. */
+    appendProcessRuntimeHelperOrder(order);
+    /* pthread/Mutex helpers. */
+    appendThreadRuntimeHelperOrder(order);
     return order;
 }

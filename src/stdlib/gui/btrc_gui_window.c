@@ -7,9 +7,13 @@
  */
 #include "btrc_gui_window.h"
 #include "btrc_gui.h"
+#include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 
+#ifndef GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_NONE
+#endif
 #ifndef GL_SILENCE_DEPRECATION
 #define GL_SILENCE_DEPRECATION
 #endif
@@ -28,9 +32,19 @@ typedef struct {
     bool mouse_down;
 } btrc_window;
 
+/* The GPU backend may share GLFW, so this library never tears global state
+ * down while another independently-owned window could still exist. */
 static int g_glfw_inited = 0;
 
+static int cursor_coordinate(double value) {
+    if (!isfinite(value)) { return -1; }
+    if (value < (double)INT_MIN) { return INT_MIN; }
+    if (value > (double)INT_MAX) { return INT_MAX; }
+    return (int)value;
+}
+
 void* btrc_gui_window_open(char* title, int width, int height) {
+    if (width <= 0 || height <= 0) { return NULL; }
     if (!g_glfw_inited) {
         if (!glfwInit()) { return NULL; }
         g_glfw_inited = 1;
@@ -41,13 +55,21 @@ void* btrc_gui_window_open(char* title, int width, int height) {
     glfwMakeContextCurrent(w);
     glfwSwapInterval(1);
     btrc_window* bw = (btrc_window*)malloc(sizeof(btrc_window));
-    if (!bw) { glfwDestroyWindow(w); return NULL; }
+    if (!bw) {
+        glfwDestroyWindow(w);
+        return NULL;
+    }
     bw->win = w;
     bw->mouse_x = 0;
     bw->mouse_y = 0;
     bw->mouse_down = false;
     /* Create the GPU texture used to present the surface (hardware sampling). */
     glGenTextures(1, &bw->tex);
+    if (bw->tex == 0) {
+        glfwDestroyWindow(w);
+        free(bw);
+        return NULL;
+    }
     glBindTexture(GL_TEXTURE_2D, bw->tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -69,8 +91,8 @@ void btrc_gui_window_poll(void* winv) {
     glfwPollEvents();
     double mx = 0, my = 0;
     glfwGetCursorPos(bw->win, &mx, &my);
-    bw->mouse_x = (int)mx;
-    bw->mouse_y = (int)my;
+    bw->mouse_x = cursor_coordinate(mx);
+    bw->mouse_y = cursor_coordinate(my);
     bw->mouse_down = glfwGetMouseButton(bw->win, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
 }
 
@@ -95,8 +117,11 @@ void btrc_gui_window_present(void* winv, void* surface) {
     int sw = btrc_gui_surface_width(surface);
     int sh = btrc_gui_surface_height(surface);
     void* px = btrc_gui_surface_pixels(surface);
+    if (sw <= 0 || sh <= 0 || !px) { return; }
     int fbw = 0, fbh = 0;
     glfwGetFramebufferSize(bw->win, &fbw, &fbh);
+    if (fbw <= 0 || fbh <= 0) { return; }
+    glfwMakeContextCurrent(bw->win);
     glViewport(0, 0, fbw, fbh);
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -120,6 +145,7 @@ void btrc_gui_window_present(void* winv, void* surface) {
 void btrc_gui_window_close(void* winv) {
     btrc_window* bw = (btrc_window*)winv;
     if (!bw) { return; }
+    if (bw->win) { glfwMakeContextCurrent(bw->win); }
     if (bw->tex) { glDeleteTextures(1, &bw->tex); }
     if (bw->win) { glfwDestroyWindow(bw->win); }
     free(bw);

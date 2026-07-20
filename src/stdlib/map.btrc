@@ -17,6 +17,21 @@ class Map<K, V> implements Iterable {
     public int len;
     public int cap;
 
+    private int nextCapacity() {
+        if (self.cap <= 0 || self.cap > 1073741823) {
+            fprintf(stderr, "Map capacity overflow\n");
+            exit(1);
+        }
+        int nextCap = self.cap * 2;
+        if ((size_t)nextCap > (size_t)(-1) / sizeof(K)
+                || (size_t)nextCap > (size_t)(-1) / sizeof(V)
+                || (size_t)nextCap > (size_t)(-1) / sizeof(bool)) {
+            fprintf(stderr, "Map allocation size overflow\n");
+            exit(1);
+        }
+        return nextCap;
+    }
+
     public Map() {
         self.cap = 16;
         self.len = 0;
@@ -30,7 +45,7 @@ class Map<K, V> implements Iterable {
         K* old_keys = self.keys;
         V* old_values = self.values;
         bool* old_occupied = self.occupied;
-        self.cap = self.cap * 2;
+        self.cap = self.nextCapacity();
         self.len = 0;
         self.keys = (K*)__btrc_safe_calloc(self.cap, sizeof(K));
         self.values = (V*)__btrc_safe_calloc(self.cap, sizeof(V));
@@ -46,7 +61,7 @@ class Map<K, V> implements Iterable {
     }
 
     public void put(K key, V value) {
-        if (self.len * 4 >= self.cap * 3) { self.resize(); }
+        if (self.len >= self.cap - self.cap / 4) { self.resize(); }
         self.putRetained(key, value);
     }
 
@@ -132,6 +147,10 @@ class Map<K, V> implements Iterable {
         self.occupied = null;
         self.cap = 0;
         self.len = 0;
+    }
+
+    public void __del__() {
+        self.free();
     }
 
     public void remove(K key) {

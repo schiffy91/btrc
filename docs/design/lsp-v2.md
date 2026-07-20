@@ -164,7 +164,7 @@ col)` directly off the per-file units. The `source_positions` mapping layer
 **P2 — analyzer-truth features + polish (≈1 week)**
 - A6 occurrence index; rewrite hover/definition/references/rename/semantic
   tokens as lookups. "Completely correct" lands here (bug class #3).
-- Pre-analyzed stdlib snapshot (pickled class/function tables): analyze drops
+- Pre-analyzed stdlib snapshot (schema-versioned JSON class/function tables): analyze drops
   ~31 ms → ~5 ms; aligns with `precompiled-stdlib.md`.
 - Semantic token deltas (`full/delta`); `workspace/symbol` from the unit
   cache; cross-file references via import graph.

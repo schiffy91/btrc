@@ -21,11 +21,10 @@ in
   esac
   echo "Building ${cfg.name} devcontainer ($PLATFORM)..."
   ${runtime} build -f .devcontainer/Containerfile --platform "$PLATFORM" -t ${cfg.image} .
-  ${runtime} image prune --force &>/dev/null || true
-  ${runtime} volume prune --force &>/dev/null || true
 '' + lib.optionalString cfg.share.claude ''
   # Mirror Claude credentials to ~/.claude/.credentials.json (Linux convention)
   if command -v security &>/dev/null; then
+    umask 077
     mkdir -p "$HOME/${cfg.paths.claude}"
     security find-generic-password -s "Claude Code-credentials" -a "$USER" -w > "$HOME/${cfg.paths.claude}/.credentials.json" 2>/dev/null || true
   fi

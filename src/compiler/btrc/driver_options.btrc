@@ -1,0 +1,77 @@
+/* Command-line model for the production self-hosted compiler driver. */
+
+class BtrccOptions {
+    public bool valid;
+    public bool includeStdlib;
+    public bool runDce;
+    public bool showHelp;
+    public bool showStdlibDirectory;
+    public int inputIndex;
+    public string diagnostic;
+
+    public BtrccOptions() {
+        self.valid = true;
+        self.includeStdlib = true;
+        self.runDce = true;
+        self.showHelp = false;
+        self.showStdlibDirectory = false;
+        self.inputIndex = 1;
+        self.diagnostic = "";
+    }
+}
+
+class BtrccDriverOptions {
+    class string usage() {
+        return "usage: btrcc [--no-stdlib] [--no-dce] [--] <file.btrc>\n"
+            + "       btrcc --stdlib-dir";
+    }
+
+    class BtrccOptions invalid(BtrccOptions options, string diagnostic) {
+        options.valid = false;
+        options.diagnostic = diagnostic;
+        return options;
+    }
+
+    class BtrccOptions parse(int argc, char** argv) {
+        BtrccOptions options = new BtrccOptions();
+        int index = 1;
+        while (index < argc) {
+            string option = Strings.copy(argv[index]);
+            if (option.equals("--no-stdlib")) {
+                options.includeStdlib = false;
+            } else if (option.equals("--no-dce")) {
+                options.runDce = false;
+            } else if (option.equals("--stdlib-dir")) {
+                options.showStdlibDirectory = true;
+            } else if (option.equals("--help") || option.equals("-h")) {
+                options.showHelp = true;
+            } else if (option.equals("--")) {
+                index++;
+                break;
+            } else if (option.startsWith("-")) {
+                return BtrccDriverOptions.invalid(
+                    options, f"unknown option: {option}");
+            } else {
+                break;
+            }
+            index++;
+        }
+        options.inputIndex = index;
+        if (options.showHelp) { return options; }
+        if (options.showStdlibDirectory) {
+            if (index < argc) {
+                return BtrccDriverOptions.invalid(
+                    options, "--stdlib-dir does not accept an input file");
+            }
+            return options;
+        }
+        if (index >= argc) {
+            return BtrccDriverOptions.invalid(options, "missing input file");
+        }
+        if (index + 1 < argc) {
+            return BtrccDriverOptions.invalid(
+                options, "only one input file may be compiled at a time");
+        }
+        return options;
+    }
+}

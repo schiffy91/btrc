@@ -23,7 +23,6 @@ from ..tokens import TokenType
 
 
 class ControlFlowMixin:
-
     def _parse_return_stmt(self) -> ReturnStmt:
         tok = self._expect(TokenType.RETURN)
         value = None
@@ -44,8 +43,7 @@ class ControlFlowMixin:
                 else_block = ElseIf(if_stmt=self._parse_if_stmt())
             else:
                 else_block = ElseBlock(body=self._parse_block())
-        return IfStmt(condition=condition, then_block=then_block,
-                      else_block=else_block, line=tok.line, col=tok.col)
+        return IfStmt(condition=condition, then_block=then_block, else_block=else_block, line=tok.line, col=tok.col)
 
     def _parse_while_stmt(self) -> WhileStmt:
         tok = self._expect(TokenType.WHILE)
@@ -75,22 +73,24 @@ class ControlFlowMixin:
             self._expect(TokenType.IN)
             iterable = self._parse_expr()
             body = self._parse_block()
-            return ForInStmt(var_name=var_name, iterable=iterable,
-                             body=body, line=tok.line, col=tok.col)
+            return ForInStmt(var_name=var_name, iterable=iterable, body=body, line=tok.line, col=tok.col)
 
         # for-in (map): 'for' IDENT ',' IDENT 'in' expr block
-        if (self._check(TokenType.IDENT) and self._peek(1).type == TokenType.COMMA
-                and self._peek(2).type == TokenType.IDENT
-                and self._peek(3).type == TokenType.IN):
+        if (
+            self._check(TokenType.IDENT)
+            and self._peek(1).type == TokenType.COMMA
+            and self._peek(2).type == TokenType.IDENT
+            and self._peek(3).type == TokenType.IN
+        ):
             var_name = self._advance().value
             self._expect(TokenType.COMMA)
             var_name2 = self._advance().value
             self._expect(TokenType.IN)
             iterable = self._parse_expr()
             body = self._parse_block()
-            return ForInStmt(var_name=var_name, var_name2=var_name2,
-                             iterable=iterable, body=body,
-                             line=tok.line, col=tok.col)
+            return ForInStmt(
+                var_name=var_name, var_name2=var_name2, iterable=iterable, body=body, line=tok.line, col=tok.col
+            )
 
         # C for: 'for' '(' init ';' cond ';' update ')' block
         self._expect(TokenType.LPAREN)
@@ -105,10 +105,17 @@ class ControlFlowMixin:
                     name = name_tok.value
                     self._expect(TokenType.EQ, "'=' (var requires an initializer)")
                     init_val = self._parse_expr()
-                    init = ForInitVar(var_decl=VarDeclStmt(
-                        type=None, name=name, initializer=init_val,
-                        line=start.line, col=start.col,
-                        name_line=name_tok.line, name_col=name_tok.col))
+                    init = ForInitVar(
+                        var_decl=VarDeclStmt(
+                            type=None,
+                            name=name,
+                            initializer=init_val,
+                            line=start.line,
+                            col=start.col,
+                            name_line=name_tok.line,
+                            name_col=name_tok.col,
+                        )
+                    )
                 else:
                     type_expr = self._parse_type_expr()
                     name_tok = self._expect(TokenType.IDENT, "variable name")
@@ -116,10 +123,17 @@ class ControlFlowMixin:
                     init_val = None
                     if self._match(TokenType.EQ):
                         init_val = self._parse_expr()
-                    init = ForInitVar(var_decl=VarDeclStmt(
-                        type=type_expr, name=name, initializer=init_val,
-                        line=start.line, col=start.col,
-                        name_line=name_tok.line, name_col=name_tok.col))
+                    init = ForInitVar(
+                        var_decl=VarDeclStmt(
+                            type=type_expr,
+                            name=name,
+                            initializer=init_val,
+                            line=start.line,
+                            col=start.col,
+                            name_line=name_tok.line,
+                            name_col=name_tok.col,
+                        )
+                    )
             else:
                 init = ForInitExpr(expression=self._parse_expr())
         self._expect(TokenType.SEMICOLON)
@@ -135,8 +149,7 @@ class ControlFlowMixin:
         self._expect(TokenType.RPAREN)
 
         body = self._parse_block()
-        return CForStmt(init=init, condition=condition, update=update,
-                        body=body, line=tok.line, col=tok.col)
+        return CForStmt(init=init, condition=condition, update=update, body=body, line=tok.line, col=tok.col)
 
     def _parse_parallel_for_stmt(self) -> ParallelForStmt:
         tok = self._expect(TokenType.PARALLEL)
@@ -145,8 +158,7 @@ class ControlFlowMixin:
         self._expect(TokenType.IN)
         iterable = self._parse_expr()
         body = self._parse_block()
-        return ParallelForStmt(var_name=var_name, iterable=iterable,
-                               body=body, line=tok.line, col=tok.col)
+        return ParallelForStmt(var_name=var_name, iterable=iterable, body=body, line=tok.line, col=tok.col)
 
     def _parse_switch_stmt(self) -> SwitchStmt:
         tok = self._expect(TokenType.SWITCH)
@@ -171,8 +183,7 @@ class ControlFlowMixin:
             raise self._error(f"Expected 'case' or 'default', got '{tok.value}'")
         self._expect(TokenType.COLON)
         body = []
-        while not self._check(TokenType.CASE, TokenType.DEFAULT,
-                               TokenType.RBRACE) and not self._at_end():
+        while not self._check(TokenType.CASE, TokenType.DEFAULT, TokenType.RBRACE) and not self._at_end():
             body.append(self._parse_statement())
         return CaseClause(value=value, body=body, line=tok.line, col=tok.col)
 
@@ -194,10 +205,15 @@ class ControlFlowMixin:
             finally_block = self._parse_block()
         if catch_block is None and finally_block is None:
             raise self._error("Expected 'catch' or 'finally' after try block")
-        return TryCatchStmt(try_block=try_block, catch_var=catch_var,
-                            catch_type=catch_type,
-                            catch_block=catch_block, finally_block=finally_block,
-                            line=tok.line, col=tok.col)
+        return TryCatchStmt(
+            try_block=try_block,
+            catch_var=catch_var,
+            catch_type=catch_type,
+            catch_block=catch_block,
+            finally_block=finally_block,
+            line=tok.line,
+            col=tok.col,
+        )
 
     def _parse_throw(self) -> ThrowStmt:
         tok = self._expect(TokenType.THROW)

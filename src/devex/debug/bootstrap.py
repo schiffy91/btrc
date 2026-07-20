@@ -14,11 +14,26 @@ import subprocess
 import sys
 
 _GUARD = "BTRC_DAP_BOOTSTRAPPED"
+_PROBE_TIMEOUT_SECONDS = 15
+
+
+def _can_run_adapter(python: str, env: dict[str, str]) -> bool:
+    try:
+        probe = subprocess.run(
+            [python, "-c", "import lldb; import adapter"],
+            env=env,
+            capture_output=True,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return probe.returncode == 0
 
 
 def ensure_lldb() -> None:
     try:
         import lldb  # noqa: F401
+
         return
     except ImportError:
         pass
@@ -26,33 +41,32 @@ def ensure_lldb() -> None:
     if os.environ.get(_GUARD):
         sys.stderr.write(
             "btrc debug adapter: the lldb Python module is unavailable under "
-            f"{sys.executable}. Install Xcode/llvm command-line tools.\n")
+            f"{sys.executable}. Install Xcode/llvm command-line tools.\n"
+        )
         sys.exit(1)
 
     lldb_exe = shutil.which("lldb") or "/usr/bin/lldb"
     try:
-        pypath = subprocess.check_output([lldb_exe, "-P"], text=True,
-                                         stderr=subprocess.DEVNULL).strip()
-    except Exception as e:  # noqa: BLE001
-        sys.stderr.write(f"btrc debug adapter: cannot locate lldb ({e}).\n")
+        pypath = subprocess.check_output(
+            [lldb_exe, "-P"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        ).strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        sys.stderr.write(f"btrc debug adapter: cannot locate lldb ({error}).\n")
         sys.exit(1)
 
     script = os.path.abspath(sys.argv[0])
+    script_dir = os.path.dirname(script)
     for py in ("/usr/bin/python3", shutil.which("python3"), sys.executable):
         if not py:
             continue
         env = dict(os.environ)
         env[_GUARD] = "1"
-        env["PYTHONPATH"] = os.pathsep.join(
-            p for p in (pypath, env.get("PYTHONPATH", "")) if p)
-        try:
-            probe = subprocess.run([py, "-c", "import lldb"], env=env,
-                                   capture_output=True)
-        except Exception:  # noqa: BLE001
-            continue
-        if probe.returncode == 0:
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (pypath, script_dir, env.get("PYTHONPATH", "")) if p)
+        if _can_run_adapter(py, env):
             os.execve(py, [py, script, *sys.argv[1:]], env)
 
-    sys.stderr.write(
-        "btrc debug adapter: no Python interpreter could import lldb.\n")
+    sys.stderr.write("btrc debug adapter: no Python interpreter could import both lldb and the adapter.\n")
     sys.exit(1)

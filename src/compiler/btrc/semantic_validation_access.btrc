@@ -1,0 +1,91 @@
+/* Shared member lookup and access control. */
+
+Node? semanticResolveRichEnumVariant(
+        string enumName, string variantName, Analyzed analyzed) {
+    if (!analyzed.richEnumTable.has(enumName)) { return null; }
+    Node declaration = analyzed.richEnumTable.get(enumName);
+    int index = 0;
+    while (index < declaration.variants.len) {
+        Node variant = declaration.variants.get(index);
+        if (variant.name == variantName) { return variant; }
+        index = index + 1;
+    }
+    return null;
+}
+
+Node? semanticDeclaredMember(string owner, string memberName,
+        int memberKind, bool classAccess, Analyzed analyzed) {
+    Node? declaration = null;
+    if (analyzed.classTable.has(owner)) {
+        declaration = analyzed.classTable.get(owner);
+    } else if (analyzed.genericClassTable.has(owner)) {
+        declaration = analyzed.genericClassTable.get(owner);
+    }
+    if (declaration == null) { return null; }
+    Node concreteDeclaration = declaration;
+    int index = 0;
+    while (index < concreteDeclaration.members.len) {
+        Node member = concreteDeclaration.members.get(index);
+        bool accessMatches = (member.access == "class") == classAccess;
+        if (member.kind == memberKind && accessMatches
+                && !member.is_constructor && member.name == memberName) {
+            return member;
+        }
+        index = index + 1;
+    }
+    return null;
+}
+
+string semanticResolveMemberOwner(string className, string memberName,
+        int memberKind, bool classAccess, bool inherited,
+        Analyzed analyzed) {
+    string current = className;
+    Map<string, bool> visited = {};
+    while (current != "" && !visited.has(current)) {
+        visited.put(current, true);
+        Node? member = semanticDeclaredMember(
+            current, memberName, memberKind, classAccess, analyzed);
+        if (member != null) { return current; }
+        if (!inherited || !analyzed.classTable.has(current)) {
+            return "";
+        }
+        current = parentName(analyzed.classTable.get(current));
+    }
+    return "";
+}
+
+void semanticValidateMemberAccess(Node declaration, string owner,
+        string memberKind, string memberName,
+        SemanticValidationState state, Node site) {
+    if (declaration.access != "private") { return; }
+    if (!state.owner.startsWith(owner + ".")) {
+        semanticValidationFail("Cannot access private " + memberKind + " '"
+            + memberName + "' of class '" + owner + "'", site);
+    }
+}
+
+bool semanticValidateResolvedMemberAccess(string className,
+        string memberName, int declarationKind, bool classAccess,
+        bool inherited, string memberKind,
+        SemanticValidationState state, Node site) {
+    string owner = semanticResolveMemberOwner(className, memberName,
+        declarationKind, classAccess, inherited, state.analyzed);
+    if (owner == "") { return false; }
+    Node? declaration = semanticDeclaredMember(
+        owner, memberName, declarationKind, classAccess, state.analyzed);
+    if (declaration == null) { return false; }
+    Node concreteDeclaration = declaration;
+    semanticValidateMemberAccess(
+        concreteDeclaration, owner, memberKind, memberName, state, site);
+    return true;
+}
+
+void semanticValidateMethodAccess(string className, Node method,
+        SemanticValidationState state, Node site) {
+    string owner = semanticResolveMemberOwner(
+        className, method.name, NK_METHOD_DECL,
+        method.access == "class", true, state.analyzed);
+    if (owner == "") { owner = className; }
+    semanticValidateMemberAccess(
+        method, owner, "method", method.name, state, site);
+}

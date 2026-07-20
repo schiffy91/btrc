@@ -10,9 +10,7 @@ under the same helper name; tests/test_truth_sweep.py cross-checks that.
 
 ``helper=None`` methods are lowered specially in ir/gen/methods.py: the
 strlen/strcmp inlines (len/byteLen/length/equals) and the conversions in
-STRING_CONVERSIONS below. ``toBool`` is analysis-only: no lowering exists
-yet (pre-existing drift, kept documented here rather than silently split
-across files).
+STRING_CONVERSIONS below.
 """
 
 from __future__ import annotations
@@ -22,9 +20,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class StringMethod:
-    return_type: str            # btrc type name; "string*" = list of strings
-    helper: str | None = None   # runtime helper; None = special-cased lowering
-    tracked: bool = False       # result is a new heap string (__btrc_str_track)
+    return_type: str  # btrc type name; "string*" = list of strings
+    helper: str | None = None  # runtime helper; None = special-cased lowering
+    tracked: bool = False  # result is a new heap string (__btrc_str_track)
+    argument_types: tuple[str, ...] = ()
 
 
 STRING_METHODS: dict[str, StringMethod] = {
@@ -33,16 +32,16 @@ STRING_METHODS: dict[str, StringMethod] = {
     "byteLen": StringMethod("int"),
     "length": StringMethod("int"),
     "charLen": StringMethod("int", "__btrc_charLen"),
-    "equals": StringMethod("bool"),
+    "equals": StringMethod("bool", argument_types=("string",)),
     # Queries
-    "contains": StringMethod("bool", "__btrc_strContains"),
-    "startsWith": StringMethod("bool", "__btrc_startsWith"),
-    "endsWith": StringMethod("bool", "__btrc_endsWith"),
-    "indexOf": StringMethod("int", "__btrc_indexOf"),
-    "lastIndexOf": StringMethod("int", "__btrc_lastIndexOf"),
-    "find": StringMethod("int", "__btrc_find"),
-    "count": StringMethod("int", "__btrc_count"),
-    "charAt": StringMethod("char", "__btrc_charAt"),
+    "contains": StringMethod("bool", "__btrc_strContains", argument_types=("string",)),
+    "startsWith": StringMethod("bool", "__btrc_startsWith", argument_types=("string",)),
+    "endsWith": StringMethod("bool", "__btrc_endsWith", argument_types=("string",)),
+    "indexOf": StringMethod("int", "__btrc_indexOf", argument_types=("string",)),
+    "lastIndexOf": StringMethod("int", "__btrc_lastIndexOf", argument_types=("string",)),
+    "find": StringMethod("int", "__btrc_find", argument_types=("string", "int")),
+    "count": StringMethod("int", "__btrc_count", argument_types=("string",)),
+    "charAt": StringMethod("char", "__btrc_charAt", argument_types=("int",)),
     # Predicates
     "isEmpty": StringMethod("bool", "__btrc_isEmpty"),
     "isBlank": StringMethod("bool", "__btrc_isBlank"),
@@ -60,22 +59,66 @@ STRING_METHODS: dict[str, StringMethod] = {
     "rstrip": StringMethod("string", "__btrc_rstrip", tracked=True),
     "toUpper": StringMethod("string", "__btrc_toUpper", tracked=True),
     "toLower": StringMethod("string", "__btrc_toLower", tracked=True),
-    "substring": StringMethod("string", "__btrc_substring", tracked=True),
-    "replace": StringMethod("string", "__btrc_replace", tracked=True),
-    "repeat": StringMethod("string", "__btrc_repeat", tracked=True),
+    "substring": StringMethod(
+        "string",
+        "__btrc_substring",
+        tracked=True,
+        argument_types=("int", "int"),
+    ),
+    "replace": StringMethod(
+        "string",
+        "__btrc_replace",
+        tracked=True,
+        argument_types=("string", "string"),
+    ),
+    "repeat": StringMethod(
+        "string",
+        "__btrc_repeat",
+        tracked=True,
+        argument_types=("int",),
+    ),
     "reverse": StringMethod("string", "__btrc_reverse", tracked=True),
     "capitalize": StringMethod("string", "__btrc_capitalize", tracked=True),
     "title": StringMethod("string", "__btrc_title", tracked=True),
     "swapCase": StringMethod("string", "__btrc_swapCase", tracked=True),
-    "padLeft": StringMethod("string", "__btrc_padLeft", tracked=True),
-    "padRight": StringMethod("string", "__btrc_padRight", tracked=True),
-    "center": StringMethod("string", "__btrc_center", tracked=True),
-    "zfill": StringMethod("string", "__btrc_zfill", tracked=True),
-    "removePrefix": StringMethod("string", "__btrc_removePrefix", tracked=True),
-    "removeSuffix": StringMethod("string", "__btrc_removeSuffix", tracked=True),
-    "join": StringMethod("string", "__btrc_join", tracked=True),
+    "padLeft": StringMethod(
+        "string",
+        "__btrc_padLeft",
+        tracked=True,
+        argument_types=("int", "char"),
+    ),
+    "padRight": StringMethod(
+        "string",
+        "__btrc_padRight",
+        tracked=True,
+        argument_types=("int", "char"),
+    ),
+    "center": StringMethod(
+        "string",
+        "__btrc_center",
+        tracked=True,
+        argument_types=("int", "char"),
+    ),
+    "zfill": StringMethod(
+        "string",
+        "__btrc_zfill",
+        tracked=True,
+        argument_types=("int",),
+    ),
+    "removePrefix": StringMethod(
+        "string",
+        "__btrc_removePrefix",
+        tracked=True,
+        argument_types=("string",),
+    ),
+    "removeSuffix": StringMethod(
+        "string",
+        "__btrc_removeSuffix",
+        tracked=True,
+        argument_types=("string",),
+    ),
     # Split returns a heap list of strings (not a tracked single string)
-    "split": StringMethod("string*", "__btrc_split"),
+    "split": StringMethod("string*", "__btrc_split", argument_types=("string",)),
     # Conversions (special-cased: see STRING_CONVERSIONS)
     "toInt": StringMethod("int"),
     "toFloat": StringMethod("float"),
@@ -84,10 +127,11 @@ STRING_METHODS: dict[str, StringMethod] = {
     "toBool": StringMethod("bool"),
 }
 
-# Conversion methods lowered to C stdlib calls: name -> (c_func, cast_to).
+# Conversion methods lowered to C library/runtime calls: name -> (callee, cast).
 STRING_CONVERSIONS: dict[str, tuple[str, str | None]] = {
-    "toInt": ("atoi", "int"),
-    "toFloat": ("atof", "float"),
-    "toDouble": ("atof", None),
-    "toLong": ("atol", None),
+    "toInt": ("__btrc_parseInt", None),
+    "toFloat": ("strtof", None),
+    "toDouble": ("strtod", None),
+    "toLong": ("__btrc_parseLong", None),
+    "toBool": ("__btrc_parseBool", None),
 }

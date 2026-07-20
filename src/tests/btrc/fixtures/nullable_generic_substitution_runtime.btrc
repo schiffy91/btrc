@@ -1,0 +1,69 @@
+#include <assert.h>
+#include <string.h>
+
+class Item {
+    public int value;
+    public Item(int value) { self.value = value; }
+}
+
+class Maybe<T> {
+    public T? stored;
+    public Maybe(T? value) { self.stored = value; }
+    public T? get() { return self.stored; }
+}
+
+typedef Item Alias;
+typedef Alias AliasChain;
+typedef string TextAlias;
+typedef int* RawPointer;
+typedef int? NullableInt;
+typedef int[] IntArray;
+
+class Empty<T> {
+    public T? stored;
+    public Empty() { self.stored = null; }
+    public T? get() { return self.stored; }
+}
+
+int main() {
+    Item item = new Item(7);
+    Maybe<Item> itemBox = new Maybe<Item>(item);
+    assert(itemBox.get() == item);
+
+    Maybe<string> textBox = new Maybe<string>("value");
+    assert(strcmp(textBox.get(), "value") == 0);
+
+    int numbers[2] = {4, 9};
+    int* pointer = &numbers[0];
+    Maybe<int[]> arrayBox = new Maybe<int[]>(numbers);
+    assert(arrayBox.get()[1] == 9);
+    Maybe<Alias> aliasValueBox = new Maybe<Alias>(item);
+    assert(aliasValueBox.get() == item);
+    Maybe<AliasChain> chainValueBox = new Maybe<AliasChain>(item);
+    assert(chainValueBox.get() == item);
+    Maybe<TextAlias> textAliasValueBox = new Maybe<TextAlias>("alias");
+    assert(strcmp(textAliasValueBox.get(), "alias") == 0);
+    Maybe<RawPointer> pointerAliasValueBox = new Maybe<RawPointer>(pointer);
+    assert(pointerAliasValueBox.get()[0] == 4);
+    Maybe<NullableInt> nullableAliasValueBox = new Maybe<NullableInt>(pointer);
+    assert(nullableAliasValueBox.get()[1] == 9);
+    Maybe<IntArray> arrayAliasValueBox = new Maybe<IntArray>(numbers);
+    assert(arrayAliasValueBox.get()[1] == 9);
+
+    Empty<Alias> aliasBox = new Empty<Alias>();
+    assert(aliasBox.get() == null);
+    Empty<AliasChain> aliasChainBox = new Empty<AliasChain>();
+    assert(aliasChainBox.get() == null);
+    Empty<TextAlias> textAliasBox = new Empty<TextAlias>();
+    assert(textAliasBox.get() == null);
+    Empty<RawPointer> pointerAliasBox = new Empty<RawPointer>();
+    assert(pointerAliasBox.get() == null);
+    Empty<NullableInt> nullableAliasBox = new Empty<NullableInt>();
+    assert(nullableAliasBox.get() == null);
+    Empty<IntArray> arrayAliasBox = new Empty<IntArray>();
+    assert(arrayAliasBox.get() == null);
+
+    int*? optionalPointer = null;
+    assert(optionalPointer != pointer);
+    return 0;
+}

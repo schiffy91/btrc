@@ -9,11 +9,11 @@ from ..ast_nodes import (
     ReleaseStmt,
     VarDeclStmt,
 )
-from ..tokens import TYPE_KEYWORDS, TokenType
+from ..tokens import TokenType
+from .type_lookahead import scan_type_expr
 
 
 class StatementsMixin:
-
     def _parse_block(self) -> Block:
         tok = self._expect(TokenType.LBRACE)
         stmts = []
@@ -82,118 +82,21 @@ class StatementsMixin:
 
         if tok.type == TokenType.VAR:
             return True
-        if tok.type in TYPE_KEYWORDS and tok.type not in (
-                TokenType.CONST, TokenType.STATIC,
-                TokenType.EXTERN, TokenType.VOLATILE):
-            return self._lookahead_is_var_decl()
-        if tok.type in (TokenType.CONST, TokenType.STATIC,
-                        TokenType.EXTERN, TokenType.VOLATILE):
-            return True
-        if tok.type == TokenType.IDENT:
-            return self._lookahead_is_var_decl()
-        if tok.type == TokenType.LPAREN and self._is_tuple_type_start():
-            return self._lookahead_is_var_decl()
-        return False
+        return self._lookahead_is_var_decl()
 
     def _lookahead_is_var_decl(self) -> bool:
-        """From current position, try to parse a type + name pattern."""
-        if self.tokens[self.pos].type == TokenType.VAR:
-            return True
-        save = self.pos
-        try:
-            # Skip qualifiers
-            while self.tokens[self.pos].type in (TokenType.CONST, TokenType.STATIC,
-                                                   TokenType.EXTERN, TokenType.VOLATILE):
-                self.pos += 1
-            tok = self.tokens[self.pos]
-
-            # Tuple type
-            if tok.type == TokenType.LPAREN:
-                depth = 1
-                self.pos += 1
-                while self.pos < len(self.tokens) and depth > 0:
-                    t = self.tokens[self.pos]
-                    if t.type == TokenType.LPAREN:
-                        depth += 1
-                    elif t.type == TokenType.RPAREN:
-                        depth -= 1
-                    self.pos += 1
-                result = (self.pos < len(self.tokens) and
-                          self.tokens[self.pos].type == TokenType.IDENT)
-                self.pos = save
-                return result
-            elif tok.type in (TokenType.UNSIGNED, TokenType.SIGNED):
-                self.pos += 1
-                if self.tokens[self.pos].type in (TokenType.INT, TokenType.SHORT,
-                                                    TokenType.LONG, TokenType.CHAR):
-                    self.pos += 1
-            elif tok.type in (TokenType.LONG, TokenType.SHORT):
-                self.pos += 1
-                if self.tokens[self.pos].type in (TokenType.INT, TokenType.LONG,
-                                                    TokenType.DOUBLE):
-                    self.pos += 1
-            elif tok.type in (TokenType.STRUCT, TokenType.ENUM, TokenType.UNION):
-                self.pos += 1
-                if self.tokens[self.pos].type == TokenType.IDENT:
-                    self.pos += 1
-            elif tok.type in TYPE_KEYWORDS or tok.type == TokenType.IDENT:
-                self.pos += 1
-            else:
-                self.pos = save
-                return False
-
-            # Skip generic args
-            if self.tokens[self.pos].type == TokenType.LT:
-                depth = 1
-                self.pos += 1
-                while self.pos < len(self.tokens) and depth > 0:
-                    t = self.tokens[self.pos]
-                    if t.type == TokenType.LT:
-                        depth += 1
-                    elif t.type == TokenType.GT:
-                        depth -= 1
-                    elif t.type == TokenType.GT_GT:
-                        depth -= 2
-                    elif t.type in (TokenType.SEMICOLON, TokenType.LBRACE, TokenType.EOF):
-                        self.pos = save
-                        return False
-                    self.pos += 1
-                if depth != 0:
-                    self.pos = save
-                    return False
-
-            # Skip []
-            if (self.pos < len(self.tokens) and
-                self.tokens[self.pos].type == TokenType.LBRACKET and
-                self.pos + 1 < len(self.tokens) and
-                    self.tokens[self.pos + 1].type == TokenType.RBRACKET):
-                self.pos += 2
-
-            # Skip pointers
-            while self.pos < len(self.tokens) and self.tokens[self.pos].type == TokenType.STAR:
-                self.pos += 1
-
-            # Skip nullable marker `?` only when it's clearly a type suffix,
-            # not a ternary operator. Disambiguate: `Type? name =` vs `x ? a : b`
-            if (self.pos < len(self.tokens)
-                    and self.tokens[self.pos].type == TokenType.QUESTION):
-                q_next = self.pos + 1
-                q_after = self.pos + 2
-                if (q_next < len(self.tokens)
-                        and self.tokens[q_next].type == TokenType.IDENT
-                        and q_after < len(self.tokens)
-                        and self.tokens[q_after].type in (
-                            TokenType.EQ, TokenType.SEMICOLON,
-                            TokenType.LBRACKET)):
-                    self.pos += 1  # skip `?` — it's a nullable type
-
-            result = (self.pos < len(self.tokens) and
-                      self.tokens[self.pos].type == TokenType.IDENT)
-            self.pos = save
-            return result
-        except IndexError:
-            self.pos = save
+        """Recognize a complete type, name, and declaration boundary."""
+        type_end = scan_type_expr(self.tokens, self.pos)
+        if type_end is None or type_end >= len(self.tokens) or self.tokens[type_end].type != TokenType.IDENT:
             return False
+        after_name = type_end + 1
+        if after_name >= len(self.tokens):
+            return False
+        return self.tokens[after_name].type in (
+            TokenType.EQ,
+            TokenType.SEMICOLON,
+            TokenType.LBRACKET,
+        )
 
     # ---- Variable declaration ----
 
@@ -207,27 +110,30 @@ class StatementsMixin:
             self._expect(TokenType.EQ, "'=' (var requires an initializer)")
             init = self._parse_expr()
             self._expect(TokenType.SEMICOLON)
-            return VarDeclStmt(type=None, name=name, initializer=init,
-                               line=tok.line, col=tok.col,
-                               name_line=name_tok.line, name_col=name_tok.col)
+            return VarDeclStmt(
+                type=None,
+                name=name,
+                initializer=init,
+                line=tok.line,
+                col=tok.col,
+                name_line=name_tok.line,
+                name_col=name_tok.col,
+            )
 
         type_expr = self._parse_type_expr()
         name_tok = self._expect(TokenType.IDENT, "variable name")
         name = name_tok.value
-        if self._check(TokenType.LBRACKET):
-            self._advance()
-            if self._check(TokenType.RBRACKET):
-                self._advance()
-                type_expr.is_array = True
-            else:
-                size_expr = self._parse_expr()
-                self._expect(TokenType.RBRACKET)
-                type_expr.is_array = True
-                type_expr.array_size = size_expr
+        self._parse_declarator_array_suffix(type_expr)
         init = None
         if self._match(TokenType.EQ):
             init = self._parse_expr()
         self._expect(TokenType.SEMICOLON)
-        return VarDeclStmt(type=type_expr, name=name, initializer=init,
-                           line=tok.line, col=tok.col,
-                           name_line=name_tok.line, name_col=name_tok.col)
+        return VarDeclStmt(
+            type=type_expr,
+            name=name,
+            initializer=init,
+            line=tok.line,
+            col=tok.col,
+            name_line=name_tok.line,
+            name_col=name_tok.col,
+        )

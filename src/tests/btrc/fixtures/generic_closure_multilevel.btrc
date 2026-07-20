@@ -1,0 +1,32 @@
+#include <assert.h>
+
+int leafAlive = 0;
+
+class Leaf<T> {
+    public Leaf() { leafAlive++; }
+    public void __del__() { leafAlive--; }
+}
+
+class Middle<T> {
+    public void exercise() {
+        Leaf<T> leaf = new Leaf<T>();
+        delete leaf;
+    }
+}
+
+class Outer<T> {
+    public void exercise() {
+        Middle<T> middle = new Middle<T>();
+        middle.exercise();
+        delete middle;
+    }
+}
+
+int main() {
+    Outer<int> outer = new Outer<int>();
+    outer.exercise();
+    assert(leafAlive == 0);
+    delete outer;
+    print("PASS: multi-level generic closure");
+    return 0;
+}

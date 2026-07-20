@@ -223,6 +223,7 @@ int main() {
     // ---- String.toDouble() / toLong() ----
     string dstr = "3.14";
     double dval = dstr.toDouble();
+    assert(dval > 3.13 && dval < 3.15);
     string lstr = "12345";
     long lval = lstr.toLong();
     assert(lval == 12345);

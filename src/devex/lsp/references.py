@@ -17,14 +17,15 @@ installed stdlib files on disk.
 from __future__ import annotations
 
 import os
+import re
 
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.frontend import _get_stdlib_dir
-from src.compiler.python.tokens import Token, TokenType
+from src.compiler.python.tokens import KEYWORDS, Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current
 from src.devex.lsp.reference_finders import (
     find_function_references,
     find_member_references,
@@ -83,12 +84,12 @@ def _classify_symbol(
     # Cursor on a member *declaration* (the field/method name in a class body):
     # classify it as that member so find-references/rename span all accesses,
     # not just same-named locals. Member decls live on their own line.
-    here = (result.path or None, token.line)
-    for (cls, mem), (dfile, dline, _dcol) in dmap.method_defs.items():
-        if mem == name and (dfile or None, dline) == here:
+    here = (result.path or None, token.line, token.col)
+    for (cls, mem), (dfile, dline, dcol) in dmap.method_defs.items():
+        if mem == name and (dfile or None, dline, dcol) == here:
             return ("method", cls, name)
-    for (cls, mem), (dfile, dline, _dcol) in dmap.field_defs.items():
-        if mem == name and (dfile or None, dline) == here:
+    for (cls, mem), (dfile, dline, dcol) in dmap.field_defs.items():
+        if mem == name and (dfile or None, dline, dcol) == here:
             return ("field", cls, name)
 
     if name in dmap.class_defs:
@@ -140,14 +141,12 @@ def _locate_symbol(result: AnalysisResult, position: lsp.Position):
     if not result.tokens or not result.ast:
         return None
     tokens = nav_tokens(result)
-    token = find_token_at_position(tokens, position)
+    token = find_token_at_position(tokens, position, result.source)
     if token is None or token.type != TokenType.IDENT:
         return None
     class_table = result.analyzed.class_table if result.analyzed else {}
     dmap = DefinitionMap.from_result(result)
-    kind, class_name, member_name = _classify_symbol(
-        token, tokens, result, class_table, dmap
-    )
+    kind, class_name, member_name = _classify_symbol(token, tokens, result, class_table, dmap)
     return token, tokens, class_table, dmap, kind, class_name, member_name
 
 
@@ -162,6 +161,8 @@ def get_references(
     include_declaration: bool = True,
 ) -> list[lsp.Location]:
     """Return all reference locations for the symbol at position."""
+    if not analysis_is_current(result):
+        return []
     sym = _locate_symbol(result, position)
     if sym is None:
         return []
@@ -169,9 +170,7 @@ def get_references(
     name = token.value
 
     if kind in ("class", "enum", "struct", "typedef"):
-        refs = find_name_references(
-            name, result, _definition_entry(kind, class_name, name, dmap), include_declaration
-        )
+        refs = find_name_references(name, result, _definition_entry(kind, class_name, name, dmap), include_declaration)
     elif kind == "function":
         refs = find_function_references(name, result, dmap, include_declaration)
     elif kind in ("method", "field"):
@@ -187,10 +186,7 @@ def get_references(
     else:
         refs = find_variable_references(name, result, dmap, token, tokens)
 
-    return [
-        result_location(result, line, col, len(name), file=file)
-        for file, line, col in refs
-    ]
+    return [result_location(result, line, col, len(name), file=file) for file, line, col in refs]
 
 
 def _rename_blocked(result: AnalysisResult, position: lsp.Position) -> bool:
@@ -216,10 +212,10 @@ def get_rename_edits(
     new_name: str,
 ) -> lsp.WorkspaceEdit | None:
     """Return workspace edits to rename the symbol at position."""
-    if not result.tokens or not result.ast:
+    if not result.tokens or not result.ast or not analysis_is_current(result) or not _valid_rename_identifier(new_name):
         return None
 
-    token = find_token_at_position(nav_tokens(result), position)
+    token = find_token_at_position(nav_tokens(result), position, result.source)
     if token is None or token.type != TokenType.IDENT:
         return None
     if _rename_blocked(result, position):
@@ -229,31 +225,20 @@ def get_rename_edits(
     if not locations:
         return None
 
-    old_name = token.value
     changes: dict[str, list[lsp.TextEdit]] = {}
     for loc in locations:
-        edit_range = lsp.Range(
-            start=loc.range.start,
-            end=lsp.Position(
-                line=loc.range.start.line,
-                character=loc.range.start.character + len(old_name),
-            ),
-        )
+        edit_range = loc.range
         changes.setdefault(loc.uri, []).append(lsp.TextEdit(range=edit_range, new_text=new_name))
 
     return lsp.WorkspaceEdit(changes=changes)
 
 
-# Keywords and reserved built-in names that can never be renamed.
-_RENAME_KEYWORDS = frozenset(
-    {
-        "if", "else", "while", "for", "in", "return", "class", "public",
-        "private", "void", "int", "float", "double", "string", "bool",
-        "char", "true", "false", "null", "new", "delete", "self", "break",
-        "continue", "switch", "case", "default", "try", "catch", "throw",
-        "do", "List", "Map", "Set",
-    }
-)
+_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def _valid_rename_identifier(name: str) -> bool:
+    """Apply the grammar's ASCII identifier shape and keyword reservation."""
+    return isinstance(name, str) and bool(_IDENTIFIER_PATTERN.fullmatch(name)) and name not in KEYWORDS
 
 
 def prepare_rename(
@@ -261,14 +246,12 @@ def prepare_rename(
     position: lsp.Position,
 ) -> lsp.Range | None:
     """Check if rename is possible at position and return the symbol range."""
-    if not result.tokens:
+    if not result.tokens or not analysis_is_current(result):
         return None
 
     tokens = nav_tokens(result) if result.ast else result.tokens
-    token = find_token_at_position(tokens, position)
+    token = find_token_at_position(tokens, position, result.source)
     if token is None or token.type != TokenType.IDENT:
-        return None
-    if token.value in _RENAME_KEYWORDS:
         return None
     # With an AST available, apply the same refusals as get_rename_edits so
     # the editor never opens a rename box that the rename request will reject.

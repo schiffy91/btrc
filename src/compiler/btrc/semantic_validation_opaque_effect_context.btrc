@@ -1,0 +1,55 @@
+/* Context discovery for source raw-parameter effect proofs. */
+
+string semanticRawBorrowOwner(Node declaration,
+        SemanticValidationState state) {
+    string declarationKey = astNodeKey(declaration);
+    Vector<string> classes = state.analyzed.classTable.keys();
+    int classIndex = 0;
+    while (classIndex < classes.len) {
+        string className = classes.get(classIndex);
+        Node classDeclaration = state.analyzed.classTable.get(className);
+        int memberIndex = 0;
+        while (memberIndex < classDeclaration.members.len) {
+            Node member = classDeclaration.members.get(memberIndex);
+            if (member.kind == NK_METHOD_DECL
+                    && astNodeKey(member) == declarationKey) {
+                return className;
+            }
+            memberIndex = memberIndex + 1;
+        }
+        classIndex = classIndex + 1;
+    }
+    return "";
+}
+
+void semanticRawCollectLocalNames(Node? node, Map<string, bool> names) {
+    if (node == null) { return; }
+    if (node.kind == NK_BLOCK) {
+        int index = 0;
+        while (index < node.statements.len) {
+            semanticRawCollectLocalNames(node.statements.get(index), names);
+            index = index + 1;
+        }
+        return;
+    }
+    if (node.kind == NK_VAR_DECL_STMT) {
+        names.put(node.name, true);
+    } else if (node.kind == NK_IF_STMT) {
+        semanticRawCollectLocalNames(node.then_block, names);
+        semanticRawCollectLocalNames(node.else_block, names);
+    } else if (node.kind == NK_ELSE_BLOCK) {
+        semanticRawCollectLocalNames(node.body_node, names);
+    } else if (node.kind == NK_ELSE_IF) {
+        semanticRawCollectLocalNames(node.if_stmt, names);
+    } else if (node.kind == NK_WHILE_STMT
+            || node.kind == NK_DO_WHILE_STMT
+            || node.kind == NK_C_FOR_STMT
+            || node.kind == NK_FOR_IN_STMT
+            || node.kind == NK_PARALLEL_FOR_STMT) {
+        semanticRawCollectLocalNames(node.body_node, names);
+    } else if (node.kind == NK_TRY_CATCH_STMT) {
+        semanticRawCollectLocalNames(node.try_block, names);
+        semanticRawCollectLocalNames(node.catch_block, names);
+        semanticRawCollectLocalNames(node.finally_block, names);
+    }
+}

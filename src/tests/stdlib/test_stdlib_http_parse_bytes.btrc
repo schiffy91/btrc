@@ -11,7 +11,7 @@
 int main() {
     /* Build a raw request whose body is A NUL B NUL C (5 bytes, two NULs). */
     Bytes raw = Bytes();
-    string head = "POST /up HTTP/1.1\r\nContent-Length: 5\r\n\r\n";
+    string head = "POST /up HTTP/1.1\r\nHost: local\r\nContent-Length: 5\r\n\r\n";
     raw.appendRaw((char*)head, (int)strlen(head));
     raw.append(65);   /* 'A' */
     raw.append(0);    /* embedded NUL */

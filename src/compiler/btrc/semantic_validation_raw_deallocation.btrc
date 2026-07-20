@@ -1,0 +1,186 @@
+/* Semantic boundary between raw C allocation APIs and managed ownership. */
+
+int semanticRawLifetimeArity(string name) {
+    return hostedAbiRawLifetimeArity(name);
+}
+
+bool semanticHostedRawLifetimeValue(string name,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (semanticRawLifetimeArity(name) == 0 || vars.has(name)) { return false; }
+    if (state.analyzed.funcTable.has(name)) {
+        return state.analyzed.funcTable.get(name).body_node == null
+            || semanticHostedCallBypassesSourceDefinition(name, state);
+    }
+    return true;
+}
+
+bool semanticRawLifetimeCall(Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (call.callee == null || call.callee.kind != NK_IDENTIFIER
+            || semanticRawLifetimeArity(call.callee.name) == 0) {
+        return false;
+    }
+    string name = call.callee.name;
+    return semanticHostedCallUsesOwnedSymbol(name, state, vars);
+}
+
+bool semanticRawLifetimeUsesStaticString(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    if (expression.kind == NK_STRING_LITERAL) { return true; }
+    if (expression.kind == NK_CAST_EXPR) {
+        return semanticRawLifetimeUsesStaticString(
+            expression.expr, state, vars);
+    }
+    if (expression.kind == NK_UNARY_EXPR) {
+        return semanticRawLifetimeUsesStaticString(
+            expression.operand, state, vars);
+    }
+    if (expression.kind == NK_BINARY_EXPR) {
+        return semanticRawLifetimeUsesStaticString(
+                expression.left, state, vars)
+            || semanticRawLifetimeUsesStaticString(
+                expression.right, state, vars);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        return semanticRawLifetimeUsesStaticString(
+                expression.true_expr, state, vars)
+            || semanticRawLifetimeUsesStaticString(
+                expression.false_expr, state, vars);
+    }
+    Node? aliasArgument = semanticHostedReturnAliasArgument(
+        expression, state, vars);
+    if (aliasArgument != null) {
+        return semanticRawLifetimeUsesStaticString(
+            aliasArgument, state, vars);
+    }
+    return false;
+}
+
+int semanticHostedDeallocatorCompatibility(Node expression,
+        string family, SemanticValidationState state,
+        Map<string, Node> vars) {
+    while (expression.kind == NK_CAST_EXPR) {
+        expression = expression.expr;
+    }
+    if (expression.kind == NK_UNARY_EXPR && expression.op == "&") {
+        return -1;
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        int left = semanticHostedDeallocatorCompatibility(
+            expression.true_expr, family, state, vars);
+        int right = semanticHostedDeallocatorCompatibility(
+            expression.false_expr, family, state, vars);
+        if (left < 0 || right < 0) { return -1; }
+        return left > 0 && right > 0 ? 1 : 0;
+    }
+    if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+        int left = semanticHostedDeallocatorCompatibility(
+            expression.left, family, state, vars);
+        int right = semanticHostedDeallocatorCompatibility(
+            expression.right, family, state, vars);
+        if (left < 0 || right < 0) { return -1; }
+        return left > 0 && right > 0 ? 1 : 0;
+    }
+    Node? inferred = semanticResolveAliases(
+        semanticInferType(expression, state, vars), state);
+    if (expression.kind == NK_BINARY_EXPR
+            && (expression.op == "+" || expression.op == "-")
+            && inferred != null && inferred.pointer_depth > 0) {
+        return -1;
+    }
+    if (inferred != null && inferred.is_array) { return -1; }
+    if (expression.kind != NK_CALL_EXPR || expression.callee == null
+            || expression.callee.kind != NK_IDENTIFIER
+            || !state.analyzed.hostedCallKeys.has(astNodeKey(expression))) {
+        return 0;
+    }
+    string name = expression.callee.name;
+    bool nullAlias = semanticHostedAliasArgumentIsNull(name, expression);
+    string deallocator = hostedAbiReturnDeallocator(name);
+    if (nullAlias) {
+        string conditional = hostedAbiReturnAliasNullDeallocator(name);
+        if (conditional != "") { deallocator = conditional; }
+    }
+    if (deallocator != "") {
+        return deallocator == family ? 1 : -1;
+    }
+    if (semanticHostedReturnEffectForCall(name, expression) != "alias"
+            || hostedAbiReturnAliasShape(name) != "exact") {
+        return -1;
+    }
+    int aliasIndex = hostedAbiReturnAliasParameter(name);
+    if (aliasIndex < 0 || aliasIndex >= expression.args.len) { return -1; }
+    return semanticHostedDeallocatorCompatibility(
+        expression.args.get(aliasIndex), family, state, vars);
+}
+
+void semanticValidateRawLifetimeCall(Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    string name = call.callee.name;
+    int expected = semanticRawLifetimeArity(name);
+    if (call.args.len != expected) {
+        semanticValidationFail("'" + name + "()' expects "
+            + Strings.fromInt(expected) + " argument(s) but got "
+            + Strings.fromInt(call.args.len), call);
+    }
+    int nameIndex = 0;
+    while (nameIndex < call.arg_names.len) {
+        if (call.arg_names.get(nameIndex) != "") {
+            semanticValidationFail(
+                "'" + name + "()' does not accept named arguments", call);
+        }
+        nameIndex = nameIndex + 1;
+    }
+
+    Node argument = call.args.get(0);
+    if (semanticRawLifetimeUsesStaticString(argument, state, vars)) {
+        semanticValidationFail(name
+            + "() cannot consume static string storage; only heap memory "
+            + "owned by a raw allocator may be consumed", argument);
+    }
+    Node lifetimeSource = argument;
+    while (lifetimeSource.kind == NK_CAST_EXPR) {
+        lifetimeSource = lifetimeSource.expr;
+    }
+    Node? inferred = semanticOpaqueManagedOrigin(argument, state, vars);
+    Node? argumentType = semanticResolveAliases(inferred, state);
+    if (argumentType != null && !argumentType.is_array) {
+        Node concreteType = argumentType;
+        bool unresolvedValue = state.typeParams.has(concreteType.base)
+            && concreteType.pointer_depth == 0;
+        bool managedValue = semanticOpaqueManagedType(concreteType, state);
+        bool runtimeHandle = concreteType.base == "Thread"
+            && concreteType.pointer_depth == 0;
+        if (managedValue || runtimeHandle || unresolvedValue) {
+            bool indirect = semanticOwnershipUsesIndirectLvalue(
+                lifetimeSource, state, vars);
+            string guidance =
+                "use 'delete' so the owning slot is cleared safely";
+            if (name != "free") {
+                guidance = "raw resizing is only valid for raw pointer buffers";
+            } else if (indirect) {
+                guidance = "bind an owned direct local before managed destruction";
+            } else if (runtimeHandle) {
+                guidance = "join the Thread or let its owning scope clean it up";
+            } else if (unresolvedValue) {
+                guidance = "use a pointer-typed raw buffer or a managed ownership operation";
+            } else if (isStringType(concreteType)) {
+                guidance = "release the string or let its owning scope clean it up";
+            } else if (concreteType.base == "Mutex") {
+                guidance = "call Mutex.destroy() or let its owning scope clean it up";
+            }
+            semanticValidationFail(
+                name + "() cannot consume managed value of type '"
+                    + semanticFormatType(concreteType) + "'; " + guidance,
+                argument);
+        }
+    }
+    string family = hostedAbiConsumeDeallocator(name);
+    if (semanticHostedDeallocatorCompatibility(
+            argument, family, state, vars) < 0) {
+        semanticValidationFail(name
+            + "() cannot consume storage because it is not compatible with "
+            + "the '" + family + "' deallocator family", argument);
+    }
+}

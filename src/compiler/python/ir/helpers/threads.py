@@ -1,96 +1,246 @@
 """Threading runtime helpers -- pthread wrappers for spawn/join."""
 
 from .core import HelperDef
+from .mutexes import MUTEXES
 
 THREADS = {
     "__btrc_thread_spawn": HelperDef(
         c_source=(
+            "typedef void (*__btrc_thread_result_dispose)(void*, void*);\n"
+            "typedef void (*__btrc_thread_arg_dispose)(void*);\n"
             "typedef struct {\n"
             "    void* (*fn)(void*);\n"
             "    void* arg;\n"
+            "    __btrc_thread_arg_dispose dispose_arg;\n"
             "    void* result;\n"
+            "    void* result_context;\n"
+            "    __btrc_thread_result_dispose dispose_result;\n"
+            "    __btrc_raise_fn raise_result;\n"
+            "    __btrc_raise_fn raise_worker;\n"
+            "    int has_worker_error;\n"
+            "    char worker_error[1024];\n"
             "    pthread_t handle;\n"
             "} __btrc_thread_t;\n"
             "\n"
-            "static void* __btrc_thread_wrapper(void* raw) {\n"
+            "static int __btrc_thread_guard(\n"
+            "        __btrc_thread_t* t, __btrc_hook_fn hook, void* object) {\n"
+            "    char error[1024];\n"
+            "    error[0] = '\\0';\n"
+            "    int failed = __btrc_arc_guard_hook(\n"
+            "        hook, object, error, sizeof error);\n"
+            "    if (failed && !t->has_worker_error) {\n"
+            "        memcpy(t->worker_error, error, sizeof t->worker_error);\n"
+            "        t->has_worker_error = 1;\n"
+            "    }\n"
+            "    return failed;\n"
+            "}\n"
+            "\n"
+            "static void __btrc_thread_entry_thunk(void* raw) {\n"
             "    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n"
             "    t->result = t->fn(t->arg);\n"
+            "}\n"
+            "\n"
+            "static void __btrc_thread_arc_cleanup_thunk(void* unused) {\n"
+            "    (void)unused;\n"
+            "    __btrc_arc_thread_state_cleanup();\n"
+            "}\n"
+            "\n"
+            "static void* __btrc_thread_wrapper(void* raw) {\n"
+            "    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n"
+            "    (void)__btrc_thread_guard(\n"
+            "        t, __btrc_thread_entry_thunk, t);\n"
+            "    if (t->dispose_arg)\n"
+            "        (void)__btrc_thread_guard(t, t->dispose_arg, t->arg);\n"
+            "    t->arg = NULL;\n"
+            "    t->dispose_arg = NULL;\n"
+            "    int cleanup_failed = __btrc_thread_guard(\n"
+            "        t, __btrc_thread_arc_cleanup_thunk, NULL);\n"
+            "    if (cleanup_failed)\n"
+            "        __btrc_arc_thread_state_finalize();\n"
+            "    __btrc_try_state_cleanup();\n"
             "    return NULL;\n"
             "}\n"
             "\n"
-            "static __btrc_thread_t* __btrc_thread_spawn(void* (*fn)(void*), void* arg) {\n"
-            "    __btrc_thread_t* t = (__btrc_thread_t*)malloc(sizeof(__btrc_thread_t));\n"
-            '    if (!t) { fprintf(stderr, "btrc: thread alloc failed\\n"); exit(1); }\n'
+            "static __btrc_thread_t* __btrc_thread_spawn(\n"
+            "        void* (*fn)(void*), void* arg,\n"
+            "        __btrc_thread_arg_dispose dispose_arg,\n"
+            "        const void* result_context, size_t context_size,\n"
+            "        __btrc_thread_result_dispose dispose_result,\n"
+            "        __btrc_raise_fn raise_result) {\n"
+            '    if (!fn) { fprintf(stderr, "btrc: cannot spawn a null thread function\\n"); exit(1); }\n'
+            '    if (dispose_arg && !arg) { fprintf(stderr, "btrc: cannot dispose a null thread argument\\n"); exit(1); }\n'
+            '    if ((!result_context) != (context_size == 0) || (result_context && !dispose_result)) { fprintf(stderr, "btrc: invalid thread result disposal context\\n"); exit(1); }\n'
+            '    if (raise_result && !dispose_result) { fprintf(stderr, "btrc: invalid thread result raise callback\\n"); exit(1); }\n'
+            "    __btrc_thread_t* t = (__btrc_thread_t*)__btrc_safe_realloc(\n"
+            "        NULL, sizeof(__btrc_thread_t));\n"
             "    t->fn = fn;\n"
             "    t->arg = arg;\n"
+            "    t->dispose_arg = dispose_arg;\n"
             "    t->result = NULL;\n"
+            "    t->result_context = NULL;\n"
+            "    if (context_size != 0) {\n"
+            "        t->result_context = __btrc_safe_realloc(NULL, context_size);\n"
+            "        memcpy(t->result_context, result_context, context_size);\n"
+            "    }\n"
+            "    t->dispose_result = dispose_result;\n"
+            "    t->raise_result = raise_result;\n"
+            "    t->raise_worker = __btrc_throw;\n"
+            "    t->has_worker_error = 0;\n"
+            "    t->worker_error[0] = '\\0';\n"
             "    int err = pthread_create(&t->handle, NULL, __btrc_thread_wrapper, t);\n"
-            '    if (err != 0) { fprintf(stderr, "btrc: pthread_create failed\\n"); free(t); exit(1); }\n'
+            '    if (err != 0) { fprintf(stderr, "btrc: pthread_create failed (%d)\\n", err); free(t->result_context); free(t); exit(1); }\n'
             "    return t;\n"
             "}"
         ),
+        depends_on=[
+            "__btrc_safe_realloc",
+            "__btrc_try_state_cleanup",
+            "__btrc_arc_thread_state_cleanup",
+            "__btrc_arc_callback_types",
+            "__btrc_arc_guard_hook",
+            "__btrc_throw",
+        ],
+        required_headers=["pthread.h", "string.h"],
     ),
-    "__btrc_thread_join": HelperDef(
+    "__btrc_thread_finish": HelperDef(
         c_source=(
-            "static void* __btrc_thread_join(__btrc_thread_t* t) {\n"
-            "    pthread_join(t->handle, NULL);\n"
-            "    return t->result;\n"
+            "static void __btrc_thread_finish(__btrc_thread_t* t) {\n"
+            "    int err = pthread_join(t->handle, NULL);\n"
+            '    if (err != 0) { fprintf(stderr, "btrc: pthread_join failed (%d)\\n", err); exit(1); }\n'
             "}"
         ),
         depends_on=["__btrc_thread_spawn"],
     ),
-    "__btrc_thread_free": HelperDef(
+    "__btrc_thread_destroy_handle": HelperDef(
         c_source=(
-            "static void __btrc_thread_free(__btrc_thread_t* t) {\n"
+            "static void __btrc_thread_destroy_handle(__btrc_thread_t* t) {\n"
+            "    free(t->result_context);\n"
             "    free(t);\n"
             "}"
         ),
         depends_on=["__btrc_thread_spawn"],
     ),
-    "__btrc_mutex_val_create": HelperDef(
+    "__btrc_thread_box_dispose": HelperDef(
+        c_source=(
+            "static inline void __btrc_thread_box_dispose(\n"
+            "        void* result, void* context) {\n"
+            "    (void)context;\n"
+            "    free(result);\n"
+            "}"
+        ),
+        depends_on=["__btrc_thread_spawn"],
+    ),
+    "__btrc_thread_arc_dispose": HelperDef(
+        c_source=(
+            "static inline void __btrc_thread_arc_dispose(\n"
+            "        void* result, void* context) {\n"
+            "    __btrc_arc_release(\n"
+            "        result, (const __btrc_arc_type*)context);\n"
+            "    __btrc_flush_cycles();\n"
+            "}"
+        ),
+        depends_on=[
+            "__btrc_thread_spawn",
+            "__btrc_arc_release",
+            "__btrc_flush_cycles",
+        ],
+    ),
+    "__btrc_thread_string_dispose": HelperDef(
+        c_source=(
+            "static inline void __btrc_thread_string_dispose(\n"
+            "        void* result, void* context) {\n"
+            "    (void)context;\n"
+            "    __btrc_string_release((const char*)result);\n"
+            "}"
+        ),
+        depends_on=["__btrc_thread_spawn", "__btrc_string_release"],
+    ),
+    "__btrc_thread_dispose_guarded": HelperDef(
         c_source=(
             "typedef struct {\n"
-            "    pthread_mutex_t lock;\n"
-            "    void* value;\n"
-            "} __btrc_mutex_val_t;\n"
-            "\n"
-            "static __btrc_mutex_val_t* __btrc_mutex_val_create(void* initial) {\n"
-            "    __btrc_mutex_val_t* m = (__btrc_mutex_val_t*)malloc(sizeof(__btrc_mutex_val_t));\n"
-            '    if (!m) { fprintf(stderr, "btrc: mutex alloc failed\\n"); exit(1); }\n'
-            '    if (pthread_mutex_init(&m->lock, NULL) != 0) { fprintf(stderr, "btrc: mutex init failed\\n"); free(m); exit(1); }\n'
-            "    m->value = initial;\n"
-            "    return m;\n"
+            "    __btrc_thread_result_dispose callback;\n"
+            "    void* result;\n"
+            "    void* context;\n"
+            "} __btrc_thread_dispose_call;\n"
+            "static void __btrc_thread_dispose_thunk(void* raw) {\n"
+            "    __btrc_thread_dispose_call* call =\n"
+            "        (__btrc_thread_dispose_call*)raw;\n"
+            "    call->callback(call->result, call->context);\n"
+            "}\n"
+            "static int __btrc_thread_dispose_guarded(\n"
+            "        __btrc_thread_result_dispose callback,\n"
+            "        void* result, void* context,\n"
+            "        char* error, size_t error_capacity) {\n"
+            "    __btrc_thread_dispose_call call = {callback, result, context};\n"
+            "    return __btrc_arc_guard_hook(\n"
+            "        __btrc_thread_dispose_thunk, &call, error, error_capacity);\n"
             "}"
         ),
+        depends_on=["__btrc_thread_spawn", "__btrc_arc_guard_hook"],
     ),
-    "__btrc_mutex_val_get": HelperDef(
+    "__btrc_thread_join": HelperDef(
         c_source=(
-            "static void* __btrc_mutex_val_get(__btrc_mutex_val_t* m) {\n"
-            "    pthread_mutex_lock(&m->lock);\n"
-            "    void* v = m->value;\n"
-            "    pthread_mutex_unlock(&m->lock);\n"
-            "    return v;\n"
+            "static void* __btrc_thread_join(__btrc_thread_t* t) {\n"
+            '    if (!t) { fprintf(stderr, "btrc: cannot join a consumed thread handle\\n"); exit(1); }\n'
+            "    __btrc_thread_finish(t);\n"
+            "    if (t->has_worker_error) {\n"
+            "        char worker_error[1024];\n"
+            "        char dispose_error[1024];\n"
+            "        dispose_error[0] = '\\0';\n"
+            "        memcpy(worker_error, t->worker_error, sizeof worker_error);\n"
+            "        __btrc_raise_fn raise = t->raise_worker;\n"
+            "        if (t->dispose_result)\n"
+            "            (void)__btrc_thread_dispose_guarded(\n"
+            "                t->dispose_result, t->result, t->result_context,\n"
+            "                dispose_error, sizeof dispose_error);\n"
+            "        __btrc_thread_destroy_handle(t);\n"
+            "        __btrc_raise_captured(raise, worker_error);\n"
+            "    }\n"
+            "    void* result = t->result;\n"
+            "    __btrc_thread_destroy_handle(t);\n"
+            "    return result;\n"
             "}"
         ),
-        depends_on=["__btrc_mutex_val_create"],
+        depends_on=[
+            "__btrc_thread_finish",
+            "__btrc_thread_destroy_handle",
+            "__btrc_thread_dispose_guarded",
+            "__btrc_raise_captured",
+        ],
     ),
-    "__btrc_mutex_val_set": HelperDef(
+    "__btrc_thread_free": HelperDef(
         c_source=(
-            "static void __btrc_mutex_val_set(__btrc_mutex_val_t* m, void* val) {\n"
-            "    pthread_mutex_lock(&m->lock);\n"
-            "    m->value = val;\n"
-            "    pthread_mutex_unlock(&m->lock);\n"
+            "static void __btrc_thread_free(void* raw) {\n"
+            "    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n"
+            "    if (!t) return;\n"
+            "    __btrc_thread_finish(t);\n"
+            "    char error[1024];\n"
+            "    error[0] = '\\0';\n"
+            "    char dispose_error[1024];\n"
+            "    dispose_error[0] = '\\0';\n"
+            "    int has_error = t->has_worker_error;\n"
+            "    __btrc_raise_fn raise = t->raise_worker;\n"
+            "    if (has_error)\n"
+            "        memcpy(error, t->worker_error, sizeof error);\n"
+            "    int has_dispose_error = t->dispose_result\n"
+            "        && __btrc_thread_dispose_guarded(\n"
+            "            t->dispose_result, t->result, t->result_context,\n"
+            "            dispose_error, sizeof dispose_error);\n"
+            "    if (!has_error && has_dispose_error) {\n"
+            "        memcpy(error, dispose_error, sizeof error);\n"
+            "        raise = t->raise_result;\n"
+            "        has_error = 1;\n"
+            "    }\n"
+            "    __btrc_thread_destroy_handle(t);\n"
+            "    if (has_error) __btrc_raise_captured(raise, error);\n"
             "}"
         ),
-        depends_on=["__btrc_mutex_val_create"],
+        depends_on=[
+            "__btrc_thread_finish",
+            "__btrc_thread_destroy_handle",
+            "__btrc_thread_dispose_guarded",
+            "__btrc_raise_captured",
+        ],
     ),
-    "__btrc_mutex_val_destroy": HelperDef(
-        c_source=(
-            "static void __btrc_mutex_val_destroy(__btrc_mutex_val_t* m) {\n"
-            "    pthread_mutex_destroy(&m->lock);\n"
-            "    free(m);\n"
-            "}"
-        ),
-        depends_on=["__btrc_mutex_val_create"],
-    ),
+    **MUTEXES,
 }

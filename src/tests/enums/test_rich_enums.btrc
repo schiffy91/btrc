@@ -35,7 +35,7 @@ int main() {
 
     // Rich enum toString
     Direction d = Direction.North();
-    string name = Direction_toString(d);
+    string name = d.toString();
     assert(strcmp(name, "North") == 0);
 
     print("PASS: test_rich_enums");

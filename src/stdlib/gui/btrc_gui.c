@@ -9,6 +9,8 @@
  * glyphs render as a box.
  */
 #include "btrc_gui.h"
+#include <limits.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -65,6 +67,17 @@ static const uint8_t G_upper[26][8] = {
 static const uint8_t G_box[8]   = {0x1F,0x11,0x11,0x11,0x11,0x11,0x1F,0x00};
 static const uint8_t G_blank[8] = {0,0,0,0,0,0,0,0};
 
+static bool pixel_count(int width, int height, size_t* count) {
+    if (width <= 0 || height <= 0) { return false; }
+    size_t w = (size_t)width;
+    size_t h = (size_t)height;
+    if (w > SIZE_MAX / h || w * h > SIZE_MAX / sizeof(uint32_t)) {
+        return false;
+    }
+    *count = w * h;
+    return true;
+}
+
 /* Decode the next UTF-8 codepoint at *pp, advancing the pointer. Returns -1 at
  * end of string and U+FFFD (0xFFFD) for malformed sequences. */
 static int utf8_next(const char** pp) {
@@ -72,15 +85,23 @@ static int utf8_next(const char** pp) {
     unsigned char c = *p;
     if (c == 0) { return -1; }
     int cp;
+    int min_cp;
     int n;
-    if (c < 0x80) { cp = c; n = 1; }
-    else if ((c >> 5) == 0x6) { cp = c & 0x1F; n = 2; }
-    else if ((c >> 4) == 0xE) { cp = c & 0x0F; n = 3; }
-    else if ((c >> 3) == 0x1E) { cp = c & 0x07; n = 4; }
+    if (c < 0x80) { cp = c; min_cp = 0; n = 1; }
+    else if ((c >> 5) == 0x6) { cp = c & 0x1F; min_cp = 0x80; n = 2; }
+    else if ((c >> 4) == 0xE) { cp = c & 0x0F; min_cp = 0x800; n = 3; }
+    else if ((c >> 3) == 0x1E) { cp = c & 0x07; min_cp = 0x10000; n = 4; }
     else { *pp = (const char*)(p + 1); return 0xFFFD; }
     for (int i = 1; i < n; i++) {
-        if ((p[i] & 0xC0) != 0x80) { *pp = (const char*)(p + 1); return 0xFFFD; }
+        if (p[i] == 0 || (p[i] & 0xC0) != 0x80) {
+            *pp = (const char*)(p + 1);
+            return 0xFFFD;
+        }
         cp = (cp << 6) | (p[i] & 0x3F);
+    }
+    if (cp < min_cp || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+        *pp = (const char*)(p + 1);
+        return 0xFFFD;
     }
     *pp = (const char*)(p + n);
     return cp;
@@ -122,18 +143,23 @@ static const uint8_t* glyph_for(int cp) {
     }
 }
 
-static void put_pixel(btrc_surface* s, int x, int y, uint32_t rgba) {
+static void put_pixel(btrc_surface* s, int64_t x, int64_t y, uint32_t rgba) {
     if (x < 0 || y < 0 || x >= s->w || y >= s->h) { return; }
-    s->px[y * s->w + x] = rgba;
+    s->px[(size_t)y * (size_t)s->w + (size_t)x] = rgba;
+}
+
+static int64_t add_nonnegative_saturated(int64_t value, int64_t increment) {
+    return value > INT64_MAX - increment ? INT64_MAX : value + increment;
 }
 
 void* btrc_gui_surface_create(int width, int height) {
-    if (width <= 0 || height <= 0) { return NULL; }
+    size_t count;
+    if (!pixel_count(width, height, &count)) { return NULL; }
     btrc_surface* s = (btrc_surface*)malloc(sizeof(btrc_surface));
     if (!s) { return NULL; }
     s->w = width;
     s->h = height;
-    s->px = (uint32_t*)calloc((size_t)width * (size_t)height, sizeof(uint32_t));
+    s->px = (uint32_t*)calloc(count, sizeof(uint32_t));
     if (!s->px) { free(s); return NULL; }
     return (void*)s;
 }
@@ -151,10 +177,19 @@ void* btrc_gui_surface_pixels(void* sv) { btrc_surface* s=(btrc_surface*)sv; ret
 
 void btrc_gui_surface_resize(void* sv, int width, int height) {
     btrc_surface* s = (btrc_surface*)sv;
-    if (!s || width <= 0 || height <= 0) { return; }
+    size_t count;
+    if (!s || !pixel_count(width, height, &count)) { return; }
     if (s->w == width && s->h == height) { return; }
-    uint32_t* np = (uint32_t*)realloc(s->px, (size_t)width * (size_t)height * sizeof(uint32_t));
+    uint32_t* np = (uint32_t*)calloc(count, sizeof(uint32_t));
     if (!np) { return; }
+    int copy_w = s->w < width ? s->w : width;
+    int copy_h = s->h < height ? s->h : height;
+    for (int row = 0; row < copy_h; row++) {
+        memcpy(np + (size_t)row * (size_t)width,
+               s->px + (size_t)row * (size_t)s->w,
+               (size_t)copy_w * sizeof(uint32_t));
+    }
+    free(s->px);
     s->px = np;
     s->w = width;
     s->h = height;
@@ -163,36 +198,67 @@ void btrc_gui_surface_resize(void* sv, int width, int height) {
 void btrc_gui_clear(void* sv, uint32_t rgba) {
     btrc_surface* s = (btrc_surface*)sv;
     if (!s) { return; }
-    int n = s->w * s->h;
-    for (int i = 0; i < n; i++) { s->px[i] = rgba; }
+    size_t n = (size_t)s->w * (size_t)s->h;
+    for (size_t i = 0; i < n; i++) { s->px[i] = rgba; }
 }
 
 void btrc_gui_fill_rect(void* sv, int x, int y, int w, int h, uint32_t rgba) {
     btrc_surface* s = (btrc_surface*)sv;
-    if (!s) { return; }
-    for (int j = 0; j < h; j++) {
-        for (int i = 0; i < w; i++) {
-            put_pixel(s, x + i, y + j, rgba);
+    if (!s || w <= 0 || h <= 0) { return; }
+    int64_t x0 = x < 0 ? 0 : x;
+    int64_t y0 = y < 0 ? 0 : y;
+    int64_t x1 = (int64_t)x + (int64_t)w;
+    int64_t y1 = (int64_t)y + (int64_t)h;
+    if (x1 > s->w) { x1 = s->w; }
+    if (y1 > s->h) { y1 = s->h; }
+    for (int64_t py = y0; py < y1; py++) {
+        for (int64_t px = x0; px < x1; px++) {
+            put_pixel(s, px, py, rgba);
         }
     }
 }
 
+static unsigned int blend_channel(unsigned int source,
+                                  unsigned int source_alpha,
+                                  unsigned int destination,
+                                  unsigned int destination_alpha,
+                                  unsigned int output_alpha_numerator) {
+    if (output_alpha_numerator == 0) { return 0; }
+    unsigned int numerator = source * source_alpha * 255u +
+        destination * destination_alpha * (255u - source_alpha);
+    return (numerator + output_alpha_numerator / 2u) /
+        output_alpha_numerator;
+}
+
 void btrc_gui_blend_rect(void* sv, int x, int y, int w, int h, uint32_t rgba) {
     btrc_surface* s = (btrc_surface*)sv;
-    if (!s) { return; }
+    if (!s || w <= 0 || h <= 0) { return; }
     unsigned int sr = (rgba >> 24) & 0xFF, sg = (rgba >> 16) & 0xFF;
     unsigned int sb = (rgba >> 8) & 0xFF, sa = rgba & 0xFF;
-    for (int j = 0; j < h; j++) {
-        for (int i = 0; i < w; i++) {
-            int px = x + i, py = y + j;
-            if (px < 0 || py < 0 || px >= s->w || py >= s->h) { continue; }
-            uint32_t d = s->px[py * s->w + px];
+    int64_t x0 = x < 0 ? 0 : x;
+    int64_t y0 = y < 0 ? 0 : y;
+    int64_t x1 = (int64_t)x + (int64_t)w;
+    int64_t y1 = (int64_t)y + (int64_t)h;
+    if (x1 > s->w) { x1 = s->w; }
+    if (y1 > s->h) { y1 = s->h; }
+    for (int64_t py = y0; py < y1; py++) {
+        for (int64_t px = x0; px < x1; px++) {
+            size_t index = (size_t)py * (size_t)s->w + (size_t)px;
+            uint32_t d = s->px[index];
             unsigned int dr = (d >> 24) & 0xFF, dg = (d >> 16) & 0xFF;
-            unsigned int db = (d >> 8) & 0xFF;
-            unsigned int r = (sr * sa + dr * (255 - sa)) / 255;
-            unsigned int g = (sg * sa + dg * (255 - sa)) / 255;
-            unsigned int b = (sb * sa + db * (255 - sa)) / 255;
-            s->px[py * s->w + px] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+            unsigned int db = (d >> 8) & 0xFF, da = d & 0xFF;
+            unsigned int output_alpha_numerator =
+                sa * 255u + da * (255u - sa);
+            unsigned int r = blend_channel(
+                sr, sa, dr, da, output_alpha_numerator);
+            unsigned int g = blend_channel(
+                sg, sa, dg, da, output_alpha_numerator);
+            unsigned int b = blend_channel(
+                sb, sa, db, da, output_alpha_numerator);
+            unsigned int output_alpha =
+                (output_alpha_numerator + 127u) / 255u;
+            s->px[index] =
+                (r << 24) | (g << 16) | (b << 8) | output_alpha;
         }
     }
 }
@@ -202,20 +268,46 @@ static void* g_font = NULL;
 static btrc_font_draw_fn g_font_draw = NULL;
 static btrc_font_width_fn g_font_width = NULL;
 static btrc_font_height_fn g_font_height = NULL;
+static atomic_flag g_font_lock = ATOMIC_FLAG_INIT;
+
+static void lock_font_backend(void) {
+    while (atomic_flag_test_and_set_explicit(
+            &g_font_lock, memory_order_acquire)) {
+    }
+}
+
+static void unlock_font_backend(void) {
+    atomic_flag_clear_explicit(&g_font_lock, memory_order_release);
+}
 
 void btrc_gui_install_font_backend(btrc_font_draw_fn d, btrc_font_width_fn w, btrc_font_height_fn h) {
+    lock_font_backend();
     g_font_draw = d; g_font_width = w; g_font_height = h;
+    unlock_font_backend();
 }
-void btrc_gui_set_font(void* font) { g_font = font; }
+void btrc_gui_set_font(void* font) {
+    lock_font_backend();
+    g_font = font;
+    unlock_font_backend();
+}
+void btrc_gui_clear_font_if_active(void* font) {
+    lock_font_backend();
+    if (g_font == font) { g_font = NULL; }
+    unlock_font_backend();
+}
 
-static void draw_glyph(btrc_surface* s, int x, int y, const uint8_t* g, uint32_t rgba, int scale) {
+static void draw_glyph(btrc_surface* s, int64_t x, int64_t y, const uint8_t* g, uint32_t rgba, int scale) {
     for (int row = 0; row < 8; row++) {
         uint8_t bits = g[row];
         for (int col = 0; col < 8; col++) {
             if ((bits >> col) & 1) {
                 for (int dy = 0; dy < scale; dy++) {
                     for (int dx = 0; dx < scale; dx++) {
-                        put_pixel(s, x + col * scale + dx, y + row * scale + dy, rgba);
+                        int64_t px = add_nonnegative_saturated(
+                            x, (int64_t)col * scale + dx);
+                        int64_t py = add_nonnegative_saturated(
+                            y, (int64_t)row * scale + dy);
+                        put_pixel(s, px, py, rgba);
                     }
                 }
             }
@@ -226,42 +318,68 @@ static void draw_glyph(btrc_surface* s, int x, int y, const uint8_t* g, uint32_t
 void btrc_gui_draw_text(void* sv, int x, int y, char* text, uint32_t rgba, int scale) {
     btrc_surface* s = (btrc_surface*)sv;
     if (!s || !text) { return; }
-    if (g_font && g_font_draw) { g_font_draw(sv, g_font, x, y, text, rgba); return; }
+    lock_font_backend();
+    if (g_font && g_font_draw) {
+        g_font_draw(sv, g_font, x, y, text, rgba);
+        unlock_font_backend();
+        return;
+    }
+    unlock_font_backend();
     if (scale < 1) { scale = 1; }
-    int cx = x, cy = y;
+    int64_t cx = x, cy = y;
     const char* p = text;
     int cp;
     while ((cp = utf8_next(&p)) >= 0) {
-        if (cp == '\n') { cx = x; cy += 8 * scale; continue; }
+        if (cp == '\n') {
+            cx = x;
+            cy = add_nonnegative_saturated(cy, (int64_t)8 * scale);
+            continue;
+        }
         draw_glyph(s, cx, cy, glyph_for(cp), rgba, scale);
-        cx += 8 * scale;
+        cx = add_nonnegative_saturated(cx, (int64_t)8 * scale);
     }
 }
 
 int btrc_gui_text_width(char* text, int scale) {
     if (!text) { return 0; }
-    if (g_font && g_font_width) { return g_font_width(g_font, text); }
+    lock_font_backend();
+    if (g_font && g_font_width) {
+        int width = g_font_width(g_font, text);
+        unlock_font_backend();
+        return width;
+    }
+    unlock_font_backend();
     if (scale < 1) { scale = 1; }
-    int max = 0, cur = 0;
+    int64_t max = 0, cur = 0;
     const char* p = text;
     int cp;
     while ((cp = utf8_next(&p)) >= 0) {
         if (cp == '\n') { if (cur > max) { max = cur; } cur = 0; }
-        else { cur += 8 * scale; }
+        else {
+            cur += (int64_t)8 * scale;
+            if (cur > INT_MAX) { cur = INT_MAX; }
+        }
     }
-    return cur > max ? cur : max;
+    int64_t result = cur > max ? cur : max;
+    return result > INT_MAX ? INT_MAX : (int)result;
 }
 
 int btrc_gui_text_height(int scale) {
-    if (g_font && g_font_height) { return g_font_height(g_font); }
+    lock_font_backend();
+    if (g_font && g_font_height) {
+        int height = g_font_height(g_font);
+        unlock_font_backend();
+        return height;
+    }
+    unlock_font_backend();
     if (scale < 1) { scale = 1; }
-    return 8 * scale;
+    return scale > INT_MAX / 8 ? INT_MAX : 8 * scale;
 }
 
 uint32_t btrc_gui_get_pixel(void* sv, int x, int y) {
     btrc_surface* s = (btrc_surface*)sv;
     if (!s || x < 0 || y < 0 || x >= s->w || y >= s->h) { return 0; }
-    return s->px[y * s->w + x];
+    return s->px[(size_t)y * (size_t)s->w + (size_t)x];
 }
 
 bool btrc_gui_save_ppm(void* sv, char* path) {
@@ -269,17 +387,17 @@ bool btrc_gui_save_ppm(void* sv, char* path) {
     if (!s || !path) { return false; }
     FILE* f = fopen(path, "wb");
     if (!f) { return false; }
-    fprintf(f, "P6\n%d %d\n255\n", s->w, s->h);
-    int n = s->w * s->h;
-    for (int i = 0; i < n; i++) {
+    bool ok = fprintf(f, "P6\n%d %d\n255\n", s->w, s->h) >= 0;
+    size_t n = (size_t)s->w * (size_t)s->h;
+    for (size_t i = 0; ok && i < n; i++) {
         uint32_t p = s->px[i];
         unsigned char rgb[3] = {
             (unsigned char)((p >> 24) & 0xFF),
             (unsigned char)((p >> 16) & 0xFF),
             (unsigned char)((p >> 8) & 0xFF),
         };
-        fwrite(rgb, 1, 3, f);
+        ok = fwrite(rgb, 1, sizeof(rgb), f) == sizeof(rgb);
     }
-    fclose(f);
-    return true;
+    if (fclose(f) != 0) { ok = false; }
+    return ok;
 }

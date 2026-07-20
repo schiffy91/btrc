@@ -1,0 +1,186 @@
+/* Runtime data discovery for the relocatable self-hosted compiler.
+ *
+ * BTRC_HOME is the only configuration override and names the data root itself:
+ *
+ *   $BTRC_HOME/language/grammar.ebnf
+ *   $BTRC_HOME/stdlib/*.btrc
+ *
+ * Without that override, argv[0] is resolved to a real executable path and the
+ * only accepted root is ../share/btrc relative to the executable directory.
+ * Bare PATH lookups deliberately ignore empty and relative entries so a
+ * compiler invocation never turns the current directory into an implicit
+ * source of executable or language data.
+ */
+
+class BtrccDataPaths {
+    public bool valid;
+    public string root;
+    public string grammar;
+    public string stdlib;
+    public string diagnostic;
+
+    public BtrccDataPaths(bool valid, string root, string grammar,
+                          string stdlib, string diagnostic) {
+        self.valid = valid;
+        self.root = root;
+        self.grammar = grammar;
+        self.stdlib = stdlib;
+        self.diagnostic = diagnostic;
+    }
+}
+
+class BtrccRuntimePaths {
+    class BtrccDataPaths failure(string diagnostic) {
+        return new BtrccDataPaths(false, "", "", "", diagnostic);
+    }
+
+    class bool hasPathSeparator(string path) {
+        if (path == null) { return false; }
+        if (path.contains("/")) { return true; }
+        return Platform.isWindows() && path.contains("\\");
+    }
+
+    class string canonicalFile(string path) {
+        if (path == null || path.isEmpty() || !FileSystem.isFile(path)) {
+            return "";
+        }
+        if (!Platform.isWindows() && access(path, X_OK) != 0) { return ""; }
+        string canonical = PathTools.absolute(path);
+        return canonical.isEmpty() || !FileSystem.isFile(canonical)
+            ? "" : canonical;
+    }
+
+    class string resolveExplicitExecutable(string argv0) {
+        string canonical = BtrccRuntimePaths.canonicalFile(argv0);
+        if (!canonical.isEmpty()) { return canonical; }
+        if (Platform.isWindows() && !argv0.toLower().endsWith(".exe")) {
+            return BtrccRuntimePaths.canonicalFile(argv0 + ".exe");
+        }
+        return "";
+    }
+
+    class string resolvePathExecutable(string argv0) {
+        string search = Environment.get("PATH", "");
+        if (search.isEmpty()) { return ""; }
+        string separator = Platform.isWindows() ? ";" : ":";
+        Vector<string> directories = Strings.split(search, separator);
+        int index = 0;
+        while (index < directories.len) {
+            string directory = directories.get(index).trim();
+            int length = directory.length();
+            if (length >= 2
+                    && ((directory[0] == '"' && directory[length - 1] == '"')
+                        || (directory[0] == '\''
+                            && directory[length - 1] == '\''))) {
+                directory = directory.substring(1, length - 2);
+            }
+            /* Empty entries and relative entries both mean CWD to common PATH
+             * resolvers. They are intentionally not trusted here. */
+            if (!directory.isEmpty() && PathTools.isAbsolute(directory)) {
+                string candidate = PathTools.join(directory, argv0);
+                string canonical = BtrccRuntimePaths.canonicalFile(candidate);
+                if (!canonical.isEmpty()) { return canonical; }
+                if (Platform.isWindows() && !argv0.toLower().endsWith(".exe")) {
+                    canonical = BtrccRuntimePaths.canonicalFile(
+                        candidate + ".exe");
+                    if (!canonical.isEmpty()) { return canonical; }
+                }
+            }
+            index++;
+        }
+        return "";
+    }
+
+    class string resolveExecutable(string argv0) {
+        if (argv0 == null || argv0.isEmpty()) { return ""; }
+        if (BtrccRuntimePaths.hasPathSeparator(argv0)
+                || PathTools.isAbsolute(argv0)) {
+            return BtrccRuntimePaths.resolveExplicitExecutable(argv0);
+        }
+        return BtrccRuntimePaths.resolvePathExecutable(argv0);
+    }
+
+    class BtrccDataPaths validateRoot(string root, string source) {
+        if (root == null || root.isEmpty()) {
+            return BtrccRuntimePaths.failure(
+                f"{source} does not name a data directory");
+        }
+        if (!FileSystem.isDir(root)) {
+            return BtrccRuntimePaths.failure(
+                f"{source} data directory does not exist: {root}");
+        }
+        string canonical = PathTools.absolute(root);
+        if (canonical.isEmpty() || !FileSystem.isDir(canonical)) {
+            return BtrccRuntimePaths.failure(
+                f"cannot resolve {source} data directory: {root}");
+        }
+        string grammar = PathTools.join(canonical, "language/grammar.ebnf");
+        if (!FileSystem.isFile(grammar)) {
+            return BtrccRuntimePaths.failure(
+                f"{source} is missing language/grammar.ebnf: {canonical}");
+        }
+        string stdlib = PathTools.join(canonical, "stdlib");
+        if (!FileSystem.isDir(stdlib)) {
+            return BtrccRuntimePaths.failure(
+                f"{source} is missing the stdlib directory: {canonical}");
+        }
+        string vectorSource = PathTools.join(stdlib, "vector.btrc");
+        string stringsSource = PathTools.join(stdlib, "strings.btrc");
+        if (!FileSystem.isFile(vectorSource)
+                || !FileSystem.isFile(stringsSource)) {
+            return BtrccRuntimePaths.failure(
+                f"{source} stdlib is incomplete (vector.btrc and "
+                + f"strings.btrc are required): {stdlib}");
+        }
+        return new BtrccDataPaths(true, canonical, grammar, stdlib, "");
+    }
+
+    class BtrccDataPaths fromEnvironment(char* configuredRaw) {
+        string configured = Strings.copy(configuredRaw);
+        if (configured.isEmpty()) {
+            return BtrccRuntimePaths.failure(
+                "BTRC_HOME is set but does not name a data directory");
+        }
+        return BtrccRuntimePaths.validateRoot(configured, "BTRC_HOME");
+    }
+
+    class BtrccDataPaths resolve(string argv0) {
+        char* configuredRaw = getenv("BTRC_HOME");
+        if (configuredRaw != NULL) {
+            /* An invalid explicit override is authoritative: never mask it by
+             * falling back to executable-relative or repository data. */
+            return BtrccRuntimePaths.fromEnvironment(configuredRaw);
+        }
+        string executable = BtrccRuntimePaths.resolveExecutable(argv0);
+        if (executable.isEmpty()) {
+            return BtrccRuntimePaths.failure(
+                f"cannot securely resolve compiler executable from argv[0]: "
+                + f"{argv0}; set BTRC_HOME to the installed data directory");
+        }
+        string binaryDirectory = PathTools.dirname(executable);
+        string installRoot = PathTools.dirname(binaryDirectory);
+        string dataRoot = PathTools.join(
+            PathTools.join(installRoot, "share"), "btrc");
+        BtrccDataPaths installed = BtrccRuntimePaths.validateRoot(
+            dataRoot, "executable-relative");
+        if (installed.valid) { return installed; }
+
+        /* `make btrcc` keeps its native developer entrypoint in repo/bin.
+         * Recognize that source-tree layout only through an executable-relative
+         * marker unique to a btrc checkout; never inspect the process CWD. */
+        string developmentRoot = PathTools.join(installRoot, "src");
+        string developmentMarker = PathTools.join(
+            PathTools.join(
+                PathTools.join(developmentRoot, "compiler"), "btrc"),
+            "btrcc_main.btrc");
+        if (FileSystem.isFile(developmentMarker)) {
+            BtrccDataPaths development = BtrccRuntimePaths.validateRoot(
+                developmentRoot, "executable-relative development");
+            if (development.valid) { return development; }
+            return development;
+        }
+        return BtrccRuntimePaths.failure(
+            installed.diagnostic + f"; no valid development data root at "
+            + developmentRoot);
+    }
+}

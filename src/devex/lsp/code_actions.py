@@ -22,12 +22,19 @@ import os
 
 from lsprotocol import types as lsp
 
+from src.compiler.python import pkg
 from src.compiler.python.frontend import _get_stdlib_dir
 from src.compiler.python.tokens import TokenType
 from src.devex.lsp.definition import DefinitionMap
-from src.devex.lsp.diagnostics import AnalysisResult
+from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current
 from src.devex.lsp.occurrences import build_index
-from src.devex.lsp.utils import BUILTIN_TYPES, active_decls, nav_tokens
+from src.devex.lsp.package_resolution import shares_project_manifest
+from src.devex.lsp.utils import (
+    BUILTIN_TYPES,
+    active_decls,
+    nav_tokens,
+    result_location,
+)
 
 # Maximum Levenshtein distance for a "did you mean" suggestion.
 _MAX_EDIT_DISTANCE = 2
@@ -120,6 +127,9 @@ def _module_imports(result: AnalysisResult):
 
     stdlib_dir = os.path.abspath(_get_stdlib_dir())
     active = os.path.abspath(result.path) if result.path else None
+    active_dir = os.path.dirname(active) if active else None
+    manifest = pkg.find_manifest(active_dir) if active_dir else None
+    project_root = os.path.dirname(manifest) if manifest else active_dir
     by_name: dict[str, str] = {}
 
     def consider(path: str, defined: frozenset):
@@ -134,8 +144,9 @@ def _module_imports(result: AnalysisResult):
 
     for unit in WORKSPACE.stdlib_units():
         consider(unit.path, unit.defined_names)
-    for _sig, unit in WORKSPACE._file_cache.values():
-        consider(unit.path, unit.defined_names)
+    for unit in WORKSPACE.cached_units(project_root):
+        if shares_project_manifest(unit.path, manifest):
+            consider(unit.path, unit.defined_names)
     return by_name
 
 
@@ -200,8 +211,13 @@ def _unresolved_identifiers(result: AnalysisResult, rng: lsp.Range):
     for i, tok in enumerate(tokens):
         if tok.type != TokenType.IDENT:
             continue
-        line0 = tok.line - 1
-        if not (rng.start.line <= line0 <= rng.end.line):
+        token_range = result_location(
+            result,
+            tok.line,
+            tok.col,
+            len(tok.value),
+        ).range
+        if not _ranges_overlap(token_range, rng):
             continue
         if i >= 1 and tokens[i - 1].value in (".", "->", "?."):
             continue  # member access tail: not a free name
@@ -217,7 +233,7 @@ def _unresolved_identifiers(result: AnalysisResult, rng: lsp.Range):
 
 def get_code_actions(result: AnalysisResult, params: lsp.CodeActionParams) -> list[lsp.CodeAction]:
     """Quick-fixes for unresolved identifiers in the requested range."""
-    if not result.tokens or not result.ast:
+    if not result.tokens or not result.ast or not analysis_is_current(result):
         return []
 
     actions: list[lsp.CodeAction] = []
@@ -262,12 +278,22 @@ def _import_action(result: AnalysisResult, name: str, spec: str, insert_line: in
 
 
 def _rename_action(result: AnalysisResult, tok, suggestion: str) -> lsp.CodeAction:
-    start = lsp.Position(line=tok.line - 1, character=tok.col - 1)
-    end = lsp.Position(line=start.line, character=start.character + len(tok.value))
+    edit_range = result_location(
+        result,
+        tok.line,
+        tok.col,
+        len(tok.value),
+    ).range
     return lsp.CodeAction(
         title=f"Change '{tok.value}' to '{suggestion}'",
         kind=lsp.CodeActionKind.QuickFix,
-        edit=lsp.WorkspaceEdit(
-            changes={result.uri: [lsp.TextEdit(range=lsp.Range(start=start, end=end), new_text=suggestion)]}
-        ),
+        edit=lsp.WorkspaceEdit(changes={result.uri: [lsp.TextEdit(range=edit_range, new_text=suggestion)]}),
     )
+
+
+def _ranges_overlap(left: lsp.Range, right: lsp.Range) -> bool:
+    left_start = (left.start.line, left.start.character)
+    left_end = (left.end.line, left.end.character)
+    right_start = (right.start.line, right.start.character)
+    right_end = (right.end.line, right.end.character)
+    return left_start < right_end and right_start < left_end

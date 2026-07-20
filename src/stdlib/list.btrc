@@ -1,6 +1,7 @@
 /* btrc standard library — List<T>
- * Doubly-linked list with O(1) push/pop at both ends.
- * Uses raw C for memory management (malloc/free).
+ * Singly-linked ownership chain. List owns head/tail; each node owns next.
+ * Managed stores provide the retain/release operations, so node removal never
+ * leaves an ARC field pointing at manually freed storage.
  */
 
 import std.iterable;
@@ -9,18 +10,14 @@ import std.vector;
 class ListNode<T> {
     public T value;
     public ListNode<T> next;
-    public ListNode<T> prev;
 
     public ListNode(T val) {
-        keep val;
         self.value = val;
         self.next = null;
-        self.prev = null;
     }
 
-    public void free() {
-        release self.value;
-        free(self);
+    public T copiedValue() {
+        return self.value;
     }
 }
 
@@ -35,13 +32,20 @@ class List<T> implements Iterable {
         self.len = 0;
     }
 
+    private void ensureCanGrow() {
+        if (self.len == 2147483647) {
+            fprintf(stderr, "List length overflow\n");
+            exit(1);
+        }
+    }
+
     public void pushBack(T val) {
+        self.ensureCanGrow();
         ListNode<T> node = new ListNode<T>(val);
-        if (self.tail == null) {
+        if (self.head == null) {
             self.head = node;
             self.tail = node;
         } else {
-            node.prev = self.tail;
             self.tail.next = node;
             self.tail = node;
         }
@@ -49,14 +53,12 @@ class List<T> implements Iterable {
     }
 
     public void pushFront(T val) {
+        self.ensureCanGrow();
         ListNode<T> node = new ListNode<T>(val);
-        if (self.head == null) {
-            self.head = node;
+        node.next = self.head;
+        self.head = node;
+        if (self.tail == null) {
             self.tail = node;
-        } else {
-            node.next = self.head;
-            self.head.prev = node;
-            self.head = node;
         }
         self.len++;
     }
@@ -66,35 +68,38 @@ class List<T> implements Iterable {
     }
 
     public T popBack() {
-        if (self.tail == null) { fprintf(stderr, "List popBack from empty list\n"); exit(1); }
-        T val = self.tail.value;
-        keep val;
-        ListNode<T> old = self.tail;
-        if (self.tail.prev != null) {
-            self.tail = self.tail.prev;
-            self.tail.next = null;
-        } else {
-            self.head = null;
-            self.tail = null;
+        if (self.head == null) {
+            fprintf(stderr, "List popBack from empty list\n");
+            exit(1);
         }
-        delete old;
+        ListNode<T> prev = null;
+        ListNode<T> cur = self.head;
+        while (cur.next != null) {
+            prev = cur;
+            cur = cur.next;
+        }
+        T val = cur.copiedValue();
+        if (prev == null) {
+            self.tail = null;
+            self.head = null;
+        } else {
+            self.tail = prev;
+            prev.next = null;
+        }
         self.len--;
         return val;
     }
 
     public T popFront() {
-        if (self.head == null) { fprintf(stderr, "List popFront from empty list\n"); exit(1); }
-        T val = self.head.value;
-        keep val;
-        ListNode<T> old = self.head;
-        if (self.head.next != null) {
-            self.head = self.head.next;
-            self.head.prev = null;
-        } else {
-            self.head = null;
+        if (self.head == null) {
+            fprintf(stderr, "List popFront from empty list\n");
+            exit(1);
+        }
+        T val = self.head.copiedValue();
+        if (self.len == 1) {
             self.tail = null;
         }
-        delete old;
+        self.head = self.head.next;
         self.len--;
         return val;
     }
@@ -104,17 +109,26 @@ class List<T> implements Iterable {
     }
 
     public T front() {
-        if (self.head == null) { fprintf(stderr, "List.front() on empty list\n"); exit(1); }
+        if (self.head == null) {
+            fprintf(stderr, "List.front() on empty list\n");
+            exit(1);
+        }
         return self.head.value;
     }
 
     public T back() {
-        if (self.tail == null) { fprintf(stderr, "List.back() on empty list\n"); exit(1); }
+        if (self.head == null) {
+            fprintf(stderr, "List.back() on empty list\n");
+            exit(1);
+        }
         return self.tail.value;
     }
 
     public T get(int idx) {
-        if (idx < 0 || idx >= self.len) { fprintf(stderr, "List index out of bounds: %d (len=%d)\n", idx, self.len); exit(1); }
+        if (idx < 0 || idx >= self.len) {
+            fprintf(stderr, "List index out of bounds: %d (len=%d)\n", idx, self.len);
+            exit(1);
+        }
         ListNode<T> cur = self.head;
         for (int i = 0; i < idx; i++) {
             cur = cur.next;
@@ -123,13 +137,14 @@ class List<T> implements Iterable {
     }
 
     public void set(int idx, T val) {
-        if (idx < 0 || idx >= self.len) { fprintf(stderr, "List index out of bounds: %d (len=%d)\n", idx, self.len); exit(1); }
+        if (idx < 0 || idx >= self.len) {
+            fprintf(stderr, "List index out of bounds: %d (len=%d)\n", idx, self.len);
+            exit(1);
+        }
         ListNode<T> cur = self.head;
         for (int i = 0; i < idx; i++) {
             cur = cur.next;
         }
-        keep val;
-        release cur.value;
         cur.value = val;
     }
 
@@ -162,57 +177,72 @@ class List<T> implements Iterable {
     }
 
     public void insert(int idx, T val) {
-        if (idx < 0 || idx > self.len) { fprintf(stderr, "List insert index out of bounds: %d (len=%d)\n", idx, self.len); exit(1); }
+        if (idx < 0 || idx > self.len) {
+            fprintf(stderr, "List insert index out of bounds: %d (len=%d)\n", idx, self.len);
+            exit(1);
+        }
         if (idx == 0) { self.pushFront(val); return; }
         if (idx == self.len) { self.pushBack(val); return; }
-        ListNode<T> cur = self.head;
-        for (int i = 0; i < idx; i++) {
-            cur = cur.next;
+        self.ensureCanGrow();
+        ListNode<T> prev = self.head;
+        for (int i = 1; i < idx; i++) {
+            prev = prev.next;
         }
         ListNode<T> node = new ListNode<T>(val);
-        node.prev = cur.prev;
-        node.next = cur;
-        cur.prev.next = node;
-        cur.prev = node;
+        node.next = prev.next;
+        prev.next = node;
         self.len++;
     }
 
     public void remove(int idx) {
-        if (idx < 0 || idx >= self.len) { fprintf(stderr, "List remove index out of bounds: %d (len=%d)\n", idx, self.len); exit(1); }
-        if (idx == 0) { self.popFront(); return; }
-        if (idx == self.len - 1) { self.popBack(); return; }
-        ListNode<T> cur = self.head;
-        for (int i = 0; i < idx; i++) {
-            cur = cur.next;
+        if (idx < 0 || idx >= self.len) {
+            fprintf(stderr, "List remove index out of bounds: %d (len=%d)\n", idx, self.len);
+            exit(1);
         }
-        cur.prev.next = cur.next;
-        cur.next.prev = cur.prev;
-        delete cur;
+        if (idx == 0) {
+            if (self.len == 1) {
+                self.tail = null;
+            }
+            self.head = self.head.next;
+        } else {
+            ListNode<T> prev = self.head;
+            for (int i = 1; i < idx; i++) {
+                prev = prev.next;
+            }
+            if (idx == self.len - 1) {
+                self.tail = prev;
+                prev.next = null;
+            } else {
+                prev.next = prev.next.next;
+            }
+        }
         self.len--;
     }
 
     public void reverse() {
+        List<T> reversed = new List<T>();
         ListNode<T> cur = self.head;
         while (cur != null) {
-            ListNode<T> tmp = cur.next;
-            cur.next = cur.prev;
-            cur.prev = tmp;
-            cur = tmp;
+            reversed.pushFront(cur.value);
+            cur = cur.next;
         }
-        ListNode<T> tmp = self.head;
-        self.head = self.tail;
-        self.tail = tmp;
+        self.clear();
+        self.head = reversed.head;
+        self.tail = reversed.tail;
+        self.len = reversed.len;
+        reversed.tail = null;
+        reversed.head = null;
+        reversed.len = 0;
     }
 
     public void clear() {
-        ListNode<T> cur = self.head;
-        while (cur != null) {
-            ListNode<T> next = cur.next;
-            delete cur;
-            cur = next;
-        }
-        self.head = null;
+        /* The field store retains next before releasing the old head. The old
+         * node destructor then drops its next edge, leaving exactly the new
+         * head owner and avoiding recursive destruction or stale aliases. */
         self.tail = null;
+        while (self.head != null) {
+            self.head = self.head.next;
+        }
         self.len = 0;
     }
 
@@ -230,7 +260,7 @@ class List<T> implements Iterable {
         return result;
     }
 
-    /* Iterable<T> protocol — O(n) per iterGet call, O(n^2) total */
+    /* Iterable<T> protocol — O(n) per iterGet call, O(n^2) total. */
 
     public int iterLen() {
         return self.len;

@@ -1,0 +1,124 @@
+/* Variable ownership, storage-duration, and array-bound contracts. */
+
+void semanticValidateThreadVariableOwner(Node declaration, Node? typeExpr,
+        bool isGlobal, SemanticValidationState state) {
+    if (!semanticContainsThreadStorage(typeExpr, state)) { return; }
+    string subject = isGlobal ? "Global '" : "Variable '";
+    subject = subject + declaration.name + "'";
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    bool staticStorage = isGlobal || (canonical != null
+        && (canonical.is_static || canonical.is_extern));
+    if (staticStorage) {
+        semanticValidationFail(subject
+            + " cannot own a Thread handle with static storage; Thread<T> "
+            + "must be an initialized local owner", declaration);
+    } else if (canonical == null || canonical.base != "Thread") {
+        semanticValidationFail(subject
+            + " cannot embed a Thread handle; Thread<T> must be the "
+            + "variable's direct type", declaration);
+    } else if (declaration.initializer == null) {
+        semanticValidationFail(subject
+            + " must initialize its Thread<T> owner", declaration);
+    }
+}
+
+void semanticValidateArrayBound(Node typeExpr, string subject,
+        string context, Node site, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (!typeExpr.is_array || typeExpr.array_size == null) { return; }
+    semanticValidateExpr(typeExpr.array_size, state, vars);
+    Node? boundType = semanticInferType(typeExpr.array_size, state, vars);
+    if (boundType != null
+            && !semanticIntegralType(boundType, state.analyzed)) {
+        semanticValidationFail(
+            "Array bound for " + subject + " must be integral",
+            typeExpr.array_size);
+    }
+    Map<string, bool> unrestricted = {};
+    SemanticIntegerConstant constant = semanticIntegerConstant(
+        typeExpr.array_size, state, false, "", unrestricted);
+    if (constant.known && constant.value <= 0) {
+        semanticValidationFail(
+            "Array bound for " + subject + " must be positive",
+            typeExpr.array_size);
+    }
+    if ((context == "field" || context == "global"
+            || context == "static")
+            && !constant.valid) {
+        semanticValidationFail("Array bound for " + subject
+            + " must be a constant expression", typeExpr.array_size);
+    }
+}
+
+void semanticValidateVariableStorage(Node declaration,
+        bool isGlobal, SemanticValidationState state,
+        Map<string, Node> vars) {
+    string subject = isGlobal ? "Global '" : "Variable '";
+    subject = subject + declaration.name + "'";
+    semanticValidateDeclaredType(
+        declaration.type, subject, "object", declaration, state);
+    Node? canonical = semanticResolveAliases(declaration.type, state);
+    if (canonical != null && canonical.base == "Mutex"
+            && (isGlobal || canonical.is_static
+                || canonical.is_extern)) {
+        semanticValidationFail(subject
+            + " cannot own a Mutex handle with static storage until "
+            + "managed global teardown is supported", declaration);
+    }
+    if (declaration.type != null) {
+        if (!isGlobal && declaration.type.is_static
+                && (semanticManagedOwnershipType(
+                        declaration.type, state)
+                    || isStringType(declaration.type)
+                    || state.typeParams.has(
+                        declaration.type.base))) {
+            semanticValidationFail(subject
+                + " cannot use managed static-local storage; declare an "
+                + "owned lexical value or explicit global owner",
+                declaration);
+        }
+        string context = isGlobal ? "global" : "local";
+        if (!isGlobal && declaration.type.is_static) { context = "static"; }
+        semanticValidateArrayBound(declaration.type, subject,
+            context, declaration, state, vars);
+        if (declaration.type.is_extern
+                && declaration.initializer != null) {
+            semanticValidationFail(subject
+                + " cannot have an initializer with extern storage",
+                declaration);
+        }
+        if (declaration.type.is_array
+                && declaration.type.array_size == null
+                && declaration.initializer == null
+                && !declaration.type.is_extern) {
+            semanticValidationFail(subject
+                + " requires an array bound or initializer", declaration);
+        }
+        if (declaration.type.is_array
+                && declaration.type.array_size != null
+                && declaration.initializer != null
+                && (declaration.initializer.kind == NK_LIST_LITERAL
+                    || declaration.initializer.kind == NK_BRACE_INITIALIZER)) {
+            Map<string, bool> unrestricted = {};
+            SemanticIntegerConstant bound = semanticIntegerConstant(
+                declaration.type.array_size, state, false, "", unrestricted);
+            if (bound.known && declaration.initializer.elements.len
+                    > bound.value) {
+                semanticValidationFail(subject + " has "
+                    + Strings.fromInt(declaration.initializer.elements.len)
+                    + " elements exceeding its fixed array bound",
+                    declaration);
+            }
+        }
+    }
+    bool staticStorage = isGlobal
+        || (declaration.type != null && declaration.type.is_static);
+    bool isExtern = declaration.type != null && declaration.type.is_extern;
+    if (staticStorage && !isExtern && declaration.initializer != null
+            && !semanticStaticInitializer(
+                declaration.initializer, declaration.type, state)) {
+        semanticValidationFail(subject
+            + " requires a C constant/address initializer for static storage",
+            declaration);
+    }
+}

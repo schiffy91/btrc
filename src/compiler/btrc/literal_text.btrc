@@ -1,0 +1,52 @@
+/* Target-language spelling for integer literals lowered into strict C11. */
+
+bool isCIntegerSuffixChar(char value) {
+    return value == 'u' || value == 'U' || value == 'l' || value == 'L';
+}
+
+string binaryDigitsToHex(string digits) {
+    string alphabet = "0123456789abcdef";
+    string result = "";
+    int groupLength = digits.length() % 4;
+    if (groupLength == 0) { groupLength = 4; }
+    int index = 0;
+    while (index < digits.length()) {
+        int nibble = 0;
+        int consumed = 0;
+        while (consumed < groupLength && index < digits.length()) {
+            nibble = nibble * 2;
+            if (digits[index] == '1') { nibble = nibble + 1; }
+            consumed = consumed + 1;
+            index = index + 1;
+        }
+        result = result + alphabet.substring(nibble, 1);
+        groupLength = 4;
+    }
+    while (result.length() > 1 && result[0] == '0') {
+        result = result.substring(1, result.length() - 1);
+    }
+    if (result == "") { return "0"; }
+    return result;
+}
+
+string formatCIntegerLiteral(string raw, int value) {
+    if (raw == "") { return Strings.fromInt(value); }
+
+    int bodyEnd = raw.length();
+    while (bodyEnd > 0 && isCIntegerSuffixChar(raw[bodyEnd - 1])) {
+        bodyEnd = bodyEnd - 1;
+    }
+    string body = raw.substring(0, bodyEnd);
+    string suffix = raw.substring(bodyEnd, raw.length() - bodyEnd);
+    if (body.length() >= 2) {
+        string prefix = body.substring(0, 2);
+        if (prefix == "0b" || prefix == "0B") {
+            string digits = body.substring(2, body.length() - 2);
+            return "0x" + binaryDigitsToHex(digits) + suffix;
+        }
+        if (prefix == "0o" || prefix == "0O") {
+            return "0" + body.substring(2, body.length() - 2) + suffix;
+        }
+    }
+    return raw;
+}

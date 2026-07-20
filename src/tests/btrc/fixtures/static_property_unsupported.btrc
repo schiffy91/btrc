@@ -1,0 +1,7 @@
+class Config {
+    static int value { get; set; }
+}
+
+int main() {
+    return Config.value;
+}

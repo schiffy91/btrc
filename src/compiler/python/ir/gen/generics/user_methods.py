@@ -5,229 +5,89 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
+from ....source_runtime_symbols import SOURCE_RUNTIME_HELPERS
+from ...cycle_boundaries import (
+    PUBLIC_COLLECTION_BASES,
+    install_function_cycle_boundary,
+)
 from ...nodes import (
     CType,
-    IRAssign,
-    IRBinOp,
     IRBlock,
-    IRCall,
     IRCast,
     IRExprStmt,
-    IRFieldAccess,
+    IRFunctionDecl,
     IRFunctionDef,
-    IRIf,
-    IRLiteral,
     IRParam,
-    IRReturn,
-    IRUnaryOp,
     IRVar,
-    IRVarDecl,
 )
-from ..types import mangle_generic_type, type_to_c
-from .core import _resolve_type
+from ...topology_boundaries import install_collection_topology_boundary
+from ..cycle_metadata import generic_instance_needs_visitor
+from ..errors import TypedOperatorError
+from ..parameters import lower_source_param
 from .user_emitter import _UserGenericEmitter
-from .user_ir_text import _ir_stmts_to_text
+from .user_ir_queries import (
+    called_callees,
+    called_generic_methods,
+    is_type_incompatible,
+    referenced_helpers,
+)
+from .user_lifecycle import emit_generic_lifecycle
+from .user_properties import emit_generic_properties
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator
 
-# Runtime helpers to register when referenced in emitted code
-_KNOWN_HELPERS = {"__btrc_safe_realloc", "__btrc_safe_calloc"}
 
-
-def _is_type_incompatible(body_text: str, first_arg_c: str) -> bool:
-    """Check if emitted method body uses ops incompatible with the type.
-
-    C doesn't have templates -- all static functions must type-check even if
-    unused.  This skips methods like sum() for pointer types (pointer + pointer
-    is invalid) and join() for non-string types (strlen on non-string).
-    """
-    is_pointer = first_arg_c.endswith("*")
-    if not is_pointer:
-        # strlen/memcpy on non-string element data (join/joinToString)
-        if "strlen(self->" in body_text or "memcpy(" in body_text:
-            return True
-    if is_pointer:
-        # ptr + ptr is invalid C (sum-like methods use T + T arithmetic)
-        if "+ self->data[" in body_text:
-            return True
-        # strlen/strncmp/memcpy on non-string pointer types
-        if first_arg_c != "char*":
-            if "strlen(self->" in body_text or "memcpy(" in body_text:
-                return True
-    return False
-
-
-def _format_params_text(mangled: str, ctor_params: list[IRParam]) -> str:
-    """Format parameter list text for forward declarations."""
-    parts = [f"{mangled}* self"]
-    for p in ctor_params:
-        parts.append(f"{p.c_type} {p.name}")
-    return ", ".join(parts)
-
-
-def _format_ctor_params_text(ctor_params: list[IRParam]) -> str:
-    """Format constructor parameter list text for forward declarations."""
-    if not ctor_params:
-        return "void"
-    return ", ".join(f"{p.c_type} {p.name}" for p in ctor_params)
-
-
-def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
-                                args: list[TypeExpr],
-                                type_map: dict[str, TypeExpr],
-                                cls_info):
+def _emit_user_generic_methods(
+    gen: IRGenerator, base_name: str, mangled: str, args: list[TypeExpr], type_map: dict[str, TypeExpr], cls_info
+):
     """Emit constructor + methods for a user-defined generic class instance."""
     from ..types import type_to_c as ttc
 
-    first_arg_c = ttc(args[0]) if args else "int"
-    emitter = _UserGenericEmitter(type_map, mangled, ttc, gen=gen,
-                                  cls_info=cls_info)
+    if args:
+        from ..type_resolution import canonical_type
 
-    ctor = cls_info.constructor
-    ctor_params_ir = []
-    if ctor:
-        for p in ctor.params:
-            ctor_params_ir.append(
-                IRParam(c_type=CType(text=emitter.resolve_c(p.type)),
-                        name=p.name))
-
-    # Constructor body stmts
-    init_body_stmts = []
-    if ctor and ctor.body:
-        emitter.reset_var_types(ctor.params)
-        init_body_stmts = emitter.emit_stmts(ctor.body.statements)
-    # If body is empty, add (void)self to avoid unused parameter warning
-    if not init_body_stmts:
-        init_body_stmts = [IRExprStmt(
-            expr=IRCast(target_type=CType(text="void"),
-                        expr=IRVar(name="self")))]
-
-    # Collect forward declarations for all methods to avoid order issues
-    fwd_decls = []
-    init_params_text = _format_params_text(mangled, ctor_params_ir)
-    fwd_decls.append(f"static void {mangled}_init({init_params_text});")
-    ctor_params_text = _format_ctor_params_text(ctor_params_ir)
-    fwd_decls.append(
-        f"static {mangled}* {mangled}_new({ctor_params_text});")
-    fwd_decls.append(f"static void {mangled}_destroy({mangled}* self);")
-    for mname, method in cls_info.methods.items():
-        if mname == "__del__" or mname == base_name:
-            continue
-        # Generic methods (method-level type params) are monomorphized per
-        # call site, NOT once per class instance — skip them here.
-        if getattr(method, "generic_params", None):
-            continue
-        ret_c = emitter.resolve_c(method.return_type) if method.return_type else "void"
-        m_params = [f"{mangled}* self"]
-        for p in method.params:
-            m_params.append(f"{emitter.resolve_c(p.type)} {p.name}")
-        fwd_decls.append(
-            f"static {ret_c} {mangled}_{mname}({', '.join(m_params)});")
-
-    # These go into raw_sections (not forward_decls) because they may
-    # reference function pointer typedefs that aren't emitted yet.
-    gen.module.raw_sections.append("\n".join(fwd_decls))
-
-    # --- _init() function ---
-    init_func = IRFunctionDef(
-        name=f"{mangled}_init",
-        return_type=CType(text="void"),
-        params=([IRParam(c_type=CType(text=f"{mangled}*"), name="self")]
-                + ctor_params_ir),
-        body=IRBlock(stmts=[
-            IRAssign(
-                target=IRFieldAccess(obj=IRVar(name="self"),
-                                     field="__rc", arrow=True),
-                value=IRLiteral(text="1")),
-        ] + init_body_stmts),
-        is_static=True,
-    )
-    gen.module.function_defs.append(init_func)
-
-    # --- _new() function ---
-    ctor_arg_names = []
-    if ctor:
-        ctor_arg_names = [IRVar(name=p.name) for p in ctor.params]
-    new_func = IRFunctionDef(
-        name=f"{mangled}_new",
-        return_type=CType(text=f"{mangled}*"),
-        params=list(ctor_params_ir),
-        body=IRBlock(stmts=[
-            IRVarDecl(
-                c_type=CType(text=f"{mangled}*"), name="self",
-                init=IRCast(
-                    target_type=CType(text=f"{mangled}*"),
-                    expr=IRCall(callee="malloc",
-                                args=[IRCall(callee="sizeof",
-                                             args=[IRVar(name=mangled)])]))),
-            IRExprStmt(
-                expr=IRCall(callee="memset",
-                            args=[IRVar(name="self"),
-                                  IRLiteral(text="0"),
-                                  IRCall(callee="sizeof",
-                                         args=[IRVar(name=mangled)])])),
-            IRExprStmt(
-                expr=IRCall(callee=f"{mangled}_init",
-                            args=[IRVar(name="self")] + ctor_arg_names)),
-            IRReturn(value=IRVar(name="self")),
-        ]),
-        is_static=True,
-    )
-    gen.module.function_defs.append(new_func)
-
-    # --- _destroy() function (terminal destructor) ---
-    # If the class defines free() (all collections do), destroy is the single
-    # terminal entry point: free() performs content cleanup (releases elements,
-    # frees buffers, nulls fields — idempotent), then free(self) frees the
-    # struct. We do NOT also emit per-field releases here: free() already does
-    # that, and doing both would double-release the elements.
-    if "free" in cls_info.methods:
-        dtor_stmts = [IRExprStmt(
-            expr=IRCall(callee=f"{mangled}_free", args=[IRVar(name="self")]))]
+        first_arg = canonical_type(args[0], gen.analyzed.typedef_table)
+        first_arg_c = ttc(first_arg)
     else:
-        dtor_stmts = _build_generic_destructor_stmts(cls_info, type_map,
-                                                       mangled, gen)
-    dtor_stmts.append(IRExprStmt(
-        expr=IRCall(callee="free", args=[IRVar(name="self")])))
-    destroy_func = IRFunctionDef(
-        name=f"{mangled}_destroy",
-        return_type=CType(text="void"),
-        params=[IRParam(c_type=CType(text=f"{mangled}*"), name="self")],
-        body=IRBlock(stmts=dtor_stmts),
-        is_static=True,
+        first_arg_c = "int"
+    emitter = _UserGenericEmitter(type_map, mangled, ttc, gen=gen, cls_info=cls_info)
+    function_decls, lifecycle_functions = emit_generic_lifecycle(
+        gen, base_name, mangled, args, type_map, cls_info, emitter
     )
-    gen.module.function_defs.append(destroy_func)
+
+    property_functions = emit_generic_properties(gen, mangled, type_map, cls_info, emitter)
 
     # --- Emit methods ---
     # Two-phase: emit all, then filter out incompatible ones
     emitted = {}
     skipped = set()
+    skip_reasons = {}
+    managed_collection = base_name in PUBLIC_COLLECTION_BASES and generic_instance_needs_visitor(gen, base_name, args)
     for mname, method in cls_info.methods.items():
-        if mname == "__del__" or mname == base_name:
+        if mname == "__del__" or method.is_constructor:
             continue
         # Generic methods are emitted per call site (see generic_methods.py).
         if getattr(method, "generic_params", None):
             continue
-        emitter.reset_var_types(method.params)
+        public_collection_method = base_name in PUBLIC_COLLECTION_BASES and method.access == "public"
+        emitter.reset_var_types(
+            method.params,
+            method.return_type,
+            batch_explicit_releases=public_collection_method,
+        )
         ret_c = emitter.resolve_c(method.return_type) if method.return_type else "void"
         m_params_ir = [IRParam(c_type=CType(text=f"{mangled}*"), name="self")]
         for p in method.params:
-            m_params_ir.append(
-                IRParam(c_type=CType(text=emitter.resolve_c(p.type)),
-                        name=p.name))
-        body_stmts = (emitter.emit_stmts(method.body.statements)
-                      if method.body else [])
-        if not body_stmts:
-            body_stmts = [IRExprStmt(
-                expr=IRCast(target_type=CType(text="void"),
-                            expr=IRVar(name="self")))]
-
-        # Check type compatibility using rough text rendering
-        body_text = _ir_stmts_to_text(body_stmts)
-        if _is_type_incompatible(body_text, first_arg_c):
+            m_params_ir.append(lower_source_param(p, emitter.resolve_c, emitter._gen.analyzed))
+        try:
+            body_stmts = emitter.emit_stmts(method.body.statements) if method.body else []
+        except TypedOperatorError as error:
             skipped.add(mname)
+            skip_reasons[mname] = str(error)
             continue
+        if not body_stmts:
+            body_stmts = [IRExprStmt(expr=IRCast(target_type=CType(text="void"), expr=IRVar(name="self")))]
 
         func_def = IRFunctionDef(
             name=f"{mangled}_{mname}",
@@ -236,104 +96,63 @@ def _emit_user_generic_methods(gen: IRGenerator, base_name: str, mangled: str,
             body=IRBlock(stmts=body_stmts),
             is_static=True,
         )
+        if managed_collection:
+            install_collection_topology_boundary(gen, func_def)
+        if public_collection_method and install_function_cycle_boundary(func_def):
+            gen.use_helper("__btrc_flush_cycles")
+        if is_type_incompatible(func_def, first_arg_c):
+            skipped.add(mname)
+            continue
         emitted[mname] = func_def
 
-    # Second pass: skip methods that call skipped methods
-    for mname, func_def in list(emitted.items()):
-        body_text = _ir_stmts_to_text(func_def.body.stmts)
-        for sk in skipped:
-            if f"{mangled}_{sk}(" in body_text:
-                del emitted[mname]
-                break
+    _drop_methods_calling_skipped(emitted, skipped, mangled)
+    called = called_generic_methods(
+        gen.analyzed.program,
+        gen.analyzed.node_types,
+        base_name,
+        args,
+    )
+    unavailable = called & skipped
+    if unavailable:
+        name = sorted(unavailable)[0]
+        reason = skip_reasons.get(name, "it depends on another unavailable specialization")
+        raise TypedOperatorError(f"cannot instantiate generic method '{base_name}.{name}': {reason}")
+
+    for function in emitted.values():
+        function_decls.append(
+            IRFunctionDecl(
+                name=function.name,
+                return_type=function.return_type,
+                params=list(function.params),
+                is_static=True,
+            )
+        )
+
+    gen.module.function_decls.extend(function_decls)
 
     for func_def in emitted.values():
         gen.module.function_defs.append(func_def)
 
     # Register any runtime helpers referenced in the emitted code
     all_stmts = []
-    for func_def in [init_func, new_func, destroy_func] + list(emitted.values()):
+    for func_def in lifecycle_functions + property_functions + list(emitted.values()):
         if func_def.body:
             all_stmts.extend(func_def.body.stmts)
-    all_text = _ir_stmts_to_text(all_stmts)
-    for h in _KNOWN_HELPERS:
-        if h in all_text:
-            gen.use_helper(h)
+    for helper in referenced_helpers(all_stmts, SOURCE_RUNTIME_HELPERS):
+        gen.use_helper(helper)
 
 
-def _build_generic_destructor_stmts(cls_info, type_map, mangled, gen):
-    """Build the destructor body as IR statements with ARC-aware field release.
-
-    For each class-type field: if (field) { if (--field->__rc <= 0) destroy(field); }
-    For other fields: nothing (primitives don't need cleanup).
-    """
-    stmts = []
-
-    # Check for user-defined __del__ method
-    dtor = cls_info.methods.get("__del__")
-    if dtor and dtor.body:
-        emitter = _UserGenericEmitter(type_map, mangled,
-                                       lambda t: type_to_c(_resolve_type(t, type_map)),
-                                       gen=gen, cls_info=cls_info)
-        stmts.extend(emitter.emit_stmts(dtor.body.statements))
-
-    for fname, fd in cls_info.fields.items():
-        if not fd.type:
-            continue
-        resolved = _resolve_type(fd.type, type_map)
-        # Only release class instance fields (pointer_depth == 0).
-        if resolved.pointer_depth > 0:
-            continue
-        # Generic class field -> mangled destroy/free
-        if resolved.generic_args and resolved.base in gen.analyzed.class_table:
-            target = mangle_generic_type(resolved.base, resolved.generic_args)
-            field_cls = gen.analyzed.class_table.get(resolved.base)
-            dtor_name = "free" if field_cls and "free" in field_cls.methods else "destroy"
-            stmts.append(IRIf(
-                condition=IRFieldAccess(
-                    obj=IRVar(name="self"), field=fname, arrow=True),
-                then_block=IRBlock(stmts=[IRIf(
-                    condition=IRBinOp(
-                        left=IRUnaryOp(
-                            op="--",
-                            operand=IRFieldAccess(
-                                obj=IRFieldAccess(
-                                    obj=IRVar(name="self"),
-                                    field=fname, arrow=True),
-                                field="__rc", arrow=True),
-                            prefix=True),
-                        op="<=",
-                        right=IRLiteral(text="0")),
-                    then_block=IRBlock(stmts=[IRExprStmt(
-                        expr=IRCall(
-                            callee=f"{target}_{dtor_name}",
-                            args=[IRFieldAccess(
-                                obj=IRVar(name="self"),
-                                field=fname, arrow=True)]))]),
-                )]),
-            ))
-        # Plain class field -> ClassName_destroy
-        elif resolved.base in gen.analyzed.class_table:
-            stmts.append(IRIf(
-                condition=IRFieldAccess(
-                    obj=IRVar(name="self"), field=fname, arrow=True),
-                then_block=IRBlock(stmts=[IRIf(
-                    condition=IRBinOp(
-                        left=IRUnaryOp(
-                            op="--",
-                            operand=IRFieldAccess(
-                                obj=IRFieldAccess(
-                                    obj=IRVar(name="self"),
-                                    field=fname, arrow=True),
-                                field="__rc", arrow=True),
-                            prefix=True),
-                        op="<=",
-                        right=IRLiteral(text="0")),
-                    then_block=IRBlock(stmts=[IRExprStmt(
-                        expr=IRCall(
-                            callee=f"{resolved.base}_destroy",
-                            args=[IRFieldAccess(
-                                obj=IRVar(name="self"),
-                                field=fname, arrow=True)]))]),
-                )]),
-            ))
-    return stmts
+def _drop_methods_calling_skipped(
+    emitted: dict[str, IRFunctionDef],
+    skipped: set[str],
+    mangled: str,
+) -> None:
+    """Transitively drop methods whose structured bodies call skipped ones."""
+    while skipped:
+        skipped_callees = {f"{mangled}_{name}" for name in skipped}
+        newly_skipped = {name for name, function in emitted.items() if called_callees(function) & skipped_callees}
+        if not newly_skipped:
+            return
+        for name in newly_skipped:
+            del emitted[name]
+        skipped.update(newly_skipped)

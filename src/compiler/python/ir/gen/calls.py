@@ -8,23 +8,29 @@ from ...ast_nodes import (
     CallExpr,
     FieldAccessExpr,
     Identifier,
+    LambdaExpr,
 )
+from ...source_runtime_symbols import SOURCE_RUNTIME_HELPERS
 from ..nodes import (
+    CType,
+    IRAddressOf,
     IRCall,
     IRCast,
     IRExpr,
-    IRFieldAccess,
-    IRLiteral,
-    IRRawExpr,
     IRSizeof,
-    IRTernary,
+    IRVar,
 )
 from .arguments import (
     arg_names_for,
     lower_arg_values,
     order_args_for_params,
+    resolved_constructor_params,
 )
-from .types import format_spec_for_type, is_string_type
+from .call_builtins import lower_len, lower_mutex_constructor, lower_print
+from .errors import CodegenError
+from .function_symbols import source_function_c_name
+from .generic_intrinsics import lower_generic_intrinsic
+from .typed_operators import operator_context
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
@@ -32,104 +38,177 @@ if TYPE_CHECKING:
 
 def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     """Lower a function/method call."""
-    from .expressions import _expr_text, lower_expr
+    from .callable_boundaries import reject_unsafe_managed_callback_arguments
+    from .expressions import lower_expr
+
+    reject_unsafe_managed_callback_arguments(gen, node)
+
+    if isinstance(node.callee, LambdaExpr):
+        from .lambdas import lower_immediate_lambda_call
+
+        return lower_immediate_lambda_call(
+            gen,
+            node.callee,
+            node.args,
+            arg_names_for(node, len(node.args)),
+        )
 
     # Method call: obj.method(args)
     if isinstance(node.callee, FieldAccessExpr):
         from .methods import lower_method_call
+
         return lower_method_call(gen, node)
 
     # Regular function call
     if isinstance(node.callee, Identifier):
         name = node.callee.name
-
-        # Inside a @gpu CPU-fallback loop, gpu_id() is the loop index.
-        if name == "gpu_id" and getattr(gen, "_gpu_cpu_index", None):
-            return IRRawExpr(text=gen._gpu_cpu_index)
-
+        is_local = gen.local_ownership_declared(name)
         args = lower_arg_values(gen, node.args)
 
-        # @gpu function call → IRGpuDispatch
+        # Lexical callables shadow functions, constructors, and special forms.
+        env_info = gen._fn_ptr_envs.get(name)
+        if env_info:
+            fn_name, env_var = env_info
+            args.append(
+                IRCast(
+                    target_type=CType(text="void*"),
+                    expr=IRAddressOf(expr=IRVar(name=env_var)),
+                )
+            )
+            return IRCall(callee=fn_name, args=args)
+        if is_local:
+            return IRCall(
+                callee=IRVar(name=gen.source_binding_c_name(name)),
+                args=args,
+            )
+
+        source_call = name in gen.analyzed.function_table and id(node) not in gen.analyzed.hosted_call_ids
+
+        # Inside a @gpu CPU-fallback loop, gpu_id() is the loop index.
+        if name == "gpu_id" and not source_call and getattr(gen, "_gpu_cpu_index", None):
+            return IRVar(name=gen._gpu_cpu_index)
+
+        if name in SOURCE_RUNTIME_HELPERS:
+            gen.use_helper(name)
+            return IRCall(callee=name, args=args, helper_ref=name)
+
+        from .gpu_cpu_builtins import lower_gpu_cpu_builtin
+
+        gpu_cpu_builtin = None if source_call else lower_gpu_cpu_builtin(gen, name, node.args, args)
+        if gpu_cpu_builtin is not None:
+            return gpu_cpu_builtin
+
+        intrinsic = lower_generic_intrinsic(
+            name,
+            args,
+            [gen.analyzed.node_types.get(id(arg)) for arg in node.args],
+            operator_context(gen),
+        )
+        if intrinsic is not None:
+            return intrinsic
+
+        # @gpu function call → ordinary call to a generated dispatch helper
         from .gpu import is_gpu_function, lower_gpu_call
+
         if is_gpu_function(gen, name):
-            return lower_gpu_call(gen, name, node.args, args)
+            return lower_gpu_call(
+                gen,
+                name,
+                node.args,
+                arg_names_for(node, len(node.args)),
+                args,
+            )
 
         # Mutex(val) constructor → __btrc_mutex_val_create(boxed_val)
-        if name == "Mutex":
-            return _lower_mutex_constructor(gen, node.args, args)
+        if name == "Mutex" and not source_call:
+            return lower_mutex_constructor(gen, node.args, args)
 
         # Constructor call: ClassName(args) where ClassName is a known class
         if name in gen.analyzed.class_table:
-            return _lower_constructor_call(gen, name, node.args,
-                                           arg_names_for(node, len(node.args)))
+            return _lower_constructor_call(
+                gen,
+                node,
+                name,
+                node.args,
+                arg_names_for(node, len(node.args)),
+                args,
+            )
 
         # Built-ins apply only when no user function has the same name
         if name not in gen.analyzed.function_table:
             if name == "print":
-                return _lower_print(gen, node.args)
+                return lower_print(gen, node.args, args)
             if name == "printf":
                 return IRCall(callee="printf", args=args)
             if name == "sizeof":
                 if node.args:
-                    return IRSizeof(operand=_expr_text(args[0]))
-                return IRSizeof(operand="void")
+                    return IRSizeof(operand=args[0])
+                return IRSizeof(operand=CType(text="void"))
             if name == "len" and node.args:
                 arg_type = gen.analyzed.node_types.get(id(node.args[0]))
-                if arg_type and is_string_type(arg_type):
-                    return IRCast(target_type="int",
-                                  expr=IRCall(callee="strlen", args=args))
-                return IRFieldAccess(obj=args[0], field="len", arrow=True)
+                return lower_len(gen, args[0], arg_type)
 
-        # Captured lambda call: bypass function pointer, call impl directly
-        # with the capture environment as the last argument.
-        env_info = gen._fn_ptr_envs.get(name)
-        if env_info:
-            fn_name, env_var = env_info
-            args.append(IRCast(
-                target_type="void*",
-                expr=IRRawExpr(text=f"&{env_var}")))
-            return IRCall(callee=fn_name, args=args)
+        # Canonical hosted calls can share a spelling with a bodyful source
+        # shadow, but they retain the exact header ABI at this call site.
+        if source_call:
+            args = _fill_defaults(
+                gen,
+                name,
+                node.args,
+                arg_names_for(node, len(node.args)),
+                args,
+            )
 
-        # Fill in default parameter values if call has fewer args than params
-        args = _fill_defaults(gen, name, node.args,
-                              arg_names_for(node, len(node.args)), args)
-
-        return IRCall(callee=name, args=args)
+        return IRCall(
+            callee=source_function_c_name(gen.analyzed, name, node),
+            args=args,
+        )
 
     # Generic/complex callee
     args = lower_arg_values(gen, node.args)
-    callee_text = _expr_text(lower_expr(gen, node.callee))
-    return IRCall(callee=callee_text, args=args)
+    return IRCall(callee=lower_expr(gen, node.callee), args=args)
 
 
-def _fill_defaults(gen: IRGenerator, name: str, ast_args: list,
-                    arg_names: list[str],
-                    ir_args: list[IRExpr]) -> list[IRExpr]:
+def _fill_defaults(
+    gen: IRGenerator, name: str, ast_args: list, arg_names: list[str], ir_args: list[IRExpr]
+) -> list[IRExpr]:
     """Fill in default parameter values for function calls with missing args."""
     func_decl = gen.analyzed.function_table.get(name)
     if not func_decl or not func_decl.params:
         return ir_args
-    return order_args_for_params(gen, func_decl.params, ast_args, arg_names,
-                                 ir_args)
+    return order_args_for_params(gen, func_decl.params, ast_args, arg_names, ir_args)
 
 
-def _lower_constructor_call(gen: IRGenerator, class_name: str,
-                            args: list, arg_names: list[str] | None = None) -> IRExpr:
+def _lower_constructor_call(
+    gen: IRGenerator,
+    node: CallExpr,
+    class_name: str,
+    args: list,
+    arg_names: list[str],
+    ir_args: list[IRExpr],
+) -> IRExpr:
     """Lower ClassName(args) → ClassName_new(args) or btrc_ClassName_T_new(args)."""
-    ir_args = lower_arg_values(gen, args)
-    cls_info = gen.analyzed.class_table.get(class_name)
-    if cls_info:
-        # Fill constructor defaults
-        if cls_info.constructor and cls_info.constructor.params:
-            ir_args = order_args_for_params(
-                gen, cls_info.constructor.params, args, arg_names or [], ir_args)
-        # Generic class: need to find mangled name
-        if cls_info.generic_params:
-            # Try to infer from context (node_types may have the resolved type)
-            # For now, return mangled_new if we can find the instance
-            # The caller will need to patch this in VarDecl context
-            pass
-    return IRCall(callee=f"{class_name}_new", args=ir_args)
+    from .types import mangle_generic_type
+
+    cls_info = gen.analyzed.class_table[class_name]
+    instance_type = gen.analyzed.node_types.get(id(node))
+    callee_prefix = class_name
+    params = cls_info.constructor.params if cls_info.constructor else []
+
+    if cls_info.generic_params:
+        if (
+            instance_type is None
+            or instance_type.base != class_name
+            or len(instance_type.generic_args) != len(cls_info.generic_params)
+        ):
+            raise CodegenError(f"generic constructor '{class_name}()' has no concrete analyzed call type")
+        callee_prefix = mangle_generic_type(class_name, instance_type.generic_args)
+        if cls_info.constructor:
+            params = resolved_constructor_params(gen, cls_info, instance_type)
+
+    if params:
+        ir_args = order_args_for_params(gen, params, args, arg_names, ir_args)
+    return IRCall(callee=f"{callee_prefix}_new", args=ir_args)
 
 
 def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
@@ -146,7 +225,7 @@ def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
             if method and method.params:
                 return [i for i, p in enumerate(method.params) if p.keep]
         # Static method call: ClassName.method(args)
-        if isinstance(node.callee.obj, Identifier):
+        if isinstance(node.callee.obj, Identifier) and not gen.local_ownership_declared(node.callee.obj.name):
             cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
             if cls_info:
                 method = cls_info.methods.get(node.callee.field)
@@ -156,6 +235,8 @@ def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
 
     if isinstance(node.callee, Identifier):
         name = node.callee.name
+        if gen.local_ownership_declared(name):
+            return []
         # Constructor call: check constructor params
         if name in gen.analyzed.class_table:
             cls_info = gen.analyzed.class_table[name]
@@ -171,33 +252,10 @@ def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
 
 
 def params_for_call(gen: IRGenerator, node: CallExpr) -> list:
-    if isinstance(node.callee, FieldAccessExpr):
-        obj_type = gen.analyzed.node_types.get(id(node.callee.obj))
-        if obj_type and obj_type.base in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[obj_type.base]
-            method = cls_info.methods.get(node.callee.field)
-            if method:
-                return method.params
-        if isinstance(node.callee.obj, Identifier):
-            cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
-            if cls_info:
-                method = cls_info.methods.get(node.callee.field)
-                if method:
-                    return method.params
-        return []
+    from .call_effects import callable_for_call
 
-    if isinstance(node.callee, Identifier):
-        name = node.callee.name
-        if name in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[name]
-            if cls_info.constructor:
-                return cls_info.constructor.params
-            return []
-        func_decl = gen.analyzed.function_table.get(name)
-        if func_decl:
-            return func_decl.params
-
-    return []
+    declaration = callable_for_call(gen, node)
+    return declaration.params if declaration is not None else []
 
 
 def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
@@ -211,7 +269,7 @@ def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
             if method:
                 return getattr(method, "keep_return", False)
         # Static method call: ClassName.method(args)
-        if isinstance(node.callee.obj, Identifier):
+        if isinstance(node.callee.obj, Identifier) and not gen.local_ownership_declared(node.callee.obj.name):
             cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
             if cls_info:
                 method = cls_info.methods.get(node.callee.field)
@@ -221,6 +279,8 @@ def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
 
     if isinstance(node.callee, Identifier):
         name = node.callee.name
+        if gen.local_ownership_declared(name):
+            return False
         # Constructor calls never have keep_return — they always return rc=1
         if name in gen.analyzed.class_table:
             return False
@@ -229,83 +289,3 @@ def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
             return getattr(func_decl, "keep_return", False)
 
     return False
-
-
-def _lower_print(gen: IRGenerator, args: list) -> IRExpr:
-    """Lower print(...) to printf with appropriate format string."""
-    from ...ast_nodes import CallExpr, FieldAccessExpr, FStringLiteral, StringLiteral
-    from .expressions import lower_expr
-    from .stringable import has_to_string, to_string_call
-
-    if not args:
-        return IRCall(callee="printf", args=[IRLiteral(text='"\\n"')])
-
-    parts = []
-    ir_args = []
-    for _, arg in enumerate(args):
-        ir_arg = lower_expr(gen, arg)
-        arg_type = gen.analyzed.node_types.get(id(arg))
-        fmt = format_spec_for_type(arg_type)
-
-        if has_to_string(gen.analyzed, arg_type):
-            ir_arg = to_string_call(gen, arg_type, ir_arg)
-            fmt = "%s"
-
-        # Force %s for known string-producing expressions when type is untracked
-        if arg_type is None:
-            if isinstance(arg, (FStringLiteral, StringLiteral)):
-                fmt = "%s"
-            elif isinstance(arg, CallExpr):
-                # Check for method calls that return strings
-                callee = arg.callee
-                callee_name = getattr(callee, "name", None)
-                if callee_name in ("toString", "str"):
-                    fmt = "%s"
-                # Method call: obj.method() — check method name
-                if isinstance(callee, FieldAccessExpr):
-                    method_name = callee.field
-                    if method_name in ("toString", "str", "trim", "toUpper",
-                                       "toLower", "substring", "replace",
-                                       "repeat", "reverse", "capitalize",
-                                       "join", "split"):
-                        fmt = "%s"
-
-        if arg_type and arg_type.base == "bool":
-            # bool → ternary: val ? "true" : "false"
-            ir_arg = IRTernary(
-                condition=ir_arg,
-                true_expr=IRLiteral(text='"true"'),
-                false_expr=IRLiteral(text='"false"'),
-            )
-            fmt = "%s"
-
-        parts.append(fmt)
-        ir_args.append(ir_arg)
-
-    fmt_str = " ".join(parts) + "\\n"
-    return IRCall(callee="printf",
-                  args=[IRLiteral(text=f'"{fmt_str}"')] + ir_args)
-
-
-_MUTEX_PRIMITIVE_TYPES = {"int", "float", "double", "char", "bool", "short", "long"}
-
-
-def _lower_mutex_constructor(gen, ast_args, ir_args):
-    """Lower Mutex(val) → __btrc_mutex_val_create(boxed_val)."""
-    gen.use_helper("__btrc_mutex_val_create")
-    gen.require_runtime_include("pthread.h")
-    if not ast_args:
-        return IRCall(callee="__btrc_mutex_val_create",
-                      args=[IRLiteral(text="NULL")],
-                      helper_ref="__btrc_mutex_val_create")
-    # Box the initial value
-    arg_type = gen.analyzed.node_types.get(id(ast_args[0]))
-    from .expressions import lower_expr
-    val = lower_expr(gen, ast_args[0])
-    if arg_type and arg_type.base in _MUTEX_PRIMITIVE_TYPES and not arg_type.generic_args:
-        boxed = IRCast(target_type="void*",
-                       expr=IRCast(target_type="intptr_t", expr=val))
-    else:
-        boxed = IRCast(target_type="void*", expr=val)
-    return IRCall(callee="__btrc_mutex_val_create", args=[boxed],
-                  helper_ref="__btrc_mutex_val_create")

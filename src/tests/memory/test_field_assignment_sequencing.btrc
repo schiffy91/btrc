@@ -1,0 +1,50 @@
+/* Managed field assignment evaluates receiver/RHS once and retains a borrowed
+ * new value before releasing the old one, so sole-owner self-assignment is
+ * safe. */
+#include <assert.h>
+
+int alive = 0;
+int receiver_calls = 0;
+
+class Obj {
+    public int id;
+    public Obj(int id) { self.id = id; alive++; }
+    public void __del__() { alive--; }
+}
+
+class Holder {
+    public Obj item;
+    public Holder() { self.item = null; }
+}
+
+Holder shared;
+
+Holder getHolder() {
+    receiver_calls++;
+    return shared;
+}
+
+int main() {
+    Holder holder = new Holder();
+    shared = holder;
+
+    holder.item = new Obj(1);
+    assert(alive == 1);
+    holder.item = holder.item;
+    assert(holder.item.id == 1);
+    assert(alive == 1);
+
+    Obj replacement = new Obj(2);
+    getHolder().item = replacement;
+    assert(receiver_calls == 1);
+    assert(holder.item.id == 2);
+    assert(alive == 1);
+
+    holder.item = null;
+    assert(alive == 1);
+    release replacement;
+    assert(alive == 0);
+
+    print("PASS: test_field_assignment_sequencing");
+    return 0;
+}

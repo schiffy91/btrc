@@ -1,0 +1,196 @@
+/* Direct-write analysis for C11 setjmp qualification.
+ *
+ * Values of automatic objects become indeterminate after longjmp only when
+ * they changed after setjmp. This pass finds writes in a generated try body
+ * while excluding locals declared after the setjmp point. Indirect mutation
+ * through raw C pointers remains an explicit-source `volatile` concern.
+ */
+
+Map<string, bool> copyNameSet(Map<string, bool> source) {
+    Map<string, bool> result = {};
+    Vector<string> names = source.keys();
+    int i = 0;
+    while (i < names.len) {
+        result.put(names.get(i), true);
+        i = i + 1;
+    }
+    return result;
+}
+
+bool setjmpAssignmentOp(string op) {
+    return op == "=" || op == "+=" || op == "-=" || op == "*="
+        || op == "/=" || op == "%=" || op == "&=" || op == "|="
+        || op == "^=" || op == "<<=" || op == ">>=";
+}
+
+string setjmpStorageRoot(IRNode? node) {
+    if (node == null) { return ""; }
+    if (node.kind == IRK_VAR) { return node.name; }
+    if (node.kind == IRK_FIELD_ACCESS && !node.arrow) {
+        return setjmpStorageRoot(node.obj);
+    }
+    if (node.kind == IRK_INDEX) { return setjmpStorageRoot(node.obj); }
+    return "";
+}
+
+void recordSetjmpWrite(IRNode? target, Map<string, bool> bound,
+        Map<string, bool> modified) {
+    string name = setjmpStorageRoot(target);
+    if (name != "" && !bound.has(name)) { modified.put(name, true); }
+}
+
+void collectSetjmpExpressionMutations(IRNode? node, Map<string, bool> bound,
+        Map<string, bool> modified) {
+    if (node == null) { return; }
+    if (node.kind == IRK_BINOP && setjmpAssignmentOp(node.op)) {
+        recordSetjmpWrite(node.left, bound, modified);
+    } else if (node.kind == IRK_UNARYOP
+            && (node.op == "++" || node.op == "--")) {
+        recordSetjmpWrite(node.operand, bound, modified);
+    }
+    if (node.kind == IRK_STMT_EXPR) {
+        collectSetjmpMutationSequence(node.stmts, bound, modified);
+        collectSetjmpExpressionMutations(node.result, bound, modified);
+        return;
+    }
+    collectSetjmpExpressionMutations(node.left, bound, modified);
+    collectSetjmpExpressionMutations(node.right, bound, modified);
+    collectSetjmpExpressionMutations(node.operand, bound, modified);
+    collectSetjmpExpressionMutations(node.expr, bound, modified);
+    collectSetjmpExpressionMutations(node.obj, bound, modified);
+    collectSetjmpExpressionMutations(node.index, bound, modified);
+    collectSetjmpExpressionMutations(node.condition, bound, modified);
+    collectSetjmpExpressionMutations(node.true_expr, bound, modified);
+    collectSetjmpExpressionMutations(node.false_expr, bound, modified);
+    collectSetjmpExpressionMutations(node.init, bound, modified);
+    collectSetjmpExpressionMutations(node.value, bound, modified);
+    collectSetjmpExpressionMutations(node.target, bound, modified);
+    collectSetjmpExpressionMutations(node.update, bound, modified);
+    collectSetjmpExpressionMutations(node.result, bound, modified);
+    collectSetjmpExpressionMutations(node.array_size, bound, modified);
+    int i = 0;
+    while (i < node.args.len) {
+        collectSetjmpExpressionMutations(node.args.get(i), bound, modified);
+        i = i + 1;
+    }
+}
+
+void collectSetjmpMutationBlock(IRNode? block, Map<string, bool> inherited,
+        Map<string, bool> modified) {
+    if (block == null) { return; }
+    Map<string, bool> bound = copyNameSet(inherited);
+    collectSetjmpMutationSequence(block.stmts, bound, modified);
+}
+
+void collectSetjmpMutationSequence(Vector<IRNode> statements,
+        Map<string, bool> bound, Map<string, bool> modified) {
+    int i = 0;
+    while (i < statements.len) {
+        collectSetjmpStatementMutations(statements.get(i), bound, modified);
+        i = i + 1;
+    }
+}
+
+void collectSetjmpStatementMutations(IRNode statement,
+        Map<string, bool> bound, Map<string, bool> modified) {
+    if (statement.kind == IRK_VAR_DECL) {
+        /* A VLA bound is evaluated before the new declarator is bound; its
+         * initializer resolves to the newly declared object. */
+        collectSetjmpExpressionMutations(statement.array_size, bound, modified);
+        bound.put(statement.name, true);
+        collectSetjmpExpressionMutations(statement.init, bound, modified);
+        return;
+    }
+    if (statement.kind == IRK_ASSIGN) {
+        recordSetjmpWrite(statement.target, bound, modified);
+        collectSetjmpExpressionMutations(statement.target, bound, modified);
+        collectSetjmpExpressionMutations(statement.value, bound, modified);
+        return;
+    }
+    if (statement.kind == IRK_RETURN) {
+        collectSetjmpExpressionMutations(statement.value, bound, modified);
+        return;
+    }
+    if (statement.kind == IRK_EXPR_STMT) {
+        collectSetjmpExpressionMutations(statement.expr, bound, modified);
+        return;
+    }
+    if (statement.kind == IRK_IF) {
+        collectSetjmpExpressionMutations(statement.condition, bound, modified);
+        collectSetjmpMutationBlock(statement.then_block, bound, modified);
+        collectSetjmpMutationBlock(statement.else_block, bound, modified);
+        return;
+    }
+    if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
+        collectSetjmpExpressionMutations(statement.condition, bound, modified);
+        collectSetjmpMutationBlock(statement.body, bound, modified);
+        return;
+    }
+    if (statement.kind == IRK_FOR) {
+        Map<string, bool> loopBound = copyNameSet(bound);
+        if (statement.init != null) {
+            collectSetjmpStatementMutations(statement.init, loopBound, modified);
+        }
+        collectSetjmpExpressionMutations(statement.condition, loopBound, modified);
+        collectSetjmpExpressionMutations(statement.update, loopBound, modified);
+        collectSetjmpMutationBlock(statement.body, loopBound, modified);
+        return;
+    }
+    if (statement.kind == IRK_SWITCH) {
+        collectSetjmpExpressionMutations(statement.value, bound, modified);
+        int c = 0;
+        while (c < statement.args.len) {
+            IRNode caseNode = statement.args.get(c);
+            Map<string, bool> caseBound = copyNameSet(bound);
+            collectSetjmpExpressionMutations(caseNode.value, caseBound, modified);
+            collectSetjmpMutationSequence(caseNode.stmts, caseBound, modified);
+            c = c + 1;
+        }
+        return;
+    }
+    if (statement.kind == IRK_BLOCK) {
+        collectSetjmpMutationBlock(statement, bound, modified);
+    }
+}
+
+Map<string, bool> setjmpMutatedNames(IRNode? block) {
+    Map<string, bool> modified = {};
+    Map<string, bool> bound = {};
+    collectSetjmpMutationBlock(block, bound, modified);
+    return modified;
+}
+
+bool expressionContainsSetjmp(IRNode? node) {
+    if (node == null) { return false; }
+    if (node.kind == IRK_CALL && node.callee == "setjmp") {
+        return true;
+    }
+    if (expressionContainsSetjmp(node.left)
+            || expressionContainsSetjmp(node.right)
+            || expressionContainsSetjmp(node.operand)
+            || expressionContainsSetjmp(node.expr)
+            || expressionContainsSetjmp(node.obj)
+            || expressionContainsSetjmp(node.index)
+            || expressionContainsSetjmp(node.condition)
+            || expressionContainsSetjmp(node.true_expr)
+            || expressionContainsSetjmp(node.false_expr)
+            || expressionContainsSetjmp(node.init)
+            || expressionContainsSetjmp(node.value)
+            || expressionContainsSetjmp(node.target)
+            || expressionContainsSetjmp(node.update)
+            || expressionContainsSetjmp(node.result)
+            || expressionContainsSetjmp(node.array_size)) {
+        return true;
+    }
+    int i = 0;
+    while (i < node.args.len) {
+        if (expressionContainsSetjmp(node.args.get(i))) { return true; }
+        i = i + 1;
+    }
+    int s = 0;
+    while (s < node.stmts.len) {
+        if (expressionContainsSetjmp(node.stmts.get(s))) { return true; }
+        s = s + 1;
+    }
+    return false;
+}

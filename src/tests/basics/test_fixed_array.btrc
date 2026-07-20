@@ -11,7 +11,7 @@ int main() {
     assert(arr[4] == 16);
 
     // sizeof a fixed array is N * element size
-    assert(sizeof(arr) == 5 * sizeof(int));
+    assert(sizeof(arr) == (size_t)5 * sizeof(int));
 
     // a fixed array of another type
     double vals[3];

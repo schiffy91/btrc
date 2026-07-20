@@ -1,0 +1,295 @@
+/* WGSL statement/control-flow lowering. Every accepted source statement is
+ * spelled structurally; unsupported constructs fail closed. */
+
+void gpuEmitBlock(GpuWgsl out, Node block) {
+    if (block == null) { return; }
+    out.pushScope();
+    int i = 0;
+    while (i < block.statements.len) {
+        out.stmt(block.statements.get(i));
+        i = i + 1;
+    }
+    out.popScope();
+}
+
+void gpuEmitAssignedLine(GpuWgsl out, Node assignment,
+        string targetText, string value, string targetBase,
+        string valueBase) {
+    string renderedValue = value;
+    string op = assignment.op;
+    bool known = op == "=" || op == "+=" || op == "-=" || op == "*="
+        || op == "/=" || op == "%=" || op == "&=" || op == "|="
+        || op == "^=" || op == "<<=" || op == ">>=";
+    if (!known) { gpuLoweringFail(assignment, "invalid GPU assignment operator"); }
+    if (op != "=" && targetBase != valueBase) {
+        gpuLoweringFail(assignment,
+            "GPU compound assignment requires matching operand types");
+    }
+    if ((op == "<<=" || op == ">>=") && targetBase != "int") {
+        gpuLoweringFail(assignment,
+            "GPU shift assignment requires integer operands");
+    }
+    if ((op == "&=" || op == "|=" || op == "^=")
+            && targetBase != "int" && targetBase != "bool") {
+        gpuLoweringFail(assignment,
+            "GPU bitwise assignment requires int or bool operands");
+    }
+    if (op == "%=" && targetBase == "float") {
+        gpuLoweringFail(assignment,
+            "GPU remainder assignment requires integer operands");
+    }
+    if (op == "^=" && targetBase == "bool") {
+        out.line(targetText + " = " + targetText + " != "
+            + renderedValue + ";");
+        return;
+    }
+    if (op == "<<=" || op == ">>=") {
+        renderedValue = "u32(" + renderedValue + ")";
+    }
+    if ((op == "/=" || op == "%=") && targetBase == "int") {
+        Node binary = Node();
+        binary.kind = NK_BINARY_EXPR;
+        binary.op = op == "/=" ? "/" : "%";
+        string checked = gpuCheckedArithmetic(
+            out, binary, targetText, renderedValue);
+        out.line(targetText + " = " + checked + ";");
+        return;
+    }
+    out.line(targetText + " " + op + " " + renderedValue + ";");
+}
+
+void gpuEmitIndexAssignment(GpuWgsl out, Node assignment) {
+    Node target = assignment.target;
+    if (target.obj == null || target.obj.kind != NK_IDENTIFIER
+            || !out.arrayLengths.has(target.obj.name)) {
+        gpuLoweringFail(assignment, "GPU assignment target must be a local or buffer element");
+    }
+    string indexValue = out.expr(target.index);
+    string indexName = out.freshValue();
+    string length = "uniforms." + out.arrayLengths.get(target.obj.name);
+    out.line("let " + indexName + ": i32 = " + indexValue + ";");
+    out.line("if (" + indexName + " < 0 || " + indexName
+        + " >= " + length + ") {");
+    out.indent = out.indent + 1;
+    out.line("atomicMax(&btrc_status.code, 1u);");
+    out.indent = out.indent - 1;
+    out.line("} else {");
+    out.indent = out.indent + 1;
+    string value = out.expr(assignment.value_node);
+    string targetBase = gpuExprBase(out, target);
+    value = gpuCoerceText(value, gpuExprBase(out, assignment.value_node), targetBase);
+    string targetText = out.lookupName(target.obj, target.obj.name)
+        + "[" + indexName + "]";
+    gpuEmitAssignedLine(out, assignment, targetText, value, targetBase,
+        gpuExprBase(out, assignment.value_node));
+    out.indent = out.indent - 1;
+    out.line("}");
+}
+
+void gpuEmitAssignment(GpuWgsl out, Node assignment) {
+    if (assignment.target.kind == NK_INDEX_EXPR) {
+        gpuEmitIndexAssignment(out, assignment);
+        return;
+    }
+    if (assignment.target.kind != NK_IDENTIFIER
+            || out.uniforms.has(assignment.target.name)) {
+        gpuLoweringFail(assignment, "GPU assignment target must be a writable local or buffer element");
+    }
+    string value = out.expr(assignment.value_node);
+    value = gpuCoerceText(value, gpuExprBase(out, assignment.value_node),
+        gpuExprBase(out, assignment.target));
+    gpuEmitAssignedLine(out, assignment,
+        out.lookupName(assignment.target, assignment.target.name), value,
+        gpuExprBase(out, assignment.target),
+        gpuExprBase(out, assignment.value_node));
+}
+
+void gpuEmitUpdate(GpuWgsl out, Node expression) {
+    if (expression.kind == NK_ASSIGN_EXPR) {
+        gpuEmitAssignment(out, expression);
+        return;
+    }
+    if (expression.kind == NK_UNARY_EXPR
+            && (expression.op == "++" || expression.op == "--")) {
+        if (expression.operand.kind == NK_INDEX_EXPR) {
+            Node synthetic = Node();
+            synthetic.kind = NK_ASSIGN_EXPR;
+            synthetic.target = expression.operand;
+            synthetic.op = expression.op == "++" ? "+=" : "-=";
+            Node one = Node();
+            if (gpuExprBase(out, expression.operand) == "float") {
+                one.kind = NK_FLOAT_LITERAL;
+                one.raw = "1.0";
+                one.value_float = 1.0;
+            } else {
+                one.kind = NK_INT_LITERAL;
+                one.raw = "1";
+                one.value_int = 1;
+            }
+            synthetic.value_node = one;
+            gpuEmitIndexAssignment(out, synthetic);
+            return;
+        }
+        if (expression.operand.kind != NK_IDENTIFIER
+                || out.uniforms.has(expression.operand.name)) {
+            gpuLoweringFail(expression, "GPU update target must be writable");
+        }
+        string name = out.lookupName(expression.operand, expression.operand.name);
+        if (gpuExprBase(out, expression.operand) == "float") {
+            out.line(name + (expression.op == "++" ? " += 1.0;" : " -= 1.0;"));
+        } else {
+            out.line(name + expression.op + ";");
+        }
+        return;
+    }
+    if (expression.kind == NK_CALL_EXPR) {
+        out.line("_ = " + out.expr(expression) + ";");
+        return;
+    }
+    gpuLoweringFail(expression,
+        "expression statement must be an assignment, update, or WGSL built-in call");
+}
+
+void gpuEmitReturn(GpuWgsl out, Node statement) {
+    if (statement.value_node != null && out.hasOutput) {
+        string value = "";
+        Node? valueType = out.typeOf(statement.value_node);
+        if (valueType != null && valueType.is_array) {
+            if (statement.value_node.kind != NK_IDENTIFIER
+                    || !out.arrayLengths.has(statement.value_node.name)) {
+                gpuLoweringFail(statement, "GPU array return must name an array parameter");
+            }
+            string source = statement.value_node.name;
+            string length = "uniforms." + out.arrayLengths.get(source);
+            out.line("if (btrc_gid < 0 || btrc_gid >= " + length + ") {");
+            out.indent = out.indent + 1;
+            out.line("atomicMax(&btrc_status.code, 1u);");
+            out.indent = out.indent - 1;
+            out.line("} else {");
+            out.indent = out.indent + 1;
+            value = out.lookupName(statement.value_node, source) + "[btrc_gid]";
+            out.line("_output[btrc_gid] = " + value + ";");
+            out.indent = out.indent - 1;
+            out.line("}");
+        } else {
+            value = out.expr(statement.value_node);
+            string target = out.kernel.output_buffer.elem_type == "f32" ? "float" : "int";
+            value = gpuCoerceText(value,
+                gpuExprBase(out, statement.value_node), target);
+            out.line("_output[btrc_gid] = " + value + ";");
+        }
+    } else if (statement.value_node != null && !out.hasOutput) {
+        gpuLoweringFail(statement, "void GPU function cannot return a value");
+    }
+    out.line("return;");
+}
+
+void gpuEmitIf(GpuWgsl out, Node statement) {
+    if (gpuExprBase(out, statement.condition) != "bool") {
+        gpuLoweringFail(statement.condition, "GPU if condition must be bool");
+    }
+    string condition = out.expr(statement.condition);
+    out.line("if (" + condition + ") {");
+    out.indent = out.indent + 1;
+    gpuEmitBlock(out, statement.then_block);
+    out.indent = out.indent - 1;
+    if (statement.else_block != null
+            && statement.else_block.kind == NK_ELSE_BLOCK) {
+        out.line("} else {");
+        out.indent = out.indent + 1;
+        gpuEmitBlock(out, statement.else_block.body_node);
+        out.indent = out.indent - 1;
+        out.line("}");
+    } else if (statement.else_block != null
+            && statement.else_block.kind == NK_ELSE_IF) {
+        out.line("} else {");
+        out.indent = out.indent + 1;
+        gpuEmitIf(out, statement.else_block.if_stmt);
+        out.indent = out.indent - 1;
+        out.line("}");
+    } else {
+        out.line("}");
+    }
+}
+
+void gpuEmitWhile(GpuWgsl out, Node statement) {
+    if (gpuExprBase(out, statement.condition) != "bool") {
+        gpuLoweringFail(statement.condition, "GPU while condition must be bool");
+    }
+    out.line("loop {");
+    out.indent = out.indent + 1;
+    string condition = out.expr(statement.condition);
+    out.line("if (!(" + condition + ")) { break; }");
+    gpuEmitBlock(out, statement.body_node);
+    out.indent = out.indent - 1;
+    out.line("}");
+}
+
+void gpuEmitFor(GpuWgsl out, Node statement) {
+    out.line("{");
+    out.indent = out.indent + 1;
+    out.pushScope();
+    if (statement.init != null) {
+        if (statement.init.kind == NK_FOR_INIT_VAR) {
+            gpuWgslStmt(out, statement.init.var_decl);
+        } else if (statement.init.kind == NK_FOR_INIT_EXPR) {
+            gpuEmitUpdate(out, statement.init.expression);
+        } else {
+            gpuLoweringFail(statement.init, "unsupported GPU for initializer");
+        }
+    }
+    out.line("loop {");
+    out.indent = out.indent + 1;
+    if (statement.condition != null) {
+        if (gpuExprBase(out, statement.condition) != "bool") {
+            gpuLoweringFail(statement.condition, "GPU for condition must be bool");
+        }
+        string condition = out.expr(statement.condition);
+        out.line("if (!(" + condition + ")) { break; }");
+    }
+    gpuEmitBlock(out, statement.body_node);
+    if (statement.update != null) {
+        out.line("continuing {");
+        out.indent = out.indent + 1;
+        gpuEmitUpdate(out, statement.update);
+        out.indent = out.indent - 1;
+        out.line("}");
+    }
+    out.indent = out.indent - 1;
+    out.line("}");
+    out.popScope();
+    out.indent = out.indent - 1;
+    out.line("}");
+}
+
+void gpuWgslStmt(GpuWgsl out, Node statement) {
+    if (statement.kind == NK_VAR_DECL_STMT) {
+        Node? type = statement.type;
+        if (type == null && statement.initializer != null) {
+            type = out.typeOf(statement.initializer);
+        }
+        if (type == null || type.is_array) {
+            gpuLoweringFail(statement, "GPU local must have a scalar type");
+        }
+        Node resolvedType = type;
+        string initial = "";
+        if (statement.initializer != null) {
+            initial = out.expr(statement.initializer);
+            initial = " = " + gpuCoerceText(initial,
+                gpuExprBase(out, statement.initializer), resolvedType.base);
+        }
+        string name = out.declareName(statement.name);
+        out.varTypes.put(statement.name, resolvedType);
+        out.line("var " + name + ": "
+            + gpuWgslScalarType(resolvedType) + initial + ";");
+        return;
+    }
+    if (statement.kind == NK_RETURN_STMT) { gpuEmitReturn(out, statement); return; }
+    if (statement.kind == NK_IF_STMT) { gpuEmitIf(out, statement); return; }
+    if (statement.kind == NK_WHILE_STMT) { gpuEmitWhile(out, statement); return; }
+    if (statement.kind == NK_C_FOR_STMT) { gpuEmitFor(out, statement); return; }
+    if (statement.kind == NK_EXPR_STMT) { gpuEmitUpdate(out, statement.expr); return; }
+    if (statement.kind == NK_BREAK_STMT) { out.line("break;"); return; }
+    if (statement.kind == NK_CONTINUE_STMT) { out.line("continue;"); return; }
+    gpuLoweringFail(statement, "statement has no WGSL definition");
+}

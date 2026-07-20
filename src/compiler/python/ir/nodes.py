@@ -1,126 +1,95 @@
 """IR (Intermediate Representation) node definitions for the btrc compiler.
 
-Tree-structured IR between the analyzed AST and C text emission.
-Rationale: C is structured, so a tree IR produces readable output.
+Tree-structured IR between analyzed AST and C text; structured C keeps it readable.
 
-Key design: all AST lowering (class layout, generics, method-to-function,
-new/delete expansion, for-in expansion, f-string expansion, lambda lifting)
-happens during IR generation. The C emitter is a simple tree walk.
+All AST lowering happens during IR generation; the emitter is a tree walk.
 """
+
+# ruff: noqa: F401 - compatibility facade for existing explicit imports
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# --- C type representation ---
-
-@dataclass
-class CType:
-    """Fully-resolved C type string (e.g., 'int', 'btrc_List_int*')."""
-    text: str
-
-    def __str__(self) -> str:
-        return self.text
-
-
-# --- IR Module (root) ---
-
-@dataclass
-class IRModule:
-    """Root of the IR tree — represents one translation unit (.c file)."""
-    includes: list[str] = field(default_factory=list)         # e.g., ["stdio.h", "stdlib.h"]
-    freestanding: bool = False                                # emit one btrc_rt.h seam, no hosted libc
-    needs_runtime: bool = False                               # freestanding: a feature (setjmp/threads) needs btrc_rt.h
-    debug: bool = False                                       # emit #line directives (source-level debugging)
-    debug_cfile: str = ""                                     # generated .c path, for #line resets in synth code
-    forward_decls: list[str] = field(default_factory=list)    # forward struct/function declarations
-    helper_decls: list[IRHelperDecl] = field(default_factory=list)  # runtime helpers
-    enum_defs: list[IREnumDef] = field(default_factory=list)  # C enum typedefs
-    struct_defs: list[IRStructDef] = field(default_factory=list)
-    vtable_defs: list[str] = field(default_factory=list)      # vtable struct/instance text
-    global_vars: list[str] = field(default_factory=list)       # global variable declarations
-    function_defs: list[IRFunctionDef] = field(default_factory=list)
-    gpu_kernels: list[IRGpuKernel] = field(default_factory=list)  # @gpu WGSL kernels
-    raw_sections: list[str] = field(default_factory=list)      # pre-rendered C text sections
-
-
-# --- Runtime helpers ---
-
-@dataclass
-class IRHelperDecl:
-    """A runtime helper function with its pre-rendered C source text.
-
-    category: grouping tag (e.g., "alloc", "string", "trycatch")
-    name: C function name (e.g., "__btrc_trim")
-    c_source: complete C source text for this helper
-    depends_on: categories this helper requires
-    """
-    category: str
-    name: str
-    c_source: str
-    depends_on: list[str] = field(default_factory=list)
-
-
-# --- Enum definitions ---
-
-@dataclass
-class IREnumValue:
-    """A value in a C enum."""
-    name: str
-    value: str = ""  # C expression text for explicit value, empty for auto
-
-@dataclass
-class IREnumDef:
-    """C enum typedef: typedef enum { ... } Name;"""
-    name: str
-    values: list[IREnumValue] = field(default_factory=list)
-
-
-# --- Struct definitions ---
-
-@dataclass
-class IRStructField:
-    """A field in a C struct."""
-    c_type: CType
-    name: str
-
-@dataclass
-class IRStructDef:
-    """C struct definition."""
-    name: str
-    fields: list[IRStructField] = field(default_factory=list)
-
-
-# --- Function definitions ---
-
-@dataclass
-class IRParam:
-    """A C function parameter."""
-    c_type: CType
-    name: str
-
-@dataclass
-class IRFunctionDef:
-    """C function definition."""
-    name: str
-    return_type: CType
-    params: list[IRParam] = field(default_factory=list)
-    body: IRBlock = None
-    is_static: bool = False
-
+from .expr_nodes import (
+    CType,
+    IRAddressOf,
+    IRBinOp,
+    IRCall,
+    IRCast,
+    IRCleanupSlot,
+    IRCommaExpr,
+    IRCompoundLiteral,
+    IRDeref,
+    IRExpr,
+    IRFieldAccess,
+    IRFunctionRef,
+    IRIndex,
+    IRInitializerList,
+    IRLiteral,
+    IRSizeof,
+    IRStmtExpr,
+    IRTernary,
+    IRUnaryOp,
+    IRVar,
+)
+from .module import IRModule
+from .top_nodes import (
+    IREnumDef,
+    IREnumValue,
+    IRFunctionDecl,
+    IRFunctionPointerTypedef,
+    IRGlobalDecl,
+    IRHelperDecl,
+    IRInclude,
+    IRMacroDef,
+    IRStructDef,
+    IRStructField,
+    IRStructForward,
+    IRTaggedUnionDef,
+    IRTaggedUnionVariant,
+    IRTypedefDef,
+)
 
 # --- Statements ---
-
-@dataclass
-class IRBlock:
-    """A block of IR statements."""
-    stmts: list[IRStmt] = field(default_factory=list)
 
 
 @dataclass
 class IRStmt:
     """Base for IR statements."""
+
     pass
+
+
+# --- Function definitions ---
+
+
+@dataclass
+class IRParam:
+    """A C function parameter."""
+
+    c_type: CType
+    name: str
+    is_volatile: bool = False
+
+
+@dataclass
+class IRFunctionDef:
+    """C function definition."""
+
+    name: str
+    return_type: CType
+    params: list[IRParam] = field(default_factory=list)
+    body: IRBlock = None
+    is_static: bool = False
+    archive_export: bool = False
+
+
+@dataclass
+class IRBlock(IRStmt):
+    """A block of IR statements, optionally nested as a lexical scope."""
+
+    stmts: list[IRStmt] = field(default_factory=list)
 
 
 @dataclass
@@ -130,6 +99,7 @@ class IRLineMarker(IRStmt):
     Re-points the C compiler's notion of the current source location at the
     originating .btrc file/line, so the generated binary's DWARF references btrc
     source directly — giving native breakpoints and step locations in .btrc."""
+
     file: str = ""
     line: int = 0
 
@@ -137,15 +107,23 @@ class IRLineMarker(IRStmt):
 @dataclass
 class IRVarDecl(IRStmt):
     """Local variable declaration: `type name [= init];`"""
+
     c_type: CType
     name: str
     init: IRExpr = None
+    array_size: IRExpr = None
+    is_unsized_array: bool = False
     is_volatile: bool = False
+    is_static: bool = False
+    is_extern: bool = False
+    cleanup_slot: IRCleanupSlot | None = None
+    is_cycle_return_temp: bool = False
 
 
 @dataclass
 class IRAssign(IRStmt):
     """Assignment: `target = value;`"""
+
     target: IRExpr = None
     value: IRExpr = None
 
@@ -153,12 +131,14 @@ class IRAssign(IRStmt):
 @dataclass
 class IRReturn(IRStmt):
     """Return statement."""
+
     value: IRExpr = None
 
 
 @dataclass
 class IRIf(IRStmt):
     """If/else (structured)."""
+
     condition: IRExpr = None
     then_block: IRBlock = None
     else_block: IRBlock = None  # None for no-else
@@ -167,6 +147,7 @@ class IRIf(IRStmt):
 @dataclass
 class IRWhile(IRStmt):
     """While loop."""
+
     condition: IRExpr = None
     body: IRBlock = None
 
@@ -174,6 +155,7 @@ class IRWhile(IRStmt):
 @dataclass
 class IRDoWhile(IRStmt):
     """Do-while loop."""
+
     body: IRBlock = None
     condition: IRExpr = None
 
@@ -181,15 +163,17 @@ class IRDoWhile(IRStmt):
 @dataclass
 class IRFor(IRStmt):
     """C-style for loop: `for (init; cond; update) { body }`"""
-    init: IRStmt = None         # var decl or expr stmt (None for empty init)
-    condition: IRExpr = None    # loop condition (None for infinite loop)
-    update: IRExpr = None       # update expression (None for no update)
+
+    init: IRStmt = None  # var decl or expr stmt (None for empty init)
+    condition: IRExpr = None  # loop condition (None for infinite loop)
+    update: IRExpr = None  # update expression (None for no update)
     body: IRBlock = None
 
 
 @dataclass
 class IRSwitch(IRStmt):
     """Switch/case statement."""
+
     value: IRExpr = None
     cases: list[IRCase] = field(default_factory=list)
 
@@ -197,158 +181,42 @@ class IRSwitch(IRStmt):
 @dataclass
 class IRCase:
     """A case clause in a switch."""
+
     value: IRExpr = None  # None for default
     body: list[IRStmt] = field(default_factory=list)
+    falls_through: bool = False
 
 
 @dataclass
 class IRExprStmt(IRStmt):
     """Expression as statement."""
+
     expr: IRExpr = None
-
-
-@dataclass
-class IRRawC(IRStmt):
-    """Escape hatch: pre-rendered C text (for setjmp boilerplate, etc.)."""
-    text: str = ""
-    helper_refs: list[str] = field(default_factory=list)
 
 
 @dataclass
 class IRBreak(IRStmt):
     """Break statement."""
+
     pass
 
 
 @dataclass
 class IRContinue(IRStmt):
     """Continue statement."""
+
     pass
-
-
-# --- Expressions ---
-
-@dataclass
-class IRExpr:
-    """Base for IR expressions."""
-    pass
-
-
-@dataclass
-class IRLiteral(IRExpr):
-    """C literal text (e.g., '42', '"hello"', 'NULL')."""
-    text: str = ""
-
-
-@dataclass
-class IRVar(IRExpr):
-    """Variable reference by C name."""
-    name: str = ""
-
-
-@dataclass
-class IRBinOp(IRExpr):
-    """Binary operator."""
-    left: IRExpr = None
-    op: str = ""
-    right: IRExpr = None
-
-
-@dataclass
-class IRUnaryOp(IRExpr):
-    """Unary operator."""
-    op: str = ""
-    operand: IRExpr = None
-    prefix: bool = True
-
-
-@dataclass
-class IRCall(IRExpr):
-    """Function call."""
-    callee: str = ""      # C function name or expression text
-    args: list[IRExpr] = field(default_factory=list)
-    helper_ref: str = ""  # if non-empty, tracks which runtime helper is used (for DCE)
-
-
-@dataclass
-class IRFieldAccess(IRExpr):
-    """Struct field access (. or ->)."""
-    obj: IRExpr = None
-    field: str = ""
-    arrow: bool = False
-
-
-@dataclass
-class IRCast(IRExpr):
-    """C type cast."""
-    target_type: CType = None
-    expr: IRExpr = None
-
-
-@dataclass
-class IRTernary(IRExpr):
-    """Ternary expression: `cond ? true_expr : false_expr`."""
-    condition: IRExpr = None
-    true_expr: IRExpr = None
-    false_expr: IRExpr = None
-
-
-@dataclass
-class IRSizeof(IRExpr):
-    """sizeof expression."""
-    operand: str = ""  # C type or expression text
-
-
-@dataclass
-class IRIndex(IRExpr):
-    """Array/pointer indexing: `obj[index]`."""
-    obj: IRExpr = None
-    index: IRExpr = None
-
-
-@dataclass
-class IRAddressOf(IRExpr):
-    """Address-of operator: `&expr`."""
-    expr: IRExpr = None
-
-
-@dataclass
-class IRDeref(IRExpr):
-    """Dereference operator: `*expr`."""
-    expr: IRExpr = None
-
-
-@dataclass
-class IRRawExpr(IRExpr):
-    """Escape hatch: pre-rendered C expression text."""
-    text: str = ""
-
-
-@dataclass
-class IRStmtExpr(IRExpr):
-    """Statement expression: evaluate setup stmts, then produce result.
-
-    The emitter hoists the stmts before the enclosing statement and uses
-    only the result in expression position. Produces standard C11.
-    """
-    stmts: list = field(default_factory=list)
-    result: IRExpr = None
-
-
-@dataclass
-class IRSpawnThread(IRExpr):
-    """Spawn a thread: __btrc_thread_spawn(fn_ptr, capture_arg)."""
-    fn_ptr: str = ""       # C function name (from lambda lowering)
-    capture_arg: IRExpr = None  # Capture struct pointer (or NULL)
 
 
 # --- GPU compute ---
 
+
 @dataclass
 class IRGpuBuffer:
     """Metadata for a GPU buffer parameter."""
+
     name: str = ""
-    elem_type: str = ""   # "f32", "i32"
+    elem_type: str = ""  # "f32", "i32"
     access: str = "read"  # "read", "read_write"
     binding: int = 0
 
@@ -359,34 +227,11 @@ class IRGpuKernel(IRStmt):
 
     Emitted as a static C string constant containing the WGSL shader.
     """
+
     name: str = ""
     wgsl_source: str = ""
     workgroup_size: int = 64
     param_buffers: list[IRGpuBuffer] = field(default_factory=list)
     output_buffer: IRGpuBuffer = None  # None for void-returning kernels
     uniform_params: list[tuple] = field(default_factory=list)  # (name, wgsl_type) pairs
-
-
-@dataclass
-class IRGpuDispatch(IRExpr):
-    """GPU kernel dispatch at a call site.
-
-    Extends IRExpr so it can be used in expression contexts
-    (e.g. `float[] result = vectorAdd(a, b)`).
-    The emitter hoists buffer creation, upload, dispatch, readback, and
-    cleanup as statements before the enclosing statement, then returns
-    the result variable name. Produces standard C11.
-    """
-    kernel_name: str = ""
-    args: list[IRExpr] = field(default_factory=list)
-    result_var: str = ""         # C variable to store readback result ("" for void)
-    result_elem_type: str = ""   # "float", "int" — C element type
-    array_len_expr: IRExpr = None  # expression for dispatch size (first array arg's length)
-    buffer_lens: list = field(default_factory=list)  # per-param-buffer element count (None → dispatch len)
-    param_buffers: list[IRGpuBuffer] = field(default_factory=list)
-    output_buffer: IRGpuBuffer = None
-    uniform_params: list[tuple] = field(default_factory=list)
-    workgroup_size: int = 64
-    assign_target: str = ""      # If set, readback into this var via memcpy
-    cpu_fallback: str = ""       # name of the CPU-loop fallback fn (void kernels)
-    cpu_fallback_keep: str = ""  # "<fn>(" — makes the dead-fn optimizer see the ref
+    status_binding: int = -1

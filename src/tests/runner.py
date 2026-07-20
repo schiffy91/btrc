@@ -17,83 +17,58 @@ single compiler with `pytest --compilers=python` (or `=btrc`); the Makefile wire
 """
 
 import os
+import shlex
 import subprocess
 import tempfile
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
-from src.compiler.python.frontend import get_stdlib_source
+from src.compiler.python.frontend import compile_frontend
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.main import resolve_includes
-from src.compiler.python.parser.parser import Parser
+from src.compiler.python.source_provenance import make_ir_source_maps
+from src.tests.corpus_files import language_test_files
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
-_BTRCC_MAIN = os.path.join(
-    _REPO_ROOT, "src", "compiler", "btrc", "btrcc_main.btrc")
 
 # Compiler and flags configurable via environment.
 # Default to "cc" (the system C compiler), which resolves to the nix
 # gcc-wrapper that knows where glibc crt objects live.
-BTRC_CC = os.environ.get("BTRC_CC", "cc")
-BTRC_CFLAGS = os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic").split()
-
-# Subdirectories of src/tests/ that hold compiler-specific tests, NOT the shared
-# language corpus.
-_NON_CORPUS = {"python", "btrc", "__pycache__", "expected"}
+BTRC_CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+BTRC_CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
+if not BTRC_CC:
+    raise ValueError("BTRC_CC must name a C compiler")
 
 
 def get_btrc_test_files():
     """Recursively find all test_*.btrc files in the shared language corpus."""
-    tests = []
-    for root, _dirs, files in os.walk(BTRC_TEST_DIR):
-        rel = os.path.relpath(root, BTRC_TEST_DIR)
-        if rel != "." and rel.split(os.sep)[0] in _NON_CORPUS:
-            continue
-        for f in sorted(files):
-            if f.startswith("test_") and f.endswith(".btrc") and "_helper" not in f:
-                tests.append(os.path.relpath(os.path.join(root, f), BTRC_TEST_DIR))
-    return sorted(tests)
-
-
-@pytest.fixture(scope="session")
-def btrcc_bin(tmp_path_factory):
-    """Build the self-hosted compiler once per session (only if btrc selected)."""
-    out = tmp_path_factory.mktemp("btrcc")
-    csrc = str(out / "btrcc.c")
-    binp = str(out / "btrcc")
-    r = subprocess.run(
-        ["python3", "-m", "src.compiler.python.main",
-         _BTRCC_MAIN, "--no-cache", "-o", csrc],
-        cwd=_REPO_ROOT, capture_output=True, text=True,
-        env={**os.environ, "BTRC_CACHE_DIR": str(out / "cache")})
-    assert r.returncode == 0 and os.path.exists(csrc), (
-        f"transpiling btrcc failed:\n{r.stderr}")
-    r = subprocess.run(
-        [BTRC_CC, "-std=c11", csrc, "-o", binp, "-lm", "-lpthread"],
-        capture_output=True, text=True)
-    assert r.returncode == 0 and os.path.exists(binp), (
-        f"compiling btrcc failed:\n{r.stderr}")
-    return binp
+    return language_test_files(BTRC_TEST_DIR)
 
 
 def _transpile_python(btrc_path, btrc_file):
     """Transpile a .btrc file to C via the reference Python compiler API."""
     with open(btrc_path) as f:
         source = f.read()
-    source = resolve_includes(source, btrc_path)
-    stdlib_source = get_stdlib_source(source)
-    if stdlib_source:
-        source = stdlib_source + "\n" + source
-    tokens = Lexer(source, os.path.basename(btrc_file)).tokenize()
-    program = Parser(tokens).parse()
-    analyzed = Analyzer().analyze(program)
+    frontend = compile_frontend(
+        source,
+        btrc_path,
+        filename=os.path.basename(btrc_file),
+        map_stdlib_positions=True,
+    )
+    analyzed = frontend.analyzed
     assert not analyzed.errors, f"Analyzer errors: {analyzed.errors}"
-    ir_module = IRGenerator(analyzed).generate()
+    line_map, declaration_line_map = make_ir_source_maps(
+        frontend.source_bundle,
+        split_spaces=bool(frontend.stdlib_source and frontend.user_program is not None),
+    )
+    ir_module = IRGenerator(
+        analyzed,
+        source_file=os.path.basename(btrc_file),
+        line_map=line_map,
+        declaration_line_map=declaration_line_map,
+    ).generate()
     ir_module = optimize(ir_module)
     return CEmitter().emit(ir_module)
 
@@ -102,55 +77,58 @@ def _transpile_btrc(btrcc, btrc_path):
     """Transpile a .btrc file to C by running the self-hosted compiler binary.
 
     btrcc composes the stdlib + resolves includes itself (default mode) and
-    writes the C to stdout; it reads src/language/grammar.ebnf relative to cwd,
-    so it must run at the repo root.
+    writes the C to stdout. The shared fixture supplies an explicit runtime data
+    root; the repository cwd keeps test paths and diagnostics deterministic.
     """
-    r = subprocess.run(
-        [btrcc, btrc_path], cwd=_REPO_ROOT,
-        capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0 and r.stdout.strip(), (
-        f"btrcc failed to transpile:\nstderr: {r.stderr[:2000]}")
+    r = subprocess.run([btrcc, btrc_path], cwd=_REPO_ROOT, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and r.stdout.strip(), f"btrcc failed to transpile:\nstderr: {r.stderr[:2000]}"
     return r.stdout
 
 
 def _gcc_flags(c_source, c_path, bin_path):
     """Build the C-compiler command for emitted btrc output (shared by both
     compilers): base flags + the tray / GPU / pthread extras the program needs."""
-    gcc_flags = [BTRC_CC] + BTRC_CFLAGS + [c_path, "-o", bin_path, "-lm"]
+    gcc_flags = [*BTRC_CC, *BTRC_CFLAGS, c_path, "-o", bin_path, "-lm"]
     if "pthread.h" in c_source:
         gcc_flags.append("-lpthread")
     if "btrc_tray.h" in c_source:
         import platform
+
         tray_dir = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "tray")
         if platform.system() == "Darwin":
             import subprocess as _sp
+
             try:
-                _ver = _sp.run([BTRC_CC, "--version"], capture_output=True,
-                               text=True).stdout.lower()
+                _ver = _sp.run([*BTRC_CC, "--version"], capture_output=True, text=True).stdout.lower()
             except OSError:
                 _ver = ""
             if "clang" not in _ver:
                 pytest.skip("tray shim needs clang (Objective-C/Cocoa) on macOS")
             shim = os.path.join(tray_dir, "btrc_tray_macos.m")
             gcc_flags = [
-                BTRC_CC, "-fobjc-arc", "-std=c11",
-                f"-I{tray_dir}", c_path, shim,
-                "-framework", "Cocoa", "-lm", "-o", bin_path,
+                *BTRC_CC,
+                "-fobjc-arc",
+                "-std=c11",
+                f"-I{tray_dir}",
+                c_path,
+                shim,
+                "-framework",
+                "Cocoa",
+                "-lm",
+                "-o",
+                bin_path,
             ]
             if "pthread.h" in c_source:
                 gcc_flags.append("-lpthread")
         else:
             import shutil
             import subprocess as _sp
-            if not shutil.which("pkg-config") or _sp.run(
-                ["pkg-config", "--exists", "dbus-1"]
-            ).returncode != 0:
+
+            if not shutil.which("pkg-config") or _sp.run(["pkg-config", "--exists", "dbus-1"]).returncode != 0:
                 pytest.skip("tray shim needs dbus-1 (pkg-config) on Linux")
             shim = os.path.join(tray_dir, "btrc_tray_linux.c")
-            cflags = _sp.check_output(
-                ["pkg-config", "--cflags", "dbus-1"], text=True).split()
-            libs = _sp.check_output(
-                ["pkg-config", "--libs", "dbus-1"], text=True).split()
+            cflags = _sp.check_output(["pkg-config", "--cflags", "dbus-1"], text=True).split()
+            libs = _sp.check_output(["pkg-config", "--libs", "dbus-1"], text=True).split()
             gcc_flags.extend([f"-I{tray_dir}", shim, *cflags, *libs])
     if "btrc_gpu.h" in c_source:
         gpu_build = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu", "build")
@@ -159,20 +137,37 @@ def _gcc_flags(c_source, c_path, bin_path):
             pytest.skip("GPU runtime not built (run make gpu)")
         gcc_flags.extend([f"-I{gpu_dir}", f"-L{gpu_build}", "-lbtrc_gpu"])
         import platform
-        if platform.system() == "Darwin":
+
+        gpu_cflags = os.environ.get("GPU_CFLAGS")
+        gpu_ldflags = os.environ.get("GPU_LDFLAGS")
+        if gpu_cflags and gpu_ldflags:
+            gcc_flags.extend(shlex.split(gpu_cflags))
+            gcc_flags.extend(shlex.split(gpu_ldflags))
+        elif platform.system() == "Darwin":
             import subprocess as _sp
-            wgpu_prefix = _sp.check_output(
-                ["brew", "--prefix", "wgpu-native"], text=True).strip()
-            glfw_prefix = _sp.check_output(
-                ["brew", "--prefix", "glfw"], text=True).strip()
-            gcc_flags.extend([
-                f"-I{wgpu_prefix}/include", f"-L{wgpu_prefix}/lib",
-                "-lwgpu_native",
-                f"-I{glfw_prefix}/include", f"-L{glfw_prefix}/lib", "-lglfw",
-                "-framework", "Metal", "-framework", "QuartzCore",
-                "-framework", "Cocoa", "-framework", "IOKit",
-                "-framework", "CoreVideo",
-            ])
+
+            wgpu_prefix = _sp.check_output(["brew", "--prefix", "wgpu-native"], text=True).strip()
+            glfw_prefix = _sp.check_output(["brew", "--prefix", "glfw"], text=True).strip()
+            gcc_flags.extend(
+                [
+                    f"-I{wgpu_prefix}/include",
+                    f"-L{wgpu_prefix}/lib",
+                    "-lwgpu_native",
+                    f"-I{glfw_prefix}/include",
+                    f"-L{glfw_prefix}/lib",
+                    "-lglfw",
+                    "-framework",
+                    "Metal",
+                    "-framework",
+                    "QuartzCore",
+                    "-framework",
+                    "Cocoa",
+                    "-framework",
+                    "IOKit",
+                    "-framework",
+                    "CoreVideo",
+                ]
+            )
         else:
             gcc_flags.extend(["-lwgpu_native", "-lglfw", "-lpthread"])
     return gcc_flags
@@ -186,18 +181,15 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
     bin_path = c_path.removesuffix(".c")
     try:
         gcc_flags = _gcc_flags(c_source, c_path, bin_path)
-        compile_result = subprocess.run(
-            gcc_flags, capture_output=True, text=True, timeout=60)
+        compile_result = subprocess.run(gcc_flags, capture_output=True, text=True, timeout=60)
         assert compile_result.returncode == 0, (
-            f"gcc failed:\nstdout: {compile_result.stdout}\n"
-            f"stderr: {compile_result.stderr}")
-        run_result = subprocess.run(
-            [bin_path], capture_output=True, text=True, timeout=15)
+            f"gcc failed:\nstdout: {compile_result.stdout}\nstderr: {compile_result.stderr}"
+        )
+        run_result = subprocess.run([bin_path], capture_output=True, text=True, timeout=15)
         assert run_result.returncode == 0, (
-            f"Program exited with {run_result.returncode}:\n"
-            f"stdout: {run_result.stdout}\nstderr: {run_result.stderr}")
-        assert "PASS" in run_result.stdout, (
-            f"No PASS in output:\n{run_result.stdout}")
+            f"Program exited with {run_result.returncode}:\nstdout: {run_result.stdout}\nstderr: {run_result.stderr}"
+        )
+        assert "PASS" in run_result.stdout, f"No PASS in output:\n{run_result.stdout}"
         test_dir = os.path.dirname(btrc_path)
         test_name = os.path.basename(btrc_file).replace(".btrc", ".stdout")
         expected_path = os.path.join(test_dir, "expected", test_name)
@@ -205,8 +197,8 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
             with open(expected_path) as ef:
                 expected = ef.read()
             assert run_result.stdout == expected, (
-                f"Output mismatch vs golden file:\n"
-                f"Expected:\n{expected}\nGot:\n{run_result.stdout}")
+                f"Output mismatch vs golden file:\nExpected:\n{expected}\nGot:\n{run_result.stdout}"
+            )
     finally:
         for p in [c_path, bin_path]:
             if os.path.exists(p):

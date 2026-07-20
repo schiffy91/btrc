@@ -37,7 +37,7 @@ void  btrc_tray_add_separator(void* tray);
 void  btrc_tray_set_menu(void* tray);
 bool  btrc_tray_show(void* tray);
 bool  btrc_tray_run_iteration(void* tray, int timeout_ms);
-string btrc_tray_take_command(void* tray);
+char* btrc_tray_take_command(void* tray);
 bool  btrc_tray_should_quit(void* tray);
 void  btrc_tray_request_quit(void* tray);
 void  btrc_tray_destroy(void* tray);
@@ -105,11 +105,25 @@ class SystemTray {
             btrc_tray_set_icon(self.handle, self.model.iconPath);
         }
         btrc_tray_set_tooltip(self.handle, self.model.tooltip);
+        bool menuOk = true;
         for entry in self.model.items {
-            btrc_tray_add_item(self.handle, entry.label, entry.command, entry.enabled);
+            if (btrc_tray_add_item(
+                    self.handle, entry.label, entry.command, entry.enabled) < 0) {
+                menuOk = false;
+            }
+        }
+        if (!menuOk) {
+            btrc_tray_destroy(self.handle);
+            self.handle = null;
+            return false;
         }
         btrc_tray_set_menu(self.handle);
         bool ok = btrc_tray_show(self.handle);
+        if (!ok) {
+            btrc_tray_destroy(self.handle);
+            self.handle = null;
+            return false;
+        }
         self.realized = ok;
         return ok;
     }
@@ -154,5 +168,6 @@ class SystemTray {
             btrc_tray_destroy(self.handle);
             self.handle = null;
         }
+        self.realized = false;
     }
 }

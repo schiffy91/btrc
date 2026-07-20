@@ -1,0 +1,264 @@
+"""Call and argument lowering for monomorphized generic methods."""
+
+from ....source_runtime_symbols import is_source_runtime_helper
+from ...nodes import IRCall, IRVar
+from ..call_builtins import lower_len, lower_typed_print
+from ..generic_intrinsics import lower_generic_intrinsic
+from ..typed_operators import operator_context
+from .user_builtin_methods import lower_generic_builtin_method
+from .user_call_arguments import order_generic_call_arguments
+from .user_call_ordering import evaluated_callee, language_ordered_call
+from .user_constructor_calls import lower_class_constructor_call
+from .user_emitter_arc import _UserGenericArcMixin
+from .user_static_calls import lower_ordinary_static_call
+
+
+class _UserGenericCallMixin(_UserGenericArcMixin):
+    def _call(self, expression):
+        """Lower a call through the shared managed-operand boundary."""
+        from ..aggregate_ownership import reject_rich_enum_owned_args
+        from ..callable_boundaries import reject_unsafe_managed_callback_arguments
+        from .user_callable_provenance import generic_callable_return_abi
+
+        if self._gen is not None:
+            reject_rich_enum_owned_args(self._gen, expression)
+        params = self._params_for_call(expression)
+        reject_unsafe_managed_callback_arguments(
+            self._gen,
+            expression,
+            params=params,
+            callable_abi=lambda value: generic_callable_return_abi(
+                self,
+                value,
+            ),
+        )
+        from ..hosted_result_conversion import (
+            lower_hosted_string_conversion,
+            requested_hosted_string_conversion,
+        )
+
+        result_conversion = requested_hosted_string_conversion(
+            self._gen,
+            expression,
+        )
+
+        def build():
+            call = self._plain_call(expression)
+            if result_conversion is not None:
+                call = lower_hosted_string_conversion(
+                    self._gen,
+                    call,
+                    result_conversion[0],
+                )
+            return call
+
+        declaration = self._callable_for_call(expression)
+        from ..call_effects import owned_transfer_param_indices
+        from ..receiver_pinning import receiver_pin_required
+        from .user_emitter_scopes import managed_local_type
+
+        callable_field = self._callable_field(expression)
+        receiver = None if callable_field else self._instance_receiver(expression)
+        operands = self._call_operands(
+            params,
+            expression.args,
+            getattr(expression, "arg_names", []) or [],
+            receiver,
+            owned_transfer_param_indices(declaration),
+            callee=expression.callee if callable_field else evaluated_callee(expression),
+            pin_receiver=receiver_pin_required(
+                self._gen,
+                receiver,
+                declared_call=declaration is not None,
+                type_of=self._resolve_expr_type,
+                owned_local_type=lambda name: managed_local_type(self, name),
+            ),
+            force_order=language_ordered_call(
+                self,
+                expression,
+                declaration,
+            ),
+            call=expression,
+        )
+        if not operands:
+            return build()
+        return self._sequence_call(
+            operands,
+            expression,
+            build,
+            result_type_override=(result_conversion[1] if result_conversion is not None else None),
+            result_owned_override=(True if result_conversion is not None else None),
+        )
+
+    def _plain_call(self, expression):
+        from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
+
+        if isinstance(expression.callee, Identifier) and self._gen:
+            name = expression.callee.name
+            is_builtin = name not in self._var_types and name not in self._gen.analyzed.function_table
+            if is_builtin and name == "print":
+                return lower_typed_print(
+                    self._gen,
+                    expression.args,
+                    lower_value=self._expr,
+                    resolve_type=self._resolve_expr_type,
+                )
+            if is_builtin and name == "len" and expression.args:
+                argument = expression.args[0]
+                return lower_len(
+                    self._gen,
+                    self._expr(argument),
+                    self._resolve_expr_type(argument),
+                )
+
+        args = [self._expr(arg) for arg in expression.args]
+        arg_names = getattr(expression, "arg_names", []) or []
+        params = self._params_for_call(expression)
+
+        if isinstance(expression.callee, Identifier):
+            name = expression.callee.name
+            if name in self._var_types:
+                from .user_emitter_bindings import source_binding_c_name
+
+                return IRCall(
+                    callee=IRVar(name=source_binding_c_name(self, name)),
+                    args=args,
+                )
+            if self._gen and name == "Mutex" and name not in self._gen.analyzed.function_table:
+                if len(args) != 1:
+                    from ..errors import CodegenError
+
+                    raise CodegenError("Mutex construction requires one initial value")
+                mutex_type = self._resolve_expr_type(expression)
+                value_type = (
+                    mutex_type.generic_args[0]
+                    if mutex_type is not None and mutex_type.generic_args
+                    else self._resolve_expr_type(expression.args[0])
+                )
+                from ..mutex_values import create_mutex_value
+
+                return create_mutex_value(self._gen, args[0], value_type)
+            intrinsic = lower_generic_intrinsic(
+                name,
+                args,
+                [self._resolve_expr_type(arg) for arg in expression.args],
+                operator_context(self._gen, fresh_temp=self._fresh_temp),
+            )
+            if intrinsic is not None:
+                return intrinsic
+            constructor_call = lower_class_constructor_call(
+                self,
+                expression,
+                name,
+                args,
+                arg_names,
+                params,
+            )
+            if constructor_call is not None:
+                return constructor_call
+            if self._gen and is_source_runtime_helper(name):
+                self._gen.use_helper(name)
+            if self._gen and name in self._gen.analyzed.function_table and name not in self._var_types:
+                if id(expression) not in self._gen.analyzed.hosted_call_ids:
+                    args = order_generic_call_arguments(
+                        self,
+                        params,
+                        expression.args,
+                        arg_names,
+                        args,
+                    )
+                from ..function_symbols import source_function_c_name
+
+                name = source_function_c_name(self._gen.analyzed, name, expression)
+            return IRCall(callee=name, args=args)
+
+        if isinstance(expression.callee, FieldAccessExpr):
+            receiver = expression.callee.obj
+            method_name = expression.callee.field
+            if self._callable_field(expression):
+                return IRCall(
+                    callee=self._expr(expression.callee),
+                    args=args,
+                )
+            from ..rich_enum_calls import lower_generic_rich_enum_call
+
+            variant_call = lower_generic_rich_enum_call(
+                self,
+                expression,
+                params,
+                args,
+                arg_names,
+            )
+            if variant_call is not None:
+                return variant_call
+            static_call = lower_ordinary_static_call(
+                self,
+                expression,
+                args,
+                arg_names,
+                params,
+            )
+            if static_call is not None:
+                return static_call
+            if isinstance(receiver, SelfExpr):
+                if self._cls_info:
+                    if self._cls_info.methods.get(method_name):
+                        args = order_generic_call_arguments(
+                            self,
+                            params,
+                            expression.args,
+                            arg_names,
+                            args,
+                        )
+                return IRCall(
+                    callee=f"{self.mangled}_{method_name}",
+                    args=[IRVar(name="self"), *args],
+                )
+            receiver_ir = self._expr(receiver)
+            receiver_type = self._resolve_expr_type(receiver)
+            if self._gen and receiver_type is not None:
+                class_info = self._gen.analyzed.class_table.get(receiver_type.base)
+                if class_info and class_info.methods.get(method_name):
+                    args = order_generic_call_arguments(
+                        self,
+                        params,
+                        expression.args,
+                        arg_names,
+                        args,
+                    )
+            builtin = lower_generic_builtin_method(
+                self,
+                receiver_ir,
+                receiver_type,
+                method_name,
+                args,
+            )
+            if builtin is not None:
+                return builtin
+
+            if self._gen:
+                from ..sync_methods import lower_sync_method
+
+                sync = lower_sync_method(
+                    self._gen,
+                    receiver,
+                    receiver_ir,
+                    method_name,
+                    receiver_type,
+                    args,
+                )
+                if sync is not None:
+                    return sync
+
+            target = self._mangle_type(receiver_type)
+            if target:
+                return IRCall(
+                    callee=f"{target}_{method_name}",
+                    args=[receiver_ir, *args],
+                )
+            return IRCall(callee=method_name, args=[receiver_ir, *args])
+
+        return IRCall(
+            callee=self._expr(expression.callee),
+            args=args,
+        )

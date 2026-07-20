@@ -1,0 +1,131 @@
+/* Exact bodyless declaration contracts for compiler-owned hosted functions. */
+
+string semanticHostedNormalizedBase(string base) {
+    if (base == "byte") { return "unsigned char"; }
+    if (base == "long int") { return "long"; }
+    if (base == "long long int") { return "long long"; }
+    if (base == "short int") { return "short"; }
+    if (base == "signed" || base == "signed int") { return "int"; }
+    if (base == "string") { return "char"; }
+    if (base == "unsigned" || base == "uint") { return "unsigned int"; }
+    if (base == "unsigned long int") { return "unsigned long"; }
+    if (base == "unsigned long long int") {
+        return "unsigned long long";
+    }
+    if (base == "unsigned short int") { return "unsigned short"; }
+    return base;
+}
+
+int semanticHostedPointerDepth(Node typeNode) {
+    int depth = typeNode.pointer_depth;
+    if (typeNullableCollapsesReferenceLayer(
+            typeNode, typeNode.base == "string")) {
+        depth = depth - 1;
+    }
+    if (typeNode.is_array) { depth = depth + 1; }
+    if (typeNode.base == "string") {
+        depth = depth + 1;
+    }
+    return depth;
+}
+
+bool semanticHostedTypeMatchesResult(Node typeNode, string name) {
+    return typeNode.generic_args.len == 0
+        && semanticHostedNormalizedBase(typeNode.base)
+            == hostedAbiResultBase(name)
+        && semanticHostedPointerDepth(typeNode)
+            == hostedAbiResultPointerDepth(name)
+        && typeNode.is_const == hostedAbiResultConst(name);
+}
+
+bool semanticHostedTypeMatchesParameter(
+        Node typeNode, string name, int index) {
+    return typeNode.generic_args.len == 0
+        && semanticHostedNormalizedBase(typeNode.base)
+            == hostedAbiParameterBase(name, index)
+        && semanticHostedPointerDepth(typeNode)
+            == hostedAbiParameterPointerDepth(name, index)
+        && typeNode.is_const == hostedAbiParameterConst(name, index);
+}
+
+bool semanticHostedDeclarationModifiersValid(Node declaration) {
+    if (declaration.return_type.is_static
+            || declaration.return_type.is_volatile
+            || declaration.is_gpu || declaration.keep_return) {
+        return false;
+    }
+    int index = 0;
+    while (index < declaration.params.len) {
+        Node parameter = declaration.params.get(index);
+        if (parameter.keep_ || parameter.default_ != null
+                || parameter.type.is_static || parameter.type.is_extern
+                || parameter.type.is_volatile) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+string semanticHostedExpectedSignature(string name) {
+    string result = hostedAbiResultBase(name);
+    int resultDepth = hostedAbiResultPointerDepth(name);
+    while (resultDepth > 0) {
+        result = result + "*";
+        resultDepth = resultDepth - 1;
+    }
+    string parameters = "";
+    int index = 0;
+    while (index < hostedAbiParameterCount(name)) {
+        if (index > 0) { parameters = parameters + ", "; }
+        string parameter = hostedAbiParameterBase(name, index);
+        int depth = hostedAbiParameterPointerDepth(name, index);
+        while (depth > 0) {
+            parameter = parameter + "*";
+            depth = depth - 1;
+        }
+        parameters = parameters + parameter;
+        index = index + 1;
+    }
+    if (parameters == "") { parameters = "void"; }
+    return result + " (" + parameters + ")";
+}
+
+void semanticValidateHostedBodylessDeclaration(Node declaration) {
+    if (declaration.body_node != null) { return; }
+    string name = declaration.name;
+    if (hostedAbiMacroName(name)) {
+        semanticValidationFail("Hosted macro '" + name
+            + "' cannot be redeclared as a function", declaration);
+        return;
+    }
+    if (!hostedAbiExactFunction(name)) {
+        if (hostedAbiCompilerStdlibNode(declaration)) { return; }
+        if (hostedAbiOwnedName(name)) {
+            semanticValidationFail("Hosted symbol '" + name
+                + "' has no source-representable prototype; include its "
+                + "standard header and call it directly", declaration);
+        }
+        return;
+    }
+    if (hostedAbiVariadic(name)) {
+        semanticValidationFail("Hosted function '" + name
+            + "' has an ABI that btrc prototypes cannot represent; include "
+            + "its standard header and call it directly", declaration);
+        return;
+    }
+    bool valid = semanticHostedDeclarationModifiersValid(declaration)
+        && declaration.params.len == hostedAbiParameterCount(name)
+        && semanticHostedTypeMatchesResult(declaration.return_type, name);
+    int index = 0;
+    while (valid && index < declaration.params.len) {
+        valid = semanticHostedTypeMatchesParameter(
+            declaration.params.get(index).type, name, index);
+        index = index + 1;
+    }
+    if (!valid) {
+        semanticValidationFail("Hosted function declaration '" + name
+            + "' does not match compiler-owned C ABI '"
+            + semanticHostedExpectedSignature(name) + "'", declaration);
+    }
+}

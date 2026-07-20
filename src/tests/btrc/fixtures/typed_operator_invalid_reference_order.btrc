@@ -1,0 +1,8 @@
+class Item {
+    public Item() {}
+}
+
+int main() {
+    Item value = new Item();
+    return value < value ? 1 : 0;
+}

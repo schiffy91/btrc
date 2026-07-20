@@ -1,264 +1,229 @@
-"""WGSL emitter: translates btrc AST expressions/statements to WGSL text.
-
-Used by gpu.py to generate the body of WGSL compute shaders from @gpu
-function AST nodes. Only handles the GPU-compatible subset of btrc.
-"""
+"""Statement and control-flow lowering for btrc GPU bodies to WGSL."""
 
 from __future__ import annotations
 
 from ...ast_nodes import (
     AssignExpr,
-    BinaryExpr,
-    BoolLiteral,
     BreakStmt,
     CallExpr,
-    CastExpr,
     CForStmt,
     ContinueStmt,
     ExprStmt,
-    FloatLiteral,
     ForInitExpr,
     ForInitVar,
     Identifier,
     IfStmt,
-    IndexExpr,
-    IntLiteral,
-    NullLiteral,
     ReturnStmt,
-    TernaryExpr,
-    TypeExpr,
     UnaryExpr,
     VarDeclStmt,
     WhileStmt,
 )
 from .errors import unsupported_node
+from .gpu_wgsl_exprs import WgslExpressionsMixin
+from .gpu_wgsl_types import (
+    btrc_type_to_wgsl,
+    btrc_type_to_wgsl_elem,
+    scalar_type,
+)
 
-# btrc type → WGSL type
-_TYPE_MAP = {
-    "int": "i32",
-    "float": "f32",
-    "bool": "bool",
-}
-
-# btrc operator → WGSL operator (most are 1:1)
-_OP_MAP = {
-    "+": "+", "-": "-", "*": "*", "/": "/", "%": "%",
-    "==": "==", "!=": "!=", "<": "<", ">": ">",
-    "<=": "<=", ">=": ">=",
-    "&&": "&&", "||": "||",
-    "&": "&", "|": "|", "^": "^",
-    "<<": "<<", ">>": ">>",
-    "!": "!",
-    "++": "++", "--": "--",
-}
+__all__ = ["WgslEmitter", "btrc_type_to_wgsl", "btrc_type_to_wgsl_elem"]
 
 
-def btrc_type_to_wgsl(type_expr: TypeExpr) -> str:
-    """Convert a btrc TypeExpr to its WGSL equivalent."""
-    if type_expr is None:
-        return "void"
-    base = type_expr.base
-    if type_expr.is_array:
-        elem = _TYPE_MAP.get(base, base)
-        return f"array<{elem}>"
-    return _TYPE_MAP.get(base, base)
+class WgslEmitter(WgslExpressionsMixin):
+    """Emit the analyzed GPU-compatible AST subset as WGSL statements."""
 
-
-def btrc_type_to_wgsl_elem(type_expr: TypeExpr) -> str:
-    """Get the WGSL element type for a btrc type (for storage buffers)."""
-    return _TYPE_MAP.get(type_expr.base, type_expr.base)
-
-
-class WgslEmitter:
-    """Emits WGSL text from btrc AST nodes (GPU-compatible subset)."""
-
-    def __init__(self, array_params: list[str], has_output: bool = True,
-                 uniform_params: list[str] | None = None):
-        self._indent = 1  # function body starts at indent 1
+    def __init__(
+        self,
+        array_params: list[str] | dict[str, str],
+        has_output: bool = True,
+        uniform_params: list[str] | dict[str, str] | None = None,
+        bool_uniform_params: list[str] | None = None,
+        array_lengths: dict[str, str] | None = None,
+        node_types: dict[int, object] | None = None,
+        output_type=None,
+    ):
+        self._indent = 1
         self._lines: list[str] = []
-        self._array_params = set(array_params)
-        self._uniform_params = set(uniform_params or [])
+        self._array_params = _name_map(array_params)
+        self._uniform_params = _name_map(uniform_params or [])
+        self._bool_uniform_params = set(bool_uniform_params or [])
+        self._array_lengths = dict(array_lengths or {})
         self._has_output = has_output
+        self._output_type = output_type
+        self._node_types = node_types or {}
+        self._name_scopes = [{**self._array_params, **self._uniform_params}]
+        self._next_local = 0
+        self._next_value = 0
 
     def emit_block(self, block) -> str:
-        """Emit a block of statements, return WGSL text."""
         if block is None:
             return ""
-        for stmt in block.statements:
-            self._emit_stmt(stmt)
+        self._push_name_scope()
+        self._emit_block_contents(block)
+        self._pop_name_scope()
         return "\n".join(self._lines)
 
-    def _line(self, text: str):
+    def _line(self, text: str) -> None:
         self._lines.append("    " * self._indent + text)
 
-    def _emit_stmt(self, stmt):
-        if isinstance(stmt, VarDeclStmt):
-            wgsl_type = _TYPE_MAP.get(stmt.type.base, "i32") if stmt.type else "i32"
-            if stmt.initializer:
-                init = self._expr(stmt.initializer)
-                self._line(f"var {stmt.name}: {wgsl_type} = {init};")
-            else:
-                self._line(f"var {stmt.name}: {wgsl_type};")
+    def _emit_block_contents(self, block) -> None:
+        for statement in block.statements:
+            self._emit_stmt(statement)
 
-        elif isinstance(stmt, ReturnStmt):
-            if stmt.value and self._has_output:
-                val = self._expr(stmt.value)
-                self._line(f"_output[btrc_gid] = {val};")
-                self._line("return;")
-            else:
-                self._line("return;")
+    def _emit_scoped_contents(self, block) -> None:
+        self._push_name_scope()
+        self._emit_block_contents(block)
+        self._pop_name_scope()
 
-        elif isinstance(stmt, IfStmt):
-            cond = self._expr(stmt.condition)
-            self._line(f"if ({cond}) {{")
-            self._indent += 1
-            if stmt.then_block:
-                for s in stmt.then_block.statements:
-                    self._emit_stmt(s)
-            self._indent -= 1
-            if stmt.else_block:
-                if hasattr(stmt.else_block, 'body'):
-                    self._line("} else {")
-                    self._indent += 1
-                    for s in stmt.else_block.body.statements:
-                        self._emit_stmt(s)
-                    self._indent -= 1
-                    self._line("}")
-                elif hasattr(stmt.else_block, 'if_stmt'):
-                    # else-if: recurse on the inner `if` so its own else /
-                    # else-if chain is preserved (the previous code emitted only
-                    # the inner then-block and silently dropped its else).
-                    self._line("} else {")
-                    self._indent += 1
-                    self._emit_stmt(stmt.else_block.if_stmt)
-                    self._indent -= 1
-                    self._line("}")
-            else:
-                self._line("}")
-
-        elif isinstance(stmt, WhileStmt):
-            cond = self._expr(stmt.condition)
-            self._line(f"while ({cond}) {{")
-            self._indent += 1
-            if stmt.body:
-                for s in stmt.body.statements:
-                    self._emit_stmt(s)
-            self._indent -= 1
-            self._line("}")
-
-        elif isinstance(stmt, CForStmt):
-            init_text = ""
-            if stmt.init:
-                if isinstance(stmt.init, ForInitVar):
-                    vd = stmt.init.var_decl
-                    wt = _TYPE_MAP.get(vd.type.base, "i32") if vd.type else "i32"
-                    init_val = self._expr(vd.initializer) if vd.initializer else "0"
-                    init_text = f"var {vd.name}: {wt} = {init_val}"
-                elif isinstance(stmt.init, ForInitExpr):
-                    init_text = self._expr(stmt.init.expression)
-            cond_text = self._expr(stmt.condition) if stmt.condition else "true"
-            update_text = self._expr(stmt.update) if stmt.update else ""
-            self._line(f"for ({init_text}; {cond_text}; {update_text}) {{")
-            self._indent += 1
-            if stmt.body:
-                for s in stmt.body.statements:
-                    self._emit_stmt(s)
-            self._indent -= 1
-            self._line("}")
-
-        elif isinstance(stmt, ExprStmt):
-            self._line(f"{self._expr(stmt.expr)};")
-
-        elif isinstance(stmt, BreakStmt):
+    def _emit_stmt(self, statement) -> None:
+        if isinstance(statement, VarDeclStmt):
+            self._emit_var_decl(statement)
+        elif isinstance(statement, ReturnStmt):
+            self._emit_return(statement)
+        elif isinstance(statement, IfStmt):
+            self._emit_if(statement)
+        elif isinstance(statement, WhileStmt):
+            self._emit_while(statement)
+        elif isinstance(statement, CForStmt):
+            self._emit_for(statement)
+        elif isinstance(statement, ExprStmt):
+            self._emit_expression_statement(statement.expr)
+        elif isinstance(statement, BreakStmt):
             self._line("break;")
-
-        elif isinstance(stmt, ContinueStmt):
+        elif isinstance(statement, ContinueStmt):
             self._line("continue;")
+        else:
+            raise unsupported_node("WGSL statement", statement)
 
-    def _expr(self, expr) -> str:
-        if expr is None:
-            return "0"
+    def _emit_var_decl(self, statement: VarDeclStmt) -> None:
+        initializer = None
+        if statement.initializer is not None:
+            initializer = self._coerced_expr(statement.initializer, statement.type)
+        name = self._declare_name(statement.name)
+        declaration = f"var {name}: {scalar_type(statement.type)}"
+        if initializer is not None:
+            declaration += f" = {initializer}"
+        self._line(declaration + ";")
 
-        if isinstance(expr, IntLiteral):
-            return str(expr.value)
+    def _emit_return(self, statement: ReturnStmt) -> None:
+        if statement.value is not None and self._has_output:
+            value_type = self._type_of(statement.value)
+            if value_type is not None and value_type.is_array:
+                if not isinstance(statement.value, Identifier):
+                    raise unsupported_node("WGSL array return", statement.value)
+                value = self._checked_array_access(statement.value.name, "btrc_gid")
+                value_type = _array_element_type(value_type)
+            else:
+                value = self._expr(statement.value)
+            value = self._coerce_text(value, value_type, self._output_type)
+            self._line(f"_output[btrc_gid] = {value};")
+        self._line("return;")
 
-        if isinstance(expr, FloatLiteral):
-            raw = expr.raw or str(expr.value)
-            if '.' not in raw and 'e' not in raw.lower():
-                raw += ".0"
-            return raw
+    def _emit_if(self, statement: IfStmt) -> None:
+        condition = self._expr(statement.condition)
+        self._line(f"if ({condition}) {{")
+        self._indent += 1
+        self._emit_scoped_contents(statement.then_block)
+        self._indent -= 1
+        if statement.else_block and hasattr(statement.else_block, "body"):
+            self._line("} else {")
+            self._indent += 1
+            self._emit_scoped_contents(statement.else_block.body)
+            self._indent -= 1
+            self._line("}")
+        elif statement.else_block and hasattr(statement.else_block, "if_stmt"):
+            self._line("} else {")
+            self._indent += 1
+            self._push_name_scope()
+            self._emit_if(statement.else_block.if_stmt)
+            self._pop_name_scope()
+            self._indent -= 1
+            self._line("}")
+        else:
+            self._line("}")
 
-        if isinstance(expr, BoolLiteral):
-            return "true" if expr.value else "false"
+    def _emit_while(self, statement: WhileStmt) -> None:
+        self._line("loop {")
+        self._indent += 1
+        self._push_name_scope()
+        condition = self._expr(statement.condition)
+        self._line(f"if (!({condition})) {{ break; }}")
+        self._emit_scoped_contents(statement.body)
+        self._pop_name_scope()
+        self._indent -= 1
+        self._line("}")
 
-        if isinstance(expr, NullLiteral):
-            return "0"
+    def _emit_for(self, statement: CForStmt) -> None:
+        self._line("{")
+        self._indent += 1
+        self._push_name_scope()
+        if isinstance(statement.init, ForInitVar):
+            self._emit_var_decl(statement.init.var_decl)
+        elif isinstance(statement.init, ForInitExpr):
+            self._emit_expression_statement(statement.init.expression)
+        self._line("loop {")
+        self._indent += 1
+        self._push_name_scope()
+        if statement.condition is not None:
+            condition = self._expr(statement.condition)
+            self._line(f"if (!({condition})) {{ break; }}")
+        self._emit_scoped_contents(statement.body)
+        if statement.update is not None:
+            self._line("continuing {")
+            self._indent += 1
+            self._emit_expression_statement(statement.update)
+            self._indent -= 1
+            self._line("}")
+        self._pop_name_scope()
+        self._indent -= 1
+        self._line("}")
+        self._pop_name_scope()
+        self._indent -= 1
+        self._line("}")
 
-        if isinstance(expr, Identifier):
-            name = expr.name
-            if name in self._uniform_params:
-                return f"uniforms.{name}"
-            return name
+    def _emit_expression_statement(self, expression) -> None:
+        if not isinstance(expression, (AssignExpr, CallExpr)) and not (
+            isinstance(expression, UnaryExpr) and expression.op in ("++", "--")
+        ):
+            raise unsupported_node("WGSL expression statement", expression)
+        rendered = self._expr(expression)
+        if isinstance(expression, CallExpr):
+            self._line(f"_ = {rendered};")
+        else:
+            self._line(f"{rendered};")
 
-        if isinstance(expr, BinaryExpr):
-            left = self._expr(expr.left)
-            right = self._expr(expr.right)
-            op = _OP_MAP.get(expr.op, expr.op)
-            return f"({left} {op} {right})"
+    def _type_of(self, expression):
+        return self._node_types.get(id(expression))
 
-        if isinstance(expr, UnaryExpr):
-            operand = self._expr(expr.operand)
-            op = _OP_MAP.get(expr.op, expr.op)
-            # ++ and -- are statements in WGSL, not expressions — no parens
-            if op in ("++", "--"):
-                return f"{op}{operand}" if expr.prefix else f"{operand}{op}"
-            if expr.prefix:
-                return f"({op}{operand})"
-            return f"({operand}{op})"
+    def _lookup_name(self, source_name: str) -> str:
+        for scope in reversed(self._name_scopes):
+            if source_name in scope:
+                return scope[source_name]
+        raise unsupported_node("WGSL identifier", source_name)
 
-        if isinstance(expr, CallExpr):
-            if isinstance(expr.callee, Identifier):
-                name = expr.callee.name
-                if name == "gpu_id":
-                    return "btrc_gid"
-                # Map btrc math functions to WGSL builtins
-                wgsl_builtins = {
-                    "abs": "abs", "min": "min", "max": "max",
-                    "sqrt": "sqrt", "floor": "floor", "ceil": "ceil",
-                    "round": "round", "clamp": "clamp",
-                    "sin": "sin", "cos": "cos", "tan": "tan",
-                    "exp": "exp", "log": "log", "pow": "pow",
-                }
-                if name in wgsl_builtins:
-                    args = ", ".join(self._expr(a) for a in expr.args)
-                    return f"{wgsl_builtins[name]}({args})"
-                args = ", ".join(self._expr(a) for a in expr.args)
-                return f"{name}({args})"
-            raise unsupported_node("WGSL call expression", expr.callee)
+    def _declare_name(self, source_name: str) -> str:
+        name = f"btrc_v_{self._next_local}"
+        self._next_local += 1
+        self._name_scopes[-1][source_name] = name
+        return name
 
-        if isinstance(expr, IndexExpr):
-            obj = self._expr(expr.obj)
-            idx = self._expr(expr.index)
-            return f"{obj}[{idx}]"
+    def _fresh_value_name(self) -> str:
+        name = f"btrc_e_{self._next_value}"
+        self._next_value += 1
+        return name
 
-        if isinstance(expr, AssignExpr):
-            target = self._expr(expr.target)
-            value = self._expr(expr.value)
-            if expr.op == "=":
-                return f"{target} = {value}"
-            # Compound assignment: +=, -=, etc.
-            base_op = expr.op[:-1]  # remove '='
-            return f"{target} = ({target} {base_op} {value})"
+    def _push_name_scope(self) -> None:
+        self._name_scopes.append({})
 
-        if isinstance(expr, TernaryExpr):
-            cond = self._expr(expr.condition)
-            t = self._expr(expr.true_expr)
-            f = self._expr(expr.false_expr)
-            return f"select({f}, {t}, {cond})"
+    def _pop_name_scope(self) -> None:
+        self._name_scopes.pop()
 
-        if isinstance(expr, CastExpr):
-            target = _TYPE_MAP.get(expr.target_type.base, expr.target_type.base)
-            inner = self._expr(expr.expr)
-            return f"{target}({inner})"
 
-        raise unsupported_node("WGSL expression", expr)
+def _name_map(names: list[str] | dict[str, str]) -> dict[str, str]:
+    return dict(names) if isinstance(names, dict) else {name: name for name in names}
+
+
+def _array_element_type(type_expr):
+    from ...type_composition import strip_outer_storage
+
+    return strip_outer_storage(type_expr, array=True)

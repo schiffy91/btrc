@@ -28,13 +28,27 @@ from src.compiler.python.tokens import Token, TokenType
 
 
 def _compute_unit_cache_version() -> str:
-    """Content hash of every compiler source that shapes a FileUnit pickle.
+    """Content hash of every source that shapes a serialized ``FileUnit``.
 
     Derived (not hand-bumped) so stale cached units are impossible: any edit
     to the grammar, the ASDL/AST, the lexer, the token definitions, or the
-    parser changes the hash and orphans old pickles. Shared with the
-    compiler's own caches (see cache_keys.toolchain_hash)."""
-    return toolchain_hash("frontend")
+    parser changes the hash and orphans old entries. LSP unit extraction and
+    the JSON codec are included in addition to the compiler frontend hash.
+    """
+    digest = hashlib.sha256(toolchain_hash("frontend").encode())
+    lsp_dir = os.path.dirname(__file__)
+    for name in ("unit_cache.py", "units.py"):
+        encoded_name = name.encode()
+        digest.update(len(encoded_name).to_bytes(8, "big"))
+        digest.update(encoded_name)
+        try:
+            with open(os.path.join(lsp_dir, name), "rb") as source_file:
+                content = source_file.read()
+        except OSError:
+            content = b"<missing>"
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()[:16]
 
 
 _UNIT_CACHE_VERSION = _compute_unit_cache_version()

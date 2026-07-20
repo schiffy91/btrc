@@ -9,6 +9,7 @@ logic lives in btrc, and it's threaded by default.
 | File | Role |
 |------|------|
 | `btrc_gui.h` / `btrc_gui.c` | Portable software framebuffer (`Surface`): clear, fill/blend rect, UTF-8 bitmap-font text, in-place resize, pixel readback, PPM dump, pluggable font backend. **No display required** — runs and is testable headlessly. |
+| `geometry.btrc` | Saturating integer geometry shared by immediate and declarative layout. |
 | `gui.btrc` | btrc bindings + immediate-mode widgets (`Color`, `Surface`, `GuiInput`, `Theme`, `Gui`, `GuiApp`). |
 | `view.btrc` | Declarative UI: a `View` tree with flexbox-style layout, events-as-data (`GuiEvents`), and a one-call `Ui.frame(...)`. |
 | `btrc_gui_window.h` / `.c` | Optional native window backend (resizable GLFW window, GPU-texture present). |
@@ -169,5 +170,8 @@ make examples-gui   # build + run the headless examples/tests (demo, declarative
 - GLFW requires window creation + event polling on the **main thread on macOS**,
   so drive the windowed loop from `main()` there; the threaded runner is for the
   offscreen surface or Linux.
+- The optional GUI and GPU backends share GLFW's process-global state. They
+  destroy their own windows but leave GLFW's global teardown to process exit,
+  so closing one backend cannot invalidate windows owned by the other.
 - Drawing is opaque-rect + bitmap text; it's intentionally minimal, not a
   full retained-mode toolkit.

@@ -43,7 +43,7 @@ int main() {
     }
 
     // malloc/free
-    int* nums = (int*)malloc(10 * sizeof(int));
+    int* nums = (int*)malloc((size_t)10 * sizeof(int));
     for (int i = 0; i < 10; i++) {
         nums[i] = i * i;
     }

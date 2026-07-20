@@ -3,6 +3,8 @@ import std.map;
 import std.strings;
 import std.vector;
 
+#include <float.h>
+
 class JsonObject {
     public Map<string, string> values;
     public Map<string, bool> quoted;
@@ -13,13 +15,7 @@ class JsonObject {
     }
 
     class string escape(string text) {
-        if (text == null) { return ""; }
-        var escaped = Strings.replace(text, "\\", "\\\\");
-        escaped = Strings.replace(escaped, "\"", "\\\"");
-        escaped = Strings.replace(escaped, "\n", "\\n");
-        escaped = Strings.replace(escaped, "\r", "\\r");
-        escaped = Strings.replace(escaped, "\t", "\\t");
-        return escaped;
+        return JsonValue.encodeString(text);
     }
 
     class string unescape(string text) {
@@ -66,8 +62,7 @@ class JsonObject {
     public int getInt(string key, int fallback) {
         if (!self.values.has(key)) { return fallback; }
         var raw = self.values.get(key);
-        if (!JsonText.isInt(raw)) { return fallback; }
-        return Strings.toInt(raw);
+        return JsonText.toIntOr(raw, fallback);
     }
 
     public string stringify() {
@@ -107,6 +102,7 @@ class JsonObject {
      * (re-parse them with JsonObject.parse or query via JsonText). */
     class JsonObject parse(string text) {
         var json = JsonObject();
+        if (text == null) { return json; }
         var len = text.len();
         var depth = 0;
         var i = 0;
@@ -250,6 +246,7 @@ class JsonValue {
     }
 
     class JsonValue makeFloat(double d) {
+        if (!JsonNum.isFinite(d)) { return JsonValue.makeError(); }
         var v = JsonValue();
         v.tag = 2;
         v.numVal = d;
@@ -313,7 +310,10 @@ class JsonValue {
     }
 
     public int asInt() {
-        if (self.tag == 2) { return (int)self.numVal; }
+        if (self.tag == 2 && self.numVal >= -2147483648.0
+                && self.numVal < 2147483648.0) {
+            return (int)self.numVal;
+        }
         return 0;
     }
 
@@ -394,6 +394,13 @@ class JsonValue {
     /* ---- Stringify ----------------------------------------------------- */
 
     public string stringify() {
+        return self.stringifyAt(0);
+    }
+
+    private string stringifyAt(int depth) {
+        if (depth >= 512 && (self.tag == 4 || self.tag == 5)) {
+            return "null";
+        }
         if (self.tag == 0) { return "null"; }
         if (self.tag == 6) { return "null"; }
         if (self.tag == 1) { return self.boolVal ? "true" : "false"; }
@@ -402,7 +409,7 @@ class JsonValue {
         if (self.tag == 4) {
             Vector<string> parts = [];
             for (int i = 0; i < self.arr.len; i++) {
-                parts.push(self.arr.get(i).stringify());
+                parts.push(self.arr.get(i).stringifyAt(depth + 1));
             }
             return "[" + parts.join(",") + "]";
         }
@@ -410,7 +417,7 @@ class JsonValue {
             Vector<string> parts = [];
             for (int i = 0; i < self.objKeys.len; i++) {
                 var field = "\"" + JsonValue.encodeString(self.objKeys.get(i)) + "\":";
-                field += self.objVals.get(i).stringify();
+                field += self.objVals.get(i).stringifyAt(depth + 1);
                 parts.push(field);
             }
             return "{" + parts.join(",") + "}";
@@ -448,12 +455,14 @@ class JsonParser {
     public int pos;
     public int len;
     public bool ok;
+    public int depth;
 
     public JsonParser(string text) {
         self.text = text;
         self.pos = 0;
         self.len = text.len();
         self.ok = true;
+        self.depth = 0;
     }
 
     public void skipWs() {
@@ -468,8 +477,20 @@ class JsonParser {
         self.skipWs();
         if (self.pos >= self.len) { self.ok = false; return JsonValue.makeError(); }
         char c = self.text[self.pos];
-        if (c == '{') { return self.parseObject(); }
-        if (c == '[') { return self.parseArray(); }
+        if (c == '{') {
+            if (self.depth >= 512) { self.ok = false; return JsonValue.makeError(); }
+            self.depth++;
+            var objectValue = self.parseObject();
+            self.depth--;
+            return objectValue;
+        }
+        if (c == '[') {
+            if (self.depth >= 512) { self.ok = false; return JsonValue.makeError(); }
+            self.depth++;
+            var arrayValue = self.parseArray();
+            self.depth--;
+            return arrayValue;
+        }
         if (c == (char)34) { return self.parseStringValue(); }
         if (c == 't' || c == 'f') { return self.parseBool(); }
         if (c == 'n') { return self.parseNull(); }
@@ -590,6 +611,10 @@ class JsonParser {
                 self.pos++;
                 continue;
             }
+            if ((int)((unsigned char)c) < 32) {
+                self.ok = false;
+                return out;
+            }
             out += self.text.substring(self.pos, 1);
             self.pos++;
         }
@@ -678,6 +703,10 @@ class JsonParser {
         }
         var token = self.text.substring(start, self.pos - start);
         var d = JsonNum.toDouble(token);
+        if (!JsonNum.isFinite(d)) {
+            self.ok = false;
+            return JsonValue.makeError();
+        }
         if (isFloat) { return JsonValue.makeFloat(d); }
         var v = JsonValue.makeInt(0);
         v.numVal = d;
@@ -694,100 +723,100 @@ class JsonNum {
         return result;
     }
 
-    /* Format a number for JSON output. Integers print without a decimal
-     * point; floats print with %.17g (full round-trip precision for IEEE
-     * double) then collapse to the shortest form via re-parsing isn't done —
-     * %.17g guarantees parse(stringify(v)) == v for the double value. */
+    class bool isFinite(double value) {
+        return value == value && value <= DBL_MAX && value >= -DBL_MAX;
+    }
+
+    /* Format a number for JSON output. Signed-64-bit integers print without a
+     * decimal point; larger integral doubles and floats use %.17g, which
+     * guarantees parse(stringify(v)) == v for the stored IEEE double value. */
     class string format(double value, bool isInt) {
-        if (isInt) {
-            char* buf = (char*)malloc(32);
+        if (!JsonNum.isFinite(value)) { return "null"; }
+        if (isInt && value >= -9223372036854775808.0
+                && value < 9223372036854775808.0) {
+            char* buf = (char*)__btrc_safe_realloc(null, (size_t)32);
             snprintf(buf, 32, "%lld", (long long)value);
-            return buf;
+            return __btrc_str_track(buf);
         }
-        char* buf = (char*)malloc(40);
+        char* buf = (char*)__btrc_safe_realloc(null, (size_t)40);
         snprintf(buf, 40, "%.17g", value);
-        return buf;
+        return __btrc_str_track(buf);
     }
 
     /* A one-byte string for a control char code (0..255). */
     class string charFromCode(int code) {
-        char* buf = (char*)malloc(2);
+        char* buf = (char*)__btrc_safe_realloc(null, (size_t)2);
         buf[0] = (char)code;
         buf[1] = (char)0;
-        return buf;
+        return __btrc_str_track(buf);
     }
 
     /* \uXXXX escape for a code < 0x10000 (used for control chars on output). */
     class string uEscape(int code) {
-        char* buf = (char*)malloc(8);
+        if (code < 0 || code > 0xFFFF) { code = 0xFFFD; }
+        char* buf = (char*)__btrc_safe_realloc(null, (size_t)8);
         snprintf(buf, 8, "\\u%04x", code);
-        return buf;
+        return __btrc_str_track(buf);
     }
 
     /* Encode a Unicode code point as a UTF-8 byte string. */
     class string utf8(int cp) {
-        if (cp < 0) { cp = 0xFFFD; }
+        if (cp < 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+            cp = 0xFFFD;
+        }
         if (cp < 0x80) {
-            char* b = (char*)malloc(2);
+            char* b = (char*)__btrc_safe_realloc(null, (size_t)2);
             b[0] = (char)cp;
             b[1] = (char)0;
-            return b;
+            return __btrc_str_track(b);
         }
         if (cp < 0x800) {
-            char* b = (char*)malloc(3);
+            char* b = (char*)__btrc_safe_realloc(null, (size_t)3);
             b[0] = (char)(0xC0 | (cp >> 6));
             b[1] = (char)(0x80 | (cp & 0x3F));
             b[2] = (char)0;
-            return b;
+            return __btrc_str_track(b);
         }
         if (cp < 0x10000) {
-            char* b = (char*)malloc(4);
+            char* b = (char*)__btrc_safe_realloc(null, (size_t)4);
             b[0] = (char)(0xE0 | (cp >> 12));
             b[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
             b[2] = (char)(0x80 | (cp & 0x3F));
             b[3] = (char)0;
-            return b;
+            return __btrc_str_track(b);
         }
-        char* b = (char*)malloc(5);
+        char* b = (char*)__btrc_safe_realloc(null, (size_t)5);
         b[0] = (char)(0xF0 | (cp >> 18));
         b[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
         b[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
         b[3] = (char)(0x80 | (cp & 0x3F));
         b[4] = (char)0;
-        return b;
+        return __btrc_str_track(b);
     }
 }
 
 class JsonText {
     class string slice(string text, int start, int end) {
+        if (text == null) { return ""; }
+        var len = text.len();
+        if (start < 0) { start = 0; }
+        if (end > len) { end = len; }
+        if (start > len || end < start) { return ""; }
         return text.substring(start, end - start);
     }
 
     class string unescape(string text) {
-        var result = "";
-        var escaped = false;
-        for i in range(text.len()) {
-            var current = text.substring(i, 1);
-            if (escaped) {
-                if (current.equals("n")) { result += "\n"; }
-                else if (current.equals("r")) { result += "\r"; }
-                else if (current.equals("t")) { result += "\t"; }
-                else { result += current; }
-                escaped = false;
-                continue;
-            }
-            if (current.equals("\\")) {
-                escaped = true;
-                continue;
-            }
-            result += current;
-        }
-        if (escaped) { result += "\\"; }
-        return result;
+        if (text == null) { return ""; }
+        var decoded = JsonValue.parse("\"" + text + "\"");
+        if (decoded.isString()) { return decoded.asString(); }
+        return text;
     }
 
     class int stringEnd(string text, int start) {
+        if (text == null) { return 0; }
         var len = text.len();
+        if (start < 0) { start = 0; }
+        if (start >= len) { return len; }
         var escaped = false;
         var i = start;
         while (i < len) {
@@ -803,7 +832,10 @@ class JsonText {
      * starts at `start`, honoring nested brackets, strings, and escapes.
      * Returns text.len() if unterminated. */
     class int balancedEnd(string text, int start) {
+        if (text == null) { return 0; }
         var len = text.len();
+        if (start < 0 || start >= len) { return len; }
+        if (text[start] != '{' && text[start] != '[') { return len; }
         var depth = 0;
         var inString = false;
         var escaped = false;
@@ -833,7 +865,9 @@ class JsonText {
     }
 
     class int skipSpaces(string text, int i) {
+        if (text == null) { return 0; }
         var len = text.len();
+        if (i < 0) { i = 0; }
         while (i < len && (text[i] == ' ' || text[i] == '\n' || text[i] == '\t' || text[i] == '\r')) {
             i++;
         }
@@ -841,6 +875,7 @@ class JsonText {
     }
 
     class bool isInt(string text) {
+        if (text == null) { return false; }
         var raw = text.trim();
         if (raw.isEmpty()) { return false; }
         var start = 0;
@@ -852,6 +887,26 @@ class JsonText {
             if (raw[i] < '0' || raw[i] > '9') { return false; }
         }
         return true;
+    }
+
+    class int toIntOr(string text, int fallback) {
+        if (!JsonText.isInt(text)) { return fallback; }
+        var raw = text.trim();
+        var start = 0;
+        var negative = false;
+        if (raw[0] == '-' || raw[0] == '+') {
+            negative = raw[0] == '-';
+            start = 1;
+        }
+        long long limit = negative ? 2147483648LL : 2147483647LL;
+        long long value = 0LL;
+        for (int i = start; i < raw.len(); i++) {
+            long long digit = (long long)(raw[i] - '0');
+            if (value > (limit - digit) / 10LL) { return fallback; }
+            value = value * 10LL + digit;
+        }
+        if (negative) { value = -value; }
+        return (int)value;
     }
 
     class int keyPosition(string text, string key) {
@@ -931,9 +986,7 @@ class JsonText {
 
     class int intField(string text, string key, int fallback) {
         var raw = JsonText.field(text, key, "");
-        if (raw.isEmpty()) { return fallback; }
-        if (!JsonText.isInt(raw)) { return fallback; }
-        return Strings.toInt(raw);
+        return JsonText.toIntOr(raw, fallback);
     }
 
     class string objectField(string text, string key) {

@@ -1,0 +1,205 @@
+/* Shared literal contracts for source spellings emitted as strict C11. */
+
+bool lexerIsHexDigit(char value) {
+    return Strings.isDigit(value)
+        || (value >= 'a' && value <= 'f')
+        || (value >= 'A' && value <= 'F');
+}
+
+int lexerHexDigitValue(char value) {
+    if (value >= '0' && value <= '9') { return (int)value - (int)'0'; }
+    if (value >= 'a' && value <= 'f') {
+        return (int)value - (int)'a' + 10;
+    }
+    return (int)value - (int)'A' + 10;
+}
+
+bool lexerIsIdentifierContinuation(char value) {
+    return Strings.isAlnum(value) || value == '_';
+}
+
+bool lexerValidIntegerSuffix(string suffix) {
+    int length = suffix.length();
+    if (length == 1) {
+        char one = suffix[0];
+        return one == 'u' || one == 'U' || one == 'l' || one == 'L';
+    }
+    if (length == 2) {
+        char first = suffix[0];
+        char second = suffix[1];
+        bool unsignedLong = (first == 'u' || first == 'U')
+            && (second == 'l' || second == 'L');
+        bool longUnsigned = (first == 'l' || first == 'L')
+            && (second == 'u' || second == 'U');
+        bool longLong = (first == 'l' && second == 'l')
+            || (first == 'L' && second == 'L');
+        return unsignedLong || longUnsigned || longLong;
+    }
+    if (length == 3) {
+        bool unsignedFirst = suffix[0] == 'u' || suffix[0] == 'U';
+        bool unsignedLast = suffix[2] == 'u' || suffix[2] == 'U';
+        bool tailLongLong = (suffix[1] == 'l' && suffix[2] == 'l')
+            || (suffix[1] == 'L' && suffix[2] == 'L');
+        bool headLongLong = (suffix[0] == 'l' && suffix[1] == 'l')
+            || (suffix[0] == 'L' && suffix[1] == 'L');
+        return (unsignedFirst && tailLongLong)
+            || (headLongLong && unsignedLast);
+    }
+    return false;
+}
+
+void lexerConsumeIntegerSuffix(Lexer lex, int line, int col) {
+    int start = lex.pos;
+    char value = lex.peek(0);
+    while (value == 'u' || value == 'U' || value == 'l' || value == 'L') {
+        lex.advance();
+        value = lex.peek(0);
+    }
+    string suffix = lex.source.substring(start, lex.pos - start);
+    if (suffix.length() > 0 && !lexerValidIntegerSuffix(suffix)) {
+        lex.failLex("Invalid integer suffix '" + suffix + "'", line, col);
+    }
+}
+
+void lexerEnsureNumericBoundary(Lexer lex, int start, int line, int col) {
+    if (!lexerIsIdentifierContinuation(lex.peek(0))) { return; }
+    int end = lex.pos;
+    while (end < lex.sourceLen
+            && lexerIsIdentifierContinuation(lex.source[end])) {
+        end = end + 1;
+    }
+    string literal = lex.source.substring(start, end - start);
+    lex.failLex("Invalid numeric literal '" + literal + "'", line, col);
+}
+
+bool lexerIsSimpleEscape(char value) {
+    return value == '\'' || value == '"' || value == '?' || value == '\\'
+        || value == 'a' || value == 'b' || value == 'f' || value == 'n'
+        || value == 'r' || value == 't' || value == 'v';
+}
+
+bool lexerIsValidUniversalCharacter(long long value) {
+    if (value == 0x24 || value == 0x40 || value == 0x60) { return true; }
+    return value >= 0xa0 && value <= 0x10ffff
+        && !(value >= 0xd800 && value <= 0xdfff);
+}
+
+bool lexerNarrowCharHexEscape(string content) {
+    if (content.length() < 3 || content[0] != '\\' || content[1] != 'x') {
+        return false;
+    }
+    int value = 0;
+    int index = 2;
+    while (index < content.length()) {
+        char digit = content[index];
+        if (!lexerIsHexDigit(digit)) { return false; }
+        value = value * 16 + lexerHexDigitValue(digit);
+        if (value > 255) { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
+string lexerAppendEscape(
+        Lexer lex, string content, string literalKind, int line, int col) {
+    string result = content + chr(lex.advance());
+    if (lex.atEnd()) {
+        lex.failLex("Unterminated " + literalKind + " literal", line, col);
+        return result;
+    }
+
+    char escaped = lex.peek(0);
+    if (escaped == '\n') {
+        return result + chr(lex.advance());
+    }
+    if (escaped == '\r') {
+        if (lex.peek(1) == '\n') {
+            result = result + chr(lex.advance());
+            return result + chr(lex.advance());
+        }
+        lex.failLex("Unterminated " + literalKind + " literal", line, col);
+        return result;
+    }
+    if (lexerIsSimpleEscape(escaped)) {
+        return result + chr(lex.advance());
+    }
+    if (escaped >= '0' && escaped <= '7') {
+        int octalValue = 0;
+        int count = 0;
+        while (count < 3 && lex.peek(0) >= '0' && lex.peek(0) <= '7') {
+            char digit = lex.advance();
+            result = result + chr(digit);
+            octalValue = octalValue * 8 + (int)digit - (int)'0';
+            count = count + 1;
+        }
+        if (octalValue > 255) {
+            lex.failLex(
+                "Octal escape sequence out of range in " + literalKind + " literal",
+                line, col);
+        }
+        return result;
+    }
+    if (escaped == 'x') {
+        result = result + chr(lex.advance());
+        if (!lexerIsHexDigit(lex.peek(0))) {
+            lex.failLex(
+                "Hex escape sequence requires digits in " + literalKind + " literal",
+                line, col);
+            return result;
+        }
+        int hexValue = 0;
+        bool outOfRange = false;
+        while (lexerIsHexDigit(lex.peek(0))) {
+            char digit = lex.advance();
+            result = result + chr(digit);
+            if (!outOfRange) {
+                hexValue = hexValue * 16 + lexerHexDigitValue(digit);
+                outOfRange = hexValue > 255;
+            }
+        }
+        if (outOfRange) {
+            lex.failLex(
+                "Hex escape sequence out of range in " + literalKind + " literal",
+                line, col);
+        }
+        return result;
+    }
+    if (escaped == 'u' || escaped == 'U') {
+        char prefix = lex.advance();
+        result = result + chr(prefix);
+        int required = 8;
+        if (prefix == 'u') { required = 4; }
+        int index = 0;
+        long long universalValue = 0LL;
+        while (index < required) {
+            if (!lexerIsHexDigit(lex.peek(0))) {
+                lex.failLex(
+                    "Invalid universal character escape in " + literalKind + " literal",
+                    line, col);
+                return result;
+            }
+            char digit = lex.advance();
+            result = result + chr(digit);
+            universalValue = universalValue * 16LL
+                + (long long)lexerHexDigitValue(digit);
+            index = index + 1;
+        }
+        if (!lexerIsValidUniversalCharacter(universalValue)) {
+            lex.failLex(
+                "Invalid universal character escape in " + literalKind + " literal",
+                line, col);
+        }
+        return result;
+    }
+    if (escaped < ' ' || escaped > '~') {
+        lex.failLex(
+            "Invalid non-ASCII escape in " + literalKind + " literal",
+            line, col);
+        return result;
+    }
+    lex.failLex(
+        "Invalid escape sequence '\\" + chr(escaped) + "' in "
+            + literalKind + " literal",
+        line, col);
+    return result;
+}

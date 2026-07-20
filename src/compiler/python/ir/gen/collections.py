@@ -1,95 +1,184 @@
-"""Collection literal lowering: ListLiteral, MapLiteral → IR."""
+"""Ownership-safe collection literal lowering."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from ...ast_nodes import ListLiteral, MapLiteral
+from ...ast_nodes import ListLiteral, MapLiteral, TypeExpr
 from ..nodes import (
     CType,
+    IRBinOp,
     IRCall,
-    IRExpr,
-    IRExprStmt,
+    IRCommaExpr,
+    IRLiteral,
     IRStmtExpr,
     IRVar,
     IRVarDecl,
 )
-from .types import mangle_generic_type
+from .call_boundary import CallOperand, sequence_call_boundary
+from .prepared_values import prepare_normal_value, prepared_value_pin_flags
+from .types import mangle_generic_type, type_to_c
 
-if TYPE_CHECKING:
-    from .generator import IRGenerator
 
-
-def lower_list_literal(gen: IRGenerator, node: ListLiteral) -> IRExpr:
-    """Lower [a, b, c] → List_new() + push calls.
-
-    Uses IRStmtExpr to produce a GCC statement expression:
-    ({btrc_List_int* __tmp = btrc_List_int_new(); btrc_List_int_push(__tmp, a); ... __tmp;})
-    """
-    from .expressions import lower_expr
-
-    # Determine the list type from analyzer
+def lower_list_literal(gen, node: ListLiteral):
+    """Build a typed list/vector and consume caller-owned elements."""
     list_type = gen.analyzed.node_types.get(id(node))
-    if list_type and list_type.generic_args:
-        mangled = mangle_generic_type(list_type.base, list_type.generic_args)
-    elif node.elements:
-        # Infer from first element's type
-        elem_type = gen.analyzed.node_types.get(id(node.elements[0]))
-        if elem_type:
-            mangled = mangle_generic_type("Vector", [elem_type])
-        else:
-            mangled = "btrc_Vector_int"
-    else:
-        mangled = "btrc_Vector_int"
+    element_type = (
+        list_type.generic_args[0]
+        if list_type is not None and list_type.generic_args
+        else gen.analyzed.node_types.get(id(node.elements[0]))
+        if node.elements
+        else TypeExpr(base="int")
+    )
+    if list_type is None:
+        list_type = TypeExpr(base="Vector", generic_args=[element_type])
+    mangled = mangle_generic_type(list_type.base, list_type.generic_args)
+    declarations, sequence, collection, result = _collection_storage(
+        gen,
+        list_type,
+        mangled,
+        "__list",
+    )
+    for element in node.elements:
+        sequence.append(
+            _prepared_effect(
+                gen,
+                [(element, element_type)],
+                lambda values, element=element: IRCall(
+                    callee=f"{mangled}_push",
+                    args=[collection, values[id(element)]],
+                ),
+            )
+        )
+    _finish_collection(sequence, collection, result)
+    return IRStmtExpr(
+        stmts=declarations,
+        result=IRCommaExpr(expressions=sequence),
+    )
 
-    tmp = gen.fresh_temp("__list")
-    stmts = [IRVarDecl(
-        c_type=CType(text=f"{mangled}*"),
-        name=tmp,
-        init=IRCall(callee=f"{mangled}_new", args=[]),
-    )]
-    for elem in node.elements:
-        ir_elem = lower_expr(gen, elem)
-        stmts.append(IRExprStmt(
-            expr=IRCall(callee=f"{mangled}_push", args=[IRVar(name=tmp), ir_elem]),
-        ))
 
-    return IRStmtExpr(stmts=stmts, result=IRVar(name=tmp))
-
-
-def lower_map_literal(gen: IRGenerator, node: MapLiteral) -> IRExpr:
-    """Lower {k: v, ...} → Map_new() + put calls."""
-    from .expressions import lower_expr
-
+def lower_map_literal(gen, node: MapLiteral):
+    """Build a typed map and consume caller-owned keys and values."""
     map_type = gen.analyzed.node_types.get(id(node))
-    if map_type and map_type.generic_args:
-        mangled = mangle_generic_type(map_type.base, map_type.generic_args)
+    if map_type is not None and len(map_type.generic_args) == 2:
+        key_type, value_type = map_type.generic_args
     elif node.entries:
-        # Infer from first entry's key/value types
-        key_type = gen.analyzed.node_types.get(id(node.entries[0].key))
-        val_type = gen.analyzed.node_types.get(id(node.entries[0].value))
-        if key_type and val_type:
-            mangled = mangle_generic_type("Map", [key_type, val_type])
-        else:
-            mangled = "btrc_Map_string_int"
+        key_type = gen.analyzed.node_types.get(id(node.entries[0].key)) or TypeExpr(base="string")
+        value_type = gen.analyzed.node_types.get(id(node.entries[0].value)) or TypeExpr(base="int")
+        map_type = TypeExpr(base="Map", generic_args=[key_type, value_type])
     else:
-        mangled = "btrc_Map_string_int"
-
-    if not node.entries:
+        key_type, value_type = TypeExpr(base="string"), TypeExpr(base="int")
+        map_type = TypeExpr(base="Map", generic_args=[key_type, value_type])
+    mangled = mangle_generic_type(map_type.base, map_type.generic_args)
+    if not node.entries and not gen.exception_cleanup_active():
         return IRCall(callee=f"{mangled}_new", args=[])
 
-    tmp = gen.fresh_temp("__map")
-    stmts = [IRVarDecl(
-        c_type=CType(text=f"{mangled}*"),
-        name=tmp,
-        init=IRCall(callee=f"{mangled}_new", args=[]),
-    )]
+    declarations, sequence, collection, result = _collection_storage(
+        gen,
+        map_type,
+        mangled,
+        "__map",
+    )
     for entry in node.entries:
-        ir_key = lower_expr(gen, entry.key)
-        ir_val = lower_expr(gen, entry.value)
-        stmts.append(IRExprStmt(
-            expr=IRCall(callee=f"{mangled}_put",
-                        args=[IRVar(name=tmp), ir_key, ir_val]),
-        ))
+        sequence.append(
+            _prepared_effect(
+                gen,
+                [(entry.key, key_type), (entry.value, value_type)],
+                lambda values, entry=entry: IRCall(
+                    callee=f"{mangled}_put",
+                    args=[
+                        collection,
+                        values[id(entry.key)],
+                        values[id(entry.value)],
+                    ],
+                ),
+            )
+        )
+    _finish_collection(sequence, collection, result)
+    return IRStmtExpr(
+        stmts=declarations,
+        result=IRCommaExpr(expressions=sequence),
+    )
 
-    return IRStmtExpr(stmts=stmts, result=IRVar(name=tmp))
+
+def _prepared_effect(gen, values, build):
+    prepared = [(node, prepare_normal_value(gen, node, target_type)) for node, target_type in values]
+    if len(prepared) == 1 and not prepared[0][1].owned:
+        node, value = prepared[0]
+        return build({id(node): value.value})
+    pins = prepared_value_pin_flags(gen, prepared)
+    operands = []
+    for index, (node, value) in enumerate(prepared):
+        operands.append(
+            CallOperand(
+                node=node,
+                type_expr=value.effective_type,
+                c_type=type_to_c(value.effective_type),
+                pin=pins[index],
+                owned=value.owned,
+                lowered=value.value,
+            )
+        )
+    return sequence_call_boundary(
+        gen,
+        operands,
+        lower_expr=lambda _node: None,
+        build_call=build,
+        result_c_type=None,
+        fresh_temp=gen.fresh_temp,
+        cleanup_active=gen.exception_cleanup_active(),
+        record_decl=gen._func_var_decls.append,
+    )
+
+
+def _collection_storage(gen, type_expr, mangled, prefix):
+    temporary = IRVarDecl(
+        c_type=CType(text=f"{mangled}*"),
+        name=gen.fresh_temp(prefix),
+    )
+    gen._func_var_decls.append(temporary)
+    declarations = [temporary]
+    collection = IRVar(name=temporary.name)
+    sequence = [
+        IRBinOp(
+            left=collection,
+            op="=",
+            right=IRCall(callee=f"{mangled}_new", args=[]),
+        )
+    ]
+    result = collection
+    if gen.exception_cleanup_active():
+        from .temporary_cleanup import cleanup_registration
+
+        cleanup_decls, cleanup_exprs = cleanup_registration(
+            gen,
+            temporary,
+            type_expr,
+            "__btrc_collection_cleanup",
+        )
+        declarations.extend(cleanup_decls)
+        sequence.extend(cleanup_exprs)
+        result_decl = IRVarDecl(
+            c_type=CType(text=f"{mangled}*"),
+            name=gen.fresh_temp("__btrc_collection_result"),
+        )
+        gen._func_var_decls.append(result_decl)
+        declarations.append(result_decl)
+        result = IRVar(name=result_decl.name)
+    return declarations, sequence, collection, result
+
+
+def _finish_collection(sequence, collection, result):
+    if result is not collection:
+        sequence.extend(
+            [
+                IRBinOp(left=result, op="=", right=collection),
+                IRBinOp(
+                    left=collection,
+                    op="=",
+                    right=IRLiteral(text="NULL"),
+                ),
+            ]
+        )
+    sequence.append(result)
+
+
+__all__ = ["lower_list_literal", "lower_map_literal"]

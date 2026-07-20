@@ -1,0 +1,43 @@
+/* Image file loads fail closed on open, read, decode, and close errors. */
+import std.image;
+import std.fs;
+
+#include <assert.h>
+
+int main() {
+    string dir = FileSystem.tempDir("btrc_image_io_failures");
+    assert(FileSystem.isDir(dir));
+
+    Image source = Image(1, 1);
+    source.setRGBA(0, 0, 10, 20, 30, 40);
+    string ppmPath = PathTools.join(dir, "valid.ppm");
+    string bmpPath = PathTools.join(dir, "valid.bmp");
+    assert(ImageIO.savePpm(source, ppmPath));
+    assert(ImageIO.saveBmp(source, bmpPath));
+
+    /* fopen accepts directories on POSIX, but fread reports an I/O error.
+     * The partial/empty buffer must never be handed to a decoder. */
+    ImageLoad autoReadFailure = ImageIO.load(dir);
+    assert(!autoReadFailure.ok());
+    assert(autoReadFailure.error.equals(f"cannot read image: {dir}"));
+    ImageLoad ppmReadFailure = ImageIO.loadPpm(dir);
+    assert(!ppmReadFailure.ok());
+    assert(ppmReadFailure.error.equals(f"cannot read PPM: {dir}"));
+    ImageLoad bmpReadFailure = ImageIO.loadBmp(dir);
+    assert(!bmpReadFailure.ok());
+    assert(bmpReadFailure.error.equals(f"cannot read BMP: {dir}"));
+
+    Bytes ppm = ImageIO.encodePpm(source);
+    string truncatedPath = PathTools.join(dir, "truncated.ppm");
+    File truncatedFile = File(truncatedPath, "wb");
+    assert(truncatedFile.ok());
+    assert(truncatedFile.writeBytes(ppm.slice(0, ppm.length() - 1)));
+    assert(truncatedFile.close());
+    ImageLoad truncated = ImageIO.loadPpm(truncatedPath);
+    assert(!truncated.ok());
+    assert(truncated.error.equals("PPM raster is truncated"));
+
+    FileSystem.removeRecursive(dir);
+    print("PASS: test_stdlib_image_io_failures");
+    return 0;
+}

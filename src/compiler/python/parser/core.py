@@ -19,6 +19,7 @@ class ParserBase:
 
     def parse(self):
         from ..ast_nodes import Program
+
         decls = []
         while not self._at_end():
             decls.append(self._parse_top_level_item())
@@ -53,10 +54,7 @@ class ParserBase:
         if tok.type == token_type:
             return self._advance()
         expected = msg or token_type.name
-        raise ParseError(
-            f"Expected {expected}, got {tok.type.name} '{tok.value}'",
-            tok.line, tok.col
-        )
+        raise ParseError(f"Expected {expected}, got {tok.type.name} '{tok.value}'", tok.line, tok.col)
 
     def _error(self, msg: str) -> ParseError:
         tok = self._peek()
@@ -97,12 +95,14 @@ class ParserBase:
             synthetic = Token(TokenType.GT, ">", tok.line, tok.col + 1)
             self.tokens.insert(self.pos, synthetic)
             return Token(TokenType.GT, ">", tok.line, tok.col)
+        if tok.type == TokenType.GT_EQ:
+            self._advance()
+            synthetic = Token(TokenType.EQ, "=", tok.line, tok.col + 1)
+            self.tokens.insert(self.pos, synthetic)
+            return Token(TokenType.GT, ">", tok.line, tok.col)
         if tok.type == TokenType.GT_GT_EQ:
             self._advance()
             synthetic = Token(TokenType.GT_EQ, ">=", tok.line, tok.col + 1)
             self.tokens.insert(self.pos, synthetic)
             return Token(TokenType.GT, ">", tok.line, tok.col)
-        raise ParseError(
-            f"Expected '>', got {tok.type.name} '{tok.value}'",
-            tok.line, tok.col
-        )
+        raise ParseError(f"Expected '>', got {tok.type.name} '{tok.value}'", tok.line, tok.col)

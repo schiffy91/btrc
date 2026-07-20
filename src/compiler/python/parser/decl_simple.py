@@ -14,18 +14,16 @@ from ..tokens import TokenType
 
 
 class SimpleDeclarationsMixin:
-
     def _is_property_start(self) -> bool:
         """Check if '{' starts a property definition (contains 'get' or 'set')."""
         save = self.pos
         self.pos += 1
         tok = self.tokens[self.pos] if self.pos < len(self.tokens) else self.tokens[-1]
-        result = (tok.type == TokenType.IDENT and tok.value in ("get", "set"))
+        result = tok.type == TokenType.IDENT and tok.value in ("get", "set")
         self.pos = save
         return result
 
-    def _parse_property(self, access, type_expr, name, line, col,
-                        name_line=0, name_col=0) -> PropertyDecl:
+    def _parse_property(self, access, type_expr, name, line, col, name_line=0, name_col=0) -> PropertyDecl:
         """Parse C#-style property: type name { get; set; } or { get { ... } set { ... } }"""
         self._expect(TokenType.LBRACE)
         has_getter = False
@@ -36,6 +34,8 @@ class SimpleDeclarationsMixin:
         while not self._check(TokenType.RBRACE) and not self._at_end():
             tok = self._peek()
             if tok.type == TokenType.IDENT and tok.value == "get":
+                if has_getter:
+                    raise self._error("Property cannot declare 'get' more than once")
                 self._advance()
                 has_getter = True
                 if self._match(TokenType.SEMICOLON):
@@ -45,6 +45,8 @@ class SimpleDeclarationsMixin:
                 else:
                     raise self._error("Expected ';' or '{' after 'get'")
             elif tok.type == TokenType.IDENT and tok.value == "set":
+                if has_setter:
+                    raise self._error("Property cannot declare 'set' more than once")
                 self._advance()
                 has_setter = True
                 if self._match(TokenType.SEMICOLON):
@@ -54,15 +56,22 @@ class SimpleDeclarationsMixin:
                 else:
                     raise self._error("Expected ';' or '{' after 'set'")
             else:
-                raise self._error(
-                    f"Expected 'get' or 'set' in property, got '{tok.value}'")
+                raise self._error(f"Expected 'get' or 'set' in property, got '{tok.value}'")
 
         self._expect(TokenType.RBRACE)
-        return PropertyDecl(access=access, type=type_expr, name=name,
-                            has_getter=has_getter, has_setter=has_setter,
-                            getter_body=getter_body, setter_body=setter_body,
-                            line=line, col=col,
-                            name_line=name_line, name_col=name_col)
+        return PropertyDecl(
+            access=access,
+            type=type_expr,
+            name=name,
+            has_getter=has_getter,
+            has_setter=has_setter,
+            getter_body=getter_body,
+            setter_body=setter_body,
+            line=line,
+            col=col,
+            name_line=name_line,
+            name_col=name_col,
+        )
 
     # ---- Enum declaration ----
 
@@ -82,14 +91,12 @@ class SimpleDeclarationsMixin:
             vval = None
             if self._match(TokenType.EQ):
                 vval = self._parse_expr()
-            values.append(EnumValue(name=vname, value=vval,
-                                    line=vname_tok.line, col=vname_tok.col))
+            values.append(EnumValue(name=vname, value=vval, line=vname_tok.line, col=vname_tok.col))
             if not self._match(TokenType.COMMA):
                 break
         self._expect(TokenType.RBRACE)
         self._expect(TokenType.SEMICOLON)
-        return EnumDecl(name=name, values=values, line=tok.line, col=tok.col,
-                        name_line=name_line, name_col=name_col)
+        return EnumDecl(name=name, values=values, line=tok.line, col=tok.col, name_line=name_line, name_col=name_col)
 
     # ---- Rich enum declaration ----
 
@@ -109,13 +116,13 @@ class SimpleDeclarationsMixin:
                 if not self._check(TokenType.RPAREN):
                     params = self._parse_param_list()
                 self._expect(TokenType.RPAREN)
-            variants.append(RichEnumVariant(name=vname, params=params,
-                                            line=vname_tok.line, col=vname_tok.col))
+            variants.append(RichEnumVariant(name=vname, params=params, line=vname_tok.line, col=vname_tok.col))
             if not self._match(TokenType.COMMA):
                 break
         self._expect(TokenType.RBRACE)
-        return RichEnumDecl(name=name, variants=variants, line=tok.line, col=tok.col,
-                            name_line=name_tok.line, name_col=name_tok.col)
+        return RichEnumDecl(
+            name=name, variants=variants, line=tok.line, col=tok.col, name_line=name_tok.line, name_col=name_tok.col
+        )
 
     # ---- Typedef declaration ----
 
@@ -125,13 +132,13 @@ class SimpleDeclarationsMixin:
         alias_tok = self._expect(TokenType.IDENT, "typedef alias")
         alias = alias_tok.value
         self._expect(TokenType.SEMICOLON)
-        return TypedefDecl(original=original, alias=alias, line=tok.line, col=tok.col,
-                           name_line=alias_tok.line, name_col=alias_tok.col)
+        return TypedefDecl(
+            original=original, alias=alias, line=tok.line, col=tok.col, name_line=alias_tok.line, name_col=alias_tok.col
+        )
 
     # ---- Function or variable declaration ----
 
-    def _parse_function_or_var_decl(self, is_gpu: bool = False, *,
-                                     keep_return: bool = False):
+    def _parse_function_or_var_decl(self, is_gpu: bool = False, *, keep_return: bool = False):
         """Disambiguate function vs variable at top level."""
         start = self._peek()
 
@@ -144,30 +151,51 @@ class SimpleDeclarationsMixin:
             self._expect(TokenType.EQ, "'=' (var requires an initializer)")
             init = self._parse_expr()
             self._expect(TokenType.SEMICOLON)
-            return VarDeclStmt(type=None, name=name, initializer=init,
-                               line=start.line, col=start.col,
-                               name_line=name_tok.line, name_col=name_tok.col)
+            return VarDeclStmt(
+                type=None,
+                name=name,
+                initializer=init,
+                line=start.line,
+                col=start.col,
+                name_line=name_tok.line,
+                name_col=name_tok.col,
+            )
 
         type_expr = self._parse_type_expr()
         name_tok = self._expect(TokenType.IDENT, "name")
         name = name_tok.value
+        self._parse_declarator_array_suffix(type_expr)
 
         if self._check(TokenType.LPAREN):
             self._expect(TokenType.LPAREN)
             params = self._parse_param_list()
             self._expect(TokenType.RPAREN)
             if self._match(TokenType.SEMICOLON):
-                return FunctionDecl(return_type=type_expr, name=name, params=params,
-                                    body=None, is_gpu=is_gpu,
-                                    keep_return=keep_return,
-                                    line=start.line, col=start.col,
-                                    name_line=name_tok.line, name_col=name_tok.col)
+                return FunctionDecl(
+                    return_type=type_expr,
+                    name=name,
+                    params=params,
+                    body=None,
+                    is_gpu=is_gpu,
+                    keep_return=keep_return,
+                    line=start.line,
+                    col=start.col,
+                    name_line=name_tok.line,
+                    name_col=name_tok.col,
+                )
             body = self._parse_block()
-            return FunctionDecl(return_type=type_expr, name=name, params=params,
-                                body=body, is_gpu=is_gpu,
-                                keep_return=keep_return,
-                                line=start.line, col=start.col,
-                                name_line=name_tok.line, name_col=name_tok.col)
+            return FunctionDecl(
+                return_type=type_expr,
+                name=name,
+                params=params,
+                body=body,
+                is_gpu=is_gpu,
+                keep_return=keep_return,
+                line=start.line,
+                col=start.col,
+                name_line=name_tok.line,
+                name_col=name_tok.col,
+            )
         else:
             if is_gpu:
                 raise self._error("@gpu cannot be applied to variables")
@@ -175,6 +203,12 @@ class SimpleDeclarationsMixin:
             if self._match(TokenType.EQ):
                 init = self._parse_expr()
             self._expect(TokenType.SEMICOLON)
-            return VarDeclStmt(type=type_expr, name=name, initializer=init,
-                               line=start.line, col=start.col,
-                               name_line=name_tok.line, name_col=name_tok.col)
+            return VarDeclStmt(
+                type=type_expr,
+                name=name,
+                initializer=init,
+                line=start.line,
+                col=start.col,
+                name_line=name_tok.line,
+                name_col=name_tok.col,
+            )

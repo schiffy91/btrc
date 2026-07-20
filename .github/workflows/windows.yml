@@ -13,6 +13,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -20,11 +23,12 @@ jobs:
       run:
         shell: bash
     env:
-      WIN_COMPAT: "-I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h"
+      WIN_COMPAT_HEADER: "src/stdlib/win/btrc_win_compat.h"
       ZIG_TARGET: "x86_64-windows-gnu"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Pin action implementations by commit so moving tags cannot alter CI.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.13"
       # Install zig directly from ziglang.org (no setup action — its mirror 404s
@@ -35,34 +39,107 @@ jobs:
         run: |
           $ver = "0.15.2"
           $zip = "zig-x86_64-windows-$ver.zip"
+          $expectedSha256 = "3a0ed1e8799a2f8ce2a6e6290a9ff22e6906f8227865911fb7ddedc3cc14cb0c"
           Invoke-WebRequest -Uri "https://ziglang.org/download/$ver/$zip" -OutFile zig.zip
+          $actualSha256 = (Get-FileHash -Algorithm SHA256 zig.zip).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "Zig archive SHA-256 mismatch: expected $expectedSha256, got $actualSha256"
+          }
           Expand-Archive -Path zig.zip -DestinationPath zig-install -Force
           Add-Content -Path $env:GITHUB_PATH -Value "$PWD\zig-install\zig-x86_64-windows-$ver"
       - name: zig version
         run: zig version
 
-      - name: Transpile + build btrcc.exe (native Windows)
+      - name: Transpile + build relocatable btrcc bundle (native Windows)
         run: |
-          mkdir -p dist
+          python -m src.compiler.python.check_generated
+          mkdir -p dist build/btrcc/windows-x64
           python -m src.compiler.python.main src/compiler/btrc/btrcc_main.btrc --no-cache -o dist/btrcc.c
-          zig cc -target $ZIG_TARGET -std=c11 -O2 $WIN_COMPAT dist/btrcc.c -o dist/btrcc.exe -lm
-          test -f dist/btrcc.exe
+          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/btrcc.c -o build/btrcc/windows-x64/btrcc.exe -lm
+          python -m src.compiler.python.btrcc_bundle --binary build/btrcc/windows-x64/btrcc.exe --target windows-x64 --output-dir dist --source-root .
+          test -f dist/btrcc-windows-x64/bin/btrcc.exe
+          test -f dist/btrcc-windows-x64.zip
+          test -f dist/btrcc-windows-x64.zip.sha256
+
+      - name: Prove native three-stage bootstrap fixed point
+        env:
+          BTRC_CC: "zig cc -target x86_64-windows-gnu"
+          BTRC_CFLAGS: "-std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h"
+        run: python src/tests/btrc/test_bootstrap.py -v
 
       - name: Build + run a sample btrc program (asserts PASS)
         run: |
           python -m src.compiler.python.main src/tests/strings/test_braces_in_code_gen.btrc --no-cache -o dist/win_sample.c
-          zig cc -target $ZIG_TARGET -std=c11 -O2 $WIN_COMPAT dist/win_sample.c -o dist/win_sample.exe -lm
+          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/win_sample.c -o dist/win_sample.exe -lm
           out=$(./dist/win_sample.exe)
           echo "$out"
           echo "$out" | grep -q "^PASS:"
 
-      - name: btrcc.exe transpiles a program natively (emits C to stdout)
+      - name: Prove Windows drive, UNC, and separator semantics
         run: |
-          ./dist/btrcc.exe src/tests/strings/test_braces_in_code_gen.btrc > dist/from_btrcc.c
+          python -m src.compiler.python.main src/tests/stdlib/test_stdlib_path_windows_lexical.btrc --no-cache -o dist/win_paths.c
+          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/win_paths.c -o dist/win_paths.exe -lm
+          out=$(./dist/win_paths.exe)
+          echo "$out"
+          echo "$out" | grep -q "^PASS:"
+
+      - name: Prove dynamic native realpath compatibility
+        run: |
+          zig cc -target "$ZIG_TARGET" -std=c11 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" src/tests/native/win_compat_main.c src/tests/native/win_compat_helper.c src/tests/native/win_compat_windows_header.c -o dist/win_compat.exe
+          ./dist/win_compat.exe
+          zig cc -target "$ZIG_TARGET" -std=c11 -Wall -Wextra -Werror -pedantic \
+            -DBTRC_WIN_GET_LAST_ERROR=btrc_test_get_last_error \
+            -DBTRC_WIN_GET_FILE_ATTRIBUTES=btrc_test_get_file_attributes \
+            -DBTRC_WIN_REMOVE_DIRECTORY=btrc_test_remove_directory \
+            -I src/stdlib/win -include "$WIN_COMPAT_HEADER" \
+            src/tests/native/win_compat_error_seam.c -o dist/win_compat_error_seam.exe
+          ./dist/win_compat_error_seam.exe
+
+      - name: Bundled btrcc transpiles from an unrelated directory
+        run: |
+          unset BTRC_HOME
+          compiler="$PWD/dist/btrcc-windows-x64/bin/btrcc.exe"
+          source="$PWD/src/tests/strings/test_braces_in_code_gen.btrc"
+          mkdir -p dist/unrelated-cwd
+          stdlib=$(cd dist/unrelated-cwd && "$compiler" --stdlib-dir)
+          echo "stdlib: $stdlib"
+          echo "$stdlib" | grep -q "btrcc-windows-x64.*stdlib"
+          (cd dist/unrelated-cwd && "$compiler" "$source") > dist/from_btrcc.c
           test -s dist/from_btrcc.c
           echo "btrcc.exe produced $(wc -l < dist/from_btrcc.c) lines of C"
           # the C btrcc emits must itself build + run on native Windows
-          zig cc -target $ZIG_TARGET -std=c11 -O2 $WIN_COMPAT dist/from_btrcc.c -o dist/from_btrcc.exe -lm
+          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/from_btrcc.c -o dist/from_btrcc.exe -lm
           out=$(./dist/from_btrcc.exe)
           echo "$out"
           echo "$out" | grep -q "^PASS:"
+
+      - name: Bundled btrcc follows its final junction target
+        shell: pwsh
+        run: |
+          $target = (Resolve-Path ".\dist\btrcc-windows-x64").Path
+          New-Item -ItemType Junction -Path ".\dist\btrcc-junction" -Target $target | Out-Null
+          $stdlib = & ".\dist\btrcc-junction\bin\btrcc.exe" --stdlib-dir
+          if ($LASTEXITCODE -ne 0) { throw "junction compiler invocation failed" }
+          $expected = (Resolve-Path ".\dist\btrcc-windows-x64\share\btrc\stdlib").Path
+          if ($stdlib -ne $expected) {
+            throw "junction resolved to '$stdlib', expected final target '$expected'"
+          }
+
+      - name: btrcc resolves a backslash path containing spaces
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist\path project" | Out-Null
+          Set-Content -Encoding utf8NoBOM -Path "dist\path project\lib.btrc" -Value 'string pathMessage() { return "PASS: windows path"; }'
+          Set-Content -Encoding utf8NoBOM -Path "dist\path project\main.btrc" -Value @'
+          #include "lib.btrc"
+          int main() { print(pathMessage()); return 0; }
+          '@
+          $compiler = (Resolve-Path ".\dist\btrcc-windows-x64\bin\btrcc.exe").Path
+          & $compiler "dist\path project\main.btrc" | Set-Content -Encoding utf8NoBOM "dist\path project\program.c"
+          if ($LASTEXITCODE -ne 0) { throw "btrcc path compilation failed" }
+          zig cc -target $env:ZIG_TARGET -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include $env:WIN_COMPAT_HEADER "dist\path project\program.c" -o "dist\path project\program.exe" -lm
+          if ($LASTEXITCODE -ne 0) { throw "generated path program failed to build" }
+          $out = & "dist\path project\program.exe"
+          if ($LASTEXITCODE -ne 0 -or $out -ne "PASS: windows path") {
+            throw "unexpected path program output: $out"
+          }

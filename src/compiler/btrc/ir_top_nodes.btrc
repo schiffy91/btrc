@@ -1,0 +1,132 @@
+/* Typed translation-unit declarations for the self-hosted compiler.
+ *
+ * Top-level ordering and declaration categories are IR data.  Producers fill
+ * these nodes; optimizer passes inspect their fields; the C emitter only
+ * formats them.  In particular, no declaration category is inferred by
+ * parsing pre-rendered C text. */
+
+enum IRPreprocessorKind {
+    IR_PREPROCESSOR_INCLUDE = 1,
+    IR_PREPROCESSOR_MACRO = 2,
+};
+
+/* A system <header> or local "header" include, or a structured single-line
+ * macro.  A fat tagged node preserves source order in one homogeneous Vector.
+ * `function_like` distinguishes F from F(), including an empty parameter list. */
+class IRPreprocessorDecl {
+    public int kind;
+    public string header;
+    public bool is_system;
+    public string name;
+    public bool function_like;
+    public Vector<string> params;
+    public string replacement;
+
+    public IRPreprocessorDecl() {
+        self.kind = 0;
+        self.header = "";
+        self.is_system = true;
+        self.name = "";
+        self.function_like = false;
+        self.params = [];
+        self.replacement = "";
+    }
+}
+
+IRPreprocessorDecl irInclude(string header, bool isSystem) {
+    IRPreprocessorDecl declaration = IRPreprocessorDecl();
+    declaration.kind = IR_PREPROCESSOR_INCLUDE;
+    declaration.header = header;
+    declaration.is_system = isSystem;
+    return declaration;
+}
+
+IRPreprocessorDecl irMacro(string name, bool functionLike,
+        Vector<string> params, string replacement) {
+    IRPreprocessorDecl declaration = IRPreprocessorDecl();
+    declaration.kind = IR_PREPROCESSOR_MACRO;
+    declaration.name = name;
+    declaration.function_like = functionLike;
+    declaration.params = params;
+    declaration.replacement = replacement;
+    return declaration;
+}
+
+class IRStructForward {
+    public string name;
+    public IRStructForward(string name) { self.name = name; }
+}
+
+class IRFunctionPointerTypedef {
+    public string name;
+    public string return_type;
+    public Vector<string> param_types;
+    public IRFunctionPointerTypedef(string name, string returnType) {
+        self.name = name;
+        self.return_type = returnType;
+        self.param_types = [];
+    }
+}
+
+class IRFunctionDecl {
+    public string name;
+    public string return_type;
+    public Vector<IRParam> params;
+    public bool is_static;
+    public IRFunctionDecl(string name, string returnType, bool isStatic) {
+        self.name = name;
+        self.return_type = returnType;
+        self.params = [];
+        self.is_static = isStatic;
+    }
+}
+
+class IREnumValue {
+    public string name;
+    public IRNode value;
+    public IREnumValue(string name, IRNode value) {
+        self.name = name;
+        self.value = value;
+    }
+}
+
+class IREnumDef {
+    public string name;
+    public Vector<IREnumValue> values;
+    public IREnumDef(string name) {
+        self.name = name;
+        self.values = [];
+    }
+}
+
+class IRModule {
+    public Vector<IRPreprocessorDecl> preprocessor_decls;
+    public Vector<IREnumDef> enum_defs;
+    public Vector<IRStructForward> struct_forwards;
+    public Vector<IRFunctionPointerTypedef> function_pointer_typedefs;
+    public Vector<IRFunctionDecl> function_decls;
+    public Vector<IRTypedefDef> typedef_defs;
+    public Vector<IRTaggedUnionDef> tagged_union_defs;
+    public Vector<IRStructDef> struct_defs;
+    public Vector<IRGlobalDecl> global_decls;
+    public Vector<IRFunction> functions;
+    public Vector<IRGpuKernel> gpu_kernels;
+    /* Runtime helper bodies remain registry-owned C source at the deliberate
+     * runtime seam. They are never parsed to recover declaration structure. */
+    public Vector<string> helpers;
+
+    public IRModule() {
+        self.preprocessor_decls = [];
+        self.enum_defs = [];
+        self.struct_forwards = [];
+        self.function_pointer_typedefs = [];
+        self.function_decls = [];
+        self.typedef_defs = [];
+        self.tagged_union_defs = [];
+        self.struct_defs = [];
+        self.global_decls = [];
+        self.functions = [];
+        self.gpu_kernels = [];
+        self.helpers = [];
+    }
+}

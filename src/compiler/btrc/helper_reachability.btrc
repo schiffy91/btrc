@@ -1,0 +1,115 @@
+/* Runtime-helper roots carried only by structured declaration types.
+ *
+ * A declaration can consume a helper-provided ABI without calling a helper.
+ * For example, every managed class embeds __btrc_arc_header.  Helper DCE runs
+ * after function/type DCE, so only the declarations still present in IRModule
+ * are inspected here. */
+
+bool typeUsesArcCallbackAbi(string cType) {
+    Vector<string> abiTypes = [
+        "__btrc_arc_count",
+        "__btrc_arc_type",
+        "__btrc_arc_header",
+        "__btrc_arc_incoming",
+        "__btrc_destroy_fn",
+        "__btrc_field_visit_fn",
+        "__btrc_visit_fn"
+    ];
+    Map<string, bool> references = {};
+    scanTextForNames(cType, abiTypes, references);
+    return references.len > 0;
+}
+
+void rootArcCallbackAbiType(string cType, Map<string, bool> used) {
+    if (typeUsesArcCallbackAbi(cType)) {
+        used.put("__btrc_arc_callback_types", true);
+    }
+}
+
+void collectStructuredHelperRoots(IRModule m, Map<string, bool> used) {
+    int functionIndex = 0;
+    while (functionIndex < m.functions.len) {
+        IRFunction fn = m.functions.get(functionIndex);
+        rootArcCallbackAbiType(fn.return_type, used);
+        int parameterIndex = 0;
+        while (parameterIndex < fn.params.len) {
+            rootArcCallbackAbiType(
+                fn.params.get(parameterIndex).c_type, used);
+            parameterIndex = parameterIndex + 1;
+        }
+        functionIndex = functionIndex + 1;
+    }
+
+    int structIndex = 0;
+    while (structIndex < m.struct_defs.len) {
+        IRStructDef definition = m.struct_defs.get(structIndex);
+        int fieldIndex = 0;
+        while (fieldIndex < definition.fields.len) {
+            IRStructField field = definition.fields.get(fieldIndex);
+            rootArcCallbackAbiType(field.c_type, used);
+            scanHelpersInNode(field.array_size, used);
+            fieldIndex = fieldIndex + 1;
+        }
+        structIndex = structIndex + 1;
+    }
+
+    int globalIndex = 0;
+    while (globalIndex < m.global_decls.len) {
+        IRGlobalDecl global = m.global_decls.get(globalIndex);
+        rootArcCallbackAbiType(global.c_type, used);
+        globalIndex = globalIndex + 1;
+    }
+
+    int declarationIndex = 0;
+    while (declarationIndex < m.function_decls.len) {
+        IRFunctionDecl declaration = m.function_decls.get(declarationIndex);
+        rootArcCallbackAbiType(declaration.return_type, used);
+        int parameterIndex = 0;
+        while (parameterIndex < declaration.params.len) {
+            rootArcCallbackAbiType(
+                declaration.params.get(parameterIndex).c_type, used);
+            parameterIndex = parameterIndex + 1;
+        }
+        declarationIndex = declarationIndex + 1;
+    }
+
+    int pointerIndex = 0;
+    while (pointerIndex < m.function_pointer_typedefs.len) {
+        IRFunctionPointerTypedef pointer =
+            m.function_pointer_typedefs.get(pointerIndex);
+        rootArcCallbackAbiType(pointer.return_type, used);
+        int parameterIndex = 0;
+        while (parameterIndex < pointer.param_types.len) {
+            rootArcCallbackAbiType(
+                pointer.param_types.get(parameterIndex), used);
+            parameterIndex = parameterIndex + 1;
+        }
+        pointerIndex = pointerIndex + 1;
+    }
+
+    int typedefIndex = 0;
+    while (typedefIndex < m.typedef_defs.len) {
+        rootArcCallbackAbiType(
+            m.typedef_defs.get(typedefIndex).target_type, used);
+        typedefIndex = typedefIndex + 1;
+    }
+
+    int taggedIndex = 0;
+    while (taggedIndex < m.tagged_union_defs.len) {
+        IRTaggedUnionDef tagged = m.tagged_union_defs.get(taggedIndex);
+        rootArcCallbackAbiType(tagged.tag_type, used);
+        int variantIndex = 0;
+        while (variantIndex < tagged.variants.len) {
+            IRTaggedUnionVariant variant = tagged.variants.get(variantIndex);
+            int fieldIndex = 0;
+            while (fieldIndex < variant.fields.len) {
+                IRStructField field = variant.fields.get(fieldIndex);
+                rootArcCallbackAbiType(field.c_type, used);
+                scanHelpersInNode(field.array_size, used);
+                fieldIndex = fieldIndex + 1;
+            }
+            variantIndex = variantIndex + 1;
+        }
+        taggedIndex = taggedIndex + 1;
+    }
+}

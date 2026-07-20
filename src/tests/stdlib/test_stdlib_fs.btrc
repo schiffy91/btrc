@@ -22,6 +22,10 @@ int main() {
     /* round-trip in a fresh temp dir, then clean it up */
     string dir = FileSystem.tempDir("btrc_fs_test");
     assert(FileSystem.isDir(dir));
+    assert(FileSystem.tempDir("../btrc_escape").isEmpty());
+    assert(FileSystem.tempDir("nested/btrc_escape").isEmpty());
+    assert(FileSystem.tempDir("nested\\btrc_escape").isEmpty());
+    assert(FileSystem.tempDir("drive:btrc_escape").isEmpty());
     string f = PathTools.join(dir, "data.txt");
     FileSystem.writeText(f, "hello fs");
     assert(FileSystem.exists(f) && FileSystem.isFile(f));
@@ -36,9 +40,36 @@ int main() {
     string leadingDash = PathTools.join(nested, "-literal");
     FileSystem.writeText(leadingDash, "dash");
     assert(FileSystem.readText(leadingDash).equals("dash"));
+    string outside = FileSystem.tempDir("btrc_fs_outside");
+    assert(!outside.isEmpty());
+    string outsideMarker = PathTools.join(outside, "must-survive");
+    FileSystem.writeText(outsideMarker, "safe");
+    string outsideLink = PathTools.join(dir, "outside-link");
+    assert(FileSystem.symlink(outside, outsideLink) == 0);
+    string rootLink = PathTools.join(dir, "root-link");
+    assert(FileSystem.symlink("/", rootLink) == 0);
+
+    string parentLink = PathTools.join(dir, "parent-link");
+    assert(FileSystem.symlink(outside, parentLink) == 0);
+    assert(FileSystem.removeRecursive(
+        PathTools.join(parentLink, "must-survive")) != 0);
+    assert(FileSystem.exists(outsideMarker));
+    string outsideNested = PathTools.join(outside, "nested");
+    assert(FileSystem.mkdirp(outsideNested) == 0);
+    string nestedMarker = PathTools.join(outsideNested, "also-survives");
+    FileSystem.writeText(nestedMarker, "safe");
+    assert(FileSystem.removeRecursive(PathTools.join(
+        PathTools.join(parentLink, "nested"), "also-survives")) != 0);
+    assert(FileSystem.exists(nestedMarker));
+
     assert(FileSystem.removeRecursive("/") != 0);
-    FileSystem.removeRecursive(dir);
+    assert(FileSystem.removeRecursive("//") != 0);
+    assert(FileSystem.removeRecursive("/./") != 0);
+    assert(FileSystem.removeRecursive("/tmp/..") != 0);
+    assert(FileSystem.removeRecursive(dir) == 0);
     assert(!FileSystem.exists(dir));
+    assert(FileSystem.readText(outsideMarker).equals("safe"));
+    assert(FileSystem.removeRecursive(outside) == 0);
 
     print("PASS: test_stdlib_fs");
     return 0;

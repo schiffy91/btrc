@@ -1,0 +1,53 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int workerCycleAlive = 0;
+int workerCycleHooks = 0;
+
+class WorkerCycleNode {
+    public WorkerCycleNode next;
+
+    public WorkerCycleNode() {
+        self.next = null;
+        workerCycleAlive++;
+    }
+
+    public void __del__() {
+        workerCycleAlive--;
+        workerCycleHooks++;
+    }
+}
+
+int abandonWorkerCycle() {
+    WorkerCycleNode first = new WorkerCycleNode();
+    WorkerCycleNode second = new WorkerCycleNode();
+    first.next = second;
+    second.next = first;
+    return 7;
+}
+
+void runCycleWorker() {
+    Thread<int> worker = spawn(() => abandonWorkerCycle());
+    assert(worker.join() == 7);
+}
+
+int main() {
+    /* Warm the process-wide collector so the measured delta contains only
+     * allocations owned by the second worker and its handle. */
+    runCycleWorker();
+    assert(workerCycleAlive == 0);
+    assert(workerCycleHooks == 2);
+
+    arc_test_allocation_checkpoint();
+    runCycleWorker();
+
+    /* The two-node SCC is below the ordinary poll threshold, so its hooks run
+     * only when the pthread wrapper forces ARC cleanup. Successful hook guards
+     * allocate worker-local try state; final try cleanup must run afterward. */
+    assert(workerCycleAlive == 0);
+    assert(workerCycleHooks == 4);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

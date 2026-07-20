@@ -1,0 +1,56 @@
+#include <assert.h>
+
+int itemAlive = 0;
+
+class Item {
+    public Item() { itemAlive++; }
+    public void __del__() { itemAlive--; }
+}
+
+class Base {
+    private int raw;
+    public int value { get; set; }
+    public int doubled {
+        get { return self.raw * 2; }
+        set { self.raw = value; }
+    }
+    public Item owned { get; set; }
+    public Item guarded {
+        get;
+        set { self.guarded = value; }
+    }
+}
+
+class Child extends Base {
+    public int extra;
+}
+
+class Link {
+    public Link next { get; set; }
+}
+
+int main() {
+    Child child = new Child();
+    child.value = 7;
+    assert(child.value == 7);
+    child.doubled = 4;
+    assert(child.doubled == 8);
+
+    {
+        Item item = new Item();
+        Item guarded = new Item();
+        child.owned = item;
+        child.guarded = guarded;
+        assert(itemAlive == 2);
+    }
+    assert(itemAlive == 2);
+    delete child;
+    assert(itemAlive == 0);
+
+    Link link = new Link();
+    assert(link.next == null);
+    delete link;
+
+    print("PASS: property layout contracts");
+    return 0;
+}

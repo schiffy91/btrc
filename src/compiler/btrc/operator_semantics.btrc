@@ -1,0 +1,301 @@
+/* Shared comparison, reference, and hashing domains for the self-hosted
+ * compiler. Mirrors operator_semantics.py and reference_semantics.py. */
+
+enum OperatorDomain {
+    OP_DOMAIN_UNRESOLVED = -1,
+    OP_DOMAIN_INVALID = 0,
+    OP_DOMAIN_STRING = 1,
+    OP_DOMAIN_NUMERIC = 2,
+    OP_DOMAIN_REFERENCE = 3,
+};
+
+enum HashDomain {
+    HASH_DOMAIN_INVALID = 0,
+    HASH_DOMAIN_STRING = 1,
+    HASH_DOMAIN_FLOATING = 2,
+    HASH_DOMAIN_INTEGRAL = 3,
+    HASH_DOMAIN_REFERENCE = 4,
+};
+
+Node makeSemanticNullType() {
+    Node typeExpr = makePrimType("void");
+    typeExpr.pointer_depth = 1;
+    typeExpr.is_nullable = true;
+    return typeExpr;
+}
+
+bool semanticIsNullType(Node? typeExpr) {
+    return typeExpr != null
+        && (typeExpr.base == "null" || typeExpr.base == "void")
+        && typeExpr.pointer_depth > 0 && typeExpr.is_nullable;
+}
+
+int semanticReferenceDepth(Node typeExpr) {
+    int depth = typeExpr.pointer_depth;
+    bool intrinsicReference = typeExpr.base == "string"
+        || typeExpr.base == "Thread" || typeExpr.base == "Mutex"
+        || typeExpr.base == "__fn_ptr";
+    if (typeNullableCollapsesReferenceLayer(
+            typeExpr, intrinsicReference)) {
+        depth = depth - 1;
+    }
+    if (typeExpr.is_array) { depth = depth + 1; }
+    if (intrinsicReference) { depth = depth + 1; }
+    return depth;
+}
+
+/* Effective expression-value depth.  Class and opaque handle declarations
+ * omit their intrinsic pointer in source, while inferred/member types may
+ * already carry it.  These spellings describe the same runtime value shape. */
+int semanticValueDepth(Node typeExpr, Analyzed analyzed) {
+    int depth = semanticReferenceDepth(typeExpr);
+    if (depth == 0 && (analyzed.isClass(typeExpr.base)
+            || (typeExpr.generic_args.len > 0
+                && analyzed.isGenericClass(typeExpr.base)))) {
+        depth = 1;
+    }
+    return depth;
+}
+
+bool semanticIsVoidPointer(Node typeExpr) {
+    return typeExpr.base == "void" && semanticReferenceDepth(typeExpr) == 1;
+}
+
+/* Exactly one C `char` indirection is interoperable with semantic `string`.
+ * Arrays count as one indirection; char** and pointer-to-array shapes do not. */
+bool semanticIsCStringPointer(Node? typeExpr) {
+    return typeExpr != null && typeExpr.base == "char"
+        && semanticReferenceDepth(typeExpr) == 1
+        && typeExpr.generic_args.len == 0;
+}
+
+bool semanticIsReferenceType(Node? typeExpr, Analyzed analyzed) {
+    if (typeExpr == null) { return false; }
+    if (semanticIsNullType(typeExpr) || isSemanticScalarString(typeExpr)) {
+        return true;
+    }
+    return typeExpr.pointer_depth > 0 || typeExpr.is_array
+        || analyzed.isClass(typeExpr.base)
+        || analyzed.isGenericClass(typeExpr.base)
+        || typeExpr.base == "Thread" || typeExpr.base == "Mutex"
+        || typeExpr.base == "__fn_ptr";
+}
+
+bool semanticGenericArgsEqual(Vector<Node> left, Vector<Node> right) {
+    if (left.len != right.len) { return false; }
+    int index = 0;
+    while (index < left.len) {
+        if (typeShapeKey(left.get(index)) != typeShapeKey(right.get(index))) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+bool semanticSpecializationIsSubtype(
+        Node child, Node parent, Analyzed analyzed) {
+    string currentBase = child.base;
+    bool carriesArgs = true;
+    Map<string, bool> seen = {};
+    while (currentBase != "" && !seen.has(currentBase)) {
+        seen.put(currentBase, true);
+        if (currentBase == parent.base) {
+            if (!carriesArgs) { return parent.generic_args.len == 0; }
+            return semanticGenericArgsEqual(
+                child.generic_args, parent.generic_args);
+        }
+        Node? declaration = null;
+        if (analyzed.classTable.has(currentBase)) {
+            declaration = analyzed.classTable.get(currentBase);
+        } else if (analyzed.genericClassTable.has(currentBase)) {
+            declaration = analyzed.genericClassTable.get(currentBase);
+        }
+        if (declaration == null) { return false; }
+        string ancestor = parentName(declaration);
+        if (ancestor == "") { return false; }
+        int ancestorArity = 0;
+        if (analyzed.genericClassTable.has(ancestor)) {
+            ancestorArity = analyzed.genericClassTable.get(
+                ancestor).generic_params.len;
+        }
+        if (ancestorArity > 0) {
+            int currentArity = declaration.generic_params.len;
+            if (!carriesArgs || ancestorArity != currentArity
+                    || currentArity != child.generic_args.len) {
+                return false;
+            }
+        } else {
+            carriesArgs = false;
+        }
+        currentBase = ancestor;
+    }
+    return false;
+}
+
+bool semanticNominallyRelated(Node left, Node right, Analyzed analyzed) {
+    bool nominalLeft = analyzed.isClass(left.base)
+        || analyzed.isGenericClass(left.base);
+    bool nominalRight = analyzed.isClass(right.base)
+        || analyzed.isGenericClass(right.base);
+    if (!nominalLeft || !nominalRight) { return false; }
+    return semanticSpecializationIsSubtype(left, right, analyzed)
+        || semanticSpecializationIsSubtype(right, left, analyzed);
+}
+
+bool semanticReferenceTypesCompatible(
+        Node? left, Node? right, Analyzed analyzed) {
+    if (semanticIsNullType(left)) {
+        return semanticIsReferenceType(right, analyzed);
+    }
+    if (semanticIsNullType(right)) {
+        return semanticIsReferenceType(left, analyzed);
+    }
+    if (left == null || right == null) { return false; }
+    if (!semanticIsReferenceType(left, analyzed)
+            || !semanticIsReferenceType(right, analyzed)) {
+        return false;
+    }
+    if (left.base == "__fn_ptr" || right.base == "__fn_ptr") {
+        return left.base == "__fn_ptr" && right.base == "__fn_ptr"
+            && semanticGenericArgsEqual(left.generic_args, right.generic_args);
+    }
+    if (semanticIsVoidPointer(left) || semanticIsVoidPointer(right)) {
+        return true;
+    }
+    if ((isSemanticScalarString(left) && semanticIsCStringPointer(right))
+            || (isSemanticScalarString(right)
+                && semanticIsCStringPointer(left))) {
+        return true;
+    }
+    if (semanticValueDepth(left, analyzed)
+            != semanticValueDepth(right, analyzed)) {
+        return false;
+    }
+    if (left.base == right.base) {
+        return semanticGenericArgsEqual(left.generic_args, right.generic_args);
+    }
+    return semanticNominallyRelated(left, right, analyzed);
+}
+
+bool semanticIsComparisonOperator(string op) {
+    return op == "==" || op == "!=" || op == "<" || op == ">"
+        || op == "<=" || op == ">=";
+}
+
+int semanticComparisonDomain(
+        string op, Node? left, Node? right, Analyzed analyzed) {
+    if (left == null || right == null) { return OP_DOMAIN_UNRESOLVED; }
+    bool leftString = isSemanticScalarString(left);
+    bool rightString = isSemanticScalarString(right);
+    if (leftString || rightString) {
+        if ((leftString || semanticIsCStringPointer(left)
+                    || semanticIsNullType(left))
+                && (rightString || semanticIsCStringPointer(right)
+                    || semanticIsNullType(right))) {
+            return OP_DOMAIN_STRING;
+        }
+        return OP_DOMAIN_INVALID;
+    }
+    if (numericIsType(left, analyzed) && numericIsType(right, analyzed)) {
+        return OP_DOMAIN_NUMERIC;
+    }
+    bool leftRef = semanticIsReferenceType(left, analyzed);
+    bool rightRef = semanticIsReferenceType(right, analyzed);
+    if (leftRef || rightRef) {
+        if (op != "==" && op != "!=") { return OP_DOMAIN_INVALID; }
+        if (semanticReferenceTypesCompatible(left, right, analyzed)) {
+            return OP_DOMAIN_REFERENCE;
+        }
+        return OP_DOMAIN_INVALID;
+    }
+    return OP_DOMAIN_INVALID;
+}
+
+int semanticHashDomain(Node? operand, Analyzed analyzed) {
+    if (operand == null) { return HASH_DOMAIN_INVALID; }
+    if (isSemanticScalarString(operand)) { return HASH_DOMAIN_STRING; }
+    if (numericIsFloating(operand)) { return HASH_DOMAIN_FLOATING; }
+    if (numericIsType(operand, analyzed)) { return HASH_DOMAIN_INTEGRAL; }
+    if (operand.base == "__fn_ptr") { return HASH_DOMAIN_INVALID; }
+    if (semanticIsReferenceType(operand, analyzed)) {
+        return HASH_DOMAIN_REFERENCE;
+    }
+    return HASH_DOMAIN_INVALID;
+}
+
+/* One shared source of truth for overloadable binary operators.  Both semantic
+ * validation and IR lowering consume this mapping. */
+string semanticBinaryOperatorMethod(string op) {
+    if (op == "+") { return "__add__"; }
+    if (op == "-") { return "__sub__"; }
+    if (op == "*") { return "__mul__"; }
+    if (op == "/") { return "__div__"; }
+    if (op == "%") { return "__mod__"; }
+    if (op == "==") { return "__eq__"; }
+    if (op == "!=") { return "__ne__"; }
+    if (op == "<") { return "__lt__"; }
+    if (op == ">") { return "__gt__"; }
+    if (op == "<=") { return "__le__"; }
+    if (op == ">=") { return "__ge__"; }
+    return "";
+}
+
+Node? operatorOverloadReturnType(Node? receiverType, string op,
+        bool unary, Analyzed analyzed) {
+    if (receiverType == null) { return null; }
+    string methodName = unary && op == "-"
+        ? "__neg__" : semanticBinaryOperatorMethod(op);
+    if (methodName == "") { return null; }
+    Node? method = null;
+    if (analyzed.isClass(receiverType.base)) {
+        method = analyzed.classMethod(receiverType.base, methodName);
+    } else if (analyzed.isGenericClass(receiverType.base)) {
+        method = analyzed.genericClassMethod(
+            receiverType.base, methodName);
+    }
+    if (method == null || method.kind != NK_METHOD_DECL) { return null; }
+    Node concreteMethod = method;
+    if (receiverType.generic_args.len > 0
+            && analyzed.isGenericClass(receiverType.base)) {
+        return resolveGenericType(concreteMethod.return_type,
+            genericTypeMap(analyzed, receiverType),
+            analyzed);
+    }
+    return concreteMethod.return_type;
+}
+
+bool operatorInferenceRawPointer(Node? typeExpr, Analyzed analyzed) {
+    return typeExpr != null
+        && (typeExpr.pointer_depth > 0 || typeExpr.is_array)
+        && !analyzed.isClass(typeExpr.base)
+        && !analyzed.isGenericClass(typeExpr.base);
+}
+
+Node? operatorPointerArithmeticType(Node? left, Node? right,
+        string op, Analyzed analyzed) {
+    if (op == "-" && operatorInferenceRawPointer(left, analyzed)) {
+        if (operatorInferenceRawPointer(right, analyzed)) {
+            return makePrimType("long");
+        }
+        return left;
+    }
+    if (op == "+") {
+        if (operatorInferenceRawPointer(left, analyzed)) { return left; }
+        if (operatorInferenceRawPointer(right, analyzed)) { return right; }
+    }
+    return null;
+}
+
+/* `obj?.value ?? fallback` is a value-domain coalesce, not a null test on the
+ * scalar result.  The optional access already carries the presence condition
+ * as a structured ternary; lowering replaces only its false branch. */
+bool semanticOptionalValueCoalesce(
+        Node? leftExpression, Node? leftType, Node? rightType,
+        Analyzed analyzed) {
+    return leftExpression != null
+        && leftExpression.kind == NK_FIELD_ACCESS_EXPR
+        && leftExpression.optional
+        && numericIsType(leftType, analyzed)
+        && numericIsType(rightType, analyzed);
+}

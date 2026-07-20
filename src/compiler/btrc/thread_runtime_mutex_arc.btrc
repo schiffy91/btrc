@@ -1,0 +1,110 @@
+/* Exact self-hosted mirror of the Python Mutex ARC helper registry. */
+string threadRuntimeMutexArcSource(string name) {
+    if (name == "__btrc_mutex_arc_retain") {
+        return "static void __btrc_mutex_arc_retain(\n"
+            + "        const void* storage, __btrc_mutex_value_access access,\n"
+            + "        void* context, void* owner) {\n"
+            + "    (void)context;\n"
+            + "    if (owner)\n"
+            + "        (void)__btrc_arc_retain_edge(access(storage), owner);\n"
+            + "    else\n"
+            + "        (void)__btrc_arc_retain(access(storage));\n"
+            + "}";
+    }
+    if (name == "__btrc_mutex_arc_release") {
+        return "static void __btrc_mutex_arc_release(\n"
+            + "        const void* storage, __btrc_mutex_value_access access,\n"
+            + "        void* context, void* owner) {\n"
+            + "    void* object = access(storage);\n"
+            + "    if (owner) {\n"
+            + "        (void)__btrc_arc_unlink_edge(object, owner);\n"
+            + "        (void)__btrc_arc_release_edge(\n"
+            + "            object, (const __btrc_arc_type*)context, NULL);\n"
+            + "    } else {\n"
+            + "        (void)__btrc_arc_release(\n"
+            + "            object, (const __btrc_arc_type*)context);\n"
+            + "    }\n"
+            + "}";
+    }
+    if (name == "__btrc_mutex_arc_finalize") {
+        return "static void __btrc_mutex_arc_finalize(void* context) {\n"
+            + "    (void)context;\n"
+            + "    (void)__btrc_flush_cycles();\n"
+            + "}";
+    }
+    if (name == "__btrc_mutex_string_retain") {
+        return "static void __btrc_mutex_string_retain(\n"
+            + "        const void* storage, __btrc_mutex_value_access access,\n"
+            + "        void* context, void* owner) {\n"
+            + "    (void)context;\n"
+            + "    (void)owner;\n"
+            + "    (void)__btrc_string_retain((const char*)access(storage));\n"
+            + "}";
+    }
+    if (name == "__btrc_mutex_string_release") {
+        return "static void __btrc_mutex_string_release(\n"
+            + "        const void* storage, __btrc_mutex_value_access access,\n"
+            + "        void* context, void* owner) {\n"
+            + "    (void)context;\n"
+            + "    (void)owner;\n"
+            + "    __btrc_string_release((const char*)access(storage));\n"
+            + "}";
+    }
+    if (name == "__btrc_mutex_arc_type") {
+        return "static void __btrc_mutex_arc_visit(\n"
+            + "        void* object, __btrc_field_visit_fn fn, void* context) {\n"
+            + "    __btrc_mutex_val_t* m = (__btrc_mutex_val_t*)object;\n"
+            + "    if (!m || !fn) return;\n"
+            + "    int err = pthread_mutex_lock(&m->lock);\n"
+            + "    if (err != 0) {\n"
+            + "        fprintf(stderr, \"btrc: mutex lock failed (%d)\\n\", err);\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    if (m->value && m->slot_access)\n"
+            + "        fn((volatile void*)m->value, m->slot_access,\n"
+            + "            (const __btrc_arc_type*)m->context, context);\n"
+            + "    err = pthread_mutex_unlock(&m->lock);\n"
+            + "    if (err != 0) {\n"
+            + "        fprintf(stderr, \"btrc: mutex unlock failed (%d)\\n\", err);\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "}\n"
+            + "static void __btrc_mutex_arc_destroy(void* object) {\n"
+            + "    __btrc_mutex_val_t* m = (__btrc_mutex_val_t*)object;\n"
+            + "    if (!m) return;\n"
+            + "    void* topology = m->slot_access\n"
+            + "        ? __btrc_arc_topology_begin() : NULL;\n"
+            + "    int err = pthread_mutex_lock(&m->lock);\n"
+            + "    if (err != 0) {\n"
+            + "        fprintf(stderr, \"btrc: mutex lock failed (%d)\\n\", err);\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    void* old = m->value;\n"
+            + "    m->value = NULL;\n"
+            + "    err = pthread_mutex_unlock(&m->lock);\n"
+            + "    if (err != 0) {\n"
+            + "        fprintf(stderr, \"btrc: mutex unlock failed (%d)\\n\", err);\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    err = pthread_mutex_destroy(&m->lock);\n"
+            + "    if (err != 0) {\n"
+            + "        fprintf(stderr, \"btrc: mutex destroy failed (%d)\\n\", err);\n"
+            + "        exit(1);\n"
+            + "    }\n"
+            + "    if (m->release && old)\n"
+            + "        m->release(old, m->access, m->context, m);\n"
+            + "    if (topology)\n"
+            + "        (void)__btrc_arc_topology_leave(topology);\n"
+            + "    __btrc_mark_destroyed(m);\n"
+            + "    free(old);\n"
+            + "    free(m->context);\n"
+            + "    free(m);\n"
+            + "}\n"
+            + "static const __btrc_arc_type __btrc_mutex_arc_descriptor = {\n"
+            + "    __btrc_mutex_arc_visit,\n"
+            + "    __btrc_mutex_arc_destroy,\n"
+            + "    NULL, NULL, __btrc_throw\n"
+            + "};";
+    }
+    return "";
+}

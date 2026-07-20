@@ -25,8 +25,8 @@ def test_emitter_vtables_globals_structs_trycatch_blocks():
     int main() { g_count = compute(); return g_count; }
     """
     c = emit_c(src)
-    assert "g_count" in c                       # global emitted
-    assert "Derived" in c and "Base" in c       # inheritance / vtable
+    assert "g_count" in c  # global emitted
+    assert "Derived" in c and "Base" in c  # inheritance / vtable
 
 
 def test_generic_class_every_construct():
@@ -81,11 +81,16 @@ def test_gpu_kernel_all_wgsl_expression_forms():
         else { v = v * scale; }
         xs[i] = v;
     }
-    int main() { return 0; }
+    int main() {
+        float[] xs = {1.0};
+        int[] ks = {1};
+        transform(xs, ks, 2.0);
+        return 0;
+    }
     """
     c = emit_c(src)
     assert "@compute" in c
-    assert "var" in c            # WGSL local declaration
+    assert "var" in c  # WGSL local declaration
 
 
 def test_inferred_collection_and_mutex_types():

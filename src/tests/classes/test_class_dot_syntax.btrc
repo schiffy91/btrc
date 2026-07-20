@@ -26,7 +26,7 @@ int main() {
     Box b = new Box(42);
     assert(b.get() == 42);
     assert(b.val == 42);
-    free(b);
+    delete b;
 
     // List dot methods
     Vector<int> nums = [];

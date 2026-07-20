@@ -1,0 +1,80 @@
+#include <assert.h>
+
+int sharedVictimsAlive = 0;
+
+class SharedVictim {
+    public int id;
+
+    public SharedVictim(int id) {
+        self.id = id;
+        sharedVictimsAlive++;
+    }
+
+    public void __del__() {
+        sharedVictimsAlive--;
+    }
+}
+
+class SharedHolder {
+    public SharedVictim item;
+
+    public SharedHolder() {
+        self.item = null;
+    }
+}
+
+void rejectSharedRootDelete() {
+    SharedVictim root = new SharedVictim(10);
+    SharedVictim alias = root;
+
+    bool caught = false;
+    try {
+        delete root;
+        assert(false);
+    } catch (string error) {
+        caught = error.equals("cannot delete shared managed object");
+    }
+
+    /* Rejection is a transaction: both roots and the original count remain
+     * intact, so one owner can be released and the other then deleted. */
+    assert(caught);
+    assert(root != null && alias == root && root.id == 10);
+    assert(sharedVictimsAlive == 1);
+    release alias;
+    assert(alias == null && root.id == 10);
+    delete root;
+    assert(root == null && sharedVictimsAlive == 0);
+}
+
+void rejectSharedPersistentDelete() {
+    SharedHolder first = new SharedHolder();
+    SharedHolder second = new SharedHolder();
+    first.item = new SharedVictim(20);
+    second.item = first.item;
+
+    bool caught = false;
+    try {
+        delete first.item;
+        assert(false);
+    } catch (string error) {
+        caught = error.equals("cannot delete shared managed object");
+    }
+
+    /* Both exact incoming owners must still be registered after rejection. */
+    assert(caught);
+    assert(first.item != null && second.item == first.item);
+    assert(first.item.id == 20 && sharedVictimsAlive == 1);
+    release second.item;
+    assert(second.item == null && first.item.id == 20);
+    delete first.item;
+    assert(first.item == null && sharedVictimsAlive == 0);
+    delete first;
+    delete second;
+}
+
+int main() {
+    rejectSharedRootDelete();
+    rejectSharedPersistentDelete();
+    assert(sharedVictimsAlive == 0);
+    return 0;
+}

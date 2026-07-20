@@ -1,0 +1,30 @@
+/* Checked command-line output helpers for the self-hosted driver. */
+
+bool driverWriteStdoutChunk(string value, bool trailingNewline) {
+    if (value == null) { return false; }
+    int length = value.length();
+    if (length > 0
+            && fwrite(value, 1, (size_t)length, stdout) != (size_t)length) {
+        return false;
+    }
+    if (trailingNewline && fputc('\n', stdout) == EOF) { return false; }
+    return ferror(stdout) == 0;
+}
+
+bool driverFlushStdout() {
+    if (fflush(stdout) != 0) { return false; }
+    return ferror(stdout) == 0;
+}
+
+bool driverWriteStdout(string value, bool trailingNewline) {
+    return driverWriteStdoutChunk(value, trailingNewline)
+        && driverFlushStdout();
+}
+
+bool printNoNL(string value) {
+    return driverWriteStdout(value, false);
+}
+
+bool printLineChecked(string value) {
+    return driverWriteStdout(value, true);
+}

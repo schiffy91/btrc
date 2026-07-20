@@ -13,35 +13,37 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import LambdaBlock, LambdaExpr, LambdaExprBody
+from ...ast_nodes import Block, LambdaBlock, LambdaExpr, LambdaExprBody, ReturnStmt
 from ..nodes import (
     CType,
-    IRAssign,
+    IRBinOp,
     IRBlock,
     IRCall,
     IRCast,
-    IRExprStmt,
+    IRCommaExpr,
+    IRExpr,
     IRFieldAccess,
     IRFunctionDef,
-    IRIf,
+    IRFunctionRef,
     IRLiteral,
     IRParam,
     IRReturn,
-    IRSpawnThread,
+    IRSizeof,
     IRStmtExpr,
     IRStructDef,
     IRStructField,
-    IRUnaryOp,
+    IRStructForward,
     IRVar,
     IRVarDecl,
 )
+from .parameters import source_binding_c_name
+from .thread_captures import emit_capture_disposer, managed_capture_type
+from .thread_returns import rewrite_thread_returns
+from .thread_values import thread_result_disposal_args
 from .types import type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
-
-
-_PRIMITIVE_TYPES = {"int", "float", "double", "char", "bool", "short", "long"}
 
 
 def lower_spawn(gen: IRGenerator, node):
@@ -51,19 +53,22 @@ def lower_spawn(gen: IRGenerator, node):
     """
     fn = node.fn
 
-    # Add pthread.h include and register helpers
-    gen.require_runtime_include("pthread.h")
+    # Registering the helper also pulls in its required runtime headers.
     gen.use_helper("__btrc_thread_spawn")
 
     if not isinstance(fn, LambdaExpr):
         # Non-lambda spawn — treat as function pointer
         from .expressions import lower_expr
-        fn_expr = lower_expr(gen, fn)
-        fn_text = fn_expr.text if hasattr(fn_expr, 'text') else fn_expr.name
-        return IRSpawnThread(fn_ptr=fn_text, capture_arg=None)
+
+        spawn_type = gen.analyzed.node_types.get(id(node))
+        result_type = spawn_type.generic_args[0] if spawn_type and spawn_type.generic_args else None
+        return _spawn_call(gen, lower_expr(gen, fn), result_type)
 
     # Determine return type of the lambda
-    ret_c_type = _infer_lambda_ret_type(gen, fn)
+    from .lambdas import resolved_lambda_return_type
+
+    return_type = resolved_lambda_return_type(gen, fn)
+    ret_c_type = type_to_c(return_type) if return_type else "void"
 
     spawn_id = gen.fresh_lambda_id()
     wrapper_name = f"__btrc_spawn_wrapper_{spawn_id}"
@@ -75,207 +80,209 @@ def lower_spawn(gen: IRGenerator, node):
         cap_fields = []
         for cap in fn.captures:
             c_type = type_to_c(cap.type) if cap.type else "int"
-            cap_fields.append(IRStructField(c_type=CType(text=c_type), name=cap.name))
-        gen.module.forward_decls.append(f"typedef struct {env_name} {env_name};")
+            cap_fields.append(
+                IRStructField(
+                    c_type=CType(text=c_type),
+                    name=source_binding_c_name(cap.name),
+                )
+            )
+        gen.module.struct_forwards.append(IRStructForward(name=env_name))
         gen.module.struct_defs.append(IRStructDef(name=env_name, fields=cap_fields))
 
-    # Build wrapper function: void* wrapper(void* __arg)
-    body_stmts = _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type)
+    arg_disposer = emit_capture_disposer(
+        gen,
+        fn,
+        env_name,
+        spawn_id,
+    )
 
-    gen.module.function_defs.append(IRFunctionDef(
-        name=wrapper_name,
-        return_type=CType(text="void*"),
-        params=[IRParam(c_type=CType(text="void*"), name="__arg")],
-        body=IRBlock(stmts=body_stmts),
-        is_static=True,
-    ))
+    # Build wrapper function: void* wrapper(void* __arg)
+    body_stmts = _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type)
+
+    gen.module.function_defs.append(
+        IRFunctionDef(
+            name=wrapper_name,
+            return_type=CType(text="void*"),
+            params=[IRParam(c_type=CType(text="void*"), name="__arg")],
+            body=IRBlock(stmts=body_stmts),
+            is_static=True,
+        )
+    )
 
     # Build the spawn expression
     if has_captures:
-        # Use IRStmtExpr to allocate + populate capture struct
+        gen.use_helper("__btrc_safe_realloc")
+        # Hoist only an inert declaration. Allocation, field initialization,
+        # retains, and spawn remain expression-local so a short-circuited or
+        # unchosen branch cannot perform them.
         se_var = f"__se{spawn_id}"
         stmts = [
-            # env_name* __seN = (env_name*)malloc(sizeof(env_name))
             IRVarDecl(
-                c_type=CType(text=f"{env_name}*"), name=se_var,
-                init=IRCast(
-                    target_type=CType(text=f"{env_name}*"),
-                    expr=IRCall(callee="malloc", args=[
-                        IRCall(callee="sizeof", args=[IRLiteral(text=env_name)]),
-                    ]),
-                ),
+                c_type=CType(text=f"{env_name}*"),
+                name=se_var,
+                init=None,
             ),
         ]
+        sequence = [
+            IRBinOp(
+                left=IRVar(name=se_var),
+                op="=",
+                right=IRCast(
+                    target_type=CType(text=f"{env_name}*"),
+                    expr=IRCall(
+                        callee="__btrc_safe_realloc",
+                        args=[
+                            IRLiteral(text="NULL"),
+                            IRSizeof(operand=CType(text=env_name)),
+                        ],
+                        helper_ref="__btrc_safe_realloc",
+                    ),
+                ),
+            )
+        ]
         for cap in fn.captures:
-            # __seN->cap_name = cap_name
-            stmts.append(IRAssign(
-                target=IRFieldAccess(
-                    obj=IRVar(name=se_var), field=cap.name, arrow=True),
-                value=IRVar(name=cap.name),
-            ))
-            # ARC: increment rc for captured class instances so they survive
-            # until the thread completes (paired with rc-- in wrapper cleanup)
-            if cap.type and cap.type.base in gen.analyzed.class_table:
-                stmts.append(IRIf(
-                    condition=IRVar(name=cap.name),
-                    then_block=IRBlock(stmts=[IRExprStmt(
-                        expr=IRUnaryOp(
-                            op="++",
-                            operand=IRFieldAccess(
-                                obj=IRVar(name=cap.name),
-                                field="__rc", arrow=True),
-                            prefix=False,
-                        ),
-                    )]),
-                ))
+            sequence.append(
+                IRBinOp(
+                    left=IRFieldAccess(
+                        obj=IRVar(name=se_var),
+                        field=source_binding_c_name(cap.name),
+                        arrow=True,
+                    ),
+                    op="=",
+                    right=IRVar(name=gen.source_binding_c_name(cap.name)),
+                )
+            )
+            # Keep each direct managed capture alive until worker cleanup.
+            capture_type = managed_capture_type(gen, cap)
+            if capture_type is not None:
+                from .managed_values import retain_value
 
-        spawn_call = IRSpawnThread(
-            fn_ptr=wrapper_name,
-            capture_arg=IRCast(
+                sequence.append(
+                    retain_value(
+                        gen,
+                        IRVar(name=gen.source_binding_c_name(cap.name)),
+                        capture_type,
+                    )
+                )
+
+        spawn_call = _spawn_call(
+            gen,
+            IRFunctionRef(name=wrapper_name),
+            return_type,
+            IRCast(
                 target_type=CType(text="void*"),
                 expr=IRVar(name=se_var),
             ),
+            IRFunctionRef(name=arg_disposer),
         )
-        return IRStmtExpr(stmts=stmts, result=spawn_call)
+        sequence.append(spawn_call)
+        return IRStmtExpr(
+            stmts=stmts,
+            result=IRCommaExpr(expressions=sequence),
+        )
     else:
-        return IRSpawnThread(fn_ptr=wrapper_name, capture_arg=None)
+        return _spawn_call(gen, IRFunctionRef(name=wrapper_name), return_type)
 
 
-def _infer_lambda_ret_type(gen: IRGenerator, fn: LambdaExpr) -> str:
-    """Infer the C return type of a lambda."""
-    if fn.return_type:
-        return type_to_c(fn.return_type)
-    fn_type = gen.analyzed.node_types.get(id(fn))
-    if fn_type and fn_type.base == "__fn_ptr" and fn_type.generic_args:
-        return type_to_c(fn_type.generic_args[0])
-    if isinstance(fn.body, LambdaExprBody) and fn.body.expression:
-        body_type = gen.analyzed.node_types.get(id(fn.body.expression))
-        return type_to_c(body_type) if body_type else "int"
-    return "void"
+def _spawn_call(
+    gen: IRGenerator,
+    fn_expr: IRExpr,
+    result_type,
+    capture_arg: IRExpr | None = None,
+    arg_disposer: IRExpr | None = None,
+) -> IRCall:
+    """Build an ordinary helper call for the pthread entry ABI."""
+
+    return IRCall(
+        callee="__btrc_thread_spawn",
+        args=[
+            IRCast(
+                target_type=CType(text="void*(*)(void*)"),
+                expr=fn_expr,
+            ),
+            capture_arg if capture_arg is not None else IRLiteral(text="NULL"),
+            arg_disposer if arg_disposer is not None else IRLiteral(text="NULL"),
+            *thread_result_disposal_args(gen, result_type),
+        ],
+        helper_ref="__btrc_thread_spawn",
+    )
 
 
-def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type):
+def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type):
     """Build the body of the pthread wrapper function."""
     body_stmts = []
 
     # Unpack captures
     if has_captures:
-        body_stmts.append(IRVarDecl(
-            c_type=CType(text=f"{env_name}*"), name="__env",
-            init=IRCast(target_type=f"{env_name}*", expr=IRVar(name="__arg")),
-        ))
+        body_stmts.append(
+            IRVarDecl(
+                c_type=CType(text=f"{env_name}*"),
+                name="__env",
+                init=IRCast(
+                    target_type=CType(text=f"{env_name}*"),
+                    expr=IRVar(name="__arg"),
+                ),
+            )
+        )
         for cap in fn.captures:
             c_type = type_to_c(cap.type) if cap.type else "int"
-            body_stmts.append(IRVarDecl(
-                c_type=CType(text=c_type), name=cap.name,
-                init=IRFieldAccess(obj=IRVar(name="__env"), field=cap.name, arrow=True),
-            ))
-
-    # Build cleanup stmts for captures (ARC release + free env)
-    cleanup_stmts = _build_capture_cleanup(gen, fn, has_captures)
+            body_stmts.append(
+                IRVarDecl(
+                    c_type=CType(text=c_type),
+                    name=source_binding_c_name(cap.name, gen.analyzed),
+                    init=IRFieldAccess(
+                        obj=IRVar(name="__env"),
+                        field=source_binding_c_name(cap.name),
+                        arrow=True,
+                    ),
+                )
+            )
 
     # Lambda body — isolate managed scope so captures from outer scope
     # don't get released inside the wrapper function
-    saved_managed = gen._managed_vars_stack
-    saved_func_var_decls = gen._func_var_decls
-    saved_return_c_type = gen.current_return_c_type
-    saved_return_type = gen.current_return_type
-    gen._managed_vars_stack = []
-    gen._func_var_decls = []
-    gen.current_return_c_type = ret_c_type
-    gen.current_return_type = fn.return_type
-    if isinstance(fn.body, LambdaBlock) and fn.body.body:
-        from .statements import lower_block
-        block = lower_block(gen, fn.body.body)
-        # Rewrite body: box returns, insert cleanup before final return
-        lowered = [_rewrite_return(s, ret_c_type) for s in block.stmts]
-        if cleanup_stmts and lowered and isinstance(lowered[-1], IRReturn):
-            final_ret = lowered.pop()
-            body_stmts.extend(lowered)
-            # Save result, cleanup, return
-            body_stmts.append(IRVarDecl(
-                c_type=CType(text="void*"), name="__result",
-                init=final_ret.value or IRLiteral(text="NULL")))
-            body_stmts.extend(cleanup_stmts)
-            body_stmts.append(IRReturn(value=IRVar(name="__result")))
-        else:
-            body_stmts.extend(lowered)
-    elif isinstance(fn.body, LambdaExprBody) and fn.body.expression:
-        from .expressions import lower_expr
-        expr = lower_expr(gen, fn.body.expression)
-        if cleanup_stmts:
-            body_stmts.append(IRVarDecl(
-                c_type=CType(text="void*"), name="__result",
-                init=_box_result(expr, ret_c_type)))
-            body_stmts.extend(cleanup_stmts)
-            body_stmts.append(IRReturn(value=IRVar(name="__result")))
-        else:
-            body_stmts.append(IRReturn(value=_box_result(expr, ret_c_type)))
+    from .callable_provenance import BORROWED_RETURN
+    from .isolated_context import isolated_function_context
+    from .statements import lower_block
 
-    gen._managed_vars_stack = saved_managed
-    gen._func_var_decls = saved_func_var_decls
-    gen.current_return_c_type = saved_return_c_type
-    gen.current_return_type = saved_return_type
+    local_bindings = [parameter.name for parameter in fn.params]
+    local_bindings.extend(capture.name for capture in fn.captures)
+    capture_abis = [
+        (
+            capture,
+            gen._callable_return_abis.get(capture.name, BORROWED_RETURN),
+        )
+        for capture in fn.captures
+    ]
 
-    # Ensure void wrappers return NULL (with cleanup first)
-    # Only append if the body doesn't already end with a return (which would
-    # have had cleanup inserted by the _rewrite_return path above).
-    if ret_c_type == "void":
-        if not body_stmts or not isinstance(body_stmts[-1], IRReturn):
-            body_stmts.extend(cleanup_stmts)
-            body_stmts.append(IRReturn(value=IRLiteral(text="NULL")))
+    with isolated_function_context(gen, ret_c_type, return_type):
+        if isinstance(fn.body, LambdaBlock) and fn.body.body:
+            body = fn.body.body
+        elif isinstance(fn.body, LambdaExprBody) and fn.body.expression:
+            body = Block(
+                statements=[
+                    ReturnStmt(
+                        value=fn.body.expression,
+                        line=fn.body.expression.line,
+                        col=fn.body.expression.col,
+                    )
+                ]
+            )
+        else:
+            body = None
+        if body is not None:
+            block = lower_block(
+                gen,
+                body,
+                local_bindings=local_bindings,
+                callable_bindings=fn.params,
+                callable_abis=capture_abis,
+            )
+            rewritten = rewrite_thread_returns(gen, block, return_type)
+            body_stmts.extend(rewritten.stmts)
+
+    # A structured final statement may not cover every path. Keep the C wrapper
+    # total; the runtime owns and disposes the capture environment afterward.
+    if not body_stmts or not isinstance(body_stmts[-1], IRReturn):
+        body_stmts.append(IRReturn(value=IRLiteral(text="NULL")))
 
     return body_stmts
-
-
-def _build_capture_cleanup(gen, fn, has_captures):
-    """Build cleanup stmts: ARC release for class captures + free env struct."""
-    from ..nodes import IRBinOp, IRCall, IRExprStmt, IRIf, IRUnaryOp
-    if not has_captures:
-        return []
-    stmts = []
-    for cap in fn.captures:
-        if cap.type and cap.type.base in gen.analyzed.class_table:
-            destroy_fn = f"{cap.type.base}_destroy"
-            # if (cap != NULL) { if (--cap->__rc <= 0) destroy(cap); }
-            stmts.append(IRIf(
-                condition=IRBinOp(left=IRVar(name=cap.name), op="!=",
-                                  right=IRLiteral(text="NULL")),
-                then_block=IRBlock(stmts=[IRIf(
-                    condition=IRBinOp(
-                        left=IRUnaryOp(op="--", operand=IRFieldAccess(
-                            obj=IRVar(name=cap.name), field="__rc", arrow=True),
-                            prefix=True),
-                        op="<=", right=IRLiteral(text="0")),
-                    then_block=IRBlock(stmts=[IRExprStmt(
-                        expr=IRCall(callee=destroy_fn,
-                                    args=[IRVar(name=cap.name)]))]),
-                )]),
-            ))
-    stmts.append(IRExprStmt(expr=IRCall(callee="free",
-                                         args=[IRVar(name="__env")])))
-    return stmts
-
-
-def _box_result(expr, ret_c_type: str):
-    """Box a result value into void* for the thread wrapper return.
-
-    Returns proper IR nodes (IRCast chains) instead of text.
-    """
-    if ret_c_type == "void":
-        return IRLiteral(text="NULL")
-    if ret_c_type.strip() in _PRIMITIVE_TYPES:
-        # (void*)(intptr_t)(expr)
-        return IRCast(target_type="void*",
-                      expr=IRCast(target_type="intptr_t", expr=expr))
-    # Pointer type: (void*)(expr)
-    return IRCast(target_type="void*", expr=expr)
-
-
-def _rewrite_return(stmt, ret_c_type: str):
-    """Rewrite IRReturn to box the result for the void* wrapper."""
-    if isinstance(stmt, IRReturn):
-        if stmt.value is None:
-            return IRReturn(value=IRLiteral(text="NULL"))
-        return IRReturn(value=_box_result(stmt.value, ret_c_type))
-    return stmt

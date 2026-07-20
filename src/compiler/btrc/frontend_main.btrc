@@ -13,7 +13,9 @@
 #include "tokens.btrc"
 #include "ebnf.btrc"
 #include "lexer.btrc"
+#include "frontend_paths.btrc"
 #include "frontend.btrc"
+#include "driver_output.btrc"
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -34,8 +36,9 @@ int main(int argc, char** argv) {
     }
 
     string path = Strings.copy(argv[argIdx]);
-    string src = Path.readAll(path);
+    string src = feReadRequiredSource(path);
     string composed = feResolveFrontendSource(src, path, includeStdlib);
-    Console.write(composed);
-    return 0;
+    if (printNoNL(composed)) { return 0; }
+    fprintf(stderr, "frontend: error: cannot write standard output\n");
+    return 1;
 }

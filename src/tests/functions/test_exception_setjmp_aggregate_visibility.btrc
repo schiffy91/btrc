@@ -1,0 +1,28 @@
+#include <assert.h>
+
+struct SetjmpAggregate { int value; };
+
+void initializeAggregate(struct SetjmpAggregate* aggregate) {
+    aggregate->value = 42;
+}
+
+int inspectAggregate(int expected) {
+    try {
+        struct SetjmpAggregate aggregate;
+        initializeAggregate(&aggregate);
+        if (aggregate.value != expected) {
+            throw "unexpected aggregate value";
+        }
+        expected = aggregate.value;
+    } catch (string error) {
+        print(error);
+        return -1;
+    }
+    return expected;
+}
+
+int main() {
+    assert(inspectAggregate(42) == 42);
+    print("PASS: test_exception_setjmp_aggregate_visibility");
+    return 0;
+}

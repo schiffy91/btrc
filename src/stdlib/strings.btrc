@@ -17,7 +17,8 @@
  *    letters, non-Latin scripts) are passed through unchanged.
  *  - toInt: parses an optional leading sign then consecutive ASCII digits and
  *    STOPS at the first non-digit byte (after trimming surrounding whitespace).
- *    "12ab" -> 12, "abc" -> 0, "" -> 0, "-7" -> -7. No overflow detection.
+ *    "12ab" -> 12, "abc" -> 0, "" -> 0, "-7" -> -7. Overflow saturates at
+ *    the signed 32-bit bounds instead of invoking C signed-overflow UB.
  *  - repeat(s, n): n <= 0 yields the empty string "" (never a negative-size
  *    allocation).
  */
@@ -25,98 +26,140 @@
 import std.vector;
 
 class Strings {
+    class int checkedLength(string s) {
+        return __btrc_string_length(s);
+    }
+
     class string copy(string s) {
-        return f"{s}";
+        if (s == null) { s = ""; }
+        int length = Strings.checkedLength(s);
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)length + (size_t)1);
+        memcpy(result, s, (size_t)length);
+        result[length] = '\0';
+        return __btrc_str_track(result);
     }
 
     class string repeat(string s, int count) {
         /* count <= 0 means "no copies" -> empty string. Without this guard a
          * negative count produced a negative total and malloc(total + 1) with a
          * wrapped/negative size (undefined behavior / silent corruption). */
-        if (count <= 0) { return Strings.copy(""); }
-        int slen = (int)strlen(s);
+        if (count <= 0 || s == null) { return Strings.copy(""); }
+        int slen = Strings.checkedLength(s);
+        if (slen > 0 && count > 2147483646 / slen) {
+            fprintf(stderr, "string repeat overflow\n");
+            exit(1);
+        }
         int total = slen * count;
-        char* result = (char*)malloc(total + 1);
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)total + (size_t)1);
         for i in range(count) {
             memcpy(result + i * slen, s, slen);
         }
         result[total] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class string join(Vector<string> items, string sep) {
-        if (items.len == 0) { return ""; }
-        int seplen = (int)strlen(sep);
+        if (items == null || items.len == 0) { return Strings.copy(""); }
+        if (sep == null) { sep = ""; }
+        int seplen = Strings.checkedLength(sep);
         int total = 0;
         for i in range(items.len) {
-            total = total + (int)strlen(items.get(i));
+            int itemLength = Strings.checkedLength(items.get(i));
+            if (itemLength > 2147483646 - total) {
+                fprintf(stderr, "string join overflow\n");
+                exit(1);
+            }
+            total = total + itemLength;
         }
-        total = total + seplen * (items.len - 1);
-        char* result = (char*)malloc(total + 1);
+        long long separatorBytes = (long long)seplen
+            * (long long)(items.len - 1);
+        if (separatorBytes > (long long)(2147483646 - total)) {
+            fprintf(stderr, "string join overflow\n");
+            exit(1);
+        }
+        total = total + (int)separatorBytes;
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)total + (size_t)1);
         int pos = 0;
-        int first_len = (int)strlen(items.get(0));
-        memcpy(result, items.get(0), first_len);
+        string first = items.get(0) == null ? "" : items.get(0);
+        int first_len = Strings.checkedLength(first);
+        memcpy(result, first, (size_t)first_len);
         pos = first_len;
         for i in range(1, items.len) {
             memcpy(result + pos, sep, seplen);
             pos = pos + seplen;
-            int item_len = (int)strlen(items.get(i));
-            memcpy(result + pos, items.get(i), item_len);
+            string item = items.get(i) == null ? "" : items.get(i);
+            int item_len = Strings.checkedLength(item);
+            memcpy(result + pos, item, (size_t)item_len);
             pos = pos + item_len;
         }
         result[pos] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class string replace(string s, string old, string replacement) {
         if (s == null) { return ""; }
         if (old == null || replacement == null) { return Strings.copy(s); }
-        int slen = (int)strlen(s);
-        int oldlen = (int)strlen(old);
+        int slen = Strings.checkedLength(s);
+        int oldlen = Strings.checkedLength(old);
         if (oldlen == 0) { return Strings.copy(s); }
-        int replen = (int)strlen(replacement);
-        int cap = slen * 2 + 1;
-        char* result = (char*)malloc(cap);
+        int replen = Strings.checkedLength(replacement);
+        int matches = 0;
+        int scan = 0;
+        while (scan < slen) {
+            if (oldlen <= slen - scan
+                    && strncmp((char*)s + scan, old, (size_t)oldlen) == 0) {
+                matches++;
+                scan = scan + oldlen;
+            } else {
+                scan++;
+            }
+        }
+        long long outputLength = (long long)slen
+            + (long long)matches * (long long)(replen - oldlen);
+        if (outputLength < 0LL || outputLength > 2147483646LL) {
+            fprintf(stderr, "string replace overflow\n");
+            exit(1);
+        }
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)outputLength + (size_t)1);
         int rlen = 0;
         int i = 0;
         while (i < slen) {
-            if (i + oldlen <= slen && strncmp(s + i, old, oldlen) == 0) {
-                while (rlen + replen >= cap) {
-                    cap = cap * 2;
-                    result = (char*)realloc(result, cap);
-                }
-                memcpy(result + rlen, replacement, replen);
+            if (oldlen <= slen - i
+                    && strncmp((char*)s + i, old, (size_t)oldlen) == 0) {
+                memcpy(result + rlen, replacement, (size_t)replen);
                 rlen = rlen + replen;
                 i = i + oldlen;
             } else {
-                if (rlen + 1 >= cap) {
-                    cap = cap * 2;
-                    result = (char*)realloc(result, cap);
-                }
                 result[rlen] = s[i];
                 rlen++;
                 i++;
             }
         }
         result[rlen] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class Vector<string> split(string s, string delim) {
         Vector<string> result = [];
         if (s == null || delim == null) { return result; }
-        int dlen = (int)strlen(delim);
+        int dlen = Strings.checkedLength(delim);
         if (dlen == 0) { return result; }
-        char* p = s;
-        while (*p) {
-            char* found = strstr(p, delim);
-            int seglen = found != NULL ? (int)(found - p) : (int)strlen(p);
-            char* item = (char*)malloc(seglen + 1);
-            memcpy(item, p, seglen);
+        int slen = Strings.checkedLength(s);
+        int offset = 0;
+        while (true) {
+            int found = Strings.find(s, delim, offset);
+            int seglen = found >= 0 ? found - offset : slen - offset;
+            char* item = (char*)__btrc_safe_realloc(
+                NULL, (size_t)seglen + (size_t)1);
+            memcpy(item, (char*)s + offset, (size_t)seglen);
             item[seglen] = '\0';
-            result.push(item);
-            if (found == NULL) { break; }
-            p = found + dlen;
+            result.push(__btrc_str_track(item));
+            if (found < 0) { break; }
+            offset = found + dlen;
         }
         return result;
     }
@@ -140,7 +183,7 @@ class Strings {
     /* Parses an optional leading +/- sign then consecutive ASCII digits,
      * stopping at the first non-digit byte (surrounding whitespace is trimmed
      * first). Garbage or empty input yields 0; e.g. "12ab" -> 12, "abc" -> 0.
-     * No overflow detection. See the file header CONTRACT for details. */
+     * Overflow saturates. See the file header CONTRACT for details. */
     class int toInt(string s) {
         if (s == null) { return 0; }
         string value = s.trim();
@@ -153,28 +196,38 @@ class Strings {
         } else if (value.startsWith("+")) {
             i = 1;
         }
-        int result = 0;
+        long long result = 0LL;
+        long long limit = sign < 0 ? 2147483648LL : 2147483647LL;
         while (i < value.len() && Strings.isDigit(value[i])) {
-            result = result * 10 + (value[i] - '0');
+            int digit = value[i] - '0';
+            if (result > (limit - (long long)digit) / 10LL) {
+                return sign < 0 ? -2147483647 - 1 : 2147483647;
+            }
+            result = result * 10LL + (long long)digit;
             i++;
         }
-        return result * sign;
+        if (sign < 0 && result == 2147483648LL) {
+            return -2147483647 - 1;
+        }
+        return (int)result * sign;
     }
 
     class float toFloat(string s) {
-        return (float)atof(s);
+        if (s == null) { return 0.0f; }
+        return strtof(s, NULL);
     }
 
     /* --- String Analysis --- */
 
     class int count(string s, string sub) {
-        int slen = (int)strlen(s);
-        int sublen = (int)strlen(sub);
+        if (s == null || sub == null) { return 0; }
+        int slen = Strings.checkedLength(s);
+        int sublen = Strings.checkedLength(sub);
         if (sublen == 0) { return 0; }
         int n = 0;
         int i = 0;
-        while (i + sublen <= slen) {
-            if (strncmp(s + i, sub, sublen) == 0) {
+        while (i <= slen && sublen <= slen - i) {
+            if (strncmp((char*)s + i, sub, sublen) == 0) {
                 n++;
                 i = i + sublen;
             } else {
@@ -185,13 +238,15 @@ class Strings {
     }
 
     class int find(string s, string sub, int start) {
-        int slen = (int)strlen(s);
-        int sublen = (int)strlen(sub);
+        if (s == null || sub == null) { return -1; }
+        int slen = Strings.checkedLength(s);
+        int sublen = Strings.checkedLength(sub);
         if (start < 0) { start = 0; }
+        if (start > slen) { return -1; }
         if (sublen == 0) { return start; }
         int i = start;
-        while (i + sublen <= slen) {
-            if (strncmp(s + i, sub, sublen) == 0) {
+        while (i <= slen && sublen <= slen - i) {
+            if (strncmp((char*)s + i, sub, sublen) == 0) {
                 return i;
             }
             i++;
@@ -200,12 +255,13 @@ class Strings {
     }
 
     class int rfind(string s, string sub) {
-        int slen = (int)strlen(s);
-        int sublen = (int)strlen(sub);
+        if (s == null || sub == null) { return -1; }
+        int slen = Strings.checkedLength(s);
+        int sublen = Strings.checkedLength(sub);
         if (sublen == 0) { return slen; }
         int i = slen - sublen;
         while (i >= 0) {
-            if (strncmp(s + i, sub, sublen) == 0) {
+            if (strncmp((char*)s + i, sub, sublen) == 0) {
                 return i;
             }
             i--;
@@ -219,8 +275,10 @@ class Strings {
         if (right == null) { return 1; }
         int i = 0;
         while (left[i] != '\0' && right[i] != '\0') {
-            if (left[i] < right[i]) { return -1; }
-            if (left[i] > right[i]) { return 1; }
+            unsigned char leftByte = (unsigned char)left[i];
+            unsigned char rightByte = (unsigned char)right[i];
+            if (leftByte < rightByte) { return -1; }
+            if (leftByte > rightByte) { return 1; }
             i++;
         }
         if (left[i] == '\0' && right[i] == '\0') { return 0; }
@@ -235,8 +293,10 @@ class Strings {
     /* --- Case Conversion --- */
 
     class string capitalize(string s) {
-        int slen = (int)strlen(s);
-        char* result = (char*)malloc(slen + 1);
+        if (s == null) { return Strings.copy(""); }
+        int slen = Strings.checkedLength(s);
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)slen + (size_t)1);
         for i in range(slen) {
             result[i] = (char)tolower((unsigned char)s[i]);
         }
@@ -244,12 +304,14 @@ class Strings {
             result[0] = (char)toupper((unsigned char)s[0]);
         }
         result[slen] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class string title(string s) {
-        int slen = (int)strlen(s);
-        char* result = (char*)malloc(slen + 1);
+        if (s == null) { return Strings.copy(""); }
+        int slen = Strings.checkedLength(s);
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)slen + (size_t)1);
         bool newWord = true;
         for i in range(slen) {
             char c = s[i];
@@ -266,12 +328,14 @@ class Strings {
             }
         }
         result[slen] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class string swapCase(string s) {
-        int slen = (int)strlen(s);
-        char* result = (char*)malloc(slen + 1);
+        if (s == null) { return Strings.copy(""); }
+        int slen = Strings.checkedLength(s);
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)slen + (size_t)1);
         for i in range(slen) {
             char c = s[i];
             if (c >= 'A' && c <= 'Z') {
@@ -283,44 +347,62 @@ class Strings {
             }
         }
         result[slen] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     /* --- Padding --- */
 
     class string padLeft(string s, int width, char fill) {
-        int slen = (int)strlen(s);
+        if (s == null) { s = ""; }
+        int slen = Strings.checkedLength(s);
         if (slen >= width) { return Strings.copy(s); }
         int pad = width - slen;
-        char* result = (char*)malloc(width + 1);
+        if (width > 2147483646) {
+            fprintf(stderr, "string padding overflow\n");
+            exit(1);
+        }
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)width + (size_t)1);
         for i in range(pad) {
             result[i] = fill;
         }
         memcpy(result + pad, s, slen);
         result[width] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class string padRight(string s, int width, char fill) {
-        int slen = (int)strlen(s);
+        if (s == null) { s = ""; }
+        int slen = Strings.checkedLength(s);
         if (slen >= width) { return Strings.copy(s); }
         int pad = width - slen;
-        char* result = (char*)malloc(width + 1);
+        if (width > 2147483646) {
+            fprintf(stderr, "string padding overflow\n");
+            exit(1);
+        }
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)width + (size_t)1);
         memcpy(result, s, slen);
         for i in range(pad) {
             result[slen + i] = fill;
         }
         result[width] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class string center(string s, int width, char fill) {
-        int slen = (int)strlen(s);
+        if (s == null) { s = ""; }
+        int slen = Strings.checkedLength(s);
         if (slen >= width) { return Strings.copy(s); }
         int total_pad = width - slen;
         int left_pad = total_pad / 2;
         int right_pad = total_pad - left_pad;
-        char* result = (char*)malloc(width + 1);
+        if (width > 2147483646) {
+            fprintf(stderr, "string padding overflow\n");
+            exit(1);
+        }
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)width + (size_t)1);
         for i in range(left_pad) {
             result[i] = fill;
         }
@@ -329,37 +411,43 @@ class Strings {
             result[left_pad + slen + i] = fill;
         }
         result[width] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     /* --- Stripping --- */
 
     class string lstrip(string s) {
-        int slen = (int)strlen(s);
+        if (s == null) { return Strings.copy(""); }
+        int slen = Strings.checkedLength(s);
         int start = 0;
         while (start < slen && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r')) {
             start++;
         }
         int newlen = slen - start;
-        char* result = (char*)malloc(newlen + 1);
-        memcpy(result, s + start, newlen);
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)newlen + (size_t)1);
+        memcpy(result, (char*)s + start, newlen);
         result[newlen] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class string rstrip(string s) {
-        int slen = (int)strlen(s);
+        if (s == null) { return Strings.copy(""); }
+        int slen = Strings.checkedLength(s);
         int end = slen;
         while (end > 0 && (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\n' || s[end - 1] == '\r')) {
             end--;
         }
-        char* result = (char*)malloc(end + 1);
+        char* result = (char*)__btrc_safe_realloc(
+            NULL, (size_t)end + (size_t)1);
         memcpy(result, s, end);
         result[end] = '\0';
-        return result;
+        return __btrc_str_track(result);
     }
 
     class string removePrefix(string s, string prefix) {
+        if (s == null) { return Strings.copy(""); }
+        if (prefix == null) { return Strings.copy(s); }
         if (!s.startsWith(prefix)) { return Strings.copy(s); }
         return s.substring(prefix.len(), s.len() - prefix.len());
     }
@@ -367,21 +455,22 @@ class Strings {
     /* --- Numeric Conversion --- */
 
     class string fromInt(int n) {
-        char* buf = (char*)malloc(32);
+        char* buf = (char*)__btrc_safe_realloc(NULL, 32);
         snprintf(buf, 32, "%d", n);
-        return buf;
+        return __btrc_str_track(buf);
     }
 
     class string fromFloat(float f) {
-        char* buf = (char*)malloc(64);
+        char* buf = (char*)__btrc_safe_realloc(NULL, 64);
         snprintf(buf, 64, "%g", f);
-        return buf;
+        return __btrc_str_track(buf);
     }
 
     /* --- String Checks --- */
 
     class bool isDigitStr(string s) {
-        int slen = (int)strlen(s);
+        if (s == null) { return false; }
+        int slen = Strings.checkedLength(s);
         if (slen == 0) { return false; }
         for i in range(slen) {
             if (s[i] < '0' || s[i] > '9') { return false; }
@@ -390,7 +479,8 @@ class Strings {
     }
 
     class bool isAlphaStr(string s) {
-        int slen = (int)strlen(s);
+        if (s == null) { return false; }
+        int slen = Strings.checkedLength(s);
         if (slen == 0) { return false; }
         for i in range(slen) {
             char c = s[i];
@@ -400,7 +490,8 @@ class Strings {
     }
 
     class bool isBlank(string s) {
-        int slen = (int)strlen(s);
+        if (s == null) { return true; }
+        int slen = Strings.checkedLength(s);
         for i in range(slen) {
             char c = s[i];
             if (c != ' ' && c != '\t' && c != '\n' && c != '\r') { return false; }

@@ -1,0 +1,84 @@
+#include <assert.h>
+
+int itemsAlive = 0;
+int ordinaryFailureHooks = 0;
+int genericFailureHooks = 0;
+
+class Item {
+    public int id;
+
+    public Item(int id) {
+        self.id = id;
+        itemsAlive++;
+    }
+
+    public void __del__() {
+        itemsAlive--;
+    }
+}
+
+class OrdinaryFailure {
+    public Item first;
+    public Item second;
+
+    public OrdinaryFailure(int id) {
+        self.first = new Item(id);
+        self.second = new Item(id + 1);
+        throw "ordinary constructor failure";
+    }
+
+    public void __del__() {
+        ordinaryFailureHooks++;
+    }
+}
+
+class GenericFailure<T> {
+    public T value;
+    public Item extra;
+
+    public GenericFailure(T value, int id) {
+        self.value = value;
+        self.extra = new Item(id);
+        throw "generic constructor failure";
+    }
+
+    public void __del__() {
+        genericFailureHooks++;
+    }
+}
+
+void exerciseOrdinary(int id) {
+    try {
+        OrdinaryFailure failure = new OrdinaryFailure(id);
+        assert(failure == null);
+    } catch (string error) {
+        assert(error.equals("ordinary constructor failure"));
+    }
+}
+
+void exerciseGeneric(int id) {
+    try {
+        GenericFailure<Item> failure =
+            new GenericFailure<Item>(new Item(id), id + 1);
+        assert(failure == null);
+    } catch (string error) {
+        assert(error.equals("generic constructor failure"));
+    }
+}
+
+int main() {
+    for (int iteration = 0; iteration < 32; iteration++) {
+        exerciseOrdinary(iteration * 10);
+        /* Completed children drain, but a failed root never reaches source
+         * lifecycle code because its fields may be only partly initialized. */
+        assert(itemsAlive == 0);
+        assert(ordinaryFailureHooks == 0);
+        assert(genericFailureHooks == 0);
+
+        exerciseGeneric(iteration * 10);
+        assert(itemsAlive == 0);
+        assert(ordinaryFailureHooks == 0);
+        assert(genericFailureHooks == 0);
+    }
+    return 0;
+}

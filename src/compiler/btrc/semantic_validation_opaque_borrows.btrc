@@ -1,0 +1,191 @@
+/* Ephemeral managed-to-raw borrow boundaries. */
+
+Node? semanticHostedReturnAliasArgument(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null || expression.kind != NK_CALL_EXPR
+            || expression.callee == null
+            || expression.callee.kind != NK_IDENTIFIER) { return null; }
+    string name = expression.callee.name;
+    if (!semanticHostedCallUsesOwnedSymbol(name, state, vars)) { return null; }
+    int parameter = hostedAbiReturnAliasParameter(name);
+    if (parameter < 0 || parameter >= expression.args.len) { return null; }
+    return expression.args.get(parameter);
+}
+
+bool semanticOpaqueManagedType(Node? typeExpr,
+        SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null || canonical.is_array) { return false; }
+    Node typeValue = canonical;
+    if (semanticManagedOwnershipType(typeValue, state)) { return true; }
+    if (state.typeParams.has(typeValue.base)
+            && (typeValue.pointer_depth == 0
+                || (typeValue.is_nullable
+                    && typeValue.pointer_depth == 1))) { return true; }
+    if (typeValue.pointer_depth != 0) { return false; }
+    return typeValue.base == "Thread" || typeValue.base == "Vector"
+        || typeValue.base == "List" || typeValue.base == "Map"
+        || typeValue.base == "Set" || typeValue.base == "Array";
+}
+
+bool semanticOpaqueRawCarrierType(Node? typeExpr,
+        SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null
+            || semanticOpaqueManagedType(canonical, state)) { return false; }
+    Node typeValue = canonical;
+    if (typeValue.pointer_depth > 0) { return true; }
+    return typeValue.base != "bool"
+        && numericIsType(typeValue, state.analyzed);
+}
+
+bool semanticOpaqueProjectionCarrierType(Node? typeExpr,
+        SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    return canonical != null && (canonical.pointer_depth > 0
+        || canonical.base == "intptr_t" || canonical.base == "uintptr_t");
+}
+
+Node? semanticOpaqueManagedOrigin(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return null; }
+    if (expression.kind == NK_STRING_LITERAL) { return null; }
+    Node? direct = semanticInferType(expression, state, vars);
+    if (semanticOpaqueManagedType(direct, state)) { return direct; }
+    if (expression.kind == NK_CAST_EXPR) {
+        return semanticOpaqueManagedOrigin(expression.expr, state, vars);
+    }
+    if (expression.kind == NK_UNARY_EXPR) {
+        if (expression.op == "*") {
+            if (semanticOpaqueProjectionCarrierType(
+                    semanticInferType(expression, state, vars), state)
+                    && semanticExpressionCarriesOpaqueBorrow(
+                        expression.operand, state, vars)) {
+                return semanticOpaqueManagedOrigin(
+                    expression.operand, state, vars);
+            }
+            return null;
+        }
+        return semanticOpaqueManagedOrigin(expression.operand, state, vars);
+    }
+    if (expression.kind == NK_BINARY_EXPR) {
+        if (semanticOpaqueNonCarryingBinary(expression.op)) { return null; }
+        Node? left = semanticOpaqueManagedOrigin(
+            expression.left, state, vars);
+        if (left != null) { return left; }
+        return semanticOpaqueManagedOrigin(expression.right, state, vars);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        Node? first = semanticOpaqueManagedOrigin(
+            expression.true_expr, state, vars);
+        if (first != null) { return first; }
+        return semanticOpaqueManagedOrigin(
+            expression.false_expr, state, vars);
+    }
+    if (expression.kind == NK_INDEX_EXPR
+            || expression.kind == NK_FIELD_ACCESS_EXPR) {
+        if (semanticOpaqueProjectionCarrierType(
+                semanticInferType(expression, state, vars), state)
+                && semanticExpressionCarriesOpaqueBorrow(
+                    expression.obj, state, vars)) {
+            return semanticOpaqueManagedOrigin(expression.obj, state, vars);
+        }
+        return null;
+    }
+    Node? aliasArgument = semanticHostedReturnAliasArgument(
+        expression, state, vars);
+    if (aliasArgument != null) {
+        return semanticOpaqueManagedOrigin(aliasArgument, state, vars);
+    }
+    return null;
+}
+
+bool semanticOpaqueNonCarryingBinary(string op) {
+    return op == "==" || op == "!=" || op == "<" || op == "<="
+        || op == ">" || op == ">=" || op == "&&" || op == "||";
+}
+
+bool semanticExpressionCarriesOpaqueBorrow(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    if (expression.kind == NK_CAST_EXPR) {
+        if (!semanticOpaqueRawCarrierType(
+                expression.target_type, state)) { return false; }
+        if (expression.expr.kind == NK_STRING_LITERAL) { return false; }
+        return semanticOpaqueManagedOrigin(
+                expression.expr, state, vars) != null
+            || semanticExpressionCarriesOpaqueBorrow(
+                expression.expr, state, vars);
+    }
+    if (expression.kind == NK_UNARY_EXPR) {
+        if (expression.op == "!") { return false; }
+        if (expression.op == "*") {
+            return semanticOpaqueProjectionCarrierType(
+                    semanticInferType(expression, state, vars), state)
+                && semanticExpressionCarriesOpaqueBorrow(
+                    expression.operand, state, vars);
+        }
+        return semanticExpressionCarriesOpaqueBorrow(
+            expression.operand, state, vars);
+    }
+    if (expression.kind == NK_BINARY_EXPR) {
+        if (semanticOpaqueNonCarryingBinary(expression.op)) { return false; }
+        Node? leftType = semanticResolveAliases(
+            semanticInferType(expression.left, state, vars), state);
+        Node? rightType = semanticResolveAliases(
+            semanticInferType(expression.right, state, vars), state);
+        if (expression.op == "-" && leftType != null && rightType != null
+                && (leftType.pointer_depth > 0 || isStringType(leftType))
+                && (rightType.pointer_depth > 0 || isStringType(rightType))) {
+            return false;
+        }
+        return semanticExpressionCarriesOpaqueBorrow(
+                expression.left, state, vars)
+            || semanticExpressionCarriesOpaqueBorrow(
+                expression.right, state, vars);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        return semanticExpressionCarriesOpaqueBorrow(
+                expression.true_expr, state, vars)
+            || semanticExpressionCarriesOpaqueBorrow(
+                expression.false_expr, state, vars);
+    }
+    if (expression.kind == NK_INDEX_EXPR
+            || expression.kind == NK_FIELD_ACCESS_EXPR) {
+        return semanticOpaqueProjectionCarrierType(
+                semanticInferType(expression, state, vars), state)
+            && semanticExpressionCarriesOpaqueBorrow(
+                expression.obj, state, vars);
+    }
+    Node? aliasArgument = semanticHostedReturnAliasArgument(
+        expression, state, vars);
+    if (aliasArgument != null) {
+        return semanticExpressionIsOpaqueBorrow(
+            aliasArgument, state, vars);
+    }
+    return false;
+}
+
+bool semanticExpressionIsOpaqueBorrow(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    if (expression.kind == NK_STRING_LITERAL) { return false; }
+    return semanticOpaqueManagedType(
+            semanticInferType(expression, state, vars), state)
+        || semanticExpressionCarriesOpaqueBorrow(expression, state, vars);
+}
+
+void semanticValidateOpaqueBorrowStorage(Node? expected, Node? value,
+        string subject, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (state.allowOwnedOpaqueVariable
+            && semanticExpressionOwnsResult(value, state, vars)) { return; }
+    if (!semanticOpaqueRawCarrierType(expected, state)
+            || !semanticExpressionIsOpaqueBorrow(value, state, vars)) {
+        return;
+    }
+    semanticValidationFail(subject
+        + " cannot persist a managed value as a raw representation; use it "
+        + "only in a non-persisting expression or a proven borrow-only FFI call",
+        value);
+}

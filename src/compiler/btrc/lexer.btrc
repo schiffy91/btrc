@@ -9,33 +9,38 @@
  * every Python `source[a:b]` becomes `source.substring(a, b - a)`.
  */
 
-bool isHexDigit(char c) {
-    return Strings.isDigit(c)
-        || (c >= 'a' && c <= 'f')
-        || (c >= 'A' && c <= 'F');
-}
+#include "lexer_preprocessor.btrc"
 
 class Lexer {
     public string source;
+    public int sourceLen;
     public GrammarInfo grammar;
     public int pos;
     public int line;
     public int col;
     public Vector<Token> tokens;
+    public bool failed;
+    public bool complete;
+    public string diagnostic;
 
     public Lexer(string source, GrammarInfo grammar) {
         self.source = source;
+        self.sourceLen = source.length();
         self.grammar = grammar;
         self.pos = 0;
         self.line = 1;
         self.col = 1;
         self.tokens = [];
+        self.failed = false;
+        self.complete = false;
+        self.diagnostic = "";
     }
 
     public Vector<Token> tokenize() {
-        while (!self.atEnd()) {
+        if (self.complete) { return self.tokens; }
+        while (!self.atEnd() && !self.failed) {
             self.skipWsAndComments();
-            if (self.atEnd()) { break; }
+            if (self.atEnd() || self.failed) { break; }
             char c = self.peek(0);
             if (c == '#' && self.atLineStart()) {
                 self.readPreprocessor();
@@ -53,21 +58,32 @@ class Lexer {
                 self.readOperator();
             }
         }
+        /* A failed scan must never expose its valid prefix as a usable token
+         * stream. Keep one EOF sentinel so defensive consumers remain safe. */
+        if (self.failed) { self.tokens = []; }
         self.tokens.push(Token("EOF", "", self.line, self.col));
+        self.complete = true;
         return self.tokens;
     }
 
+    public void failLex(string message, int line, int col) {
+        if (self.failed) { return; }
+        self.failed = true;
+        self.diagnostic = f"{message} at {line}:{col}";
+    }
+
     public bool atEnd() {
-        return self.pos >= self.source.length();
+        return self.pos >= self.sourceLen;
     }
 
     public char peek(int off) {
         int p = self.pos + off;
-        if (p < 0 || p >= self.source.length()) { return '\0'; }
+        if (p < 0 || p >= self.sourceLen) { return '\0'; }
         return self.source[p];
     }
 
     public char advance() {
+        if (self.atEnd()) { return '\0'; }
         char c = self.source[self.pos];
         if (c == '\n') {
             self.line = self.line + 1;
@@ -84,7 +100,8 @@ class Lexer {
         while (p >= 0) {
             char c = self.source[p];
             if (c == '\n') { return true; }
-            if (c != ' ' && c != '\t') { return false; }
+            if (c != ' ' && c != '\t' && c != '\f'
+                    && c != '\v' && c != '\r') { return false; }
             p = p - 1;
         }
         return true;
@@ -96,7 +113,8 @@ class Lexer {
             again = false;
             while (!self.atEnd()) {
                 char c = self.peek(0);
-                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r'
+                        || c == '\f' || c == '\v') {
                     self.advance();
                     again = true;
                 } else {
@@ -107,10 +125,16 @@ class Lexer {
                 while (!self.atEnd() && self.peek(0) != '\n') { self.advance(); }
                 again = true;
             } else if (self.peek(0) == '/' && self.peek(1) == '*') {
+                int line = self.line;
+                int col = self.col;
                 self.advance();
                 self.advance();
                 while (!self.atEnd() && !(self.peek(0) == '*' && self.peek(1) == '/')) {
                     self.advance();
+                }
+                if (self.atEnd()) {
+                    self.failLex("Unterminated block comment", line, col);
+                    return;
                 }
                 self.advance();
                 self.advance();
@@ -123,10 +147,16 @@ class Lexer {
         int startPos = self.pos;
         int line = self.line;
         int col = self.col;
-        while (!self.atEnd() && self.peek(0) != '\n') {
-            if (self.peek(0) == '\\' && self.peek(1) == '\n') {
-                self.advance();
-                self.advance();
+        while (!self.atEnd()) {
+            int spliceWidth = lexerPreprocessorSpliceWidth(
+                self.source, self.pos);
+            if (spliceWidth > 0) {
+                int consumed = 0;
+                while (consumed < spliceWidth) {
+                    self.advance(); consumed = consumed + 1;
+                }
+            } else if (self.peek(0) == '\n') {
+                break;
             } else {
                 self.advance();
             }
@@ -147,7 +177,7 @@ class Lexer {
         if (self.grammar.annotationToToken.has(name)) {
             self.tokens.push(Token(self.grammar.annotationToToken.get(name), "@" + name, line, col));
         } else {
-            self.tokens.push(Token("IDENT", "@" + name, line, col));
+            self.failLex("Unknown annotation '@" + name + "'", line, col);
         }
     }
 
@@ -199,166 +229,19 @@ class Lexer {
     }
 
     public void readNumber() {
-        int line = self.line;
-        int col = self.col;
-        int startPos = self.pos;
-        bool isFloat = false;
-        if (self.peek(0) == '0' && (self.peek(1) == 'x' || self.peek(1) == 'X')) {
-            self.advance();
-            self.advance();
-            while (!self.atEnd() && isHexDigit(self.peek(0))) { self.advance(); }
-            self.consumeIntSuffix();
-        } else if (self.peek(0) == '0' && (self.peek(1) == 'b' || self.peek(1) == 'B')) {
-            self.advance();
-            self.advance();
-            while (!self.atEnd() && (self.peek(0) == '0' || self.peek(0) == '1')) { self.advance(); }
-            self.consumeIntSuffix();
-        } else if (self.peek(0) == '0' && (self.peek(1) == 'o' || self.peek(1) == 'O')) {
-            self.advance();
-            self.advance();
-            while (!self.atEnd() && self.peek(0) >= '0' && self.peek(0) <= '7') { self.advance(); }
-            self.consumeIntSuffix();
-        } else {
-            while (!self.atEnd() && Strings.isDigit(self.peek(0))) { self.advance(); }
-            if (self.peek(0) == '.' && Strings.isDigit(self.peek(1))) {
-                isFloat = true;
-                self.advance();
-                while (!self.atEnd() && Strings.isDigit(self.peek(0))) { self.advance(); }
-            }
-            if (self.peek(0) == 'e' || self.peek(0) == 'E') {
-                isFloat = true;
-                self.advance();
-                if (self.peek(0) == '+' || self.peek(0) == '-') { self.advance(); }
-                while (!self.atEnd() && Strings.isDigit(self.peek(0))) { self.advance(); }
-            }
-            if (self.peek(0) == 'f' || self.peek(0) == 'F') {
-                isFloat = true;
-                self.advance();
-            } else {
-                self.consumeIntSuffix();
-            }
-        }
-        string value = self.source.substring(startPos, self.pos - startPos);
-        string type = "INT_LIT";
-        if (isFloat) { type = "FLOAT_LIT"; }
-        self.tokens.push(Token(type, value, line, col));
-    }
-
-    public void consumeIntSuffix() {
-        char c = self.peek(0);
-        if (c == 'u' || c == 'U') {
-            self.advance();
-            if (self.peek(0) == 'l' || self.peek(0) == 'L') {
-                self.advance();
-                if (self.peek(0) == 'l' || self.peek(0) == 'L') { self.advance(); }
-            }
-        } else if (c == 'l' || c == 'L') {
-            self.advance();
-            if (self.peek(0) == 'l' || self.peek(0) == 'L') { self.advance(); }
-            if (self.peek(0) == 'u' || self.peek(0) == 'U') { self.advance(); }
-        }
+        lexerReadNumber(self);
     }
 
     public void readString() {
-        int line = self.line;
-        int col = self.col;
-        if (self.peek(1) == '"' && self.peek(2) == '"') {
-            self.readTripleString(line, col);
-            return;
-        }
-        self.advance();  // opening "
-        string content = "";
-        while (!self.atEnd() && self.peek(0) != '"') {
-            char c = self.peek(0);
-            if (c == '\\') {
-                content = content + chr(self.advance());
-                if (!self.atEnd()) { content = content + chr(self.advance()); }
-            } else {
-                content = content + chr(self.advance());
-            }
-        }
-        self.advance();  // closing "
-        self.tokens.push(Token("STRING_LIT", "\"" + content + "\"", line, col));
-    }
-
-    public void readTripleString(int line, int col) {
-        self.advance();
-        self.advance();
-        self.advance();
-        string content = "";
-        while (!self.atEnd() && !(self.peek(0) == '"' && self.peek(1) == '"' && self.peek(2) == '"')) {
-            char c = self.peek(0);
-            if (c == '\n') {
-                content = content + "\\n";
-                self.advance();
-            } else if (c == '\r') {
-                content = content + "\\n";
-                self.advance();
-                if (self.peek(0) == '\n') { self.advance(); }
-            } else if (c == '\\') {
-                content = content + chr(self.advance());
-                if (!self.atEnd()) { content = content + chr(self.advance()); }
-            } else {
-                content = content + chr(self.advance());
-            }
-        }
-        self.advance();
-        self.advance();
-        self.advance();
-        self.tokens.push(Token("STRING_LIT", "\"" + content + "\"", line, col));
+        lexerReadString(self);
     }
 
     public void readChar() {
-        int line = self.line;
-        int col = self.col;
-        self.advance();  // opening '
-        string content = "";
-        while (!self.atEnd() && self.peek(0) != '\'') {
-            char c = self.peek(0);
-            if (c == '\\') {
-                content = content + chr(self.advance());
-                if (!self.atEnd()) { content = content + chr(self.advance()); }
-            } else {
-                content = content + chr(self.advance());
-            }
-        }
-        self.advance();  // closing '
-        self.tokens.push(Token("CHAR_LIT", "'" + content + "'", line, col));
+        lexerReadChar(self);
     }
 
     public void readFstring(int line, int col) {
-        self.advance();  // opening "
-        string content = "";
-        int braceDepth = 0;
-        while (!self.atEnd()) {
-            char c = self.peek(0);
-            if (c == '{') {
-                if (braceDepth == 0 && self.peek(1) == '{') {
-                    content = content + chr(self.advance());
-                    content = content + chr(self.advance());
-                } else {
-                    braceDepth = braceDepth + 1;
-                    content = content + chr(self.advance());
-                }
-            } else if (c == '}') {
-                if (braceDepth == 0 && self.peek(1) == '}') {
-                    content = content + chr(self.advance());
-                    content = content + chr(self.advance());
-                } else {
-                    braceDepth = braceDepth - 1;
-                    content = content + chr(self.advance());
-                }
-            } else if (c == '\\') {
-                content = content + chr(self.advance());
-                if (!self.atEnd()) { content = content + chr(self.advance()); }
-            } else if (c == '"' && braceDepth == 0) {
-                self.advance();
-                break;
-            } else {
-                content = content + chr(self.advance());
-            }
-        }
-        self.tokens.push(Token("FSTRING_LIT", content, line, col));
+        lexerReadFstring(self, line, col);
     }
 
     public void readOperator() {
@@ -369,8 +252,15 @@ class Lexer {
         while (i < n) {
             string op = self.grammar.operators.get(i);
             int oplen = op.length();
-            if (self.pos + oplen <= self.source.length()
-                && self.source.substring(self.pos, oplen) == op) {
+            bool matches = self.pos + oplen <= self.sourceLen;
+            int compared = 0;
+            while (matches && compared < oplen) {
+                if (self.source[self.pos + compared] != op[compared]) {
+                    matches = false;
+                }
+                compared = compared + 1;
+            }
+            if (matches) {
                 int k = 0;
                 while (k < oplen) { self.advance(); k = k + 1; }
                 self.tokens.push(Token(self.grammar.opToToken.get(op), op, line, col));
@@ -378,8 +268,12 @@ class Lexer {
             }
             i = i + 1;
         }
-        // Unexpected character — emit nothing matchable; advance to avoid a loop.
-        self.advance();
+        int unexpected = (int)self.peek(0);
+        if (unexpected < 0 || unexpected > 127) {
+            self.failLex("Unexpected non-ASCII character", line, col);
+            return;
+        }
+        self.failLex("Unexpected character '" + chr(self.peek(0)) + "'", line, col);
     }
 }
 
@@ -395,3 +289,6 @@ string rtrim(string s) {
     }
     return s.substring(0, end);
 }
+
+#include "lexer_literal_rules.btrc"
+#include "lexer_literals.btrc"

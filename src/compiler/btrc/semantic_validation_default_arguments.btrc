@@ -1,0 +1,68 @@
+/* Receiver-free declaration contracts for synthesized default evaluators. */
+
+Node? semanticDefaultInstanceMember(string name, bool directCall,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (!state.inParameterDefault || state.callable == null
+            || !state.callable.is_constructor || !vars.has("self")) {
+        return null;
+    }
+    string className = vars.get("self").base;
+    Node? member = null;
+    if (state.analyzed.isClass(className)) {
+        if (directCall) {
+            member = state.analyzed.classMethod(className, name);
+        }
+        if (member == null) {
+            member = state.analyzed.classMember(className, name);
+        }
+    } else if (state.analyzed.isGenericClass(className)) {
+        Node declaration = state.analyzed.genericClassTable.get(className);
+        int index = 0;
+        while (index < declaration.members.len && member == null) {
+            Node candidate = declaration.members.get(index);
+            bool matchingMethod = candidate.kind == NK_METHOD_DECL
+                && !candidate.is_constructor && candidate.name == name;
+            bool matchingValue = candidate.kind != NK_METHOD_DECL
+                && candidate.name == name;
+            if ((directCall && matchingMethod)
+                    || (!directCall && (matchingMethod || matchingValue))) {
+                member = candidate;
+            }
+            index = index + 1;
+        }
+        if (directCall && member == null) {
+            index = 0;
+            while (index < declaration.members.len && member == null) {
+                Node candidate = declaration.members.get(index);
+                if (candidate.kind != NK_METHOD_DECL
+                        && candidate.name == name) {
+                    member = candidate;
+                }
+                index = index + 1;
+            }
+        }
+    }
+    return member;
+}
+
+void semanticRejectConstructorDefaultInstanceMember(string name, Node site,
+        bool directCall, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (vars.has(name) || state.analyzed.funcTable.has(name)
+            || state.sourceMacros.has(name) || state.analyzed.isClass(name)
+            || state.analyzed.isGenericClass(name)
+            || state.analyzed.isEnum(name)
+            || state.analyzed.isRichEnum(name)
+            || state.analyzed.isEnumValue(name)
+            || sourceRuntimeHelperSymbol(name) || isCIntegerIdentifier(name)
+            || name == "NULL" || name == "__func__"
+            || name == "stdin" || name == "stdout" || name == "stderr") {
+        return;
+    }
+    Node? member = semanticDefaultInstanceMember(
+        name, directCall, state, vars);
+    if (member != null && member.access != "class") {
+        semanticValidationFail("Constructor defaults cannot reference "
+            + "instance member '" + name + "' before allocation", site);
+    }
+}

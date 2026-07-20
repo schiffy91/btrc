@@ -1,0 +1,15 @@
+@gpu void compound(int[] xs, bool toggle) {
+    int i = gpu_id();
+    int shift = 1;
+    bool flag = toggle;
+    xs[i] <<= shift;
+    flag ^= true;
+    xs[i] /= 2;
+    xs[i] %= 3;
+}
+
+int main() {
+    int[] xs = {8};
+    compound(xs, true);
+    return 0;
+}
