@@ -388,6 +388,21 @@ def test_archive_header_inlines_private_noninline_helpers():
     assert header_source.count("static inline int current(void)") == 1
 
 
+def test_archive_header_inlines_helpers_after_preprocessor_prefixes():
+    source = "\n".join(
+        (
+            "#if defined(__APPLE__)",
+            "#include <sys/types.h>",
+            "#endif",
+            "static int platform_bound(void) { return 3; }",
+        )
+    )
+
+    header_source = inline_toplevel_functions(source)
+
+    assert "static inline int platform_bound(void)" in header_source
+
+
 def _compile_object(
     compiler: str,
     include_dir: Path,

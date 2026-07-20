@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
 const { resolveServerLaunch } = require('../out/launch.js');
+const { createPythonSupportProbe } = require('../out/python_runtime.js');
 
 const config = {
     pythonPath: 'python3',
@@ -25,11 +26,13 @@ function context(files, overrides = {}) {
             ...overrides.env,
         },
         exists: (candidate) => existing.has(candidate),
+        supportsPython: overrides.supportsPython ?? (() => true),
+        signal: overrides.signal,
     };
 }
 
-test('explicit serverPath wins over commands and workspace shells', () => {
-    const launch = resolveServerLaunch(context([
+test('explicit serverPath wins over commands and workspace shells', async () => {
+    const launch = await resolveServerLaunch(context([
         '/repo/src/devex/lsp/server.py',
         '/workspace/.envrc',
         '/bin/direnv',
@@ -44,8 +47,31 @@ test('explicit serverPath wins over commands and workspace shells', () => {
     assert.equal(launch.cwd, '/repo');
 });
 
-test('explicit relative serverCommand prefers workspace direnv before PATH', () => {
-    const launch = resolveServerLaunch(context([
+test('explicit serverPath skips an unsupported project venv and uses Nix', async () => {
+    const staleVenv = '/repo/src/devex/lsp/.venv/bin/python3';
+    const launch = await resolveServerLaunch(context([
+        '/repo/src/devex/lsp/server.py',
+        staleVenv,
+        '/repo/flake.nix',
+        '/bin/nix',
+    ], {
+        config: { serverPath: '/repo/src/devex/lsp/server.py' },
+        supportsPython: (candidate) => candidate !== staleVenv,
+    }));
+
+    assert.equal(launch.source, 'serverPath');
+    assert.equal(launch.command, '/bin/nix');
+    assert.deepEqual(launch.args, [
+        'develop',
+        '/repo',
+        '--command',
+        'python3',
+        '/repo/src/devex/lsp/server.py',
+    ]);
+});
+
+test('explicit relative serverCommand prefers workspace direnv before PATH', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/.envrc',
         '/bin/direnv',
         '/bin/btrc-lsp',
@@ -59,8 +85,8 @@ test('explicit relative serverCommand prefers workspace direnv before PATH', () 
     assert.equal(launch.cwd, '/workspace');
 });
 
-test('explicit relative serverCommand finds direnv when VS Code has a sparse PATH', () => {
-    const launch = resolveServerLaunch(context([
+test('explicit relative serverCommand finds direnv when VS Code has a sparse PATH', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/.envrc',
         '/opt/homebrew/bin/direnv',
     ], {
@@ -73,8 +99,8 @@ test('explicit relative serverCommand finds direnv when VS Code has a sparse PAT
     assert.deepEqual(launch.args, ['exec', '/workspace', 'btrc-lsp']);
 });
 
-test('explicit relative serverCommand prefers workspace shell.nix before PATH', () => {
-    const launch = resolveServerLaunch(context([
+test('explicit relative serverCommand prefers workspace shell.nix before PATH', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/shell.nix',
         '/bin/nix-shell',
         '/bin/btrc-lsp',
@@ -87,8 +113,8 @@ test('explicit relative serverCommand prefers workspace shell.nix before PATH', 
     assert.deepEqual(launch.args, ['/workspace/shell.nix', '--run', 'btrc-lsp']);
 });
 
-test('useNixDevShell false skips workspace shell.nix and resolves on PATH', () => {
-    const launch = resolveServerLaunch(context([
+test('useNixDevShell false skips workspace shell.nix and resolves on PATH', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/shell.nix',
         '/bin/nix-shell',
         '/bin/btrc-lsp',
@@ -101,8 +127,8 @@ test('useNixDevShell false skips workspace shell.nix and resolves on PATH', () =
     assert.deepEqual(launch.args, []);
 });
 
-test('useNixDevShell false skips workspace flake and resolves on PATH', () => {
-    const launch = resolveServerLaunch(context([
+test('useNixDevShell false skips workspace flake and resolves on PATH', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/flake.nix',
         '/bin/nix',
         '/bin/btrc-lsp',
@@ -115,8 +141,8 @@ test('useNixDevShell false skips workspace flake and resolves on PATH', () => {
     assert.deepEqual(launch.args, []);
 });
 
-test('useNixDevShell false skips workspace flake before bundled fallback', () => {
-    const launch = resolveServerLaunch(context([
+test('useNixDevShell false skips workspace flake before bundled fallback', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/flake.nix',
         '/extension/server/src/devex/lsp/server.py',
         '/extension/server/flake.nix',
@@ -130,8 +156,8 @@ test('useNixDevShell false skips workspace flake before bundled fallback', () =>
     assert.deepEqual(launch.args, ['/extension/server/src/devex/lsp/server.py']);
 });
 
-test('useNixDevShell false still allows workspace direnv', () => {
-    const launch = resolveServerLaunch(context([
+test('useNixDevShell false still allows workspace direnv', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/.envrc',
         '/workspace/flake.nix',
         '/bin/direnv',
@@ -146,8 +172,8 @@ test('useNixDevShell false still allows workspace direnv', () => {
     assert.deepEqual(launch.args, ['exec', '/workspace', 'btrc-lsp']);
 });
 
-test('absolute serverCommand is respected directly', () => {
-    const launch = resolveServerLaunch(context([
+test('absolute serverCommand is respected directly', async () => {
+    const launch = await resolveServerLaunch(context([
         '/custom/bin/btrc-lsp',
         '/workspace/.envrc',
         '/bin/direnv',
@@ -160,10 +186,10 @@ test('absolute serverCommand is respected directly', () => {
     assert.deepEqual(launch.args, []);
 });
 
-test('explicit relative serverCommand resolves on PATH before local server fallback', () => {
+test('explicit relative serverCommand resolves on PATH before local server fallback', async () => {
     // No direnv/.envrc/shell.nix/flake.nix: the explicitly configured command
     // must win over a discovered bundled server instead of being ignored.
-    const launch = resolveServerLaunch(context([
+    const launch = await resolveServerLaunch(context([
         '/extension/server/src/devex/lsp/server.py',
         '/bin/btrc-lsp-dev',
     ], {
@@ -176,8 +202,8 @@ test('explicit relative serverCommand resolves on PATH before local server fallb
     assert.equal(launch.cwd, '/workspace');
 });
 
-test('default serverCommand prefers workspace direnv before bundled server', () => {
-    const launch = resolveServerLaunch(context([
+test('default serverCommand prefers workspace direnv before bundled server', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/.envrc',
         '/workspace/shell.nix',
         '/workspace/flake.nix',
@@ -193,8 +219,8 @@ test('default serverCommand prefers workspace direnv before bundled server', () 
     assert.deepEqual(launch.args, ['exec', '/workspace', 'btrc-lsp']);
 });
 
-test('source-tree server falls back to project nix dev shell', () => {
-    const launch = resolveServerLaunch(context([
+test('source-tree server falls back to project nix dev shell', async () => {
+    const launch = await resolveServerLaunch(context([
         '/extension/server/src/devex/lsp/server.py',
         '/extension/server/flake.nix',
         '/bin/nix',
@@ -213,8 +239,74 @@ test('source-tree server falls back to project nix dev shell', () => {
     ]);
 });
 
-test('btrc checkout in workspace prefers live source tree over workspace flake', () => {
-    const launch = resolveServerLaunch(context([
+test('unsupported ambient Python falls back to an installed server command', async () => {
+    const launch = await resolveServerLaunch(context([
+        '/extension/server/src/devex/lsp/server.py',
+        '/bin/btrc-lsp',
+    ], {
+        supportsPython: () => false,
+    }));
+
+    assert.equal(launch.source, 'serverCommand');
+    assert.equal(launch.command, '/bin/btrc-lsp');
+});
+
+test('unsupported ambient Python never launches the bundled server', async () => {
+    const launch = await resolveServerLaunch(context([
+        '/extension/server/src/devex/lsp/server.py',
+    ], {
+        config: { serverCommand: '' },
+        supportsPython: () => false,
+    }));
+
+    assert.equal(launch, undefined);
+});
+
+test('revisited source-tree fallback reuses the cached Python result', async () => {
+    let calls = 0;
+    const supportsPython = createPythonSupportProbe({
+        probe: async () => {
+            calls += 1;
+            return false;
+        },
+    });
+    const launch = await resolveServerLaunch(context([
+        '/workspace/src/devex/lsp/server.py',
+    ], {
+        config: { serverCommand: '' },
+        supportsPython,
+    }));
+
+    assert.equal(launch, undefined);
+    assert.equal(calls, 1);
+});
+
+test('cancellation stops a pending Python server resolution', async () => {
+    const cancellation = new AbortController();
+    let calls = 0;
+    const resolution = resolveServerLaunch(context([
+        '/workspace/src/devex/lsp/server.py',
+    ], {
+        config: { serverCommand: '' },
+        signal: cancellation.signal,
+        supportsPython: (_candidate, signal) => new Promise((resolve) => {
+            calls += 1;
+            if (signal.aborted) {
+                resolve(false);
+            } else {
+                signal.addEventListener('abort', () => resolve(false), { once: true });
+            }
+        }),
+    }));
+    await new Promise((resolve) => setImmediate(resolve));
+    cancellation.abort();
+
+    assert.equal(await resolution, undefined);
+    assert.equal(calls, 1);
+});
+
+test('btrc checkout in workspace prefers live source tree over workspace flake', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/src/devex/lsp/server.py',
         '/workspace/flake.nix',
         '/bin/nix',
@@ -231,8 +323,8 @@ test('btrc checkout in workspace prefers live source tree over workspace flake',
     ]);
 });
 
-test('explicit serverCommand still prefers workspace flake over live source tree', () => {
-    const launch = resolveServerLaunch(context([
+test('explicit serverCommand still prefers workspace flake over live source tree', async () => {
+    const launch = await resolveServerLaunch(context([
         '/workspace/src/devex/lsp/server.py',
         '/workspace/flake.nix',
         '/bin/nix',

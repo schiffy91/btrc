@@ -98,7 +98,7 @@ class Lexer:
 
     def _at_line_start(self) -> bool:
         i = self.pos - 1
-        while i >= 0 and self.source[i] in (" ", "\t"):
+        while i >= 0 and self.source[i] in (" ", "\t", "\f", "\v", "\r"):
             i -= 1
         return i < 0 or self.source[i] == "\n"
 
@@ -110,7 +110,7 @@ class Lexer:
     def _skip_whitespace_and_comments(self):
         while self.pos < len(self.source):
             ch = self._peek()
-            if ch in (" ", "\t", "\n", "\r"):
+            if ch in (" ", "\t", "\n", "\r", "\f", "\v"):
                 self._advance()
             elif ch == "/" and self._peek(1) == "/":
                 self._skip_line_comment()
@@ -144,15 +144,24 @@ class Lexer:
         line, col = self.line, self.col
         start = self.pos
         while self.pos < len(self.source):
-            if self._peek() == "\\" and self._peek(1) == "\n":
-                self._advance()
-                self._advance()
+            splice_width = self._preprocessor_splice_width()
+            if splice_width:
+                for _ in range(splice_width):
+                    self._advance()
             elif self._peek() == "\n":
                 break
             else:
                 self._advance()
         value = self.source[start : self.pos]
         self._emit(TokenType.PREPROCESSOR, value, line, col)
+
+    def _preprocessor_splice_width(self) -> int:
+        marker_width = 1 if self._peek() == "\\" else 3 if self.source.startswith("??/", self.pos) else 0
+        if marker_width and self._peek(marker_width) == "\n":
+            return marker_width + 1
+        if marker_width and self._peek(marker_width) == "\r" and self._peek(marker_width + 1) == "\n":
+            return marker_width + 2
+        return 0
 
     # --- Annotation (grammar-driven via @annotations section) ---
 

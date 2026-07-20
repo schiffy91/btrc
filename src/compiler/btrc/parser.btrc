@@ -1083,6 +1083,10 @@ class Parser {
             type_expr.array_size = size_expr;
         }
         type_expr.is_array = true;
+        if (type_expr.is_nullable) {
+            type_expr.nullable_outer_depth =
+                type_expr.nullable_outer_depth + 1;
+        }
         if (self.check("LBRACKET")) {
             self.failExpected("one array dimension (AST/IR cannot represent another)", self.peek());
         }

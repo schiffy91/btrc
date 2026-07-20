@@ -77,12 +77,13 @@ def test_qualified_member_access_rejects_wrong_storage_shape():
     assert _has(errors, "has no field or method 'inheritedstatic'")
 
 
-def test_local_can_shadow_type_name_for_instance_member_access():
+def test_local_can_shadow_type_name_without_changing_type_positions():
     errors = _errors("""
         class Box { public int value; }
         int read() {
             Box Box = Box();
-            return Box.value;
+            Box other = new Box();
+            return Box.value + other.value;
         }
     """)
 

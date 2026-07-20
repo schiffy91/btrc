@@ -108,13 +108,13 @@ def test_nonrepresentable_c_casts_are_rejected(source: str, message: str):
 
 def test_numeric_pointer_typedef_enum_and_void_discard_casts_remain_valid():
     result = _analyze("""
-        typedef unsigned int uint;
+        typedef unsigned int UnsignedAlias;
         enum Color { RED, GREEN };
         void action() {}
         void run() {
             double source = 3.5;
             int number = (int)source;
-            uint wide = (uint)number;
+            UnsignedAlias wide = (UnsignedAlias)number;
             void* opaque = (void*)&number;
             int* pointer = (int*)opaque;
             Color color = (Color)number;
@@ -238,13 +238,13 @@ def test_anonymous_enum_has_structured_unnamed_ir():
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_preserved_valid_boundaries_compile_as_strict_c11(tmp_path: Path, c_compiler: str):
     _, c_source = _emit("""
-        typedef unsigned int uint;
+        typedef unsigned int UnsignedAlias;
         enum Color { RED, GREEN };
         struct Point { int x; };
         int main() {
             double source = 3.5;
             int number = (int)source;
-            uint wide = (uint)number;
+            UnsignedAlias wide = (UnsignedAlias)number;
             void* opaque = (void*)&number;
             int* pointer = (int*)opaque;
             Color color = (Color)number;

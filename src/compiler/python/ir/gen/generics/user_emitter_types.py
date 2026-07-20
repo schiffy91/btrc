@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 
 class _UserGenericTypeMixin:
     def _typedefs(self):
@@ -71,16 +69,13 @@ class _UserGenericTypeMixin:
 
             return TypeExpr(base="char")
         if container_type.is_array:
-            return replace(
-                container_type,
-                is_array=False,
-                array_size=None,
-            )
+            from ....type_composition import strip_outer_storage
+
+            return strip_outer_storage(container_type, array=True)
         if container_type.pointer_depth > 0:
-            return replace(
-                container_type,
-                pointer_depth=container_type.pointer_depth - 1,
-            )
+            from ....type_composition import strip_outer_storage
+
+            return strip_outer_storage(container_type)
         return None
 
     def _mangle_type(self, type_expr):

@@ -18,6 +18,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDecl,
     IRFunctionDef,
     IRFunctionPointerTypedef,
+    IRFunctionRef,
     IRHelperDecl,
     IRInitializerList,
     IRLiteral,
@@ -69,7 +70,7 @@ def test_extern_roots_are_structured_symbols_not_incidental_text():
                     IRVarDecl(CType("int"), "local_name_extern", IRLiteral("0")),
                     IRExprStmt(IRLiteral('"literal_extern"')),
                     IRExprStmt(IRCall("called_extern")),
-                    IRExprStmt(IRVar("addressed_extern")),
+                    IRExprStmt(IRFunctionRef("addressed_extern")),
                     IRReturn(IRLiteral("0")),
                 ]
             )

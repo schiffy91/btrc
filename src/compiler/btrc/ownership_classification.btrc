@@ -26,7 +26,10 @@ bool irKnownLanguageCall(IRGen generator, Node call,
         return true;
     }
     if (callee.kind == NK_IDENTIFIER) {
-        return callee.name == "Mutex"
+        if (varTypes.has(callee.name)) { return false; }
+        return (callee.name == "Mutex"
+                && !generator.analyzed.funcNames.has(callee.name)
+                && !generator.analyzed.isClass(callee.name))
             || generator.analyzed.isClass(callee.name)
             || generator.analyzed.isGenericClass(callee.name);
     }

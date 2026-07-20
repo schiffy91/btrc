@@ -1,5 +1,18 @@
 /* Contextual f32 types and literal spelling shared by WGSL and CPU fallback. */
 
+bool gpuCallResolvesToBuiltin(Node? expression, Analyzed analyzed,
+        Map<string, Node> varTypes) {
+    if (expression == null || expression.kind != NK_CALL_EXPR
+            || expression.callee == null
+            || expression.callee.kind != NK_IDENTIFIER) { return false; }
+    string name = expression.callee.name;
+    if (!gpuBuiltin(name) || varTypes.has(name)) { return false; }
+    if (!analyzed.funcTable.has(name)) { return true; }
+    if (analyzed.hostedCallKeys.has(astNodeKey(expression))) { return true; }
+    Node declaration = analyzed.funcTable.get(name);
+    return declaration.body_node == null && hostedAbiExactFunction(name);
+}
+
 string gpuContextualExprBase(Node? expression, Analyzed analyzed,
         Map<string, Node> varTypes) {
     if (expression == null) { return ""; }
@@ -44,8 +57,11 @@ string gpuContextualExprBase(Node? expression, Analyzed analyzed,
             && expression.callee.kind == NK_IDENTIFIER) {
         string name = expression.callee.name;
         if (name == "gpu_id") { return "int"; }
-        if (gpuFloatBuiltin(name)) { return "float"; }
-        if (gpuSameTypeBuiltin(name) && expression.args.len > 0) {
+        bool intrinsic = gpuCallResolvesToBuiltin(
+            expression, analyzed, varTypes);
+        if (intrinsic && gpuFloatBuiltin(name)) { return "float"; }
+        if (intrinsic && gpuSameTypeBuiltin(name)
+                && expression.args.len > 0) {
             return gpuContextualExprBase(
                 expression.args.get(0), analyzed, varTypes);
         }
@@ -55,7 +71,7 @@ string gpuContextualExprBase(Node? expression, Analyzed analyzed,
     return "";
 }
 
-Node? gpuContextualExprType(Node? expression, Analyzed analyzed,
+Node? gpuContextualExprTypeUnmemoized(Node? expression, Analyzed analyzed,
         Map<string, Node> varTypes) {
     if (expression == null) { return null; }
     bool contextual = expression.kind == NK_FLOAT_LITERAL
@@ -68,7 +84,8 @@ Node? gpuContextualExprType(Node? expression, Analyzed analyzed,
     if (expression.kind == NK_CALL_EXPR && expression.callee != null
             && expression.callee.kind == NK_IDENTIFIER) {
         string name = expression.callee.name;
-        contextual = name == "gpu_id" || gpuBuiltin(name);
+        contextual = name == "gpu_id" || gpuCallResolvesToBuiltin(
+            expression, analyzed, varTypes);
     }
     if (contextual) {
         string base = gpuContextualExprBase(
@@ -76,6 +93,19 @@ Node? gpuContextualExprType(Node? expression, Analyzed analyzed,
         if (base != "") { return makePrimType(base); }
     }
     return inferType(expression, analyzed, varTypes);
+}
+
+/* WGSL generation and the CPU fallback revisit one source AST under distinct
+ * contextual type environments. Disable the ordinary-body memo for the whole
+ * recursive query so neither pass can publish or consume the other's types. */
+Node? gpuContextualExprType(Node? expression, Analyzed analyzed,
+        Map<string, Node> varTypes) {
+    bool memoEnabled = analyzed.expressionInferenceMemoEnabled;
+    analyzed.expressionInferenceMemoEnabled = false;
+    Node? result = gpuContextualExprTypeUnmemoized(
+        expression, analyzed, varTypes);
+    analyzed.expressionInferenceMemoEnabled = memoEnabled;
+    return result;
 }
 
 void gpuValidateFloatLiteral(Node expression) {

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import BraceInitializer, CallExpr, ListLiteral, VarDeclStmt
@@ -24,8 +23,14 @@ if TYPE_CHECKING:
 
 def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str, bool]) -> list[IRStmt]:
     """Lower an array declaration, including direct GPU-result readback."""
-    base_type = replace(node.type, is_array=False, array_size=None)
+    from ...type_composition import strip_outer_storage
+
+    base_type = strip_outer_storage(node.type, array=True)
     base_c = type_to_c(base_type)
+    # Reserve the declaration identity before lowering branch-specific setup,
+    # but do not activate it: an array initializer resolves in the enclosing
+    # source scope just like an ordinary local initializer.
+    binding_c_name = gen.next_source_binding_c_name(node.name)
     explicit_size = lower_expr(gen, node.type.array_size) if node.type.array_size else None
 
     if isinstance(node.initializer, (BraceInitializer, ListLiteral)):
@@ -37,23 +42,28 @@ def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str,
             "a shallow C array",
         )
         elements = [lower_expr(gen, item) for item in node.initializer.elements]
+        gen.declare_local_ownership(node.name, c_name=binding_c_name)
         declaration = _declaration(
             base_c,
-            node.name,
+            binding_c_name,
             explicit_size,
             storage,
             IRInitializerList(elements=elements),
         )
-        return [_track(gen, declaration)]
+        return [_track(gen, declaration, node.name)]
 
     if explicit_size is None and node.initializer is None:
+        gen.declare_local_ownership(node.name, c_name=binding_c_name)
         declaration = IRVarDecl(
             c_type=CType(text=f"{base_c}*"),
-            name=node.name,
+            name=binding_c_name,
             init=IRLiteral(text="NULL"),
             **storage,
         )
         gen._func_var_decls.append(declaration)
+        from .c_array_scopes import declare_c_binding
+
+        declare_c_binding(gen, node.name, is_array=False)
         return [declaration]
 
     from .gpu_dispatch import (
@@ -65,8 +75,9 @@ def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str,
         plan = lower_gpu_output_declaration(
             gen,
             node.initializer,
-            IRVar(name=node.name),
+            IRVar(name=binding_c_name),
         )
+        gen.declare_local_ownership(node.name, c_name=binding_c_name)
         inferred_size = plan.array_length
         if not explicit_size and not inferred_size:
             from .errors import CodegenError
@@ -90,11 +101,12 @@ def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str,
             gen,
             _declaration(
                 base_c,
-                node.name,
+                binding_c_name,
                 safe_array_size(logical_size),
                 storage,
                 None,
             ),
+            node.name,
         )
         return [
             *plan.setup,
@@ -104,17 +116,19 @@ def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str,
         ]
 
     initializer = lower_expr(gen, node.initializer) if node.initializer else None
+    gen.declare_local_ownership(node.name, c_name=binding_c_name)
 
     return [
         _track(
             gen,
             _declaration(
                 base_c,
-                node.name,
+                binding_c_name,
                 explicit_size,
                 storage,
                 initializer,
             ),
+            node.name,
         )
     ]
 
@@ -136,8 +150,9 @@ def _declaration(
     )
 
 
-def _track(gen: IRGenerator, declaration: IRVarDecl) -> IRVarDecl:
+def _track(gen: IRGenerator, declaration: IRVarDecl, source_name: str) -> IRVarDecl:
     gen._func_var_decls.append(declaration)
-    if gen._c_array_scopes:
-        gen._c_array_scopes[-1].add(declaration.name)
+    from .c_array_scopes import declare_c_binding
+
+    declare_c_binding(gen, source_name, is_array=True)
     return declaration

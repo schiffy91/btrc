@@ -4,13 +4,23 @@ from __future__ import annotations
 
 from ...nodes import IRBinOp, IRCall, IRExprStmt, IRLiteral, IRStmt, IRVar
 from ..arc import _emit_scope_release
-from ..cleanup_scopes import cleanup_scope_entry, cleanup_scope_exit
+from ..cleanup_scopes import cleanup_scope_exit
 from ..managed_local import ManagedLocal
 from ..try_stack import pop_try_frames
+from .user_emitter_bindings import (
+    declare_source_binding,
+    reset_source_bindings,
+    source_binding_c_name,
+)
 from .user_emitter_cleanup import (
     exception_cleanup_active,
     mark_cleanup_registration,
     register_exception_cleanup,
+)
+from .user_emitter_scope_frames import (
+    complete_generic_scope,
+    enter_generic_scope,
+    leave_generic_scope,
 )
 
 
@@ -22,15 +32,18 @@ def reset_scope_state(emitter) -> None:
     emitter._active_cleanup_markers = set()
     emitter._control_managed_depths = []
     emitter._control_cleanup_depths = []
+    reset_source_bindings(emitter)
+    from .user_callable_provenance import reset_generic_callable_state
+
+    reset_generic_callable_state(emitter)
 
 
 def emit_scoped_stmts(emitter, statements, *, iteration_bindings=()) -> list[IRStmt]:
     """Emit one lexical block and release its owned locals on normal exit."""
-    outer_types = emitter._var_types.copy()
-    marker = emitter._fresh_temp("__btrc_cleanup_scope") if exception_cleanup_active(emitter) else None
-    emitter._managed_vars_stack.append([])
-    emitter._local_ownership_scopes.append({})
-    emitter._cleanup_scope_markers.append(marker)
+    from .user_callable_provenance import seed_borrowed_callable_parameters
+
+    seed_borrowed_callable_parameters(emitter)
+    frame = enter_generic_scope(emitter)
     result = []
     try:
         if iteration_bindings:
@@ -41,32 +54,17 @@ def emit_scoped_stmts(emitter, statements, *, iteration_bindings=()) -> list[IRS
             result.extend(emit_iteration_bindings(emitter, iteration_bindings))
         for statement in statements:
             result.extend(emitter._stmt(statement))
-        from ...completion import (
-            sequence_may_fall_through,
-            sequence_references_variable,
-        )
-
-        falls_through = sequence_may_fall_through(result)
-        if falls_through:
-            result.extend(_emit_scope_release(emitter._managed_vars_stack[-1], emitter._gen))
-        marker_referenced = falls_through or sequence_references_variable(result, marker or "")
-        if marker in emitter._active_cleanup_markers and marker_referenced:
-            result[:0] = cleanup_scope_entry(emitter._gen, marker)
-            if falls_through:
-                result.extend(cleanup_scope_exit(emitter._gen, marker))
-        return result
+        return complete_generic_scope(emitter, frame, result)
     finally:
-        emitter._active_cleanup_markers.discard(marker)
-        emitter._cleanup_scope_markers.pop()
-        emitter._local_ownership_scopes.pop()
-        emitter._managed_vars_stack.pop()
-        emitter._var_types = outer_types
+        leave_generic_scope(emitter, frame)
 
 
-def declare_local(emitter, name: str) -> None:
+def declare_local(emitter, name: str) -> str:
     """Record a lexical declaration, including borrowed shadowing slots."""
+    c_name = declare_source_binding(emitter, name)
     if emitter._local_ownership_scopes:
         emitter._local_ownership_scopes[-1][name] = None
+    return c_name
 
 
 def register_managed_local(
@@ -82,9 +80,22 @@ def register_managed_local(
     from ..managed_values import runtime_name
 
     type_name = runtime_name(emitter._gen, resolved_type)
-    emitter._managed_vars_stack[-1].append(ManagedLocal(name, type_name, cycle_seed))
+    c_name = source_binding_c_name(emitter, name)
+    emitter._managed_vars_stack[-1].append(
+        ManagedLocal(
+            name,
+            type_name,
+            cycle_seed,
+            c_name=c_name,
+        )
+    )
     emitter._local_ownership_scopes[-1][name] = type_name
-    register_exception_cleanup(emitter, name, type_name, statements)
+    register_exception_cleanup(
+        emitter,
+        c_name,
+        type_name,
+        statements,
+    )
 
 
 def managed_local_type(emitter, name: str) -> str | None:
@@ -97,11 +108,8 @@ def managed_local_type(emitter, name: str) -> str | None:
 def emit_return_release(emitter, returned_name: str | None) -> list[IRStmt]:
     """Release every live local owner except the reference being transferred."""
     managed = _all_managed(emitter)
-    if returned_name is not None:
-        for index in range(len(managed) - 1, -1, -1):
-            if managed[index].name == returned_name:
-                del managed[index]
-                break
+    returned_c_name = source_binding_c_name(emitter, returned_name) if returned_name is not None else None
+    managed = [local for local in managed if (local.c_name or local.name) != returned_c_name]
     return _emit_scope_release(managed, emitter._gen)
 
 
@@ -181,7 +189,7 @@ def emit_try_pop(emitter, depth: int) -> list[IRStmt]:
     return result
 
 
-def _all_managed(emitter) -> list[tuple[str, str]]:
+def _all_managed(emitter) -> list[ManagedLocal]:
     result = []
     for scope in emitter._managed_vars_stack:
         result.extend(scope)

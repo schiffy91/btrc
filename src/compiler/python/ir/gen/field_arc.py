@@ -98,14 +98,13 @@ def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
             target,
             field_type,
         )
-    value = _lower_value(gen, node.value, field_type)
     from .prepared_values import prepare_normal_value
 
     prepared = prepare_normal_value(
         gen,
         node.value,
         field_type,
-        lowered=value,
+        lower_value=lambda value: _lower_value(gen, value, field_type),
     )
     value = prepared.value
     value_type = prepared.effective_type

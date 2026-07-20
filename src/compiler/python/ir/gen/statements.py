@@ -68,6 +68,8 @@ def lower_block(
     """Lower a btrc Block to an IRBlock."""
     if block is None:
         return IRBlock()
+    local_bindings = tuple(local_bindings)
+    iteration_bindings = tuple(iteration_bindings)
     enclosing_closures = gen._fn_ptr_envs.copy()
     from .callable_provenance import (
         begin_callable_scope,
@@ -81,7 +83,9 @@ def lower_block(
     marker = gen.push_cleanup_scope()
     gen.push_managed_scope()
     gen.push_local_ownership_scope()
-    gen._c_array_scopes.append(set())
+    c_bindings = {name: False for name in local_bindings}
+    c_bindings.update({binding.name: False for binding in iteration_bindings})
+    gen._c_array_scopes.append(c_bindings)
     stmts = []
     try:
         for name in local_bindings:
@@ -181,7 +185,7 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
     if isinstance(node, DoWhileStmt):
         return [
             IRDoWhile(
-                body=_lower_loop_body(gen, node.body),
+                body=_lower_loop_body(gen, node.body, may_skip=False),
                 condition=lower_expr(gen, node.condition),
             )
         ]
@@ -201,7 +205,9 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
 
     if isinstance(node, BreakStmt):
         from .arc_returns import _emit_try_pop
+        from .callable_loop_flow import record_callable_loop_exit
 
+        record_callable_loop_exit(gen, "break")
         try_pop = _emit_try_pop(gen, gen.exited_try_depth({"loop", "switch"}))
         return (
             _emit_control_exit_release(gen, {"loop", "switch"})
@@ -212,7 +218,9 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
 
     if isinstance(node, ContinueStmt):
         from .arc_returns import _emit_try_pop
+        from .callable_loop_flow import record_callable_loop_exit
 
+        record_callable_loop_exit(gen, "continue")
         try_pop = _emit_try_pop(gen, gen.exited_try_depth({"loop"}))
         return (
             _emit_control_exit_release(gen, {"loop"}) + control_cleanup_exit(gen, {"loop"}) + try_pop + [IRContinue()]
@@ -250,27 +258,21 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
     raise unsupported_node("statement", node)
 
 
-def _lower_loop_body(gen: IRGenerator, body: Block | None, *, iteration_bindings=()) -> IRBlock:
-    from .callable_provenance import (
-        join_callable_flows,
-        lower_isolated_callable_flow,
-        snapshot_callable_flow,
-    )
+def _lower_loop_body(
+    gen: IRGenerator,
+    body: Block | None,
+    *,
+    iteration_bindings=(),
+    local_bindings=(),
+    may_skip: bool = True,
+) -> IRBlock:
+    from .callable_loop_flow import lower_loop_body
 
-    incoming = snapshot_callable_flow(gen)
-    gen.push_loop_scope()
-    gen.push_control_context("loop")
-    try:
-        lowered, body_flow = lower_isolated_callable_flow(
-            gen,
-            lambda: lower_block(
-                gen,
-                body,
-                iteration_bindings=iteration_bindings,
-            ),
-        )
-    finally:
-        gen.pop_control_context()
-        gen.pop_loop_scope()
-    join_callable_flows(gen, incoming, body_flow)
-    return lowered
+    return lower_loop_body(
+        gen,
+        body,
+        lower_block=lower_block,
+        iteration_bindings=iteration_bindings,
+        local_bindings=local_bindings,
+        may_skip=may_skip,
+    )

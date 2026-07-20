@@ -16,6 +16,20 @@ if TYPE_CHECKING:
     from .gpu_exprs import GpuValidationContext
 
 
+def gpu_builtin_call_uses_intrinsic(analyzer, call: CallExpr) -> bool:
+    """Whether a direct call resolves to the GPU intrinsic, not a source symbol."""
+    if not analyzer.in_gpu_function or not isinstance(call.callee, Identifier):
+        return False
+    name = call.callee.name
+    if name not in WGSL_CALL_BUILTINS:
+        return False
+    symbol = analyzer.scope.lookup(name)
+    if symbol is not None and symbol.kind != "function":
+        return False
+    declaration = analyzer.function_table.get(name)
+    return declaration is None or analyzer._hosted_call_uses_owned_symbol(call)
+
+
 def validate_gpu_call(context: GpuValidationContext, call: CallExpr) -> None:
     from .gpu_exprs import validate_gpu_expr
 
@@ -27,15 +41,19 @@ def validate_gpu_call(context: GpuValidationContext, call: CallExpr) -> None:
         context.error("indirect and method calls have no WGSL definition", call.callee)
         return
     name = call.callee.name
-    if name == "gpu_id":
-        if call.args:
-            context.error("gpu_id() takes no arguments", call)
-        return
-    if context.knows(name) or name in context.analyzer.function_table:
+    source_function = name in context.analyzer.function_table and not gpu_builtin_call_uses_intrinsic(
+        context.analyzer,
+        call,
+    )
+    if context.knows(name) or source_function:
         context.error(
             f"call to '{name}' has no WGSL definition because it resolves to a source symbol",
             call,
         )
+        return
+    if name == "gpu_id":
+        if call.args:
+            context.error("gpu_id() takes no arguments", call)
         return
     if name not in WGSL_CALL_BUILTINS:
         context.error(

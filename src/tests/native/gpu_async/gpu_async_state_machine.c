@@ -54,6 +54,25 @@ static void test_timeout_then_instance_drop_cancellation(void) {
     assert(released_results() == before + 1);
 }
 
+static void test_timeout_then_late_exact_future_reap(void) {
+    int before = released_results();
+    BtrcGPUAsync* async = btrc_gpu_async_create(release_result);
+    assert(async != NULL);
+    WGPUFuture future = fake_webgpu_make_future(
+        async, 47, NULL, 1, false);
+
+    assert(btrc_gpu_async_wait(
+               fake_webgpu_instance(), future, async, 0, NULL, NULL) ==
+           BTRC_GPU_ASYNC_TIMED_OUT);
+    assert(fake_webgpu_callback_count(future) == 0);
+    assert(btrc_gpu_async_wait(
+               fake_webgpu_instance(), future, async, UINT64_C(100000000),
+               NULL, NULL) == BTRC_GPU_ASYNC_COMPLETED);
+    assert(fake_webgpu_callback_count(future) == 1);
+    btrc_gpu_async_release(async);
+    assert(released_results() == before);
+}
+
 static void test_unclaimed_result_released_once(void) {
     int value = 3;
     int before = released_results();
@@ -146,6 +165,7 @@ static void test_concurrent_distinct_futures(void) {
 int main(void) {
     test_delayed_success();
     test_timeout_then_instance_drop_cancellation();
+    test_timeout_then_late_exact_future_reap();
     test_unclaimed_result_released_once();
 #ifndef BTRC_GPU_WGPU_NATIVE
     test_wait_error_then_late_callback();

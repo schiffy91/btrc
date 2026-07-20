@@ -98,7 +98,9 @@ def assignment_target(
 
 
 def _is_local_c_array(gen: IRGenerator, name: str) -> bool:
-    return any(name in scope for scope in reversed(gen._c_array_scopes))
+    from .c_array_scopes import local_c_array_status
+
+    return local_c_array_status(gen, name) is True
 
 
 def _unknown_capacity(ast_target) -> CodegenError:

@@ -25,7 +25,7 @@ def build_generic_destructor_hook(cls_info, type_map, mangled, gen):
     emitter = _UserGenericEmitter(
         type_map,
         mangled,
-        lambda type_expr: type_to_c(_resolve_type(type_expr, type_map, gen.analyzed.typedef_table)),
+        type_to_c,
         gen=gen,
         cls_info=cls_info,
     )

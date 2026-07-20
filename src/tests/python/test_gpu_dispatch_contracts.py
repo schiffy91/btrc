@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.ir.gen.errors import CodegenError
+from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 from src.tests.python.test_gpu_dispatch_failures import (
     COMPILERS,
@@ -44,18 +47,71 @@ def test_named_gpu_arguments_and_defaults_follow_parameter_order(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
-        tmp_path,
+    source = (
         "@gpu\nvoid mix(int[] xs, int factor = 2, int bias = 1) { "
         "int i = gpu_id(); xs[i] = xs[i] * factor + bias; }\n"
         "int main() { int[] xs = {1, 2}; mix(bias=3, xs=xs); "
-        "return (xs[0] == 5 && xs[1] == 7) ? 0 : 1; }",
+        "return (xs[0] == 5 && xs[1] == 7) ? 0 : 1; }"
+    )
+    generated = emit_c(source)
+    assert "sizeof(xs) / sizeof(xs[0])" in generated
+    assert not re.search(r"sizeof\(__btrc_call_operand_\d+\)", generated)
+    executable = _compile_with_gpu_stubs(
+        tmp_path,
+        source,
         available=False,
         fail_second_buffer=False,
         compiler=c_compiler,
     )
 
     subprocess.run([str(executable)], check=True)
+
+
+def test_unsized_pointer_gpu_input_is_rejected() -> None:
+    with pytest.raises(CodegenError, match="GPU array argument 'xs' has no provable capacity"):
+        emit_c(
+            "@gpu\nvoid update(int[] xs) { int i = gpu_id(); xs[i] += 1; }\n"
+            "void run(int[] xs) { update(xs); } int main() { return 0; }"
+        )
+
+
+def test_hosted_macro_named_real_array_is_rejected_before_capacity_lowering() -> None:
+    source = (
+        "@gpu\nvoid update(int[] values) { int i = gpu_id(); values[i] += 1; }\n"
+        "int main() { int[] stdin = {1}; update(stdin); return 0; }"
+    )
+    program = Parser(Lexer(source, "<gpu-capacity>").tokenize()).parse()
+    errors = Analyzer().analyze(program).errors
+    assert any("stdin" in error and "automatically included C macro" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "@gpu\nvoid update(int[] xs) { int i = gpu_id(); xs[i] += 1; }\n"
+            "void run() { int[] xs = {1}; { int[] xs; update(xs); } } "
+            "int main() { return 0; }"
+        ),
+        (
+            "int[] xs = {1}; "
+            "@gpu\nvoid update(int[] values) { int i = gpu_id(); values[i] += 1; }\n"
+            "void run(int[] xs) { update(xs); } int main() { return 0; }"
+        ),
+    ],
+)
+def test_pointer_shadow_does_not_borrow_outer_gpu_array_extent(source: str) -> None:
+    with pytest.raises(CodegenError, match="has no provable capacity"):
+        emit_c(source)
+
+
+def test_pointer_output_shadow_does_not_borrow_outer_array_capacity() -> None:
+    with pytest.raises(CodegenError, match="no provable writable capacity"):
+        emit_c(
+            "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
+            "void run() { int[] out = {0}; { int[] out; int[] xs = {1}; "
+            "out = copy(xs); } } int main() { return 0; }"
+        )
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
@@ -100,7 +156,7 @@ def test_unsized_pointer_output_target_is_rejected() -> None:
     with pytest.raises(CodegenError, match="no provable writable capacity"):
         emit_c(
             "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
-            "void fill(int[] out, int[] xs) { out = copy(xs); }\n"
+            "void fill(int[] out) { int[] xs = {1}; out = copy(xs); }\n"
             "int main() { return 0; }"
         )
 
@@ -109,7 +165,7 @@ def test_departed_array_shadow_does_not_lend_capacity_to_parameter() -> None:
     with pytest.raises(CodegenError, match="no provable writable capacity"):
         emit_c(
             "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
-            "void fill(int[] out, int[] xs) { { int[] out = {0}; } "
+            "void fill(int[] out) { { int[] out = {0}; } int[] xs = {1}; "
             "out = copy(xs); }\n"
             "int main() { return 0; }"
         )

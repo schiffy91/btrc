@@ -162,6 +162,79 @@ def test_shallow_aggregates_accept_prebound_borrowed_references(semantic_btrcc: 
     _strict_build_and_run(reference_source, tmp_path / "reference-borrowed")
 
 
+def test_omitted_owned_rich_enum_default_fails_with_compiler_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        string makeText() { return "a".toUpper(); }
+        enum class Payload { Some(string value = makeText()) }
+        int main() {
+            Payload value = Payload.Some();
+            return 0;
+        }
+    """
+    selfhost, _selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, _reference_source = _compile_reference_source(tmp_path, source)
+    diagnostic = "Omitted default for rich-enum payload 'Payload.Some.value' produces a caller-owned temporary"
+
+    assert selfhost.returncode != 0
+    assert reference.returncode != 0
+    assert diagnostic in selfhost.stderr
+    assert diagnostic in reference.stderr
+
+
+def test_borrowed_rich_enum_default_remains_valid_with_compiler_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <assert.h>
+        #include <string.h>
+        enum class Payload { Some(string value = "safe") }
+        int main() {
+            Payload value = Payload.Some();
+            assert(strcmp(value.data.Some.value, "safe") == 0);
+            return 0;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-borrowed-default")
+    _strict_build_and_run(reference_source, tmp_path / "reference-borrowed-default")
+
+
+def test_generic_simple_enum_tostring_has_typed_forward_with_compiler_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <assert.h>
+        enum Color { RED, BLUE };
+        class Labeler<T> {
+            public int labelLength(Color value) {
+                return value.toString().length();
+            }
+        }
+        int main() {
+            Labeler<int> labeler = new Labeler<int>();
+            assert(labeler.labelLength(RED) == 3);
+            delete labeler;
+            return 0;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-enum-forward")
+    _strict_build_and_run(reference_source, tmp_path / "reference-enum-forward")
+
+
 def test_managed_return_and_call_ownership_has_runtime_parity(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = OWNERSHIP_RUNTIME.read_text()
     selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)

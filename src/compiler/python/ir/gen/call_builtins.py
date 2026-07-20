@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from .generator import IRGenerator
 
 
-def lower_print(gen: IRGenerator, args: list):
+def lower_print(gen: IRGenerator, args: list, lowered_args: list):
     """Lower ``print`` to one typed ``printf`` call."""
     from .expressions import lower_expr
 
@@ -31,10 +31,18 @@ def lower_print(gen: IRGenerator, args: list):
         args,
         lower_value=lambda arg: lower_expr(gen, arg),
         resolve_type=lambda arg: gen.analyzed.node_types.get(id(arg)),
+        lowered_values=lowered_args,
     )
 
 
-def lower_typed_print(gen, args, *, lower_value, resolve_type):
+def lower_typed_print(
+    gen,
+    args,
+    *,
+    lower_value,
+    resolve_type,
+    lowered_values=None,
+):
     """Lower print with caller-provided value and concrete-type resolution."""
     from .stringable import has_to_string
 
@@ -43,8 +51,8 @@ def lower_typed_print(gen, args, *, lower_value, resolve_type):
 
     formats = []
     ir_args = []
-    for arg in args:
-        ir_arg = lower_value(arg)
+    for index, arg in enumerate(args):
+        ir_arg = lowered_values[index] if lowered_values is not None else lower_value(arg)
         arg_type = canonical_type(
             resolve_type(arg),
             gen.analyzed.typedef_table,

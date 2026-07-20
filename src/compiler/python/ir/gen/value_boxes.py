@@ -120,21 +120,9 @@ def canonical_value_type(
     type_expr: TypeExpr | None,
 ) -> TypeExpr | None:
     """Resolve typedefs while preserving use-site pointer and qualifiers."""
-    result = type_expr
-    seen: set[str] = set()
-    typedefs = gen.analyzed.typedef_table
-    while result is not None and result.base in typedefs and result.base not in seen:
-        seen.add(result.base)
-        target = typedefs[result.base]
-        result = replace(
-            target,
-            pointer_depth=target.pointer_depth + result.pointer_depth,
-            is_array=target.is_array or result.is_array,
-            array_size=result.array_size or target.array_size,
-            is_const=target.is_const or result.is_const,
-            is_nullable=target.is_nullable or result.is_nullable,
-        )
-    return result
+    from .type_resolution import canonical_type
+
+    return canonical_type(type_expr, gen.analyzed.typedef_table)
 
 
 def value_storage_c_type(type_expr: TypeExpr) -> str:

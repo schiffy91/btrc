@@ -6,6 +6,7 @@ from .array_contracts import ArrayContractsMixin
 from .builtin_calls import BuiltinCallValidationMixin
 from .call_arguments import CallArgumentBindingMixin
 from .call_consumption import CallConsumptionContractsMixin
+from .call_signatures import CallSignatureContractsMixin
 from .call_targets import CallTargetContractsMixin
 from .call_type_inference import CallTypeInferenceMixin
 from .callable_values import CallableValueValidationMixin
@@ -40,7 +41,11 @@ from .generic_intrinsics import GenericIntrinsicValidationMixin
 from .generic_methods import GenericMethodsMixin
 from .generic_validation import GenericValidationMixin
 from .hierarchy import HierarchyValidationMixin
+from .hosted_abi_contracts import HostedAbiContractsMixin
+from .hosted_abi_declarations import HostedAbiDeclarationContractsMixin
+from .hosted_result_contracts import HostedResultContractsMixin
 from .identifier_contracts import IdentifierContractsMixin
+from .index_expressions import IndexExpressionContractsMixin
 from .indexed_updates import IndexedUpdateContractsMixin
 from .initializers import InitializerValidationMixin
 from .lambdas import LambdaAnalysisMixin
@@ -51,13 +56,17 @@ from .node_type_storage import NodeTypeStorageMixin
 from .nullable_control_flow import NullableControlFlowMixin
 from .nullable_flow import NullableFlowMixin
 from .occurrences import OccurrencesMixin
+from .opaque_borrow_effects import OpaqueBorrowEffectsMixin
+from .opaque_borrows import OpaqueBorrowContractsMixin
 from .operator_inference import OperatorInferenceMixin
 from .parameter_consumption import ParameterConsumptionContractsMixin
 from .qualification import QualificationMixin
+from .raw_deallocation import RawDeallocationContractsMixin
 from .registration import RegistrationMixin
 from .registration_declarations import DeclarationRegistrationMixin
 from .registration_inheritance import InheritanceRegistrationMixin
 from .scalar_inference import ScalarInferenceMixin
+from .source_macro_contracts import SourceMacroContractsMixin
 from .statements import StatementsMixin
 from .storage_contracts import StorageContractsMixin
 from .storage_initializers import StorageInitializerContractsMixin
@@ -87,6 +96,9 @@ class Analyzer(
     DeclarationContractsMixin,
     TypeDomainContractsMixin,
     StorageContractsMixin,
+    HostedAbiDeclarationContractsMixin,
+    HostedAbiContractsMixin,
+    HostedResultContractsMixin,
     RegisteredDeclarationValidationMixin,
     EnumContractsMixin,
     OperatorInferenceMixin,
@@ -101,10 +113,15 @@ class Analyzer(
     GenericIntrinsicValidationMixin,
     BuiltinCallValidationMixin,
     CallArgumentBindingMixin,
+    CallSignatureContractsMixin,
     ExpressionOwnershipContractsMixin,
     CallConsumptionContractsMixin,
+    OpaqueBorrowEffectsMixin,
+    OpaqueBorrowContractsMixin,
+    RawDeallocationContractsMixin,
     CallValidationMixin,
     LvalueContractsMixin,
+    IndexExpressionContractsMixin,
     IndexedUpdateContractsMixin,
     ManagedRebindContractsMixin,
     UpdateContractsMixin,
@@ -129,6 +146,7 @@ class Analyzer(
     ExpressionsMixin,
     VariableDeclarationAnalysisMixin,
     StatementsMixin,
+    SourceMacroContractsMixin,
     FunctionsMixin,
     OccurrencesMixin,
     DeclarationRegistrationMixin,

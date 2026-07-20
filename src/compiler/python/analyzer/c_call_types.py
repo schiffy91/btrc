@@ -8,50 +8,23 @@ C_SCALAR_CALL_RESULTS = {
     "WIFEXITED": "bool",
     "WIFSIGNALED": "bool",
     "WTERMSIG": "int",
-    "bind": "int",
-    "chdir": "int",
-    "chmod": "int",
-    "clock_gettime": "int",
-    "dup2": "int",
-    "feof": "bool",
-    "ferror": "bool",
-    "fflush": "int",
-    "fnmatch": "int",
-    "fputc": "int",
-    "fputs": "int",
-    "geteuid": "uid_t",
-    "initgroups": "int",
-    "kill": "int",
-    "listen": "int",
-    "lstat": "int",
-    "memcmp": "int",
-    "nanosleep": "int",
-    "pipe": "int",
-    "regcomp": "int",
-    "regexec": "int",
-    "setenv": "int",
-    "setgid": "int",
-    "setsockopt": "int",
-    "setuid": "int",
-    "send": "ssize_t",
-    "stat": "int",
-    "strcmp": "int",
-    "strncmp": "int",
-    "strtod": "double",
-    "strtof": "float",
-    "strtold": "long double",
-    "strlen": "size_t",
-    "tcgetattr": "int",
-    "tcsetattr": "int",
-    "unsetenv": "int",
 }
 
-C_POINTER_CALL_RESULTS = {
-    "__btrc_str_track": ("string", 0),
-    "__btrc_string_adopt": ("string", 0),
-    "__btrc_string_alloc": ("string", 0),
-    "getcwd": ("char", 1),
-}
+C_POINTER_CALL_RESULTS = {}
+
+_C_PREDEFINED_STRING_IDENTIFIERS = frozenset({"__DATE__", "__FILE__", "__TIME__"})
+_C_PREDEFINED_INT_IDENTIFIERS = frozenset({"__LINE__", "__STDC__", "__STDC_HOSTED__"})
+
+
+def c_predefined_identifier_type(name: str) -> str | None:
+    """Return the strict-C11 scalar type of a guaranteed predefined macro."""
+    if name in _C_PREDEFINED_STRING_IDENTIFIERS:
+        return "const char*"
+    if name == "__STDC_VERSION__":
+        return "long"
+    if name in _C_PREDEFINED_INT_IDENTIFIERS:
+        return "int"
+    return None
 
 
 def c_integer_identifier(name: str) -> bool:

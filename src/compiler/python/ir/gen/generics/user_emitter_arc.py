@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..call_boundary import CallOperand, sequence_call_boundary
 from ..evaluation_order import borrowed_value_can_be_pinned, operand_c_type
 from .user_emitter_call_metadata import _UserGenericCallMetadataMixin
@@ -22,7 +20,14 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
             class_info = self._gen.analyzed.class_table.get(resolved.base)
             if class_info and class_info.constructor:
                 constructor = class_info.constructor
-                params = [replace(param, type=self._resolve(param.type)) for param in constructor.params]
+                from .user_constructor_calls import new_constructor_parameters
+
+                params = new_constructor_parameters(
+                    self,
+                    expression,
+                    class_info,
+                    resolved,
+                )
             elif resolved.base == "Mutex" and resolved.generic_args:
                 from ....ast_nodes import Param
 
@@ -42,6 +47,7 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
             owned_transfer_param_indices(constructor),
             callee=None,
             force_order=True,
+            call=expression,
         )
         if not operands:
             return self._new_expr_plain(expression)
@@ -60,8 +66,16 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
         promote_result=False,
         result_c_type=_INFER_RESULT,
         lower_expr=None,
+        result_type_override=None,
+        result_owned_override=None,
     ):
-        result_type = self._resolve_expr_type(expression) if expression is not None else None
+        result_type = (
+            result_type_override
+            if result_type_override is not None
+            else self._resolve_expr_type(expression)
+            if expression is not None
+            else None
+        )
         if result_c_type is _INFER_RESULT:
             result_c_type = self.iter_value_c(result_type) if result_type is not None else None
 
@@ -96,7 +110,11 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
             record_decl=self._func_var_decls.append,
             promote_result=promote_result,
             activate_cleanup=self._activate_cleanup_registration,
-            result_owned=bool(promote_result or (expression is not None and self._owns_expr(expression))),
+            result_owned=(
+                result_owned_override
+                if result_owned_override is not None
+                else bool(promote_result or (expression is not None and self._owns_expr(expression)))
+            ),
         )
 
     def _activate_cleanup_registration(self):
@@ -227,6 +245,7 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
         callee=None,
         pin_receiver=False,
         force_order=True,
+        call=None,
     ):
         from .user_call_operands import generic_call_operands
 
@@ -240,6 +259,7 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
             callee=callee,
             pin_receiver=pin_receiver,
             force_order=force_order,
+            call=call,
         )
 
 

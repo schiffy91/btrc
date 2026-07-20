@@ -14,12 +14,12 @@ from ..nodes import (
     IRStmtExpr,
     IRTernary,
     IRVar,
-    IRVarDecl,
 )
 from .arc_ops import release_if_present
 from .arguments import arg_names_for, bind_arg_nodes_to_params
 from .arguments_arc import plan_call_operands
 from .call_boundary import sequence_call_boundary
+from .optional_call_temporaries import optional_call_temp
 from .optional_values import optional_zero_value
 from .ownership import owns_result
 from .types import type_to_c
@@ -36,7 +36,7 @@ def lower_optional_method_call(gen, node: CallExpr):
 
     receiver_node = node.callee.obj
     receiver_type = gen.analyzed.node_types.get(id(receiver_node))
-    receiver_decl = _temp_decl(
+    receiver_decl = optional_call_temp(
         gen,
         "__btrc_optional_receiver",
         type_to_c(receiver_type) if receiver_type is not None else "void*",
@@ -91,6 +91,8 @@ def lower_optional_method_call(gen, node: CallExpr):
         arg_names_for(node, len(node.args)),
         callee=node.callee if callable_field else None,
         transferred_params=owned_transfer_param_indices(declaration),
+        call=plain_node,
+        default_receiver_value=receiver,
     )
     result_type = gen.analyzed.node_types.get(id(node))
 
@@ -203,7 +205,7 @@ def _receiver_cleanup(
     prelude.extend(cleanup_exprs)
     from .arc_ops import poll_release_batch
 
-    saved_decl = _temp_decl(
+    saved_decl = optional_call_temp(
         gen,
         "__btrc_optional_receiver_release",
         type_to_c(receiver_type),
@@ -235,7 +237,7 @@ def _release_receiver_after_call(
         return call
     sequence = []
     if result_type is not None and result_type.base != "void":
-        result_decl = _temp_decl(
+        result_decl = optional_call_temp(
             gen,
             "__btrc_optional_result",
             type_to_c(result_type),
@@ -257,7 +259,7 @@ def _release_receiver_after_call(
             )
             declarations.extend(cleanup_decls)
             sequence.extend(cleanup_exprs)
-            handoff_decl = _temp_decl(
+            handoff_decl = optional_call_temp(
                 gen,
                 "__btrc_optional_result_handoff",
                 type_to_c(result_type),
@@ -285,16 +287,6 @@ def _release_receiver_after_call(
         sequence.extend(suffix)
         sequence.append(IRCast(target_type=CType(text="void"), expr=IRLiteral(text="0")))
     return IRCommaExpr(expressions=sequence)
-
-
-def _temp_decl(gen, prefix: str, c_type: str, init=None) -> IRVarDecl:
-    declaration = IRVarDecl(
-        c_type=CType(text=c_type),
-        name=gen.fresh_temp(prefix),
-        init=init,
-    )
-    gen._func_var_decls.append(declaration)
-    return declaration
 
 
 __all__ = ["lower_optional_method_call"]

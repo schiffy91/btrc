@@ -1,0 +1,43 @@
+#include <assert.h>
+
+class Bucket<T> {
+    public T first;
+    public T second;
+
+    public Bucket(T first, T second) {
+        self.first = first;
+        self.second = second;
+    }
+
+    public int iterLen() { return 2; }
+
+    public T iterGet(int index) {
+        if (index == 0) { return self.first; }
+        return self.second;
+    }
+}
+
+class Counter<T> {
+    public int count(Bucket<int> values) {
+        int result = 0;
+        for ignored in values { result += 1; }
+        return result;
+    }
+}
+
+int main() {
+    Bucket<int> first = new Bucket<int>(1, 2);
+    Bucket<int> second = new Bucket<int>(3, 4);
+    Bucket<Bucket<int>> rows =
+        new Bucket<Bucket<int>>(first, second);
+
+    int count = 0;
+    for row in rows {
+        for ignored in row { count += 1; }
+    }
+
+    Counter<int> counter = new Counter<int>();
+    assert(count == 4);
+    assert(counter.count(first) == 2);
+    return 0;
+}

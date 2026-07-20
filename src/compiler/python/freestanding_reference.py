@@ -220,11 +220,11 @@ void __btrc_rt_puts(const char *text, size_t length) { (void)text; (void)length;
 #define BTRC_RT_PUTS __btrc_rt_puts
 #endif
 #ifndef BTRC_RT_TRAP
-void __btrc_rt_trap(void) { for (;;) {} }
+_Noreturn void __btrc_rt_trap(void) { for (;;) {} }
 #define BTRC_RT_TRAP __btrc_rt_trap
 #endif
-void abort(void) { BTRC_RT_TRAP(); }
-void exit(int code) { (void)code; BTRC_RT_TRAP(); }
+_Noreturn void abort(void) { BTRC_RT_TRAP(); for (;;) {} }
+_Noreturn void exit(int code) { (void)code; BTRC_RT_TRAP(); for (;;) {} }
 void *stderr = (void *)0;
 """
     + REFERENCE_FORMATTER

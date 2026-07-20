@@ -4,13 +4,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.compiler.python.ast_nodes import FieldAccessExpr, Identifier, TypeExpr
+from src.compiler.python.ast_nodes import CallExpr, FieldAccessExpr, Identifier, TypeExpr
 from src.compiler.python.ir.gen.callable_provenance import (
     BORROWED_RETURN,
     callable_return_abi,
 )
 from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.evaluation_order import has_observable_effect
+from src.compiler.python.ir.gen.generics.user_callable_provenance import (
+    generic_known_language_call,
+)
 from src.tests.python.test_codegen import emit_c
 
 
@@ -44,6 +47,72 @@ def test_bodyless_static_method_keeps_foreign_return_abi():
     expression = FieldAccessExpr(obj=Identifier(name="Foreign"), field="make")
 
     assert callable_return_abi(gen, expression) == BORROWED_RETURN
+
+
+def test_generic_bodyless_function_return_is_promoted_to_owned():
+    emitted = emit_c(
+        """
+        extern string foreignString();
+        class Wrap<T> {
+            public Wrap() {}
+            public string get() { return foreignString(); }
+        }
+        int main() {
+            Wrap<int> wrap = new Wrap<int>();
+            string value = wrap.get();
+            return 0;
+        }
+        """
+    )
+
+    method = emitted.split(
+        "static char* btrc_Wrap_int_get(btrc_Wrap_int* self) {",
+        1,
+    )[1].split("\n}", 1)[0]
+    assert "__btrc_string_retain" in method
+
+
+def test_generic_source_callback_return_keeps_owned_abi():
+    emitted = emit_c(
+        """
+        string make() { return f"owned={1}"; }
+        class Wrap<T> {
+            public Wrap() {}
+            public string get() {
+                __fn_ptr<string> callback = make;
+                return callback();
+            }
+        }
+        int main() {
+            Wrap<int> wrap = new Wrap<int>();
+            string value = wrap.get();
+            return 0;
+        }
+        """
+    )
+
+    method = emitted.split(
+        "static char* btrc_Wrap_int_get(btrc_Wrap_int* self) {",
+        1,
+    )[1].split("\n}", 1)[0]
+    assert "return callback();" in method
+    assert "__btrc_string_retain" not in method
+
+
+def test_authenticated_hosted_call_precedes_generic_source_shadow():
+    call = CallExpr(callee=Identifier(name="hostedString"), args=[])
+    declaration = SimpleNamespace(body=object())
+    analyzed = SimpleNamespace(
+        class_table={},
+        function_table={"hostedString": declaration},
+        hosted_call_ids={id(call)},
+    )
+    emitter = SimpleNamespace(
+        _gen=SimpleNamespace(analyzed=analyzed),
+        _var_types={},
+    )
+
+    assert not generic_known_language_call(emitter, call)
 
 
 def test_catch_joins_intermediate_callback_state_before_throw():

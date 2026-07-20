@@ -158,8 +158,8 @@ int toupper(int);
 /* -- Abnormal termination ------------------------------------------------ *
  *  Uncaught btrc errors call exit()/abort().
  *  kernel:  route to BUG()/panic() or a controlled module-unload path.      */
-void abort(void);
-void exit(int);
+_Noreturn void abort(void);
+_Noreturn void exit(int);
 
 /* -- Floating-point math (only if the program uses the Math module) ------ *
  *  kernel: no libm — supply your own or avoid floating point in-kernel.     */

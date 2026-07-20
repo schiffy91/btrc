@@ -119,7 +119,8 @@ static int __btrc_mutex_finalize_callback_guard(
     m->arc.type = &__btrc_mutex_arc_descriptor;
     m->arc.state = __BTRC_ARC_LIVE;
     if (m->retain) {
-        char error[1024] = "";
+        char error[1024];
+        error[0] = '\0';
         if (__btrc_mutex_value_callback_guard(
                 m->retain, m->value, m->access, m->context,
                 m, error, sizeof error)) {

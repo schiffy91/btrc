@@ -20,10 +20,7 @@ Node? staticInitializerElementType(
     if (canonicalType == null) { return null; }
     Node canonical = canonicalType;
     if (canonical.is_array) {
-        Node element = copyTypeExpr(canonical);
-        element.is_array = false;
-        element.array_size = null;
-        return element;
+        return typeWithoutOuterArray(canonical);
     }
     if (canonical.base == "Tuple") {
         if (index < canonical.generic_args.len) {

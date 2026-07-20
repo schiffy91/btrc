@@ -28,6 +28,16 @@ class SemanticValidationState {
      * from a missing/invalid member. */
     public Map<string, int> enumConstantValues;
     public Map<string, bool> enumConstantKnown;
+    /* Exact emitted-name claims that are compiler-owned call boundaries. */
+    public Map<string, string> generatedSymbols;
+    public Map<string, bool> sourceMacros;
+    public Map<string, string> sourceMacroDefinitions;
+    /* Conservative proofs for source raw-pointer parameters. */
+    public Map<string, bool> rawBorrowEffects;
+    public Map<string, bool> rawBorrowEffectKnown;
+    public Map<string, bool> rawBorrowVisiting;
+    public bool allowOwnedOpaqueVariable;
+    public bool inParameterDefault;
 
     public SemanticValidationState(Analyzed analyzed) {
         self.analyzed = analyzed;
@@ -47,6 +57,14 @@ class SemanticValidationState {
         self.borrowedReturn = false;
         self.enumConstantValues = {};
         self.enumConstantKnown = {};
+        self.generatedSymbols = {};
+        self.sourceMacros = {};
+        self.sourceMacroDefinitions = {};
+        self.rawBorrowEffects = {};
+        self.rawBorrowEffectKnown = {};
+        self.rawBorrowVisiting = {};
+        self.allowOwnedOpaqueVariable = false;
+        self.inParameterDefault = false;
     }
 }
 

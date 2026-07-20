@@ -55,7 +55,7 @@ class ValidationMixin:
                 self._error(f"Mutex<T> has no method '{expr.field}'", expr.line, expr.col)
             return
         if obj_type and obj_type.base in self.rich_enum_table:
-            if expr.field not in {"tag", "data"}:
+            if expr.field not in {"tag", "data"} and not (call_target and expr.field == "toString"):
                 self._error(
                     f"Rich enum '{obj_type.base}' has no field '{expr.field}'",
                     expr.line,
@@ -163,7 +163,13 @@ class ValidationMixin:
             )
 
     def _validate_self(self, expr):
-        if self.current_class is None:
+        if self._analyzing_constructor_default:
+            self._error(
+                "Constructor defaults cannot reference 'self' before allocation",
+                expr.line,
+                expr.col,
+            )
+        elif self.current_class is None:
             self._error("'self' used outside of a class", expr.line, expr.col)
         elif self.current_method is None:
             self._error("'self' used outside of a method", expr.line, expr.col)

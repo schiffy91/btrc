@@ -122,30 +122,47 @@ string fnPtrTypedefName(Node t, Analyzed a) {
     return mangled;
 }
 
+bool typeAliasBaseIsReference(string base, Analyzed analyzed) {
+    if (!analyzed.typedefTable.has(base)) { return false; }
+    Node aliasUse = Node();
+    aliasUse.kind = NK_TYPE_EXPR;
+    aliasUse.base = base;
+    Node? canonical = resolveOuterTypedefType(
+        aliasUse, analyzed.typedefTable);
+    if (canonical == null) { return false; }
+    Node resolved = canonical;
+    return typeResolvedReferenceShape(resolved)
+        || analyzed.isClass(resolved.base)
+        || (resolved.generic_args.len > 0
+            && analyzed.isGenericClass(resolved.base));
+}
+
 /* btrc TypeExpr Node -> C type string (mirrors types.py type_to_c, int subset
  * plus user classes + generic instances). `a` supplies the class table so class
  * types become pointers (classes are always heap-allocated). */
 string typeToC(Node t, Analyzed a) {
     if (t == null) { return "void"; }
     string base = t.base;
-    /* Function-pointer type __fn_ptr(ret, params...) -> mangled typedef name. */
-    if (base == "__fn_ptr" && t.generic_args.len > 0) {
-        return fnPtrTypedefName(t, a);
-    }
-    /* Thread<T> / Mutex<T> -> opaque runtime-handle pointers (mirrors
-     * types.type_to_c). These are not user generics: no struct/mangled name,
-     * just the pthread-backed handle typedef. Checked before the generic-arg
-     * mangling branch below. */
-    if (base == "Thread" && t.generic_args.len > 0) { return "__btrc_thread_t*"; }
-    if (base == "Mutex" && t.generic_args.len > 0) { return "__btrc_mutex_val_t*"; }
     string prefix = "";
     if (t.is_const) { prefix = "const "; }
     string c = base;
+    /* Function-pointer type __fn_ptr(ret, params...) -> mangled typedef name. */
+    if (base == "__fn_ptr" && t.generic_args.len > 0) {
+        c = fnPtrTypedefName(t, a);
+    }
+    /* Thread<T> / Mutex<T> -> opaque runtime-handle pointers (mirrors
+     * types.type_to_c). These are not user generics: no struct/mangled name,
+     * just the pthread-backed handle typedef. */
+    else if (base == "Thread" && t.generic_args.len > 0) {
+        c = "__btrc_thread_t*";
+    } else if (base == "Mutex" && t.generic_args.len > 0) {
+        c = "__btrc_mutex_val_t*";
+    }
     /* Generic instance type (List<int>, user generics): mangled name. Class-typed
      * args have already been upgraded to pointers by upgradeProgramGenericArgs
      * (the AST pass that mirrors the reference's _upgrade_class_type), so the
      * mangled name carries the `_p1` suffix (`btrc_Vector_OwnedItem_p1`). */
-    if (t.generic_args.len > 0) {
+    else if (t.generic_args.len > 0) {
         if (base == "Tuple") { c = mangleGenericSymbol(base, t.generic_args); }
         else { c = mangleGenericType(base, t.generic_args); }
     } else if (base == "string") { c = "char*"; }
@@ -155,11 +172,9 @@ string typeToC(Node t, Analyzed a) {
     /* int/float/double/char/void/long/short/size_t map to themselves;
      * user classes also map to their own name (pointer applied below). */
     int depth = t.pointer_depth;
-    /* A nullable `?` contributes one pointer level so value types can be boxed.
-     * Collapse that synthetic level when the resolved representation is
-     * already a reference (string, or a substituted class T with depth > 1),
-     * matching the reference type_to_c contract. */
-    if (t.is_nullable && (c.endsWith("*") || depth > 1)) {
+    bool baseIsReference = c.endsWith("*") || base == "__fn_ptr"
+        || typeAliasBaseIsReference(base, a);
+    if (typeNullableCollapsesReferenceLayer(t, baseIsReference)) {
         depth = depth - 1;
     }
     int p = 0;
@@ -182,10 +197,12 @@ string typeToC(Node t, Analyzed a) {
  * generator's _managed_vars_stack). */
 class Managed {
     public string name;
+    public string cName;
     public string cls;
     public string cleanupKind;
-    public Managed(string name, string cls) {
+    public Managed(string name, string cName, string cls) {
         self.name = name;
+        self.cName = cName;
         self.cls = cls;
         self.cleanupKind = "arc";
     }
@@ -217,6 +234,19 @@ class CallableExceptionalCapture {
     }
 }
 
+/* Callable states reaching an explicit edge out of one loop body.  A
+ * do-while has no zero-iteration path, so its post-loop state is the join of
+ * these edges and the body's normal completion only. */
+class CallableLoopCapture {
+    public Vector<CallableFlowSnapshot> breaks;
+    public Vector<CallableFlowSnapshot> continues;
+
+    public CallableLoopCapture() {
+        self.breaks = [];
+        self.continues = [];
+    }
+}
+
 /* Snapshot of the ARC managed-scope + return context, taken before lowering an
  * isolated body (a lambda / thread wrapper, a separate C function). Holds COPIES
  * of the managed stack + scope starts so the live IRGen fields can be cleared
@@ -244,7 +274,9 @@ class ScopeSnapshot {
     public Vector<string> callableDeclarations;
     public Vector<int> callableScopeStarts;
     public Vector<CallableExceptionalCapture> callableExceptionCaptures;
+    public Vector<CallableLoopCapture> callableLoopCaptures;
     public Vector<string> borrowedLocalBindings;
+    public Vector<string> sourceLexicalBindings;
     /* COPIES of the func-var-decl accumulator (the IRNode handles), so a lambda
      * body lowers in a fresh decl context and the parent's accumulator is
      * restored after. Mirrors saving/clearing gen._func_var_decls around a
@@ -272,7 +304,9 @@ class ScopeSnapshot {
         self.callableDeclarations = [];
         self.callableScopeStarts = [];
         self.callableExceptionCaptures = [];
+        self.callableLoopCaptures = [];
         self.borrowedLocalBindings = [];
+        self.sourceLexicalBindings = [];
         self.funcVarDecls = [];
     }
 }
@@ -286,10 +320,16 @@ class IRGen {
     public Map<string, int> packAlignments;
     /* Runtime helpers referenced during lowering (name -> true). */
     public Map<string, bool> usedHelpers;
+    /* False for CLI --no-dce; lowering remains identical either way. */
+    public bool dceEnabled;
     /* Cached once at module entry. Allocating constructor wrappers need an
      * exception cleanup guard only when this translation unit can throw. */
     public bool programHasExceptions;
-
+    /* The analyzed class/generic graph is immutable during IR generation.
+     * Cache both positive and negative cycle queries so each runtime type's
+     * reachability graph is traversed at most once. */
+    public Map<string, bool> cyclableRuntimeTypeKnown;
+    public Map<string, bool> cyclableRuntimeTypeValues;
     /* ARC managed-variable tracking. `managedStack` is a flat list of all
      * currently-live managed vars across nested scopes; `scopeStarts` records
      * the index in managedStack where each open scope began (so a scope's vars
@@ -301,6 +341,11 @@ class IRGen {
      * synthetic binding from inheriting a same-named managed global's lowering
      * policy.  Block lowering snapshots/restores the map for shadowing. */
     public Map<string, bool> borrowedLocalBindings;
+    /* Object-like hosted macros may be valid source parameter/capture labels,
+     * but only bindings active in the current generated C function are
+     * rewritten.  Keeping this separate from varTypes prevents module globals
+     * such as `environ` from being mistaken for renamed parameters. */
+    public Map<string, string> sourceLexicalBindings;
     /* Loop-body scope markers: each entry is a `managedStack` length recorded at
      * the start of a loop body, so break/continue can release exactly the
      * managed vars declared inside the current (innermost) loop body. Mirrors
@@ -338,6 +383,9 @@ class IRGen {
      * lowerExpr consults this before lowering an expression. Mirrors
      * generator._owning_temp_overrides (keyed there by id(node)). */
     public Map<string, IRNode> owningTempOverrides;
+    /* Target-directed hosted raw-string conversion requested by an enclosing
+     * storage/call boundary, keyed by stable AST call identity. */
+    public Map<string, string> hostedResultConversionModes;
 
     /* Unique temp counter (mirrors generator._temp_counter / fresh_temp). */
     public int tempCounter;
@@ -381,6 +429,24 @@ class IRGen {
      * _UserGenericEmitter.type_map + _resolve in user_emitter.py. */
     public Map<string, Node> activeTypeMap;
 
+    /* Defaults belong to the target declaration's generic environment, even
+     * when the call itself appears outside a generic body. A depth counter
+     * lets call-target lowering temporarily resolve those type references
+     * without changing ordinary declaration-scope name lookup. */
+    public int callDefaultTypeDepth;
+
+    /* Declaration-scoped default evaluators are synthesized lazily at call
+     * sites.  The registry prevents duplicate definitions; the remaining
+     * fields freeze context-sensitive predefined identifiers to the source
+     * declaration rather than the generated helper body. */
+    public Map<string, bool> defaultArgumentHelpers;
+    public int defaultDeclarationDepth;
+    public string defaultFunctionName;
+    public string sourceFile;
+    public int defaultStdlibLineCount;
+    public Map<int, string> defaultSourceFiles;
+    public Map<int, int> defaultSourceLines;
+
     /* The module currently being generated, so deep expression lowering (lambda
      * lifting) can append the lifted static function + capture-env struct.
      * Mirrors generator.module. */
@@ -403,6 +469,7 @@ class IRGen {
     public Vector<string> callableScopeDeclarations;
     public Vector<int> callableScopeStarts;
     public Vector<CallableExceptionalCapture> callableExceptionCaptures;
+    public Vector<CallableLoopCapture> callableLoopCaptures;
 
     /* Every local IRVarDecl produced in the function/method body currently being
      * lowered. A try/catch marks ALL of them `volatile`, since any local modified
@@ -427,17 +494,22 @@ class IRGen {
     public string enumLoweringOwner;
     public Map<string, bool> enumLoweringMembers;
 
-    public IRGen(Analyzed analyzed) {
+    public IRGen(Analyzed analyzed, string sourceFile,
+            int stdlibLineCount, Vector<FeLine> userLines) {
         self.analyzed = analyzed;
         self.gpu = GpuRegistry();
         self.gpuCpu = GpuCpuContext();
         self.gpuHost = GpuHostContext();
         self.packAlignments = {};
         self.usedHelpers = {};
+        self.dceEnabled = true;
         self.programHasExceptions = false;
+        self.cyclableRuntimeTypeKnown = {};
+        self.cyclableRuntimeTypeValues = {};
         self.managedStack = [];
         self.scopeStarts = [];
         self.borrowedLocalBindings = {};
+        self.sourceLexicalBindings = {};
         self.loopScopeDepths = [];
         self.controlContext = [];
         self.controlManagedStarts = [];
@@ -448,6 +520,7 @@ class IRGen {
         self.inTryDepth = 0;
         self.inTrycatchDepth = 0;
         self.owningTempOverrides = {};
+        self.hostedResultConversionModes = {};
         self.tempCounter = 0;
         self.currentClass = "";
         self.currentReturnCType = "void";
@@ -457,6 +530,24 @@ class IRGen {
         self.batchExplicitReleases = false;
         self.collectionEdgeKeeps = false;
         self.activeTypeMap = {};
+        self.callDefaultTypeDepth = 0;
+        self.defaultArgumentHelpers = {};
+        self.defaultDeclarationDepth = 0;
+        self.defaultFunctionName = "";
+        self.sourceFile = sourceFile;
+        self.defaultStdlibLineCount = stdlibLineCount;
+        self.defaultSourceFiles = {};
+        self.defaultSourceLines = {};
+        int sourceIndex = 0;
+        while (sourceIndex < userLines.len) {
+            int combinedLine = stdlibLineCount + sourceIndex + 1;
+            FeLine sourceLine = userLines.get(sourceIndex);
+            self.defaultSourceFiles.put(
+                combinedLine, sourceLine.sourceFile);
+            self.defaultSourceLines.put(
+                combinedLine, sourceLine.lineNumber);
+            sourceIndex = sourceIndex + 1;
+        }
         self.curModule = null;
         self.lambdaCounter = 0;
         self.lastLambdaId = 0;
@@ -467,6 +558,7 @@ class IRGen {
         self.callableScopeDeclarations = [];
         self.callableScopeStarts = [];
         self.callableExceptionCaptures = [];
+        self.callableLoopCaptures = [];
         self.funcVarDecls = [];
         self.cleanupTakeAdapters = {};
         self.arcSlotAdapters = {};
@@ -483,6 +575,24 @@ class IRGen {
     public int freshLambdaId() {
         self.lambdaCounter = self.lambdaCounter + 1;
         return self.lambdaCounter;
+    }
+
+    public string defaultSourceFile(int combinedLine) {
+        if (self.defaultSourceFiles.has(combinedLine)) {
+            return self.defaultSourceFiles.get(combinedLine);
+        }
+        if (self.defaultStdlibLineCount > 0
+                && combinedLine <= self.defaultStdlibLineCount) {
+            return "<stdlib>";
+        }
+        return self.sourceFile;
+    }
+
+    public int defaultSourceLine(int combinedLine) {
+        if (self.defaultSourceLines.has(combinedLine)) {
+            return self.defaultSourceLines.get(combinedLine);
+        }
+        return combinedLine;
     }
 
     public bool hasClosureEnv(string name) {
@@ -575,14 +685,7 @@ class IRGen {
     }
 
     public bool callableTypeHasManagedReturn(Node? type) {
-        if (type == null) { return false; }
-        Node? resolved = self.resolveBodyType(type);
-        resolved = resolveTypedefType(
-            resolved, self.analyzed.typedefTable);
-        return resolved != null
-            && resolved.base == "__fn_ptr"
-            && resolved.generic_args.len > 0
-            && irManagedType(self, resolved.generic_args.get(0));
+        return callableBoundaryManagedType(self, type);
     }
 
     public bool callableDeclaredInActiveScope(string name) {
@@ -604,13 +707,8 @@ class IRGen {
     public void rejectPersistentCallableEscape(
             Node? expectedType, Node? value,
             Map<string, Node> varTypes, string boundary) {
-        if (!self.callableTypeHasManagedReturn(expectedType)
-                || self.callableExpressionAbi(value, varTypes) == 0) {
-            return;
-        }
-        print("Managed-return callback cannot cross " + boundary
-            + "; bare __fn_ptr storage erases its return ABI");
-        abortGen();
+        rejectPersistentCallableBoundary(
+            self, expectedType, value, varTypes, boundary);
     }
 
     public void snapshotOwnedCallableBindings(Vector<string> names) {
@@ -792,6 +890,43 @@ class IRGen {
         }
     }
 
+    public CallableLoopCapture beginCallableLoopCapture() {
+        CallableLoopCapture capture = CallableLoopCapture();
+        self.callableLoopCaptures.push(capture);
+        return capture;
+    }
+
+    public void finishCallableLoopCapture(CallableLoopCapture capture) {
+        if (self.callableLoopCaptures.len == 0) {
+            print("internal compiler error: unmatched callable loop capture");
+            abortGen();
+        }
+        CallableLoopCapture active = self.callableLoopCaptures.pop();
+        if (active != capture) {
+            print("internal compiler error: callable loop captures must be nested");
+            abortGen();
+        }
+    }
+
+    public void recordCallableLoopExit(bool isBreak) {
+        if (self.callableLoopCaptures.len == 0) { return; }
+        int context = self.controlContext.len - 1;
+        while (context >= 0) {
+            string target = self.controlContext.get(context);
+            if (target == "loop") { break; }
+            if (isBreak && target == "switch") { return; }
+            context = context - 1;
+        }
+        if (context < 0) { return; }
+        CallableLoopCapture capture = self.callableLoopCaptures.get(
+            self.callableLoopCaptures.len - 1);
+        if (isBreak) {
+            capture.breaks.push(self.snapshotCallableFlow());
+        } else {
+            capture.continues.push(self.snapshotCallableFlow());
+        }
+    }
+
     public CallableFlowSnapshot beginCallableScope() {
         CallableFlowSnapshot enclosing = self.snapshotCallableFlow();
         self.callableScopeStarts.push(
@@ -881,7 +1016,7 @@ class IRGen {
      * -> the concrete element type) while lowering a monomorphized generic
      * method body; identity otherwise. */
     public Node resolveBodyType(Node? t) {
-        if (self.inGenericMethod) {
+        if (self.inGenericMethod || self.callDefaultTypeDepth > 0) {
             return resolveGenericType(
                 t, self.activeTypeMap, self.analyzed);
         }
@@ -1029,20 +1164,23 @@ class IRGen {
     }
 
     public void registerManagedVar(string name, string cls) {
-        self.managedStack.push(Managed(name, cls));
+        self.managedStack.push(Managed(
+            name, self.sourceLexicalReferenceCName(name), cls));
     }
 
     public void registerThreadVar(string name) {
-        Managed owner = Managed(name, "");
+        Managed owner = Managed(
+            name, self.sourceLexicalReferenceCName(name), "");
         owner.cleanupKind = "thread";
         self.managedStack.push(owner);
     }
 
     public string localCleanupKind(string name) {
+        string cName = self.sourceLexicalReferenceCName(name);
         int index = self.managedStack.len - 1;
         while (index >= 0) {
             Managed owner = self.managedStack.get(index);
-            if (owner.name == name) { return owner.cleanupKind; }
+            if (owner.cName == cName) { return owner.cleanupKind; }
             index = index - 1;
         }
         return "";
@@ -1073,12 +1211,98 @@ class IRGen {
         }
     }
 
+    public Vector<string> snapshotSourceLexicalBindings() {
+        Vector<string> snapshot = [];
+        Vector<string> names = self.sourceLexicalBindings.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            snapshot.push(name);
+            snapshot.push(self.sourceLexicalBindings.get(name));
+            index = index + 1;
+        }
+        return snapshot;
+    }
+
+    public void restoreSourceLexicalBindings(Vector<string> snapshot) {
+        Vector<string> names = self.sourceLexicalBindings.keys();
+        int index = 0;
+        while (index < names.len) {
+            self.sourceLexicalBindings.remove(names.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index + 1 < snapshot.len) {
+            self.sourceLexicalBindings.put(
+                snapshot.get(index), snapshot.get(index + 1));
+            index = index + 2;
+        }
+    }
+
+    public bool sourceLexicalCNameActive(string cName) {
+        Vector<string> names = self.sourceLexicalBindings.keys();
+        int index = 0;
+        while (index < names.len) {
+            if (self.sourceLexicalBindings.get(names.get(index))
+                    == cName) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public void activateSourceLexicalBinding(string name) {
+        string cName = sourceLexicalBindingCNameForAnalysis(
+            name, self.analyzed);
+        if (self.sourceLexicalCNameActive(cName)) {
+            /* C lexical shadowing cannot expose an outer same-named owner to
+             * return/throw cleanup.  Give each nested declaration its own C
+             * identity while source semantic maps remain keyed by spelling. */
+            cName = self.freshTemp(cName);
+        }
+        self.sourceLexicalBindings.put(name, cName);
+    }
+
+    public void activateSourceLexicalParameters(Vector<Node> parameters) {
+        int index = 0;
+        while (index < parameters.len) {
+            self.activateSourceLexicalBinding(
+                parameters.get(index).name);
+            index = index + 1;
+        }
+    }
+
+    public Vector<string> replaceSourceLexicalParameters(
+            Vector<Node> parameters) {
+        Vector<string> snapshot = self.snapshotSourceLexicalBindings();
+        Vector<string> empty = [];
+        self.restoreSourceLexicalBindings(empty);
+        self.activateSourceLexicalParameters(parameters);
+        return snapshot;
+    }
+
+    public string sourceLexicalReferenceCName(string name) {
+        if (self.sourceLexicalBindings.has(name)) {
+            return self.sourceLexicalBindings.get(name);
+        }
+        return name;
+    }
+
+    /* Invalidate context-sensitive inference results before a new body or
+     * generic mapping is lowered. Replacing both maps also releases cached type
+     * nodes promptly instead of retaining every expression for the module. */
+    public void resetExpressionInferenceMemo() {
+        beginExpressionInferenceMemo(self.analyzed);
+    }
+
     /* Start a fresh function/method body: clear the funcVarDecls accumulator in
      * place (no reassignment — see ScopeSnapshot's note on alias-free) so the
      * try/catch volatile pass only marks THIS body's locals. Mirrors the
      * `gen._func_var_decls = []` reset at every body-lowering entry point. */
     public void resetFuncVarDecls() {
         while (self.funcVarDecls.len > 0) { self.funcVarDecls.pop(); }
+        self.resetExpressionInferenceMemo();
     }
 
     /* Begin lowering an isolated body (a lifted lambda / thread wrapper). Snapshot
@@ -1099,7 +1323,7 @@ class IRGen {
         int i = 0;
         while (i < self.managedStack.len) {
             Managed mv = self.managedStack.get(i);
-            Managed copy = Managed(mv.name, mv.cls);
+            Managed copy = Managed(mv.name, mv.cName, mv.cls);
             copy.cleanupKind = mv.cleanupKind;
             snap.managed.push(copy);
             i = i + 1;
@@ -1160,12 +1384,26 @@ class IRGen {
                     callableCapture));
             callableCapture = callableCapture + 1;
         }
+        int callableLoopCapture = 0;
+        while (callableLoopCapture < self.callableLoopCaptures.len) {
+            snap.callableLoopCaptures.push(
+                self.callableLoopCaptures.get(callableLoopCapture));
+            callableLoopCapture = callableLoopCapture + 1;
+        }
         Vector<string> borrowed = self.snapshotBorrowedLocalBindings();
         int borrowedIndex = 0;
         while (borrowedIndex < borrowed.len) {
             snap.borrowedLocalBindings.push(
                 borrowed.get(borrowedIndex));
             borrowedIndex = borrowedIndex + 1;
+        }
+        Vector<string> sourceBindings =
+            self.snapshotSourceLexicalBindings();
+        int sourceBindingIndex = 0;
+        while (sourceBindingIndex < sourceBindings.len) {
+            snap.sourceLexicalBindings.push(
+                sourceBindings.get(sourceBindingIndex));
+            sourceBindingIndex = sourceBindingIndex + 1;
         }
         /* Clear the live fields in place (no reassignment). */
         while (self.managedStack.len > 0) { self.managedStack.pop(); }
@@ -1191,13 +1429,19 @@ class IRGen {
         while (self.callableExceptionCaptures.len > 0) {
             self.callableExceptionCaptures.pop();
         }
+        while (self.callableLoopCaptures.len > 0) {
+            self.callableLoopCaptures.pop();
+        }
         Vector<string> noBorrowedBindings = [];
         self.restoreBorrowedLocalBindings(noBorrowedBindings);
+        Vector<string> noSourceBindings = [];
+        self.restoreSourceLexicalBindings(noSourceBindings);
         self.inTryDepth = 0;
         self.inTrycatchDepth = 0;
         self.currentReturnCType = retC;
         self.currentReturnTypeNode = retType;
         self.currentReturnOwned = true;
+        self.resetExpressionInferenceMemo();
         return snap;
     }
 
@@ -1214,7 +1458,7 @@ class IRGen {
         int i = 0;
         while (i < snap.managed.len) {
             Managed mv = snap.managed.get(i);
-            Managed copy = Managed(mv.name, mv.cls);
+            Managed copy = Managed(mv.name, mv.cName, mv.cls);
             copy.cleanupKind = mv.cleanupKind;
             self.managedStack.push(copy);
             i = i + 1;
@@ -1283,13 +1527,25 @@ class IRGen {
                     callableCapture));
             callableCapture = callableCapture + 1;
         }
+        while (self.callableLoopCaptures.len > 0) {
+            self.callableLoopCaptures.pop();
+        }
+        int callableLoopCapture = 0;
+        while (callableLoopCapture < snap.callableLoopCaptures.len) {
+            self.callableLoopCaptures.push(
+                snap.callableLoopCaptures.get(callableLoopCapture));
+            callableLoopCapture = callableLoopCapture + 1;
+        }
         self.restoreBorrowedLocalBindings(
             snap.borrowedLocalBindings);
+        self.restoreSourceLexicalBindings(
+            snap.sourceLexicalBindings);
         self.currentReturnCType = snap.retC;
         self.currentReturnTypeNode = snap.retType;
         self.currentReturnOwned = snap.retOwned;
         self.inTryDepth = snap.tryDepth;
         self.inTrycatchDepth = snap.trycatchDepth;
+        self.resetExpressionInferenceMemo();
     }
 
     /* Register every managed local in an exception-capable program: a throw may
@@ -1313,10 +1569,10 @@ class IRGen {
         IRNode visitor = irLiteral("NULL");
         string visitorSymbol = managedVisitorSymbol(self, clsName);
         if (visitorSymbol != "") {
-            visitor = irVar(visitorSymbol);
+            visitor = irFunctionRef(visitorSymbol);
         }
         stmts.push(irExprStmt(registerCleanupSlot(self, declaration,
-            irVar(destroyFn), visitor, false)));
+            irFunctionRef(destroyFn), visitor, false)));
     }
 
     public void maybeRegisterDirectCleanup(string varName, string cleanupFn,
@@ -1327,7 +1583,7 @@ class IRGen {
             stmts, varName);
         self.useHelper(cleanupFn);
         stmts.push(irExprStmt(registerCleanupSlot(self, declaration,
-            irVar(cleanupFn), null, true)));
+            irFunctionRef(cleanupFn), null, true)));
     }
 
     /* Drop a variable from auto-management across all open scopes (the user is
@@ -1337,6 +1593,7 @@ class IRGen {
      * generator.unregister_managed_var. */
     public void unregisterManagedVar(string name) {
         Vector<Managed> kept = [];
+        string cName = self.sourceLexicalReferenceCName(name);
         /* removedBefore[k] = number of entries removed at flat indices < k. */
         int removedSoFar = 0;
         Vector<int> removedBeforeIndex = [];
@@ -1344,7 +1601,7 @@ class IRGen {
         while (i < self.managedStack.len) {
             removedBeforeIndex.push(removedSoFar);
             Managed mv = self.managedStack.get(i);
-            if (mv.name == name) { removedSoFar = removedSoFar + 1; }
+            if (mv.cName == cName) { removedSoFar = removedSoFar + 1; }
             else { kept.push(mv); }
             i = i + 1;
         }
@@ -1417,6 +1674,10 @@ class IRGen {
     }
 
     public IRModule generate(Node prog) {
+        /* An IRGen/Analyzed pair may be reused. Prepasses such as WGSL
+         * generation run under contextual type environments, so they must not
+         * inherit the final body memo from an earlier generate() call. */
+        disableExpressionInferenceMemo(self.analyzed);
         IRModule m = IRModule();
         self.curModule = m;
         self.packAlignments = declarationPackAlignments(prog);
@@ -1440,10 +1701,13 @@ class IRGen {
         /* Stage 5 — reachability DCE (functions then structs), then helpers.
          * Mirrors optimizer.optimize: dead helpers are pruned via usedHelpers
          * tracking in collectHelpers (called last). */
-        optimizeModule(m);
+        if (self.dceEnabled) { optimizeModule(m); }
         installProgramCycleBoundary(self, m);
         consumeUnusedParameters(m);
         self.collectHelpers(m);
+        /* The memo is an IR-generation implementation detail. Release cached
+         * type nodes and leave Analyzed safe for later semantic-query reuse. */
+        disableExpressionInferenceMemo(self.analyzed);
         return m;
     }
 
@@ -1526,7 +1790,9 @@ class IRGen {
                     while (fp < d.params.len) {
                         Node pp = d.params.get(fp);
                         declaration.params.push(IRParam(
-                            typeToC(pp.type, self.analyzed), pp.name));
+                            typeToC(pp.type, self.analyzed),
+                            sourceLexicalBindingCNameForAnalysis(
+                                pp.name, self.analyzed)));
                         fp = fp + 1;
                     }
                     m.function_decls.push(declaration);
@@ -1633,7 +1899,8 @@ class IRGen {
             while (p < v.params.len) {
                 Node par = v.params.get(p);
                 variant.fields.push(IRStructField(
-                    typeToC(par.type, self.analyzed), par.name));
+                    typeToC(par.type, self.analyzed),
+                    sourceLexicalBindingCName(par.name)));
                 p = p + 1;
             }
             tagged.variants.push(variant);
@@ -1653,17 +1920,22 @@ class IRGen {
             constructorBody.push(irVarDecl(name, "__result", null));
             constructorBody.push(irAssign(
                 irFieldAccess(irVar("__result"), "tag", false),
-                irLiteral(name + "_" + v.name + "_TAG")));
+                irVar(name + "_" + v.name + "_TAG")));
             int p2 = 0;
             while (p2 < v.params.len) {
                 Node par = v.params.get(p2);
                 constructor.params.push(IRParam(
-                    typeToC(par.type, self.analyzed), par.name));
+                    typeToC(par.type, self.analyzed),
+                    sourceLexicalBindingCNameForAnalysis(
+                        par.name, self.analyzed)));
                 IRNode payload = irFieldAccess(
                     irFieldAccess(irVar("__result"), "data", false),
                     v.name, false);
                 constructorBody.push(irAssign(
-                    irFieldAccess(payload, par.name, false), irVar(par.name)));
+                    irFieldAccess(payload,
+                        sourceLexicalBindingCName(par.name), false),
+                    irVar(sourceLexicalBindingCNameForAnalysis(
+                        par.name, self.analyzed))));
                 p2 = p2 + 1;
             }
             constructorBody.push(irReturn(irVar("__result")));
@@ -1690,7 +1962,7 @@ class IRGen {
             Vector<IRNode> matchBody = [];
             matchBody.push(irReturn(irLiteral("\"" + it.name + "\"")));
             bodyStmts.push(irIf(irBinOp(
-                switchExpr, "==", irLiteral(caseLabel)),
+                switchExpr, "==", irVar(caseLabel)),
                 irBlock(matchBody), null));
             i = i + 1;
         }
@@ -1704,9 +1976,9 @@ class IRGen {
         return fn;
     }
 
-    /* Emit a plain (raw C) `struct` definition -> IRStructDef (mirrors
-     * emit_struct_decl). An array field (`int buf[8]`) encodes its size in the
-     * field name and drops the array-ness from the element type. */
+    /* Lower a source `struct` definition to IRStructDef (mirrors
+     * emit_struct_decl). An array field (`int buf[8]`) keeps its bound as an
+     * IR expression and drops the array-ness from the element type. */
     public void emitStructDecl(Node d, IRModule m) {
         IRStructDef sd = IRStructDef();
         sd.name = d.name;
@@ -1718,15 +1990,12 @@ class IRGen {
         while (i < d.fields.len) {
             Node f = d.fields.get(i);
             if (f.type != null && f.type.is_array && f.type.array_size != null) {
-                Node baseType = Node();
-                baseType.kind = NK_TYPE_EXPR;
-                baseType.base = f.type.base;
-                baseType.generic_args = f.type.generic_args;
-                baseType.pointer_depth = f.type.pointer_depth;
+                Node baseType = typeWithoutOuterArray(f.type);
                 Map<string, Node> empty = {};
-                string sizeText = irExprText(self.lowerExpr(f.type.array_size, empty));
-                sd.fields.push(IRStructField(typeToC(baseType, self.analyzed),
-                    f.name + "[" + sizeText + "]"));
+                IRStructField field = IRStructField(
+                    typeToC(baseType, self.analyzed), f.name);
+                field.array_size = self.lowerExpr(f.type.array_size, empty);
+                sd.fields.push(field);
             } else {
                 sd.fields.push(IRStructField(typeToC(f.type, self.analyzed), f.name));
             }
@@ -1746,12 +2015,7 @@ class IRGen {
                 d.type, d.initializer, globalTypes, "global storage");
         }
         if (d.type != null && d.type.is_array && d.type.array_size != null) {
-            Node elementType = Node();
-            elementType.kind = NK_TYPE_EXPR;
-            elementType.base = d.type.base;
-            elementType.generic_args = d.type.generic_args;
-            elementType.pointer_depth = d.type.pointer_depth;
-            elementType.is_const = d.type.is_const;
+            Node elementType = typeWithoutOuterArray(d.type);
             IRGlobalDecl global = IRGlobalDecl(
                 typeToC(elementType, self.analyzed), d.name);
             global.is_extern = d.type.is_extern && !forceExternal;
@@ -1806,6 +2070,9 @@ class IRGen {
     /* Emit one generic instance: struct, typed callable declarations, then
      * init/new/destroy + methods (all `static`). */
     public void emitGenericInstance(GenInstance inst, IRModule m) {
+        /* The same source AST is lowered once per concrete type map. Never let
+         * one instance reuse another instance's inferred expression type. */
+        self.resetExpressionInferenceMemo();
         Node decl = self.analyzed.genericClassTable.get(inst.base);
         string mangled = inst.mangled;
         Map<string, Node> typeMap = {};
@@ -1824,10 +2091,9 @@ class IRGen {
             Node mem = decl.members.get(fi);
             string storage = instanceStorageName(mem);
             if (storage != "") {
-                Node rt = resolveGenericType(
-                    mem.type, typeMap, self.analyzed);
                 sd.fields.push(IRStructField(
-                    typeToC(rt, self.analyzed), storage));
+                    genericTypeToC(mem.type, typeMap, self.analyzed),
+                    storage));
             }
             fi = fi + 1;
         }
@@ -1840,9 +2106,10 @@ class IRGen {
             int p = 0;
             while (p < ctor.params.len) {
                 Node pp = ctor.params.get(p);
-                Node rt = resolveGenericType(
-                    pp.type, typeMap, self.analyzed);
-                ctorParams.push(IRParam(typeToC(rt, self.analyzed), pp.name));
+                ctorParams.push(IRParam(
+                    genericTypeToC(pp.type, typeMap, self.analyzed),
+                    sourceLexicalBindingCNameForAnalysis(
+                        pp.name, self.analyzed)));
                 p = p + 1;
             }
         }
@@ -1879,17 +2146,19 @@ class IRGen {
                 Node rrt = resolveGenericType(
                     mem.return_type, typeMap,
                     self.analyzed);
-                string retC = typeToC(rrt, self.analyzed);
+                string retC = genericTypeToC(
+                    mem.return_type, typeMap, self.analyzed);
                 IRFunctionDecl methodDeclaration = IRFunctionDecl(
                     mangled + "_" + mem.name, retC, true);
                 methodDeclaration.params.push(IRParam(mangled + "*", "self"));
                 int k = 0;
                 while (k < mem.params.len) {
                     Node pp = mem.params.get(k);
-                    Node rt = resolveGenericType(
-                        pp.type, typeMap, self.analyzed);
                     methodDeclaration.params.push(IRParam(
-                        typeToC(rt, self.analyzed), pp.name));
+                        genericTypeToC(
+                            pp.type, typeMap, self.analyzed),
+                        sourceLexicalBindingCNameForAnalysis(
+                            pp.name, self.analyzed)));
                     k = k + 1;
                 }
                 m.function_decls.push(methodDeclaration);
@@ -1928,7 +2197,15 @@ class IRGen {
         self.currentReturnOwned = true;
         self.resetFuncVarDecls();
         Map<string, Node> genericCtorVars = genericInitializerVarTypes(
-            self, inst, ctor, typeMap);
+            self, inst, ctor);
+        Vector<string> constructorSourceBindings =
+            self.snapshotSourceLexicalBindings();
+        Vector<string> noConstructorSourceBindings = [];
+        self.restoreSourceLexicalBindings(
+            noConstructorSourceBindings);
+        if (ctor != null) {
+            self.activateSourceLexicalParameters(ctor.params);
+        }
         appendInstanceFieldInitializers(
             self, decl, genericCtorVars, true, typeMap, ibody);
         Vector<IRNode> ctorBodyStmts = [];
@@ -1938,6 +2215,8 @@ class IRGen {
             int b = 0;
             while (b < blk.stmts.len) { ctorBodyStmts.push(blk.stmts.get(b)); b = b + 1; }
         }
+        self.restoreSourceLexicalBindings(
+            constructorSourceBindings);
         /* Empty ctor body -> (void)self; to avoid unused-param warning. */
         if (ctorBodyStmts.len == 0) {
             ctorBodyStmts.push(irExprStmt(irCast("void", irVar("self"))));
@@ -1986,7 +2265,7 @@ class IRGen {
             self.currentReturnOwned = true;
             self.resetFuncVarDecls();
             Map<string, Node> destructorTypes = self.genericMethodVarTypes(
-                inst, genericDestructor, typeMap);
+                inst, genericDestructor);
             IRNode destructorBlock = self.lowerBlock(
                 genericDestructor.body_node, destructorTypes);
             Vector<IRNode> hookBody = [];
@@ -2041,16 +2320,19 @@ class IRGen {
                 Node rrt = resolveGenericType(
                     mem.return_type, typeMap,
                     self.analyzed);
-                string retC = typeToC(rrt, self.analyzed);
+                string retC = genericTypeToC(
+                    mem.return_type, typeMap, self.analyzed);
                 fn.return_type = retC;
                 fn.is_static = true;
                 fn.params.push(IRParam(mangled + "*", "self"));
                 int mp2 = 0;
                 while (mp2 < mem.params.len) {
                     Node pp = mem.params.get(mp2);
-                    Node rt = resolveGenericType(
-                        pp.type, typeMap, self.analyzed);
-                    fn.params.push(IRParam(typeToC(rt, self.analyzed), pp.name));
+                    fn.params.push(IRParam(
+                        genericTypeToC(
+                            pp.type, typeMap, self.analyzed),
+                        sourceLexicalBindingCNameForAnalysis(
+                            pp.name, self.analyzed)));
                     mp2 = mp2 + 1;
                 }
                 self.currentReturnCType = retC;
@@ -2064,11 +2346,17 @@ class IRGen {
                 self.batchExplicitReleases = publicCollectionMethod;
                 Vector<IRNode> mbody = [];
                 if (mem.body_node != null) {
+                    Vector<string> methodSourceBindings =
+                        self.replaceSourceLexicalParameters(
+                            mem.params);
                     self.resetFuncVarDecls();
-                    Map<string, Node> vt = self.genericMethodVarTypes(inst, mem, typeMap);
+                    Map<string, Node> vt = self.genericMethodVarTypes(
+                        inst, mem);
                     IRNode blk = self.lowerBlock(mem.body_node, vt);
                     int b = 0;
                     while (b < blk.stmts.len) { mbody.push(blk.stmts.get(b)); b = b + 1; }
+                    self.restoreSourceLexicalBindings(
+                        methodSourceBindings);
                 }
                 if (mbody.len == 0) {
                     mbody.push(irExprStmt(irCast("void", irVar("self"))));
@@ -2111,6 +2399,9 @@ class IRGen {
     }
 
     public void emitOneMethodGenericInstance(MethodGenInstance inst, IRModule m) {
+        /* Method-generic bodies are shared ASTs under distinct combined class
+         * and method type maps, so each specialization owns a cache epoch. */
+        self.resetExpressionInferenceMemo();
         /* Resolve the owning class decl + method. */
         bool ownerGeneric = self.analyzed.isGenericClass(inst.classBase);
         Node? decl = null;
@@ -2151,17 +2442,18 @@ class IRGen {
         /* Resolved return + params. */
         Node rrt = resolveGenericType(
             method.return_type, typeMap, self.analyzed);
-        string retC = typeToC(rrt, self.analyzed);
+        string retC = genericTypeToC(
+            method.return_type, typeMap, self.analyzed);
 
         IRFunctionDecl declaration = IRFunctionDecl(fnName, retC, true);
         declaration.params.push(IRParam(selfMangled + "*", "self"));
         int fp = 0;
         while (fp < method.params.len) {
             Node pp = method.params.get(fp);
-            Node rt = resolveGenericType(
-                pp.type, typeMap, self.analyzed);
             declaration.params.push(IRParam(
-                typeToC(rt, self.analyzed), pp.name));
+                genericTypeToC(pp.type, typeMap, self.analyzed),
+                sourceLexicalBindingCNameForAnalysis(
+                    pp.name, self.analyzed)));
             fp = fp + 1;
         }
         m.function_decls.push(declaration);
@@ -2202,9 +2494,10 @@ class IRGen {
         int pp2 = 0;
         while (pp2 < method.params.len) {
             Node pp = method.params.get(pp2);
-            Node rt = resolveGenericType(
-                pp.type, typeMap, self.analyzed);
-            fn.params.push(IRParam(typeToC(rt, self.analyzed), pp.name));
+            fn.params.push(IRParam(
+                genericTypeToC(pp.type, typeMap, self.analyzed),
+                sourceLexicalBindingCNameForAnalysis(
+                    pp.name, self.analyzed)));
             pp2 = pp2 + 1;
         }
 
@@ -2220,17 +2513,20 @@ class IRGen {
         int vp = 0;
         while (vp < method.params.len) {
             Node pp = method.params.get(vp);
-            vt.put(pp.name, resolveGenericType(
-                pp.type, typeMap, self.analyzed));
+            vt.put(pp.name, pp.type);
             vp = vp + 1;
         }
 
         Vector<IRNode> mbody = [];
         if (method.body_node != null) {
+            Vector<string> methodSourceBindings =
+                self.replaceSourceLexicalParameters(method.params);
             self.resetFuncVarDecls();
             IRNode blk = self.lowerBlock(method.body_node, vt);
             int b = 0;
             while (b < blk.stmts.len) { mbody.push(blk.stmts.get(b)); b = b + 1; }
+            self.restoreSourceLexicalBindings(
+                methodSourceBindings);
         }
         if (mbody.len == 0) {
             mbody.push(irExprStmt(irCast("void", irVar("self"))));
@@ -2254,10 +2550,11 @@ class IRGen {
         self.activeTypeMap = {};
     }
 
-    /* var-type map for lowering a generic method/ctor body: self -> the generic
-     * instance type (carries generic_args + pointer_depth 1), each param -> its
-     * resolved type. */
-    public Map<string, Node> genericMethodVarTypes(GenInstance inst, Node method, Map<string, Node> typeMap) {
+    /* Var types retain source templates; resolvedExpressionType applies the
+     * active map for semantic queries while C lowering can still distinguish
+     * `T*` with `T = int?` from direct `int*?`. */
+    public Map<string, Node> genericMethodVarTypes(
+            GenInstance inst, Node method) {
         Map<string, Node> vt = self.seededVarTypes();
         Node selfT = Node();
         selfT.kind = NK_TYPE_EXPR;
@@ -2268,8 +2565,7 @@ class IRGen {
         int i = 0;
         while (i < method.params.len) {
             Node p = method.params.get(i);
-            vt.put(p.name, resolveGenericType(
-                p.type, typeMap, self.analyzed));
+            vt.put(p.name, p.type);
             i = i + 1;
         }
         return vt;
@@ -2331,7 +2627,8 @@ class IRGen {
             if (mem.kind == NK_METHOD_DECL && !mem.is_constructor
                     && mem.name != "__del__") {
                 ownMethods.put(mem.name, true);
-                if (!mem.is_abstract && mem.body_node != null) {
+                if (mem.generic_params.len == 0
+                        && !mem.is_abstract && mem.body_node != null) {
                     m.functions.push(self.lowerMethod(decl, mem));
                 }
             } else if (mem.kind == NK_PROPERTY_DECL) {
@@ -2415,7 +2712,9 @@ class IRGen {
             while (constructorParam < ctor.params.len) {
                 Node parameter = ctor.params.get(constructorParam);
                 IRParam irParameter = IRParam(
-                    typeToC(parameter.type, self.analyzed), parameter.name);
+                    typeToC(parameter.type, self.analyzed),
+                    sourceLexicalBindingCNameForAnalysis(
+                        parameter.name, self.analyzed));
                 initDeclaration.params.push(irParameter);
                 newDeclaration.params.push(irParameter);
                 constructorParam = constructorParam + 1;
@@ -2431,7 +2730,8 @@ class IRGen {
             Node mem = decl.members.get(i);
             if (mem.kind == NK_METHOD_DECL) { own.put(mem.name, true); }
             if (mem.kind == NK_METHOD_DECL && !mem.is_constructor
-                    && mem.name != "__del__") {
+                    && mem.name != "__del__"
+                    && mem.generic_params.len == 0) {
                 bool isStatic = mem.access == "class";
                 string ret = typeToC(mem.return_type, self.analyzed);
                 IRFunctionDecl methodDeclaration = IRFunctionDecl(
@@ -2443,7 +2743,9 @@ class IRGen {
                 while (methodParam < mem.params.len) {
                     Node parameter = mem.params.get(methodParam);
                     methodDeclaration.params.push(IRParam(
-                        typeToC(parameter.type, self.analyzed), parameter.name));
+                        typeToC(parameter.type, self.analyzed),
+                        sourceLexicalBindingCNameForAnalysis(
+                            parameter.name, self.analyzed)));
                     methodParam = methodParam + 1;
                 }
                 m.function_decls.push(methodDeclaration);
@@ -2460,7 +2762,9 @@ class IRGen {
                     IRFunctionDecl setter = IRFunctionDecl(
                         name + "_set_" + mem.name, "void", false);
                     setter.params.push(IRParam(name + "*", "self"));
-                    setter.params.push(IRParam(propertyType, "value"));
+                    setter.params.push(IRParam(propertyType,
+                        sourceLexicalBindingCNameForAnalysis(
+                            "value", self.analyzed)));
                     m.function_decls.push(setter);
                 }
             }
@@ -2474,7 +2778,7 @@ class IRGen {
             int k = 0;
             while (k < pm.len) {
                 MethodEntry e = pm.get(k);
-                if (!own.has(e.name)) {
+                if (!own.has(e.name) && e.sig.generic_params.len == 0) {
                     string ret = typeToC(e.sig.return_type, self.analyzed);
                     IRFunctionDecl wrapper = IRFunctionDecl(
                         name + "_" + e.name, ret, false);
@@ -2485,7 +2789,9 @@ class IRGen {
                     while (wrapperParam < e.sig.params.len) {
                         Node parameter = e.sig.params.get(wrapperParam);
                         wrapper.params.push(IRParam(
-                            typeToC(parameter.type, self.analyzed), parameter.name));
+                            typeToC(parameter.type, self.analyzed),
+                            sourceLexicalBindingCNameForAnalysis(
+                                parameter.name, self.analyzed)));
                         wrapperParam = wrapperParam + 1;
                     }
                     m.function_decls.push(wrapper);
@@ -2504,7 +2810,9 @@ class IRGen {
         while (i < params.len) {
             Node p = params.get(i);
             if (i > 0) { s = s + ", "; }
-            s = s + typeToC(p.type, self.analyzed) + " " + p.name;
+            s = s + typeToC(p.type, self.analyzed) + " "
+                + sourceLexicalBindingCNameForAnalysis(
+                    p.name, self.analyzed);
             i = i + 1;
         }
         return s;
@@ -2524,7 +2832,9 @@ class IRGen {
             int i = 0;
             while (i < ctor.params.len) {
                 Node p = ctor.params.get(i);
-                initFn.params.push(IRParam(typeToC(p.type, self.analyzed), p.name));
+                initFn.params.push(IRParam(typeToC(p.type, self.analyzed),
+                    sourceLexicalBindingCNameForAnalysis(
+                        p.name, self.analyzed)));
                 i = i + 1;
             }
         }
@@ -2535,6 +2845,13 @@ class IRGen {
         self.currentReturnOwned = true;
         self.resetFuncVarDecls();
         Map<string, Node> ctorVars = self.ctorVarTypes(decl, ctor);
+        Vector<string> sourceBindings =
+            self.snapshotSourceLexicalBindings();
+        Vector<string> noSourceBindings = [];
+        self.restoreSourceLexicalBindings(noSourceBindings);
+        if (ctor != null) {
+            self.activateSourceLexicalParameters(ctor.params);
+        }
         Map<string, Node> noTypeMap = {};
         appendInstanceFieldInitializers(
             self, decl, ctorVars, false, noTypeMap, body);
@@ -2544,6 +2861,7 @@ class IRGen {
             int k = 0;
             while (k < blk.stmts.len) { body.push(blk.stmts.get(k)); k = k + 1; }
         }
+        self.restoreSourceLexicalBindings(sourceBindings);
         initFn.body = irBlock(body);
         m.functions.push(initFn);
 
@@ -2567,8 +2885,11 @@ class IRGen {
             int p = 0;
             while (p < ctor.params.len) {
                 newFn.params.push(IRParam(typeToC(ctor.params.get(p).type, self.analyzed),
-                    ctor.params.get(p).name));
-                initArgs.push(irVar(ctor.params.get(p).name));
+                    sourceLexicalBindingCNameForAnalysis(
+                        ctor.params.get(p).name, self.analyzed)));
+                initArgs.push(irVar(
+                    sourceLexicalBindingCNameForAnalysis(
+                        ctor.params.get(p).name, self.analyzed)));
                 p = p + 1;
             }
         }
@@ -2864,7 +3185,9 @@ class IRGen {
         int i = 0;
         while (i < method.params.len) {
             Node p = method.params.get(i);
-            fn.params.push(IRParam(typeToC(p.type, self.analyzed), p.name));
+            fn.params.push(IRParam(typeToC(p.type, self.analyzed),
+                sourceLexicalBindingCNameForAnalysis(
+                    p.name, self.analyzed)));
             vt.put(p.name, p.type);
             i = i + 1;
         }
@@ -2873,9 +3196,12 @@ class IRGen {
         self.currentReturnOwned = true;
         self.resetFuncVarDecls();
         if (method.body_node != null) {
+            Vector<string> sourceBindings =
+                self.replaceSourceLexicalParameters(method.params);
             /* Hoist to a local: btrcpy double-evaluates `field = call()`. */
             IRNode mb = self.lowerBlock(method.body_node, vt);
             fn.body = mb;
+            self.restoreSourceLexicalBindings(sourceBindings);
         } else {
             Vector<IRNode> empty = [];
             fn.body = irBlock(empty);
@@ -2914,11 +3240,13 @@ class IRGen {
             m.functions.push(g);
         }
         if (prop.has_setter) {
+            string valueCName = sourceLexicalBindingCNameForAnalysis(
+                "value", self.analyzed);
             IRFunction s = IRFunction();
             s.name = name + "_set_" + prop.name;
             s.return_type = "void";
             s.params.push(IRParam(name + "*", "self"));
-            s.params.push(IRParam(propType, "value"));
+            s.params.push(IRParam(propType, valueCName));
             Vector<IRNode> sb = [];
             if (prop.setter_body != null) {
                 self.currentReturnCType = "void";
@@ -2928,12 +3256,19 @@ class IRGen {
                 Map<string, Node> vt = self.seededVarTypes();
                 vt.put("self", classPtrType(makeClassTypeExpr(name)));
                 vt.put("value", prop.type);
+                Vector<string> sourceBindings =
+                    self.snapshotSourceLexicalBindings();
+                Vector<string> noSourceBindings = [];
+                self.restoreSourceLexicalBindings(noSourceBindings);
+                self.activateSourceLexicalBinding("value");
                 IRNode blk = self.lowerBlock(prop.setter_body, vt);
+                self.restoreSourceLexicalBindings(sourceBindings);
                 int k = 0;
                 while (k < blk.stmts.len) { sb.push(blk.stmts.get(k)); k = k + 1; }
             } else {
                 emitAutoPropertyStore(self, prop.type,
-                    irFieldAccess(irVar("self"), backing, true), sb);
+                    irFieldAccess(irVar("self"), backing, true),
+                    irVar(valueCName), sb);
             }
             s.body = irBlock(sb);
             m.functions.push(s);
@@ -2955,7 +3290,7 @@ class IRGen {
         int i = 0;
         while (i < pm.len) {
             MethodEntry e = pm.get(i);
-            if (!ownMethods.has(e.name)) {
+            if (!ownMethods.has(e.name) && e.sig.generic_params.len == 0) {
                 ownMethods.put(e.name, true);
                 Node mem = e.sig;
                 IRFunction fn = IRFunction();
@@ -2970,8 +3305,12 @@ class IRGen {
                 int j = 0;
                 while (j < mem.params.len) {
                     Node p = mem.params.get(j);
-                    fn.params.push(IRParam(typeToC(p.type, self.analyzed), p.name));
-                    callArgs.push(irVar(p.name));
+                    fn.params.push(IRParam(typeToC(p.type, self.analyzed),
+                        sourceLexicalBindingCNameForAnalysis(
+                            p.name, self.analyzed)));
+                    callArgs.push(irVar(
+                        sourceLexicalBindingCNameForAnalysis(
+                            p.name, self.analyzed)));
                     j = j + 1;
                 }
                 IRNode call = irCall(par + "_" + e.name, callArgs);
@@ -3093,7 +3432,38 @@ class IRGen {
     /* Phase 1 forward declarations (mirrors _emit_forward_decls): for each
      * non-generic class, a `typedef struct X X;` and a `void X_destroy(X*);`
      * prototype; then prototypes for every non-main function with a body. Class
-    * method/constructor prototypes are appended later by emitClassDecl. */
+     * method/constructor prototypes are appended later by emitClassDecl. */
+    public void appendEnumToStringForwardDecl(Node declaration,
+            Vector<IRFunctionDecl> destination) {
+        IRFunctionDecl toString = IRFunctionDecl(
+            declaration.name + "_toString", "const char*", true);
+        toString.params.push(IRParam(declaration.name, "val"));
+        destination.push(toString);
+    }
+
+    public void appendRichEnumForwardDecls(Node declaration,
+            Vector<IRFunctionDecl> destination) {
+        int variantIndex = 0;
+        while (variantIndex < declaration.variants.len) {
+            Node variant = declaration.variants.get(variantIndex);
+            IRFunctionDecl constructor = IRFunctionDecl(
+                declaration.name + "_" + variant.name,
+                declaration.name, true);
+            int parameterIndex = 0;
+            while (parameterIndex < variant.params.len) {
+                Node parameter = variant.params.get(parameterIndex);
+                constructor.params.push(IRParam(
+                    typeToC(parameter.type, self.analyzed),
+                    sourceLexicalBindingCNameForAnalysis(
+                        parameter.name, self.analyzed)));
+                parameterIndex = parameterIndex + 1;
+            }
+            destination.push(constructor);
+            variantIndex = variantIndex + 1;
+        }
+        self.appendEnumToStringForwardDecl(declaration, destination);
+    }
+
     public void emitForwardDecls(Node prog, IRModule m) {
         Vector<IRFunctionDecl> functionDeclarations = [];
         int i = 0;
@@ -3111,7 +3481,13 @@ class IRGen {
                         d.name + "_destroy", "void", false);
                     destroyDeclaration.params.push(IRParam("void*", "object"));
                     functionDeclarations.push(destroyDeclaration);
+                } else if (d.kind == NK_RICH_ENUM_DECL) {
+                    self.appendRichEnumForwardDecls(
+                        d, functionDeclarations);
                 }
+            } else if (d.kind == NK_ENUM_DECL && d.name != "") {
+                self.appendEnumToStringForwardDecl(
+                    d, functionDeclarations);
             } else if (d.kind == NK_FUNCTION_DECL && !d.is_gpu
                     && d.body_node != null && d.name != "main") {
                 string ret = typeToC(d.return_type, self.analyzed);
@@ -3122,7 +3498,8 @@ class IRGen {
                     Node sourceParameter = d.params.get(parameter);
                     functionDeclaration.params.push(IRParam(
                         typeToC(sourceParameter.type, self.analyzed),
-                        sourceParameter.name));
+                        sourceLexicalBindingCNameForAnalysis(
+                            sourceParameter.name, self.analyzed)));
                     parameter = parameter + 1;
                 }
                 functionDeclarations.push(functionDeclaration);
@@ -3302,7 +3679,9 @@ class IRGen {
         while (i < params.len) {
             Node p = params.get(i);
             if (i > 0) { s = s + ", "; }
-            s = s + typeToC(p.type, self.analyzed) + " " + p.name;
+            s = s + typeToC(p.type, self.analyzed) + " "
+                + sourceLexicalBindingCNameForAnalysis(
+                    p.name, self.analyzed);
             i = i + 1;
         }
         return s;
@@ -3335,7 +3714,9 @@ class IRGen {
         int i = 0;
         while (i < d.params.len) {
             Node p = d.params.get(i);
-            fn.params.push(IRParam(typeToC(p.type, self.analyzed), p.name));
+            fn.params.push(IRParam(typeToC(p.type, self.analyzed),
+                sourceLexicalBindingCNameForAnalysis(
+                    p.name, self.analyzed)));
             if (p.type != null && p.type.is_array) {
                 self.gpuHost.unknown_array_lengths.put(p.name, true);
             }
@@ -3357,6 +3738,8 @@ class IRGen {
         self.currentClass = "";
         self.resetFuncVarDecls();
         if (d.body_node != null) {
+            Vector<string> sourceBindings =
+                self.replaceSourceLexicalParameters(d.params);
             CallableFlowSnapshot functionCallables =
                 self.snapshotCallableFlow();
             /* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
@@ -3365,16 +3748,18 @@ class IRGen {
             IRNode b = self.lowerBlock(d.body_node, varTypes);
             fn.body = b;
             self.restoreCallableFlow(functionCallables);
+            self.restoreSourceLexicalBindings(sourceBindings);
         }
         return fn;
     }
 
     public IRNode lowerBlock(Node block, Map<string, Node> varTypes) {
         Vector<IRNode> declarations = [];
+        Vector<string> sourceNames = [];
         Vector<Node> types = [];
         Vector<bool> owned = [];
         return self.lowerBlockWithBindings(
-            block, varTypes, declarations, types, owned);
+            block, varTypes, declarations, sourceNames, types, owned);
     }
 
     /* Lower a lexical block with synthetic for-in bindings declared after the
@@ -3383,7 +3768,8 @@ class IRGen {
      * must see them before the source body is lowered. */
     public IRNode lowerBlockWithBindings(Node block,
             Map<string, Node> varTypes, Vector<IRNode> declarations,
-            Vector<Node> types, Vector<bool> owned) {
+            Vector<string> sourceNames, Vector<Node> types,
+            Vector<bool> owned) {
         /* Type bindings are lexical just like C declarations.  Nested blocks,
          * loop initializers, and shadowing must not mutate the caller's view. */
         Map<string, Node> scopedVarTypes = semanticCloneTypes(varTypes);
@@ -3396,33 +3782,46 @@ class IRGen {
             self.beginCallableScope();
         Vector<string> borrowedBindings =
             self.snapshotBorrowedLocalBindings();
+        Vector<string> sourceBindings =
+            self.snapshotSourceLexicalBindings();
         Vector<IRNode> stmts = [];
         string cleanupMarker = self.pushCleanupScope();
         self.pushManagedScope();
+        if (declarations.len != sourceNames.len
+                || declarations.len != types.len
+                || declarations.len != owned.len) {
+            print("internal compiler error: incomplete synthetic binding metadata");
+            abortGen();
+        }
         int binding = 0;
-        while (binding < declarations.len && binding < types.len
-                && binding < owned.len) {
+        while (binding < declarations.len) {
             IRNode declaration = declarations.get(binding);
+            string sourceName = sourceNames.get(binding);
             Node bindingType = types.get(binding);
             stmts.push(declaration);
             if (declaration.kind == IRK_VAR_DECL) {
-                scopedVarTypes.put(declaration.name, bindingType);
-                self.recordCallableDeclaration(declaration.name);
+                /* A synthetic binding remains part of the loop/catch ABI when
+                 * the source body intentionally ignores it.  Emit a structured
+                 * discard so strict C never diagnoses the declaration as
+                 * unused. */
+                stmts.push(irExprStmt(irVar(declaration.name)));
+                scopedVarTypes.put(sourceName, bindingType);
+                self.recordCallableDeclaration(sourceName);
                 self.funcVarDecls.push(declaration);
                 if (owned.get(binding)
                         && irManagedType(self, bindingType)) {
                     self.borrowedLocalBindings.remove(
-                        declaration.name);
+                        sourceName);
                     string runtimeType = irManagedRuntimeType(
                         self, bindingType);
                     self.registerManagedVar(
-                        declaration.name, runtimeType);
+                        sourceName, runtimeType);
                     self.maybeRegisterCleanup(declaration.name,
                         irManagedCleanupSymbol(self, runtimeType),
                         runtimeType, stmts);
                 } else if (irManagedType(self, bindingType)) {
                     self.borrowedLocalBindings.put(
-                        declaration.name, true);
+                        sourceName, true);
                 }
             }
             binding = binding + 1;
@@ -3459,6 +3858,7 @@ class IRGen {
             closureNames, closureFunctions, closureEnvironments);
         self.finishCallableScope(enclosingCallables);
         self.restoreBorrowedLocalBindings(borrowedBindings);
+        self.restoreSourceLexicalBindings(sourceBindings);
         return irBlock(stmts);
     }
 
@@ -3479,7 +3879,18 @@ class IRGen {
     /* Lower a loop body with a loop-scope marker so break/continue inside it
      * release exactly the vars declared in the body. Mirrors _lower_loop_body. */
     public IRNode lowerLoopBody(Node block, Map<string, Node> varTypes) {
+        return self.lowerLoopBodyFlow(block, varTypes, true);
+    }
+
+    public IRNode lowerRequiredLoopBody(
+            Node block, Map<string, Node> varTypes) {
+        return self.lowerLoopBodyFlow(block, varTypes, false);
+    }
+
+    public IRNode lowerLoopBodyFlow(
+            Node block, Map<string, Node> varTypes, bool maySkip) {
         CallableFlowSnapshot incoming = self.snapshotCallableFlow();
+        CallableLoopCapture capture = self.beginCallableLoopCapture();
         self.pushLoopScope();
         self.pushControlContext("loop");
         IRNode b = self.lowerBlock(block, varTypes);
@@ -3488,27 +3899,51 @@ class IRGen {
         CallableFlowSnapshot bodyFlow = self.snapshotCallableFlow();
         self.restoreCallableFlow(incoming);
         Vector<CallableFlowSnapshot> flows = [];
-        flows.push(incoming);
-        flows.push(bodyFlow);
+        int breakIndex = 0;
+        while (breakIndex < capture.breaks.len) {
+            flows.push(capture.breaks.get(breakIndex));
+            breakIndex = breakIndex + 1;
+        }
+        int continueIndex = 0;
+        while (continueIndex < capture.continues.len) {
+            flows.push(capture.continues.get(continueIndex));
+            continueIndex = continueIndex + 1;
+        }
+        if (irSequenceMayFallThrough(b.stmts)) { flows.push(bodyFlow); }
+        if (maySkip) { flows.push(incoming); }
+        self.finishCallableLoopCapture(capture);
         self.joinCallableFlows(flows);
         return b;
     }
 
     public IRNode lowerLoopBodyWithBindings(Node block,
             Map<string, Node> varTypes, Vector<IRNode> declarations,
-            Vector<Node> types, Vector<bool> owned) {
+            Vector<string> sourceNames, Vector<Node> types,
+            Vector<bool> owned) {
         CallableFlowSnapshot incoming = self.snapshotCallableFlow();
+        CallableLoopCapture capture = self.beginCallableLoopCapture();
         self.pushLoopScope();
         self.pushControlContext("loop");
         IRNode body = self.lowerBlockWithBindings(
-            block, varTypes, declarations, types, owned);
+            block, varTypes, declarations, sourceNames, types, owned);
         self.popControlContext();
         self.popLoopScope();
         CallableFlowSnapshot bodyFlow = self.snapshotCallableFlow();
         self.restoreCallableFlow(incoming);
         Vector<CallableFlowSnapshot> flows = [];
+        int breakIndex = 0;
+        while (breakIndex < capture.breaks.len) {
+            flows.push(capture.breaks.get(breakIndex));
+            breakIndex = breakIndex + 1;
+        }
+        int continueIndex = 0;
+        while (continueIndex < capture.continues.len) {
+            flows.push(capture.continues.get(continueIndex));
+            continueIndex = continueIndex + 1;
+        }
         flows.push(incoming);
-        flows.push(bodyFlow);
+        if (irSequenceMayFallThrough(body.stmts)) { flows.push(bodyFlow); }
+        self.finishCallableLoopCapture(capture);
         self.joinCallableFlows(flows);
         return body;
     }
@@ -3522,17 +3957,19 @@ class IRGen {
             if (mv.cleanupKind == "thread") {
                 self.useHelper("__btrc_thread_free");
                 Vector<IRNode> args = [];
-                args.push(self.consumeThreadHandle(irVar(mv.name)));
+                args.push(self.consumeThreadHandle(irVar(
+                    mv.cName)));
                 out.push(irExprStmt(irCall(
                     "__btrc_thread_free", args)));
             } else {
                 string valueName = self.freshTemp(
                     "__btrc_scope_released");
+                string ownerCName = mv.cName;
                 out.push(irVarDecl(
                     irManagedRuntimeCType(mv.cls),
-                    valueName, irVar(mv.name)));
+                    valueName, irVar(ownerCName)));
                 out.push(irAssign(
-                    irVar(mv.name), irLiteral("NULL")));
+                    irVar(ownerCName), irLiteral("NULL")));
                 out.push(irExprStmt(irManagedReleaseRuntime(
                     self, irVar(valueName), mv.cls)));
             }
@@ -3549,10 +3986,14 @@ class IRGen {
     public void emitReturnRelease(string keepVar, Vector<IRNode> out) {
         Vector<Managed> all = self.getAllManagedVars();
         Vector<Managed> released = [];
+        string keepCName = "";
+        if (keepVar != "") {
+            keepCName = self.sourceLexicalReferenceCName(keepVar);
+        }
         int i = 0;
         while (i < all.len) {
             Managed mv = all.get(i);
-            if (mv.name != keepVar) {
+            if (mv.cName != keepCName) {
                 released.push(mv);
             }
             i = i + 1;
@@ -3560,12 +4001,9 @@ class IRGen {
         self.emitScopeRelease(released, out);
     }
 
-    /* ARC for `obj.field = value` where field is a class-instance field. Appends
-     * to `pre` a release of the old field value (rc--, destroy at zero) and to
-     * `post` a retain of the new value (value->__rc++, skipped for `new` which is
-     * born with rc=1). No-op (leaves pre/post empty) when the target is not a
-     * class-typed field assignment. Mirrors
-     * fields.get_field_assign_arc_stmts. */
+    /* Lower a managed instance-field store as one transactional expression.
+     * The outer assignment boundary exclusively owns receiver stabilization
+     * and release; this atom manages only the old and replacement field values. */
     public IRNode? lowerManagedFieldAssignment(
             Node node, Map<string, Node> varTypes) {
         if (node.target == null
@@ -3605,8 +4043,6 @@ class IRGen {
             typeToC(ot, self.analyzed), objName, null);
         self.funcVarDecls.push(objDecl);
         IRNode obj = irVar(objName);
-        bool receiverOwned = irExpressionOwnsResult(
-            self, tgt.obj, varTypes);
 
         string valueC = typeToC(ft, self.analyzed);
         IRNode field = irFieldAccess(obj, storage, true);
@@ -3658,14 +4094,6 @@ class IRGen {
         string runtimeType = irManagedRuntimeType(self, ft);
         bool releaseCanEnqueue = irManagedRuntimeCanCycle(
             self, runtimeType);
-        if (receiverOwned && irManagedType(self, ot)) {
-            string receiverRuntimeType = irManagedRuntimeType(self, ot);
-            sequence.push(irManagedReleaseRuntime(
-                self, obj, receiverRuntimeType));
-            if (irManagedRuntimeCanCycle(self, receiverRuntimeType)) {
-                releaseCanEnqueue = true;
-            }
-        }
         if (releaseCanEnqueue) {
             sequence.push(managedArcPoll(self));
         }
@@ -3716,30 +4144,78 @@ class IRGen {
         if (callee == null) { return empty; }
         if (callee.kind == NK_LAMBDA_EXPR) { return callee.params; }
         if (callee.kind == NK_FIELD_ACCESS_EXPR) {
+            Node? fieldCallable = directFunctionPointerType(
+                self.resolvedExpressionType(
+                    callee, self.callParamVarTypes), self.analyzed);
+            if (fieldCallable != null) {
+                return callableBoundaryFunctionPointerParameters(
+                    fieldCallable);
+            }
             Node objN = callee.obj;
             Node? ot = self.resolvedExpressionType(
                 objN, self.callParamVarTypes);
             if (ot != null && self.analyzed.isClass(ot.base)) {
                 Node? m = self.analyzed.classMethod(ot.base, callee.field);
-                if (m != null && m.kind == NK_METHOD_DECL) { return m.params; }
+                if (m != null && m.kind == NK_METHOD_DECL) {
+                    return callTargetResolvedParameters(
+                        self.analyzed, m.params,
+                        callTargetTypeMap(
+                            self, node, self.callParamVarTypes));
+                }
+            }
+            if (ot != null && ot.generic_args.len > 0
+                    && self.analyzed.isGenericClass(ot.base)) {
+                Node? method = self.analyzed.genericClassMethod(
+                    ot.base, callee.field);
+                if (method != null && method.kind == NK_METHOD_DECL) {
+                    return callTargetResolvedParameters(
+                        self.analyzed, method.params,
+                        callTargetTypeMap(
+                            self, node, self.callParamVarTypes));
+                }
             }
             if (objN != null && objN.kind == NK_IDENTIFIER
                     && self.analyzed.isClass(objN.name)) {
                 Node? m = self.analyzed.classMethod(objN.name, callee.field);
-                if (m != null && m.kind == NK_METHOD_DECL) { return m.params; }
+                if (m != null && m.kind == NK_METHOD_DECL) {
+                    return callTargetResolvedParameters(
+                        self.analyzed, m.params,
+                        callTargetTypeMap(
+                            self, node, self.callParamVarTypes));
+                }
             }
             return empty;
         }
         if (callee.kind == NK_IDENTIFIER) {
             string name = callee.name;
+            if (self.callParamVarTypes.has(name)) {
+                Node? lexicalCallable = directFunctionPointerType(
+                    self.callParamVarTypes.get(name), self.analyzed);
+                if (lexicalCallable != null) {
+                    return callableBoundaryFunctionPointerParameters(
+                        lexicalCallable);
+                }
+                return empty;
+            }
             if (self.analyzed.isClass(name)) {
                 Node? ctor = self.analyzed.classConstructor(name);
                 if (ctor != null) { return ctor.params; }
                 return empty;
             }
-            if (self.analyzed.funcTable.has(name)) {
+            if (self.analyzed.isGenericClass(name)) {
+                return resolvedGenericConstructorCallParams(
+                    self, node, name, self.callParamVarTypes);
+            }
+            if (self.analyzed.funcTable.has(name)
+                    && !self.analyzed.hostedCallKeys.has(astNodeKey(node))) {
                 return self.analyzed.funcTable.get(name).params;
             }
+        }
+        Node? callable = directFunctionPointerType(
+            self.resolvedExpressionType(
+                callee, self.callParamVarTypes), self.analyzed);
+        if (callable != null) {
+            return callableBoundaryFunctionPointerParameters(callable);
         }
         return empty;
     }
@@ -3835,15 +4311,17 @@ class IRGen {
                 && node.type.is_extern && node.initializer == null;
             /* C array local: `int arr[] = {5,3,1}` / `int buf[N]`. The element
              * type is the base (NOT a pointer), the name carries the `[size]`/`[]`
-             * suffix, and a list-literal initializer becomes a raw C aggregate
-             * `{...}` (mirrors variables._lower_var_decl's is_array branch). */
+             * suffix, and a list literal becomes a structured IR initializer
+             * list (mirrors variables._lower_var_decl's is_array branch). */
             if (node.type != null && node.type.is_array) {
-                Node baseType = Node();
-                baseType.kind = NK_TYPE_EXPR;
-                baseType.base = node.type.base;
-                baseType.generic_args = node.type.generic_args;
-                baseType.pointer_depth = node.type.pointer_depth;
+                rejectAggregateCallableInitializerBoundary(
+                    self, node.type, node.initializer, varTypes);
+                Node baseType = typeWithoutOuterArray(node.type);
                 string baseC = typeToC(baseType, self.analyzed);
+                if (self.inGenericMethod || self.callDefaultTypeDepth > 0) {
+                    baseC = genericTypeToC(
+                        baseType, self.activeTypeMap, self.analyzed);
+                }
                 IRNode? localArraySize = null;
                 if (node.type.array_size != null) {
                     localArraySize = self.lowerExpr(node.type.array_size, varTypes);
@@ -3900,6 +4378,8 @@ class IRGen {
                 declType = self.resolvedExpressionType(
                     node.initializer, varTypes);
             }
+            rejectAggregateCallableInitializerBoundary(
+                self, declType, node.initializer, varTypes);
             bool directInferredClosure = node.type == null
                 && node.initializer != null
                 && node.initializer.kind == NK_LAMBDA_EXPR;
@@ -3913,39 +4393,50 @@ class IRGen {
                 self.rejectClosureEscape(node);
             }
             string ct = "int";
-            if (declType != null) { ct = typeToC(declType, self.analyzed); }
+            if (declType != null) {
+                ct = typeToC(declType, self.analyzed);
+                if (node.type != null && (self.inGenericMethod
+                        || self.callDefaultTypeDepth > 0)) {
+                    ct = genericTypeToC(
+                        node.type, self.activeTypeMap, self.analyzed);
+                }
+            }
             IRNode? init = null;
             bool initializerOwned = false;
             Node? initializerEffectiveType = null;
             if (node.initializer != null) {
-                init = self.lowerAssignedValueRaw(
-                    node.initializer, declType, varTypes);
+                Node init0 = node.initializer;
+                bool genericConstructor = declType != null
+                    && declType.generic_args.len > 0
+                    && init0.kind == NK_CALL_EXPR
+                    && init0.callee != null
+                    && init0.callee.kind == NK_IDENTIFIER
+                    && self.analyzed.isGenericClass(init0.callee.name);
+                if (genericConstructor) {
+                    init = self.lowerAssignedValueRaw(
+                        node.initializer, declType, varTypes);
+                } else {
+                    PreparedValue prepared = prepareTargetValue(
+                        self, node.initializer, declType, varTypes);
+                    init = prepared.value;
+                    initializerOwned = prepared.owned;
+                    initializerEffectiveType = prepared.effectiveType;
+                }
                 /* Generic constructor call: Box(42) lowers as a plain call
                  * `Box(42)` (Box isn't a non-generic class); rewrite it to the
                  * mangled `btrc_Box_int_new(42)` using the declared generic args
                  * (mirrors variables._lower_var_decl's generic-ctor fixup). */
                 if (declType != null && declType.generic_args.len > 0
                         && init != null && init.kind == IRK_CALL) {
-                    Node init0 = node.initializer;
                     if (init0.kind == NK_CALL_EXPR && init0.callee != null
                             && init0.callee.kind == NK_IDENTIFIER
                             && self.analyzed.isGenericClass(init0.callee.name)) {
                         string mangled = mangleGenericType(declType.base, declType.generic_args);
                         Vector<IRNode> newArgs = init.args;
-                        /* Upcast Derived->Base ctor args against the RESOLVED
-                         * generic param types (the ctor's `E error` param can't
-                         * trigger the upcast in orderArgsForParams). Mirrors
-                         * variables._lower_var_decl's generic-ctor upcast. */
-                        Node? gctor = self.analyzed.genericClassMethod(
-                            init0.callee.name, init0.callee.name);
-                        if (gctor != null) {
-                            self.upcastGenericCtorArgs(
-                                declType, gctor, init0.args, newArgs, varTypes);
-                        }
                         init = irCall(mangled + "_new", newArgs);
                     }
                 }
-                if (init != null) {
+                if (init != null && genericConstructor) {
                     Node? initType = self.resolvedExpressionType(
                         node.initializer, varTypes);
                     bool sourceOwned = irContextualExpressionOwnsResult(
@@ -3966,12 +4457,22 @@ class IRGen {
                  * assignment and every exit path can replace/release safely. */
                 init = irLiteral("NULL");
             }
-            if (declType != null) { varTypes.put(node.name, declType); }
+            if (declType != null) {
+                if (node.type != null && (self.inGenericMethod
+                        || self.callDefaultTypeDepth > 0)) {
+                    varTypes.put(node.name, node.type);
+                } else {
+                    varTypes.put(node.name, declType);
+                }
+            }
             /* The initializer resolves in the enclosing scope; only after it
              * has been lowered does this owned source local shadow a borrowed
              * lambda/synthetic binding of the same name. */
             self.borrowedLocalBindings.remove(node.name);
-            IRNode vdecl = irVarDecl(ct, node.name, init);
+            self.activateSourceLexicalBinding(node.name);
+            string bindingCName = self.sourceLexicalReferenceCName(
+                node.name);
+            IRNode vdecl = irVarDecl(ct, bindingCName, init);
             if (node.type != null) {
                 vdecl.is_static = node.type.is_static;
                 vdecl.is_extern = node.type.is_extern;
@@ -3994,7 +4495,7 @@ class IRGen {
                  * Return before managed ownership registration: an extern
                  * declaration does not introduce an owned lexical slot. */
                 out.push(irExprStmt(irSizeofExpr(
-                    irAddressOf(irVar(node.name)))));
+                    irAddressOf(irVar(bindingCName)))));
                 return;
             }
             Node? callableDeclType = resolveTypedefType(
@@ -4027,10 +4528,12 @@ class IRGen {
                     int li = 0;
                     while (li < lcaps.len) {
                         string cn = lcaps.get(li);
-                        IRNode fa = irFieldAccess(irVar(evar), cn, false);
+                        IRNode fa = irFieldAccess(irVar(evar),
+                            sourceLexicalBindingCName(cn), false);
                         /* Emit as a statement-level IRK_ASSIGN (the emitter
                          * handles assignment as a statement, not an expression). */
-                        out.push(irAssign(fa, irVar(cn)));
+                        out.push(irAssign(fa,
+                            irVar(self.sourceLexicalReferenceCName(cn))));
                         li = li + 1;
                     }
                     self.fnPtrEnvFn.put(node.name, lfn);
@@ -4058,10 +4561,10 @@ class IRGen {
                         && !initializerOwned) {
                     out.push(irExprStmt(
                         irRetainExpression(
-                            self, irVar(node.name), managedSlotType)));
+                            self, irVar(bindingCName), managedSlotType)));
                 }
                 self.registerManagedVar(node.name, runtimeType);
-                self.maybeRegisterCleanup(node.name,
+                self.maybeRegisterCleanup(bindingCName,
                     irManagedCleanupSymbol(self, runtimeType),
                     runtimeType, out);
             }
@@ -4073,7 +4576,7 @@ class IRGen {
                 self.registerThreadVar(node.name);
                 self.useHelper("__btrc_thread_free");
                 self.maybeRegisterDirectCleanup(
-                    node.name, "__btrc_thread_free", out);
+                    bindingCName, "__btrc_thread_free", out);
             }
             return;
         }
@@ -4172,7 +4675,8 @@ class IRGen {
             return;
         }
         if (node.kind == NK_DO_WHILE_STMT) {
-            IRNode body = self.lowerLoopBody(node.body_node, varTypes);
+            IRNode body = self.lowerRequiredLoopBody(
+                node.body_node, varTypes);
             IRNode cond = self.lowerExpr(node.condition, varTypes);
             out.push(irDoWhile(body, cond));
             return;
@@ -4198,6 +4702,7 @@ class IRGen {
             return;
         }
         if (node.kind == NK_BREAK_STMT) {
+            self.recordCallableLoopExit(true);
             self.emitScopeRelease(self.getControlManagedVars(true), out);
             self.emitControlCleanupExit(true, out);
             self.emitTryPopDepth(self.exitedTryDepth(true), out);
@@ -4205,6 +4710,7 @@ class IRGen {
             return;
         }
         if (node.kind == NK_CONTINUE_STMT) {
+            self.recordCallableLoopExit(false);
             self.emitScopeRelease(self.getControlManagedVars(false), out);
             self.emitControlCleanupExit(false, out);
             self.emitTryPopDepth(self.exitedTryDepth(false), out);
@@ -4324,35 +4830,6 @@ class IRGen {
         if (sourceType.base == targetType.base) { return value; }
         if (!self.analyzed.isSubclass(sourceType.base, targetType.base)) { return value; }
         return irCast(typeToC(targetType, self.analyzed), value);
-    }
-
-    /* Upcast Derived->Base generic-constructor args against the RESOLVED generic
-     * param types. A generic class's constructor declares its params using the
-     * unresolved type params (e.g. `E error`), so the upcast in
-     * orderArgsForParams cannot resolve (`E` isn't a class). Here the
-     * `instanceType` (e.g. Result<int, Error>) gives the {T->int, E->Error} map,
-     * so the 3rd param resolves to `Error` and a `ValueError*` arg gets the
-     * `(Error*)` cast it needs (gcc 15 rejects the bare sibling-pointer pass).
-     * `args` is positionally aligned to the constructor params (post
-     * orderArgsForParams); upcast only those slots that have a written AST arg.
-     * Mirrors variables._lower_var_decl's generic-ctor upcast branch. */
-    public void upcastGenericCtorArgs(Node instanceType, Node ctor,
-            Vector<Node> astArgs, Vector<IRNode> args,
-            Map<string, Node> varTypes) {
-        if (ctor.params.len == 0) { return; }
-        /* Only safe to align positionally when args weren't reordered by name. */
-        if (args.len != astArgs.len) { return; }
-        Map<string, Node> typeMap = genericTypeMap(self.analyzed, instanceType);
-        int i = 0;
-        while (i < args.len && i < ctor.params.len && i < astArgs.len) {
-            Node resolved = resolveGenericType(
-                ctor.params.get(i).type, typeMap,
-                self.analyzed);
-            Node? src = self.resolvedExpressionType(
-                astArgs.get(i), varTypes);
-            args.set(i, self.upcastClassPointer(resolved, src, args.get(i)));
-            i = i + 1;
-        }
     }
 
     /* When a `return` is lexically inside one or more open try blocks, emit the
@@ -4625,27 +5102,38 @@ class IRGen {
              * f-string format specifiers) sees `const char*`, not a default int.
              * The Python compiler gets this from analyzer-stamped node_types. */
             Vector<IRNode> catchBindings = [];
+            Vector<string> catchSourceNames = [];
             Vector<Node> catchTypes = [];
             Vector<bool> catchOwned = [];
+            Map<string, Node> catchVarTypes = semanticCloneTypes(
+                varTypes);
+            Vector<string> catchSourceBindings =
+                self.snapshotSourceLexicalBindings();
+            string catchCName = node.catch_var;
             if (node.catch_var != "") {
                 /* Give the catch binding its own message storage. A pointer to
                  * the TLS buffer would be overwritten by any nested catch. */
                 Node ctype = makePrimType("string");
                 if (node.catch_type != null) { ctype = node.catch_type; }
+                catchVarTypes.put(node.catch_var, ctype);
+                self.activateSourceLexicalBinding(node.catch_var);
+                catchCName = self.sourceLexicalReferenceCName(
+                    node.catch_var);
                 self.useHelper("__btrc_strdup");
                 self.useHelper("__btrc_str_track");
                 Vector<IRNode> copyArgs = [];
                 copyArgs.push(irVar("__btrc_error_msg"));
                 Vector<IRNode> trackArgs = [];
                 trackArgs.push(irCall("__btrc_strdup", copyArgs));
-                catchBindings.push(irVarDecl("char*", node.catch_var,
+                catchBindings.push(irVarDecl("char*", catchCName,
                     irCall("__btrc_str_track", trackArgs)));
+                catchSourceNames.push(node.catch_var);
                 catchTypes.push(ctype);
                 catchOwned.push(true);
             }
             catchBody = self.lowerBlockWithBindings(
-                node.catch_block, varTypes,
-                catchBindings, catchTypes, catchOwned);
+                node.catch_block, catchVarTypes,
+                catchBindings, catchSourceNames, catchTypes, catchOwned);
             catchFlow = self.snapshotCallableFlow();
             self.restoreCallableFlow(incoming);
             if (node.catch_var != "") {
@@ -4656,13 +5144,14 @@ class IRGen {
                         && !(catchBody.stmts.get(declarationIndex).kind
                                 == IRK_VAR_DECL
                             && catchBody.stmts.get(declarationIndex).name
-                                == node.catch_var)) {
+                                == catchCName)) {
                     declarationIndex = declarationIndex + 1;
                 }
                 catchBody.stmts.insert(
                     declarationIndex + 1,
-                    irExprStmt(irVar(node.catch_var)));
+                    irExprStmt(irVar(catchCName)));
             }
+            self.restoreSourceLexicalBindings(catchSourceBindings);
         }
 
         Vector<CallableFlowSnapshot> tryFlows = [];
@@ -4721,6 +5210,9 @@ class IRGen {
             Map<string, Node> caseTypes = semanticCloneTypes(varTypes);
             Vector<string> caseBorrowedBindings =
                 self.snapshotBorrowedLocalBindings();
+            Vector<string> caseSourceBindings =
+                self.snapshotSourceLexicalBindings();
+            string cleanupMarker = self.pushCleanupScope();
             IRNode? caseVal = null;
             if (c.value_node != null) {
                 caseVal = self.lowerExpr(c.value_node, varTypes);
@@ -4736,16 +5228,31 @@ class IRGen {
             }
             bool fallsThrough = irSequenceMayFallThrough(body);
             Vector<Managed> managed = self.popManagedScope();
-            if (fallsThrough) { self.emitScopeRelease(managed, body); }
+            bool markerReferenced = fallsThrough
+                || irSequenceReferencesVariable(body, cleanupMarker);
+            if (self.cleanupScopeIsActive(cleanupMarker)
+                    && markerReferenced) {
+                self.useHelper("__btrc_cleanup_mark");
+                Vector<IRNode> markArgs = [];
+                body.insert(0, irVarDecl("int", cleanupMarker,
+                    irCall("__btrc_cleanup_mark", markArgs)));
+            }
+            if (fallsThrough) {
+                self.emitScopeRelease(managed, body);
+                self.emitCleanupScopeExit(cleanupMarker, body);
+            }
+            self.popCleanupScope();
             self.restoreBorrowedLocalBindings(
                 caseBorrowedBindings);
+            self.restoreSourceLexicalBindings(
+                caseSourceBindings);
             self.finishCallableScope(enclosingCase);
             CallableFlowSnapshot caseFlow =
                 self.snapshotCallableFlow();
             caseFlows.push(caseFlow);
             hasFallthroughFlow = fallsThrough;
             if (hasFallthroughFlow) { fallthroughFlow = caseFlow; }
-            cases.push(irCase(caseVal, body));
+            cases.push(irCase(caseVal, body, fallsThrough));
             i = i + 1;
         }
         self.popControlContext();
@@ -4792,45 +5299,30 @@ class IRGen {
     public IRNode lowerCFor(Node node, Map<string, Node> varTypes) {
         CallableFlowSnapshot enclosingCallables =
             self.beginCallableScope();
+        Vector<string> closureNames = [];
+        Vector<string> closureFunctions = [];
+        Vector<string> closureEnvironments = [];
+        self.snapshotClosureEnvs(
+            closureNames, closureFunctions, closureEnvironments);
+        Vector<string> borrowedBindings =
+            self.snapshotBorrowedLocalBindings();
+        Vector<string> sourceBindings =
+            self.snapshotSourceLexicalBindings();
         Map<string, Node> loopTypes = semanticCloneTypes(varTypes);
+        Vector<IRNode> prefix = [];
+        bool declarationScope = false;
+        string cleanupMarker = "";
         IRNode? init = null;
         if (node.init != null) {
             if (node.init.kind == NK_FOR_INIT_VAR) {
-                Node vd = node.init.var_decl;
-                Node? declType = vd.type;
-                if (declType == null) {
-                    declType = self.resolvedExpressionType(
-                        vd.initializer, loopTypes);
-                }
-                string ct = typeToC(declType, self.analyzed);
-                IRNode? vinit = null;
-                if (vd.initializer != null) {
-                    if (vd.initializer.kind == NK_LIST_LITERAL) {
-                        vinit = self.lowerListLiteral(
-                            vd.initializer, loopTypes, declType);
-                    } else if (vd.initializer.kind == NK_MAP_LITERAL) {
-                        vinit = self.lowerMapLiteral(
-                            vd.initializer, loopTypes, declType);
-                    } else if (vd.initializer.kind == NK_BRACE_INITIALIZER) {
-                        vinit = self.lowerBraceInit(
-                            vd.initializer, loopTypes, declType);
-                    } else {
-                        vinit = self.lowerExpr(vd.initializer, loopTypes);
-                    }
-                }
-                if (declType != null) {
-                    loopTypes.put(vd.name, declType);
-                }
-                self.recordCallableDeclaration(vd.name);
-                Node? callableDeclType = resolveTypedefType(
-                    declType, self.analyzed.typedefTable);
-                if (callableDeclType != null
-                        && callableDeclType.base == "__fn_ptr") {
-                    self.setCallableBindingAbi(
-                        vd.name, self.callableExpressionAbi(
-                            vd.initializer, loopTypes));
-                }
-                init = irVarDecl(ct, vd.name, vinit);
+                declarationScope = true;
+                cleanupMarker = self.pushCleanupScope();
+                self.pushManagedScope();
+                /* Retain/transfer, Thread registration, and exception cleanup
+                 * are statement sequences, not valid C for-clause syntax.
+                 * Reuse the complete declaration lowering in a lexical block. */
+                self.lowerStmtInto(
+                    node.init.var_decl, loopTypes, prefix);
             } else if (node.init.kind == NK_FOR_INIT_EXPR) {
                 init = irExprStmt(
                     self.lowerExpr(node.init.expression, loopTypes));
@@ -4856,6 +5348,35 @@ class IRGen {
             self.joinCallableFlows(updateFlows);
         }
         IRNode lowered = irFor(init, cond, update, body);
+        if (declarationScope) {
+            Vector<IRNode> scopedStatements = prefix;
+            scopedStatements.push(lowered);
+            bool fallsThrough =
+                irSequenceMayFallThrough(scopedStatements);
+            Vector<Managed> managed = self.popManagedScope();
+            bool markerReferenced = fallsThrough
+                || irSequenceReferencesVariable(
+                    scopedStatements, cleanupMarker);
+            if (self.cleanupScopeIsActive(cleanupMarker)
+                    && markerReferenced) {
+                self.useHelper("__btrc_cleanup_mark");
+                Vector<IRNode> markArgs = [];
+                scopedStatements.insert(0, irVarDecl(
+                    "int", cleanupMarker,
+                    irCall("__btrc_cleanup_mark", markArgs)));
+            }
+            if (fallsThrough) {
+                self.emitScopeRelease(managed, scopedStatements);
+                self.emitCleanupScopeExit(
+                    cleanupMarker, scopedStatements);
+            }
+            self.popCleanupScope();
+            lowered = irBlock(scopedStatements);
+        }
+        self.restoreClosureEnvs(
+            closureNames, closureFunctions, closureEnvironments);
+        self.restoreBorrowedLocalBindings(borrowedBindings);
+        self.restoreSourceLexicalBindings(sourceBindings);
         self.finishCallableScope(enclosingCallables);
         return lowered;
     }
@@ -4864,9 +5385,10 @@ class IRGen {
      * body (the binding decls), mirroring body_block.stmts.insert(0, ...). */
     public IRNode loopBodyWithPrefix(Node bodyNode,
             Map<string, Node> varTypes, Vector<IRNode> prefix,
-            Vector<Node> types, Vector<bool> owned) {
+            Vector<string> sourceNames, Vector<Node> types,
+            Vector<bool> owned) {
         return self.lowerLoopBodyWithBindings(
-            bodyNode, varTypes, prefix, types, owned);
+            bodyNode, varTypes, prefix, sourceNames, types, owned);
     }
 
     /* Iterable-value C type for a generic arg: class values are reference types,
@@ -4883,6 +5405,8 @@ class IRGen {
 
     /* Lower for-in to a C-style for loop (mirrors iterations._lower_for_in). */
     public void lowerForIn(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
+        Vector<string> sourceBindings =
+            self.snapshotSourceLexicalBindings();
         Map<string, Node> loopTypes = semanticCloneTypes(varTypes);
         Node iterable = node.iterable;
         string varName = node.var_name;
@@ -4893,6 +5417,7 @@ class IRGen {
                 && iterable.callee.name == "range") {
             self.lowerRangeFor(
                 varName, iterable.args, node.body_node, loopTypes, out);
+            self.restoreSourceLexicalBindings(sourceBindings);
             return;
         }
 
@@ -4907,6 +5432,7 @@ class IRGen {
                     iterType, "iterGet", self.analyzed) != null) {
             self.lowerIterableForIn(
                 node, irIter, iterType, varName, loopTypes, out);
+            self.restoreSourceLexicalBindings(sourceBindings);
             return;
         }
 
@@ -4915,9 +5441,11 @@ class IRGen {
                 && iterType.generic_args.len == 0) {
             self.lowerStringForIn(
                 node, irIter, varName, loopTypes, out);
+            self.restoreSourceLexicalBindings(sourceBindings);
             return;
         }
 
+        self.restoreSourceLexicalBindings(sourceBindings);
         print("internal compiler error: unproven for-in iterable reached IR generation");
         abortGen();
     }
@@ -4942,14 +5470,18 @@ class IRGen {
             getMethod.return_type, iterType, self.analyzed);
         string elemC = self.iterValueC(elemT);
         varTypes.put(varName, elemT);
+        self.activateSourceLexicalBinding(varName);
+        string varCName = self.sourceLexicalReferenceCName(varName);
         Vector<IRNode> bindings = [];
+        Vector<string> bindingSourceNames = [];
         Vector<Node> bindingTypes = [];
         Vector<bool> bindingOwned = [];
         Vector<IRNode> gargs = [];
         gargs.push(irVar(iterVar));
         gargs.push(irVar(idx));
-        bindings.push(irVarDecl(elemC, varName,
+        bindings.push(irVarDecl(elemC, varCName,
             irCall(calleePrefix + "_iterGet", gargs)));
+        bindingSourceNames.push(varName);
         bindingTypes.push(elemT);
         bindingOwned.push(true);
         /* Two-variable iteration (for k, v in map). var_name2 is nullable. */
@@ -4962,16 +5494,19 @@ class IRGen {
                 valueMethod.return_type, iterType, self.analyzed);
             string vC = self.iterValueC(v2T);
             varTypes.put(vn2, v2T);
+            self.activateSourceLexicalBinding(vn2);
+            string secondCName = self.sourceLexicalReferenceCName(vn2);
             Vector<IRNode> vargs = [];
             vargs.push(irVar(iterVar));
             vargs.push(irVar(idx));
-            bindings.push(irVarDecl(vC, vn2,
+            bindings.push(irVarDecl(vC, secondCName,
                 irCall(calleePrefix + "_iterValueAt", vargs)));
+            bindingSourceNames.push(vn2);
             bindingTypes.push(v2T);
             bindingOwned.push(true);
         }
         IRNode body = self.loopBodyWithPrefix(
-            node.body_node, varTypes, bindings,
+            node.body_node, varTypes, bindings, bindingSourceNames,
             bindingTypes, bindingOwned);
         Vector<IRNode> nargs = [];
         nargs.push(irVar(iterVar));
@@ -4999,15 +5534,19 @@ class IRGen {
             self, node.iterable, stringType,
             varTypes, iterVar, out);
         varTypes.put(varName, makePrimType("char"));
+        self.activateSourceLexicalBinding(varName);
+        string varCName = self.sourceLexicalReferenceCName(varName);
         Vector<IRNode> prefix = [];
-        prefix.push(irVarDecl("char", varName,
+        prefix.push(irVarDecl("char", varCName,
             irIndex(irVar(iterVar), irVar(idx))));
+        Vector<string> bindingSourceNames = [];
+        bindingSourceNames.push(varName);
         Vector<Node> bindingTypes = [];
         bindingTypes.push(makePrimType("char"));
         Vector<bool> bindingOwned = [];
         bindingOwned.push(false);
         IRNode body = self.loopBodyWithPrefix(
-            node.body_node, varTypes, prefix,
+            node.body_node, varTypes, prefix, bindingSourceNames,
             bindingTypes, bindingOwned);
         IRNode forInit = irVarDecl("int", idx, irLiteral("0"));
         IRNode cond = irBinOp(
@@ -5056,16 +5595,18 @@ class IRGen {
         }
         end = irVar(endName);
         varTypes.put(varName, makePrimType("int"));
+        self.activateSourceLexicalBinding(varName);
+        string varCName = self.sourceLexicalReferenceCName(varName);
         IRNode body = self.lowerLoopBody(bodyNode, varTypes);
-        IRNode forInit = irVarDecl("int", varName, start);
-        IRNode cond = irBinOp(irVar(varName), "<", end);
-        IRNode update = irUnaryOp("++", irVar(varName), false);
+        IRNode forInit = irVarDecl("int", varCName, start);
+        IRNode cond = irBinOp(irVar(varCName), "<", end);
+        IRNode update = irUnaryOp("++", irVar(varCName), false);
         if (args.len == 3) {
-            IRNode posCond = irBinOp(irVar(varName), "<", end);
-            IRNode negCond = irBinOp(irVar(varName), ">", end);
+            IRNode posCond = irBinOp(irVar(varCName), "<", end);
+            IRNode negCond = irBinOp(irVar(varCName), ">", end);
             cond = irTernary(
                 irBinOp(step, ">", irLiteral("0")), posCond, negCond);
-            update = irBinOp(irVar(varName), "+=", step);
+            update = irBinOp(irVar(varCName), "+=", step);
         }
         out.push(irFor(forInit, cond, update, body));
     }
@@ -5107,23 +5648,47 @@ class IRGen {
         }
         if (node.kind == NK_NULL_LITERAL) { return irLiteral("NULL"); }
         if (node.kind == NK_IDENTIFIER) {
+            if (self.defaultDeclarationDepth > 0) {
+                if (node.name == "__func__") {
+                    return irLiteral(defaultArgumentCStringLiteral(
+                        self.defaultFunctionName));
+                }
+                if (node.name == "__LINE__") {
+                    return irLiteral(Strings.fromInt(
+                        self.defaultSourceLine(node.line)));
+                }
+                if (node.name == "__FILE__") {
+                    return irLiteral(defaultArgumentCStringLiteral(
+                        self.defaultSourceFile(node.line)));
+                }
+            }
+            if (sourceRuntimeHelperSymbol(node.name)
+                    && !varTypes.has(node.name)
+                    && !self.analyzed.funcTable.has(node.name)) {
+                self.useHelper(node.name);
+                return irFunctionRef(node.name);
+            }
             if (self.inEnumInitializer
                     && self.enumLoweringMembers.has(node.name)) {
                 string prefix = self.enumLoweringOwner;
                 if (prefix != "") { prefix = prefix + "_"; }
-                return irLiteral(prefix + node.name);
+                return irVar(prefix + node.name);
             }
             /* Bare enum value (RED -> Color_RED). Mirrors expressions.
              * _lower_identifier's enum_table scan. */
             if (self.analyzed.isEnumValue(node.name)) {
                 string owner = self.analyzed.enumOwnerOf(node.name);
                 if (owner != "") { owner = owner + "_"; }
-                return irLiteral(owner + node.name);
+                return irVar(owner + node.name);
             }
             if (self.analyzed.funcTable.has(node.name)
                     && !varTypes.has(node.name)) {
-                return irVar(sourceFunctionCName(
+                return irFunctionRef(sourceFunctionCName(
                     self.analyzed, node.name));
+            }
+            if (varTypes.has(node.name)) {
+                return irVar(self.sourceLexicalReferenceCName(
+                    node.name));
             }
             return irVar(node.name);
         }
@@ -5151,8 +5716,13 @@ class IRGen {
             return lowerCallWithOwnership(self, node, varTypes);
         }
         if (node.kind == NK_CAST_EXPR) {
-            return irCast(typeToC(self.resolveBodyType(node.target_type), self.analyzed),
-                          self.lowerExpr(node.expr, varTypes));
+            string targetC = typeToC(
+                self.resolveBodyType(node.target_type), self.analyzed);
+            if (self.inGenericMethod || self.callDefaultTypeDepth > 0) {
+                targetC = genericTypeToC(
+                    node.target_type, self.activeTypeMap, self.analyzed);
+            }
+            return irCast(targetC, self.lowerExpr(node.expr, varTypes));
         }
         if (node.kind == NK_TERNARY_EXPR) {
             return self.lowerTypedTernary(node, varTypes);
@@ -5175,24 +5745,8 @@ class IRGen {
                 && node.target.kind == NK_IDENTIFIER
                 && self.callableIdentifierIsLexicalLocal(
                     node.target.name);
-            if (node.op == "=" && !lexicalCallableTarget) {
-                string boundary = "persistent storage";
-                if (node.target != null
-                        && node.target.kind == NK_IDENTIFIER) {
-                    boundary = "global storage";
-                } else if (node.target != null
-                        && node.target.kind == NK_FIELD_ACCESS_EXPR) {
-                    boundary = "field storage";
-                } else if (node.target != null
-                        && node.target.kind == NK_INDEX_EXPR) {
-                    boundary = "indexed storage";
-                }
-                self.rejectPersistentCallableEscape(
-                    callableStorageType,
-                    node.value_node,
-                    varTypes,
-                    boundary);
-            }
+            rejectErasingCallableAssignmentBoundary(
+                self, node, callableStorageType, varTypes);
             IRNode? ownedTarget = lowerOwnedAssignment(
                 self, node, varTypes);
             if (ownedTarget != null) { return ownedTarget; }
@@ -5297,8 +5851,14 @@ class IRGen {
                     node.target, varTypes);
                 Node? valueType = self.resolvedExpressionType(
                     node.value_node, varTypes);
+                string targetC = "int";
+                if (targetType != null) {
+                    targetC = self.directGenericTargetC(
+                        node.target, targetType, varTypes);
+                }
                 return self.lowerDirectCompound(
-                    node.op, target, value, targetType, valueType);
+                    node.op, target, value, targetType, valueType,
+                    targetC);
             }
             /* Upcast: storing a subclass instance into a base-class field/var
              * needs an explicit cast — sibling struct pointers are otherwise
@@ -5327,7 +5887,9 @@ class IRGen {
                 if (tType != null
                         && node.target.kind != NK_IDENTIFIER) {
                     return self.lowerDirectStore(
-                        target, value, tType);
+                        target, value, tType,
+                        self.directGenericTargetC(
+                            node.target, tType, varTypes));
                 }
             }
             return irBinOp(target, node.op, value);
@@ -5413,12 +5975,7 @@ class IRGen {
         if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {
             Node? elementType = null;
             if (expected.is_array) {
-                Node arrayElement = Node();
-                arrayElement.kind = NK_TYPE_EXPR;
-                arrayElement.base = expected.base;
-                arrayElement.generic_args = expected.generic_args;
-                arrayElement.pointer_depth = expected.pointer_depth;
-                elementType = arrayElement;
+                elementType = typeWithoutOuterArray(expected);
             } else if ((expected.base == "Array" || expected.base == "List"
                     || expected.base == "Set" || expected.base == "Vector")
                     && expected.generic_args.len == 1) {
@@ -5514,7 +6071,8 @@ class IRGen {
                 string cn = capNames.get(ci);
                 string cty = typeToC(
                     self.resolveBodyType(varTypes.get(cn)), self.analyzed);
-                sd.fields.push(IRStructField(cty, cn));
+                sd.fields.push(IRStructField(
+                    cty, sourceLexicalBindingCName(cn)));
                 ci = ci + 1;
             }
             self.curModule.struct_defs.push(sd);
@@ -5544,7 +6102,9 @@ class IRGen {
         int p2 = 0;
         while (p2 < node.params.len) {
             Node pp = node.params.get(p2);
-            fn.params.push(IRParam(typeToC(pp.type, self.analyzed), pp.name));
+            fn.params.push(IRParam(typeToC(pp.type, self.analyzed),
+                sourceLexicalBindingCNameForAnalysis(
+                    pp.name, self.analyzed)));
             p2 = p2 + 1;
         }
         if (hasCaptures) {
@@ -5561,8 +6121,11 @@ class IRGen {
             while (ci2 < capNames.len) {
                 string cn = capNames.get(ci2);
                 string cty = typeToC(varTypes.get(cn), self.analyzed);
-                IRNode fa = irFieldAccess(irVar("__env"), cn, true);
-                body.push(irVarDecl(cty, cn, fa));
+                IRNode fa = irFieldAccess(irVar("__env"),
+                    sourceLexicalBindingCName(cn), true);
+                body.push(irVarDecl(
+                    cty, sourceLexicalBindingCNameForAnalysis(
+                        cn, self.analyzed), fa));
                 ci2 = ci2 + 1;
             }
         }
@@ -5577,12 +6140,16 @@ class IRGen {
         while (borrowedParam < node.params.len) {
             self.borrowedLocalBindings.put(
                 node.params.get(borrowedParam).name, true);
+            self.activateSourceLexicalBinding(
+                node.params.get(borrowedParam).name);
             borrowedParam = borrowedParam + 1;
         }
         int borrowedCapture = 0;
         while (borrowedCapture < capNames.len) {
             self.borrowedLocalBindings.put(
                 capNames.get(borrowedCapture), true);
+            self.activateSourceLexicalBinding(
+                capNames.get(borrowedCapture));
             borrowedCapture = borrowedCapture + 1;
         }
 
@@ -5623,7 +6190,7 @@ class IRGen {
 
         /* Link this lambda to a following var-decl env allocation. */
         self.lastLambdaId = lambdaId;
-        return irVar(fnName);
+        return irFunctionRef(fnName);
     }
 
     /* Value results cross pthread's void* boundary through exact typed storage.
@@ -5793,18 +6360,18 @@ class IRGen {
                 && resolved.pointer_depth == 0)) {
             if (isStringType(resolved)) {
                 self.useHelper("__btrc_thread_string_dispose");
-                callback = irVar("__btrc_thread_string_dispose");
+                callback = irFunctionRef("__btrc_thread_string_dispose");
             } else if (irManagedType(self, resolved)) {
                 context = managedArcDescriptor(
                     self, irManagedRuntimeType(self, resolved));
                 contextSize = irSizeofType("__btrc_arc_type");
                 self.useHelper("__btrc_thread_arc_dispose");
                 self.useHelper("__btrc_throw");
-                callback = irVar("__btrc_thread_arc_dispose");
-                raiseCallback = irVar("__btrc_throw");
+                callback = irFunctionRef("__btrc_thread_arc_dispose");
+                raiseCallback = irFunctionRef("__btrc_throw");
             } else if (self.threadResultRequiresBox(resolved)) {
                 self.useHelper("__btrc_thread_box_dispose");
-                callback = irVar("__btrc_thread_box_dispose");
+                callback = irFunctionRef("__btrc_thread_box_dispose");
             }
         }
         args.push(context);
@@ -5870,7 +6437,8 @@ class IRGen {
                 string cn = capNames.get(ci);
                 string cty = typeToC(
                     self.resolveBodyType(varTypes.get(cn)), self.analyzed);
-                sd.fields.push(IRStructField(cty, cn));
+                sd.fields.push(IRStructField(
+                    cty, sourceLexicalBindingCName(cn)));
                 ci = ci + 1;
             }
             self.curModule.struct_defs.push(sd);
@@ -5894,14 +6462,31 @@ class IRGen {
                 string cn = capNames.get(ci2);
                 string cty = typeToC(
                     self.resolveBodyType(varTypes.get(cn)), self.analyzed);
-                IRNode fa = irFieldAccess(irVar("__env"), cn, true);
-                wbody.push(irVarDecl(cty, cn, fa));
+                IRNode fa = irFieldAccess(irVar("__env"),
+                    sourceLexicalBindingCName(cn), true);
+                wbody.push(irVarDecl(
+                    cty, sourceLexicalBindingCNameForAnalysis(
+                        cn, self.analyzed), fa));
                 ci2 = ci2 + 1;
             }
         }
 
         /* Lower the lambda body in an isolated ARC/return context. */
         ScopeSnapshot snap = self.enterIsolatedScope(retC, retType);
+        int sourceParameter = 0;
+        while (sourceParameter < fn.params.len) {
+            string parameterName = fn.params.get(sourceParameter).name;
+            self.borrowedLocalBindings.put(parameterName, true);
+            self.activateSourceLexicalBinding(parameterName);
+            sourceParameter = sourceParameter + 1;
+        }
+        int sourceCapture = 0;
+        while (sourceCapture < capNames.len) {
+            string captureName = capNames.get(sourceCapture);
+            self.borrowedLocalBindings.put(captureName, true);
+            self.activateSourceLexicalBinding(captureName);
+            sourceCapture = sourceCapture + 1;
+        }
 
         Map<string, Node> bodyVars = {};
         Vector<string> evk = varTypes.keys();
@@ -5952,7 +6537,8 @@ class IRGen {
         self.curModule.functions.push(wfn);
 
         /* --- Build the spawn call --- */
-        IRNode fnPtr = irCast("void*(*)(void*)", irVar(wrapperName));
+        IRNode fnPtr = irCast(
+            "void*(*)(void*)", irFunctionRef(wrapperName));
         if (!hasCaptures) {
             Vector<IRNode> sargs = [];
             sargs.push(fnPtr);
@@ -5978,21 +6564,25 @@ class IRGen {
         int cpi = 0;
         while (cpi < capNames.len) {
             string cn = capNames.get(cpi);
-            IRNode tgt = irFieldAccess(irVar(seVar), cn, true);
-            sequence.push(irBinOp(tgt, "=", irVar(cn)));
+            IRNode tgt = irFieldAccess(irVar(seVar),
+                sourceLexicalBindingCName(cn), true);
+            sequence.push(irBinOp(tgt, "=",
+                irVar(sourceLexicalBindingCNameForAnalysis(
+                    cn, self.analyzed))));
             /* ARC: keep captured class instances alive until the thread finishes
              * (paired with the release in the wrapper cleanup). */
             Node? ct = varTypes.get(cn);
             if (irManagedType(self, ct)) {
                 sequence.push(irManagedRetainValue(
-                    self, irVar(cn), ct));
+                    self, irVar(sourceLexicalBindingCNameForAnalysis(
+                        cn, self.analyzed)), ct));
             }
             cpi = cpi + 1;
         }
         Vector<IRNode> sargs2 = [];
         sargs2.push(fnPtr);
         sargs2.push(irCast("void*", irVar(seVar)));
-        sargs2.push(irVar(argDisposer));
+        sargs2.push(irFunctionRef(argDisposer));
         self.appendThreadResultDisposal(sargs2, retType);
         IRNode spawnCall = irCall("__btrc_thread_spawn", sargs2);
         sequence.push(spawnCall);
@@ -6144,14 +6734,15 @@ class IRGen {
         IRNode access = irLiteral("NULL");
         IRNode slotAccess = irLiteral("NULL");
         if (isStringType(concreteType)) {
-            access = irVar(ensureMutexValueAdapter(self, valueC));
+            access = irFunctionRef(ensureMutexValueAdapter(self, valueC));
             self.useHelper("__btrc_mutex_string_retain");
             self.useHelper("__btrc_mutex_string_release");
-            retain = irVar("__btrc_mutex_string_retain");
-            releaseCallback = irVar("__btrc_mutex_string_release");
+            retain = irFunctionRef("__btrc_mutex_string_retain");
+            releaseCallback = irFunctionRef(
+                "__btrc_mutex_string_release");
         } else if (irManagedType(self, concreteType)) {
-            access = irVar(ensureMutexValueAdapter(self, valueC));
-            slotAccess = irVar(ensureArcSlotAdapter(self, valueC));
+            access = irFunctionRef(ensureMutexValueAdapter(self, valueC));
+            slotAccess = irFunctionRef(ensureArcSlotAdapter(self, valueC));
             descriptor = managedArcDescriptor(
                 self, irManagedRuntimeType(self, concreteType));
             descriptorSize = irSizeofType("__btrc_arc_type");
@@ -6159,10 +6750,11 @@ class IRGen {
             self.useHelper("__btrc_mutex_arc_release");
             self.useHelper("__btrc_mutex_arc_finalize");
             self.useHelper("__btrc_throw");
-            retain = irVar("__btrc_mutex_arc_retain");
-            releaseCallback = irVar("__btrc_mutex_arc_release");
-            finalizeCallback = irVar("__btrc_mutex_arc_finalize");
-            raiseCallback = irVar("__btrc_throw");
+            retain = irFunctionRef("__btrc_mutex_arc_retain");
+            releaseCallback = irFunctionRef("__btrc_mutex_arc_release");
+            finalizeCallback = irFunctionRef(
+                "__btrc_mutex_arc_finalize");
+            raiseCallback = irFunctionRef("__btrc_throw");
         }
         Vector<IRNode> cargs = [];
         cargs.push(boxed);
@@ -6223,12 +6815,42 @@ class IRGen {
             self, valueNode, targetType, varTypes).value;
     }
 
+    public string directGenericTargetC(Node target, Node targetType,
+            Map<string, Node> varTypes) {
+        if (!self.inGenericMethod && self.callDefaultTypeDepth == 0) {
+            return typeToC(targetType, self.analyzed);
+        }
+        if (target.kind == NK_IDENTIFIER && varTypes.has(target.name)) {
+            return genericTypeToC(
+                varTypes.get(target.name), self.activeTypeMap,
+                self.analyzed);
+        }
+        if (target.kind == NK_FIELD_ACCESS_EXPR && target.obj != null) {
+            Node? receiverType = self.resolvedExpressionType(
+                target.obj, varTypes);
+            if (receiverType != null
+                    && receiverType.generic_args.len > 0
+                    && self.analyzed.isGenericClass(receiverType.base)) {
+                Node? member = genericMember(
+                    self.analyzed, receiverType.base, target.field);
+                if (member != null && member.type != null) {
+                    return genericTypeToC(
+                        member.type,
+                        genericTypeMap(self.analyzed, receiverType),
+                        self.analyzed);
+                }
+            }
+        }
+        return typeToC(targetType, self.analyzed);
+    }
+
     public IRNode lowerDirectCompound(string compoundOp,
-            IRNode target, IRNode right, Node? targetType, Node? rightType) {
+            IRNode target, IRNode right, Node? targetType, Node? rightType,
+            string targetC) {
         if (targetType == null || rightType == null) {
             return irBinOp(target, compoundOp, right);
         }
-        string pointerType = typeToC(targetType, self.analyzed);
+        string pointerType = targetC;
         if (targetType.is_volatile) { pointerType = pointerType + " volatile"; }
         pointerType = pointerType + "*";
         string pointerName = self.freshTemp("__btrc_lvalue");
@@ -6239,7 +6861,7 @@ class IRGen {
         Vector<IRNode> declarations = [];
         declarations.push(irVarDecl(pointerType, pointerName, null));
         declarations.push(irVarDecl(
-            typeToC(targetType, self.analyzed), oldName, null));
+            targetC, oldName, null));
         Vector<IRNode> sequence = [];
         sequence.push(irBinOp(pointer, "=", irAddressOf(target)));
         sequence.push(irBinOp(oldValue, "=", loaded));
@@ -6258,8 +6880,9 @@ class IRGen {
     }
 
     public IRNode lowerDirectStore(
-            IRNode target, IRNode value, Node targetType) {
-        string pointerType = typeToC(targetType, self.analyzed);
+            IRNode target, IRNode value, Node targetType,
+            string targetC) {
+        string pointerType = targetC;
         if (targetType.is_volatile) {
             pointerType = pointerType + " volatile";
         }
@@ -6653,9 +7276,19 @@ class IRGen {
             return gpuContextualExprType(
                 expression, self.analyzed, varTypes);
         }
-        Node? result = inferSpecializationType(
-            expression, self.analyzed, varTypes);
-        if (result != null && self.inGenericMethod) {
+        /* Defaults temporarily swap generic/type environments at individual
+         * call sites. They deliberately bypass the body cache; ordinary and
+         * generic body lowering are protected by explicit cache epochs. */
+        Node? result = null;
+        if (self.callDefaultTypeDepth > 0) {
+            result = inferSpecializationTypeWithoutMemo(
+                expression, self.analyzed, varTypes);
+        } else {
+            result = inferSpecializationType(
+                expression, self.analyzed, varTypes);
+        }
+        if (result != null && (self.inGenericMethod
+                || self.callDefaultTypeDepth > 0)) {
             result = resolveGenericType(
                 result, self.activeTypeMap, self.analyzed);
             result = resolveOuterTypedefType(
@@ -6765,7 +7398,19 @@ class IRGen {
             return irBinOp(left, op, right);
         }
         if (leftType.base == "__fn_ptr" && rightType.base == "__fn_ptr") {
-            return irBinOp(left, op, right);
+            string leftName = self.freshTemp("__btrc_fn_left");
+            string rightName = self.freshTemp("__btrc_fn_right");
+            IRNode leftVar = irVar(leftName);
+            IRNode rightVar = irVar(rightName);
+            string pointerType = typeToC(leftType, self.analyzed);
+            Vector<IRNode> declarations = [];
+            declarations.push(irVarDecl(pointerType, leftName, null));
+            declarations.push(irVarDecl(pointerType, rightName, null));
+            Vector<IRNode> sequence = [];
+            sequence.push(irBinOp(leftVar, "=", left));
+            sequence.push(irBinOp(rightVar, "=", right));
+            sequence.push(irBinOp(leftVar, op, rightVar));
+            return irStmtExpr(declarations, irCommaExpr(sequence));
         }
         return irBinOp(
             irCast("const void*", left), op,
@@ -6980,6 +7625,15 @@ class IRGen {
 
     public IRNode lowerUnary(Node node, Map<string, Node> varTypes) {
         if (node.op == "++" || node.op == "--") {
+            IRNode? ownedTarget = lowerOwnedUnaryUpdate(
+                self, node, varTypes);
+            if (ownedTarget != null) { return ownedTarget; }
+        }
+        return self.lowerUnaryCore(node, varTypes);
+    }
+
+    public IRNode lowerUnaryCore(Node node, Map<string, Node> varTypes) {
+        if (node.op == "++" || node.op == "--") {
             IRNode? indirect = self.lowerIndirectIncDec(node, varTypes);
             if (indirect != null) { return indirect; }
         }
@@ -7019,8 +7673,13 @@ class IRGen {
     public IRNode lowerSizeof(Node node, Map<string, Node> varTypes) {
         Node operand = node.operand;
         if (operand != null && operand.kind == NK_SIZEOF_TYPE) {
-            return irSizeofType(
-                typeToC(self.resolveBodyType(operand.type), self.analyzed));
+            string operandC = typeToC(
+                self.resolveBodyType(operand.type), self.analyzed);
+            if (self.inGenericMethod || self.callDefaultTypeDepth > 0) {
+                operandC = genericTypeToC(
+                    operand.type, self.activeTypeMap, self.analyzed);
+            }
+            return irSizeofType(operandC);
         }
         if (operand != null && operand.kind == NK_SIZEOF_EXPR_OP) {
             IRNode inner = self.lowerExpr(operand.expr, varTypes);
@@ -7271,124 +7930,10 @@ class IRGen {
     public Vector<IRNode> orderArgsForParams(Vector<Node> params,
             Vector<string> argNames, Vector<IRNode> irArgs,
             Vector<Node> astArgs, Map<string, Node> varTypes) {
-        if (params.len == 0) { return irArgs; }
-        /* Pad names to the number of written args. */
-        Vector<string> names = [];
-        int ni = 0;
-        while (ni < irArgs.len) {
-            if (ni < argNames.len) { names.push(argNames.get(ni)); }
-            else { names.push(""); }
-            ni = ni + 1;
-        }
-        /* Any named args present? */
-        bool anyNamed = false;
-        int an = 0;
-        while (an < names.len) {
-            if (names.get(an) != "") { anyNamed = true; }
-            an = an + 1;
-        }
-        /* Positional-only fast path: keep order, append trailing defaults. */
-        if (!anyNamed) {
-            Vector<IRNode> result = [];
-            int k = 0;
-            while (k < irArgs.len) {
-                IRNode av = irArgs.get(k);
-                if (k < params.len && k < astArgs.len) {
-                    Node sourceNode = astArgs.get(k);
-                    if (sourceNode.kind == NK_BRACE_INITIALIZER
-                            || sourceNode.kind == NK_LIST_LITERAL
-                            || sourceNode.kind == NK_MAP_LITERAL) {
-                        av = self.lowerAssignedValueRaw(
-                            sourceNode, params.get(k).type, varTypes);
-                    }
-                    Node? st = self.resolvedExpressionType(
-                        astArgs.get(k), varTypes);
-                    av = self.upcastClassPointer(
-                        params.get(k).type, st, av);
-                }
-                result.push(av);
-                k = k + 1;
-            }
-            int idx = result.len;
-            while (idx < params.len) {
-                Node pp = params.get(idx);
-                if (pp.default_ != null) {
-                    IRNode dv = self.lowerAssignedValueRaw(
-                        pp.default_, pp.type, varTypes);
-                    Node? dt = self.resolvedExpressionType(
-                        pp.default_, varTypes);
-                    result.push(self.upcastClassPointer(
-                        pp.type, dt, dv));
-                } else {
-                    result.push(irLiteral("0"));
-                }
-                idx = idx + 1;
-            }
-            return result;
-        }
-        /* Named path: resolve which written arg fills each parameter slot, then
-         * build the result in declared order. We map param index -> written-arg
-         * index (or -1 for "use the default"). A parallel int Vector is used
-         * instead of an IRNode slot Vector because Vector<IRNode>.push rejects
-         * null (it bumps the element's refcount), so null placeholders aren't
-         * safe; ints are. */
-        Map<string, int> paramIndices = {};
-        int pi = 0;
-        while (pi < params.len) {
-            paramIndices.put(params.get(pi).name, pi);
-            pi = pi + 1;
-        }
-        Vector<int> slotArg = [];
-        int s = 0;
-        while (s < params.len) { slotArg.push(-1); s = s + 1; }
-        int positional = 0;
-        int ai = 0;
-        while (ai < irArgs.len) {
-            string nm = names.get(ai);
-            if (nm != "") {
-                if (paramIndices.has(nm)) {
-                    slotArg.set(paramIndices.get(nm), ai);
-                }
-            } else if (positional < params.len) {
-                slotArg.set(positional, ai);
-                positional = positional + 1;
-            }
-            ai = ai + 1;
-        }
-        Vector<IRNode> out = [];
-        int o = 0;
-        while (o < params.len) {
-            Node pp = params.get(o);
-            int src = slotArg.get(o);
-            if (src >= 0) {
-                IRNode av = irArgs.get(src);
-                if (src < astArgs.len) {
-                    Node sourceNode = astArgs.get(src);
-                    if (sourceNode.kind == NK_BRACE_INITIALIZER
-                            || sourceNode.kind == NK_LIST_LITERAL
-                            || sourceNode.kind == NK_MAP_LITERAL) {
-                        av = self.lowerAssignedValueRaw(
-                            sourceNode, pp.type, varTypes);
-                    }
-                    Node? st = self.resolvedExpressionType(
-                        astArgs.get(src), varTypes);
-                    av = self.upcastClassPointer(pp.type, st, av);
-                }
-                out.push(av);
-            } else {
-                if (pp.default_ != null) {
-                    IRNode dv = self.lowerAssignedValueRaw(
-                        pp.default_, pp.type, varTypes);
-                    Node? dt = self.resolvedExpressionType(
-                        pp.default_, varTypes);
-                    out.push(self.upcastClassPointer(pp.type, dt, dv));
-                } else {
-                    out.push(irLiteral("0"));
-                }
-            }
-            o = o + 1;
-        }
-        return out;
+        Map<string, Node> substitutions = {};
+        return orderCallTargetArguments(
+            self, params, substitutions, argNames,
+            irArgs, astArgs, varTypes);
     }
 
     public Node? intrinsicOperandType(Node expression, Map<string, Node> varTypes) {
@@ -7464,23 +8009,32 @@ class IRGen {
         Node callee = node.callee;
         if (callee != null && callee.kind == NK_IDENTIFIER) {
             string name = callee.name;
-            /* Pre-lower every argument (mirrors calls.py line 50:
-             * `args = lower_arg_values(...)` runs unconditionally, before the
-             * print/constructor/builtin dispatch). For print and constructor
-             * calls this result is discarded and the args re-lowered, but the
-             * temp counter advances either way — so doing it here keeps fresh
-            * temp numbering byte-identical. */
+            /* Lower every argument exactly once before dispatch. Builtins and
+             * constructors adapt and reorder this same structured IR vector. */
             Vector<IRNode> args = self.lowerArgs(node, varTypes);
-            if (name == "__btrc_safe_calloc"
-                    || name == "__btrc_safe_realloc"
-                    || name == "__btrc_str_track"
-                    || name == "__btrc_string_adopt"
-                    || name == "__btrc_string_alloc") {
+            /* Lexical callable bindings shadow every module/runtime spelling,
+             * including source functions whose C name is mangled. */
+            if (self.hasClosureEnv(name)) {
+                string implFn = self.fnPtrEnvFn.get(name);
+                string envVar = self.fnPtrEnvVar.get(name);
+                args.push(irCast("void*", irAddressOf(irVar(envVar))));
+                return irCall(implFn, args);
+            }
+            if (varTypes.has(name)
+                    && directFunctionPointerType(
+                        varTypes.get(name), self.analyzed) != null) {
+                return irCallExpr(irVar(
+                    self.sourceLexicalReferenceCName(name)), args);
+            }
+            if (sourceRuntimeHelperSymbol(name)) {
                 self.useHelper(name);
                 return irCall(name, args);
             }
-            IRNode? gpuCpuBuiltin = lowerGpuCpuBuiltin(
-                self, name, node, args, varTypes);
+            bool resolvedSourceCall = self.analyzed.funcTable.has(name)
+                && !self.analyzed.hostedCallKeys.has(astNodeKey(node));
+            IRNode? gpuCpuBuiltin = resolvedSourceCall ? null
+                : lowerGpuCpuBuiltin(
+                    self, name, node, args, varTypes);
             if (gpuCpuBuiltin != null) { return gpuCpuBuiltin; }
             if (self.gpu.kernels.has(name)) {
                 return lowerGpuDispatchExpression(
@@ -7497,26 +8051,18 @@ class IRGen {
                     && !self.analyzed.isClass(name)) {
                 return self.lowerMutexConstructor(node, args, varTypes);
             }
-            /* Self-referential generic constructor inside a monomorphized body:
-             * Box(...) within Box<int>'s methods -> btrc_Box_int_new(args).
-             * self.currentClass is the current instance's mangled name. Mirrors
-             * user_emitter._call's `cls.generic_params -> {self.mangled}_new`. */
-            if (self.inGenericMethod && self.analyzed.isGenericClass(name)) {
-                Vector<IRNode> gcargs = self.lowerArgs(node, varTypes);
-                Node gdecl = self.analyzed.genericClassTable.get(name);
-                Node? gctor = self.genericConstructor(gdecl);
-                if (gctor != null && gctor.params.len > 0) {
-                    gcargs = self.orderArgsForParams(
-                        gctor.params, node.arg_names, gcargs, node.args, varTypes);
-                }
-                return irCall(self.currentClass + "_new", gcargs);
+            /* A generic constructor target comes from the call's resolved
+             * instance type, not the enclosing specialization. */
+            if (self.analyzed.isGenericClass(name)) {
+                return lowerResolvedGenericConstructorCall(
+                    self, node, name, args, varTypes);
             }
             /* Constructor call X(...) -> X_new(args) (mirrors variables: a
              * non-generic class name as callee is a constructor). Fill omitted
              * defaults / order named args from the constructor's params
              * (mirrors calls._lower_constructor_call). */
             if (self.analyzed.isClass(name)) {
-                Vector<IRNode> cargs = self.lowerArgs(node, varTypes);
+                Vector<IRNode> cargs = args;
                 Node? ctor = self.analyzed.classConstructor(name);
                 if (ctor != null && ctor.params.len > 0) {
                     cargs = self.orderArgsForParams(
@@ -7526,7 +8072,9 @@ class IRGen {
             }
             /* Built-ins apply only when no user function shadows the name. */
             if (!self.analyzed.funcNames.has(name)) {
-                if (name == "print") { return self.lowerPrint(node, varTypes); }
+                if (name == "print") {
+                    return self.lowerPrint(node, args, varTypes);
+                }
                 if (name == "printf") {
                     return irCall("printf", args);
                 }
@@ -7550,27 +8098,18 @@ class IRGen {
                     return irFieldAccess(args.get(0), "len", true);
                 }
             }
-            /* Captured-lambda call: bypass the function pointer and call the
-             * lifted impl directly, with &env as the trailing void* argument.
-             * Mirrors calls.py's _fn_ptr_envs branch. */
-            if (self.hasClosureEnv(name)) {
-                string implFn = self.fnPtrEnvFn.get(name);
-                string envVar = self.fnPtrEnvVar.get(name);
-                args.push(irCast("void*", irAddressOf(irVar(envVar))));
-                return irCall(implFn, args);
-            }
             /* Fill omitted trailing parameters with their default values and
              * order any named args (mirrors calls._fill_defaults ->
              * order_args_for_params). */
-            if (self.analyzed.funcTable.has(name)) {
+            if (resolvedSourceCall) {
                 Node fnDecl = self.analyzed.funcTable.get(name);
                 if (fnDecl.params.len > 0) {
                     args = self.orderArgsForParams(
                         fnDecl.params, node.arg_names, args, node.args, varTypes);
                 }
             }
-            return irCall(sourceFunctionCName(
-                self.analyzed, name), args);
+            return irCall(sourceCallCName(
+                self.analyzed, name, node), args);
         }
         if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR) {
             return self.lowerMethodCall(node, varTypes);
@@ -7587,7 +8126,7 @@ class IRGen {
             lambdaArgs = self.orderArgsForParams(
                 callee.params, node.arg_names, lambdaArgs, node.args, varTypes);
             if (captures.len == 0) {
-                return irCall(irExprText(lambdaExpr), lambdaArgs);
+                return irCallExpr(lambdaExpr, lambdaArgs);
             }
             string lambdaName = "__btrc_lambda_" + Strings.fromInt(lambdaId);
             string envName = lambdaName + "_env";
@@ -7599,8 +8138,9 @@ class IRGen {
             while (captureIndex < captures.len) {
                 string capture = captures.get(captureIndex);
                 sequence.push(irBinOp(
-                    irFieldAccess(irVar(envVar), capture, false),
-                    "=", irVar(capture)));
+                    irFieldAccess(irVar(envVar),
+                        sourceLexicalBindingCName(capture), false),
+                    "=", irVar(self.sourceLexicalReferenceCName(capture))));
                 captureIndex = captureIndex + 1;
             }
             lambdaArgs.push(irCast("void*", irAddressOf(irVar(envVar))));
@@ -7639,31 +8179,10 @@ class IRGen {
                         varTypes)) {
                 self.rejectClosureEscape(call.args.get(i));
             }
-            if (paramIndex >= 0 && paramIndex < params.len) {
-                Node parameter = params.get(paramIndex);
-                Node? expected = resolveTypedefType(
-                    parameter.type, self.analyzed.typedefTable);
-                Node? actual = self.resolvedExpressionType(
-                    call.args.get(i), varTypes);
-                actual = resolveTypedefType(
-                    actual, self.analyzed.typedefTable);
-                if (expected != null && expected.base == "__fn_ptr"
-                        && actual != null
-                        && actual.base == "__fn_ptr"
-                        && actual.generic_args.len > 0
-                        && irManagedType(
-                            self, actual.generic_args.get(0))
-                        && self.callableExpressionAbi(
-                            call.args.get(i), varTypes) != 0) {
-                    print("Managed-return callback for parameter '"
-                        + parameter.name + "' erases its source-owned "
-                        + "return ABI; bare __fn_ptr parameters accept only "
-                        + "borrowed C callbacks");
-                    abortGen();
-                }
-            }
             i = i + 1;
         }
+        rejectUnsafeManagedCallbackArgumentsBoundary(
+            self, call, params, varTypes);
     }
 
     public IRNode lowerMethodCall(Node node, Map<string, Node> varTypes) {
@@ -7908,19 +8427,34 @@ class IRGen {
          * Mirrors methods.lower_method_call's rich_enum_table branch (checked
          * before the class branch). */
         if (objNode != null && objNode.kind == NK_IDENTIFIER
+                && !varTypes.has(objNode.name)
                 && self.analyzed.isRichEnum(objNode.name)) {
-            return irCall(objNode.name + "_" + method, self.lowerArgs(node, varTypes));
+            Vector<IRNode> variantArgs = self.lowerArgs(node, varTypes);
+            Node? variant = semanticResolveRichEnumVariant(
+                objNode.name, method, self.analyzed);
+            if (variant != null) {
+                Node concreteVariant = variant;
+                variantArgs = self.orderArgsForParams(
+                    concreteVariant.params,
+                    node.arg_names, variantArgs,
+                    node.args, varTypes);
+            }
+            return irCall(objNode.name + "_" + method, variantArgs);
         }
         /* Static method call on a class name. Order named args / fill defaults
          * from the method's params (mirrors methods.lower_method_call's static
          * branch). */
         if (objNode != null && objNode.kind == NK_IDENTIFIER
+                && !varTypes.has(objNode.name)
                 && self.analyzed.isClass(objNode.name)) {
             Vector<IRNode> sargs = self.lowerArgs(node, varTypes);
             Node? sm = self.analyzed.classMethod(objNode.name, method);
             if (sm != null && sm.kind == NK_METHOD_DECL && sm.params.len > 0) {
-                sargs = self.orderArgsForParams(
-                    sm.params, node.arg_names, sargs, node.args, varTypes);
+                Map<string, Node> substitutions = callTargetTypeMap(
+                    self, node, varTypes);
+                sargs = orderCallTargetArguments(
+                    self, sm.params, substitutions,
+                    node.arg_names, sargs, node.args, varTypes);
             }
             return irCall(objNode.name + "_" + method, sargs);
         }
@@ -7943,7 +8477,8 @@ class IRGen {
             IRNode eobj = self.lowerExpr(objNode, varTypes);
             Vector<IRNode> eargs = [];
             eargs.push(eobj);
-            return irCall(ot.base + "_toString", eargs);
+            return irCast("char*", irCall(
+                ot.base + "_toString", eargs));
         }
         /* obj.toString() for non-class receivers -> builtin numeric/bool/char
          * conversion (mirrors methods.lower_method_call's toString branch). */
@@ -7969,8 +8504,11 @@ class IRGen {
             Vector<IRNode> margs = self.lowerArgs(node, varTypes);
             Node? im = self.analyzed.classMethod(ot.base, method);
             if (im != null && im.kind == NK_METHOD_DECL && im.params.len > 0) {
-                margs = self.orderArgsForParams(
-                    im.params, node.arg_names, margs, node.args, varTypes);
+                Map<string, Node> substitutions = callTargetTypeMap(
+                    self, node, varTypes);
+                margs = orderCallTargetArguments(
+                    self, im.params, substitutions,
+                    node.arg_names, margs, node.args, varTypes);
             }
             Vector<IRNode> args = [];
             args.push(obj);
@@ -8002,31 +8540,11 @@ class IRGen {
             Vector<IRNode> gmargs = self.lowerArgs(node, varTypes);
             Node? gm = self.analyzed.genericClassMethod(ot.base, method);
             if (gm != null && gm.params.len > 0) {
-                gmargs = self.orderArgsForParams(
-                    gm.params, node.arg_names, gmargs, node.args, varTypes);
-                /* Upcast Derived->Base args for a generic-class method. The
-                 * method's declared param types reference the class type params
-                 * (e.g. push(T val)); resolve each through the receiver's generic
-                 * args, then apply a Derived->Base upcast keyed on the resolved
-                 * type (e.g. Vector<Animal>.push(Dog*) must cast Dog* to
-                 * Animal*). Positional-aligned calls only. Mirrors
-                 * methods._upcast_generic_method_args. */
-                if (node.args.len == gmargs.len) {
-                    Map<string, Node> gtm = genericTypeMap(self.analyzed, ot);
-                    int ua = 0;
-                    while (ua < node.args.len && ua < gm.params.len) {
-                        Node gpt = gm.params.get(ua).type;
-                        if (gpt != null && gtm.has(gpt.base)
-                                && gpt.generic_args.len == 0) {
-                            Node resolved = resolveGenericType(
-                                gpt, gtm, self.analyzed);
-                            Node? gst = self.resolvedExpressionType(
-                                node.args.get(ua), varTypes);
-                            gmargs.set(ua, self.upcastClassPointer(resolved, gst, gmargs.get(ua)));
-                        }
-                        ua = ua + 1;
-                    }
-                }
+                Map<string, Node> substitutions = callTargetTypeMap(
+                    self, node, varTypes);
+                gmargs = orderCallTargetArguments(
+                    self, gm.params, substitutions,
+                    node.arg_names, gmargs, node.args, varTypes);
             }
             Vector<IRNode> args = [];
             args.push(obj);
@@ -8176,11 +8694,7 @@ class IRGen {
          * constructor is the concrete `btrc_ListNode_OwnedItem_p1_new`, not the
          * unresolved `btrc_ListNode_T_new`. Mirrors user_emitter resolving the
          * new-expr type via _resolve before mangling. */
-        Node newType = node.type;
-        if (self.inGenericMethod) {
-            newType = resolveGenericType(
-                newType, self.activeTypeMap, self.analyzed);
-        }
+        Node newType = self.resolveBodyType(node.type);
         string baseName = node.type.base;
         string typeName = newType.base;
         if (newType.generic_args.len > 0 && self.analyzed.isGenericClass(typeName)) {
@@ -8197,15 +8711,14 @@ class IRGen {
             ctor = self.analyzed.genericClassConstructor(baseName);
         }
         if (ctor != null && ctor.params.len > 0) {
-            args = self.orderArgsForParams(
-                ctor.params, node.arg_names, args, node.args, varTypes);
-        }
-        /* new C<...>(args): upcast Derived->Base ctor args against the resolved
-         * generic param types (the ctor's `E error` param can't trigger the
-         * upcast otherwise — see upcastGenericCtorArgs). */
-        if (ctor != null && newType.generic_args.len > 0
-                && self.analyzed.isGenericClass(newType.base)) {
-            self.upcastGenericCtorArgs(newType, ctor, node.args, args, varTypes);
+            Map<string, Node> substitutions = {};
+            if (self.analyzed.isGenericClass(newType.base)) {
+                substitutions = genericTypeMap(
+                    self.analyzed, newType);
+            }
+            args = orderCallTargetArguments(
+                self, ctor.params, substitutions,
+                node.arg_names, args, node.args, varTypes);
         }
         return irCall(typeName + "_new", args);
     }
@@ -8213,20 +8726,65 @@ class IRGen {
     /* Lower field access obj.field (mirrors fields._lower_field_access, class
      * subset). Class-instance and pointer objects use `->`; property access
      * routes through the getter (or backing field for self.prop). */
+    public string sourceFieldCName(
+            Node node, Map<string, Node> varTypes) {
+        if (!hostedAbiMacroName(node.field)
+                || node.obj == null
+                || node.obj.kind != NK_FIELD_ACCESS_EXPR
+                || node.obj.obj == null
+                || node.obj.obj.kind != NK_FIELD_ACCESS_EXPR) {
+            return node.field;
+        }
+        Node dataAccess = node.obj.obj;
+        if (dataAccess.field != "data" || dataAccess.obj == null) {
+            return node.field;
+        }
+        Node? rootType = self.resolvedExpressionType(
+            dataAccess.obj, varTypes);
+        if (rootType == null
+                || !self.analyzed.richEnumTable.has(rootType.base)) {
+            return node.field;
+        }
+        Node declaration = self.analyzed.richEnumTable.get(
+            rootType.base);
+        int variantIndex = 0;
+        while (variantIndex < declaration.variants.len) {
+            Node variant = declaration.variants.get(variantIndex);
+            if (variant.name == node.obj.field) {
+                int parameterIndex = 0;
+                while (parameterIndex < variant.params.len) {
+                    if (variant.params.get(parameterIndex).name
+                            == node.field) {
+                        return sourceLexicalBindingCName(
+                            node.field);
+                    }
+                    parameterIndex = parameterIndex + 1;
+                }
+            }
+            variantIndex = variantIndex + 1;
+        }
+        return node.field;
+    }
+
     public IRNode lowerFieldAccessCore(Node node, Map<string, Node> varTypes) {
+        bool lexicalReceiver = node.obj != null
+            && node.obj.kind == NK_IDENTIFIER
+            && varTypes.has(node.obj.name);
         /* Namespaced enum value: Color.RED -> Color_RED (the qualified form of
          * bare RED). Mirrors fields._lower_field_access's enum_table branch. */
         if (node.obj != null && node.obj.kind == NK_IDENTIFIER
+                && !lexicalReceiver
                 && self.analyzed.isEnum(node.obj.name)) {
-            return irLiteral(node.obj.name + "_" + node.field);
+            return irVar(node.obj.name + "_" + node.field);
         }
         /* Rich enum variant tag: Color.RGB -> Color_RGB_TAG. Mirrors fields.
          * _lower_field_access's rich_enum_table branch. */
         if (node.obj != null && node.obj.kind == NK_IDENTIFIER
+                && !lexicalReceiver
                 && self.analyzed.isRichEnum(node.obj.name)) {
             return irVar(node.obj.name + "_" + node.field + "_TAG");
         }
-        if (irClassStaticField(self, node) != null) {
+        if (!lexicalReceiver && irClassStaticField(self, node) != null) {
             return irVar(irClassStaticFieldName(node));
         }
         /* A static method used as a value is its lowered free-function symbol,
@@ -8240,11 +8798,13 @@ class IRGen {
             if (staticMethod != null
                     && staticMethod.kind == NK_METHOD_DECL
                     && staticMethod.access == "class") {
-                return irVar(node.obj.name + "_" + node.field);
+                return irFunctionRef(
+                    node.obj.name + "_" + node.field);
             }
         }
         IRNode obj = self.lowerExpr(node.obj, varTypes);
         Node? ot = self.resolvedExpressionType(node.obj, varTypes);
+        string fieldName = self.sourceFieldCName(node, varTypes);
         /* Optional access is represented as a standard-C comma expression with
          * an uninitialized declaration hoisted by IRStmtExpr:
          *
@@ -8260,7 +8820,7 @@ class IRGen {
                 receiverType = typeToC(ot, self.analyzed);
             }
             IRNode receiver = irVar(receiverName);
-            IRNode access = irFieldAccess(receiver, node.field, true);
+            IRNode access = irFieldAccess(receiver, fieldName, true);
             Node? property = instanceMemberForType(
                 self.analyzed, ot, node.field);
             if (ot != null && property != null
@@ -8272,7 +8832,7 @@ class IRGen {
                 access = irCall(
                     prefix + "_get_" + node.field, getterArgs);
             } else {
-                access = irFieldAccess(receiver, node.field, true);
+                access = irFieldAccess(receiver, fieldName, true);
             }
             Vector<IRNode> declarations = [];
             declarations.push(irVarDecl(receiverType, receiverName, null));
@@ -8306,7 +8866,7 @@ class IRGen {
                 || self.analyzed.isGenericClass(ot.base))) {
             arrow = true;
         }
-        return irFieldAccess(obj, node.field, arrow);
+        return irFieldAccess(obj, fieldName, arrow);
     }
 
     public IRNode lowerIndexCore(Node node, Map<string, Node> varTypes) {
@@ -8507,7 +9067,8 @@ class IRGen {
     }
 
     /* print(...) -> printf with format string (matches calls.py _lower_print). */
-    public IRNode lowerPrint(Node node, Map<string, Node> varTypes) {
+    public IRNode lowerPrint(Node node, Vector<IRNode> loweredArgs,
+            Map<string, Node> varTypes) {
         if (node.args.len == 0) {
             Vector<IRNode> a = [];
             a.push(irLiteral("\"\\n\""));
@@ -8518,7 +9079,7 @@ class IRGen {
         int i = 0;
         while (i < node.args.len) {
             Node arg = node.args.get(i);
-            IRNode irArg = self.lowerExpr(arg, varTypes);
+            IRNode irArg = loweredArgs.get(i);
             Node? at = self.resolvedExpressionType(arg, varTypes);
             Node? boundaryType = at;
             string spec = printfFormatSpec(self, at);
@@ -8648,99 +9209,6 @@ bool stringMethodTracked(string method) {
     return false;
 }
 
-/* Render an IR expression to inline C text (mirrors expressions.py _expr_text,
- * used by sizeof lowering). Only the IR-node subset that can appear there. */
-string irExprText(IRNode e) {
-    if (e == null) {
-        print("internal compiler error: null IR expression in irExprText");
-        abortGen();
-        return "";
-    }
-    if (e.kind == IRK_LITERAL) { return e.text; }
-    if (e.kind == IRK_VAR) { return e.name; }
-    if (e.kind == IRK_BINOP) {
-        return f"({irExprText(e.left)} {e.op} {irExprText(e.right)})";
-    }
-    if (e.kind == IRK_COMMA_EXPR) {
-        string out = "(";
-        int i = 0;
-        while (i < e.args.len) {
-            if (i > 0) { out = out + ", "; }
-            out = out + irExprText(e.args.get(i));
-            i = i + 1;
-        }
-        return out + ")";
-    }
-    if (e.kind == IRK_UNARYOP) {
-        if (e.prefix) { return f"({e.op}{irExprText(e.operand)})"; }
-        return f"({irExprText(e.operand)}{e.op})";
-    }
-    if (e.kind == IRK_CALL) {
-        string args = "";
-        int i = 0;
-        while (i < e.args.len) {
-            if (i > 0) { args = args + ", "; }
-            args = args + irExprText(e.args.get(i));
-            i = i + 1;
-        }
-        string callee = e.callee;
-        if (e.expr != null) { callee = irExprText(e.expr); }
-        return f"{callee}({args})";
-    }
-    if (e.kind == IRK_FIELD_ACCESS) {
-        string op = ".";
-        if (e.arrow) { op = "->"; }
-        return f"{irExprText(e.obj)}{op}{e.field}";
-    }
-    if (e.kind == IRK_INDEX) {
-        return f"{irExprText(e.obj)}[{irExprText(e.index)}]";
-    }
-    if (e.kind == IRK_CAST) {
-        return f"(({e.target_type}){irExprText(e.expr)})";
-    }
-    if (e.kind == IRK_TERNARY) {
-        return f"({irExprText(e.condition)} ? {irExprText(e.true_expr)} : {irExprText(e.false_expr)})";
-    }
-    if (e.kind == IRK_ADDRESS_OF) { return f"(&{irExprText(e.expr)})"; }
-    if (e.kind == IRK_DEREF) { return f"(*{irExprText(e.expr)})"; }
-    if (e.kind == IRK_SIZEOF) {
-        if (e.operand != null) { return f"sizeof({irExprText(e.operand)})"; }
-        if (e.target_type == "") {
-            print("internal compiler error: IRSizeof has no operand");
-            abortGen();
-        }
-        return f"sizeof({e.target_type})";
-    }
-    if (e.kind == IRK_INITIALIZER_LIST) {
-        string values = "";
-        int i = 0;
-        while (i < e.args.len) {
-            if (i > 0) { values = values + ", "; }
-            values = values + irExprText(e.args.get(i));
-            i = i + 1;
-        }
-        return "{" + values + "}";
-    }
-    if (e.kind == IRK_COMPOUND_LITERAL) {
-        if (e.target_type == "" || e.field_names.len != e.args.len) {
-            print("internal compiler error: malformed IRCompoundLiteral");
-            abortGen();
-        }
-        string fields = "";
-        int i = 0;
-        while (i < e.args.len) {
-            if (i > 0) { fields = fields + ", "; }
-            fields = fields + "." + e.field_names.get(i)
-                + " = " + irExprText(e.args.get(i));
-            i = i + 1;
-        }
-        return f"({e.target_type})" + "{" + fields + "}";
-    }
-    print(f"internal compiler error: unsupported IR expression {e.kind} in irExprText");
-    abortGen();
-    return "";
-}
-
 void abortGen() {
     /* Diagnostics must fail closed; an out-of-bounds read is not a portable
      * trap and previously let the compiler emit C after reporting an error. */
@@ -8776,8 +9244,9 @@ void scanHelpersInNode(IRNode? n, Map<string, bool> used) {
     if (n.callee != "" && !used.has(n.callee) && helperSource(n.callee) != "") {
         used.put(n.callee, true);
     }
-    /* Var name (function pointer reference). */
-    if (n.name != "" && !used.has(n.name) && helperSource(n.name) != "") {
+    /* Explicit function-symbol value. */
+    if (n.kind == IRK_FUNCTION_REF && !used.has(n.name)
+            && helperSource(n.name) != "") {
         used.put(n.name, true);
     }
     /* Recurse into all sub-node fields. */
@@ -8945,16 +9414,40 @@ void scanTextForNames(string text, Vector<string> names, Map<string, bool> out) 
     }
 }
 
-/* Collect referenced function names from an IR expression/statement tree.
- * Calls and function-address IRVar nodes are semantic references. Literal text
- * is data and must never root a same-named dead function. */
-void collectFuncRefs(IRNode node, Vector<string> names, Map<string, bool> out) {
-    if (node == null) { return; }
-    if (node.kind == IRK_CALL) {
-        if (node.callee != "") { scanTextForNames(node.callee, names, out); }
+/* Add whole C identifiers from `text` that are present in `names`.  Unlike
+ * scanTextForNames this is linear in the text length: type reachability walks
+ * every surviving IR node, so probing the complete declaration-name vector at
+ * every leaf would make the pass O(IR nodes * declarations). */
+void scanTextForKnownNames(string text, Map<string, bool> names,
+        Map<string, bool> out) {
+    int length = text.length();
+    int index = 0;
+    while (index < length) {
+        while (index < length && !isIdentChar(text[index])) {
+            index = index + 1;
+        }
+        int start = index;
+        while (index < length && isIdentChar(text[index])) {
+            index = index + 1;
+        }
+        if (start < index) {
+            string identifier = text.substring(start, index - start);
+            if (names.has(identifier)) { out.put(identifier, true); }
+        }
     }
-    if (node.kind == IRK_VAR) {
-        scanTextForNames(node.name, names, out);
+}
+
+/* Collect referenced function names from an IR expression/statement tree.
+ * Calls and IRFunctionRef nodes are semantic references. Literal text
+ * is data and must never root a same-named dead function. */
+void collectFuncRefs(IRNode node, Map<string, bool> names,
+        Map<string, bool> out) {
+    if (node == null) { return; }
+    if (node.kind == IRK_CALL && names.has(node.callee)) {
+        out.put(node.callee, true);
+    }
+    if (node.kind == IRK_FUNCTION_REF && names.has(node.name)) {
+        out.put(node.name, true);
     }
     /* Recurse into every sub-node field. */
     collectFuncRefs(node.left, names, out);
@@ -8984,22 +9477,26 @@ void collectFuncRefs(IRNode node, Vector<string> names, Map<string, bool> out) {
 void eliminateDeadFunctions(IRModule m) {
     if (m.functions.len == 0) { return; }
     Vector<string> names = [];
+    Map<string, bool> knownNames = {};
     Map<string, int> byName = {};
     Map<string, bool> keepSet = {};
     Vector<string> worklist = [];
     int i = 0;
     while (i < m.functions.len) {
         names.push(m.functions.get(i).name);
+        knownNames.put(m.functions.get(i).name, true);
         byName.put(m.functions.get(i).name, i);
         i = i + 1;
     }
     Vector<string> descriptorNames = [];
+    Map<string, bool> knownDescriptorNames = {};
     Map<string, int> descriptorByName = {};
     int descriptorIndex = 0;
     while (descriptorIndex < m.global_decls.len) {
         IRGlobalDecl descriptor = m.global_decls.get(descriptorIndex);
         if (descriptor.c_type == "const __btrc_arc_type") {
             descriptorNames.push(descriptor.name);
+            knownDescriptorNames.put(descriptor.name, true);
             descriptorByName.put(descriptor.name, descriptorIndex);
         }
         descriptorIndex = descriptorIndex + 1;
@@ -9032,12 +9529,12 @@ void eliminateDeadFunctions(IRModule m) {
     while (globalIndex < m.global_decls.len) {
         IRGlobalDecl global = m.global_decls.get(globalIndex);
         if (!descriptorByName.has(global.name)) {
-            collectFuncRefs(global.init, names, rootRefs);
-            collectFuncRefs(global.array_size, names, rootRefs);
-            collectFuncRefs(global.init,
-                descriptorNames, descriptorRootRefs);
-            collectFuncRefs(global.array_size,
-                descriptorNames, descriptorRootRefs);
+            collectFuncRefs(global.init, knownNames, rootRefs);
+            collectFuncRefs(global.array_size, knownNames, rootRefs);
+            collectGlobalRefs(global.init,
+                knownDescriptorNames, descriptorRootRefs);
+            collectGlobalRefs(global.array_size,
+                knownDescriptorNames, descriptorRootRefs);
         }
         globalIndex = globalIndex + 1;
     }
@@ -9062,18 +9559,18 @@ void eliminateDeadFunctions(IRModule m) {
             keptDescriptors.put(descriptorName, true);
             IRGlobalDecl descriptor = m.global_decls.get(
                 descriptorByName.get(descriptorName));
-            collectFuncRefs(descriptor.init, names, refs);
-            collectFuncRefs(descriptor.array_size, names, refs);
+            collectFuncRefs(descriptor.init, knownNames, refs);
+            collectFuncRefs(descriptor.array_size, knownNames, refs);
         } else {
             string cur = worklist.pop();
             bool hasFn = byName.has(cur);
             if (hasFn) {
                 IRFunction fn = m.functions.get(byName.get(cur));
                 if (fn.body != null) {
-                    collectFuncRefs(fn.body, names, refs);
+                    collectFuncRefs(fn.body, knownNames, refs);
                     Map<string, bool> foundDescriptors = {};
-                    collectFuncRefs(fn.body,
-                        descriptorNames, foundDescriptors);
+                    collectGlobalRefs(fn.body,
+                        knownDescriptorNames, foundDescriptors);
                     Vector<string> foundNames = foundDescriptors.keys();
                     int foundIndex = 0;
                     while (foundIndex < foundNames.len) {
@@ -9134,24 +9631,31 @@ void eliminateDeadFunctions(IRModule m) {
 }
 
 /* Collect struct-name references in a function's signature (params + return)
- * and body. Mirrors _collect_struct_refs (which scans CType text + strings). */
-void collectStructRefsFn(IRFunction fn, Vector<string> names, Map<string, bool> out) {
-    scanTextForNames(fn.return_type, names, out);
+ * and body. Mirrors Python collect_c_type_references: only resolved type text
+ * is a type-reachability edge. */
+void collectStructRefsFn(IRFunction fn, Map<string, bool> names,
+        Map<string, bool> out) {
+    scanTextForKnownNames(fn.return_type, names, out);
     int i = 0;
     while (i < fn.params.len) {
-        scanTextForNames(fn.params.get(i).c_type, names, out);
+        scanTextForKnownNames(fn.params.get(i).c_type, names, out);
         i = i + 1;
     }
     if (fn.body != null) { collectStructRefsNode(fn.body, names, out); }
 }
 
-/* Scan an IR node tree for struct names in type-bearing + text fields. */
-void collectStructRefsNode(IRNode node, Vector<string> names, Map<string, bool> out) {
+/* Scan only type-bearing IR fields. Literal payloads and callable names are
+ * values, not type references; treating them as C source both roots unrelated
+ * declarations and repeatedly scans large generated-runtime string data. */
+void collectStructRefsNode(IRNode node, Map<string, bool> names,
+        Map<string, bool> out) {
     if (node == null) { return; }
-    if (node.c_type != "") { scanTextForNames(node.c_type, names, out); }
-    if (node.target_type != "") { scanTextForNames(node.target_type, names, out); }
-    if (node.text != "") { scanTextForNames(node.text, names, out); }
-    if (node.callee != "") { scanTextForNames(node.callee, names, out); }
+    if (node.c_type != "") {
+        scanTextForKnownNames(node.c_type, names, out);
+    }
+    if (node.target_type != "") {
+        scanTextForKnownNames(node.target_type, names, out);
+    }
     collectStructRefsNode(node.left, names, out);
     collectStructRefsNode(node.right, names, out);
     collectStructRefsNode(node.operand, names, out);
@@ -9177,38 +9681,41 @@ void collectStructRefsNode(IRNode node, Vector<string> names, Map<string, bool> 
 }
 
 void eliminateDeadStructs(IRModule m) {
-    if (m.struct_defs.len <= 1) { return; }
+    if (m.struct_defs.len == 0) { return; }
     Vector<string> names = [];
+    Map<string, bool> knownNames = {};
     Map<string, int> byName = {};
     Map<string, bool> refs = {};
     Map<string, bool> keepSet = {};
     int i = 0;
     while (i < m.struct_defs.len) {
         names.push(m.struct_defs.get(i).name);
+        knownNames.put(m.struct_defs.get(i).name, true);
         byName.put(m.struct_defs.get(i).name, i);
         i = i + 1;
     }
     int f = 0;
     while (f < m.functions.len) {
-        collectStructRefsFn(m.functions.get(f), names, refs);
+        collectStructRefsFn(m.functions.get(f), knownNames, refs);
         f = f + 1;
     }
     int globalIndex = 0;
     while (globalIndex < m.global_decls.len) {
         IRGlobalDecl global = m.global_decls.get(globalIndex);
-        scanTextForNames(global.c_type, names, refs);
-        collectStructRefsNode(global.init, names, refs);
-        collectStructRefsNode(global.array_size, names, refs);
+        scanTextForKnownNames(global.c_type, knownNames, refs);
+        collectStructRefsNode(global.init, knownNames, refs);
+        collectStructRefsNode(global.array_size, knownNames, refs);
         globalIndex = globalIndex + 1;
     }
     int declarationIndex = 0;
     while (declarationIndex < m.function_decls.len) {
         IRFunctionDecl declaration = m.function_decls.get(declarationIndex);
-        scanTextForNames(declaration.return_type, names, refs);
+        scanTextForKnownNames(declaration.return_type, knownNames, refs);
         int parameterIndex = 0;
         while (parameterIndex < declaration.params.len) {
-            scanTextForNames(
-                declaration.params.get(parameterIndex).c_type, names, refs);
+            scanTextForKnownNames(
+                declaration.params.get(parameterIndex).c_type,
+                knownNames, refs);
             parameterIndex = parameterIndex + 1;
         }
         declarationIndex = declarationIndex + 1;
@@ -9217,32 +9724,35 @@ void eliminateDeadStructs(IRModule m) {
     while (pointerIndex < m.function_pointer_typedefs.len) {
         IRFunctionPointerTypedef declaration =
             m.function_pointer_typedefs.get(pointerIndex);
-        scanTextForNames(declaration.return_type, names, refs);
+        scanTextForKnownNames(declaration.return_type, knownNames, refs);
         int parameterIndex = 0;
         while (parameterIndex < declaration.param_types.len) {
-            scanTextForNames(
-                declaration.param_types.get(parameterIndex), names, refs);
+            scanTextForKnownNames(
+                declaration.param_types.get(parameterIndex),
+                knownNames, refs);
             parameterIndex = parameterIndex + 1;
         }
         pointerIndex = pointerIndex + 1;
     }
     int typedefIndex = 0;
     while (typedefIndex < m.typedef_defs.len) {
-        scanTextForNames(
-            m.typedef_defs.get(typedefIndex).target_type, names, refs);
+        scanTextForKnownNames(
+            m.typedef_defs.get(typedefIndex).target_type,
+            knownNames, refs);
         typedefIndex = typedefIndex + 1;
     }
     int taggedIndex = 0;
     while (taggedIndex < m.tagged_union_defs.len) {
         IRTaggedUnionDef tagged = m.tagged_union_defs.get(taggedIndex);
-        scanTextForNames(tagged.tag_type, names, refs);
+        scanTextForKnownNames(tagged.tag_type, knownNames, refs);
         int variantIndex = 0;
         while (variantIndex < tagged.variants.len) {
             IRTaggedUnionVariant variant = tagged.variants.get(variantIndex);
             int fieldIndex = 0;
             while (fieldIndex < variant.fields.len) {
-                scanTextForNames(
-                    variant.fields.get(fieldIndex).c_type, names, refs);
+                IRStructField field = variant.fields.get(fieldIndex);
+                scanTextForKnownNames(field.c_type, knownNames, refs);
+                collectStructRefsNode(field.array_size, knownNames, refs);
                 fieldIndex = fieldIndex + 1;
             }
             variantIndex = variantIndex + 1;
@@ -9254,7 +9764,8 @@ void eliminateDeadStructs(IRModule m) {
         IRPreprocessorDecl declaration =
             m.preprocessor_decls.get(preprocessorIndex);
         if (declaration.kind == IR_PREPROCESSOR_MACRO) {
-            scanTextForNames(declaration.replacement, names, refs);
+            scanTextForKnownNames(
+                declaration.replacement, knownNames, refs);
         }
         preprocessorIndex = preprocessorIndex + 1;
     }
@@ -9271,7 +9782,9 @@ void eliminateDeadStructs(IRModule m) {
             IRStructDef sd = m.struct_defs.get(byName.get(cur));
             int fl = 0;
             while (fl < sd.fields.len) {
-                scanTextForNames(sd.fields.get(fl).c_type, names, fr);
+                IRStructField field = sd.fields.get(fl);
+                scanTextForKnownNames(field.c_type, knownNames, fr);
+                collectStructRefsNode(field.array_size, knownNames, fr);
                 fl = fl + 1;
             }
         }

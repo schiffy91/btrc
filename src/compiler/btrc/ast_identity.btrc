@@ -5,6 +5,5 @@
  * positions—even with the node kind—are not unique for chained expressions,
  * so use the standard uintptr_t representation of the actual Node object. */
 string astNodeKey(Node node) {
-    unsigned long long address = (unsigned long long)(uintptr_t)node;
-    return f"{address}";
+    return f"{(unsigned long long)(uintptr_t)node}";
 }

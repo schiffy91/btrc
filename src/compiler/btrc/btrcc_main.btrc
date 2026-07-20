@@ -9,31 +9,47 @@
  *
  * Usage:
  *   btrcc <file.btrc>              # stdlib auto-composed + includes resolved
- *   btrcc --no-stdlib <file.btrc>  # raw single file (no stdlib, no resolution)
+ *   btrcc --no-stdlib <file.btrc>  # explicit imports only (no implicit stdlib)
+ *   btrcc --no-dce <file.btrc>     # preserve every emitted declaration
+ *   btrcc --stdlib-dir             # print the active stdlib directory
  */
 
 #include "tokens.btrc"
 #include "ast/node.btrc"
 #include "type_shapes.btrc"
+#include "callable_type_shapes.btrc"
 #include "ast_identity.btrc"
 #include "type_identity.btrc"
 #include "ebnf.btrc"
 #include "lexer.btrc"
 #include "frontend_paths.btrc"
 #include "frontend.btrc"
+#include "runtime_paths.btrc"
+#include "driver_options.btrc"
 #include "literal_text.btrc"
 #include "numeric_literals.btrc"
 #include "parser.btrc"
 #include "typedef_semantics.btrc"
 #include "tuple_semantics.btrc"
 #include "analyzer.btrc"
+#include "analyzed_member_index.btrc"
+#include "expression_inference_memo.btrc"
+#include "generic_constructor_inference.btrc"
 #include "generic_instance_walk.btrc"
 #include "generic_instance_closure.btrc"
 #include "class_storage.btrc"
 #include "lambda_semantics.btrc"
 #include "numeric_semantics.btrc"
 #include "operator_semantics.btrc"
+#include "source_runtime_symbols.btrc"
+#include "source_macro_symbols.btrc"
+#include "source_macro_call_shapes.btrc"
+#include "generated/hosted_abi/tables.btrc"
+#include "hosted_abi.btrc"
+#include "hosted_abi_provenance.btrc"
+#include "source_macro_validation.btrc"
 #include "semantic_validation_types.btrc"
+#include "generic_constructor_context.btrc"
 #include "semantic_validation_assignment_types.btrc"
 #include "semantic_validation_conditions.btrc"
 #include "semantic_validation_constants.btrc"
@@ -46,8 +62,12 @@
 #include "semantic_validation_interfaces.btrc"
 #include "semantic_validation_storage.btrc"
 #include "semantic_validation_duplicates.btrc"
+#include "semantic_validation_hosted_names.btrc"
 #include "semantic_validation_names.btrc"
+#include "semantic_validation_hosted_abi.btrc"
+#include "semantic_validation_symbol_claims.btrc"
 #include "semantic_validation_symbols.btrc"
+#include "semantic_validation_generated_calls.btrc"
 #include "semantic_validation_callable_shapes.btrc"
 #include "semantic_validation_decl_types.btrc"
 #include "semantic_validation_variable_storage.btrc"
@@ -55,6 +75,7 @@
 #include "semantic_validation_lvalues.btrc"
 #include "semantic_validation_mutex_ownership.btrc"
 #include "semantic_validation_storage_roots.btrc"
+#include "semantic_validation_hosted_results.btrc"
 #include "semantic_validation_initializers.btrc"
 #include "semantic_validation_signatures.btrc"
 #include "semantic_validation_strings.btrc"
@@ -62,7 +83,19 @@
 #include "semantic_validation_indexing.btrc"
 #include "semantic_validation_ownership.btrc"
 #include "semantic_validation_aggregate_ownership.btrc"
+#include "semantic_validation_rich_enum_ownership.btrc"
 #include "semantic_validation_call_ownership.btrc"
+#include "semantic_validation_opaque_borrows.btrc"
+#include "semantic_validation_opaque_effect_context.btrc"
+#include "semantic_validation_opaque_effects.btrc"
+#include "semantic_validation_opaque_effect_stmts.btrc"
+#include "semantic_validation_raw_deallocation.btrc"
+#include "semantic_validation_gpu_calls.btrc"
+#include "semantic_validation_hosted_calls.btrc"
+#include "semantic_validation_source_macro_arguments.btrc"
+#include "semantic_validation_source_macro_captures.btrc"
+#include "semantic_validation_source_macros.btrc"
+#include "semantic_validation_default_arguments.btrc"
 #include "semantic_validation_calls.btrc"
 #include "semantic_validation_fields.btrc"
 #include "semantic_validation_exprs.btrc"
@@ -98,6 +131,7 @@
 #include "trycatch_runtime_control.btrc"
 #include "trycatch_runtime_dependencies.btrc"
 #include "trycatch_runtime_helpers.btrc"
+#include "process_runtime.btrc"
 #include "thread_runtime_threads.btrc"
 #include "thread_runtime_mutex_core.btrc"
 #include "thread_runtime_mutex_arc.btrc"
@@ -114,7 +148,14 @@
 #include "helper_reachability.btrc"
 #include "global_reachability.btrc"
 #include "function_symbols.btrc"
+#include "default_argument_literals.btrc"
 #include "irgen.btrc"
+#include "generic_type_lowering.btrc"
+#include "callable_boundary_lowering.btrc"
+#include "callable_argument_boundaries.btrc"
+#include "call_target_arguments.btrc"
+#include "default_argument_helpers.btrc"
+#include "generic_constructor_lowering.btrc"
 #include "printf_arg_lowering.btrc"
 #include "thread_capture_lowering.btrc"
 #include "cleanup_slots.btrc"
@@ -138,6 +179,7 @@
 #include "ownership_effect_boundary.btrc"
 #include "ownership_call_effects.btrc"
 #include "ownership_calls.btrc"
+#include "default_argument_calls.btrc"
 #include "ownership_optional_calls.btrc"
 #include "optional_coalescing.btrc"
 #include "ownership_returns.btrc"
@@ -168,32 +210,73 @@
 #include "setjmp_mutations.btrc"
 #include "setjmp_volatility.btrc"
 #include "emitter.btrc"
+#include "driver_output.btrc"
 
 int main(int argc, char** argv) {
-    if (argc < 2) { print("usage: btrcc [--no-stdlib] <file.btrc>"); return 1; }
-
-    string gt = Path.readAll("src/language/grammar.ebnf");
-    GrammarInfo g = parseGrammar(gt);
-
-    bool includeStdlib = true;
-    int argIdx = 1;
-    string first = Strings.copy(argv[1]);
-    if (first.equals("--no-stdlib")) {
-        includeStdlib = false;
-        argIdx = 2;
+    BtrccOptions options = BtrccDriverOptions.parse(argc, argv);
+    if (!options.valid) {
+        fprintf(stderr, "btrcc: error: %s\n%s\n",
+            options.diagnostic, BtrccDriverOptions.usage());
+        return 1;
     }
-    if (argIdx >= argc) {
-        print("usage: btrcc [--no-stdlib] <file.btrc>");
+    if (options.showHelp) {
+        if (printLineChecked(BtrccDriverOptions.usage())) { return 0; }
+        fprintf(stderr, "btrcc: error: cannot write standard output\n");
         return 1;
     }
 
-    string path = Strings.copy(argv[argIdx]);
-    string raw = Path.readAll(path);
-    /* Default: compose stdlib + resolve includes/imports (matches btrcpy).
-     * --no-stdlib: use the single file raw (matches btrcpy --no-stdlib). */
-    string src = raw;
-    if (includeStdlib) {
-        src = feResolveFrontendSource(raw, path, true);
+    BtrccDataPaths dataPaths = BtrccRuntimePaths.resolve(
+        argc > 0 ? Strings.copy(argv[0]) : "");
+    if (!dataPaths.valid) {
+        fprintf(stderr, "btrcc: error: %s\n", dataPaths.diagnostic);
+        return 1;
+    }
+    feConfigureDataPaths(dataPaths.grammar, dataPaths.stdlib);
+    if (options.showStdlibDirectory) {
+        if (printLineChecked(dataPaths.stdlib)) { return 0; }
+        fprintf(stderr, "btrcc: error: cannot write standard output\n");
+        return 1;
+    }
+
+    string gt = feReadRequiredSource(dataPaths.grammar);
+    if (gt.isEmpty()) {
+        fprintf(stderr, "btrcc: error: cannot read grammar: %s\n",
+            dataPaths.grammar);
+        return 1;
+    }
+    GrammarInfo g = parseGrammar(gt);
+
+    string path = Strings.copy(argv[options.inputIndex]);
+    if (!FileSystem.isFile(path)) {
+        fprintf(stderr, "btrcc: error: input file does not exist: %s\n", path);
+        return 1;
+    }
+    string raw = feReadRequiredSource(path);
+    /* Includes/imports are always explicit source dependencies. --no-stdlib
+     * disables only implicit stdlib composition, matching btrcpy. */
+    Map<string, bool> includedSourceFiles = {};
+    Vector<FeLine> userLines = [];
+    feResolveTracedInto(raw, path, includedSourceFiles, userLines);
+    Vector<string> userTexts = [];
+    int userLineIndex = 0;
+    while (userLineIndex < userLines.len) {
+        userTexts.push(userLines.get(userLineIndex).text);
+        userLineIndex = userLineIndex + 1;
+    }
+    string userSource = feJoinLines(userTexts);
+    string src = userSource;
+    int stdlibLineCount = 0;
+    if (options.includeStdlib) {
+        string stdlibSource = feGetStdlibSource(userSource);
+        if (stdlibSource != "") {
+            stdlibLineCount = feSplitLines(stdlibSource).len;
+            feCheckCombinedSourceSize(stdlibSource, "\n", userSource);
+            src = stdlibSource + "\n" + userSource;
+        } else {
+            feCheckCombinedSourceSize("", "", userSource);
+        }
+    } else {
+        feCheckCombinedSourceSize("", "", userSource);
     }
     Lexer lx = Lexer(src, g);
     Vector<Token> toks = lx.tokenize();
@@ -207,27 +290,20 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error: %s\n", p.diagnostic);
         return 1;
     }
+    hostedAbiStampProgramSources(prog, stdlibLineCount, userLines, path);
 
     Analyzed a = analyzeProgram(prog);
     semanticValidateProgram(prog, a);
-    IRGen gen = IRGen(a);
+    closeProgramGenericExpressionGraph(prog, a);
+    IRGen gen = IRGen(a, path, stdlibLineCount, userLines);
+    gen.dceEnabled = options.runDce;
     IRModule m = gen.generate(prog);
     CEmitter em = CEmitter();
     string c = em.emit(m);
 
-    /* Print without an extra trailing newline: the emitted string already ends
-     * in "\n"; use printRaw if available, else strip one newline for print. */
-    printNoNL(c);
-    return 0;
-}
-
-/* Print a string verbatim (no added newline). print() appends "\n", so strip
- * the emitter's single trailing newline first to avoid a double newline. */
-void printNoNL(string s) {
-    int n = s.length();
-    if (n > 0 && s[n - 1] == '\n') {
-        print(s.substring(0, n - 1));
-    } else {
-        print(s);
+    if (!printNoNL(c)) {
+        fprintf(stderr, "btrcc: error: cannot write standard output\n");
+        return 1;
     }
+    return 0;
 }

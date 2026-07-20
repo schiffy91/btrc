@@ -22,6 +22,11 @@
 # build/out out while admitting only build/*.nix above.
 src/**/__pycache__/
 src/**/*.pyc
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.btrc-cache/
+**/.DS_Store
 src/compiler/python/tests/
 src/devex/lsp/tests/
 src/stdlib/gpu/build/

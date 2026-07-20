@@ -147,7 +147,7 @@ IRNode registerCleanupSlot(IRGen generator, IRNode declaration,
     Vector<IRNode> arguments = [];
     arguments.push(irCast(
         "void*", irAddressOf(irVar(declaration.name))));
-    arguments.push(irVar(adapter));
+    arguments.push(irFunctionRef(adapter));
     arguments.push(cleanupFunction);
     if (!direct) {
         if (visitor == null) {

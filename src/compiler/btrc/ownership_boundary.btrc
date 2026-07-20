@@ -48,7 +48,7 @@ class OwnershipBoundary {
             generator, runtimeType);
         if (runtimeType == irManagedStringRuntimeType()) {
             self.prefix.push(registerCleanupSlot(generator, declaration,
-                irVar(cleanupSymbol), null, true));
+                irFunctionRef(cleanupSymbol), null, true));
             return;
         }
         IRNode visitor = irLiteral("NULL");
@@ -56,10 +56,10 @@ class OwnershipBoundary {
             generator, runtimeType);
         if (irManagedRuntimeCanCycle(generator, runtimeType)
                 && visitorSymbol != "") {
-            visitor = irVar(visitorSymbol);
+            visitor = irFunctionRef(visitorSymbol);
         }
         self.prefix.push(registerCleanupSlot(generator, declaration,
-            irVar(cleanupSymbol), visitor, false));
+            irFunctionRef(cleanupSymbol), visitor, false));
     }
 
     public void addOperand(IRGen generator, Node expression, Node typeExpr,
@@ -226,12 +226,12 @@ class OwnershipBoundary {
                     generator, runtimeType);
                 visitor = irLiteral("NULL");
                 if (visitorSymbol != "") {
-                    visitor = irVar(visitorSymbol);
+                    visitor = irFunctionRef(visitorSymbol);
                 }
             }
             sequence.push(registerCleanupSlot(
                 generator, resultDeclaration,
-                irVar(cleanupSymbol), visitor, direct));
+                irFunctionRef(cleanupSymbol), visitor, direct));
         }
         int suffixIndex = 0;
         while (suffixIndex < self.suffix.len) {

@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+from ....source_runtime_symbols import is_source_runtime_helper
 from ...nodes import (
     CType,
-    IRCall,
     IRCast,
     IRCompoundLiteral,
     IRExpr,
+    IRFunctionRef,
     IRLiteral,
     IRSizeof,
     IRStmt,
     IRVar,
 )
 from ..literal_text import format_c_integer_literal
-from .core import _resolve_type
+from .core import _resolve_type, _resolve_type_c
+from .user_constructor_calls import lower_new_constructor_call
+from .user_emitter_bindings import (
+    reset_source_bindings,
+    source_binding_c_name,
+)
 from .user_emitter_calls import _UserGenericCallMixin
 from .user_emitter_fstrings import _UserGenericFStringMixin
 from .user_emitter_operators import _UserGenericOperatorMixin
@@ -66,7 +72,12 @@ class _UserGenericEmitter(
         return f"{prefix}_{self._temp_counter}"
 
     def resolve_c(self, t):
-        return self._ttc(_resolve_type(t, self.type_map, self._typedefs()))
+        return _resolve_type_c(
+            t,
+            self.type_map,
+            self._typedefs(),
+            render=self._ttc,
+        )
 
     def iter_value_c(self, t):
         resolved = self._resolve(t)
@@ -105,6 +116,7 @@ class _UserGenericEmitter(
         self._arc_type_overrides = {}
         self._current_property_backing = None
         reset_scope_state(self)
+        reset_source_bindings(self, params or ())
         if params:
             for parameter in params:
                 if parameter.type:
@@ -119,9 +131,6 @@ class _UserGenericEmitter(
                 depth += 1
         return 0
 
-    # ------------------------------------------------------------------
-    # Expression emitter — returns IRExpr nodes
-    # ------------------------------------------------------------------
     def _expr(self, e) -> IRExpr:
         from ....ast_nodes import (
             AssignExpr,
@@ -163,10 +172,22 @@ class _UserGenericEmitter(
 
             return lower_generic_index(self, e)
         if isinstance(e, Identifier):
+            from ..default_argument_context import (
+                resolve_default_predefined_identifier,
+            )
+
+            predefined = resolve_default_predefined_identifier(e)
+            if predefined is not None:
+                return IRLiteral(text=predefined)
+            if e.name in self._var_types:
+                return IRVar(name=source_binding_c_name(self, e.name))
+            if self._gen and is_source_runtime_helper(e.name) and e.name not in self._var_types:
+                self._gen.use_helper(e.name)
+                return IRFunctionRef(name=e.name)
             if self._gen and e.name in self._gen.analyzed.function_table and e.name not in self._var_types:
                 from ..function_symbols import source_function_c_name
 
-                return IRVar(name=source_function_c_name(self._gen.analyzed, e.name))
+                return IRFunctionRef(name=source_function_c_name(self._gen.analyzed, e.name))
             return IRVar(name=e.name)
         if isinstance(e, IntLiteral):
             return IRLiteral(text=format_c_integer_literal(e.raw, e.value))
@@ -271,30 +292,4 @@ class _UserGenericEmitter(
 
     def _new_expr_plain(self, e) -> IRExpr:
         """Emit a constructor after managed operands are stabilized."""
-        from ..types import mangle_generic_type
-
-        resolved = self._resolve(e.type)
-        if self._gen and resolved.base == "Mutex":
-            if len(e.args) != 1 or not resolved.generic_args:
-                from ..errors import CodegenError
-
-                raise CodegenError("Mutex construction requires one initial value")
-            from ..mutex_values import create_mutex_value
-
-            return create_mutex_value(
-                self._gen,
-                self._expr(e.args[0]),
-                resolved.generic_args[0],
-            )
-        if resolved.generic_args:
-            mangled = mangle_generic_type(resolved.base, resolved.generic_args)
-        else:
-            mangled = resolved.base
-        args = [self._expr(a) for a in e.args]
-        if self._gen and resolved.base in self._gen.analyzed.class_table:
-            cls = self._gen.analyzed.class_table[resolved.base]
-            if cls.constructor:
-                args = self._order_args_for_params(
-                    cls.constructor.params, e.args, getattr(e, "arg_names", []) or [], args
-                )
-        return IRCall(callee=f"{mangled}_new", args=args)
+        return lower_new_constructor_call(self, e)

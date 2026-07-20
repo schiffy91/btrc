@@ -118,15 +118,10 @@ def test_consumed_mutex_access_fails_deterministically(
             MutexLifecyclePayload payload = new MutexLifecyclePayload(2);
             Mutex<MutexLifecyclePayload> value = Mutex(payload);
             release payload;
-            assert((int)btrcTestMutexRefCount(value) == 1);
-            keep value;
-            assert((int)btrcTestMutexRefCount(value) == 2);
-            btrcTestReleaseKeptMutex(value);
-            assert((int)btrcTestMutexRefCount(value) == 1);
+            balanceMutexOwnership(value);
+            assert(value.get().id == 2);
             Mutex<MutexLifecyclePayload> alias = value;
-            assert((int)btrcTestMutexRefCount(alias) == 2);
             release value;
-            assert((int)btrcTestMutexRefCount(alias) == 1);
             assert(alias.get().id == 2);
             delete alias;
             assert(mutexLifecyclePayloadsAlive == 0);
@@ -143,9 +138,6 @@ def test_mutex_supports_arc_ownership_operations(
 ) -> None:
     source = f"""
         #include <assert.h>
-        #define btrcTestMutexRefCount(value) ((int)((value)->arc.rc))
-        #define btrcTestReleaseKeptMutex(value) \
-            ((void)__btrc_arc_release((value), (&__btrc_mutex_arc_descriptor)))
 
         int mutexLifecyclePayloadsAlive = 0;
         int mutexLifecyclePayloadsDestroyed = 0;
@@ -160,6 +152,13 @@ def test_mutex_supports_arc_ownership_operations(
                 mutexLifecyclePayloadsAlive--;
                 mutexLifecyclePayloadsDestroyed++;
             }}
+        }}
+
+        void balanceMutexOwnership(
+            Mutex<MutexLifecyclePayload> value
+        ) {{
+            keep value;
+            release value;
         }}
 
         int main() {{

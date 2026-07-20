@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
+from ....source_runtime_symbols import SOURCE_RUNTIME_HELPERS
 from ...cycle_boundaries import (
     PUBLIC_COLLECTION_BASES,
     install_function_cycle_boundary,
@@ -35,17 +36,6 @@ from .user_properties import emit_generic_properties
 
 if TYPE_CHECKING:
     from ..generator import IRGenerator
-
-# Runtime helpers to register when referenced in emitted code
-_KNOWN_HELPERS = {
-    "__btrc_safe_calloc",
-    "__btrc_safe_realloc",
-    "__btrc_str_track",
-    "__btrc_string_adopt",
-    "__btrc_string_alloc",
-    "__btrc_string_length",
-    "__btrc_string_or_empty",
-}
 
 
 def _emit_user_generic_methods(
@@ -89,7 +79,7 @@ def _emit_user_generic_methods(
         ret_c = emitter.resolve_c(method.return_type) if method.return_type else "void"
         m_params_ir = [IRParam(c_type=CType(text=f"{mangled}*"), name="self")]
         for p in method.params:
-            m_params_ir.append(lower_source_param(p, emitter.resolve_c))
+            m_params_ir.append(lower_source_param(p, emitter.resolve_c, emitter._gen.analyzed))
         try:
             body_stmts = emitter.emit_stmts(method.body.statements) if method.body else []
         except TypedOperatorError as error:
@@ -148,7 +138,7 @@ def _emit_user_generic_methods(
     for func_def in lifecycle_functions + property_functions + list(emitted.values()):
         if func_def.body:
             all_stmts.extend(func_def.body.stmts)
-    for helper in referenced_helpers(all_stmts, _KNOWN_HELPERS):
+    for helper in referenced_helpers(all_stmts, SOURCE_RUNTIME_HELPERS):
         gen.use_helper(helper)
 
 

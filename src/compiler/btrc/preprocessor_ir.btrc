@@ -5,7 +5,8 @@
  * other or malformed directive fails before an IR module can be emitted. */
 
 bool preprocessorSpace(char value) {
-    return value == ' ' || value == '\t';
+    return value == ' ' || value == '\t'
+        || value == '\f' || value == '\v' || value == '\r';
 }
 
 bool preprocessorIdentifierStart(char value) {
@@ -162,7 +163,10 @@ Vector<string> parseMacroParameters(string value, string source) {
         if (index == parameterText.length() || parameterText[index] == ',') {
             string parameter = preprocessorTrim(
                 parameterText.substring(start, index - start));
-            if (!validPreprocessorIdentifier(parameter)) {
+            bool finalVariadic = parameter == "..."
+                && index == parameterText.length();
+            if (!validPreprocessorIdentifier(parameter)
+                    && !finalVariadic) {
                 preprocessorFail(
                     "invalid function-like macro parameters: " + source);
             }
@@ -219,16 +223,16 @@ IRPreprocessorDecl parseMacroDirective(string payload, string source) {
 }
 
 void lowerPreprocessorDirective(string sourceText, IRModule module) {
+    if (containsPreprocessorTrigraph(sourceText)) {
+        preprocessorFail(
+            "C11 trigraphs in preprocessor directives are unsupported");
+    }
     int rawIndex = 0;
     while (rawIndex < sourceText.length()) {
         if (sourceText[rawIndex] == '\n' || sourceText[rawIndex] == '\r') {
             preprocessorFail("multi-line preprocessor directives are unsupported");
         }
         rawIndex = rawIndex + 1;
-    }
-    if (containsPreprocessorTrigraph(sourceText)) {
-        preprocessorFail(
-            "C11 trigraphs in preprocessor directives are unsupported");
     }
     string source = preprocessorTrim(sourceText);
     if (source.length() == 0 || source[source.length() - 1] == '\\') {

@@ -1,6 +1,8 @@
 """Resolution contracts for identifiers used as runtime values."""
 
-_KNOWN_C_GLOBALS = frozenset({"stdin", "stdout", "stderr", "errno"})
+from .default_argument_contracts import validate_constructor_default_member
+
+_KNOWN_C_GLOBALS = frozenset({"stdin", "stdout", "stderr", "errno", "__func__"})
 
 
 class IdentifierContractsMixin:
@@ -17,6 +19,17 @@ class IdentifierContractsMixin:
 
         name = expression.name
         if self.scope.lookup(name) is not None:
+            return
+        if self._validate_raw_lifetime_value(expression, direct_callee):
+            return
+        if not direct_callee and self._hosted_function_value_uses_owned_symbol(name):
+            self._error(
+                f"Hosted function '{name}' cannot be stored or forwarded as a "
+                "value because bare __fn_ptr does not preserve its exact C "
+                "ABI and effects; call it directly",
+                expression.line,
+                expression.col,
+            )
             return
         if name in self.function_table:
             return
@@ -51,15 +64,18 @@ class IdentifierContractsMixin:
             return
         if name in self._source_macro_names or name in _KNOWN_C_GLOBALS:
             return
-        if name.isupper() or name.startswith("__btrc_"):
+        if validate_constructor_default_member(
+            self,
+            expression,
+            direct_callee=direct_callee,
+        ):
             return
+        self._unresolved_c_symbol_reference_ids.add(id(expression))
         if direct_callee:
-            return
-        self._error(
-            f"Unresolved identifier '{name}' used as a value",
-            expression.line,
-            expression.col,
-        )
+            self._unresolved_direct_callee_ids.add(id(expression))
+        # Resolution is intentionally deferred until all generated-symbol
+        # claims (including late generic instances) are known. The final pass
+        # preserves the ordinary C-call/macro seams and reports value errors.
 
 
 __all__ = ["IdentifierContractsMixin"]

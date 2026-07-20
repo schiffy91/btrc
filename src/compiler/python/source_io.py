@@ -24,4 +24,7 @@ def read_source(path: str) -> str:
         text = encoded.decode("utf-8-sig")
     except UnicodeDecodeError as error:
         raise SourceReadError(f"source file {path!r} is not valid UTF-8 at byte {error.start}") from error
+    nul = text.find("\0")
+    if nul >= 0:
+        raise SourceReadError(f"source file {path!r} contains a NUL byte at character {nul}")
     return text.replace("\r\n", "\n").replace("\r", "\n")

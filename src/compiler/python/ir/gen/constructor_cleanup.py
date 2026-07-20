@@ -6,6 +6,7 @@ from ..nodes import (
     CType,
     IRCall,
     IRExprStmt,
+    IRFunctionRef,
     IRVar,
     IRVarDecl,
 )
@@ -39,7 +40,7 @@ def constructor_cleanup_guard(
             expr=register_cleanup_slot(
                 gen,
                 self_declaration,
-                IRVar(name="__btrc_arc_abandon"),
+                IRFunctionRef(name="__btrc_arc_abandon"),
                 direct=True,
             )
         ),

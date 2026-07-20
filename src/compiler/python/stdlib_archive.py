@@ -35,16 +35,15 @@ Linkage notes:
 from __future__ import annotations
 
 import hashlib
-import os
 
 from . import stdlib_archive_validation as _archive_validation
-from .cache_io import atomic_write_json, atomic_write_text
 from .cache_keys import toolchain_hash
 from .stdlib_archive_helpers import (
     ARCHIVE_HELPER_API_NAMES,
     derive_archive_api_decls,
     derive_archive_api_impl,
 )
+from .stdlib_archive_publish import publish_stdlib_archive
 from .stdlib_shared_state import (
     complete_shared_helpers,
     derive_shared_decls,
@@ -184,7 +183,9 @@ def _build_manifest(
             | {t.name for t in module.tagged_union_defs}
         ),
         "functions": sorted(f.name for f in module.function_defs if not f.is_static),
-        "function_declarations": sorted(declaration.name for declaration in module.function_decls),
+        "function_declarations": sorted(
+            declaration.name for declaration in module.function_decls if not declaration.is_static
+        ),
         "macros": [
             _macro_record(declaration)
             for declaration in module.preprocessor_decls
@@ -203,7 +204,6 @@ def build_archive(out_dir: str, module, stdlib_source: str) -> dict:
     from .ir.emitter import CEmitter
     from .ir.optimizer import optimize
 
-    os.makedirs(out_dir, exist_ok=True)
     optimize(module, dce=False)
     shared, shared_decls = transform_archive_module(module)
 
@@ -216,12 +216,15 @@ def build_archive(out_dir: str, module, stdlib_source: str) -> dict:
         {HEADER_NAME: header, IMPL_NAME: impl},
     )
 
-    # Publish complete files atomically and stamp the manifest last. A failed
-    # rebuild can therefore never leave a partially written file advertised as
-    # a valid archive.
-    atomic_write_text(os.path.join(out_dir, HEADER_NAME), header, file_mode=0o644)
-    atomic_write_text(os.path.join(out_dir, IMPL_NAME), impl, file_mode=0o644)
-    atomic_write_json(os.path.join(out_dir, MANIFEST_NAME), manifest, file_mode=0o644)
+    publish_stdlib_archive(
+        out_dir,
+        HEADER_NAME,
+        header,
+        IMPL_NAME,
+        impl,
+        MANIFEST_NAME,
+        manifest,
+    )
     return manifest
 
 

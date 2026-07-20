@@ -13,6 +13,7 @@ from ..nodes import (
     IRCast,
     IRDeref,
     IRExprStmt,
+    IRFunctionRef,
     IRIf,
     IRLiteral,
     IRVar,
@@ -44,7 +45,7 @@ def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
         gen.use_helper(helper)
         args = [
             IRCast(target_type=CType(text="volatile void*"), expr=IRVar(name=slot_name)),
-            IRVar(name=access),
+            IRFunctionRef(name=access),
         ]
         if edge_owner is not None:
             args.append(edge_owner)

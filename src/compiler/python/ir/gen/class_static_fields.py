@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import BraceInitializer, FieldDecl, ListLiteral
@@ -51,7 +50,9 @@ def emit_static_fields(gen: IRGenerator, declaration: ClassDecl) -> None:
 def _static_field_type(gen, field):
     if not field.type.is_array:
         return field.type, None
-    field_type = replace(field.type, is_array=False, array_size=None)
+    from ...type_composition import strip_outer_storage
+
+    field_type = strip_outer_storage(field.type, array=True)
     if field.type.array_size is not None:
         from .expressions import lower_expr
 

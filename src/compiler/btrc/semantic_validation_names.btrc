@@ -23,89 +23,89 @@ bool semanticC11ReservedName(string name) {
         || name == "_Thread_local";
 }
 
-bool semanticTrustedNativeBinding(string name) {
-    return name == "btrc_gpu_acquire_compute"
-        || name == "btrc_gpu_available"
-        || name == "btrc_gpu_begin_frame"
-        || name == "btrc_gpu_bind_group_destroy"
-        || name == "btrc_gpu_buffer_destroy"
-        || name == "btrc_gpu_compute_pipeline_destroy"
-        || name == "btrc_gpu_create_bind_group"
-        || name == "btrc_gpu_create_buffer"
-        || name == "btrc_gpu_create_compute_pipeline"
-        || name == "btrc_gpu_create_render_pipeline"
-        || name == "btrc_gpu_create_shader"
-        || name == "btrc_gpu_create_uniform"
-        || name == "btrc_gpu_destroy" || name == "btrc_gpu_dispatch"
-        || name == "btrc_gpu_draw" || name == "btrc_gpu_draw_uniform"
-        || name == "btrc_gpu_end_frame" || name == "btrc_gpu_get_time"
-        || name == "btrc_gpu_init" || name == "btrc_gpu_init_compute"
-        || name == "btrc_gpu_pipeline_destroy"
-        || name == "btrc_gpu_read_buffer"
-        || name == "btrc_gpu_read_buffer_checked"
-        || name == "btrc_gpu_set_uniform"
-        || name == "btrc_gpu_shader_destroy"
-        || name == "btrc_gpu_uniform_destroy"
-        || name == "btrc_gpu_upload_uniform"
-        || name == "btrc_gpu_window_create"
-        || name == "btrc_gpu_window_destroy"
-        || name == "btrc_gpu_window_height"
-        || name == "btrc_gpu_window_is_open"
-        || name == "btrc_gpu_window_key_pressed"
-        || name == "btrc_gpu_window_poll"
-        || name == "btrc_gpu_window_width"
-        || name == "btrc_gpu_write_buffer"
-        || name == "btrc_gui_blend_rect" || name == "btrc_gui_clear"
-        || name == "btrc_gui_draw_text" || name == "btrc_gui_fill_rect"
-        || name == "btrc_gui_font_destroy"
-        || name == "btrc_gui_font_load"
-        || name == "btrc_gui_get_pixel" || name == "btrc_gui_save_ppm"
-        || name == "btrc_gui_set_font"
-        || name == "btrc_gui_surface_create"
-        || name == "btrc_gui_surface_destroy"
-        || name == "btrc_gui_surface_height"
-        || name == "btrc_gui_surface_resize"
-        || name == "btrc_gui_surface_width"
-        || name == "btrc_gui_text_height"
-        || name == "btrc_gui_text_width"
-        || name == "btrc_gui_window_close"
-        || name == "btrc_gui_window_fb_height"
-        || name == "btrc_gui_window_fb_width"
-        || name == "btrc_gui_window_mouse_down"
-        || name == "btrc_gui_window_mouse_x"
-        || name == "btrc_gui_window_mouse_y"
-        || name == "btrc_gui_window_open"
-        || name == "btrc_gui_window_poll"
-        || name == "btrc_gui_window_present"
-        || name == "btrc_gui_window_should_close"
-        || name == "btrc_tray_add_item"
-        || name == "btrc_tray_add_separator"
-        || name == "btrc_tray_create" || name == "btrc_tray_destroy"
-        || name == "btrc_tray_request_quit"
-        || name == "btrc_tray_run_iteration"
-        || name == "btrc_tray_set_icon"
-        || name == "btrc_tray_set_menu"
-        || name == "btrc_tray_set_tooltip"
-        || name == "btrc_tray_should_quit"
-        || name == "btrc_tray_show"
-        || name == "btrc_tray_take_command";
+string semanticCompilerReservedPrefix(string name) {
+    if (name.startsWith("__btrc_")) { return "__btrc_"; }
+    if (name.startsWith("__BTRC_")) { return "__BTRC_"; }
+    if (name.startsWith("__gpu_")) { return "__gpu_"; }
+    if (name.startsWith("btrc_")) { return "btrc_"; }
+    return "";
+}
+
+bool semanticCReservedIdentifier(string name) {
+    return name.startsWith("__")
+        || (name.length() > 1 && name[0] == '_'
+            && name[1] >= 'A' && name[1] <= 'Z');
+}
+
+bool semanticCFileScopeReservedIdentifier(string name) {
+    return name.startsWith("_");
+}
+
+bool semanticMagicDeclaredNameAllowed(string name, Node site) {
+    return (site.kind == NK_METHOD_DECL || site.kind == NK_METHOD_SIG)
+        && semanticMagicArity(name) >= 0;
 }
 
 void semanticValidateDeclaredName(
         string name, string subject, Node site) {
+    semanticValidateDeclaredNameContext(name, subject, site, false);
+}
+
+bool semanticLexicalBindingShadowsType(
+        string name, SemanticValidationState state) {
+    return state.typeParams.has(name)
+        || state.analyzed.isClass(name)
+        || state.analyzed.isGenericClass(name)
+        || state.analyzed.isEnum(name)
+        || state.analyzed.isRichEnum(name)
+        || state.analyzed.structTable.has(name)
+        || state.analyzed.typedefTable.has(name)
+        || state.interfaces.has(name)
+        || hostedAbiTypedefName(name);
+}
+
+void semanticValidateLexicalBindingName(
+        string name, string subject, Node site,
+        SemanticValidationState state) {
+    semanticValidateLexicalBindingNameContext(
+        name, subject, site, state, false);
+}
+
+void semanticValidateGeneratedLexicalBindingName(
+        string name, string subject, Node site,
+        SemanticValidationState state) {
+    semanticValidateLexicalBindingNameContext(
+        name, subject, site, state, true);
+}
+
+void semanticValidateLexicalBindingNameContext(
+        string name, string subject, Node site,
+        SemanticValidationState state, bool cNameGenerated) {
+    semanticValidateDeclaredNameContext(
+        name, subject, site, cNameGenerated);
+}
+
+void semanticValidateDeclaredNameContext(
+        string name, string subject, Node site, bool cNameGenerated) {
     if (name == "") { return; }
+    semanticValidateHostedDeclaredName(
+        name, subject, site, cNameGenerated);
     if (semanticC11ReservedName(name)) {
         semanticValidationFail(subject + " name '" + name
             + "' is reserved by C11", site);
     }
-    string prefix = "";
-    if (name.startsWith("__btrc_")) { prefix = "__btrc_"; }
-    else if (name.startsWith("btrc_")) { prefix = "btrc_"; }
+    string prefix = semanticCompilerReservedPrefix(name);
     bool trustedPrototype = site.kind == NK_FUNCTION_DECL
-        && site.body_node == null && semanticTrustedNativeBinding(name);
+        && site.body_node == null
+        && semanticTrustedNativeBinding(name, site);
     if (prefix != "" && !trustedPrototype) {
         semanticValidationFail(subject + " name '" + name
             + "' uses the compiler-reserved '" + prefix + "' prefix", site);
+    }
+    if (semanticCReservedIdentifier(name)
+            && !semanticMagicDeclaredNameAllowed(name, site)) {
+        semanticValidationFail(subject + " name '" + name
+            + "' is reserved by C11", site);
     }
 }
 
@@ -131,8 +131,10 @@ Map<string, bool> semanticParameterNames(
     int index = 0;
     while (index < params.len) {
         Node parameter = params.get(index);
-        semanticValidateDeclaredName(
-            parameter.name, "Parameter", parameter);
+        /* The source spelling remains the named-argument API; lowering owns
+         * a collision-safe C identifier for the actual parameter binding. */
+        semanticValidateDeclaredNameContext(
+            parameter.name, "Parameter", parameter, true);
         if (seen.has(parameter.name)) {
             semanticValidationFail("Duplicate parameter name '"
                 + parameter.name + "' in " + owner, parameter);
@@ -151,12 +153,13 @@ void semanticValidateCallableNames(Node callable, string owner) {
 }
 
 void semanticValidateUniqueNodeNames(Vector<Node> nodes,
-        string subject, string owner) {
+        string subject, string owner, bool cNamesGenerated) {
     Map<string, bool> seen = {};
     int index = 0;
     while (index < nodes.len) {
         Node item = nodes.get(index);
-        semanticValidateDeclaredName(item.name, subject, item);
+        semanticValidateDeclaredNameContext(
+            item.name, subject, item, cNamesGenerated);
         if (seen.has(item.name)) {
             semanticValidationFail("Duplicate " + subject.toLower()
                 + " name '" + item.name + "' in " + owner, item);
@@ -170,9 +173,26 @@ void semanticValidateDeclarationNames(Node program) {
     int index = 0;
     while (index < program.declarations.len) {
         Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
+            string macroName = sourceMacroName(declaration.text);
+            if (macroName != "") {
+                semanticValidateMacroName(macroName, declaration);
+            }
+            string undefName = sourceUndefName(declaration.text);
+            if (undefName != "") {
+                semanticValidateUndefName(undefName, declaration);
+            }
+        }
         if (semanticNamedTopLevel(declaration)) {
-            semanticValidateDeclaredName(semanticTopLevelName(declaration),
+            semanticValidateHostedTopLevelName(declaration);
+            string topLevelName = semanticTopLevelName(declaration);
+            semanticValidateDeclaredName(topLevelName,
                 "Top-level declaration", declaration);
+            if (semanticCFileScopeReservedIdentifier(topLevelName)) {
+                semanticValidationFail("Top-level declaration name '"
+                    + topLevelName
+                    + "' is reserved by C11 at file scope", declaration);
+            }
         }
         if (declaration.kind == NK_FUNCTION_DECL) {
             semanticValidateCallableNames(declaration,
@@ -206,14 +226,28 @@ void semanticValidateDeclarationNames(Node program) {
         } else if (declaration.kind == NK_STRUCT_DECL
                 && !declaration.is_forward) {
             semanticValidateUniqueNodeNames(declaration.fields,
-                "Struct field", "struct '" + declaration.name + "'");
+                "Struct field", "struct '" + declaration.name + "'", false);
         } else if (declaration.kind == NK_ENUM_DECL) {
             semanticValidateUniqueNodeNames(declaration.values,
-                "Enum value", "enum '" + declaration.name + "'");
+                "Enum value", "enum '" + declaration.name + "'",
+                declaration.name != "");
+            if (declaration.name == "") {
+                int rawValueIndex = 0;
+                while (rawValueIndex < declaration.values.len) {
+                    Node rawValue = declaration.values.get(rawValueIndex);
+                    if (hostedAbiOwnedName(rawValue.name)) {
+                        semanticValidationFail("Enum value name '"
+                            + rawValue.name
+                            + "' collides with a compiler-owned hosted C symbol",
+                            rawValue);
+                    }
+                    rawValueIndex = rawValueIndex + 1;
+                }
+            }
         } else if (declaration.kind == NK_RICH_ENUM_DECL) {
             semanticValidateUniqueNodeNames(declaration.variants,
                 "Rich-enum variant", "rich enum '"
-                    + declaration.name + "'");
+                    + declaration.name + "'", true);
             int variantIndex = 0;
             while (variantIndex < declaration.variants.len) {
                 Node variant = declaration.variants.get(variantIndex);

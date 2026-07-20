@@ -154,6 +154,7 @@ class TypeExpr:
     array_size: Optional[expr] = None
     is_const: bool = False
     is_nullable: bool = False
+    nullable_outer_depth: int = 0
     is_static: bool = False
     is_extern: bool = False
     is_volatile: bool = False

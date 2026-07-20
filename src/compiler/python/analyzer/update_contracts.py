@@ -74,6 +74,13 @@ class UpdateContractsMixin:
         if isinstance(expression.value, NullLiteral) and self._is_active_type_parameter(target):
             return
         if expression.op == "=":
+            self._validate_managed_string_source(
+                target,
+                expression.value,
+                "Assignment",
+                expression.line,
+                expression.col,
+            )
             if self._validate_thread_handle_copy(
                 target,
                 expression.value,

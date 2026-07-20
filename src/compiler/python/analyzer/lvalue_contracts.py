@@ -18,6 +18,7 @@ from ..ast_nodes import (
     UnaryExpr,
 )
 from ..index_protocol import indexed_protocol_info
+from ..source_runtime_symbols import is_source_runtime_helper
 from ..type_identity import is_semantic_scalar_string
 
 
@@ -73,7 +74,10 @@ class LvalueContractsMixin:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
-        valid = self._is_lifetime_stable_storage(operand) or (getattr(operand, "name", None) in self.function_table)
+        name = getattr(operand, "name", None)
+        valid = (
+            self._is_lifetime_stable_storage(operand) or name in self.function_table or is_source_runtime_helper(name)
+        )
         if valid:
             return
         operand_type = self._infer_type(operand)

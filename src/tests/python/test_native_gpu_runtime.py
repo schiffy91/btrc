@@ -16,6 +16,7 @@ HARNESS = ROOT / "src" / "tests" / "native" / "gpu_runtime_invalid.c"
 SINGLETON_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_compute_singleton.c"
 _COMPILE_TIMEOUT_SECONDS = 120
 _RUN_TIMEOUT_SECONDS = 90
+_GPU_PROBE_PREAMBLE = "#include <btrc_gpu.h>\nextern bool btrc_gpu_available();\n"
 
 
 def _compile_strict_c11(compiler: str, output: Path, sources: list[Path], flags: list[str]) -> None:
@@ -146,8 +147,7 @@ def test_native_gpu_reports_checked_kernel_failures_when_available(
     kernel_body: str,
     diagnostic: str,
 ) -> None:
-    source = (
-        "#include <btrc_gpu.h>\n"
+    source = _GPU_PROBE_PREAMBLE + (
         f"@gpu void checked({scalar_type}[] xs, {scalar_type} divisor) "
         f"{{ int i = gpu_id(); {kernel_body} }}\n"
         "int main() { if (!btrc_gpu_available()) { return 77; } "
@@ -178,7 +178,7 @@ def test_native_gpu_reports_checked_kernel_failures_when_available(
     ],
 )
 def test_native_gpu_checked_success_paths_when_available(tmp_path: Path, source: str) -> None:
-    executable = _compile_generated_gpu(tmp_path, "#include <btrc_gpu.h>\n" + source)
+    executable = _compile_generated_gpu(tmp_path, _GPU_PROBE_PREAMBLE + source)
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=_RUN_TIMEOUT_SECONDS)
     if result.returncode == 77:
         pytest.skip("no native compute adapter is available")

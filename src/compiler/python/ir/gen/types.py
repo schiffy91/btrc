@@ -10,6 +10,7 @@ from types import MappingProxyType
 
 from ...ast_nodes import TypeExpr
 from ...reference_semantics import is_c_string_pointer
+from ...type_composition import nullable_collapses_reference_layer
 from ...type_identity import (
     ensure_supported_generic_arguments,
     is_semantic_scalar_string,
@@ -18,6 +19,7 @@ from ...type_identity import (
     type_symbol_component,
 )
 from ..nodes import CType, IRFunctionPointerTypedef
+from .type_render_context import typedef_base_is_reference
 
 # Primitive btrc types → C type strings
 _PRIMITIVE_MAP = {
@@ -38,19 +40,21 @@ _PRIMITIVE_MAP = {
 
 def type_to_c(t: TypeExpr | None) -> str:
     """Convert a btrc TypeExpr to a C type string."""
+    from .default_argument_context import resolve_default_type
+
+    t = resolve_default_type(t)
     if t is None:
         return "void"
     base = t.base
 
     # Function pointer types: __fn_ptr(ret, param1, param2, ...) → typedef name
-    if base == "__fn_ptr" and t.generic_args:
-        return fn_ptr_typedef_name(t)
-
     # Const qualifier prefix
     prefix = "const " if getattr(t, "is_const", False) else ""
 
+    if base == "__fn_ptr" and t.generic_args:
+        c = fn_ptr_typedef_name(t)
     # Thread<T> → __btrc_thread_t* (opaque handle, no class struct)
-    if base == "Thread" and t.generic_args:
+    elif base == "Thread" and t.generic_args:
         c = "__btrc_thread_t*"
 
     # Mutex<T> → __btrc_mutex_val_t* (ARC-managed graph node)
@@ -76,7 +80,8 @@ def type_to_c(t: TypeExpr | None) -> str:
     # double-pointering to char** (which older compilers only warned about, but
     # gcc 15 rejects as an incompatible-pointer error).
     depth = t.pointer_depth
-    if t.is_nullable and (c.endswith("*") or depth > 1):
+    base_is_reference = c.endswith("*") or base == "__fn_ptr" or typedef_base_is_reference(base)
+    if nullable_collapses_reference_layer(t, base_is_reference=base_is_reference):
         depth -= 1
     c += "*" * depth
 
@@ -225,7 +230,7 @@ def is_direct_generic_instance_reference(
         return False
     # Analyzer normalization upgrades class values from semantic depth 0 to C
     # reference depth 1.  A composed/raw pointer around that value is depth 2+.
-    depth = t.pointer_depth - int(t.is_nullable and t.pointer_depth > 1)
+    depth = t.pointer_depth - int(nullable_collapses_reference_layer(t))
     return depth <= 1
 
 

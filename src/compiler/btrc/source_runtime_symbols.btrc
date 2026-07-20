@@ -1,0 +1,22 @@
+/* Compiler-prefixed runtime symbols intentionally exposed to btrc source. */
+
+bool sourceRuntimeHelperSymbol(string name) {
+    return hostedAbiSourceRuntimeHelperGenerated(name);
+}
+
+bool sourceRuntimeIntrinsicSymbol(string name) {
+    return sourceRuntimeHelperSymbol(name)
+        || name == "__btrc_eq" || name == "__btrc_lt"
+        || name == "__btrc_gt" || name == "__btrc_hash";
+}
+
+bool compilerOwnedUnresolvedSymbol(string name) {
+    /* C reserves all double-underscore declarations, but replacement lists
+     * may use predefined tokens such as __FILE__, __LINE__, and __VA_ARGS__.
+     * Reference validation therefore owns only namespaces btrc synthesizes;
+     * declaration validation retains the broader C-reserved-name rule. */
+    return name.startsWith("__btrc_")
+        || name.startsWith("__BTRC_")
+        || name.startsWith("__gpu_")
+        || name.startsWith("btrc_");
+}

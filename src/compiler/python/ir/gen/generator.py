@@ -24,6 +24,7 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         source_file: str = "",
         freestanding: bool = False,
         line_map=None,
+        declaration_line_map=None,
     ):
         self.analyzed = analyzed
         self.debug = debug
@@ -31,6 +32,9 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         # debug line mapping: combined-source line -> (abs_file, native_line),
         # used to emit #line directives so DWARF points at .btrc source.
         self.line_map = line_map
+        # Default arguments retain declaration-file coordinates even when the
+        # stdlib and user ASTs were parsed in separate line spaces.
+        self.declaration_line_map = declaration_line_map
         self.freestanding = freestanding
         self._init_ownership_state(analyzed, freestanding=freestanding)
         self.module = IRModule()
@@ -55,9 +59,9 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         # automatic backing slot, `self.property` denotes that slot.  Outside
         # the accessor it must route through the public getter/setter.
         self.current_property_backing: str | None = None
-        # Lexically active names whose C representation is a real array, not
-        # an unsized source array parameter lowered to a pointer.
-        self._c_array_scopes: list[set[str]] = []
+        # Nearest lexical binding → whether its C representation is a real
+        # array (True) or a scalar/pointer that must shadow outer arrays (False).
+        self._c_array_scopes: list[dict[str, bool]] = []
         # Lambda capture environment tracking:
         # Maps fn_ptr variable name → env variable name
         self._fn_ptr_envs: dict[str, str] = {}
@@ -69,6 +73,7 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         self._callable_types: dict[str, TypeExpr] = {}
         self._callable_scope_declarations: list[set[str]] = []
         self._callable_exception_captures: list[tuple[frozenset[str], list[dict[str, str]]]] = []
+        self._callable_loop_captures: list[tuple[frozenset[str], list[dict[str, str]], list[dict[str, str]]]] = []
         # Last lambda ID assigned (for linking lambda to var decl)
         self._last_lambda_id: int = 0
         # C return type of the function/method currently being lowered. Used to
@@ -90,9 +95,10 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""
+        from .type_render_context import type_render_scope
         from .types import fn_ptr_typedef_scope
 
-        with fn_ptr_typedef_scope():
+        with fn_ptr_typedef_scope(), type_render_scope(self.analyzed.typedef_table):
             self._emit_includes()
             self._emit_forward_decls()
             # Signatures and bodies can each register callback types. Draining
@@ -133,11 +139,24 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
 
 
 def generate_ir(
-    analyzed: AnalyzedProgram, *, debug: bool = False, source_file: str = "", freestanding: bool = False, line_map=None
+    analyzed: AnalyzedProgram,
+    *,
+    debug: bool = False,
+    source_file: str = "",
+    freestanding: bool = False,
+    line_map=None,
+    declaration_line_map=None,
 ) -> IRModule:
     """Generate an IR module from an analyzed program.
 
     This is the main entry point for the IR generation pipeline.
     """
-    gen = IRGenerator(analyzed, debug=debug, source_file=source_file, freestanding=freestanding, line_map=line_map)
+    gen = IRGenerator(
+        analyzed,
+        debug=debug,
+        source_file=source_file,
+        freestanding=freestanding,
+        line_map=line_map,
+        declaration_line_map=declaration_line_map,
+    )
     return gen.generate()

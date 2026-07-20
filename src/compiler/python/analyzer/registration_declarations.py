@@ -1,37 +1,25 @@
 """Pass-one registration for top-level values and C-facing types."""
 
-import re
 from dataclasses import replace
 
-from ..ast_nodes import PreprocessorDirective
+from ..hosted_abi import hosted_owned_name
 from ..type_identity import type_shape_key
 from .core import SymbolInfo
-
-_DEFINE_NAME = re.compile(r"^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)")
+from .preprocessor_names import collect_source_macro_names
 
 
 class DeclarationRegistrationMixin:
     def _initialize_registration_state(self, program) -> None:
         self._top_level_kinds: dict[str, str] = {}
-        self._source_macro_names: set[str] = set()
+        self._source_macro_names = collect_source_macro_names(
+            self,
+            self._decls_with_file(program),
+        )
         self._enum_member_owners: dict[str, set[str]] = {}
         self._enum_constant_values: dict[tuple[str, str], int | None] = {}
         self._global_declarations: dict[str, object] = {}
         self._global_definitions: dict[str, object] = {}
         self._struct_definitions: dict[str, object] = {}
-        for declaration in self._decls_with_file(program):
-            if not isinstance(declaration, PreprocessorDirective):
-                continue
-            match = _DEFINE_NAME.match(declaration.text)
-            if match:
-                name = match.group(1)
-                self._source_macro_names.add(name)
-                if name.startswith(("__btrc_", "btrc_")):
-                    self._error(
-                        f"Macro name '{name}' uses a compiler-reserved prefix",
-                        declaration.line,
-                        declaration.col,
-                    )
 
     def _register_simple_enum(self, declaration) -> None:
         if not declaration.values:
@@ -51,7 +39,19 @@ class DeclarationRegistrationMixin:
         values = []
         seen = set()
         for value in declaration.values:
-            self._validate_declared_name(value.name, "Enum value", value.line, value.col)
+            valid_name = self._validate_declared_name(
+                value.name,
+                "Enum value",
+                value.line,
+                value.col,
+                c_name_generated=bool(declaration.name),
+            )
+            if valid_name and not declaration.name and hosted_owned_name(value.name):
+                self._error(
+                    f"Enum value name '{value.name}' collides with a compiler-owned hosted C symbol",
+                    value.line,
+                    value.col,
+                )
             if value.name in seen:
                 self._error(
                     f"Duplicate enum value '{value.name}' in enum '{declaration.name}'",
@@ -92,7 +92,13 @@ class DeclarationRegistrationMixin:
         self.declared_type_names.add(declaration.name)
         variants = set()
         for variant in declaration.variants:
-            self._validate_declared_name(variant.name, "Rich-enum variant", variant.line, variant.col)
+            self._validate_declared_name(
+                variant.name,
+                "Rich-enum variant",
+                variant.line,
+                variant.col,
+                c_name_generated=True,
+            )
             if variant.name in variants:
                 self._error(
                     f"Duplicate variant '{variant.name}' in rich enum '{declaration.name}'",
@@ -116,6 +122,7 @@ class DeclarationRegistrationMixin:
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
             allow_same=True,
+            trusted_hosted=self._hosted_type_declaration_allowed(declaration),
         )
         self.declared_type_names.add(declaration.name)
         if not declaration.is_forward:
@@ -154,6 +161,8 @@ class DeclarationRegistrationMixin:
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
             allow_same=True,
+            trusted_prototype=declaration.body is None,
+            c_name_generated=declaration.body is not None,
         )
         self._validate_parameter_names(declaration.params, f"function '{declaration.name}'")
         existing = self.function_table.get(declaration.name)
@@ -187,6 +196,7 @@ class DeclarationRegistrationMixin:
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
             allow_same=True,
+            trusted_hosted=self._hosted_object_declaration_allowed(declaration),
         )
         previous = self._global_declarations.get(declaration.name)
         if previous is not None and not self._global_types_compatible(previous.type, declaration.type):
@@ -230,8 +240,34 @@ class DeclarationRegistrationMixin:
         right = replace(right, is_extern=False)
         return type_shape_key(left) == type_shape_key(right)
 
-    def _claim_top_level_name(self, name, kind, line, col, *, allow_same=False) -> None:
-        self._validate_declared_name(name, kind.capitalize(), line, col)
+    def _claim_top_level_name(
+        self,
+        name,
+        kind,
+        line,
+        col,
+        *,
+        allow_same=False,
+        trusted_prototype=False,
+        trusted_hosted=False,
+        c_name_generated=False,
+    ) -> None:
+        if kind != "function" and not trusted_hosted and hosted_owned_name(name):
+            self._error(
+                f"{kind.capitalize()} name '{name}' collides with a compiler-owned hosted C symbol",
+                line,
+                col,
+            )
+        self._validate_declared_name(
+            name,
+            kind.capitalize(),
+            line,
+            col,
+            file_scope=True,
+            trusted_prototype=trusted_prototype,
+            trusted_hosted=trusted_hosted,
+            c_name_generated=c_name_generated,
+        )
         existing = self._top_level_kinds.get(name)
         if existing is None:
             self._top_level_kinds[name] = kind

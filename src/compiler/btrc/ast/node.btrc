@@ -129,6 +129,7 @@ class Node {
     public Node array_size;
     public bool is_const;
     public bool is_nullable;
+    public int nullable_outer_depth;
     public bool is_static;
     public bool is_extern;
     public bool is_volatile;
@@ -231,6 +232,7 @@ class Node {
         self.array_size = null;
         self.is_const = false;
         self.is_nullable = false;
+        self.nullable_outer_depth = 0;
         self.is_static = false;
         self.is_extern = false;
         self.is_volatile = false;
@@ -424,6 +426,7 @@ class Node {
             out = out + "\n" + spaces(2 * (d + 1)) + "array_size=" + canonNode(self.array_size, d + 1);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_const=" + canonBool(self.is_const);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_nullable=" + canonBool(self.is_nullable);
+            out = out + "\n" + spaces(2 * (d + 1)) + "nullable_outer_depth=" + canonInt(self.nullable_outer_depth);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_static=" + canonBool(self.is_static);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_extern=" + canonBool(self.is_extern);
             out = out + "\n" + spaces(2 * (d + 1)) + "is_volatile=" + canonBool(self.is_volatile);

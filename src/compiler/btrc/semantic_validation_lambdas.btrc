@@ -8,6 +8,8 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
     int index = 0;
     while (index < expression.params.len) {
         Node parameter = expression.params.get(index);
+        semanticValidateGeneratedLexicalBindingName(
+            parameter.name, "Lambda parameter", parameter, state);
         parameterNames.put(parameter.name, true);
         semanticValidateDeclaredType(parameter.type,
             "Lambda parameter '" + parameter.name + "'",

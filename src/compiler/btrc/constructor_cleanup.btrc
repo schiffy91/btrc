@@ -20,7 +20,8 @@ string beginConstructorCleanup(IRGen generator, string selfName,
         output, selfName);
     generator.useHelper("__btrc_arc_abandon");
     output.push(irExprStmt(registerCleanupSlot(generator, declaration,
-        irVar("__btrc_arc_abandon"), irLiteral("NULL"), true)));
+        irFunctionRef("__btrc_arc_abandon"),
+        irLiteral("NULL"), true)));
     return marker;
 }
 

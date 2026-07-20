@@ -23,33 +23,21 @@ import tempfile
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
-from src.compiler.python.frontend import get_stdlib_source
+from src.compiler.python.frontend import compile_frontend
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.main import resolve_includes
-from src.compiler.python.parser.parser import Parser
+from src.compiler.python.source_provenance import make_ir_source_maps
 from src.tests.corpus_files import language_test_files
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
-_BTRCC_MAIN = os.path.join(_REPO_ROOT, "src", "compiler", "btrc", "btrcc_main.btrc")
 
 # Compiler and flags configurable via environment.
 # Default to "cc" (the system C compiler), which resolves to the nix
 # gcc-wrapper that knows where glibc crt objects live.
 BTRC_CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 BTRC_CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
-_BTRCC_BUILD_FLAGS = [
-    "-std=c11",
-    "-pedantic-errors",
-    "-Wall",
-    "-Wextra",
-    "-Werror",
-    "-O2",
-]
 if not BTRC_CC:
     raise ValueError("BTRC_CC must name a C compiler")
 
@@ -59,44 +47,28 @@ def get_btrc_test_files():
     return language_test_files(BTRC_TEST_DIR)
 
 
-@pytest.fixture(scope="session")
-def btrcc_bin(tmp_path_factory):
-    """Build the self-hosted compiler once per session (only if btrc selected)."""
-    out = tmp_path_factory.mktemp("btrcc")
-    csrc = str(out / "btrcc.c")
-    binp = str(out / "btrcc")
-    r = subprocess.run(
-        ["python3", "-m", "src.compiler.python.main", _BTRCC_MAIN, "--no-cache", "-o", csrc],
-        cwd=_REPO_ROOT,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "BTRC_CACHE_DIR": str(out / "cache")},
-        timeout=180,
-    )
-    assert r.returncode == 0 and os.path.exists(csrc), f"transpiling btrcc failed:\n{r.stderr}"
-    r = subprocess.run(
-        [*BTRC_CC, *_BTRCC_BUILD_FLAGS, csrc, "-o", binp, "-lm", "-lpthread"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert r.returncode == 0 and os.path.exists(binp), f"compiling btrcc failed:\n{r.stderr}"
-    return binp
-
-
 def _transpile_python(btrc_path, btrc_file):
     """Transpile a .btrc file to C via the reference Python compiler API."""
     with open(btrc_path) as f:
         source = f.read()
-    source = resolve_includes(source, btrc_path)
-    stdlib_source = get_stdlib_source(source)
-    if stdlib_source:
-        source = stdlib_source + "\n" + source
-    tokens = Lexer(source, os.path.basename(btrc_file)).tokenize()
-    program = Parser(tokens).parse()
-    analyzed = Analyzer().analyze(program)
+    frontend = compile_frontend(
+        source,
+        btrc_path,
+        filename=os.path.basename(btrc_file),
+        map_stdlib_positions=True,
+    )
+    analyzed = frontend.analyzed
     assert not analyzed.errors, f"Analyzer errors: {analyzed.errors}"
-    ir_module = IRGenerator(analyzed).generate()
+    line_map, declaration_line_map = make_ir_source_maps(
+        frontend.source_bundle,
+        split_spaces=bool(frontend.stdlib_source and frontend.user_program is not None),
+    )
+    ir_module = IRGenerator(
+        analyzed,
+        source_file=os.path.basename(btrc_file),
+        line_map=line_map,
+        declaration_line_map=declaration_line_map,
+    ).generate()
     ir_module = optimize(ir_module)
     return CEmitter().emit(ir_module)
 
@@ -105,8 +77,8 @@ def _transpile_btrc(btrcc, btrc_path):
     """Transpile a .btrc file to C by running the self-hosted compiler binary.
 
     btrcc composes the stdlib + resolves includes itself (default mode) and
-    writes the C to stdout; it reads src/language/grammar.ebnf relative to cwd,
-    so it must run at the repo root.
+    writes the C to stdout. The shared fixture supplies an explicit runtime data
+    root; the repository cwd keeps test paths and diagnostics deterministic.
     """
     r = subprocess.run([btrcc, btrc_path], cwd=_REPO_ROOT, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and r.stdout.strip(), f"btrcc failed to transpile:\nstderr: {r.stderr[:2000]}"

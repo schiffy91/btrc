@@ -1,7 +1,5 @@
 """Lower context-typed brace initializers to structured C expressions."""
 
-from dataclasses import replace
-
 from ..nodes import CType, IRCall, IRCompoundLiteral, IRInitializerList, IRLiteral
 from .types import is_generic_class_type, type_to_c
 
@@ -48,20 +46,9 @@ def lower_brace_initializer(gen, node, *, node_type=None, lower=None):
 
 
 def _canonical_type(type_expr, typedefs):
-    if type_expr is None:
-        return None
-    result = type_expr
-    seen = set()
-    while result.base in typedefs and result.base not in seen:
-        seen.add(result.base)
-        target = typedefs[result.base]
-        result = replace(
-            target,
-            pointer_depth=target.pointer_depth + result.pointer_depth,
-            is_array=target.is_array or result.is_array,
-            array_size=result.array_size or target.array_size,
-        )
-    return result
+    from .type_resolution import canonical_type
+
+    return canonical_type(type_expr, typedefs)
 
 
 def lower_static_initializer(gen, node):

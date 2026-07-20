@@ -1,18 +1,58 @@
 """Call and argument lowering for monomorphized generic methods."""
 
-from ...nodes import IRCall, IRLiteral, IRVar
+from ....source_runtime_symbols import is_source_runtime_helper
+from ...nodes import IRCall, IRVar
 from ..call_builtins import lower_len, lower_typed_print
 from ..generic_intrinsics import lower_generic_intrinsic
 from ..typed_operators import operator_context
-from ..types import is_string_type
+from .user_builtin_methods import lower_generic_builtin_method
+from .user_call_arguments import order_generic_call_arguments
+from .user_call_ordering import evaluated_callee, language_ordered_call
+from .user_constructor_calls import lower_class_constructor_call
 from .user_emitter_arc import _UserGenericArcMixin
+from .user_static_calls import lower_ordinary_static_call
 
 
 class _UserGenericCallMixin(_UserGenericArcMixin):
     def _call(self, expression):
         """Lower a call through the shared managed-operand boundary."""
-        declaration = self._callable_for_call(expression)
+        from ..aggregate_ownership import reject_rich_enum_owned_args
+        from ..callable_boundaries import reject_unsafe_managed_callback_arguments
+        from .user_callable_provenance import generic_callable_return_abi
+
+        if self._gen is not None:
+            reject_rich_enum_owned_args(self._gen, expression)
         params = self._params_for_call(expression)
+        reject_unsafe_managed_callback_arguments(
+            self._gen,
+            expression,
+            params=params,
+            callable_abi=lambda value: generic_callable_return_abi(
+                self,
+                value,
+            ),
+        )
+        from ..hosted_result_conversion import (
+            lower_hosted_string_conversion,
+            requested_hosted_string_conversion,
+        )
+
+        result_conversion = requested_hosted_string_conversion(
+            self._gen,
+            expression,
+        )
+
+        def build():
+            call = self._plain_call(expression)
+            if result_conversion is not None:
+                call = lower_hosted_string_conversion(
+                    self._gen,
+                    call,
+                    result_conversion[0],
+                )
+            return call
+
+        declaration = self._callable_for_call(expression)
         from ..call_effects import owned_transfer_param_indices
         from ..receiver_pinning import receiver_pin_required
         from .user_emitter_scopes import managed_local_type
@@ -25,7 +65,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             getattr(expression, "arg_names", []) or [],
             receiver,
             owned_transfer_param_indices(declaration),
-            callee=expression.callee if callable_field else self._evaluated_callee(expression),
+            callee=expression.callee if callable_field else evaluated_callee(expression),
             pin_receiver=receiver_pin_required(
                 self._gen,
                 receiver,
@@ -33,62 +73,29 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                 type_of=self._resolve_expr_type,
                 owned_local_type=lambda name: managed_local_type(self, name),
             ),
-            force_order=self._language_ordered_call(
+            force_order=language_ordered_call(
+                self,
                 expression,
                 declaration,
             ),
+            call=expression,
         )
         if not operands:
-            return self._plain_call(expression)
+            return build()
         return self._sequence_call(
             operands,
             expression,
-            lambda: self._plain_call(expression),
+            build,
+            result_type_override=(result_conversion[1] if result_conversion is not None else None),
+            result_owned_override=(True if result_conversion is not None else None),
         )
-
-    @staticmethod
-    def _evaluated_callee(expression):
-        from ....ast_nodes import FieldAccessExpr, Identifier, LambdaExpr
-
-        callee = expression.callee
-        if isinstance(callee, (Identifier, FieldAccessExpr, LambdaExpr)):
-            return None
-        return callee
-
-    def _language_ordered_call(self, expression, declaration):
-        if declaration is not None:
-            return True
-        from ....ast_nodes import FieldAccessExpr, Identifier
-
-        if isinstance(expression.callee, Identifier):
-            if expression.callee.name in {"print", "printf", "Mutex"}:
-                return True
-        if isinstance(expression.callee, FieldAccessExpr):
-            if (
-                isinstance(expression.callee.obj, Identifier)
-                and expression.callee.obj.name in self._gen.analyzed.rich_enum_table
-            ):
-                return True
-            from ....string_methods import STRING_METHODS
-            from ..type_resolution import canonical_type
-
-            receiver_type = canonical_type(
-                self._resolve_expr_type(expression.callee.obj),
-                self._gen.analyzed.typedef_table,
-            )
-            if is_string_type(receiver_type) and expression.callee.field in STRING_METHODS:
-                return True
-            if receiver_type is not None and receiver_type.base == "Mutex":
-                return True
-        callee_type = self._resolve_expr_type(expression.callee)
-        return bool(callee_type is not None and callee_type.base == "__fn_ptr")
 
     def _plain_call(self, expression):
         from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
 
         if isinstance(expression.callee, Identifier) and self._gen:
             name = expression.callee.name
-            is_builtin = name not in self._gen.analyzed.function_table
+            is_builtin = name not in self._var_types and name not in self._gen.analyzed.function_table
             if is_builtin and name == "print":
                 return lower_typed_print(
                     self._gen,
@@ -106,10 +113,18 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
 
         args = [self._expr(arg) for arg in expression.args]
         arg_names = getattr(expression, "arg_names", []) or []
+        params = self._params_for_call(expression)
 
         if isinstance(expression.callee, Identifier):
             name = expression.callee.name
-            if self._gen and name == "Mutex":
+            if name in self._var_types:
+                from .user_emitter_bindings import source_binding_c_name
+
+                return IRCall(
+                    callee=IRVar(name=source_binding_c_name(self, name)),
+                    args=args,
+                )
+            if self._gen and name == "Mutex" and name not in self._gen.analyzed.function_table:
                 if len(args) != 1:
                     from ..errors import CodegenError
 
@@ -131,33 +146,30 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             )
             if intrinsic is not None:
                 return intrinsic
-            if self._gen and name in self._gen.analyzed.class_table:
-                class_info = self._gen.analyzed.class_table[name]
-                if class_info.constructor:
-                    args = self._order_args_for_params(
-                        class_info.constructor.params,
+            constructor_call = lower_class_constructor_call(
+                self,
+                expression,
+                name,
+                args,
+                arg_names,
+                params,
+            )
+            if constructor_call is not None:
+                return constructor_call
+            if self._gen and is_source_runtime_helper(name):
+                self._gen.use_helper(name)
+            if self._gen and name in self._gen.analyzed.function_table and name not in self._var_types:
+                if id(expression) not in self._gen.analyzed.hosted_call_ids:
+                    args = order_generic_call_arguments(
+                        self,
+                        params,
                         expression.args,
                         arg_names,
                         args,
                     )
-                if class_info.generic_params:
-                    return IRCall(callee=f"{self.mangled}_new", args=args)
-            if self._gen and name in (
-                "__btrc_safe_calloc",
-                "__btrc_safe_realloc",
-                "__btrc_str_track",
-                "__btrc_string_adopt",
-                "__btrc_string_alloc",
-                "__btrc_string_length",
-                "__btrc_string_or_empty",
-            ):
-                self._gen.use_helper(name)
-            if self._gen and name in self._gen.analyzed.function_table and name not in self._var_types:
-                function = self._gen.analyzed.function_table[name]
-                args = self._order_args_for_params(function.params, expression.args, arg_names, args)
                 from ..function_symbols import source_function_c_name
 
-                name = source_function_c_name(self._gen.analyzed, name)
+                name = source_function_c_name(self._gen.analyzed, name, expression)
             return IRCall(callee=name, args=args)
 
         if isinstance(expression.callee, FieldAccessExpr):
@@ -168,12 +180,32 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                     callee=self._expr(expression.callee),
                     args=args,
                 )
+            from ..rich_enum_calls import lower_generic_rich_enum_call
+
+            variant_call = lower_generic_rich_enum_call(
+                self,
+                expression,
+                params,
+                args,
+                arg_names,
+            )
+            if variant_call is not None:
+                return variant_call
+            static_call = lower_ordinary_static_call(
+                self,
+                expression,
+                args,
+                arg_names,
+                params,
+            )
+            if static_call is not None:
+                return static_call
             if isinstance(receiver, SelfExpr):
                 if self._cls_info:
-                    method = self._cls_info.methods.get(method_name)
-                    if method:
-                        args = self._order_args_for_params(
-                            method.params,
+                    if self._cls_info.methods.get(method_name):
+                        args = order_generic_call_arguments(
+                            self,
+                            params,
                             expression.args,
                             arg_names,
                             args,
@@ -182,48 +214,27 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                     callee=f"{self.mangled}_{method_name}",
                     args=[IRVar(name="self"), *args],
                 )
-            if self._gen and isinstance(receiver, Identifier):
-                receiver_type = self._var_types.get(receiver.name)
-                if receiver_type and receiver_type.base in self._gen.analyzed.class_table:
-                    class_info = self._gen.analyzed.class_table[receiver_type.base]
-                    method = class_info.methods.get(method_name)
-                    if method:
-                        args = self._order_args_for_params(
-                            method.params,
-                            expression.args,
-                            arg_names,
-                            args,
-                        )
-
             receiver_ir = self._expr(receiver)
             receiver_type = self._resolve_expr_type(receiver)
-            if self._gen and is_string_type(receiver_type):
-                from ..methods import (
-                    _STRING_CONVERSION_METHODS,
-                    _STRING_METHODS,
-                    _lower_string_method,
-                    _lower_string_special,
-                )
-
-                if method_name in _STRING_METHODS:
-                    return _lower_string_method(self._gen, receiver_ir, method_name, args)
-                special = _lower_string_special(self._gen, receiver_ir, method_name, args)
-                if special is not None:
-                    return special
-                if method_name in _STRING_CONVERSION_METHODS:
-                    callee, cast_to = _STRING_CONVERSION_METHODS[method_name]
-                    call_args = [receiver_ir]
-                    if callee in {"strtof", "strtod"}:
-                        call_args.append(IRLiteral(text="NULL"))
-                    helper_ref = callee if callee.startswith("__btrc_") else None
-                    if helper_ref:
-                        self._gen.use_helper(helper_ref)
-                    call = IRCall(callee=callee, args=call_args, helper_ref=helper_ref)
-                    if cast_to:
-                        from ...nodes import CType, IRCast
-
-                        return IRCast(target_type=CType(text=cast_to), expr=call)
-                    return call
+            if self._gen and receiver_type is not None:
+                class_info = self._gen.analyzed.class_table.get(receiver_type.base)
+                if class_info and class_info.methods.get(method_name):
+                    args = order_generic_call_arguments(
+                        self,
+                        params,
+                        expression.args,
+                        arg_names,
+                        args,
+                    )
+            builtin = lower_generic_builtin_method(
+                self,
+                receiver_ir,
+                receiver_type,
+                method_name,
+                args,
+            )
+            if builtin is not None:
+                return builtin
 
             if self._gen:
                 from ..sync_methods import lower_sync_method
@@ -251,34 +262,3 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             callee=self._expr(expression.callee),
             args=args,
         )
-
-    def _order_args_for_params(self, params, ast_args, arg_names, ir_args):
-        if not params:
-            return ir_args
-        names = list(arg_names)
-        names.extend([""] * (len(ast_args) - len(names)))
-        if not any(names):
-            result = list(ir_args)
-            for index in range(len(result), len(params)):
-                default = params[index].default
-                result.append(self._expr(default) if default is not None else IRLiteral(text="0"))
-            return result
-
-        param_indices = {param.name: index for index, param in enumerate(params)}
-        result = [None] * len(params)
-        positional_index = 0
-        for index, arg in enumerate(ir_args):
-            name = names[index]
-            if name:
-                param_index = param_indices.get(name)
-                if param_index is not None:
-                    result[param_index] = arg
-                continue
-            if positional_index < len(params):
-                result[positional_index] = arg
-                positional_index += 1
-        for index, param in enumerate(params):
-            if result[index] is None:
-                default = param.default
-                result[index] = self._expr(default) if default is not None else IRLiteral(text="0")
-        return [arg for arg in result if arg is not None]

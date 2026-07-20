@@ -1,14 +1,14 @@
 /* ARC-safe bodies for generated auto-property setters. */
 
 void emitAutoPropertyStore(IRGen generator, Node propertyType,
-        IRNode target, Vector<IRNode> body) {
+        IRNode target, IRNode value, Vector<IRNode> body) {
     if (!irManagedType(generator, propertyType)) {
-        body.push(irAssign(target, irVar("value")));
+        body.push(irAssign(target, value));
         return;
     }
     if (irManagedArcType(generator, propertyType)) {
         body.push(irExprStmt(irManagedReplaceEdge(
-            generator, target, irVar("value"), propertyType,
+            generator, target, value, propertyType,
             irVar("self"), false)));
         string runtimeType = irManagedRuntimeType(
             generator, propertyType);
@@ -26,11 +26,11 @@ void emitAutoPropertyStore(IRGen generator, Node propertyType,
     body.push(irExprStmt(irManagedUnlinkEdge(
         generator, irVar(oldName), propertyType, irVar("self"))));
     body.push(irExprStmt(irManagedRetainEdge(
-        generator, irVar("value"), propertyType, irVar("self"))));
-    body.push(irAssign(target, irVar("value")));
+        generator, value, propertyType, irVar("self"))));
+    body.push(irAssign(target, value));
     string runtimeType = irManagedRuntimeType(generator, propertyType);
     body.push(irExprStmt(irManagedReleaseEdge(
-        generator, irVar(oldName), propertyType, irVar("value"))));
+        generator, irVar(oldName), propertyType, value)));
     if (irManagedRuntimeCanCycle(generator, runtimeType)) {
         body.push(irExprStmt(managedArcPoll(generator)));
     }

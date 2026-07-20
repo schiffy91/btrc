@@ -1,0 +1,46 @@
+#include <assert.h>
+
+class Box<T> {
+    public T value;
+
+    public Box(T value) {
+        self.value = value;
+    }
+}
+
+class Empty<T> {}
+
+int takeBox(Box<int> box) {
+    return box.value;
+}
+
+Box<int> makeBox(int value) {
+    return Box(value);
+}
+
+int nestedValue() {
+    return Box(Box(9)).value.value;
+}
+
+int takeEmpty(Empty<int> value) {
+    return value != null ? 1 : 0;
+}
+
+Empty<int> makeEmpty() {
+    return Empty();
+}
+
+Box<Empty<int>> makeNestedEmpty() {
+    return Box(Empty());
+}
+
+int main() {
+    assert(takeBox(Box(7)) == 7);
+    assert(makeBox(8).value == 8);
+    assert(nestedValue() == 9);
+    assert(takeEmpty(Empty()) == 1);
+    assert(makeEmpty() != null);
+    assert(makeNestedEmpty().value != null);
+    print("PASS: generic constructors in expression positions");
+    return 0;
+}

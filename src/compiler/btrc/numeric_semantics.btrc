@@ -41,7 +41,7 @@ bool numericIsStandardTypedef(string base) {
         || base == "blksize_t" || base == "blkcnt_t"
         || base == "time_t" || base == "clock_t"
         || base == "suseconds_t" || base == "useconds_t"
-        || base == "socklen_t";
+        || base == "socklen_t" || base == "tcflag_t";
 }
 
 /* These typedef families have a language-level width/sign contract.  The
@@ -117,7 +117,7 @@ bool numericIsUnsignedBase(string base) {
         || base == "size_t" || base == "uid_t" || base == "gid_t"
         || base == "mode_t" || base == "dev_t" || base == "ino_t"
         || base == "nlink_t" || base == "useconds_t"
-        || base == "socklen_t";
+        || base == "socklen_t" || base == "tcflag_t";
 }
 
 int numericIntegralRank(string base, Analyzed analyzed) {

@@ -180,6 +180,28 @@ def test_valid_program_still_crosses_both_boundaries(selfhost_drivers: dict[str,
     assert run_result.returncode == 0
 
 
+@pytest.mark.skipif(not Path("/dev/full").exists(), reason="requires /dev/full")
+def test_parser_driver_reports_stdout_failure(
+    selfhost_drivers: dict[str, Path],
+    tmp_path: Path,
+) -> None:
+    program = tmp_path / "valid.btrc"
+    program.write_text("int main() { return 0; }\n")
+
+    with Path("/dev/full").open("wb", buffering=0) as sink:
+        result = subprocess.run(
+            [str(selfhost_drivers["parser"]), str(program)],
+            cwd=REPO,
+            stdout=sink,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=15,
+        )
+
+    assert result.returncode != 0
+    assert "cannot write standard output" in result.stderr
+
+
 INVALID_PREPROCESSOR_DIRECTIVES = [
     (
         "#ifdef FEATURE\nint main() { return 0; }\n",
@@ -272,7 +294,7 @@ def test_string_literal_does_not_root_same_named_function(
     assert "int dead_target(void)" not in result.stdout
 
 
-def test_macro_replacement_semantically_roots_referenced_function(
+def test_macro_replacement_rejects_language_callable_alias(
     selfhost_drivers: dict[str, Path],
     tmp_path: Path,
 ) -> None:
@@ -288,7 +310,10 @@ def test_macro_replacement_semantically_roots_referenced_function(
         timeout=15,
     )
 
-    assert result.returncode == 0
-    assert result.stderr == ""
-    assert "#define CALL_TARGET retained_target" in result.stdout
-    assert "int retained_target(void)" in result.stdout
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == (
+        "error: Language callable 'retained_target' requires semantic call "
+        "analysis and cannot be referenced from macro replacement "
+        "'CALL_TARGET' at 1:1\n"
+    )

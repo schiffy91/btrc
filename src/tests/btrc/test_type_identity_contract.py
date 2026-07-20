@@ -118,6 +118,7 @@ def test_identity_contract_has_one_shared_implementation() -> None:
         "typeResolvedReferenceShape",
         "typeAppliedSubstitutionPointerDepth",
         "typeSubstitutionPointerDepth",
+        "composeTypeExpr",
         "isSemanticScalarString",
     ):
         assert contract in identity
@@ -132,7 +133,7 @@ def test_identity_contract_has_one_shared_implementation() -> None:
     assert "nested array composition for type parameter" in analyzer
     assert "resolved, analyzed.typedefTable" in analyzer
     assert "genericSubstitutionReferenceShape" in analyzer
-    assert "typeAppliedSubstitutionPointerDepth(t," in analyzer
+    assert "return composeTypeExpr(t, resolved," in analyzer
 
 
 def test_identity_atoms_run_under_strict_c11(identity_driver) -> None:

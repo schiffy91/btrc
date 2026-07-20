@@ -38,6 +38,15 @@ string? right_probe(string? value) {
 }
 
 int identity(int value) { return value; }
+int negate(int value) { return -value; }
+int callback_order = 0;
+
+__fn_ptr<int, int> callback_probe(
+    __fn_ptr<int, int> callback, int marker
+) {
+    callback_order = callback_order * 10 + marker;
+    return callback;
+}
 
 class StringOps<T> {
     public T value;
@@ -150,6 +159,14 @@ int main() {
     __fn_ptr<int, int> callback = identity;
     assert(callback == callback);
     assert(callback != null);
+    assert(callback_probe(identity, 1) == callback_probe(identity, 2));
+    assert(callback_order == 12);
+    callback_order = 0;
+    assert(callback_probe(identity, 1) != callback_probe(negate, 2));
+    assert(callback_order == 12);
+    MagicOps<__fn_ptr<int, int>> callback_magic =
+        new MagicOps<__fn_ptr<int, int>>();
+    assert(callback_magic.eq(callback, callback));
     return 0;
 }
 """
@@ -289,3 +306,6 @@ def test_typed_operator_runtime_contains_shared_lowering():
     assert "#define __btrc_div" in generated
     assert "#define __btrc_mod" in generated
     assert "__btrc_hash_real" in generated
+    assert "callback == callback" not in generated
+    assert "__btrc_fn_left" in generated
+    assert "__btrc_fn_right" in generated

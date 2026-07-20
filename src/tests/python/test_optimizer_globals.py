@@ -16,6 +16,7 @@ from src.compiler.python.ir.nodes import (
     IRCall,
     IRExprStmt,
     IRFunctionDef,
+    IRFunctionRef,
     IRGlobalDecl,
     IRLiteral,
     IRMacroDef,
@@ -45,7 +46,11 @@ def test_dead_function_and_internal_global_cycle_is_pruned() -> None:
         ],
         global_decls=[
             IRGlobalDecl(CType("int"), "dead_state", IRLiteral("41")),
-            IRGlobalDecl(CType("int (*)(void)"), "dead_callback", IRVar("dead")),
+            IRGlobalDecl(
+                CType("int (*)(void)"),
+                "dead_callback",
+                IRFunctionRef("dead"),
+            ),
         ],
     )
 
@@ -95,7 +100,7 @@ def test_direct_call_through_global_callback_roots_the_slot() -> None:
             IRGlobalDecl(
                 CType("int (*)(void)"),
                 "callback_slot",
-                IRVar("callback"),
+                IRFunctionRef("callback"),
             ),
         ],
     )

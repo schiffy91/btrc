@@ -12,6 +12,7 @@ from .nodes import (
     IRDeref,
     IRExpr,
     IRFieldAccess,
+    IRFunctionRef,
     IRIndex,
     IRInitializerList,
     IRLiteral,
@@ -104,7 +105,7 @@ class _ExprEmitterMixin:
         if isinstance(expr, IRLiteral):
             return expr.text
 
-        elif isinstance(expr, IRVar):
+        elif isinstance(expr, (IRVar, IRFunctionRef)):
             return expr.name
 
         elif isinstance(expr, IRBinOp):

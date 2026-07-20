@@ -12,6 +12,7 @@ from ..nodes import (
     IRExprStmt,
     IRFieldAccess,
     IRFunctionDef,
+    IRFunctionRef,
     IRIf,
     IRLiteral,
     IRParam,
@@ -20,6 +21,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
+from .parameters import source_binding_c_name
 from .types import type_to_c
 
 
@@ -70,7 +72,11 @@ def _capture_release_adapter(
     from .managed_values import release_value
 
     env = IRVar(name="__env")
-    field = IRFieldAccess(obj=env, field=field_name, arrow=True)
+    field = IRFieldAccess(
+        obj=env,
+        field=source_binding_c_name(field_name),
+        arrow=True,
+    )
     value = IRVar(name="__value")
     return IRFunctionDef(
         name=name,
@@ -145,7 +151,7 @@ def _capture_disposer(
                         IRExprStmt(
                             expr=IRCall(
                                 callee="__btrc_raise_captured",
-                                args=[IRVar(name="__btrc_throw"), first_error],
+                                args=[IRFunctionRef(name="__btrc_throw"), first_error],
                                 helper_ref="__btrc_raise_captured",
                             )
                         )
@@ -175,7 +181,7 @@ def _guard_capture(adapter, env, has_error, first_error, error):
     guarded = IRCall(
         callee="__btrc_arc_guard_hook",
         args=[
-            IRVar(name=adapter),
+            IRFunctionRef(name=adapter),
             env,
             error,
             IRSizeof(operand=error),

@@ -1,0 +1,7 @@
+class Factory<T> {
+    static int make() { return 1; }
+}
+
+int main() {
+    return Factory.make();
+}

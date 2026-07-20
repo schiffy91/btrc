@@ -124,7 +124,14 @@ def lower_typed_comparison(
     if domain == "string":
         return _lower_string_comparison(operator, left, right, context)
     if domain == "reference":
-        return _lower_reference_equality(operator, left, right, left_type, right_type)
+        return _lower_reference_equality(
+            operator,
+            left,
+            right,
+            left_type,
+            right_type,
+            context,
+        )
     return lower_numeric_comparison(operator, left, right, left_type, right_type, context)
 
 
@@ -174,6 +181,7 @@ def _lower_reference_equality(
     right: IRExpr,
     left_type: TypeExpr | None,
     right_type: TypeExpr | None,
+    context: OperatorLoweringContext,
 ) -> IRExpr:
     if is_null_type(left_type) or is_null_type(right_type):
         function_type = next(
@@ -191,7 +199,24 @@ def _lower_reference_equality(
                 right = null_value
         return IRBinOp(left=left, op=operator, right=right)
     if left_type and right_type and left_type.base == right_type.base == "__fn_ptr":
-        return IRBinOp(left=left, op=operator, right=right)
+        left_name = context.fresh_temp("__btrc_fn_left")
+        right_name = context.fresh_temp("__btrc_fn_right")
+        left_var = IRVar(name=left_name)
+        right_var = IRVar(name=right_name)
+        pointer_type = CType(text=type_to_c(left_type))
+        return IRStmtExpr(
+            stmts=[
+                IRVarDecl(c_type=pointer_type, name=left_name),
+                IRVarDecl(c_type=pointer_type, name=right_name),
+            ],
+            result=IRCommaExpr(
+                expressions=[
+                    IRBinOp(left=left_var, op="=", right=left),
+                    IRBinOp(left=right_var, op="=", right=right),
+                    IRBinOp(left=left_var, op=operator, right=right_var),
+                ]
+            ),
+        )
     void_ptr = CType(text="const void*")
     return IRBinOp(
         left=IRCast(target_type=void_ptr, expr=left),

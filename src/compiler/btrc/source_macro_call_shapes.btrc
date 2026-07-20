@@ -1,0 +1,197 @@
+/* Narrow structural parsing for semantically modeled source macro calls. */
+
+bool sourceMacroFunctionLike(string sourceText) {
+    string normalized = sourceMacroNormalizeDirective(sourceText);
+    int nameEnd = sourceDirectiveNameEnd(normalized, "define");
+    return nameEnd >= 0 && nameEnd < normalized.length()
+        && normalized[nameEnd] == '(';
+}
+
+Vector<string> sourceMacroParameterOrder(string sourceText) {
+    string normalized = sourceMacroNormalizeDirective(sourceText);
+    Vector<string> parameters = [];
+    int nameEnd = sourceDirectiveNameEnd(normalized, "define");
+    int close = sourceMacroParametersEnd(normalized);
+    if (nameEnd < 0 || close < 0) { return parameters; }
+    int start = nameEnd + 1;
+    int index = start;
+    while (index <= close) {
+        if (index == close || normalized[index] == ',') {
+            string parameter = sourceMacroTrim(normalized.substring(
+                start, index - start));
+            if (parameter != "" && parameter != "..."
+                    && sourceMacroIdentifierStart(parameter[0])) {
+                bool valid = true;
+                int part = 1;
+                while (part < parameter.length()) {
+                    if (!sourceMacroIdentifierPart(parameter[part])) {
+                        valid = false;
+                    }
+                    part = part + 1;
+                }
+                if (valid) { parameters.push(parameter); }
+            }
+            start = index + 1;
+        }
+        index = index + 1;
+    }
+    return parameters;
+}
+
+int sourceMacroMatchingClose(string text, int open) {
+    int depth = 0;
+    int index = open;
+    while (index < text.length()) {
+        char value = text[index];
+        if (value == '"' || value == '\'') {
+            index = sourceMacroSkipQuoted(text, index, value);
+        } else {
+            if (value == '(') { depth = depth + 1; }
+            if (value == ')') {
+                depth = depth - 1;
+                if (depth == 0) { return index; }
+            }
+            index = index + 1;
+        }
+    }
+    return -1;
+}
+
+string sourceMacroUnwrapGroups(string text) {
+    string result = sourceMacroTrim(text);
+    while (result.length() > 1 && result[0] == '(') {
+        int close = sourceMacroMatchingClose(result, 0);
+        if (close != result.length() - 1) { return result; }
+        result = sourceMacroTrim(result.substring(1, close - 1));
+    }
+    return result;
+}
+
+string sourceMacroReplacementText(string sourceText) {
+    string normalized = sourceMacroNormalizeDirective(sourceText);
+    int start = sourceMacroReplacementStart(normalized);
+    if (start < 0) { return ""; }
+    return sourceMacroTrim(normalized.substring(
+        start, normalized.length() - start));
+}
+
+string sourceMacroDirectReplacementIdentifier(string sourceText) {
+    string text = sourceMacroUnwrapGroups(
+        sourceMacroReplacementText(sourceText));
+    if (text == "" || !sourceMacroIdentifierStart(text[0])) { return ""; }
+    int index = 1;
+    while (index < text.length()
+            && sourceMacroIdentifierPart(text[index])) {
+        index = index + 1;
+    }
+    return index == text.length() ? text : "";
+}
+
+string sourceMacroDirectCallName(string sourceText) {
+    if (!sourceMacroFunctionLike(sourceText)) { return ""; }
+    string text = sourceMacroUnwrapGroups(
+        sourceMacroReplacementText(sourceText));
+    if (text == "" || !sourceMacroIdentifierStart(text[0])) { return ""; }
+    int index = 1;
+    while (index < text.length()
+            && sourceMacroIdentifierPart(text[index])) {
+        index = index + 1;
+    }
+    string name = text.substring(0, index);
+    while (index < text.length() && sourceMacroSpace(text[index])) {
+        index = index + 1;
+    }
+    if (index >= text.length() || text[index] != '(') { return ""; }
+    return sourceMacroMatchingClose(text, index) == text.length() - 1
+        ? name : "";
+}
+
+Vector<string> sourceMacroDirectCallArguments(string sourceText) {
+    Vector<string> arguments = [];
+    if (sourceMacroDirectCallName(sourceText) == "") { return arguments; }
+    string text = sourceMacroUnwrapGroups(
+        sourceMacroReplacementText(sourceText));
+    int open = 0;
+    while (open < text.length() && text[open] != '(') { open = open + 1; }
+    int close = sourceMacroMatchingClose(text, open);
+    if (close == open + 1) { return arguments; }
+    int start = open + 1;
+    int index = start;
+    int depth = 0;
+    while (index < close) {
+        char value = text[index];
+        if (value == '"' || value == '\'') {
+            index = sourceMacroSkipQuoted(text, index, value);
+        } else {
+            if (value == '(' || value == '[' || value == '{') {
+                depth = depth + 1;
+            } else if (value == ')' || value == ']' || value == '}') {
+                depth = depth - 1;
+            } else if (value == ',' && depth == 0) {
+                arguments.push(sourceMacroTrim(text.substring(
+                    start, index - start)));
+                start = index + 1;
+            }
+            index = index + 1;
+        }
+    }
+    arguments.push(sourceMacroTrim(text.substring(start, close - start)));
+    return arguments;
+}
+
+int sourceMacroIdentifierCount(string text, string name) {
+    int count = 0;
+    int index = 0;
+    while (index < text.length()) {
+        char value = text[index];
+        if (value == '"' || value == '\'') {
+            index = sourceMacroSkipQuoted(text, index, value);
+        } else if (sourceMacroIdentifierStart(value)) {
+            int start = index;
+            index = index + 1;
+            while (index < text.length()
+                    && sourceMacroIdentifierPart(text[index])) {
+                index = index + 1;
+            }
+            if (text.substring(start, index - start) == name) {
+                count = count + 1;
+            }
+        } else {
+            index = index + 1;
+        }
+    }
+    return count;
+}
+
+bool sourceMacroReplacementUsesMember(
+        string sourceText, string name) {
+    string text = sourceMacroReplacementText(sourceText);
+    int index = 0;
+    while (index < text.length()) {
+        char value = text[index];
+        if (value == '"' || value == '\'') {
+            index = sourceMacroSkipQuoted(text, index, value);
+        } else if (sourceMacroIdentifierStart(value)) {
+            int start = index;
+            index = index + 1;
+            while (index < text.length()
+                    && sourceMacroIdentifierPart(text[index])) {
+                index = index + 1;
+            }
+            int previous = start - 1;
+            while (previous >= 0 && sourceMacroSpace(text[previous])) {
+                previous = previous - 1;
+            }
+            bool memberAccess = previous >= 0 && text[previous] == '.';
+            memberAccess = memberAccess || (previous >= 1
+                && text[previous - 1] == '-' && text[previous] == '>');
+            if (memberAccess
+                    && text.substring(start, index - start) == name) {
+                return true;
+            }
+        } else {
+            index = index + 1;
+        }
+    }
+    return false;
+}

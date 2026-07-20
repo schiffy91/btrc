@@ -83,14 +83,16 @@ def lower_generic_field_assignment(emitter, expression):
         field_type,
     )
     new_value = IRVar(name=value_decl.name)
-    value = emitter._assignment_value(field_type, expression.value)
     from ..prepared_values import prepare_generic_value
 
     prepared = prepare_generic_value(
         emitter,
         expression.value,
         field_type,
-        lowered=value,
+        lower_value=lambda value: emitter._assignment_value(
+            field_type,
+            value,
+        ),
     )
     value = prepared.value
     value_type = prepared.effective_type

@@ -66,6 +66,9 @@ def callable_has_owned_return_abi(gen, expression) -> bool:
 
 def known_language_call(gen, expression) -> bool:
     """Whether a call is proven to use btrc's source-callable ABI."""
+    callee = expression.callee
+    if isinstance(callee, Identifier) and id(expression) in gen.analyzed.hosted_call_ids:
+        return False
     return_abi = callable_return_abi(gen, expression.callee)
     if return_abi == AMBIGUOUS_RETURN:
         from .errors import CodegenError
@@ -76,9 +79,12 @@ def known_language_call(gen, expression) -> bool:
         )
     if return_abi == OWNED_RETURN:
         return True
-    callee = expression.callee
     if isinstance(callee, Identifier):
-        return callee.name == "Mutex" or callee.name in gen.analyzed.class_table
+        if gen.local_ownership_declared(callee.name):
+            return False
+        return (
+            callee.name == "Mutex" and callee.name not in gen.analyzed.function_table
+        ) or callee.name in gen.analyzed.class_table
     if not isinstance(callee, FieldAccessExpr):
         return False
 

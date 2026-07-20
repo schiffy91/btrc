@@ -15,6 +15,13 @@ Node? ownershipCallableForCall(IRGen generator, Node call,
     if (callee == null) { return null; }
     if (callee.kind == NK_LAMBDA_EXPR) { return callee; }
     if (callee.kind == NK_IDENTIFIER) {
+        /* A lexical value is the call target even when its spelling also names
+         * a constructor or module function.  Its callable signature is handled
+         * by ownershipBuiltinParamsForCall; never borrow global effects here. */
+        if (varTypes.has(callee.name)) { return null; }
+        if (generator.analyzed.hostedCallKeys.has(astNodeKey(call))) {
+            return null;
+        }
         if (generator.analyzed.isClass(callee.name)) {
             return generator.analyzed.classConstructor(callee.name);
         }
@@ -28,7 +35,12 @@ Node? ownershipCallableForCall(IRGen generator, Node call,
     }
     if (callee.kind != NK_FIELD_ACCESS_EXPR) { return null; }
     Node receiver = callee.obj;
-    if (receiver != null && receiver.kind == NK_IDENTIFIER) {
+    if (receiver != null && receiver.kind == NK_IDENTIFIER
+            && !varTypes.has(receiver.name)) {
+        if (generator.analyzed.isRichEnum(receiver.name)) {
+            return semanticResolveRichEnumVariant(
+                receiver.name, callee.field, generator.analyzed);
+        }
         if (generator.analyzed.isClass(receiver.name)) {
             Node? method = generator.analyzed.classMethod(
                 receiver.name, callee.field);

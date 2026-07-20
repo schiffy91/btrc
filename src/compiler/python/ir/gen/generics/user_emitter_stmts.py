@@ -88,6 +88,9 @@ class _UserGenericStmtMixin(
         if isinstance(s, SwitchStmt):
             return [self._switch_stmt(s)]
         if isinstance(s, BreakStmt):
+            from ..callable_loop_flow import record_callable_loop_exit
+
+            record_callable_loop_exit(self, "break")
             depth = self._exited_try_depth({"loop", "switch"})
             return (
                 emit_control_release(self, {"loop", "switch"})
@@ -96,6 +99,9 @@ class _UserGenericStmtMixin(
                 + [IRBreak()]
             )
         if isinstance(s, ContinueStmt):
+            from ..callable_loop_flow import record_callable_loop_exit
+
+            record_callable_loop_exit(self, "continue")
             depth = self._exited_try_depth({"loop"})
             return (
                 emit_control_release(self, {"loop"})
@@ -159,21 +165,29 @@ class _UserGenericStmtMixin(
 
     def _var_decl(self, s) -> list[IRStmt]:
         c_type = self.resolve_c(s.type)
-        declare_local(self, s.name)
-        # Track the resolved type for cross-type method call mangling
         resolved = None
         if s.type:
             resolved = self._resolve(s.type)
-            self._var_types[s.name] = resolved
         if s.initializer:
-            init = self._var_init_expr(s)
+            from ..callable_boundaries import reject_aggregate_callable_initializer
+            from .user_callable_provenance import generic_callable_return_abi
+
+            reject_aggregate_callable_initializer(
+                self._gen,
+                resolved,
+                s.initializer,
+                callable_abi=lambda value: generic_callable_return_abi(
+                    self,
+                    value,
+                ),
+            )
             from ..prepared_values import prepare_generic_value
 
             prepared = prepare_generic_value(
                 self,
                 s.initializer,
                 resolved,
-                lowered=init,
+                lower_value=lambda _value: self._var_init_expr(s),
             )
             init = prepared.value
             from ..upcast import upcast_class_pointer
@@ -184,10 +198,27 @@ class _UserGenericStmtMixin(
                 prepared.effective_type,
                 init,
             )
-            declaration = IRVarDecl(c_type=CType(text=c_type), name=s.name, init=init)
         else:
             prepared = None
-            declaration = IRVarDecl(c_type=CType(text=c_type), name=s.name)
+            init = None
+        # Initializers resolve in the enclosing scope. Activate the new source
+        # binding only after its value has been completely lowered.
+        binding_c_name = declare_local(self, s.name)
+        declaration = IRVarDecl(
+            c_type=CType(text=c_type),
+            name=binding_c_name,
+            init=init,
+        )
+        if resolved is not None:
+            self._var_types[s.name] = resolved
+        from .user_callable_provenance import bind_generic_local_callable
+
+        bind_generic_local_callable(
+            self,
+            s.name,
+            resolved,
+            s.initializer,
+        )
         self._func_var_decls.append(declaration)
         result = [declaration]
         ownership_type = resolved
@@ -203,7 +234,15 @@ class _UserGenericStmtMixin(
             if not owns_initializer:
                 from ..managed_values import retain_value
 
-                result.append(IRExprStmt(expr=retain_value(self._gen, IRVar(name=s.name), ownership_type)))
+                result.append(
+                    IRExprStmt(
+                        expr=retain_value(
+                            self._gen,
+                            IRVar(name=binding_c_name),
+                            ownership_type,
+                        )
+                    )
+                )
             register_managed_local(self, s.name, ownership_type, owns_initializer, result)
         return result
 

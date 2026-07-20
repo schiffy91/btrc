@@ -57,15 +57,10 @@ Node? semanticIndexResultType(Node? objectType, Analyzed analyzed) {
         return character;
     }
     if (objectType.is_array) {
-        Node element = copyTypeExpr(objectType);
-        element.is_array = false;
-        element.array_size = null;
-        return element;
+        return typeWithoutOuterArray(objectType);
     }
     if (semanticRawIndexedPointer(objectType, analyzed)) {
-        Node element = copyTypeExpr(objectType);
-        element.pointer_depth = element.pointer_depth - 1;
-        return element;
+        return typeWithoutOuterPointers(objectType, 1);
     }
     Node? getter = semanticIndexedMethod(objectType, "get", analyzed);
     Node? result = null;
@@ -147,8 +142,10 @@ void semanticValidateIndex(Node expression, SemanticValidationState state,
         semanticValidationFail("Type '"
             + semanticFormatType(concreteObject)
             + (requireGetter
-                ? "' has no indexed getter"
-                : "' has no indexed setter"), expression);
+                ? "' has no indexed getter; indexing requires an instance "
+                    + "get(index) method"
+                : "' has no indexed setter; it has no void instance "
+                    + "set(index, value) method"), expression);
     }
     Node concreteMethod = method;
     semanticValidateMethodAccess(

@@ -7,6 +7,59 @@ string rendered(Command command) {
 
 int main() {
     UnixShell sh = UnixShell();
+    Vector<string> emptyArguments = [];
+    Vector<string> invalidArguments = [];
+    invalidArguments.len = -1;
+    assert(!ChildProcess.run("/bin/true", invalidArguments).ok());
+    Vector<string> invalidEnvironment = [];
+    invalidEnvironment.len = -1;
+    assert(!ChildProcess.run(
+        "/bin/true", emptyArguments, environment=invalidEnvironment).ok());
+    string? missing = null;
+    Vector<string> nullArguments = [];
+    nullArguments.push(missing);
+    bool nullArgumentRejected = false;
+    try {
+        ChildProcess.run("/bin/true", nullArguments);
+    } catch (string error) {
+        nullArgumentRejected = error.contains("arguments cannot contain null");
+    }
+    assert(nullArgumentRejected);
+    Vector<string> nullEnvironment = [];
+    nullEnvironment.push(missing);
+    bool nullEnvironmentRejected = false;
+    try {
+        ChildProcess.run(
+            "/bin/true", emptyArguments, environment=nullEnvironment);
+    } catch (string error) {
+        nullEnvironmentRejected = error.contains("overrides cannot contain null");
+    }
+    assert(nullEnvironmentRejected);
+    bool nullUnsetRejected = false;
+    try {
+        ChildProcess.run(
+            "/bin/true", emptyArguments, unsetEnvironment=nullEnvironment);
+    } catch (string error) {
+        nullUnsetRejected = error.contains("unsets cannot contain null");
+    }
+    assert(nullUnsetRejected);
+    bool nullModeRejected = false;
+    try {
+        ChildProcess.run("/bin/true", emptyArguments, stdout=missing);
+    } catch (string error) {
+        nullModeRejected = error.contains("invalid child output mode");
+    }
+    assert(nullModeRejected);
+    bool conflictingEnvironmentRejected = false;
+    try {
+        ChildProcess.run(
+            "/bin/true", emptyArguments,
+            environment=["BTRC_PROCESS_CONFLICT=value"],
+            unsetEnvironment=["BTRC_PROCESS_CONFLICT"]);
+    } catch (string error) {
+        conflictingEnvironmentRejected = error.contains("both set and unset");
+    }
+    assert(conflictingEnvironmentRejected);
     assert(sh.run("printf '  hi  '", logFailure=false).trimmed().equals("hi"));
     assert(ProcessStatus(0).ok());
     assert(UnixProcess.system("exit 7").code() == 7);

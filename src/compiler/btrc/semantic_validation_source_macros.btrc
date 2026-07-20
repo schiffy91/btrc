@@ -1,0 +1,228 @@
+/* Typed invocation boundaries for function-like source macros. */
+
+bool semanticMacroTypeBoundaryImpl(Node? typeExpr,
+        Map<string, bool> typeParams, Map<string, bool> visiting,
+        SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (canonical == null) { return false; }
+    Node value = canonical;
+    if (semanticOpaqueManagedType(value, state)
+            || directFunctionPointerType(value, state.analyzed) != null
+            || typeParams.has(value.base)) {
+        return true;
+    }
+    int argumentIndex = 0;
+    while (argumentIndex < value.generic_args.len) {
+        if (semanticMacroTypeBoundaryImpl(
+                value.generic_args.get(argumentIndex), typeParams,
+                visiting, state)) {
+            return true;
+        }
+        argumentIndex = argumentIndex + 1;
+    }
+    string name = value.base;
+    if (name.startsWith("struct ")) {
+        name = name.substring(7, name.length() - 7);
+    }
+    string kind = state.analyzed.structTable.has(name)
+        ? "struct:" : "rich-enum:";
+    string key = kind + name;
+    if (visiting.has(key)) { return false; }
+    Map<string, bool> nested = semanticCloneFlags(visiting);
+    nested.put(key, true);
+    if (state.analyzed.structTable.has(name)) {
+        Node structure = state.analyzed.structTable.get(name);
+        if (!structure.is_forward) {
+            int fieldIndex = 0;
+            while (fieldIndex < structure.fields.len) {
+                if (semanticMacroTypeBoundaryImpl(
+                        structure.fields.get(fieldIndex).type,
+                        typeParams, nested, state)) {
+                    return true;
+                }
+                fieldIndex = fieldIndex + 1;
+            }
+        }
+    }
+    if (state.analyzed.richEnumTable.has(name)) {
+        Node richEnum = state.analyzed.richEnumTable.get(name);
+        int variantIndex = 0;
+        while (variantIndex < richEnum.variants.len) {
+            Node variant = richEnum.variants.get(variantIndex);
+            int parameterIndex = 0;
+            while (parameterIndex < variant.params.len) {
+                if (semanticMacroTypeBoundaryImpl(
+                        variant.params.get(parameterIndex).type,
+                        typeParams, nested, state)) {
+                    return true;
+                }
+                parameterIndex = parameterIndex + 1;
+            }
+            variantIndex = variantIndex + 1;
+        }
+    }
+    return false;
+}
+
+bool semanticMacroTypeBoundary(Node? typeExpr,
+        SemanticValidationState state) {
+    Map<string, bool> visiting = {};
+    return semanticMacroTypeBoundaryImpl(
+        typeExpr, state.typeParams, visiting, state);
+}
+
+bool semanticMacroCallableSignatureBoundary(Node declaration,
+        SemanticValidationState state) {
+    Map<string, bool> params = semanticTypeParamSet(
+        declaration.generic_params);
+    Map<string, bool> visiting = {};
+    if (semanticMacroTypeBoundaryImpl(
+            declaration.return_type, params, visiting, state)) {
+        return true;
+    }
+    int index = 0;
+    while (index < declaration.params.len) {
+        if (semanticMacroTypeBoundaryImpl(
+                declaration.params.get(index).type,
+                params, visiting, state)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+void semanticValidateMacroLanguageSymbol(string macroName,
+        string sourceText, string symbol, Node site,
+        SemanticValidationState state) {
+    if (state.analyzed.isClass(symbol)
+            || state.analyzed.isGenericClass(symbol)) {
+        semanticValidationFail("Language type '" + symbol
+            + "' cannot be referenced from macro replacement '"
+            + macroName + "'", site);
+    }
+    if (state.analyzed.funcTable.has(symbol)) {
+        Node functionDecl = state.analyzed.funcTable.get(symbol);
+        bool bareAlias = sourceMacroDirectReplacementIdentifier(
+            sourceText) == symbol;
+        bool sensitive = semanticMacroCallableSignatureBoundary(
+            functionDecl, state);
+        if (functionDecl.body_node != null
+                && (sourceMacroFunctionLike(sourceText)
+                    || bareAlias || sensitive)) {
+            semanticValidationFail("Language callable '" + symbol
+                + "' requires semantic call analysis and cannot be "
+                + "referenced from macro replacement '" + macroName
+                + "'", site);
+        }
+    }
+    if (sourceMacroFunctionLike(sourceText)
+            && sourceMacroReplacementUsesMember(sourceText, symbol)
+            && semanticMacroLanguageMethodNamed(symbol, state)) {
+        semanticValidationFail("Language method '" + symbol
+            + "' cannot be referenced from macro replacement '"
+            + macroName + "'", site);
+    }
+    if (state.analyzed.globalVarTypes.has(symbol)
+            && semanticMacroTypeBoundary(
+                state.analyzed.globalVarTypes.get(symbol), state)) {
+        semanticValidationFail("Managed source value '" + symbol
+            + "' cannot be referenced from macro replacement '"
+            + macroName + "'", site);
+    }
+}
+
+Node? semanticMacroReadOnlyExpected(string sourceText, string parameter) {
+    string callee = sourceMacroDirectCallName(sourceText);
+    if (callee == "" || !hostedAbiExactFunction(callee)
+            || hostedAbiVariadic(callee)
+            || hostedAbiMacroReferenceRequiresSemanticCall(callee)) {
+        return null;
+    }
+    Vector<string> arguments = sourceMacroDirectCallArguments(sourceText);
+    if (arguments.len != hostedAbiParameterCount(callee)) { return null; }
+    int occurrenceCount = 0;
+    int safeIndex = -1;
+    int index = 0;
+    while (index < arguments.len) {
+        int occurrences = sourceMacroIdentifierCount(
+            arguments.get(index), parameter);
+        occurrenceCount = occurrenceCount + occurrences;
+        if (occurrences == 1
+                && sourceMacroUnwrapGroups(arguments.get(index)) == parameter
+                && hostedAbiParameterReadOnlyBorrow(callee, index)) {
+            safeIndex = index;
+        }
+        index = index + 1;
+    }
+    if (occurrenceCount != 1 || safeIndex < 0) { return null; }
+    Node expected = makePrimType(
+        hostedAbiParameterBase(callee, safeIndex));
+    expected.pointer_depth = hostedAbiParameterPointerDepth(
+        callee, safeIndex);
+    expected.is_const = hostedAbiParameterConst(callee, safeIndex);
+    return expected;
+}
+
+bool semanticMacroReadOnlyArgumentSafe(Node expected, Node argument,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (semanticExpressionOwnsResult(argument, state, vars)) { return false; }
+    Node? actual = semanticInferType(argument, state, vars);
+    return actual != null
+        && (semanticHostedArgumentTypeDeferred(expected, actual, state)
+            || semanticAssignmentCompatible(expected, actual, state));
+}
+
+bool semanticValidateSourceMacroCall(Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (call.callee == null || call.callee.kind != NK_IDENTIFIER
+            || !state.sourceMacroDefinitions.has(call.callee.name)) {
+        return false;
+    }
+    string macroName = call.callee.name;
+    string sourceText = state.sourceMacroDefinitions.get(macroName);
+    if (!sourceMacroFunctionLike(sourceText)) { return false; }
+    int nameIndex = 0;
+    while (nameIndex < call.arg_names.len) {
+        if (call.arg_names.get(nameIndex) != "") {
+            semanticValidationFail("Source macro '" + macroName
+                + "' does not accept named arguments", call);
+        }
+        nameIndex = nameIndex + 1;
+    }
+    Vector<string> parameters = sourceMacroParameterOrder(sourceText);
+    int index = 0;
+    while (index < call.args.len) {
+        Node argument = call.args.get(index);
+        if (semanticMacroArgumentCallable(argument, state, vars)) {
+            semanticValidationFail("Source macro '" + macroName
+                + "' cannot accept callable argument "
+                + Strings.fromInt(index + 1)
+                + " because macro expansion bypasses semantic call analysis",
+                argument);
+        }
+        bool boundary = semanticExpressionIsOpaqueBorrow(
+                argument, state, vars)
+            || semanticMacroTypeBoundary(
+                semanticInferType(argument, state, vars), state);
+        if (boundary) {
+            Node? expected = null;
+            if (index < parameters.len) {
+                expected = semanticMacroReadOnlyExpected(
+                    sourceText, parameters.get(index));
+            }
+            if (expected == null || !semanticMacroReadOnlyArgumentSafe(
+                    expected, argument, state, vars)) {
+                semanticValidationFail("Source macro '" + macroName
+                    + "' cannot accept managed or opaque-borrow argument "
+                    + Strings.fromInt(index + 1)
+                    + " because its expansion is not a proven read-only "
+                    + "hosted call", argument);
+            }
+        }
+        index = index + 1;
+    }
+    semanticValidateMacroCaptures(
+        macroName, sourceText, call, state, vars);
+    return true;
+}

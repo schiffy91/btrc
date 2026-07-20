@@ -189,6 +189,12 @@ The resolver looks under each dependency's `src/` directory first, then its
 root. The compiler and LSP keep package maps isolated per invocation/workspace,
 so one project's manifest cannot leak into another project.
 
+Package-name imports from `btrc.toml` are currently a `btrcpy`/LSP feature.
+The self-hosted `btrcc` fails closed for imports such as `import mathx.vec`;
+it never guesses that a package name refers to a same-named local file. Use
+`btrcpy` for package projects, or spell local dependencies explicitly as
+`import ./path.btrc` (or a quoted path).
+
 ## What You Keep From C
 
 - Direct memory control with `new`/`delete` and pointers
@@ -1160,26 +1166,58 @@ make clean                  # Remove build artifacts
 ### Cross-platform builds of the self-hosted compiler
 
 `btrcc` is btrc source transpiled to C (by `btrcpy`) and then compiled by a C
-toolchain. `make btrcc` builds it for the current machine; the cross targets use
-[`zig cc`](https://ziglang.org) as a universal cross-compiler, so all of them
-build from a single host into `dist/`:
+toolchain. `make btrcc` builds the source-tree developer executable for the
+current machine. The cross targets use [`zig cc`](https://ziglang.org) and
+publish relocatable, checksummed distributions in `dist/`:
 
 ```bash
 make btrcc                  # native build for this machine -> bin/btrcc
-make btrcc-macos-arm64      # -> dist/btrcc-macos-arm64
-make btrcc-macos-x64        # -> dist/btrcc-macos-x64
-make btrcc-linux-x64        # -> dist/btrcc-linux-x64
-make btrcc-linux-arm64      # -> dist/btrcc-linux-arm64
-make btrcc-windows-x64      # -> dist/btrcc-windows-x64.exe
-make btrcc-dist             # all five of the above
+make btrcc-macos-arm64      # -> dist/btrcc-macos-arm64.tar.gz{,.sha256}
+make btrcc-macos-x64        # -> dist/btrcc-macos-x64.tar.gz{,.sha256}
+make btrcc-linux-x64        # -> dist/btrcc-linux-x64.tar.gz{,.sha256}
+make btrcc-linux-arm64      # -> dist/btrcc-linux-arm64.tar.gz{,.sha256}
+make btrcc-windows-x64      # -> dist/btrcc-windows-x64.zip{,.sha256}
+make btrcc-dist             # all five distributions
 ```
+
+Each archive has one self-contained layout:
+
+```text
+btrcc-<target>/
+  bin/btrcc[.exe]
+  LICENSE
+  share/btrc/language/grammar.ebnf
+  share/btrc/stdlib/...
+  share/btrc/manifest.json
+```
+
+The executable resolves this data relative to its real path, including when it
+is launched through an absolute `PATH` entry or symlink, so the bundle works
+from any current directory. `btrcc --stdlib-dir` prints the selected stdlib.
+`BTRC_HOME` may explicitly select another data root containing `language/` and
+`stdlib/`; when set, it is authoritative and an invalid value is an error.
+Verify a release before extracting it with `sha256sum -c <archive>.sha256`
+(`shasum -a 256 -c <archive>.sha256` on macOS).
+
+For generated C that imports a native module, add the reported stdlib path and
+the module subdirectory to the C compiler include path—for example,
+`stdlib="$(btrcc --stdlib-dir)"` followed by
+`cc -I "$stdlib" -I "$stdlib/gui" ...`. Link the corresponding bundled/runtime
+source or library and the platform dependencies documented by `gpu/`, `gui/`,
+or `tray/`.
 
 **Windows** uses a small compat layer in [`src/stdlib/win/`](src/stdlib/win/)
 (applied only to Windows builds, via `-I` + `-include`) that fills the handful of
 POSIX headers/symbols MinGW-w64 omits. This gets `btrcc` and ordinary btrc
 programs building and running on Windows; the POSIX-only stdlib modules
 (`Process`, raw-mode `Terminal`, sockets, `Regex`) don't have real Win32 backends
-yet, so programs that call into them aren't supported on Windows. Test it with:
+yet, so programs that call into them aren't supported on Windows. Most
+filesystem and compiler I/O still uses the narrow C runtime or Win32 `A` APIs,
+so paths outside the active Windows code page are not consistently supported;
+`realpath` is the exception and uses UTF-16 internally. `removeRecursive`
+removes files and final reparse points, but deliberately returns `-1` for an
+ordinary directory until a handle-relative NT deletion backend exists. Test it
+with:
 
 ```bash
 make test-windows           # cross-build btrcc.exe + a sample; run under wine if present
@@ -1188,10 +1226,12 @@ make test-windows           # cross-build btrcc.exe + a sample; run under wine i
 `make test-windows` cross-builds on any host and runs the sample under
 `wine`/`wine64` when available (Linux/CI), skipping execution gracefully
 otherwise. A [`Windows` CI workflow](.github/workflows/windows.yml) builds and
-**runs** the binaries natively on `windows-latest` on every push.
+**runs** the binaries natively on `windows-latest` for pushes and pull requests
+targeting `main`.
 
-Note: a built `btrcc` reads `src/language/grammar.ebnf` and composes the stdlib
-from source at runtime, so the binary needs the repo (or those files) alongside it.
+The developer `bin/btrcc` discovers `src/language/grammar.ebnf` and `src/stdlib`
+from its executable-relative checkout. Release bundles instead discover the
+matching files under `share/btrc`, so they do not require a repository checkout.
 
 ### Requirements
 
@@ -1202,9 +1242,9 @@ Manual install requires:
 - gcc and/or clang
 - pytest + pytest-xdist (for tests)
 - ruff (for linting)
-- pygls + lsprotocol (for LSP server)
+- pygls + lsprotocol (for a source-tree LSP server; vendored in the VSIX)
 - Node.js + npm (for VS Code extension)
-- wgpu-native + GLFW (for GPU support, optional — `make gpu`)
+- wgpu-native + GLFW (optional for compiler use; required by `make test`/`make test-c11` so GPU cases cannot be skipped)
 
 ### CI
 
@@ -1215,11 +1255,19 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 4. Runs the reference, self-hosted, LSP, debugger, and shared language suites
 5. Re-runs the shared language suite across the strict GCC/Clang C11 matrix
 
-GPU tests are automatically skipped in CI when the GPU runtime is not built.
+CI builds the GPU runtime as a required gate before both corpus matrices; a
+missing backend dependency fails the job instead of silently skipping GPU
+runtime cases.
 
 ## Editor Support
 
 btrc ships with a VS Code extension ([`src/devex/ext/`](src/devex/ext/)) and a Language Server Protocol implementation ([`src/devex/lsp/`](src/devex/lsp/)) that reuses the compiler's own lexer, parser, and analyzer. Diagnostics match exactly what the compiler reports -- there is no separate linting pass.
+
+The packaged extension vendors the LSP's pure-Python dependencies. Its bundled
+server/compiler fallback still requires Python 3.13 or newer; the launcher
+probes the configured interpreter and will use an installed `btrc-lsp` command
+instead of starting the bundled payload with an unsupported Python. Nix and the
+devcontainer provide the supported interpreter automatically.
 
 The LSP server maintains a two-tier cache: the current analysis (which may have parse errors while you type) and the last fully successful analysis. Features like go-to-definition and hover fall back to the good cache during transient errors, so intelligence keeps working while you edit.
 

@@ -39,6 +39,47 @@ def prepare_value(
 
     source_type = canonical_type(type_of(node), gen.analyzed.typedef_table)
     resolved_target = canonical_type(target_type, gen.analyzed.typedef_table)
+    from .hosted_result_conversion import (
+        ADOPT,
+        COPY,
+        REJECT,
+        hosted_string_conversion_mode,
+    )
+
+    hosted_mode = hosted_string_conversion_mode(
+        gen,
+        node,
+        resolved_target,
+        source_type,
+    )
+    if hosted_mode == REJECT:
+        from .errors import CodegenError
+
+        raise CodegenError("raw char* to managed string conversion reached IR without a proven hosted ownership effect")
+    if hosted_mode in {ADOPT, COPY}:
+        # Make the call boundary perform the conversion before releasing its
+        # operands.  This is essential for alias results and also registers a
+        # fresh result before any throwing suffix cleanup.
+        requests = getattr(gen, "_hosted_result_conversion_requests", None)
+        if requests is None:
+            requests = {}
+            gen._hosted_result_conversion_requests = requests
+        key = id(node)
+        previous = requests.get(key)
+        requests[key] = (hosted_mode, resolved_target)
+        try:
+            lowered = lower_expr(node)
+        finally:
+            if previous is None:
+                requests.pop(key, None)
+            else:
+                requests[key] = previous
+        return PreparedValue(
+            value=lowered,
+            effective_type=resolved_target,
+            owned=True,
+            converted=True,
+        )
     lowered = lower_expr(node)
     if not requires_string_conversion(gen, target_type, source_type):
         return PreparedValue(
@@ -90,17 +131,25 @@ def prepare_value(
     )
 
 
-def prepare_normal_value(gen, node, target_type, *, lowered=None) -> PreparedValue:
+def prepare_normal_value(
+    gen,
+    node,
+    target_type,
+    *,
+    lowered=None,
+    lower_value=None,
+) -> PreparedValue:
     """Prepare one value with the normal generator's concrete dependencies."""
     from .expressions import lower_expr
     from .ownership import owns_result
     from .types import type_to_c
 
+    lower_value = lower_value or (lambda value: lower_expr(gen, value))
     return prepare_value(
         gen,
         node,
         target_type,
-        lower_expr=lambda value: lowered if value is node and lowered is not None else lower_expr(gen, value),
+        lower_expr=lambda value: lowered if value is node and lowered is not None else lower_value(value),
         type_of=lambda value: gen.analyzed.node_types.get(id(value)),
         owns_result=lambda value: bool(id(value) not in gen._owning_temp_overrides and owns_result(gen, value)),
         render_type=type_to_c,
@@ -110,13 +159,21 @@ def prepare_normal_value(gen, node, target_type, *, lowered=None) -> PreparedVal
     )
 
 
-def prepare_generic_value(emitter, node, target_type, *, lowered=None) -> PreparedValue:
+def prepare_generic_value(
+    emitter,
+    node,
+    target_type,
+    *,
+    lowered=None,
+    lower_value=None,
+) -> PreparedValue:
     """Prepare one value inside a monomorphized generic method body."""
+    lower_value = lower_value or emitter._expr
     return prepare_value(
         emitter._gen,
         node,
         target_type,
-        lower_expr=lambda value: lowered if value is node and lowered is not None else emitter._expr(value),
+        lower_expr=lambda value: lowered if value is node and lowered is not None else lower_value(value),
         type_of=emitter._resolve_expr_type,
         owns_result=lambda value: bool(id(value) not in emitter._arc_overrides and emitter._owns_expr(value)),
         render_type=emitter.iter_value_c,

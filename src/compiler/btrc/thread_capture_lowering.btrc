@@ -12,7 +12,7 @@ IRFunction spawnCaptureReleaseAdapter(IRGen generator, string name,
     body.push(irVarDecl(envType, "__env",
         irCast(envType, irVar("__raw"))));
     IRNode field = irFieldAccess(
-        irVar("__env"), fieldName, true);
+        irVar("__env"), sourceLexicalBindingCName(fieldName), true);
     body.push(irVarDecl(
         typeToC(captureType, generator.analyzed),
         "__value", field));
@@ -30,7 +30,7 @@ IRNode spawnCaptureErrorBuffer(string name) {
 
 IRNode guardSpawnCapture(string adapter) {
     Vector<IRNode> arguments = [];
-    arguments.push(irVar(adapter));
+    arguments.push(irFunctionRef(adapter));
     arguments.push(irVar("__env"));
     arguments.push(irVar("__error"));
     arguments.push(irSizeofExpr(irVar("__error")));
@@ -97,7 +97,7 @@ string emitSpawnCaptureDisposer(IRGen generator,
     body.push(irExprStmt(irCall("free", freeArguments)));
     if (adapters.len > 0) {
         Vector<IRNode> raiseArguments = [];
-        raiseArguments.push(irVar("__btrc_throw"));
+        raiseArguments.push(irFunctionRef("__btrc_throw"));
         raiseArguments.push(irVar("__first_error"));
         Vector<IRNode> raiseBody = [];
         raiseBody.push(irExprStmt(irCall(

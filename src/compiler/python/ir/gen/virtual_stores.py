@@ -36,7 +36,6 @@ def lower_virtual_store_boundary(
         if setter is None:
             return None
 
-    lowered = lower_value(plan.value_type, node.value)
     if prepare is None:
         from .prepared_values import prepare_normal_value
 
@@ -44,10 +43,10 @@ def lower_virtual_store_boundary(
             gen,
             node.value,
             plan.value_type,
-            lowered=lowered,
+            lower_value=lambda value: lower_value(plan.value_type, value),
         )
     else:
-        prepared = prepare(node.value, plan.value_type, lowered)
+        prepared = prepare(node.value, plan.value_type)
     source_type = prepared.effective_type
     managed = is_managed_type(gen, source_type)
     owned = bool(managed and prepared.owned)

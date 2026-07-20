@@ -64,7 +64,13 @@ class LambdaAnalysisMixin:
                     param.col,
                 )
             self._collect_generic_instances(param.type)
-            if param.name not in declared_params:
+            if param.name not in declared_params and self._claim_local_binding(
+                param.name,
+                "lambda parameter",
+                param.name_line or param.line,
+                param.name_col or param.col,
+                c_name_generated=True,
+            ):
                 # Lambda parameters are borrowed at this call boundary, but
                 # they are not parameters of ``current_callable`` (which still
                 # describes the enclosing source declaration).  Keep a

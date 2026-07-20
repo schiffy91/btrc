@@ -32,31 +32,77 @@ test('findDebugAdapterScript returns undefined when absent', () => {
     assert.equal(findDebugAdapterScript(tmp(), tmp()), undefined);
 });
 
-test('findBtrcpy prefers the bin/btrcpy wrapper', () => {
+test('findBtrcpy prefers the bin/btrcpy wrapper', async () => {
     const ws = tmp();
     touch(path.join(ws, 'bin', 'btrcpy'));
-    const r = findBtrcpy(ws, 'python3');
+    const r = await findBtrcpy(ws, 'python3', undefined, async () => true);
     assert.deepEqual(r.cmd, [path.join(ws, 'bin', 'btrcpy')]);
     assert.equal(r.cwd, ws);
 });
 
-test('findBtrcpy falls back to the source checkout module', () => {
+test('findBtrcpy falls back to the source checkout module', async () => {
     const ws = tmp();
     touch(path.join(ws, 'src', 'compiler', 'python', 'main.py'));
-    const r = findBtrcpy(ws, 'py');
+    const r = await findBtrcpy(ws, 'py', undefined, async () => true);
     assert.deepEqual(r.cmd, ['py', '-m', 'src.compiler.python.main']);
     assert.equal(r.cwd, ws);
 });
 
-test('findBtrcpy falls back to the bundled compiler payload', () => {
+test('findBtrcpy falls back to the bundled compiler payload', async () => {
     const ws = tmp();   // empty workspace
     const ext = tmp();
     touch(path.join(ext, 'server', 'src', 'compiler', 'python', 'main.py'));
-    const r = findBtrcpy(ws, 'python3', ext);
+    const r = await findBtrcpy(ws, 'python3', ext, async () => true);
     assert.deepEqual(r.cmd, ['python3', '-m', 'src.compiler.python.main']);
     assert.equal(r.cwd, path.join(ext, 'server'));
 });
 
-test('findBtrcpy returns undefined when nothing is available', () => {
-    assert.equal(findBtrcpy(tmp(), 'python3', tmp()), undefined);
+test('findBtrcpy returns undefined when nothing is available', async () => {
+    assert.equal(await findBtrcpy(tmp(), 'python3', tmp(), async () => true), undefined);
+});
+
+test('findBtrcpy rejects module fallbacks under unsupported Python', async () => {
+    const ws = tmp();
+    const ext = tmp();
+    touch(path.join(ws, 'src', 'compiler', 'python', 'main.py'));
+    touch(path.join(ext, 'server', 'src', 'compiler', 'python', 'main.py'));
+    assert.equal(await findBtrcpy(ws, 'python3', ext, async () => false), undefined);
+});
+
+test('findBtrcpy probes one interpreter only once across module fallbacks', async () => {
+    const ws = tmp();
+    const ext = tmp();
+    touch(path.join(ws, 'src', 'compiler', 'python', 'main.py'));
+    touch(path.join(ext, 'server', 'src', 'compiler', 'python', 'main.py'));
+    let calls = 0;
+
+    const resolved = await findBtrcpy(ws, 'python3', ext, async () => {
+        calls += 1;
+        return false;
+    });
+
+    assert.equal(resolved, undefined);
+    assert.equal(calls, 1);
+});
+
+test('findBtrcpy honors cancellation before starting a Python probe', async () => {
+    const ws = tmp();
+    touch(path.join(ws, 'src', 'compiler', 'python', 'main.py'));
+    const cancellation = new AbortController();
+    cancellation.abort();
+    let calls = 0;
+
+    const resolved = await findBtrcpy(
+        ws,
+        'python3',
+        undefined,
+        async () => {
+            calls += 1;
+            return true;
+        },
+        cancellation.signal,
+    );
+
+    assert.equal(resolved, undefined);
+    assert.equal(calls, 0);
 });

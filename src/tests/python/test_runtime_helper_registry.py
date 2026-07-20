@@ -83,6 +83,21 @@ def test_self_hosted_non_string_sources_exactly_match_python_registry():
         assert mirrored[name] == helper.c_source, name
 
 
+def test_runtime_helpers_do_not_aggregate_initialize_local_error_buffers():
+    initializer = re.compile(r'(?m)^\s+char\s+\w*error\w*\[[^]]+\]\s*=\s*"";')
+    offenders = {
+        name
+        for category in HELPERS.values()
+        for name, helper in category.items()
+        if initializer.search(helper.c_source)
+    }
+
+    # Freestanding compilers may lower a large local aggregate initializer to
+    # a libc bzero/memset call even under -fno-builtin.  Initialize only the
+    # sentinel byte at each call site instead.
+    assert not offenders
+
+
 def test_split_runtime_families_have_no_legacy_helper_branches():
     source = MIRROR.read_text()
     helper_sources = source[source.index("string helperSource") : source.index("Vector<string> helperDeps")]

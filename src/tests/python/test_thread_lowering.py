@@ -7,8 +7,15 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
-from src.compiler.python.ir.nodes import IRCall, IRCast, IRLiteral, IRTernary
+from src.compiler.python.ir.nodes import (
+    IRCall,
+    IRCast,
+    IRFunctionRef,
+    IRLiteral,
+    IRTernary,
+)
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
 from src.compiler.python.lexer import Lexer
@@ -109,6 +116,32 @@ def test_spawn_call_drives_helper_and_wrapper_reachability():
     assert "__btrc_throw" in helpers
     assert "__btrc_suspect_state" in helpers
     assert "__btrc_launder" not in helpers
+
+
+def test_managed_capture_disposer_retains_structured_raise_callback():
+    module = optimize(
+        _generate_ir("""
+        class Item {}
+        int main() {
+            Item captured = new Item();
+            var thread = spawn(() => captured == null ? 0 : 1);
+            return thread.join() == 1 ? 0 : 1;
+        }
+    """)
+    )
+
+    disposer = next(
+        function for function in module.function_defs if function.name.startswith("__btrc_spawn_env_dispose_")
+    )
+    raise_call = next(
+        node
+        for node in iter_ir_nodes(disposer.body)
+        if isinstance(node, IRCall) and node.callee == "__btrc_raise_captured"
+    )
+    assert isinstance(raise_call.args[0], IRFunctionRef)
+    assert raise_call.args[0].name == "__btrc_throw"
+    assert "__btrc_throw" in {helper.name for helper in module.helper_decls}
+    assert "static _Noreturn void __btrc_throw(const char* msg)" in CEmitter().emit(module)
 
 
 @pytest.mark.parametrize(

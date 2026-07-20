@@ -93,7 +93,10 @@ class IRMacroDef:
         if self.params is not None:
             if not isinstance(self.params, list):
                 raise TypeError("IRMacroDef.params must be a list or None")
-            if any(not _is_c_identifier(param) for param in self.params):
+            if any(
+                not _is_c_identifier(param) and not (param == "..." and index == len(self.params) - 1)
+                for index, param in enumerate(self.params)
+            ):
                 raise ValueError("invalid macro parameter")
             if len(self.params) != len(set(self.params)):
                 raise ValueError("duplicate macro parameter")

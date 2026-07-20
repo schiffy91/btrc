@@ -1,7 +1,7 @@
 /* A throw raised from inside a finally body, caught by an OUTER try. This is a
  * distinct IR lowering path: the finally runs first, so its throw escapes and
  * overrides the pending-rethrow machinery rather than reaching the
- * `if (__btrc_finally_pending) ...` tail. Two sub-cases:
+ * exceptional-branch rethrow tail. Two sub-cases:
  *   (a) try/finally (no catch) whose try threw AND whose finally also throws ->
  *       the finally's value wins over the pending rethrow.
  *   (b) try completes normally but finally throws -> outer frame catches it. */

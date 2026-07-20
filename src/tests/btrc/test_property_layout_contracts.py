@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.test_semantic_validation import (
+    _compile_reference_source,
     _compile_source,
     _strict_build_and_run,
 )
@@ -25,7 +26,7 @@ FIXTURES = Path(__file__).with_name("fixtures")
         ),
         (
             "class Value { public int __rc; } int main() { return 0; }",
-            "Instance storage name '__rc'",
+            "name '__rc' is reserved by C11",
         ),
         (
             "class Base { public int value; } "
@@ -178,3 +179,9 @@ def test_generic_properties_compile_strictly_and_run(semantic_btrcc: Path, tmp_p
     assert "Item* btrc_Box_Item_p1_get_custom(" in result.stdout
 
     _strict_build_and_run(generated, tmp_path / "generic-property-layout")
+    reference, reference_generated = _compile_reference_source(tmp_path, source)
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(
+        reference_generated,
+        tmp_path / "generic-property-layout-reference",
+    )

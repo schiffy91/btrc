@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 from ..nodes import (
     CType,
     IRCall,
+    IRFunctionRef,
     IRLiteral,
     IRSizeof,
-    IRVar,
 )
 from .errors import CodegenError
 from .value_boxes import (
@@ -141,7 +141,7 @@ def _value_access(gen: IRGenerator, value_type: TypeExpr):
         gen,
         CType(text=value_storage_c_type(value_type)),
     )
-    return IRVar(name=name)
+    return IRFunctionRef(name=name)
 
 
 def _slot_access(gen: IRGenerator, value_type: TypeExpr):
@@ -151,12 +151,12 @@ def _slot_access(gen: IRGenerator, value_type: TypeExpr):
         gen,
         CType(text=value_storage_c_type(value_type)),
     )
-    return IRVar(name=name)
+    return IRFunctionRef(name=name)
 
 
 def _callback(gen: IRGenerator, name: str):
     gen.use_helper(name)
-    return IRVar(name=name)
+    return IRFunctionRef(name=name)
 
 
 __all__ = [

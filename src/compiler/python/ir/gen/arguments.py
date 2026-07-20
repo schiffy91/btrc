@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..nodes import IRExpr, IRLiteral
+from .call_parameter_contract import resolved_parameter
+from .default_argument_context import (
+    call_argument_type,
+    lower_call_argument,
+)
 from .upcast import upcast_class_pointer
 
 
-def _coerce_arg(gen, target_type, ast_node, value: IRExpr) -> IRExpr:
+def _coerce_arg(gen, param, ast_node, value: IRExpr, *, is_default=False) -> IRExpr:
     """Apply Derived→Base upcasting after call-boundary preparation."""
-    source_type = gen.analyzed.node_types.get(id(ast_node))
-    return upcast_class_pointer(gen, target_type, source_type, value)
+    if ast_node is None:
+        return value
+    source_type = call_argument_type(
+        gen,
+        param,
+        ast_node,
+        is_default=is_default,
+    )
+    return upcast_class_pointer(gen, param.type, source_type, value)
 
 
 def arg_names_for(node, count: int) -> list[str]:
@@ -77,13 +87,14 @@ def resolved_constructor_params(gen, cls_info, instance_type):
 
     type_map = dict(zip(cls_info.generic_params, instance_type.generic_args))
     return [
-        replace(
+        resolved_parameter(
             param,
-            type=_resolve_type(
+            _resolve_type(
                 param.type,
                 type_map,
                 gen.analyzed.typedef_table,
             ),
+            type_map,
         )
         for param in params
     ]
@@ -119,8 +130,6 @@ def order_args_and_nodes_for_params(
 ) -> tuple[list, list[IRExpr]]:
     """Order both AST and lowered values, retaining defaults as metadata."""
 
-    from .expressions import lower_expr
-
     if ir_args is None:
         ir_args = lower_arg_values(gen, ast_args)
     if not params:
@@ -133,19 +142,38 @@ def order_args_and_nodes_for_params(
     if not any(names):
         result = list(ir_args)
         ast_result = list(ast_args)
+        default_flags = [False] * len(ast_result)
         for index in range(len(result), len(params)):
             default = params[index].default
             if default is None and reject_missing:
                 _raise_missing(params[index].name)
-            result.append(lower_expr(gen, default) if default is not None else IRLiteral(text="0"))
+            result.append(
+                lower_call_argument(
+                    gen,
+                    params[index],
+                    default,
+                    is_default=True,
+                )
+                if default is not None
+                else IRLiteral(text="0")
+            )
             ast_result.append(default)
+            default_flags.append(default is not None)
         return ast_result, [
-            _coerce_arg(gen, params[index].type, ast_result[index], result[index]) for index in range(len(result))
+            _coerce_arg(
+                gen,
+                params[index],
+                ast_result[index],
+                result[index],
+                is_default=default_flags[index],
+            )
+            for index in range(len(result))
         ]
 
     param_indices = {param.name: index for index, param in enumerate(params)}
     result: list[IRExpr | None] = [None] * len(params)
     ast_result: list[object | None] = [None] * len(params)
+    default_flags = [False] * len(params)
     positional_index = 0
     for index, arg in enumerate(ir_args):
         name = names[index]
@@ -164,10 +192,26 @@ def order_args_and_nodes_for_params(
         if result[index] is None:
             if param.default is None and reject_missing:
                 _raise_missing(param.name)
-            result[index] = lower_expr(gen, param.default) if param.default is not None else IRLiteral(text="0")
+            result[index] = (
+                lower_call_argument(
+                    gen,
+                    param,
+                    param.default,
+                    is_default=True,
+                )
+                if param.default is not None
+                else IRLiteral(text="0")
+            )
             ast_result[index] = param.default
+            default_flags[index] = param.default is not None
     return ast_result, [
-        _coerce_arg(gen, params[index].type, ast_result[index], arg)
+        _coerce_arg(
+            gen,
+            params[index],
+            ast_result[index],
+            arg,
+            is_default=default_flags[index],
+        )
         for index, arg in enumerate(result)
         if arg is not None
     ]

@@ -50,6 +50,7 @@ class _UserGenericOwnershipMixin:
                 expression.value,
                 type_of=self._resolve_expr_type,
                 owns=self._owns_expr,
+                direct_property=self._direct_property_target,
             )
 
             return bool(
@@ -133,25 +134,19 @@ class _UserGenericOwnershipMixin:
             )
         )
 
-    def _known_language_call(self, expression):
-        from ....ast_nodes import FieldAccessExpr, Identifier, SelfExpr
+    def _direct_property_target(self, target) -> bool:
+        from ....ast_nodes import FieldAccessExpr, SelfExpr
 
-        callee = expression.callee
-        if isinstance(callee, Identifier):
-            return bool(
-                callee.name == "Mutex"
-                or callee.name in self._gen.analyzed.class_table
-                or callee.name in self._gen.analyzed.function_table
-            )
-        if not isinstance(callee, FieldAccessExpr):
-            return False
-        if isinstance(callee.obj, SelfExpr):
-            return bool(self._cls_info and callee.field in self._cls_info.methods)
-        receiver_type = self._resolve_expr_type(callee.obj)
-        if receiver_type is not None and receiver_type.base == "Mutex":
-            return callee.field == "get"
-        class_info = self._gen.analyzed.class_table.get(receiver_type.base) if receiver_type is not None else None
-        return bool(class_info and callee.field in class_info.methods)
+        return bool(
+            isinstance(target, FieldAccessExpr)
+            and isinstance(target.obj, SelfExpr)
+            and self._current_property_backing == target.field
+        )
+
+    def _known_language_call(self, expression):
+        from .user_callable_provenance import generic_known_language_call
+
+        return generic_known_language_call(self, expression)
 
     def _string_call_owns_result(self, expression):
         from ....ast_nodes import FieldAccessExpr, Identifier
@@ -175,7 +170,11 @@ class _UserGenericOwnershipMixin:
             return bool(method and method.tracked)
         if callee.field != "toString" or receiver_type is None:
             return False
-        return bool(receiver_type.base != "bool" and receiver_type.base not in self._gen.analyzed.enum_table)
+        return bool(
+            receiver_type.base != "bool"
+            and receiver_type.base not in self._gen.analyzed.enum_table
+            and receiver_type.base not in self._gen.analyzed.rich_enum_table
+        )
 
     def _overloaded_result_is_owned(
         self,

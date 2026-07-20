@@ -48,11 +48,16 @@ def virtual_assignment_rhs_owns_result(
     *,
     type_of: Callable,
     owns: Callable,
+    direct_property: Callable | None = None,
 ) -> bool:
     """Whether setter lowering must preserve the RHS as an owned result."""
     from .assignment_ownership import virtual_assignment_target
 
-    if not virtual_assignment_target(gen, target):
+    if not virtual_assignment_target(
+        gen,
+        target,
+        direct_property=direct_property,
+    ):
         return False
     from .managed_values import is_managed_type
 

@@ -226,7 +226,11 @@ def _string_call_owns_result(gen, expression: CallExpr) -> bool:
         return bool(method and method.tracked)
     if callee.field != "toString" or receiver_type is None:
         return False
-    return bool(receiver_type.base != "bool" and receiver_type.base not in gen.analyzed.enum_table)
+    return bool(
+        receiver_type.base != "bool"
+        and receiver_type.base not in gen.analyzed.enum_table
+        and receiver_type.base not in gen.analyzed.rich_enum_table
+    )
 
 
 def projection_is_owned_call(gen, expression) -> bool:

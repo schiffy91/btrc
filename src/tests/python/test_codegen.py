@@ -32,6 +32,44 @@ def emit_c(source: str) -> str:
     return CEmitter().emit(ir_module)
 
 
+def test_switch_fallthrough_metadata_survives_normal_and_generic_lowering():
+    emitted = emit_c(
+        """
+        int ordinary(int value) {
+            int result = 0;
+            switch (value) {
+                case 1: result += 1;
+                case 2: result += 2; break;
+            }
+            return result;
+        }
+        class Flow<T> {
+            public Flow() {}
+            public int run(int value) {
+                int result = 0;
+                switch (value) {
+                    case 1: result += 1;
+                    case 2: result += 2; break;
+                }
+                return result;
+            }
+        }
+        int main() {
+            Flow<int> flow = new Flow<int>();
+            return ordinary(1) + flow.run(1);
+        }
+        """
+    )
+
+    ordinary = emitted.split("int ordinary(int value) {", 1)[1].split("\n}", 1)[0]
+    generic = emitted.split(
+        "static int btrc_Flow_int_run(btrc_Flow_int* self, int value) {",
+        1,
+    )[1].split("\n}", 1)[0]
+    assert ordinary.count("/* fall through */") == 1
+    assert generic.count("/* fall through */") == 1
+
+
 # --- Strict-C11: no GNU/Clang extensions in emitted code ---
 
 # Extensions that have previously leaked into output, or would if a future

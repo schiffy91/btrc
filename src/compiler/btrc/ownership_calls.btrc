@@ -8,10 +8,13 @@ class OwnershipCallOperand {
     public bool keepValue;
     public bool transferred;
     public bool needsConversion;
+    public bool defaultArgument;
+    public int parameterIndex;
 
     public OwnershipCallOperand(Node expression, Node? typeExpr,
             Node? targetType, bool owned, bool keepValue,
-            bool transferred, bool needsConversion) {
+            bool transferred, bool needsConversion,
+            bool defaultArgument, int parameterIndex) {
         self.expression = expression;
         self.typeExpr = typeExpr;
         self.targetType = targetType;
@@ -19,6 +22,8 @@ class OwnershipCallOperand {
         self.keepValue = keepValue;
         self.transferred = transferred;
         self.needsConversion = needsConversion;
+        self.defaultArgument = defaultArgument;
+        self.parameterIndex = parameterIndex;
     }
 }
 
@@ -53,7 +58,10 @@ Vector<Node> ownershipBuiltinParamsForCall(IRGen generator, Node call,
     if (call.kind == NK_NEW_EXPR) {
         mutexType = generator.resolveBodyType(call.type);
     } else if (callee != null && callee.kind == NK_IDENTIFIER
-            && callee.name == "Mutex") {
+            && callee.name == "Mutex"
+            && !varTypes.has(callee.name)
+            && !generator.analyzed.funcNames.has(callee.name)
+            && !generator.analyzed.isClass(callee.name)) {
         mutexType = generator.resolvedExpressionType(call, varTypes);
     } else if (callee != null
             && callee.kind == NK_FIELD_ACCESS_EXPR) {
@@ -107,7 +115,10 @@ Vector<Node> ownershipBuiltinParamsForCall(IRGen generator, Node call,
     }
 
     if (callee != null && callee.kind == NK_IDENTIFIER
-            && callee.name == "print") {
+            && callee.name == "print"
+            && !varTypes.has(callee.name)
+            && !generator.analyzed.funcNames.has(callee.name)
+            && !generator.analyzed.isClass(callee.name)) {
         int printIndex = 0;
         while (printIndex < call.args.len) {
             Node argument = call.args.get(printIndex);
@@ -129,9 +140,31 @@ Vector<Node> ownershipBuiltinParamsForCall(IRGen generator, Node call,
 
 Vector<Node> ownershipParamsForCall(IRGen generator, Node call,
         Map<string, Node> varTypes) {
+    if (call.callee != null && call.callee.kind == NK_IDENTIFIER
+            && generator.analyzed.hostedCallKeys.has(astNodeKey(call))
+            && hostedAbiExactFunction(call.callee.name)) {
+        Vector<Node> hosted = [];
+        int index = 0;
+        while (index < hostedAbiParameterCount(call.callee.name)) {
+            Node typeExpr = makePrimType(
+                hostedAbiParameterBase(call.callee.name, index));
+            typeExpr.pointer_depth = hostedAbiParameterPointerDepth(
+                call.callee.name, index);
+            typeExpr.is_const = hostedAbiParameterConst(
+                call.callee.name, index);
+            hosted.push(ownershipSyntheticParam(
+                Strings.fromInt(index), typeExpr));
+            index = index + 1;
+        }
+        return hosted;
+    }
     Node? declaration = ownershipCallableForCall(
         generator, call, varTypes);
-    if (declaration != null) { return declaration.params; }
+    if (declaration != null) {
+        return callTargetResolvedParameters(
+            generator.analyzed, declaration.params,
+            callTargetTypeMap(generator, call, varTypes));
+    }
     return ownershipBuiltinParamsForCall(generator, call, varTypes);
 }
 
@@ -198,15 +231,22 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
             if (argumentType == null) { argumentType = targetType; }
             keepValue = parameter.keep_;
         }
+        bool transferred = transferredParams.has(paramIndex);
+        if (!keepValue && !transferred
+                && hostedStringConversionMode(generator, argument,
+                    targetType, argumentType) == "reject") {
+            targetType = argumentType;
+        }
         bool managed = irManagedType(generator, argumentType);
         bool owned = managed && irContextualUnconsumedOwnedResult(
             generator, argument, argumentType, varTypes);
         bool targetManaged = irManagedType(generator, targetType);
         result.push(OwnershipCallOperand(argument, argumentType,
             targetType, owned, targetManaged && keepValue,
-            transferredParams.has(paramIndex),
-            requiresTargetStringConversion(
-                generator, targetType, argumentType)));
+            transferred,
+            requiresTargetValueConversion(
+                generator, argument, targetType, argumentType), false,
+            paramIndex));
         index = index + 1;
     }
     int parameterIndex = 0;
@@ -214,20 +254,16 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
         Node parameter = params.get(parameterIndex);
         if (!bound.has(parameterIndex) && parameter.default_ != null) {
             Node argument = parameter.default_;
-            Node? argumentType = generator.resolvedExpressionType(
-                argument, varTypes);
             Node targetType = ownershipResolveParamType(
                 generator, call, parameter.type, varTypes);
-            if (argumentType == null) { argumentType = targetType; }
-            bool managed = irManagedType(generator, argumentType);
-            bool owned = managed && irContextualUnconsumedOwnedResult(
-                generator, argument, argumentType, varTypes);
-            result.push(OwnershipCallOperand(argument, argumentType,
-                targetType, owned,
-                irManagedType(generator, targetType) && parameter.keep_,
-                transferredParams.has(parameterIndex),
-                requiresTargetStringConversion(
-                    generator, targetType, argumentType)));
+            bool keepValue = parameter.keep_;
+            bool transferred = transferredParams.has(parameterIndex);
+            bool managed = irManagedType(generator, targetType);
+            result.push(OwnershipCallOperand(argument, targetType,
+                targetType, managed, managed && keepValue,
+                transferred,
+                false, true,
+                parameterIndex));
         }
         parameterIndex = parameterIndex + 1;
     }
@@ -237,8 +273,9 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
         bool laterEffect = false;
         int laterIndex = pinIndex + 1;
         while (laterIndex < result.len) {
-            if (ownershipExpressionHasEffect(generator,
-                    result.get(laterIndex).expression, varTypes)) {
+            OwnershipCallOperand later = result.get(laterIndex);
+            if (later.defaultArgument || ownershipExpressionHasEffect(
+                    generator, later.expression, varTypes)) {
                 laterEffect = true;
             }
             laterIndex = laterIndex + 1;
@@ -267,8 +304,9 @@ bool ownershipOperandsHaveEffect(IRGen generator,
         Map<string, Node> varTypes) {
     int index = 0;
     while (index < operands.len) {
-        if (ownershipExpressionHasEffect(
-                generator, operands.get(index).expression, varTypes)) {
+        OwnershipCallOperand operand = operands.get(index);
+        if (operand.defaultArgument || ownershipExpressionHasEffect(
+                generator, operand.expression, varTypes)) {
             return true;
         }
         index = index + 1;
@@ -348,7 +386,7 @@ bool ownershipCallNeedsBoundary(bool receiverGuarded, bool forceOrder,
     int index = 0;
     while (index < operands.len) {
         OwnershipCallOperand operand = operands.get(index);
-        if (operand.owned || operand.keepValue
+        if (operand.defaultArgument || operand.owned || operand.keepValue
                 || operand.needsConversion) { return true; }
         index = index + 1;
     }
@@ -357,6 +395,7 @@ bool ownershipCallNeedsBoundary(bool receiverGuarded, bool forceOrder,
 
 IRNode lowerCallWithOwnership(IRGen generator, Node call,
         Map<string, Node> varTypes) {
+    generator.rejectCallClosureEscapes(call, varTypes);
     if (call.callee != null
             && call.callee.kind == NK_FIELD_ACCESS_EXPR
             && call.callee.optional) {
@@ -411,17 +450,25 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
         && (call.callee.name == "Mutex"
             || call.callee.name == "print"
             || call.callee.name == "printf");
+    bool orderedHosted = generator.analyzed.hostedCallKeys.has(
+        astNodeKey(call));
     bool languageCall = declaration != null || params.len > 0
         || orderedFieldCall
         || orderedBuiltin
+        || orderedHosted
         || (calleeType != null && calleeType.base == "__fn_ptr");
     bool forceOrder = languageCall
         && ownershipCallRequiresOrder(
             generator, receiver, operands, varTypes)
         && operands.len + (receiver == null ? 0 : 1) > 1;
+    string callKey = astNodeKey(call);
+    bool convertsHostedResult =
+        generator.hostedResultConversionModes.has(callKey);
     if (!ownershipCallNeedsBoundary(
             receiverOwned || receiverPinned, forceOrder, operands)) {
-        return generator.lowerCallCore(call, varTypes);
+        return lowerRequestedHostedStringResult(
+            generator, call,
+            generator.lowerCallCore(call, varTypes));
     }
     OwnershipBoundary boundary = OwnershipBoundary();
     if (receiver != null) {
@@ -444,25 +491,41 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
                     operand.expression, "call arguments", true);
             }
         } else {
-            PreparedValue prepared = prepareCallTargetValue(
-                generator, operand.expression,
-                operand.targetType, varTypes);
-            ownershipRequireType(
-                prepared.effectiveType, operand.expression);
-            Node effectiveType = prepared.effectiveType;
-            boundary.addLoweredCallOperand(generator,
-                operand.expression, effectiveType, prepared.value,
-                prepared.owned, operand.keepValue,
-                prepared.owned && operand.transferred);
+            if (operand.defaultArgument) {
+                Node effectiveType = operand.targetType;
+                boundary.addLoweredCallOperand(generator,
+                    operand.expression, effectiveType,
+                    lowerDefaultArgumentCall(generator, call,
+                        params, operands, operand, varTypes),
+                    irManagedType(generator, effectiveType),
+                    operand.keepValue,
+                    irManagedType(generator, effectiveType)
+                        && operand.transferred);
+            } else {
+                PreparedValue prepared = prepareCallTargetValue(
+                    generator, operand.expression,
+                    operand.targetType, varTypes);
+                ownershipRequireType(
+                    prepared.effectiveType, operand.expression);
+                Node effectiveType = prepared.effectiveType;
+                boundary.addLoweredCallOperand(generator,
+                    operand.expression, effectiveType, prepared.value,
+                    prepared.owned, operand.keepValue,
+                    prepared.owned && operand.transferred);
+            }
         }
         index = index + 1;
     }
-    IRNode lowered = generator.lowerCallCore(call, varTypes);
-    boundary.resultOwned = irExpressionOwnsResult(
-        generator, call, varTypes);
+    IRNode lowered = lowerRequestedHostedStringResult(
+        generator, call,
+        generator.lowerCallCore(call, varTypes));
+    boundary.resultOwned = convertsHostedResult
+        || irExpressionOwnsResult(generator, call, varTypes);
     boundary.restore(generator);
+    Node? resultType = generator.resolvedExpressionType(call, varTypes);
+    if (convertsHostedResult) { resultType = makePrimType("string"); }
     return boundary.finish(generator, lowered,
-        generator.resolvedExpressionType(call, varTypes), false);
+        resultType, false);
 }
 
 IRNode lowerNewWithOwnership(IRGen generator, Node expression,
@@ -481,16 +544,28 @@ IRNode lowerNewWithOwnership(IRGen generator, Node expression,
     int index = 0;
     while (index < operands.len) {
         OwnershipCallOperand operand = operands.get(index);
-        PreparedValue prepared = prepareCallTargetValue(
-            generator, operand.expression,
-            operand.targetType, varTypes);
-        ownershipRequireType(
-            prepared.effectiveType, operand.expression);
-        Node effectiveType = prepared.effectiveType;
-        boundary.addLoweredCallOperand(generator,
-            operand.expression, effectiveType, prepared.value,
-            prepared.owned, operand.keepValue,
-            prepared.owned && operand.transferred);
+        if (operand.defaultArgument) {
+            Node effectiveType = operand.targetType;
+            boundary.addLoweredCallOperand(generator,
+                operand.expression, effectiveType,
+                lowerDefaultArgumentCall(generator, expression,
+                    params, operands, operand, varTypes),
+                irManagedType(generator, effectiveType),
+                operand.keepValue,
+                irManagedType(generator, effectiveType)
+                    && operand.transferred);
+        } else {
+            PreparedValue prepared = prepareCallTargetValue(
+                generator, operand.expression,
+                operand.targetType, varTypes);
+            ownershipRequireType(
+                prepared.effectiveType, operand.expression);
+            Node effectiveType = prepared.effectiveType;
+            boundary.addLoweredCallOperand(generator,
+                operand.expression, effectiveType, prepared.value,
+                prepared.owned, operand.keepValue,
+                prepared.owned && operand.transferred);
+        }
         index = index + 1;
     }
     IRNode lowered = generator.lowerNewCore(expression, varTypes);

@@ -9,6 +9,17 @@ from .ir.gen.generator import generate_ir
 from .lexer import Lexer, LexerError
 from .parser.core import ParseError
 from .parser.parser import Parser
+from .source_provenance import (
+    compiler_stdlib_source,
+    stamp_nested_declaration_sources,
+)
+
+
+def _stamp_stdlib_declarations(program) -> None:
+    """Authenticate top-level and nested declarations in archive builds."""
+    for declaration in program.declarations:
+        declaration.source_file = compiler_stdlib_source()
+        stamp_nested_declaration_sources(declaration)
 
 
 def build_stdlib_archive(out_dir: str) -> None:
@@ -23,6 +34,7 @@ def build_stdlib_archive(out_dir: str) -> None:
     try:
         tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
         program = Parser(tokens).parse()
+        _stamp_stdlib_declarations(program)
     except (LexerError, ParseError) as error:
         message = str(error).removesuffix(f" at {error.line}:{error.col}")
         print(

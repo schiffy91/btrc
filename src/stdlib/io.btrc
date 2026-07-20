@@ -91,6 +91,28 @@ class File {
         return out;
     }
 
+    /* Read no more than maxBytes + 1 bytes.  The extra byte lets callers
+     * distinguish an exactly-full input from one that exceeds their limit
+     * without first buffering the entire file. */
+    public Bytes readBytesBounded(int maxBytes) {
+        Bytes out = Bytes();
+        if (!self.is_open) { return out; }
+        if (maxBytes < 0 || maxBytes >= 2147483646) {
+            self.io_failed = true;
+            return out;
+        }
+        char chunk[8192];
+        while (out.len <= maxBytes) {
+            int remaining = maxBytes + 1 - out.len;
+            int requested = remaining < 8192 ? remaining : 8192;
+            size_t count = fread(chunk, 1, (size_t)requested, self.handle);
+            if (count == (size_t)0) { break; }
+            out.appendRaw(chunk, (int)count);
+        }
+        if (ferror(self.handle)) { self.io_failed = true; }
+        return out;
+    }
+
     /* Binary-safe write: writes exactly b.len bytes via fwrite (NOT fputs,
      * which would stop at the first embedded NUL). Returns true when every
      * byte was written. */

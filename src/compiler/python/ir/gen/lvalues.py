@@ -35,9 +35,14 @@ class LValueContext:
     register_decl: Callable[[IRVarDecl], None]
     class_table: dict
     direct_property: Callable[[object], bool] | None = None
+    target_c_type: Callable[[object, TypeExpr], str | None] | None = None
 
-    def declare(self, prefix: str, type_expr: TypeExpr, *, pointer=False):
-        c_type = value_c_type(type_expr, self.class_table, self.c_type)
+    def declare(self, prefix: str, type_expr: TypeExpr, *, pointer=False, rendered=None):
+        c_type = (
+            value_c_type(type_expr, self.class_table, self.c_type)
+            if rendered is None
+            else qualify_volatile_object(rendered, type_expr.is_volatile)
+        )
         if pointer:
             # Direct lvalues may name setjmp-safe managed locals whose IR
             # declarations are made volatile after analysis. Point at a
@@ -134,7 +139,13 @@ def lvalue_kind(context: LValueContext, target) -> str:
 
 
 def _direct_plan(context, target, value_type) -> LValuePlan:
-    declaration = context.declare("__btrc_lvalue", value_type, pointer=True)
+    rendered = context.target_c_type(target, value_type) if context.target_c_type is not None else None
+    declaration = context.declare(
+        "__btrc_lvalue",
+        value_type,
+        pointer=True,
+        rendered=rendered,
+    )
     pointer = IRVar(name=declaration.name)
     load = IRDeref(expr=pointer)
     return LValuePlan(

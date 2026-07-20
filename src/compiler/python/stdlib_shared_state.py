@@ -223,9 +223,16 @@ def inline_toplevel_functions(c_source: str) -> str:
     """
     out = []
     for unit in _split_toplevel_units(c_source):
-        if _function_definition_prototype(unit) is not None and unit.startswith("static "):
-            if not unit.startswith("static inline "):
-                unit = "static inline " + unit[len("static ") :]
+        if _function_definition_prototype(unit) is not None:
+            lines = unit.split("\n")
+            for index, line in enumerate(lines):
+                if line.startswith("static inline "):
+                    break
+                signature = line.split("{", 1)[0]
+                if line.startswith("static ") and "(" in signature and "=" not in signature:
+                    lines[index] = "static inline " + line[len("static ") :]
+                    break
+            unit = "\n".join(lines)
         out.append(unit)
     return "\n".join(out)
 

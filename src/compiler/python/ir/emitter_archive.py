@@ -33,8 +33,10 @@ class _ArchiveEmitterMixin:
             self._emit_type_declaration(declaration)
 
         for declaration in module.function_decls:
+            if declaration.is_static:
+                continue
             self._emit_function_decl(declaration)
-        if module.function_decls:
+        if any(not declaration.is_static for declaration in module.function_decls):
             self._line("")
 
         for declaration in module.global_decls:
@@ -54,6 +56,12 @@ class _ArchiveEmitterMixin:
 
         self._line(self._include_text(IRInclude(header=header_include, is_system=False)))
         self._line("")
+
+        private_declarations = [declaration for declaration in module.function_decls if declaration.is_static]
+        for declaration in private_declarations:
+            self._emit_function_decl(declaration)
+        if private_declarations:
+            self._line("")
 
         for helper in module.helper_decls:
             if helper.name in shared_names:

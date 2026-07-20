@@ -63,6 +63,14 @@ class VariableDeclarationAnalysisMixin:
             self._check_alias_warning(stmt)
             self._collect_generic_instances(stmt.type)
             self._validate_callable_storage(stmt.type, stmt.initializer, explicit_type, stmt.line, stmt.col)
+            if not self._expression_produces_owned_result(stmt.initializer):
+                self._validate_opaque_borrow_storage(
+                    stmt.type,
+                    stmt.initializer,
+                    f"Variable '{stmt.name}'",
+                    stmt.line,
+                    stmt.col,
+                )
             self._validate_variable_storage(stmt, is_global=is_global)
             if define_binding:
                 self.scope.define(stmt.name, self._var_symbol(stmt))
@@ -97,6 +105,21 @@ class VariableDeclarationAnalysisMixin:
                 )
             self._contextualize_generic_constructor(stmt.type, stmt.initializer)
             init_type = self._infer_type(stmt.initializer)
+            self._validate_managed_string_source(
+                stmt.type,
+                stmt.initializer,
+                f"Initializer for '{stmt.name}'",
+                stmt.line,
+                stmt.col,
+            )
+            if not self._expression_produces_owned_result(stmt.initializer):
+                self._validate_opaque_borrow_storage(
+                    stmt.type,
+                    stmt.initializer,
+                    f"Variable '{stmt.name}'",
+                    stmt.line,
+                    stmt.col,
+                )
             self._validate_thread_handle_copy(
                 stmt.type,
                 stmt.initializer,

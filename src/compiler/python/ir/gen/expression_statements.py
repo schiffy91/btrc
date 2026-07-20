@@ -25,7 +25,7 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
         lower_condition=lambda condition: lower_expr(gen, condition),
         fresh_temp=gen.fresh_temp,
         record_decl=gen._func_var_decls.append,
-        hosted=not gen.freestanding,
+        hosted=not gen.freestanding and "assert" not in gen.analyzed.function_table,
     )
     if assertion is not None:
         return assertion

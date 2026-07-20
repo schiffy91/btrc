@@ -160,11 +160,14 @@ class ExpressionOwnershipContractsMixin:
     def _known_language_call(self, expression) -> bool:
         callee = expression.callee
         if isinstance(callee, Identifier):
+            symbol = self.scope.lookup(callee.name)
+            if symbol is not None and symbol.kind != "function":
+                return False
             return callee.name == "Mutex" or callee.name in self.class_table or callee.name in self.function_table
         if not isinstance(callee, FieldAccessExpr):
             return False
         if isinstance(callee.obj, Identifier):
-            owner = self.class_table.get(callee.obj.name)
+            owner = None if self.scope.lookup(callee.obj.name) is not None else self.class_table.get(callee.obj.name)
             if owner is not None and callee.field in owner.methods:
                 return True
         receiver = self._canonical_type(self._infer_type(callee.obj))

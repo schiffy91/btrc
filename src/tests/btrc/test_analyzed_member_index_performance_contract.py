@@ -1,0 +1,71 @@
+"""Correctness and complexity contracts for self-hosted member lookup."""
+
+from pathlib import Path
+
+from src.tests.btrc.test_semantic_validation import (
+    _compile_source,
+    _strict_build_and_run,
+)
+
+REPO = Path(__file__).resolve().parents[3]
+SELFHOST = REPO / "src/compiler/btrc"
+
+
+def _function(source: str, signature: str) -> str:
+    start = source.index(signature)
+    end = source.index("\n    }", start)
+    return source[start:end]
+
+
+def test_member_queries_use_complete_constant_time_indexes() -> None:
+    analyzer = (SELFHOST / "analyzer.btrc").read_text()
+    index = (SELFHOST / "analyzed_member_index.btrc").read_text()
+    driver = (SELFHOST / "btrcc_main.btrc").read_text()
+
+    for signature in (
+        "    public Node? classMember(",
+        "    public Node? classMethod(",
+        "    public Node? classConstructor(",
+        "    public Node? genericClassMethod(",
+        "    public Node? genericClassConstructor(",
+    ):
+        query = _function(analyzer, signature)
+        assert ".members" not in query
+        assert "while (" not in query
+        assert "Index.has(" in query
+
+    generic_start = analyzer.index("Node? genericMember(")
+    generic_end = analyzer.index("\n}", generic_start)
+    generic_query = analyzer[generic_start:generic_end]
+    assert ".members" not in generic_query
+    assert "while (" not in generic_query
+    assert "genericMemberIndex.has(" in generic_query
+
+    registration_end = analyzer.index("/* `var` (untyped) module-level variables")
+    assert analyzer.index("indexAnalyzedMembers(a);") < registration_end
+    assert "analyzed.memberIndexReady = true;" in index
+    assert '#include "analyzer.btrc"\n#include "analyzed_member_index.btrc"' in driver
+
+
+def test_indexed_method_namespace_ignores_child_value_member(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Base {
+            public int action() { return 42; }
+        }
+        class Child extends Base {
+            public int action;
+            public Child() { self.action = 0; }
+        }
+        int main() {
+            Child value = new Child();
+            int result = value.action();
+            delete value;
+            return result == 42 ? 0 : 1;
+        }
+    """
+    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    assert result.returncode == 0, result.stderr
+    _strict_build_and_run(generated, tmp_path / "indexed-member-namespace")

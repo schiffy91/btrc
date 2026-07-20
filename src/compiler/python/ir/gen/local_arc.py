@@ -38,14 +38,17 @@ def lower_managed_slot_assignment(gen, node, target, target_type):
 
     if node.op != "=":
         return _lower_managed_slot_compound(gen, node, target, target_type)
-    value = _lower_assignment_value(gen, target_type, node.value)
     from .prepared_values import prepare_normal_value
 
     prepared = prepare_normal_value(
         gen,
         node.value,
         target_type,
-        lowered=value,
+        lower_value=lambda value: _lower_assignment_value(
+            gen,
+            target_type,
+            value,
+        ),
     )
     value = prepared.value
     value_type = prepared.effective_type

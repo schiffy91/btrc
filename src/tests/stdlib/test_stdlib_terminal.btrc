@@ -23,7 +23,8 @@ int main() {
     assert(openpty(&ptyMaster, &ptySlave, NULL, NULL, NULL) == 0);
     struct termios beforePassword;
     assert(tcgetattr(ptySlave, &beforePassword) == 0);
-    beforePassword.c_lflag = beforePassword.c_lflag | ECHO;
+    beforePassword.c_lflag = (tcflag_t)beforePassword.c_lflag
+        | (tcflag_t)ECHO;
     assert(tcsetattr(ptySlave, TCSANOW, &beforePassword) == 0);
     int savedStdin = dup(STDIN_FILENO);
     assert(savedStdin >= 0);
@@ -33,17 +34,22 @@ int main() {
     assert(Terminal.promptPassword("pty secret: ").equals("pty-secret"));
     struct termios afterPassword;
     assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
-    assert((afterPassword.c_lflag & ECHO) == (beforePassword.c_lflag & ECHO));
+    assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO)
+        == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
 
     /* An interrupt wakes the prompt through its self-pipe, restores ECHO and
      * descriptor flags, then replays the signal under the caller's handler. */
     int flagsBeforeInterrupt = fcntl(STDIN_FILENO, F_GETFL, 0);
     assert(flagsBeforeInterrupt >= 0);
-    assert(signal(SIGTERM, countPasswordInterrupt) != SIG_ERR);
+    struct sigaction testSignalAction;
+    memset(&testSignalAction, 0, sizeof(testSignalAction));
+    testSignalAction.sa_handler = countPasswordInterrupt;
+    assert(sigemptyset(&testSignalAction.sa_mask) == 0);
+    assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
     pid_t interruptChild = fork();
     assert(interruptChild >= (pid_t)0);
     if (interruptChild == (pid_t)0) {
-        poll(NULL, 0, 100);
+        poll(NULL, (nfds_t)0, 100);
         kill(getppid(), SIGTERM);
         _exit(0);
     }
@@ -53,7 +59,8 @@ int main() {
     assert(WIFEXITED(interruptStatus) && WEXITSTATUS(interruptStatus) == 0);
     assert((int)passwordInterruptSignals == 1);
     assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
-    assert((afterPassword.c_lflag & ECHO) == (beforePassword.c_lflag & ECHO));
+    assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO)
+        == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
     assert(fcntl(STDIN_FILENO, F_GETFL, 0) == flagsBeforeInterrupt);
     int passwordSignalRead = TerminalPasswordInput.signalReadDescriptor();
     int passwordSignalWrite = TerminalPasswordInput.signalWriteDescriptor();
@@ -65,7 +72,8 @@ int main() {
         & FD_CLOEXEC) != 0);
     raise(SIGTERM);
     assert((int)passwordInterruptSignals == 2);
-    assert(signal(SIGTERM, SIG_DFL) != SIG_ERR);
+    testSignalAction.sa_handler = SIG_DFL;
+    assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
 
     assert(dup2(savedStdin, STDIN_FILENO) == STDIN_FILENO);
     clearerr(stdin);
@@ -88,6 +96,15 @@ int main() {
     assert(!UnixPamPassword.safeSecret("x".repeat(4097)));
     assert(!UnixPamPassword.safeSecret("bad\nsecond response"));
     assert(!UnixPamPassword.safeSecret("bad\rresponse"));
+    assert(UnixPamPassword.safeAccountArgument("alice"));
+    assert(!UnixPamPassword.safeAccountArgument("-stdin"));
+    assert(!UnixPamPassword.safeAccountArgument(""));
+    assert(UnixPamPassword.canonicalAccountArgument(
+        "directory-alias", "canonical-user").equals("canonical-user"));
+    assert(UnixPamPassword.canonicalAccountArgument(
+        "-stdin", "canonical-user").isEmpty());
+    assert(UnixPamPassword.canonicalAccountArgument(
+        "directory-alias", "--root").isEmpty());
 
     string passwdPath = UnixPamPassword.passwdExecutable();
     assert(!passwdPath.isEmpty());

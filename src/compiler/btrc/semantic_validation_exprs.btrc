@@ -116,8 +116,9 @@ void semanticValidateUnary(Node expression, SemanticValidationState state,
         bool addressable = semanticIsLifetimeStableStorage(
                 expression.operand, state, vars)
             || (expression.operand.kind == NK_IDENTIFIER
-                && state.analyzed.funcNames.has(
-                    expression.operand.name));
+                && (state.analyzed.funcNames.has(expression.operand.name)
+                    || sourceRuntimeHelperSymbol(
+                        expression.operand.name)));
         if (!addressable) {
             Node? invalidType = semanticInferType(
                 expression.operand, state, vars);
@@ -193,9 +194,15 @@ void semanticValidateExpr(Node? expression, SemanticValidationState state,
         } else {
             semanticValidateExpr(expression.target, state, vars);
         }
+        if (expression.op == "=") {
+            contextualizeGenericConstructor(
+                semanticInferType(expression.target, state, vars),
+                expression.value_node, state, vars);
+        }
         semanticValidateExpr(expression.value_node, state, vars);
         semanticValidateAssignment(expression, state, vars);
     } else if (expression.kind == NK_CALL_EXPR) {
+        contextualizeCallGenericConstructors(expression, state, vars);
         /* An unresolved direct identifier call is the deliberate C-interop
          * seam.  Validate all other callees as ordinary value expressions. */
         if (expression.callee != null
@@ -210,6 +217,7 @@ void semanticValidateExpr(Node? expression, SemanticValidationState state,
             semanticValidateExpr(expression.args.get(index), state, vars);
             index = index + 1;
         }
+        semanticValidateGeneratedSymbolCall(expression, state, vars);
         semanticValidateCall(expression, state, vars);
     } else if (expression.kind == NK_INDEX_EXPR) {
         semanticValidateExpr(expression.obj, state, vars);

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ...ast_nodes import TypeExpr
+from ...type_composition import compose_type_expr
 from ...type_identity import substitute_type_expr
 
 
@@ -22,19 +21,7 @@ def canonical_type(
         seen | {type_expr.base},
     )
     assert resolved is not None
-    return replace(
-        resolved,
-        pointer_depth=resolved.pointer_depth + type_expr.pointer_depth,
-        is_array=resolved.is_array or type_expr.is_array,
-        array_size=type_expr.array_size or resolved.array_size,
-        is_const=resolved.is_const or type_expr.is_const,
-        is_nullable=resolved.is_nullable or type_expr.is_nullable,
-        is_static=resolved.is_static or type_expr.is_static,
-        is_extern=resolved.is_extern or type_expr.is_extern,
-        is_volatile=resolved.is_volatile or type_expr.is_volatile,
-        line=type_expr.line or resolved.line,
-        col=type_expr.col or resolved.col,
-    )
+    return compose_type_expr(type_expr, resolved, reference_shape=resolved)
 
 
 def function_pointer_signature(type_expr, typedefs):

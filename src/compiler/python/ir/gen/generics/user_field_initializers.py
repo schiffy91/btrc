@@ -56,17 +56,15 @@ def emit_generic_field_initializers(
             field_type,
             initializer,
             "field storage",
+            callable_abi=lambda value: _generic_callable_abi(
+                emitter,
+                value,
+            ),
         )
         target = IRFieldAccess(
             obj=owner,
             field=storage_name,
             arrow=True,
-        )
-        value = lower_generic_field_initializer_value(
-            gen,
-            emitter,
-            field_type,
-            initializer,
         )
         from ..prepared_values import prepare_generic_value
 
@@ -74,7 +72,12 @@ def emit_generic_field_initializers(
             emitter,
             initializer,
             field_type,
-            lowered=value,
+            lower_value=lambda value, field_type=field_type: lower_generic_field_initializer_value(
+                gen,
+                emitter,
+                field_type,
+                value,
+            ),
         )
         value = prepared.value
         value = upcast_class_pointer(
@@ -167,6 +170,12 @@ def _is_value_aggregate(gen, resolved_type) -> bool:
         return False
     struct_name = resolved_type.base.removeprefix("struct ")
     return resolved_type.base == "Tuple" or struct_name in gen.analyzed.struct_table
+
+
+def _generic_callable_abi(emitter, value):
+    from .user_callable_provenance import generic_callable_return_abi
+
+    return generic_callable_return_abi(emitter, value)
 
 
 __all__ = [

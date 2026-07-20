@@ -26,7 +26,6 @@ from .cleanup_registration import (
 from .cleanup_registration import (
     maybe_register_direct_cleanup as _maybe_register_direct_cleanup,
 )
-from .expressions import lower_expr
 from .type_resolution import canonical_type
 from .types import type_to_c
 
@@ -38,9 +37,14 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     from ...ast_nodes import BraceInitializer
     from .types import is_generic_class_type, mangle_generic_type
 
-    # Record every local, including borrowed values, so a shadowing declaration
-    # cannot inherit an outer variable's ownership classification.
-    gen.declare_local_ownership(node.name)
+    if node.initializer is not None:
+        from .callable_boundaries import reject_aggregate_callable_initializer
+
+        reject_aggregate_callable_initializer(
+            gen,
+            node.type,
+            node.initializer,
+        )
     external_declaration = bool(node.type and node.type.is_extern and node.initializer is None)
 
     # Handle array types: int arr[5] or int nums[]
@@ -49,7 +53,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
 
         result = lower_array_var_decl(gen, node, _storage_metadata(node))
         if external_declaration:
-            result.append(_mark_external_declaration_used(node.name))
+            result.append(_mark_external_declaration_used(gen.source_binding_c_name(node.name)))
         gen._fn_ptr_envs.pop(node.name, None)
         return result
 
@@ -89,7 +93,14 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
 
                 init = lower_static_initializer(gen, node.initializer)
             else:
-                init = lower_expr(gen, node.initializer)
+                from .prepared_values import prepare_normal_value
+
+                prepared = prepare_normal_value(
+                    gen,
+                    node.initializer,
+                    node.type,
+                )
+                init = prepared.value
 
         init_type = gen.analyzed.node_types.get(id(node.initializer))
         if node.type and node.type.is_static:
@@ -98,7 +109,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
 
             if requires_string_conversion(gen, node.type, init_type):
                 raise CodegenError("static storage cannot use runtime class-to-string conversion")
-        else:
+        elif prepared is None:
             from .prepared_values import prepare_normal_value
 
             prepared = prepare_normal_value(
@@ -123,13 +134,19 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         # An uninitialized managed declaration is still an owned lexical slot.
         # Start it empty so later replacement and exceptional cleanup are safe.
         init = IRLiteral(text="NULL")
+    # The initializer resolves in the enclosing scope. Only now does the new
+    # source binding shadow a same-spelled constructor, function, or type.
+    binding_c_name = gen.declare_local_ownership(node.name)
     var_decl = IRVarDecl(
         c_type=CType(text=c_type),
-        name=node.name,
+        name=binding_c_name,
         init=init,
         **_storage_metadata(node),
     )
     gen._func_var_decls.append(var_decl)
+    from .c_array_scopes import declare_c_binding
+
+    declare_c_binding(gen, node.name, is_array=False)
     result = [var_decl]
     # Every declaration shadows an outer closure binding.  Install a new
     # environment mapping below only when this initializer is itself a
@@ -142,41 +159,12 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         # GCC diagnoses an otherwise legal unused block-scope extern under
         # -Wunused-variable. Taking its address inside sizeof is an unevaluated,
         # portable use: it needs neither storage nor a link-time definition.
-        result.append(_mark_external_declaration_used(node.name))
+        result.append(_mark_external_declaration_used(binding_c_name))
         return result
 
-    # Lambda capture struct allocation: when var = lambda_with_captures,
-    # allocate the capture struct on the stack and fill it with captured values.
-    # The captured lambda's C function has an extra void* param and therefore
-    # cannot inhabit the plain function-pointer typedef. Calls use the lifted
-    # implementation plus environment directly; semantic analysis rejects
-    # every escaping/non-call use of this closure-only binding.
-    from ...ast_nodes import LambdaExpr
+    from .lambdas import lower_captured_lambda_local
 
-    if isinstance(node.initializer, LambdaExpr) and node.initializer.captures:
-        from ..nodes import IRAssign, IRFieldAccess
-
-        lambda_id = gen._last_lambda_id
-        fn_name = f"__btrc_lambda_{lambda_id}"
-        env_struct = f"__btrc_lambda_{lambda_id}_env"
-        env_var = f"__{node.name}_env"
-        result.pop()
-        gen._func_var_decls.pop()
-        env_decl = IRVarDecl(
-            c_type=CType(text=f"struct {env_struct}"),
-            name=env_var,
-        )
-        gen._func_var_decls.append(env_decl)
-        result.append(env_decl)
-        for cap in node.initializer.captures:
-            result.append(
-                IRAssign(
-                    target=IRFieldAccess(obj=IRVar(name=env_var), field=cap.name, arrow=False),
-                    value=IRVar(name=cap.name),
-                )
-            )
-        # Track: variable → (lambda fn name, env var name)
-        gen._fn_ptr_envs[node.name] = (fn_name, env_var)
+    lower_captured_lambda_local(gen, node.name, node.initializer, result)
 
     # A C-compatible raw pointer can still carry managed provenance (notably
     # ``char* value = __btrc_string_alloc(...)`` inside the stdlib). Preserve
@@ -204,14 +192,14 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
             node.initializer and (prepared.owned if prepared is not None else owns_result(gen, node.initializer))
         )
         if node.initializer and not owns_initializer:
-            result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=node.name), managed_slot_type)))
+            result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=binding_c_name), managed_slot_type)))
         gen.register_managed_var(
             node.name,
             arc_type,
             cycle_seed=bool(owns_initializer and not _is_string_type(gen, node.type)),
         )
         gen.declare_local_ownership(node.name, arc_type)
-        _maybe_register_cleanup(gen, node.name, arc_type, result)
+        _maybe_register_cleanup(gen, binding_c_name, arc_type, result)
 
     canonical_type_expr = canonical_type(
         node.type,
@@ -227,7 +215,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         gen.use_helper("__btrc_thread_free")
         _maybe_register_direct_cleanup(
             gen,
-            node.name,
+            binding_c_name,
             "__btrc_thread_free",
             result,
         )

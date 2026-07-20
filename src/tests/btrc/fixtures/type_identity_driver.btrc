@@ -1,5 +1,6 @@
 #include "../../../compiler/btrc/tokens.btrc"
 #include "../../../compiler/btrc/ast/node.btrc"
+#include "../../../compiler/btrc/type_shapes.btrc"
 #include "../../../compiler/btrc/type_identity.btrc"
 #include <assert.h>
 
@@ -51,7 +52,7 @@ int main() {
     nested.pointer_depth = 1;
     Node flat = identityType("A_int_p1");
     assert(typeSymbolComponent(nested).equals(
-        "ZQtb2_41p1n0a0q0k1t19_b6_696e74p0n0a0q0k0"));
+        "ZQtb2_41p1n0o0a0q0k1t21_b6_696e74p0n0o0a0q0k0"));
     string nestedHolder = mangleGenericSymbol(
         "Holder", identityArgs1(nested));
     string flatHolder = mangleGenericSymbol(
@@ -66,9 +67,9 @@ int main() {
     Node multiword = identityType("unsigned int");
     Node underscored = identityType("unsigned_int");
     assert(typeSymbolComponent(multiword).equals(
-        "ZQtb24_756e7369676e656420696e74p0n0a0q0k0"));
+        "ZQtb24_756e7369676e656420696e74p0n0o0a0q0k0"));
     assert(typeSymbolComponent(underscored).equals(
-        "ZQtb24_756e7369676e65645f696e74p0n0a0q0k0"));
+        "ZQtb24_756e7369676e65645f696e74p0n0o0a0q0k0"));
     assert(typeSymbolComponent(multiword)
         != typeSymbolComponent(underscored));
 
@@ -80,9 +81,9 @@ int main() {
     string right = mangleGenericSymbol(
         "Pair", identityArgs2(scalar, rightTail));
     assert(left.equals(
-        "btrc_ZQgb8_50616972k2t19_b6_696e74p1n0a0q0k0t15_b2_61p0n0a0q0k0"));
+        "btrc_ZQgb8_50616972k2t21_b6_696e74p1n0o0a0q0k0t17_b2_61p0n0o0a0q0k0"));
     assert(right.equals(
-        "btrc_ZQgb8_50616972k2t19_b6_696e74p0n0a0q0k0t17_b4_7031p0n0a1q0k0"));
+        "btrc_ZQgb8_50616972k2t21_b6_696e74p0n0o0a0q0k0t19_b4_7031p0n0o0a1q0k0"));
     assert(left != right);
 
     Node qualified = identityType("int");
@@ -92,16 +93,16 @@ int main() {
     qualified.is_volatile = true;
     assert(typeIdentityQualifierBits(qualified) == 15);
     assert(typeSymbolComponent(qualified).equals(
-        "ZQtb6_696e74p0n0a0q15k0"));
+        "ZQtb6_696e74p0n0o0a0q15k0"));
     assert(typeIdentityUtf8Hex("é").equals("c3a9"));
 
     Node voidType = identityType("void");
     Vector<Node> structural = identityArgs2(qualified, scalar);
     assert(mangleGenericSymbol("Tuple", structural).equals(
-        "btrc_ZQgb10_5475706c65k2t20_b6_696e74p0n0a0q15k0t19_b6_696e74p0n0a0q0k0"));
+        "btrc_ZQgb10_5475706c65k2t22_b6_696e74p0n0o0a0q15k0t21_b6_696e74p0n0o0a0q0k0"));
     assert(mangleFunctionPointerSymbol(
         identityArgs2(voidType, qualified)).equals(
-            "__btrc_fn_ZQfk2t21_b8_766f6964p0n0a0q0k0t20_b6_696e74p0n0a0q15k0"));
+            "__btrc_fn_ZQfk2t23_b8_766f6964p0n0o0a0q0k0t22_b6_696e74p0n0o0a0q15k0"));
 
     Vector<Node> noClassArgs = [];
     assert(mangleMethodInstanceSymbol(
@@ -112,7 +113,7 @@ int main() {
         .equals("Picker_identity_int_p1_n"));
     assert(mangleMethodInstanceSymbol(
         "Picker", noClassArgs, "identity", identityArgs1(nested)).equals(
-            "btrc_ZQmb12_5069636b6572k0m16_6964656e74697479k1t38_b2_41p1n0a0q0k1t19_b6_696e74p0n0a0q0k0"));
+            "btrc_ZQmb12_5069636b6572k0m16_6964656e74697479k1t42_b2_41p1n0o0a0q0k1t21_b6_696e74p0n0o0a0q0k0"));
     assert(mangleFunctionPointerSymbol(
         identityArgs2(identityType("bool"), scalar))
         .equals("__btrc_fn_bool_int"));
@@ -153,6 +154,12 @@ int main() {
         nullableParameter, text) == 0);
     assert(typeSubstitutionPointerDepth(
         nullableParameter, arrayReference) == 0);
+    Node composedExplicitPointer = composeTypeExpr(
+        explicitPointerParameter, classReference,
+        typeResolvedReferenceShape(classReference));
+    assert(composedExplicitPointer.pointer_depth == 2);
+    assert(composedExplicitPointer.is_nullable);
+    assert(composedExplicitPointer.nullable_outer_depth == 1);
 
     Map<string, bool> names = {};
     names.put("U", true);

@@ -15,8 +15,9 @@ string irManagedRuntimeCType(string runtimeType) {
     if (runtimeType == irManagedMutexRuntimeType()) {
         return "__btrc_mutex_val_t*";
     }
-    /* A lexical value may legally shadow the class typedef (Box Box). The
-     * struct tag remains visible in C's separate tag namespace. */
+    /* Managed values use the tag spelling so their representation stays
+     * explicit even though semantic validation also reserves type spellings
+     * from lexical-value shadowing. */
     return "struct " + runtimeType + "*";
 }
 
@@ -41,7 +42,9 @@ bool irManagedClassType(IRGen generator, Node? typeExpr) {
     if (typeExpr == null) { return false; }
     Node resolved = irManagedResolvedType(generator, typeExpr);
     int depth = resolved.pointer_depth;
-    if (resolved.is_nullable && depth > 1) { depth = depth - 1; }
+    if (typeNullableCollapsesReferenceLayer(resolved, false)) {
+        depth = depth - 1;
+    }
     /* Substitution can add an indirection: inside Vector<T>, the template
      * field T* resolves to Item** for T = Item*. Raw backing storage is not a
      * managed Item value. */
@@ -55,7 +58,9 @@ bool irManagedMutexType(IRGen generator, Node? typeExpr) {
     if (typeExpr == null) { return false; }
     Node resolved = irManagedResolvedType(generator, typeExpr);
     int depth = resolved.pointer_depth;
-    if (resolved.is_nullable && depth > 0) { depth = depth - 1; }
+    if (typeNullableCollapsesReferenceLayer(resolved, true)) {
+        depth = depth - 1;
+    }
     return !resolved.is_array
         && depth == 0
         && resolved.base == "Mutex"
@@ -87,8 +92,14 @@ string irManagedRuntimeType(IRGen generator, Node typeExpr) {
 
 bool irManagedRuntimeCanCycle(IRGen generator, string runtimeType) {
     if (runtimeType == irManagedMutexRuntimeType()) { return true; }
-    return runtimeType != irManagedStringRuntimeType()
-        && managedClassIsCyclable(generator, runtimeType);
+    if (runtimeType == irManagedStringRuntimeType()) { return false; }
+    if (generator.cyclableRuntimeTypeKnown.has(runtimeType)) {
+        return generator.cyclableRuntimeTypeValues.get(runtimeType);
+    }
+    bool result = managedClassIsCyclable(generator, runtimeType);
+    generator.cyclableRuntimeTypeKnown.put(runtimeType, true);
+    generator.cyclableRuntimeTypeValues.put(runtimeType, result);
+    return result;
 }
 
 string irManagedCleanupSymbol(IRGen generator, string runtimeType) {

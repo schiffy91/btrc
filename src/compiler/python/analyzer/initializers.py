@@ -7,6 +7,20 @@ from ..type_identity import is_semantic_scalar_void
 class InitializerValidationMixin:
     def _validate_typed_initializer(self, expected, initializer, subject, line, col):
         """Validate an already-analyzed initializer against its declared type."""
+        self._validate_managed_string_source(
+            expected,
+            initializer,
+            subject,
+            line,
+            col,
+        )
+        self._validate_opaque_borrow_storage(
+            expected,
+            initializer,
+            subject,
+            line,
+            col,
+        )
         self._validate_fixed_array_initializer(
             expected,
             initializer,
@@ -122,11 +136,25 @@ class InitializerValidationMixin:
         return True
 
     def _array_element_type(self, array_type):
-        from dataclasses import replace
+        from ..type_composition import strip_outer_storage
 
-        return replace(array_type, is_array=False, array_size=None)
+        return strip_outer_storage(array_type, array=True)
 
     def _validate_collection_element(self, expected, element, subject, line, col):
+        self._validate_managed_string_source(
+            expected,
+            element,
+            subject,
+            getattr(element, "line", line),
+            getattr(element, "col", col),
+        )
+        self._validate_opaque_borrow_storage(
+            expected,
+            element,
+            subject,
+            line,
+            col,
+        )
         if isinstance(element, (BraceInitializer, ListLiteral, MapLiteral)):
             self._validate_typed_initializer(
                 expected,

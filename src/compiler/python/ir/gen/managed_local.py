@@ -10,6 +10,7 @@ class ManagedLocal:
     name: str
     type_name: str
     cycle_seed: bool
+    c_name: str | None = None
     cleanup_kind: str = "arc"
 
 

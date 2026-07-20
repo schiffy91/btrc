@@ -156,13 +156,8 @@ class CEmitter {
     }
 
     public string joinLines() {
-        string out = "";
-        int i = 0;
-        while (i < self.lines.len) {
-            out = out + self.lines.get(i) + "\n";
-            i = i + 1;
-        }
-        return out;
+        if (self.lines.len == 0) { return ""; }
+        return Strings.join(self.lines, "\n") + "\n";
     }
 
     public void emitEnum(IREnumDef definition) {
@@ -216,6 +211,14 @@ class CEmitter {
 
     /* --- struct emission (matches emitter.py _emit_struct) --- */
 
+    public string structFieldDeclaration(IRStructField field) {
+        string suffix = "";
+        if (field.array_size != null) {
+            suffix = "[" + self.expr(field.array_size) + "]";
+        }
+        return field.c_type + " " + field.name + suffix + ";";
+    }
+
     public void emitStruct(IRStructDef s) {
         if (s.pack_alignment > 0) {
             self.line("#pragma pack(push, "
@@ -226,7 +229,7 @@ class CEmitter {
         int i = 0;
         while (i < s.fields.len) {
             IRStructField f = s.fields.get(i);
-            self.line(f"{f.c_type} {f.name};");
+            self.line(self.structFieldDeclaration(f));
             i = i + 1;
         }
         self.indent = self.indent - 1;
@@ -251,7 +254,7 @@ class CEmitter {
                 int f = 0;
                 while (f < variant.fields.len) {
                     IRStructField field = variant.fields.get(f);
-                    self.line(f"{field.c_type} {field.name};");
+                    self.line(self.structFieldDeclaration(field));
                     f = f + 1;
                 }
                 self.indent = self.indent - 1;
@@ -461,6 +464,9 @@ class CEmitter {
                 while (j < c.stmts.len) { self.emitStmt(c.stmts.get(j)); j = j + 1; }
                 self.indent = self.indent - 1;
                 self.line("}");
+                if (c.falls_through && ci + 1 < s.args.len) {
+                    self.line("/* fall through */");
+                }
                 ci = ci + 1;
             }
             self.indent = self.indent - 1;
@@ -610,7 +616,9 @@ class CEmitter {
             return "";
         }
         if (e.kind == IRK_LITERAL) { return e.text; }
-        if (e.kind == IRK_VAR) { return e.name; }
+        if (e.kind == IRK_VAR || e.kind == IRK_FUNCTION_REF) {
+            return e.name;
+        }
         if (e.kind == IRK_BINOP) {
             Vector<string> values = [
                 self.expr(e.left), e.op, self.expr(e.right)

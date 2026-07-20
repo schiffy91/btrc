@@ -303,6 +303,29 @@ def test_cpu_fallback_early_return_is_per_invocation(
     subprocess.run([str(executable)], check=True)
 
 
+def test_hosted_macro_parameter_names_cross_gpu_host_and_cpu_paths(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "@gpu void update(int[] stdin, int stdout, int stderr) { "
+        "int i = gpu_id(); stdin[i] += stdout + stderr; } "
+        "int main() { int[] values = {1}; "
+        "update(stderr=3, stdin=values, stdout=2); "
+        "return values[0] == 6 ? 0 : 1; }"
+    )
+    generated = emit_c(source)
+    assert "__btrc_source_stdin" in generated
+    assert "__btrc_source_stdout" in generated
+    assert "__btrc_source_stderr" in generated
+    executable = _compile_with_gpu_stubs(
+        tmp_path,
+        source,
+        available=False,
+        fail_second_buffer=False,
+    )
+    subprocess.run([str(executable)], check=True)
+
+
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_cpu_fallback_array_return_handles_branches_and_whole_buffers(

@@ -108,7 +108,7 @@ class ShellWords {
     }
 
     class bool isEnvName(string name) {
-        if (name.isEmpty()) { return false; }
+        if (name == null || name.isEmpty()) { return false; }
         if (!ShellWords.isEnvNameStart(name[0])) { return false; }
         for ch in name {
             if (!ShellWords.isEnvNameChar(ch)) { return false; }
@@ -184,10 +184,11 @@ class CommandOutput {
     class string suppress() { return "suppress"; }
 
     class bool valid(string mode) {
-        return mode.equals(CommandOutput.collect())
+        return mode != null
+            && (mode.equals(CommandOutput.collect())
             || mode.equals(CommandOutput.stream())
             || mode.equals(CommandOutput.combine())
-            || mode.equals(CommandOutput.suppress());
+            || mode.equals(CommandOutput.suppress()));
     }
 }
 
@@ -322,12 +323,13 @@ class ChildProcessClock {
     }
 }
 
-/* Build the complete envp in the parent. The child receives immutable pointers
- * into the inherited environment and caller-owned override strings; no
+/* Build the complete envp in the parent from independent raw copies. No
  * allocator, string helper, or environment mutation runs after fork. */
 class ChildProcessEnvironment {
     class char* copyEntry(string value) {
+        if (value == null) { return NULL; }
         size_t length = strlen(value);
+        if (length == (size_t)(-1)) { return NULL; }
         char* result = (char*)malloc(length + (size_t)1);
         if (result == NULL) { return NULL; }
         memcpy(result, value, length + (size_t)1);
@@ -375,7 +377,9 @@ class ChildProcessEnvironment {
 
     class char** build(Vector<string> environment,
                        Vector<string> unsetEnvironment) {
-        if (environ == NULL) { return NULL; }
+        if (environ == NULL || environment == null
+                || unsetEnvironment == null || environment.len < 0
+                || unsetEnvironment.len < 0) { return NULL; }
         int inheritedCount = 0;
         while (environ[inheritedCount] != NULL) {
             if (inheritedCount == 2147483646) { return NULL; }
@@ -385,11 +389,14 @@ class ChildProcessEnvironment {
             return NULL;
         }
         int capacity = inheritedCount + environment.len + 1;
+        if ((size_t)capacity > (size_t)(-1) / sizeof(char*)) {
+            return NULL;
+        }
         char** result = (char**)calloc((size_t)capacity, sizeof(char*));
         if (result == NULL) { return NULL; }
         int count = 0;
         for (int i = 0; i < inheritedCount; i++) {
-            string inherited = environ[i];
+            char* inherited = environ[i];
             if (!ChildProcessEnvironment.replaced(
                     inherited, environment, unsetEnvironment)) {
                 result[count] = ChildProcessEnvironment.copyEntry(inherited);
@@ -410,6 +417,43 @@ class ChildProcessEnvironment {
         }
         result[count] = NULL;
         return result;
+    }
+}
+
+/* Materialize argv as an independently owned raw snapshot in the parent. COW
+ * already protects inherited managed strings after fork; this explicit
+ * ownership instead keeps the post-fork child independent of managed-runtime
+ * representation and gives every pre-fork failure one uniform cleanup path. */
+class ChildProcessArguments {
+    class char** build(string executable, Vector<string> arguments) {
+        if (executable == null || arguments == null
+                || arguments.len < 0) { return NULL; }
+        size_t length = (size_t)arguments.len;
+        size_t maximumCount = (size_t)(-1) / sizeof(char*);
+        if (maximumCount < (size_t)2
+                || length > maximumCount - (size_t)2) { return NULL; }
+        char** result = (char**)calloc(
+            length + (size_t)2, sizeof(char*));
+        if (result == NULL) { return NULL; }
+        result[0] = ChildProcessEnvironment.copyEntry(executable);
+        if (result[0] == NULL) {
+            ChildProcessEnvironment.freeEntries(result);
+            return NULL;
+        }
+        for (int index = 0; index < arguments.len; index++) {
+            result[index + 1] = ChildProcessEnvironment.copyEntry(
+                arguments.get(index));
+            if (result[index + 1] == NULL) {
+                ChildProcessEnvironment.freeEntries(result);
+                return NULL;
+            }
+        }
+        result[arguments.len + 1] = NULL;
+        return result;
+    }
+
+    class void freeEntries(char** arguments) {
+        ChildProcessEnvironment.freeEntries(arguments);
     }
 }
 
@@ -454,8 +498,10 @@ class ChildProcessExecutable {
 
     class string searchPath(Vector<string> environment,
                             Vector<string> unsetEnvironment) {
-        string result = getenv("PATH");
-        if (result == null || result.isEmpty()) { result = "/usr/bin:/bin"; }
+        /* Environment.get copies getenv(3)'s borrowed storage before later
+         * allocation or environment mutation can invalidate it. */
+        string result = Environment.get("PATH", "/usr/bin:/bin");
+        if (result.isEmpty()) { result = "/usr/bin:/bin"; }
         for name in unsetEnvironment {
             if (name.equals("PATH")) { result = "/usr/bin:/bin"; }
         }
@@ -499,12 +545,55 @@ class ChildProcessExecutable {
  * environment, then apply NAME=value overrides and explicit unsets. A zero
  * timeout is unbounded; expiry returns code 124 with wasTimedOut() true. */
 class ChildProcess {
+    class int descriptorCloseBound() {
+        return __btrc_descriptor_close_bound();
+    }
+
+    /* Called only after fork. The runtime helper uses close_range(2) or a BSD
+     * closefrom(3) where available and a precomputed hard-bound loop
+     * everywhere else. */
+    class int closeDescriptorsForExec(int bound) {
+        return __btrc_close_descriptors_from(bound);
+    }
+
+    class bool inheritsOnExec(int descriptor) {
+        int flags = fcntl(descriptor, F_GETFD, 0);
+        return flags >= 0 && (flags & FD_CLOEXEC) == 0;
+    }
+
+    class void validateArguments(Vector<string> arguments) {
+        for argument in arguments {
+            if (argument == null) {
+                throw "child arguments cannot contain null";
+            }
+        }
+    }
+
+    /* Keep every descriptor used as a dup2(2) source outside 0/1/2. Apart
+     * from making identity mappings harmless, this prevents one remap from
+     * overwriting a descriptor that a later remap still needs. */
+    class int moveOutsideStandardStreams(int* descriptor) {
+        return __btrc_move_descriptor_outside_stdio(descriptor);
+    }
+
+    /* A descriptor owned by a FILE remains attached to that FILE, so retain
+     * the original for fclose(3) and give the child a distinct safe source. */
+    class int childSourceOutsideStandardStreams(int descriptor) {
+        if (descriptor < 0 || descriptor > STDERR_FILENO) {
+            return descriptor;
+        }
+        return fcntl(descriptor, F_DUPFD_CLOEXEC, 3);
+    }
+
     class void validateEnvironment(Vector<string> environment,
                                    Vector<string> unsetEnvironment) {
         if (environment == null || unsetEnvironment == null) {
             throw "child environment vectors cannot be null";
         }
         for item in environment {
+            if (item == null) {
+                throw "child environment overrides cannot contain null";
+            }
             int split = Strings.find(item, "=", 0);
             if (split <= 0) {
                 throw f"invalid environment assignment: {item}";
@@ -512,6 +601,13 @@ class ChildProcess {
             string name = item.substring(0, split);
             if (!ShellWords.isEnvName(name)) {
                 throw f"invalid environment variable name: {name}";
+            }
+        }
+        for item in environment {
+            for name in unsetEnvironment {
+                if (ChildProcessEnvironment.assignmentHasName(item, name)) {
+                    throw "child environment variable cannot be both set and unset";
+                }
             }
         }
         for (int left = 0; left < environment.len; left++) {
@@ -523,6 +619,9 @@ class ChildProcess {
             }
         }
         for name in unsetEnvironment {
+            if (name == null) {
+                throw "child environment unsets cannot contain null";
+            }
             if (!ShellWords.isEnvName(name)) {
                 throw f"invalid environment variable name: {name}";
             }
@@ -540,6 +639,22 @@ class ChildProcess {
         descriptors[0] = -1;
         descriptors[1] = -1;
         if (pipe(descriptors) != 0) { return -1; }
+        int readDescriptor = descriptors[0];
+        int readMoved = ChildProcess.moveOutsideStandardStreams(
+            &readDescriptor);
+        descriptors[0] = readDescriptor;
+        if (readMoved != 0) {
+            ChildProcess.closePipe(descriptors);
+            return -1;
+        }
+        int writeDescriptor = descriptors[1];
+        int writeMoved = ChildProcess.moveOutsideStandardStreams(
+            &writeDescriptor);
+        descriptors[1] = writeDescriptor;
+        if (writeMoved != 0) {
+            ChildProcess.closePipe(descriptors);
+            return -1;
+        }
         int readFlags = fcntl(descriptors[0], F_GETFD);
         int writeFlags = fcntl(descriptors[1], F_GETFD);
         if (readFlags < 0 || writeFlags < 0
@@ -582,6 +697,7 @@ class ChildProcess {
         if (arguments == null) {
             return ChildProcess.failure(executable, "arguments cannot be null");
         }
+        ChildProcess.validateArguments(arguments);
         if (timeoutMilliseconds < 0) {
             throw "timeoutMilliseconds cannot be negative";
         }
@@ -590,7 +706,9 @@ class ChildProcess {
                 || maxStderrBytes > 2147483646) {
             throw "child capture limits are outside the supported range";
         }
-        if (!CommandOutput.valid(stdout) || !CommandOutput.valid(stderr)
+        if (stdout == null || stderr == null
+                || !CommandOutput.valid(stdout)
+                || !CommandOutput.valid(stderr)
                 || stdout.equals(CommandOutput.combine())
                 || (stderr.equals(CommandOutput.combine())
                     && !stdout.equals(CommandOutput.collect()))) {
@@ -599,6 +717,7 @@ class ChildProcess {
         ChildProcess.validateEnvironment(environment, unsetEnvironment);
 
         string command = ChildProcess.render(executable, arguments);
+        int descriptorBound = -1;
         long long deadline = 0LL;
         if (timeoutMilliseconds > 0) {
             deadline = ChildProcessClock.deadline(
@@ -611,19 +730,15 @@ class ChildProcess {
         if (arguments.len > 2147483645) {
             return ChildProcess.failure(command, "too many child arguments");
         }
-        char** execArguments = (char**)calloc(arguments.len + 2, sizeof(char*));
+        char** execArguments = ChildProcessArguments.build(
+            executable, arguments);
         if (execArguments == NULL) {
             return ChildProcess.failure(command, "failed to allocate child arguments");
         }
-        execArguments[0] = executable;
-        for (int i = 0; i < arguments.len; i++) {
-            execArguments[i + 1] = arguments.get(i);
-        }
-        execArguments[arguments.len + 1] = NULL;
         char** execEnvironment = ChildProcessEnvironment.build(
             environment, unsetEnvironment);
         if (execEnvironment == NULL) {
-            free(execArguments);
+            ChildProcessArguments.freeEntries(execArguments);
             return ChildProcess.failure(command,
                 "failed to allocate child environment");
         }
@@ -637,22 +752,30 @@ class ChildProcess {
         if (stdout.equals(CommandOutput.collect())
                 && ChildProcess.openPipe(stdoutPipe) != 0) {
             ChildProcessEnvironment.freeEntries(execEnvironment);
-            free(execArguments);
+            ChildProcessArguments.freeEntries(execArguments);
             return ChildProcess.failure(command, "failed to create stdout pipe");
         }
         if (stderr.equals(CommandOutput.collect())
                 && ChildProcess.openPipe(stderrPipe) != 0) {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcessEnvironment.freeEntries(execEnvironment);
-            free(execArguments);
+            ChildProcessArguments.freeEntries(execArguments);
             return ChildProcess.failure(command, "failed to create stderr pipe");
         }
 
         int nullDescriptor = -1;
         if (stdout.equals(CommandOutput.suppress())
                 || stderr.equals(CommandOutput.suppress())) {
-            nullDescriptor = open(
+            int openedNullDescriptor = open(
                 "/dev/null", (int)O_WRONLY | (int)O_CLOEXEC);
+            if (openedNullDescriptor >= 0) {
+                nullDescriptor = openedNullDescriptor;
+                if (ChildProcess.moveOutsideStandardStreams(
+                        &nullDescriptor) != 0) {
+                    if (nullDescriptor >= 0) { close(nullDescriptor); }
+                    nullDescriptor = -1;
+                }
+            }
         }
         if ((stdout.equals(CommandOutput.suppress())
                 || stderr.equals(CommandOutput.suppress()))
@@ -660,12 +783,13 @@ class ChildProcess {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcess.closePipe(stderrPipe);
             ChildProcessEnvironment.freeEntries(execEnvironment);
-            free(execArguments);
+            ChildProcessArguments.freeEntries(execArguments);
             return ChildProcess.failure(command, "failed to open /dev/null");
         }
 
         FILE* input = NULL;
         int inputDescriptor = -1;
+        int inputStreamDescriptor = -1;
         if (stdinData != null && !stdinData.isEmpty()) {
             input = tmpfile();
             if (input != NULL) {
@@ -675,15 +799,25 @@ class ChildProcess {
                     fclose(input);
                     input = NULL;
                 } else {
-                    inputDescriptor = fileno(input);
-                    int inputFlags = fcntl(inputDescriptor, F_GETFD);
-                    if (inputDescriptor < 0 || inputFlags < 0
-                            || fcntl(inputDescriptor, F_SETFD,
+                    inputStreamDescriptor = fileno(input);
+                    int inputFlags = fcntl(inputStreamDescriptor, F_GETFD);
+                    if (inputStreamDescriptor < 0 || inputFlags < 0
+                            || fcntl(inputStreamDescriptor, F_SETFD,
                                 inputFlags | FD_CLOEXEC) != 0
-                            || lseek(inputDescriptor, 0, SEEK_SET) < 0) {
+                            || lseek(inputStreamDescriptor, (off_t)0,
+                                SEEK_SET) < (off_t)0) {
                         fclose(input);
                         input = NULL;
-                        inputDescriptor = -1;
+                        inputStreamDescriptor = -1;
+                    } else {
+                        inputDescriptor =
+                            ChildProcess.childSourceOutsideStandardStreams(
+                                inputStreamDescriptor);
+                        if (inputDescriptor < 0) {
+                            fclose(input);
+                            input = NULL;
+                            inputStreamDescriptor = -1;
+                        }
                     }
                 }
             }
@@ -692,7 +826,7 @@ class ChildProcess {
                 ChildProcess.closePipe(stderrPipe);
                 if (nullDescriptor >= 0) { close(nullDescriptor); }
                 ChildProcessEnvironment.freeEntries(execEnvironment);
-                free(execArguments);
+                ChildProcessArguments.freeEntries(execArguments);
                 return ChildProcess.failure(command,
                     "failed to prepare child stdin");
             }
@@ -704,8 +838,12 @@ class ChildProcess {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcess.closePipe(stderrPipe);
             if (nullDescriptor >= 0) { close(nullDescriptor); }
+            if (inputDescriptor >= 0
+                    && inputDescriptor != inputStreamDescriptor) {
+                close(inputDescriptor);
+            }
             if (input != NULL) { fclose(input); }
-            free(execArguments);
+            ChildProcessArguments.freeEntries(execArguments);
             ChildProcessEnvironment.freeEntries(execEnvironment);
             return ChildProcess.failure(command,
                 "failed to execute child process\n");
@@ -715,7 +853,22 @@ class ChildProcess {
         bool suppressStderr = stderr.equals(CommandOutput.suppress());
         bool combineStderr = stderr.equals(CommandOutput.combine());
 
-        pid_t child = fork();
+        int stdoutSource = stdoutPipe[1] >= 0
+            ? stdoutPipe[1] : (suppressStdout ? nullDescriptor : -1);
+        int stderrSource = stderrPipe[1] >= 0
+            ? stderrPipe[1] : (suppressStderr ? nullDescriptor : -1);
+        pid_t child = __btrc_posix_spawn_cloexec(
+            resolvedExecutable, execArguments, execEnvironment,
+            hasCwd ? cwd : NULL,
+            stdoutSource, stderrSource, inputDescriptor,
+            combineStderr ? 1 : 0,
+            ChildProcess.inheritsOnExec(STDIN_FILENO) ? 1 : 0,
+            ChildProcess.inheritsOnExec(STDOUT_FILENO) ? 1 : 0,
+            ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
+        if (child == (pid_t)0 - (pid_t)2) {
+            descriptorBound = ChildProcess.descriptorCloseBound();
+            child = fork();
+        }
         if (child == (pid_t)0) {
             if (setpgid(0, 0) != 0) {
                 write(STDERR_FILENO,
@@ -744,6 +897,11 @@ class ChildProcess {
             if (stderrPipe[1] >= 0) { close(stderrPipe[1]); }
             if (nullDescriptor >= 0) { close(nullDescriptor); }
             if (inputDescriptor >= 0) { close(inputDescriptor); }
+            if (ChildProcess.closeDescriptorsForExec(descriptorBound) != 0) {
+                write(STDERR_FILENO,
+                    "unsupported process descriptor limit\n", 37);
+                _exit(126);
+            }
             if (hasCwd && chdir(cwd) != 0) {
                 write(STDERR_FILENO,
                     "failed to enter working directory\n", 34);
@@ -755,19 +913,23 @@ class ChildProcess {
             _exit(127);
         }
 
-        free(execArguments);
+        ChildProcessArguments.freeEntries(execArguments);
         ChildProcessEnvironment.freeEntries(execEnvironment);
         if (stdoutPipe[1] >= 0) { close(stdoutPipe[1]); stdoutPipe[1] = -1; }
         if (stderrPipe[1] >= 0) { close(stderrPipe[1]); stderrPipe[1] = -1; }
         if (nullDescriptor >= 0) { close(nullDescriptor); }
+        if (inputDescriptor >= 0
+                && inputDescriptor != inputStreamDescriptor) {
+            close(inputDescriptor);
+        }
         if (input != NULL) { fclose(input); }
         if (child < (pid_t)0) {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcess.closePipe(stderrPipe);
-            return ChildProcess.failure(command, "failed to fork child process\n");
+            return ChildProcess.failure(command, "failed to start child process\n");
         }
-        /* The child performs this before exec; the parent call closes the
-         * small scheduling window without mutating any child-owned state. */
+        /* Both spawn paths create the process group; this parent call closes
+         * the small fork scheduling window without changing child semantics. */
         setpgid(child, child);
 
         ChildProcessCapture output = ChildProcessCapture(
@@ -813,7 +975,7 @@ class ChildProcess {
             streams[1].fd = error.open ? error.descriptor : -1;
             streams[1].events = POLLIN;
             streams[1].revents = 0;
-            int ready = poll(streams, 2, 10);
+            int ready = poll(streams, (nfds_t)2, 10);
             if (ready > 0) {
                 if (output.open && streams[0].revents != 0) {
                     output.readReady();

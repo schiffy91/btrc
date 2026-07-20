@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...destructor_symbols import destructor_hook_symbol
 from ..nodes import (
     CType,
     IRBlock,
@@ -14,18 +15,13 @@ from ..nodes import (
 )
 
 
-def destructor_hook_name(owner_name: str) -> str:
-    """Return the compiler-reserved hook symbol for one concrete class."""
-    return f"__btrc_{owner_name}_destructor_hook"
-
-
 def build_destructor_hook(
     owner_name: str,
     body: IRBlock,
 ) -> IRFunctionDef:
     """Build the isolated function containing a source ``__del__`` body."""
     return IRFunctionDef(
-        name=destructor_hook_name(owner_name),
+        name=destructor_hook_symbol(owner_name),
         return_type=CType(text="void"),
         params=[IRParam(c_type=CType(text="void*"), name="object")],
         body=IRBlock(
@@ -54,5 +50,4 @@ def build_destructor_hook(
 
 __all__ = [
     "build_destructor_hook",
-    "destructor_hook_name",
 ]

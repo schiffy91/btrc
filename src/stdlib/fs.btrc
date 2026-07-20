@@ -24,6 +24,8 @@ class FileStatus {
     public int linkMode;
     public bool found;
     public bool linkFound;
+    public int error;
+    public int linkError;
 
     public FileStatus(string path) {
         self.path = path == null ? "" : path;
@@ -32,13 +34,19 @@ class FileStatus {
             self.mode = 0;
             self.linkFound = false;
             self.linkMode = 0;
+            self.error = EINVAL;
+            self.linkError = EINVAL;
             return;
         }
         struct stat st;
+        errno = 0;
         self.found = stat(path, &st) == 0;
+        self.error = self.found ? 0 : errno;
         self.mode = self.found ? (int)st.st_mode : 0;
         struct stat lst;
+        errno = 0;
         self.linkFound = lstat(path, &lst) == 0;
+        self.linkError = self.linkFound ? 0 : errno;
         self.linkMode = self.linkFound ? (int)lst.st_mode : 0;
     }
 
@@ -57,30 +65,63 @@ class FileStatus {
     public bool isSymlink() {
         return self.linkFound && S_ISLNK(self.linkMode);
     }
+
+    /* Destructive idempotence applies only when both following and no-follow
+     * metadata probes positively report that the path does not exist. Access,
+     * malformed-path, and I/O failures must remain visible to the caller. */
+    public bool isMissing() {
+        return !self.found && !self.linkFound
+            && self.error == ENOENT && self.linkError == ENOENT;
+    }
 }
 
 class Directory {
     public string path;
+    private bool io_failed;
 
     public Directory(string path) {
         self.path = path;
+        self.io_failed = false;
     }
 
-    public Vector<string> entries() {
+    public bool failed() {
+        return self.io_failed;
+    }
+
+    /* Return at most maxEntries + 1 names so callers can enforce a scan
+     * budget without first materializing an unbounded directory. */
+    public Vector<string> entriesBounded(int maxEntries) {
         Vector<string> result = [];
-        if (self.path == null) { return result; }
+        self.io_failed = false;
+        if (self.path == null || maxEntries < 0 || maxEntries >= 2147483646) {
+            self.io_failed = true;
+            return result;
+        }
+        errno = 0;
         DIR* dir = opendir(self.path);
-        if (dir == NULL) { return result; }
-        struct dirent* entry = readdir(dir);
-        while (entry != NULL) {
+        if (dir == NULL) {
+            self.io_failed = true;
+            return result;
+        }
+        while (true) {
+            errno = 0;
+            struct dirent* entry = readdir(dir);
+            if (entry == NULL) {
+                if (errno != 0) { self.io_failed = true; }
+                break;
+            }
             string name = entry->d_name;
             if (!name.equals(".") && !name.equals("..")) {
                 result.push(Strings.copy(name));
+                if (result.len > maxEntries) { break; }
             }
-            entry = readdir(dir);
         }
-        closedir(dir);
+        if (closedir(dir) != 0) { self.io_failed = true; }
         return result;
+    }
+
+    public Vector<string> entries() {
+        return self.entriesBounded(2147483645);
     }
 }
 
@@ -134,26 +175,20 @@ class UnixFileSystem {
     }
 
     /* Windows cannot provide the POSIX descriptor-relative *at operations.
-     * Its lstat/unlink compatibility shims classify directory reparse points
-     * as links and remove the link itself instead of enumerating its target. */
+     * Deleting an ordinary directory through a path-based walker would leave
+     * an ancestor-junction race, so recursive directory deletion fails closed
+     * until a handle-relative NT backend exists. Files and final reparse points
+     * remain supported as single-name unlink operations; no directory target
+     * is enumerated. */
     class int removeRecursivePath(string path) {
         FileStatus status = FileStatus(path);
-        if (!status.exists() && !status.isSymlink()) { return 0; }
+        if (!status.exists() && !status.isSymlink()) {
+            return status.isMissing() ? 0 : -1;
+        }
         if (status.isSymlink() || status.isFile()) {
             return unlink(path);
         }
-        if (!status.isDir()) {
-            return unlink(path);
-        }
-        if (UnixFileSystem.isCanonicalRoot(path)) { return -1; }
-        Directory dir = Directory(path);
-        Vector<string> entries = dir.entries();
-        for entry in entries {
-            string child = PathTools.join(path, entry);
-            int removed = UnixFileSystem.removeRecursivePath(child);
-            if (removed != 0) { return removed; }
-        }
-        return rmdir(path);
+        return -1;
     }
 
     /* Delete one name relative to an already-open directory. Every directory
@@ -263,7 +298,9 @@ class UnixFileSystem {
     class int removeRecursive(string path) {
         if (path == null || path.isEmpty()) { return -1; }
         FileStatus status = FileStatus(path);
-        if (!status.exists() && !status.isSymlink()) { return 0; }
+        if (!status.exists() && !status.isSymlink()) {
+            return status.isMissing() ? 0 : -1;
+        }
         if (status.isDir() && !status.isSymlink()
                 && UnixFileSystem.isCanonicalRoot(path)) { return -1; }
         if (Platform.isWindows()) {
@@ -348,11 +385,18 @@ class UnixFileSystem {
         }
         var base = Environment.get("TMPDIR", "/tmp");
         var templatePath = PathTools.join(base, prefix + ".XXXXXX");
-        string raw = Strings.copy(templatePath);
-        char* result = mkdtemp(raw);
-        if (result == NULL) { return ""; }
-        string canonical = UnixFileSystem.realPath(result);
-        return canonical.isEmpty() ? Strings.copy(result) : canonical;
+        size_t rawLength = strlen(templatePath);
+        char* raw = (char*)malloc(rawLength + (size_t)1);
+        if (raw == NULL) { return ""; }
+        memcpy(raw, templatePath, rawLength + (size_t)1);
+        if (mkdtemp(raw) == NULL) {
+            free(raw);
+            return "";
+        }
+        string canonical = UnixFileSystem.realPath(raw);
+        string result = canonical.isEmpty() ? Strings.copy(raw) : canonical;
+        free(raw);
+        return result;
     }
 }
 

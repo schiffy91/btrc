@@ -40,11 +40,9 @@ class CallTargetContractsMixin:
 
     def _validate_identifier_callable(self, identifier) -> None:
         name = identifier.name
-        if name in self.function_table or name in self.class_table:
-            return
         symbol = self.scope.lookup(name)
-        if symbol is not None:
-            if symbol.kind == "function" or self._function_pointer_signature(symbol.type) is not None:
+        if symbol is not None and symbol.kind != "function":
+            if self._function_pointer_signature(symbol.type) is not None:
                 return
             rendered = self._format_type(symbol.type) if symbol.type else "unknown"
             self._error(
@@ -52,6 +50,10 @@ class CallTargetContractsMixin:
                 identifier.line,
                 identifier.col,
             )
+            return
+        if name in self.function_table or name in self.class_table:
+            return
+        if symbol is not None:
             return
         if name in self.enum_table or name in self.rich_enum_table:
             self._error(f"Type '{name}' is not directly callable", identifier.line, identifier.col)

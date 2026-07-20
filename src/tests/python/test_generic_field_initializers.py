@@ -17,7 +17,6 @@ COMPILERS = tuple(compiler for compiler in (shutil.which("gcc"), shutil.which("c
 
 SUCCESS_SOURCE = r"""
     #include <assert.h>
-    #define btrcTestStringEntryCount() ((int)__btrc_string_entry_count)
 
     int itemsAlive = 0;
     int leavesAlive = 0;
@@ -94,7 +93,7 @@ SUCCESS_SOURCE = r"""
     }
 
     int main() {
-        int baselineStrings = (int)btrcTestStringEntryCount();
+        int baselineStrings = (int)__btrc_string_live_count();
         shared = new Item(22);
         assert(itemsAlive == 1);
 
@@ -115,14 +114,14 @@ SUCCESS_SOURCE = r"""
         assert(itemsAlive == 2);
         assert(leavesAlive == 2);
         assert(leavesDestroyed == 0);
-        assert((int)btrcTestStringEntryCount() == baselineStrings + 1);
+        assert((int)__btrc_string_live_count() == baselineStrings + 1);
 
         delete value;
         assert(ownersDestroyed == 1);
         assert(itemsAlive == 1);
         assert(leavesAlive == 0);
         assert(leavesDestroyed == 2);
-        assert((int)btrcTestStringEntryCount() == baselineStrings);
+        assert((int)__btrc_string_live_count() == baselineStrings);
 
         delete shared;
         assert(itemsAlive == 0);
@@ -132,7 +131,6 @@ SUCCESS_SOURCE = r"""
 
 FAILURE_SOURCE = r"""
     #include <assert.h>
-    #define btrcTestStringEntryCount() ((int)__btrc_string_entry_count)
 
     int nodesAlive = 0;
     int failedHooks = 0;
@@ -164,7 +162,7 @@ FAILURE_SOURCE = r"""
     }
 
     int main() {
-        int baselineStrings = (int)btrcTestStringEntryCount();
+        int baselineStrings = (int)__btrc_string_live_count();
         try {
             Failing<int> value = new Failing<int>();
             assert(value == null);
@@ -173,7 +171,7 @@ FAILURE_SOURCE = r"""
         }
         assert(nodesAlive == 0);
         assert(failedHooks == 0);
-        assert((int)btrcTestStringEntryCount() == baselineStrings);
+        assert((int)__btrc_string_live_count() == baselineStrings);
         return 0;
     }
 """

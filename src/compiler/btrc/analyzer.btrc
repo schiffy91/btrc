@@ -81,6 +81,14 @@ class Analyzed {
      * type args, so IR-gen can mangle the call to its monomorphized instance
      * without re-running inference. Mirrors generic_method_call_args. */
     public Map<string, Vector<Node>> methodGenCallArgs;
+    /* Canonical stdlib call sites that must bypass a user source definition
+     * sharing a compiler-owned hosted spelling. */
+    public Map<string, bool> hostedCallKeys;
+    /* Generic constructor call identity -> exact context/inference result.
+     * This is the self-hosted counterpart of reference node_types: no-arg and
+     * nested constructors retain the concrete specialization selected by a
+     * return, argument, initializer, or assignment boundary. */
+    public Map<string, Node> genericConstructorTypes;
     /* Module-level (file-scope) variable name -> its TypeExpr. Mirrors the
      * reference's global scope: a bare identifier referencing a top-level var
      * resolves to this type during inference (e.g. `string order` so
@@ -97,6 +105,22 @@ class Analyzed {
     /* struct tag/name -> complete definition when available, otherwise its
      * forward declaration. */
     public Map<string, Node> structTable;
+    /* Immutable declaration indexes built after registration and before the
+     * first inference query. General-member and method-only namespaces remain
+     * separate so a value member never masks an inherited method. */
+    public bool memberIndexReady;
+    public Map<string, Node> classMemberIndex;
+    public Map<string, Node> classMethodIndex;
+    public Map<string, Node> classConstructorIndex;
+    public Map<string, Node> genericMemberIndex;
+    public Map<string, Node> genericMethodIndex;
+    public Map<string, Node> genericConstructorIndex;
+    /* IR generation enables this memo only inside one immutable type
+     * environment. Semantic analysis leaves it disabled because its scopes are
+     * still being built and mutated. */
+    public bool expressionInferenceMemoEnabled;
+    public Map<string, bool> expressionInferenceMemoKnown;
+    public Map<string, Node> expressionInferenceMemoValues;
 
     public Analyzed() {
         self.funcRetTypes = {};
@@ -115,10 +139,22 @@ class Analyzed {
         self.methodGenInstances = [];
         self.methodGenSeen = {};
         self.methodGenCallArgs = {};
+        self.hostedCallKeys = {};
+        self.genericConstructorTypes = {};
         self.globalVarTypes = {};
         self.globalHasDefinition = {};
         self.typedefTable = {};
         self.structTable = {};
+        self.memberIndexReady = false;
+        self.classMemberIndex = {};
+        self.classMethodIndex = {};
+        self.classConstructorIndex = {};
+        self.genericMemberIndex = {};
+        self.genericMethodIndex = {};
+        self.genericConstructorIndex = {};
+        self.expressionInferenceMemoEnabled = false;
+        self.expressionInferenceMemoKnown = {};
+        self.expressionInferenceMemoValues = {};
     }
 
     /* True if any generic-method monomorphization target exists. */
@@ -181,6 +217,12 @@ class Analyzed {
         return self.classTable.has(name);
     }
 
+    public void requireMemberIndex() {
+        if (self.memberIndexReady) { return; }
+        fprintf(stderr, "internal compiler error: declaration member index is not ready\n");
+        exit(1);
+    }
+
     /* True if `base` is a (transitive) parent class of `sub`. Walks the parent
      * chain from `sub`; `sub == base` counts as true. Mirrors
      * variables._is_subclass. */
@@ -201,20 +243,10 @@ class Analyzed {
      * Constructors are declaration-only call targets and never instance
      * members; classConstructor() is their sole lookup path. */
     public Node? classMember(string cls, string member) {
-        string cur = cls;
-        while (cur != "" && self.classTable.has(cur)) {
-            Node decl = self.classTable.get(cur);
-            int i = 0;
-            while (i < decl.members.len) {
-                Node m = decl.members.get(i);
-                if (m.name == member
-                        && !(m.kind == NK_METHOD_DECL
-                            && m.is_constructor)) {
-                    return m;
-                }
-                i = i + 1;
-            }
-            cur = parentName(decl);
+        self.requireMemberIndex();
+        string key = analyzedMemberIndexKey(cls, member);
+        if (self.classMemberIndex.has(key)) {
+            return self.classMemberIndex.get(key);
         }
         return null;
     }
@@ -223,33 +255,19 @@ class Analyzed {
      * properties. Walk inheritance just like classMember, but never let a
      * same-named value member mask the callable declaration. */
     public Node? classMethod(string cls, string method) {
-        string cur = cls;
-        while (cur != "" && self.classTable.has(cur)) {
-            Node decl = self.classTable.get(cur);
-            int index = 0;
-            while (index < decl.members.len) {
-                Node member = decl.members.get(index);
-                if (member.kind == NK_METHOD_DECL
-                        && !member.is_constructor
-                        && member.name == method) {
-                    return member;
-                }
-                index = index + 1;
-            }
-            cur = parentName(decl);
+        self.requireMemberIndex();
+        string key = analyzedMemberIndexKey(cls, method);
+        if (self.classMethodIndex.has(key)) {
+            return self.classMethodIndex.get(key);
         }
         return null;
     }
 
     /* The explicitly marked constructor MethodDecl of class `cls`, or null. */
     public Node? classConstructor(string cls) {
-        if (!self.classTable.has(cls)) { return null; }
-        Node decl = self.classTable.get(cls);
-        int i = 0;
-        while (i < decl.members.len) {
-            Node m = decl.members.get(i);
-            if (m.kind == NK_METHOD_DECL && m.is_constructor) { return m; }
-            i = i + 1;
+        self.requireMemberIndex();
+        if (self.classConstructorIndex.has(cls)) {
+            return self.classConstructorIndex.get(cls);
         }
         return null;
     }
@@ -258,31 +276,18 @@ class Analyzed {
      * generic classes are not inherited in this compiler), or null. Used to
      * order named args / fill defaults on generic-instance method calls. */
     public Node? genericClassMethod(string cls, string member) {
-        if (!self.genericClassTable.has(cls)) { return null; }
-        Node decl = self.genericClassTable.get(cls);
-        int i = 0;
-        while (i < decl.members.len) {
-            Node m = decl.members.get(i);
-            if (m.kind == NK_METHOD_DECL && !m.is_constructor
-                    && m.name == member) {
-                return m;
-            }
-            i = i + 1;
+        self.requireMemberIndex();
+        string key = analyzedMemberIndexKey(cls, member);
+        if (self.genericMethodIndex.has(key)) {
+            return self.genericMethodIndex.get(key);
         }
         return null;
     }
 
     public Node? genericClassConstructor(string cls) {
-        if (!self.genericClassTable.has(cls)) { return null; }
-        Node decl = self.genericClassTable.get(cls);
-        int index = 0;
-        while (index < decl.members.len) {
-            Node member = decl.members.get(index);
-            if (member.kind == NK_METHOD_DECL
-                    && member.is_constructor) {
-                return member;
-            }
-            index = index + 1;
+        self.requireMemberIndex();
+        if (self.genericConstructorIndex.has(cls)) {
+            return self.genericConstructorIndex.get(cls);
         }
         return null;
     }
@@ -404,6 +409,7 @@ Analyzed analyzeProgram(Node prog) {
         }
         i = i + 1;
     }
+    indexAnalyzedMembers(a);
     /* `var` (untyped) module-level variables: deduce the type from the
      * initializer now that the function/class tables are populated, so a bare
      * reference to such a global still resolves (mirrors the global-scope type
@@ -739,16 +745,7 @@ void inferMethodTypeArgs(Node call, Node method, Map<string, Node> classSubs,
 Node? argTypeForInference(Node arg, Analyzed a, Map<string, Node> vt) {
     if (arg.kind == NK_IDENTIFIER && a.funcTable.has(arg.name)
             && !vt.has(arg.name)) {
-        Node func = a.funcTable.get(arg.name);
-        Node u = Node();
-        u.kind = NK_TYPE_EXPR;
-        u.base = "__fn_ptr";
-        Vector<Node> ga = [];
-        ga.push(func.return_type);
-        int i = 0;
-        while (i < func.params.len) { ga.push(func.params.get(i).type); i = i + 1; }
-        u.generic_args = ga;
-        return u;
+        return sourceFunctionPointerType(a.funcTable.get(arg.name));
     }
     return inferSpecializationType(arg, a, vt);
 }
@@ -760,7 +757,11 @@ void unifyTypeParam(Node? declared, Node? actual, Map<string, bool> tparams,
     if (declared == null || actual == null) { return; }
     if (tparams.has(declared.base) && declared.generic_args.len == 0) {
         if (!subs.has(declared.base)) {
-            subs.put(declared.base, stripOnePointer(actual, declared));
+            Node? binding = stripOnePointer(actual, declared);
+            if (binding != null) {
+                Node concreteBinding = binding;
+                subs.put(declared.base, concreteBinding);
+            }
         }
         return;
     }
@@ -776,19 +777,16 @@ void unifyTypeParam(Node? declared, Node? actual, Map<string, bool> tparams,
 
 /* Adjust `actual` for the pointer depth the declared param adds (declared U*
  * vs actual int* binds U to int). */
-Node stripOnePointer(Node actual, Node declared) {
+Node? stripOnePointer(Node actual, Node declared) {
     int extra = declared.pointer_depth;
-    if (extra > 0 && actual.pointer_depth >= extra) {
-        Node u = Node();
-        u.kind = NK_TYPE_EXPR;
-        u.base = actual.base;
-        u.generic_args = actual.generic_args;
-        u.pointer_depth = actual.pointer_depth - extra;
-        u.is_array = actual.is_array;
-        u.is_nullable = actual.is_nullable;
-        return u;
+    Node binding = actual;
+    int removed = 0;
+    while (removed < extra) {
+        if (binding.pointer_depth <= 0) { return null; }
+        binding = typeWithoutOuterPointers(binding, 1);
+        removed = removed + 1;
     }
-    return actual;
+    return binding;
 }
 
 Map<string, bool> typeParameterSet(Vector<string> parameters) {
@@ -1376,6 +1374,14 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             streamType.pointer_depth = 1;
             return streamType;
         }
+        if (node.name == "__func__") {
+            Node functionNameType = makePrimType("char");
+            functionNameType.pointer_depth = 1;
+            functionNameType.is_const = true;
+            return functionNameType;
+        }
+        Node? predefinedType = cPredefinedIdentifierType(node.name);
+        if (predefinedType != null) { return predefinedType; }
         if (isCOpaqueValueIdentifier(node.name)) { return null; }
         if (isCIntegerIdentifier(node.name)) { return makePrimType("int"); }
         return null;
@@ -1412,22 +1418,15 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                     && !varTypes.has(node.operand.name)) {
                 return operandType;
             }
-            Node addressed = copyTypeExpr(operandType);
-            addressed.pointer_depth = addressed.pointer_depth + 1;
-            addressed.is_array = false;
-            addressed.array_size = null;
-            return addressed;
+            Node addressed = typeWithoutOuterArray(operandType);
+            return typeWithOuterPointer(addressed);
         }
         if (node.op == "*") {
-            Node dereferenced = copyTypeExpr(operandType);
-            if (dereferenced.is_array) {
-                dereferenced.is_array = false;
-                dereferenced.array_size = null;
-                return dereferenced;
+            if (operandType.is_array) {
+                return typeWithoutOuterArray(operandType);
             }
-            if (dereferenced.pointer_depth > 0) {
-                dereferenced.pointer_depth = dereferenced.pointer_depth - 1;
-                return dereferenced;
+            if (operandType.pointer_depth > 0) {
+                return typeWithoutOuterPointers(operandType, 1);
             }
         }
         Node? overloaded = operatorOverloadReturnType(
@@ -1549,6 +1548,11 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             return callableCallee.generic_args.get(0);
         }
         if (callee != null && callee.kind == NK_IDENTIFIER) {
+            if (varTypes.has(callee.name)) { return null; }
+            string constructorKey = astNodeKey(node);
+            if (a.genericConstructorTypes.has(constructorKey)) {
+                return a.genericConstructorTypes.get(constructorKey);
+            }
             if (callee.name == "__btrc_hash") { return makePrimType("uint"); }
             if (callee.name == "__btrc_eq" || callee.name == "__btrc_lt"
                     || callee.name == "__btrc_gt") {
@@ -1559,6 +1563,13 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                     || callee.name == "__btrc_string_alloc") {
                 return makePrimType("string");
             }
+            string hostedCallKey = astNodeKey(node);
+            if (a.funcRetTypes.has(callee.name)
+                    && !a.hostedCallKeys.has(hostedCallKey)) {
+                return a.funcRetTypes.get(callee.name);
+            }
+            Node? hostedResult = hostedAbiSemanticResultType(callee.name);
+            if (hostedResult != null) { return hostedResult; }
             /* Builtin Mutex(value) infers the exact payload type. Keep this in
              * semantic inference (matching the reference compiler) so ownership
              * boundaries and every other consumer see a typed handle instead of
@@ -1583,18 +1594,31 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 mutexType.generic_args.push(argumentType);
                 return mutexType;
             }
+            if (a.isGenericClass(callee.name)) {
+                return inferGenericConstructorCallType(
+                    node, callee.name, a, varTypes);
+            }
             /* Constructor call ClassName(...) yields a class-instance pointer. */
             if (a.isClass(callee.name)) {
                 return classPtrType(makeClassTypeExpr(callee.name));
             }
-            if (a.funcRetTypes.has(callee.name)) {
-                return a.funcRetTypes.get(callee.name);
-            }
         }
         if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR) {
             string method = callee.field;
+            /* A rich-enum variant constructor is a namespaced free function
+             * whose value has the enum type. Keep this in the shared
+             * specialization inference path so call-boundary result slots and
+             * generic-body consumers use the same resolved target. */
+            if (callee.obj != null
+                    && callee.obj.kind == NK_IDENTIFIER
+                    && !varTypes.has(callee.obj.name)
+                    && semanticResolveRichEnumVariant(
+                        callee.obj.name, method, a) != null) {
+                return makePrimType(callee.obj.name);
+            }
             /* Static method call ClassName.method(...) */
             if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER
+                    && !varTypes.has(callee.obj.name)
                     && a.isClass(callee.obj.name)) {
                 Node? sm = a.classMethod(callee.obj.name, method);
                 if (sm != null && sm.kind == NK_METHOD_DECL) { return sm.return_type; }
@@ -1723,7 +1747,6 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         Vector<Node> tga = [];
         tga.push(ret);
         u.generic_args = tga;
-        u.pointer_depth = 1;
         return u;
     }
     if (node.kind == NK_TUPLE_LITERAL) {
@@ -1764,7 +1787,7 @@ Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
 /* Match the reference analyzer's stored expression-type domain: expand the
  * alias naming the value itself, but retain aliases nested in generic
  * arguments so IR symbol selection agrees with generic-instance collection. */
-Node? inferSpecializationType(
+Node? inferSpecializationTypeUnmemoized(
         Node? node, Analyzed a, Map<string, Node> varTypes) {
     return resolveOuterTypedefType(
         inferTypeRaw(node, a, varTypes), a.typedefTable);
@@ -1924,25 +1947,8 @@ Node resolveGenericType(Node? t, Map<string, Node> typeMap,
             typeShapeFail("nested array composition for type parameter '"
                 + t.base + "' is not supported");
         }
-        Node u = Node();
-        u.kind = NK_TYPE_EXPR;
-        u.base = resolved.base;
-        u.generic_args = resolved.generic_args;
-        u.pointer_depth = resolved.pointer_depth
-            + typeAppliedSubstitutionPointerDepth(t,
-                genericSubstitutionReferenceShape(
-                    referenceShape, analyzed));
-        u.is_array = t.is_array || resolved.is_array;
-        if (t.array_size != null) { u.array_size = t.array_size; }
-        else { u.array_size = resolved.array_size; }
-        u.is_const = t.is_const || resolved.is_const;
-        u.is_nullable = t.is_nullable || resolved.is_nullable;
-        u.is_static = t.is_static || resolved.is_static;
-        u.is_extern = t.is_extern || resolved.is_extern;
-        u.is_volatile = t.is_volatile || resolved.is_volatile;
-        if (t.line != 0) { u.line = t.line; } else { u.line = resolved.line; }
-        if (t.col != 0) { u.col = t.col; } else { u.col = resolved.col; }
-        return u;
+        return composeTypeExpr(t, resolved,
+            genericSubstitutionReferenceShape(referenceShape, analyzed));
     }
     if (t.generic_args.len > 0) {
         Node u = Node();
@@ -1961,6 +1967,7 @@ Node resolveGenericType(Node? t, Map<string, Node> typeMap,
         u.array_size = t.array_size;
         u.is_const = t.is_const;
         u.is_nullable = t.is_nullable;
+        u.nullable_outer_depth = t.nullable_outer_depth;
         u.is_static = t.is_static;
         u.is_extern = t.is_extern;
         u.is_volatile = t.is_volatile;
@@ -2014,16 +2021,10 @@ Map<string, Node> methodCallTypeMap(Analyzed a, Node call, Node method,
 
 /* Find a member (field/method/property) in a generic class decl by name. */
 Node? genericMember(Analyzed a, string base, string member) {
-    if (!a.genericClassTable.has(base)) { return null; }
-    Node decl = a.genericClassTable.get(base);
-    int i = 0;
-    while (i < decl.members.len) {
-        Node m = decl.members.get(i);
-        if (m.name == member
-                && !(m.kind == NK_METHOD_DECL && m.is_constructor)) {
-            return m;
-        }
-        i = i + 1;
+    a.requireMemberIndex();
+    string key = analyzedMemberIndexKey(base, member);
+    if (a.genericMemberIndex.has(key)) {
+        return a.genericMemberIndex.get(key);
     }
     return null;
 }
@@ -2048,6 +2049,7 @@ Node classPtrType(Node? t) {
     u.pointer_depth = 1;
     u.is_array = t.is_array;
     u.is_nullable = t.is_nullable;
+    u.nullable_outer_depth = t.nullable_outer_depth;
     return u;
 }
 

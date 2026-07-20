@@ -1,5 +1,4 @@
 #include <assert.h>
-#define btrcTestStringEntryCount() (__btrc_string_entry_count)
 
 extern void arc_test_allocation_checkpoint();
 extern long arc_test_allocation_delta();
@@ -86,7 +85,7 @@ class RichDefaults<T> {
 }
 
 void exerciseRichDefaults(int base) {
-    int baselineStrings = (int)btrcTestStringEntryCount();
+    int baselineStrings = (int)__btrc_string_live_count();
     int itemsDestroyed = defaultItemsDestroyed;
     int leavesDestroyed = defaultLeavesDestroyed;
     int ownersDestroyed = defaultOwnersDestroyed;
@@ -108,7 +107,7 @@ void exerciseRichDefaults(int base) {
     assert(value.buckets.values[2] == 9);
     assert(defaultItemsAlive == 2);
     assert(defaultLeavesAlive == 2);
-    assert((int)btrcTestStringEntryCount() == baselineStrings + 1);
+    assert((int)__btrc_string_live_count() == baselineStrings + 1);
 
     delete value;
     assert(defaultOwnersDestroyed == ownersDestroyed + 1);
@@ -116,7 +115,7 @@ void exerciseRichDefaults(int base) {
     assert(defaultItemsDestroyed == itemsDestroyed + 1);
     assert(defaultLeavesAlive == 0);
     assert(defaultLeavesDestroyed == leavesDestroyed + 2);
-    assert((int)btrcTestStringEntryCount() == baselineStrings);
+    assert((int)__btrc_string_live_count() == baselineStrings);
 
     delete sharedDefaultItem;
     assert(defaultItemsAlive == 0);

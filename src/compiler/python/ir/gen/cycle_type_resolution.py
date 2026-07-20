@@ -17,6 +17,7 @@ def cycle_type_key(type_expr) -> tuple:
         type_expr.pointer_depth,
         type_expr.is_array,
         type_expr.is_nullable,
+        type_expr.nullable_outer_depth,
         tuple(cycle_type_key(argument) for argument in type_expr.generic_args),
     )
 

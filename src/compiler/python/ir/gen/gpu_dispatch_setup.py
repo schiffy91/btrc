@@ -24,6 +24,7 @@ from .gpu_dispatch_model import (
     wgsl_to_c,
 )
 from .gpu_dispatch_status import create_status_buffer, status_declaration
+from .parameters import source_binding_c_name
 
 
 def initial_state(spec: GpuDispatchSpec) -> list:
@@ -122,7 +123,7 @@ def storage_buffers(spec: GpuDispatchSpec) -> list:
             _create_storage_buffer(
                 spec,
                 names.buffer(buffer.name),
-                IRVar(name=parameter.name),
+                IRVar(name=source_binding_c_name(parameter.name, spec.analyzed)),
                 IRVar(name=buffer_length_name(parameter.name)),
                 wgsl_to_c(buffer.elem_type),
                 read_write=buffer.access == "read_write",

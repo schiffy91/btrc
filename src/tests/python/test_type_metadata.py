@@ -68,13 +68,19 @@ def test_nullable_generic_substitution_preserves_metadata_without_stacking_refer
 def test_explicit_pointer_layer_on_nullable_generic_still_composes():
     analyzer = Analyzer()
     # pointer_depth=2 models T*?: one explicit layer plus the nullable parser
-    # layer.  Substitution removes only the provisional nullable layer.
+    # layer.  Substitution removes only the provisional nullable layer and
+    # records the surviving explicit layer outside the nullable boundary.
     placeholder = TypeExpr(base="T", pointer_depth=2, is_nullable=True)
     concrete = TypeExpr(base="Item", pointer_depth=1)
 
     result = analyzer._substitute_type(placeholder, {"T": concrete})
 
-    assert result == TypeExpr(base="Item", pointer_depth=2, is_nullable=True)
+    assert result == TypeExpr(
+        base="Item",
+        pointer_depth=2,
+        is_nullable=True,
+        nullable_outer_depth=1,
+    )
 
 
 def test_nested_generic_substitution_preserves_owner_metadata():

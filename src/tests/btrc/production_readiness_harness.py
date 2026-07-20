@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +20,54 @@ from src.tests.btrc.test_semantic_validation import (
 
 CompiledPair = tuple[tuple[str, Path], tuple[str, Path]]
 OutputValidator = Callable[[str], None]
+
+
+def compile_no_dce_pair(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+    name: str,
+) -> CompiledPair:
+    """Compile one standalone fixture with reachability pruning disabled."""
+    program = tmp_path / f"{name}.btrc"
+    program.write_text(source)
+
+    selfhost_c = tmp_path / f"{name}.selfhost.c"
+    selfhost = subprocess.run(
+        [str(semantic_btrcc), "--no-stdlib", "--no-dce", str(program)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if selfhost.returncode == 0:
+        selfhost_c.write_text(selfhost.stdout)
+
+    reference_c = tmp_path / f"{name}.reference.c"
+    reference = subprocess.run(
+        [
+            "python3",
+            "-m",
+            "src.compiler.python.main",
+            str(program),
+            "--no-stdlib",
+            "--no-cache",
+            "--no-dce",
+            "-o",
+            str(reference_c),
+        ],
+        cwd=REPO,
+        env={
+            **os.environ,
+            "BTRC_CACHE_DIR": str(tmp_path / f"{name}-cache"),
+        },
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    return ("selfhost-no-dce", selfhost_c), ("reference-no-dce", reference_c)
 
 
 def compile_fixture_pair(
@@ -109,6 +158,7 @@ def compile_diagnostic_pair(
 __all__ = [
     "compile_diagnostic_pair",
     "compile_fixture_pair",
+    "compile_no_dce_pair",
     "run_strict_pair",
     "run_tracked_fixture_pair",
 ]

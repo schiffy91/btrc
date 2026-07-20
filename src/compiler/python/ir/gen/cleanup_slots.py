@@ -13,6 +13,7 @@ from ..nodes import (
     IRCleanupSlot,
     IRDeref,
     IRFunctionDef,
+    IRFunctionRef,
     IRIf,
     IRLiteral,
     IRParam,
@@ -54,7 +55,7 @@ def register_cleanup_slot(gen, declaration, cleanup_fn, *, visitor=None, direct=
             target_type=CType(text="void*"),
             expr=IRAddressOf(expr=IRVar(name=declaration.name)),
         ),
-        IRVar(name=take_function),
+        IRFunctionRef(name=take_function),
         cleanup_fn,
     ]
     if not direct:

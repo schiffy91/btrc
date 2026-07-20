@@ -5,12 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import ThrowStmt, TryCatchStmt
-from ..nodes import IRBlock, IRCall, IRExprStmt, IRIf, IRStmt, IRVar, IRVarDecl
+from ...control_termination import block_must_terminate
+from ..nodes import IRBlock, IRCall, IRExprStmt, IRIf, IRStmt, IRVar
 from .try_stack import (
     capture_finally_error,
-    finally_error_message,
     finally_state_declarations,
     pop_try_frames,
+    rethrow_finally_error,
     setjmp_success_condition,
 )
 
@@ -48,7 +49,8 @@ def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]
     gen.use_helper("__btrc_throw")
     stmts: list[IRStmt] = []
     finally_only = node.catch_block is None and node.finally_block is not None
-    pending_name = gen.fresh_temp("__btrc_finally_pending") if finally_only else ""
+    try_terminates = finally_only and block_must_terminate(node.try_block)
+    pending_name = gen.fresh_temp("__btrc_finally_pending") if finally_only and not try_terminates else None
     error_name = gen.fresh_temp("__btrc_finally_error") if finally_only else ""
     stmts.append(
         IRExprStmt(
@@ -95,8 +97,8 @@ def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]
     join_callable_flows(gen, *exceptional_flows, try_flow)
     exceptional_entry = snapshot_callable_flow(gen)
     if finally_only:
-        stmts.extend(finally_state_declarations(pending_name, error_name))
-        catch_body = IRBlock(stmts=capture_finally_error(pending_name, error_name))
+        stmts.extend(finally_state_declarations(error_name, pending_name))
+        catch_body = IRBlock(stmts=capture_finally_error(error_name, pending_name))
         catch_flow = exceptional_entry
     else:
         catch_bindings = _catch_bindings(gen, node)
@@ -108,7 +110,6 @@ def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]
                 iteration_bindings=catch_bindings,
             ),
         )
-        _mark_catch_binding_used(node, catch_body)
 
     join_callable_flows(gen, try_flow, catch_flow)
     stmts.append(
@@ -121,22 +122,7 @@ def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]
     if node.finally_block:
         stmts.extend(lower_block(gen, node.finally_block).stmts)
         if finally_only:
-            stmts.append(
-                IRIf(
-                    condition=IRVar(name=pending_name),
-                    then_block=IRBlock(
-                        stmts=[
-                            IRExprStmt(
-                                expr=IRCall(
-                                    callee="__btrc_throw",
-                                    args=[finally_error_message(error_name)],
-                                    helper_ref="__btrc_throw",
-                                )
-                            )
-                        ]
-                    ),
-                )
-            )
+            stmts.append(rethrow_finally_error(error_name, pending_name))
     return stmts
 
 
@@ -167,20 +153,6 @@ def _catch_bindings(gen, node):
             owned=True,
         )
     ]
-
-
-def _mark_catch_binding_used(node, catch_body) -> None:
-    if not node.catch_var:
-        return
-    declaration_index = next(
-        index
-        for index, statement in enumerate(catch_body.stmts)
-        if isinstance(statement, IRVarDecl) and statement.name == node.catch_var
-    )
-    catch_body.stmts.insert(
-        declaration_index + 1,
-        IRExprStmt(expr=IRVar(name=node.catch_var)),
-    )
 
 
 def _lower_throw(gen: IRGenerator, node: ThrowStmt) -> list[IRStmt]:

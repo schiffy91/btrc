@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..type_identity import is_semantic_scalar_string
 
 
@@ -42,7 +40,9 @@ class ThreadTypeDomainContractsMixin:
         if canonical.is_array:
             if canonical.array_size is None:
                 return True
-            canonical = replace(canonical, is_array=False, array_size=None)
+            from ..type_composition import strip_outer_storage
+
+            canonical = strip_outer_storage(canonical, array=True)
         if canonical.pointer_depth > 0:
             return False
         if canonical.base == "Tuple":
@@ -72,8 +72,10 @@ class ThreadTypeDomainContractsMixin:
         if canonical is None:
             return False
         if canonical.is_array:
+            from ..type_composition import strip_outer_storage
+
             return self._thread_result_aggregate_contains_managed_reference(
-                replace(canonical, is_array=False, array_size=None),
+                strip_outer_storage(canonical, array=True),
                 visiting,
             )
         if self._is_direct_managed_thread_result(canonical):

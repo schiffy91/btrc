@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from src.tests.btrc.test_type_identity_contract import (
 )
 
 FIXTURES = REPO / "src/tests/btrc/fixtures"
+COMPILER_ENV = {**os.environ, "BTRC_HOME": str(REPO / "src")}
 
 
 @pytest.fixture(scope="module")
@@ -66,6 +68,7 @@ def test_invalid_typed_operators_fail_closed(
 
     result = _run(
         [str(operator_compiler), "--no-stdlib", str(program)],
+        env=COMPILER_ENV,
         timeout=30,
     )
 
@@ -79,6 +82,7 @@ def test_invalid_typed_operators_fail_closed(
     (
         "typed_operator_dead_invalid_generic.btrc",
         "typed_operator_c_string_pointer.btrc",
+        "typed_operator_fnptr_equality.btrc",
     ),
 )
 def test_valid_generic_operator_specializations_compile_strictly(
@@ -89,6 +93,7 @@ def test_valid_generic_operator_specializations_compile_strictly(
     program = FIXTURES / fixture_name
     emitted = _run(
         [str(operator_compiler), "--no-stdlib", str(program)],
+        env=COMPILER_ENV,
         timeout=30,
     )
     assert emitted.returncode == 0, emitted.stderr

@@ -3,9 +3,11 @@
 from dataclasses import replace
 
 from ..ast_nodes import FieldAccessExpr, Identifier, LambdaExpr, TypeExpr
-from ..gpu_builtins import WGSL_CALL_BUILTINS, WGSL_SAME_TYPE_BUILTINS
+from ..gpu_builtins import WGSL_SAME_TYPE_BUILTINS
+from ..hosted_abi import hosted_semantic_result
 from ..operator_semantics import GENERIC_COMPARISON_INTRINSICS
 from .c_call_types import C_POINTER_CALL_RESULTS, C_SCALAR_CALL_RESULTS
+from .gpu_type_contracts import gpu_builtin_call_uses_intrinsic
 
 
 class CallTypeInferenceMixin:
@@ -20,6 +22,22 @@ class CallTypeInferenceMixin:
             signature = self._function_pointer_signature(symbol.type if symbol else None)
             if signature is not None:
                 return signature[0]
+            if symbol is not None and symbol.kind != "function":
+                return None
+            if gpu_builtin_call_uses_intrinsic(self, expr):
+                if name in WGSL_SAME_TYPE_BUILTINS and expr.args:
+                    return self._infer_type(expr.args[0])
+                return TypeExpr(base="float")
+            # Exact hosted semantics take precedence over an authenticated
+            # bodyless source prototype.  The source spelling may use
+            # ``string`` for C compatibility, while the registry must expose
+            # a raw alias so ownership conversion happens at the call site.
+            if self._hosted_call_uses_owned_symbol(expr):
+                result = hosted_semantic_result(name)
+                if result is not None:
+                    return result
+            if name in self.function_table:
+                return self.function_table[name].return_type
             if name == "Mutex" and expr.args:
                 argument_type = self._infer_type(expr.args[0])
                 return TypeExpr(
@@ -28,9 +46,7 @@ class CallTypeInferenceMixin:
                 )
             if name in self.class_table:
                 return self._infer_constructor_call_type(expr, self.class_table[name])
-            if name in self.function_table:
-                return self.function_table[name].return_type
-            if name in {"len", "printf"}:
+            if name == "len":
                 return TypeExpr(base="int")
             if name == "print":
                 return TypeExpr(base="void")
@@ -39,16 +55,15 @@ class CallTypeInferenceMixin:
             if name in C_POINTER_CALL_RESULTS:
                 base, depth = C_POINTER_CALL_RESULTS[name]
                 return TypeExpr(base=base, pointer_depth=depth)
+            hosted_result = hosted_semantic_result(name)
+            if hosted_result is not None:
+                return hosted_result
             if name in GENERIC_COMPARISON_INTRINSICS:
                 return TypeExpr(base="bool")
             if name == "__btrc_hash":
                 return TypeExpr(base="uint")
             if name == "gpu_id":
                 return TypeExpr(base="int")
-            if self.in_gpu_function and name in WGSL_CALL_BUILTINS:
-                if name in WGSL_SAME_TYPE_BUILTINS and expr.args:
-                    return self._infer_type(expr.args[0])
-                return TypeExpr(base="float")
         if isinstance(expr.callee, FieldAccessExpr):
             result = self._infer_method_call_type(expr)
             if expr.callee.optional and result is not None and self._is_pointer_value(result):
@@ -75,6 +90,7 @@ class CallTypeInferenceMixin:
                 object_type.base in self._NUMERIC_TYPES
                 or object_type.base == "bool"
                 or object_type.base in self.enum_table
+                or object_type.base in self.rich_enum_table
             )
             and object_type.pointer_depth == 0
             and not object_type.is_array
@@ -109,7 +125,11 @@ class CallTypeInferenceMixin:
                 if substitutions:
                     return self._substitute_type(method.return_type, substitutions)
                 return method.return_type
-        if isinstance(callee.obj, Identifier) and callee.obj.name in self.class_table:
+        if (
+            isinstance(callee.obj, Identifier)
+            and self.scope.lookup(callee.obj.name) is None
+            and callee.obj.name in self.class_table
+        ):
             method = self.class_table[callee.obj.name].methods.get(callee.field)
             if method is not None:
                 return method.return_type

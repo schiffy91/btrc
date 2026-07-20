@@ -90,6 +90,12 @@ def load_manifest(
     manifest_name: str,
 ) -> dict:
     """Load an archive manifest and verify compiler and canonical stdlib bytes."""
+    from .stdlib_archive_publish import stdlib_publication_in_progress
+
+    if stdlib_publication_in_progress(stdlib_dir):
+        raise ArchiveVersionError(
+            f"stdlib archive in '{stdlib_dir}' is being updated; retry after the publication completes"
+        )
     manifest = load_json(
         os.path.join(stdlib_dir, manifest_name),
         max_bytes=MAX_MANIFEST_BYTES,

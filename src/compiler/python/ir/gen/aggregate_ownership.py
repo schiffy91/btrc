@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
-from ...ast_nodes import FieldAccessExpr, Identifier, IndexExpr
+from ...ast_nodes import FieldAccessExpr, IndexExpr
 from .errors import CodegenError
 from .ownership import owns_result
 
@@ -34,17 +32,78 @@ def reject_shallow_initializer(gen, node, node_type=None) -> None:
 
 def reject_rich_enum_owned_args(gen, call) -> None:
     """Reject owned payloads passed into a shallow tagged union variant."""
-    callee = call.callee
-    if not isinstance(callee, FieldAccessExpr):
+    from .rich_enum_calls import rich_enum_variant_target
+
+    target = rich_enum_variant_target(gen, call)
+    if target is None:
         return
-    if not isinstance(callee.obj, Identifier):
-        return
-    if callee.obj.name not in gen.analyzed.rich_enum_table:
-        return
+    enum_name, variant = target
     reject_owned_elements(
         gen,
         call.args,
-        f"rich-enum payload '{callee.obj.name}.{callee.field}'",
+        f"rich-enum payload '{enum_name}.{variant.name}'",
+    )
+    from .arguments import (
+        arg_names_for,
+        bind_arg_nodes_to_params,
+    )
+
+    bindings = bind_arg_nodes_to_params(
+        variant.params,
+        call.args,
+        arg_names_for(call, len(call.args)),
+    )
+    for parameter_index, value, is_default in bindings:
+        if parameter_index is None or parameter_index >= len(variant.params):
+            continue
+        parameter = variant.params[parameter_index]
+        unsafe = (
+            id(value) in gen.analyzed.rich_enum_unsafe_default_ids
+            if is_default
+            else _payload_value_requires_owner(
+                gen,
+                parameter,
+                value,
+            )
+        )
+        if not unsafe:
+            continue
+        if is_default:
+            raise CodegenError(
+                f"Omitted default for rich-enum payload "
+                f"'{enum_name}.{variant.name}.{parameter.name}' produces a "
+                "caller-owned temporary; rich-enum payloads are shallow "
+                "borrowed references, so pass a prebound owner explicitly"
+            )
+        raise CodegenError(
+            f"caller-owned temporary cannot be embedded in rich-enum payload "
+            f"'{enum_name}.{variant.name}'; aggregate class elements are shallow "
+            "borrowed references, so bind the owner to a local first"
+        )
+
+
+def _payload_value_requires_owner(gen, parameter, value):
+    from .default_argument_context import (
+        call_argument_type,
+        in_call_argument_context,
+    )
+    from .hosted_result_conversion import requires_target_value_conversion
+
+    source_type = call_argument_type(
+        gen,
+        parameter,
+        value,
+        is_default=False,
+    )
+    return in_call_argument_context(
+        parameter,
+        False,
+        lambda: owns_result(gen, value),
+    ) or requires_target_value_conversion(
+        gen,
+        value,
+        parameter.type,
+        source_type,
     )
 
 
@@ -74,20 +133,9 @@ def reject_shallow_store(gen, assignment) -> None:
 
 
 def _canonical_type(type_expr, typedefs):
-    if type_expr is None:
-        return None
-    result = type_expr
-    seen = set()
-    while result.base in typedefs and result.base not in seen:
-        seen.add(result.base)
-        target = typedefs[result.base]
-        result = replace(
-            target,
-            pointer_depth=target.pointer_depth + result.pointer_depth,
-            is_array=target.is_array or result.is_array,
-            array_size=result.array_size or target.array_size,
-        )
-    return result
+    from .type_resolution import canonical_type
+
+    return canonical_type(type_expr, typedefs)
 
 
 __all__ = [

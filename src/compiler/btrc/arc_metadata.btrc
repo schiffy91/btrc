@@ -44,18 +44,18 @@ void emitArcDescriptor(IRGen generator, IRModule module,
         "const __btrc_arc_type", arcDescriptorSymbol(emittedName));
     Vector<IRNode> values = [];
     if (hasVisitor) {
-        values.push(irVar(cycleVisitorName(emittedName)));
+        values.push(irFunctionRef(cycleVisitorName(emittedName)));
     } else {
         values.push(irLiteral("NULL"));
     }
-    values.push(irVar(emittedName + "_destroy"));
+    values.push(irFunctionRef(emittedName + "_destroy"));
     if (hasHook) {
         string hookName = destructorHookName(emittedName);
         generator.useHelper("__btrc_arc_guard_hook");
         generator.useHelper("__btrc_throw");
-        values.push(irVar(hookName));
-        values.push(irVar("__btrc_arc_guard_hook"));
-        values.push(irVar("__btrc_throw"));
+        values.push(irFunctionRef(hookName));
+        values.push(irFunctionRef("__btrc_arc_guard_hook"));
+        values.push(irFunctionRef("__btrc_throw"));
         IRFunctionDecl hookDeclaration = IRFunctionDecl(
             hookName, "void", true);
         hookDeclaration.params.push(IRParam("void*", "object"));
@@ -65,7 +65,7 @@ void emitArcDescriptor(IRGen generator, IRModule module,
         values.push(irLiteral("NULL"));
         if (generator.programHasExceptions) {
             generator.useHelper("__btrc_throw");
-            values.push(irVar("__btrc_throw"));
+            values.push(irFunctionRef("__btrc_throw"));
         } else {
             values.push(irLiteral("NULL"));
         }

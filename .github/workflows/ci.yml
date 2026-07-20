@@ -19,11 +19,39 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
       - run: nix flake check --no-build
+      - run: nix develop --command make NIX= generated-check
       - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension --no-link
       - run: make devcontainer
       - run: chmod -R a+w .
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= lint format-check
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= package extension
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-dist
-      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= test
+      - name: Run the relocatable Linux x64 compiler bundle
+        run: |
+          workspace="$PWD"
+          test "$(uname -m)" = x86_64
+          podman run --rm -v "$workspace:/workspace:ro" btrc-devcontainer:latest \
+            bash -euo pipefail -c '
+              test "$(uname -m)" = x86_64
+              unset BTRC_HOME
+              compiler=/workspace/dist/btrcc-linux-x64/bin/btrcc
+              source=/workspace/src/tests/strings/test_braces_in_code_gen.btrc
+              expected=/workspace/src/tests/strings/expected/test_braces_in_code_gen.stdout
+              expected_stdlib=/workspace/dist/btrcc-linux-x64/share/btrc/stdlib
+              work=$(mktemp -d)
+              trap '\''rm -rf "$work"'\'' EXIT
+              actual_stdlib=$(cd "$work" && "$compiler" --stdlib-dir)
+              test "$actual_stdlib" = "$expected_stdlib"
+              (cd "$work" && "$compiler" "$source") > "$work/program.c"
+              cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+                "$work/program.c" -o "$work/program" -lm -lpthread
+              (cd "$work" && ./program) > "$work/program.stdout"
+              cmp "$work/program.stdout" "$expected"
+            '
+      - name: Verify release builds did not mutate generated sources
+        run: |
+          paths=(src/compiler/python/ast_nodes.py src/compiler/btrc/ast/node.btrc src/compiler/btrc/generated/hosted_abi src/devex/lsp/builtins.py)
+          git diff --exit-code -- "${paths[@]}"
+          test -z "$(git status --porcelain --untracked-files=all -- "${paths[@]}")"
+      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= gpu-required test
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= test-c11

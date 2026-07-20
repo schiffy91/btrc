@@ -90,15 +90,23 @@ def test_explicit_string_adoption_is_owned_and_materializes_its_helpers():
 
 
 @pytest.mark.parametrize(
-    ("callee", "feature"),
+    ("declaration", "call", "feature"),
     (
-        ("btrc_gpu_available", "BTRC_RT_NEEDS_GPU"),
-        ("btrc_gui_surface_width", "BTRC_RT_NEEDS_GUI"),
-        ("btrc_tray_show", "BTRC_RT_NEEDS_TRAY"),
+        ("extern bool btrc_gpu_available();", "btrc_gpu_available()", "BTRC_RT_NEEDS_GPU"),
+        (
+            "extern int btrc_gui_surface_width(void* surface);",
+            "btrc_gui_surface_width(null)",
+            "BTRC_RT_NEEDS_GUI",
+        ),
+        (
+            "extern bool btrc_tray_show(void* tray);",
+            "btrc_tray_show(null)",
+            "BTRC_RT_NEEDS_TRAY",
+        ),
     ),
 )
-def test_native_runtime_calls_select_explicit_header_features(callee, feature):
-    module = _generate(f"extern int {callee}(); int main() {{ return {callee}(); }}")
+def test_native_runtime_calls_select_explicit_header_features(declaration, call, feature):
+    module = _generate(f"{declaration} int main() {{ {call}; return 0; }}")
     emitted = CEmitter().emit(module)
 
     assert f"#define {feature} 1" in emitted
@@ -127,7 +135,8 @@ def test_user_function_cannot_claim_reserved_native_prefix():
 def test_user_header_override_precedes_generated_feature_and_seam():
     module = _generate(
         '#define BTRC_RT_GPU_HEADER "target_gpu.h"\n'
-        "extern int btrc_gpu_available(); int main() { return btrc_gpu_available(); }"
+        "extern bool btrc_gpu_available(); "
+        "int main() { return btrc_gpu_available() ? 0 : 1; }"
     )
     emitted = CEmitter().emit(module)
 

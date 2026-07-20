@@ -210,3 +210,68 @@ void closeGenericInstanceGraph(Analyzed analyzed) {
         }
     }
 }
+
+void genericClosureScanOrdinaryCallable(Node callable,
+        Node? owner, Analyzed analyzed) {
+    Map<string, Node> substitutions = {};
+    Map<string, bool> unresolved =
+        typeParameterSet(callable.generic_params);
+    Map<string, Node> variables = genericClosureGlobalTypes(analyzed);
+    if (owner != null && callable.access != "class") {
+        Vector<Node> noArguments = [];
+        variables.put("self", genericClosureSelfType(
+            owner.name, noArguments));
+    }
+    genericClosureSeedParameters(
+        callable, substitutions, unresolved, analyzed, variables);
+    genericClosureWalkNode(
+        callable.body_node, substitutions,
+        unresolved, analyzed, variables);
+}
+
+/* Semantic validation records target-directed no-arg constructor types after
+ * the analyzer's initial declaration walk. Scan ordinary bodies once more at
+ * that point, then close any newly discovered specialization graph. */
+void closeProgramGenericExpressionGraph(Node program, Analyzed analyzed) {
+    Map<string, Node> substitutions = {};
+    Map<string, bool> unresolved = {};
+    int declarationIndex = 0;
+    while (declarationIndex < program.declarations.len) {
+        Node declaration = program.declarations.get(declarationIndex);
+        if (declaration.kind == NK_FUNCTION_DECL) {
+            genericClosureScanOrdinaryCallable(
+                declaration, null, analyzed);
+        } else if (declaration.kind == NK_CLASS_DECL
+                && declaration.generic_params.len == 0) {
+            Map<string, Node> fieldVariables =
+                genericClosureGlobalTypes(analyzed);
+            Vector<Node> noArguments = [];
+            fieldVariables.put("self", genericClosureSelfType(
+                declaration.name, noArguments));
+            int memberIndex = 0;
+            while (memberIndex < declaration.members.len) {
+                Node member = declaration.members.get(memberIndex);
+                if (member.kind == NK_FIELD_DECL) {
+                    genericClosureWalkNode(
+                        member.initializer, substitutions,
+                        unresolved, analyzed, fieldVariables);
+                } else if (member.kind == NK_PROPERTY_DECL) {
+                    genericClosureScanProperty(
+                        member, substitutions, analyzed, fieldVariables);
+                } else if (member.kind == NK_METHOD_DECL
+                        && member.generic_params.len == 0) {
+                    genericClosureScanOrdinaryCallable(
+                        member, declaration, analyzed);
+                }
+                memberIndex = memberIndex + 1;
+            }
+        } else {
+            genericClosureWalkNode(
+                declaration.initializer, substitutions,
+                unresolved, analyzed,
+                genericClosureGlobalTypes(analyzed));
+        }
+        declarationIndex = declarationIndex + 1;
+    }
+    closeGenericInstanceGraph(analyzed);
+}

@@ -98,7 +98,8 @@ def test_string_literals_do_not_root_dead_functions() -> None:
     collector = generator[start:end]
 
     assert "node.kind == IRK_CALL" in collector
-    assert "node.kind == IRK_VAR" in collector
+    assert "node.kind == IRK_FUNCTION_REF" in collector
+    assert "node.kind == IRK_VAR && names.has(node.name)" not in collector
     assert "node.kind == IRK_LITERAL" not in collector
     assert "scanTextForNames(declaration.replacement" in generator
 
@@ -122,7 +123,59 @@ def test_selfhost_models_structured_c_expression_forms() -> None:
     assert "cases.push(irCase(" in generator
     assert "return irSwitch(" in generator
     assert "if (s.kind == IRK_SWITCH)" in emitter
-    assert "abortGen();" in generator[generator.index("string irExprText") :]
+    assert "irExprText" not in generator
+
+
+def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() -> None:
+    nodes = _source("ir_nodes.btrc")
+    generator = _source("irgen.btrc")
+    emitter = _source("emitter.btrc")
+    helper_reachability = _source("helper_reachability.btrc")
+    field_schema = nodes[nodes.index("class IRStructField {") : nodes.index("class IRStructDef {")]
+
+    assert "public IRNode array_size;" in field_schema
+    assert "self.array_size = null;" in field_schema
+    assert "field.array_size = self.lowerExpr(f.type.array_size, empty);" in generator
+    assert "return irCallExpr(lambdaExpr, lambdaArgs);" in generator
+    assert 'suffix = "[" + self.expr(field.array_size) + "]";' in emitter
+    assert emitter.count("self.structFieldDeclaration(") == 2
+    assert "collectStructRefsNode(field.array_size, names, fr);" in generator
+    assert "collectStructRefsNode(field.array_size, names, refs);" in generator
+    assert "scanHelpersInNode(field.array_size, used);" in helper_reachability
+    assert 'f.name + "["' not in generator
+    assert "irExprText" not in generator
+
+
+def test_selfhost_enum_symbols_are_structured_variable_references() -> None:
+    generator = _source("irgen.btrc")
+
+    rich_enum = generator[
+        generator.index("public void emitRichEnumDecl(") : generator.index("public IRFunction enumToStringFn(")
+    ]
+    enum_to_string = generator[
+        generator.index("public IRFunction enumToStringFn(") : generator.index("public void emitStructDecl(")
+    ]
+    expressions = generator[
+        generator.index("public IRNode lowerExpr(") : generator.index("public IRNode lowerFieldAccessCore(")
+    ]
+    field_access = generator[
+        generator.index("public IRNode lowerFieldAccessCore(") : generator.index("public IRNode lowerIndexCore(")
+    ]
+
+    assert 'irVar(name + "_" + v.name + "_TAG")' in rich_enum
+    assert "irVar(caseLabel)" in enum_to_string
+    assert "irVar(prefix + node.name)" in expressions
+    assert "irVar(owner + node.name)" in expressions
+    assert 'irVar(node.obj.name + "_" + node.field)' in field_access
+
+    for raw_symbol in (
+        'irLiteral(name + "_" + v.name + "_TAG")',
+        "irLiteral(caseLabel)",
+        "irLiteral(prefix + node.name)",
+        "irLiteral(owner + node.name)",
+        'irLiteral(node.obj.name + "_" + node.field)',
+    ):
+        assert raw_symbol not in generator
 
 
 def test_selfhost_portability_lowering_is_structured() -> None:

@@ -55,6 +55,7 @@ void semanticValidateDeclaredType(Node? typeExpr, string subject,
             site);
     }
     if (canonical != null && canonical.base != "Mutex"
+            && canonical.base != "Thread"
             && canonical.base != "__fn_ptr"
             && !state.analyzed.isClass(canonical.base)
             && !state.analyzed.isGenericClass(canonical.base)

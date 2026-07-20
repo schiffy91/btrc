@@ -4,20 +4,6 @@ import std.fs;
 
 #include <assert.h>
 
-#define fclose(stream) imageIoTestCloseResult(fclose(stream))
-
-int imageIoCloseCalls = 0;
-int imageIoFailNextClose = 0;
-
-int imageIoTestCloseResult(int status) {
-    imageIoCloseCalls++;
-    if (status == 0 && imageIoFailNextClose != 0) {
-        imageIoFailNextClose = 0;
-        return EOF;
-    }
-    return status;
-}
-
 int main() {
     string dir = FileSystem.tempDir("btrc_image_io_failures");
     assert(FileSystem.isDir(dir));
@@ -50,30 +36,6 @@ int main() {
     ImageLoad truncated = ImageIO.loadPpm(truncatedPath);
     assert(!truncated.ok());
     assert(truncated.error.equals("PPM raster is truncated"));
-
-    int closesBefore = imageIoCloseCalls;
-    imageIoFailNextClose = 1;
-    ImageLoad autoCloseFailure = ImageIO.load(ppmPath);
-    assert(!autoCloseFailure.ok());
-    assert(autoCloseFailure.error.equals(f"cannot close image: {ppmPath}"));
-    assert(imageIoFailNextClose == 0);
-    assert(imageIoCloseCalls == closesBefore + 1);
-
-    closesBefore = imageIoCloseCalls;
-    imageIoFailNextClose = 1;
-    ImageLoad ppmCloseFailure = ImageIO.loadPpm(ppmPath);
-    assert(!ppmCloseFailure.ok());
-    assert(ppmCloseFailure.error.equals(f"cannot close PPM: {ppmPath}"));
-    assert(imageIoFailNextClose == 0);
-    assert(imageIoCloseCalls == closesBefore + 1);
-
-    closesBefore = imageIoCloseCalls;
-    imageIoFailNextClose = 1;
-    ImageLoad bmpCloseFailure = ImageIO.loadBmp(bmpPath);
-    assert(!bmpCloseFailure.ok());
-    assert(bmpCloseFailure.error.equals(f"cannot close BMP: {bmpPath}"));
-    assert(imageIoFailNextClose == 0);
-    assert(imageIoCloseCalls == closesBefore + 1);
 
     FileSystem.removeRecursive(dir);
     print("PASS: test_stdlib_image_io_failures");

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...type_composition import nullable_collapses_reference_layer
 from ...type_identity import is_semantic_scalar_string
 from ..nodes import CType, IRCall, IRCast, IRLiteral
 
@@ -18,11 +19,7 @@ def is_string_type(gen, type_expr) -> bool:
 def is_class_type(gen, type_expr) -> bool:
     """Whether ``type_expr`` uses the class ARC header domain."""
     canonical = _canonical(gen, type_expr)
-    depth = (
-        canonical.pointer_depth - int(canonical.is_nullable and canonical.pointer_depth > 1)
-        if canonical is not None
-        else 0
-    )
+    depth = canonical.pointer_depth - int(nullable_collapses_reference_layer(canonical)) if canonical else 0
     return bool(
         canonical is not None and not canonical.is_array and depth <= 1 and canonical.base in gen.analyzed.class_table
     )
@@ -32,8 +29,8 @@ def is_mutex_type(gen, type_expr) -> bool:
     """Whether ``type_expr`` is one direct ARC-managed ``Mutex<T>``."""
     canonical = _canonical(gen, type_expr)
     depth = (
-        canonical.pointer_depth - int(canonical.is_nullable and canonical.pointer_depth > 0)
-        if canonical is not None
+        canonical.pointer_depth - int(nullable_collapses_reference_layer(canonical, base_is_reference=True))
+        if canonical
         else 0
     )
     return bool(

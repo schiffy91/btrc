@@ -23,7 +23,9 @@ def lower_generic_local_assignment(emitter, expression):
     if not emitter._is_managed_type(target_type):
         return None
 
-    target = IRVar(name=expression.target.name)
+    from .user_emitter_bindings import source_binding_c_name
+
+    target = IRVar(name=source_binding_c_name(emitter, expression.target.name))
     return lower_generic_managed_slot_assignment(
         emitter,
         expression,
@@ -46,14 +48,16 @@ def lower_generic_managed_slot_assignment(
             target,
             target_type,
         )
-    value = emitter._assignment_value(target_type, expression.value)
     from ..prepared_values import prepare_generic_value
 
     prepared = prepare_generic_value(
         emitter,
         expression.value,
         target_type,
-        lowered=value,
+        lower_value=lambda value: emitter._assignment_value(
+            target_type,
+            value,
+        ),
     )
     value = prepared.value
     value_type = prepared.effective_type
@@ -135,7 +139,7 @@ def lower_generic_expression_statement(emitter, expression):
         lower_condition=emitter._expr,
         fresh_temp=emitter._fresh_temp,
         record_decl=emitter._func_var_decls.append,
-        hosted=not emitter._gen.freestanding,
+        hosted=(not emitter._gen.freestanding and "assert" not in emitter._gen.analyzed.function_table),
     )
     if assertion is not None:
         return assertion

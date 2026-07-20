@@ -47,7 +47,9 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
     """Emit ``Class_init`` and allocating ``Class_new`` functions."""
     name = decl.name
     constructor = cls_info.constructor
-    constructor_params = [lower_source_param(param) for param in (constructor.params if constructor else [])]
+    constructor_params = [
+        lower_source_param(param, analyzed=gen.analyzed) for param in (constructor.params if constructor else [])
+    ]
     init_params = [
         IRParam(c_type=CType(text=f"{name}*"), name="self"),
         *constructor_params,
@@ -69,14 +71,16 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
                 field=member.name,
                 arrow=True,
             )
-            value = _lower_field_init(gen, member)
             from .prepared_values import prepare_normal_value
 
             prepared = prepare_normal_value(
                 gen,
                 member.initializer,
                 member.type,
-                lowered=value,
+                lower_value=lambda _value, member=member: _lower_field_init(
+                    gen,
+                    member,
+                ),
             )
             value = prepared.value
             from .upcast import upcast_class_pointer

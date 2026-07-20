@@ -39,6 +39,7 @@ class CallOperand:
     owned: bool = False
     transferred: bool = False
     lowered: object | None = None
+    lower_with_overrides: Callable[[dict[int, object]], object] | None = None
 
 
 def sequence_call_boundary(
@@ -72,11 +73,18 @@ def sequence_call_boundary(
         )
         declarations.append(declaration)
         value = IRVar(name=declaration.name)
+        lowered = (
+            operand.lower_with_overrides(overrides)
+            if operand.lower_with_overrides is not None
+            else operand.lowered
+            if operand.lowered is not None
+            else lower_expr(operand.node)
+        )
         prefix.append(
             IRBinOp(
                 left=value,
                 op="=",
-                right=operand.lowered if operand.lowered is not None else lower_expr(operand.node),
+                right=lowered,
             )
         )
         if operand.owned:

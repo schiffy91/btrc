@@ -7,22 +7,10 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from .ast_nodes import TypeExpr
+from .type_composition import compose_type_expr, nullable_collapses_reference_layer
 
 _SAFE_BASE = re.compile(r"[A-Za-z][A-Za-z0-9]*\Z")
 _RESERVED_PREFIX = "ZQ"
-_INTRINSIC_REFERENCE_BASES = frozenset(
-    {
-        "Array",
-        "List",
-        "Map",
-        "Mutex",
-        "Set",
-        "Thread",
-        "Vector",
-        "__fn_ptr",
-        "string",
-    }
-)
 _FORBIDDEN_GENERIC_FLAGS = (
     ("is_const", "const"),
     ("is_static", "static"),
@@ -46,6 +34,7 @@ def type_shape_key(type_expr: TypeExpr) -> tuple:
         tuple(type_shape_key(arg) for arg in (type_expr.generic_args or [])),
         type_expr.pointer_depth,
         bool(type_expr.is_nullable),
+        type_expr.nullable_outer_depth,
         bool(type_expr.is_array),
         bool(type_expr.is_const),
         bool(type_expr.is_static),
@@ -111,25 +100,7 @@ def substitute_type_expr(
                 f"nested array composition for type parameter '{type_expr.base}' is not supported",
                 type_expr,
             )
-        applied_pointer_depth = type_expr.pointer_depth
-        if type_expr.is_nullable and applied_pointer_depth > 0 and _resolved_reference_shape(reference_shape):
-            # ``T?`` adds one reference layer while its target is unknown. Once
-            # T resolves to a reference/handle, nullable annotates that existing
-            # value instead of constructing a pointer-to-reference ABI.
-            applied_pointer_depth -= 1
-        return replace(
-            resolved,
-            pointer_depth=resolved.pointer_depth + applied_pointer_depth,
-            is_array=type_expr.is_array or resolved.is_array,
-            array_size=(type_expr.array_size if type_expr.array_size is not None else resolved.array_size),
-            is_const=type_expr.is_const or resolved.is_const,
-            is_nullable=type_expr.is_nullable or resolved.is_nullable,
-            is_static=type_expr.is_static or resolved.is_static,
-            is_extern=type_expr.is_extern or resolved.is_extern,
-            is_volatile=type_expr.is_volatile or resolved.is_volatile,
-            line=type_expr.line or resolved.line,
-            col=type_expr.col or resolved.col,
-        )
+        return compose_type_expr(type_expr, resolved, reference_shape=reference_shape)
     if type_expr.generic_args:
         return replace(
             type_expr,
@@ -145,16 +116,12 @@ def substitute_type_expr(
     return type_expr
 
 
-def _resolved_reference_shape(type_expr: TypeExpr) -> bool:
-    return bool(type_expr.pointer_depth > 0 or type_expr.is_array or type_expr.base in _INTRINSIC_REFERENCE_BASES)
-
-
 def is_semantic_scalar_string(type_expr: TypeExpr | None) -> bool:
     """True only for string values represented by one collapsed ``char*``."""
     if type_expr is None or type_expr.base != "string" or type_expr.generic_args or type_expr.is_array:
         return False
     depth = type_expr.pointer_depth
-    if type_expr.is_nullable and depth > 0:
+    if nullable_collapses_reference_layer(type_expr, base_is_reference=True):
         depth -= 1
     return depth == 0
 
@@ -235,6 +202,7 @@ def _legacy_component(type_expr: TypeExpr) -> str | None:
     if (
         type_expr.generic_args
         or not _safe_base(type_expr.base)
+        or type_expr.nullable_outer_depth
         or any(getattr(type_expr, flag, False) for flag, _spelling in _FORBIDDEN_GENERIC_FLAGS)
     ):
         return None
@@ -265,7 +233,10 @@ def _encode_type(type_expr: TypeExpr) -> str:
         (1 << index) if getattr(type_expr, attribute, False) else 0
         for index, (attribute, _spelling) in enumerate(_FORBIDDEN_GENERIC_FLAGS)
     )
-    shape = f"p{type_expr.pointer_depth}n{int(type_expr.is_nullable)}a{int(type_expr.is_array)}q{qualifiers}"
+    shape = (
+        f"p{type_expr.pointer_depth}n{int(type_expr.is_nullable)}"
+        f"o{type_expr.nullable_outer_depth}a{int(type_expr.is_array)}q{qualifiers}"
+    )
     return _field("b", base) + shape + _encode_types(type_expr.generic_args or [])
 
 

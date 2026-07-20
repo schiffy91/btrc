@@ -29,7 +29,8 @@ ARC_DRAIN_HELPERS = {
 
     __btrc_arc_draining = 1;
     int cascade = 0;
-    char first_error[1024] = "";
+    char first_error[1024];
+    first_error[0] = '\0';
     __btrc_raise_fn first_raise = NULL;
     int has_error = 0;
     for (;;) {
@@ -53,7 +54,8 @@ ARC_DRAIN_HELPERS = {
 
             if (type->visit || type->hook) cascade = 1;
             if (type->hook && !suppress_hook) {
-                char error[1024] = "";
+                char error[1024];
+                error[0] = '\0';
                 if (type->guard(type->hook, object, error, sizeof error)
                         && !has_error) {
                     memcpy(first_error, error, sizeof first_error);

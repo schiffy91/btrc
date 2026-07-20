@@ -1,12 +1,10 @@
 class Token {}
 
 long long wideReturningLL() { return 7LL; }
-void rawSink(long long value, void* token) {}
 
 #define OPAQUE_WIDE wideReturningLL()
-#define RAW_SINK(value, token) rawSink((value), (token))
 
 int main() {
-    RAW_SINK(OPAQUE_WIDE, new Token());
+    rawSink(OPAQUE_WIDE, new Token());
     return 0;
 }

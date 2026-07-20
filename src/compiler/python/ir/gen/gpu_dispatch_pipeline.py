@@ -20,6 +20,7 @@ from ..nodes import (
 from .gpu_arguments import buffer_length_name
 from .gpu_dispatch_model import GpuDispatchSpec
 from .gpu_dispatch_setup import mark_failed_if_null
+from .parameters import source_binding_c_name
 
 
 def uniforms_and_pipeline(spec: GpuDispatchSpec) -> list:
@@ -41,8 +42,11 @@ def uniforms_and_pipeline(spec: GpuDispatchSpec) -> list:
             continue
         statements.append(
             IRAssign(
-                target=_uniform_field(names, parameter.name),
-                value=IRVar(name=parameter.name),
+                target=_uniform_field(
+                    names,
+                    source_binding_c_name(parameter.name),
+                ),
+                value=IRVar(name=source_binding_c_name(parameter.name, spec.analyzed)),
             )
         )
     for buffer in spec.kernel.param_buffers:

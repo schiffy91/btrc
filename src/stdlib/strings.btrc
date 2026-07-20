@@ -148,19 +148,18 @@ class Strings {
         if (s == null || delim == null) { return result; }
         int dlen = Strings.checkedLength(delim);
         if (dlen == 0) { return result; }
-        char* p = s;
+        int slen = Strings.checkedLength(s);
+        int offset = 0;
         while (true) {
-            char* found = strstr(p, delim);
-            int seglen = found != NULL
-                ? (int)(found - p)
-                : Strings.checkedLength(p);
+            int found = Strings.find(s, delim, offset);
+            int seglen = found >= 0 ? found - offset : slen - offset;
             char* item = (char*)__btrc_safe_realloc(
                 NULL, (size_t)seglen + (size_t)1);
-            memcpy(item, p, (size_t)seglen);
+            memcpy(item, (char*)s + offset, (size_t)seglen);
             item[seglen] = '\0';
             result.push(__btrc_str_track(item));
-            if (found == NULL) { break; }
-            p = found + dlen;
+            if (found < 0) { break; }
+            offset = found + dlen;
         }
         return result;
     }

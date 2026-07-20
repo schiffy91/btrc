@@ -111,7 +111,7 @@ class _StmtEmitterMixin:
         elif isinstance(stmt, IRSwitch):
             self._line(f"switch ({self._expr(stmt.value)}) {{")
             self._indent += 1
-            for case in stmt.cases:
+            for index, case in enumerate(stmt.cases):
                 label = f"case {self._expr(case.value)}:" if case.value else "default:"
                 self._line(label)
                 self._line("{")
@@ -120,6 +120,8 @@ class _StmtEmitterMixin:
                     self._emit_stmt(child)
                 self._indent -= 1
                 self._line("}")
+                if case.falls_through and index + 1 < len(stmt.cases):
+                    self._line("/* fall through */")
             self._indent -= 1
             self._line("}")
         elif isinstance(stmt, IRExprStmt):

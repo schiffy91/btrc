@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..ast_nodes import TypeExpr
+from ..type_composition import strip_outer_storage
 
 
 class _IterationInferenceMixin:
@@ -15,7 +14,7 @@ class _IterationInferenceMixin:
         if iter_type.base == "string" or (iter_type.base == "char" and iter_type.pointer_depth >= 1):
             return TypeExpr(base="char")
         if iter_type.is_array:
-            return replace(iter_type, is_array=False, array_size=None)
+            return strip_outer_storage(iter_type, array=True)
         if iter_type.base in {"Array", "List", "Set", "Vector"} and len(iter_type.generic_args) == 1:
             return iter_type.generic_args[0]
         if iter_type.base == "Map" and len(iter_type.generic_args) == 2:

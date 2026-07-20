@@ -1,0 +1,176 @@
+/* Recursive callable-value detection at source macro argument boundaries. */
+
+bool semanticMacroLanguageMethodNamed(string name,
+        SemanticValidationState state) {
+    Vector<string> classes = state.analyzed.classTable.keys();
+    int index = 0;
+    while (index < classes.len) {
+        if (state.analyzed.classMethod(classes.get(index), name) != null) {
+            return true;
+        }
+        index = index + 1;
+    }
+    classes = state.analyzed.genericClassTable.keys();
+    index = 0;
+    while (index < classes.len) {
+        if (state.analyzed.genericClassMethod(
+                classes.get(index), name) != null) {
+            return true;
+        }
+        index = index + 1;
+    }
+    Vector<string> interfaces = state.interfaces.keys();
+    index = 0;
+    while (index < interfaces.len) {
+        if (semanticInterfaceMethod(
+                state, interfaces.get(index), name) != null) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool semanticMacroFieldCallable(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression.obj != null && expression.obj.kind == NK_IDENTIFIER
+            && !vars.has(expression.obj.name)
+            && (state.analyzed.isClass(expression.obj.name)
+                || state.analyzed.isGenericClass(expression.obj.name))) {
+        return semanticMacroLanguageMethodNamed(expression.field, state);
+    }
+    Node? receiver = semanticInferType(expression.obj, state, vars);
+    if (receiver == null) { return false; }
+    if (state.analyzed.isClass(receiver.base)) {
+        return state.analyzed.classMethod(
+            receiver.base, expression.field) != null;
+    }
+    return state.analyzed.isGenericClass(receiver.base)
+        && state.analyzed.genericClassMethod(
+            receiver.base, expression.field) != null;
+}
+
+bool semanticMacroExpressionListCallable(Vector<Node> expressions,
+        SemanticValidationState state, Map<string, Node> vars) {
+    int index = 0;
+    while (index < expressions.len) {
+        if (semanticMacroArgumentCallable(
+                expressions.get(index), state, vars)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool semanticMacroMapEntriesCallable(Vector<Node> entries,
+        SemanticValidationState state, Map<string, Node> vars) {
+    int index = 0;
+    while (index < entries.len) {
+        Node entry = entries.get(index);
+        if (semanticMacroArgumentCallable(entry.key, state, vars)
+                || semanticMacroArgumentCallable(
+                    entry.value_node, state, vars)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool semanticMacroFStringCallable(Vector<Node> parts,
+        SemanticValidationState state, Map<string, Node> vars) {
+    int index = 0;
+    while (index < parts.len) {
+        Node part = parts.get(index);
+        if (part.kind == NK_F_STRING_EXPR
+                && semanticMacroArgumentCallable(
+                    part.expression, state, vars)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool semanticMacroArgumentCallable(Node argument,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node? inferred = semanticInferType(argument, state, vars);
+    if (directFunctionPointerType(inferred, state.analyzed) != null
+            || argument.kind == NK_LAMBDA_EXPR) {
+        return true;
+    }
+    if (argument.kind == NK_IDENTIFIER) {
+        return (!vars.has(argument.name)
+                && state.analyzed.funcTable.has(argument.name))
+            || (vars.has(argument.name)
+                && directFunctionPointerType(
+                    vars.get(argument.name), state.analyzed) != null);
+    }
+    if (argument.kind == NK_FIELD_ACCESS_EXPR
+            && semanticMacroFieldCallable(argument, state, vars)) {
+        return true;
+    }
+    if (argument.kind == NK_BINARY_EXPR) {
+        return semanticMacroArgumentCallable(argument.left, state, vars)
+            || semanticMacroArgumentCallable(argument.right, state, vars);
+    }
+    if (argument.kind == NK_UNARY_EXPR) {
+        return semanticMacroArgumentCallable(
+            argument.operand, state, vars);
+    }
+    if (argument.kind == NK_CALL_EXPR) {
+        return semanticMacroArgumentCallable(argument.callee, state, vars)
+            || semanticMacroExpressionListCallable(
+                argument.args, state, vars);
+    }
+    if (argument.kind == NK_INDEX_EXPR) {
+        return semanticMacroArgumentCallable(argument.obj, state, vars)
+            || semanticMacroArgumentCallable(argument.index, state, vars);
+    }
+    if (argument.kind == NK_FIELD_ACCESS_EXPR) {
+        return semanticMacroArgumentCallable(argument.obj, state, vars);
+    }
+    if (argument.kind == NK_CAST_EXPR) {
+        return semanticMacroArgumentCallable(argument.expr, state, vars);
+    }
+    if (argument.kind == NK_SIZEOF_EXPR) {
+        return argument.operand != null
+            && argument.operand.kind == NK_SIZEOF_EXPR_OP
+            && semanticMacroArgumentCallable(
+                argument.operand.expr, state, vars);
+    }
+    if (argument.kind == NK_TERNARY_EXPR) {
+        return semanticMacroArgumentCallable(
+                argument.condition, state, vars)
+            || semanticMacroArgumentCallable(
+                argument.true_expr, state, vars)
+            || semanticMacroArgumentCallable(
+                argument.false_expr, state, vars);
+    }
+    if (argument.kind == NK_ASSIGN_EXPR) {
+        return semanticMacroArgumentCallable(argument.target, state, vars)
+            || semanticMacroArgumentCallable(
+                argument.value_node, state, vars);
+    }
+    if (argument.kind == NK_LIST_LITERAL
+            || argument.kind == NK_BRACE_INITIALIZER
+            || argument.kind == NK_TUPLE_LITERAL) {
+        return semanticMacroExpressionListCallable(
+            argument.elements, state, vars);
+    }
+    if (argument.kind == NK_MAP_LITERAL) {
+        return semanticMacroMapEntriesCallable(
+            argument.entries, state, vars);
+    }
+    if (argument.kind == NK_F_STRING_LITERAL) {
+        return semanticMacroFStringCallable(
+            argument.parts, state, vars);
+    }
+    if (argument.kind == NK_NEW_EXPR) {
+        return semanticMacroExpressionListCallable(
+            argument.args, state, vars);
+    }
+    return argument.kind == NK_SPAWN_EXPR
+        && semanticMacroArgumentCallable(argument.fn, state, vars);
+}

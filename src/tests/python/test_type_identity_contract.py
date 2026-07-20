@@ -92,8 +92,8 @@ def test_multiword_c_bases_use_injective_identifier_safe_components():
     multiword = mangle_type_name(_type("unsigned int"))
     underscored = mangle_type_name(_type("unsigned_int"))
 
-    assert multiword == "ZQtb24_756e7369676e656420696e74p0n0a0q0k0"
-    assert underscored == "ZQtb24_756e7369676e65645f696e74p0n0a0q0k0"
+    assert multiword == "ZQtb24_756e7369676e656420696e74p0n0o0a0q0k0"
+    assert underscored == "ZQtb24_756e7369676e65645f696e74p0n0o0a0q0k0"
     assert multiword != underscored
     assert " " not in multiword
 

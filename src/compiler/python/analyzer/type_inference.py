@@ -33,7 +33,12 @@ from ..ast_nodes import (
     UnaryExpr,
 )
 from ..numeric_literals import float_literal_type
-from .c_call_types import c_integer_identifier, c_opaque_value_identifier
+from ..reference_semantics import is_scalar_string_type
+from .c_call_types import (
+    c_integer_identifier,
+    c_opaque_value_identifier,
+    c_predefined_identifier_type,
+)
 from .iteration_inference import _IterationInferenceMixin
 
 
@@ -83,6 +88,13 @@ class TypeInferenceMixin(_IterationInferenceMixin):
                 return TypeExpr(base=owner or "int")
             if expr.name in {"stdin", "stdout", "stderr"}:
                 return TypeExpr(base="FILE", pointer_depth=1)
+            if expr.name == "__func__":
+                return TypeExpr(base="char", pointer_depth=1, is_const=True)
+            predefined = c_predefined_identifier_type(expr.name)
+            if predefined == "const char*":
+                return TypeExpr(base="char", pointer_depth=1, is_const=True)
+            if predefined is not None:
+                return TypeExpr(base=predefined)
             if c_opaque_value_identifier(expr.name):
                 return None
             if c_integer_identifier(expr.name):
@@ -107,16 +119,20 @@ class TypeInferenceMixin(_IterationInferenceMixin):
                 return obj_type.generic_args[0]
             if obj_type and obj_type.base == "Map" and len(obj_type.generic_args) == 2:
                 return obj_type.generic_args[1]
-            if obj_type and obj_type.base == "string":
+            if is_scalar_string_type(obj_type):
                 return TypeExpr(base="char", is_const=obj_type.is_const)
             if obj_type and obj_type.is_array:
-                return replace(obj_type, is_array=False, array_size=None)
+                from ..type_composition import strip_outer_storage
+
+                return strip_outer_storage(obj_type, array=True)
             if (
                 obj_type
                 and obj_type.pointer_depth > 0
                 and (obj_type.base not in self.class_table or obj_type.pointer_depth > 1)
             ):
-                return replace(obj_type, pointer_depth=obj_type.pointer_depth - 1)
+                from ..type_composition import strip_outer_storage
+
+                return strip_outer_storage(obj_type)
             from ..index_protocol import indexed_protocol
 
             protocol = indexed_protocol(obj_type, self.class_table)
@@ -145,20 +161,18 @@ class TypeInferenceMixin(_IterationInferenceMixin):
             if expr.op == "&":
                 if isinstance(expr.operand, Identifier) and expr.operand.name in self.function_table:
                     return operand_type
-                return replace(
-                    operand_type,
-                    pointer_depth=operand_type.pointer_depth + 1,
-                    is_array=False,
-                    array_size=None,
-                )
+                from ..type_composition import add_outer_pointer
+
+                return add_outer_pointer(operand_type, clear_array=True)
             if expr.op == "*":
                 if operand_type.is_array:
-                    return replace(operand_type, is_array=False, array_size=None)
+                    from ..type_composition import strip_outer_storage
+
+                    return strip_outer_storage(operand_type, array=True)
                 if operand_type.pointer_depth > 0:
-                    return replace(
-                        operand_type,
-                        pointer_depth=operand_type.pointer_depth - 1,
-                    )
+                    from ..type_composition import strip_outer_storage
+
+                    return strip_outer_storage(operand_type)
             if expr.op == "!":
                 return TypeExpr(base="bool")
             overloaded = self._operator_return_type(operand_type, expr.op, unary=True)

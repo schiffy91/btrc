@@ -111,7 +111,12 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
             IRFunctionDecl(
                 name="Std_api",
                 return_type=CType(text="void"),
-            )
+            ),
+            IRFunctionDecl(
+                name="Std_private",
+                return_type=CType(text="void"),
+                is_static=True,
+            ),
         ],
         struct_defs=[IRStructDef(name="Std", fields=[])],
         function_defs=[IRFunctionDef(name="Std_m", return_type=CType(text="void"))],
@@ -145,6 +150,11 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
         ],
         function_decls=[
             IRFunctionDecl(name="Std_api", return_type=CType(text="void")),
+            IRFunctionDecl(
+                name="Std_private",
+                return_type=CType(text="void"),
+                is_static=True,
+            ),
             IRFunctionDecl(name="Usr_api", return_type=CType(text="void")),
         ],
         struct_defs=[IRStructDef(name="Std", fields=[]), IRStructDef(name="Usr", fields=[])],
@@ -172,7 +182,10 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
     assert [h.name for h in mod.helper_decls] == ["__btrc_user_only"]
     assert [item.name for item in mod.struct_forwards] == ["Usr"]
     assert [item.name for item in mod.function_pointer_typedefs] == ["UsrCallback"]
-    assert [item.name for item in mod.function_decls] == ["Usr_api"]
+    assert [item.name for item in mod.function_decls] == [
+        "Std_private",
+        "Usr_api",
+    ]
     assert all(isinstance(item, IRStructForward) for item in mod.struct_forwards)
     assert all(isinstance(item, IRFunctionPointerTypedef) for item in mod.function_pointer_typedefs)
     assert all(isinstance(item, IRFunctionDecl) for item in mod.function_decls)
@@ -192,6 +205,43 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
             "replacement": "7",
         }
     ]
+
+
+def test_archive_header_excludes_private_ir_function_declarations():
+    from src.compiler.python.ir.emitter import CEmitter
+    from src.compiler.python.ir.nodes import (
+        CType,
+        IRFunctionDecl,
+        IRFunctionDef,
+        IRModule,
+    )
+
+    module = IRModule(
+        function_decls=[
+            IRFunctionDecl(name="public_api", return_type=CType("void")),
+            IRFunctionDecl(
+                name="private_helper",
+                return_type=CType("void"),
+                is_static=True,
+            ),
+        ],
+        function_defs=[
+            IRFunctionDef(
+                name="private_helper",
+                return_type=CType("void"),
+                is_static=True,
+            )
+        ],
+    )
+
+    emitter = CEmitter()
+    header = emitter.emit_header(module)
+    implementation = emitter.emit_impl(module, "btrc_stdlib.h")
+
+    assert "void public_api(void);" in header
+    assert "private_helper" not in header
+    assert "static void private_helper(void);" in implementation
+    assert "static void private_helper(void) {" in implementation
 
 
 def test_archive_override_check_distinguishes_imports_from_user_code(tmp_path):

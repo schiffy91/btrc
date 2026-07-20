@@ -52,7 +52,8 @@ def test_setjmp_functions_qualify_params_loops_and_capture_locals():
     """)
 
     assert "int mutate(volatile int value)" in emitted
-    assert "for (volatile int i = 0;" in emitted
+    assert "volatile int i = 0;" in emitted
+    assert "for (; (i < 1); (i++))" in emitted
     assert re.search(r"static int __btrc_lambda_\d+\(void\* __btrc_env\)", emitted)
     assert re.search(r"static void\* __btrc_spawn_wrapper_\d+\(void\* __arg\)", emitted)
     assert "volatile int captured = __env->captured;" in emitted
@@ -274,8 +275,7 @@ def test_string_exception_cleanup_uses_non_arc_unwind_path():
 def test_string_pointer_arithmetic_is_a_borrowed_c_operand():
     emitted = emit_c("""
         bool matchesAt(string text, int offset) {
-            char* raw = (char*)text;
-            return strncmp(raw + offset, "x", 1) == 0;
+            return strncmp((char*)text + offset, "x", 1) == 0;
         }
         int main() { return matchesAt("ax", 1) ? 0 : 1; }
     """)
@@ -283,5 +283,5 @@ def test_string_pointer_arithmetic_is_a_borrowed_c_operand():
     start = emitted.index("bool matchesAt(")
     end = emitted.index("\n}", start)
     body = emitted[start:end]
-    assert 'strncmp((raw + offset), "x", 1)' in body
+    assert 'strncmp((((char*)text) + offset), "x", 1)' in body
     assert "__btrc_string_release" not in body

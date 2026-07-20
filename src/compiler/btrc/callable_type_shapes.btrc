@@ -1,0 +1,23 @@
+/* Function values carry signature types, never declaration storage flags. */
+
+Node callableSignatureComponent(Node declarationType) {
+    Node component = copyTypeExprTree(declarationType);
+    component.is_static = false;
+    component.is_extern = false;
+    return component;
+}
+
+Node sourceFunctionPointerType(Node declaration) {
+    Node callable = Node();
+    callable.kind = NK_TYPE_EXPR;
+    callable.base = "__fn_ptr";
+    callable.generic_args.push(
+        callableSignatureComponent(declaration.return_type));
+    int index = 0;
+    while (index < declaration.params.len) {
+        callable.generic_args.push(callableSignatureComponent(
+            declaration.params.get(index).type));
+        index = index + 1;
+    }
+    return callable;
+}

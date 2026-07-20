@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .nodes import IRCall, IRModule, IRVar
+from .nodes import IRCall, IRFunctionRef, IRModule
 from .optimizer_walk import (
     identifier_pattern,
     iter_ir_nodes,
@@ -44,7 +44,7 @@ def _collect_ir_helper_references(
                 used.add(node.helper_ref)
             if isinstance(node.callee, str) and node.callee in names:
                 used.add(node.callee)
-        elif isinstance(node, IRVar) and node.name in names:
+        elif isinstance(node, IRFunctionRef) and node.name in names:
             # Runtime callbacks are helper symbols used as values rather than
             # callees (cleanup destructors and Mutex ownership hooks).
             used.add(node.name)

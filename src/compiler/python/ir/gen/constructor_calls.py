@@ -22,16 +22,19 @@ if TYPE_CHECKING:
 
 def lower_new_expr(gen: IRGenerator, node: NewExpr):
     """Lower an explicitly typed ``new Class<Args>(...)`` expression."""
-    cls_info = gen.analyzed.class_table.get(node.type.base)
+    from .default_argument_context import resolve_default_type
+
+    instance_type = resolve_default_type(node.type)
+    cls_info = gen.analyzed.class_table.get(instance_type.base)
     params = []
     constructor = None
     if cls_info and cls_info.constructor:
         constructor = cls_info.constructor
-        params = resolved_constructor_params(gen, cls_info, node.type)
-    elif node.type.base == "Mutex" and node.type.generic_args:
+        params = resolved_constructor_params(gen, cls_info, instance_type)
+    elif instance_type.base == "Mutex" and instance_type.generic_args:
         from ...ast_nodes import Param
 
-        params = [Param(type=node.type.generic_args[0], name="value")]
+        params = [Param(type=instance_type.generic_args[0], name="value")]
     from .call_effects import owned_transfer_param_indices
 
     operands, needs_boundary = plan_call_operands(
@@ -40,6 +43,7 @@ def lower_new_expr(gen: IRGenerator, node: NewExpr):
         node.args,
         arg_names_for(node, len(node.args)),
         transferred_params=owned_transfer_param_indices(constructor),
+        call=node,
     )
     if not needs_boundary:
         return _lower_new_plain(gen, node)
@@ -56,7 +60,7 @@ def lower_new_expr(gen: IRGenerator, node: NewExpr):
                 else:
                     gen._owning_temp_overrides[key] = value
 
-    result_type = gen.analyzed.node_types.get(id(node)) or node.type
+    result_type = gen.analyzed.node_types.get(id(node)) or instance_type
     from .expressions import lower_expr
 
     return sequence_call_boundary(
@@ -75,24 +79,30 @@ def lower_new_expr(gen: IRGenerator, node: NewExpr):
 
 def _lower_new_plain(gen: IRGenerator, node: NewExpr):
     """Lower a constructor after any managed operands are stabilized."""
-    if node.type.base == "Mutex":
+    from .default_argument_context import resolve_default_type
+
+    instance_type = resolve_default_type(node.type)
+    if instance_type.base == "Mutex":
         from .call_builtins import lower_mutex_constructor
 
         args = lower_arg_values(gen, node.args)
-        value_type = node.type.generic_args[0] if node.type.generic_args else None
+        value_type = instance_type.generic_args[0] if instance_type.generic_args else None
         return lower_mutex_constructor(
             gen,
             node.args,
             args,
             value_type,
         )
-    type_name = node.type.base
-    if node.type.generic_args:
-        type_name = mangle_generic_type(node.type.base, node.type.generic_args)
+    type_name = instance_type.base
+    if instance_type.generic_args:
+        type_name = mangle_generic_type(
+            instance_type.base,
+            instance_type.generic_args,
+        )
     args = lower_arg_values(gen, node.args)
-    cls_info = gen.analyzed.class_table.get(node.type.base)
+    cls_info = gen.analyzed.class_table.get(instance_type.base)
     if cls_info and cls_info.constructor:
-        params = resolved_constructor_params(gen, cls_info, node.type)
+        params = resolved_constructor_params(gen, cls_info, instance_type)
         args = order_args_for_params(
             gen,
             params,

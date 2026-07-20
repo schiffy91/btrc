@@ -36,8 +36,9 @@ fallback to partially transferred data.
 
 ## Build and verify
 
-Run commands from the repository root because the compiler locates
-`src/language/grammar.ebnf` relative to its working directory.
+The developer build resolves the repository data from `bin/btrcc`'s real path;
+release bundles resolve `share/btrc` beside their `bin` directory. Neither mode
+uses the current directory as an implicit data source.
 
 ```bash
 make btrcc                  # native bin/btrcc
@@ -45,6 +46,23 @@ make test-selfhost          # lexer parity
 make test-btrc-selfhost     # full shared corpus through btrcc
 make bootstrap              # fixed-point self-hosting proof
 ```
+
+`btrcc --stdlib-dir` prints the active standard-library directory. Set
+`BTRC_HOME` to an alternate data root containing `language/grammar.ebnf` and
+`stdlib/`; an invalid explicit override fails rather than falling back. The
+cross-build targets emit relocatable `.tar.gz`/`.zip` archives and SHA-256
+sidecars in `dist/`.
+
+Native-module output keeps its C header include. Compile it with the active
+stdlib and relevant module directory on the include path, such as
+`-I "$(btrcc --stdlib-dir)" -I "$(btrcc --stdlib-dir)/gui"`, then link the
+module runtime described in that stdlib directory.
+
+`btrcc` intentionally rejects package-style imports (`import dep` or
+`import dep.module`) because the `btrc.toml`/lockfile resolver has not yet been
+self-hosted. Use `btrcpy` for package projects. Local imports remain supported
+when written as explicit paths such as `import ./dep.btrc` or a quoted path;
+btrcc never falls back from a package name to a same-named file.
 
 For parser-stage inspection:
 

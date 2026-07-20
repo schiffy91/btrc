@@ -51,15 +51,21 @@ USES_CONVERSIONS = (
     'float f = "12.5tail".toFloat(); bool b = "false".toBool(); '
     "return i == INT_MIN && n == LONG_MAX && f == 12.5f && !b ? 0 : 1; }\n"
 )
-TARGET_SETJMP_SHIM = r"""
-typedef intptr_t jmp_buf[5];
-#define setjmp(environment) __builtin_setjmp(environment)
+ZERO_LIBC_SETJMP_SHIM = r"""
+typedef struct { int opaque; } jmp_buf[1];
+static _Noreturn void btrc_test_longjmp(jmp_buf environment, int status) {
+    (void)environment;
+    (void)status;
+    for (;;) {}
+}
+#define setjmp(environment) ((void)(environment), 0)
 #define longjmp(environment, status) \
-    ((void)(status), __builtin_longjmp(environment, 1))
+    btrc_test_longjmp((environment), (status))
 """
 TLS_RUNTIME_SYMBOLS = {
     "__emutls_get_address",
     "___emutls_get_address",
+    "__tlv_bootstrap",
     "___tlv_bootstrap",
 }
 
@@ -196,13 +202,20 @@ def test_freestanding_stdlib_links_with_zero_libc(tmp_path, monkeypatch, program
     # Core programs then need no libc symbols; C11 TLS may use compiler support.
     generated, out = compile_btrc(tmp_path, monkeypatch, program, "--freestanding", name="fk")
     setjmp_shim = tmp_path / "btrc_test_setjmp.h"
-    setjmp_shim.write_text(TARGET_SETJMP_SHIM)
+    # This link-only test needs a target-owned seam, but never executes an
+    # exception.  A tiny conforming stub keeps the object independent of libc
+    # and works on targets where compiler setjmp builtins are unavailable.
+    setjmp_shim.write_text(ZERO_LIBC_SETJMP_SHIM)
     obj = tmp_path / "fk.o"
     setjmp_flags = ["-DBTRC_RT_SETJMP_HEADER=<btrc_test_setjmp.h>"] if "BTRC_RT_NEEDS_SETJMP" in generated else []
     r = subprocess.run(
         [
             "gcc",
             "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
             "-ffreestanding",
             "-fno-builtin",
             "-fno-stack-protector",

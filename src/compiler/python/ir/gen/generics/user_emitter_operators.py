@@ -10,6 +10,7 @@ from ..updates import (
     lower_assignment,
     lower_incdec,
 )
+from .core import _generic_lvalue_c_type
 
 
 class _UserGenericOperatorMixin:
@@ -107,6 +108,9 @@ class _UserGenericOperatorMixin:
                 op=expression.op,
                 right=self._expr(expression.value),
             )
+        from .user_callable_provenance import reject_generic_erasing_callable_assignment
+
+        reject_generic_erasing_callable_assignment(self, expression)
         target_type = self._resolve_expr_type(expression.target)
         if self._is_managed_type(target_type):
             from ..managed_local import mark_borrowed_cycle_seeds
@@ -131,8 +135,8 @@ class _UserGenericOperatorMixin:
                 )
             ),
         )
+        result = None
         if target_nodes:
-            from ..assignment_ownership import virtual_assignment_target
             from ..assignment_result_ownership import virtual_assignment_rhs_owns_result
             from .user_index_targets import prepared_generic_index_targets
 
@@ -143,13 +147,13 @@ class _UserGenericOperatorMixin:
             )
             rhs_supplies_result = bool(
                 expression.op == "="
-                and virtual_assignment_target(self._gen, expression.target)
                 and virtual_assignment_rhs_owns_result(
                     self._gen,
                     expression.target,
                     expression.value,
                     type_of=self._resolve_expr_type,
                     owns=self._owns_expr,
+                    direct_property=self._direct_property_target,
                 )
             )
             sequenced = self._sequence_owned_nodes(
@@ -167,8 +171,13 @@ class _UserGenericOperatorMixin:
                 prepared_values=prepared_targets,
             )
             if sequenced is not None:
-                return sequenced
-        return self._assignment_expr_plain(expression)
+                result = sequenced
+        if result is None:
+            result = self._assignment_expr_plain(expression)
+        from .user_callable_provenance import rebind_generic_local_callable
+
+        rebind_generic_local_callable(self, expression)
+        return result
 
     def _assignment_expr_plain(self, expression) -> IRExpr:
         from .user_emitter_local_arc import lower_generic_local_assignment
@@ -204,7 +213,6 @@ class _UserGenericOperatorMixin:
         return False
 
     def _update_context(self) -> UpdateContext:
-        from ....ast_nodes import FieldAccessExpr, SelfExpr
         from ..operators import lower_overloaded_values
         from ..upcast import upcast_class_pointer
         from ..virtual_stores import lower_virtual_store_boundary
@@ -217,11 +225,8 @@ class _UserGenericOperatorMixin:
             fresh_temp=self._fresh_temp,
             register_decl=self._func_var_decls.append,
             class_table=analyzed.class_table,
-            direct_property=lambda target: bool(
-                isinstance(target, FieldAccessExpr)
-                and isinstance(target.obj, SelfExpr)
-                and self._current_property_backing == target.field
-            ),
+            target_c_type=lambda target, resolved: _generic_lvalue_c_type(self, target, resolved),
+            direct_property=self._direct_property_target,
         )
         return UpdateContext(
             lvalues=lvalues,
@@ -253,11 +258,10 @@ class _UserGenericOperatorMixin:
                 cleanup_active=self._exception_cleanup_active(),
                 record_decl=self._func_var_decls.append,
                 owns_result=self._owns_expr,
-                prepare=lambda value, target_type, lowered: _prepare_generic_assignment(
+                prepare=lambda value, target_type: _prepare_generic_assignment(
                     self,
                     value,
                     target_type,
-                    lowered,
                 ),
                 activate_cleanup=self._activate_cleanup_registration,
             ),
@@ -274,15 +278,15 @@ class _UserGenericOperatorMixin:
         return self._expr(value)
 
 
-__all__ = ["_UserGenericOperatorMixin"]
-
-
-def _prepare_generic_assignment(emitter, value, target_type, lowered):
+def _prepare_generic_assignment(emitter, value, target_type):
     from ..prepared_values import prepare_generic_value
 
     return prepare_generic_value(
         emitter,
         value,
         target_type,
-        lowered=lowered,
+        lower_value=lambda expression: emitter._assignment_value(
+            target_type,
+            expression,
+        ),
     )

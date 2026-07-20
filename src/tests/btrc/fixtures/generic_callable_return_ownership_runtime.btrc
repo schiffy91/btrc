@@ -1,0 +1,98 @@
+#include <assert.h>
+
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+extern void genericCallableForeignSet(string value);
+extern string genericCallableForeignString();
+
+string genericCallableSourceString() { return f"source={17}"; }
+
+class GenericCallableBox<T> {
+    public GenericCallableBox() {}
+
+    public string borrowForeign() {
+        return genericCallableForeignString();
+    }
+
+    public string invokeForeign(__fn_ptr<string> callback) {
+        return callback();
+    }
+
+    public string invokeShadowedForeign() {
+        __fn_ptr<string> callback = genericCallableForeignString;
+        {
+            __fn_ptr<string> callback = genericCallableSourceString;
+            string owned = callback();
+            assert(owned.equals("source=17"));
+        }
+        return callback();
+    }
+
+    public string invokeSource(bool castFirst) {
+        __fn_ptr<string> callback = genericCallableSourceString;
+        if (castFirst) {
+            callback = (__fn_ptr<string>)genericCallableSourceString;
+        } else {
+            callback = true
+                ? genericCallableSourceString
+                : genericCallableSourceString;
+        }
+        return callback();
+    }
+}
+
+void exerciseGenericCallableReturns(int value) {
+    int baselineStrings = (int)__btrc_string_live_count();
+    GenericCallableBox<int> box = new GenericCallableBox<int>();
+
+    {
+        string borrowed = "";
+        {
+            string owner = f"foreign={value}";
+            genericCallableForeignSet(owner);
+            borrowed = box.borrowForeign();
+        }
+        assert(borrowed.startsWith("foreign="));
+        assert((int)__btrc_string_live_count() == baselineStrings + 1);
+    }
+    assert((int)__btrc_string_live_count() == baselineStrings);
+
+    {
+        string borrowed = "";
+        {
+            string owner = f"callback={value}";
+            genericCallableForeignSet(owner);
+            __fn_ptr<string> callback = genericCallableForeignString;
+            borrowed = box.invokeForeign(callback);
+        }
+        assert(borrowed.startsWith("callback="));
+        assert((int)__btrc_string_live_count() == baselineStrings + 1);
+    }
+    assert((int)__btrc_string_live_count() == baselineStrings);
+
+    {
+        string borrowed = "";
+        {
+            string owner = f"shadow={value}";
+            genericCallableForeignSet(owner);
+            borrowed = box.invokeShadowedForeign();
+        }
+        assert(borrowed.startsWith("shadow="));
+        assert((int)__btrc_string_live_count() == baselineStrings + 1);
+    }
+    assert((int)__btrc_string_live_count() == baselineStrings);
+
+    {
+        string owned = box.invokeSource(value % 2 == 0);
+        assert(owned.equals("source=17"));
+    }
+    assert((int)__btrc_string_live_count() == baselineStrings);
+}
+
+int main() {
+    exerciseGenericCallableReturns(1000);
+    arc_test_allocation_checkpoint();
+    exerciseGenericCallableReturns(2001);
+    assert(arc_test_allocation_delta() == 0);
+    return 0;
+}

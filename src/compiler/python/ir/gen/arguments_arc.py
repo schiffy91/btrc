@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 
 from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier, LambdaExpr
 from ...string_methods import STRING_METHODS
-from .call_boundary import CallOperand, sequence_call_boundary
+from .call_boundary import sequence_call_boundary
+from .call_operand_planning import plan_call_operands
 from .ownership import owns_result
 from .types import type_to_c
 
@@ -21,9 +22,11 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
         callable_for_call,
         owned_transfer_param_indices,
     )
+    from .callable_boundaries import reject_unsafe_managed_callback_arguments
     from .calls import _lower_call
 
     reject_rich_enum_owned_args(gen, node)
+    reject_unsafe_managed_callback_arguments(gen, node)
     if isinstance(node.callee, FieldAccessExpr) and node.callee.optional:
         return _lower_call(gen, node)
 
@@ -31,6 +34,12 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
     from .call_contracts import resolved_params_for_call
 
     params = resolved_params_for_call(gen, node)
+    from .hosted_result_conversion import (
+        lower_hosted_string_conversion,
+        requested_hosted_string_conversion,
+    )
+
+    result_conversion = requested_hosted_string_conversion(gen, node)
     callable_field = _callable_field(gen, node)
     receiver = None if callable_field else _instance_receiver(gen, node)
     from .receiver_pinning import receiver_pin_required
@@ -50,17 +59,32 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
             owned_local_type=gen.managed_local_type,
         ),
         force_order=_language_ordered_call(gen, node, declaration),
+        call=node,
     )
     if not needs_boundary:
-        return _lower_call(gen, node)
+        call = _lower_call(gen, node)
+        if result_conversion is not None:
+            call = lower_hosted_string_conversion(
+                gen,
+                call,
+                result_conversion[0],
+            )
+        return call
 
-    result_type = gen.analyzed.node_types.get(id(node))
+    result_type = result_conversion[1] if result_conversion is not None else gen.analyzed.node_types.get(id(node))
 
     def build_call(overrides):
         previous = {key: gen._owning_temp_overrides.get(key) for key in overrides}
         gen._owning_temp_overrides.update(overrides)
         try:
-            return _lower_call(gen, node)
+            call = _lower_call(gen, node)
+            if result_conversion is not None:
+                call = lower_hosted_string_conversion(
+                    gen,
+                    call,
+                    result_conversion[0],
+                )
+            return call
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -79,135 +103,8 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
         cleanup_active=gen.exception_cleanup_active(),
         record_decl=gen._func_var_decls.append,
         promote_result=False,
-        result_owned=owns_result(gen, node),
+        result_owned=bool(result_conversion is not None or owns_result(gen, node)),
     )
-
-
-def plan_call_operands(
-    gen,
-    params,
-    ast_args,
-    arg_names,
-    *,
-    receiver=None,
-    callee=None,
-    transferred_params=frozenset(),
-    pin_receiver: bool = False,
-    force_order: bool = True,
-):
-    """Describe one call's source-order operands and lifetime guards."""
-    from .arguments import bind_arg_nodes_to_params
-    from .evaluation_order import (
-        borrowed_value_can_be_pinned,
-        has_observable_effect,
-        operand_c_type,
-        operands_require_order,
-    )
-    from .managed_values import is_managed_type
-
-    specs = []
-    for value in (callee, receiver):
-        if value is None:
-            continue
-        type_expr = gen.analyzed.node_types.get(id(value))
-        managed = is_managed_type(gen, type_expr)
-        specs.append(
-            (
-                value,
-                type_expr,
-                None,
-                bool(value is receiver and pin_receiver),
-                bool(managed and owns_result(gen, value)),
-                False,
-            )
-        )
-    from .prepared_values import requires_string_conversion
-
-    for param_index, argument, _is_default in bind_arg_nodes_to_params(params, ast_args, arg_names):
-        param = params[param_index] if param_index is not None and 0 <= param_index < len(params) else None
-        source_type = gen.analyzed.node_types.get(id(argument))
-        target_type = param.type if param is not None else source_type
-        converted = requires_string_conversion(gen, target_type, source_type)
-        effective_type = target_type if converted else (source_type or target_type)
-        managed = is_managed_type(gen, effective_type)
-        owned = bool(managed and (converted or owns_result(gen, argument)))
-        specs.append(
-            (
-                argument,
-                effective_type,
-                target_type,
-                bool(managed and param is not None and param.keep),
-                owned,
-                bool(owned and param_index in transferred_params),
-            )
-        )
-    effects = [
-        bool(
-            target_type is not None
-            and requires_string_conversion(gen, target_type, gen.analyzed.node_types.get(id(argument)))
-        )
-        or has_observable_effect(gen, argument)
-        for argument, _type_expr, target_type, _keep, _owned, _transferred in specs
-    ]
-    ownership_required = any(keep or owned for _argument, _type_expr, _target, keep, owned, _transferred in specs)
-    ordered = force_order and operands_require_order(
-        gen,
-        [argument for argument, _type_expr, _target, _keep, _owned, _transferred in specs],
-    )
-    needs_boundary = ownership_required or ordered
-    if not needs_boundary:
-        return [], False
-
-    operands = []
-    final_index = len(specs) - 1
-    from .expressions import lower_expr
-    from .prepared_values import prepare_value
-
-    for index, (argument, type_expr, target_type, keep, owned, transferred) in enumerate(specs):
-        if type_expr is None:
-            if index == final_index and index > 0 and not (keep or owned):
-                continue
-            _missing_operand_type(argument)
-        pin = bool(
-            borrowed_value_can_be_pinned(argument)
-            and index < final_index
-            and any(effects[index + 1 :])
-            and is_managed_type(gen, type_expr)
-            and not owned
-        )
-        prepared = None
-        if target_type is not None:
-            prepared = prepare_value(
-                gen,
-                argument,
-                target_type,
-                lower_expr=lambda value: lower_expr(gen, value),
-                type_of=lambda value: gen.analyzed.node_types.get(id(value)),
-                owns_result=lambda value: bool(id(value) not in gen._owning_temp_overrides and owns_result(gen, value)),
-                render_type=type_to_c,
-                fresh_temp=gen.fresh_temp,
-                cleanup_active=gen.exception_cleanup_active(),
-                record_decl=gen._func_var_decls.append,
-            )
-            type_expr = prepared.effective_type
-            owned = prepared.owned
-        operands.append(
-            CallOperand(
-                node=argument,
-                type_expr=type_expr,
-                c_type=(
-                    type_to_c(type_expr)
-                    if prepared is not None
-                    else operand_c_type(gen, argument, type_expr, render=type_to_c)
-                ),
-                keep=keep,
-                pin=pin,
-                owned=owned,
-                transferred=transferred,
-                lowered=prepared.value if prepared is not None else None,
-            )
-        )
-    return operands, True
 
 
 def _arg_names(node):
@@ -246,6 +143,8 @@ def _callable_field(gen, node) -> bool:
 def _language_ordered_call(gen, node, declaration) -> bool:
     if declaration is not None:
         return True
+    if id(node) in gen.analyzed.hosted_call_ids:
+        return True
     if isinstance(node.callee, Identifier) and node.callee.name in {
         "print",
         "printf",
@@ -277,16 +176,6 @@ def _lowerer(gen):
     from .expressions import lower_expr
 
     return lambda node: lower_expr(gen, node)
-
-
-def _missing_operand_type(argument):
-    from .evaluation_order import reject_opaque_ordering
-
-    reject_opaque_ordering(
-        argument,
-        "call arguments",
-        typed_declaration=True,
-    )
 
 
 __all__ = ["lower_call_with_arc", "plan_call_operands"]

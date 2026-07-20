@@ -1,0 +1,80 @@
+/* Caller-scope capture checks for nested source macro expansions. */
+
+void semanticMacroCollectFreeIdentifiers(string sourceText,
+        SemanticValidationState state, Map<string, bool> visiting,
+        Vector<string> result) {
+    string name = sourceMacroName(sourceText);
+    if (name != "" && visiting.has(name)) { return; }
+    if (name != "") { visiting.put(name, true); }
+    Vector<string> identifiers = sourceMacroReplacementIdentifiers(sourceText);
+    int index = 0;
+    while (index < identifiers.len) {
+        string identifier = identifiers.get(index);
+        if (state.sourceMacroDefinitions.has(identifier)) {
+            semanticMacroCollectFreeIdentifiers(
+                state.sourceMacroDefinitions.get(identifier), state,
+                visiting, result);
+        } else if (!result.contains(identifier)) {
+            result.push(identifier);
+        }
+        index = index + 1;
+    }
+}
+
+void semanticValidateMacroCaptures(string macroName, string sourceText,
+        Node call, SemanticValidationState state,
+        Map<string, Node> vars) {
+    Vector<string> identifiers = [];
+    Map<string, bool> visiting = {};
+    semanticMacroCollectFreeIdentifiers(
+        sourceText, state, visiting, identifiers);
+    int index = 0;
+    while (index < identifiers.len) {
+        string name = identifiers.get(index);
+        Node? typeExpr = null;
+        if (vars.has(name)) {
+            typeExpr = vars.get(name);
+        } else if (state.analyzed.globalVarTypes.has(name)) {
+            typeExpr = state.analyzed.globalVarTypes.get(name);
+        }
+        bool callableValue = directFunctionPointerType(
+            typeExpr, state.analyzed) != null;
+        if (callableValue || semanticMacroTypeBoundary(typeExpr, state)) {
+            semanticValidationFail("Source macro '" + macroName
+                + "' cannot capture managed or callable value '" + name
+                + "' because macro expansion bypasses semantic analysis",
+                call);
+        }
+        index = index + 1;
+    }
+}
+
+bool semanticSourceMacroExpandsToContextIdentifierImpl(string name,
+        SemanticValidationState state, Map<string, bool> visiting) {
+    if (visiting.has(name)
+            || !state.sourceMacroDefinitions.has(name)) {
+        return false;
+    }
+    visiting.put(name, true);
+    Vector<string> identifiers = sourceMacroReplacementIdentifiers(
+        state.sourceMacroDefinitions.get(name));
+    int index = 0;
+    while (index < identifiers.len) {
+        string identifier = identifiers.get(index);
+        if (identifier == "__func__" || identifier == "__LINE__"
+                || identifier == "__FILE__"
+                || semanticSourceMacroExpandsToContextIdentifierImpl(
+                    identifier, state, visiting)) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
+bool semanticSourceMacroExpandsToContextIdentifier(
+        string name, SemanticValidationState state) {
+    Map<string, bool> visiting = {};
+    return semanticSourceMacroExpandsToContextIdentifierImpl(
+        name, state, visiting);
+}

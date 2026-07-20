@@ -1,5 +1,13 @@
 /* Non-mutating TypeExpr shape copies shared by semantic transformations. */
 
+bool typeIntrinsicReferenceShape(Node typeExpr) {
+    return typeExpr.base == "Array" || typeExpr.base == "List"
+        || typeExpr.base == "Map" || typeExpr.base == "Mutex"
+        || typeExpr.base == "Set" || typeExpr.base == "Thread"
+        || typeExpr.base == "Vector" || typeExpr.base == "__fn_ptr"
+        || typeExpr.base == "string";
+}
+
 Node copyTypeExprWithArgs(Node typeExpr, Vector<Node> genericArgs) {
     Node result = Node();
     result.kind = NK_TYPE_EXPR;
@@ -10,6 +18,7 @@ Node copyTypeExprWithArgs(Node typeExpr, Vector<Node> genericArgs) {
     result.array_size = typeExpr.array_size;
     result.is_const = typeExpr.is_const;
     result.is_nullable = typeExpr.is_nullable;
+    result.nullable_outer_depth = typeExpr.nullable_outer_depth;
     result.is_static = typeExpr.is_static;
     result.is_extern = typeExpr.is_extern;
     result.is_volatile = typeExpr.is_volatile;
@@ -30,4 +39,69 @@ Node copyTypeExprTree(Node typeExpr) {
         index = index + 1;
     }
     return copyTypeExprWithArgs(typeExpr, genericArgs);
+}
+
+Node typeWithoutOuterArray(Node typeExpr) {
+    Node result = copyTypeExpr(typeExpr);
+    if (result.is_array) {
+        result.is_array = false;
+        result.array_size = null;
+        if (typeExpr.nullable_outer_depth > 0) {
+            result.nullable_outer_depth =
+                typeExpr.nullable_outer_depth - 1;
+        } else if (typeExpr.is_nullable) {
+            int innerStorage = typeExpr.pointer_depth
+                + (typeExpr.is_array ? 1 : 0)
+                - typeExpr.nullable_outer_depth;
+            result.is_nullable = false;
+            result.nullable_outer_depth = 0;
+            if (innerStorage > 1) {
+                result.pointer_depth = result.pointer_depth - 1;
+            }
+        }
+    }
+    if (result.is_nullable && result.nullable_outer_depth == 0
+            && result.pointer_depth + (result.is_array ? 1 : 0) == 0) {
+        result.is_nullable = false;
+    }
+    return result;
+}
+
+Node typeWithoutOuterPointers(Node typeExpr, int pointerCount) {
+    Node result = copyTypeExpr(typeExpr);
+    int removed = 0;
+    while (removed < pointerCount) {
+        if (result.pointer_depth <= 0) { return result; }
+        Node previous = copyTypeExpr(result);
+        result.pointer_depth = result.pointer_depth - 1;
+        if (previous.nullable_outer_depth > 0) {
+            result.nullable_outer_depth =
+                previous.nullable_outer_depth - 1;
+        } else if (previous.is_nullable) {
+            int innerStorage = previous.pointer_depth
+                + (previous.is_array ? 1 : 0)
+                - previous.nullable_outer_depth;
+            result.is_nullable = false;
+            result.nullable_outer_depth = 0;
+            if (innerStorage > 1) {
+                result.pointer_depth = result.pointer_depth - 1;
+            }
+        }
+        if (result.is_nullable && result.nullable_outer_depth == 0
+                && result.pointer_depth
+                    + (result.is_array ? 1 : 0) == 0) {
+            result.is_nullable = false;
+        }
+        removed = removed + 1;
+    }
+    return result;
+}
+
+Node typeWithOuterPointer(Node typeExpr) {
+    Node result = copyTypeExpr(typeExpr);
+    result.pointer_depth = result.pointer_depth + 1;
+    if (result.is_nullable) {
+        result.nullable_outer_depth = result.nullable_outer_depth + 1;
+    }
+    return result;
 }

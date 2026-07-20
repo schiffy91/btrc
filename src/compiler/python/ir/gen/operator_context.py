@@ -1,7 +1,7 @@
 """Dependency bundle for portable typed-operator lowering."""
 
 from collections.abc import Callable, Mapping, Set
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 from ...ast_nodes import TypeExpr
 from .errors import CodegenError
@@ -38,22 +38,9 @@ def canonical_operator_type(
     seen: frozenset[str] = frozenset(),
 ) -> TypeExpr | None:
     """Resolve declared aliases while preserving every use-site modifier."""
-    if type_expr is None or type_expr.base not in context.typedef_table or type_expr.base in seen:
-        return type_expr
-    resolved = canonical_operator_type(
-        context,
-        context.typedef_table[type_expr.base],
-        seen | {type_expr.base},
-    )
-    assert resolved is not None
-    return replace(
-        resolved,
-        pointer_depth=resolved.pointer_depth + type_expr.pointer_depth,
-        is_array=resolved.is_array or type_expr.is_array,
-        array_size=(type_expr.array_size if type_expr.array_size is not None else resolved.array_size),
-        is_const=resolved.is_const or type_expr.is_const,
-        is_nullable=resolved.is_nullable or type_expr.is_nullable,
-    )
+    from .type_resolution import canonical_type
+
+    return canonical_type(type_expr, dict(context.typedef_table), seen)
 
 
 __all__ = [

@@ -18,9 +18,9 @@ int main() {
     assert(global_answer == 9);
     assert(sizeof(values[1]) == sizeof(int));
     assert(value.data.Value.value == 7);
-    assert(strcmp(Mode_toString(READY), "READY") == 0);
-    assert(strcmp(Outcome_toString(value), "Value") == 0);
-    assert(strcmp(Outcome_toString(empty), "Empty") == 0);
+    assert(strcmp(READY.toString(), "READY") == 0);
+    assert(strcmp(value.toString(), "Value") == 0);
+    assert(strcmp(empty.toString(), "Empty") == 0);
 
     print("PASS: test_structured_ir_expressions");
     return 0;

@@ -1,12 +1,22 @@
 """Structural post-processing tests for monomorphized generic methods."""
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
-from src.compiler.python.ast_nodes import IntLiteral, SizeofExprOp
+from src.compiler.python.ast_nodes import (
+    FieldAccessExpr,
+    Identifier,
+    IntLiteral,
+    SizeofExprOp,
+    TypeExpr,
+)
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generics.user_emitter import _UserGenericEmitter
+from src.compiler.python.ir.gen.generics.user_emitter_projections import (
+    _plain_field_access,
+)
 from src.compiler.python.ir.gen.generics.user_ir_queries import (
     called_callees,
     is_type_incompatible,
@@ -163,3 +173,50 @@ def test_generic_sizeof_preserves_unknown_structured_operand():
     assert isinstance(result.operand, FutureExpr)
     with pytest.raises(TypeError, match="unsupported IR expression: FutureExpr"):
         CEmitter()._expr(result)
+
+
+def test_generic_static_method_projection_preserves_lexical_receiver() -> None:
+    static_method = SimpleNamespace(access="class", generic_params=[])
+    analyzed = SimpleNamespace(
+        class_table={
+            "Util": SimpleNamespace(
+                generic_params=[],
+                static_fields={},
+                methods={"make": static_method},
+            ),
+            "Receiver": SimpleNamespace(
+                generic_params=[],
+                methods={},
+                properties={},
+            ),
+        },
+        interface_table={},
+        struct_table={},
+        node_types={},
+        typedef_table={},
+        enum_table={},
+        rich_enum_table={},
+    )
+    emitter = _UserGenericEmitter(
+        {},
+        "Box_int",
+        lambda type_expr: type_expr.base,
+        gen=SimpleNamespace(analyzed=analyzed),
+    )
+    emitter._var_types["Util"] = TypeExpr(base="Receiver")
+
+    lowered = _plain_field_access(
+        emitter,
+        FieldAccessExpr(
+            obj=Identifier(name="Util"),
+            field="make",
+            arrow=True,
+        ),
+    )
+
+    assert isinstance(lowered, IRFieldAccess)
+    assert lowered == IRFieldAccess(
+        obj=IRVar(name="__btrc_source_Util"),
+        field="make",
+        arrow=True,
+    )

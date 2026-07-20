@@ -11,6 +11,10 @@ Node? semanticResolveAliases(Node? typeExpr,
 
 Node? semanticInferType(Node? expression, SemanticValidationState state,
         Map<string, Node> vars) {
+    if (state.gpuCallable) {
+        return semanticResolveAliases(
+            gpuContextualExprType(expression, state.analyzed, vars), state);
+    }
     return semanticResolveAliases(
         inferType(expression, state.analyzed, vars), state);
 }

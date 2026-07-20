@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import dataclasses
 
-from .nodes import IRCall, IRLiteral, IRModule, IRVar
-from .optimizer_walk import identifier_pattern, scan_macro_replacements
+from .nodes import IRCall, IRFunctionRef, IRLiteral, IRModule
+from .optimizer_walk import (
+    collect_value_references,
+    identifier_pattern,
+    scan_macro_replacements,
+)
 
 _ENTRY_POINTS = frozenset({"main", "btrc_main"})
 
@@ -35,7 +39,7 @@ def eliminate_dead_functions(module: IRModule) -> None:
         if declaration.name in descriptor_names:
             continue
         collect_function_references(declaration, names, roots)
-        collect_function_references(
+        collect_value_references(
             declaration,
             descriptor_names,
             descriptor_roots,
@@ -63,7 +67,7 @@ def eliminate_dead_functions(module: IRModule) -> None:
                 continue
             collect_function_references(function.body, names, references)
             discovered_descriptors: set[str] = set()
-            collect_function_references(
+            collect_value_references(
                 function.body,
                 descriptor_names,
                 discovered_descriptors,
@@ -107,7 +111,7 @@ def collect_function_references(
 
     if isinstance(value, IRCall) and isinstance(value.callee, str) and value.callee in names:
         out.add(value.callee)
-    if isinstance(value, IRVar) and value.name in names:
+    if isinstance(value, IRFunctionRef) and value.name in names:
         out.add(value.name)
     if isinstance(value, IRLiteral):
         return

@@ -65,7 +65,7 @@ class TypeDomainContractsMixin(
             )
         if (
             canonical
-            and canonical.base not in {"Mutex", "__fn_ptr"}
+            and canonical.base not in {"Mutex", "Thread", "__fn_ptr"}
             and canonical.base not in self.class_table
             and self._contains_mutex_storage(canonical)
         ):

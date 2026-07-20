@@ -53,6 +53,22 @@ def test_default_pytest_parallelism_is_bounded_and_configurable():
     assert " -n 2" in constrained
 
 
+def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():
+    output = _make_dry_run("test", "NIX=").replace("\\\n", " ")
+    commands = [line for line in output.splitlines() if "python3 -m pytest" in line]
+
+    assert len(commands) == 2
+    assert "--ignore=src/tests/btrc/test_bootstrap.py" in commands[0]
+    assert "src/tests/btrc/test_bootstrap.py" in commands[1]
+    assert " -n " in commands[0]
+    assert " -n " not in commands[1]
+
+    bootstrap = _make_dry_run("bootstrap", "NIX=")
+    bootstrap_command = next(line for line in bootstrap.splitlines() if "python3 -m pytest" in line)
+    assert "src/tests/btrc/test_bootstrap.py" in bootstrap_command
+    assert " -n " not in bootstrap_command
+
+
 def test_container_builds_never_prune_global_podman_state():
     build_sources = MAKEFILE.read_text() + (DEVCONTAINER_CONFIG / "host.nix").read_text()
 
@@ -83,6 +99,14 @@ def test_devcontainer_context_excludes_repo_state_and_stages_lsp_runtime():
     assert "!.git" not in ignored
     assert "build/generated/" in ignored
     assert "build/out/" in ignored
+    for local_state in (
+        "**/.venv/",
+        "**/.pytest_cache/",
+        "**/.ruff_cache/",
+        "**/.btrc-cache/",
+        "**/.DS_Store",
+    ):
+        assert local_state in ignored
     for source in ("src/compiler/python/", "src/devex/lsp/", "src/language/", "src/stdlib/"):
         assert f"COPY --chown=${{uid}}:${{uid}} {source}" in containerfile
     assert "!src/compiler/**" not in ignored
@@ -144,6 +168,17 @@ def test_btrcc_regenerates_ast_dependencies_before_transpiling():
     assert output.index(btrc_ast) < output.index(transpile)
 
 
+def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
+    linux = _make_dry_run("btrcc-linux-x64", "NIX=")
+    windows = _make_dry_run("btrcc-windows-x64", "NIX=")
+
+    assert "-o build/btrcc/linux-x64/btrcc" in linux
+    assert "--binary build/btrcc/linux-x64/btrcc --target linux-x64" in linux
+    assert "-o build/btrcc/windows-x64/btrcc.exe" in windows
+    assert "--target windows-x64 --output-dir dist" in windows
+    assert "src.compiler.python.check_generated" in linux + windows
+
+
 def test_explicit_ast_generation_targets_force_regeneration():
     python_output = _make_dry_run("ast-generate", "NIX=")
     btrc_output = _make_dry_run("ast-generate-btrc", "NIX=")
@@ -159,6 +194,7 @@ def test_clean_covers_generated_and_runtime_build_directories():
         "dist/",
         "build/generated/",
         "build/out/",
+        "build/btrcc/",
         "build/temp.*/",
         ".coverage.*",
         "coverage.json",
@@ -171,6 +207,8 @@ def test_clean_covers_generated_and_runtime_build_directories():
     assert "-name '*.dSYM'" in output
     assert "-name '*.o'" in output
     assert "make -C tray clean" in output
+    assert "find . -type" not in output
+    assert "find src examples bench -type" in output
 
 
 def test_ast_generation_is_validated_before_atomic_replacement():
@@ -196,7 +234,8 @@ def test_extension_build_uses_locked_dependencies():
     assert manifest["devDependencies"]["@types/node"].startswith("^18.")
     assert (REPO_ROOT / "src" / "devex" / "ext" / "package-lock.json").exists()
     output = _make_dry_run("extension")
-    assert output.index("gen_builtins.py") < output.index("npm ci")
+    assert output.index("src.compiler.python.check_generated") < output.index("npm ci")
+    assert "python3 src/compiler/python/ast/gen_builtins.py" not in output
 
 
 def test_python_wheel_preserves_import_namespace_and_runtime_sources():
@@ -212,6 +251,9 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     assert "src.devex.ext*" in discovery["exclude"]
     assert {"*.asdl", "*.btrc", "*.ebnf"} <= set(package_data)
     assert setuptools["exclude-package-data"]["src.compiler.btrc"] == ["fe_debug*.btrc"]
+    hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/tables.btrc"
+    assert hosted_tables.is_file()
+    assert '#include "exact_00.btrc"' in hosted_tables.read_text()
 
 
 def test_nix_runtime_packages_use_the_filtered_runtime_source():
@@ -231,6 +273,7 @@ def test_wheel_target_removes_stale_setuptools_outputs_before_building():
 
     assert "rm -rf build/lib/ build/bdist.*/ btrc.egg-info/ src/btrc.egg-info/" in output
     assert "rm -f dist/btrc-*.whl dist/btrc-*.tar.gz" in output
+    assert "src.compiler.python.check_generated" in output
     assert "python3 -m build --wheel --no-isolation" in output
 
 
@@ -238,6 +281,7 @@ def test_package_target_builds_wheel_from_sdist():
     output = _make_dry_run("package")
 
     assert "rm -rf build/lib/ build/bdist.*/ btrc.egg-info/ src/btrc.egg-info/" in output
+    assert "src.compiler.python.check_generated" in output
     assert "rm -f dist/btrc-*.whl dist/btrc-*.tar.gz" in output
     # With no --wheel/--sdist selector, `build` creates the sdist first and
     # builds the wheel from that clean source artifact.

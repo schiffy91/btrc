@@ -30,45 +30,6 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.fixture(scope="module")
-def semantic_btrcc(tmp_path_factory) -> Path:
-    output = tmp_path_factory.mktemp("selfhost-semantic-validation")
-    generated = output / "btrcc.c"
-    binary = output / "btrcc"
-    transpile = _run(
-        [
-            "python3",
-            "-m",
-            "src.compiler.python.main",
-            "src/compiler/btrc/btrcc_main.btrc",
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
-        env={**os.environ, "BTRC_CACHE_DIR": str(output / "cache")},
-        timeout=300,
-    )
-    assert transpile.returncode == 0 and generated.exists(), transpile.stderr
-    compile_result = _run(
-        [
-            *CC,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            str(generated),
-            "-o",
-            str(binary),
-            "-lm",
-            "-lpthread",
-        ],
-        timeout=300,
-    )
-    assert compile_result.returncode == 0 and binary.exists(), compile_result.stderr
-    return binary
-
-
 def _compile_source(
     compiler: Path,
     tmp_path: Path,
@@ -361,9 +322,14 @@ def test_type_name_shadowing_uses_instance_member_lookup(
         }
         int read() {
             Box Box = Box(42);
-            return Box.value;
+            Box other = new Box(1);
+            {
+                int Box = 7;
+                if (Box != 7) { return 0; }
+            }
+            return Box.value + other.value;
         }
-        int main() { return read() == 42 ? 0 : 1; }
+        int main() { return read() == 43 ? 0 : 1; }
     """
     selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
     reference, reference_source = _compile_reference_source(tmp_path, source)

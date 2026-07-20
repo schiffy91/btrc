@@ -2,6 +2,8 @@
 formatting per argument type, sizeof over an array, and string/int/thread/mutex
 method lowering."""
 
+import re
+
 from src.tests.python.test_codegen import emit_c
 
 
@@ -16,8 +18,26 @@ def test_named_arguments_reordered_and_defaulted():
     c = emit_c(
         "int f(int a, int b = 2, int c = 3) { return a + b + c; }\nint main() { return f(1, c=4) + f(c=5, a=6, b=7); }"
     )
-    assert "f(1, 2, 4)" in c
+    assert "__btrc_default_f_2" in c
+    assert re.search(
+        r"f\(__btrc_call_operand_\d+, __btrc_call_operand_\d+, "
+        r"__btrc_call_operand_\d+\)",
+        c,
+    )
     assert "f(6, 7, 5)" in c
+
+
+def test_default_helper_upcasts_prior_derived_arguments():
+    c = emit_c(
+        "class Base { public int value; }\n"
+        "class Derived extends Base {}\n"
+        "int read(Base value, int fallback = 1) { return value.value + fallback; }\n"
+        "int main() { Derived value = new Derived(); return read(value); }"
+    )
+    assert re.search(
+        r"__btrc_default_\w+_2\(\(\(Base\*\)__btrc_call_operand_\d+\)\)",
+        c,
+    )
 
 
 def test_print_formats_by_argument_type():

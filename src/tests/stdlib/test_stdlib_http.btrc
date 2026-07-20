@@ -29,6 +29,15 @@ int main() {
     // addHeader is chainable and accumulates extra headers.
     HttpResponse withHdr = HttpResponse.text("x").addHeader("X-Test: 1");
     assert(withHdr.extraHeaders.len == 1);
+    assert(HttpResponseHeaders.reserved("cOnTeNt-LeNgTh"));
+    assert(HttpResponseHeaders.reserved("CACHE-control"));
+    assert(HttpResponseHeaders.reserved("Keep-Alive"));
+    assert(HttpResponseHeaders.reserved("Proxy-Authenticate"));
+    assert(HttpResponseHeaders.reserved("Proxy-Authorization"));
+    assert(HttpResponseHeaders.reserved("TE"));
+    assert(HttpResponseHeaders.reserved("Trailer"));
+    assert(HttpResponseHeaders.reserved("Upgrade"));
+    assert(!HttpResponseHeaders.reserved("X-Test"));
 
     // --- HttpRequest parsing: request line, path/query split, headers, body ---
     HttpServer parser = HttpServer(0);

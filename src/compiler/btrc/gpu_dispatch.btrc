@@ -21,7 +21,8 @@ string ensureGpuDispatchHelper(IRGen gen, IRGpuKernel kernel) {
         if (!parameter.type.is_array) {
             string cType = typeToC(parameter.type, gen.analyzed);
             if (parameter.type.base == "bool") { cType = "uint32_t"; }
-            uniforms.fields.push(IRStructField(cType, parameter.name));
+            uniforms.fields.push(IRStructField(
+                cType, sourceLexicalBindingCName(parameter.name)));
         }
         p = p + 1;
     }

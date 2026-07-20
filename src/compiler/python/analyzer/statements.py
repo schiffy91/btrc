@@ -64,6 +64,20 @@ class StatementsMixin:
                 self._contextualize_generic_constructor(self.current_return_type, stmt.value)
                 self._analyze_expr(stmt.value)
                 self._validate_thread_transfer_source(stmt.value)
+                self._validate_managed_string_source(
+                    self.current_return_type,
+                    stmt.value,
+                    "Return value",
+                    stmt.line,
+                    stmt.col,
+                )
+                self._validate_opaque_borrow_storage(
+                    self.current_return_type,
+                    stmt.value,
+                    "Return value",
+                    stmt.line,
+                    stmt.col,
+                )
                 if self.current_return_type:
                     self._contextualize_aggregate_initializer(
                         self.current_return_type,

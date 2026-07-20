@@ -2,7 +2,6 @@
 
 /* Test-only observer: keep compiler-private spelling out of the semantic AST
  * while letting strict C verify that every borrowed string pin is released. */
-#define btrcTestStringEntryCount() (__btrc_string_entry_count)
 
 int sequencesAlive = 0;
 int ownersAlive = 0;
@@ -198,14 +197,14 @@ int main() {
         assertReleased();
         destroyPropertyOwnerWithThrow(base);
         assert(replaceBorrowedString() == 321);
-        assert((int)btrcTestStringEntryCount() == 0);
+        assert((int)__btrc_string_live_count() == 0);
         assert(returnFromBorrowedString() == 82);
-        assert((int)btrcTestStringEntryCount() == 0);
+        assert((int)__btrc_string_live_count() == 0);
         throwFromBorrowedString();
-        assert((int)btrcTestStringEntryCount() == 0);
+        assert((int)__btrc_string_live_count() == 0);
         assert(runner.destroyPropertyOwner(base) == base * 4 + 6);
         assert(runner.returnFromBorrowedString() == 71);
-        assert((int)btrcTestStringEntryCount() == 0);
+        assert((int)__btrc_string_live_count() == 0);
         assertReleased();
     }
     return 0;

@@ -9,9 +9,9 @@ from ...reference_semantics import is_reference_type
 from ..nodes import (
     CType,
     IRCast,
+    IRFunctionRef,
     IRLiteral,
     IRSizeof,
-    IRVar,
 )
 from .handle_values import consume_addressable_handle
 from .types import type_to_c
@@ -120,7 +120,7 @@ def thread_result_disposal_args(
 
 def _disposal_callback(gen: IRGenerator, name: str):
     gen.use_helper(name)
-    return IRVar(name=name)
+    return IRFunctionRef(name=name)
 
 
 def _requires_box(gen: IRGenerator, type_expr: TypeExpr) -> bool:

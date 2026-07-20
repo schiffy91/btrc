@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 
 from .ast_nodes import TypeExpr
+from .type_composition import nullable_collapses_reference_layer
 from .type_identity import is_semantic_scalar_string
 
 _EMPTY_MAPPING: Mapping[str, object] = {}
@@ -95,7 +96,12 @@ def nominally_related(
 
 def _reference_depth(type_expr: TypeExpr) -> int:
     depth = type_expr.pointer_depth + int(type_expr.is_array)
-    return depth - int(type_expr.is_nullable and depth > 1)
+    intrinsic_base = type_expr.base in {"string", "Thread", "Mutex", "__fn_ptr"}
+    collapse = nullable_collapses_reference_layer(
+        type_expr,
+        base_is_reference=intrinsic_base,
+    )
+    return depth - int(collapse) + int(intrinsic_base)
 
 
 def _is_void_pointer(type_expr: TypeExpr) -> bool:

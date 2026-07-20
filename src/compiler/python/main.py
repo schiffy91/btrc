@@ -28,6 +28,7 @@ from .ir.gen.generator import generate_ir
 from .ir.optimizer import optimize
 from .lexer import LexerError
 from .parser.core import ParseError
+from .source_provenance import make_ir_source_maps
 
 _STDLIB_AST_VERSION = _frontend._STDLIB_AST_VERSION
 _cached_stdlib_decls = _frontend._cached_stdlib_decls
@@ -110,6 +111,7 @@ def main():
     # --stdlib produces different output for the same source (program-only,
     # partitioned against the archive), so it must not share the default cache.
     cache_source = f"strict-imports\0{source}" if args.strict_imports else source
+    cache_source_identity = frontend_source.cache_identity()
     use_cache = (
         not args.no_cache
         and args.stdlib is None
@@ -118,7 +120,11 @@ def main():
         and not any([args.emit_tokens, args.emit_ast, args.emit_ir, args.emit_optimized_ir, args.debug, args.profile])
     )
     if use_cache:
-        cached = get_cached(cache_source, input_path=args.input)
+        cached = get_cached(
+            cache_source,
+            input_path=args.input,
+            source_identity=cache_source_identity,
+        )
         if cached is not None:
             assert out_path is not None
             cli_io.write_output(out_path, cached)
@@ -129,18 +135,19 @@ def main():
     # line is in one coordinate space that frontend_source.map_line can translate
     # back to (file, native_line) for #line directives.
     use_ast_cache = bool(frontend_source.stdlib_source) and not args.no_cache and not args.debug
+    split_source_spaces = uses_stdlib_ast_cache(
+        frontend_source,
+        use_ast_cache=use_ast_cache,
+        emit_tokens=args.emit_tokens,
+        emit_ast=args.emit_ast,
+        debug=args.debug,
+        parse=not args.emit_tokens,
+    )
     diag_printer = _DiagnosticPrinter(
         frontend_source,
         args.input,
         input_source,
-        split_spaces=uses_stdlib_ast_cache(
-            frontend_source,
-            use_ast_cache=use_ast_cache,
-            emit_tokens=args.emit_tokens,
-            emit_ast=args.emit_ast,
-            debug=args.debug,
-            parse=not args.emit_tokens,
-        ),
+        split_spaces=split_source_spaces,
     )
     try:
         parsed = lex_parse_frontend_source(
@@ -200,19 +207,20 @@ def main():
 
     # Code generation: AST → IR → optimize → C text
     _t = time.perf_counter()
-    line_map = None
-    if args.debug:
 
-        def line_map(combined_line, _fs=frontend_source):
-            m = _fs.map_line(combined_line, "combined")
-            if not m:
-                return None
-            f, native = m
-            return (os.path.abspath(f) if os.path.exists(f) else f, native)
+    line_map, declaration_line_map = make_ir_source_maps(
+        frontend_source,
+        split_spaces=split_source_spaces,
+    )
 
     try:
         ir_module = generate_ir(
-            analyzed, debug=args.debug, source_file=filename, freestanding=args.freestanding, line_map=line_map
+            analyzed,
+            debug=args.debug,
+            source_file=filename,
+            freestanding=args.freestanding,
+            line_map=line_map,
+            declaration_line_map=declaration_line_map,
         )
     except CodegenError as error:
         _codegen_error_exit(error)
@@ -256,7 +264,12 @@ def main():
     # Store in disk cache
     if use_cache:
         with contextlib.suppress(OSError, UnicodeError):
-            cache_store(cache_source, c_source, input_path=args.input)
+            cache_store(
+                cache_source,
+                c_source,
+                input_path=args.input,
+                source_identity=cache_source_identity,
+            )
 
     if args.profile:
         _print_profile(prof, len(source))

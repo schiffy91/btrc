@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { PythonSupportProbe, supportsBtrcPython } from './python_runtime';
 
 export interface BtrcLaunchConfig {
     pythonPath: string;
@@ -16,6 +17,8 @@ export interface BtrcLaunchContext {
     config: BtrcLaunchConfig;
     env?: NodeJS.ProcessEnv;
     exists?: (candidate: string) => boolean;
+    supportsPython?: PythonSupportProbe;
+    signal?: AbortSignal;
 }
 
 export interface BtrcServerLaunch {
@@ -81,25 +84,31 @@ function sourceTreeServer(context: BtrcLaunchContext): { serverScript: string, p
     return undefined;
 }
 
-function pythonLaunch(
+async function pythonLaunch(
     context: BtrcLaunchContext,
     serverScript: string,
     projectRoot: string,
     source: string,
-): BtrcServerLaunch {
+): Promise<BtrcServerLaunch | undefined> {
     const isWindows = process.platform === 'win32';
     const venvPython = isWindows
         ? path.join(projectRoot, 'src', 'devex', 'lsp', '.venv', 'Scripts', 'python.exe')
         : path.join(projectRoot, 'src', 'devex', 'lsp', '.venv', 'bin', 'python3');
     const nixBin = commandPath(context, 'nix');
     const flakePath = path.join(projectRoot, 'flake.nix');
+    const supportsPython = context.supportsPython ?? supportsBtrcPython;
 
     if (context.config.pythonExplicit) {
-        return { command: context.config.pythonPath, args: [serverScript], cwd: projectRoot, source, serverScript, projectRoot };
+        return await supportsPython(context.config.pythonPath, context.signal)
+            ? { command: context.config.pythonPath, args: [serverScript], cwd: projectRoot, source, serverScript, projectRoot }
+            : undefined;
     }
     if (pathExists(context, venvPython)) {
-        return { command: venvPython, args: [serverScript], cwd: projectRoot, source, serverScript, projectRoot };
+        if (await supportsPython(venvPython, context.signal)) {
+            return { command: venvPython, args: [serverScript], cwd: projectRoot, source, serverScript, projectRoot };
+        }
     }
+    if (context.signal?.aborted) { return undefined; }
     if (context.config.useNixDevShell && nixBin && pathExists(context, flakePath)) {
         return {
             command: nixBin,
@@ -110,7 +119,9 @@ function pythonLaunch(
             projectRoot,
         };
     }
-    return { command: context.config.pythonPath, args: [serverScript], cwd: projectRoot, source, serverScript, projectRoot };
+    return await supportsPython(context.config.pythonPath, context.signal)
+        ? { command: context.config.pythonPath, args: [serverScript], cwd: projectRoot, source, serverScript, projectRoot }
+        : undefined;
 }
 
 function workspaceCommandLaunch(
@@ -155,7 +166,8 @@ function workspaceCommandLaunch(
     return undefined;
 }
 
-export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunch | undefined {
+export async function resolveServerLaunch(context: BtrcLaunchContext): Promise<BtrcServerLaunch | undefined> {
+    if (context.signal?.aborted) { return undefined; }
     const workspaceRoot = context.workspaceRoot;
     const command = context.config.serverCommand.trim();
     const defaultCwd = workspaceRoot ?? context.extensionPath;
@@ -164,7 +176,7 @@ export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunc
     if (context.config.serverPath && pathExists(context, context.config.serverPath)) {
         const serverScript = context.config.serverPath;
         const projectRoot = path.resolve(path.dirname(serverScript), '..', '..', '..');
-        return pythonLaunch(context, serverScript, projectRoot, 'serverPath');
+        return await pythonLaunch(context, serverScript, projectRoot, 'serverPath');
     }
 
     if (context.config.serverCommandExplicit && path.isAbsolute(command)) {
@@ -178,7 +190,9 @@ export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunc
     // tracks uncommitted compiler/LSP changes, unlike a nix store snapshot).
     // Prefer it unless the user explicitly configured a server command.
     if (localServer && localServer.source === 'sourceTree' && !context.config.serverCommandExplicit) {
-        return pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
+        const launch = await pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
+        if (launch) { return launch; }
+        if (context.signal?.aborted) { return undefined; }
     }
 
     const workspaceLaunch = workspaceCommandLaunch(context, workspaceRoot, command);
@@ -193,7 +207,9 @@ export function resolveServerLaunch(context: BtrcLaunchContext): BtrcServerLaunc
     }
 
     if (localServer) {
-        return pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
+        const launch = await pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
+        if (launch) { return launch; }
+        if (context.signal?.aborted) { return undefined; }
     }
 
     if (commandCandidate) {

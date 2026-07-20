@@ -33,10 +33,9 @@ class Random {
         /* Fold independent process-local entropy into the 64-bit state.  The
          * object address distinguishes instances created during one clock
          * tick; neither this nor nextU32 mutates the C library's global PRNG. */
-        unsigned long long address = (unsigned long long)(uintptr_t)self;
         unsigned long long entropy = (unsigned long long)time(NULL)
             ^ ((unsigned long long)clock() << 32)
-            ^ address;
+            ^ (unsigned long long)__btrc_hash(self);
         self.initialize(entropy);
     }
 

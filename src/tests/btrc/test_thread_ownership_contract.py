@@ -83,15 +83,13 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
         ),
         (
             "struct Payload { Mutex<int> gates[2]; }; int main() { Thread<Payload> worker = null; return 0; }",
-            "result type cannot contain a Mutex handle",
+            # The aggregate declaration is invalid before any Thread use: a
+            # Mutex handle must remain one direct mutable owner, never an array.
+            "Mutex<T> owner type must be one direct mutable handle",
         ),
         (
             "typedef Mutex<int> Gate; struct Payload { Gate gate; }; int main() { Thread<Payload> worker = null; return 0; }",
             "result type cannot contain a Mutex handle",
-        ),
-        (
-            "int main() { for (Thread<int> worker = spawn(() => 7); false; ) {} return 0; }",
-            "C-style for initializer cannot own a Thread handle",
         ),
         (
             "int main() { Thread<int> worker = spawn(() => 7); delete worker; return 0; }",

@@ -37,7 +37,7 @@ void  btrc_tray_add_separator(void* tray);
 void  btrc_tray_set_menu(void* tray);
 bool  btrc_tray_show(void* tray);
 bool  btrc_tray_run_iteration(void* tray, int timeout_ms);
-string btrc_tray_take_command(void* tray);
+char* btrc_tray_take_command(void* tray);
 bool  btrc_tray_should_quit(void* tray);
 void  btrc_tray_request_quit(void* tray);
 void  btrc_tray_destroy(void* tray);

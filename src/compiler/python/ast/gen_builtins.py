@@ -45,6 +45,7 @@ __all__ = [
     "generate_static_methods",
     "main",
     "parse_file",
+    "render_current_builtins",
     "type_repr",
 ]
 
@@ -57,13 +58,14 @@ def parse_file(filename):
     return _parse_file(filename, STDLIB_DIR)
 
 
-def _classify_stdlib():
-    """Classify APIs from the configured stdlib directory."""
-    return classify_stdlib(STDLIB_DIR)
+def render_current_builtins() -> str:
+    """Render the builtins module represented by the current stdlib."""
+    collection_data, static_data = classify_stdlib(STDLIB_DIR)
+    return render_builtins(collection_data, static_data)
 
 
 def main():
-    collection_data, static_data = _classify_stdlib()
+    collection_data, static_data = classify_stdlib(STDLIB_DIR)
     content = render_builtins(collection_data, static_data)
     write_output(OUTPUT, content)
     print(f"Generated {OUTPUT}")

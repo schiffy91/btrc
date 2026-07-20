@@ -32,14 +32,7 @@ from ..ast_nodes import (
     TypeExpr,
     UnaryExpr,
 )
-
-
-def _is_empty_contextual_literal(expression):
-    return (
-        (isinstance(expression, BraceInitializer) and not expression.elements)
-        or (isinstance(expression, ListLiteral) and not expression.elements)
-        or (isinstance(expression, MapLiteral) and not expression.entries)
-    )
+from .expression_shapes import is_empty_contextual_literal
 
 
 class ExpressionsMixin:
@@ -56,12 +49,23 @@ class ExpressionsMixin:
         if isinstance(expr, (IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral)):
             pass
         elif isinstance(expr, Identifier):
+            from .default_argument_contracts import (
+                validate_default_macro_context,
+            )
+
+            validate_default_macro_context(self, expr)
             self._analyze_identifier_value(expr)
         elif isinstance(expr, SelfExpr):
             self._record_lambda_self(expr)
             self._validate_self(expr)
         elif isinstance(expr, SuperExpr):
-            if not self.current_class:
+            if self._analyzing_constructor_default:
+                self._error(
+                    "Constructor defaults cannot reference 'super' before allocation",
+                    expr.line,
+                    expr.col,
+                )
+            elif not self.current_class:
                 self._error("'super' can only be used inside a class", expr.line, expr.col)
             elif not self.current_class.parent:
                 self._error(
@@ -133,6 +137,13 @@ class ExpressionsMixin:
                         expr.col,
                     )
             self._validate_assignment(expr)
+            self._validate_opaque_borrow_storage(
+                self._infer_type(expr.target),
+                expr.value,
+                "Assignment",
+                expr.line,
+                expr.col,
+            )
             self._invalidate_nonnull_target(expr.target)
         elif isinstance(expr, TernaryExpr):
             self._analyze_expr(expr.condition)
@@ -167,13 +178,13 @@ class ExpressionsMixin:
                     (
                         self._infer_type(element)
                         for element in expr.elements
-                        if not _is_empty_contextual_literal(element)
+                        if not is_empty_contextual_literal(element)
                     ),
                     None,
                 )
                 if first_type:
                     for i, el in enumerate(expr.elements):
-                        if _is_empty_contextual_literal(el):
+                        if is_empty_contextual_literal(el):
                             continue
                         el_type = self._infer_type(el)
                         if el_type and not self._types_compatible(first_type, el_type):
@@ -238,6 +249,13 @@ class ExpressionsMixin:
                 elif expr.type.generic_args:
                     actual = self._infer_type(expr.args[0])
                     expected = expr.type.generic_args[0]
+                    self._validate_managed_string_source(
+                        expected,
+                        expr.args[0],
+                        "Mutex initializer",
+                        expr.line,
+                        expr.col,
+                    )
                     if actual and not self._types_compatible(expected, actual):
                         self._error(
                             f"Mutex initializer expects "

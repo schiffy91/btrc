@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
+from ....destructor_symbols import destructor_hook_symbol
 from ...nodes import (
     CType,
     IRBlock,
@@ -30,8 +31,7 @@ from ..cycle_metadata import (
     register_cycle_classification,
     register_cycle_visitor,
 )
-from ..destructor_hooks import destructor_hook_name
-from ..parameters import lower_source_param
+from ..parameters import lower_source_param, source_binding_c_name
 from .core import _resolve_type
 from .user_destructors import (
     build_generic_destructor_hook,
@@ -60,7 +60,7 @@ def emit_generic_lifecycle(
         register_cycle_visitor(gen, mangled)
 
     ctor = cls_info.constructor
-    ctor_params = [lower_source_param(param, emitter.resolve_c) for param in ctor.params] if ctor else []
+    ctor_params = [lower_source_param(param, emitter.resolve_c, gen.analyzed) for param in ctor.params] if ctor else []
     declarations = _lifecycle_declarations(mangled, ctor_params)
     destructor_hook = build_generic_destructor_hook(
         cls_info,
@@ -101,7 +101,7 @@ def emit_generic_lifecycle(
         gen,
         mangled,
         cycle_visitor_symbol(mangled) if has_visitor else None,
-        destructor_hook_name(mangled) if destructor_hook is not None else None,
+        destructor_hook_symbol(mangled) if destructor_hook is not None else None,
     )
     return declarations, definitions
 
@@ -159,7 +159,7 @@ def _emit_init(gen, mangled, ctor, ctor_params, emitter) -> IRFunctionDef:
 
 
 def _emit_new(gen, mangled, ctor, ctor_params) -> IRFunctionDef:
-    ctor_args = [IRVar(name=param.name) for param in ctor.params] if ctor else []
+    ctor_args = [IRVar(name=source_binding_c_name(param.name, gen.analyzed)) for param in ctor.params] if ctor else []
     self_declaration = IRVarDecl(
         c_type=CType(text=f"{mangled}*"),
         name="self",

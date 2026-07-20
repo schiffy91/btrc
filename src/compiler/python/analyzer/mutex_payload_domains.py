@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..type_identity import is_semantic_scalar_string
 
 _RUNTIME_COLLECTION_BASES = frozenset({"Array", "List", "Map", "Set", "Vector"})
@@ -198,7 +196,9 @@ class MutexPayloadDomainContractsMixin:
         if canonical.pointer_depth > 0 or canonical.base == "__fn_ptr":
             return False
         if canonical.is_array:
-            canonical = replace(canonical, is_array=False, array_size=None)
+            from ..type_composition import strip_outer_storage
+
+            canonical = strip_outer_storage(canonical, array=True)
         if canonical.base == "Tuple":
             return any(
                 self._mutex_payload_has_managed_reference(

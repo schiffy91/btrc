@@ -19,6 +19,20 @@ def lower_generic_return(emitter, statement):
         cleanup_discard = emit_return_cleanup_discard(emitter)
         return emit_return_release(emitter, None) + pop + cleanup_discard + [IRReturn(value=None)]
 
+    from ..callable_boundaries import reject_persistent_callable_escape
+    from .user_callable_provenance import generic_callable_return_abi
+
+    reject_persistent_callable_escape(
+        emitter._gen,
+        emitter._return_type,
+        statement.value,
+        "a function return",
+        callable_abi=lambda value: generic_callable_return_abi(
+            emitter,
+            value,
+        ),
+    )
+
     from ..prepared_values import prepare_generic_value
 
     prepared = prepare_generic_value(

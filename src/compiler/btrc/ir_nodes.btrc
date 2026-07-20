@@ -4,8 +4,8 @@
  * IR is a fat tagged node: one IRNode with a `kind` tag (IRKind enum) plus the
  * union of every field any IR node needs. The emitter dispatches on `kind`.
  *
- * Only the subset needed for the pure-int --no-stdlib programs is modelled;
- * grow the enum + the constructors as the supported language grows.
+ * The schema covers the production self-hosted surface and grows alongside
+ * the Python IR; source expressions remain typed nodes through C emission.
  */
 
 enum IRKind {
@@ -13,6 +13,7 @@ enum IRKind {
     /* expressions */
     IRK_LITERAL,
     IRK_VAR,
+    IRK_FUNCTION_REF,
     IRK_BINOP,
     IRK_COMMA_EXPR,
     IRK_UNARYOP,
@@ -50,7 +51,7 @@ class IRNode {
     /* IRLiteral: C literal text */
     public string text;
 
-    /* IRVar: name. IRCall: named callee. IRBinOp/IRUnaryOp/IRAssign op handling */
+    /* IRVar/IRFunctionRef: name. IRCall: named callee. */
     public string name;
     public string callee;
     public string op;
@@ -84,6 +85,7 @@ class IRNode {
     public bool is_static;       /* IRVarDecl storage class */
     public bool is_extern;       /* IRVarDecl storage class */
     public bool is_cycle_return_temp; /* Boundary-pass provenance marker. */
+    public bool falls_through;   /* IRCase: intentionally reaches next case. */
     /* Typed unwind-slot identity shared by one declaration and its calls. */
     public IRCleanupSlot cleanup_slot;
     public string helper_ref;    /* Explicit runtime-helper edge on IRCall. */
@@ -125,6 +127,7 @@ class IRNode {
         self.is_static = false;
         self.is_extern = false;
         self.is_cycle_return_temp = false;
+        self.falls_through = false;
         self.cleanup_slot = null;
         self.helper_ref = "";
         self.init = null;
@@ -171,6 +174,13 @@ IRNode irCompoundLiteral(string c_type, Vector<string> field_names,
 IRNode irVar(string name) {
     IRNode n = IRNode();
     n.kind = IRK_VAR;
+    n.name = name;
+    return n;
+}
+
+IRNode irFunctionRef(string name) {
+    IRNode n = IRNode();
+    n.kind = IRK_FUNCTION_REF;
     n.name = name;
     return n;
 }
@@ -379,7 +389,7 @@ IRNode irSwitch(IRNode value, Vector<IRNode> cases) {
 
 /* IRCase: one switch case. `value` is the case label expression (null = the
  * `default:` clause); `stmts` is the case body (mirrors IRCase.value/body). */
-IRNode irCase(IRNode? value, Vector<IRNode> body) {
+IRNode irCase(IRNode? value, Vector<IRNode> body, bool fallsThrough) {
     IRNode n = IRNode();
     n.kind = IRK_CASE;
     /* Guard the field store: btrcpy's ARC emits `value->__rc++` on the
@@ -387,6 +397,7 @@ IRNode irCase(IRNode? value, Vector<IRNode> body) {
      * Leaving the field at its constructor default (null) skips that. */
     if (value != null) { n.value = value; }
     n.stmts = body;
+    n.falls_through = fallsThrough;
     return n;
 }
 
@@ -437,9 +448,11 @@ class IRParam {
 class IRStructField {
     public string c_type;
     public string name;
+    public IRNode array_size;
     public IRStructField(string c_type, string name) {
         self.c_type = c_type;
         self.name = name;
+        self.array_size = null;
     }
 }
 
@@ -535,6 +548,9 @@ string helperSource(string name) {
     }
     if (trycatchRuntimeHasHelper(name)) {
         return trycatchRuntimeHelperSource(name);
+    }
+    if (processRuntimeHasHelper(name)) {
+        return processRuntimeHelperSource(name);
     }
     if (threadRuntimeHasHelper(name)) {
         return threadRuntimeHelperSource(name);
@@ -1485,6 +1501,9 @@ Vector<string> helperDeps(string name) {
     if (trycatchRuntimeHasHelper(name)) {
         return trycatchRuntimeHelperDependencies(name);
     }
+    if (processRuntimeHasHelper(name)) {
+        return processRuntimeHelperDependencies(name);
+    }
     if (threadRuntimeHasHelper(name)) {
         return threadRuntimeHelperDependencies(name);
     }
@@ -1578,6 +1597,9 @@ Vector<string> helperDeps(string name) {
 Vector<string> helperHeaders(string name) {
     if (stringOwnershipRuntimeHasHelper(name)) {
         return stringOwnershipRuntimeHelperHeaders(name);
+    }
+    if (processRuntimeHasHelper(name)) {
+        return processRuntimeHelperHeaders(name);
     }
     if (threadRuntimeHasHelper(name)) {
         return threadRuntimeHelperHeaders(name);
@@ -1814,6 +1836,8 @@ Vector<string> canonicalHelperOrder() {
     order.push("__btrc_run_cleanups");
     order.push("__btrc_throw");
     order.push("__btrc_try_state_cleanup");
+    /* process helpers. */
+    appendProcessRuntimeHelperOrder(order);
     /* pthread/Mutex helpers. */
     appendThreadRuntimeHelperOrder(order);
     return order;

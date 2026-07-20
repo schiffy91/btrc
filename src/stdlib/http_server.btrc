@@ -1,5 +1,6 @@
 /* HTTP/1.1 server lifecycle, request parsing, and response emission. */
 import std.bytes;
+import std.http_response_headers;
 import std.strings;
 import std.vector;
 
@@ -280,9 +281,8 @@ class HttpServer {
             for h in response.extraHeaders {
                 if (!HttpFraming.headerLine(h)) { continue; }
                 int colon = Strings.find(h, ":", 0);
-                string name = h.substring(0, colon).toLower();
-                if (name.equals("content-length") || name.equals("transfer-encoding")
-                        || name.equals("connection")) { continue; }
+                string name = h.substring(0, colon);
+                if (HttpResponseHeaders.reserved(name)) { continue; }
                 int available = 65536 - head.len();
                 if (available < 4 || h.len() > available - 4) { continue; }
                 head = head + h + "\r\n";

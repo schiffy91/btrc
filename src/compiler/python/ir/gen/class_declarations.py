@@ -25,6 +25,7 @@ def emit_class_callable_declarations(
         declaration,
         class_info,
         gen.analyzed.class_table,
+        gen.analyzed,
     ):
         if function not in gen.module.function_decls:
             gen.module.function_decls.append(function)
@@ -34,11 +35,15 @@ def class_callable_declarations(
     declaration: ClassDecl,
     class_info: ClassInfo,
     class_table: dict,
+    analyzed,
 ) -> list[IRFunctionDecl]:
     """Describe every callable prototype exposed by one concrete class."""
 
     name = declaration.name
-    constructor_params = _parameters(class_info.constructor.params if class_info.constructor else [])
+    constructor_params = _parameters(
+        class_info.constructor.params if class_info.constructor else [],
+        analyzed,
+    )
     declarations = [
         IRFunctionDecl(
             name=f"{name}_init",
@@ -53,11 +58,16 @@ def class_callable_declarations(
     ]
 
     for member in declaration.members:
-        if isinstance(member, MethodDecl) and not member.is_constructor and member.name != "__del__":
+        if (
+            isinstance(member, MethodDecl)
+            and not member.is_constructor
+            and member.name != "__del__"
+            and not member.generic_params
+        ):
             params = []
             if member.access != "class":
                 params.append(IRParam(c_type=CType(text=f"{name}*"), name="self"))
-            params.extend(_parameters(member.params))
+            params.extend(_parameters(member.params, analyzed))
             declarations.append(
                 IRFunctionDecl(
                     name=f"{name}_{member.name}",
@@ -66,7 +76,7 @@ def class_callable_declarations(
                 )
             )
         elif isinstance(member, PropertyDecl):
-            declarations.extend(_property_declarations(name, member))
+            declarations.extend(_property_declarations(name, member, analyzed))
 
     declarations.extend(
         _inherited_property_declarations(
@@ -74,6 +84,7 @@ def class_callable_declarations(
             declaration,
             class_info,
             class_table,
+            analyzed,
         )
     )
     declarations.extend(
@@ -82,21 +93,26 @@ def class_callable_declarations(
             declaration,
             class_info,
             class_table,
+            analyzed,
         )
     )
     return declarations
 
 
-def _parameters(parameters) -> list[IRParam]:
-    return [lower_source_param(parameter) for parameter in parameters]
+def _parameters(parameters, analyzed) -> list[IRParam]:
+    return [lower_source_param(parameter, analyzed=analyzed) for parameter in parameters]
 
 
 def _property_declarations(
     class_name: str,
     declaration: PropertyDecl,
+    analyzed,
 ) -> list[IRFunctionDecl]:
+    from .parameters import source_binding_c_name
+
     prop_type = CType(text=type_to_c(declaration.type))
     self_param = IRParam(c_type=CType(text=f"{class_name}*"), name="self")
+    value_name = source_binding_c_name("value", analyzed)
     result = []
     if declaration.has_getter:
         result.append(
@@ -113,7 +129,7 @@ def _property_declarations(
                 return_type=CType(text="void"),
                 params=[
                     self_param,
-                    IRParam(c_type=prop_type, name="value"),
+                    IRParam(c_type=prop_type, name=value_name),
                 ],
             )
         )
@@ -125,6 +141,7 @@ def _inherited_property_declarations(
     declaration: ClassDecl,
     class_info: ClassInfo,
     class_table: dict,
+    analyzed,
 ) -> list[IRFunctionDecl]:
     parent = class_table.get(class_info.parent) if class_info.parent else None
     if parent is None:
@@ -133,7 +150,7 @@ def _inherited_property_declarations(
     result = []
     for name, prop in parent.properties.items():
         if name not in own:
-            result.extend(_property_declarations(class_name, prop))
+            result.extend(_property_declarations(class_name, prop, analyzed))
     return result
 
 
@@ -142,6 +159,7 @@ def _inherited_method_declarations(
     declaration: ClassDecl,
     class_info: ClassInfo,
     class_table: dict,
+    analyzed,
 ) -> list[IRFunctionDecl]:
     declarations = []
     seen = {member.name for member in declaration.members if isinstance(member, MethodDecl)}
@@ -149,7 +167,7 @@ def _inherited_method_declarations(
     while parent_name and parent_name in class_table:
         parent_info = class_table[parent_name]
         for method_name, method in parent_info.methods.items():
-            if method_name in seen or method_name in {"__del__", parent_name}:
+            if method_name in seen or method_name in {"__del__", parent_name} or method.generic_params:
                 continue
             seen.add(method_name)
             params = []
@@ -160,7 +178,7 @@ def _inherited_method_declarations(
                         name="self",
                     )
                 )
-            params.extend(_parameters(method.params))
+            params.extend(_parameters(method.params, analyzed))
             declarations.append(
                 IRFunctionDecl(
                     name=f"{class_name}_{method_name}",

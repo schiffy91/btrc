@@ -19,7 +19,8 @@ MUTEX_OPS = {
         exit(1);
     }
     memcpy(copy, m->value, m->size);
-    char first_error[1024] = "";
+    char first_error[1024];
+    first_error[0] = '\0';
     int retain_failed = m->retain
         && __btrc_mutex_value_callback_guard(
             m->retain, copy, m->access, m->context,
@@ -35,7 +36,8 @@ MUTEX_OPS = {
     int should_flush = topology
         && __btrc_arc_topology_leave(topology);
     if (should_flush && m->finalize) {
-        char finalize_error[1024] = "";
+        char finalize_error[1024];
+        finalize_error[0] = '\0';
         int finalize_failed = __btrc_mutex_finalize_callback_guard(
             m->finalize, m->context,
             finalize_error, sizeof finalize_error);
@@ -46,7 +48,8 @@ MUTEX_OPS = {
     }
     if (has_error) {
         if (m->release && !retain_failed) {
-            char rollback_error[1024] = "";
+            char rollback_error[1024];
+            rollback_error[0] = '\0';
             (void)__btrc_mutex_value_callback_guard(
                 m->release, copy, m->access, m->context,
                 NULL, rollback_error, sizeof rollback_error);
@@ -82,7 +85,8 @@ MUTEX_OPS = {
         free(val);
         exit(1);
     }
-    char first_error[1024] = "";
+    char first_error[1024];
+    first_error[0] = '\0';
     int has_error = m->retain
         && __btrc_mutex_value_callback_guard(
             m->retain, val, m->access, m->context, m,
@@ -104,7 +108,8 @@ MUTEX_OPS = {
     int should_flush = topology
         && __btrc_arc_topology_leave(topology);
     if (should_flush && m->finalize) {
-        char finalize_error[1024] = "";
+        char finalize_error[1024];
+        finalize_error[0] = '\0';
         int finalize_failed = __btrc_mutex_finalize_callback_guard(
             m->finalize, m->context,
             finalize_error, sizeof finalize_error);

@@ -21,6 +21,13 @@ def test_source_read_rejects_invalid_utf8(tmp_path):
         source_io.read_source(str(path))
 
 
+def test_source_read_rejects_embedded_nul(tmp_path):
+    path = tmp_path / "nul.btrc"
+    path.write_bytes(b"int main() { return 0; }\0int hidden;\n")
+    with pytest.raises(source_io.SourceReadError, match="contains a NUL byte"):
+        source_io.read_source(str(path))
+
+
 def test_source_read_is_bounded(tmp_path, monkeypatch):
     path = tmp_path / "large.btrc"
     path.write_bytes(b"12345")

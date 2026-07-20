@@ -28,7 +28,7 @@ def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
     ret_type = type_to_c(decl.return_type) if decl.return_type else "void"
     if decl.name == "main" and ret_type == "void":
         ret_type = "int"
-    params = [lower_source_param(parameter) for parameter in decl.params]
+    params = [lower_source_param(parameter, analyzed=gen.analyzed) for parameter in decl.params]
     is_static = bool(decl.return_type and decl.return_type.is_static)
     c_name = source_function_c_name(gen.analyzed, decl.name)
 

@@ -82,6 +82,8 @@ class RegistrationMixin:
                 "Interface method",
                 method.name_line or method.line,
                 method.name_col or method.col,
+                allow_magic=True,
+                c_name_generated=True,
             )
             self._validate_parameter_names(
                 method.params,
@@ -173,6 +175,8 @@ class RegistrationMixin:
                     "Method",
                     member.name_line or member.line,
                     member.name_col or member.col,
+                    allow_magic=True,
+                    c_name_generated=True,
                 )
                 self._validate_generic_parameter_names(
                     member.generic_params,
@@ -198,6 +202,7 @@ class RegistrationMixin:
                     "Property",
                     member.name_line or member.line,
                     member.name_col or member.col,
+                    c_name_generated=True,
                 )
                 if member.name in declared_properties:
                     self._error(

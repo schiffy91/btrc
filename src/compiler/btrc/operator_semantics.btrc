@@ -32,8 +32,15 @@ bool semanticIsNullType(Node? typeExpr) {
 
 int semanticReferenceDepth(Node typeExpr) {
     int depth = typeExpr.pointer_depth;
+    bool intrinsicReference = typeExpr.base == "string"
+        || typeExpr.base == "Thread" || typeExpr.base == "Mutex"
+        || typeExpr.base == "__fn_ptr";
+    if (typeNullableCollapsesReferenceLayer(
+            typeExpr, intrinsicReference)) {
+        depth = depth - 1;
+    }
     if (typeExpr.is_array) { depth = depth + 1; }
-    if (typeExpr.is_nullable && depth > 1) { depth = depth - 1; }
+    if (intrinsicReference) { depth = depth + 1; }
     return depth;
 }
 
@@ -44,9 +51,7 @@ int semanticValueDepth(Node typeExpr, Analyzed analyzed) {
     int depth = semanticReferenceDepth(typeExpr);
     if (depth == 0 && (analyzed.isClass(typeExpr.base)
             || (typeExpr.generic_args.len > 0
-                && analyzed.isGenericClass(typeExpr.base))
-            || typeExpr.base == "Thread" || typeExpr.base == "Mutex"
-            || typeExpr.base == "string")) {
+                && analyzed.isGenericClass(typeExpr.base)))) {
         depth = 1;
     }
     return depth;

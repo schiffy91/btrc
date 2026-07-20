@@ -24,7 +24,8 @@ THREADS = {
             "\n"
             "static int __btrc_thread_guard(\n"
             "        __btrc_thread_t* t, __btrc_hook_fn hook, void* object) {\n"
-            '    char error[1024] = "";\n'
+            "    char error[1024];\n"
+            "    error[0] = '\\0';\n"
             "    int failed = __btrc_arc_guard_hook(\n"
             "        hook, object, error, sizeof error);\n"
             "    if (failed && !t->has_worker_error) {\n"
@@ -184,7 +185,8 @@ THREADS = {
             "    __btrc_thread_finish(t);\n"
             "    if (t->has_worker_error) {\n"
             "        char worker_error[1024];\n"
-            '        char dispose_error[1024] = "";\n'
+            "        char dispose_error[1024];\n"
+            "        dispose_error[0] = '\\0';\n"
             "        memcpy(worker_error, t->worker_error, sizeof worker_error);\n"
             "        __btrc_raise_fn raise = t->raise_worker;\n"
             "        if (t->dispose_result)\n"
@@ -212,8 +214,10 @@ THREADS = {
             "    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n"
             "    if (!t) return;\n"
             "    __btrc_thread_finish(t);\n"
-            '    char error[1024] = "";\n'
-            '    char dispose_error[1024] = "";\n'
+            "    char error[1024];\n"
+            "    error[0] = '\\0';\n"
+            "    char dispose_error[1024];\n"
+            "    dispose_error[0] = '\\0';\n"
             "    int has_error = t->has_worker_error;\n"
             "    __btrc_raise_fn raise = t->raise_worker;\n"
             "    if (has_error)\n"

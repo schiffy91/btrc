@@ -8,6 +8,7 @@ from ..nodes import (
     IRCall,
     IRCast,
     IRCompoundLiteral,
+    IRFunctionRef,
     IRLiteral,
     IRVar,
 )
@@ -72,9 +73,9 @@ def arc_type_descriptor(gen, type_expr):
             fields=[
                 (
                     "visit",
-                    IRVar(name=visitor) if visitor else IRLiteral(text="NULL"),
+                    IRFunctionRef(name=visitor) if visitor else IRLiteral(text="NULL"),
                 ),
-                ("destroy", IRVar(name=destroy_name(gen, type_expr))),
+                ("destroy", IRFunctionRef(name=destroy_name(gen, type_expr))),
                 ("hook", IRLiteral(text="NULL")),
                 ("guard", IRLiteral(text="NULL")),
                 ("raise", IRLiteral(text="NULL")),
@@ -99,9 +100,9 @@ def emitted_type_descriptor(gen, emitted_name: str):
             fields=[
                 (
                     "visit",
-                    IRVar(name=visitor) if visitor else IRLiteral(text="NULL"),
+                    IRFunctionRef(name=visitor) if visitor else IRLiteral(text="NULL"),
                 ),
-                ("destroy", IRVar(name=f"{emitted_name}_destroy")),
+                ("destroy", IRFunctionRef(name=f"{emitted_name}_destroy")),
                 ("hook", IRLiteral(text="NULL")),
                 ("guard", IRLiteral(text="NULL")),
                 ("raise", IRLiteral(text="NULL")),
@@ -156,7 +157,7 @@ def replace_edge(gen, slot, replacement, type_expr, owner, *, adopt: bool) -> IR
                 target_type=CType(text="volatile void*"),
                 expr=IRAddressOf(expr=slot),
             ),
-            IRVar(name=access),
+            IRFunctionRef(name=access),
             replacement,
             owner,
             arc_type_descriptor(gen, type_expr),

@@ -28,9 +28,7 @@ void emitClassStaticFields(IRGen generator, Node declaration, IRModule module) {
             Node storageType = field.type;
             IRGlobalDecl global;
             if (field.type.is_array) {
-                storageType = copyTypeExpr(field.type);
-                storageType.is_array = false;
-                storageType.array_size = null;
+                storageType = typeWithoutOuterArray(field.type);
             }
             global = IRGlobalDecl(
                 typeToC(storageType, generator.analyzed),

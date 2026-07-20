@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 
 extern char* mkdtemp(char* template_path);
 
@@ -12,5 +13,27 @@ int btrc_win_compat_helper(void) {
     if (mkdtemp(invalid_template) != NULL || errno != EINVAL) { return 0; }
     char template_path[] = "btrcXXXXXX";
     char* directory = mkdtemp(template_path);
-    return directory != NULL && _rmdir(directory) == 0;
+    if (directory == NULL) { return 0; }
+    char *canonical = realpath(directory, NULL);
+    if (canonical == NULL || strstr(canonical, "\\\\?\\") == canonical) {
+        free(canonical);
+        _rmdir(directory);
+        return 0;
+    }
+    char resolved = 'X';
+    errno = 0;
+    if (realpath(directory, &resolved) != NULL
+            || errno != EINVAL || resolved != 'X') {
+        free(canonical);
+        _rmdir(directory);
+        return 0;
+    }
+    free(canonical);
+    errno = 0;
+    if (realpath("btrc-path-that-must-not-exist", NULL) != NULL
+            || errno != ENOENT) {
+        _rmdir(directory);
+        return 0;
+    }
+    return _rmdir(directory) == 0;
 }

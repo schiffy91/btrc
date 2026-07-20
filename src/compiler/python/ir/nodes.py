@@ -23,6 +23,7 @@ from .expr_nodes import (
     IRDeref,
     IRExpr,
     IRFieldAccess,
+    IRFunctionRef,
     IRIndex,
     IRInitializerList,
     IRLiteral,
@@ -183,6 +184,7 @@ class IRCase:
 
     value: IRExpr = None  # None for default
     body: list[IRStmt] = field(default_factory=list)
+    falls_through: bool = False
 
 
 @dataclass

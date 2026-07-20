@@ -60,6 +60,8 @@ def _tracked_strict_matrix(
     tmp_path: Path,
     *,
     expected_stdout: str | None = None,
+    extra_compile_args: tuple[str, ...] = (),
+    extra_sources: tuple[Path, ...] = (),
 ) -> None:
     for compiler in COMPILERS:
         output = tmp_path / f"{compiled[0]}-{Path(compiler).name}-tracked"
@@ -74,8 +76,10 @@ def _tracked_strict_matrix(
                 "-Werror",
                 "-O2",
                 *ALLOCATION_REDIRECTS,
+                *extra_compile_args,
                 str(compiled[1]),
                 str(ALLOCATION_TRACKER),
+                *(str(source) for source in extra_sources),
                 "-pthread",
                 "-lm",
                 "-o",

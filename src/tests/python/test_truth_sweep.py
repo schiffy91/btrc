@@ -98,10 +98,11 @@ def test_builtin_print_still_lowers_to_printf_when_undefined():
 
 
 def test_user_printf_function_lowered_as_normal_call_with_defaults():
-    # printf is builtin-lowered as a plain call; the observable difference is
-    # that a user definition participates in default-argument filling.
     c = emit_c("int printf(int x, int y = 5) { return x + y; }\nint main() { return printf(1); }\n")
-    assert "printf(1, 5)" in c
+    main = c.split("int main(void)", 1)[1]
+    assert main.count(" = 1)") == 1
+    assert main.count("__btrc_default___btrc_source_printf_2(") == 1
+    assert main.count("__btrc_source_printf(") == 1
 
 
 def test_user_str_function_keeps_working():

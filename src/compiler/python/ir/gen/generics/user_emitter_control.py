@@ -3,20 +3,11 @@
 from __future__ import annotations
 
 from ...nodes import (
-    CType,
-    IRBinOp,
     IRBlock,
     IRCase,
     IRDoWhile,
-    IRExprStmt,
-    IRFor,
     IRIf,
-    IRLiteral,
     IRSwitch,
-    IRTernary,
-    IRUnaryOp,
-    IRVar,
-    IRVarDecl,
     IRWhile,
 )
 from .user_emitter_exceptions import _UserGenericExceptionMixin
@@ -28,55 +19,90 @@ from .user_emitter_scopes import (
 
 
 class _UserGenericControlMixin(_UserGenericExceptionMixin):
-    def _loop_stmts(self, statements, *, iteration_bindings=()):
+    def _loop_stmts(self, statements, *, iteration_bindings=(), may_skip=True):
+        from ...completion import sequence_may_fall_through
+        from ..callable_loop_flow import (
+            begin_callable_loop_capture,
+            finish_callable_loop_capture,
+        )
+        from .user_callable_provenance import (
+            join_callable_flows,
+            lower_isolated_callable_flow,
+            restore_callable_flow,
+            snapshot_callable_flow,
+        )
+
+        incoming = snapshot_callable_flow(self)
+        capture = begin_callable_loop_capture(self)
         push_control_context(self, "loop")
         try:
-            return emit_scoped_stmts(
+            lowered, body_flow = lower_isolated_callable_flow(
                 self,
-                statements,
-                iteration_bindings=iteration_bindings,
+                lambda: emit_scoped_stmts(
+                    self,
+                    statements,
+                    iteration_bindings=iteration_bindings,
+                ),
             )
         finally:
             pop_control_context(self)
+            break_flows, continue_flows = finish_callable_loop_capture(
+                self,
+                capture,
+            )
+        exit_flows = [*break_flows, *continue_flows]
+        if sequence_may_fall_through(lowered):
+            exit_flows.append(body_flow)
+        if may_skip:
+            exit_flows.append(incoming)
+        if exit_flows:
+            join_callable_flows(self, *exit_flows)
+        else:
+            restore_callable_flow(self, incoming)
+        return lowered
 
     def _if_stmt(self, s) -> IRIf:
         from ....ast_nodes import Block, ElseBlock, ElseIf
+        from .user_callable_provenance import (
+            join_callable_flows,
+            lower_isolated_callable_flow,
+            snapshot_callable_flow,
+        )
 
         cond = self._expr(s.condition)
-        then_stmts = []
-        if s.then_block:
-            then_stmts = self.emit_stmts(s.then_block.statements)
+        incoming = snapshot_callable_flow(self)
+        then_stmts, then_flow = lower_isolated_callable_flow(
+            self,
+            lambda: self.emit_stmts(s.then_block.statements) if s.then_block else [],
+        )
         then_block = IRBlock(stmts=then_stmts)
 
         else_block = None
+        else_flow = incoming
         if s.else_block:
             eb = s.else_block
             if isinstance(eb, ElseBlock):
                 eb = eb.body
             if isinstance(eb, Block):
-                else_stmts = self.emit_stmts(eb.statements)
+                else_stmts, else_flow = lower_isolated_callable_flow(
+                    self,
+                    lambda: self.emit_stmts(eb.statements),
+                )
                 else_block = IRBlock(stmts=else_stmts)
             elif isinstance(eb, ElseIf):
-                else_block = IRBlock(stmts=[self._if_stmt(eb.if_stmt)])
+                inner, else_flow = lower_isolated_callable_flow(
+                    self,
+                    lambda: self._if_stmt(eb.if_stmt),
+                )
+                else_block = IRBlock(stmts=[inner])
 
+        join_callable_flows(self, then_flow, else_flow)
         return IRIf(condition=cond, then_block=then_block, else_block=else_block)
 
-    def _cfor_stmt(self, s) -> IRFor:
-        from ....ast_nodes import ForInitExpr, ForInitVar
+    def _cfor_stmt(self, statement):
+        from .user_emitter_loops import lower_generic_cfor
 
-        init_node = None
-        if s.init:
-            if isinstance(s.init, ForInitVar):
-                vd = s.init.var_decl
-                c_type = self.resolve_c(vd.type)
-                init_expr = self._expr(vd.initializer) if vd.initializer else None
-                init_node = IRVarDecl(c_type=CType(text=c_type), name=vd.name, init=init_expr)
-            elif isinstance(s.init, ForInitExpr):
-                init_node = IRExprStmt(expr=self._expr(s.init.expression))
-        cond_node = self._expr(s.condition) if s.condition else None
-        update_node = self._expr(s.update) if s.update else None
-        body_stmts = self._loop_stmts(s.body.statements)
-        return IRFor(init=init_node, condition=cond_node, update=update_node, body=IRBlock(stmts=body_stmts))
+        return lower_generic_cfor(self, statement)
 
     def _forin_stmt(self, s) -> list:
         from ....ast_nodes import CallExpr, Identifier
@@ -89,36 +115,10 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
             return self._range_forin_stmt(s)
         return self._iterable_forin_stmt(s)
 
-    def _range_forin_stmt(self, s) -> list:
-        from ..errors import CodegenError
+    def _range_forin_stmt(self, statement) -> list:
+        from .user_emitter_loops import lower_generic_range_forin
 
-        args = s.iterable.args
-        if len(args) == 1:
-            end_expr = self._expr(args[0])
-            init_node = IRVarDecl(c_type=CType(text="int"), name=s.var_name, init=IRLiteral(text="0"))
-            cond_node = IRBinOp(left=IRVar(name=s.var_name), op="<", right=end_expr)
-            upd_node = IRUnaryOp(op="++", operand=IRVar(name=s.var_name), prefix=False)
-        elif len(args) == 2:
-            start_expr = self._expr(args[0])
-            end_expr = self._expr(args[1])
-            init_node = IRVarDecl(c_type=CType(text="int"), name=s.var_name, init=start_expr)
-            cond_node = IRBinOp(left=IRVar(name=s.var_name), op="<", right=end_expr)
-            upd_node = IRUnaryOp(op="++", operand=IRVar(name=s.var_name), prefix=False)
-        elif len(args) == 3:
-            start_expr = self._expr(args[0])
-            end_expr = self._expr(args[1])
-            step_expr = self._expr(args[2])
-            init_node = IRVarDecl(c_type=CType(text="int"), name=s.var_name, init=start_expr)
-            cond_node = IRTernary(
-                condition=IRBinOp(left=step_expr, op=">", right=IRLiteral(text="0")),
-                true_expr=IRBinOp(left=IRVar(name=s.var_name), op="<", right=end_expr),
-                false_expr=IRBinOp(left=IRVar(name=s.var_name), op=">", right=end_expr),
-            )
-            upd_node = IRBinOp(left=IRVar(name=s.var_name), op="+=", right=step_expr)
-        else:
-            raise CodegenError(f"range() expects 1 to 3 arguments, got {len(args)}")
-        body_stmts = self._loop_stmts(s.body.statements)
-        return [IRFor(init=init_node, condition=cond_node, update=upd_node, body=IRBlock(stmts=body_stmts))]
+        return lower_generic_range_forin(self, statement)
 
     def _iterable_forin_stmt(self, s) -> list:
         from .user_emitter_iteration_protocol import (
@@ -133,25 +133,60 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
         return lower_string_forin(self, statement)
 
     def _while_stmt(self, s) -> IRWhile:
+        condition = self._expr(s.condition)
         body_stmts = self._loop_stmts(s.body.statements)
-        return IRWhile(condition=self._expr(s.condition), body=IRBlock(stmts=body_stmts))
+        return IRWhile(condition=condition, body=IRBlock(stmts=body_stmts))
 
     def _dowhile_stmt(self, s) -> IRDoWhile:
-        body_stmts = self._loop_stmts(s.body.statements)
+        body_stmts = self._loop_stmts(
+            s.body.statements,
+            may_skip=False,
+        )
         return IRDoWhile(body=IRBlock(stmts=body_stmts), condition=self._expr(s.condition))
 
     def _switch_stmt(self, statement) -> IRSwitch:
+        from ...completion import sequence_may_fall_through
+        from .user_callable_provenance import (
+            join_callable_flows,
+            lower_isolated_callable_flow,
+            restore_callable_flow,
+            snapshot_callable_flow,
+        )
+
+        switch_value = self._expr(statement.value)
+        incoming = snapshot_callable_flow(self)
         cases = []
+        case_flows = []
+        fallthrough_flow = None
         push_control_context(self, "switch")
         try:
             for clause in statement.cases:
-                value = self._expr(clause.value) if clause.value else None
-                outer_types = self._var_types.copy()
-                try:
-                    body = self.emit_stmts(clause.body)
-                finally:
-                    self._var_types = outer_types
-                cases.append(IRCase(value=value, body=body))
+                case_value = self._expr(clause.value) if clause.value else None
+                restore_callable_flow(self, incoming)
+                if fallthrough_flow is not None:
+                    join_callable_flows(self, incoming, fallthrough_flow)
+
+                def lower_case(case=clause):
+                    body = self.emit_stmts(case.body)
+                    return body, sequence_may_fall_through(body)
+
+                lowered, case_flow = lower_isolated_callable_flow(
+                    self,
+                    lower_case,
+                )
+                body, falls_through = lowered
+                cases.append(
+                    IRCase(
+                        value=case_value,
+                        body=body,
+                        falls_through=falls_through,
+                    )
+                )
+                case_flows.append(case_flow)
+                fallthrough_flow = case_flow if falls_through else None
         finally:
             pop_control_context(self)
-        return IRSwitch(value=self._expr(statement.value), cases=cases)
+        if not any(clause.value is None for clause in statement.cases):
+            case_flows.append(incoming)
+        join_callable_flows(self, *case_flows)
+        return IRSwitch(value=switch_value, cases=cases)

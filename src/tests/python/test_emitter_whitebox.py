@@ -10,6 +10,8 @@ from src.compiler.python.ir.nodes import (
     IRAssign,
     IRBinOp,
     IRBlock,
+    IRBreak,
+    IRCase,
     IRFor,
     IRFunctionDef,
     IRGlobalDecl,
@@ -20,6 +22,7 @@ from src.compiler.python.ir.nodes import (
     IRReturn,
     IRStructDef,
     IRStructField,
+    IRSwitch,
     IRVar,
     IRVarDecl,
 )
@@ -114,3 +117,33 @@ def test_condition_parenthesis_scan_ignores_character_literal_delimiters():
 
     assert "if (value == ')')" in emitted
     assert "if ((value == ')'))" not in emitted
+
+
+def test_switch_emits_only_explicit_nonterminal_fallthrough_annotations():
+    switch = IRSwitch(
+        value=IRVar(name="value"),
+        cases=[
+            IRCase(
+                value=IRLiteral(text="1"),
+                body=[IRAssign(target=IRVar(name="value"), value=IRLiteral(text="2"))],
+                falls_through=True,
+            ),
+            IRCase(value=IRLiteral(text="2"), body=[IRBreak()]),
+            IRCase(value=None, body=[], falls_through=True),
+        ],
+    )
+    module = IRModule(
+        function_defs=[
+            IRFunctionDef(
+                name="probe",
+                return_type=CType(text="void"),
+                params=[],
+                body=IRBlock(stmts=[switch]),
+            )
+        ]
+    )
+
+    emitted = CEmitter().emit(module)
+
+    assert emitted.count("/* fall through */") == 1
+    assert "}\n        /* fall through */\n        case 2:" in emitted

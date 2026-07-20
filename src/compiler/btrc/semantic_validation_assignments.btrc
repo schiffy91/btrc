@@ -8,6 +8,8 @@ void semanticValidateAssignment(Node expression,
     semanticRejectShallowStore(expression, state, vars);
     Node? target = semanticInferType(expression.target, state, vars);
     Node? source = semanticInferType(expression.value_node, state, vars);
+    semanticValidateOpaqueBorrowStorage(
+        target, expression.value_node, "Assignment", state, vars);
     bool borrowedManagedRebind = expression.target.kind == NK_IDENTIFIER
             && target != null
             && (semanticManagedOwnershipType(target, state)

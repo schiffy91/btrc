@@ -92,6 +92,16 @@ def test_tuple_type_preserves_qualifiers_and_suffixes():
     assert values.type.is_array
 
 
+def test_declarator_array_records_layer_outside_nullable_marker():
+    prog = parse("void f() { int[]? nullable_array; int? nullable_elements[2]; }")
+    nullable_array, nullable_elements = prog.declarations[0].body.statements
+
+    assert nullable_array.type.is_array
+    assert nullable_array.type.nullable_outer_depth == 0
+    assert nullable_elements.type.is_array
+    assert nullable_elements.type.nullable_outer_depth == 1
+
+
 def test_nested_generic_nullable_type_and_cast():
     prog = parse("void f() { Box<Vector<int>>? box; var x = (Box<Vector<int>>) box; }")
     box_type = prog.declarations[0].body.statements[0].type

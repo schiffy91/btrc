@@ -13,6 +13,7 @@ from ...ast_nodes import (
 from ..nodes import (
     CType,
     IRAddressOf,
+    IRAssign,
     IRBinOp,
     IRBlock,
     IRCall,
@@ -21,21 +22,23 @@ from ..nodes import (
     IRExpr,
     IRFieldAccess,
     IRFunctionDef,
+    IRFunctionRef,
     IRParam,
+    IRStmt,
     IRStmtExpr,
     IRStructDef,
     IRStructField,
     IRVar,
     IRVarDecl,
 )
-from .parameters import lower_source_param
+from .parameters import lower_source_param, source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
 
 
-def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
+def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRFunctionRef:
     """Lower a lambda expression to a static function + capture struct.
 
     Returns a structured function-name reference for function-pointer use.
@@ -51,13 +54,18 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
         cap_fields = []
         for cap in node.captures:
             c_type = type_to_c(cap.type) if cap.type else "int"
-            cap_fields.append(IRStructField(c_type=CType(text=c_type), name=cap.name))
+            cap_fields.append(
+                IRStructField(
+                    c_type=CType(text=c_type),
+                    name=source_binding_c_name(cap.name),
+                )
+            )
         gen.module.struct_defs.append(IRStructDef(name=env_name, fields=cap_fields))
 
     # Build function params
     params = []
     for p in node.params:
-        params.append(lower_source_param(p))
+        params.append(lower_source_param(p, analyzed=gen.analyzed))
     # Add void* env parameter only when there are captures.
     # The typedef doesn't include void*, so captured lambdas are called
     # directly by name (bypassing the function pointer) with the env arg.
@@ -87,8 +95,12 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
             body_stmts.append(
                 IRVarDecl(
                     c_type=CType(text=c_type),
-                    name=cap.name,
-                    init=IRFieldAccess(obj=IRVar(name="__env"), field=cap.name, arrow=True),
+                    name=source_binding_c_name(cap.name, gen.analyzed),
+                    init=IRFieldAccess(
+                        obj=IRVar(name="__env"),
+                        field=source_binding_c_name(cap.name),
+                        arrow=True,
+                    ),
                 )
             )
 
@@ -163,7 +175,44 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRVar:
     gen._last_lambda_id = lambda_id
 
     # Return reference to the function
-    return IRVar(name=fn_name)
+    return IRFunctionRef(name=fn_name)
+
+
+def lower_captured_lambda_local(
+    gen: IRGenerator,
+    name: str,
+    initializer: LambdaExpr | None,
+    statements: list[IRStmt],
+) -> None:
+    """Replace a captured-lambda pointer local with its stack environment.
+
+    Captured lambda implementations take an extra environment parameter and
+    cannot inhabit the plain function-pointer typedef. Semantic analysis keeps
+    these closure-only bindings from escaping.
+    """
+    if not isinstance(initializer, LambdaExpr) or not initializer.captures:
+        return
+    lambda_id = gen._last_lambda_id
+    fn_name = f"__btrc_lambda_{lambda_id}"
+    env_var = f"__{name}_env"
+    env_decl = IRVarDecl(
+        c_type=CType(text=f"struct __btrc_lambda_{lambda_id}_env"),
+        name=env_var,
+    )
+    statements.pop()
+    gen._func_var_decls.pop()
+    gen._func_var_decls.append(env_decl)
+    statements.append(env_decl)
+    for capture in initializer.captures:
+        field_name = source_binding_c_name(capture.name)
+        binding_name = gen.source_binding_c_name(capture.name)
+        statements.append(
+            IRAssign(
+                target=IRFieldAccess(obj=IRVar(name=env_var), field=field_name, arrow=False),
+                value=IRVar(name=binding_name),
+            )
+        )
+    gen._fn_ptr_envs[name] = (fn_name, env_var)
 
 
 def resolved_lambda_return_type(gen: IRGenerator, node: LambdaExpr):
@@ -201,9 +250,13 @@ def lower_immediate_lambda_call(gen: IRGenerator, node: LambdaExpr, ast_args, ar
     ]
     sequence = [
         IRBinOp(
-            left=IRFieldAccess(obj=IRVar(name=env_var), field=capture.name, arrow=False),
+            left=IRFieldAccess(
+                obj=IRVar(name=env_var),
+                field=source_binding_c_name(capture.name),
+                arrow=False,
+            ),
             op="=",
-            right=IRVar(name=capture.name),
+            right=IRVar(name=gen.source_binding_c_name(capture.name)),
         )
         for capture in node.captures
     ]

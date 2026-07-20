@@ -74,6 +74,15 @@ def test_index_requires_indexable_object_and_integral_index():
     assert _has(errors, "integral type")
 
 
+def test_class_index_diagnostics_name_the_required_protocol_signatures():
+    read_errors = _errors("class Box {} void run(Box box) { box[0]; }")
+    write_errors = _errors(
+        "class Box { public int set(int index, int value) { return value; } } void run(Box box) { box[0] = 1; }"
+    )
+    assert _has(read_errors, "indexing requires an instance get(index) method")
+    assert _has(write_errors, "has no void instance set(index, value) method")
+
+
 def test_dereference_requires_pointer_operand():
     errors = _errors("void run() { int value = *1; }")
     assert _has(errors, "unary operator '*'")

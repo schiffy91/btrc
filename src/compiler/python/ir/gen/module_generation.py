@@ -3,6 +3,7 @@
 from ...ast_nodes import (
     BraceInitializer,
     ClassDecl,
+    EnumDecl,
     FunctionDecl,
     ImportDecl,
     ListLiteral,
@@ -42,6 +43,17 @@ _STANDARD_INCLUDES = [
 ]
 
 
+def _enum_to_string_decl(name: str) -> IRFunctionDecl:
+    """Typed declaration shared by plain and rich enum stringification."""
+
+    return IRFunctionDecl(
+        name=f"{name}_toString",
+        return_type=CType(text="const char*"),
+        params=[IRParam(c_type=CType(text=name), name="val")],
+        is_static=True,
+    )
+
+
 class _ModuleGenerationMixin:
     def require_runtime_include(self, header: str) -> None:
         """Record a dependency on a hosted-libc header or runtime seam."""
@@ -73,7 +85,9 @@ class _ModuleGenerationMixin:
 
         function_decls: list[IRFunctionDecl] = []
         for decl in self.analyzed.program.declarations:
-            if (isinstance(decl, ClassDecl) and not decl.generic_params) or isinstance(decl, StructDecl):
+            if isinstance(decl, EnumDecl) and decl.name:
+                function_decls.append(_enum_to_string_decl(decl.name))
+            elif (isinstance(decl, ClassDecl) and not decl.generic_params) or isinstance(decl, StructDecl):
                 forward = IRStructForward(name=decl.name)
                 if forward not in self.module.struct_forwards:
                     self.module.struct_forwards.append(forward)
@@ -93,15 +107,32 @@ class _ModuleGenerationMixin:
                             ],
                         )
                     )
-                    function_decls.extend(class_callable_declarations(decl, class_info, self.analyzed.class_table))
+                    function_decls.extend(
+                        class_callable_declarations(
+                            decl,
+                            class_info,
+                            self.analyzed.class_table,
+                            self.analyzed,
+                        )
+                    )
             elif isinstance(decl, RichEnumDecl):
                 self.module.struct_forwards.append(IRStructForward(name=decl.name))
+                function_decls.extend(
+                    IRFunctionDecl(
+                        name=f"{decl.name}_{variant.name}",
+                        return_type=CType(text=decl.name),
+                        params=[lower_source_param(param, analyzed=self.analyzed) for param in variant.params],
+                        is_static=True,
+                    )
+                    for variant in decl.variants
+                )
+                function_decls.append(_enum_to_string_decl(decl.name))
             elif isinstance(decl, FunctionDecl) and decl.body and not decl.is_gpu and decl.name != "main":
                 function_decls.append(
                     IRFunctionDecl(
                         name=source_function_c_name(self.analyzed, decl.name),
                         return_type=CType(text=type_to_c(decl.return_type)),
-                        params=[lower_source_param(param) for param in decl.params],
+                        params=[lower_source_param(param, analyzed=self.analyzed) for param in decl.params],
                         is_static=bool(decl.return_type.is_static),
                     )
                 )
@@ -204,16 +235,11 @@ class _ModuleGenerationMixin:
             and decl.type.is_array
             and (decl.type.array_size is not None or isinstance(decl.initializer, (BraceInitializer, ListLiteral)))
         ):
-            from ...ast_nodes import TypeExpr
+            from ...type_composition import strip_outer_storage
             from .aggregate_initializers import lower_static_initializer
             from .expressions import lower_expr
 
-            element_type = TypeExpr(
-                base=decl.type.base,
-                generic_args=decl.type.generic_args,
-                pointer_depth=decl.type.pointer_depth,
-                is_const=decl.type.is_const,
-            )
+            element_type = strip_outer_storage(decl.type, array=True)
             is_extern = bool(decl.type.is_extern and not force_external)
             self.module.global_decls.append(
                 IRGlobalDecl(

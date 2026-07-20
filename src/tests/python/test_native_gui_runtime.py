@@ -7,6 +7,10 @@ HARNESS = ROOT / "src" / "tests" / "native" / "gui_runtime.c"
 
 
 def test_headless_gui_runtime_is_strict_c11_and_safe(tmp_path: Path) -> None:
+    font_source = (GUI / "btrc_gui_font.c").read_text()
+    assert "gui_color_apply_coverage(rgba, cov)" in font_source
+    assert "| (uint32_t)cov" not in font_source
+
     executable = tmp_path / "gui-runtime"
     subprocess.run(
         [

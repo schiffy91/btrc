@@ -10,6 +10,7 @@
 #include "btrc_gpu.h"
 #include "btrc_gpu_async.h"
 #include "btrc_gpu_compute_singleton.h"
+#include "btrc_gpu_pending_list.h"
 #include "btrc_gpu_surface.h"
 #include <webgpu.h>
 #include <GLFW/glfw3.h>
@@ -29,6 +30,8 @@ typedef struct {
     unsigned int ref_count;
 } GPUWindow_;
 
+typedef struct GPUAsyncPending_ GPUAsyncPending_;
+
 typedef struct {
     WGPUInstance      instance;
     WGPUSurface       surface;
@@ -43,6 +46,7 @@ typedef struct {
     WGPUTexture            frame_texture;
     WGPUTextureView        frame_view;
     GPUWindow_*            window;
+    BtrcGPUPendingList     pending_async;
 } GPU_;
 
 typedef struct {
@@ -52,6 +56,12 @@ typedef struct {
 typedef struct {
     WGPURenderPipeline pipeline;
 } GPURenderPipeline_;
+
+struct GPUAsyncPending_ {
+    BtrcGPUPendingLink link;
+    WGPUFuture future;
+    BtrcGPUAsync* async;
+};
 
 /* GLFW is process-global and may also be used by the GUI backend. Individual
  * windows are destroyed here; global teardown is intentionally left to exit. */
@@ -205,6 +215,47 @@ static bool request_device(GPU_* gpu, const WGPUDeviceDescriptor* descriptor) {
     return true;
 }
 
+/* A WaitAnyOnly callback runs only while its exact future is polled. Keep the
+ * synchronous reference and future after a readback timeout so later GPU work
+ * can reap the small callback state. The staging handle itself is released as
+ * soon as unmap requests cancellation. */
+static void reap_pending_async(GPU_* gpu) {
+    if (!gpu || !gpu->instance) { return; }
+    BtrcGPUPendingLink* links =
+        btrc_gpu_pending_list_take_all(&gpu->pending_async);
+    BtrcGPUPendingLink* unreaped = NULL;
+    while (links) {
+        BtrcGPUPendingLink* next = links->next;
+        GPUAsyncPending_* pending = (GPUAsyncPending_*)links;
+        BtrcGPUAsyncWaitOutcome outcome = btrc_gpu_async_wait(
+            gpu->instance, pending->future, pending->async, 0, NULL, NULL);
+        if (outcome != BTRC_GPU_ASYNC_COMPLETED) {
+            links->next = unreaped;
+            unreaped = links;
+        } else {
+            btrc_gpu_async_release(pending->async);
+            free(pending);
+        }
+        links = next;
+    }
+    btrc_gpu_pending_list_merge(&gpu->pending_async, unreaped);
+}
+
+static void release_pending_async_callers(GPU_* gpu) {
+    BtrcGPUPendingLink* links = gpu
+        ? btrc_gpu_pending_list_take_all(&gpu->pending_async) : NULL;
+    while (links) {
+        BtrcGPUPendingLink* next = links->next;
+        GPUAsyncPending_* pending = (GPUAsyncPending_*)links;
+        /* Instance destruction requests callback cancellation. If a backend
+         * delivers it later, the callback's own reference still protects the
+         * userdata after this synchronous ownership is released. */
+        btrc_gpu_async_release(pending->async);
+        free(pending);
+        links = next;
+    }
+}
+
 /* ================================================================
  * Window
  * ================================================================ */
@@ -284,6 +335,7 @@ void* btrc_gpu_init(void* win_) {
     if (!win || !win->glfw) { return NULL; }
     GPU_* gpu = (GPU_*)calloc(1, sizeof(GPU_));
     if (!gpu) { return NULL; }
+    btrc_gpu_pending_list_init(&gpu->pending_async);
     if (!retain_window(win)) {
         free(gpu);
         return NULL;
@@ -362,12 +414,17 @@ void* btrc_gpu_init(void* win_) {
 void btrc_gpu_destroy(void* gpu_) {
     GPU_* gpu = (GPU_*)gpu_;
     if (!gpu) return;
+    reap_pending_async(gpu);
     discard_frame(gpu);
     if (gpu->queue)    wgpuQueueRelease(gpu->queue);
     if (gpu->device)   wgpuDeviceRelease(gpu->device);
     if (gpu->adapter)  wgpuAdapterRelease(gpu->adapter);
     if (gpu->surface)  wgpuSurfaceRelease(gpu->surface);
-    if (gpu->instance) wgpuInstanceRelease(gpu->instance);
+    if (gpu->instance) {
+        wgpuInstanceRelease(gpu->instance);
+        gpu->instance = NULL;
+    }
+    release_pending_async_callers(gpu);
     release_window(gpu->window);
     free(gpu);
 }
@@ -476,6 +533,7 @@ void btrc_gpu_pipeline_destroy(void* p_) {
 
 bool btrc_gpu_begin_frame(void* gpu_, float r, float g, float b, float a) {
     GPU_* gpu = (GPU_*)gpu_;
+    reap_pending_async(gpu);
     if (!gpu || !gpu->surface || !gpu->device || !gpu->window ||
         !gpu->window->glfw || gpu->pass || gpu->encoder || gpu->frame_texture ||
         gpu->frame_view) {
@@ -590,6 +648,7 @@ void btrc_gpu_end_frame(void* gpu_) {
 void* btrc_gpu_init_compute(void) {
     GPU_* gpu = (GPU_*)calloc(1, sizeof(GPU_));
     if (!gpu) { return NULL; }
+    btrc_gpu_pending_list_init(&gpu->pending_async);
     gpu->window = NULL;
     gpu->surface = NULL;
 
@@ -679,6 +738,7 @@ void* btrc_gpu_create_buffer(void* gpu_, int size, int usage) {
 
 void btrc_gpu_write_buffer(void* gpu_, void* buf, void* data, int size) {
     GPU_* gpu = (GPU_*)gpu_;
+    reap_pending_async(gpu);
     if (!gpu || !gpu->queue || !buf || !data || size <= 0 || (size & 3) != 0 ||
         (uint64_t)size > wgpuBufferGetSize((WGPUBuffer)buf)) {
         return;
@@ -689,17 +749,14 @@ void btrc_gpu_write_buffer(void* gpu_, void* buf, void* data, int size) {
 static void on_buffer_map(WGPUMapAsyncStatus status,
                           WGPUStringView message,
                           void* ud1, void* ud2) {
-    (void)message;
-    btrc_gpu_async_complete((BtrcGPUAsync*)ud1, (int)status, ud2);
-}
-
-static void release_buffer_result(void* result) {
-    if (result) { wgpuBufferRelease((WGPUBuffer)result); }
+    (void)message; (void)ud2;
+    btrc_gpu_async_complete((BtrcGPUAsync*)ud1, (int)status, NULL);
 }
 
 bool btrc_gpu_read_buffer_checked(void* gpu_, void* buf_, void* dst, int size) {
     GPU_* gpu = (GPU_*)gpu_;
     WGPUBuffer src_buf = (WGPUBuffer)buf_;
+    reap_pending_async(gpu);
     if (!gpu || !gpu->device || !gpu->queue || !gpu->instance || !src_buf ||
         !dst || size <= 0 || (size & 3) != 0 ||
         (uint64_t)size > wgpuBufferGetSize(src_buf)) {
@@ -733,8 +790,15 @@ bool btrc_gpu_read_buffer_checked(void* gpu_, void* buf_, void* dst, int size) {
     wgpuCommandEncoderRelease(enc);
 
     /* Map staging buffer and poll until done */
-    BtrcGPUAsync* async = btrc_gpu_async_create(release_buffer_result);
+    GPUAsyncPending_* pending = (GPUAsyncPending_*)calloc(
+        1, sizeof(GPUAsyncPending_));
+    if (!pending) {
+        wgpuBufferRelease(staging);
+        return false;
+    }
+    BtrcGPUAsync* async = btrc_gpu_async_create(NULL);
     if (!async) {
+        free(pending);
         wgpuBufferRelease(staging);
         return false;
     }
@@ -744,35 +808,36 @@ bool btrc_gpu_read_buffer_checked(void* gpu_, void* buf_, void* dst, int size) {
             .mode = BTRC_GPU_ASYNC_CALLBACK_MODE,
             .callback = on_buffer_map,
             .userdata1 = async,
-            .userdata2 = staging,
+            .userdata2 = NULL,
         });
     int map_status = 0;
-    void* map_result = NULL;
     BtrcGPUAsyncWaitOutcome outcome = btrc_gpu_async_wait(
         gpu->instance, map_future, async, gpu_async_timeout_ns,
-        &map_status, &map_result);
+        &map_status, NULL);
     if (outcome != BTRC_GPU_ASYNC_COMPLETED) {
-        /* Unmap requests cancellation. Conforming backends drain this future;
-         * wgpu-native uses its serialized event pump. If cancellation is late,
-         * the callback retains state and staging until a later pump/instance drop. */
+        /* Unmap requests cancellation; releasing our buffer reference is safe
+         * while the implementation completes that request internally. */
         wgpuBufferUnmap(staging);
+        wgpuBufferRelease(staging);
         BtrcGPUAsyncWaitOutcome drain = btrc_gpu_async_wait(
             gpu->instance, map_future, async,
             gpu_async_cancel_drain_timeout_ns, NULL, NULL);
-        if (drain != BTRC_GPU_ASYNC_COMPLETED) {
+        if (drain == BTRC_GPU_ASYNC_COMPLETED) {
+            btrc_gpu_async_release(async);
+            free(pending);
+        } else {
+            pending->future = map_future;
+            pending->async = async;
+            btrc_gpu_pending_list_prepend(
+                &gpu->pending_async, &pending->link);
             fprintf(stderr,
                     "[btrc-gpu] buffer map cancellation pending: wait=%d\n",
                     (int)drain);
         }
-        btrc_gpu_async_release(async);
         return false;
     }
     btrc_gpu_async_release(async);
-    if (!map_result) {
-        wgpuBufferRelease(staging);
-        return false;
-    }
-    staging = (WGPUBuffer)map_result;
+    free(pending);
 
     bool success = false;
     if ((WGPUMapAsyncStatus)map_status == WGPUMapAsyncStatus_Success) {

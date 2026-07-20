@@ -31,6 +31,7 @@ from .gpu_dispatch_pipeline import (
 )
 from .gpu_dispatch_setup import initial_state, storage_buffers
 from .gpu_outputs import assignment_target, declaration_capacity
+from .parameters import source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -158,6 +159,7 @@ def _prepare_site(
     spec = GpuDispatchSpec(
         kernel=kernel,
         declaration=declaration,
+        analyzed=gen.analyzed,
         prefix=prefix,
         result_elem_type=result_elem_type,
         cpu_fallback=f"{function_name}__gpucpu",
@@ -189,7 +191,7 @@ def _register_dispatch_helper(gen: IRGenerator, spec: GpuDispatchSpec) -> None:
     uniform_fields = [
         IRStructField(
             c_type=CType(text=wgsl_to_c(uniform_types[parameter.name])),
-            name=parameter.name,
+            name=source_binding_c_name(parameter.name),
         )
         for parameter in spec.declaration.params
         if not (parameter.type and parameter.type.is_array)
@@ -248,15 +250,9 @@ def _expression_local_call(
 
 
 def _result_element_type(declaration) -> str:
-    from dataclasses import replace
+    from ...type_composition import strip_outer_storage
 
-    return type_to_c(
-        replace(
-            declaration.return_type,
-            is_array=False,
-            array_size=None,
-        )
-    )
+    return type_to_c(strip_outer_storage(declaration.return_type, array=True))
 
 
 def _arg_names(call: CallExpr) -> list[str]:

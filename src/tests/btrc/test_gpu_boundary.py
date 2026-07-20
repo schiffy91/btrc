@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.python.test_codegen import emit_c
+
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 BTRCC_SOURCE = REPO / "src/compiler/btrc/btrcc_main.btrc"
@@ -319,6 +321,31 @@ def test_cpu_fallback_min_mod_minus_one_is_defined_zero(
     assert result.returncode == 0
 
 
+def test_round_uses_gpu_float_signature_and_hosted_double_signature(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    generated = _lower_source(
+        semantic_btrcc,
+        tmp_path,
+        "#include <math.h>\n"
+        "double hostedRound(double value) { return round(value); } "
+        "@gpu void rounded(float[] xs) { int i = gpu_id(); "
+        "xs[i] = round(xs[i]); } int main() { float[] xs = {-1.5}; "
+        "rounded(xs); return hostedRound(2.5) == 3.0 && xs[0] == -2.0 "
+        "? 0 : 1; }",
+    )
+    assert "roundf(" in generated
+    assert "round(" in generated
+    binary = _compile_with_stub(
+        generated,
+        tmp_path,
+        "gpu_unavailable_stub.c",
+    )
+    result = _run([str(binary)], timeout=15)
+    assert result.returncode == 0
+
+
 def test_cpu_fallback_return_only_ends_the_current_invocation(
     btrcc_driver: Path,
     tmp_path: Path,
@@ -332,6 +359,72 @@ def test_cpu_fallback_return_only_ends_the_current_invocation(
         "return xs[0] == 1 && xs[1] == 3 ? 0 : 1; }",
     )
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = _run([str(binary)], timeout=15)
+    assert result.returncode == 0
+
+
+def test_hosted_macro_parameter_names_cross_gpu_host_and_cpu_paths(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    generated = _lower_source(
+        semantic_btrcc,
+        tmp_path,
+        "@gpu void update(int[] stdin, int stdout, int stderr) { "
+        "int i = gpu_id(); stdin[i] += stdout + stderr; } "
+        "int main() { int[] values = {1}; "
+        "update(stderr=3, stdin=values, stdout=2); "
+        "return values[0] == 6 ? 0 : 1; }",
+    )
+    assert "__btrc_source_stdin" in generated
+    assert "__btrc_source_stdout" in generated
+    assert "__btrc_source_stderr" in generated
+    binary = _compile_with_stub(
+        generated,
+        tmp_path,
+        "gpu_unavailable_stub.c",
+    )
+    result = _run([str(binary)], timeout=15)
+    assert result.returncode == 0
+
+
+@pytest.mark.parametrize("frontend", ["python", "btrc"])
+def test_type_named_parameters_cross_gpu_host_and_cpu_paths(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    frontend: str,
+) -> None:
+    source = """
+        #include <btrc_gpu.h>
+
+        class values {}
+        class scale {}
+
+        @gpu
+        void update(int[] values, int scale) {
+            int index = gpu_id();
+            values[index] += scale;
+        }
+
+        int main() {
+            values valuesMarker = new values();
+            scale scaleMarker = new scale();
+            int[] data = {1};
+            update(data, 2);
+            bool valid = data[0] == 3;
+            delete scaleMarker;
+            delete valuesMarker;
+            return valid ? 0 : 1;
+        }
+    """
+    generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
+    assert "int* __btrc_source_values" in generated
+    assert "int __btrc_source_scale" in generated
+    binary = _compile_with_stub(
+        generated,
+        tmp_path,
+        "gpu_unavailable_stub.c",
+    )
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
 

@@ -45,8 +45,9 @@ void collectStructuredHelperRoots(IRModule m, Map<string, bool> used) {
         IRStructDef definition = m.struct_defs.get(structIndex);
         int fieldIndex = 0;
         while (fieldIndex < definition.fields.len) {
-            rootArcCallbackAbiType(
-                definition.fields.get(fieldIndex).c_type, used);
+            IRStructField field = definition.fields.get(fieldIndex);
+            rootArcCallbackAbiType(field.c_type, used);
+            scanHelpersInNode(field.array_size, used);
             fieldIndex = fieldIndex + 1;
         }
         structIndex = structIndex + 1;
@@ -102,8 +103,9 @@ void collectStructuredHelperRoots(IRModule m, Map<string, bool> used) {
             IRTaggedUnionVariant variant = tagged.variants.get(variantIndex);
             int fieldIndex = 0;
             while (fieldIndex < variant.fields.len) {
-                rootArcCallbackAbiType(
-                    variant.fields.get(fieldIndex).c_type, used);
+                IRStructField field = variant.fields.get(fieldIndex);
+                rootArcCallbackAbiType(field.c_type, used);
+                scanHelpersInNode(field.array_size, used);
                 fieldIndex = fieldIndex + 1;
             }
             variantIndex = variantIndex + 1;

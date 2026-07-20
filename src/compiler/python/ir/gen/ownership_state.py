@@ -26,6 +26,12 @@ class _OwnershipStateMixin:
         # Explicit None entries keep a borrowed inner declaration from finding
         # an owned outer declaration with the same name.
         self._local_ownership_scopes: list[dict[str, str | None]] = []
+        # Source semantic maps stay keyed by source spelling, while every C
+        # declaration has a stable identity.  The parallel lexical stack lets
+        # nested same-named bindings use distinct C identifiers, which is
+        # required for an early return to clean an outer managed owner while
+        # an inner declaration is still in scope.
+        self._local_c_name_scopes: list[dict[str, str]] = []
         self._loop_scope_depths: list[int] = []
         self._control_context: list[str] = []
         self._control_managed_depths: list[int] = []
@@ -130,30 +136,80 @@ class _OwnershipStateMixin:
 
     def register_managed_var(self, var_name: str, class_type: str, *, cycle_seed: bool) -> None:
         if self._managed_vars_stack:
-            self._managed_vars_stack[-1].append(ManagedLocal(var_name, class_type, cycle_seed))
+            self._managed_vars_stack[-1].append(
+                ManagedLocal(
+                    var_name,
+                    class_type,
+                    cycle_seed,
+                    c_name=self.source_binding_c_name(var_name),
+                )
+            )
 
     def register_thread_var(self, var_name: str) -> None:
         """Register one unique joinable owner for structured scope cleanup."""
         if self._managed_vars_stack:
-            self._managed_vars_stack[-1].append(ManagedLocal(var_name, "", False, cleanup_kind="thread"))
+            self._managed_vars_stack[-1].append(
+                ManagedLocal(
+                    var_name,
+                    "",
+                    False,
+                    c_name=self.source_binding_c_name(var_name),
+                    cleanup_kind="thread",
+                )
+            )
 
     def local_cleanup_kind(self, var_name: str) -> str | None:
+        c_name = self.source_binding_c_name(var_name)
         for scope in reversed(self._managed_vars_stack):
             for local in reversed(scope):
-                if local.name == var_name:
+                if (local.c_name or local.name) == c_name:
                     return local.cleanup_kind
         return None
 
     def push_local_ownership_scope(self) -> None:
         self._local_ownership_scopes.append({})
+        self._local_c_name_scopes.append({})
 
     def pop_local_ownership_scope(self) -> None:
         if self._local_ownership_scopes:
             self._local_ownership_scopes.pop()
+            self._local_c_name_scopes.pop()
 
-    def declare_local_ownership(self, var_name: str, class_type: str | None = None) -> None:
+    def next_source_binding_c_name(self, var_name: str) -> str:
+        """Allocate a C identity without making the source binding visible."""
+        from .parameters import source_binding_c_name
+
+        c_name = source_binding_c_name(var_name, self.analyzed)
+        active_c_names = {active_name for scope in self._local_c_name_scopes for active_name in scope.values()}
+        if c_name in active_c_names:
+            c_name = self.fresh_temp(c_name)
+        return c_name
+
+    def declare_local_ownership(
+        self,
+        var_name: str,
+        class_type: str | None = None,
+        *,
+        c_name: str | None = None,
+    ) -> str:
         if self._local_ownership_scopes:
             self._local_ownership_scopes[-1][var_name] = class_type
+            current_names = self._local_c_name_scopes[-1]
+            if var_name not in current_names:
+                if c_name is None:
+                    c_name = self.next_source_binding_c_name(var_name)
+                current_names[var_name] = c_name
+            return current_names[var_name]
+        return c_name or self.next_source_binding_c_name(var_name)
+
+    def source_binding_c_name(self, var_name: str) -> str:
+        """Return the active declaration-specific C name for a source local."""
+        for scope in reversed(self._local_c_name_scopes):
+            if var_name in scope:
+                return scope[var_name]
+        from .parameters import source_binding_c_name
+
+        return source_binding_c_name(var_name, self.analyzed)
 
     def managed_local_type(self, var_name: str) -> str | None:
         for scope in reversed(self._local_ownership_scopes):
@@ -167,8 +223,9 @@ class _OwnershipStateMixin:
 
     def unregister_managed_var(self, var_name: str) -> None:
         """Stop automatic destruction after an explicit free/delete."""
+        c_name = self.source_binding_c_name(var_name)
         for scope in self._managed_vars_stack:
-            scope[:] = [local for local in scope if local.name != var_name]
+            scope[:] = [local for local in scope if (local.c_name or local.name) != c_name]
         for scope in reversed(self._local_ownership_scopes):
             if var_name in scope:
                 scope[var_name] = None

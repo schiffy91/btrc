@@ -8,6 +8,7 @@ from ..nodes import (
     IRAssign,
     IRFieldAccess,
     IRFunctionDecl,
+    IRFunctionRef,
     IRGlobalDecl,
     IRInitializerList,
     IRLiteral,
@@ -126,11 +127,11 @@ def emit_arc_descriptor(
             name=descriptor_symbol(emitted_name),
             init=IRInitializerList(
                 elements=[
-                    (IRVar(name=visitor_name) if visitor_name is not None else IRLiteral(text="NULL")),
-                    IRVar(name=f"{emitted_name}_destroy"),
-                    (IRVar(name=hook_name) if hook_name is not None else IRLiteral(text="NULL")),
-                    (IRVar(name=guard_name) if guard_name is not None else IRLiteral(text="NULL")),
-                    (IRVar(name=raise_name) if raise_name is not None else IRLiteral(text="NULL")),
+                    (IRFunctionRef(name=visitor_name) if visitor_name is not None else IRLiteral(text="NULL")),
+                    IRFunctionRef(name=f"{emitted_name}_destroy"),
+                    (IRFunctionRef(name=hook_name) if hook_name is not None else IRLiteral(text="NULL")),
+                    (IRFunctionRef(name=guard_name) if guard_name is not None else IRLiteral(text="NULL")),
+                    (IRFunctionRef(name=raise_name) if raise_name is not None else IRLiteral(text="NULL")),
                 ]
             ),
         )

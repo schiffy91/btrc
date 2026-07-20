@@ -107,16 +107,28 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
         int operandIndex = 0;
         while (operandIndex < operands.len) {
             OwnershipCallOperand operand = operands.get(operandIndex);
-            PreparedValue prepared = prepareCallTargetValue(
-                generator, operand.expression,
-                operand.targetType, varTypes);
-            ownershipRequireType(
-                prepared.effectiveType, operand.expression);
-            Node effectiveType = prepared.effectiveType;
-            boundary.addLoweredCallOperand(generator,
-                operand.expression, effectiveType, prepared.value,
-                prepared.owned, operand.keepValue,
-                prepared.owned && operand.transferred);
+            if (operand.defaultArgument) {
+                Node effectiveType = operand.targetType;
+                boundary.addLoweredCallOperand(generator,
+                    operand.expression, effectiveType,
+                    lowerDefaultArgumentCall(generator, call,
+                        params, operands, operand, varTypes),
+                    irManagedType(generator, effectiveType),
+                    operand.keepValue,
+                    irManagedType(generator, effectiveType)
+                        && operand.transferred);
+            } else {
+                PreparedValue prepared = prepareCallTargetValue(
+                    generator, operand.expression,
+                    operand.targetType, varTypes);
+                ownershipRequireType(
+                    prepared.effectiveType, operand.expression);
+                Node effectiveType = prepared.effectiveType;
+                boundary.addLoweredCallOperand(generator,
+                    operand.expression, effectiveType, prepared.value,
+                    prepared.owned, operand.keepValue,
+                    prepared.owned && operand.transferred);
+            }
             operandIndex = operandIndex + 1;
         }
         ownershipAppendAll(declarations, boundary.declarations);

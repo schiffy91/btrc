@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..ast_nodes import TypeExpr
 from ..numeric_semantics import is_known_integer_typedef_name
 from ..string_methods import STRING_METHODS
+from ..type_composition import compose_type_expr, nullable_collapses_reference_layer
 from ..type_identity import TypeShapeError, substitute_type_expr
 
 
@@ -224,10 +223,16 @@ class TypeUtilsMixin:
     def _semantic_pointer_depth(self, type_expr) -> int:
         """Pointer depth after intrinsic-reference nullable sugar collapses."""
         depth = type_expr.pointer_depth
-        if type_expr.base in {"Vector", "List", "Map", "Set", "Array"} and type_expr.generic_args and depth == 0:
-            depth = 1
-        if type_expr.base == "string" and type_expr.is_nullable and depth > 0:
+        intrinsic_base = type_expr.base in {"string", "Thread", "Mutex", "__fn_ptr"}
+        if nullable_collapses_reference_layer(
+            type_expr,
+            base_is_reference=intrinsic_base,
+        ):
             depth -= 1
+        if intrinsic_base:
+            depth += 1
+        elif type_expr.base in {"Vector", "List", "Map", "Set", "Array"} and type_expr.generic_args and depth == 0:
+            depth = 1
         return depth
 
     def _canonical_type(self, type_expr, seen=None):
@@ -239,19 +244,7 @@ class TypeUtilsMixin:
             return type_expr
         seen.add(type_expr.base)
         resolved = self._canonical_type(self.typedef_table[type_expr.base], seen)
-        return replace(
-            resolved,
-            pointer_depth=resolved.pointer_depth + type_expr.pointer_depth,
-            is_array=resolved.is_array or type_expr.is_array,
-            array_size=type_expr.array_size or resolved.array_size,
-            is_const=resolved.is_const or type_expr.is_const,
-            is_nullable=resolved.is_nullable or type_expr.is_nullable,
-            is_static=resolved.is_static or type_expr.is_static,
-            is_extern=resolved.is_extern or type_expr.is_extern,
-            is_volatile=resolved.is_volatile or type_expr.is_volatile,
-            line=type_expr.line or resolved.line,
-            col=type_expr.col or resolved.col,
-        )
+        return compose_type_expr(type_expr, resolved, reference_shape=resolved)
 
     def _is_interface_subtype(self, child: str, parent: str) -> bool:
         """Whether an interface is the same as or transitively extends another."""

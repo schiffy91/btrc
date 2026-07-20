@@ -1,5 +1,7 @@
 """Data contracts for resolved, parsed, and analyzed front-end state."""
 
+import hashlib
+import os
 from dataclasses import dataclass, field
 from functools import cached_property
 
@@ -19,6 +21,7 @@ class FrontendSource:
     source_positions: list[tuple[str, int]] = field(default_factory=list)
     graph: dict[str, set[str]] = field(default_factory=dict)
     strict_imports: bool = False
+    root_source_path: str = ""
 
     @cached_property
     def _user_position_offset(self) -> int:
@@ -64,6 +67,49 @@ class FrontendSource:
             return self.map_line(line, "stdlib")
         return self.map_line(line, "user")
 
+    def map_declaration_line(
+        self,
+        line: int,
+        source_file: str | None,
+        *,
+        split_spaces: bool,
+    ) -> tuple[str, int] | None:
+        """Map a declaration line from combined or split parse coordinates."""
+
+        if not split_spaces:
+            return self.map_line(line, "combined")
+        if not source_file:
+            return None
+        expected = os.path.normcase(os.path.realpath(source_file))
+        for space in ("user", "stdlib"):
+            mapped = self.map_line(line, space)
+            if mapped is not None and os.path.normcase(os.path.realpath(mapped[0])) == expected:
+                return mapped
+        return None
+
+    def cache_identity(self) -> str:
+        """Hash source paths and native lines that can shape generated C.
+
+        Resolved text alone is insufficient because declaration-scoped
+        ``__FILE__`` and ``__LINE__`` defaults are frozen from this mapping.
+        Length framing keeps arbitrary filesystem names unambiguous.
+        """
+
+        digest = hashlib.sha256()
+
+        def add_text(value: str) -> None:
+            encoded = value.encode("utf-8", errors="surrogatepass")
+            digest.update(len(encoded).to_bytes(8, "big"))
+            digest.update(encoded)
+
+        add_text("btrc-source-provenance-v1")
+        add_text(self.root_source_path)
+        for source_file, native_line in self.source_positions:
+            normalized = os.path.abspath(source_file) if os.path.exists(source_file) else source_file
+            add_text(normalized)
+            digest.update(int(native_line).to_bytes(8, "big", signed=True))
+        return digest.hexdigest()
+
 
 @dataclass
 class StdlibSource:
@@ -90,6 +136,7 @@ class FrontendResult:
     tokens: list[Token]
     program: Program
     analyzed: AnalyzedProgram
+    source_bundle: FrontendSource
     user_program: Program | None = None
     provenance: list[str] = field(default_factory=list)
     source_positions: list[tuple[str, int]] = field(default_factory=list)

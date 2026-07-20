@@ -5,22 +5,49 @@
    are found via `-I`. This header handles missing-SYMBOL gaps: POSIX functions
    MinGW-w64 omits but that the emitted C still references.
 
-   Everything here is a *correct* Windows equivalent — not a stub that merely
-   links. Features that need a real Win32 backend to behave correctly (Process
-   spawn/wait, raw-mode Terminal, sockets, Regex, glob/fnmatch) are deliberately
-   left out: those are Milestone 2, and stubbing them would link but misbehave. */
+   Implemented adapters have the documented Windows semantics below; some
+   compatibility probes intentionally return sentinels or fail closed. Features
+   that need a real Win32 backend to behave correctly (Process spawn/wait,
+   raw-mode Terminal, sockets, Regex, glob/fnmatch) are deliberately left out:
+   stubbing those operations would link but misbehave. */
 #pragma once
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <windows.h>
 #include <io.h>      /* _mktemp_s */
 #include <direct.h>  /* _mkdir   */
+
+#include "btrc_win_errors.h"
+
+/* Keep the forced-include boundary narrow: importing windows.h here would
+   inject thousands of unrelated typedefs and macros into every generated
+   translation unit.  These are the exact Win32 filesystem seams used below.
+   x86_64 Windows uses the platform's single C calling convention, and MinGW's
+   default system libraries provide both symbols without dllimport syntax. */
+#ifndef BTRC_WIN_GET_FILE_ATTRIBUTES
+#define BTRC_WIN_GET_FILE_ATTRIBUTES GetFileAttributesA
+#endif
+#ifndef BTRC_WIN_REMOVE_DIRECTORY
+#define BTRC_WIN_REMOVE_DIRECTORY RemoveDirectoryA
+#endif
+unsigned long BTRC_WIN_GET_FILE_ATTRIBUTES(const char *path);
+int BTRC_WIN_REMOVE_DIRECTORY(const char *path);
+
+#ifndef INVALID_FILE_ATTRIBUTES
+#define INVALID_FILE_ATTRIBUTES ((unsigned long)-1)
+#endif
+#ifndef FILE_ATTRIBUTE_DIRECTORY
+#define FILE_ATTRIBUTE_DIRECTORY 0x00000010UL
+#endif
+#ifndef FILE_ATTRIBUTE_REPARSE_POINT
+#define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400UL
+#endif
 
 /* Process launch has no Windows backend yet and must fail before fork/spawn.
    Map the POSIX environ symbol to a null, translation-unit-local sentinel so
@@ -32,9 +59,9 @@
 static char **btrc_windows_process_environment = NULL;
 #define environ btrc_windows_process_environment
 
-/* Treat every reparse point (including directory junctions) as a link for the
-   stdlib's no-follow filesystem operations. Following a junction during
-   recursive cleanup can otherwise delete data outside the requested tree. */
+/* Treat every final-component reparse point (including directory junctions) as
+   a link. The stdlib can then unlink that name without enumerating its target.
+   These narrow Win32 APIs follow the active Windows code-page contract. */
 #ifndef S_IFLNK
 #define S_IFLNK 0120000
 #endif
@@ -47,9 +74,9 @@ static char **btrc_windows_process_environment = NULL;
 static inline int btrc_lstat(const char *path, struct stat *status) {
     (void)btrc_windows_process_environment;
     if (!path || !status) { errno = EINVAL; return -1; }
-    DWORD attributes = GetFileAttributesA(path);
+    unsigned long attributes = BTRC_WIN_GET_FILE_ATTRIBUTES(path);
     if (attributes == INVALID_FILE_ATTRIBUTES) {
-        errno = ENOENT;
+        btrc_win_path_error(BTRC_WIN_GET_LAST_ERROR());
         return -1;
     }
     if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
@@ -68,12 +95,15 @@ static inline int btrc_lstat(const char *path, struct stat *status) {
    reparse point itself and never traverses its target. */
 static inline int btrc_unlink(const char *path) {
     if (!path) { errno = EINVAL; return -1; }
-    DWORD attributes = GetFileAttributesA(path);
-    if (attributes != INVALID_FILE_ATTRIBUTES
-            && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+    unsigned long attributes = BTRC_WIN_GET_FILE_ATTRIBUTES(path);
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        btrc_win_path_error(BTRC_WIN_GET_LAST_ERROR());
+        return -1;
+    }
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
             && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-        if (RemoveDirectoryA(path)) { return 0; }
-        errno = EACCES;
+        if (BTRC_WIN_REMOVE_DIRECTORY(path)) { return 0; }
+        btrc_win_path_error(BTRC_WIN_GET_LAST_ERROR());
         return -1;
     }
     return _unlink(path);
@@ -83,24 +113,52 @@ static inline int btrc_unlink(const char *path) {
 #endif
 #define unlink(path) btrc_unlink(path)
 
-/* The Windows runtime dispatches recursive deletion to its reparse-aware path
-   walker. POSIX descriptor primitives fail closed if their functions are
-   retained in the same translation unit. */
+/* Ordinary directory recursion is unsupported on Windows until the stdlib has
+   a handle-relative NT backend. POSIX descriptor primitives fail closed if
+   their functions are retained in the same translation unit. */
 #ifndef AT_SYMLINK_NOFOLLOW
 #define AT_SYMLINK_NOFOLLOW 0x100
 #endif
 #ifndef AT_REMOVEDIR
 #define AT_REMOVEDIR 0x200
 #endif
-#ifndef O_DIRECTORY
-#define O_DIRECTORY 0
+/* UCRT can make ordinary descriptors non-inheritable, but it has no `_open`
+   equivalent for POSIX final-component no-follow or directory-only opens.
+   Preserve those intentions as private flag bits and reject them at the open
+   seam rather than silently following a junction or accepting a regular file. */
+#ifdef O_CLOEXEC
+#undef O_CLOEXEC
 #endif
-#ifndef O_NOFOLLOW
-#define O_NOFOLLOW 0
+#define O_CLOEXEC _O_NOINHERIT
+#ifdef O_DIRECTORY
+#undef O_DIRECTORY
 #endif
-#ifndef O_CLOEXEC
-#define O_CLOEXEC 0
+#define O_DIRECTORY 0x10000000
+#ifdef O_NOFOLLOW
+#undef O_NOFOLLOW
 #endif
+#define O_NOFOLLOW 0x20000000
+
+static inline int btrc_open(const char *path, int flags, ...) {
+    if (!path) { errno = EINVAL; return -1; }
+    if ((flags & (O_DIRECTORY | O_NOFOLLOW)) != 0) {
+        errno = ENOTSUP;
+        return -1;
+    }
+    if ((flags & O_CREAT) != 0) {
+        va_list arguments;
+        va_start(arguments, flags);
+        int mode = va_arg(arguments, int);
+        va_end(arguments);
+        return _open(path, flags, mode);
+    }
+    return _open(path, flags);
+}
+#ifdef open
+#undef open
+#endif
+#define open(...) btrc_open(__VA_ARGS__)
+
 static inline int btrc_openat(int directory, const char *path, int flags, ...) {
     (void)directory; (void)path; (void)flags;
     errno = ENOTSUP;
@@ -174,19 +232,17 @@ static inline int btrc_unsetenv(const char *name) {
 #endif
 
 /* POSIX mkdir(path, mode) -> Windows _mkdir(path): Windows has no POSIX mode
-   bits, so the mode is dropped. MinGW already aliases a 1-arg mkdir, so undef
-   first. (My mkdtemp above calls _mkdir directly and is unaffected.) */
+   bits, so the mode expression is evaluated and then ignored. MinGW already
+   aliases a 1-arg mkdir, so undef first. */
 #ifdef mkdir
 #undef mkdir
 #endif
-#define mkdir(path, mode) _mkdir(path)
+#define mkdir(path, mode) ((void)(mode), _mkdir(path))
 
-/* realpath: canonicalise a path. Windows' _fullpath is the direct equivalent
-   (allocates when the output buffer is NULL, like POSIX realpath). */
-static inline char *btrc_realpath(const char *path, char *resolved) {
-    if (!path) { errno = EINVAL; return (char *)0; }
-    return _fullpath(resolved, path, _MAX_PATH);
-}
+/* realpath: resolve the final reparse target through a dynamically sized,
+   UTF-16 Win32 path. Only the allocation form (resolved_path == NULL) is
+   supported, so callers never expose an unbounded destination buffer. */
+#include "btrc_win_realpath.h"
 #ifndef realpath
 #define realpath(p, r) btrc_realpath((p), (r))
 #endif

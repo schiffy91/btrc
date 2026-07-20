@@ -14,6 +14,7 @@ from .nodes import (
     IRExprStmt,
     IRFor,
     IRFunctionDef,
+    IRFunctionRef,
     IRIf,
     IRReturn,
     IRSwitch,
@@ -78,7 +79,7 @@ def _prologue(gen, token: str, marker: str | None) -> list:
                 expr=register_cleanup_slot(
                     gen,
                     token_declaration,
-                    IRVar(name="__btrc_arc_topology_cleanup"),
+                    IRFunctionRef(name="__btrc_arc_topology_cleanup"),
                     direct=True,
                 )
             )

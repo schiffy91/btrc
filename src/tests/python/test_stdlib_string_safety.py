@@ -9,13 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
-from src.compiler.python.frontend import get_stdlib_source
+from src.compiler.python.frontend import compile_frontend
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser.parser import Parser
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -51,9 +48,11 @@ int main() {
 
 @functools.lru_cache(maxsize=1)
 def _emit_string_runtime() -> str:
-    source = get_stdlib_source(STRING_SOURCE) + "\n" + STRING_SOURCE
-    program = Parser(Lexer(source, "<stdlib-string-safety>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = compile_frontend(
+        STRING_SOURCE,
+        __file__,
+        filename="<stdlib-string-safety>",
+    ).analyzed
     assert not analyzed.errors
     return CEmitter().emit(optimize(IRGenerator(analyzed).generate()))
 

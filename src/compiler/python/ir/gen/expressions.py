@@ -38,11 +38,13 @@ from ...ast_nodes import (
     TupleLiteral,
     UnaryExpr,
 )
+from ...source_runtime_symbols import is_source_runtime_helper
 from ..nodes import (
     CType,
     IRCast,
     IRCompoundLiteral,
     IRExpr,
+    IRFunctionRef,
     IRLiteral,
     IRSizeof,
     IRVar,
@@ -211,6 +213,18 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
 def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
     """Lower an identifier, handling enum values."""
     name = node.name
+    from .default_argument_context import (
+        resolve_default_predefined_identifier,
+    )
+
+    predefined = resolve_default_predefined_identifier(node)
+    if predefined is not None:
+        return IRLiteral(text=predefined)
+    if gen.local_ownership_declared(name):
+        return IRVar(name=gen.source_binding_c_name(name))
+    if is_source_runtime_helper(name) and not gen.local_ownership_declared(name):
+        gen.use_helper(name)
+        return IRFunctionRef(name=name)
     enum_members = getattr(gen, "_enum_lowering_members", ()) or ()
     if name in enum_members:
         owner = getattr(gen, "_enum_lowering_owner", "")
@@ -224,7 +238,7 @@ def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
     if name in gen.analyzed.function_table and not gen.local_ownership_declared(name):
         from .function_symbols import source_function_c_name
 
-        return IRVar(name=source_function_c_name(gen.analyzed, name))
+        return IRFunctionRef(name=source_function_c_name(gen.analyzed, name))
     return IRVar(name=name)
 
 

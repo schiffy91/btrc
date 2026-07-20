@@ -160,6 +160,8 @@ class TypesMixin:
             type_expr.array_size = self._parse_expr()
             self._expect(TokenType.RBRACKET)
         type_expr.is_array = True
+        if type_expr.is_nullable:
+            type_expr.nullable_outer_depth += 1
         if self._check(TokenType.LBRACKET):
             raise self._error("Multi-dimensional arrays require an AST/IR representation for every dimension")
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...ast_nodes import LambdaBlock, LambdaExpr, LambdaExprBody
+from ...ast_nodes import Block, LambdaBlock, LambdaExpr, LambdaExprBody, ReturnStmt
 from ..nodes import (
     CType,
     IRBinOp,
@@ -24,6 +24,7 @@ from ..nodes import (
     IRExpr,
     IRFieldAccess,
     IRFunctionDef,
+    IRFunctionRef,
     IRLiteral,
     IRParam,
     IRReturn,
@@ -35,6 +36,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
+from .parameters import source_binding_c_name
 from .thread_captures import emit_capture_disposer, managed_capture_type
 from .thread_returns import rewrite_thread_returns
 from .thread_values import thread_result_disposal_args
@@ -78,7 +80,12 @@ def lower_spawn(gen: IRGenerator, node):
         cap_fields = []
         for cap in fn.captures:
             c_type = type_to_c(cap.type) if cap.type else "int"
-            cap_fields.append(IRStructField(c_type=CType(text=c_type), name=cap.name))
+            cap_fields.append(
+                IRStructField(
+                    c_type=CType(text=c_type),
+                    name=source_binding_c_name(cap.name),
+                )
+            )
         gen.module.struct_forwards.append(IRStructForward(name=env_name))
         gen.module.struct_defs.append(IRStructDef(name=env_name, fields=cap_fields))
 
@@ -136,9 +143,13 @@ def lower_spawn(gen: IRGenerator, node):
         for cap in fn.captures:
             sequence.append(
                 IRBinOp(
-                    left=IRFieldAccess(obj=IRVar(name=se_var), field=cap.name, arrow=True),
+                    left=IRFieldAccess(
+                        obj=IRVar(name=se_var),
+                        field=source_binding_c_name(cap.name),
+                        arrow=True,
+                    ),
                     op="=",
-                    right=IRVar(name=cap.name),
+                    right=IRVar(name=gen.source_binding_c_name(cap.name)),
                 )
             )
             # Keep each direct managed capture alive until worker cleanup.
@@ -146,17 +157,23 @@ def lower_spawn(gen: IRGenerator, node):
             if capture_type is not None:
                 from .managed_values import retain_value
 
-                sequence.append(retain_value(gen, IRVar(name=cap.name), capture_type))
+                sequence.append(
+                    retain_value(
+                        gen,
+                        IRVar(name=gen.source_binding_c_name(cap.name)),
+                        capture_type,
+                    )
+                )
 
         spawn_call = _spawn_call(
             gen,
-            IRVar(name=wrapper_name),
+            IRFunctionRef(name=wrapper_name),
             return_type,
             IRCast(
                 target_type=CType(text="void*"),
                 expr=IRVar(name=se_var),
             ),
-            IRVar(name=arg_disposer),
+            IRFunctionRef(name=arg_disposer),
         )
         sequence.append(spawn_call)
         return IRStmtExpr(
@@ -164,7 +181,7 @@ def lower_spawn(gen: IRGenerator, node):
             result=IRCommaExpr(expressions=sequence),
         )
     else:
-        return _spawn_call(gen, IRVar(name=wrapper_name), return_type)
+        return _spawn_call(gen, IRFunctionRef(name=wrapper_name), return_type)
 
 
 def _spawn_call(
@@ -212,38 +229,56 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type
             body_stmts.append(
                 IRVarDecl(
                     c_type=CType(text=c_type),
-                    name=cap.name,
-                    init=IRFieldAccess(obj=IRVar(name="__env"), field=cap.name, arrow=True),
+                    name=source_binding_c_name(cap.name, gen.analyzed),
+                    init=IRFieldAccess(
+                        obj=IRVar(name="__env"),
+                        field=source_binding_c_name(cap.name),
+                        arrow=True,
+                    ),
                 )
             )
 
     # Lambda body — isolate managed scope so captures from outer scope
     # don't get released inside the wrapper function
+    from .callable_provenance import BORROWED_RETURN
     from .isolated_context import isolated_function_context
+    from .statements import lower_block
+
+    local_bindings = [parameter.name for parameter in fn.params]
+    local_bindings.extend(capture.name for capture in fn.captures)
+    capture_abis = [
+        (
+            capture,
+            gen._callable_return_abis.get(capture.name, BORROWED_RETURN),
+        )
+        for capture in fn.captures
+    ]
 
     with isolated_function_context(gen, ret_c_type, return_type):
         if isinstance(fn.body, LambdaBlock) and fn.body.body:
-            from .statements import lower_block
-
-            block = lower_block(gen, fn.body.body)
+            body = fn.body.body
+        elif isinstance(fn.body, LambdaExprBody) and fn.body.expression:
+            body = Block(
+                statements=[
+                    ReturnStmt(
+                        value=fn.body.expression,
+                        line=fn.body.expression.line,
+                        col=fn.body.expression.col,
+                    )
+                ]
+            )
+        else:
+            body = None
+        if body is not None:
+            block = lower_block(
+                gen,
+                body,
+                local_bindings=local_bindings,
+                callable_bindings=fn.params,
+                callable_abis=capture_abis,
+            )
             rewritten = rewrite_thread_returns(gen, block, return_type)
             body_stmts.extend(rewritten.stmts)
-        elif isinstance(fn.body, LambdaExprBody) and fn.body.expression:
-            from ...ast_nodes import ReturnStmt
-            from .arc_returns import lower_return
-
-            returned = IRBlock(
-                stmts=lower_return(
-                    gen,
-                    ReturnStmt(value=fn.body.expression),
-                )
-            )
-            rewrite_thread_returns(
-                gen,
-                returned,
-                return_type,
-            )
-            body_stmts.extend(returned.stmts)
 
     # A structured final statement may not cover every path. Keep the C wrapper
     # total; the runtime owns and disposes the capture environment afterward.

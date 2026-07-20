@@ -64,6 +64,8 @@ bench/strings
 
 # GUI example binary
 examples/gui/gui_demo
+examples/gui/gui_declarative
+examples/gui/gui_font
 
 # Local build artifacts. The tracked `build/*.nix` files are authored policy,
 # so ignore only generated children; a new policy file must remain visible.
@@ -71,6 +73,7 @@ examples/gui/gui_demo
 /build/out/
 /build/lib/
 /build/bdist.*/
+/build/btrcc/
 /build/temp.*/
 src/compiler/btrc/fe_debug*.btrc
 /dist/

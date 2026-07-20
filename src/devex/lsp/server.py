@@ -18,8 +18,10 @@ from pathlib import Path
 
 # Add project root to sys.path so we can import src.compiler.python
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
-if PROJECT_ROOT not in sys.path:  # pragma: no cover - import-time bootstrap
-    sys.path.insert(0, PROJECT_ROOT)
+VENDOR_ROOT = str(Path(PROJECT_ROOT) / "vendor")
+for import_root in (PROJECT_ROOT, VENDOR_ROOT):
+    if os.path.isdir(import_root) and import_root not in sys.path:  # pragma: no cover - import-time bootstrap
+        sys.path.insert(0, import_root)
 
 from lsprotocol import types as lsp
 

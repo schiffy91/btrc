@@ -26,7 +26,9 @@ from ..managed_values import (
     retain_edge_value,
     unlink_edge_value,
 )
+from ..parameters import source_binding_c_name
 from .core import _resolve_type
+from .user_emitter_bindings import bind_source_parameter
 
 
 def emit_generic_properties(gen, mangled, type_map, cls_info, emitter):
@@ -57,9 +59,10 @@ def emit_generic_properties(gen, mangled, type_map, cls_info, emitter):
                 )
             )
         if prop.has_setter:
+            value_name = source_binding_c_name("value", gen.analyzed)
             params = [
                 IRParam(c_type=CType(text=f"{mangled}*"), name="self"),
-                IRParam(c_type=CType(text=property_c), name="value"),
+                IRParam(c_type=CType(text=property_c), name=value_name),
             ]
             gen.module.function_decls.append(
                 IRFunctionDecl(
@@ -74,7 +77,15 @@ def emit_generic_properties(gen, mangled, type_map, cls_info, emitter):
                     name=f"{mangled}_set_{name}",
                     return_type=CType(text="void"),
                     params=params,
-                    body=_setter_body(gen, emitter, prop, resolved, property_c, backing),
+                    body=_setter_body(
+                        gen,
+                        emitter,
+                        prop,
+                        resolved,
+                        property_c,
+                        backing,
+                        value_name,
+                    ),
                     is_static=True,
                 )
             )
@@ -105,7 +116,7 @@ def _getter_body(emitter, name, prop, backing):
     )
 
 
-def _setter_body(gen, emitter, prop, resolved, property_c, backing):
+def _setter_body(gen, emitter, prop, resolved, property_c, backing, value_name):
     target = IRFieldAccess(
         obj=IRVar(name="self"),
         field=backing,
@@ -113,14 +124,14 @@ def _setter_body(gen, emitter, prop, resolved, property_c, backing):
     )
     if prop.setter_body is None:
         if not is_managed_type(gen, resolved):
-            return IRBlock(stmts=[IRAssign(target=target, value=IRVar(name="value"))])
+            return IRBlock(stmts=[IRAssign(target=target, value=IRVar(name=value_name))])
         if is_arc_type(gen, resolved):
             stmts = [
                 IRExprStmt(
                     expr=replace_edge_value(
                         gen,
                         target,
-                        IRVar(name="value"),
+                        IRVar(name=value_name),
                         resolved,
                         IRVar(name="self"),
                         adopt=False,
@@ -146,18 +157,18 @@ def _setter_body(gen, emitter, prop, resolved, property_c, backing):
                 IRExprStmt(
                     expr=retain_edge_value(
                         gen,
-                        IRVar(name="value"),
+                        IRVar(name=value_name),
                         resolved,
                         IRVar(name="self"),
                     )
                 ),
-                IRAssign(target=target, value=IRVar(name="value")),
+                IRAssign(target=target, value=IRVar(name=value_name)),
                 IRExprStmt(
                     expr=release_edge_value(
                         gen,
                         IRVar(name=old_name),
                         resolved,
-                        replacement=IRVar(name="value"),
+                        replacement=IRVar(name=value_name),
                     )
                 ),
             ]
@@ -166,12 +177,13 @@ def _setter_body(gen, emitter, prop, resolved, property_c, backing):
             stmts.append(IRExprStmt(expr=flush))
         return IRBlock(stmts=stmts)
     emitter.reset_var_types()
+    bind_source_parameter(emitter, "value", value_name)
     emitter._var_types["value"] = resolved
     return _custom_accessor_body(
         emitter,
         prop.name,
         prop,
-        [_void_use("self"), _void_use("value")],
+        [_void_use("self"), _void_use(value_name)],
         prop.setter_body.statements,
     )
 

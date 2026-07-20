@@ -35,6 +35,7 @@ from .frontend_stdlib import (
 from .import_visibility import check_visibility
 from .lexer import Lexer
 from .parser.parser import Parser
+from .source_provenance import compiler_stdlib_source, stamp_nested_declaration_sources
 
 __all__ = [
     "_STDLIB_AST_VERSION",
@@ -107,6 +108,7 @@ def resolve_frontend_source(
         source_positions=stdlib_positions + source_positions,
         graph=graph,
         strict_imports=strict_imports,
+        root_source_path=os.path.realpath(source_path),
     )
 
 
@@ -134,10 +136,42 @@ def uses_stdlib_ast_cache(
 
 def _stamp_decl_files(decls, frontend_source: FrontendSource, space: str) -> None:
     """Record native-file provenance on top-level decls (feeds ``Diag.file``)."""
+    stdlib_line_count = frontend_source.stdlib_source.count("\n") + 1 if frontend_source.stdlib_source else 0
     for decl in decls:
         pos = frontend_source.map_line(getattr(decl, "line", 0), space)
+        compiler_stdlib = space == "stdlib" or (
+            space == "combined" and stdlib_line_count and getattr(decl, "line", 0) <= stdlib_line_count
+        )
+        if pos is not None and _compiler_resolved_stdlib_import(
+            frontend_source,
+            pos[0],
+        ):
+            compiler_stdlib = True
         if pos is not None:
-            decl.source_file = pos[0]
+            decl.source_file = compiler_stdlib_source(pos[0]) if compiler_stdlib else pos[0]
+        elif compiler_stdlib:
+            # Provenance matters even without detailed stdlib diagnostic mapping.
+            decl.source_file = compiler_stdlib_source()
+        stamp_nested_declaration_sources(decl)
+
+
+def _compiler_resolved_stdlib_import(
+    frontend_source: FrontendSource,
+    path: str,
+) -> bool:
+    """Authenticate canonical stdlib files reached through the import graph."""
+    canonical = os.path.realpath(path)
+    if canonical == frontend_source.root_source_path:
+        return False
+    stdlib_root = os.path.realpath(_get_stdlib_dir())
+    try:
+        if os.path.commonpath((canonical, stdlib_root)) != stdlib_root:
+            return False
+    except (OSError, ValueError):
+        return False
+    return any(
+        canonical == os.path.realpath(imported) for imports in frontend_source.graph.values() for imported in imports
+    )
 
 
 def lex_parse_frontend_source(
@@ -249,6 +283,7 @@ def compile_frontend(
         tokens=parsed.tokens,
         program=parsed.program,
         analyzed=analyzed,
+        source_bundle=frontend_source,
         user_program=parsed.user_program,
         provenance=frontend_source.provenance,
         source_positions=frontend_source.source_positions,

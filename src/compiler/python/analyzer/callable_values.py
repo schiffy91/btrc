@@ -1,7 +1,5 @@
 """Closure-value boundaries for the plain ``__fn_ptr`` ABI."""
 
-from dataclasses import replace
-
 from ..ast_nodes import (
     BraceInitializer,
     Identifier,
@@ -102,6 +100,20 @@ class CallableValueValidationMixin:
             self._error(f"'{name}()' expects {len(expected_types)} argument(s) but got {len(args)}", line, col)
             return
         for index, (expected, arg) in enumerate(zip(expected_types, args), 1):
+            self._validate_managed_string_source(
+                expected,
+                arg,
+                f"Argument {index} to '{name}()'",
+                getattr(arg, "line", line),
+                getattr(arg, "col", col),
+            )
+            self._validate_opaque_call_argument(
+                None,
+                index - 1,
+                expected,
+                arg,
+                name,
+            )
             self._contextualize_aggregate_initializer(
                 expected,
                 arg,
@@ -121,7 +133,9 @@ class CallableValueValidationMixin:
 
     def _sequence_element_type(self, expected):
         if expected.is_array:
-            return replace(expected, is_array=False, array_size=None)
+            from ..type_composition import strip_outer_storage
+
+            return strip_outer_storage(expected, array=True)
         if expected.base in self._SEQUENCE_LITERAL_TYPES and len(expected.generic_args) == 1:
             return expected.generic_args[0]
         return None

@@ -5,7 +5,7 @@ from dataclasses import replace
 from ..type_identity import type_shape_key
 from .semantic_keys import semantic_ast_key
 
-_MAGIC_METHODS = {
+MAGIC_METHOD_SIGNATURES = {
     "__add__": (1, None),
     "__sub__": (1, None),
     "__mul__": (1, None),
@@ -23,6 +23,11 @@ _MAGIC_METHODS = {
 }
 
 
+def is_magic_method_name(name: str) -> bool:
+    """Whether a source method spelling has compiler-defined lowering."""
+    return name in MAGIC_METHOD_SIGNATURES
+
+
 class DeclarationContractsMixin:
     def _validate_array_return_declaration(self, declaration, owner=None) -> None:
         """Only GPU kernels may use btrc's array-return syntax."""
@@ -38,6 +43,12 @@ class DeclarationContractsMixin:
 
     def _validate_class_callable_shape(self, class_decl, method) -> None:
         owner = f"method '{class_decl.name}.{method.name}'"
+        if class_decl.generic_params and method.access == "class":
+            self._error(
+                f"Static {owner} has no specialization target and is not supported on a generic class",
+                method.line,
+                method.col,
+            )
         if method.is_constructor:
             self._validate_constructor_shape(class_decl, method)
             return
@@ -60,7 +71,7 @@ class DeclarationContractsMixin:
         elif method.body is None:
             self._error(f"Concrete {owner} requires a body", method.line, method.col)
 
-        signature = _MAGIC_METHODS.get(method.name)
+        signature = MAGIC_METHOD_SIGNATURES.get(method.name)
         if signature is None:
             return
         arity, return_base = signature
@@ -179,4 +190,8 @@ class DeclarationContractsMixin:
         return replace(type_expr, is_extern=False)
 
 
-__all__ = ["DeclarationContractsMixin"]
+__all__ = [
+    "MAGIC_METHOD_SIGNATURES",
+    "DeclarationContractsMixin",
+    "is_magic_method_name",
+]

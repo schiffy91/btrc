@@ -1,0 +1,277 @@
+/* Hosted-ABI queries over Python-generated exact and ownership tables. */
+
+string hostedAbiEncodedSpec(string name) {
+    return hostedAbiEncodedSpecGenerated(name);
+}
+
+Vector<string> hostedAbiSpecParts(string name) {
+    string encoded = hostedAbiEncodedSpec(name);
+    if (encoded == "") {
+        Vector<string> empty = [];
+        return empty;
+    }
+    return Strings.split(encoded, ";");
+}
+
+Vector<string> hostedAbiHeader(string name) {
+    Vector<string> parts = hostedAbiSpecParts(name);
+    if (parts.len == 0) {
+        Vector<string> empty = [];
+        return empty;
+    }
+    return Strings.split(parts.get(0), ",");
+}
+
+Vector<string> hostedAbiParameter(string name, int index) {
+    Vector<string> parts = hostedAbiSpecParts(name);
+    if (index < 0 || index + 1 >= parts.len) {
+        Vector<string> empty = [];
+        return empty;
+    }
+    return Strings.split(parts.get(index + 1), ",");
+}
+
+bool hostedAbiExactFunction(string name) {
+    return hostedAbiEncodedSpec(name) != "";
+}
+
+bool hostedAbiFunctionOwnedName(string name) {
+    return hostedAbiExactFunction(name)
+        || hostedAbiFunctionOwnedGenerated(name);
+}
+
+bool hostedAbiMacroName(string name) {
+    return hostedAbiMacroGenerated(name);
+}
+
+bool hostedAbiTypeName(string name) {
+    return hostedAbiTypeGenerated(name);
+}
+
+bool hostedAbiTypedefName(string name) {
+    return hostedAbiTypedefGenerated(name);
+}
+
+bool hostedAbiSourceAdoptingHelper(string name, int index) {
+    return index == 0
+        && hostedAbiSourceAdoptingHelperGenerated(name)
+        && hostedAbiParameterEffect(name, index) == "consume";
+}
+
+string hostedAbiResultBase(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len == 0 ? "" : header.get(0);
+}
+
+int hostedAbiResultPointerDepth(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len == 0 ? 0 : Strings.toInt(header.get(1));
+}
+
+bool hostedAbiResultConst(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len > 2 && header.get(2) == "1";
+}
+
+string hostedAbiSemanticResultBase(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len == 0 ? "" : header.get(3);
+}
+
+int hostedAbiSemanticResultPointerDepth(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len == 0 ? 0 : Strings.toInt(header.get(4));
+}
+
+bool hostedAbiSemanticResultConst(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len > 5 && header.get(5) == "1";
+}
+
+bool hostedAbiVariadic(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len > 6 && header.get(6) == "1";
+}
+
+string hostedAbiReturnEffect(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len == 0 ? "unknown" : header.get(7);
+}
+
+int hostedAbiReturnAliasParameter(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    return header.len == 0 ? -1 : Strings.toInt(header.get(8));
+}
+
+string hostedAbiReturnAliasNullEffect(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    if (header.len <= 10 || header.get(10) == "none") { return ""; }
+    return header.get(10);
+}
+
+string hostedAbiReturnDeallocator(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    if (header.len <= 11 || header.get(11) == "none") { return ""; }
+    return header.get(11);
+}
+
+string hostedAbiReturnAliasShape(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    if (header.len <= 12 || header.get(12) == "none") { return ""; }
+    return header.get(12);
+}
+
+string hostedAbiConsumeDeallocator(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    if (header.len <= 13 || header.get(13) == "none") { return ""; }
+    return header.get(13);
+}
+
+string hostedAbiReturnAliasNullDeallocator(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    if (header.len <= 14 || header.get(14) == "none") { return ""; }
+    return header.get(14);
+}
+
+int hostedAbiParameterCount(string name) {
+    Vector<string> parts = hostedAbiSpecParts(name);
+    return parts.len == 0 ? -1 : parts.len - 1;
+}
+
+string hostedAbiParameterBase(string name, int index) {
+    Vector<string> parameter = hostedAbiParameter(name, index);
+    return parameter.len == 0 ? "" : parameter.get(0);
+}
+
+int hostedAbiParameterPointerDepth(string name, int index) {
+    Vector<string> parameter = hostedAbiParameter(name, index);
+    return parameter.len == 0 ? 0 : Strings.toInt(parameter.get(1));
+}
+
+bool hostedAbiParameterConst(string name, int index) {
+    Vector<string> parameter = hostedAbiParameter(name, index);
+    return parameter.len > 2 && parameter.get(2) == "1";
+}
+
+string hostedAbiParameterEffect(string name, int index) {
+    Vector<string> parameter = hostedAbiParameter(name, index);
+    return parameter.len == 0 ? "unknown" : parameter.get(3);
+}
+
+bool hostedAbiParameterReadOnlyBorrow(string name, int index) {
+    string effect = hostedAbiParameterEffect(name, index);
+    return effect == "read" || (effect == "value"
+        && hostedAbiParameterPointerDepth(name, index) == 0);
+}
+
+bool hostedAbiParameterNonescaping(string name, int index) {
+    string effect = hostedAbiParameterEffect(name, index);
+    return effect == "read" || effect == "mutate" || effect == "value";
+}
+
+bool hostedAbiMacroReferenceRequiresSemanticCall(string name) {
+    if (!hostedAbiFunctionOwnedName(name)) { return false; }
+    if (!hostedAbiExactFunction(name) || hostedAbiVariadic(name)) { return true; }
+    if (hostedAbiSemanticResultPointerDepth(name) > 0) { return true; }
+    int count = hostedAbiParameterCount(name);
+    for (int index = 0; index < count; index = index + 1) {
+        string effect = hostedAbiParameterEffect(name, index);
+        if (hostedAbiParameterPointerDepth(name, index) > 0) {
+            if (effect != "read") { return true; }
+        } else if (effect != "value") {
+            return true;
+        }
+    }
+    return false;
+}
+
+int hostedAbiRawLifetimeArity(string name) {
+    Vector<string> header = hostedAbiHeader(name);
+    if (header.len == 0 || header.get(9) != "1") { return 0; }
+    return hostedAbiParameterCount(name);
+}
+
+bool hostedAbiOwnedName(string name) {
+    return hostedAbiExactFunction(name)
+        || hostedAbiOwnedGenerated(name);
+}
+
+Node? hostedAbiSemanticResultType(string name) {
+    string base = hostedAbiSemanticResultBase(name);
+    if (base == "") { return null; }
+    Node result = makePrimType(base);
+    result.pointer_depth = hostedAbiSemanticResultPointerDepth(name);
+    result.is_const = hostedAbiSemanticResultConst(name);
+    return result;
+}
+
+string sourceHostedFunctionSymbol(string name) {
+    if (hostedAbiOwnedName(name)) { return "__btrc_source_" + name; }
+    return name;
+}
+
+string sourceLexicalBindingCName(string name) {
+    /* Named-argument labels retain their source spelling, but an object-like
+     * hosted macro cannot safely be emitted as a C parameter identifier. */
+    if (hostedAbiMacroName(name)) { return "__btrc_source_" + name; }
+    return name;
+}
+
+bool sourceLexicalBindingConflictsType(
+        string name, Analyzed analyzed) {
+    if (hostedAbiTypedefName(name)
+            || analyzed.isClass(name)
+            || analyzed.isGenericClass(name)
+            || analyzed.isEnum(name)
+            || analyzed.isRichEnum(name)
+            || analyzed.structTable.has(name)
+            || analyzed.typedefTable.has(name)) {
+        return true;
+    }
+    Vector<string> classNames = analyzed.classTable.keys();
+    Vector<string> genericClassNames = analyzed.genericClassTable.keys();
+    int table = 0;
+    while (table < 2) {
+        Vector<string> names = classNames;
+        if (table == 1) { names = genericClassNames; }
+        int classIndex = 0;
+        while (classIndex < names.len) {
+            Node declaration = table == 0
+                ? analyzed.classTable.get(names.get(classIndex))
+                : analyzed.genericClassTable.get(names.get(classIndex));
+            int parameterIndex = 0;
+            while (parameterIndex < declaration.generic_params.len) {
+                if (declaration.generic_params.get(parameterIndex) == name) {
+                    return true;
+                }
+                parameterIndex = parameterIndex + 1;
+            }
+            int memberIndex = 0;
+            while (memberIndex < declaration.members.len) {
+                Node member = declaration.members.get(memberIndex);
+                int methodParameterIndex = 0;
+                while (methodParameterIndex
+                        < member.generic_params.len) {
+                    if (member.generic_params.get(
+                            methodParameterIndex) == name) {
+                        return true;
+                    }
+                    methodParameterIndex = methodParameterIndex + 1;
+                }
+                memberIndex = memberIndex + 1;
+            }
+            classIndex = classIndex + 1;
+        }
+        table = table + 1;
+    }
+    return false;
+}
+
+string sourceLexicalBindingCNameForAnalysis(
+        string name, Analyzed analyzed) {
+    if (hostedAbiMacroName(name)
+            || sourceLexicalBindingConflictsType(name, analyzed)) {
+        return "__btrc_source_" + name;
+    }
+    return name;
+}

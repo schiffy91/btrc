@@ -43,14 +43,14 @@ bool globalInitializerHasEffects(IRNode? node) {
     return false;
 }
 
-void collectGlobalRefs(IRNode? node, Vector<string> names,
+void collectGlobalRefs(IRNode? node, Map<string, bool> names,
         Map<string, bool> out) {
     if (node == null) { return; }
-    if (node.kind == IRK_VAR) {
-        scanTextForNames(node.name, names, out);
+    if (node.kind == IRK_VAR && names.has(node.name)) {
+        out.put(node.name, true);
     }
-    if (node.kind == IRK_CALL && node.callee != "") {
-        scanTextForNames(node.callee, names, out);
+    if (node.kind == IRK_CALL && names.has(node.callee)) {
+        out.put(node.callee, true);
     }
     collectGlobalRefs(node.left, names, out);
     collectGlobalRefs(node.right, names, out);
@@ -100,6 +100,7 @@ void eliminateDeadGlobals(IRModule module) {
     if (module.global_decls.len == 0) { return; }
 
     Vector<string> functionNames = [];
+    Map<string, bool> knownFunctions = {};
     Map<string, int> functionByName = {};
     Map<string, bool> liveFunctions = {};
     Vector<string> functionWorklist = [];
@@ -107,6 +108,7 @@ void eliminateDeadGlobals(IRModule module) {
     while (functionIndex < module.functions.len) {
         IRFunction fn = module.functions.get(functionIndex);
         functionNames.push(fn.name);
+        knownFunctions.put(fn.name, true);
         functionByName.put(fn.name, functionIndex);
         if (fn.name == "main" || fn.name == "btrc_main") {
             liveFunctions.put(fn.name, true);
@@ -166,8 +168,8 @@ void eliminateDeadGlobals(IRModule module) {
             string functionName = functionWorklist.pop();
             IRFunction fn = module.functions.get(
                 functionByName.get(functionName));
-            collectFuncRefs(fn.body, functionNames, functionRefs);
-            collectGlobalRefs(fn.body, globalNames, globalRefs);
+            collectFuncRefs(fn.body, knownFunctions, functionRefs);
+            collectGlobalRefs(fn.body, knownGlobals, globalRefs);
         } else {
             string globalName = globalWorklist.pop();
             int declarationIndex = 0;
@@ -176,13 +178,13 @@ void eliminateDeadGlobals(IRModule module) {
                     module.global_decls.get(declarationIndex);
                 if (global.name == globalName) {
                     collectFuncRefs(
-                        global.init, functionNames, functionRefs);
+                        global.init, knownFunctions, functionRefs);
                     collectFuncRefs(
-                        global.array_size, functionNames, functionRefs);
+                        global.array_size, knownFunctions, functionRefs);
                     collectGlobalRefs(
-                        global.init, globalNames, globalRefs);
+                        global.init, knownGlobals, globalRefs);
                     collectGlobalRefs(
-                        global.array_size, globalNames, globalRefs);
+                        global.array_size, knownGlobals, globalRefs);
                 }
                 declarationIndex = declarationIndex + 1;
             }

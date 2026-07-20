@@ -3,6 +3,8 @@ class without its own, property-getter-as-call, Thread<T> join with unboxing,
 Mutex<T> get/set, sizeof over an expression, default arguments, and print()
 string formatting."""
 
+import re
+
 from src.tests.python.test_codegen import emit_c
 
 
@@ -84,7 +86,12 @@ def test_method_named_arguments_reordered_and_defaulted():
         return r.run(1, c=4);
     }
     """)
-    assert "Runner_run(r, 1, 2, 4)" in c
+    assert "__btrc_default_Runner_run_2" in c
+    assert re.search(
+        r"Runner_run\(__btrc_call_operand_\d+, __btrc_call_operand_\d+, "
+        r"__btrc_call_operand_\d+, __btrc_call_operand_\d+\)",
+        c,
+    )
 
 
 def test_print_string_uses_percent_s():

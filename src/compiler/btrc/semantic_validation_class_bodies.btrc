@@ -79,6 +79,8 @@ void semanticValidateClassBodies(Node declaration,
                         + "' requires a C constant/address initializer for "
                         + "static storage", member);
                 }
+                contextualizeGenericConstructor(
+                    member.type, member.initializer, state, fieldVars);
                 semanticValidateExpr(member.initializer, state, fieldVars);
                 semanticValidateTypedInitializer(member.type,
                     member.initializer, "Field '" + declaration.name + "."
@@ -103,10 +105,6 @@ void semanticValidateClassBodies(Node declaration,
                 "Property '" + declaration.name + "." + member.name + "'",
                 "field", member, state);
             semanticRejectRuntimeInterfaceType(member.type, member, state);
-            if (member.access == "class") {
-                semanticValidationFail("Static property '" + declaration.name
-                    + "." + member.name + "' is not supported", member);
-            }
             Node? canonicalProperty =
                 semanticResolveAliases(member.type, state);
             if (member.has_setter && canonicalProperty != null

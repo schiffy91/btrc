@@ -1,0 +1,75 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+string makeOwned() {
+    return __btrc_str_track(strdup("abc"));
+}
+
+int borrowLength(string value) {
+    return (int)strlen(value);
+}
+
+class Finder<T> {
+    public string cached;
+
+    public Finder() {
+        self.cached = "seed";
+    }
+
+    public string find() {
+        string local = strchr(makeOwned(), 'b');
+        local = strstr(makeOwned(), "bc");
+        self.cached = strchr(makeOwned(), 'b');
+        if (strcmp(local, self.cached) != 0) { return "bad"; }
+        return strchr(makeOwned(), 'b');
+    }
+}
+
+class Holder {
+    public string initial = strchr(makeOwned(), 'b');
+    public string value;
+
+    public Holder() {
+        self.value = "seed";
+    }
+
+    public void replace() {
+        self.value = strstr(makeOwned(), "bc");
+    }
+}
+
+int main() {
+    size_t baseline = __btrc_string_live_count();
+    {
+        string alias = strchr(makeOwned(), 'b');
+        if (strcmp(alias, "bc") != 0) { return 1; }
+
+        string nested = strstr(makeOwned(), "bc");
+        if (strcmp(nested, "bc") != 0) { return 2; }
+
+        string reassigned = "seed";
+        reassigned = strchr(makeOwned(), 'b');
+        if (strcmp(reassigned, "bc") != 0) { return 3; }
+
+        if (borrowLength(strdup("fresh")) != 5) { return 4; }
+
+        string canonical = realpath(".", (char*)NULL);
+        if (canonical == null || canonical[0] == '\0') { return 5; }
+
+        Holder holder = new Holder();
+        if (strcmp(holder.initial, "bc") != 0) { return 6; }
+        holder.replace();
+        if (strcmp(holder.value, "bc") != 0) { return 7; }
+        delete holder;
+
+        Finder<int> finder = new Finder<int>();
+        string genericAlias = finder.find();
+        if (strcmp(genericAlias, "bc") != 0) { return 8; }
+        if (strcmp(finder.cached, "bc") != 0) { return 9; }
+        delete finder;
+    }
+    if (__btrc_string_live_count() != baseline) { return 10; }
+    printf("PASS: hosted_result_ownership_runtime\n");
+    return 0;
+}

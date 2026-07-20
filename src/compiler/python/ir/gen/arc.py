@@ -68,6 +68,7 @@ def _emit_scope_release(
 
     stmts: list[IRStmt] = []
     for local in reversed(managed):
+        local_c_name = local.c_name or local.name
         if local.cleanup_kind == "thread":
             from .thread_values import consume_thread_handle
 
@@ -79,7 +80,7 @@ def _emit_scope_release(
                         args=[
                             consume_thread_handle(
                                 gen,
-                                IRVar(name=local.name),
+                                IRVar(name=local_c_name),
                             )
                         ],
                         helper_ref="__btrc_thread_free",
@@ -90,14 +91,14 @@ def _emit_scope_release(
         value_decl = IRVarDecl(
             c_type=CType(text=_emitted_value_c_type(local.type_name)),
             name=gen.fresh_temp("__btrc_scope_released"),
-            init=IRVar(name=local.name),
+            init=IRVar(name=local_c_name),
         )
         gen._func_var_decls.append(value_decl)
         stmts.extend(
             [
                 value_decl,
                 IRAssign(
-                    target=IRVar(name=local.name),
+                    target=IRVar(name=local_c_name),
                     value=IRLiteral(text="NULL"),
                 ),
                 IRExprStmt(
@@ -137,7 +138,8 @@ def _emitted_value_c_type(type_name: str) -> str:
 
 def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:
     """Emit rc-- for all managed vars across all scopes, except the returned var."""
-    managed = [local for local in gen.get_all_managed_vars() if local.name != returned_var]
+    returned_c_name = gen.source_binding_c_name(returned_var) if returned_var is not None else None
+    managed = [local for local in gen.get_all_managed_vars() if (local.c_name or local.name) != returned_c_name]
     return _emit_scope_release(managed, gen)
 
 

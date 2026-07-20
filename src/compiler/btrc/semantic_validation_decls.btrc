@@ -13,7 +13,12 @@ void semanticValidateParameterDefaults(Vector<Node> params,
         semanticRejectRuntimeInterfaceType(parameter.type, parameter, state);
         if (parameter.default_ != null) {
             sawDefault = true;
+            contextualizeGenericConstructor(
+                parameter.type, parameter.default_, state, vars);
+            bool previousDefault = state.inParameterDefault;
+            state.inParameterDefault = true;
             semanticValidateExpr(parameter.default_, state, vars);
+            state.inParameterDefault = previousDefault;
             semanticValidateTypedInitializer(parameter.type,
                 parameter.default_, "Default for parameter '"
                     + parameter.name + "'", state, vars);
@@ -52,6 +57,9 @@ Node semanticSelfType(Node classDeclaration) {
 
 void semanticValidateCallableBody(Node callable, Node? classDeclaration,
         SemanticValidationState state) {
+    if (classDeclaration == null) {
+        semanticValidateHostedBodylessDeclaration(callable);
+    }
     Map<string, bool> signaturePreviousParams =
         semanticCloneFlags(state.typeParams);
     Vector<string> signatureClassParams = [];
@@ -73,6 +81,8 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     int typeIndex = 0;
     while (typeIndex < callable.params.len) {
         Node parameter = callable.params.get(typeIndex);
+        semanticValidateGeneratedLexicalBindingName(
+            parameter.name, "Parameter", parameter, state);
         semanticValidateDeclaredType(parameter.type,
             "Parameter '" + parameter.name + "'", "parameter",
             parameter, state);
@@ -81,7 +91,6 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
         typeIndex = typeIndex + 1;
     }
     state.typeParams = signaturePreviousParams;
-    if (callable.body_node == null) { return; }
     Node? previousReturn = state.returnType;
     string previousOwner = state.owner;
     Map<string, bool> previousParams = semanticCloneFlags(state.typeParams);
@@ -136,13 +145,19 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
         state.borrowedBindings.put("self", true);
         state.localBindings.put("self", true);
     }
-    semanticValidateDirectLocalNames(callable.body_node, parameterNames);
+    if (callable.body_node != null) {
+        semanticValidateDirectLocalNames(
+            callable.body_node, parameterNames);
+    }
     semanticValidateParameterDefaults(
         callable.params, state, vars, callable);
-    semanticValidateBlock(callable.body_node, state, vars);
+    if (callable.body_node != null) {
+        semanticValidateBlock(callable.body_node, state, vars);
+    }
     bool nonVoid = state.returnType != null
         && !semanticScalarVoid(state.returnType);
-    if (nonVoid && !semanticBlockTerminates(callable.body_node)) {
+    if (callable.body_node != null && nonVoid
+            && !semanticBlockTerminates(callable.body_node)) {
         semanticValidationFail("Callable '" + state.owner
             + "' has non-void return type but does not return on every path",
             callable);
@@ -160,10 +175,52 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     state.localBindings = previousLocalBindings;
 }
 
+void semanticValidateRichEnumDefaults(Node declaration,
+        SemanticValidationState state) {
+    string previousOwner = state.owner;
+    Node? previousCallable = state.callable;
+    Map<string, bool> previousParameterNames =
+        semanticCloneFlags(state.parameterNames);
+    Map<string, bool> previousBorrowedBindings =
+        semanticCloneFlags(state.borrowedBindings);
+    Map<string, bool> previousLocalBindings =
+        semanticCloneFlags(state.localBindings);
+    int variantIndex = 0;
+    while (variantIndex < declaration.variants.len) {
+        Node variant = declaration.variants.get(variantIndex);
+        Map<string, bool> parameterNames = semanticParameterNames(
+            variant.params, "rich-enum variant '" + declaration.name
+                + "." + variant.name + "'");
+        state.owner = declaration.name + "." + variant.name;
+        state.callable = variant;
+        state.parameterNames = semanticCloneFlags(parameterNames);
+        state.borrowedBindings = semanticCloneFlags(parameterNames);
+        state.localBindings = semanticCloneFlags(parameterNames);
+        Map<string, Node> vars = semanticGlobalTypes(state.analyzed);
+        semanticValidateParameterDefaults(
+            variant.params, state, vars, variant);
+        variantIndex = variantIndex + 1;
+    }
+    state.owner = previousOwner;
+    state.callable = previousCallable;
+    state.parameterNames = previousParameterNames;
+    state.borrowedBindings = previousBorrowedBindings;
+    state.localBindings = previousLocalBindings;
+}
+
 void semanticValidateProgram(Node program, Analyzed analyzed) {
     SemanticValidationState state = SemanticValidationState(analyzed);
+    semanticCollectSourceMacros(program, state);
     semanticValidateTypedefs(program, state);
     semanticValidateInterfaceDeclarations(program, state);
+    int index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_CLASS_DECL) {
+            semanticValidateClassInheritanceCycle(declaration, state);
+        }
+        index = index + 1;
+    }
     semanticValidateProgramEnumValues(program, state);
     semanticValidateAggregateDeclarationTypes(program, state);
     semanticValidateConcreteMutexInstances(state);
@@ -172,11 +229,19 @@ void semanticValidateProgram(Node program, Analyzed analyzed) {
     semanticValidateDeclarationDuplicates(program, state);
     semanticValidateEmittedSymbols(program, state);
     semanticValidateCallableShapes(program, state);
-    int index = 0;
+    index = 0;
     while (index < program.declarations.len) {
         Node declaration = program.declarations.get(index);
         if (declaration.kind == NK_CLASS_DECL) {
             semanticValidateClassContracts(declaration, state);
+        }
+        index = index + 1;
+    }
+    index = 0;
+    while (index < program.declarations.len) {
+        Node declaration = program.declarations.get(index);
+        if (declaration.kind == NK_RICH_ENUM_DECL) {
+            semanticValidateRichEnumDefaults(declaration, state);
         }
         index = index + 1;
     }

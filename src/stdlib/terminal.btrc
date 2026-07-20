@@ -3,13 +3,11 @@
 #include <termios.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/resource.h>
 #include <poll.h>
 #include <pwd.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <stdint.h>
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
@@ -17,10 +15,14 @@
 import std.bytes;
 import std.strings;
 import std.terminal_clock;
+import std.terminal_cstring_array;
 import std.terminal_password;
 import std.terminal_password_exchange;
+import std.vector;
 
-extern pid_t forkpty(int* amaster, char* name, void* termp, void* winp);
+struct winsize;
+extern pid_t forkpty(int* amaster, char* name,
+    const struct termios* termp, const struct winsize* winp);
 
 class Terminal {
     class string readLine() {
@@ -45,6 +47,22 @@ class Terminal {
 }
 
 class UnixPamPassword {
+    /* passwd(1) receives an argv entry, not an opaque account identifier.
+     * Reject option-shaped requested and canonical NSS names rather than
+     * relying on platform-specific support for an option terminator. */
+    class bool safeAccountArgument(string value) {
+        return value != null && !value.isEmpty() && value[0] != '-';
+    }
+
+    class string canonicalAccountArgument(string requested,
+                                           string canonical) {
+        if (!UnixPamPassword.safeAccountArgument(requested)
+                || !UnixPamPassword.safeAccountArgument(canonical)) {
+            return "";
+        }
+        return Strings.copy(canonical);
+    }
+
     class bool safeSecret(string value) {
         return value != null
             && value.len() <= 4096
@@ -85,23 +103,14 @@ class UnixPamPassword {
     }
 
     class int descriptorCloseBound() {
-        struct rlimit limit;
-        if (getrlimit(RLIMIT_NOFILE, &limit) != 0) { return -1; }
-        uintmax_t bound = (uintmax_t)limit.rlim_cur;
-        if (bound == (uintmax_t)RLIM_INFINITY
-                || bound < (uintmax_t)3
-                || bound > (uintmax_t)1048576) {
-            return -1;
-        }
-        return (int)bound;
+        return __btrc_descriptor_close_bound();
     }
 
-    /* Called only in the post-fork child. close() and integer iteration are
-     * async-signal-safe; every unrelated descriptor is gone before execve. */
-    class void closeDescriptorsForExec(int bound) {
-        for (int descriptor = 3; descriptor < bound; descriptor++) {
-            close(descriptor);
-        }
+    /* Called only in the post-fork child. The runtime helper uses close_range
+     * or a BSD closefrom where available and a precomputed hard-bound loop
+     * everywhere else. */
+    class int closeDescriptorsForExec(int bound) {
+        return __btrc_close_descriptors_from(bound);
     }
 
     class bool configureMaster(int fd) {
@@ -140,7 +149,7 @@ class UnixPamPassword {
         return UnixPasswdPromptExchange.passwordInputHidden(fd);
     }
 
-    class bool answerPasswordPrompts(int fd, char** responses,
+    class bool answerPasswordPrompts(int fd, Vector<string> responses,
                                      int responseCount,
                                      long long deadline) {
         return UnixPasswdPromptExchange.answer(
@@ -189,7 +198,7 @@ class UnixPamPassword {
             if (TerminalClock.milliseconds() >= deadline) {
                 return UnixPamPassword.killAndReap(processId);
             }
-            poll(NULL, 0, 10);
+            poll(NULL, (nfds_t)0, 10);
         }
         return -1;
     }
@@ -226,14 +235,14 @@ class UnixPamPassword {
                     break;
                 }
             } else if (events != 0) {
-                poll(NULL, 0, 10);
+                poll(NULL, (nfds_t)0, 10);
             }
         }
         return -1;
     }
 
     class bool change(string user, string oldPassword, string newPassword) {
-        if (user == null || user.isEmpty()
+        if (!UnixPamPassword.safeAccountArgument(user)
                 || !UnixPamPassword.safeSecret(oldPassword)
                 || !UnixPamPassword.safeSecret(newPassword)) {
             return false;
@@ -271,53 +280,71 @@ class UnixPamPassword {
             return false;
         }
         uid_t targetUser = pw->pw_uid;
+        string canonicalAccount = pw->pw_name == NULL
+            ? "" : Strings.copy(pw->pw_name);
         string homeDirectory = pw->pw_dir == NULL
             ? "/" : Strings.copy(pw->pw_dir);
         free(accountBuffer);
+
+        string passwdAccount = UnixPamPassword.canonicalAccountArgument(
+            user, canonicalAccount);
+        if (passwdAccount.isEmpty()) { return false; }
 
         string executable = UnixPamPassword.passwdExecutable();
         int responseCount = UnixPamPassword.responseCountFor(
             geteuid(), targetUser);
         if (executable.isEmpty() || responseCount == 0) { return false; }
 
-        /* Everything the child will consume is materialized before forkpty.
-         * The child branch performs only execve/_exit, preserving the immediate
-         * exec boundary required by multithreaded callers. */
-        char* childArguments[3];
-        childArguments[0] = executable;
-        childArguments[1] = NULL;
-        childArguments[2] = NULL;
-        /* Root executes `passwd user`; non-root self-service leaves argv[1]
-         * null and therefore executes plain `passwd`. */
-        if (responseCount == 2) { childArguments[1] = user; }
-
+        /* Everything the child will consume is materialized as independent raw
+         * copies before forkpty. The child branch performs only execve/_exit. */
+        Vector<string> childArgumentValues = [executable];
+        /* Root executes `passwd user`; non-root self-service executes plain
+         * `passwd`. */
+        if (responseCount == 2) { childArgumentValues.push(passwdAccount); }
         string homeEnvironment = "HOME=" + homeDirectory;
-        string userEnvironment = "USER=" + user;
-        string lognameEnvironment = "LOGNAME=" + user;
-        char* childEnvironment[7];
-        childEnvironment[0] = (char*)"PATH=/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin";
-        childEnvironment[1] = (char*)"LC_ALL=C";
-        childEnvironment[2] = (char*)"LANG=C";
-        childEnvironment[3] = homeEnvironment;
-        childEnvironment[4] = userEnvironment;
-        childEnvironment[5] = lognameEnvironment;
-        childEnvironment[6] = NULL;
+        string userEnvironment = "USER=" + passwdAccount;
+        string lognameEnvironment = "LOGNAME=" + passwdAccount;
+        Vector<string> childEnvironmentValues = [
+            "PATH=/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "LANG=C",
+            homeEnvironment,
+            userEnvironment,
+            lognameEnvironment,
+        ];
 
-        /* RLIMIT_NOFILE's current finite limit is the allocation ceiling for
-         * new descriptors. Reject unsupported limits instead of silently
-         * leaking a caller descriptor into the privileged executable. */
+        /* Compute the close ceiling before forkpty. The helper uses the hard
+         * descriptor limit (or Darwin's kernel ceiling), so lowering only the
+         * soft limit cannot hide an already-open descriptor. */
         int descriptorBound = UnixPamPassword.descriptorCloseBound();
-        if (descriptorBound < 3) { return false; }
+        char** childArguments = UnixPamCStringArray.copyAll(
+            childArgumentValues);
+        if (childArguments == NULL) { return false; }
+        char** childEnvironment = UnixPamCStringArray.copyAll(
+            childEnvironmentValues);
+        if (childEnvironment == NULL) {
+            UnixPamCStringArray.freeEntries(childArguments);
+            return false;
+        }
 
         int fd = -1;
         pid_t pid = forkpty(&fd, NULL, NULL, NULL);
-        if (pid < (pid_t)0) { return false; }
+        if (pid < (pid_t)0) {
+            UnixPamCStringArray.freeEntries(childArguments);
+            UnixPamCStringArray.freeEntries(childEnvironment);
+            return false;
+        }
 
         if (pid == (pid_t)0) {
-            UnixPamPassword.closeDescriptorsForExec(descriptorBound);
+            if (UnixPamPassword.closeDescriptorsForExec(descriptorBound) != 0) {
+                _exit(126);
+            }
             execve(executable, childArguments, childEnvironment);
             _exit(127);
         }
+
+        UnixPamCStringArray.freeEntries(childArguments);
+        UnixPamCStringArray.freeEntries(childEnvironment);
 
         if (!UnixPamPassword.configureMaster(fd)) {
             UnixPamPassword.killPtyAndReap(pid);
@@ -325,10 +352,11 @@ class UnixPamPassword {
             return false;
         }
 
-        char* responses[3];
-        responses[0] = responseCount == 2 ? newPassword : oldPassword;
-        responses[1] = newPassword;
-        responses[2] = newPassword;
+        Vector<string> responses = [
+            responseCount == 2 ? newPassword : oldPassword,
+            newPassword,
+            newPassword,
+        ];
         long long deadline = TerminalClock.deadlineAfter(30000);
         bool answered = UnixPamPassword.answerPasswordPrompts(
             fd, responses, responseCount, deadline);

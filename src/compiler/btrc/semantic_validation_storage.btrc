@@ -109,6 +109,19 @@ void semanticValidateOwnClassStorage(Node declaration) {
                 + "." + member.name
                 + "' is not supported on a generic class", member);
         }
+        if (declaration.generic_params.len > 0
+                && member.kind == NK_METHOD_DECL
+                && member.access == "class") {
+            semanticValidationFail("Static method '" + declaration.name
+                + "." + member.name + "' has no specialization target and is "
+                + "not supported on a generic class", member);
+        }
+        if (member.kind == NK_PROPERTY_DECL
+                && member.access == "class") {
+            semanticValidationFail("Static property '" + declaration.name
+                + "." + member.name + "' is unsupported; use a static field "
+                + "plus static methods", member);
+        }
         string storage = instanceStorageName(member);
         if (storage != "") {
             if (storageNames.has(storage)) {

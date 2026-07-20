@@ -57,6 +57,10 @@ bool semanticKnownLanguageCall(Node call,
     Node callee = call.callee;
     if (callee == null) { return false; }
     if (callee.kind == NK_IDENTIFIER) {
+        if (vars.has(callee.name)
+                || state.analyzed.hostedCallKeys.has(astNodeKey(call))) {
+            return false;
+        }
         return state.analyzed.funcTable.has(callee.name)
             || state.analyzed.isClass(callee.name)
             || state.analyzed.isGenericClass(callee.name);
@@ -255,17 +259,6 @@ void semanticRejectShallowInitializer(Node? expected, Node initializer,
         semanticRejectOwnedElements(initializer.elements,
             "a shallow aggregate", state, vars);
     }
-}
-
-void semanticRejectRichEnumOwnedArgs(Node call,
-        SemanticValidationState state, Map<string, Node> vars) {
-    Node callee = call.callee;
-    if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR
-            || callee.obj == null || callee.obj.kind != NK_IDENTIFIER
-            || !state.analyzed.isRichEnum(callee.obj.name)) { return; }
-    semanticRejectOwnedElements(call.args,
-        "rich-enum payload '" + callee.obj.name + "." + callee.field + "'",
-        state, vars);
 }
 
 void semanticRejectShallowStore(Node assignment,

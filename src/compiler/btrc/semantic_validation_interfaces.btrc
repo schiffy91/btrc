@@ -172,20 +172,8 @@ void semanticValidateConcreteAbstractMethods(
     }
 }
 
-void semanticValidateClassContracts(
+void semanticValidateClassInheritanceCycle(
         Node declaration, SemanticValidationState state) {
-    string parent = parentName(declaration);
-    if (parent != "" && !state.analyzed.isClass(parent)
-            && !state.analyzed.isGenericClass(parent)) {
-        semanticValidationFail("Class '" + declaration.name
-            + "' extends unknown class '" + parent + "'", declaration);
-    }
-    if (parent != "" && (declaration.generic_params.len > 0
-            || state.analyzed.isGenericClass(parent))) {
-        semanticValidationFail("Generic class inheritance is not supported: "
-            + "class '" + declaration.name + "' extends '" + parent + "'",
-            declaration);
-    }
     string current = declaration.name;
     Map<string, bool> ancestors = {};
     while (current != "") {
@@ -203,6 +191,28 @@ void semanticValidateClassContracts(
             current = "";
         }
     }
+}
+
+void semanticValidateClassInheritance(
+        Node declaration, SemanticValidationState state) {
+    string parent = parentName(declaration);
+    if (parent != "" && !state.analyzed.isClass(parent)
+            && !state.analyzed.isGenericClass(parent)) {
+        semanticValidationFail("Class '" + declaration.name
+            + "' extends unknown class '" + parent + "'", declaration);
+    }
+    if (parent != "" && (declaration.generic_params.len > 0
+            || state.analyzed.isGenericClass(parent))) {
+        semanticValidationFail("Generic class inheritance is not supported: "
+            + "class '" + declaration.name + "' extends '" + parent + "'",
+            declaration);
+    }
+    semanticValidateClassInheritanceCycle(declaration, state);
+}
+
+void semanticValidateClassContracts(
+        Node declaration, SemanticValidationState state) {
+    semanticValidateClassInheritance(declaration, state);
     semanticValidateConcreteAbstractMethods(declaration, state);
     Map<string, bool> visited = {};
     int index = 0;

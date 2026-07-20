@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from ...ast_nodes import FieldAccessExpr, Identifier, LambdaExpr, Param, TypeExpr
 from ...string_methods import STRING_METHODS
+from .call_parameter_contract import resolved_parameter
 from .type_resolution import (
     canonical_type,
     function_pointer_signature,
@@ -13,18 +14,45 @@ from .type_resolution import (
 )
 
 
-def resolved_params_for_call(gen, node, *, type_of=None, resolve_type=None):
+def resolved_params_for_call(
+    gen,
+    node,
+    *,
+    type_of=None,
+    resolve_type=None,
+    identifier_is_local=None,
+):
     """Return concrete params for declarations, lambdas, builtins, or fnptrs."""
     type_of = type_of or (lambda value: gen.analyzed.node_types.get(id(value)))
     resolve_type = resolve_type or (lambda value: value)
+    identifier_is_local = identifier_is_local or gen.local_ownership_declared
     callee = node.callee
 
     if isinstance(callee, LambdaExpr):
         return [_resolved_param(param, resolve_type) for param in callee.params]
+    if isinstance(callee, Identifier) and identifier_is_local(callee.name):
+        signature = _callable_signature(gen, callee, type_of)
+        if signature is None:
+            return []
+        return [Param(type=resolve_type(param_type), name=str(index)) for index, param_type in enumerate(signature[1:])]
+
+    from .rich_enum_calls import rich_enum_variant_target
+
+    variant = rich_enum_variant_target(
+        gen,
+        node,
+        identifier_is_local=identifier_is_local,
+    )
+    if variant is not None:
+        return [_resolved_param(param, resolve_type) for param in variant[1].params]
 
     builtin = _builtin_params(gen, node, type_of, resolve_type)
     if builtin is not None:
         return builtin
+
+    hosted = _hosted_params(gen, node, resolve_type)
+    if hosted is not None:
+        return hosted
 
     declaration = _declaration_for_call(gen, node, type_of)
     if declaration is not None:
@@ -34,6 +62,21 @@ def resolved_params_for_call(gen, node, *, type_of=None, resolve_type=None):
     if signature is not None:
         return [Param(type=resolve_type(param_type), name=str(index)) for index, param_type in enumerate(signature[1:])]
     return []
+
+
+def _hosted_params(gen, node, resolve_type):
+    """Materialize exact header ABI parameters for lifetime planning."""
+    callee = node.callee
+    if not isinstance(callee, Identifier) or id(node) not in gen.analyzed.hosted_call_ids:
+        return None
+    from ...hosted_abi import hosted_function
+
+    spec = hosted_function(callee.name)
+    if spec is None or spec.parameters is None:
+        return None
+    return [
+        Param(type=resolve_type(shape.as_type_expr()), name=str(index)) for index, shape in enumerate(spec.parameters)
+    ]
 
 
 def _declaration_for_call(gen, node, type_of):
@@ -79,13 +122,19 @@ def _resolve_declared_params(gen, node, params, type_of, resolve_type):
             if substitutions
             else param.type
         )
-        result.append(replace(param, type=resolve_type(param_type)))
+        result.append(
+            resolved_parameter(
+                param,
+                resolve_type(param_type),
+                substitutions,
+            )
+        )
     return result
 
 
 def _builtin_params(gen, node, type_of, resolve_type):
     callee = node.callee
-    if isinstance(callee, Identifier) and callee.name == "Mutex":
+    if isinstance(callee, Identifier) and callee.name == "Mutex" and callee.name not in gen.analyzed.function_table:
         result_type = canonical_type(type_of(node), gen.analyzed.typedef_table)
         value_type = (
             result_type.generic_args[0]
@@ -95,7 +144,7 @@ def _builtin_params(gen, node, type_of, resolve_type):
             else TypeExpr(base="int")
         )
         return [Param(type=resolve_type(value_type), name="value")]
-    if isinstance(callee, Identifier) and callee.name == "print":
+    if isinstance(callee, Identifier) and callee.name == "print" and callee.name not in gen.analyzed.function_table:
         from .stringable import has_to_string
 
         return [

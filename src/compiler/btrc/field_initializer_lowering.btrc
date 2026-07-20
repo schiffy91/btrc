@@ -1,8 +1,7 @@
 /* Source-order instance field defaults shared by ordinary and generic classes. */
 
 Map<string, Node> genericInitializerVarTypes(IRGen generator,
-        GenInstance instance, Node? constructor,
-        Map<string, Node> typeMap) {
+        GenInstance instance, Node? constructor) {
     Map<string, Node> variables = generator.seededVarTypes();
     Node selfType = Node();
     selfType.kind = NK_TYPE_EXPR;
@@ -14,9 +13,7 @@ Map<string, Node> genericInitializerVarTypes(IRGen generator,
         int index = 0;
         while (index < constructor.params.len) {
             Node parameter = constructor.params.get(index);
-            variables.put(parameter.name,
-                resolveGenericType(parameter.type, typeMap,
-                    generator.analyzed));
+            variables.put(parameter.name, parameter.type);
             index = index + 1;
         }
     }

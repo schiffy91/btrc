@@ -223,10 +223,9 @@ int main() {
     Base base = new Base();
     Child child = new Child();
     Base alias = child;
-    void* opaque = (void*)child;
     assert(alias == child);
     assert(base != child);
-    assert(opaque == child);
+    assert((void*)child == child);
     __fn_ptr<int, int> callback = identity;
     assert(callback == callback);
     assert(callback != null);

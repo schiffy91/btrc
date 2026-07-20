@@ -37,6 +37,64 @@ bool requiresTargetStringConversion(IRGen generator,
         && generator.sourceHasToString(source);
 }
 
+string hostedStringConversionMode(IRGen generator, Node expression,
+        Node? targetType, Node? sourceType) {
+    Node? target = preparedCanonicalType(generator, targetType);
+    Node? source = preparedCanonicalType(generator, sourceType);
+    if (target == null || source == null
+            || !isSemanticScalarString(target)
+            || !semanticIsCStringPointer(source)) {
+        return "";
+    }
+    if (expression.kind != NK_CALL_EXPR || expression.callee == null
+            || expression.callee.kind != NK_IDENTIFIER
+            || !generator.analyzed.hostedCallKeys.has(
+                astNodeKey(expression))) {
+        return "reject";
+    }
+    string effect = semanticHostedReturnEffectForCall(
+        expression.callee.name, expression);
+    if (effect == "fresh"
+            && semanticHostedReturnDeallocatorForCall(
+                expression.callee.name, expression) == "free") {
+        return "adopt";
+    }
+    if (effect == "alias" || effect == "independent") { return "copy"; }
+    return "reject";
+}
+
+bool requiresTargetValueConversion(IRGen generator, Node expression,
+        Node? targetType, Node? sourceType) {
+    string hosted = hostedStringConversionMode(
+        generator, expression, targetType, sourceType);
+    return requiresTargetStringConversion(
+        generator, targetType, sourceType)
+        || hosted == "adopt" || hosted == "copy";
+}
+
+IRNode lowerHostedStringConversion(IRGen generator,
+        IRNode lowered, string mode) {
+    IRNode value = lowered;
+    if (mode == "copy") {
+        generator.useHelper("__btrc_strdup");
+        Vector<IRNode> copyArguments = [];
+        copyArguments.push(value);
+        value = irCall("__btrc_strdup", copyArguments);
+    }
+    generator.useHelper("__btrc_str_track");
+    Vector<IRNode> trackArguments = [];
+    trackArguments.push(value);
+    return irCall("__btrc_str_track", trackArguments);
+}
+
+IRNode lowerRequestedHostedStringResult(IRGen generator,
+        Node expression, IRNode lowered) {
+    string key = astNodeKey(expression);
+    if (!generator.hostedResultConversionModes.has(key)) { return lowered; }
+    return lowerHostedStringConversion(generator, lowered,
+        generator.hostedResultConversionModes.get(key));
+}
+
 PreparedValue prepareLoweredTargetValue(IRGen generator,
         Node expression, Node? targetType, Node? sourceType,
         IRNode lowered, bool sourceOwned,
@@ -84,6 +142,30 @@ PreparedValue prepareTargetValue(IRGen generator, Node expression,
         Node? targetType, Map<string, Node> varTypes) {
     Node? sourceType = generator.resolvedExpressionType(
         expression, varTypes);
+    string hostedMode = hostedStringConversionMode(
+        generator, expression, targetType, sourceType);
+    if (hostedMode == "reject") {
+        fprintf(stderr, "error: raw char* to managed string conversion reached IR without a proven hosted ownership effect\n");
+        abortGen();
+    }
+    if (hostedMode == "adopt" || hostedMode == "copy") {
+        string key = astNodeKey(expression);
+        bool had = generator.hostedResultConversionModes.has(key);
+        string previous = "";
+        if (had) {
+            previous = generator.hostedResultConversionModes.get(key);
+        }
+        generator.hostedResultConversionModes.put(key, hostedMode);
+        IRNode converted = generator.lowerAssignedValueRaw(
+            expression, targetType, varTypes);
+        if (had) {
+            generator.hostedResultConversionModes.put(key, previous);
+        } else {
+            generator.hostedResultConversionModes.remove(key);
+        }
+        return PreparedValue(converted,
+            preparedCanonicalType(generator, targetType), true, true);
+    }
     IRNode lowered = generator.lowerAssignedValueRaw(
         expression, targetType, varTypes);
     bool owned = irContextualExpressionOwnsResult(
@@ -96,6 +178,30 @@ PreparedValue prepareCallTargetValue(IRGen generator, Node expression,
         Node? targetType, Map<string, Node> varTypes) {
     Node? sourceType = generator.resolvedExpressionType(
         expression, varTypes);
+    string hostedMode = hostedStringConversionMode(
+        generator, expression, targetType, sourceType);
+    if (hostedMode == "reject") {
+        fprintf(stderr, "error: raw char* to managed string conversion reached IR without a proven hosted ownership effect\n");
+        abortGen();
+    }
+    if (hostedMode == "adopt" || hostedMode == "copy") {
+        string key = astNodeKey(expression);
+        bool had = generator.hostedResultConversionModes.has(key);
+        string previous = "";
+        if (had) {
+            previous = generator.hostedResultConversionModes.get(key);
+        }
+        generator.hostedResultConversionModes.put(key, hostedMode);
+        IRNode converted = generator.lowerAssignedValueRaw(
+            expression, targetType, varTypes);
+        if (had) {
+            generator.hostedResultConversionModes.put(key, previous);
+        } else {
+            generator.hostedResultConversionModes.remove(key);
+        }
+        return PreparedValue(converted,
+            preparedCanonicalType(generator, targetType), true, true);
+    }
     IRNode lowered = generator.lowerAssignedValueRaw(
         expression, targetType, varTypes);
     bool owned = irContextualUnconsumedOwnedResult(

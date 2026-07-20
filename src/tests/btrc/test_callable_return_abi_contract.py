@@ -42,11 +42,11 @@ def _compile_both(
     (
         'if (true) { callback = () => f"managed={1}"; }',
         'while (false) { callback = () => f"managed={1}"; }',
-        'do { callback = () => f"managed={1}"; } while (false);',
+        'do { if (choose) { callback = () => f"managed={1}"; break; } } while (false);',
         'switch (1) { case 1: callback = () => f"managed={1}"; break; default: break; }',
         'try { callback = () => f"managed={1}"; } catch (string error) {}',
     ),
-    ids=("if", "while", "do-while", "switch", "try-catch"),
+    ids=("if", "while", "do-while-conditional", "switch", "try-catch"),
 )
 def test_mixed_callback_abis_are_rejected_after_control_flow(
     semantic_btrcc: Path,
@@ -58,6 +58,7 @@ def test_mixed_callback_abis_are_rejected_after_control_flow(
         + f"""
         int main() {{
             __fn_ptr<string> callback = foreignString;
+            bool choose = false;
             {control_flow}
             string value = callback();
             return 0;
@@ -196,6 +197,44 @@ def test_borrowed_foreign_callbacks_may_cross_persistent_storage(
         source,
     ):
         assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_borrowed_managed_callback_shadow_stays_borrowed_in_branch_scope(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        extern string foreignString();
+        string callback() { return f"owned={1}"; }
+        struct Slot { string value; };
+
+        int main() {
+            bool valid = false;
+            __fn_ptr<string> callback = foreignString;
+            if (true) {
+                Slot slot = {callback()};
+                valid = slot.value[0] == 'b';
+            }
+            return valid ? 0 : 1;
+        }
+    """
+    foreign_definition = """
+        char *foreignString(void) {
+            static char value[] = "borrowed";
+            return value;
+        }
+    """
+    for result, generated in _compile_both(
+        semantic_btrcc,
+        tmp_path,
+        source,
+    ):
+        assert result.returncode == 0, result.stdout + result.stderr
+        generated.write_text(generated.read_text() + foreign_definition)
+        _strict_build_and_run(
+            generated,
+            tmp_path / f"borrowed-shadow-{generated.stem}",
+        )
 
 
 def test_same_owned_abi_joins_remain_valid(

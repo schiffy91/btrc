@@ -24,7 +24,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .parameters import lower_source_param
+from .parameters import lower_source_param, source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -121,7 +121,11 @@ def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
         IRTaggedUnionVariant(
             name=variant.name,
             fields=[
-                IRStructField(c_type=CType(text=type_to_c(param.type)), name=param.name) for param in variant.params
+                IRStructField(
+                    c_type=CType(text=type_to_c(param.type)),
+                    name=source_binding_c_name(param.name),
+                )
+                for param in variant.params
             ],
         )
         for variant in decl.variants
@@ -137,7 +141,7 @@ def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
     # Constructor functions → IRFunctionDef
     for v in decl.variants:
         if v.params:
-            params = [lower_source_param(parameter) for parameter in v.params]
+            params = [lower_source_param(parameter, analyzed=gen.analyzed) for parameter in v.params]
             body_stmts = [
                 IRVarDecl(c_type=CType(text=name), name="__result", init=None),
                 IRAssign(
@@ -154,10 +158,10 @@ def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
                                 field=v.name,
                                 arrow=False,
                             ),
-                            field=p.name,
+                            field=source_binding_c_name(p.name),
                             arrow=False,
                         ),
-                        value=IRVar(name=p.name),
+                        value=IRVar(name=source_binding_c_name(p.name, gen.analyzed)),
                     )
                 )
             body_stmts.append(IRReturn(value=IRVar(name="__result")))

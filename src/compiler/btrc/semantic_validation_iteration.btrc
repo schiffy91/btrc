@@ -57,10 +57,11 @@ void semanticValidateRangeForm(Node call, SemanticValidationState state,
 Node? semanticIterableMethod(
         Node iterableType, string name, Analyzed analyzed) {
     if (analyzed.isGenericClass(iterableType.base)
-            && iterableType.pointer_depth == 0) {
+            && iterableType.pointer_depth <= 1) {
         return analyzed.genericClassMethod(iterableType.base, name);
     }
-    if (analyzed.isClass(iterableType.base)) {
+    if (analyzed.isClass(iterableType.base)
+            && iterableType.pointer_depth <= 1) {
         return analyzed.classMethod(iterableType.base, name);
     }
     return null;
@@ -126,8 +127,8 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
         Map<string, Node> vars) {
     Map<string, Node> bodyVars = semanticCloneTypes(vars);
     Map<string, bool> loopNames = {};
-    semanticValidateDeclaredName(
-        statement.var_name, "Loop variable", statement);
+    semanticValidateLexicalBindingName(
+        statement.var_name, "Loop variable", statement, state);
     loopNames.put(statement.var_name, true);
 
     Node first = makePrimType("int");
@@ -153,9 +154,7 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
                     "String iteration has exactly one loop variable", statement);
             }
         } else if (iterableType != null && iterableType.is_array) {
-            first = copyTypeExpr(iterableType);
-            first.is_array = false;
-            first.array_size = null;
+            first = typeWithoutOuterArray(iterableType);
             if (statement.var_name2 != null) {
                 semanticValidationFail(
                     "Array iteration has exactly one loop variable", statement);
@@ -188,8 +187,8 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
     }
 
     if (statement.var_name2 != null) {
-        semanticValidateDeclaredName(
-            statement.var_name2, "Loop variable", statement);
+        semanticValidateLexicalBindingName(
+            statement.var_name2, "Loop variable", statement, state);
         if (loopNames.has(statement.var_name2)) {
             semanticValidationFail("Duplicate loop variable name '"
                 + statement.var_name2 + "'", statement);

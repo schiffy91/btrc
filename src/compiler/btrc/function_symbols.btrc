@@ -7,6 +7,10 @@ string sourceFunctionCName(Analyzed analyzed, string name) {
      * source definitions that overlap a hosted-runtime seam are isolated in
      * the compiler-reserved namespace. */
     if (declaration.body_node == null || declaration.is_gpu) { return name; }
-    if (name == "printf") { return "__btrc_source_printf"; }
-    return name;
+    return sourceHostedFunctionSymbol(name);
+}
+
+string sourceCallCName(Analyzed analyzed, string name, Node call) {
+    if (analyzed.hostedCallKeys.has(astNodeKey(call))) { return name; }
+    return sourceFunctionCName(analyzed, name);
 }

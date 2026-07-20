@@ -1,5 +1,4 @@
 #include <assert.h>
-#define btrcTestStringEntryCount() (__btrc_string_entry_count)
 
 extern void arc_test_allocation_checkpoint();
 extern long arc_test_allocation_delta();
@@ -56,16 +55,16 @@ void exerciseClassFields(int base) {
 }
 
 void exerciseStringFields(int base) {
-    int baseline = (int)btrcTestStringEntryCount();
+    int baseline = (int)__btrc_string_live_count();
     GenericFieldSlot<string> direct = new GenericFieldSlot<string>();
     {
         string source = base.toString();
         direct.store(source);
     }
     assert(direct.stored.toInt() == base);
-    assert((int)btrcTestStringEntryCount() == baseline + 1);
+    assert((int)__btrc_string_live_count() == baseline + 1);
     delete direct;
-    assert((int)btrcTestStringEntryCount() == baseline);
+    assert((int)__btrc_string_live_count() == baseline);
 
     NullableGenericFieldSlot<string> nullable =
         new NullableGenericFieldSlot<string>();
@@ -74,9 +73,9 @@ void exerciseStringFields(int base) {
         nullable.store(source);
     }
     assert(nullable.stored.toInt() == base + 1);
-    assert((int)btrcTestStringEntryCount() == baseline + 1);
+    assert((int)__btrc_string_live_count() == baseline + 1);
     delete nullable;
-    assert((int)btrcTestStringEntryCount() == baseline);
+    assert((int)__btrc_string_live_count() == baseline);
 }
 
 void exerciseMutexFields(int base) {

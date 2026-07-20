@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..nodes import CType, IRCast, IRCompoundLiteral, IRLiteral
+from .type_resolution import canonical_type
 from .types import type_to_c
 
 
@@ -34,19 +33,7 @@ def optional_zero_value(gen, type_expr):
 
 
 def _canonical_type(gen, type_expr):
-    result = type_expr
-    seen: set[str] = set()
-    while result is not None and result.base in gen.analyzed.typedef_table and result.base not in seen:
-        seen.add(result.base)
-        target = gen.analyzed.typedef_table[result.base]
-        result = replace(
-            target,
-            pointer_depth=target.pointer_depth + result.pointer_depth,
-            is_array=target.is_array or result.is_array,
-            array_size=result.array_size or target.array_size,
-            is_nullable=target.is_nullable or result.is_nullable,
-        )
-    return result
+    return canonical_type(type_expr, gen.analyzed.typedef_table)
 
 
 __all__ = ["optional_zero_value"]

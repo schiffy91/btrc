@@ -237,6 +237,23 @@ def test_round_uses_btrc_ties_away_from_zero_contract() -> None:
     assert "floor(" in shader
 
 
+def test_round_result_type_is_float_only_in_gpu_context() -> None:
+    gpu = _analyze(
+        "@gpu float[] rounded(float[] xs) { int i = gpu_id(); return round(xs[i]); } int main() { return 0; }"
+    )
+    assert not gpu.errors
+    gpu_call = gpu.program.declarations[0].body.statements[1].value
+    assert gpu.node_types[id(gpu_call)].base == "float"
+
+    hosted = _analyze(
+        "double hostedRound(double value) { return round(value); } "
+        "int main() { return hostedRound(2.5) == 3.0 ? 0 : 1; }"
+    )
+    assert not hosted.errors
+    hosted_call = hosted.program.declarations[0].body.statements[0].value
+    assert hosted.node_types[id(hosted_call)].base == "double"
+
+
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_cpu_fallback_math_matches_gpu_source_contract(tmp_path: Path, c_compiler: str) -> None:

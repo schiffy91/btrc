@@ -151,3 +151,51 @@ IRNode? lowerOwnedAssignment(IRGen generator, Node expression,
     return boundary.finish(generator, lowered, resultType,
         irManagedType(generator, resultType) && !rhsSuppliesResult);
 }
+
+/* Prefix/postfix updates need the same target lifetime transaction as an
+ * assignment. Lower the update only after every owned or borrowed-managed
+ * receiver/index dependency has been stabilized, then release those operands
+ * after the update result has crossed the boundary. */
+IRNode? lowerOwnedUnaryUpdate(IRGen generator, Node expression,
+        Map<string, Node> varTypes) {
+    if (expression.op != "++" && expression.op != "--") {
+        return null;
+    }
+    Vector<Node> operands = [];
+    Vector<bool> owned = [];
+    Vector<bool> kept = [];
+    collectOwnedAssignmentTargetOperands(
+        generator, expression.operand, varTypes,
+        operands, owned, kept, false);
+
+    bool needsBoundary = false;
+    int ownershipIndex = 0;
+    while (ownershipIndex < owned.len) {
+        if (owned.get(ownershipIndex) || kept.get(ownershipIndex)) {
+            needsBoundary = true;
+        }
+        ownershipIndex = ownershipIndex + 1;
+    }
+    if (!needsBoundary) { return null; }
+
+    OwnershipBoundary boundary = OwnershipBoundary();
+    int operandIndex = 0;
+    while (operandIndex < operands.len) {
+        Node operand = operands.get(operandIndex);
+        Node? operandType = generator.resolvedExpressionType(
+            operand, varTypes);
+        ownershipRequireType(operandType, operand);
+        boundary.addOperand(generator, operand, operandType,
+            owned.get(operandIndex), kept.get(operandIndex), varTypes);
+        operandIndex = operandIndex + 1;
+    }
+    IRNode lowered = generator.lowerUnaryCore(expression, varTypes);
+    boundary.restore(generator);
+    Node? resultType = generator.resolvedExpressionType(
+        expression, varTypes);
+    bool resultOwned = irExpressionOwnsResult(
+        generator, expression, varTypes);
+    boundary.resultOwned = resultOwned;
+    return boundary.finish(generator, lowered, resultType,
+        irManagedType(generator, resultType) && !resultOwned);
+}

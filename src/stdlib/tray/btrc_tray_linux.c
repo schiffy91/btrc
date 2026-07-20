@@ -486,6 +486,10 @@ void* btrc_tray_create(char* title) {
         }
         return NULL;   /* no session bus → headless */
     }
+    /* A private bus connection opts into _exit() when its daemon disconnects.
+     * A desktop service restart must disable this tray, not terminate its host
+     * application without cleanup or recovery. */
+    dbus_connection_set_exit_on_disconnect(conn, FALSE);
     btrc_tray* t = (btrc_tray*)calloc(1, sizeof(btrc_tray));
     if (!t) {
         dbus_connection_close(conn);

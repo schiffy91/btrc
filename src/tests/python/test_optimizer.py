@@ -8,6 +8,7 @@ from src.compiler.python.ir.nodes import (
     IRExprStmt,
     IRFunctionDecl,
     IRFunctionDef,
+    IRFunctionRef,
     IRGlobalDecl,
     IRHelperDecl,
     IRLiteral,
@@ -111,7 +112,7 @@ def test_keeps_thread_entry_referenced_by_structured_helper_call():
                 args=[
                     IRCast(
                         target_type=CType(text="void*(*)(void*)"),
-                        expr=IRVar(name="worker_fn"),
+                        expr=IRFunctionRef(name="worker_fn"),
                     ),
                     IRLiteral(text="NULL"),
                 ],
@@ -125,10 +126,23 @@ def test_keeps_thread_entry_referenced_by_structured_helper_call():
 
 
 def test_keeps_address_taken_function():
-    body = [IRExprStmt(expr=IRVar(name="handler_fn"))]
+    body = [IRExprStmt(expr=IRFunctionRef(name="handler_fn"))]
     m = IRModule(function_defs=[_fn("main", body), _fn("handler_fn")])
     optimize(m)
     assert "handler_fn" in {f.name for f in m.function_defs}
+
+
+def test_local_value_with_function_name_does_not_keep_function():
+    module = IRModule(
+        function_defs=[
+            _fn("main", [IRExprStmt(expr=IRVar(name="shadowed"))]),
+            _fn("shadowed"),
+        ]
+    )
+
+    optimize(module)
+
+    assert [function.name for function in module.function_defs] == ["main"]
 
 
 def test_substring_name_not_spuriously_kept():
@@ -167,7 +181,7 @@ def test_externally_visible_global_initializer_roots_referenced_function():
             IRGlobalDecl(
                 c_type=CType(text="void (*)(void)"),
                 name="callback_slot",
-                init=IRVar(name="callback"),
+                init=IRFunctionRef(name="callback"),
                 is_static=False,
             )
         ],
@@ -360,7 +374,7 @@ def test_helper_used_as_function_pointer_survives_elimination():
         function_defs=[
             _fn(
                 "main",
-                [IRExprStmt(expr=IRVar(name="cleanup_callback"))],
+                [IRExprStmt(expr=IRFunctionRef(name="cleanup_callback"))],
             )
         ],
         helper_decls=[callback],

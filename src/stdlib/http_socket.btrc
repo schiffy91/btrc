@@ -77,7 +77,7 @@ class HttpSocket {
             pending.revents = 0;
             int waitMillis = remaining > (long long)INT_MAX
                 ? INT_MAX : (int)remaining;
-            int ready = poll(&pending, 1, waitMillis);
+            int ready = poll(&pending, (nfds_t)1, waitMillis);
             if (ready < 0 && errno == EINTR) { continue; }
             return ready > 0 && ((int)pending.revents & events) != 0;
         }

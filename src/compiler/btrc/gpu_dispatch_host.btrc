@@ -23,13 +23,14 @@ IRNode gpuUsage(bool uniform, bool readback) {
     return value;
 }
 
-void gpuAppendUnavailable(IRGpuKernel kernel, Vector<IRNode> body,
-        bool withReturn) {
+void gpuAppendUnavailable(IRGen gen, IRGpuKernel kernel,
+        Vector<IRNode> body, bool withReturn) {
     Vector<IRNode> cpuArgs = [];
     int p = 0;
     while (p < kernel.declaration.params.len) {
         Node parameter = kernel.declaration.params.get(p);
-        cpuArgs.push(irVar(parameter.name));
+        cpuArgs.push(irVar(sourceLexicalBindingCNameForAnalysis(
+            parameter.name, gen.analyzed)));
         if (parameter.type.is_array) {
             cpuArgs.push(irVar(gpuLengthName(parameter.name)));
         }
@@ -130,7 +131,9 @@ IRFunction buildGpuDispatchHelper(IRGen gen, IRGpuKernel kernel,
     int p = 0;
     while (p < declaration.params.len) {
         Node parameter = declaration.params.get(p);
-        fn.params.push(IRParam(typeToC(parameter.type, gen.analyzed), parameter.name));
+        fn.params.push(IRParam(typeToC(parameter.type, gen.analyzed),
+            sourceLexicalBindingCNameForAnalysis(
+                parameter.name, gen.analyzed)));
         if (parameter.type.is_array) {
             fn.params.push(IRParam("int", gpuLengthName(parameter.name)));
         }
@@ -175,7 +178,7 @@ IRFunction buildGpuDispatchHelper(IRGen gen, IRGpuKernel kernel,
     body.push(irVarDecl("void*", gpu,
         irCall("btrc_gpu_acquire_compute", gpuNoArgs())));
     Vector<IRNode> noGpu = [];
-    gpuAppendUnavailable(kernel, noGpu, true);
+    gpuAppendUnavailable(gen, kernel, noGpu, true);
     body.push(irIf(irBinOp(irVar(gpu), "==", irVar("NULL")),
         irBlock(noGpu), null));
     body.push(irVarDecl("bool", ok, irLiteral("true")));
@@ -197,7 +200,9 @@ IRFunction buildGpuDispatchHelper(IRGen gen, IRGpuKernel kernel,
             irBlock([irAssign(irVar(ok), irLiteral("false"))]), null));
         Vector<IRNode> write = [];
         write.push(irVar(gpu)); write.push(irVar(name));
-        write.push(irCast("void*", irVar(buffer.name)));
+        write.push(irCast("void*",
+            irVar(sourceLexicalBindingCNameForAnalysis(
+                buffer.name, gen.analyzed))));
         write.push(irBinOp(irVar(gpuLengthName(buffer.name)), "*",
             irSizeofType(buffer.elem_type == "f32" ? "float" : "int")));
         body.push(irIf(irVar(ok), irBlock([

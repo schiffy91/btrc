@@ -105,7 +105,8 @@ IRCleanupSlot validateCleanupRegistration(IRNode call) {
             "cleanup slot must use an opaque address: " + metadata.name);
     }
     IRNode take = call.args.get(1);
-    if (take.kind != IRK_VAR || take.name != metadata.take_function) {
+    if (take.kind != IRK_FUNCTION_REF
+            || take.name != metadata.take_function) {
         cleanupValidationFail(
             "cleanup slot has the wrong take adapter: " + metadata.name);
     }

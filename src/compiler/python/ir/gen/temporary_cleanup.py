@@ -6,6 +6,7 @@ from ..nodes import (
     CType,
     IRBinOp,
     IRCommaExpr,
+    IRFunctionRef,
     IRLiteral,
     IRTernary,
     IRVar,
@@ -53,7 +54,7 @@ def cleanup_registration(
     register = register_cleanup_slot(
         gen,
         slot,
-        IRVar(name=destroy),
+        IRFunctionRef(name=destroy),
         visitor=None if string_cleanup else _visit_value(gen, type_expr),
         direct=string_cleanup,
     )
@@ -77,7 +78,7 @@ def _visit_value(gen, type_expr):
     from .cycle_metadata import visitor_for_type
 
     visitor = visitor_for_type(gen, type_expr)
-    return IRVar(name=visitor) if visitor else IRLiteral(text="NULL")
+    return IRFunctionRef(name=visitor) if visitor else IRLiteral(text="NULL")
 
 
 __all__ = ["cleanup_registration"]

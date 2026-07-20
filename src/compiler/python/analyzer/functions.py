@@ -112,7 +112,15 @@ class FunctionsMixin:
         for param in method.params:
             self._collect_generic_instances(param.type)
             if param.default is not None:
-                self._analyze_expr(param.default)
+                previous_parameter_default = self._analyzing_parameter_default
+                previous_constructor_default = self._analyzing_constructor_default
+                self._analyzing_parameter_default = True
+                self._analyzing_constructor_default = is_constructor
+                try:
+                    self._analyze_expr(param.default)
+                finally:
+                    self._analyzing_parameter_default = previous_parameter_default
+                    self._analyzing_constructor_default = previous_constructor_default
                 self._validate_callable_storage(
                     param.type, param.default, True, param.line or method.line, param.col or method.col
                 )
@@ -128,6 +136,7 @@ class FunctionsMixin:
                 "parameter",
                 param.name_line or param.line,
                 param.name_col or param.col,
+                c_name_generated=True,
             ):
                 self.scope.define(param.name, self._param_symbol(param))
         if not is_constructor:
@@ -221,7 +230,12 @@ class FunctionsMixin:
         for param in func.params:
             self._collect_generic_instances(param.type)
             if param.default is not None:
-                self._analyze_expr(param.default)
+                previous_parameter_default = self._analyzing_parameter_default
+                self._analyzing_parameter_default = True
+                try:
+                    self._analyze_expr(param.default)
+                finally:
+                    self._analyzing_parameter_default = previous_parameter_default
                 self._validate_callable_storage(
                     param.type, param.default, True, param.line or func.line, param.col or func.col
                 )
@@ -237,6 +251,7 @@ class FunctionsMixin:
                 "parameter",
                 param.name_line or param.line,
                 param.name_col or param.col,
+                c_name_generated=True,
             ):
                 self.scope.define(param.name, self._param_symbol(param))
         self._collect_generic_instances(func.return_type)

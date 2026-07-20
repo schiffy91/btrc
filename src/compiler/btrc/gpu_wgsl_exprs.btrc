@@ -156,14 +156,19 @@ string gpuWgslCall(GpuWgsl out, Node expression) {
         }
         named = named + 1;
     }
+    bool sourceFunction = out.analyzed.funcTable.has(name)
+        && !out.analyzed.hostedCallKeys.has(astNodeKey(expression));
+    if (sourceFunction || out.names.has(name)) {
+        gpuLoweringFail(expression, "call to '" + name
+            + "' has no WGSL definition because it resolves to a source symbol");
+    }
     if (name == "gpu_id") {
         if (expression.args.len != 0) {
             gpuLoweringFail(expression, "gpu_id() takes no arguments");
         }
         return "btrc_gid";
     }
-    if (!gpuBuiltin(name) || out.analyzed.funcNames.has(name)
-            || out.names.has(name)) {
+    if (!gpuBuiltin(name)) {
         gpuLoweringFail(expression, "call to '" + name
             + "' has no WGSL definition");
     }

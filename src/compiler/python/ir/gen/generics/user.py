@@ -9,7 +9,7 @@ from ....type_identity import generic_instance_key, type_references_names
 from ...nodes import CType, IRStructDef, IRStructField, IRStructForward
 from ..arc_metadata import arc_header_field
 from ..types import mangle_generic_type, type_to_c
-from .core import _resolve_type
+from .core import _resolve_type, _resolve_type_c
 from .user_methods import _emit_user_generic_methods
 
 if TYPE_CHECKING:
@@ -94,8 +94,13 @@ def _emit_user_generic_instance(gen: IRGenerator, base_name: str, args: list[Typ
     # an ordinary class; its descriptor is emitted by the lifecycle pass.
     fields = [arc_header_field(gen)]
     for name, fd in cls_info.instance_storage:
-        resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table)
-        fields.append(IRStructField(c_type=CType(text=type_to_c(resolved)), name=name))
+        c_type = _resolve_type_c(
+            fd.type,
+            type_map,
+            gen.analyzed.typedef_table,
+            render=type_to_c,
+        )
+        fields.append(IRStructField(c_type=CType(text=c_type), name=name))
     gen.module.struct_defs.append(IRStructDef(name=mangled, fields=fields))
 
     # Emit constructor, destructor, and methods

@@ -9,6 +9,7 @@ from .nodes import (
     IRCall,
     IRCast,
     IRCleanupSlot,
+    IRFunctionRef,
     IRVar,
     IRVarDecl,
 )
@@ -98,7 +99,7 @@ def _validate_registration(call: IRCall) -> IRCleanupSlot:
     ):
         raise ValueError(f"cleanup slot {metadata.name!r} must use an opaque void* address")
     take = call.args[1]
-    if not isinstance(take, IRVar) or take.name != metadata.take_function:
+    if not isinstance(take, IRFunctionRef) or take.name != metadata.take_function:
         raise ValueError(f"cleanup slot {metadata.name!r} has the wrong take adapter")
     return metadata
 

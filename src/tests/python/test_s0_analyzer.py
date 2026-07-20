@@ -253,8 +253,8 @@ class TestUnknownCastTarget:
 
     def test_typedef_cast_ok(self):
         src = """
-            typedef unsigned int uint;
-            void f(int a) { var x = (uint) a; }
+            typedef unsigned int UnsignedAlias;
+            void f(int a) { var x = (UnsignedAlias) a; }
         """
         an, _ = analyze(src)
         assert an.errors == []

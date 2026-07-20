@@ -72,12 +72,12 @@ def collect_callable_references(
 ) -> None:
     """Collect direct calls and address-taken callable values by exact name."""
 
-    from .expr_nodes import IRCall, IRVar
+    from .expr_nodes import IRCall, IRFunctionRef
 
     for node in iter_ir_nodes(value):
         if isinstance(node, IRCall) and isinstance(node.callee, str) and node.callee in names:
             out.add(node.callee)
-        elif isinstance(node, IRVar) and node.name in names:
+        elif isinstance(node, IRFunctionRef) and node.name in names:
             out.add(node.name)
 
 

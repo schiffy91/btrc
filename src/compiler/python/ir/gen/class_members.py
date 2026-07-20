@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from ...analyzer.core import ClassInfo
 from ...ast_nodes import ClassDecl, MethodDecl
+from ...destructor_symbols import destructor_hook_symbol
 from ..nodes import (
     CType,
     IRAssign,
@@ -21,7 +22,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .destructor_hooks import build_destructor_hook, destructor_hook_name
+from .destructor_hooks import build_destructor_hook
 from .managed_values import (
     is_arc_type,
     is_managed_type,
@@ -29,7 +30,7 @@ from .managed_values import (
     replace_edge_value,
     unlink_edge_value,
 )
-from .parameters import lower_source_param
+from .parameters import lower_source_param, source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -103,7 +104,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> s
             body=IRBlock(stmts=body_stmts),
         )
     )
-    return destructor_hook_name(name) if hook is not None else None
+    return destructor_hook_symbol(name) if hook is not None else None
 
 
 def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
@@ -114,7 +115,7 @@ def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
     if not is_static:
         params.append(IRParam(c_type=CType(text=f"{name}*"), name="self"))
     for p in method.params:
-        params.append(lower_source_param(p))
+        params.append(lower_source_param(p, analyzed=gen.analyzed))
 
     ret_type = type_to_c(method.return_type) if method.return_type else "void"
 
@@ -155,7 +156,7 @@ def emit_inherited_methods(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInf
     while parent_name and parent_name in gen.analyzed.class_table:
         parent_info = gen.analyzed.class_table[parent_name]
         for mname, method in parent_info.methods.items():
-            if mname in own_methods or mname == "__del__" or method.is_constructor:
+            if mname in own_methods or mname == "__del__" or method.is_constructor or method.generic_params:
                 continue
             if method.is_abstract or method.body is None:
                 continue
@@ -171,8 +172,8 @@ def emit_inherited_methods(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInf
                     )
                 )
             for p in method.params:
-                params.append(lower_source_param(p))
-                call_args.append(IRVar(name=p.name))
+                params.append(lower_source_param(p, analyzed=gen.analyzed))
+                call_args.append(IRVar(name=source_binding_c_name(p.name, gen.analyzed)))
             ret_type = type_to_c(method.return_type) if method.return_type else "void"
             call = IRCall(callee=f"{parent_name}_{mname}", args=call_args)
             if ret_type == "void":

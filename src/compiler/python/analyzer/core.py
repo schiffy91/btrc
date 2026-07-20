@@ -2,153 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-from ..ast_nodes import (
-    FieldDecl,
-    FunctionDecl,
-    MethodDecl,
-    MethodSig,
-    Program,
-    PropertyDecl,
-    RichEnumDecl,
-    StructDecl,
-    TypeExpr,
+from ..ast_nodes import FunctionDecl, MethodDecl, Program, RichEnumDecl, StructDecl, TypeExpr
+from .core_models import (
+    AnalyzedProgram,
+    ClassInfo,
+    Diag,
+    InterfaceInfo,
+    Occurrence,
+    Scope,
+    SymbolInfo,
 )
-
-
-class AnalyzerError(Exception):
-    def __init__(self, message: str, line: int = 0, col: int = 0):
-        self.line = line
-        self.col = col
-        super().__init__(f"{message} at {line}:{col}")
-
-
-@dataclass
-class Diag:
-    """Structured diagnostic with file provenance.
-
-    ``file`` is the source file of the top-level declaration under analysis
-    when the diagnostic was reported (None when declarations carry no
-    ``source_file`` provenance, e.g. plain CLI compiles of resolved source).
-    """
-
-    message: str
-    line: int
-    col: int
-    severity: str = "error"  # "error" | "warning"
-    file: str | None = None
-
-
-@dataclass
-class ClassInfo:
-    name: str
-    generic_params: list[str] = field(default_factory=list)
-    fields: dict[str, FieldDecl] = field(default_factory=dict)
-    static_fields: dict[str, FieldDecl] = field(default_factory=dict)
-    methods: dict[str, MethodDecl] = field(default_factory=dict)
-    properties: dict[str, PropertyDecl] = field(default_factory=dict)
-    field_owners: dict[str, str] = field(default_factory=dict)
-    method_owners: dict[str, str] = field(default_factory=dict)
-    property_owners: dict[str, str] = field(default_factory=dict)
-    instance_storage: list[tuple[str, FieldDecl | PropertyDecl]] = field(default_factory=list)
-    constructor: MethodDecl = None
-    parent: str = None
-    interfaces: list[str] = field(default_factory=list)
-    is_abstract: bool = False
-    # ARC: true if this class can participate in reference cycles
-    # (has class-type fields that could transitively reference self)
-    is_cyclable: bool = False
-
-
-@dataclass
-class SymbolInfo:
-    name: str
-    type: TypeExpr
-    kind: str = "variable"  # "variable" | "function" | "param"
-    # Definition site of the symbol (where it was declared). Populated at the
-    # ``Scope.define`` call sites so a resolved symbol knows where it lives.
-    # Defaults of 0/0/None mean "no recorded definition site" (e.g. seeded
-    # stdlib symbols or synthetic symbols like ``self``/``value``).
-    decl_line: int = 0
-    decl_col: int = 0
-    decl_file: str | None = None
-    # A capturing lambda cannot be represented by a bare C function pointer.
-    # Direct local calls have a dedicated lowering path; aliases, parameters,
-    # and returns must reject the value until the language has a closure type.
-    captures_environment: bool = False
-    # Whether this lexical binding owns a managed value and can safely replace
-    # it. Parameters and raw iteration projections are borrowed by default.
-    owned_storage: bool = False
-
-
-@dataclass
-class Occurrence:
-    """An identifier use resolved to its definition by the analyzer.
-
-    Recorded only when ``AnalyzerBase.record_occurrences`` is True (the LSP
-    path); the CLI compiler never pays. Positions are native to ``def_file``.
-    """
-
-    kind: str  # 'variable'|'param'|'function'|'class'|'method'|'field'|'enum'|...
-    name: str
-    def_file: str | None = None
-    def_line: int = 0
-    def_col: int = 0
-
-
-@dataclass
-class Scope:
-    symbols: dict[str, SymbolInfo] = field(default_factory=dict)
-    parent: Scope = None
-
-    def lookup(self, name: str) -> SymbolInfo | None:
-        if name in self.symbols:
-            return self.symbols[name]
-        if self.parent:
-            return self.parent.lookup(name)
-        return None
-
-    def define(self, name: str, info: SymbolInfo):
-        self.symbols[name] = info
-
-
-@dataclass
-class InterfaceInfo:
-    name: str
-    methods: dict[str, MethodSig] = field(default_factory=dict)
-    parent: str = None
-    generic_params: list[str] = field(default_factory=list)
-
-
-@dataclass
-class AnalyzedProgram:
-    program: Program
-    generic_instances: dict[str, list[tuple[TypeExpr, ...]]]
-    class_table: dict[str, ClassInfo]
-    # Generic-method monomorphization targets. Keyed by
-    # (owning_class_base, method_name); each entry is a (class_args, method_args)
-    # pair of TypeExpr tuples, where class_args are the concrete generic args of
-    # the receiver instance (e.g. (int,) for Vector<int>) and method_args are the
-    # concrete method-level type arguments (e.g. (string,) for mapTo<string>).
-    generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = field(default_factory=dict)
-    # id(CallExpr) -> tuple of concrete method-level type args for that generic
-    # call site (e.g. (string,) for v.mapTo<string>(...)). Used by IR-gen to
-    # name-mangle the call to the monomorphized instance.
-    generic_method_call_args: dict[int, tuple] = field(default_factory=dict)
-    function_table: dict[str, FunctionDecl] = field(default_factory=dict)
-    typedef_table: dict[str, TypeExpr] = field(default_factory=dict)
-    struct_table: dict[str, StructDecl] = field(default_factory=dict)
-    node_types: dict[int, TypeExpr] = field(default_factory=dict)
-    enum_table: dict[str, list[str]] = field(default_factory=dict)
-    interface_table: dict[str, InterfaceInfo] = field(default_factory=dict)
-    rich_enum_table: dict[str, RichEnumDecl] = field(default_factory=dict)
-    errors: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-    diags: list[Diag] = field(default_factory=list)
-    # id(identifier-node) -> Occurrence. Empty unless analysis ran with
-    # ``record_occurrences=True`` (LSP path). The CLI compiler never fills it.
-    occurrences: dict[int, Occurrence] = field(default_factory=dict)
+from .core_models import (
+    AnalyzerError as AnalyzerError,
+)
 
 
 class AnalyzerBase:
@@ -160,6 +26,7 @@ class AnalyzerBase:
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = {}
         self.generic_method_call_args: dict[int, tuple] = {}
+        self._hosted_call_ids: set[int] = set()
         self.errors: list[str] = []
         self.warnings: list[str] = []
         self.diags: list[Diag] = []
@@ -169,6 +36,8 @@ class AnalyzerBase:
         self.current_class: ClassInfo | None = None
         self.current_method: MethodDecl | None = None
         self.current_callable = None
+        self._analyzing_parameter_default = False
+        self._analyzing_constructor_default = False
         self._previous_statement = None
         # Only the root expression of an ExprStmt may consume a physical
         # Mutex slot through `.destroy()`.
@@ -189,6 +58,10 @@ class AnalyzerBase:
         self.enum_table: dict[str, list[str]] = {}
         self.interface_table: dict[str, InterfaceInfo] = {}
         self.rich_enum_table: dict[str, RichEnumDecl] = {}
+        # Rich-enum payloads are shallow borrowed references. Classify their
+        # defaults once in declaration scope so caller shadowing cannot change
+        # whether an omitted default would create an unrepresentable owner.
+        self.rich_enum_unsafe_default_ids: set[int] = set()
         # Occurrence recording is OFF by default so the CLI compiler pays
         # nothing. The LSP flips it on before analyzing the user program.
         self.record_occurrences: bool = False
@@ -199,11 +72,13 @@ class AnalyzerBase:
         self._lambda_contexts: list[tuple[dict[str, SymbolInfo], dict[str, TypeExpr]]] = []
 
     def analyze(self, program: Program) -> AnalyzedProgram:
-        # Source of definition sites for top-level names when recording
-        # occurrences (the class/enum tables hold no decl reference). The
-        # decl index is rebuilt lazily per analysis.
+        # Definition sites for occurrence recording are rebuilt per analysis.
         self._recording_program = program
         self._decl_index_cache = None
+        self._unresolved_direct_callee_ids: set[int] = set()
+        self._unresolved_c_symbol_reference_ids: set[int] = set()
+        self._hosted_call_ids = set()
+        self.rich_enum_unsafe_default_ids = set()
         self._register_declarations(program)
         # Registered types are a shared inference context. Normalize all of
         # them before any declaration body is analyzed so generic dispatch is
@@ -216,6 +91,11 @@ class AnalyzerBase:
         self._validate_overrides(program)
         self._compute_cyclable_flags()
         self._validate_aggregate_declarations(program)
+        from .rich_enum_defaults import analyze_rich_enum_defaults
+
+        for declaration in self._decls_with_file(program):
+            if isinstance(declaration, RichEnumDecl):
+                analyze_rich_enum_defaults(self, declaration)
         for decl in self._decls_with_file(program):
             self._analyze_decl(decl)
         from .generic_instance_closure import close_generic_instance_graph
@@ -229,12 +109,14 @@ class AnalyzerBase:
             generic_method_instances=self.generic_method_instances,
             generic_method_call_args=self.generic_method_call_args,
             function_table=self.function_table,
+            hosted_call_ids=self._hosted_call_ids,
             typedef_table=self.typedef_table,
             struct_table=self.struct_table,
             node_types=self.node_types,
             enum_table=self.enum_table,
             interface_table=self.interface_table,
             rich_enum_table=self.rich_enum_table,
+            rich_enum_unsafe_default_ids=set(self.rich_enum_unsafe_default_ids),
             errors=self.errors,
             warnings=self.warnings,
             diags=self.diags,

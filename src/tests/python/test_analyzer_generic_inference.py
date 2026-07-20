@@ -51,6 +51,16 @@ def test_nullable_type_parameter_accepts_the_unlifted_parameter_in_template():
     assert result.errors == []
 
 
+def test_raw_pointer_to_type_parameter_does_not_inherit_nullable_lift_semantics():
+    result = _analyze("""
+        class Box<T> {
+            public T* value;
+            public void set(T value) { self.value = value; }
+        }
+    """)
+    assert any("cannot persist a managed value as a raw representation" in error for error in result.errors)
+
+
 def test_named_arguments_drive_generic_method_inference_by_name():
     result = _analyze("""
         class Picker {

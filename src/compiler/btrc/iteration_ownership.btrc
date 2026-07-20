@@ -32,7 +32,7 @@ void endOwnedIteration(IRGen generator, string name,
     if (runtimeType == "") { return; }
     generator.unregisterManagedVar(name);
     Vector<Managed> owner = [];
-    owner.push(Managed(name, runtimeType));
+    owner.push(Managed(name, name, runtimeType));
     generator.emitScopeRelease(owner, output);
     /* The exception registration lives until its lexical cleanup marker. A
      * null live slot makes a later throw in that scope a harmless no-op. */

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import FunctionDecl, Identifier, ReturnStmt
@@ -29,6 +29,7 @@ from .errors import CodegenError
 from .gpu_arguments import buffer_length_name
 from .gpu_dispatch_model import OUTPUT_CAPACITY, OUTPUT_PARAM
 from .isolated_context import isolated_function_context
+from .parameters import source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ def emit_gpu_cpu_fallback(gen: IRGenerator, decl: FunctionDecl) -> None:
 
     if decl.body is None:
         return
-    signature = _source_signature(decl)
+    signature = _source_signature(decl, gen.analyzed)
     output_type = _output_element_type(decl)
     item_name = f"{decl.name}__gpuitem"
     wrapper_name = f"{decl.name}__gpucpu"
@@ -153,7 +154,7 @@ def lower_gpu_cpu_item_return(gen: IRGenerator, node: ReturnStmt):
     return [IRReturn(value=value)]
 
 
-def _source_signature(decl: FunctionDecl) -> _SourceSignature:
+def _source_signature(decl: FunctionDecl, analyzed) -> _SourceSignature:
     params = []
     args = []
     lengths = {}
@@ -161,10 +162,10 @@ def _source_signature(decl: FunctionDecl) -> _SourceSignature:
         params.append(
             IRParam(
                 c_type=CType(text=type_to_c(parameter.type)),
-                name=parameter.name,
+                name=source_binding_c_name(parameter.name, analyzed),
             )
         )
-        args.append(IRVar(name=parameter.name))
+        args.append(IRVar(name=source_binding_c_name(parameter.name, analyzed)))
         if parameter.type and parameter.type.is_array:
             length_name = buffer_length_name(parameter.name)
             params.append(IRParam(c_type=CType(text="int"), name=length_name))
@@ -177,7 +178,9 @@ def _output_element_type(decl: FunctionDecl):
     return_type = decl.return_type
     if return_type is None or return_type.base == "void":
         return None
-    return replace(return_type, is_array=False, array_size=None)
+    from ...type_composition import strip_outer_storage
+
+    return strip_outer_storage(return_type, array=True)
 
 
 def _lower_item_body(
@@ -197,7 +200,12 @@ def _lower_item_body(
         gen._gpu_cpu_array_lengths = array_lengths
         gen._gpu_cpu_item_output_type = output_type
         try:
-            return lower_block(gen, decl.body)
+            return lower_block(
+                gen,
+                decl.body,
+                local_bindings=[parameter.name for parameter in decl.params],
+                callable_bindings=decl.params,
+            )
         finally:
             gen._gpu_cpu_index = previous_index
             gen._gpu_cpu_array_lengths = previous_lengths

@@ -1,0 +1,8 @@
+/* Generic composition records nullable-boundary provenance in TypeExpr, so
+ * every C lowering path renders the same resolved semantic shape. */
+
+string genericTypeToC(Node? typeExpr, Map<string, Node> typeMap,
+        Analyzed analyzed) {
+    if (typeExpr == null) { return "void"; }
+    return typeToC(resolveGenericType(typeExpr, typeMap, analyzed), analyzed);
+}

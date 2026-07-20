@@ -17,6 +17,7 @@ from ..nodes import (
     IRCommaExpr,
     IRExpr,
     IRFieldAccess,
+    IRFunctionRef,
     IRIndex,
     IRLiteral,
     IRStmtExpr,
@@ -67,6 +68,9 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
 
     obj = lower_expr(gen, node.obj)
     obj_type = gen.analyzed.node_types.get(id(node.obj))
+    from .parameters import source_field_c_name
+
+    field_name = source_field_c_name(gen.analyzed, node.obj, node.field)
 
     # A mixed auto/custom accessor addresses its own backing slot via
     # `self.property`.  All external reads still call the public getter.
@@ -119,9 +123,12 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
         and node.obj.name in gen.analyzed.class_table
         and not gen.local_ownership_declared(node.obj.name)
     ):
-        # This is a static reference — will be handled by method call lowering
-        # if it's a call, but for field-only access emit ClassName_field
-        return IRVar(name=f"{node.obj.name}_{node.field}")
+        class_info = gen.analyzed.class_table[node.obj.name]
+        method = class_info.methods.get(node.field)
+        symbol = f"{node.obj.name}_{node.field}"
+        if method is not None and method.access == "class":
+            return IRFunctionRef(name=symbol)
+        return IRVar(name=symbol)
 
     # Property access on class instances
     if obj_type and obj_type.base in gen.analyzed.class_table:
@@ -151,12 +158,16 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
             obj,
             obj_type,
             gen.analyzed.node_types.get(id(node)),
-            lambda receiver: IRFieldAccess(obj=receiver, field=node.field, arrow=True),
+            lambda receiver: IRFieldAccess(
+                obj=receiver,
+                field=field_name,
+                arrow=True,
+            ),
         )
 
     return IRFieldAccess(
         obj=obj,
-        field=node.field,
+        field=field_name,
         arrow=receiver_uses_arrow(gen, obj_type, explicit=node.arrow),
     )
 

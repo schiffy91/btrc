@@ -73,13 +73,13 @@ class Platform {
 
 class Environment {
     class string get(string name, string fallback) {
-        string value = getenv(name);
-        if (value == null || value.isEmpty()) { return fallback; }
+        char* value = getenv(name);
+        if (value == NULL || value[0] == '\0') { return fallback; }
         return Strings.copy(value);
     }
 
     class bool has(string name) {
-        string value = getenv(name);
-        return value != null && !value.isEmpty();
+        char* value = getenv(name);
+        return value != NULL && value[0] != '\0';
     }
 }

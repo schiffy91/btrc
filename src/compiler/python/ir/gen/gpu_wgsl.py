@@ -224,6 +224,6 @@ def _name_map(names: list[str] | dict[str, str]) -> dict[str, str]:
 
 
 def _array_element_type(type_expr):
-    from dataclasses import replace
+    from ...type_composition import strip_outer_storage
 
-    return replace(type_expr, is_array=False, array_size=None)
+    return strip_outer_storage(type_expr, array=True)

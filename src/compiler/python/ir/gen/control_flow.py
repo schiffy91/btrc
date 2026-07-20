@@ -70,6 +70,7 @@ def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
         restore_callable_flow,
         snapshot_callable_flow,
     )
+    from .cleanup_scopes import cleanup_scope_entry, cleanup_scope_exit
     from .statements import lower_stmt
 
     val = _lower_expr(gen, node.value)
@@ -89,22 +90,48 @@ def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
             def lower_case(case=c, value=case_val):
                 enclosing = begin_callable_scope(gen)
                 case_stmts = []
+                marker = gen.push_cleanup_scope()
                 gen.push_managed_scope()
+                gen.push_local_ownership_scope()
+                gen._c_array_scopes.append({})
+                managed_scope_active = True
                 try:
                     for statement in case.body:
                         case_stmts.extend(lower_stmt(gen, statement))
-                except Exception:
-                    gen.pop_managed_scope()
-                    raise
-                finally:
-                    finish_callable_scope(gen, enclosing)
-                from ..completion import sequence_may_fall_through
+                    from ..completion import (
+                        sequence_may_fall_through,
+                        sequence_references_variable,
+                    )
 
-                falls_through = sequence_may_fall_through(case_stmts)
-                managed = gen.pop_managed_scope()
-                if falls_through:
-                    case_stmts.extend(_emit_scope_release(managed, gen))
-                return IRCase(value=value, body=case_stmts), falls_through
+                    falls_through = sequence_may_fall_through(case_stmts)
+                    managed = gen.pop_managed_scope()
+                    managed_scope_active = False
+                    marker_active = gen.cleanup_scope_is_active(marker)
+                    marker_referenced = falls_through or sequence_references_variable(
+                        case_stmts,
+                        marker or "",
+                    )
+                    if marker_active and marker_referenced:
+                        case_stmts[:0] = cleanup_scope_entry(gen, marker)
+                    if falls_through:
+                        case_stmts.extend(_emit_scope_release(managed, gen))
+                        if marker_active and marker_referenced:
+                            case_stmts.extend(cleanup_scope_exit(gen, marker))
+                    return (
+                        IRCase(
+                            value=value,
+                            body=case_stmts,
+                            falls_through=falls_through,
+                        ),
+                        falls_through,
+                    )
+                finally:
+                    if managed_scope_active:
+                        gen.pop_managed_scope()
+                    gen._c_array_scopes.pop()
+                    gen.pop_local_ownership_scope()
+                    gen.pop_cleanup_scope()
+                    finish_callable_scope(gen, enclosing)
 
             lowered_result, case_flow = lower_isolated_callable_flow(gen, lower_case)
             lowered_case, falls_through = lowered_result

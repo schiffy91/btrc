@@ -9,13 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
-from src.compiler.python.frontend import get_stdlib_source
+from src.compiler.python.frontend import compile_frontend
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser.parser import Parser
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -60,9 +57,11 @@ int main() {
 
 @functools.lru_cache(maxsize=1)
 def _emit_collection_runtime() -> str:
-    source = get_stdlib_source(COLLECTION_SOURCE) + "\n" + COLLECTION_SOURCE
-    program = Parser(Lexer(source, "<typed-collections>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = compile_frontend(
+        COLLECTION_SOURCE,
+        __file__,
+        filename="<typed-collections>",
+    ).analyzed
     assert not analyzed.errors
     return CEmitter().emit(optimize(IRGenerator(analyzed).generate()))
 

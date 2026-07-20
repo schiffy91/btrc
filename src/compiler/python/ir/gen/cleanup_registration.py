@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 
 from ..nodes import (
     IRExprStmt,
+    IRFunctionRef,
     IRLiteral,
     IRStmt,
-    IRVar,
 )
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ def maybe_register_cleanup(
         return
     declaration = _activate_cleanup_slot(gen, var_name, stmts)
     visitor = managed_visitor_symbol(gen, cls_name)
-    visit_arg = IRVar(name=visitor) if visitor else IRLiteral(text="NULL")
+    visit_arg = IRFunctionRef(name=visitor) if visitor else IRLiteral(text="NULL")
     from .cleanup_slots import register_cleanup_slot
 
     stmts.append(
@@ -49,7 +49,7 @@ def maybe_register_cleanup(
             expr=register_cleanup_slot(
                 gen,
                 declaration,
-                IRVar(name=destroy_fn),
+                IRFunctionRef(name=destroy_fn),
                 visitor=visit_arg,
             )
         )
@@ -75,7 +75,7 @@ def maybe_register_direct_cleanup(
             expr=register_cleanup_slot(
                 gen,
                 declaration,
-                IRVar(name=cleanup_fn),
+                IRFunctionRef(name=cleanup_fn),
                 direct=True,
             )
         )

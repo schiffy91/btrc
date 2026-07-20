@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import os
 import shutil
 import stat
@@ -12,11 +13,38 @@ from pathlib import Path
 
 _GENERATOR_TIMEOUT_SECONDS = 120
 _MIN_GENERATOR_PYTHON = (3, 13)
+_VENDORED_DISTRIBUTIONS = (
+    "pygls",
+    "lsprotocol",
+    "attrs",
+    "cattrs",
+    "typing-extensions",
+)
+
+
+def _make_tree_owner_writable(root: Path) -> None:
+    """Make a copied staging tree replaceable without mutating its source."""
+    for directory, _subdirectories, files in os.walk(root, followlinks=False):
+        path = Path(directory)
+        path.chmod(stat.S_IMODE(path.stat().st_mode) | stat.S_IWUSR)
+        for filename in files:
+            file_path = path / filename
+            if not file_path.is_symlink():
+                file_path.chmod(stat.S_IMODE(file_path.stat().st_mode) | stat.S_IWUSR)
+
+
+def _remove_tree(target: Path) -> None:
+    if target.is_symlink():
+        target.unlink()
+        return
+    if not target.exists():
+        return
+    _make_tree_owner_writable(target)
+    shutil.rmtree(target)
 
 
 def _copy_tree(source: Path, target: Path) -> None:
-    if target.exists():
-        shutil.rmtree(target)
+    _remove_tree(target)
     shutil.copytree(
         source,
         target,
@@ -42,9 +70,7 @@ def _copy_tree(source: Path, target: Path) -> None:
     # copytree preserves those directory modes.  The copied payload is a
     # disposable staging tree: restore owner-write permission there so atomic
     # generators can create sibling temporary files without touching source.
-    for directory, _subdirectories, _files in os.walk(target):
-        path = Path(directory)
-        path.chmod(stat.S_IMODE(path.stat().st_mode) | stat.S_IWUSR)
+    _make_tree_owner_writable(target)
 
 
 def _copy_if_exists(source: Path, target: Path) -> None:
@@ -52,6 +78,43 @@ def _copy_if_exists(source: Path, target: Path) -> None:
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
+
+
+def _vendor_runtime_dependencies(target: Path) -> None:
+    """Copy the pure-Python LSP dependency closure into the VSIX payload."""
+
+    _remove_tree(target)
+    target.mkdir(parents=True)
+    copied_roots: set[str] = set()
+    for distribution_name in _VENDORED_DISTRIBUTIONS:
+        try:
+            distribution = importlib.metadata.distribution(distribution_name)
+        except importlib.metadata.PackageNotFoundError as error:
+            raise RuntimeError(f"extension packaging requires Python distribution {distribution_name!r}") from error
+        roots = sorted({str(path).split("/", 1)[0] for path in distribution.files or ()})
+        if not roots:
+            raise RuntimeError(f"cannot enumerate files for Python distribution {distribution_name!r}")
+        for root in roots:
+            relative = Path(root)
+            if root in {"", "."} or relative.is_absolute() or ".." in relative.parts:
+                raise RuntimeError(f"unsafe path in Python distribution {distribution_name!r}: {root!r}")
+            if root in copied_roots:
+                continue
+            source = Path(distribution.locate_file(root))
+            destination = target / relative
+            if source.is_dir():
+                shutil.copytree(
+                    source,
+                    destination,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+                )
+            elif source.is_file():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+            else:
+                raise RuntimeError(f"missing Python distribution payload for {distribution_name!r}: {source}")
+            copied_roots.add(root)
+    _make_tree_owner_writable(target)
 
 
 def _write_server_flake(target: Path) -> None:
@@ -109,8 +172,7 @@ def _generator_python() -> str:
 
 def prepare(ext_dir: Path, repo_root: Path) -> Path:
     bundle_root = ext_dir / "server"
-    if bundle_root.exists():
-        shutil.rmtree(bundle_root)
+    _remove_tree(bundle_root)
 
     # The fallback server and debug adapter use the Python compiler.  The
     # self-hosted compiler is a separate product and would only inflate the
@@ -122,6 +184,7 @@ def prepare(ext_dir: Path, repo_root: Path) -> Path:
     _copy_tree(repo_root / "src" / "stdlib", bundle_root / "src" / "stdlib")
     _copy_tree(repo_root / "src" / "language", bundle_root / "src" / "language")
     _copy_tree(repo_root / "src" / "devex" / "lsp", bundle_root / "src" / "devex" / "lsp")
+    _vendor_runtime_dependencies(bundle_root / "vendor")
     _regenerate_builtins(bundle_root)
 
     _copy_if_exists(repo_root / "src" / "__init__.py", bundle_root / "src" / "__init__.py")
@@ -131,6 +194,7 @@ def prepare(ext_dir: Path, repo_root: Path) -> Path:
 
     (bundle_root / "README.txt").write_text(
         "Bundled btrc language-server payload.\n"
+        "Its pure-Python LSP dependencies are vendored; a Python 3.13+ interpreter is still required.\n"
         "Prefer the btrc-lsp executable when it is available; this copy is a fallback.\n"
     )
 

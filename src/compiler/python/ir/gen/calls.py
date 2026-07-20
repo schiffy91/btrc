@@ -10,6 +10,7 @@ from ...ast_nodes import (
     Identifier,
     LambdaExpr,
 )
+from ...source_runtime_symbols import SOURCE_RUNTIME_HELPERS
 from ..nodes import (
     CType,
     IRAddressOf,
@@ -62,28 +63,38 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     if isinstance(node.callee, Identifier):
         name = node.callee.name
         is_local = gen.local_ownership_declared(name)
-
-        # Inside a @gpu CPU-fallback loop, gpu_id() is the loop index.
-        if name == "gpu_id" and getattr(gen, "_gpu_cpu_index", None):
-            return IRVar(name=gen._gpu_cpu_index)
-
         args = lower_arg_values(gen, node.args)
 
-        if name in {
-            "__btrc_safe_calloc",
-            "__btrc_safe_realloc",
-            "__btrc_str_track",
-            "__btrc_string_adopt",
-            "__btrc_string_alloc",
-            "__btrc_string_length",
-            "__btrc_string_or_empty",
-        }:
+        # Lexical callables shadow functions, constructors, and special forms.
+        env_info = gen._fn_ptr_envs.get(name)
+        if env_info:
+            fn_name, env_var = env_info
+            args.append(
+                IRCast(
+                    target_type=CType(text="void*"),
+                    expr=IRAddressOf(expr=IRVar(name=env_var)),
+                )
+            )
+            return IRCall(callee=fn_name, args=args)
+        if is_local:
+            return IRCall(
+                callee=IRVar(name=gen.source_binding_c_name(name)),
+                args=args,
+            )
+
+        source_call = name in gen.analyzed.function_table and id(node) not in gen.analyzed.hosted_call_ids
+
+        # Inside a @gpu CPU-fallback loop, gpu_id() is the loop index.
+        if name == "gpu_id" and not source_call and getattr(gen, "_gpu_cpu_index", None):
+            return IRVar(name=gen._gpu_cpu_index)
+
+        if name in SOURCE_RUNTIME_HELPERS:
             gen.use_helper(name)
             return IRCall(callee=name, args=args, helper_ref=name)
 
         from .gpu_cpu_builtins import lower_gpu_cpu_builtin
 
-        gpu_cpu_builtin = lower_gpu_cpu_builtin(gen, name, node.args, args)
+        gpu_cpu_builtin = None if source_call else lower_gpu_cpu_builtin(gen, name, node.args, args)
         if gpu_cpu_builtin is not None:
             return gpu_cpu_builtin
 
@@ -109,7 +120,7 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             )
 
         # Mutex(val) constructor → __btrc_mutex_val_create(boxed_val)
-        if name == "Mutex":
+        if name == "Mutex" and not source_call:
             return lower_mutex_constructor(gen, node.args, args)
 
         # Constructor call: ClassName(args) where ClassName is a known class
@@ -126,7 +137,7 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         # Built-ins apply only when no user function has the same name
         if name not in gen.analyzed.function_table:
             if name == "print":
-                return lower_print(gen, node.args)
+                return lower_print(gen, node.args, args)
             if name == "printf":
                 return IRCall(callee="printf", args=args)
             if name == "sizeof":
@@ -137,20 +148,21 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
                 arg_type = gen.analyzed.node_types.get(id(node.args[0]))
                 return lower_len(gen, args[0], arg_type)
 
-        # Captured lambda call: bypass function pointer, call impl directly
-        # with the capture environment as the last argument.
-        env_info = gen._fn_ptr_envs.get(name)
-        if env_info:
-            fn_name, env_var = env_info
-            args.append(IRCast(target_type=CType(text="void*"), expr=IRAddressOf(expr=IRVar(name=env_var))))
-            return IRCall(callee=fn_name, args=args)
+        # Canonical hosted calls can share a spelling with a bodyful source
+        # shadow, but they retain the exact header ABI at this call site.
+        if source_call:
+            args = _fill_defaults(
+                gen,
+                name,
+                node.args,
+                arg_names_for(node, len(node.args)),
+                args,
+            )
 
-        # Fill in default parameter values if call has fewer args than params
-        if not is_local:
-            args = _fill_defaults(gen, name, node.args, arg_names_for(node, len(node.args)), args)
-
-        callee = name if is_local else source_function_c_name(gen.analyzed, name)
-        return IRCall(callee=callee, args=args)
+        return IRCall(
+            callee=source_function_c_name(gen.analyzed, name, node),
+            args=args,
+        )
 
     # Generic/complex callee
     args = lower_arg_values(gen, node.args)
@@ -213,7 +225,7 @@ def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
             if method and method.params:
                 return [i for i, p in enumerate(method.params) if p.keep]
         # Static method call: ClassName.method(args)
-        if isinstance(node.callee.obj, Identifier):
+        if isinstance(node.callee.obj, Identifier) and not gen.local_ownership_declared(node.callee.obj.name):
             cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
             if cls_info:
                 method = cls_info.methods.get(node.callee.field)
@@ -223,6 +235,8 @@ def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
 
     if isinstance(node.callee, Identifier):
         name = node.callee.name
+        if gen.local_ownership_declared(name):
+            return []
         # Constructor call: check constructor params
         if name in gen.analyzed.class_table:
             cls_info = gen.analyzed.class_table[name]
@@ -255,7 +269,7 @@ def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
             if method:
                 return getattr(method, "keep_return", False)
         # Static method call: ClassName.method(args)
-        if isinstance(node.callee.obj, Identifier):
+        if isinstance(node.callee.obj, Identifier) and not gen.local_ownership_declared(node.callee.obj.name):
             cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
             if cls_info:
                 method = cls_info.methods.get(node.callee.field)
@@ -265,6 +279,8 @@ def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
 
     if isinstance(node.callee, Identifier):
         name = node.callee.name
+        if gen.local_ownership_declared(name):
+            return False
         # Constructor calls never have keep_return — they always return rc=1
         if name in gen.analyzed.class_table:
             return False

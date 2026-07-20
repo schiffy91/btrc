@@ -1,4 +1,6 @@
 #include "asdl.btrc"
+#include "../frontend_source_io.btrc"
+#include "../driver_output.btrc"
 
 /* btrc-native AST node generator.
  *
@@ -213,7 +215,7 @@ string valueDump(string cat, string decl, string backing, bool optstr) {
 }
 
 int main() {
-    string src = Path.readAll("src/language/ast.asdl");
+    string src = feReadRequiredSource("src/language/ast.asdl");
     AsdlParser p = AsdlParser(src);
     Vector<AType> types = p.parse();
 
@@ -460,8 +462,9 @@ int main() {
     // canon formatting helpers (verbatim)
     L.push(helpers());
 
-    print(Strings.join(L, "\n"));
-    return 0;
+    if (printLineChecked(Strings.join(L, "\n"))) { return 0; }
+    fprintf(stderr, "gen_node: error: cannot write standard output\n");
+    return 1;
 }
 
 string helpers() {

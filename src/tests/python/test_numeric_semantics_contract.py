@@ -74,7 +74,7 @@ def test_float_suffix_and_sizeof_control_inferred_c_types():
 
 @pytest.mark.parametrize(
     "typedef_name",
-    ("int_fast16_t", "size_t", "intmax_t", "intptr_t"),
+    ("int_fast16_t", "size_t", "intmax_t", "intptr_t", "tcflag_t"),
 )
 def test_abi_dependent_integer_typedef_mixes_require_explicit_cast(
     typedef_name: str,

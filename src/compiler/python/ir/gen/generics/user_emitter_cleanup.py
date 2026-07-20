@@ -2,9 +2,9 @@
 
 from ...nodes import (
     IRExprStmt,
+    IRFunctionRef,
     IRLiteral,
     IRStmt,
-    IRVar,
 )
 
 
@@ -31,20 +31,20 @@ def register_exception_cleanup(
                 expr=register_cleanup_slot(
                     emitter._gen,
                     declaration,
-                    IRVar(name=destroy),
+                    IRFunctionRef(name=destroy),
                     direct=True,
                 )
             )
         )
         return
     visitor_name = managed_visitor_symbol(emitter._gen, type_name)
-    visitor = IRVar(name=visitor_name) if visitor_name else IRLiteral(text="NULL")
+    visitor = IRFunctionRef(name=visitor_name) if visitor_name else IRLiteral(text="NULL")
     statements.append(
         IRExprStmt(
             expr=register_cleanup_slot(
                 emitter._gen,
                 declaration,
-                IRVar(name=destroy),
+                IRFunctionRef(name=destroy),
                 visitor=visitor,
             )
         )

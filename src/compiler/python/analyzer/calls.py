@@ -2,41 +2,103 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..ast_nodes import FieldAccessExpr, Identifier, LambdaExpr
 from ..operator_semantics import GENERIC_INTRINSICS
+from .gpu_type_contracts import gpu_builtin_call_uses_intrinsic
 
 
 class CallValidationMixin:
     def _analyze_call(self, expr):
+        raw_lifetime = self._is_raw_lifetime_call(expr)
         if isinstance(expr.callee, Identifier):
             self._analyze_identifier_value(expr.callee, direct_callee=True)
         elif isinstance(expr.callee, FieldAccessExpr):
             self._analyze_field_access(expr.callee, call_target=True)
         else:
             self._analyze_expr(expr.callee)
-        for arg in expr.args:
+        for index, arg in enumerate(expr.args):
             self._analyze_expr(arg)
-            self._reject_thread_value_escape(arg, "passed as arguments")
+            if not raw_lifetime or index != 0:
+                self._reject_thread_value_escape(arg, "passed as arguments")
 
-        if isinstance(expr.callee, Identifier) and expr.callee.name == "gpu_id":
+        if (
+            isinstance(expr.callee, Identifier)
+            and expr.callee.name == "gpu_id"
+            and expr.callee.name not in self.function_table
+            and ((symbol := self.scope.lookup(expr.callee.name)) is None or symbol.kind == "function")
+        ):
             if not self.in_gpu_function:
                 self._error("gpu_id() can only be called inside @gpu functions", expr.line, expr.col)
             if expr.args:
                 self._error("gpu_id() takes no arguments", expr.line, expr.col)
 
         if isinstance(expr.callee, Identifier):
+            self._validate_source_macro_call(expr)
             self._validate_identifier_call(expr)
         elif isinstance(expr.callee, FieldAccessExpr):
             self._validate_method_call(expr)
         elif isinstance(expr.callee, LambdaExpr):
-            self._validate_call_signature("lambda", expr.callee.params, expr.args, expr.arg_names, expr.line, expr.col)
+            self._validate_call_signature(
+                "lambda",
+                expr.callee.params,
+                expr.args,
+                expr.arg_names,
+                expr.line,
+                expr.col,
+                declaration=expr.callee,
+            )
         self._validate_callable_target(expr)
         self._invalidate_nonnull_call(expr)
 
     def _validate_identifier_call(self, expr):
         name = expr.callee.name
+        if self._is_raw_lifetime_call(expr):
+            self._validate_raw_lifetime_call(expr)
+        if gpu_builtin_call_uses_intrinsic(self, expr):
+            if name in self.function_table:
+                # A canonical bodyless hosted prototype is superseded by the
+                # closed GPU intrinsic in this context. Preserve that resolved
+                # identity for CPU-fallback lowering.
+                self._hosted_call_ids.add(id(expr))
+            return
+        hosted_call_validated = self._validate_hosted_abi_call(expr)
+        if self._hosted_call_bypasses_source_definition(expr):
+            return
+        if hosted_call_validated:
+            return
+        symbol = self.scope.lookup(name)
+        if symbol is not None and symbol.kind != "function":
+            signature = self._function_pointer_signature(symbol.type)
+            if signature is not None:
+                self._validate_fn_ptr_call(
+                    name,
+                    signature[1:],
+                    expr.args,
+                    expr.line,
+                    expr.col,
+                    expr.arg_names,
+                )
+            return
+        if name in self.function_table:
+            function = self.function_table[name]
+            self._validate_call_signature(
+                function.name,
+                function.params,
+                expr.args,
+                expr.arg_names,
+                expr.line,
+                expr.col,
+                gpu_dispatch=function.is_gpu,
+                declaration=function,
+                bodyless_ffi=function.body is None,
+            )
+            self._validate_consuming_arguments(
+                function,
+                expr.args,
+                expr.arg_names,
+                function.name,
+            )
+            return
         if name == "Mutex":
             if any(expr.arg_names or []):
                 self._error(
@@ -66,29 +128,6 @@ class CallValidationMixin:
                 substitutions = dict(zip(cls.generic_params, inferred.generic_args))
             self._validate_constructor_args(cls, expr.args, expr.arg_names, expr.line, expr.col, substitutions)
             return
-        if name in self.function_table:
-            function = self.function_table[name]
-            self._validate_call_signature(
-                function.name,
-                function.params,
-                expr.args,
-                expr.arg_names,
-                expr.line,
-                expr.col,
-                gpu_dispatch=function.is_gpu,
-            )
-            self._validate_consuming_arguments(
-                function,
-                expr.args,
-                expr.arg_names,
-                function.name,
-            )
-            return
-
-        symbol = self.scope.lookup(name)
-        signature = self._function_pointer_signature(symbol.type if symbol else None)
-        if signature is not None:
-            self._validate_fn_ptr_call(name, signature[1:], expr.args, expr.line, expr.col, expr.arg_names)
 
     def _validate_method_call(self, expr):
         callee = expr.callee
@@ -126,6 +165,7 @@ class CallValidationMixin:
                 expr.col,
                 substitutions,
                 (*cls.generic_params, *method.generic_params),
+                declaration=method,
             )
             self._validate_consuming_arguments(
                 method,
@@ -159,6 +199,7 @@ class CallValidationMixin:
             expr.col,
             substitutions,
             (*cls.generic_params, *method.generic_params),
+            declaration=method,
         )
         self._validate_consuming_arguments(
             method,
@@ -193,59 +234,6 @@ class CallValidationMixin:
         if method.generic_params and receiver_type is not None:
             self._collect_generic_method_instance(expr, cls, method, receiver_type)
 
-    def _validate_call_signature(
-        self, name, params, args, arg_names, line, col, substitutions=None, unresolved=(), gpu_dispatch=False
-    ):
-        names = self._arg_names(args, arg_names)
-        self._validate_call_arity(name, params, args, names, line, col)
-        for param_index, arg_index in self._bound_arguments(params, names):
-            if arg_index >= len(args):
-                continue
-            expected = params[param_index].type
-            if substitutions:
-                expected = self._substitute_type(expected, substitutions)
-            # An unresolved generic parameter cannot be checked until its
-            # owning instance/call site supplies a concrete substitution.
-            if expected.base in unresolved:
-                continue
-            argument = args[arg_index]
-            argument_line = getattr(argument, "line", line)
-            argument_col = getattr(argument, "col", col)
-            self._contextualize_generic_constructor(expected, argument)
-            self._contextualize_aggregate_initializer(
-                expected,
-                argument,
-                f"Argument '{params[param_index].name}' to '{name}()'",
-                argument_line,
-                argument_col,
-            )
-            if self._validate_callable_value(expected, argument, argument_line, argument_col):
-                continue
-            actual = self._infer_type(argument)
-            compatible = actual and (
-                self._types_compatible(expected, actual)
-                or (gpu_dispatch and self._gpu_buffer_argument_compatible(expected, actual))
-            )
-            if actual and not compatible:
-                self._error(
-                    f"Argument '{params[param_index].name}' to '{name}()' "
-                    f"expects '{self._format_type(expected)}' but got "
-                    f"'{self._format_type(actual)}'",
-                    argument_line,
-                    argument_col,
-                )
-
-    def _gpu_buffer_argument_compatible(self, expected, actual) -> bool:
-        return bool(
-            expected.is_array
-            and actual.base in ("Array", "Vector")
-            and len(actual.generic_args) == 1
-            and self._types_compatible(
-                replace(expected, is_array=False, array_size=None),
-                actual.generic_args[0],
-            )
-        )
-
     def _validate_constructor_args(self, cls, args, arg_names, line, col, substitutions=None):
         if (
             cls.constructor is not None
@@ -264,7 +252,15 @@ class CallValidationMixin:
                 )
             return
         self._validate_call_signature(
-            cls.name, cls.constructor.params, args, arg_names, line, col, substitutions, cls.generic_params
+            cls.name,
+            cls.constructor.params,
+            args,
+            arg_names,
+            line,
+            col,
+            substitutions,
+            cls.generic_params,
+            declaration=cls.constructor,
         )
         self._validate_consuming_arguments(
             cls.constructor,

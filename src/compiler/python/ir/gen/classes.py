@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ...analyzer.core import ClassInfo
@@ -54,7 +53,9 @@ def emit_struct_decl(gen: IRGenerator, decl: StructDecl):
     for f in decl.fields:
         if f.type and f.type.is_array and f.type.array_size:
             # Array declarators remain structured through IR emission.
-            base_type = replace(f.type, is_array=False, array_size=None)
+            from ...type_composition import strip_outer_storage
+
+            base_type = strip_outer_storage(f.type, array=True)
             fields.append(
                 IRStructField(
                     c_type=CType(text=type_to_c(base_type)),
@@ -113,7 +114,7 @@ def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
     for member in decl.members:
         if isinstance(member, MethodDecl) and not member.is_constructor and member.name != "__del__":
             own_methods.add(member.name)
-            if not member.is_abstract and member.body is not None:
+            if not member.generic_params and not member.is_abstract and member.body is not None:
                 _emit_method(gen, decl, member)
         elif isinstance(member, PropertyDecl):
             _emit_property(gen, decl, member)

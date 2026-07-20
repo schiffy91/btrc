@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+from ....control_termination import block_must_terminate
 from ...nodes import (
     IRBlock,
     IRCall,
     IRExprStmt,
     IRIf,
     IRVar,
-    IRVarDecl,
 )
 from ..try_stack import (
     capture_finally_error,
     finally_state_declarations,
     pop_try_frames,
+    rethrow_finally_error,
     setjmp_success_condition,
 )
 from .user_emitter_scopes import pop_control_context, push_control_context
@@ -52,24 +53,44 @@ class _UserGenericExceptionMixin:
             self._trycatch_depth -= 1
 
     def _try_catch_inner(self, statement):
+        from .user_callable_provenance import (
+            begin_exceptional_callable_capture,
+            finish_exceptional_callable_capture,
+            join_callable_flows,
+            lower_isolated_callable_flow,
+            snapshot_callable_flow,
+        )
+
         finally_only = statement.catch_block is None and statement.finally_block is not None
-        pending_name = self._fresh_temp("__btrc_finally_pending") if finally_only else ""
+        try_terminates = finally_only and block_must_terminate(statement.try_block)
+        pending_name = self._fresh_temp("__btrc_finally_pending") if finally_only and not try_terminates else None
         error_name = self._fresh_temp("__btrc_finally_error") if finally_only else ""
         result = [IRExprStmt(expr=IRCall(callee="__btrc_push_try", args=[], helper_ref="__btrc_push_try"))]
 
         self._try_depth += 1
         push_control_context(self, "try")
+        exceptional_capture = begin_exceptional_callable_capture(self)
         try:
-            try_stmts = self.emit_stmts(statement.try_block.statements)
+            try_stmts, try_flow = lower_isolated_callable_flow(
+                self,
+                lambda: self.emit_stmts(statement.try_block.statements),
+            )
         finally:
+            exceptional_flows = finish_exceptional_callable_capture(
+                self,
+                exceptional_capture,
+            )
             pop_control_context(self)
             self._try_depth -= 1
         try_stmts.extend(pop_try_frames(1))
         try_block = IRBlock(stmts=try_stmts)
+        join_callable_flows(self, *exceptional_flows, try_flow)
+        exceptional_entry = snapshot_callable_flow(self)
 
         if finally_only:
-            result.extend(finally_state_declarations(pending_name, error_name))
-            catch_block = IRBlock(stmts=capture_finally_error(pending_name, error_name))
+            result.extend(finally_state_declarations(error_name, pending_name))
+            catch_block = IRBlock(stmts=capture_finally_error(error_name, pending_name))
+            catch_flow = exceptional_entry
         else:
             catch_bindings = []
             if statement.catch_var:
@@ -99,23 +120,17 @@ class _UserGenericExceptionMixin:
                 )
             from .user_emitter_scopes import emit_scoped_stmts
 
-            catch_stmts = emit_scoped_stmts(
+            catch_stmts, catch_flow = lower_isolated_callable_flow(
                 self,
-                (statement.catch_block.statements if statement.catch_block is not None else ()),
-                iteration_bindings=catch_bindings,
+                lambda: emit_scoped_stmts(
+                    self,
+                    (statement.catch_block.statements if statement.catch_block is not None else ()),
+                    iteration_bindings=catch_bindings,
+                ),
             )
-            if statement.catch_var:
-                declaration_index = next(
-                    index
-                    for index, node in enumerate(catch_stmts)
-                    if isinstance(node, IRVarDecl) and node.name == statement.catch_var
-                )
-                catch_stmts.insert(
-                    declaration_index + 1,
-                    IRExprStmt(expr=IRVar(name=statement.catch_var)),
-                )
             catch_block = IRBlock(stmts=catch_stmts)
 
+        join_callable_flows(self, try_flow, catch_flow)
         result.append(
             IRIf(
                 condition=setjmp_success_condition(),
@@ -127,20 +142,5 @@ class _UserGenericExceptionMixin:
         if statement.finally_block is not None:
             result.extend(self.emit_stmts(statement.finally_block.statements))
             if finally_only:
-                result.append(
-                    IRIf(
-                        condition=IRVar(name=pending_name),
-                        then_block=IRBlock(
-                            stmts=[
-                                IRExprStmt(
-                                    expr=IRCall(
-                                        callee="__btrc_throw",
-                                        args=[IRVar(name=error_name)],
-                                        helper_ref="__btrc_throw",
-                                    )
-                                )
-                            ]
-                        ),
-                    )
-                )
+                result.append(rethrow_finally_error(error_name, pending_name))
         return result

@@ -1,26 +1,17 @@
 """Loop/switch analysis and all-path termination checks."""
 
 from ..ast_nodes import (
-    Block,
-    BoolLiteral,
-    BreakStmt,
-    CForStmt,
-    DoWhileStmt,
-    ElseBlock,
-    ElseIf,
     FieldAccessExpr,
     ForInitExpr,
     ForInitVar,
-    ForInStmt,
     Identifier,
-    IfStmt,
-    ParallelForStmt,
-    ReturnStmt,
-    SwitchStmt,
-    ThrowStmt,
-    TryCatchStmt,
     TypeExpr,
-    WhileStmt,
+)
+from ..control_termination import (
+    block_must_terminate,
+    contains_loop_break,
+    statement_must_terminate,
+    statement_sequence_must_terminate,
 )
 
 
@@ -117,12 +108,19 @@ class ControlFlowAnalysisMixin:
         self._push_scope()
         if stmt.init:
             if isinstance(stmt.init, ForInitVar):
-                self._analyze_var_decl(stmt.init.var_decl)
-                if self._contains_thread_storage(stmt.init.var_decl.type):
+                declaration = stmt.init.var_decl
+                self._analyze_var_decl(declaration)
+                if declaration.type and (declaration.type.is_static or declaration.type.is_extern):
                     self._error(
-                        "C-style for initializer cannot own a Thread handle; declare it before the loop",
-                        stmt.init.var_decl.line,
-                        stmt.init.var_decl.col,
+                        "C-style for initializer cannot use static or extern storage",
+                        declaration.line,
+                        declaration.col,
+                    )
+                if declaration.type and declaration.type.is_array:
+                    self._error(
+                        "C-style for initializer cannot declare an array",
+                        declaration.line,
+                        declaration.col,
                     )
             elif isinstance(stmt.init, ForInitExpr):
                 self._analyze_expr(stmt.init.expression)
@@ -152,77 +150,13 @@ class ControlFlowAnalysisMixin:
             self._reject_thread_observation(statement.update)
 
     def _block_must_terminate(self, block) -> bool:
-        """Whether every path through a block returns or throws."""
-        if block is None:
-            return False
-        return any(self._statement_must_terminate(statement) for statement in block.statements)
+        return block_must_terminate(block)
 
     def _statement_must_terminate(self, statement) -> bool:
-        if isinstance(statement, (ReturnStmt, ThrowStmt)):
-            return True
-        if isinstance(statement, Block):
-            return self._block_must_terminate(statement)
-        if isinstance(statement, IfStmt):
-            if not self._block_must_terminate(statement.then_block):
-                return False
-            if isinstance(statement.else_block, ElseBlock):
-                return self._block_must_terminate(statement.else_block.body)
-            if isinstance(statement.else_block, ElseIf):
-                return self._statement_must_terminate(statement.else_block.if_stmt)
-            return False
-        if isinstance(statement, SwitchStmt):
-            return (
-                bool(statement.cases)
-                and any(case.value is None for case in statement.cases)
-                and all(self._statement_sequence_must_terminate(case.body) for case in statement.cases)
-            )
-        if isinstance(statement, TryCatchStmt):
-            if self._block_must_terminate(statement.finally_block):
-                return True
-            try_terminates = self._block_must_terminate(statement.try_block)
-            if statement.catch_block is None:
-                return try_terminates
-            return try_terminates and self._block_must_terminate(statement.catch_block)
-        if isinstance(statement, WhileStmt):
-            return (
-                isinstance(statement.condition, BoolLiteral)
-                and statement.condition.value
-                and not self._contains_loop_break(statement.body)
-                and self._block_must_terminate(statement.body)
-            )
-        if isinstance(statement, DoWhileStmt):
-            return not self._contains_loop_break(statement.body) and self._block_must_terminate(statement.body)
-        if isinstance(statement, CForStmt):
-            return (
-                statement.condition is None
-                and not self._contains_loop_break(statement.body)
-                and self._block_must_terminate(statement.body)
-            )
-        # for-in may execute zero times; no return inside it is guaranteed.
-        return False
+        return statement_must_terminate(statement)
 
     def _statement_sequence_must_terminate(self, statements) -> bool:
-        return any(self._statement_must_terminate(statement) for statement in statements)
+        return statement_sequence_must_terminate(statements)
 
     def _contains_loop_break(self, node) -> bool:
-        """Find a break targeting this loop, ignoring nested loop/switch scopes."""
-        if node is None:
-            return False
-        if isinstance(node, BreakStmt):
-            return True
-        if isinstance(node, (WhileStmt, DoWhileStmt, CForStmt, ForInStmt, ParallelForStmt, SwitchStmt)):
-            return False
-        if isinstance(node, Block):
-            return any(self._contains_loop_break(statement) for statement in node.statements)
-        if isinstance(node, IfStmt):
-            if self._contains_loop_break(node.then_block):
-                return True
-            if isinstance(node.else_block, ElseBlock):
-                return self._contains_loop_break(node.else_block.body)
-            if isinstance(node.else_block, ElseIf):
-                return self._contains_loop_break(node.else_block.if_stmt)
-        if isinstance(node, TryCatchStmt):
-            return any(
-                self._contains_loop_break(child) for child in (node.try_block, node.catch_block, node.finally_block)
-            )
-        return False
+        return contains_loop_break(node)

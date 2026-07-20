@@ -11,6 +11,7 @@ def isolated_function_context(gen, return_c_type, return_type):
     saved = (
         gen._managed_vars_stack,
         gen._local_ownership_scopes,
+        gen._local_c_name_scopes,
         gen._loop_scope_depths,
         gen._control_context,
         gen._control_managed_depths,
@@ -27,6 +28,7 @@ def isolated_function_context(gen, return_c_type, return_type):
         gen._callable_return_abis,
         gen._callable_scope_declarations,
         gen._callable_exception_captures,
+        gen._callable_loop_captures,
         gen._last_lambda_id,
         gen._owning_temp_overrides,
         gen._type_temp_overrides,
@@ -35,6 +37,7 @@ def isolated_function_context(gen, return_c_type, return_type):
     )
     gen._managed_vars_stack = []
     gen._local_ownership_scopes = []
+    gen._local_c_name_scopes = []
     gen._loop_scope_depths = []
     gen._control_context = []
     gen._control_managed_depths = []
@@ -51,6 +54,7 @@ def isolated_function_context(gen, return_c_type, return_type):
     gen._callable_return_abis = {}
     gen._callable_scope_declarations = []
     gen._callable_exception_captures = []
+    gen._callable_loop_captures = []
     gen._last_lambda_id = 0
     gen._owning_temp_overrides = {}
     gen._type_temp_overrides = {}
@@ -62,6 +66,7 @@ def isolated_function_context(gen, return_c_type, return_type):
         (
             gen._managed_vars_stack,
             gen._local_ownership_scopes,
+            gen._local_c_name_scopes,
             gen._loop_scope_depths,
             gen._control_context,
             gen._control_managed_depths,
@@ -78,6 +83,7 @@ def isolated_function_context(gen, return_c_type, return_type):
             gen._callable_return_abis,
             gen._callable_scope_declarations,
             gen._callable_exception_captures,
+            gen._callable_loop_captures,
             gen._last_lambda_id,
             gen._owning_temp_overrides,
             gen._type_temp_overrides,

@@ -1,0 +1,21 @@
+/* Configurable data paths for the self-hosted front end.
+ *
+ * Verification drivers retain repository-relative defaults. The production
+ * btrcc driver replaces both paths with validated runtime-discovery results
+ * before the grammar or stdlib is read. */
+
+string feConfiguredGrammarPath = "src/language/grammar.ebnf";
+string feConfiguredStdlibDirectory = "src/stdlib";
+
+void feConfigureDataPaths(string grammarPath, string stdlibDirectory) {
+    feConfiguredGrammarPath = Strings.copy(grammarPath);
+    feConfiguredStdlibDirectory = Strings.copy(stdlibDirectory);
+}
+
+string feGrammarPath() {
+    return feConfiguredGrammarPath;
+}
+
+string feStdlibDir() {
+    return feConfiguredStdlibDirectory;
+}

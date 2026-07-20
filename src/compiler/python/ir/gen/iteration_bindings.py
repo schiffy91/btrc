@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..nodes import CType, IRExpr, IRStmt, IRVarDecl
+from ..nodes import CType, IRExpr, IRExprStmt, IRStmt, IRVar, IRVarDecl
 
 
 @dataclass(frozen=True)
@@ -22,17 +22,21 @@ def emit_iteration_bindings(gen, bindings) -> list[IRStmt]:
     """Declare bindings inside the body scope and register owned results."""
     result: list[IRStmt] = []
     for binding in bindings:
-        gen.declare_local_ownership(binding.name)
+        binding_c_name = gen.declare_local_ownership(binding.name)
         from .callable_provenance import bind_borrowed_callable
 
         bind_borrowed_callable(gen, binding.name, binding.type_expr)
         declaration = IRVarDecl(
             c_type=CType(text=binding.c_type),
-            name=binding.name,
+            name=binding_c_name,
             init=binding.value,
         )
         gen._func_var_decls.append(declaration)
         result.append(declaration)
+        # A loop variable may be intentionally ignored.  Keep the strict-C
+        # warning contract explicit in structured IR without analyzing source
+        # uses or relying on textual statement escapes.
+        result.append(IRExprStmt(expr=IRVar(name=binding_c_name)))
 
         type_expr = binding.type_expr
         from .managed_values import is_managed_type
@@ -49,7 +53,7 @@ def emit_iteration_bindings(gen, bindings) -> list[IRStmt]:
                 cycle_seed=not is_string_type(gen, type_expr),
             )
             gen.declare_local_ownership(binding.name, runtime_type)
-            _maybe_register_cleanup(gen, binding.name, runtime_type, result)
+            _maybe_register_cleanup(gen, binding_c_name, runtime_type, result)
     return result
 
 

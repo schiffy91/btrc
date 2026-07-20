@@ -1,8 +1,8 @@
 #include <assert.h>
 
 int itemsAlive = 0;
-int ordinaryAlive = 0;
-int genericAlive = 0;
+int ordinaryFailureHooks = 0;
+int genericFailureHooks = 0;
 
 class Item {
     public int id;
@@ -22,14 +22,13 @@ class OrdinaryFailure {
     public Item second;
 
     public OrdinaryFailure(int id) {
-        ordinaryAlive++;
         self.first = new Item(id);
         self.second = new Item(id + 1);
         throw "ordinary constructor failure";
     }
 
     public void __del__() {
-        ordinaryAlive--;
+        ordinaryFailureHooks++;
     }
 }
 
@@ -38,14 +37,13 @@ class GenericFailure<T> {
     public Item extra;
 
     public GenericFailure(T value, int id) {
-        genericAlive++;
         self.value = value;
         self.extra = new Item(id);
         throw "generic constructor failure";
     }
 
     public void __del__() {
-        genericAlive--;
+        genericFailureHooks++;
     }
 }
 
@@ -71,14 +69,16 @@ void exerciseGeneric(int id) {
 int main() {
     for (int iteration = 0; iteration < 32; iteration++) {
         exerciseOrdinary(iteration * 10);
+        /* Completed children drain, but a failed root never reaches source
+         * lifecycle code because its fields may be only partly initialized. */
         assert(itemsAlive == 0);
-        assert(ordinaryAlive == 0);
-        assert(genericAlive == 0);
+        assert(ordinaryFailureHooks == 0);
+        assert(genericFailureHooks == 0);
 
         exerciseGeneric(iteration * 10);
         assert(itemsAlive == 0);
-        assert(ordinaryAlive == 0);
-        assert(genericAlive == 0);
+        assert(ordinaryFailureHooks == 0);
+        assert(genericFailureHooks == 0);
     }
     return 0;
 }

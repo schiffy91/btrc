@@ -99,7 +99,8 @@ int main() {
 
     Holder holder = new Holder();
     sharedHolder = holder;
-    delete sameHolder().item;
+    Holder deletionTarget = sameHolder();
+    delete deletionTarget.item;
     if (lvalueCalls != 1 || alive != 0 || holder.item != null) { return 6; }
 
     Child child = new Child(21);

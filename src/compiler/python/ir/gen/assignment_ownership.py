@@ -7,7 +7,12 @@ from ...class_storage import property_needs_backing
 from ...index_protocol import indexed_protocol_info
 
 
-def virtual_assignment_target(gen, target) -> bool:
+def virtual_assignment_target(
+    gen,
+    target,
+    *,
+    direct_property: Callable | None = None,
+) -> bool:
     """Whether a setter call preserves the RHS +1 as the expression result."""
     if isinstance(target, IndexExpr):
         receiver_type = gen.analyzed.node_types.get(id(target.obj))
@@ -25,6 +30,8 @@ def virtual_assignment_target(gen, target) -> bool:
     class_info = gen.analyzed.class_table.get(receiver_type.base) if receiver_type else None
     prop = class_info.properties.get(target.field) if class_info else None
     if prop is None:
+        return False
+    if direct_property is not None and direct_property(target):
         return False
     return not (
         isinstance(target.obj, SelfExpr)

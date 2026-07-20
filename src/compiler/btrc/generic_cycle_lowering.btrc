@@ -27,7 +27,9 @@ bool genericCycleManagedType(Analyzed analyzed, Node? typeExpr) {
     Node resolved = canonical;
     if (mutexPayloadType(analyzed, resolved) != null) { return true; }
     int depth = resolved.pointer_depth;
-    if (resolved.is_nullable && depth > 1) { depth = depth - 1; }
+    if (typeNullableCollapsesReferenceLayer(resolved, false)) {
+        depth = depth - 1;
+    }
     if (depth > 1) { return false; }
     return analyzed.isClass(resolved.base)
         || (resolved.generic_args.len > 0

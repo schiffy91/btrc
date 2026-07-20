@@ -142,7 +142,7 @@
         "btrc.pythonPath": {
           "type": "string",
           "default": "python3",
-          "description": "Path to Python 3 interpreter for the btrc language server"
+          "description": "Path to a Python 3.13+ interpreter for the bundled btrc language server and compiler"
         },
         "btrc.serverPath": {
           "type": "string",
@@ -174,7 +174,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run prepare-lsp && npm run esbuild-base",
-    "esbuild-base": "esbuild ./src/extension.ts ./src/launch.ts ./src/debug_launch.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
+    "esbuild-base": "esbuild ./src/extension.ts ./src/launch.ts ./src/debug_launch.ts ./src/python_runtime.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
     "compile": "npm run esbuild-base",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run compile && node --test test/*.test.js",

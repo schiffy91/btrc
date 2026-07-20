@@ -3,6 +3,8 @@
 int itemsAlive = 0;
 int ownersAlive = 0;
 int sinksAlive = 0;
+int defaultEvaluations = 0;
+int defaultTargetCalls = 0;
 
 class Item {
     public int id;
@@ -61,6 +63,21 @@ Item chooseCoalesced(Item? candidate) {
 void throwingDefault(keep Item value = new Item(41)) {
     assert(value != null);
     throw "default failed";
+}
+
+void throwingPrior(Item first, Item second = first) {
+    assert(first == second);
+    throw "prior default failed";
+}
+
+Item failDefaultEvaluation() {
+    defaultEvaluations++;
+    throw "default evaluation failed";
+}
+
+void throwingEvaluation(Item first,
+        Item second = failDefaultEvaluation()) {
+    defaultTargetCalls++;
 }
 
 int main() {
@@ -138,5 +155,25 @@ int main() {
     try { throwingDefault(); }
     catch (string error) { caught++; }
     assert(caught == 1 && itemsAlive == 0);
+
+    Item prior = new Item(42);
+    try { throwingPrior(prior); }
+    catch (string error) { caught++; }
+    assert(caught == 2 && itemsAlive == 1);
+    delete prior;
+    assert(itemsAlive == 0);
+
+    Item borrowedPrior = new Item(43);
+    try { throwingEvaluation(borrowedPrior); }
+    catch (string error) { caught++; }
+    assert(caught == 3 && itemsAlive == 1);
+    assert(defaultEvaluations == 1 && defaultTargetCalls == 0);
+    delete borrowedPrior;
+    assert(itemsAlive == 0);
+
+    try { throwingEvaluation(new Item(44)); }
+    catch (string error) { caught++; }
+    assert(caught == 4 && itemsAlive == 0);
+    assert(defaultEvaluations == 2 && defaultTargetCalls == 0);
     return 0;
 }

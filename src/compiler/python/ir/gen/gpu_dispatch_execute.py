@@ -28,6 +28,7 @@ from .gpu_dispatch_status import (
     read_status,
     status_is_clear,
 )
+from .parameters import source_binding_c_name
 
 _MAX_CHUNK_WORKGROUPS = 65535
 
@@ -195,7 +196,7 @@ def _readback(spec: GpuDispatchSpec) -> list:
                 spec,
                 IRVar(name=names.gpu),
                 IRVar(name=names.buffer(buffer.name)),
-                IRVar(name=parameter.name),
+                IRVar(name=source_binding_c_name(parameter.name, spec.analyzed)),
                 _buffer_size(
                     IRVar(name=buffer_length_name(parameter.name)),
                     wgsl_to_c(buffer.elem_type),

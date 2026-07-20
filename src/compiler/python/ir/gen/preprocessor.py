@@ -26,10 +26,10 @@ def lower_preprocessor(
 ) -> None:
     """Lower one directive or reject it before C emission."""
 
-    if "\n" in declaration.text or "\r" in declaration.text:
-        raise CodegenError("multi-line preprocessor directives are unsupported")
     if _C11_TRIGRAPH.search(declaration.text):
         raise CodegenError("C11 trigraphs in preprocessor directives are unsupported")
+    if "\n" in declaration.text or "\r" in declaration.text:
+        raise CodegenError("multi-line preprocessor directives are unsupported")
     text = declaration.text.strip()
     if text.endswith("\\"):
         raise CodegenError("multi-line preprocessor directives are unsupported")
@@ -80,7 +80,10 @@ def _parse_define(payload: str, source: str) -> IRMacroDef:
         raise CodegenError(f"malformed function-like #define: {source}")
     parameter_text = suffix[1:close].strip()
     params = [] if not parameter_text else [parameter.strip() for parameter in parameter_text.split(",")]
-    if any(not _IDENTIFIER.fullmatch(parameter) for parameter in params):
+    if any(
+        not _IDENTIFIER.fullmatch(parameter) and not (parameter == "..." and index == len(params) - 1)
+        for index, parameter in enumerate(params)
+    ):
         raise CodegenError(f"invalid function-like macro parameters: {source}")
     if len(params) != len(set(params)):
         raise CodegenError(f"duplicate function-like macro parameter: {source}")

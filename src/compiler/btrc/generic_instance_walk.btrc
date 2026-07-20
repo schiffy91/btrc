@@ -45,13 +45,10 @@ Node? genericClosureIterationType(Node? iterableType, Analyzed analyzed) {
         return iterableType.generic_args.get(0);
     }
     if (iterableType.is_array || iterableType.pointer_depth > 0) {
-        Node element = copyTypeExpr(iterableType);
-        element.is_array = false;
-        element.array_size = null;
-        if (element.pointer_depth > 0) {
-            element.pointer_depth = element.pointer_depth - 1;
+        if (iterableType.is_array) {
+            return typeWithoutOuterArray(iterableType);
         }
-        return element;
+        return typeWithoutOuterPointers(iterableType, 1);
     }
     return null;
 }

@@ -114,18 +114,44 @@ void semanticValidateExprChildren(Node expression,
         SemanticValidationState state, Map<string, Node> vars) {
     if (expression.kind == NK_IDENTIFIER) {
         string name = expression.name;
+        semanticRejectConstructorDefaultInstanceMember(
+            name, expression, false, state, vars);
+        if (state.inParameterDefault && state.sourceMacros.has(name)
+                && semanticSourceMacroExpandsToContextIdentifier(
+                    name, state)) {
+            semanticValidationFail("Source macro '" + name
+                + "' cannot be used in a default argument because it "
+                + "expands to a context-sensitive predefined identifier",
+                expression);
+        }
+        if (semanticHostedRawLifetimeValue(name, state, vars)) {
+            semanticValidationFail("Hosted lifetime function '" + name
+                + "' must be called directly and cannot be stored or "
+                + "forwarded as a value", expression);
+        }
+        if (semanticHostedCallUsesOwnedSymbol(name, state, vars)) {
+            semanticValidationFail("Hosted function '" + name
+                + "' cannot be stored or forwarded as a value because bare "
+                + "__fn_ptr does not preserve its exact C ABI and effects; "
+                + "call it directly", expression);
+        }
+        semanticValidateGeneratedSymbolReference(
+            expression, state, vars, false);
         if (!vars.has(name)
                 && state.analyzed.isAmbiguousEnumValue(name)) {
             semanticValidationFail("Ambiguous enum value '" + name
                 + "'; qualify it with the enum name", expression);
         }
         bool known = vars.has(name) || state.analyzed.funcTable.has(name)
+            || state.sourceMacros.has(name)
             || state.analyzed.isClass(name)
             || state.analyzed.isGenericClass(name)
             || state.analyzed.isEnum(name)
             || state.analyzed.isRichEnum(name)
             || state.analyzed.isEnumValue(name)
+            || sourceRuntimeHelperSymbol(name)
             || isCIntegerIdentifier(name) || name == "NULL"
+            || name == "__func__"
             || name == "stdin"
             || name == "stdout" || name == "stderr";
         if (!known) {
@@ -133,11 +159,23 @@ void semanticValidateExprChildren(Node expression,
                 "Unknown identifier '" + name + "'", expression);
         }
     } else if (expression.kind == NK_SELF_EXPR) {
+        if (state.inParameterDefault && state.callable != null
+                && state.callable.is_constructor) {
+            semanticValidationFail(
+                "Constructor defaults cannot reference 'self' before allocation",
+                expression);
+        }
         if (!vars.has("self")) {
             semanticValidationFail(
                 "'self' used outside an instance method", expression);
         }
     } else if (expression.kind == NK_SUPER_EXPR) {
+        if (state.inParameterDefault && state.callable != null
+                && state.callable.is_constructor) {
+            semanticValidationFail(
+                "Constructor defaults cannot reference 'super' before allocation",
+                expression);
+        }
         if (!vars.has("self")) {
             semanticValidationFail(
                 "'super' used outside an instance method", expression);
@@ -172,6 +210,7 @@ void semanticValidateExprChildren(Node expression,
     } else if (expression.kind == NK_F_STRING_LITERAL) {
         semanticValidateFStringParts(expression.parts, state, vars);
     } else if (expression.kind == NK_NEW_EXPR) {
+        contextualizeNewGenericConstructors(expression, state, vars);
         semanticValidateExprList(expression.args, state, vars);
         semanticValidateNew(expression, state, vars);
     } else if (expression.kind == NK_LAMBDA_EXPR) {

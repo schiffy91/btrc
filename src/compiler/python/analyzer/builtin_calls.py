@@ -64,6 +64,21 @@ class BuiltinCallValidationMixin:
                 )
             return True
 
+        if receiver_type and receiver_type.base in self.rich_enum_table:
+            if callee.field != "toString":
+                self._error(
+                    f"Rich enum '{receiver_type.base}' has no method '{callee.field}'",
+                    expression.line,
+                    expression.col,
+                )
+            else:
+                self._validate_builtin_signature(
+                    f"{receiver_type.base}.toString",
+                    [],
+                    expression,
+                )
+            return True
+
         if self._is_builtin_scalar_receiver(receiver_type):
             if callee.field != "toString":
                 self._error(
@@ -103,6 +118,13 @@ class BuiltinCallValidationMixin:
                 expression.col,
             )
         for index, (expected, argument) in enumerate(zip(expected_types, expression.args), 1):
+            self._validate_opaque_call_argument(
+                None,
+                index - 1,
+                expected,
+                argument,
+                name,
+            )
             actual = self._infer_type(argument)
             if actual and not self._types_compatible(expected, actual):
                 self._error(
@@ -135,3 +157,32 @@ class BuiltinCallValidationMixin:
             expression.line,
             expression.col,
         )
+        self._reject_owned_rich_enum_defaults(
+            expression,
+            enum_decl,
+            variant,
+        )
+
+    def _reject_owned_rich_enum_defaults(self, expression, enum_decl, variant):
+        names = self._arg_names(expression.args, expression.arg_names)
+        supplied = {
+            parameter_index
+            for parameter_index, _argument_index in self._bound_arguments(
+                variant.params,
+                names,
+            )
+        }
+        for index, parameter in enumerate(variant.params):
+            default = parameter.default
+            if default is None or index in supplied:
+                continue
+            if id(default) not in self.rich_enum_unsafe_default_ids:
+                continue
+            self._error(
+                f"Omitted default for rich-enum payload "
+                f"'{enum_decl.name}.{variant.name}.{parameter.name}' produces "
+                "a caller-owned temporary; rich-enum payloads are shallow "
+                "borrowed references, so pass a prebound owner explicitly",
+                expression.line,
+                expression.col,
+            )

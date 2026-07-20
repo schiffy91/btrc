@@ -44,6 +44,13 @@ class IRVar(IRExpr):
     name: str = ""
 
 
+@dataclass
+class IRFunctionRef(IRExpr):
+    """Reference to a C function symbol used as a first-class value."""
+
+    name: str = ""
+
+
 @dataclass(frozen=True)
 class IRCleanupSlot:
     """Typed automatic slot held by the exception-cleanup registry."""

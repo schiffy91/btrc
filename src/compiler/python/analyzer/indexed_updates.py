@@ -25,13 +25,18 @@ class IndexedUpdateContractsMixin:
         getter = protocol.getter
         if setter is None:
             self._error(
-                f"Type '{self._format_type(receiver_type)}' has no indexed setter "
-                "(a void instance set(index, value) method)",
+                f"Type '{self._format_type(receiver_type)}' has no indexed setter; "
+                "it has no void instance set(index, value) method",
                 line,
                 col,
             )
         if require_getter and getter is None:
-            self._error(f"Type '{receiver_type.base}' has no indexed getter", line, col)
+            self._error(
+                f"Type '{self._format_type(receiver_type)}' has no indexed getter; "
+                "indexing requires an instance get(index) method",
+                line,
+                col,
+            )
         if setter is None or (require_getter and getter is None):
             return
         self._validate_indexed_method_access(protocol, setter, line, col)

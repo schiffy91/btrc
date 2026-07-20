@@ -2,6 +2,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 GPU = ROOT / "src" / "stdlib" / "gpu"
 ASYNC_FIXTURE = ROOT / "src" / "tests" / "native" / "gpu_async"
+PENDING_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_pending_list.c"
 RUNTIME_SOURCES = ["btrc_gpu.c", "btrc_gpu_async.c", "btrc_gpu_surface.c"]
 _COMPILE_TIMEOUT_SECONDS = 120
 _RUN_TIMEOUT_SECONDS = 90
@@ -36,8 +38,16 @@ def test_gpu_async_backend_contracts_are_explicit() -> None:
     assert "static atomic_flag event_pump" in async_runtime
     assert "instance, 1, &wait_info, 0" in async_runtime
     assert "now - start >= timeout_ns" in async_runtime
-    assert ".userdata2 = staging" in runtime
+    completion = async_runtime.split("void btrc_gpu_async_complete", 1)[1]
+    assert completion.index("async->status = status") < completion.index("memory_order_release")
+    assert "memory_order_acquire) == BTRC_GPU_ASYNC_DONE" in async_runtime
+    assert ".userdata2 = NULL" in runtime
     assert "gpu_async_cancel_drain_timeout_ns" in runtime
+    assert "static void reap_pending_async(GPU_* gpu)" in runtime
+    assert "pending->future = map_future" in runtime
+    readback = runtime.split("bool btrc_gpu_read_buffer_checked", 1)[1]
+    timeout_cleanup = readback.split("if (outcome != BTRC_GPU_ASYNC_COMPLETED)", 1)[1].split("bool success", 1)[0]
+    assert timeout_cleanup.index("wgpuBufferRelease(staging)") < timeout_cleanup.index("pending->future = map_future")
 
 
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
@@ -65,6 +75,87 @@ def test_gpu_async_state_machine(
         [*backend_flags, f"-I{ASYNC_FIXTURE}", f"-I{GPU}", "-pthread"],
     )
     subprocess.run([str(executable)], check=True, timeout=_RUN_TIMEOUT_SECONDS)
+
+
+@pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
+def test_gpu_pending_list_concurrent_detach_and_merge(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    if not shutil.which(c_compiler):
+        pytest.skip(f"{c_compiler} is unavailable")
+    executable = tmp_path / f"gpu-pending-list-{c_compiler}"
+    _compile_strict_c11(
+        c_compiler,
+        executable,
+        [PENDING_HARNESS],
+        [f"-I{GPU}", "-pthread"],
+    )
+    subprocess.run([str(executable)], check=True, timeout=_RUN_TIMEOUT_SECONDS)
+
+
+@pytest.mark.parametrize(
+    ("name", "sources", "flags"),
+    [
+        ("pending-list", [PENDING_HARNESS], []),
+        (
+            "async-publication",
+            [
+                ASYNC_FIXTURE / "gpu_async_state_machine.c",
+                ASYNC_FIXTURE / "fake_webgpu_runtime.c",
+                GPU / "btrc_gpu_async.c",
+            ],
+            [f"-I{ASYNC_FIXTURE}"],
+        ),
+    ],
+)
+def test_gpu_concurrency_contracts_under_thread_sanitizer(
+    tmp_path: Path,
+    name: str,
+    sources: list[Path],
+    flags: list[str],
+) -> None:
+    compiler_name = "clang" if sys.platform == "darwin" else "gcc"
+    compiler = shutil.which(compiler_name)
+    if not compiler:
+        pytest.skip(f"{compiler_name} ThreadSanitizer is unavailable")
+    executable = tmp_path / f"gpu-{name}-tsan"
+    compile_result = subprocess.run(
+        [
+            compiler,
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            "-O1",
+            "-g",
+            "-fsanitize=thread",
+            "-fno-omit-frame-pointer",
+            "-pthread",
+            f"-I{GPU}",
+            *flags,
+            *map(str, sources),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=_COMPILE_TIMEOUT_SECONDS,
+    )
+    if compile_result.returncode != 0:
+        pytest.skip(f"ThreadSanitizer is unavailable: {compile_result.stderr}")
+    result = subprocess.run(
+        [str(executable)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TSAN_OPTIONS": "halt_on_error=1"},
+        timeout=_RUN_TIMEOUT_SECONDS,
+    )
+    unavailable = "unexpected memory mapping" in result.stderr
+    if result.returncode != 0 and unavailable:
+        pytest.skip(f"ThreadSanitizer runtime is unavailable: {result.stderr}")
+    assert result.returncode == 0, result.stderr
 
 
 def test_gpu_archive_rule_asserts_runtime_membership() -> None:

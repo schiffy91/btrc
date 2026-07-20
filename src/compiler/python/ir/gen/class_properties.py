@@ -29,6 +29,7 @@ from .managed_values import (
     retain_edge_value,
     unlink_edge_value,
 )
+from .parameters import source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -57,14 +58,15 @@ def emit_property(
             )
         )
     if prop.has_setter:
-        body = _setter_body(gen, prop, backing)
+        value_name = source_binding_c_name("value", gen.analyzed)
+        body = _setter_body(gen, prop, backing, value_name)
         gen.module.function_defs.append(
             IRFunctionDef(
                 name=f"{name}_set_{prop.name}",
                 return_type=CType(text="void"),
                 params=[
                     IRParam(c_type=CType(text=f"{name}*"), name="self"),
-                    IRParam(c_type=CType(text=prop_type), name="value"),
+                    IRParam(c_type=CType(text=prop_type), name=value_name),
                 ],
                 body=body,
             )
@@ -114,6 +116,7 @@ def emit_inherited_properties(
                 )
             )
         if prop.has_setter:
+            value_name = source_binding_c_name("value", gen.analyzed)
             gen.module.function_defs.append(
                 IRFunctionDef(
                     name=f"{declaration.name}_set_{name}",
@@ -123,14 +126,14 @@ def emit_inherited_properties(
                             c_type=CType(text=f"{declaration.name}*"),
                             name="self",
                         ),
-                        IRParam(c_type=prop_type, name="value"),
+                        IRParam(c_type=prop_type, name=value_name),
                     ],
                     body=IRBlock(
                         stmts=[
                             IRExprStmt(
                                 expr=IRCall(
                                     callee=f"{parent_name}_set_{name}",
-                                    args=[cast_self, IRVar(name="value")],
+                                    args=[cast_self, IRVar(name=value_name)],
                                 )
                             )
                         ]
@@ -173,7 +176,7 @@ def _getter_body(gen, prop, backing, prop_type):
     return body
 
 
-def _setter_body(gen, prop, backing):
+def _setter_body(gen, prop, backing, value_name):
     if prop.setter_body is None:
         if is_managed_type(gen, prop.type):
             target = IRFieldAccess(
@@ -187,7 +190,7 @@ def _setter_body(gen, prop, backing):
                         expr=replace_edge_value(
                             gen,
                             target,
-                            IRVar(name="value"),
+                            IRVar(name=value_name),
                             prop.type,
                             IRVar(name="self"),
                             adopt=False,
@@ -213,18 +216,18 @@ def _setter_body(gen, prop, backing):
                     IRExprStmt(
                         expr=retain_edge_value(
                             gen,
-                            IRVar(name="value"),
+                            IRVar(name=value_name),
                             prop.type,
                             IRVar(name="self"),
                         )
                     ),
-                    IRAssign(target=target, value=IRVar(name="value")),
+                    IRAssign(target=target, value=IRVar(name=value_name)),
                     IRExprStmt(
                         expr=release_edge_value(
                             gen,
                             IRVar(name=old_name),
                             prop.type,
-                            replacement=IRVar(name="value"),
+                            replacement=IRVar(name=value_name),
                         )
                     ),
                 ]
@@ -240,7 +243,7 @@ def _setter_body(gen, prop, backing):
                         field=backing,
                         arrow=True,
                     ),
-                    value=IRVar(name="value"),
+                    value=IRVar(name=value_name),
                 )
             ]
         )

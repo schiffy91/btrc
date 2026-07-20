@@ -10,6 +10,7 @@
  * Built only when FreeType is available (see `make gui`).
  */
 #include "btrc_gui.h"
+#include "btrc_gui_color.h"
 #include "btrc_gui_font.h"
 
 #include <limits.h>
@@ -85,9 +86,6 @@ static unsigned char bitmap_coverage(const FT_Bitmap* bitmap,
 static void font_draw(void* sv, void* fontv, int x, int y, char* text, uint32_t rgba) {
     btrc_font* f = (btrc_font*)fontv;
     if (!f || !text) { return; }
-    unsigned int R = (rgba >> 24) & 0xFFu;
-    unsigned int G = (rgba >> 16) & 0xFFu;
-    unsigned int B = (rgba >> 8) & 0xFFu;
     int ascender = fixed_26_6_to_int(f->face->size->metrics.ascender);
     int lineH = fixed_26_6_to_int(f->face->size->metrics.height);
     int64_t pen_x = x;
@@ -114,8 +112,8 @@ static void font_draw(void* sv, void* fontv, int x, int y, char* text, uint32_t 
                 if (px < INT_MIN || px > INT_MAX || py < INT_MIN || py > INT_MAX) {
                     continue;
                 }
-                /* Coverage is the alpha; source-over blend keeps it anti-aliased. */
-                uint32_t pix = (R << 24) | (G << 16) | (B << 8) | (uint32_t)cov;
+                /* Coverage modulates, rather than replaces, the caller's alpha. */
+                uint32_t pix = gui_color_apply_coverage(rgba, cov);
                 btrc_gui_blend_rect(sv, (int)px, (int)py, 1, 1, pix);
             }
         }

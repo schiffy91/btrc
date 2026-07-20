@@ -15,6 +15,7 @@ from ..nodes import (
     IRLiteral,
 )
 from .arguments import arg_names_for, lower_arg_values, order_args_for_params
+from .call_contracts import resolved_params_for_call
 from .expressions import lower_expr
 from .sync_methods import lower_consuming_sync_method, lower_sync_method
 from .type_resolution import canonical_type
@@ -58,6 +59,7 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         return lower_optional_method_call(gen, node)
     obj_node = node.callee.obj
     method_name = node.callee.field
+    params = resolved_params_for_call(gen, node)
 
     # A callable field/property is an expression followed by a call, not a
     # method dispatch.  Resolve typedef aliases before deciding which ABI to
@@ -77,6 +79,13 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         and not gen.local_ownership_declared(obj_node.name)
     ):
         args = lower_arg_values(gen, node.args)
+        args = order_args_for_params(
+            gen,
+            params,
+            node.args,
+            arg_names_for(node, len(node.args)),
+            args,
+        )
         return IRCall(callee=f"{obj_node.name}_{method_name}", args=args)
 
     # Static method call: ClassName.method(args) → ClassName_method(args)
@@ -89,7 +98,13 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         cls_info = gen.analyzed.class_table[obj_node.name]
         method = cls_info.methods.get(method_name)
         if method:
-            args = order_args_for_params(gen, method.params, node.args, arg_names_for(node, len(node.args)), args)
+            args = order_args_for_params(
+                gen,
+                params,
+                node.args,
+                arg_names_for(node, len(node.args)),
+                args,
+            )
         return IRCall(callee=f"{obj_node.name}_{method_name}", args=args)
 
     obj_type = gen.analyzed.node_types.get(id(obj_node))
@@ -162,19 +177,13 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             return IRCall(callee=f"{callee_prefix}_get_{method_name}", args=[obj])
         method = cls_info.methods.get(method_name)
         if method:
-            args = order_args_for_params(gen, method.params, node.args, arg_names_for(node, len(node.args)), args)
-            # Upcast args whose declared param type is a class type parameter
-            # (e.g. Vector<Animal>.push(T) where T resolves to Animal): a
-            # subclass element pointer must be cast to the resolved element type.
-            if resolved_obj_type.generic_args and cls_info.generic_params and len(node.args) == len(args):
-                args = _upcast_generic_method_args(
-                    gen,
-                    cls_info,
-                    resolved_obj_type,
-                    method,
-                    node.args,
-                    args,
-                )
+            args = order_args_for_params(
+                gen,
+                params,
+                node.args,
+                arg_names_for(node, len(node.args)),
+                args,
+            )
         # Generic method: dispatch to the monomorphized instance for the method
         # type args inferred at this call site (e.g. mapTo<string>).
         if method and getattr(method, "generic_params", None):
@@ -236,8 +245,11 @@ def _lower_to_string(gen: IRGenerator, obj: IRExpr, obj_type, args) -> IRExpr:
             false_expr=IRLiteral(text='"false"'),
         )
     # Enum → EnumName_toString(val)
-    if base in gen.analyzed.enum_table:
-        return IRCall(callee=f"{base}_toString", args=[obj])
+    if base in gen.analyzed.enum_table or base in gen.analyzed.rich_enum_table:
+        return IRCast(
+            target_type=CType(text="char*"),
+            expr=IRCall(callee=f"{base}_toString", args=[obj]),
+        )
     helper = _to_string_helper(base)
     gen.use_helper(helper)
     gen.use_helper("__btrc_str_track")
@@ -262,30 +274,3 @@ def _to_string_helper(base: str) -> str:
         "long double": "__btrc_longDoubleToString",
         "char": "__btrc_charToString",
     }.get(base, "__btrc_intToString")
-
-
-def _upcast_generic_method_args(gen, cls_info, obj_type, method, ast_args, args):
-    """Upcast Derived→Base args for a generic class method.
-
-    The method's declared param types reference the class type parameters (e.g.
-    ``push(T val)``). Resolve each type parameter to the receiver's corresponding
-    generic argument, then apply a Derived→Base upcast keyed on that resolved
-    type. Only positional, non-defaulted calls are handled (``len`` already
-    checked by the caller); arg ``i`` aligns with method param ``i``.
-    """
-    from .upcast import upcast_class_pointer
-
-    type_map = dict(zip(cls_info.generic_params, obj_type.generic_args))
-    result = list(args)
-    for i, ast_arg in enumerate(ast_args):
-        if i >= len(method.params):
-            break
-        param_type = method.params[i].type
-        if not param_type:
-            continue
-        resolved = type_map.get(param_type.base)
-        if resolved is None:
-            continue
-        source_type = gen.analyzed.node_types.get(id(ast_arg))
-        result[i] = upcast_class_pointer(gen, resolved, source_type, result[i])
-    return result

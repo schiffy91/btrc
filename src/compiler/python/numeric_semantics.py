@@ -87,6 +87,7 @@ _STANDARD_INTEGER_TYPEDEFS = frozenset(
         "suseconds_t",
         "useconds_t",
         "socklen_t",
+        "tcflag_t",
     )
 )
 _PORTABLE_WIDTH_TYPEDEFS = frozenset(
@@ -135,6 +136,7 @@ _UNSIGNED_TYPEDEFS = frozenset(
         "nlink_t",
         "useconds_t",
         "socklen_t",
+        "tcflag_t",
     )
 )
 _RESULT_BASE = {

@@ -156,7 +156,7 @@
           npmInstallFlags = [ "--ignore-scripts" ];
           npmRebuildFlags = [ "--ignore-scripts" ];
           nodejs = pkgs.nodejs_22;
-          nativeBuildInputs = [ pkgs.esbuild pkgs.python314 ];
+          nativeBuildInputs = [ pkgs.esbuild lspPython ];
           buildPhase = ''
             runHook preBuild
             python3 scripts/prepare_lsp_package.py

@@ -1,14 +1,14 @@
 /* Normalize unused C parameters into explicit structured discards.
  * Mirrors src/compiler/python/ir/parameter_usage.py. */
 
-void collectParameterUses(IRNode node, Vector<string> names,
+void collectParameterUses(IRNode node, Map<string, bool> names,
                           Map<string, bool> references,
                           Map<string, bool> declarations) {
     if (node == null) { return; }
-    if (node.kind == IRK_VAR) {
-        scanTextForNames(node.name, names, references);
-    } else if (node.kind == IRK_VAR_DECL) {
-        scanTextForNames(node.name, names, declarations);
+    if (node.kind == IRK_VAR && names.has(node.name)) {
+        references.put(node.name, true);
+    } else if (node.kind == IRK_VAR_DECL && names.has(node.name)) {
+        declarations.put(node.name, true);
     }
 
     collectParameterUses(node.left, names, references, declarations);
@@ -48,10 +48,10 @@ void consumeUnusedParameters(IRModule module) {
     while (f < module.functions.len) {
         IRFunction fn = module.functions.get(f);
         if (fn.body != null && fn.params.len > 0) {
-            Vector<string> names = [];
+            Map<string, bool> names = {};
             int p = 0;
             while (p < fn.params.len) {
-                names.push(fn.params.get(p).name);
+                names.put(fn.params.get(p).name, true);
                 p = p + 1;
             }
 

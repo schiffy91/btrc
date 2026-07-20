@@ -1,9 +1,7 @@
 /* Contextual aggregate/collection initializer shape and element contracts. */
 
 Node semanticArrayElementType(Node arrayType) {
-    Node element = copyTypeExpr(arrayType);
-    element.is_array = false;
-    element.array_size = null;
+    Node element = typeWithoutOuterArray(arrayType);
     element.is_static = false;
     element.is_extern = false;
     return element;
@@ -82,6 +80,8 @@ void semanticValidateMapInitializer(Node expected, Node initializer,
 void semanticValidateInitializerValue(Node expected, Node value,
         string subject, SemanticValidationState state,
         Map<string, Node> vars) {
+    contextualizeGenericConstructor(
+        expected, value, state, vars);
     Node? canonical = semanticResolveAliases(expected, state);
     if (canonical == null) { return; }
     if (value.kind == NK_MAP_LITERAL) {
@@ -168,6 +168,12 @@ void semanticValidateTypedInitializer(Node? expected, Node? initializer,
         string subject, SemanticValidationState state,
         Map<string, Node> vars) {
     if (expected == null || initializer == null) { return; }
+    contextualizeGenericConstructor(
+        expected, initializer, state, vars);
+    semanticValidateManagedStringSource(
+        expected, initializer, subject, state, vars);
+    semanticValidateOpaqueBorrowStorage(
+        expected, initializer, subject, state, vars);
     semanticRejectShallowInitializer(
         expected, initializer, state, vars);
     Node? canonical = semanticResolveAliases(expected, state);
@@ -177,7 +183,10 @@ void semanticValidateTypedInitializer(Node? expected, Node? initializer,
     /* Ordinary scalar/reference compatibility already has context-specific
      * diagnostics at every call site.  This layer owns only contextual
      * aggregate shapes and nested aggregate element checks. */
-    if (!aggregate && (canonical == null || !canonical.is_array)) { return; }
+    if (!aggregate && (initializer.kind == NK_NULL_LITERAL
+            || canonical == null || !canonical.is_array)) {
+        return;
+    }
     semanticValidateInitializerValue(
         expected, initializer, subject, state, vars);
 }

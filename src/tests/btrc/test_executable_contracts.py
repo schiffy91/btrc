@@ -69,10 +69,6 @@ FIXTURES = Path(__file__).with_name("fixtures")
             "range step cannot be zero",
         ),
         (
-            "class Box {} int main() { for (var box = new Box(); true;) {} return 0; }",
-            "C-style for initializer cannot own an ARC-managed value",
-        ),
-        (
             "int main() { int value = 1; delete value; return 0; }",
             "delete is not valid for type 'int'",
         ),

@@ -1,0 +1,92 @@
+/* Resource budgets for untrusted frontend dependency graphs. */
+
+int FE_MAX_RESOLVED_SOURCE_BYTES = 67108864;
+int FE_MAX_RESOLVED_FILES = 10000;
+int FE_MAX_IMPORT_SCAN_ENTRIES = 100000;
+int FE_MAX_IMPORT_DEPTH = 256;
+
+class FeResolutionBudget {
+    public int totalBytes;
+    public int files;
+
+    public FeResolutionBudget() {
+        self.totalBytes = 0;
+        self.files = 0;
+    }
+
+    public void enter(string source, string path, int depth) {
+        if (depth > FE_MAX_IMPORT_DEPTH) {
+            fprintf(stderr,
+                "error: include/import graph exceeds the maximum depth of %d at '%s'\n",
+                FE_MAX_IMPORT_DEPTH, path);
+            exit(1);
+        }
+        self.files = self.files + 1;
+        if (self.files > FE_MAX_RESOLVED_FILES) {
+            fprintf(stderr, "error: include/import graph exceeds the %d-file limit\n",
+                FE_MAX_RESOLVED_FILES);
+            exit(1);
+        }
+        int sourceBytes = source.length();
+        if (sourceBytes > FE_MAX_RESOLVED_SOURCE_BYTES - self.totalBytes) {
+            fprintf(stderr, "error: resolved source exceeds the %d-byte limit\n",
+                FE_MAX_RESOLVED_SOURCE_BYTES);
+            exit(1);
+        }
+        self.totalBytes = self.totalBytes + sourceBytes;
+    }
+}
+
+class FeDirectoryScanBudget {
+    public int entries;
+    public int files;
+    public string root;
+
+    public FeDirectoryScanBudget(string root) {
+        self.entries = 0;
+        self.files = 0;
+        self.root = root;
+    }
+
+    public int remainingEntries() {
+        return FE_MAX_IMPORT_SCAN_ENTRIES - self.entries;
+    }
+
+    public void addEntries(int count) {
+        if (count > self.remainingEntries()) {
+            fprintf(stderr,
+                "error: import directory exceeds the %d-entry scan limit: '%s'\n",
+                FE_MAX_IMPORT_SCAN_ENTRIES, self.root);
+            exit(1);
+        }
+        self.entries = self.entries + count;
+    }
+
+    public void addFile() {
+        self.files = self.files + 1;
+        if (self.files > FE_MAX_RESOLVED_FILES) {
+            fprintf(stderr, "error: import directory exceeds the %d-file limit: '%s'\n",
+                FE_MAX_RESOLVED_FILES, self.root);
+            exit(1);
+        }
+    }
+}
+
+void feCheckCombinedSourceSize(string first, string separator, string second) {
+    int total = 0;
+    Vector<string> parts = [];
+    parts.push(first);
+    parts.push(separator);
+    parts.push(second);
+    int index = 0;
+    while (index < parts.len) {
+        int length = parts.get(index).length();
+        if (length > FE_MAX_RESOLVED_SOURCE_BYTES - total) {
+            fprintf(stderr, "error: resolved source exceeds the %d-byte limit\n",
+                FE_MAX_RESOLVED_SOURCE_BYTES);
+            exit(1);
+        }
+        total = total + length;
+        index = index + 1;
+    }
+}

@@ -218,7 +218,13 @@ class StorageContractsMixin:
     def _validate_property_storage(self, class_decl, prop) -> None:
         subject = f"Property '{class_decl.name}.{prop.name}'"
         if prop.access == "class":
-            self._error(f"Static {subject.lower()} is not supported", prop.line, prop.col)
+            self._error(
+                f"Static property '{class_decl.name}.{prop.name}' is unsupported; "
+                "use a static field "
+                "plus static methods",
+                prop.line,
+                prop.col,
+            )
         canonical = self._canonical_type(prop.type)
         if prop.has_setter and canonical and canonical.is_const and not self._is_pointer_value(canonical):
             self._error(

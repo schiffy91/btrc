@@ -36,12 +36,14 @@ void gpuAppendDispatchPipeline(IRGen gen, IRGpuKernel kernel,
     while (p < kernel.declaration.params.len) {
         Node parameter = kernel.declaration.params.get(p);
         if (!parameter.type.is_array) {
-            IRNode value = irVar(parameter.name);
+            IRNode value = irVar(
+                sourceLexicalBindingCNameForAnalysis(
+                    parameter.name, gen.analyzed));
             if (parameter.type.base == "bool") {
                 value = irTernary(value, irLiteral("1U"), irLiteral("0U"));
             }
             body.push(irAssign(irFieldAccess(irVar(uniforms),
-                parameter.name, false), value));
+                sourceLexicalBindingCName(parameter.name), false), value));
         }
         p = p + 1;
     }
@@ -130,7 +132,7 @@ void gpuAppendDispatchPipeline(IRGen gen, IRGpuKernel kernel,
         irAssign(irVar(bindGroup),
             irCall("btrc_gpu_create_bind_group", createBind))]), null));
     gpuMarkNull(body, bindGroup, ok);
-    gpuAppendDispatchExecution(kernel, uniformStruct, body, bufferNames,
+    gpuAppendDispatchExecution(gen, kernel, uniformStruct, body, bufferNames,
         gpu, ok, uniforms, uniformBuffer, statusBuffer, status,
         pipeline, bindGroup, outputBuffer, started);
     gpuAppendCleanup(body, bufferNames, uniformBuffer, statusBuffer,
@@ -138,14 +140,15 @@ void gpuAppendDispatchPipeline(IRGen gen, IRGpuKernel kernel,
     gpuAppendStatusFailures(body, status);
     gpuAppendPostSubmitFailure(body, ok, started);
     Vector<IRNode> failedSetup = [];
-    gpuAppendUnavailable(kernel, failedSetup, true);
+    gpuAppendUnavailable(gen, kernel, failedSetup, true);
     body.push(irIf(irBinOp(irUnaryOp("!", irVar(ok), true),
         "&&", irUnaryOp("!", irVar(started), true)),
         irBlock(failedSetup), null));
 }
 
-void gpuAppendDispatchExecution(IRGpuKernel kernel, string uniformStruct,
-        Vector<IRNode> body, Vector<string> bufferNames, string gpu,
+void gpuAppendDispatchExecution(IRGen gen, IRGpuKernel kernel,
+        string uniformStruct, Vector<IRNode> body,
+        Vector<string> bufferNames, string gpu,
         string ok, string uniforms, string uniformBuffer,
         string statusBuffer, string status, string pipeline,
         string bindGroup, string outputBuffer, string started) {
@@ -198,7 +201,9 @@ void gpuAppendDispatchExecution(IRGpuKernel kernel, string uniformStruct,
             IRGpuBuffer buffer = kernel.param_buffers.get(b);
             Vector<IRNode> read = [];
             read.push(irVar(gpu)); read.push(irVar(bufferNames.get(b)));
-            read.push(irCast("void*", irVar(buffer.name)));
+            read.push(irCast("void*",
+                irVar(sourceLexicalBindingCNameForAnalysis(
+                    buffer.name, gen.analyzed))));
             read.push(irBinOp(irVar(gpuLengthName(buffer.name)), "*",
                 irSizeofType(buffer.elem_type == "f32" ? "float" : "int")));
             gpuAppendCheckedRead(readUser, read, ok);

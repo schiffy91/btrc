@@ -101,7 +101,7 @@ bool tryLowerGpuCpuReturn(IRGen gen, Node statement,
         gpuLoweringFail(statement,
             "array-returning GPU invocation must return an element value");
     }
-    Node? valueType = inferType(
+    Node? valueType = gpuContextualExprType(
         statement.value_node, gen.analyzed, varTypes);
     if (valueType != null && valueType.is_array) {
         if (statement.value_node.kind != NK_IDENTIFIER
@@ -113,7 +113,9 @@ bool tryLowerGpuCpuReturn(IRGen gen, Node statement,
         checked.push(irVar(gen.gpuCpu.index_name));
         checked.push(irVar(gen.gpuCpu.array_lengths.get(
             statement.value_node.name)));
-        out.push(irReturn(irIndex(irVar(statement.value_node.name),
+        out.push(irReturn(irIndex(
+            irVar(sourceLexicalBindingCNameForAnalysis(
+                statement.value_node.name, gen.analyzed)),
             irCall("__btrc_gpu_checked_index", checked))));
     } else {
         out.push(irReturn(gen.lowerExpr(statement.value_node, varTypes)));
@@ -177,6 +179,10 @@ string gpuExprBaseForCpu(IRGen gen, Node expression,
 }
 
 void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
+    /* The CPU fallback is a distinct function body over the GPU parameter
+     * environment. Clear ordinary/generic inference state before recursively
+     * inferring its shared AST. */
+    gen.resetFuncVarDecls();
     ensureGpuCheckedIndexHelper(module);
     bool returnsArray = declaration.return_type != null
         && declaration.return_type.is_array;
@@ -192,7 +198,9 @@ void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
     while (p < declaration.params.len) {
         Node parameter = declaration.params.get(p);
         worker.params.push(IRParam(
-            typeToC(parameter.type, gen.analyzed), parameter.name));
+            typeToC(parameter.type, gen.analyzed),
+            sourceLexicalBindingCNameForAnalysis(
+                parameter.name, gen.analyzed)));
         varTypes.put(parameter.name, parameter.type);
         if (parameter.type.is_array) {
             string length = gpuLengthName(parameter.name);
@@ -217,7 +225,10 @@ void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
     } else {
         gen.currentReturnTypeNode = declaration.return_type;
     }
+    Vector<string> sourceBindings =
+        gen.replaceSourceLexicalParameters(declaration.params);
     worker.body = gen.lowerBlock(declaration.body_node, varTypes);
+    gen.restoreSourceLexicalBindings(sourceBindings);
     gen.currentReturnCType = previousReturnC;
     gen.currentReturnTypeNode = previousReturn;
     gen.currentReturnOwned = previousReturnOwned;
@@ -244,8 +255,12 @@ void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
     while (p < declaration.params.len) {
         Node parameter = declaration.params.get(p);
         wrapper.params.push(IRParam(
-            typeToC(parameter.type, gen.analyzed), parameter.name));
-        invocationArgs.push(irVar(parameter.name));
+            typeToC(parameter.type, gen.analyzed),
+            sourceLexicalBindingCNameForAnalysis(
+                parameter.name, gen.analyzed)));
+        invocationArgs.push(irVar(
+            sourceLexicalBindingCNameForAnalysis(
+                parameter.name, gen.analyzed)));
         if (parameter.type.is_array) {
             string length = gpuLengthName(parameter.name);
             wrapper.params.push(IRParam("int", length));

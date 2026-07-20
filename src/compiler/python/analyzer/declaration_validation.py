@@ -71,6 +71,7 @@ class RegisteredDeclarationValidationMixin:
                 )
 
     def _validate_function_signature_types(self, function) -> None:
+        self._validate_hosted_abi_declaration(function)
         self._validate_declared_type(
             function.return_type,
             f"Return type of function '{function.name}'",

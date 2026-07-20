@@ -14,8 +14,6 @@ generic types that the substituted return/parameter types reference (e.g.
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ..ast_nodes import Identifier, LambdaExpr, TypeExpr
 
 
@@ -170,12 +168,19 @@ class GenericMethodsMixin:
         if getattr(declared, "is_array", False):
             if not getattr(binding, "is_array", False):
                 return None
-            binding = replace(binding, is_array=False, array_size=None)
+            from ..type_composition import strip_outer_storage
+
+            binding = strip_outer_storage(binding, array=True)
         extra = getattr(declared, "pointer_depth", 0)
         if extra:
             if getattr(binding, "pointer_depth", 0) < extra:
                 return None
-            binding = replace(binding, pointer_depth=binding.pointer_depth - extra)
+            from ..type_composition import strip_outer_storage
+
+            for _ in range(extra):
+                if binding.pointer_depth <= 0:
+                    return None
+                binding = strip_outer_storage(binding)
         return binding
 
     def _all_concrete(self, args, unresolved=()) -> bool:

@@ -14,6 +14,11 @@ def callable_for_call(gen, node: CallExpr):
     """Resolve the source declaration targeted by ``node`` when possible."""
     callee = node.callee
     if isinstance(callee, FieldAccessExpr):
+        from .rich_enum_calls import rich_enum_variant_target
+
+        variant = rich_enum_variant_target(gen, node)
+        if variant is not None:
+            return variant[1]
         receiver_type = gen.analyzed.node_types.get(id(callee.obj))
         if receiver_type is not None:
             class_info = gen.analyzed.class_table.get(receiver_type.base)
@@ -21,13 +26,17 @@ def callable_for_call(gen, node: CallExpr):
                 method = class_info.methods.get(callee.field)
                 if method is not None:
                     return method
-        if isinstance(callee.obj, Identifier):
+        if isinstance(callee.obj, Identifier) and not gen.local_ownership_declared(callee.obj.name):
             class_info = gen.analyzed.class_table.get(callee.obj.name)
             if class_info is not None:
                 return class_info.methods.get(callee.field)
         return None
 
     if not isinstance(callee, Identifier):
+        return None
+    if gen.local_ownership_declared(callee.name):
+        return None
+    if id(node) in gen.analyzed.hosted_call_ids:
         return None
     class_info = gen.analyzed.class_table.get(callee.name)
     if class_info is not None:

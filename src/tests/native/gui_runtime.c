@@ -1,4 +1,5 @@
 #include "btrc_gui.h"
+#include "btrc_gui_color.h"
 
 #include <limits.h>
 #include <pthread.h>
@@ -88,6 +89,12 @@ int main(int argc, char** argv) {
     btrc_gui_blend_rect(surface, 0, 0, 1, 1, 0xFF000080u);
     check(btrc_gui_get_pixel(surface, 0, 0) == 0xAA0055C0u,
           "source-over combines source and destination alpha");
+    check(gui_color_apply_coverage(0xAABBCC80u, 128u) == 0xAABBCC40u,
+          "glyph coverage multiplies the caller alpha");
+    check(gui_color_apply_coverage(0xAABBCC80u, 255u) == 0xAABBCC80u,
+          "full glyph coverage preserves the caller alpha");
+    check(gui_color_apply_coverage(0xAABBCC00u, 255u) == 0xAABBCC00u,
+          "transparent glyph colors remain transparent");
 
     char truncated_two[] = {(char)0xC2, '\0'};
     char truncated_four[] = {(char)0xF0, (char)0x9F, '\0'};

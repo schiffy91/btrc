@@ -8,6 +8,7 @@ from .divmod import DIVMOD
 from .gpu import GPU
 from .hash import HASH
 from .math import MATH
+from .process import PROCESS
 from .string_ownership import STRING_OWNERSHIP
 from .string_pool import STRING_POOL
 from .strings import STRING
@@ -26,6 +27,7 @@ HELPERS: dict[str, dict[str, HelperDef]] = {
     "hash": HASH,
     "collections": COLLECTIONS,
     "cycles": CYCLES,
+    "process": PROCESS,
     "threads": THREADS,
 }
 
@@ -38,6 +40,7 @@ __all__ = [
     "HASH",
     "HELPERS",
     "MATH",
+    "PROCESS",
     "STRING",
     "STRING_OWNERSHIP",
     "STRING_POOL",
