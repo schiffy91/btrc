@@ -61,7 +61,6 @@ bool hostedAbiOwnedGenerated14(string name) {
         || name == "fchecklv"
         || name == "fchecklv_t"
         || name == "fchflags"
-        || name == "fchmod"
         || name == "fchmodat"
         || name == "fchmodx_np"
         || name == "fchown"
@@ -179,5 +178,6 @@ bool hostedAbiOwnedGenerated14(string name) {
         || name == "getprogname"
         || name == "getpwent"
         || name == "getpwent_r"
-        || name == "getpwnam";
+        || name == "getpwnam"
+        || name == "getpwuid";
 }

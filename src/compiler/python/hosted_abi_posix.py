@@ -94,6 +94,7 @@ HOSTED_POSIX_FUNCTIONS: dict[str, HostedFunction] = {
         return_effect=RETURN_INDEPENDENT,
         return_deallocator="closedir",
     ),
+    "fchmod": function(INT, INT, _MODE, effects=(VALUE, VALUE)),
     "fstat": function(INT, INT, _STRUCT_STAT_PTR, effects=(VALUE, MUTATE)),
     "fsync": function(INT, INT, effects=(VALUE,)),
     "getcwd": function(

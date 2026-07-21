@@ -525,7 +525,7 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
     Node? resultType = generator.resolvedExpressionType(call, varTypes);
     if (convertsHostedResult) { resultType = makePrimType("string"); }
     return boundary.finish(generator, lowered,
-        resultType, false, resultType == null);
+        resultType, false, resultType == null, call);
 }
 
 IRNode lowerNewWithOwnership(IRGen generator, Node expression,

@@ -13,3 +13,10 @@ void opaqueOperandOrderFail(Node expression, string context,
     }
     abortGen();
 }
+
+void opaqueCallResultCleanupFail(Node call) {
+    fprintf(stderr,
+        "error: opaque C call result at %d:%d cannot cross an ownership cleanup boundary; provide a typed declaration or exact hosted ABI contract\n",
+        call.line, call.col);
+    abortGen();
+}

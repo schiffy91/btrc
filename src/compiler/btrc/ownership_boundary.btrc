@@ -171,7 +171,8 @@ class OwnershipBoundary {
 
     public IRNode finish(IRGen generator, IRNode expression,
             Node? resultType, bool promoteResult,
-            bool opaqueResult = false) {
+            bool opaqueResult = false,
+            Node? opaqueResultSite = null) {
         Vector<IRNode> sequence = self.prefix;
         int handoffIndex = 0;
         while (handoffIndex < self.handoffs.len) {
@@ -179,10 +180,16 @@ class OwnershipBoundary {
             handoffIndex = handoffIndex + 1;
         }
         if (opaqueResult) {
-            if (resultType != null || self.suffix.len > 0) {
-                fprintf(stderr,
-                    "error: opaque C call result cannot cross an ownership cleanup boundary; cast it explicitly or provide an exact hosted ABI contract\n");
+            if (resultType != null) {
+                print("internal compiler error: opaque call result has a concrete type");
                 abortGen();
+            }
+            if (opaqueResultSite == null) {
+                print("internal compiler error: opaque call result has no source site");
+                abortGen();
+            }
+            if (self.suffix.len > 0) {
+                opaqueCallResultCleanupFail(opaqueResultSite);
             }
             sequence.push(expression);
             return irStmtExpr(self.declarations, irCommaExpr(sequence));

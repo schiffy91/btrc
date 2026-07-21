@@ -105,7 +105,6 @@ bool hostedAbiFunctionOwnedGenerated0(string name) {
         || name == "faccessat"
         || name == "fchdir"
         || name == "fchflags"
-        || name == "fchmod"
         || name == "fchmodat"
         || name == "fchmodx_np"
         || name == "fchown"
@@ -179,5 +178,6 @@ bool hostedAbiFunctionOwnedGenerated0(string name) {
         || name == "getipv4sourcefilter"
         || name == "getitimer"
         || name == "getloadavg"
-        || name == "getlogin";
+        || name == "getlogin"
+        || name == "getlogin_r";
 }
