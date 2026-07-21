@@ -50,6 +50,7 @@ def sequence_call_boundary(
     build_call: Callable,
     result_c_type: str | None,
     result_type=None,
+    opaque_result: bool = False,
     fresh_temp: Callable[[str], str],
     cleanup_active: bool,
     record_decl: Callable[[IRVarDecl], None],
@@ -173,7 +174,18 @@ def sequence_call_boundary(
 
     call = build_call(overrides)
     sequence = [*prefix, *handoffs]
-    if result_c_type is not None and result_c_type != "void":
+    if opaque_result:
+        if result_c_type is not None or result_type is not None:
+            raise ValueError("opaque call result cannot also have a concrete type")
+        if suffix:
+            from .errors import CodegenError
+
+            raise CodegenError(
+                "opaque C call result cannot cross an ownership cleanup boundary; "
+                "cast it explicitly or provide an exact hosted ABI contract"
+            )
+        sequence.append(call)
+    elif result_c_type is not None and result_c_type != "void":
         result_decl = _temporary(
             fresh_temp,
             record_decl,

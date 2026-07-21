@@ -99,6 +99,7 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
         build_call=build_call,
         result_c_type=type_to_c(result_type) if result_type is not None else None,
         result_type=result_type,
+        opaque_result=result_type is None,
         fresh_temp=gen.fresh_temp,
         cleanup_active=gen.exception_cleanup_active(),
         record_decl=gen._func_var_decls.append,

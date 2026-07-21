@@ -130,6 +130,38 @@ def test_calls_binary_constructors_and_generic_bodies_run_left_to_right(
         _strict_build_and_run(generated, tmp_path / f"sequencing-{index}")
 
 
+def test_nested_user_call_preserves_opaque_hosted_result(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <sys/stat.h>
+        #include <unistd.h>
+
+        class UserClass {
+            class int value(int mode) { return mode; }
+        }
+
+        int main() {
+            int descriptor = -1;
+            int mode = 384;
+            bool nested = fchmod(
+                descriptor, UserClass.value(mode)) == 0;
+            int localValue = UserClass.value(mode);
+            bool local = fchmod(descriptor, localValue) == 0;
+            return nested || local ? 1 : 0;
+        }
+    """
+    for index, generated in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+        emitted = generated.read_text()
+        assert "fchmod" in emitted
+        assert "((void)0)) == 0" not in emitted
+        _strict_build_and_run(
+            generated,
+            tmp_path / f"opaque-hosted-result-{index}",
+        )
+
+
 def test_managed_receivers_survive_later_operands_and_unwind(
     semantic_btrcc: Path,
     tmp_path: Path,
