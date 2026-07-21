@@ -4,6 +4,9 @@ import std.strings;
 import std.vector;
 
 #include <float.h>
+#include <locale.h>
+
+extern struct lconv* localeconv();
 
 class JsonObject {
     public Map<string, string> values;
@@ -515,35 +518,84 @@ class JsonValue {
     }
 
     /* Escape a string for JSON output, including all control chars < 0x20
-     * (emitted as \uXXXX) so the result is always valid JSON. */
+     * (emitted as \uXXXX) and malformed UTF-8. */
     class string encodeString(string text) {
         var output = StringBuilder();
         JsonValue.appendEncodedString(output, text);
         return output.toString();
     }
 
-    /* Append encoded content without surrounding quotes. */
+    /* Append encoded content without surrounding quotes. Valid UTF-8 scalar
+     * sequences are preserved byte-for-byte. Each rejected byte emits one
+     * U+FFFD, then validation resumes at the following byte. */
     class void appendEncodedString(StringBuilder output, string text) {
         if (output == null || text == null) { return; }
         string hex = "0123456789abcdef";
         var n = text.len();
-        for (int i = 0; i < n; i++) {
+        int i = 0;
+        while (i < n) {
             char c = text[i];
             int code = (int)((unsigned char)c);
-            if (c == (char)34) { output.append("\\\""); }
-            else if (c == '\\') { output.append("\\\\"); }
-            else if (c == '\n') { output.append("\\n"); }
-            else if (c == '\r') { output.append("\\r"); }
-            else if (c == '\t') { output.append("\\t"); }
-            else if (code == 8) { output.append("\\b"); }
-            else if (code == 12) { output.append("\\f"); }
-            else if (code < 32) {
-                output.append("\\u00");
-                output.appendChar(hex[(code >> 4) & 15]);
-                output.appendChar(hex[code & 15]);
-            } else {
-                output.appendChar(c);
+            if (code < 0x80) {
+                if (c == (char)34) { output.append("\\\""); }
+                else if (c == '\\') { output.append("\\\\"); }
+                else if (c == '\n') { output.append("\\n"); }
+                else if (c == '\r') { output.append("\\r"); }
+                else if (c == '\t') { output.append("\\t"); }
+                else if (code == 8) { output.append("\\b"); }
+                else if (code == 12) { output.append("\\f"); }
+                else if (code < 32) {
+                    output.append("\\u00");
+                    output.appendChar(hex[(code >> 4) & 15]);
+                    output.appendChar(hex[code & 15]);
+                } else {
+                    output.appendChar(c);
+                }
+                i++;
+                continue;
             }
+
+            int width = 0;
+            if (code >= 0xc2 && code <= 0xdf) {
+                width = 2;
+            } else if (code >= 0xe0 && code <= 0xef) {
+                width = 3;
+            } else if (code >= 0xf0 && code <= 0xf4) {
+                width = 4;
+            }
+
+            bool valid = width > 0 && width <= n - i;
+            for (int offset = 1; valid && offset < width; offset++) {
+                int continuation = (int)((unsigned char)text[i + offset]);
+                if ((continuation & 0xc0) != 0x80) {
+                    valid = false;
+                }
+            }
+
+            if (valid && width == 3) {
+                int second = (int)((unsigned char)text[i + 1]);
+                if ((code == 0xe0 && second < 0xa0)
+                        || (code == 0xed && second > 0x9f)) {
+                    valid = false;
+                }
+            } else if (valid && width == 4) {
+                int second = (int)((unsigned char)text[i + 1]);
+                if ((code == 0xf0 && second < 0x90)
+                        || (code == 0xf4 && second > 0x8f)) {
+                    valid = false;
+                }
+            }
+
+            if (!valid) {
+                output.append("\xef\xbf\xbd");
+                i++;
+                continue;
+            }
+
+            for (int offset = 0; offset < width; offset++) {
+                output.appendChar(text[i + offset]);
+            }
+            i += width;
         }
     }
 }
@@ -824,10 +876,17 @@ class JsonParser {
 
 /* Numeric / byte helpers kept apart from the tree so the tree stays focused. */
 class JsonNum {
-    /* Parse a numeric token to a double via C strtod. */
+    /* Parse a JSON numeric token without changing the process locale. */
     class double toDouble(string token) {
-        double result = strtod(token, NULL);
-        return result;
+        string localized = token;
+        struct lconv* convention = localeconv();
+        if (convention != NULL && convention->decimal_point != NULL) {
+            string decimalPoint = Strings.copy(convention->decimal_point);
+            if (!decimalPoint.isEmpty() && !decimalPoint.equals(".")) {
+                localized = Strings.replace(token, ".", decimalPoint);
+            }
+        }
+        return strtod(localized, NULL);
     }
 
     class bool isFinite(double value) {
@@ -847,7 +906,17 @@ class JsonNum {
         }
         char* buf = (char*)__btrc_safe_realloc(null, (size_t)40);
         snprintf(buf, 40, "%.17g", value);
-        return __btrc_str_track(buf);
+        string formatted = __btrc_str_track(buf);
+
+        /* C formatting follows LC_NUMERIC; JSON always uses '.'. */
+        struct lconv* convention = localeconv();
+        if (convention != NULL && convention->decimal_point != NULL) {
+            string decimalPoint = Strings.copy(convention->decimal_point);
+            if (!decimalPoint.isEmpty() && !decimalPoint.equals(".")) {
+                return Strings.replace(formatted, decimalPoint, ".");
+            }
+        }
+        return formatted;
     }
 
     /* A one-byte string for a control char code (0..255). */
