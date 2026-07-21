@@ -136,10 +136,15 @@ class DirectoryIdentity {
         self.captured = false;
     }
 
+    class bool validEntry(int parentDescriptor, string name) {
+        return parentDescriptor >= 0 && name != null && !name.isEmpty()
+            && !name.equals(".") && !name.equals("..")
+            && !name.contains("/");
+    }
+
     class DirectoryIdentity captureAt(int parentDescriptor, string name) {
         DirectoryIdentity identity = DirectoryIdentity();
-        if (name == null || name.isEmpty()
-                || name.equals(".") || name.equals("..")) {
+        if (!DirectoryIdentity.validEntry(parentDescriptor, name)) {
             return identity;
         }
         struct stat inspected;
@@ -158,8 +163,8 @@ class DirectoryIdentity {
     }
 
     public int removeMatching(int parentDescriptor, string name) {
-        if (!self.captured || name == null || name.isEmpty()
-                || name.equals(".") || name.equals("..")) {
+        if (!self.captured
+                || !DirectoryIdentity.validEntry(parentDescriptor, name)) {
             return -1;
         }
         struct stat inspected;

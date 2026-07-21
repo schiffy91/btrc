@@ -10,6 +10,11 @@ int main() {
 
     int parentDescriptor = UnixFileSystem.openDirectoryNoFollow(root);
     assert(parentDescriptor >= 0);
+    assert(!UnixFileSystem.captureDirectoryAt(-1, "entry").valid());
+    assert(!UnixFileSystem.captureDirectoryAt(parentDescriptor, ".").valid());
+    assert(!UnixFileSystem.captureDirectoryAt(parentDescriptor, "..").valid());
+    assert(!UnixFileSystem.captureDirectoryAt(
+        parentDescriptor, "nested/entry").valid());
 
     string success = PathTools.join(root, "success");
     string successChild = PathTools.join(success, "nested/child.txt");
@@ -18,6 +23,8 @@ int main() {
     DirectoryIdentity successIdentity =
         UnixFileSystem.captureDirectoryAt(parentDescriptor, "success");
     assert(successIdentity.valid());
+    assert(UnixFileSystem.removeRecursiveAtMatching(
+        parentDescriptor, "nested/success", successIdentity) != 0);
     assert(UnixFileSystem.removeRecursiveAtMatching(
         parentDescriptor, "success", successIdentity) == 0);
     assert(!FileSystem.exists(success));
