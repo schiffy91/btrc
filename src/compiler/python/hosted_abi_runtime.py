@@ -15,6 +15,7 @@ from .hosted_abi_model import (
     RETURN_INDEPENDENT,
     SIZE,
     VALUE,
+    VOID,
     VOID_PTR,
     HostedFunction,
     abi_type,
@@ -79,6 +80,7 @@ SOURCE_RUNTIME_FUNCTIONS: dict[str, HostedFunction] = {
     ),
     "__btrc_descriptor_close_bound": function(INT),
     "__btrc_close_descriptors_from": function(INT, INT),
+    "__btrc_close_descriptors_except": function(INT, INT, INT),
     "__btrc_move_descriptor_outside_stdio": function(
         INT,
         abi_type("int", 1),
@@ -98,6 +100,26 @@ SOURCE_RUNTIME_FUNCTIONS: dict[str, HostedFunction] = {
         INT,
         INT,
         effects=(READ, READ, READ, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE),
+    ),
+    "__btrc_prepare_executable_descriptor": function(
+        INT,
+        INT,
+        CHAR_PTR,
+        SIZE,
+        effects=(VALUE, MUTATE, VALUE),
+    ),
+    "__btrc_release_executable_descriptor": function(
+        VOID,
+        CHAR_PTR,
+        effects=(MUTATE,),
+    ),
+    "__btrc_exec_executable_descriptor": function(
+        INT,
+        INT,
+        CONST_CHAR_PTR,
+        CHAR_PTR_PTR,
+        CHAR_PTR_PTR,
+        effects=(VALUE, READ, READ, READ),
     ),
 }
 

@@ -1,0 +1,54 @@
+import std.fs;
+import std.process;
+
+#include <assert.h>
+
+int main() {
+    string root = FileSystem.tempDir("btrc descriptor executable");
+    assert(!root.isEmpty());
+    string executable = PathTools.join(root, "leased executable");
+    string leasedScript = "#!/bin/sh\n"
+        + "marker=$(eval \"cat <&$1\" 2>/dev/null) || marker=closed\n"
+        + "if [ \"$marker\" = unrelated-fd ]; then\n"
+        + "  printf leaked\n"
+        + "  exit 9\n"
+        + "fi\n"
+        + "printf leased\n";
+    assert(FileSystem.writeText(executable, leasedScript));
+    assert(FileSystem.chmod(executable, 0700) == 0);
+
+    int leasedDescriptor = open(
+        executable, (int)O_RDONLY | (int)O_CLOEXEC);
+    assert(leasedDescriptor >= 3);
+
+    FILE* unrelated = tmpfile();
+    assert(unrelated != NULL);
+    assert(fputs("unrelated-fd\n", unrelated) >= 0);
+    assert(fflush(unrelated) == 0);
+    int unrelatedDescriptor = fileno(unrelated);
+    int unrelatedFlags = fcntl(unrelatedDescriptor, F_GETFD, 0);
+    assert(unrelatedDescriptor >= 3 && unrelatedFlags >= 0);
+    assert(fcntl(unrelatedDescriptor, F_SETFD,
+        unrelatedFlags & ~FD_CLOEXEC) == 0);
+    assert(lseek(unrelatedDescriptor, (off_t)0, SEEK_SET) == (off_t)0);
+
+    assert(unlink(executable) == 0);
+    assert(FileSystem.writeText(
+        executable, "#!/bin/sh\nprintf replacement\n"));
+    assert(FileSystem.chmod(executable, 0700) == 0);
+
+    ExecResult result = ChildProcess.run(
+        executable,
+        [f"{unrelatedDescriptor}"],
+        executableDescriptor=leasedDescriptor,
+        timeoutMilliseconds=2000);
+
+    assert(close(leasedDescriptor) == 0);
+    assert(fclose(unrelated) == 0);
+    assert(result.ok());
+    assert(result.stdout().equals("leased"));
+    assert(!result.stdout().contains("replacement"));
+    assert(FileSystem.removeRecursive(root) == 0);
+    print("PASS: test_stdlib_child_process_descriptor");
+    return 0;
+}

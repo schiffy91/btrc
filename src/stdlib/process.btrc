@@ -543,7 +543,9 @@ class ChildProcessExecutable {
  * API never parses or renders shell syntax: executable and arguments reach
  * execve(2) as distinct argv entries. Environment changes inherit the parent
  * environment, then apply NAME=value overrides and explicit unsets. A zero
- * timeout is unbounded; expiry returns code 124 with wasTimedOut() true. */
+ * timeout is unbounded; expiry returns code 124 with wasTimedOut() true.
+ * executableDescriptor borrows a readable regular executable; when supplied,
+ * executable is only argv[0] and the diagnostic label, never an execution path. */
 class ChildProcess {
     class int descriptorCloseBound() {
         return __btrc_descriptor_close_bound();
@@ -690,9 +692,14 @@ class ChildProcess {
                          int maxStderrBytes = 8388608,
                          string stdinData = "",
                          string stdout = CommandOutput.collect(),
-                         string stderr = CommandOutput.collect()) {
+                         string stderr = CommandOutput.collect(),
+                         int executableDescriptor = -1) {
         if (executable == null || executable.isEmpty()) {
             return ChildProcess.failure(executable, "executable cannot be empty");
+        }
+        if (executableDescriptor < -1) {
+            return ChildProcess.failure(executable,
+                "executable descriptor cannot be negative");
         }
         if (arguments == null) {
             return ChildProcess.failure(executable, "arguments cannot be null");
@@ -832,9 +839,11 @@ class ChildProcess {
             }
         }
 
-        string resolvedExecutable = ChildProcessExecutable.resolve(
-            executable, cwd, environment, unsetEnvironment);
-        if (resolvedExecutable.isEmpty()) {
+        string resolvedExecutable = executableDescriptor < 0
+            ? ChildProcessExecutable.resolve(
+                executable, cwd, environment, unsetEnvironment)
+            : "";
+        if (executableDescriptor < 0 && resolvedExecutable.isEmpty()) {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcess.closePipe(stderrPipe);
             if (nullDescriptor >= 0) { close(nullDescriptor); }
@@ -857,14 +866,43 @@ class ChildProcess {
             ? stdoutPipe[1] : (suppressStdout ? nullDescriptor : -1);
         int stderrSource = stderrPipe[1] >= 0
             ? stderrPipe[1] : (suppressStderr ? nullDescriptor : -1);
-        pid_t child = __btrc_posix_spawn_cloexec(
-            resolvedExecutable, execArguments, execEnvironment,
-            hasCwd ? cwd : NULL,
-            stdoutSource, stderrSource, inputDescriptor,
-            combineStderr ? 1 : 0,
-            ChildProcess.inheritsOnExec(STDIN_FILENO) ? 1 : 0,
-            ChildProcess.inheritsOnExec(STDOUT_FILENO) ? 1 : 0,
-            ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
+        int leasedExecutable = -1;
+        char preparedExecutable[PATH_MAX];
+        preparedExecutable[0] = '\0';
+        if (executableDescriptor >= 0) {
+            leasedExecutable = fcntl(
+                executableDescriptor, F_DUPFD_CLOEXEC, 3);
+            if (leasedExecutable < 0
+                    || __btrc_prepare_executable_descriptor(
+                        leasedExecutable, preparedExecutable,
+                        (size_t)PATH_MAX) != 0) {
+                if (leasedExecutable >= 0) { close(leasedExecutable); }
+                ChildProcess.closePipe(stdoutPipe);
+                ChildProcess.closePipe(stderrPipe);
+                if (nullDescriptor >= 0) { close(nullDescriptor); }
+                if (inputDescriptor >= 0
+                        && inputDescriptor != inputStreamDescriptor) {
+                    close(inputDescriptor);
+                }
+                if (input != NULL) { fclose(input); }
+                ChildProcessArguments.freeEntries(execArguments);
+                ChildProcessEnvironment.freeEntries(execEnvironment);
+                return ChildProcess.failure(command,
+                    "failed to prepare executable descriptor\n");
+            }
+        }
+
+        pid_t child = (pid_t)0 - (pid_t)2;
+        if (leasedExecutable < 0) {
+            child = __btrc_posix_spawn_cloexec(
+                resolvedExecutable, execArguments, execEnvironment,
+                hasCwd ? cwd : NULL,
+                stdoutSource, stderrSource, inputDescriptor,
+                combineStderr ? 1 : 0,
+                ChildProcess.inheritsOnExec(STDIN_FILENO) ? 1 : 0,
+                ChildProcess.inheritsOnExec(STDOUT_FILENO) ? 1 : 0,
+                ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
+        }
         if (child == (pid_t)0 - (pid_t)2) {
             descriptorBound = ChildProcess.descriptorCloseBound();
             child = fork();
@@ -897,7 +935,11 @@ class ChildProcess {
             if (stderrPipe[1] >= 0) { close(stderrPipe[1]); }
             if (nullDescriptor >= 0) { close(nullDescriptor); }
             if (inputDescriptor >= 0) { close(inputDescriptor); }
-            if (ChildProcess.closeDescriptorsForExec(descriptorBound) != 0) {
+            int closeResult = leasedExecutable >= 0
+                ? __btrc_close_descriptors_except(
+                    descriptorBound, leasedExecutable)
+                : ChildProcess.closeDescriptorsForExec(descriptorBound);
+            if (closeResult != 0) {
                 write(STDERR_FILENO,
                     "unsupported process descriptor limit\n", 37);
                 _exit(126);
@@ -907,7 +949,13 @@ class ChildProcess {
                     "failed to enter working directory\n", 34);
                 _exit(126);
             }
-            execve(resolvedExecutable, execArguments, execEnvironment);
+            if (leasedExecutable >= 0) {
+                __btrc_exec_executable_descriptor(
+                    leasedExecutable, preparedExecutable,
+                    execArguments, execEnvironment);
+            } else {
+                execve(resolvedExecutable, execArguments, execEnvironment);
+            }
             write(STDERR_FILENO,
                 "failed to execute child process\n", 32);
             _exit(127);
@@ -923,9 +971,11 @@ class ChildProcess {
             close(inputDescriptor);
         }
         if (input != NULL) { fclose(input); }
+        if (leasedExecutable >= 0) { close(leasedExecutable); }
         if (child < (pid_t)0) {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcess.closePipe(stderrPipe);
+            __btrc_release_executable_descriptor(preparedExecutable);
             return ChildProcess.failure(command, "failed to start child process\n");
         }
         /* Both spawn paths create the process group; this parent call closes
@@ -1017,6 +1067,7 @@ class ChildProcess {
         ExecResult result = ExecResult(
             code, output.text(), errorText, command);
         result.timedOut = timedOut;
+        __btrc_release_executable_descriptor(preparedExecutable);
         return result;
     }
 }

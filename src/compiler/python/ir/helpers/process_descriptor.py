@@ -1,0 +1,141 @@
+"""Runtime helpers for executing a leased regular-file descriptor."""
+
+from .core import HelperDef
+
+_PREPARE = (
+    "static int __btrc_prepare_executable_descriptor(\n"
+    "        int descriptor, char* path, size_t path_capacity) {\n"
+    "    struct stat status;\n"
+    "    if (descriptor < 0 || path == NULL || path_capacity == (size_t)0) {\n"
+    "        errno = descriptor < 0 ? EBADF : EINVAL;\n"
+    "        return -1;\n"
+    "    }\n"
+    "    if (fstat(descriptor, &status) != 0) return -1;\n"
+    "    if (!S_ISREG(status.st_mode) || status.st_size < (off_t)0\n"
+    "            || (status.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) == 0) {\n"
+    "        errno = EACCES;\n"
+    "        return -1;\n"
+    "    }\n"
+    "    path[0] = '\\0';\n"
+    "#if defined(__APPLE__)\n"
+    '    static const char directory_template[] = "/tmp/btrc-exec.XXXXXX";\n'
+    '    static const char executable_name[] = "/executable";\n'
+    "    if (sizeof(directory_template) + sizeof(executable_name) - (size_t)1\n"
+    "            > path_capacity) { errno = ENAMETOOLONG; return -1; }\n"
+    "    memcpy(path, directory_template, sizeof(directory_template));\n"
+    "    if (mkdtemp(path) == NULL) { path[0] = '\\0'; return -1; }\n"
+    "    size_t directory_length = strlen(path);\n"
+    "    memcpy(path + directory_length, executable_name,\n"
+    "        sizeof(executable_name));\n"
+    "    int output = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0700);\n"
+    "    if (output < 0) {\n"
+    "        path[directory_length] = '\\0';\n"
+    "        (void)rmdir(path);\n"
+    "        path[0] = '\\0';\n"
+    "        return -1;\n"
+    "    }\n"
+    "    char buffer[16384];\n"
+    "    off_t offset = (off_t)0;\n"
+    "    int failed = 0;\n"
+    "    while (!failed && offset < status.st_size) {\n"
+    "        off_t remaining = status.st_size - offset;\n"
+    "        size_t requested = remaining < (off_t)sizeof(buffer)\n"
+    "            ? (size_t)remaining : sizeof(buffer);\n"
+    "        ssize_t count = pread(descriptor, buffer, requested, offset);\n"
+    "        if (count == 0) { failed = 1; break; }\n"
+    "        if (count < 0) {\n"
+    "            if (errno == EINTR) continue;\n"
+    "            failed = 1;\n"
+    "            break;\n"
+    "        }\n"
+    "        ssize_t written = 0;\n"
+    "        while (written < count) {\n"
+    "            ssize_t current = write(\n"
+    "                output, buffer + written, (size_t)(count - written));\n"
+    "            if (current < 0 && errno == EINTR) continue;\n"
+    "            if (current <= 0) { failed = 1; break; }\n"
+    "            written += current;\n"
+    "        }\n"
+    "        offset += count;\n"
+    "    }\n"
+    "    if (close(output) != 0) failed = 1;\n"
+    "    if (failed) {\n"
+    "        (void)unlink(path);\n"
+    "        path[directory_length] = '\\0';\n"
+    "        (void)rmdir(path);\n"
+    "        path[0] = '\\0';\n"
+    "        return -1;\n"
+    "    }\n"
+    "#else\n"
+    "    (void)status;\n"
+    "#endif\n"
+    "    return 0;\n"
+    "}"
+)
+
+_RELEASE = (
+    "static void __btrc_release_executable_descriptor(char* path) {\n"
+    "#if defined(__APPLE__)\n"
+    "    if (path == NULL || path[0] == '\\0') return;\n"
+    "    (void)unlink(path);\n"
+    "    char* separator = strrchr(path, '/');\n"
+    "    if (separator != NULL) {\n"
+    "        *separator = '\\0';\n"
+    "        (void)rmdir(path);\n"
+    "        *separator = '/';\n"
+    "    }\n"
+    "#else\n"
+    "    (void)path;\n"
+    "#endif\n"
+    "}"
+)
+
+_EXEC = (
+    "static int __btrc_exec_executable_descriptor(\n"
+    "        int descriptor, const char* prepared_path,\n"
+    "        char** argv, char** envp) {\n"
+    "#if defined(__linux__)\n"
+    "    (void)prepared_path;\n"
+    "    fexecve(descriptor, argv, envp);\n"
+    "    if (errno == ENOENT) {\n"
+    "        int flags = fcntl(descriptor, F_GETFD, 0);\n"
+    "        if (flags >= 0\n"
+    "                && fcntl(descriptor, F_SETFD, flags & ~FD_CLOEXEC) == 0)\n"
+    "            fexecve(descriptor, argv, envp);\n"
+    "    }\n"
+    "    return -1;\n"
+    "#elif defined(__APPLE__)\n"
+    "    (void)descriptor;\n"
+    "    return execve(prepared_path, argv, envp);\n"
+    "#else\n"
+    "    (void)descriptor; (void)prepared_path; (void)argv; (void)envp;\n"
+    "    errno = ENOSYS;\n"
+    "    return -1;\n"
+    "#endif\n"
+    "}"
+)
+
+PROCESS_DESCRIPTOR = {
+    "__btrc_prepare_executable_descriptor": HelperDef(
+        c_source=_PREPARE,
+        required_headers=[
+            "errno.h",
+            "fcntl.h",
+            "stdlib.h",
+            "string.h",
+            "sys/stat.h",
+            "sys/types.h",
+            "unistd.h",
+        ],
+    ),
+    "__btrc_release_executable_descriptor": HelperDef(
+        c_source=_RELEASE,
+        required_headers=["string.h", "unistd.h"],
+    ),
+    "__btrc_exec_executable_descriptor": HelperDef(
+        c_source=_EXEC,
+        required_headers=["errno.h", "fcntl.h", "unistd.h"],
+    ),
+}
+
+__all__ = ["PROCESS_DESCRIPTOR"]

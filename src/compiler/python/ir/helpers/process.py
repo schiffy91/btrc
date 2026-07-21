@@ -1,6 +1,7 @@
 """Process runtime helpers for descriptor isolation and Darwin spawning."""
 
 from .core import HelperDef
+from .process_descriptor import PROCESS_DESCRIPTOR
 
 _DESCRIPTOR_CLOSE_BOUND = (
     "#if defined(__APPLE__)\n"
@@ -37,16 +38,16 @@ _CLOSE_DESCRIPTORS = (
     "#if defined(__linux__) && defined(SYS_close_range)\n"
     "extern long syscall(long number, ...);\n"
     "#endif\n"
-    "static int __btrc_close_descriptors_from(int bound) {\n"
+    "static int __btrc_close_descriptor_range(\n"
+    "        unsigned int first, unsigned int last, int bound) {\n"
+    "    if (first > last) return 0;\n"
     "#if defined(__linux__) && defined(SYS_close_range)\n"
-    "    if (syscall((long)SYS_close_range, 3U, ~0U, 0U) == 0L) return 0;\n"
-    "#endif\n"
-    "#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)\n"
-    "    closefrom(3);\n"
-    "    return 0;\n"
+    "    if (syscall((long)SYS_close_range, first, last, 0U) == 0L) return 0;\n"
     "#endif\n"
     "    if (bound < 3) return -1;\n"
-    "    for (int descriptor = 3; descriptor < bound; descriptor++) {\n"
+    "    unsigned int end = last == ~0U || last >= (unsigned int)bound\n"
+    "        ? (unsigned int)bound : last + 1U;\n"
+    "    for (unsigned int descriptor = first; descriptor < end; descriptor++) {\n"
     "        int closed = close(descriptor);\n"
     "        /* close(2) may already have released the descriptor when it\n"
     "         * reports EINTR. Retrying can close an unrelated descriptor that\n"
@@ -55,6 +56,26 @@ _CLOSE_DESCRIPTORS = (
     "        if (closed != 0 && errno != EBADF) return -1;\n"
     "    }\n"
     "    return 0;\n"
+    "}\n"
+    "static int __btrc_close_descriptors_from(int bound) {\n"
+    "#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)\n"
+    "    closefrom(3);\n"
+    "    return 0;\n"
+    "#else\n"
+    "    return __btrc_close_descriptor_range(3U, ~0U, bound);\n"
+    "#endif\n"
+    "}"
+)
+
+_CLOSE_DESCRIPTORS_EXCEPT = (
+    "static int __btrc_close_descriptors_except(\n"
+    "        int bound, int preserved) {\n"
+    "    if (preserved < 3) return -1;\n"
+    "    if (__btrc_close_descriptor_range(\n"
+    "            3U, (unsigned int)preserved - 1U, bound) != 0)\n"
+    "        return -1;\n"
+    "    return __btrc_close_descriptor_range(\n"
+    "        (unsigned int)preserved + 1U, ~0U, bound);\n"
     "}"
 )
 
@@ -179,7 +200,6 @@ _POSIX_SPAWN = (
     "}"
 )
 
-
 PROCESS = {
     "__btrc_descriptor_close_bound": HelperDef(
         c_source=_DESCRIPTOR_CLOSE_BOUND,
@@ -189,6 +209,10 @@ PROCESS = {
         c_source=_CLOSE_DESCRIPTORS,
         required_headers=["errno.h", "unistd.h"],
     ),
+    "__btrc_close_descriptors_except": HelperDef(
+        c_source=_CLOSE_DESCRIPTORS_EXCEPT,
+        depends_on=["__btrc_close_descriptors_from"],
+    ),
     "__btrc_move_descriptor_outside_stdio": HelperDef(
         c_source=_MOVE_DESCRIPTOR_OUTSIDE_STDIO,
         required_headers=["errno.h", "fcntl.h", "unistd.h"],
@@ -197,6 +221,7 @@ PROCESS = {
         c_source=_POSIX_SPAWN,
         required_headers=["errno.h", "sys/types.h", "unistd.h"],
     ),
+    **PROCESS_DESCRIPTOR,
 }
 
 __all__ = ["PROCESS"]

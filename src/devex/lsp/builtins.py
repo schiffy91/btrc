@@ -613,7 +613,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("openPipe", "int", "method", [("int*", "descriptors")], "openPipe"),
         BuiltinMember("failure", "ExecResult", "method", [("string", "command"), ("string", "message")], "failure"),
         BuiltinMember("render", "string", "method", [("string", "executable"), ("Vector<string>", "arguments")], "render"),
-        BuiltinMember("run", "ExecResult", "method", [("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr")], "run"),
+        BuiltinMember("run", "ExecResult", "method", [("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr"), ("int", "executableDescriptor")], "run"),
     ],
     "Regex": [
         BuiltinMember("checkedLength", "int", "method", [("string", "text")], "checkedLength"),

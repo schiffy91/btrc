@@ -11,6 +11,7 @@ FILESYSTEM = ROOT / "src" / "stdlib" / "fs.btrc"
 PASSWORD_EXCHANGE = ROOT / "src" / "stdlib" / "terminal_password_exchange.btrc"
 TERMINAL = ROOT / "src" / "stdlib" / "terminal.btrc"
 PROCESS_HELPER = ROOT / "src" / "compiler" / "python" / "ir" / "helpers" / "process.py"
+PROCESS_DESCRIPTOR_HELPER = ROOT / "src" / "compiler" / "python" / "ir" / "helpers" / "process_descriptor.py"
 SELFHOST_PROCESS_CLOSE = ROOT / "src" / "compiler" / "btrc" / "process_runtime_close.btrc"
 
 
@@ -171,6 +172,25 @@ def test_process_uses_platform_fast_paths_without_weakening_fallback() -> None:
     assert "SYS_close_range" in helper
     assert "__btrc_close_descriptors_from(bound)" in source
     assert "__btrc_close_descriptors_from(bound)" in TERMINAL.read_text()
+
+
+def test_descriptor_execution_uses_the_shared_child_engine() -> None:
+    source = PROCESS.read_text()
+    run = source.split("class ExecResult run", 1)[1]
+
+    assert "int executableDescriptor = -1" in run
+    assert "executableDescriptor < 0" in run
+    assert "F_DUPFD_CLOEXEC" in run
+    assert "__btrc_prepare_executable_descriptor(" in run
+    assert "__btrc_close_descriptors_except(" in run
+    assert "__btrc_exec_executable_descriptor(" in run
+    assert "__btrc_release_executable_descriptor(" in run
+
+    helpers = PROCESS_DESCRIPTOR_HELPER.read_text()
+    assert "fexecve(descriptor, argv, envp)" in helpers
+    assert 'directory_template[] = "/tmp/btrc-exec.XXXXXX"' in helpers
+    assert "fstat(descriptor, &status)" in helpers
+    assert "S_ISREG(status.st_mode)" in helpers
 
 
 def test_process_rejects_null_elements_and_conflicting_environment_edits() -> None:
