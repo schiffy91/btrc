@@ -181,16 +181,24 @@ def test_descriptor_execution_uses_the_shared_child_engine() -> None:
     assert "int executableDescriptor = -1" in run
     assert "executableDescriptor < 0" in run
     assert "F_DUPFD_CLOEXEC" in run
-    assert "__btrc_prepare_executable_descriptor(" in run
+    assert "__btrc_validate_executable_descriptor(" in run
     assert "__btrc_close_descriptors_except(" in run
     assert "__btrc_exec_executable_descriptor(" in run
-    assert "__btrc_release_executable_descriptor(" in run
+    assert "__btrc_exec_signal_guard_begin(" in run
+    assert "__btrc_exec_signal_guard_child_end(" in run
+    assert "__btrc_exec_signal_guard_parent_end(" in run
 
     helpers = PROCESS_DESCRIPTOR_HELPER.read_text()
     assert "fexecve(descriptor, argv, envp)" in helpers
-    assert 'directory_template[] = "/tmp/btrc-exec.XXXXXX"' in helpers
     assert "fstat(descriptor, &status)" in helpers
     assert "S_ISREG(status.st_mode)" in helpers
+    assert "pthread_sigmask(SIG_BLOCK" in helpers
+    assert "sigaction(signal_number" in helpers
+    assert "sigprocmask(SIG_SETMASK" in helpers
+    assert "errno = ENOTSUP" in helpers
+    assert "/tmp/btrc-exec" not in helpers
+    assert "mkdtemp" not in helpers
+    assert "flags & ~FD_CLOEXEC" not in helpers
 
 
 def test_process_rejects_null_elements_and_conflicting_environment_edits() -> None:

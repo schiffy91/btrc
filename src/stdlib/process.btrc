@@ -867,15 +867,12 @@ class ChildProcess {
         int stderrSource = stderrPipe[1] >= 0
             ? stderrPipe[1] : (suppressStderr ? nullDescriptor : -1);
         int leasedExecutable = -1;
-        char preparedExecutable[PATH_MAX];
-        preparedExecutable[0] = '\0';
         if (executableDescriptor >= 0) {
             leasedExecutable = fcntl(
                 executableDescriptor, F_DUPFD_CLOEXEC, 3);
             if (leasedExecutable < 0
-                    || __btrc_prepare_executable_descriptor(
-                        leasedExecutable, preparedExecutable,
-                        (size_t)PATH_MAX) != 0) {
+                    || __btrc_validate_executable_descriptor(
+                        leasedExecutable) != 0) {
                 if (leasedExecutable >= 0) { close(leasedExecutable); }
                 ChildProcess.closePipe(stdoutPipe);
                 ChildProcess.closePipe(stderrPipe);
@@ -888,7 +885,7 @@ class ChildProcess {
                 ChildProcessArguments.freeEntries(execArguments);
                 ChildProcessEnvironment.freeEntries(execEnvironment);
                 return ChildProcess.failure(command,
-                    "failed to prepare executable descriptor\n");
+                    "executable descriptor is invalid or unsupported\n");
             }
         }
 
@@ -903,9 +900,18 @@ class ChildProcess {
                 ChildProcess.inheritsOnExec(STDOUT_FILENO) ? 1 : 0,
                 ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
         }
+        sigset_t previousSignalMask;
+        bool signalGuarded = false;
         if (child == (pid_t)0 - (pid_t)2) {
             descriptorBound = ChildProcess.descriptorCloseBound();
-            child = fork();
+            if (descriptorBound < 3
+                    || __btrc_exec_signal_guard_begin(
+                        &previousSignalMask) != 0) {
+                child = (pid_t)0 - (pid_t)1;
+            } else {
+                signalGuarded = true;
+                child = fork();
+            }
         }
         if (child == (pid_t)0) {
             if (setpgid(0, 0) != 0) {
@@ -949,16 +955,30 @@ class ChildProcess {
                     "failed to enter working directory\n", 34);
                 _exit(126);
             }
+            if (__btrc_exec_signal_guard_child_end(
+                    &previousSignalMask) != 0) {
+                write(STDERR_FILENO,
+                    "failed to restore child signals\n", 32);
+                _exit(126);
+            }
             if (leasedExecutable >= 0) {
                 __btrc_exec_executable_descriptor(
-                    leasedExecutable, preparedExecutable,
-                    execArguments, execEnvironment);
+                    leasedExecutable, execArguments, execEnvironment);
             } else {
                 execve(resolvedExecutable, execArguments, execEnvironment);
             }
             write(STDERR_FILENO,
                 "failed to execute child process\n", 32);
             _exit(127);
+        }
+
+        bool signalRestoreFailed = signalGuarded
+            && __btrc_exec_signal_guard_parent_end(
+                &previousSignalMask) != 0;
+        if (signalRestoreFailed && child > (pid_t)0) {
+            kill(child, SIGKILL);
+            waitpid(child, NULL, 0);
+            child = (pid_t)0 - (pid_t)1;
         }
 
         ChildProcessArguments.freeEntries(execArguments);
@@ -975,8 +995,9 @@ class ChildProcess {
         if (child < (pid_t)0) {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcess.closePipe(stderrPipe);
-            __btrc_release_executable_descriptor(preparedExecutable);
-            return ChildProcess.failure(command, "failed to start child process\n");
+            return ChildProcess.failure(command, signalRestoreFailed
+                ? "failed to restore parent signals\n"
+                : "failed to start child process\n");
         }
         /* Both spawn paths create the process group; this parent call closes
          * the small fork scheduling window without changing child semantics. */
@@ -1067,7 +1088,6 @@ class ChildProcess {
         ExecResult result = ExecResult(
             code, output.text(), errorText, command);
         result.timedOut = timedOut;
-        __btrc_release_executable_descriptor(preparedExecutable);
         return result;
     }
 }

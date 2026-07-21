@@ -15,7 +15,6 @@ from .hosted_abi_model import (
     RETURN_INDEPENDENT,
     SIZE,
     VALUE,
-    VOID,
     VOID_PTR,
     HostedFunction,
     abi_type,
@@ -101,25 +100,32 @@ SOURCE_RUNTIME_FUNCTIONS: dict[str, HostedFunction] = {
         INT,
         effects=(READ, READ, READ, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE),
     ),
-    "__btrc_prepare_executable_descriptor": function(
+    "__btrc_validate_executable_descriptor": function(
         INT,
         INT,
-        CHAR_PTR,
-        SIZE,
-        effects=(VALUE, MUTATE, VALUE),
+        effects=(VALUE,),
     ),
-    "__btrc_release_executable_descriptor": function(
-        VOID,
-        CHAR_PTR,
+    "__btrc_exec_signal_guard_begin": function(
+        INT,
+        abi_type("sigset_t", 1),
         effects=(MUTATE,),
+    ),
+    "__btrc_exec_signal_guard_parent_end": function(
+        INT,
+        abi_type("sigset_t", 1, const=True),
+        effects=(READ,),
+    ),
+    "__btrc_exec_signal_guard_child_end": function(
+        INT,
+        abi_type("sigset_t", 1, const=True),
+        effects=(READ,),
     ),
     "__btrc_exec_executable_descriptor": function(
         INT,
         INT,
-        CONST_CHAR_PTR,
         CHAR_PTR_PTR,
         CHAR_PTR_PTR,
-        effects=(VALUE, READ, READ, READ),
+        effects=(VALUE, READ, READ),
     ),
 }
 

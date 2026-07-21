@@ -125,15 +125,18 @@ class Directory {
     }
 }
 
-class DirectoryIdentity {
+/* An open directory lease prevents inode reuse while a caller retains it.
+ * Matching and removal are descriptor-relative, but POSIX has no unlink-by-fd
+ * primitive: callers must still serialize concurrent renames in the parent. */
+class DirectoryLease {
+    private int descriptor;
     private dev_t device;
     private ino_t inode;
-    private bool captured;
 
-    public DirectoryIdentity() {
+    public DirectoryLease() {
+        self.descriptor = -1;
         self.device = (dev_t)0;
         self.inode = (ino_t)0;
-        self.captured = false;
     }
 
     class bool validEntry(int parentDescriptor, string name) {
@@ -142,41 +145,72 @@ class DirectoryIdentity {
             && !name.contains("/");
     }
 
-    class DirectoryIdentity captureAt(int parentDescriptor, string name) {
-        DirectoryIdentity identity = DirectoryIdentity();
-        if (!DirectoryIdentity.validEntry(parentDescriptor, name)) {
-            return identity;
+    class DirectoryLease captureAt(int parentDescriptor, string name) {
+        DirectoryLease lease = DirectoryLease();
+        if (!DirectoryLease.validEntry(parentDescriptor, name)) {
+            return lease;
         }
-        struct stat inspected;
-        if (fstatat(parentDescriptor, name, &inspected,
-                    AT_SYMLINK_NOFOLLOW) == 0
-                && S_ISDIR(inspected.st_mode)) {
-            identity.device = inspected.st_dev;
-            identity.inode = inspected.st_ino;
-            identity.captured = true;
+        int descriptor = openat(parentDescriptor, name,
+            (int)O_RDONLY | (int)O_DIRECTORY
+                | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+        if (descriptor < 0) { return lease; }
+        struct stat opened;
+        struct stat current;
+        if (fstat(descriptor, &opened) != 0
+                || !S_ISDIR(opened.st_mode)
+                || fstatat(parentDescriptor, name, &current,
+                    AT_SYMLINK_NOFOLLOW) != 0
+                || !S_ISDIR(current.st_mode)
+                || current.st_dev != opened.st_dev
+                || current.st_ino != opened.st_ino) {
+            close(descriptor);
+            return lease;
         }
-        return identity;
+        lease.descriptor = descriptor;
+        lease.device = opened.st_dev;
+        lease.inode = opened.st_ino;
+        return lease;
     }
 
     public bool valid() {
-        return self.captured;
+        if (self.descriptor < 0) { return false; }
+        struct stat opened;
+        return fstat(self.descriptor, &opened) == 0
+            && S_ISDIR(opened.st_mode)
+            && opened.st_dev == self.device
+            && opened.st_ino == self.inode;
+    }
+
+    public bool matchesAt(int parentDescriptor, string name) {
+        if (!self.valid()
+                || !DirectoryLease.validEntry(parentDescriptor, name)) {
+            return false;
+        }
+        struct stat current;
+        return fstatat(parentDescriptor, name, &current,
+                AT_SYMLINK_NOFOLLOW) == 0
+            && S_ISDIR(current.st_mode)
+            && current.st_dev == self.device
+            && current.st_ino == self.inode;
     }
 
     public int removeMatching(int parentDescriptor, string name) {
-        if (!self.captured
-                || !DirectoryIdentity.validEntry(parentDescriptor, name)) {
+        if (!self.matchesAt(parentDescriptor, name)) {
             return -1;
         }
         struct stat inspected;
-        if (fstatat(parentDescriptor, name, &inspected,
-                    AT_SYMLINK_NOFOLLOW) != 0
-                || !S_ISDIR(inspected.st_mode)
-                || inspected.st_dev != self.device
-                || inspected.st_ino != self.inode) {
-            return -1;
-        }
+        if (fstat(self.descriptor, &inspected) != 0) { return -1; }
         return UnixFileSystem.removeRecursiveAtInspected(
             parentDescriptor, name, &inspected);
+    }
+
+    public int closeLease() {
+        if (self.descriptor < 0) { return 0; }
+        int descriptor = self.descriptor;
+        self.descriptor = -1;
+        self.device = (dev_t)0;
+        self.inode = (ino_t)0;
+        return close(descriptor);
     }
 }
 
@@ -247,8 +281,9 @@ class UnixFileSystem {
     }
 
     /* Traverse one already-inspected name relative to an open directory.
-     * Directory identities are re-verified after the no-follow open and again
-     * before removal, so a replacement is never traversed or unlinked. */
+     * The no-follow open rejects a replacement observed before traversal. A
+     * caller requiring stronger concurrent-rename semantics must serialize
+     * mutations in the parent because POSIX cannot unlink a directory by fd. */
     class int removeRecursiveAtInspected(int parentDescriptor, string name,
                                          struct stat* inspected) {
         if (!S_ISDIR(inspected->st_mode)) {
@@ -317,24 +352,22 @@ class UnixFileSystem {
         return unlinkat(parentDescriptor, name, AT_REMOVEDIR);
     }
 
-    class DirectoryIdentity captureDirectoryAt(int parentDescriptor,
-                                                string name) {
-        return DirectoryIdentity.captureAt(parentDescriptor, name);
+    class DirectoryLease leaseDirectoryAt(int parentDescriptor,
+                                           string name) {
+        return DirectoryLease.captureAt(parentDescriptor, name);
     }
 
-    /* Remove one captured directory only while it still has the expected
-     * identity. A stale identity fails closed and leaves the current entry
-     * untouched. */
-    class int removeRecursiveAtMatching(int parentDescriptor, string name,
-                                        DirectoryIdentity expected) {
-        if (expected == null) { return -1; }
-        return expected.removeMatching(parentDescriptor, name);
+    /* Remove one leased directory when the named entry still matches it.
+     * The open lease prevents inode reuse; the caller owns and closes it. */
+    class int removeRecursiveAtLease(int parentDescriptor, string name,
+                                     DirectoryLease lease) {
+        if (lease == null) { return -1; }
+        return lease.removeMatching(parentDescriptor, name);
     }
 
-    /* Delete one name relative to an already-open directory. Every directory
-     * is opened without following its final component, verified against the
-     * metadata that was inspected, and re-verified before removal. A rename or
-     * symlink swap therefore fails closed instead of redirecting traversal. */
+    /* Delete one name relative to an already-open directory. Each directory is
+     * opened without following its final component and checked before
+     * traversal. Callers serialize hostile concurrent renames in the parent. */
     class int removeRecursiveAt(int parentDescriptor, string name) {
         struct stat inspected;
         if (fstatat(parentDescriptor, name, &inspected,
