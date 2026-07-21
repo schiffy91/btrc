@@ -1,0 +1,64 @@
+/* Canonical pretty JSON: exact layout, insertion order, and escaping. */
+#include <assert.h>
+
+int main() {
+    string escapedKey = "key\"\\\n";
+    string escapedValue =
+        "quote \" backslash \\ slash / newline\n tab\t carriage\r control\x01";
+
+    JsonValue array = JsonValue.makeArray();
+    array.push(JsonValue.makeString(escapedValue));
+    array.push(JsonValue.makeInt(7));
+    array.push(JsonValue.makeBool(true));
+    array.push(JsonValue.makeNull());
+
+    JsonValue nested = JsonValue.makeObject();
+    nested.set("array", array);
+    nested.set("empty", JsonValue.makeObject());
+
+    JsonValue value = JsonValue.makeObject();
+    value.set("zeta", JsonValue.makeString(escapedValue));
+    value.set("alpha", nested);
+    value.set(escapedKey, JsonValue.makeArray());
+
+    string expected = "{\n"
+        + "  \"zeta\": \"quote \\\" backslash \\\\ slash / newline\\n tab\\t carriage\\r control\\u0001\",\n"
+        + "  \"alpha\": {\n"
+        + "    \"array\": [\n"
+        + "      \"quote \\\" backslash \\\\ slash / newline\\n tab\\t carriage\\r control\\u0001\",\n"
+        + "      7,\n"
+        + "      true,\n"
+        + "      null\n"
+        + "    ],\n"
+        + "    \"empty\": {}\n"
+        + "  },\n"
+        + "  \"key\\\"\\\\\\n\": []\n"
+        + "}";
+    string compact = "{\"zeta\":\"quote \\\" backslash \\\\ slash / newline\\n tab\\t carriage\\r control\\u0001\","
+        + "\"alpha\":{\"array\":[\"quote \\\" backslash \\\\ slash / newline\\n tab\\t carriage\\r control\\u0001\",7,true,null],\"empty\":{}},"
+        + "\"key\\\"\\\\\\n\":[]}";
+
+    string pretty = value.stringifyPretty();
+    string document = value.document();
+    assert(pretty.equals(expected));
+    assert(document.equals(expected + "\n"));
+    assert(value.stringify().equals(compact));
+    assert(value.stringifyPretty(-1).equals(value.stringifyPretty(0)));
+    assert(value.stringifyPretty(4).contains(
+        "\n    \"alpha\": {\n        \"array\": [\n"));
+    assert(JsonValue.makeInt(7).stringifyPretty().equals("7"));
+    assert(JsonValue.makeInt(7).document().equals("7\n"));
+    assert(JsonValue.makeArray().document().equals("[]\n"));
+
+    JsonValue parsed = JsonValue.parse(document);
+    assert(!parsed.isError());
+    assert(parsed.stringify().equals(compact));
+    assert(parsed.document().equals(document));
+    assert(parsed.has(escapedKey));
+    assert(parsed.get("zeta").asString().equals(escapedValue));
+
+    print("pretty:");
+    print(pretty);
+    print("PASS: test_stdlib_json_document");
+    return 0;
+}
