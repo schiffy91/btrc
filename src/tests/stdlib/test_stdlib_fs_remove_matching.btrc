@@ -1,0 +1,70 @@
+/* Descriptor-relative recursive removal must honor a captured directory
+ * identity and preserve any entry substituted after capture. */
+#include <assert.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+int main() {
+    string root = FileSystem.tempDir("btrc_fs_remove_matching");
+    string outside = FileSystem.tempDir("btrc_fs_remove_outside");
+    assert(!root.isEmpty() && !outside.isEmpty());
+
+    int parentDescriptor = open(root,
+        (int)O_RDONLY | (int)O_DIRECTORY
+            | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+    assert(parentDescriptor >= 0);
+
+    string success = PathTools.join(root, "success");
+    string successChild = PathTools.join(success, "nested/child.txt");
+    assert(FileSystem.mkdirp(PathTools.dirname(successChild)) == 0);
+    assert(FileSystem.writeText(successChild, "remove me"));
+    struct stat successLease;
+    assert(fstatat(parentDescriptor, "success", &successLease,
+        AT_SYMLINK_NOFOLLOW) == 0);
+    assert(UnixFileSystem.removeRecursiveAtMatching(
+        parentDescriptor, "success",
+        successLease.st_dev, successLease.st_ino) == 0);
+    assert(!FileSystem.exists(success));
+
+    string directoryEntry = PathTools.join(root, "directory-entry");
+    string originalDirectory = PathTools.join(root, "directory-original");
+    assert(FileSystem.mkdirp(PathTools.join(directoryEntry, "old")) == 0);
+    struct stat directoryLease;
+    assert(fstatat(parentDescriptor, "directory-entry", &directoryLease,
+        AT_SYMLINK_NOFOLLOW) == 0);
+    assert(rename(directoryEntry, originalDirectory) == 0);
+    assert(FileSystem.mkdirp(directoryEntry) == 0);
+    string replacementMarker = PathTools.join(directoryEntry, "replacement");
+    assert(FileSystem.writeText(replacementMarker, "preserved"));
+    assert(UnixFileSystem.removeRecursiveAtMatching(
+        parentDescriptor, "directory-entry",
+        directoryLease.st_dev, directoryLease.st_ino) != 0);
+    assert(FileSystem.isDir(directoryEntry));
+    assert(FileSystem.readText(replacementMarker).equals("preserved"));
+
+    string symlinkEntry = PathTools.join(root, "symlink-entry");
+    string originalSymlinkDirectory = PathTools.join(
+        root, "symlink-original");
+    assert(FileSystem.mkdirp(PathTools.join(symlinkEntry, "old")) == 0);
+    struct stat symlinkLease;
+    assert(fstatat(parentDescriptor, "symlink-entry", &symlinkLease,
+        AT_SYMLINK_NOFOLLOW) == 0);
+    assert(rename(symlinkEntry, originalSymlinkDirectory) == 0);
+    string outsideMarker = PathTools.join(outside, "must-survive");
+    assert(FileSystem.writeText(outsideMarker, "safe"));
+    assert(FileSystem.symlink(outside, symlinkEntry) == 0);
+    assert(UnixFileSystem.removeRecursiveAtMatching(
+        parentDescriptor, "symlink-entry",
+        symlinkLease.st_dev, symlinkLease.st_ino) != 0);
+    assert(FileSystem.isSymlink(symlinkEntry));
+    assert(FileSystem.readLink(symlinkEntry).equals(outside));
+    assert(FileSystem.readText(outsideMarker).equals("safe"));
+
+    assert(close(parentDescriptor) == 0);
+    assert(FileSystem.removeRecursive(root) == 0);
+    assert(FileSystem.removeRecursive(outside) == 0);
+
+    print("PASS: test_stdlib_fs_remove_matching");
+    return 0;
+}

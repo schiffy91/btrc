@@ -191,17 +191,12 @@ class UnixFileSystem {
         return -1;
     }
 
-    /* Delete one name relative to an already-open directory. Every directory
-     * is opened without following its final component, verified against the
-     * metadata that was inspected, and re-verified before removal. A rename or
-     * symlink swap therefore fails closed instead of redirecting traversal. */
-    class int removeRecursiveAt(int parentDescriptor, string name) {
-        struct stat inspected;
-        if (fstatat(parentDescriptor, name, &inspected,
-                    AT_SYMLINK_NOFOLLOW) != 0) {
-            return errno == ENOENT ? 0 : -1;
-        }
-        if (!S_ISDIR(inspected.st_mode)) {
+    /* Traverse one already-inspected name relative to an open directory.
+     * Directory identities are re-verified after the no-follow open and again
+     * before removal, so a replacement is never traversed or unlinked. */
+    class int removeRecursiveAtInspected(int parentDescriptor, string name,
+                                         struct stat* inspected) {
+        if (!S_ISDIR(inspected->st_mode)) {
             return unlinkat(parentDescriptor, name, 0);
         }
 
@@ -212,8 +207,8 @@ class UnixFileSystem {
         struct stat opened;
         struct stat root;
         if (fstat(descriptor, &opened) != 0 || stat("/", &root) != 0
-                || opened.st_dev != inspected.st_dev
-                || opened.st_ino != inspected.st_ino
+                || opened.st_dev != inspected->st_dev
+                || opened.st_ino != inspected->st_ino
                 || (opened.st_dev == root.st_dev
                     && opened.st_ino == root.st_ino)) {
             close(descriptor);
@@ -246,11 +241,43 @@ class UnixFileSystem {
         if (fstatat(parentDescriptor, name, &finalStatus,
                     AT_SYMLINK_NOFOLLOW) != 0
                 || !S_ISDIR(finalStatus.st_mode)
-                || finalStatus.st_dev != inspected.st_dev
-                || finalStatus.st_ino != inspected.st_ino) {
+                || finalStatus.st_dev != inspected->st_dev
+                || finalStatus.st_ino != inspected->st_ino) {
             return -1;
         }
         return unlinkat(parentDescriptor, name, AT_REMOVEDIR);
+    }
+
+    /* Remove one leased directory only while it still denotes the captured
+     * device/inode. A stale lease fails closed and leaves the current entry
+     * untouched. */
+    class int removeRecursiveAtMatching(int parentDescriptor, string name,
+                                        dev_t expectedDevice,
+                                        ino_t expectedInode) {
+        struct stat inspected;
+        if (fstatat(parentDescriptor, name, &inspected,
+                    AT_SYMLINK_NOFOLLOW) != 0
+                || !S_ISDIR(inspected.st_mode)
+                || inspected.st_dev != expectedDevice
+                || inspected.st_ino != expectedInode) {
+            return -1;
+        }
+        return UnixFileSystem.removeRecursiveAtInspected(
+            parentDescriptor, name, &inspected);
+    }
+
+    /* Delete one name relative to an already-open directory. Every directory
+     * is opened without following its final component, verified against the
+     * metadata that was inspected, and re-verified before removal. A rename or
+     * symlink swap therefore fails closed instead of redirecting traversal. */
+    class int removeRecursiveAt(int parentDescriptor, string name) {
+        struct stat inspected;
+        if (fstatat(parentDescriptor, name, &inspected,
+                    AT_SYMLINK_NOFOLLOW) != 0) {
+            return errno == ENOENT ? 0 : -1;
+        }
+        return UnixFileSystem.removeRecursiveAtInspected(
+            parentDescriptor, name, &inspected);
     }
 
     class int openDirectoryNoFollow(string path) {
