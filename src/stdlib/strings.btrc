@@ -499,3 +499,92 @@ class Strings {
         return true;
     }
 }
+
+/* Amortized-growth text assembly for callers that emit output incrementally.
+ * The backing allocation stays private; toString() returns an independent,
+ * tracked btrc string, so the builder can be cleared or destroyed afterward. */
+class StringBuilder {
+    private char* data;
+    private int len;
+    private int cap;
+
+    public StringBuilder() {
+        self.data = null;
+        self.len = 0;
+        self.cap = 0;
+    }
+
+    private void reserveAdditional(int count) {
+        if (count < 0 || count > 2147483646 - self.len) {
+            fprintf(stderr, "StringBuilder length overflow\n");
+            exit(1);
+        }
+        int required = self.len + count;
+        if (required <= self.cap) { return; }
+
+        int nextCap = self.cap == 0 ? 64 : self.cap;
+        while (nextCap < required) {
+            if (nextCap > 1073741823) {
+                nextCap = required;
+            } else {
+                nextCap = nextCap * 2;
+            }
+        }
+        self.data = (char*)__btrc_safe_realloc(
+            self.data, (size_t)nextCap);
+        self.cap = nextCap;
+    }
+
+    public void append(string text) {
+        if (text == null) { return; }
+        int count = Strings.checkedLength(text);
+        if (count == 0) { return; }
+        self.reserveAdditional(count);
+        memcpy(self.data + self.len, text, (size_t)count);
+        self.len += count;
+    }
+
+    public void appendChar(char value) {
+        self.reserveAdditional(1);
+        self.data[self.len] = value;
+        self.len++;
+    }
+
+    public void appendRepeat(char value, int count) {
+        if (count <= 0) { return; }
+        self.reserveAdditional(count);
+        memset(self.data + self.len, (unsigned char)value, (size_t)count);
+        self.len += count;
+    }
+
+    public int length() {
+        return self.len;
+    }
+
+    public bool isEmpty() {
+        return self.len == 0;
+    }
+
+    public void clear() {
+        self.len = 0;
+    }
+
+    public string toString() {
+        char* result = (char*)__btrc_safe_realloc(
+            null, (size_t)self.len + (size_t)1);
+        if (self.len > 0) {
+            memcpy(result, self.data, (size_t)self.len);
+        }
+        result[self.len] = '\0';
+        return __btrc_str_track(result);
+    }
+
+    public void __del__() {
+        if (self.data != null) {
+            free(self.data);
+            self.data = null;
+        }
+        self.len = 0;
+        self.cap = 0;
+    }
+}

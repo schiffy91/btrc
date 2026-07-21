@@ -1,0 +1,45 @@
+/* StringBuilder owns its growth buffer while returned strings remain stable. */
+#include <assert.h>
+#include <string.h>
+
+int main() {
+    var builder = StringBuilder();
+    assert(builder.isEmpty());
+    assert(builder.length() == 0);
+    assert(builder.toString().equals(""));
+
+    builder.append(null);
+    builder.append("");
+    builder.append("alpha");
+    builder.appendChar(':');
+    builder.appendRepeat('x', 3);
+    builder.appendRepeat('?', 0);
+    builder.appendRepeat('?', -1);
+    string snapshot = builder.toString();
+    assert(snapshot.equals("alpha:xxx"));
+
+    builder.appendChar('!');
+    assert(snapshot.equals("alpha:xxx"));
+    assert(builder.toString().equals("alpha:xxx!"));
+    print("builder=" + builder.toString());
+
+    builder.clear();
+    assert(builder.isEmpty());
+    for (int index = 0; index < 4096; index++) {
+        builder.append("0123456789abcdef");
+    }
+    string grown = builder.toString();
+    assert(builder.length() == 65536);
+    assert(grown.len() == 65536);
+    assert(grown.startsWith("0123456789abcdef"));
+    assert(grown.endsWith("0123456789abcdef"));
+    print(f"growth={builder.length()}");
+
+    builder.clear();
+    builder.appendRepeat('z', 130);
+    assert(builder.length() == 130);
+    assert(builder.toString().equals(Strings.repeat("z", 130)));
+
+    print("PASS: test_stdlib_string_builder");
+    return 0;
+}
