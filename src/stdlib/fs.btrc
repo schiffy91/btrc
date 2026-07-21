@@ -125,6 +125,56 @@ class Directory {
     }
 }
 
+class DirectoryIdentity {
+    private dev_t device;
+    private ino_t inode;
+    private bool captured;
+
+    public DirectoryIdentity() {
+        self.device = (dev_t)0;
+        self.inode = (ino_t)0;
+        self.captured = false;
+    }
+
+    class DirectoryIdentity captureAt(int parentDescriptor, string name) {
+        DirectoryIdentity identity = DirectoryIdentity();
+        if (name == null || name.isEmpty()
+                || name.equals(".") || name.equals("..")) {
+            return identity;
+        }
+        struct stat inspected;
+        if (fstatat(parentDescriptor, name, &inspected,
+                    AT_SYMLINK_NOFOLLOW) == 0
+                && S_ISDIR(inspected.st_mode)) {
+            identity.device = inspected.st_dev;
+            identity.inode = inspected.st_ino;
+            identity.captured = true;
+        }
+        return identity;
+    }
+
+    public bool valid() {
+        return self.captured;
+    }
+
+    public int removeMatching(int parentDescriptor, string name) {
+        if (!self.captured || name == null || name.isEmpty()
+                || name.equals(".") || name.equals("..")) {
+            return -1;
+        }
+        struct stat inspected;
+        if (fstatat(parentDescriptor, name, &inspected,
+                    AT_SYMLINK_NOFOLLOW) != 0
+                || !S_ISDIR(inspected.st_mode)
+                || inspected.st_dev != self.device
+                || inspected.st_ino != self.inode) {
+            return -1;
+        }
+        return UnixFileSystem.removeRecursiveAtInspected(
+            parentDescriptor, name, &inspected);
+    }
+}
+
 class UnixFileSystem {
     class int chmodPath(string path, int mode) {
         if (path == null) { return -1; }
@@ -214,6 +264,20 @@ class UnixFileSystem {
             close(descriptor);
             return -1;
         }
+        mode_t directoryMode = opened.st_mode;
+        if ((directoryMode & (mode_t)S_IWUSR) == (mode_t)0) {
+            fchmod(descriptor, directoryMode | (mode_t)S_IWUSR);
+            struct stat writable;
+            if (fstat(descriptor, &writable) != 0) {
+                close(descriptor);
+                return -1;
+            }
+            mode_t writableMode = writable.st_mode;
+            if ((writableMode & (mode_t)S_IWUSR) == (mode_t)0) {
+                close(descriptor);
+                return -1;
+            }
+        }
 
         DIR* directory = fdopendir(descriptor);
         if (directory == NULL) {
@@ -248,22 +312,18 @@ class UnixFileSystem {
         return unlinkat(parentDescriptor, name, AT_REMOVEDIR);
     }
 
-    /* Remove one leased directory only while it still denotes the captured
-     * device/inode. A stale lease fails closed and leaves the current entry
+    class DirectoryIdentity captureDirectoryAt(int parentDescriptor,
+                                                string name) {
+        return DirectoryIdentity.captureAt(parentDescriptor, name);
+    }
+
+    /* Remove one captured directory only while it still has the expected
+     * identity. A stale identity fails closed and leaves the current entry
      * untouched. */
     class int removeRecursiveAtMatching(int parentDescriptor, string name,
-                                        dev_t expectedDevice,
-                                        ino_t expectedInode) {
-        struct stat inspected;
-        if (fstatat(parentDescriptor, name, &inspected,
-                    AT_SYMLINK_NOFOLLOW) != 0
-                || !S_ISDIR(inspected.st_mode)
-                || inspected.st_dev != expectedDevice
-                || inspected.st_ino != expectedInode) {
-            return -1;
-        }
-        return UnixFileSystem.removeRecursiveAtInspected(
-            parentDescriptor, name, &inspected);
+                                        DirectoryIdentity expected) {
+        if (expected == null) { return -1; }
+        return expected.removeMatching(parentDescriptor, name);
     }
 
     /* Delete one name relative to an already-open directory. Every directory

@@ -1,8 +1,6 @@
 /* Descriptor-relative recursive removal must honor a captured directory
  * identity and preserve any entry substituted after capture. */
 #include <assert.h>
-#include <fcntl.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 int main() {
@@ -10,36 +8,48 @@ int main() {
     string outside = FileSystem.tempDir("btrc_fs_remove_outside");
     assert(!root.isEmpty() && !outside.isEmpty());
 
-    int parentDescriptor = open(root,
-        (int)O_RDONLY | (int)O_DIRECTORY
-            | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+    int parentDescriptor = UnixFileSystem.openDirectoryNoFollow(root);
     assert(parentDescriptor >= 0);
 
     string success = PathTools.join(root, "success");
     string successChild = PathTools.join(success, "nested/child.txt");
     assert(FileSystem.mkdirp(PathTools.dirname(successChild)) == 0);
     assert(FileSystem.writeText(successChild, "remove me"));
-    struct stat successLease;
-    assert(fstatat(parentDescriptor, "success", &successLease,
-        AT_SYMLINK_NOFOLLOW) == 0);
+    DirectoryIdentity successIdentity =
+        UnixFileSystem.captureDirectoryAt(parentDescriptor, "success");
+    assert(successIdentity.valid());
     assert(UnixFileSystem.removeRecursiveAtMatching(
-        parentDescriptor, "success",
-        successLease.st_dev, successLease.st_ino) == 0);
+        parentDescriptor, "success", successIdentity) == 0);
     assert(!FileSystem.exists(success));
+
+    string readOnly = PathTools.join(root, "read-only");
+    string readOnlyDirectory = PathTools.join(readOnly, "nested");
+    string readOnlyFile = PathTools.join(readOnlyDirectory, "child.txt");
+    assert(FileSystem.mkdirp(readOnlyDirectory) == 0);
+    assert(FileSystem.writeText(readOnlyFile, "remove me"));
+    assert(FileSystem.chmod(readOnlyFile, 292) == 0);
+    assert(FileSystem.chmod(readOnlyDirectory, 365) == 0);
+    assert(FileSystem.chmod(readOnly, 365) == 0);
+    DirectoryIdentity readOnlyIdentity =
+        UnixFileSystem.captureDirectoryAt(parentDescriptor, "read-only");
+    assert(readOnlyIdentity.valid());
+    assert(UnixFileSystem.removeRecursiveAtMatching(
+        parentDescriptor, "read-only", readOnlyIdentity) == 0);
+    assert(!FileSystem.exists(readOnly));
 
     string directoryEntry = PathTools.join(root, "directory-entry");
     string originalDirectory = PathTools.join(root, "directory-original");
     assert(FileSystem.mkdirp(PathTools.join(directoryEntry, "old")) == 0);
-    struct stat directoryLease;
-    assert(fstatat(parentDescriptor, "directory-entry", &directoryLease,
-        AT_SYMLINK_NOFOLLOW) == 0);
+    DirectoryIdentity directoryIdentity =
+        UnixFileSystem.captureDirectoryAt(
+            parentDescriptor, "directory-entry");
+    assert(directoryIdentity.valid());
     assert(rename(directoryEntry, originalDirectory) == 0);
     assert(FileSystem.mkdirp(directoryEntry) == 0);
     string replacementMarker = PathTools.join(directoryEntry, "replacement");
     assert(FileSystem.writeText(replacementMarker, "preserved"));
     assert(UnixFileSystem.removeRecursiveAtMatching(
-        parentDescriptor, "directory-entry",
-        directoryLease.st_dev, directoryLease.st_ino) != 0);
+        parentDescriptor, "directory-entry", directoryIdentity) != 0);
     assert(FileSystem.isDir(directoryEntry));
     assert(FileSystem.readText(replacementMarker).equals("preserved"));
 
@@ -47,16 +57,16 @@ int main() {
     string originalSymlinkDirectory = PathTools.join(
         root, "symlink-original");
     assert(FileSystem.mkdirp(PathTools.join(symlinkEntry, "old")) == 0);
-    struct stat symlinkLease;
-    assert(fstatat(parentDescriptor, "symlink-entry", &symlinkLease,
-        AT_SYMLINK_NOFOLLOW) == 0);
+    DirectoryIdentity symlinkIdentity =
+        UnixFileSystem.captureDirectoryAt(
+            parentDescriptor, "symlink-entry");
+    assert(symlinkIdentity.valid());
     assert(rename(symlinkEntry, originalSymlinkDirectory) == 0);
     string outsideMarker = PathTools.join(outside, "must-survive");
     assert(FileSystem.writeText(outsideMarker, "safe"));
     assert(FileSystem.symlink(outside, symlinkEntry) == 0);
     assert(UnixFileSystem.removeRecursiveAtMatching(
-        parentDescriptor, "symlink-entry",
-        symlinkLease.st_dev, symlinkLease.st_ino) != 0);
+        parentDescriptor, "symlink-entry", symlinkIdentity) != 0);
     assert(FileSystem.isSymlink(symlinkEntry));
     assert(FileSystem.readLink(symlinkEntry).equals(outside));
     assert(FileSystem.readText(outsideMarker).equals("safe"));
