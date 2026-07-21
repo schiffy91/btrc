@@ -79,6 +79,35 @@ _CLOSE_DESCRIPTORS_EXCEPT = (
     "}"
 )
 
+_CLOSE_DESCRIPTORS_EXCEPT_MANY = (
+    "static int __btrc_close_descriptors_except_many(\n"
+    "        int bound, const int* preserved, int count) {\n"
+    "    if (bound < 3 || count < 0 || (count > 0 && preserved == NULL)) {\n"
+    "        errno = EINVAL;\n"
+    "        return -1;\n"
+    "    }\n"
+    "    int previous = 2;\n"
+    "    for (int index = 0; index < count; index++) {\n"
+    "        int descriptor = preserved[index];\n"
+    "        if (descriptor < 3 || descriptor >= bound\n"
+    "                || descriptor <= previous) {\n"
+    "            errno = EINVAL;\n"
+    "            return -1;\n"
+    "        }\n"
+    "        previous = descriptor;\n"
+    "    }\n"
+    "    unsigned int first = 3U;\n"
+    "    for (int index = 0; index < count; index++) {\n"
+    "        int descriptor = preserved[index];\n"
+    "        if (__btrc_close_descriptor_range(\n"
+    "                first, (unsigned int)descriptor - 1U, bound) != 0)\n"
+    "            return -1;\n"
+    "        first = (unsigned int)descriptor + 1U;\n"
+    "    }\n"
+    "    return __btrc_close_descriptor_range(first, ~0U, bound);\n"
+    "}"
+)
+
 _MOVE_DESCRIPTOR_OUTSIDE_STDIO = (
     "static int __btrc_move_descriptor_outside_stdio(int* descriptor) {\n"
     "    if (descriptor == NULL || *descriptor < 0) return -1;\n"
@@ -211,6 +240,11 @@ PROCESS = {
     ),
     "__btrc_close_descriptors_except": HelperDef(
         c_source=_CLOSE_DESCRIPTORS_EXCEPT,
+        depends_on=["__btrc_close_descriptors_from"],
+    ),
+    "__btrc_close_descriptors_except_many": HelperDef(
+        c_source=_CLOSE_DESCRIPTORS_EXCEPT_MANY,
+        required_headers=["errno.h"],
         depends_on=["__btrc_close_descriptors_from"],
     ),
     "__btrc_move_descriptor_outside_stdio": HelperDef(

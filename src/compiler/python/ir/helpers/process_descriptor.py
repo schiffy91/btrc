@@ -2,6 +2,16 @@
 
 from .core import HelperDef
 
+_SUPPORTED = r"""
+static int __btrc_process_descriptors_supported(void) {
+#if defined(__linux__)
+    return 1;
+#else
+    return 0;
+#endif
+}
+""".strip()
+
 _VALIDATE = r"""
 static int __btrc_validate_executable_descriptor(int descriptor) {
 #if defined(__linux__)
@@ -10,6 +20,34 @@ static int __btrc_validate_executable_descriptor(int descriptor) {
     if (fstat(descriptor, &status) != 0) return -1;
     if (!S_ISREG(status.st_mode)) { errno = EACCES; return -1; }
     return 0;
+#else
+    (void)descriptor;
+    errno = ENOTSUP;
+    return -1;
+#endif
+}
+""".strip()
+
+_VALIDATE_WORKING_DIRECTORY = r"""
+static int __btrc_validate_working_directory_descriptor(int descriptor) {
+#if defined(__linux__)
+    struct stat status;
+    if (descriptor < 0) { errno = EBADF; return -1; }
+    if (fstat(descriptor, &status) != 0) return -1;
+    if (!S_ISDIR(status.st_mode)) { errno = ENOTDIR; return -1; }
+    return 0;
+#else
+    (void)descriptor;
+    errno = ENOTSUP;
+    return -1;
+#endif
+}
+""".strip()
+
+_ENTER_WORKING_DIRECTORY = r"""
+static int __btrc_enter_working_directory_descriptor(int descriptor) {
+#if defined(__linux__)
+    return fchdir(descriptor);
 #else
     (void)descriptor;
     errno = ENOTSUP;
@@ -80,9 +118,20 @@ static int __btrc_exec_executable_descriptor(
 """.strip()
 
 PROCESS_DESCRIPTOR = {
+    "__btrc_process_descriptors_supported": HelperDef(
+        c_source=_SUPPORTED,
+    ),
     "__btrc_validate_executable_descriptor": HelperDef(
         c_source=_VALIDATE,
         required_headers=["errno.h", "sys/stat.h", "unistd.h"],
+    ),
+    "__btrc_validate_working_directory_descriptor": HelperDef(
+        c_source=_VALIDATE_WORKING_DIRECTORY,
+        required_headers=["errno.h", "sys/stat.h", "unistd.h"],
+    ),
+    "__btrc_enter_working_directory_descriptor": HelperDef(
+        c_source=_ENTER_WORKING_DIRECTORY,
+        required_headers=["errno.h", "unistd.h"],
     ),
     "__btrc_exec_signal_guard_begin": HelperDef(
         c_source=_SIGNAL_GUARD_BEGIN,

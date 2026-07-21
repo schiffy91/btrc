@@ -1,0 +1,299 @@
+import std.fs;
+import std.process;
+import std.strings;
+import std.vector;
+
+#include <assert.h>
+#include <dirent.h>
+
+bool readExactDescriptor(int descriptor, string expected) {
+    char buffer[128];
+    ssize_t count = read(descriptor, buffer, sizeof(buffer) - (size_t)1);
+    if (count < (ssize_t)0 || count >= (ssize_t)sizeof(buffer)) {
+        return false;
+    }
+    buffer[count] = '\0';
+    return expected.equals(Strings.copy(buffer));
+}
+
+bool onlyExpectedDescriptors(int mappedDescriptor, int unrelatedDescriptor) {
+    errno = 0;
+    if (fcntl(unrelatedDescriptor, F_GETFD, 0) >= 0 || errno != EBADF) {
+        return false;
+    }
+    int mappedFlags = fcntl(mappedDescriptor, F_GETFD, 0);
+    if (mappedFlags < 0 || (mappedFlags & FD_CLOEXEC) != 0) {
+        return false;
+    }
+
+    DIR* directory = opendir("/proc/self/fd");
+    if (directory == NULL) { return false; }
+    int scanDescriptor = dirfd(directory);
+    bool valid = scanDescriptor >= 3;
+    struct dirent* entry = readdir(directory);
+    while (valid && entry != NULL) {
+        int descriptor = atoi(entry->d_name);
+        if (descriptor > STDERR_FILENO
+                && descriptor != mappedDescriptor
+                && descriptor != scanDescriptor) {
+            valid = false;
+        }
+        entry = readdir(directory);
+    }
+    closedir(directory);
+    return valid;
+}
+
+int childProbe(int argc, char** argv) {
+    if (argc >= 2 && Strings.copy(argv[1]).equals("--mapped-probe")) {
+        if (argc != 5) { return 64; }
+        int mappedDescriptor = atoi(argv[2]);
+        int unrelatedDescriptor = atoi(argv[3]);
+        string expected = Strings.copy(argv[4]);
+        if (!readExactDescriptor(mappedDescriptor, expected)
+                || !onlyExpectedDescriptors(
+                    mappedDescriptor, unrelatedDescriptor)) {
+            return 9;
+        }
+        fputs("mapped-stderr", stderr);
+        fputs(expected, stdout);
+        return 0;
+    }
+    if (argc >= 2 && Strings.copy(argv[1]).equals("--cwd-probe")) {
+        if (argc != 3) { return 64; }
+        string marker = FileSystem.readText("identity.txt");
+        if (!marker.equals(Strings.copy(argv[2]))) { return 10; }
+        fputs(marker, stdout);
+        return 0;
+    }
+    if (argc >= 2 && Strings.copy(argv[1]).equals("--stream-probe")) {
+        if (argc != 4) { return 64; }
+        int mappedDescriptor = atoi(argv[2]);
+        if (!readExactDescriptor(mappedDescriptor, Strings.copy(argv[3]))) {
+            return 11;
+        }
+        fputs("descriptor stream evidence\n", stderr);
+        return 0;
+    }
+    if (argc >= 2 && Strings.copy(argv[1]).equals("--timeout-probe")) {
+        if (argc != 3) { return 64; }
+        int reportDescriptor = atoi(argv[2]);
+        char buffer[64];
+        int length = snprintf(buffer, sizeof(buffer), "%d", (int)getpid());
+        if (length <= 0 || length >= (int)sizeof(buffer)
+                || write(reportDescriptor, buffer, (size_t)length)
+                    != (ssize_t)length) {
+            return 12;
+        }
+        sleep(10);
+        return 13;
+    }
+    return 64;
+}
+
+ExecResult mappedRun(string executable,
+                     int executableDescriptor,
+                     int sourceDescriptor,
+                     int childDescriptor,
+                     Vector<string> arguments,
+                     string stdout = CommandOutput.collect(),
+                     string stderr = CommandOutput.collect(),
+                     int timeoutMilliseconds = 2000) {
+    Vector<ChildDescriptorMapping> mappings = [
+        ChildDescriptorMapping(sourceDescriptor, childDescriptor)
+    ];
+    return ChildProcess.run(
+        executable,
+        arguments,
+        executableDescriptor=executableDescriptor,
+        descriptorMappings=mappings,
+        stdout=stdout,
+        stderr=stderr,
+        timeoutMilliseconds=timeoutMilliseconds);
+}
+
+void assertRejected(string executable,
+                    Vector<ChildDescriptorMapping> mappings,
+                    string expected) {
+    Vector<string> arguments = [];
+    ExecResult result = ChildProcess.run(
+        executable, arguments, descriptorMappings=mappings);
+    assert(result.code == 127);
+    assert(result.stderr().contains(expected));
+}
+
+int main(int argc, char** argv) {
+    if (argc > 1) { return childProbe(argc, argv); }
+
+    string executable = PathTools.absolute(argv[0]);
+    string root = FileSystem.tempDir("btrc child descriptor map");
+    assert(!root.isEmpty());
+
+    string sourcePath = PathTools.join(root, "source");
+    string leasedPath = PathTools.join(root, "leased-source");
+    string expected = "leased descriptor content";
+    assert(FileSystem.writeText(sourcePath, expected));
+    int sourceDescriptor = open(
+        sourcePath, (int)O_RDONLY | (int)O_CLOEXEC);
+    assert(sourceDescriptor >= 3);
+    assert(rename(sourcePath, leasedPath) == 0);
+    assert(FileSystem.writeText(sourcePath, "replacement content"));
+
+    int replacementDescriptor = open(
+        sourcePath, (int)O_RDONLY | (int)O_CLOEXEC);
+    assert(replacementDescriptor >= 3);
+    int executableDescriptor = open(
+        executable, (int)O_RDONLY | (int)O_CLOEXEC);
+    assert(executableDescriptor >= 3);
+
+    FILE* unrelatedStream = tmpfile();
+    assert(unrelatedStream != NULL);
+    int unrelatedDescriptor = fcntl(
+        fileno(unrelatedStream), F_DUPFD, 200);
+    assert(unrelatedDescriptor >= 200);
+    int unrelatedFlags = fcntl(unrelatedDescriptor, F_GETFD, 0);
+    assert(unrelatedFlags >= 0);
+    assert(fcntl(unrelatedDescriptor, F_SETFD,
+        unrelatedFlags & ~FD_CLOEXEC) == 0);
+
+    if (!FileSystem.exists("/proc/self/exe")) {
+        Vector<ChildDescriptorMapping> mappings = [
+            ChildDescriptorMapping(sourceDescriptor, 41)
+        ];
+        Vector<string> noArguments = [];
+        ExecResult mapped = ChildProcess.run(
+            executable, noArguments, descriptorMappings=mappings);
+        assert(mapped.code == 127);
+        assert(mapped.stderr().contains("require native Linux"));
+
+        int directoryDescriptor = open(
+            root, (int)O_RDONLY | (int)O_CLOEXEC);
+        assert(directoryDescriptor >= 3);
+        ExecResult working = ChildProcess.run(
+            executable, noArguments,
+            workingDirectoryDescriptor=directoryDescriptor);
+        assert(working.code == 127);
+        assert(working.stderr().contains("require native Linux"));
+        assert(close(directoryDescriptor) == 0);
+    } else {
+        ExecResult exact = mappedRun(
+            executable,
+            executableDescriptor,
+            sourceDescriptor,
+            41,
+            ["--mapped-probe", "41",
+                Strings.fromInt(unrelatedDescriptor), expected]);
+        assert(exact.ok());
+        assert(exact.stdout().equals(expected));
+        assert(exact.stderr().equals("mapped-stderr"));
+        assert(fcntl(sourceDescriptor, F_GETFD, 0) >= 0);
+        assert(lseek(sourceDescriptor, (off_t)0, SEEK_SET) == (off_t)0);
+        assert(readExactDescriptor(sourceDescriptor, expected));
+
+        string cwdPath = PathTools.join(root, "cwd");
+        string leasedCwdPath = PathTools.join(root, "leased-cwd");
+        assert(FileSystem.mkdir(cwdPath, 0700) == 0);
+        assert(FileSystem.writeText(
+            PathTools.join(cwdPath, "identity.txt"), "leased cwd"));
+        int cwdDescriptor = open(
+            cwdPath, (int)O_RDONLY | (int)O_CLOEXEC);
+        assert(cwdDescriptor >= 3);
+        assert(rename(cwdPath, leasedCwdPath) == 0);
+        assert(FileSystem.mkdir(cwdPath, 0700) == 0);
+        assert(FileSystem.writeText(
+            PathTools.join(cwdPath, "identity.txt"), "replacement cwd"));
+
+        ExecResult cwdIdentity = ChildProcess.run(
+            executable,
+            ["--cwd-probe", "leased cwd"],
+            executableDescriptor=executableDescriptor,
+            workingDirectoryDescriptor=cwdDescriptor,
+            timeoutMilliseconds=2000);
+        assert(cwdIdentity.ok());
+        assert(cwdIdentity.stdout().equals("leased cwd"));
+        assert(fcntl(cwdDescriptor, F_GETFD, 0) >= 0);
+
+        Vector<ChildDescriptorMapping> negativeSource = [
+            ChildDescriptorMapping(-1, 40)
+        ];
+        assertRejected(executable, negativeSource, "source cannot be negative");
+        Vector<ChildDescriptorMapping> negativeTarget = [
+            ChildDescriptorMapping(sourceDescriptor, -1)
+        ];
+        assertRejected(executable, negativeTarget, "target cannot be negative");
+        Vector<ChildDescriptorMapping> reservedTarget = [
+            ChildDescriptorMapping(sourceDescriptor, STDERR_FILENO)
+        ];
+        assertRejected(executable, reservedTarget, "conflicts with standard streams");
+        Vector<ChildDescriptorMapping> duplicateSources = [
+            ChildDescriptorMapping(sourceDescriptor, 40),
+            ChildDescriptorMapping(sourceDescriptor, 41)
+        ];
+        assertRejected(executable, duplicateSources, "duplicate child descriptor source");
+        Vector<ChildDescriptorMapping> duplicateTargets = [
+            ChildDescriptorMapping(sourceDescriptor, 40),
+            ChildDescriptorMapping(replacementDescriptor, 40)
+        ];
+        assertRejected(executable, duplicateTargets, "duplicate child descriptor target");
+
+        Vector<string> noArguments = [];
+        ExecResult conflictingCwd = ChildProcess.run(
+            executable, noArguments,
+            cwd=root,
+            workingDirectoryDescriptor=cwdDescriptor);
+        assert(conflictingCwd.code == 127);
+        assert(conflictingCwd.stderr().contains("cannot both be set"));
+        ExecResult invalidCwd = ChildProcess.run(
+            executable, noArguments,
+            workingDirectoryDescriptor=sourceDescriptor);
+        assert(invalidCwd.code == 127);
+        assert(invalidCwd.stderr().contains(
+            "working directory descriptor is invalid"));
+
+        assert(lseek(sourceDescriptor, (off_t)0, SEEK_SET) == (off_t)0);
+        ExecResult streamed = mappedRun(
+            executable,
+            executableDescriptor,
+            sourceDescriptor,
+            42,
+            ["--stream-probe", "42", expected],
+            stdout=CommandOutput.suppress(),
+            stderr=CommandOutput.stream());
+        assert(streamed.ok());
+        assert(streamed.stdout().isEmpty());
+        assert(streamed.stderr().isEmpty());
+
+        int timeoutPipe[2];
+        assert(pipe(timeoutPipe) == 0);
+        ExecResult timeout = mappedRun(
+            executable,
+            executableDescriptor,
+            timeoutPipe[1],
+            43,
+            ["--timeout-probe", "43"],
+            timeoutMilliseconds=100);
+        assert(timeout.code == 124);
+        assert(timeout.wasTimedOut());
+        assert(fcntl(timeoutPipe[1], F_GETFD, 0) >= 0);
+        assert(close(timeoutPipe[1]) == 0);
+        char pidText[64];
+        ssize_t pidLength = read(
+            timeoutPipe[0], pidText, sizeof(pidText) - (size_t)1);
+        assert(pidLength > (ssize_t)0 && pidLength < (ssize_t)sizeof(pidText));
+        pidText[pidLength] = '\0';
+        pid_t timedOutChild = (pid_t)atoi(pidText);
+        errno = 0;
+        assert(kill(timedOutChild, 0) != 0 && errno == ESRCH);
+        assert(close(timeoutPipe[0]) == 0);
+        assert(close(cwdDescriptor) == 0);
+    }
+
+    assert(close(unrelatedDescriptor) == 0);
+    assert(fclose(unrelatedStream) == 0);
+    assert(close(executableDescriptor) == 0);
+    assert(close(replacementDescriptor) == 0);
+    assert(close(sourceDescriptor) == 0);
+    assert(FileSystem.removeRecursive(root) == 0);
+    print("PASS: test_stdlib_child_process_descriptor_mapping");
+    return 0;
+}

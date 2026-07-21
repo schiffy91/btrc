@@ -580,6 +580,9 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
     "CommandEnvironment": [
         BuiltinMember("empty", "Vector<string>", "method", [], "empty"),
     ],
+    "ChildDescriptorMappings": [
+        BuiltinMember("empty", "Vector<ChildDescriptorMapping>", "method", [], "empty"),
+    ],
     "ChildProcessClock": [
         BuiltinMember("millisecondsFrom", "long long", "method", [("uintmax_t", "seconds"), ("long", "nanoseconds")], "millisecondsFrom"),
         BuiltinMember("milliseconds", "long long", "method", [], "milliseconds"),
@@ -611,12 +614,13 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("validateArguments", "void", "method", [("Vector<string>", "arguments")], "validateArguments"),
         BuiltinMember("moveOutsideStandardStreams", "int", "method", [("int*", "descriptor")], "moveOutsideStandardStreams"),
         BuiltinMember("childSourceOutsideStandardStreams", "int", "method", [("int", "descriptor")], "childSourceOutsideStandardStreams"),
+        BuiltinMember("closeLeasedDescriptors", "void", "method", [("int*", "descriptors"), ("int", "count")], "closeLeasedDescriptors"),
         BuiltinMember("validateEnvironment", "void", "method", [("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment")], "validateEnvironment"),
         BuiltinMember("closePipe", "void", "method", [("int*", "descriptors")], "closePipe"),
         BuiltinMember("openPipe", "int", "method", [("int*", "descriptors")], "openPipe"),
         BuiltinMember("failure", "ExecResult", "method", [("string", "command"), ("string", "message")], "failure"),
         BuiltinMember("render", "string", "method", [("string", "executable"), ("Vector<string>", "arguments")], "render"),
-        BuiltinMember("run", "ExecResult", "method", [("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr"), ("int", "executableDescriptor")], "run"),
+        BuiltinMember("run", "ExecResult", "method", [("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor")], "run"),
     ],
     "Regex": [
         BuiltinMember("checkedLength", "int", "method", [("string", "text")], "checkedLength"),
