@@ -41,7 +41,7 @@ from .hosted_result_contracts import HostedResultContractsMixin
 from .identifier_contracts import IdentifierContractsMixin
 from .index_expressions import IndexExpressionContractsMixin
 from .indexed_updates import IndexedUpdateContractsMixin
-from .initializers import InitializerValidationMixin
+from .initializer_analyzer import InitializerAnalyzer, InitializerTypeLayout
 from .lambdas import LambdaAnalysisMixin
 from .lvalue_contracts import LvalueContractsMixin
 from .managed_rebinds import ManagedRebindContractsMixin
@@ -96,7 +96,6 @@ class SemanticAnalyzer(
     ConstructorInferenceMixin,
     CallTypeInferenceMixin,
     TypeInferenceMixin,
-    InitializerValidationMixin,
     IdentifierContractsMixin,
     CallTargetContractsMixin,
     CallableValueValidationMixin,
@@ -157,6 +156,11 @@ class SemanticAnalyzer(
             seed=seed,
         )
         self.declaration_policy = self.declarations.policy
+        self.initializers = InitializerAnalyzer(
+            context,
+            self.declarations,
+            InitializerTypeLayout(self.declarations),
+        )
         self.hierarchy = HierarchyValidator(
             context,
             self.declarations,

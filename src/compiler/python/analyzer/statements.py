@@ -87,12 +87,14 @@ class StatementsMixin:
                     stmt.col,
                 )
                 if self.current_return_type:
-                    self._contextualize_aggregate_initializer(
-                        self.current_return_type,
-                        stmt.value,
-                        "Return value",
-                        stmt.line,
-                        stmt.col,
+                    self._apply_initializer_plan(
+                        self.initializers.plan_aggregate(
+                            self.current_return_type,
+                            stmt.value,
+                            "Return value",
+                            stmt.line,
+                            stmt.col,
+                        )
                     )
                 if self._is_nonpointer_void_object(self.current_return_type):
                     self.context.error("Void function or method cannot return a value", stmt.line, stmt.col)

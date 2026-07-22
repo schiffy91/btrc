@@ -121,12 +121,14 @@ class CallableValueValidationMixin:
                 getattr(arg, "line", line),
                 getattr(arg, "col", col),
             )
-            self._contextualize_aggregate_initializer(
-                expected,
-                arg,
-                f"Argument {index} to '{name}()'",
-                getattr(arg, "line", line),
-                getattr(arg, "col", col),
+            self._apply_initializer_plan(
+                self.initializers.plan_aggregate(
+                    expected,
+                    arg,
+                    f"Argument {index} to '{name}()'",
+                    getattr(arg, "line", line),
+                    getattr(arg, "col", col),
+                )
             )
             actual = self._infer_type(arg)
             if actual and not self._types_compatible(expected, actual):

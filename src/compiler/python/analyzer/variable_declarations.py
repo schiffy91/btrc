@@ -97,12 +97,14 @@ class VariableDeclarationAnalysisMixin:
                 stmt.line,
                 stmt.col,
             )
-            self._contextualize_aggregate_initializer(
-                stmt.type,
-                stmt.initializer,
-                f"Initializer for '{stmt.name}'",
-                stmt.line,
-                stmt.col,
+            self._apply_initializer_plan(
+                self.initializers.plan_aggregate(
+                    stmt.type,
+                    stmt.initializer,
+                    f"Initializer for '{stmt.name}'",
+                    stmt.line,
+                    stmt.col,
+                )
             )
             self._validate_fixed_array_initializer(
                 stmt.type,
@@ -113,12 +115,14 @@ class VariableDeclarationAnalysisMixin:
             )
             self._validate_callable_storage(stmt.type, stmt.initializer, explicit_type, stmt.line, stmt.col)
             if isinstance(stmt.initializer, (ListLiteral, MapLiteral, BraceInitializer)):
-                self._contextualize_collection_initializer(
-                    stmt.type,
-                    stmt.initializer,
-                    f"Initializer for '{stmt.name}'",
-                    stmt.line,
-                    stmt.col,
+                self._apply_initializer_plan(
+                    self.initializers.plan_collection(
+                        stmt.type,
+                        stmt.initializer,
+                        f"Initializer for '{stmt.name}'",
+                        stmt.line,
+                        stmt.col,
+                    )
                 )
             self._contextualize_generic_constructor(stmt.type, stmt.initializer)
             init_type = self._infer_type(stmt.initializer)

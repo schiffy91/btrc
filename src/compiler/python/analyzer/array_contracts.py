@@ -8,10 +8,14 @@ from ..ast_nodes import (
     IntLiteral,
     ListLiteral,
 )
-from ..type_composition import add_outer_pointer
+from ..type_composition import add_outer_pointer, strip_outer_storage
 
 
 class ArrayContractsMixin:
+    @staticmethod
+    def _array_element_type(array_type):
+        return strip_outer_storage(array_type, array=True)
+
     def _validate_fixed_array_initializer(
         self,
         expected,

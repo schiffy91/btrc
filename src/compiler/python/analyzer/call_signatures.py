@@ -76,12 +76,14 @@ class CallSignatureContractsMixin:
                     argument_col,
                 )
             self._contextualize_generic_constructor(expected, argument)
-            self._contextualize_aggregate_initializer(
-                expected,
-                argument,
-                f"Argument '{params[param_index].name}' to '{name}()'",
-                argument_line,
-                argument_col,
+            self._apply_initializer_plan(
+                self.initializers.plan_aggregate(
+                    expected,
+                    argument,
+                    f"Argument '{params[param_index].name}' to '{name}()'",
+                    argument_line,
+                    argument_col,
+                )
             )
             if self._validate_callable_value(
                 expected,

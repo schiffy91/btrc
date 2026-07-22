@@ -65,12 +65,14 @@ class FunctionsMixin:
                         member.line,
                         member.col,
                     )
-                    self._validate_typed_initializer(
-                        field_value_type,
-                        member.initializer,
-                        f"Field '{decl.name}.{member.name}'",
-                        member.line,
-                        member.col,
+                    self._apply_initializer_plan(
+                        self.initializers.plan_typed(
+                            field_value_type,
+                            member.initializer,
+                            f"Field '{decl.name}.{member.name}'",
+                            member.line,
+                            member.col,
+                        )
                     )
             elif isinstance(member, MethodDecl):
                 self._analyze_method(member)
@@ -143,12 +145,14 @@ class FunctionsMixin:
                     param.line or method.line,
                     param.col or method.col,
                 )
-                self._validate_typed_initializer(
-                    parameter_value_type,
-                    param.default,
-                    f"Default for parameter '{param.name}'",
-                    param.line or method.line,
-                    param.col or method.col,
+                self._apply_initializer_plan(
+                    self.initializers.plan_typed(
+                        parameter_value_type,
+                        param.default,
+                        f"Default for parameter '{param.name}'",
+                        param.line or method.line,
+                        param.col or method.col,
+                    )
                 )
             if self._claim_local_binding(
                 param.name,
@@ -282,12 +286,14 @@ class FunctionsMixin:
                     param.line or func.line,
                     param.col or func.col,
                 )
-                self._validate_typed_initializer(
-                    parameter_value_type,
-                    param.default,
-                    f"Default for parameter '{param.name}'",
-                    param.line or func.line,
-                    param.col or func.col,
+                self._apply_initializer_plan(
+                    self.initializers.plan_typed(
+                        parameter_value_type,
+                        param.default,
+                        f"Default for parameter '{param.name}'",
+                        param.line or func.line,
+                        param.col or func.col,
+                    )
                 )
             if self._claim_local_binding(
                 param.name,

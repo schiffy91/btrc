@@ -34,12 +34,14 @@ def analyze_rich_enum_defaults(analyzer, declaration) -> None:
                             parameter.line or variant.line,
                             parameter.col or variant.col,
                         )
-                        analyzer._validate_typed_initializer(
-                            parameter.type,
-                            parameter.default,
-                            f"Default for rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'",
-                            parameter.line or variant.line,
-                            parameter.col or variant.col,
+                        analyzer._apply_initializer_plan(
+                            analyzer.initializers.plan_typed(
+                                parameter.type,
+                                parameter.default,
+                                f"Default for rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'",
+                                parameter.line or variant.line,
+                                parameter.col or variant.col,
+                            )
                         )
                         actual = analyzer._infer_type(parameter.default)
                         if analyzer._argument_produces_owned_result(

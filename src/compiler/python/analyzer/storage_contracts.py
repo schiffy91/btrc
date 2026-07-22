@@ -2,9 +2,94 @@
 
 from ..ast_nodes import BraceInitializer, CallExpr, Identifier, ListLiteral
 from ..type_composition import strip_outer_storage
+from ..type_identity import is_semantic_scalar_void
+from .initializer_analyzer import (
+    InitializerArrayFieldCheck,
+    InitializerCompatibilityCheck,
+    InitializerPlan,
+    InitializerStringConversionCheck,
+    InitializerTypeContext,
+    InitializerValueCheck,
+)
 
 
 class StorageContractsMixin:
+    def _apply_initializer_plan(self, plan: InitializerPlan) -> bool:
+        """Apply an initializer shape plan through the active semantic policies."""
+        for step in plan.steps:
+            if isinstance(step, InitializerValueCheck):
+                self._validate_managed_string_source(
+                    step.expected,
+                    step.value,
+                    step.subject,
+                    step.line,
+                    step.col,
+                )
+                self._validate_opaque_borrow_storage(
+                    step.expected,
+                    step.value,
+                    step.subject,
+                    step.line,
+                    step.col,
+                )
+                self._validate_volatile_reference_conversion(
+                    step.expected,
+                    step.value,
+                    step.subject,
+                    step.line,
+                    step.col,
+                )
+                if step.validate_fixed_array:
+                    self._validate_fixed_array_initializer(
+                        step.expected,
+                        step.value,
+                        step.subject,
+                        step.line,
+                        step.col,
+                    )
+                if step.contextualize_constructor:
+                    self._contextualize_generic_constructor(
+                        step.expected,
+                        step.value,
+                    )
+            elif isinstance(step, InitializerArrayFieldCheck):
+                self._validate_pointer_backed_array_field_initializer(
+                    step.field,
+                    step.value,
+                    step.subject,
+                    step.line,
+                    step.col,
+                )
+            elif isinstance(step, InitializerStringConversionCheck):
+                if self._requires_string_conversion(
+                    step.expected,
+                    self._infer_type(step.value),
+                ):
+                    self.context.error(step.message, step.line, step.col)
+            elif isinstance(step, InitializerCompatibilityCheck):
+                actual = self._infer_type(step.value)
+                if actual is None:
+                    continue
+                if step.reject_void and is_semantic_scalar_void(actual):
+                    self.context.error(
+                        f"{step.subject} cannot be initialized from a void expression",
+                        step.line,
+                        step.col,
+                    )
+                elif not self._types_compatible(step.expected, actual):
+                    suffix = " elements" if step.element else ""
+                    self.context.error(
+                        f"{step.subject} expects "
+                        f"'{self._format_type(step.expected)}'{suffix} but got "
+                        f"'{self._format_type(actual)}'",
+                        step.line,
+                        step.col,
+                    )
+            elif isinstance(step, InitializerTypeContext):
+                self._record_node_type(step.value, step.expected)
+                self._collect_generic_instances(step.expected)
+        return plan.contextual
+
     def _validate_variable_storage(self, declaration, *, is_global) -> None:
         type_expr = declaration.type
         if type_expr is None:

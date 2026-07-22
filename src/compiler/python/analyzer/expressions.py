@@ -122,19 +122,23 @@ class ExpressionsMixin:
             if isinstance(expr.value, (ListLiteral, MapLiteral, BraceInitializer)):
                 target_type = self._infer_type(expr.target)
                 if target_type:
-                    self._contextualize_aggregate_initializer(
-                        target_type,
-                        expr.value,
-                        "Assignment",
-                        expr.line,
-                        expr.col,
+                    self._apply_initializer_plan(
+                        self.initializers.plan_aggregate(
+                            target_type,
+                            expr.value,
+                            "Assignment",
+                            expr.line,
+                            expr.col,
+                        )
                     )
-                    self._contextualize_collection_initializer(
-                        target_type,
-                        expr.value,
-                        "Assignment",
-                        expr.line,
-                        expr.col,
+                    self._apply_initializer_plan(
+                        self.initializers.plan_collection(
+                            target_type,
+                            expr.value,
+                            "Assignment",
+                            expr.line,
+                            expr.col,
+                        )
                     )
             self._validate_assignment(expr)
             self._validate_opaque_borrow_storage(
