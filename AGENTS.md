@@ -131,11 +131,32 @@ PIPELINE:
 
 ## Python Compiler (src/compiler/python/)
 
-### File Size Rule
+### Cohesion and Object Design
 
-**~200 lines per file, max 300.** If a file exceeds this, decompose it into
-a package with sub-modules. No `__init__.py` files — use explicit module paths
-(e.g., `from .parser.parser import Parser` not `from .parser import Parser`).
+Module boundaries follow ownership and cohesion, not line counts. File size is
+a review signal, never a hard limit and never sufficient reason to split a
+module. Keep a cohesive implementation together until it contains genuinely
+independent responsibilities with stable APIs.
+
+Production compiler behavior belongs to the class that owns its stage or
+domain. Do not add loose module-level behavior functions. Prefer instance
+methods when behavior depends on compiler state and class methods for stateless
+operations owned by a real domain type. Classes must represent meaningful
+owners, not one-function pseudo-namespaces. Module-level constants, generated
+tables, type declarations, and thin process entry points are allowed.
+
+`__init__.py` files are allowed when they define a small, intentional package
+API. Do not create wildcard re-export layers or package facades that conceal
+dependency direction. Internal code should still import the concrete owner it
+depends on.
+
+### Import Discipline
+
+Strict imports are the language and compiler default. A source file must import
+the top-level symbols it references. Any relaxed compatibility mode must be an
+explicitly named opt-out; it may never silently become the default. The Python
+compiler, self-hosted compiler, bootstrap, examples, and test corpus must all
+prove the strict-import path.
 
 ### File Structure
 
@@ -335,7 +356,9 @@ Run `make help` for the canonical, complete target list.
 2. **No monolithic codegen.** IR gen + optimizer + emitter is the ONLY path.
 3. **Grammar is the single source of truth.** No hardcoded keywords/operators.
 4. **AST types come from ASDL.** Never hand-edit generated files.
-5. **Files ~200 lines max.** Decompose into packages.
+5. **Cohesion before size.** Split and consolidate only at real ownership boundaries.
 6. **All tests must pass.** No "pre-existing failures."
 7. **Generated C must be strict C11.** No compiler-specific extensions.
-8. **Don't cut corners when context runs low.** Save state and stop.
+8. **Strict imports are the default.** Relaxation is explicit and compatibility-only.
+9. **No loose compiler behavior.** Stage/domain classes own executable logic.
+10. **Don't cut corners when context runs low.** Save state and stop.
