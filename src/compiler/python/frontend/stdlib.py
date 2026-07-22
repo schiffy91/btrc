@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 
 from .. import ast_nodes as ast
 from .. import frontend_stdlib as legacy_stdlib
+from ..cache_keys import resolve_cache_dir
 from ..lexer import Lexer
 from ..parser.parser import Parser
 from ..pipeline.models import StdlibSource
 from ..pkg import IncludeResolutionError
 from ..source_io import SourceReadError, read_source
 from ..source_macros import source_macro_name
+from ..stdlib_ast_cache import StdlibAstCache
 from .dependencies import SourceDependencyGraph
 
 
 class StdlibRepository:
     """Own access to the compiler's canonical standard-library sources."""
 
-    def __init__(self) -> None:
+    def __init__(self, ast_cache: StdlibAstCache | None = None) -> None:
+        self.ast_cache = ast_cache or StdlibAstCache()
         self._symbol_files: dict[str, frozenset[str]] | None = None
 
     @property
@@ -45,7 +49,30 @@ class StdlibRepository:
         return StdlibSource(source.source, tuple(source.source_positions))
 
     def cached_declarations(self, stdlib_source: str) -> list:
-        return legacy_stdlib._cached_stdlib_decls(stdlib_source)
+        """Return independently decoded declarations from the persistent cache."""
+        try:
+            cache_dir = resolve_cache_dir()
+        except OSError:
+            return self._parse_declarations(stdlib_source)
+        self.ast_cache.prune(cache_dir)
+        content_hash = self.ast_cache.source_hash(stdlib_source)
+        path = self.ast_cache.path(
+            cache_dir,
+            self.ast_version,
+            stdlib_source,
+        )
+        cached = self.ast_cache.load(path, content_hash)
+        if cached is not None:
+            return cached
+        declarations = self._parse_declarations(stdlib_source)
+        with suppress(OSError, TypeError, ValueError):
+            self.ast_cache.store(path, content_hash, declarations)
+        return declarations
+
+    @staticmethod
+    def _parse_declarations(stdlib_source: str) -> list:
+        tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
+        return Parser(tokens).parse().declarations
 
     @staticmethod
     def _declaration_names(declaration) -> tuple[str, ...]:

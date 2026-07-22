@@ -16,6 +16,7 @@ from src.compiler.python import stdlib_ast_cache as ast_cache
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.cli.compiler_cli import CompilerCLI
 from src.compiler.python.cli_diagnostics import format_error
+from src.compiler.python.frontend import stdlib as frontend_stdlib_owner
 from src.compiler.python.frontend.resolver import SourceResolver
 from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.pkg import IncludeResolutionError
@@ -559,7 +560,7 @@ def test_cached_stdlib_decls_roundtrip(tmp_path, monkeypatch):
     def unexpected_parse(_self):
         raise AssertionError("cache hit reparsed the stdlib")
 
-    monkeypatch.setattr(frontend_stdlib.Parser, "parse", unexpected_parse)
+    monkeypatch.setattr(frontend_stdlib_owner.Parser, "parse", unexpected_parse)
     second = STDLIB.cached_declarations(stdlib_src)
     assert second == first
 
@@ -611,7 +612,7 @@ def test_cached_stdlib_decls_unavailable_cache_still_parses(monkeypatch):
     def unavailable():
         raise PermissionError("read-only cache root")
 
-    monkeypatch.setattr(frontend_stdlib, "resolve_cache_dir", unavailable)
+    monkeypatch.setattr(frontend_stdlib_owner, "resolve_cache_dir", unavailable)
     decls = STDLIB.cached_declarations("class Cacheless { public int x; public Cacheless() { self.x = 1; } }\n")
     assert decls
 
@@ -665,7 +666,11 @@ def test_cached_stdlib_decls_corrupt_cache(tmp_path, monkeypatch):
     cache_dir.mkdir()
     monkeypatch.setenv("BTRC_CACHE_DIR", str(cache_dir))
     stdlib_src = "class Tiny2 { public int x; public Tiny2(int x) { self.x = x; } }\n"
-    path = ast_cache.cache_path(str(cache_dir), STDLIB.ast_version, stdlib_src)
+    path = STDLIB.ast_cache.path(
+        str(cache_dir),
+        STDLIB.ast_version,
+        stdlib_src,
+    )
     with open(path, "wb") as cache_file:
         cache_file.write(b"not valid JSON")
     decls = STDLIB.cached_declarations(stdlib_src)  # must reparse, not crash

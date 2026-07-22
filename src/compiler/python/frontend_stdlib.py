@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import os
 import re
-from contextlib import suppress
 
-from . import stdlib_ast_cache
-from .cache_keys import resolve_cache_dir, toolchain_hash
+from .cache_keys import toolchain_hash
 from .frontend_limits import ResolutionBudget
 from .import_scan import scan_directives
-from .lexer import Lexer
-from .parser.parser import Parser
 from .pipeline.models import StdlibSource
 from .pkg import IncludeResolutionError
 from .source_io import SourceReadError, read_source
@@ -30,40 +26,6 @@ _INTERFACE_NAME_RE = re.compile(
     r"(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?\{",
     re.MULTILINE,
 )
-
-
-def _cached_stdlib_decls(stdlib_source: str) -> list:
-    """Parse the stdlib once and cache its AST declarations on disk.
-
-    The stdlib is large and identical across programs, so re-lexing/re-parsing
-    it every compile dominates build time. This caches the parsed declarations
-    keyed by the exact stdlib source (which already reflects any user overrides),
-    so subsequent builds skip straight to the user's code. Each CLI invocation
-    receives newly decoded AST objects, which may be safely mutated by analysis.
-    """
-    try:
-        cache_dir = resolve_cache_dir()
-    except OSError:
-        return _parse_stdlib_decls(stdlib_source)
-    stdlib_ast_cache.prune_cache(cache_dir)
-    content_hash = stdlib_ast_cache.source_hash(stdlib_source)
-    path = stdlib_ast_cache.cache_path(
-        cache_dir,
-        _STDLIB_AST_VERSION,
-        stdlib_source,
-    )
-    cached = stdlib_ast_cache.load_declarations(path, content_hash)
-    if cached is not None:
-        return cached
-    decls = _parse_stdlib_decls(stdlib_source)
-    with suppress(OSError, TypeError, ValueError):
-        stdlib_ast_cache.store_declarations(path, content_hash, decls)
-    return decls
-
-
-def _parse_stdlib_decls(stdlib_source: str) -> list:
-    tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
-    return Parser(tokens).parse().declarations
 
 
 def _defined_stdlib_names(source: str) -> set[str]:

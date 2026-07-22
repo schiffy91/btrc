@@ -9,9 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import ast_codec, cache_io, disk_cache, stdlib_ast_cache
+from src.compiler.python import ast_codec, cache_io, disk_cache
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.stdlib_ast_cache import SCHEMA_VERSION, StdlibAstCache
 
 
 def _declarations(source: str):
@@ -35,10 +36,11 @@ def test_ast_codec_roundtrip_preserves_schema_markers():
 
 
 def test_stdlib_cache_rejects_nodes_missing_current_marker_fields(tmp_path):
+    cache = StdlibAstCache()
     source = "schema markers"
-    content_hash = stdlib_ast_cache.source_hash(source)
-    path = stdlib_ast_cache.cache_path(str(tmp_path), "frontend-v1", source)
-    stdlib_ast_cache.store_declarations(
+    content_hash = cache.source_hash(source)
+    path = cache.path(str(tmp_path), "frontend-v1", source)
+    cache.store(
         path,
         content_hash,
         _schema_marker_declarations(),
@@ -49,19 +51,20 @@ def test_stdlib_cache_rejects_nodes_missing_current_marker_fields(tmp_path):
     stale_struct = json.loads(json.dumps(current))
     stale_struct["declarations"][0]["fields"].pop("is_forward")
     cache_io.atomic_write_json(path, stale_struct)
-    assert stdlib_ast_cache.load_declarations(path, content_hash) is None
+    assert cache.load(path, content_hash) is None
 
     stale_method = json.loads(json.dumps(current))
     stale_method["declarations"][1]["fields"]["members"][0]["fields"].pop("is_constructor")
     cache_io.atomic_write_json(path, stale_method)
-    assert stdlib_ast_cache.load_declarations(path, content_hash) is None
+    assert cache.load(path, content_hash) is None
 
 
 def test_stdlib_json_cache_rejects_schema_hash_and_node_tampering(tmp_path):
+    cache = StdlibAstCache()
     source = "class Cached { public int value; }\n"
-    content_hash = stdlib_ast_cache.source_hash(source)
-    path = stdlib_ast_cache.cache_path(str(tmp_path), "frontend-v1", source)
-    stdlib_ast_cache.store_declarations(
+    content_hash = cache.source_hash(source)
+    path = cache.path(str(tmp_path), "frontend-v1", source)
+    cache.store(
         path,
         content_hash,
         _declarations(source),
@@ -71,29 +74,44 @@ def test_stdlib_json_cache_rejects_schema_hash_and_node_tampering(tmp_path):
 
     valid["schema"] += 1
     cache_io.atomic_write_json(path, valid)
-    assert stdlib_ast_cache.load_declarations(path, content_hash) is None
+    assert cache.load(path, content_hash) is None
 
-    valid["schema"] = stdlib_ast_cache.SCHEMA_VERSION
+    valid["schema"] = SCHEMA_VERSION
     valid["content_hash"] = "0" * 64
     cache_io.atomic_write_json(path, valid)
-    assert stdlib_ast_cache.load_declarations(path, content_hash) is None
+    assert cache.load(path, content_hash) is None
 
     valid["content_hash"] = content_hash
     valid["declarations"] = [{"fields": {}, "type": "ArbitraryPythonClass"}]
     cache_io.atomic_write_json(path, valid)
-    assert stdlib_ast_cache.load_declarations(path, content_hash) is None
+    assert cache.load(path, content_hash) is None
 
 
-def test_stdlib_cache_key_covers_schema_frontend_and_source(tmp_path, monkeypatch):
-    one = stdlib_ast_cache.cache_path(str(tmp_path), "frontend-a", "class A {}\n")
-    assert one != stdlib_ast_cache.cache_path(str(tmp_path), "frontend-b", "class A {}\n")
-    assert one != stdlib_ast_cache.cache_path(str(tmp_path), "frontend-a", "class B {}\n")
-    monkeypatch.setattr(
-        stdlib_ast_cache,
-        "SCHEMA_VERSION",
-        stdlib_ast_cache.SCHEMA_VERSION + 1,
+def test_stdlib_cache_key_covers_schema_frontend_and_source(tmp_path):
+    cache = StdlibAstCache()
+    one = cache.path(str(tmp_path), "frontend-a", "class A {}\n")
+    assert one != cache.path(str(tmp_path), "frontend-b", "class A {}\n")
+    assert one != cache.path(str(tmp_path), "frontend-a", "class B {}\n")
+    newer_schema = StdlibAstCache(schema_version=SCHEMA_VERSION + 1)
+    assert one != newer_schema.path(
+        str(tmp_path),
+        "frontend-a",
+        "class A {}\n",
     )
-    assert one != stdlib_ast_cache.cache_path(str(tmp_path), "frontend-a", "class A {}\n")
+
+
+def test_stdlib_cache_pruning_state_is_instance_owned(tmp_path):
+    legacy = tmp_path / "stdlib-legacy.ast"
+    first = StdlibAstCache()
+    second = StdlibAstCache()
+
+    legacy.write_bytes(b"unsafe pickle")
+    first.prune(str(tmp_path))
+    assert not legacy.exists()
+
+    legacy.write_bytes(b"unsafe pickle restored after first cache scan")
+    second.prune(str(tmp_path))
+    assert not legacy.exists()
 
 
 def test_disk_cache_atomic_failure_preserves_previous_entry(tmp_path, monkeypatch):
