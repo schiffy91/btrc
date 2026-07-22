@@ -80,9 +80,7 @@ class AnalyzerBase:
         self._normalize_registered_types(program)
         self._validate_registered_declarations(program)
         self.declarations.resolve_interface_parents(program)
-        self._validate_inheritance(program)
-        self._validate_interfaces(program)
-        self._validate_overrides(program)
+        self.hierarchy.validate(program)
         self._compute_cyclable_flags()
         self._validate_aggregate_declarations(program)
         from .rich_enum_defaults import analyze_rich_enum_defaults

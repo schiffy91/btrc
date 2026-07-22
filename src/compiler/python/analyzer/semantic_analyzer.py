@@ -35,7 +35,7 @@ from .generic_methods import GenericMethodsMixin
 from .generic_validation import GenericValidationMixin
 from .gpu_array_contracts import GpuArrayContractsMixin
 from .gpu_result_contexts import GpuResultContextContractsMixin
-from .hierarchy import HierarchyValidationMixin
+from .hierarchy_validator import HierarchyValidator
 from .hosted_abi_contracts import HostedAbiContractsMixin
 from .hosted_result_contracts import HostedResultContractsMixin
 from .identifier_contracts import IdentifierContractsMixin
@@ -128,7 +128,6 @@ class SemanticAnalyzer(
     ControlFlowAnalysisMixin,
     TypeNormalizationMixin,
     CycleAnalysisMixin,
-    HierarchyValidationMixin,
     GenericValidationMixin,
     GeneratedSymbolContractsMixin,
     ValidationMixin,
@@ -158,6 +157,11 @@ class SemanticAnalyzer(
             seed=seed,
         )
         self.declaration_policy = self.declarations.policy
+        self.hierarchy = HierarchyValidator(
+            context,
+            self.declarations,
+            self.declaration_policy.signatures,
+        )
         if seed is not None:
             self.generic_instances = {name: list(instances) for name, instances in seed.generic_instances.items()}
 

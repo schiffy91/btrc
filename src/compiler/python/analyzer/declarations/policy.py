@@ -14,6 +14,7 @@ from .c_names import (
 )
 from .callables import CallableDeclarationPolicy, is_magic_method_name
 from .hosted import HostedDeclarationPolicy
+from .signature_types import SignatureTypePolicy
 
 if TYPE_CHECKING:
     from ..analysis_context import AnalysisContext
@@ -32,6 +33,7 @@ class DeclarationPolicy:
         self.registry = registry
         self.callables = CallableDeclarationPolicy(context, registry)
         self.hosted = HostedDeclarationPolicy(context, registry)
+        self.signatures = SignatureTypePolicy(context, registry)
 
     def validate_name(
         self,
