@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
 
@@ -39,18 +38,24 @@ def test_stage_manifests_form_one_directed_dependency_chain() -> None:
         "pipeline": _source("pipeline/stage.btrc"),
     }
 
-    assert "import std.*;" in manifests["lexer"]
     assert "import ../lexer/stage.btrc;" in manifests["frontend"]
     assert "import ../frontend/stage.btrc;" in manifests["parser"]
     assert "import ../parser/stage.btrc;" in manifests["analyzer"]
     assert "import ../analyzer/stage.btrc;" in manifests["ir"]
     assert "import ../ir/stage.btrc;" in manifests["pipeline"]
 
-    downstream = ("frontend", "parser", "analyzer", "ir", "pipeline")
-    for stage in downstream:
+    for stage in manifests:
         assert "import std.*;" not in manifests[stage]
     assert "import ../ir/stage.btrc;" not in manifests["analyzer"]
     assert '#include "pipeline.btrc"' in manifests["pipeline"]
+
+
+def test_selfhost_compiler_never_uses_implicit_stdlib_globs() -> None:
+    wildcard_imports = [
+        path.relative_to(SELFHOST) for path in SELFHOST.rglob("*.btrc") if "import std.*;" in path.read_text()
+    ]
+
+    assert wildcard_imports == []
 
 
 def test_semantic_policies_do_not_reach_back_into_ir_owners() -> None:
