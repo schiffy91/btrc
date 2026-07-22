@@ -1,0 +1,3 @@
+builder=alpha:xxx!
+growth=65536
+PASS: test_stdlib_string_builder

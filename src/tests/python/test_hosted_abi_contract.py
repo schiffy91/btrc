@@ -36,6 +36,7 @@ from src.compiler.python.hosted_abi_model import (
     VALUE,
     VOID_PTR,
     HostedFunction,
+    abi_type,
 )
 from src.compiler.python.hosted_abi_native import (
     HOSTED_NATIVE_FUNCTIONS,
@@ -90,9 +91,13 @@ def test_registry_entries_obey_model_invariants() -> None:
 
 
 def test_exact_posix_effects_and_aliases_are_not_opaque() -> None:
+    fchmod = hosted_function("fchmod")
     getcwd = hosted_function("getcwd")
     read = hosted_function("read")
     realpath = hosted_function("realpath")
+    assert fchmod is not None and fchmod.result == INT
+    assert fchmod.parameters == (INT, abi_type("mode_t"))
+    assert fchmod.effects == (VALUE, VALUE)
     assert getcwd is not None and getcwd.effects == (MUTATE, VALUE)
     assert hosted_return_alias_parameter("getcwd") == 0
     assert hosted_return_effect("getcwd", alias_argument_is_null=True) == RETURN_FRESH

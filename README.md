@@ -155,6 +155,10 @@ platform primitives. Application and test code should use the object-oriented
 wrappers instead of reaching for `strcmp`, `__btrc_strdup`, manual shell string
 assembly, or raw path manipulation.
 
+`ChildProcess.run` can borrow explicit parent descriptors into fixed child
+descriptor numbers and borrow a working-directory descriptor on native Linux.
+Those capabilities have no pathname fallback and fail closed on other targets.
+
 ### Package dependencies
 
 A project can declare local or Git dependencies in the nearest `btrc.toml`:

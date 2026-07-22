@@ -170,12 +170,29 @@ class OwnershipBoundary {
     }
 
     public IRNode finish(IRGen generator, IRNode expression,
-            Node? resultType, bool promoteResult) {
+            Node? resultType, bool promoteResult,
+            bool opaqueResult = false,
+            Node? opaqueResultSite = null) {
         Vector<IRNode> sequence = self.prefix;
         int handoffIndex = 0;
         while (handoffIndex < self.handoffs.len) {
             sequence.push(self.handoffs.get(handoffIndex));
             handoffIndex = handoffIndex + 1;
+        }
+        if (opaqueResult) {
+            if (resultType != null) {
+                print("internal compiler error: opaque call result has a concrete type");
+                abortGen();
+            }
+            if (opaqueResultSite == null) {
+                print("internal compiler error: opaque call result has no source site");
+                abortGen();
+            }
+            if (self.suffix.len > 0) {
+                opaqueCallResultCleanupFail(opaqueResultSite);
+            }
+            sequence.push(expression);
+            return irStmtExpr(self.declarations, irCommaExpr(sequence));
         }
         bool isVoid = resultType == null
             || (resultType.base == "void"

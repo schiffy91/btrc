@@ -199,6 +199,23 @@ class CommandEnvironment {
     }
 }
 
+class ChildDescriptorMapping {
+    public int sourceDescriptor;
+    public int childDescriptor;
+
+    public ChildDescriptorMapping(int sourceDescriptor, int childDescriptor) {
+        self.sourceDescriptor = sourceDescriptor;
+        self.childDescriptor = childDescriptor;
+    }
+}
+
+class ChildDescriptorMappings {
+    class Vector<ChildDescriptorMapping> empty() {
+        Vector<ChildDescriptorMapping> mappings = [];
+        return mappings;
+    }
+}
+
 class ExecResult {
     public int code;
     public string out;
@@ -543,7 +560,11 @@ class ChildProcessExecutable {
  * API never parses or renders shell syntax: executable and arguments reach
  * execve(2) as distinct argv entries. Environment changes inherit the parent
  * environment, then apply NAME=value overrides and explicit unsets. A zero
- * timeout is unbounded; expiry returns code 124 with wasTimedOut() true. */
+ * timeout is unbounded; expiry returns code 124 with wasTimedOut() true.
+ * executableDescriptor borrows a readable regular executable; when supplied,
+ * executable is only argv[0] and the diagnostic label, never an execution path.
+ * Explicit descriptor mappings and descriptor-backed cwd are native-Linux
+ * capabilities and fail closed everywhere else without a pathname fallback. */
 class ChildProcess {
     class int descriptorCloseBound() {
         return __btrc_descriptor_close_bound();
@@ -583,6 +604,13 @@ class ChildProcess {
             return descriptor;
         }
         return fcntl(descriptor, F_DUPFD_CLOEXEC, 3);
+    }
+
+    class void closeLeasedDescriptors(int* descriptors, int count) {
+        if (descriptors == NULL) { return; }
+        for (int index = 0; index < count; index++) {
+            if (descriptors[index] >= 0) { close(descriptors[index]); }
+        }
     }
 
     class void validateEnvironment(Vector<string> environment,
@@ -694,14 +722,34 @@ class ChildProcess {
                          int maxStderrBytes = 8388608,
                          string stdinData = "",
                          string stdout = CommandOutput.collect(),
-                         string stderr = CommandOutput.collect()) {
+                         string stderr = CommandOutput.collect(),
+                         int executableDescriptor = -1,
+                         Vector<ChildDescriptorMapping> descriptorMappings = ChildDescriptorMappings.empty(),
+                         int workingDirectoryDescriptor = -1) {
         if (executable == null || executable.isEmpty()) {
             return ChildProcess.failure(executable, "executable cannot be empty");
+        }
+        if (executableDescriptor < -1) {
+            return ChildProcess.failure(executable,
+                "executable descriptor cannot be negative");
+        }
+        if (workingDirectoryDescriptor < -1) {
+            return ChildProcess.failure(executable,
+                "working directory descriptor cannot be negative");
         }
         if (arguments == null) {
             return ChildProcess.failure(executable, "arguments cannot be null");
         }
         ChildProcess.validateArguments(arguments);
+        if (descriptorMappings == null) {
+            return ChildProcess.failure(executable,
+                "child descriptor mappings cannot be null");
+        }
+        bool hasCwd = cwd != null && !cwd.isEmpty();
+        if (hasCwd && workingDirectoryDescriptor >= 0) {
+            return ChildProcess.failure(executable,
+                "working directory path and descriptor cannot both be set");
+        }
         if (timeoutMilliseconds < 0) {
             throw "timeoutMilliseconds cannot be negative";
         }
@@ -722,6 +770,65 @@ class ChildProcess {
 
         string command = ChildProcess.render(executable, arguments);
         int descriptorBound = -1;
+        int maximumChildDescriptor = 2;
+        bool usesExplicitDescriptorSetup = workingDirectoryDescriptor >= 0
+            || descriptorMappings.len > 0;
+        bool usesProcessDescriptors = executableDescriptor >= 0
+            || usesExplicitDescriptorSetup;
+        if (usesExplicitDescriptorSetup) {
+            if (__btrc_process_descriptors_supported() == 0) {
+                return ChildProcess.failure(command,
+                    "process descriptor capabilities require native Linux\n");
+            }
+            descriptorBound = ChildProcess.descriptorCloseBound();
+            if (descriptorBound < 4
+                    || descriptorMappings.len > descriptorBound - 3) {
+                return ChildProcess.failure(command,
+                    "unsupported process descriptor limit\n");
+            }
+            unsigned char* sourceDescriptors = (unsigned char*)calloc(
+                (size_t)descriptorBound, sizeof(unsigned char));
+            unsigned char* childDescriptors = (unsigned char*)calloc(
+                (size_t)descriptorBound, sizeof(unsigned char));
+            if (sourceDescriptors == NULL || childDescriptors == NULL) {
+                free(sourceDescriptors);
+                free(childDescriptors);
+                return ChildProcess.failure(command,
+                    "failed to validate child descriptor mappings\n");
+            }
+            string descriptorError = "";
+            for mapping in descriptorMappings {
+                if (mapping == null) {
+                    descriptorError = "child descriptor mappings cannot contain null\n";
+                } else if (mapping.sourceDescriptor < 0) {
+                    descriptorError = "child descriptor source cannot be negative\n";
+                } else if (mapping.sourceDescriptor >= descriptorBound) {
+                    descriptorError = "child descriptor source is outside the supported range\n";
+                } else if (mapping.childDescriptor < 0) {
+                    descriptorError = "child descriptor target cannot be negative\n";
+                } else if (mapping.childDescriptor <= STDERR_FILENO) {
+                    descriptorError = "child descriptor target conflicts with standard streams\n";
+                } else if (mapping.childDescriptor >= descriptorBound - 1) {
+                    descriptorError = "child descriptor target is outside the supported range\n";
+                } else if (sourceDescriptors[mapping.sourceDescriptor] != (unsigned char)0) {
+                    descriptorError = "duplicate child descriptor source\n";
+                } else if (childDescriptors[mapping.childDescriptor] != (unsigned char)0) {
+                    descriptorError = "duplicate child descriptor target\n";
+                } else {
+                    sourceDescriptors[mapping.sourceDescriptor] = (unsigned char)1;
+                    childDescriptors[mapping.childDescriptor] = (unsigned char)1;
+                    if (mapping.childDescriptor > maximumChildDescriptor) {
+                        maximumChildDescriptor = mapping.childDescriptor;
+                    }
+                }
+                if (!descriptorError.isEmpty()) { break; }
+            }
+            free(sourceDescriptors);
+            free(childDescriptors);
+            if (!descriptorError.isEmpty()) {
+                return ChildProcess.failure(command, descriptorError);
+            }
+        }
         long long deadline = 0LL;
         if (timeoutMilliseconds > 0) {
             deadline = ChildProcessClock.deadline(
@@ -836,9 +943,11 @@ class ChildProcess {
             }
         }
 
-        string resolvedExecutable = ChildProcessExecutable.resolve(
-            executable, cwd, environment, unsetEnvironment);
-        if (resolvedExecutable.isEmpty()) {
+        string resolvedExecutable = executableDescriptor < 0
+            ? ChildProcessExecutable.resolve(
+                executable, cwd, environment, unsetEnvironment)
+            : "";
+        if (executableDescriptor < 0 && resolvedExecutable.isEmpty()) {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcess.closePipe(stderrPipe);
             if (nullDescriptor >= 0) { close(nullDescriptor); }
@@ -852,7 +961,6 @@ class ChildProcess {
             return ChildProcess.failure(command,
                 "failed to execute child process\n");
         }
-        bool hasCwd = cwd != null && !cwd.isEmpty();
         bool suppressStdout = stdout.equals(CommandOutput.suppress());
         bool suppressStderr = stderr.equals(CommandOutput.suppress());
         bool combineStderr = stderr.equals(CommandOutput.combine());
@@ -861,17 +969,136 @@ class ChildProcess {
             ? stdoutPipe[1] : (suppressStdout ? nullDescriptor : -1);
         int stderrSource = stderrPipe[1] >= 0
             ? stderrPipe[1] : (suppressStderr ? nullDescriptor : -1);
-        pid_t child = __btrc_posix_spawn_cloexec(
-            resolvedExecutable, execArguments, execEnvironment,
-            hasCwd ? cwd : NULL,
-            stdoutSource, stderrSource, inputDescriptor,
-            combineStderr ? 1 : 0,
-            ChildProcess.inheritsOnExec(STDIN_FILENO) ? 1 : 0,
-            ChildProcess.inheritsOnExec(STDOUT_FILENO) ? 1 : 0,
-            ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
+
+        int descriptorMappingCount = descriptorMappings.len;
+        int descriptorLeaseMinimum = maximumChildDescriptor + 1;
+        int* leasedMappingDescriptors = NULL;
+        int* childMappingDescriptors = NULL;
+        int* preservedDescriptors = NULL;
+        int preservedDescriptorCount = 0;
+        int leasedWorkingDirectory = -1;
+        int leasedExecutable = -1;
+        string descriptorPreparationError = "";
+        if (descriptorMappingCount > 0) {
+            leasedMappingDescriptors = (int*)calloc(
+                (size_t)descriptorMappingCount, sizeof(int));
+            childMappingDescriptors = (int*)calloc(
+                (size_t)descriptorMappingCount, sizeof(int));
+            preservedDescriptors = (int*)calloc(
+                (size_t)descriptorMappingCount + (size_t)1, sizeof(int));
+            unsigned char* mappingTargets = (unsigned char*)calloc(
+                (size_t)descriptorBound, sizeof(unsigned char));
+            if (leasedMappingDescriptors != NULL) {
+                for (int index = 0; index < descriptorMappingCount; index++) {
+                    leasedMappingDescriptors[index] = -1;
+                }
+            }
+            if (leasedMappingDescriptors == NULL
+                    || childMappingDescriptors == NULL
+                    || preservedDescriptors == NULL
+                    || mappingTargets == NULL) {
+                descriptorPreparationError =
+                    "failed to allocate child descriptor mappings\n";
+            } else {
+                for (int index = 0; index < descriptorMappingCount; index++) {
+                    ChildDescriptorMapping mapping = descriptorMappings.get(index);
+                    childMappingDescriptors[index] = mapping.childDescriptor;
+                    mappingTargets[mapping.childDescriptor] = (unsigned char)1;
+                    leasedMappingDescriptors[index] = fcntl(
+                        mapping.sourceDescriptor, F_DUPFD_CLOEXEC,
+                        descriptorLeaseMinimum);
+                    if (leasedMappingDescriptors[index] < 0) {
+                        descriptorPreparationError =
+                            "failed to lease child descriptor source\n";
+                        break;
+                    }
+                }
+                if (descriptorPreparationError.isEmpty()) {
+                    for (int descriptor = 3;
+                            descriptor <= maximumChildDescriptor;
+                            descriptor++) {
+                        if (mappingTargets[descriptor] != (unsigned char)0) {
+                            preservedDescriptors[preservedDescriptorCount] = descriptor;
+                            preservedDescriptorCount++;
+                        }
+                    }
+                }
+            }
+            free(mappingTargets);
+        }
+        if (descriptorPreparationError.isEmpty()
+                && workingDirectoryDescriptor >= 0) {
+            leasedWorkingDirectory = fcntl(
+                workingDirectoryDescriptor, F_DUPFD_CLOEXEC,
+                descriptorLeaseMinimum);
+            if (leasedWorkingDirectory < 0
+                    || __btrc_validate_working_directory_descriptor(
+                        leasedWorkingDirectory) != 0) {
+                descriptorPreparationError =
+                    "working directory descriptor is invalid or unsupported\n";
+            }
+        }
+        if (descriptorPreparationError.isEmpty()
+                && executableDescriptor >= 0) {
+            leasedExecutable = fcntl(
+                executableDescriptor, F_DUPFD_CLOEXEC,
+                descriptorLeaseMinimum);
+            if (leasedExecutable < 0
+                    || __btrc_validate_executable_descriptor(
+                        leasedExecutable) != 0) {
+                descriptorPreparationError =
+                    "executable descriptor is invalid or unsupported\n";
+            } else if (descriptorMappingCount > 0) {
+                preservedDescriptors[preservedDescriptorCount] = leasedExecutable;
+                preservedDescriptorCount++;
+            }
+        }
+        if (!descriptorPreparationError.isEmpty()) {
+            ChildProcess.closeLeasedDescriptors(
+                leasedMappingDescriptors, descriptorMappingCount);
+            free(leasedMappingDescriptors);
+            free(childMappingDescriptors);
+            free(preservedDescriptors);
+            if (leasedWorkingDirectory >= 0) { close(leasedWorkingDirectory); }
+            if (leasedExecutable >= 0) { close(leasedExecutable); }
+            ChildProcess.closePipe(stdoutPipe);
+            ChildProcess.closePipe(stderrPipe);
+            if (nullDescriptor >= 0) { close(nullDescriptor); }
+            if (inputDescriptor >= 0
+                    && inputDescriptor != inputStreamDescriptor) {
+                close(inputDescriptor);
+            }
+            if (input != NULL) { fclose(input); }
+            ChildProcessArguments.freeEntries(execArguments);
+            ChildProcessEnvironment.freeEntries(execEnvironment);
+            return ChildProcess.failure(command, descriptorPreparationError);
+        }
+
+        pid_t child = (pid_t)0 - (pid_t)2;
+        if (!usesProcessDescriptors) {
+            child = __btrc_posix_spawn_cloexec(
+                resolvedExecutable, execArguments, execEnvironment,
+                hasCwd ? cwd : NULL,
+                stdoutSource, stderrSource, inputDescriptor,
+                combineStderr ? 1 : 0,
+                ChildProcess.inheritsOnExec(STDIN_FILENO) ? 1 : 0,
+                ChildProcess.inheritsOnExec(STDOUT_FILENO) ? 1 : 0,
+                ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
+        }
+        sigset_t previousSignalMask;
+        bool signalGuarded = false;
         if (child == (pid_t)0 - (pid_t)2) {
-            descriptorBound = ChildProcess.descriptorCloseBound();
-            child = fork();
+            if (descriptorBound < 3) {
+                descriptorBound = ChildProcess.descriptorCloseBound();
+            }
+            if (descriptorBound < 3
+                    || __btrc_exec_signal_guard_begin(
+                        &previousSignalMask) != 0) {
+                child = (pid_t)0 - (pid_t)1;
+            } else {
+                signalGuarded = true;
+                child = fork();
+            }
         }
         if (child == (pid_t)0) {
             if (setpgid(0, 0) != 0) {
@@ -901,20 +1128,60 @@ class ChildProcess {
             if (stderrPipe[1] >= 0) { close(stderrPipe[1]); }
             if (nullDescriptor >= 0) { close(nullDescriptor); }
             if (inputDescriptor >= 0) { close(inputDescriptor); }
-            if (ChildProcess.closeDescriptorsForExec(descriptorBound) != 0) {
-                write(STDERR_FILENO,
-                    "unsupported process descriptor limit\n", 37);
-                _exit(126);
+            for (int index = 0; index < descriptorMappingCount; index++) {
+                if (dup2(leasedMappingDescriptors[index],
+                        childMappingDescriptors[index]) < 0) {
+                    write(STDERR_FILENO,
+                        "failed to map child descriptor\n", 31);
+                    _exit(126);
+                }
             }
-            if (hasCwd && chdir(cwd) != 0) {
+            if ((leasedWorkingDirectory >= 0
+                    && __btrc_enter_working_directory_descriptor(
+                        leasedWorkingDirectory) != 0)
+                    || (leasedWorkingDirectory < 0 && hasCwd
+                        && chdir(cwd) != 0)) {
                 write(STDERR_FILENO,
                     "failed to enter working directory\n", 34);
                 _exit(126);
             }
-            execve(resolvedExecutable, execArguments, execEnvironment);
+            int closeResult = descriptorMappingCount > 0
+                ? __btrc_close_descriptors_except_many(
+                    descriptorBound, preservedDescriptors,
+                    preservedDescriptorCount)
+                : (leasedExecutable >= 0
+                    ? __btrc_close_descriptors_except(
+                        descriptorBound, leasedExecutable)
+                    : ChildProcess.closeDescriptorsForExec(descriptorBound));
+            if (closeResult != 0) {
+                write(STDERR_FILENO,
+                    "unsupported process descriptor limit\n", 37);
+                _exit(126);
+            }
+            if (__btrc_exec_signal_guard_child_end(
+                    &previousSignalMask) != 0) {
+                write(STDERR_FILENO,
+                    "failed to restore child signals\n", 32);
+                _exit(126);
+            }
+            if (leasedExecutable >= 0) {
+                __btrc_exec_executable_descriptor(
+                    leasedExecutable, execArguments, execEnvironment);
+            } else {
+                execve(resolvedExecutable, execArguments, execEnvironment);
+            }
             write(STDERR_FILENO,
                 "failed to execute child process\n", 32);
             _exit(127);
+        }
+
+        bool signalRestoreFailed = signalGuarded
+            && __btrc_exec_signal_guard_parent_end(
+                &previousSignalMask) != 0;
+        if (signalRestoreFailed && child > (pid_t)0) {
+            kill(child, SIGKILL);
+            waitpid(child, NULL, 0);
+            child = (pid_t)0 - (pid_t)1;
         }
 
         ChildProcessArguments.freeEntries(execArguments);
@@ -927,10 +1194,19 @@ class ChildProcess {
             close(inputDescriptor);
         }
         if (input != NULL) { fclose(input); }
+        ChildProcess.closeLeasedDescriptors(
+            leasedMappingDescriptors, descriptorMappingCount);
+        free(leasedMappingDescriptors);
+        free(childMappingDescriptors);
+        free(preservedDescriptors);
+        if (leasedWorkingDirectory >= 0) { close(leasedWorkingDirectory); }
+        if (leasedExecutable >= 0) { close(leasedExecutable); }
         if (child < (pid_t)0) {
             ChildProcess.closePipe(stdoutPipe);
             ChildProcess.closePipe(stderrPipe);
-            return ChildProcess.failure(command, "failed to start child process\n");
+            return ChildProcess.failure(command, signalRestoreFailed
+                ? "failed to restore parent signals\n"
+                : "failed to start child process\n");
         }
         /* Both spawn paths create the process group; this parent call closes
          * the small fork scheduling window without changing child semantics. */

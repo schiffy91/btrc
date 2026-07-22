@@ -50,6 +50,8 @@ def sequence_call_boundary(
     build_call: Callable,
     result_c_type: str | None,
     result_type=None,
+    opaque_result: bool = False,
+    opaque_result_site=None,
     fresh_temp: Callable[[str], str],
     cleanup_active: bool,
     record_decl: Callable[[IRVarDecl], None],
@@ -184,7 +186,17 @@ def sequence_call_boundary(
 
     call = build_call(overrides)
     sequence = [*prefix, *handoffs]
-    if result_c_type is not None and result_c_type != "void":
+    if opaque_result:
+        if result_c_type is not None or result_type is not None:
+            raise ValueError("opaque call result cannot also have a concrete type")
+        if opaque_result_site is None:
+            raise ValueError("opaque call result requires a source site")
+        if suffix:
+            from .call_operand_diagnostics import reject_opaque_result_cleanup
+
+            reject_opaque_result_cleanup(opaque_result_site)
+        sequence.append(call)
+    elif result_c_type is not None and result_c_type != "void":
         result_decl = _temporary(
             fresh_temp,
             record_decl,

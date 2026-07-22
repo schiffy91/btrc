@@ -1,0 +1,68 @@
+/* JSON numbers use their grammar's '.' radix even when LC_NUMERIC uses ','. */
+#include <assert.h>
+#include <locale.h>
+#include <string.h>
+
+extern char* setlocale(int category, const char* localeName);
+
+class JsonLocaleFixture {
+    class bool usesComma() {
+        struct lconv* convention = localeconv();
+        return convention != NULL && convention->decimal_point != NULL
+            && strcmp(convention->decimal_point, ",") == 0;
+    }
+
+    class bool selectCommaLocale() {
+        if (setlocale(LC_NUMERIC, "de_DE.UTF-8") != NULL
+                && JsonLocaleFixture.usesComma()) { return true; }
+        if (setlocale(LC_NUMERIC, "de_DE.utf8") != NULL
+                && JsonLocaleFixture.usesComma()) { return true; }
+        if (setlocale(LC_NUMERIC, "fr_FR.UTF-8") != NULL
+                && JsonLocaleFixture.usesComma()) { return true; }
+        if (setlocale(LC_NUMERIC, "fr_FR.utf8") != NULL
+                && JsonLocaleFixture.usesComma()) { return true; }
+        if (setlocale(LC_NUMERIC, "de_DE") != NULL
+                && JsonLocaleFixture.usesComma()) { return true; }
+        if (setlocale(LC_NUMERIC, "French_France.1252") != NULL
+                && JsonLocaleFixture.usesComma()) { return true; }
+        return false;
+    }
+}
+
+int main() {
+    char* current = setlocale(LC_NUMERIC, NULL);
+    assert(current != NULL);
+    char* original = (char*)malloc(strlen(current) + (size_t)1);
+    assert(original != NULL);
+    strcpy(original, current);
+    bool hasCommaLocale = JsonLocaleFixture.selectCommaLocale();
+
+    if (hasCommaLocale) {
+        string active = Strings.copy(setlocale(LC_NUMERIC, NULL));
+
+        JsonValue fraction = JsonValue.parse("1.25");
+        assert(fraction.isNumber());
+        assert(fraction.asFloat() > 1.249 && fraction.asFloat() < 1.251);
+
+        JsonValue exponent = JsonValue.parse("-12.5e-1");
+        assert(exponent.isNumber());
+        assert(exponent.asFloat() > -1.251 && exponent.asFloat() < -1.249);
+        assert(JsonValue.parse("1,25").isError());
+
+        string compact = JsonValue.makeFloat(1234.5).stringify();
+        assert(compact.equals("1234.5"));
+        assert(JsonValue.makeFloat(1234.5).stringifyPretty().equals(compact));
+        assert(JsonValue.makeFloat(1234.5).document().equals("1234.5\n"));
+        assert(JsonValue.parse(compact).stringify().equals(compact));
+
+        assert(strcmp(setlocale(LC_NUMERIC, NULL), active) == 0);
+    } else {
+        assert(setlocale(LC_NUMERIC, "C") != NULL);
+        assert(JsonValue.parse("1.25").stringify().equals("1.25"));
+    }
+
+    assert(setlocale(LC_NUMERIC, original) != NULL);
+    free(original);
+    print("PASS: test_stdlib_json_locale");
+    return 0;
+}

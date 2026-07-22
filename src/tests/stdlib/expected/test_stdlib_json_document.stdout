@@ -1,0 +1,15 @@
+pretty:
+{
+  "zeta": "quote \" backslash \\ slash / newline\n tab\t carriage\r control\u0001",
+  "alpha": {
+    "array": [
+      "quote \" backslash \\ slash / newline\n tab\t carriage\r control\u0001",
+      7,
+      true,
+      null
+    ],
+    "empty": {}
+  },
+  "key\"\\\n": []
+}
+PASS: test_stdlib_json_document

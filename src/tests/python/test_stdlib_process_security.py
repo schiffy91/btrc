@@ -11,7 +11,12 @@ FILESYSTEM = ROOT / "src" / "stdlib" / "fs.btrc"
 PASSWORD_EXCHANGE = ROOT / "src" / "stdlib" / "terminal_password_exchange.btrc"
 TERMINAL = ROOT / "src" / "stdlib" / "terminal.btrc"
 PROCESS_HELPER = ROOT / "src" / "compiler" / "python" / "ir" / "helpers" / "process.py"
+PROCESS_DESCRIPTOR_HELPER = ROOT / "src" / "compiler" / "python" / "ir" / "helpers" / "process_descriptor.py"
 SELFHOST_PROCESS_CLOSE = ROOT / "src" / "compiler" / "btrc" / "process_runtime_close.btrc"
+SELFHOST_PROCESS_DESCRIPTOR = (
+    ROOT / "src" / "compiler" / "btrc" / "process_runtime_descriptor.btrc"
+)
+SELFHOST_PROCESS_HELPERS = ROOT / "src" / "compiler" / "btrc" / "process_runtime_helpers.btrc"
 
 
 def test_child_branch_uses_only_precomputed_async_signal_safe_inputs() -> None:
@@ -171,6 +176,73 @@ def test_process_uses_platform_fast_paths_without_weakening_fallback() -> None:
     assert "SYS_close_range" in helper
     assert "__btrc_close_descriptors_from(bound)" in source
     assert "__btrc_close_descriptors_from(bound)" in TERMINAL.read_text()
+
+
+def test_descriptor_execution_uses_the_shared_child_engine() -> None:
+    source = PROCESS.read_text()
+    run = source.split("class ExecResult run", 1)[1]
+
+    assert "int executableDescriptor = -1" in run
+    assert "executableDescriptor < 0" in run
+    assert "F_DUPFD_CLOEXEC" in run
+    assert "__btrc_validate_executable_descriptor(" in run
+    assert "__btrc_close_descriptors_except(" in run
+    assert "__btrc_exec_executable_descriptor(" in run
+    assert "__btrc_exec_signal_guard_begin(" in run
+    assert "__btrc_exec_signal_guard_child_end(" in run
+    assert "__btrc_exec_signal_guard_parent_end(" in run
+
+    helpers = PROCESS_DESCRIPTOR_HELPER.read_text()
+    assert "fexecve(descriptor, argv, envp)" in helpers
+    assert "fstat(descriptor, &status)" in helpers
+    assert "S_ISREG(status.st_mode)" in helpers
+    assert "pthread_sigmask(SIG_BLOCK" in helpers
+    assert "sigaction(signal_number" in helpers
+    assert "sigprocmask(SIG_SETMASK" in helpers
+    assert "errno = ENOTSUP" in helpers
+    assert "/tmp/btrc-exec" not in helpers
+    assert "mkdtemp" not in helpers
+    assert "flags & ~FD_CLOEXEC" not in helpers
+
+
+def test_child_descriptor_capabilities_are_leased_and_fail_closed() -> None:
+    source = PROCESS.read_text()
+    run = source.split("class ExecResult run", 1)[1]
+    child = run.split("if (child == (pid_t)0) {", 1)[1]
+    child = child.split("\n        bool signalRestoreFailed", 1)[0]
+    helpers = PROCESS_DESCRIPTOR_HELPER.read_text()
+    selfhost_descriptor = SELFHOST_PROCESS_DESCRIPTOR.read_text()
+    selfhost_routing = SELFHOST_PROCESS_HELPERS.read_text()
+
+    assert "class ChildDescriptorMapping" in source
+    assert "int sourceDescriptor" in source
+    assert "int childDescriptor" in source
+    assert "Vector<ChildDescriptorMapping> descriptorMappings" in run
+    assert "int workingDirectoryDescriptor = -1" in run
+    assert "working directory path and descriptor cannot both be set" in run
+    assert "duplicate child descriptor source" in run
+    assert "duplicate child descriptor target" in run
+    assert "conflicts with standard streams" in run
+    assert "F_DUPFD_CLOEXEC" in run
+    assert "descriptorLeaseMinimum = maximumChildDescriptor + 1" in run
+    assert "dup2(leasedMappingDescriptors[index]" in child
+    assert "__btrc_enter_working_directory_descriptor(" in child
+    assert "__btrc_close_descriptors_except_many(" in child
+    assert "chdir(cwd)" in child
+    assert "workingDirectoryDescriptor" not in child
+
+    for helper in (
+        "__btrc_process_descriptors_supported",
+        "__btrc_validate_working_directory_descriptor",
+        "__btrc_enter_working_directory_descriptor",
+    ):
+        assert helper in helpers
+        assert helper in selfhost_descriptor
+        assert helper in selfhost_routing
+    assert "S_ISDIR(status.st_mode)" in helpers
+    assert "return fchdir(descriptor)" in helpers
+    assert "errno = ENOTSUP" in helpers
+    assert "/proc/self/fd" not in source
 
 
 def test_process_rejects_null_elements_and_conflicting_environment_edits() -> None:

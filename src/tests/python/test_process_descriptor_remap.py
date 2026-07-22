@@ -31,6 +31,106 @@ def test_standard_descriptor_remap_is_shared_by_both_frontends() -> None:
     assert "&nullDescriptor" in source
 
 
+def test_multi_descriptor_close_is_shared_by_both_frontends() -> None:
+    name = "__btrc_close_descriptors_except_many"
+    source = PROCESS_STDLIB.read_text()
+    mirror = SELFHOST_CLOSE.read_text()
+    routing = SELFHOST_HELPERS.read_text()
+
+    assert name in PROCESS
+    assert name in source
+    assert name in mirror
+    assert name in routing
+    helper = PROCESS[name].c_source
+    assert "const int* preserved" in helper
+    assert helper.index("descriptor <= previous") < helper.index(
+        "__btrc_close_descriptor_range("
+    )
+
+
+@pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
+def test_multi_descriptor_close_preserves_only_sorted_explicit_set(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    close_ranges = PROCESS["__btrc_close_descriptors_from"].c_source
+    close_many = PROCESS["__btrc_close_descriptors_except_many"].c_source
+    harness = tmp_path / "descriptor-close-many.c"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            #define _GNU_SOURCE
+            #include <errno.h>
+            #include <fcntl.h>
+            #include <stddef.h>
+            #include <unistd.h>
+
+            {close_ranges}
+            {close_many}
+
+            static int install_descriptors(void) {{
+                int source = open("/dev/null", O_RDONLY);
+                if (source < 0) return -1;
+                for (int descriptor = 3; descriptor <= 10; descriptor++) {{
+                    if (dup2(source, descriptor) != descriptor) return -1;
+                }}
+                if (source > 10 && close(source) != 0) return -1;
+                return 0;
+            }}
+
+            int main(void) {{
+                (void)__btrc_close_descriptors_from;
+                if (install_descriptors() != 0) return 1;
+                int duplicate[] = {{4, 4}};
+                errno = 0;
+                if (__btrc_close_descriptors_except_many(
+                        32, duplicate, 2) == 0 || errno != EINVAL) return 2;
+                if (fcntl(3, F_GETFD, 0) < 0) return 3;
+
+                int reserved[] = {{2}};
+                errno = 0;
+                if (__btrc_close_descriptors_except_many(
+                        32, reserved, 1) == 0 || errno != EINVAL) return 4;
+                if (fcntl(3, F_GETFD, 0) < 0) return 5;
+
+                int unsorted[] = {{9, 4}};
+                errno = 0;
+                if (__btrc_close_descriptors_except_many(
+                        32, unsorted, 2) == 0 || errno != EINVAL) return 6;
+                if (fcntl(3, F_GETFD, 0) < 0) return 7;
+
+                int preserved[] = {{4, 9}};
+                if (__btrc_close_descriptors_except_many(
+                        32, preserved, 2) != 0) return 8;
+                for (int descriptor = 3; descriptor <= 10; descriptor++) {{
+                    int open = fcntl(descriptor, F_GETFD, 0) >= 0;
+                    if (open != (descriptor == 4 || descriptor == 9)) return 9;
+                }}
+                if (close(4) != 0 || close(9) != 0) return 10;
+                return 0;
+            }}
+            """
+        )
+    )
+    executable = tmp_path / "descriptor-close-many"
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            str(harness),
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        timeout=30,
+    )
+    subprocess.run([str(executable)], check=True, timeout=10)
+
+
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
 def test_interrupted_standard_descriptor_remap_fails_closed(
     tmp_path: Path,

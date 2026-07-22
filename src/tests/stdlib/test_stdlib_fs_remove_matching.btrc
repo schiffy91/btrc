@@ -1,0 +1,99 @@
+/* A directory lease retains an open inode reference and rejects a name that
+ * was substituted before removal. Callers serialize concurrent renames. */
+import std.fs;
+
+#include <assert.h>
+#include <unistd.h>
+
+int main() {
+    string root = FileSystem.tempDir("btrc_fs_remove_matching");
+    string outside = FileSystem.tempDir("btrc_fs_remove_outside");
+    assert(!root.isEmpty() && !outside.isEmpty());
+
+    int parentDescriptor = UnixFileSystem.openDirectoryNoFollow(root);
+    assert(parentDescriptor >= 0);
+    assert(!UnixFileSystem.leaseDirectoryAt(-1, "entry").valid());
+    assert(!UnixFileSystem.leaseDirectoryAt(parentDescriptor, ".").valid());
+    assert(!UnixFileSystem.leaseDirectoryAt(parentDescriptor, "..").valid());
+    assert(!UnixFileSystem.leaseDirectoryAt(
+        parentDescriptor, "nested/entry").valid());
+
+    string success = PathTools.join(root, "success");
+    string successChild = PathTools.join(success, "nested/child.txt");
+    assert(FileSystem.mkdirp(PathTools.dirname(successChild)) == 0);
+    assert(FileSystem.writeText(successChild, "remove me"));
+    DirectoryLease successLease =
+        UnixFileSystem.leaseDirectoryAt(parentDescriptor, "success");
+    assert(successLease.valid());
+    assert(successLease.matchesAt(parentDescriptor, "success"));
+    assert(UnixFileSystem.removeRecursiveAtLease(
+        parentDescriptor, "nested/success", successLease) != 0);
+    assert(UnixFileSystem.removeRecursiveAtLease(
+        parentDescriptor, "success", successLease) == 0);
+    assert(!FileSystem.exists(success));
+    assert(successLease.valid());
+    assert(!successLease.matchesAt(parentDescriptor, "success"));
+    assert(successLease.closeLease() == 0);
+    assert(!successLease.valid());
+
+    string readOnly = PathTools.join(root, "read-only");
+    string readOnlyDirectory = PathTools.join(readOnly, "nested");
+    string readOnlyFile = PathTools.join(readOnlyDirectory, "child.txt");
+    assert(FileSystem.mkdirp(readOnlyDirectory) == 0);
+    assert(FileSystem.writeText(readOnlyFile, "remove me"));
+    assert(FileSystem.chmod(readOnlyFile, 292) == 0);
+    assert(FileSystem.chmod(readOnlyDirectory, 365) == 0);
+    assert(FileSystem.chmod(readOnly, 365) == 0);
+    DirectoryLease readOnlyLease =
+        UnixFileSystem.leaseDirectoryAt(parentDescriptor, "read-only");
+    assert(readOnlyLease.valid());
+    assert(UnixFileSystem.removeRecursiveAtLease(
+        parentDescriptor, "read-only", readOnlyLease) == 0);
+    assert(!FileSystem.exists(readOnly));
+    assert(readOnlyLease.closeLease() == 0);
+
+    string directoryEntry = PathTools.join(root, "directory-entry");
+    string originalDirectory = PathTools.join(root, "directory-original");
+    assert(FileSystem.mkdirp(PathTools.join(directoryEntry, "old")) == 0);
+    DirectoryLease directoryLease =
+        UnixFileSystem.leaseDirectoryAt(
+            parentDescriptor, "directory-entry");
+    assert(directoryLease.valid());
+    assert(rename(directoryEntry, originalDirectory) == 0);
+    assert(FileSystem.mkdirp(directoryEntry) == 0);
+    string replacementMarker = PathTools.join(directoryEntry, "replacement");
+    assert(FileSystem.writeText(replacementMarker, "preserved"));
+    assert(!directoryLease.matchesAt(parentDescriptor, "directory-entry"));
+    assert(UnixFileSystem.removeRecursiveAtLease(
+        parentDescriptor, "directory-entry", directoryLease) != 0);
+    assert(FileSystem.isDir(directoryEntry));
+    assert(FileSystem.readText(replacementMarker).equals("preserved"));
+    assert(directoryLease.closeLease() == 0);
+
+    string symlinkEntry = PathTools.join(root, "symlink-entry");
+    string originalSymlinkDirectory = PathTools.join(
+        root, "symlink-original");
+    assert(FileSystem.mkdirp(PathTools.join(symlinkEntry, "old")) == 0);
+    DirectoryLease symlinkLease =
+        UnixFileSystem.leaseDirectoryAt(
+            parentDescriptor, "symlink-entry");
+    assert(symlinkLease.valid());
+    assert(rename(symlinkEntry, originalSymlinkDirectory) == 0);
+    string outsideMarker = PathTools.join(outside, "must-survive");
+    assert(FileSystem.writeText(outsideMarker, "safe"));
+    assert(FileSystem.symlink(outside, symlinkEntry) == 0);
+    assert(!symlinkLease.matchesAt(parentDescriptor, "symlink-entry"));
+    assert(UnixFileSystem.removeRecursiveAtLease(
+        parentDescriptor, "symlink-entry", symlinkLease) != 0);
+    assert(FileSystem.isSymlink(symlinkEntry));
+    assert(FileSystem.readLink(symlinkEntry).equals(outside));
+    assert(FileSystem.readText(outsideMarker).equals("safe"));
+    assert(symlinkLease.closeLease() == 0);
+
+    assert(close(parentDescriptor) == 0);
+    assert(FileSystem.removeRecursive(root) == 0);
+    assert(FileSystem.removeRecursive(outside) == 0);
+
+    print("PASS: test_stdlib_fs_remove_matching");
+    return 0;
+}

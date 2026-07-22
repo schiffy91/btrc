@@ -79,6 +79,14 @@ SOURCE_RUNTIME_FUNCTIONS: dict[str, HostedFunction] = {
     ),
     "__btrc_descriptor_close_bound": function(INT),
     "__btrc_close_descriptors_from": function(INT, INT),
+    "__btrc_close_descriptors_except": function(INT, INT, INT),
+    "__btrc_close_descriptors_except_many": function(
+        INT,
+        INT,
+        abi_type("int", 1, const=True),
+        INT,
+        effects=(VALUE, READ, VALUE),
+    ),
     "__btrc_move_descriptor_outside_stdio": function(
         INT,
         abi_type("int", 1),
@@ -98,6 +106,44 @@ SOURCE_RUNTIME_FUNCTIONS: dict[str, HostedFunction] = {
         INT,
         INT,
         effects=(READ, READ, READ, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE),
+    ),
+    "__btrc_process_descriptors_supported": function(INT),
+    "__btrc_validate_executable_descriptor": function(
+        INT,
+        INT,
+        effects=(VALUE,),
+    ),
+    "__btrc_validate_working_directory_descriptor": function(
+        INT,
+        INT,
+        effects=(VALUE,),
+    ),
+    "__btrc_enter_working_directory_descriptor": function(
+        INT,
+        INT,
+        effects=(VALUE,),
+    ),
+    "__btrc_exec_signal_guard_begin": function(
+        INT,
+        abi_type("sigset_t", 1),
+        effects=(MUTATE,),
+    ),
+    "__btrc_exec_signal_guard_parent_end": function(
+        INT,
+        abi_type("sigset_t", 1, const=True),
+        effects=(READ,),
+    ),
+    "__btrc_exec_signal_guard_child_end": function(
+        INT,
+        abi_type("sigset_t", 1, const=True),
+        effects=(READ,),
+    ),
+    "__btrc_exec_executable_descriptor": function(
+        INT,
+        INT,
+        CHAR_PTR_PTR,
+        CHAR_PTR_PTR,
+        effects=(VALUE, READ, READ),
     ),
 }
 

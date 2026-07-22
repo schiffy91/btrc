@@ -4,6 +4,9 @@ import std.strings;
 import std.vector;
 
 #include <float.h>
+#include <locale.h>
+
+extern struct lconv* localeconv();
 
 class JsonObject {
     public Map<string, string> values;
@@ -66,19 +69,25 @@ class JsonObject {
     }
 
     public string stringify() {
-        Vector<string> fields = [];
+        var output = StringBuilder();
+        output.appendChar('{');
+        var first = true;
         for key, value in self.values {
-            var escapedKey = JsonObject.escape(key);
-            var field = "\"" + escapedKey + "\":";
+            if (!first) { output.appendChar(','); }
+            first = false;
+            output.appendChar((char)34);
+            JsonValue.appendEncodedString(output, key);
+            output.append("\":");
             if (self.quoted.getOrDefault(key, true)) {
-                var escapedValue = JsonObject.escape(value);
-                field += "\"" + escapedValue + "\"";
+                output.appendChar((char)34);
+                JsonValue.appendEncodedString(output, value);
+                output.appendChar((char)34);
             } else {
-                field += value;
+                output.append(value);
             }
-            fields.push(field);
         }
-        return "{" + fields.join(",") + "}";
+        output.appendChar('}');
+        return output.toString();
     }
 
     class int skipSpaces(string text, int i) {
@@ -394,57 +403,200 @@ class JsonValue {
     /* ---- Stringify ----------------------------------------------------- */
 
     public string stringify() {
-        return self.stringifyAt(0);
+        var output = StringBuilder();
+        self.writeJson(output, 0, false, 0);
+        return output.toString();
     }
 
-    private string stringifyAt(int depth) {
-        if (depth >= 512 && (self.tag == 4 || self.tag == 5)) {
-            return "null";
+    /* Human-readable JSON with deterministic insertion order and no trailing
+     * newline. Negative indentation widths are treated as zero. */
+    public string stringifyPretty(int indentWidth = 2) {
+        if (indentWidth < 0) { indentWidth = 0; }
+        var output = StringBuilder();
+        self.writeJson(output, 0, true, indentWidth);
+        return output.toString();
+    }
+
+    /* Canonical file form: stringifyPretty(indentWidth) plus one newline. */
+    public string document(int indentWidth = 2) {
+        if (indentWidth < 0) { indentWidth = 0; }
+        var output = StringBuilder();
+        self.writeJson(output, 0, true, indentWidth);
+        output.appendChar('\n');
+        return output.toString();
+    }
+
+    private void writeIndent(StringBuilder output, int depth,
+                             int indentWidth) {
+        if (depth <= 0 || indentWidth <= 0) { return; }
+        long long count = (long long)depth * (long long)indentWidth;
+        if (count > 2147483646LL) {
+            fprintf(stderr, "JSON indentation overflow\n");
+            exit(1);
         }
-        if (self.tag == 0) { return "null"; }
-        if (self.tag == 6) { return "null"; }
-        if (self.tag == 1) { return self.boolVal ? "true" : "false"; }
-        if (self.tag == 2) { return JsonNum.format(self.numVal, self.numIsInt); }
-        if (self.tag == 3) { return "\"" + JsonValue.encodeString(self.strVal) + "\""; }
+        output.appendRepeat(' ', (int)count);
+    }
+
+    private void writeJson(StringBuilder output, int depth, bool pretty,
+                           int indentWidth) {
+        if (depth >= 512 && (self.tag == 4 || self.tag == 5)) {
+            output.append("null");
+            return;
+        }
+        if (self.tag == 0 || self.tag == 6) {
+            output.append("null");
+            return;
+        }
+        if (self.tag == 1) {
+            output.append(self.boolVal ? "true" : "false");
+            return;
+        }
+        if (self.tag == 2) {
+            output.append(JsonNum.format(self.numVal, self.numIsInt));
+            return;
+        }
+        if (self.tag == 3) {
+            output.appendChar((char)34);
+            JsonValue.appendEncodedString(output, self.strVal);
+            output.appendChar((char)34);
+            return;
+        }
         if (self.tag == 4) {
-            Vector<string> parts = [];
-            for (int i = 0; i < self.arr.len; i++) {
-                parts.push(self.arr.get(i).stringifyAt(depth + 1));
+            output.appendChar('[');
+            if (self.arr.len == 0) {
+                output.appendChar(']');
+                return;
             }
-            return "[" + parts.join(",") + "]";
+            if (pretty) { output.appendChar('\n'); }
+            for (int i = 0; i < self.arr.len; i++) {
+                if (i > 0) {
+                    output.appendChar(',');
+                    if (pretty) { output.appendChar('\n'); }
+                }
+                if (pretty) {
+                    self.writeIndent(output, depth + 1, indentWidth);
+                }
+                self.arr.get(i).writeJson(
+                    output, depth + 1, pretty, indentWidth);
+            }
+            if (pretty) {
+                output.appendChar('\n');
+                self.writeIndent(output, depth, indentWidth);
+            }
+            output.appendChar(']');
+            return;
         }
         if (self.tag == 5) {
-            Vector<string> parts = [];
-            for (int i = 0; i < self.objKeys.len; i++) {
-                var field = "\"" + JsonValue.encodeString(self.objKeys.get(i)) + "\":";
-                field += self.objVals.get(i).stringifyAt(depth + 1);
-                parts.push(field);
+            output.appendChar('{');
+            if (self.objKeys.len == 0) {
+                output.appendChar('}');
+                return;
             }
-            return "{" + parts.join(",") + "}";
+            if (pretty) { output.appendChar('\n'); }
+            for (int i = 0; i < self.objKeys.len; i++) {
+                if (i > 0) {
+                    output.appendChar(',');
+                    if (pretty) { output.appendChar('\n'); }
+                }
+                if (pretty) {
+                    self.writeIndent(output, depth + 1, indentWidth);
+                }
+                output.appendChar((char)34);
+                JsonValue.appendEncodedString(output, self.objKeys.get(i));
+                output.append(pretty ? "\": " : "\":");
+                self.objVals.get(i).writeJson(
+                    output, depth + 1, pretty, indentWidth);
+            }
+            if (pretty) {
+                output.appendChar('\n');
+                self.writeIndent(output, depth, indentWidth);
+            }
+            output.appendChar('}');
+            return;
         }
-        return "null";
+        output.append("null");
     }
 
     /* Escape a string for JSON output, including all control chars < 0x20
-     * (emitted as \uXXXX) so the result is always valid JSON. */
+     * (emitted as \uXXXX) and malformed UTF-8. */
     class string encodeString(string text) {
-        if (text == null) { return ""; }
-        var out = "";
+        var output = StringBuilder();
+        JsonValue.appendEncodedString(output, text);
+        return output.toString();
+    }
+
+    /* Append encoded content without surrounding quotes. Valid UTF-8 scalar
+     * sequences are preserved byte-for-byte. Each rejected byte emits one
+     * U+FFFD, then validation resumes at the following byte. */
+    class void appendEncodedString(StringBuilder output, string text) {
+        if (output == null || text == null) { return; }
+        string hex = "0123456789abcdef";
         var n = text.len();
-        for (int i = 0; i < n; i++) {
+        int i = 0;
+        while (i < n) {
             char c = text[i];
             int code = (int)((unsigned char)c);
-            if (c == (char)34) { out += "\\\""; }
-            else if (c == '\\') { out += "\\\\"; }
-            else if (c == '\n') { out += "\\n"; }
-            else if (c == '\r') { out += "\\r"; }
-            else if (c == '\t') { out += "\\t"; }
-            else if (code == 8) { out += "\\b"; }
-            else if (code == 12) { out += "\\f"; }
-            else if (code < 32) { out += JsonNum.uEscape(code); }
-            else { out += text.substring(i, 1); }
+            if (code < 0x80) {
+                if (c == (char)34) { output.append("\\\""); }
+                else if (c == '\\') { output.append("\\\\"); }
+                else if (c == '\n') { output.append("\\n"); }
+                else if (c == '\r') { output.append("\\r"); }
+                else if (c == '\t') { output.append("\\t"); }
+                else if (code == 8) { output.append("\\b"); }
+                else if (code == 12) { output.append("\\f"); }
+                else if (code < 32) {
+                    output.append("\\u00");
+                    output.appendChar(hex[(code >> 4) & 15]);
+                    output.appendChar(hex[code & 15]);
+                } else {
+                    output.appendChar(c);
+                }
+                i++;
+                continue;
+            }
+
+            int width = 0;
+            if (code >= 0xc2 && code <= 0xdf) {
+                width = 2;
+            } else if (code >= 0xe0 && code <= 0xef) {
+                width = 3;
+            } else if (code >= 0xf0 && code <= 0xf4) {
+                width = 4;
+            }
+
+            bool valid = width > 0 && width <= n - i;
+            for (int offset = 1; valid && offset < width; offset++) {
+                int continuation = (int)((unsigned char)text[i + offset]);
+                if ((continuation & 0xc0) != 0x80) {
+                    valid = false;
+                }
+            }
+
+            if (valid && width == 3) {
+                int second = (int)((unsigned char)text[i + 1]);
+                if ((code == 0xe0 && second < 0xa0)
+                        || (code == 0xed && second > 0x9f)) {
+                    valid = false;
+                }
+            } else if (valid && width == 4) {
+                int second = (int)((unsigned char)text[i + 1]);
+                if ((code == 0xf0 && second < 0x90)
+                        || (code == 0xf4 && second > 0x8f)) {
+                    valid = false;
+                }
+            }
+
+            if (!valid) {
+                output.append("\xef\xbf\xbd");
+                i++;
+                continue;
+            }
+
+            for (int offset = 0; offset < width; offset++) {
+                output.appendChar(text[i + offset]);
+            }
+            i += width;
         }
-        return out;
     }
 }
 
@@ -564,25 +716,31 @@ class JsonParser {
      * closing quote. Sets ok=false on an unterminated or invalid escape. */
     public string readString() {
         self.pos++;  /* consume opening '"' */
-        var out = "";
+        var output = StringBuilder();
         while (self.pos < self.len) {
             char c = self.text[self.pos];
-            if (c == (char)34) { self.pos++; return out; }
+            if (c == (char)34) {
+                self.pos++;
+                return output.toString();
+            }
             if (c == '\\') {
                 self.pos++;
-                if (self.pos >= self.len) { self.ok = false; return out; }
+                if (self.pos >= self.len) {
+                    self.ok = false;
+                    return output.toString();
+                }
                 char e = self.text[self.pos];
-                if (e == (char)34) { out += "\""; }
-                else if (e == '\\') { out += "\\"; }
-                else if (e == '/') { out += "/"; }
-                else if (e == 'n') { out += "\n"; }
-                else if (e == 'r') { out += "\r"; }
-                else if (e == 't') { out += "\t"; }
-                else if (e == 'b') { out += JsonNum.charFromCode(8); }
-                else if (e == 'f') { out += JsonNum.charFromCode(12); }
+                if (e == (char)34) { output.appendChar((char)34); }
+                else if (e == '\\') { output.appendChar('\\'); }
+                else if (e == '/') { output.appendChar('/'); }
+                else if (e == 'n') { output.appendChar('\n'); }
+                else if (e == 'r') { output.appendChar('\r'); }
+                else if (e == 't') { output.appendChar('\t'); }
+                else if (e == 'b') { output.appendChar((char)8); }
+                else if (e == 'f') { output.appendChar((char)12); }
                 else if (e == 'u') {
                     var cp = self.readHex4();
-                    if (!self.ok) { return out; }
+                    if (!self.ok) { return output.toString(); }
                     /* High surrogate: combine with a following \uXXXX low
                      * surrogate into one code point (BMP-pair → astral). */
                     if (cp >= 0xD800 && cp <= 0xDBFF) {
@@ -590,12 +748,12 @@ class JsonParser {
                                 && self.text[self.pos + 2] == 'u') {
                             self.pos += 2;
                             var lo = self.readHex4();
-                            if (!self.ok) { return out; }
+                            if (!self.ok) { return output.toString(); }
                             if (lo >= 0xDC00 && lo <= 0xDFFF) {
                                 cp = 0x10000 + ((cp - 0xD800) * 0x400) + (lo - 0xDC00);
                             } else {
                                 /* Unpaired: emit U+FFFD for both. */
-                                out += JsonNum.utf8(0xFFFD);
+                                output.append(JsonNum.utf8(0xFFFD));
                                 cp = lo;
                             }
                         } else {
@@ -604,22 +762,23 @@ class JsonParser {
                     } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
                         cp = 0xFFFD;  /* lone low surrogate */
                     }
-                    out += JsonNum.utf8(cp);
+                    output.append(JsonNum.utf8(cp));
                 } else {
-                    self.ok = false; return out;
+                    self.ok = false;
+                    return output.toString();
                 }
                 self.pos++;
                 continue;
             }
             if ((int)((unsigned char)c) < 32) {
                 self.ok = false;
-                return out;
+                return output.toString();
             }
-            out += self.text.substring(self.pos, 1);
+            output.appendChar(c);
             self.pos++;
         }
         self.ok = false;  /* unterminated */
-        return out;
+        return output.toString();
     }
 
     /* Read exactly 4 hex digits starting just after the 'u'; leaves self.pos
@@ -717,10 +876,17 @@ class JsonParser {
 
 /* Numeric / byte helpers kept apart from the tree so the tree stays focused. */
 class JsonNum {
-    /* Parse a numeric token to a double via C strtod. */
+    /* Parse a JSON numeric token without changing the process locale. */
     class double toDouble(string token) {
-        double result = strtod(token, NULL);
-        return result;
+        string localized = token;
+        struct lconv* convention = localeconv();
+        if (convention != NULL && convention->decimal_point != NULL) {
+            string decimalPoint = Strings.copy(convention->decimal_point);
+            if (!decimalPoint.isEmpty() && !decimalPoint.equals(".")) {
+                localized = Strings.replace(token, ".", decimalPoint);
+            }
+        }
+        return strtod(localized, NULL);
     }
 
     class bool isFinite(double value) {
@@ -740,7 +906,17 @@ class JsonNum {
         }
         char* buf = (char*)__btrc_safe_realloc(null, (size_t)40);
         snprintf(buf, 40, "%.17g", value);
-        return __btrc_str_track(buf);
+        string formatted = __btrc_str_track(buf);
+
+        /* C formatting follows LC_NUMERIC; JSON always uses '.'. */
+        struct lconv* convention = localeconv();
+        if (convention != NULL && convention->decimal_point != NULL) {
+            string decimalPoint = Strings.copy(convention->decimal_point);
+            if (!decimalPoint.isEmpty() && !decimalPoint.equals(".")) {
+                return Strings.replace(formatted, decimalPoint, ".");
+            }
+        }
+        return formatted;
     }
 
     /* A one-byte string for a control char code (0..255). */
@@ -751,7 +927,7 @@ class JsonNum {
         return __btrc_str_track(buf);
     }
 
-    /* \uXXXX escape for a code < 0x10000 (used for control chars on output). */
+    /* \uXXXX escape for a code < 0x10000. */
     class string uEscape(int code) {
         if (code < 0 || code > 0xFFFF) { code = 0xFFFD; }
         char* buf = (char*)__btrc_safe_realloc(null, (size_t)8);

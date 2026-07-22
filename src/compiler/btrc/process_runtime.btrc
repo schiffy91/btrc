@@ -1,5 +1,6 @@
 /* Composed process runtime helper mirror. */
 
 #include "process_runtime_close.btrc"
+#include "process_runtime_descriptor.btrc"
 #include "process_runtime_spawn.btrc"
 #include "process_runtime_helpers.btrc"
