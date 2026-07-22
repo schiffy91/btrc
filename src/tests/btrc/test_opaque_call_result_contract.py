@@ -91,6 +91,24 @@ def test_opaque_wide_result_keeps_native_c_type_in_both_frontends(
         _strict_build_and_run(generated, tmp_path / f"opaque-wide-result-{index}")
 
 
+def test_builtin_print_owned_argument_has_typed_void_result_in_both_frontends(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        string ownedText() {
+            return "owned" + " value";
+        }
+
+        int main() {
+            print(ownedText());
+            return 0;
+        }
+    """
+    for index, generated in enumerate(_compile_success_pair(semantic_btrcc, tmp_path, source)):
+        _strict_build_and_run(generated, tmp_path / f"typed-print-result-{index}")
+
+
 def test_opaque_result_cleanup_reports_call_site_in_both_frontends(
     semantic_btrcc: Path,
     tmp_path: Path,

@@ -220,6 +220,15 @@ class Analyzed {
         return self.classTable.has(name);
     }
 
+    /* Return types for language builtins that do not have source declarations
+     * or hosted-ABI entries. Keeping this on the analyzed semantic environment
+     * gives every inference consumer the same typed contract. */
+    public Node? builtinCallResultType(string name) {
+        if (name == "len") { return makePrimType("int"); }
+        if (name == "print") { return makePrimType("void"); }
+        return null;
+    }
+
     public void requireMemberIndex() {
         if (self.memberIndexReady) { return; }
         fprintf(stderr, "internal compiler error: declaration member index is not ready\n");
@@ -1582,6 +1591,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             }
             Node? hostedResult = hostedAbiSemanticResultType(callee.name);
             if (hostedResult != null) { return hostedResult; }
+            Node? builtinResult = a.builtinCallResultType(callee.name);
+            if (builtinResult != null) { return builtinResult; }
             /* Builtin Mutex(value) infers the exact payload type. Keep this in
              * semantic inference (matching the reference compiler) so ownership
              * boundaries and every other consumer see a typed handle instead of

@@ -73,6 +73,8 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
     generated = tmp_path / "stdlib-program.c"
     binary = tmp_path / "stdlib-program"
     source.write_text(
+        "import std.vector;\n"
+        "\n"
         "int main() {\n"
         '    Vector<string> values = ["relocated", "compiler"];\n'
         '    print(values.join("-"));\n'
