@@ -20,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -30,7 +30,7 @@ REPO = Path(__file__).resolve().parents[3]
 def _analyze(source: str):
     tokens = Lexer(source).tokenize()
     program = Parser(tokens).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def _errors(source: str) -> list[str]:

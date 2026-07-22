@@ -10,7 +10,7 @@ def validate_default_macro_context(analyzer, identifier) -> None:
 
     if not analyzer._analyzing_parameter_default:
         return
-    definitions = getattr(analyzer, "_source_macro_definitions", {})
+    definitions = analyzer.declarations.source_macro_definitions
     if not source_macro_expands_to_any(
         identifier.name,
         definitions,

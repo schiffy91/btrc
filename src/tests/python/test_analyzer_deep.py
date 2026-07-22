@@ -2,13 +2,13 @@
 subtype checks across an inheritance chain, missing-return detection, switch
 return analysis, and @gpu body validation recursion."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _analyze(src):
-    return Analyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
+    return SemanticAnalyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
 
 
 def errors(src):

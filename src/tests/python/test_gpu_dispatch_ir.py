@@ -2,7 +2,7 @@
 
 import re
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.nodes import (
     IRCall,
@@ -18,7 +18,7 @@ from src.compiler.python.parser.parser import Parser
 
 def _generate(source: str):
     program = Parser(Lexer(source, "<gpu-dispatch-ir>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
     return IRGenerator(analyzed).generate()
 

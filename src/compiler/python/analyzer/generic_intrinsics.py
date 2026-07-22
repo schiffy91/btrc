@@ -39,9 +39,9 @@ class GenericIntrinsicValidationMixin:
 
     def _validate_generic_intrinsic_types(self, name, operand_types):
         context = {
-            "class_table": self.class_table,
-            "interface_table": self.interface_table,
-            "enum_names": frozenset(self.enum_table),
+            "class_table": self.declarations.class_table,
+            "interface_table": self.declarations.interface_table,
+            "enum_names": frozenset(self.declarations.enum_table),
         }
         if name in GENERIC_COMPARISON_INTRINSICS:
             comparison_domain(

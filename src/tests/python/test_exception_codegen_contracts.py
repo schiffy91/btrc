@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.setjmp_volatility import apply_setjmp_volatility
 from src.compiler.python.ir.nodes import (
@@ -31,7 +31,7 @@ from src.tests.python.test_codegen import emit_c
 
 def analyze_source(source):
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def test_setjmp_functions_qualify_params_loops_and_capture_locals():

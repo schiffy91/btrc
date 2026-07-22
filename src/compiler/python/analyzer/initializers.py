@@ -63,7 +63,7 @@ class InitializerValidationMixin:
             return False
 
         struct_name = canonical.base.removeprefix("struct ")
-        declaration = self.struct_table.get(struct_name)
+        declaration = self.declarations.struct_table.get(struct_name)
         if declaration is not None and not declaration.is_forward:
             for field, element in zip(declaration.fields, initializer.elements):
                 self._validate_pointer_backed_array_field_initializer(

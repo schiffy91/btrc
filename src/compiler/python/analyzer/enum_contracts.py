@@ -39,7 +39,7 @@ class EnumContractsMixin:
                         value.col,
                     )
                     numeric = None
-            self._enum_constant_values[(owner, value.name)] = numeric
+            self.declarations.enum_constant_values[(owner, value.name)] = numeric
             previous = numeric
             prior.add(value.name)
 

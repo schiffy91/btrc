@@ -16,7 +16,7 @@ def test_string_len_and_bytelen():
 def test_tostring_on_class_without_method_is_rejected():
     # The analyzer rejects toString() on a class that doesn't define it (so the
     # built-in lowering never sees a class type).
-    from src.compiler.python.analyzer.analyzer import Analyzer
+    from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
     from src.compiler.python.lexer import Lexer
     from src.compiler.python.parser.parser import Parser
 
@@ -24,7 +24,7 @@ def test_tostring_on_class_without_method_is_rejected():
         "class P { public int v; public P() { self.v = 0; } }\n"
         "int main() { P p = new P(); string s = p.toString(); print(s); return 0; }"
     )
-    res = Analyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
+    res = SemanticAnalyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
     assert any("toString" in e for e in res.errors)
 
 

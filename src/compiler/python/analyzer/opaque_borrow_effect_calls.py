@@ -61,14 +61,14 @@ class OpaqueBorrowEffectCallsMixin:
                 local_names=local_names,
             ):
                 return None, True
-            declaration = self.function_table.get(callee.name)
+            declaration = self.declarations.function_table.get(callee.name)
             return declaration, declaration is None or declaration.body is None
         if not isinstance(callee, FieldAccessExpr):
             return None, False
         if isinstance(callee.obj, SelfExpr) and owner is not None:
             return owner.methods.get(callee.field), False
         if isinstance(callee.obj, Identifier):
-            class_info = self.class_table.get(callee.obj.name)
+            class_info = self.declarations.class_table.get(callee.obj.name)
             if class_info is not None:
                 return class_info.methods.get(callee.field), False
         return None, False

@@ -1,6 +1,6 @@
 """Type normalization must preserve the complete TypeExpr contract."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import FunctionDecl, TypeExpr
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -8,7 +8,7 @@ from src.compiler.python.parser.parser import Parser
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<type-metadata>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert analyzed.errors == []
     return program, analyzed
 
@@ -35,7 +35,7 @@ def test_class_upgrade_preserves_nested_qualifiers():
 
 
 def test_nullable_generic_substitution_preserves_metadata_without_stacking_references():
-    analyzer = Analyzer()
+    analyzer = SemanticAnalyzer()
     placeholder = TypeExpr(
         base="T",
         pointer_depth=1,
@@ -66,7 +66,7 @@ def test_nullable_generic_substitution_preserves_metadata_without_stacking_refer
 
 
 def test_explicit_pointer_layer_on_nullable_generic_still_composes():
-    analyzer = Analyzer()
+    analyzer = SemanticAnalyzer()
     # pointer_depth=2 models T*?: one explicit layer plus the nullable parser
     # layer.  Substitution removes only the provisional nullable layer and
     # records the surviving explicit layer outside the nullable boundary.
@@ -84,7 +84,7 @@ def test_explicit_pointer_layer_on_nullable_generic_still_composes():
 
 
 def test_nested_generic_substitution_preserves_owner_metadata():
-    analyzer = Analyzer()
+    analyzer = SemanticAnalyzer()
     owner = TypeExpr(
         base="Vector",
         generic_args=[TypeExpr(base="T")],

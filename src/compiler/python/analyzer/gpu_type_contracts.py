@@ -26,7 +26,7 @@ def gpu_builtin_call_uses_intrinsic(analyzer, call: CallExpr) -> bool:
     symbol = analyzer.scope.lookup(name)
     if symbol is not None and symbol.kind != "function":
         return False
-    declaration = analyzer.function_table.get(name)
+    declaration = analyzer.declarations.function_table.get(name)
     return declaration is None or analyzer._hosted_call_uses_owned_symbol(call)
 
 
@@ -41,7 +41,7 @@ def validate_gpu_call(context: GpuValidationContext, call: CallExpr) -> None:
         context.error("indirect and method calls have no WGSL definition", call.callee)
         return
     name = call.callee.name
-    source_function = name in context.analyzer.function_table and not gpu_builtin_call_uses_intrinsic(
+    source_function = name in context.analyzer.declarations.function_table and not gpu_builtin_call_uses_intrinsic(
         context.analyzer,
         call,
     )

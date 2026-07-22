@@ -43,7 +43,7 @@ class TypeNormalizationMixin:
             if upgraded_args != type_expr.generic_args:
                 type_expr = replace(type_expr, generic_args=upgraded_args)
 
-        if type_expr.base not in self.class_table or type_expr.base in shadowed_names:
+        if type_expr.base not in self.declarations.class_table or type_expr.base in shadowed_names:
             return type_expr
 
         # An ``auto_upgraded`` stamp marks pointers synthesized here, so
@@ -109,7 +109,7 @@ class TypeNormalizationMixin:
                     method.return_type = self._upgrade_class_type(method.return_type, interface_params)
             elif isinstance(decl, TypedefDecl):
                 decl.original = self._upgrade_class_type(decl.original)
-                self.typedef_table[decl.alias] = decl.original
+                self.declarations.typedef_table[decl.alias] = decl.original
             elif isinstance(decl, StructDecl):
                 for field in decl.fields:
                     field.type = self._upgrade_class_type(field.type)

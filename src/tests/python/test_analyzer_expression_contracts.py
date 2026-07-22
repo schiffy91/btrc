@@ -1,13 +1,13 @@
 """Semantic checks for expressions that previously reached invalid C."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _errors(source: str) -> list[str]:
     program = Parser(Lexer(source, "<expression-contracts>").tokenize()).parse()
-    return Analyzer().analyze(program).errors
+    return SemanticAnalyzer().analyze(program).errors
 
 
 def _has(errors: list[str], text: str) -> bool:
@@ -61,7 +61,7 @@ def test_class_null_ternaries_infer_the_class_type_in_either_order():
             "<expression-contracts>",
         ).tokenize()
     ).parse()
-    result = Analyzer().analyze(program)
+    result = SemanticAnalyzer().analyze(program)
     assert result.errors == []
     first, second = program.declarations[1].body.statements
     assert first.type.base == second.type.base == "Node"

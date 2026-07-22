@@ -38,8 +38,8 @@ class ControlFlowAnalysisMixin:
         self._nonnull_paths = before_cases & self._join_nonnull_flows(case_flows)
         if not has_default:
             val_type = self._infer_type(stmt.value)
-            if val_type and val_type.base in self.enum_table:
-                enum_values = set(self.enum_table[val_type.base])
+            if val_type and val_type.base in self.declarations.enum_table:
+                enum_values = set(self.declarations.enum_table[val_type.base])
                 covered = set()
                 for case in stmt.cases:
                     if case.value:

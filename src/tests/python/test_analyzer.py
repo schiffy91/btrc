@@ -1,6 +1,6 @@
 """Tests for the btrc semantic analyzer."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -8,7 +8,7 @@ from src.compiler.python.parser.parser import Parser
 def analyze(source: str):
     tokens = Lexer(source).tokenize()
     program = Parser(tokens).parse()
-    analyzer = Analyzer()
+    analyzer = SemanticAnalyzer()
     return analyzer.analyze(program)
 
 
@@ -3658,9 +3658,7 @@ class TestOccurrenceRecording:
     def _analyze(self, source, record):
         tokens = Lexer(source).tokenize()
         program = Parser(tokens).parse()
-        analyzer = Analyzer()
-        analyzer.record_occurrences = record
-        return analyzer.analyze(program)
+        return SemanticAnalyzer(record_occurrences=record).analyze(program)
 
     def test_default_records_nothing(self):
         """The CLI path (default) populates no occurrences."""

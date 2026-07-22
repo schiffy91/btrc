@@ -98,7 +98,7 @@ class AggregateLayoutContractsMixin:
                 for argument in canonical.generic_args
             )
         name = canonical.base.removeprefix("struct ")
-        if name not in self.struct_table or name in self._struct_definitions:
+        if name not in self.declarations.struct_table or name in self.declarations.struct_definitions:
             return True
         if sizeof:
             self._error(f"{subject} cannot use incomplete type '{name}'", line, col)
@@ -113,7 +113,7 @@ class AggregateLayoutContractsMixin:
         if canonical.base == "Tuple":
             return {name for argument in canonical.generic_args for name in self._value_aggregate_names(argument)}
         name = canonical.base.removeprefix("struct ")
-        if name in self._struct_definitions or name in self.rich_enum_table:
+        if name in self.declarations.struct_definitions or name in self.declarations.rich_enum_table:
             return {name}
         return set()
 

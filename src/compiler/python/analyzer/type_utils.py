@@ -84,7 +84,7 @@ class TypeUtilsMixin:
         """Whether ``type_expr`` is an int-backed btrc enum value."""
         return bool(
             type_expr
-            and type_expr.base in self.enum_table
+            and type_expr.base in self.declarations.enum_table
             and type_expr.pointer_depth == 0
             and not type_expr.is_array
             and not type_expr.generic_args
@@ -160,7 +160,7 @@ class TypeUtilsMixin:
         from ..string_conversion import requires_class_to_string
 
         if requires_class_to_string(
-            self.class_table,
+            self.declarations.class_table,
             target,
             source,
             canonicalize=self._canonical_type,
@@ -179,11 +179,11 @@ class TypeUtilsMixin:
             and (self._semantic_pointer_depth(target) > 0 or target.is_array)
         ):
             return self._const_conversion_allowed(target, source)
-        if target.base in self.class_table and source.base in self.class_table:
+        if target.base in self.declarations.class_table and source.base in self.declarations.class_table:
             return self._reference_shapes_compatible(target, source) and self._is_subclass(source.base, target.base)
-        if target.base in self.interface_table and source.base in self.class_table:
+        if target.base in self.declarations.interface_table and source.base in self.declarations.class_table:
             return self._reference_shapes_compatible(target, source) and self._is_subclass(source.base, target.base)
-        if target.base in self.interface_table and source.base in self.interface_table:
+        if target.base in self.declarations.interface_table and source.base in self.declarations.interface_table:
             return self._reference_shapes_compatible(target, source) and self._is_interface_subtype(
                 source.base, target.base
             )
@@ -239,13 +239,13 @@ class TypeUtilsMixin:
 
     def _canonical_type(self, type_expr, seen=None):
         """Resolve typedef aliases while preserving use-site modifiers."""
-        if type_expr is None or type_expr.base not in self.typedef_table:
+        if type_expr is None or type_expr.base not in self.declarations.typedef_table:
             return type_expr
         seen = set() if seen is None else seen
         if type_expr.base in seen:
             return type_expr
         seen.add(type_expr.base)
-        resolved = self._canonical_type(self.typedef_table[type_expr.base], seen)
+        resolved = self._canonical_type(self.declarations.typedef_table[type_expr.base], seen)
         return compose_type_expr(type_expr, resolved, reference_shape=resolved)
 
     def _is_interface_subtype(self, child: str, parent: str) -> bool:
@@ -256,7 +256,7 @@ class TypeUtilsMixin:
             if current == parent:
                 return True
             visited.add(current)
-            info = self.interface_table.get(current)
+            info = self.declarations.interface_table.get(current)
             current = info.parent if info else None
         return False
 
@@ -264,24 +264,24 @@ class TypeUtilsMixin:
         """Check if child class extends parent (directly or transitively)."""
         if child == parent:
             return True
-        info = self.class_table.get(child)
+        info = self.declarations.class_table.get(child)
         if not info:
             return False
-        if parent in self.interface_table:
+        if parent in self.declarations.interface_table:
             cur = info
             visited = set()
             while cur and cur.name not in visited:
                 visited.add(cur.name)
                 if any(self._is_interface_subtype(interface, parent) for interface in cur.interfaces):
                     return True
-                cur = self.class_table.get(cur.parent) if cur.parent else None
+                cur = self.declarations.class_table.get(cur.parent) if cur.parent else None
             return False
         visited = set()
         while info and info.parent and info.parent not in visited:
             visited.add(info.parent)
             if info.parent == parent:
                 return True
-            info = self.class_table.get(info.parent)
+            info = self.declarations.class_table.get(info.parent)
         return False
 
     def _substitute_type(self, t: TypeExpr | None, subs: dict) -> TypeExpr | None:

@@ -265,8 +265,8 @@ class ExpressionsMixin:
                             expr.line,
                             expr.col,
                         )
-            if expr.type.base in self.class_table:
-                cls = self.class_table[expr.type.base]
+            if expr.type.base in self.declarations.class_table:
+                cls = self.declarations.class_table[expr.type.base]
                 if cls.is_abstract:
                     self._error(
                         f"Cannot instantiate abstract class '{cls.name}'",

@@ -20,7 +20,7 @@ import tempfile
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
@@ -33,7 +33,7 @@ def emit_c(source: str) -> str:
     """Full pipeline on a self-contained snippet (no stdlib), return C text."""
     tokens = Lexer(source, "<test>").tokenize()
     program = Parser(tokens).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, f"analyzer errors: {analyzed.errors}"
     ir_module = IRGenerator(analyzed).generate()
     ir_module = optimize(ir_module)
@@ -43,7 +43,7 @@ def emit_c(source: str) -> str:
 def analyze(source: str):
     tokens = Lexer(source, "<test>").tokenize()
     program = Parser(tokens).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def compile_and_run(source: str) -> str:
@@ -155,7 +155,7 @@ def test_string_method_spec_is_single_source_of_truth():
 def test_analyzer_type_table_matches_spec():
     from src.compiler.python.string_methods import STRING_METHODS
 
-    analyzer = Analyzer()
+    analyzer = SemanticAnalyzer()
     for name, spec in STRING_METHODS.items():
         t = analyzer._string_method_return_type(name)
         assert t is not None, f"no analyzer return type for {name!r}"
@@ -208,7 +208,7 @@ def test_string_to_bool_lowers_to_the_documented_runtime_helper():
 
 
 def _compat(target: TypeExpr, source: TypeExpr) -> bool:
-    return Analyzer()._types_compatible(target, source)
+    return SemanticAnalyzer()._types_compatible(target, source)
 
 
 def test_string_pointer_not_compatible_with_generic_collection():

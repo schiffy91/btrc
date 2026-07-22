@@ -1,13 +1,13 @@
 """C interop typing for arrays, pointers, and opaque scalar typedefs."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<c-interop>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def test_fixed_array_decays_to_pointer_argument():

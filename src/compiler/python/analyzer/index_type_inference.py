@@ -23,13 +23,13 @@ class _IndexTypeInferenceMixin:
             and (
                 canonical.is_array
                 or canonical.base in self._active_storage_type_parameters()
-                or canonical.base not in self.class_table
+                or canonical.base not in self.declarations.class_table
                 or canonical.pointer_depth > 1
             )
         ):
             preserved = strip_outer_storage_through_typedef(
                 object_type,
-                self.typedef_table,
+                self.declarations.typedef_table,
             )
             if preserved is not None:
                 return preserved
@@ -37,7 +37,7 @@ class _IndexTypeInferenceMixin:
 
         protocol = indexed_protocol(
             canonical,
-            self.class_table,
+            self.declarations.class_table,
             active_type_params=self._active_storage_type_parameters(),
         )
         if protocol is None:

@@ -1,13 +1,13 @@
 """Structural generic field and method inference contracts."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<generic-inference>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def test_nested_generic_field_substitutes_recursively():

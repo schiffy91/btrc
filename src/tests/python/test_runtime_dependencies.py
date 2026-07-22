@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.freestanding import RUNTIME_HEADER
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
@@ -21,7 +21,7 @@ STDLIB = Path(__file__).parents[2] / "stdlib"
 
 def _generate(source: str):
     program = Parser(Lexer(source, "<runtime-dependencies>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
     return IRGenerator(analyzed, freestanding=True).generate()
 
@@ -127,7 +127,7 @@ def test_user_function_cannot_claim_reserved_native_prefix():
         ).tokenize()
     ).parse()
 
-    errors = Analyzer().analyze(program).errors
+    errors = SemanticAnalyzer().analyze(program).errors
 
     assert any("compiler-reserved 'btrc_' prefix" in error for error in errors)
 

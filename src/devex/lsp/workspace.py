@@ -225,24 +225,15 @@ class Workspace(WorkspaceCacheMixin):
         tables are used to seed a fresh analyzer that only processes the
         user's declarations — the stdlib method bodies never re-analyze.
         """
-        from src.compiler.python.analyzer.analyzer import Analyzer
+        from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 
         base = self._stdlib_base(comp.stdlib)
         if base is None:
-            analyzer = Analyzer()
-            analyzer.record_occurrences = True
-            return analyzer.analyze(comp.program)
+            return SemanticAnalyzer(record_occurrences=True).analyze(comp.program)
 
-        analyzer = Analyzer()
         # Record identifier resolutions for the user program only — the stdlib
         # base is analyzed separately (and cheaply) without recording.
-        analyzer.record_occurrences = True
-        analyzer.class_table = dict(base.class_table)
-        analyzer.function_table = dict(base.function_table)
-        analyzer.enum_table = dict(base.enum_table)
-        analyzer.interface_table = dict(base.interface_table)
-        analyzer.rich_enum_table = dict(base.rich_enum_table)
-        analyzer.generic_instances = {k: list(v) for k, v in base.generic_instances.items()}
+        analyzer = SemanticAnalyzer(record_occurrences=True, seed=base)
 
         user_decls: list = []
         for u in comp.imported:
@@ -257,7 +248,7 @@ class Workspace(WorkspaceCacheMixin):
         so unbounded growth (one entry per transient shadow set while typing)
         would leak multi-MB objects.
         """
-        from src.compiler.python.analyzer.analyzer import Analyzer
+        from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 
         key = frozenset(u.path for u in stdlib)
         # The whole build runs under the lock: the analyzer mutates the shared
@@ -271,7 +262,7 @@ class Workspace(WorkspaceCacheMixin):
             for u in stdlib:
                 decls.extend(u.decls)
             try:
-                base = Analyzer().analyze(Program(declarations=decls))
+                base = SemanticAnalyzer().analyze(Program(declarations=decls))
             except Exception:
                 return None
             self._stdlib_base_cache[key] = base

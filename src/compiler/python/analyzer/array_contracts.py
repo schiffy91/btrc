@@ -243,7 +243,7 @@ class ArrayContractsMixin:
         if not isinstance(target, FieldAccessExpr) or target.optional:
             return None, None
         if isinstance(target.obj, Identifier) and self.scope.lookup(target.obj.name) is None:
-            class_info = self.class_table.get(target.obj.name)
+            class_info = self.declarations.class_table.get(target.obj.name)
             if class_info is not None:
                 member = class_info.static_fields.get(target.field)
                 if member is not None:
@@ -255,7 +255,7 @@ class ArrayContractsMixin:
         receiver = self._canonical_type(self._infer_type(target.obj))
         if receiver is None:
             return None, None
-        class_info = self.class_table.get(receiver.base)
+        class_info = self.declarations.class_table.get(receiver.base)
         if class_info is not None:
             prop = class_info.properties.get(target.field)
             if prop is not None:
@@ -264,7 +264,7 @@ class ArrayContractsMixin:
             if member is not None:
                 return member, "instance-field"
         struct_name = receiver.base.removeprefix("struct ")
-        structure = self.struct_table.get(struct_name)
+        structure = self.declarations.struct_table.get(struct_name)
         if structure is not None:
             member = next(
                 (field for field in structure.fields if field.name == target.field),
@@ -284,7 +284,7 @@ class ArrayContractsMixin:
         symbol = self.scope.lookup(callee.name)
         if symbol is not None and symbol.kind != "function":
             return False
-        declaration = self.function_table.get(callee.name)
+        declaration = self.declarations.function_table.get(callee.name)
         return bool(declaration and declaration.is_gpu and declaration.return_type and declaration.return_type.is_array)
 
 

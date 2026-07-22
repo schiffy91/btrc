@@ -20,7 +20,7 @@ class IndexedUpdateContractsMixin:
 
         protocol = indexed_protocol(
             receiver_type,
-            self.class_table,
+            self.declarations.class_table,
             active_type_params=self._active_storage_type_parameters(),
         )
         if protocol is None:

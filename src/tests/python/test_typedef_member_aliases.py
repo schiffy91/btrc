@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import Identifier
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -25,7 +25,7 @@ def _parse(source: str):
 
 def _analyze(source: str):
     program = _parse(source)
-    return program, Analyzer().analyze(program)
+    return program, SemanticAnalyzer().analyze(program)
 
 
 def _walk(node):

@@ -21,7 +21,7 @@ class IndexExpressionContractsMixin:
             expected_index = object_type.generic_args[0]
         protocol = indexed_protocol(
             object_type,
-            self.class_table,
+            self.declarations.class_table,
             active_type_params=self._active_storage_type_parameters(),
         )
         if expected_index is None and protocol is not None:
@@ -72,7 +72,7 @@ class IndexExpressionContractsMixin:
 
         indexable = expected_index is not None or integral_index or protocol is not None
         if not indexable:
-            if object_type.base in self.class_table:
+            if object_type.base in self.declarations.class_table:
                 self._error(
                     f"Type '{self._format_type(object_type)}' has no indexed getter; "
                     "indexing requires an instance get(index) method",

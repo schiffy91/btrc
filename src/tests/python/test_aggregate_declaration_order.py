@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
@@ -20,7 +20,7 @@ COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(nam
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<aggregate-order>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def _errors(source: str) -> list[str]:

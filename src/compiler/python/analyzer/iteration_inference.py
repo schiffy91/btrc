@@ -21,8 +21,8 @@ class _IterationInferenceMixin:
             return iter_type.generic_args[0]
         # Any class that implements iterGet participates in the iterable
         # protocol; generic arguments only affect its resolved return type.
-        if iter_type.base in self.class_table:
-            cls = self.class_table[iter_type.base]
+        if iter_type.base in self.declarations.class_table:
+            cls = self.declarations.class_table[iter_type.base]
             if "iterGet" in cls.methods:
                 result = cls.methods["iterGet"].return_type
                 if cls.generic_params and iter_type.generic_args:
@@ -42,7 +42,7 @@ class _IterationInferenceMixin:
             return None
         if iter_type.base == "Map" and len(iter_type.generic_args) == 2:
             return iter_type.generic_args[1]
-        cls = self.class_table.get(iter_type.base)
+        cls = self.declarations.class_table.get(iter_type.base)
         method = cls.methods.get("iterValueAt") if cls else None
         if method is None:
             self._error(

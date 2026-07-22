@@ -5,7 +5,7 @@ path, so drive the helpers directly with a real analyzed program. An ordinary
 method named ``free`` must not affect the selected lifecycle entry point.
 """
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.arc import (
     _destroy_fn_for_managed,
@@ -32,7 +32,7 @@ int main() {
 
 
 def _gen():
-    analyzed = Analyzer().analyze(Parser(Lexer(_SRC, "<t>").tokenize()).parse())
+    analyzed = SemanticAnalyzer().analyze(Parser(Lexer(_SRC, "<t>").tokenize()).parse())
     return IRGenerator(analyzed)
 
 

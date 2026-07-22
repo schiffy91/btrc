@@ -9,7 +9,7 @@ class ConversionContractsMixin:
         from ..string_conversion import requires_class_to_string
 
         return requires_class_to_string(
-            self.class_table,
+            self.declarations.class_table,
             target,
             source,
             canonicalize=self._canonical_type,

@@ -36,16 +36,16 @@ class CallTypeInferenceMixin:
                 result = hosted_semantic_result(name)
                 if result is not None:
                     return result
-            if name in self.function_table:
-                return self.function_table[name].return_type
+            if name in self.declarations.function_table:
+                return self.declarations.function_table[name].return_type
             if name == "Mutex" and expr.args:
                 argument_type = self._infer_type(expr.args[0])
                 return TypeExpr(
                     base="Mutex",
                     generic_args=[argument_type or TypeExpr(base="int")],
                 )
-            if name in self.class_table:
-                return self._infer_constructor_call_type(expr, self.class_table[name])
+            if name in self.declarations.class_table:
+                return self._infer_constructor_call_type(expr, self.declarations.class_table[name])
             if name == "len":
                 return TypeExpr(base="int")
             if name == "print":
@@ -76,8 +76,8 @@ class CallTypeInferenceMixin:
 
     def _infer_method_call_type(self, expr):
         callee = expr.callee
-        if isinstance(callee.obj, Identifier) and callee.obj.name in self.rich_enum_table:
-            enum_decl = self.rich_enum_table[callee.obj.name]
+        if isinstance(callee.obj, Identifier) and callee.obj.name in self.declarations.rich_enum_table:
+            enum_decl = self.declarations.rich_enum_table[callee.obj.name]
             if any(variant.name == callee.field for variant in enum_decl.variants):
                 return TypeExpr(base=enum_decl.name)
         signature = self._function_pointer_signature(self._infer_type(callee))
@@ -89,8 +89,8 @@ class CallTypeInferenceMixin:
             and (
                 object_type.base in self._NUMERIC_TYPES
                 or object_type.base == "bool"
-                or object_type.base in self.enum_table
-                or object_type.base in self.rich_enum_table
+                or object_type.base in self.declarations.enum_table
+                or object_type.base in self.declarations.rich_enum_table
             )
             and object_type.pointer_depth == 0
             and not object_type.is_array
@@ -111,8 +111,8 @@ class CallTypeInferenceMixin:
                 return TypeExpr(base="void")
         if object_type and object_type.base in {"Array", "List", "Map", "Set", "Vector"} and callee.field == "size":
             return TypeExpr(base="int")
-        if object_type and object_type.base in self.class_table:
-            cls = self.class_table[object_type.base]
+        if object_type and object_type.base in self.declarations.class_table:
+            cls = self.declarations.class_table[object_type.base]
             method = cls.methods.get(callee.field)
             if method is not None:
                 substitutions = {}
@@ -128,9 +128,9 @@ class CallTypeInferenceMixin:
         if (
             isinstance(callee.obj, Identifier)
             and self.scope.lookup(callee.obj.name) is None
-            and callee.obj.name in self.class_table
+            and callee.obj.name in self.declarations.class_table
         ):
-            method = self.class_table[callee.obj.name].methods.get(callee.field)
+            method = self.declarations.class_table[callee.obj.name].methods.get(callee.field)
             if method is not None:
                 return method.return_type
         return None

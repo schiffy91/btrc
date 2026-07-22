@@ -61,7 +61,7 @@ class VariableDeclarationAnalysisMixin:
                 stmt.line,
                 stmt.col,
             )
-            if stmt.type.base in self.class_table and stmt.type.pointer_depth == 0:
+            if stmt.type.base in self.declarations.class_table and stmt.type.pointer_depth == 0:
                 stmt.type = self._upgrade_class_type(stmt.type)
             self._validate_thread_handle_copy(
                 stmt.type,
@@ -201,7 +201,7 @@ class VariableDeclarationAnalysisMixin:
             return
         src_name = stmt.initializer.name
         src_sym = self.scope.lookup(src_name)
-        if not src_sym or not src_sym.type or src_sym.type.base not in self.class_table:
+        if not src_sym or not src_sym.type or src_sym.type.base not in self.declarations.class_table:
             return
         self._warning(
             f"Aliasing managed variable '{src_name}' — "

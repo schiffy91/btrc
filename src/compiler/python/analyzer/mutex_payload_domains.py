@@ -159,7 +159,7 @@ class MutexPayloadDomainContractsMixin:
         canonical = self._canonical_type(type_expr)
         if canonical is None or self._is_unresolved_mutex_parameter(canonical, active_type_params):
             return None
-        if canonical.base in _RUNTIME_COLLECTION_BASES and canonical.base not in self.class_table:
+        if canonical.base in _RUNTIME_COLLECTION_BASES and canonical.base not in self.declarations.class_table:
             return canonical.base
         if canonical.base == "__fn_ptr":
             return None
@@ -225,7 +225,7 @@ class MutexPayloadDomainContractsMixin:
             and not canonical.is_array
             and (
                 is_semantic_scalar_string(canonical)
-                or (canonical.base in self.class_table and canonical.pointer_depth <= 1)
+                or (canonical.base in self.declarations.class_table and canonical.pointer_depth <= 1)
             )
         )
 
@@ -270,18 +270,18 @@ class MutexPayloadDomainContractsMixin:
                     return result
             return None
         name = canonical.base.removeprefix("struct ")
-        kind = "struct" if name in self.struct_table else "rich-enum"
+        kind = "struct" if name in self.declarations.struct_table else "rich-enum"
         visit_key = f"{kind}:{name}"
         if visit_key in visiting:
             return None
         nested = visiting | {visit_key}
-        declaration = self.struct_table.get(name)
+        declaration = self.declarations.struct_table.get(name)
         if declaration and not declaration.is_forward:
             for field in declaration.fields:
                 result = find(field.type, nested)
                 if result is not None:
                     return result
-        rich_enum = self.rich_enum_table.get(name)
+        rich_enum = self.declarations.rich_enum_table.get(name)
         if rich_enum:
             for variant in rich_enum.variants:
                 for parameter in variant.params:

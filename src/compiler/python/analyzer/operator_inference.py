@@ -23,7 +23,7 @@ class OperatorInferenceMixin:
         """Return an overload and its class substitutions, if one exists."""
         if receiver_type is None:
             return None
-        cls = self.class_table.get(receiver_type.base)
+        cls = self.declarations.class_table.get(receiver_type.base)
         names = self._UNARY_OVERLOADS if unary else self._BINARY_OVERLOADS
         method = cls.methods.get(names.get(operator, "")) if cls else None
         if method is None:
@@ -47,7 +47,7 @@ class OperatorInferenceMixin:
         if resolved is None:
             return
         method, _ = resolved
-        cls = self.class_table.get(receiver_type.base)
+        cls = self.declarations.class_table.get(receiver_type.base)
         owner = cls.method_owners.get(method.name, cls.name) if cls else ""
         if method.access == "private" and (self.current_class is None or self.current_class.name != owner):
             self._error(

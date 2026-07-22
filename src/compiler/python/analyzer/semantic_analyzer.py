@@ -1,4 +1,4 @@
-"""Analyzer assembly: combines all analysis mixins into the final Analyzer class."""
+"""Semantic-analysis composition root."""
 
 from .aggregate_contracts import AggregateContractsMixin
 from .aggregate_layout import AggregateLayoutContractsMixin
@@ -16,19 +16,13 @@ from .constant_expressions import ConstantExpressionMixin
 from .constructor_inference import ConstructorInferenceMixin
 from .control_flow import ControlFlowAnalysisMixin
 from .conversion_contracts import ConversionContractsMixin
-from .core import (
-    AnalyzedProgram,
-    AnalyzerBase,
-    AnalyzerError,
-    ClassInfo,
-    InterfaceInfo,
-    Scope,
-    SymbolInfo,
-)
+from .core import AnalyzerBase
+from .core_models import AnalyzedProgram
 from .cycles import CycleAnalysisMixin
 from .declaration_contracts import DeclarationContractsMixin
 from .declaration_names import DeclarationNamesMixin
 from .declaration_validation import RegisteredDeclarationValidationMixin
+from .declarations.registry import DeclarationRegistry, DeclarationServices
 from .enum_contracts import EnumContractsMixin
 from .exceptions import ExceptionAnalysisMixin
 from .expression_contracts import ExpressionContractsMixin
@@ -65,9 +59,6 @@ from .operator_inference import OperatorInferenceMixin
 from .parameter_consumption import ParameterConsumptionContractsMixin
 from .qualification import QualificationMixin
 from .raw_deallocation import RawDeallocationContractsMixin
-from .registration import RegistrationMixin
-from .registration_declarations import DeclarationRegistrationMixin
-from .registration_inheritance import InheritanceRegistrationMixin
 from .scalar_inference import ScalarInferenceMixin
 from .source_macro_contracts import SourceMacroContractsMixin
 from .statements import StatementsMixin
@@ -84,7 +75,7 @@ from .value_contracts import ValueContractsMixin
 from .variable_declarations import VariableDeclarationAnalysisMixin
 
 
-class Analyzer(
+class SemanticAnalyzer(
     QualificationMixin,
     TypeUtilsMixin,
     ConversionContractsMixin,
@@ -155,22 +146,40 @@ class Analyzer(
     FunctionParameterContractsMixin,
     FunctionsMixin,
     OccurrencesMixin,
-    DeclarationRegistrationMixin,
-    InheritanceRegistrationMixin,
-    RegistrationMixin,
     AnalyzerBase,
 ):
-    """Semantic analyzer for the btrc language."""
+    """Run semantic analysis with owned declaration registration."""
 
-    pass
+    def __init__(
+        self,
+        *,
+        record_occurrences: bool = False,
+        seed: AnalyzedProgram | None = None,
+    ) -> None:
+        super().__init__()
+        self.record_occurrences = record_occurrences
+        self.declarations = DeclarationRegistry(
+            DeclarationServices(
+                declarations=self._decls_with_file,
+                error=self._error,
+                validate_declared_name=self._validate_declared_name,
+                validate_generic_parameter_names=self._validate_generic_parameter_names,
+                validate_parameter_names=self._validate_parameter_names,
+                validate_array_return_declaration=self._validate_array_return_declaration,
+                validate_inherited_member_names=self._validate_inherited_member_names,
+                hosted_type_declaration_allowed=self._hosted_type_declaration_allowed,
+                hosted_object_declaration_allowed=self._hosted_object_declaration_allowed,
+                function_declarations_compatible=self._function_declarations_compatible,
+                merge_function_defaults=self._merge_function_defaults,
+                global_scope=self.global_scope,
+                current_source_file=lambda: self.current_source_file,
+            ),
+            seed=seed,
+        )
+        if seed is not None:
+            self.generic_instances = {
+                name: list(instances) for name, instances in seed.generic_instances.items()
+            }
 
 
-__all__ = [
-    "AnalyzedProgram",
-    "Analyzer",
-    "AnalyzerError",
-    "ClassInfo",
-    "InterfaceInfo",
-    "Scope",
-    "SymbolInfo",
-]
+__all__ = ["SemanticAnalyzer"]

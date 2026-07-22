@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.helpers.cycles import CYCLES
@@ -25,7 +25,7 @@ from src.compiler.python.stdlib_shared_state import SHARED_STATE_HELPER_NAMES
 
 def _emit_c(source: str) -> str:
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
     module = optimize(IRGenerator(analyzed).generate())
     return CEmitter().emit(module)

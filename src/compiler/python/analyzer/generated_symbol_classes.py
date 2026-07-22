@@ -12,13 +12,13 @@ def managed_storage_type(analyzer, type_expr) -> bool:
         type_expr is not None
         and not type_expr.is_array
         and type_expr.pointer_depth <= 1
-        and type_expr.base in analyzer.class_table
+        and type_expr.base in analyzer.declarations.class_table
     )
 
 
 def claim_class_symbols(analyzer, declaration, claims) -> None:
     name = declaration.name
-    info = analyzer.class_table[name]
+    info = analyzer.declarations.class_table[name]
     for suffix, role in (
         ("init", "initializer"),
         ("new", "allocator"),

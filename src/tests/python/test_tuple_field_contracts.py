@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -16,7 +16,7 @@ COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(nam
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<tuple-fields>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def test_tuple_field_indices_are_typed_and_validated():

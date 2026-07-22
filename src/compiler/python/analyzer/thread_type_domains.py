@@ -60,7 +60,7 @@ class ThreadTypeDomainContractsMixin:
         if canonical is None or canonical.is_array:
             return False
         scalar_string = is_semantic_scalar_string(canonical)
-        class_reference = canonical.base in self.class_table and canonical.pointer_depth <= 1
+        class_reference = canonical.base in self.declarations.class_table and canonical.pointer_depth <= 1
         return scalar_string or class_reference
 
     def _thread_result_aggregate_contains_managed_reference(
@@ -103,15 +103,15 @@ class ThreadTypeDomainContractsMixin:
         predicate,
     ) -> bool:
         name = canonical.base.removeprefix("struct ")
-        kind = "struct" if name in self.struct_table else "rich-enum"
+        kind = "struct" if name in self.declarations.struct_table else "rich-enum"
         visit_key = f"{kind}:{name}"
         if visit_key in visiting:
             return False
         nested_visiting = visiting | {visit_key}
-        declaration = self.struct_table.get(name)
+        declaration = self.declarations.struct_table.get(name)
         if declaration and not declaration.is_forward:
             return any(predicate(field.type, nested_visiting) for field in declaration.fields)
-        rich_enum = self.rich_enum_table.get(name)
+        rich_enum = self.declarations.rich_enum_table.get(name)
         if rich_enum:
             return any(
                 predicate(parameter.type, nested_visiting)

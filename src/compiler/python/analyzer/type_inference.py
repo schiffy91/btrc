@@ -78,13 +78,13 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
             sym = self.scope.lookup(expr.name)
             if sym:
                 return sym.type
-            function = self.function_table.get(expr.name)
+            function = self.declarations.function_table.get(expr.name)
             if function:
                 return TypeExpr(
                     base="__fn_ptr",
                     generic_args=[function.return_type, *(param.type for param in function.params)],
                 )
-            owners = self._enum_member_owners.get(expr.name, set())
+            owners = self.declarations.enum_member_owners.get(expr.name, set())
             if len(owners) == 1:
                 owner = next(iter(owners))
                 return TypeExpr(base=owner or "int")
@@ -133,7 +133,7 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
                 return None
             canonical_operand = self._canonical_type(operand_type)
             if expr.op == "&":
-                if isinstance(expr.operand, Identifier) and expr.operand.name in self.function_table:
+                if isinstance(expr.operand, Identifier) and expr.operand.name in self.declarations.function_table:
                     return operand_type
                 from ..type_composition import add_outer_pointer
 
@@ -144,7 +144,7 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
 
                     preserved = strip_outer_storage_through_typedef(
                         operand_type,
-                        self.typedef_table,
+                        self.declarations.typedef_table,
                     )
                     if preserved is not None:
                         return preserved
@@ -200,13 +200,13 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
 
     def _infer_field_access_type(self, expr):
         if isinstance(expr.obj, Identifier):
-            enum_values = self.enum_table.get(expr.obj.name)
+            enum_values = self.declarations.enum_table.get(expr.obj.name)
             if enum_values is not None and expr.field in enum_values:
                 return TypeExpr(base=expr.obj.name or "int")
-            rich_enum = self.rich_enum_table.get(expr.obj.name)
+            rich_enum = self.declarations.rich_enum_table.get(expr.obj.name)
             if rich_enum and any(variant.name == expr.field for variant in rich_enum.variants):
                 return TypeExpr(base="int")
-            class_info = self.class_table.get(expr.obj.name) if self.scope.lookup(expr.obj.name) is None else None
+            class_info = self.declarations.class_table.get(expr.obj.name) if self.scope.lookup(expr.obj.name) is None else None
             if class_info and expr.field in class_info.static_fields:
                 return class_info.static_fields[expr.field].type
         obj_type = self._infer_type(expr.obj)
@@ -216,7 +216,7 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
                 if expr.field == f"_{index}" and index < len(obj_type.generic_args):
                     return obj_type.generic_args[index]
             return None
-        if obj_type and obj_type.base in self.rich_enum_table:
+        if obj_type and obj_type.base in self.declarations.rich_enum_table:
             if expr.field == "tag":
                 return TypeExpr(base="int")
             return None
@@ -227,16 +227,16 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
             data_expr = expr.obj.obj
             if isinstance(data_expr.obj, (Identifier, FieldAccessExpr)):
                 s_type = self._infer_type(data_expr.obj)
-                if s_type and s_type.base in self.rich_enum_table:
-                    enum_decl = self.rich_enum_table[s_type.base]
+                if s_type and s_type.base in self.declarations.rich_enum_table:
+                    enum_decl = self.declarations.rich_enum_table[s_type.base]
                     variant_name = expr.obj.field
                     for v in enum_decl.variants:
                         if v.name == variant_name:
                             for p in v.params:
                                 if p.name == expr.field:
                                     return p.type
-        if obj_type and obj_type.base in self.class_table:
-            cls = self.class_table[obj_type.base]
+        if obj_type and obj_type.base in self.declarations.class_table:
+            cls = self.declarations.class_table[obj_type.base]
             field_type = None
             is_property = False
             if expr.field in cls.properties:
@@ -250,7 +250,7 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
             return self._const_member_type(obj_type, field_type, is_property)
         if obj_type:
             struct_name = obj_type.base.removeprefix("struct ")
-            struct_decl = self.struct_table.get(struct_name)
+            struct_decl = self.declarations.struct_table.get(struct_name)
             if struct_decl:
                 field_type = next(
                     (field.type for field in struct_decl.fields if field.name == expr.field),

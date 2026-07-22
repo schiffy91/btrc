@@ -54,7 +54,7 @@ class RegisteredDeclarationValidationMixin:
                         )
                         if effective_outer_const(
                             parameter.type,
-                            self.typedef_table,
+                            self.declarations.typedef_table,
                         ):
                             self._error(
                                 "Rich-enum payload "

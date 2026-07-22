@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.generics.core import _resolve_type
@@ -32,7 +32,7 @@ def _type(base: str, **kwargs) -> TypeExpr:
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<type-identity>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def test_shape_key_distinguishes_recursive_pointer_nullable_and_array_shape():

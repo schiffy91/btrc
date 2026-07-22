@@ -116,8 +116,8 @@ class GenericMethodsMixin:
         reference (Identifier naming a top-level function) is reconstructed into
         the same ``__fn_ptr`` shape so it unifies the same way.
         """
-        if isinstance(arg, Identifier) and arg.name in self.function_table:
-            func = self.function_table[arg.name]
+        if isinstance(arg, Identifier) and arg.name in self.declarations.function_table:
+            func = self.declarations.function_table[arg.name]
             generic_args = [func.return_type] + [p.type for p in func.params]
             return TypeExpr(base="__fn_ptr", generic_args=generic_args)
         if isinstance(arg, LambdaExpr):

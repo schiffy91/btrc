@@ -249,7 +249,7 @@ class ValueContractsMixin:
             and operand_type.base != "__fn_ptr"
         ):
             return
-        if operand_type and operand_type.base not in self.class_table and not operand_type.generic_args:
+        if operand_type and operand_type.base not in self.declarations.class_table and not operand_type.generic_args:
             type_params = set(
                 (self.current_class.generic_params if self.current_class else [])
                 + (self.current_method.generic_params if self.current_method else [])

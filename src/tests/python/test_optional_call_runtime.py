@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -23,7 +23,7 @@ def test_optional_reference_result_is_inferred_nullable():
         Box? maybe(Box? value) { return value?.identity(); }
     """
     program = Parser(Lexer(source, "<optional-result>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     call = program.declarations[1].body.statements[0].value
     result_type = analyzed.node_types[id(call)]
 

@@ -61,7 +61,7 @@ class CastContractsMixin:
 
         struct_name = target.base.removeprefix("struct ")
         if (
-            struct_name in self.struct_table
+            struct_name in self.declarations.struct_table
             and target.pointer_depth == 0
             and not target.is_array
             and not target.generic_args
@@ -97,11 +97,11 @@ class CastContractsMixin:
         if base in _PRIMITIVE_TYPE_NAMES or base in _BUILTIN_CAST_BASES:
             return True
         if (
-            base in self.class_table
-            or base in self.interface_table
-            or base in self.enum_table
-            or base in self.rich_enum_table
-            or base in getattr(self, "declared_type_names", ())
+            base in self.declarations.class_table
+            or base in self.declarations.interface_table
+            or base in self.declarations.enum_table
+            or base in self.declarations.rich_enum_table
+            or base in self.declarations.declared_type_names
         ):
             return True
         if self.current_class and base in self.current_class.generic_params:

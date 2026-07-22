@@ -32,7 +32,7 @@ def validate_conditional_raw_projection_call(analyzer, call) -> None:
                 type_of=analyzer._infer_type,
                 is_managed=lambda value: _is_managed(analyzer, value),
                 overridden=lambda _value: False,
-                struct_table=analyzer.struct_table,
+                struct_table=analyzer.declarations.struct_table,
                 direct=leaf.direct_storage,
             ),
         )

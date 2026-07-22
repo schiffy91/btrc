@@ -31,9 +31,9 @@ class IdentifierContractsMixin:
                 expression.col,
             )
             return
-        if name in self.function_table:
+        if name in self.declarations.function_table:
             return
-        if name in self.class_table:
+        if name in self.declarations.class_table:
             if direct_callee or qualification_receiver:
                 return
             self._error(
@@ -42,7 +42,7 @@ class IdentifierContractsMixin:
                 expression.col,
             )
             return
-        if name in self.enum_table or name in self.rich_enum_table:
+        if name in self.declarations.enum_table or name in self.declarations.rich_enum_table:
             if direct_callee or qualification_receiver:
                 return
             self._error(
@@ -51,7 +51,7 @@ class IdentifierContractsMixin:
                 expression.col,
             )
             return
-        owners = self._enum_member_owners.get(name, set())
+        owners = self.declarations.enum_member_owners.get(name, set())
         if len(owners) == 1:
             return
         if len(owners) > 1:
@@ -62,7 +62,7 @@ class IdentifierContractsMixin:
                 expression.col,
             )
             return
-        if name in self._source_macro_names or name in _KNOWN_C_GLOBALS:
+        if name in self.declarations.source_macro_names or name in _KNOWN_C_GLOBALS:
             return
         if validate_constructor_default_member(
             self,

@@ -9,7 +9,7 @@ importantly that the output is strict C11 with no compiler-specific extensions
 
 import re
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
@@ -25,7 +25,7 @@ def emit_c(source: str) -> str:
     """
     tokens = Lexer(source, "<test>").tokenize()
     program = Parser(tokens).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, f"analyzer errors: {analyzed.errors}"
     ir_module = IRGenerator(analyzed).generate()
     ir_module = optimize(ir_module)

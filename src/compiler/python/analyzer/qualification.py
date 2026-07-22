@@ -42,7 +42,7 @@ class QualificationMixin:
         if target is None or value is None:
             return True
         required = {depth for depth in self._expression_volatile_depths(value) if depth > 0}
-        available = volatile_qualifier_depths(target, self.typedef_table)
+        available = volatile_qualifier_depths(target, self.declarations.typedef_table)
         missing = sorted(required - set(available))
         if not missing:
             return True
@@ -63,18 +63,18 @@ class QualificationMixin:
             declared = symbol.type if symbol is not None else None
             return volatile_qualifier_depths(
                 declared or self._infer_type(expression),
-                self.typedef_table,
+                self.declarations.typedef_table,
             )
         if isinstance(expression, FieldAccessExpr):
             return volatile_qualifier_depths(
                 self._declared_projection_type(expression),
-                self.typedef_table,
+                self.declarations.typedef_table,
             )
         if isinstance(expression, IndexExpr):
             if not self._raw_index_removes_storage_layer(expression):
                 return volatile_qualifier_depths(
                     self._infer_index_type(expression),
-                    self.typedef_table,
+                    self.declarations.typedef_table,
                 )
             return self._remove_volatile_storage_layer(self._expression_volatile_depths(expression.obj))
         if isinstance(expression, UnaryExpr):
@@ -86,7 +86,7 @@ class QualificationMixin:
             if overloaded is not None:
                 return volatile_qualifier_depths(
                     overloaded,
-                    self.typedef_table,
+                    self.declarations.typedef_table,
                 )
             depths = self._expression_volatile_depths(expression.operand)
             if expression.op == "&":
@@ -99,7 +99,7 @@ class QualificationMixin:
         if isinstance(expression, CastExpr):
             return volatile_qualifier_depths(
                 expression.target_type,
-                self.typedef_table,
+                self.declarations.typedef_table,
             )
         if isinstance(expression, TernaryExpr):
             return self._expression_volatile_depths(expression.true_expr) | self._expression_volatile_depths(
@@ -115,7 +115,7 @@ class QualificationMixin:
             if overloaded is not None:
                 return volatile_qualifier_depths(
                     overloaded,
-                    self.typedef_table,
+                    self.declarations.typedef_table,
                 )
             if expression.op == "??":
                 return self._expression_volatile_depths(expression.left) | self._expression_volatile_depths(
@@ -124,18 +124,18 @@ class QualificationMixin:
             if expression.op in {"+", "-"}:
                 return volatile_qualifier_depths(
                     self._infer_type(expression),
-                    self.typedef_table,
+                    self.declarations.typedef_table,
                 )
             return frozenset()
         if isinstance(expression, CallExpr):
             declared = self._declared_call_result_type(expression)
             return volatile_qualifier_depths(
                 declared or self._infer_type(expression),
-                self.typedef_table,
+                self.declarations.typedef_table,
             )
         return volatile_qualifier_depths(
             self._infer_type(expression),
-            self.typedef_table,
+            self.declarations.typedef_table,
         )
 
     def _raw_index_removes_storage_layer(self, expression) -> bool:
@@ -148,7 +148,7 @@ class QualificationMixin:
             return False
         return bool(
             object_type.base in self._active_storage_type_parameters()
-            or object_type.base not in self.class_table
+            or object_type.base not in self.declarations.class_table
             or object_type.pointer_depth > 1
         )
 
@@ -164,7 +164,7 @@ class QualificationMixin:
             if symbol is not None and symbol.kind != "function":
                 signature = self._function_pointer_signature(symbol.type)
                 return signature[0] if signature else None
-            declaration = self.function_table.get(callee.name)
+            declaration = self.declarations.function_table.get(callee.name)
             return declaration.return_type if declaration is not None else self._infer_type(expression)
         if not isinstance(callee, FieldAccessExpr):
             return self._infer_type(expression)
@@ -172,7 +172,7 @@ class QualificationMixin:
         if signature is not None:
             return signature[0]
         receiver = self._infer_type(callee.obj)
-        info = self.class_table.get(receiver.base) if receiver else None
+        info = self.declarations.class_table.get(receiver.base) if receiver else None
         method = info.methods.get(callee.field) if info else None
         if method is None:
             return self._infer_type(expression)

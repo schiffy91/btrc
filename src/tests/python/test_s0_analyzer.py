@@ -8,7 +8,7 @@ linear-time, recursion-safe analysis of long binary chains (S0-14).
 
 import time
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.gen.generator import generate_ir
 from src.compiler.python.ir.nodes import IRInclude
 from src.compiler.python.lexer import Lexer
@@ -21,7 +21,7 @@ def parse(source: str):
 
 def analyze(source: str):
     program = parse(source)
-    analyzer = Analyzer()
+    analyzer = SemanticAnalyzer()
     analyzer.analyze(program)
     return analyzer, program
 
@@ -181,7 +181,7 @@ class TestLambdaCaptureTryCatch:
 class TestSetjmpInclude:
     def _includes_for(self, src):
         program = parse(src)
-        analyzed = Analyzer().analyze(program)
+        analyzed = SemanticAnalyzer().analyze(program)
         return [
             declaration.header
             for declaration in generate_ir(analyzed).preprocessor_decls
@@ -291,7 +291,7 @@ class TestLongBinaryChains:
     def test_2000_terms_under_one_second(self):
         program = parse(self._chain(2000))
         start = time.time()
-        Analyzer().analyze(program)
+        SemanticAnalyzer().analyze(program)
         assert time.time() - start < 1.0
 
     def test_node_types_still_recorded(self):

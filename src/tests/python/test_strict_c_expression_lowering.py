@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import IntLiteral
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.gen.generics.user_emitter import _UserGenericEmitter
@@ -24,7 +24,7 @@ CLANG = shutil.which("clang")
 
 def _generate(source: str):
     program = Parser(Lexer(source, "<strict-c-expression>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
     return IRGenerator(analyzed).generate()
 

@@ -1,6 +1,6 @@
 """Path-sensitive nullable-access diagnostics."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -15,7 +15,7 @@ class Box {
 
 def _nullable_warnings(body: str) -> list[str]:
     program = Parser(Lexer(PRELUDE + body, "<nullable-flow>").tokenize()).parse()
-    result = Analyzer().analyze(program)
+    result = SemanticAnalyzer().analyze(program)
     assert result.errors == []
     return [warning for warning in result.warnings if "Non-optional access" in warning]
 

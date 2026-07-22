@@ -31,7 +31,7 @@ class StorageContractsMixin:
             and canonical is not None
             and (
                 canonical.base == "string"
-                or canonical.base in self.class_table
+                or canonical.base in self.declarations.class_table
                 or canonical.base in self._active_storage_type_parameters()
             )
         ):
@@ -142,7 +142,7 @@ class StorageContractsMixin:
         symbol = self.scope.lookup(name)
         if symbol is not None and symbol.kind != "function":
             return False
-        function = self.function_table.get(name)
+        function = self.declarations.function_table.get(name)
         return bool(function and function.is_gpu and function.return_type.is_array)
 
     def _validate_array_bound(self, type_expr, subject, context) -> None:

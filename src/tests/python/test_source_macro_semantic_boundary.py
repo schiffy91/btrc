@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.source_macro_queries import source_macro_expands_to_any
@@ -13,7 +13,7 @@ from src.compiler.python.source_macros import source_symbol_directive
 
 def _errors(source: str) -> list[str]:
     program = Parser(Lexer(source, "<source-macro-boundary>").tokenize()).parse()
-    return Analyzer().analyze(program).errors
+    return SemanticAnalyzer().analyze(program).errors
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,7 @@
 formatting, the subclass/interface chain walk, and assignment compatibility.
 Driven directly on an analyzer whose tables are populated by analyze()."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -17,7 +17,7 @@ int main() { return 0; }
 
 
 def _analyzer():
-    a = Analyzer()
+    a = SemanticAnalyzer()
     a.analyze(Parser(Lexer(_SRC, "<t>").tokenize()).parse())
     return a
 

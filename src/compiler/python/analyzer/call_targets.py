@@ -51,23 +51,23 @@ class CallTargetContractsMixin:
                 identifier.col,
             )
             return
-        if name in self.function_table or name in self.class_table:
+        if name in self.declarations.function_table or name in self.declarations.class_table:
             return
         if symbol is not None:
             return
-        if name in self.enum_table or name in self.rich_enum_table:
+        if name in self.declarations.enum_table or name in self.declarations.rich_enum_table:
             self._error(f"Type '{name}' is not directly callable", identifier.line, identifier.col)
             return
-        if name in self._enum_member_owners:
+        if name in self.declarations.enum_member_owners:
             self._error(f"Enum member '{name}' is not callable", identifier.line, identifier.col)
 
     def _known_field_callable(self, callee) -> bool:
         if isinstance(callee.obj, Identifier):
             owner = callee.obj.name
-            rich = self.rich_enum_table.get(owner)
+            rich = self.declarations.rich_enum_table.get(owner)
             if rich and any(variant.name == callee.field for variant in rich.variants):
                 return True
-            cls = self.class_table.get(owner)
+            cls = self.declarations.class_table.get(owner)
             if cls:
                 method = cls.methods.get(callee.field)
                 if method is not None:
@@ -77,7 +77,7 @@ class CallTargetContractsMixin:
         receiver = self._infer_type(callee.obj)
         if (
             receiver
-            and receiver.base not in self.class_table
+            and receiver.base not in self.declarations.class_table
             and receiver.base in {"Array", "List", "Map", "Set", "Vector"}
         ):
             # Collection types are recognized before the stdlib declarations
@@ -85,8 +85,8 @@ class CallTargetContractsMixin:
             # method remains callable in that structural view.
             if callee.field == "size":
                 return True
-        if receiver and receiver.base in self.class_table:
-            cls = self.class_table[receiver.base]
+        if receiver and receiver.base in self.declarations.class_table:
+            cls = self.declarations.class_table[receiver.base]
             if callee.field in cls.methods:
                 return True
             field = cls.fields.get(callee.field)
@@ -97,14 +97,14 @@ class CallTargetContractsMixin:
 
     def _abstract_method_owner(self, callee) -> str | None:
         receiver = self._infer_type(callee.obj)
-        if receiver is not None and receiver.base in self.class_table:
-            cls = self.class_table[receiver.base]
+        if receiver is not None and receiver.base in self.declarations.class_table:
+            cls = self.declarations.class_table[receiver.base]
         elif (
             isinstance(callee.obj, Identifier)
             and self.scope.lookup(callee.obj.name) is None
-            and callee.obj.name in self.class_table
+            and callee.obj.name in self.declarations.class_table
         ):
-            cls = self.class_table[callee.obj.name]
+            cls = self.declarations.class_table[callee.obj.name]
         else:
             return None
         method = cls.methods.get(callee.field)

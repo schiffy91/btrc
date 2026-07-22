@@ -1,13 +1,13 @@
 """Declaration initializers, defaults, generic arity, and construction rules."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _errors(source: str) -> list[str]:
     program = Parser(Lexer(source, "<declaration-contracts>").tokenize()).parse()
-    return Analyzer().analyze(program).errors
+    return SemanticAnalyzer().analyze(program).errors
 
 
 def _has(errors: list[str], text: str) -> bool:

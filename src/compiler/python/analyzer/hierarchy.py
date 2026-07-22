@@ -36,10 +36,10 @@ class HierarchyValidationMixin:
         for decl in self._decls_with_file(program):
             if not isinstance(decl, ClassDecl) or not decl.parent:
                 continue
-            if decl.parent not in self.class_table:
+            if decl.parent not in self.declarations.class_table:
                 self._error(f"Parent class '{decl.parent}' not found", decl.line, decl.col)
                 continue
-            parent_info = self.class_table[decl.parent]
+            parent_info = self.declarations.class_table[decl.parent]
             if decl.generic_params or parent_info.generic_params:
                 self._error(
                     f"Generic class inheritance is not supported: class '{decl.name}' extends '{decl.parent}'",
@@ -49,7 +49,7 @@ class HierarchyValidationMixin:
                 continue
             seen = {decl.name}
             parent = decl.parent
-            while parent and parent in self.class_table:
+            while parent and parent in self.declarations.class_table:
                 if parent in seen:
                     self._error(
                         f"Circular inheritance detected: '{decl.name}' -> '{parent}'",
@@ -58,7 +58,7 @@ class HierarchyValidationMixin:
                     )
                     break
                 seen.add(parent)
-                parent = self.class_table[parent].parent
+                parent = self.declarations.class_table[parent].parent
 
     def _validate_interfaces(self, program):
         """Validate interface implementations and abstract constraints."""
@@ -66,7 +66,7 @@ class HierarchyValidationMixin:
         for decl in self._decls_with_file(program):
             if not isinstance(decl, ClassDecl):
                 continue
-            cls = self.class_table.get(decl.name)
+            cls = self.declarations.class_table.get(decl.name)
             if not cls:
                 continue
             for interface_name in cls.interfaces:
@@ -78,7 +78,7 @@ class HierarchyValidationMixin:
         for declaration in self._decls_with_file(program):
             if not isinstance(declaration, InterfaceDecl) or not declaration.parent:
                 continue
-            parent = self.interface_table.get(declaration.parent)
+            parent = self.declarations.interface_table.get(declaration.parent)
             if parent is None:
                 continue
             for method in declaration.methods:
@@ -92,10 +92,10 @@ class HierarchyValidationMixin:
                     )
 
     def _validate_interface(self, decl, cls, interface_name):
-        if interface_name not in self.interface_table:
+        if interface_name not in self.declarations.interface_table:
             self._error(f"Interface '{interface_name}' not found", decl.line, decl.col)
             return
-        interface = self.interface_table[interface_name]
+        interface = self.declarations.interface_table[interface_name]
         substitutions = {
             parameter: TypeExpr(base=cls.generic_params[index])
             for index, parameter in enumerate(interface.generic_params)
@@ -118,9 +118,9 @@ class HierarchyValidationMixin:
             )
 
     def _validate_abstract_parent(self, decl, cls):
-        if not cls.parent or cls.parent not in self.class_table or cls.is_abstract:
+        if not cls.parent or cls.parent not in self.declarations.class_table or cls.is_abstract:
             return
-        parent = self.class_table[cls.parent]
+        parent = self.declarations.class_table[cls.parent]
         if not parent.is_abstract:
             return
         own_methods = {member.name for member in decl.members if isinstance(member, MethodDecl)}
@@ -137,7 +137,7 @@ class HierarchyValidationMixin:
         for decl in self._decls_with_file(program):
             if not isinstance(decl, ClassDecl) or not decl.parent:
                 continue
-            parent = self.class_table.get(decl.parent)
+            parent = self.declarations.class_table.get(decl.parent)
             if not parent:
                 continue
             for member in decl.members:

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from ..ast_nodes import FunctionDecl, MethodDecl, Program, RichEnumDecl, StructDecl, TypeExpr
+from ..ast_nodes import MethodDecl, Program, RichEnumDecl, TypeExpr
 from .core_models import (
     AnalyzedProgram,
     ClassInfo,
     Diag,
-    InterfaceInfo,
     Occurrence,
     Scope,
     SymbolInfo,
@@ -19,10 +18,6 @@ from .core_models import (
 
 class AnalyzerBase:
     def __init__(self):
-        self.class_table: dict[str, ClassInfo] = {}
-        self.function_table: dict[str, FunctionDecl] = {}
-        self.typedef_table: dict[str, TypeExpr] = {}
-        self.struct_table: dict[str, StructDecl] = {}
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = {}
         self.generic_method_call_args: dict[int, tuple] = {}
@@ -59,9 +54,6 @@ class AnalyzerBase:
         # rebind those locals indirectly, so nullable refinements for them are
         # not stable across calls.
         self._address_escaped_symbol_ids: set[int] = set()
-        self.enum_table: dict[str, list[str]] = {}
-        self.interface_table: dict[str, InterfaceInfo] = {}
-        self.rich_enum_table: dict[str, RichEnumDecl] = {}
         # Rich-enum payloads are shallow borrowed references. Classify their
         # defaults once in declaration scope so caller shadowing cannot change
         # whether an omitted default would create an unrepresentable owner.
@@ -84,13 +76,13 @@ class AnalyzerBase:
         self._hosted_call_ids = set()
         self.array_iteration_capacity_ids = set()
         self.rich_enum_unsafe_default_ids = set()
-        self._register_declarations(program)
+        self.declarations.register(program)
         # Registered types are a shared inference context. Normalize all of
         # them before any declaration body is analyzed so generic dispatch is
         # independent of source/import order.
         self._normalize_registered_types(program)
         self._validate_registered_declarations(program)
-        self._resolve_interface_parents(program)
+        self.declarations.resolve_interface_parents(program)
         self._validate_inheritance(program)
         self._validate_interfaces(program)
         self._validate_overrides(program)
@@ -110,22 +102,22 @@ class AnalyzerBase:
         return AnalyzedProgram(
             program=program,
             generic_instances=self.generic_instances,
-            class_table=self.class_table,
+            class_table=self.declarations.class_table,
             generic_method_instances=self.generic_method_instances,
             generic_method_call_args=self.generic_method_call_args,
-            function_table=self.function_table,
+            function_table=self.declarations.function_table,
             global_var_types={
                 name: declaration.type
-                for name, declaration in self._global_declarations.items()
+                for name, declaration in self.declarations.global_declarations.items()
                 if declaration.type is not None
             },
             hosted_call_ids=self._hosted_call_ids,
-            typedef_table=self.typedef_table,
-            struct_table=self.struct_table,
+            typedef_table=self.declarations.typedef_table,
+            struct_table=self.declarations.struct_table,
             node_types=self.node_types,
-            enum_table=self.enum_table,
-            interface_table=self.interface_table,
-            rich_enum_table=self.rich_enum_table,
+            enum_table=self.declarations.enum_table,
+            interface_table=self.declarations.interface_table,
+            rich_enum_table=self.declarations.rich_enum_table,
             rich_enum_unsafe_default_ids=set(self.rich_enum_unsafe_default_ids),
             array_iteration_capacity_ids=set(self.array_iteration_capacity_ids),
             errors=self.errors,

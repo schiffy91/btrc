@@ -13,7 +13,7 @@ from src.compiler.python import Compiler
 from src.compiler.python import frontend_imports as frontend_imports
 from src.compiler.python import frontend_stdlib as frontend_stdlib
 from src.compiler.python import stdlib_ast_cache as ast_cache
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.cli.compiler_cli import CompilerCLI
 from src.compiler.python.cli_diagnostics import format_error
 from src.compiler.python.frontend.resolver import SourceResolver
@@ -253,14 +253,14 @@ def test_analyzer_error_fallback_format(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "af.btrc", BARE)
 
-    real = Analyzer.analyze
+    real = SemanticAnalyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
         result.errors.append("a bare error with no location")
         return result
 
-    monkeypatch.setattr(Analyzer, "analyze", fake)
+    monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
     with pytest.raises(SystemExit):
         run_main(monkeypatch, [src, "--no-cache"])
     assert "a bare error with no location" in capsys.readouterr().err
@@ -270,14 +270,14 @@ def test_analyzer_error_bad_location(tmp_path, monkeypatch, capsys):
     """A ' at x:y' suffix with non-integer coords falls through to plain print."""
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "ab.btrc", BARE)
-    real = Analyzer.analyze
+    real = SemanticAnalyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
         result.errors.append("bad loc at foo:bar")
         return result
 
-    monkeypatch.setattr(Analyzer, "analyze", fake)
+    monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
     with pytest.raises(SystemExit):
         run_main(monkeypatch, [src, "--no-cache"])
     assert "bad loc" in capsys.readouterr().err
@@ -287,7 +287,7 @@ def test_analyzer_warning(tmp_path, monkeypatch, capsys):
     """Warnings are printed (with and without location) but do not abort."""
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "w.btrc", HELLO)
-    real = Analyzer.analyze
+    real = SemanticAnalyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
@@ -296,7 +296,7 @@ def test_analyzer_warning(tmp_path, monkeypatch, capsys):
         result.warnings.append("bad warning at x:y")
         return result
 
-    monkeypatch.setattr(Analyzer, "analyze", fake)
+    monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
     run_main(monkeypatch, [src, "--no-cache", "-o", str(tmp_path / "w.c")])
     err = capsys.readouterr().err
     assert "warning:" in err

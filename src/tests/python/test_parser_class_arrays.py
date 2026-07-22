@@ -1,6 +1,6 @@
 """Class members preserve explicit declarator-array storage."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import ClassDecl, FieldDecl, IntLiteral
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -36,7 +36,7 @@ def test_fixed_array_property_is_rejected_before_codegen():
         ).tokenize()
     ).parse()
 
-    errors = Analyzer().analyze(program).errors
+    errors = SemanticAnalyzer().analyze(program).errors
 
     assert any("Property 'Buffer.values' cannot use fixed-size array storage" in error for error in errors)
 
@@ -49,6 +49,6 @@ def test_fixed_array_field_with_managed_elements_is_rejected():
         ).tokenize()
     ).parse()
 
-    errors = Analyzer().analyze(program).errors
+    errors = SemanticAnalyzer().analyze(program).errors
 
     assert any("Field 'Buffer.values' cannot contain managed elements" in error for error in errors)

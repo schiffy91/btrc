@@ -65,10 +65,10 @@ class OpaqueBorrowEffectsMixin(
         owners = getattr(self, "_raw_borrow_owner_cache", None)
         if owners is None:
             owners = self._raw_borrow_owner_cache = {}
-            for info in self.class_table.values():
+            for info in self.declarations.class_table.values():
                 for name, method in info.methods.items():
                     declaring_name = info.method_owners.get(name, info.name)
-                    declaring_info = self.class_table.get(declaring_name, info)
+                    declaring_info = self.declarations.class_table.get(declaring_name, info)
                     owners[id(method)] = declaring_info
                 if info.constructor is not None:
                     owners[id(info.constructor)] = info

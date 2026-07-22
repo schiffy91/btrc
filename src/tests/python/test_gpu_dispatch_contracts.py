@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.lexer import Lexer
@@ -20,12 +20,12 @@ from src.tests.python.test_gpu_dispatch_failures import (
 
 def _analyzer_errors(source: str) -> list[str]:
     program = Parser(Lexer(source, "<gpu-capacity>").tokenize()).parse()
-    return Analyzer().analyze(program).errors
+    return SemanticAnalyzer().analyze(program).errors
 
 
 def _analyzed_despite_errors(source: str):
     program = Parser(Lexer(source, "<gpu-capacity>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
@@ -147,7 +147,7 @@ def test_hosted_macro_named_real_array_is_rejected_before_capacity_lowering() ->
         "int main() { int[] stdin = {1}; update(stdin); return 0; }"
     )
     program = Parser(Lexer(source, "<gpu-capacity>").tokenize()).parse()
-    errors = Analyzer().analyze(program).errors
+    errors = SemanticAnalyzer().analyze(program).errors
     assert any("stdin" in error and "automatically included C macro" in error for error in errors)
 
 

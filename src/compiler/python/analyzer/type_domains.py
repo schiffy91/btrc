@@ -45,8 +45,8 @@ class TypeDomainContractsMixin(
         type_col = type_expr.col or col
         self._validate_storage_qualifiers(type_expr, subject, role, type_line, type_col)
         if role == "return" and (
-            effective_outer_const(type_expr, self.typedef_table)
-            or effective_outer_volatile(type_expr, self.typedef_table)
+            effective_outer_const(type_expr, self.declarations.typedef_table)
+            or effective_outer_volatile(type_expr, self.declarations.typedef_table)
         ):
             self._error(
                 f"{subject} cannot carry an outer const/volatile qualifier; C discards qualifiers on returned values",
@@ -57,9 +57,9 @@ class TypeDomainContractsMixin(
             type_expr,
             type_expr.base in set(active_type_params),
         )
-        if type_expr.is_array and type_expr.base in self.typedef_table:
+        if type_expr.is_array and type_expr.base in self.declarations.typedef_table:
             alias_target = self._canonical_type(
-                self.typedef_table[type_expr.base],
+                self.declarations.typedef_table[type_expr.base],
             )
             if alias_target is not None and alias_target.is_array:
                 self._report_type_shape_error(
@@ -68,7 +68,7 @@ class TypeDomainContractsMixin(
                     type_line,
                     type_col,
                 )
-        if type_expr.base in self.interface_table and type_expr.base not in set(active_type_params):
+        if type_expr.base in self.declarations.interface_table and type_expr.base not in set(active_type_params):
             self._report_type_shape_error(
                 f"Interface type '{type_expr.base}' cannot be used as a runtime "
                 "value; use an implementing concrete class",
@@ -90,7 +90,7 @@ class TypeDomainContractsMixin(
         if (
             canonical
             and canonical.base not in {"Mutex", "Thread", "__fn_ptr"}
-            and canonical.base not in self.class_table
+            and canonical.base not in self.declarations.class_table
             and self._contains_mutex_storage(canonical)
         ):
             self._error(
@@ -191,13 +191,13 @@ class TypeDomainContractsMixin(
             return True
         if base in _RUNTIME_TYPE_BASES:
             return True
-        if base in self.class_table or base in self.interface_table:
+        if base in self.declarations.class_table or base in self.declarations.interface_table:
             return True
-        if base in self.enum_table or base in self.rich_enum_table:
+        if base in self.declarations.enum_table or base in self.declarations.rich_enum_table:
             return True
-        if base in self.struct_table or base in self.typedef_table:
+        if base in self.declarations.struct_table or base in self.declarations.typedef_table:
             return True
-        if base in getattr(self, "declared_type_names", ()):
+        if base in self.declarations.declared_type_names:
             return True
         if base.endswith("_t") or is_known_integer_typedef_name(base):
             return True

@@ -1,14 +1,14 @@
-"""Analyzer coverage: super-usage validation, constant division-by-zero, sizeof
+"""SemanticAnalyzer coverage: super-usage validation, constant division-by-zero, sizeof
 operands, interface/inheritance subtype checks, and generic type formatting in
 diagnostics. Each asserts the concrete diagnostic or the absence of one."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _analyze(src):
-    return Analyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
+    return SemanticAnalyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
 
 
 def errors(src):

@@ -91,7 +91,7 @@ class DeclarationNamesMixin:
         """Reject spellings that cannot safely become user-owned C names."""
         if not name:
             return True
-        if name in getattr(self, "_source_macro_names", ()):
+        if name in self.declarations.source_macro_names:
             self._error(
                 f"{subject} name '{name}' collides with source macro '{name}'",
                 line,

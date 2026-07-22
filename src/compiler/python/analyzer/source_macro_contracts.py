@@ -27,7 +27,7 @@ class SourceMacroContractsMixin:
     def _validate_source_macro_call(self, call) -> bool:
         if not isinstance(call.callee, Identifier):
             return False
-        directive = getattr(self, "_source_macro_definitions", {}).get(
+        directive = self.declarations.source_macro_definitions.get(
             call.callee.name,
         )
         if directive is None or not directive.function_like:
@@ -95,19 +95,19 @@ class SourceMacroContractsMixin:
                 symbol = self.scope.lookup(node.name)
                 if symbol is not None and self._function_pointer_signature(symbol.type) is not None:
                     return True
-                if symbol is None and node.name in self.function_table:
+                if symbol is None and node.name in self.declarations.function_table:
                     return True
             if isinstance(node, FieldAccessExpr) and _field_is_language_method(self, node):
                 return True
         return False
 
     def _validate_source_macro_captures(self, directive, call) -> None:
-        definitions = getattr(self, "_source_macro_definitions", {})
+        definitions = self.declarations.source_macro_definitions
         for name in _macro_free_identifiers(directive, definitions):
             symbol = self.scope.lookup(name)
             type_expr = symbol.type if symbol is not None else None
             if type_expr is None:
-                declaration = getattr(self, "_global_declarations", {}).get(name)
+                declaration = self.declarations.global_declarations.get(name)
                 type_expr = getattr(declaration, "type", None)
             callable_value = self._function_pointer_signature(type_expr) is not None
             if not callable_value and not _macro_type_requires_boundary(
@@ -131,14 +131,14 @@ def validate_macro_replacement_language_symbol(
     declaration,
 ) -> None:
     """Reject source-language symbols whose C expansion is not transparent."""
-    if symbol in analyzer.class_table or symbol in analyzer.interface_table:
+    if symbol in analyzer.declarations.class_table or symbol in analyzer.declarations.interface_table:
         analyzer._error(
             f"Language type '{symbol}' cannot be referenced from macro replacement '{directive.name}'",
             declaration.line,
             declaration.col,
         )
         return
-    function = analyzer.function_table.get(symbol)
+    function = analyzer.declarations.function_table.get(symbol)
     if function is not None and function.body is not None:
         bare_alias = source_macro_unwrapped_identifier(directive.replacement) == symbol
         sensitive = any(
@@ -168,7 +168,7 @@ def validate_macro_replacement_language_symbol(
             declaration.col,
         )
         return
-    global_decl = getattr(analyzer, "_global_declarations", {}).get(symbol)
+    global_decl = analyzer.declarations.global_declarations.get(symbol)
     if global_decl is not None and _macro_type_requires_boundary(analyzer, global_decl.type):
         analyzer._error(
             f"Managed source value '{symbol}' cannot be referenced from macro replacement '{directive.name}'",
@@ -214,17 +214,17 @@ def _macro_type_requires_boundary(analyzer, type_expr, type_params=frozenset(), 
     seen = seen | {key}
     if canonical.base in type_params or canonical.base in _MANAGED_MACRO_BASES:
         return True
-    if canonical.base in analyzer.class_table or canonical.base in analyzer.interface_table:
+    if canonical.base in analyzer.declarations.class_table or canonical.base in analyzer.declarations.interface_table:
         return True
     if analyzer._function_pointer_signature(canonical) is not None:
         return True
     if any(_macro_type_requires_boundary(analyzer, item, type_params, seen) for item in canonical.generic_args):
         return True
     name = canonical.base.removeprefix("struct ")
-    structure = analyzer.struct_table.get(name)
+    structure = analyzer.declarations.struct_table.get(name)
     if structure is not None and not structure.is_forward:
         return any(_macro_type_requires_boundary(analyzer, field.type, type_params, seen) for field in structure.fields)
-    rich_enum = analyzer.rich_enum_table.get(name)
+    rich_enum = analyzer.declarations.rich_enum_table.get(name)
     return bool(
         rich_enum
         and any(
@@ -236,18 +236,18 @@ def _macro_type_requires_boundary(analyzer, type_expr, type_params=frozenset(), 
 
 
 def _language_method_named(analyzer, name: str) -> bool:
-    return any(name in info.methods for info in analyzer.class_table.values()) or any(
-        name in info.methods for info in analyzer.interface_table.values()
+    return any(name in info.methods for info in analyzer.declarations.class_table.values()) or any(
+        name in info.methods for info in analyzer.declarations.interface_table.values()
     )
 
 
 def _field_is_language_method(analyzer, expression) -> bool:
     if isinstance(expression.obj, Identifier) and analyzer.scope.lookup(expression.obj.name) is None:
-        info = analyzer.class_table.get(expression.obj.name)
+        info = analyzer.declarations.class_table.get(expression.obj.name)
         if info is not None and expression.field in info.methods:
             return True
     receiver = analyzer._canonical_type(analyzer._infer_type(expression.obj))
-    info = analyzer.class_table.get(receiver.base) if receiver is not None else None
+    info = analyzer.declarations.class_table.get(receiver.base) if receiver is not None else None
     return bool(info is not None and expression.field in info.methods)
 
 

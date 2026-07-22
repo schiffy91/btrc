@@ -4,8 +4,8 @@ modes (default stdlib-AST cache and --no-cache combined-source parse)."""
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.analyzer.core import Diag
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.cli.compiler_cli import CompilerCLI
 
 MODES = pytest.mark.parametrize("mode", [[], ["--no-cache"]], ids=["default", "no-cache"])
@@ -65,7 +65,7 @@ def test_analyzer_error_identical_across_modes(tmp_path, monkeypatch, capsys, wo
 def test_message_containing_at_survives(tmp_path, monkeypatch, capsys, workdir):
     src = write(tmp_path / "at.btrc", "int main() { return 0; }\n")
     msg = "variable shadows a parameter declared at 3:1"
-    real = Analyzer.analyze
+    real = SemanticAnalyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
@@ -73,7 +73,7 @@ def test_message_containing_at_survives(tmp_path, monkeypatch, capsys, workdir):
         result.diags.append(Diag(msg, 1, 5, "error", None))
         return result
 
-    monkeypatch.setattr(Analyzer, "analyze", fake)
+    monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
     err = compile_err(monkeypatch, capsys, workdir, [src])
     assert msg in err  # full message intact, " at 3:1" tail not stripped
     assert f"--> {src}:1:5" in err  # position comes from the Diag, not the text
@@ -81,7 +81,7 @@ def test_message_containing_at_survives(tmp_path, monkeypatch, capsys, workdir):
 
 def test_warning_diag_native_position(tmp_path, monkeypatch, capsys, workdir):
     src = write(tmp_path / "w.btrc", 'int main() { print("OK"); return 0; }\n')
-    real = Analyzer.analyze
+    real = SemanticAnalyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
@@ -89,7 +89,7 @@ def test_warning_diag_native_position(tmp_path, monkeypatch, capsys, workdir):
         result.diags.append(Diag("suspicious cast", 1, 14, "warning", None))
         return result
 
-    monkeypatch.setattr(Analyzer, "analyze", fake)
+    monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
     monkeypatch.chdir(workdir)
     # Default (split-space) mode: injected diag lines are user-source native.
     CompilerCLI().run([src, "-o", "/dev/null"])  # warnings do not abort

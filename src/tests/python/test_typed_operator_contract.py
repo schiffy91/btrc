@@ -6,7 +6,7 @@ import shutil
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.generator import IRGenerator
@@ -174,7 +174,7 @@ int main() {
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<typed-operators>").tokenize()).parse()
-    return program, Analyzer().analyze(program)
+    return program, SemanticAnalyzer().analyze(program)
 
 
 def test_scalar_string_shape_excludes_arrays_and_extra_pointers():

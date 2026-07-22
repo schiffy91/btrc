@@ -52,7 +52,7 @@ def claim_destructor_hook(analyzer, emitted_name, owner, info, site, claims) -> 
 def claim_generic_method_symbols(analyzer, claims) -> None:
     """Claim every concrete generic-method function selected by analysis."""
     for (class_name, method_name), instances in analyzer.generic_method_instances.items():
-        info = analyzer.class_table.get(class_name)
+        info = analyzer.declarations.class_table.get(class_name)
         method = info.methods.get(method_name) if info is not None else None
         if method is None:
             continue

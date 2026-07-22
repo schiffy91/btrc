@@ -61,7 +61,7 @@ class LvalueContractsMixin:
         if self._is_property_projection(expression) or self._is_computed_field_projection(expression):
             return False
         if isinstance(expression.obj, Identifier):
-            class_info = self.class_table.get(expression.obj.name)
+            class_info = self.declarations.class_table.get(expression.obj.name)
             if class_info is not None and expression.field in class_info.static_fields:
                 return True
         receiver_type = self._canonical_type(self._infer_type(expression.obj))
@@ -76,7 +76,7 @@ class LvalueContractsMixin:
         operand = expression.operand
         name = getattr(operand, "name", None)
         valid = (
-            self._is_lifetime_stable_storage(operand) or name in self.function_table or is_source_runtime_helper(name)
+            self._is_lifetime_stable_storage(operand) or name in self.declarations.function_table or is_source_runtime_helper(name)
         )
         if valid:
             return
@@ -93,7 +93,7 @@ class LvalueContractsMixin:
         managed_result = bool(
             result_type
             and (
-                result_type.base in self.class_table
+                result_type.base in self.declarations.class_table
                 or result_type.base in self._MANAGED_COLLECTION_BASES
                 or result_type.base == "Mutex"
                 or is_semantic_scalar_string(result_type)
@@ -161,7 +161,7 @@ class LvalueContractsMixin:
 
     def _is_property_projection(self, expression: FieldAccessExpr) -> bool:
         receiver_type = self._canonical_type(self._infer_type(expression.obj))
-        class_info = self.class_table.get(receiver_type.base) if receiver_type else None
+        class_info = self.declarations.class_table.get(receiver_type.base) if receiver_type else None
         return bool(class_info is not None and expression.field in class_info.properties)
 
     def _is_computed_field_projection(self, expression: FieldAccessExpr) -> bool:
@@ -174,7 +174,7 @@ class LvalueContractsMixin:
             return False
         if receiver_type.is_array or receiver_type.base == "string" or self._is_raw_pointer_value(receiver_type):
             return False
-        return indexed_protocol_info(receiver_type, self.class_table) is not None
+        return indexed_protocol_info(receiver_type, self.declarations.class_table) is not None
 
     def _is_virtual_update_target(self, expression) -> bool:
         return (isinstance(expression, FieldAccessExpr) and self._is_property_projection(expression)) or (
@@ -189,7 +189,7 @@ class LvalueContractsMixin:
                 or type_expr.is_array
                 or type_expr.base == "string"
                 or type_expr.base == "Mutex"
-                or type_expr.base in self.class_table
+                or type_expr.base in self.declarations.class_table
             )
         )
 
@@ -197,15 +197,15 @@ class LvalueContractsMixin:
         symbol = self.scope.lookup(expression.name)
         if symbol is not None:
             return symbol.kind != "function"
-        if expression.name in self.function_table:
+        if expression.name in self.declarations.function_table:
             return False
-        if expression.name in self.class_table or expression.name in self.enum_table:
+        if expression.name in self.declarations.class_table or expression.name in self.declarations.enum_table:
             return False
-        if expression.name in self.rich_enum_table:
+        if expression.name in self.declarations.rich_enum_table:
             return False
         # Preserve unresolved C-interoperability identifiers; their storage
         # category is intentionally outside the source-language symbol table.
-        return not bool(self._enum_member_owners.get(expression.name))
+        return not bool(self.declarations.enum_member_owners.get(expression.name))
 
 
 __all__ = ["LvalueContractsMixin"]

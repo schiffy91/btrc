@@ -1,14 +1,14 @@
-"""Analyzer validation of @gpu kernels: the constrained subset of types a GPU
+"""SemanticAnalyzer validation of @gpu kernels: the constrained subset of types a GPU
 kernel may use. Each test asserts the specific diagnostic, not just that some
 error occurred."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def errors(src):
-    return Analyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse()).errors
+    return SemanticAnalyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse()).errors
 
 
 def _has(msgs, sub):

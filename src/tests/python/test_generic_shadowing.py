@@ -1,13 +1,13 @@
 """Lexical generic parameters must shadow same-named global declarations."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<generic-shadowing>").tokenize()).parse()
-    return program, Analyzer().analyze(program)
+    return program, SemanticAnalyzer().analyze(program)
 
 
 def test_global_one_letter_class_does_not_capture_template_parameter():

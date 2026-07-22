@@ -48,7 +48,7 @@ class OpaqueBorrowContractsMixin:
             result_type
             and result_type.pointer_depth == 0
             and not result_type.is_array
-            and struct_name in self.struct_table
+            and struct_name in self.declarations.struct_table
         )
         if isinstance(expression, (CallExpr, BraceInitializer)):
             return temporary_struct

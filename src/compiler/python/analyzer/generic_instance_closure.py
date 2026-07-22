@@ -81,7 +81,7 @@ def _pending_methods(analyzer, processed):
 
 
 def _scan_class_instance(analyzer, base, args, scan_plans) -> None:
-    cls = analyzer.class_table.get(base)
+    cls = analyzer.declarations.class_table.get(base)
     if cls is None or not cls.generic_params:
         return
     substitutions = dict(zip(cls.generic_params, args))
@@ -154,7 +154,7 @@ def _scan_method_instance(
     method_args,
     scan_plans,
 ) -> None:
-    cls = analyzer.class_table.get(owner)
+    cls = analyzer.declarations.class_table.get(owner)
     if cls is None:
         return
     method = cls.methods.get(name)

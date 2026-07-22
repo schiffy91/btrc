@@ -124,16 +124,16 @@ class ConstantExpressionMixin:
     def _constant_identifier(self, name, enum_owner, allowed):
         if enum_owner is not None:
             if name in allowed:
-                return True, self._enum_constant_values.get((enum_owner, name))
-            if name in self.enum_table.get(enum_owner, ()):
+                return True, self.declarations.enum_constant_values.get((enum_owner, name))
+            if name in self.declarations.enum_table.get(enum_owner, ()):
                 return False, None
             if self._is_constant_macro_name(name):
                 return True, None
             return False, None
-        owners = self._enum_member_owners.get(name, set())
+        owners = self.declarations.enum_member_owners.get(name, set())
         if len(owners) == 1:
             owner = next(iter(owners))
-            return True, self._enum_constant_values.get((owner, name))
+            return True, self.declarations.enum_constant_values.get((owner, name))
         if self._is_constant_macro_name(name):
             return True, None
         return False, None
@@ -142,21 +142,21 @@ class ConstantExpressionMixin:
         if not isinstance(expression.obj, Identifier):
             return False, None
         owner = expression.obj.name
-        values = self.enum_table.get(owner)
-        if values is None and owner in self.rich_enum_table:
+        values = self.declarations.enum_table.get(owner)
+        if values is None and owner in self.declarations.rich_enum_table:
             if enum_owner is not None:
                 return False, None
-            for index, variant in enumerate(self.rich_enum_table[owner].variants):
+            for index, variant in enumerate(self.declarations.rich_enum_table[owner].variants):
                 if expression.field == variant.name:
                     return True, index
         if values is None or expression.field not in values:
             return False, None
         if enum_owner is not None and (owner != enum_owner or expression.field not in allowed):
             return False, None
-        return True, self._enum_constant_values.get((owner, expression.field))
+        return True, self.declarations.enum_constant_values.get((owner, expression.field))
 
     def _is_constant_macro_name(self, name) -> bool:
-        return name in self._source_macro_names or (name.isupper() and name != "NULL")
+        return name in self.declarations.source_macro_names or (name.isupper() and name != "NULL")
 
     @staticmethod
     def _character_constant_value(raw):

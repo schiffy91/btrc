@@ -1,13 +1,13 @@
 """Const qualification and mutable-storage semantic boundaries."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _errors(source: str) -> list[str]:
     program = Parser(Lexer(source, "<qualifier-contracts>").tokenize()).parse()
-    return Analyzer().analyze(program).errors
+    return SemanticAnalyzer().analyze(program).errors
 
 
 def test_one_level_pointer_conversion_can_add_but_not_remove_const():

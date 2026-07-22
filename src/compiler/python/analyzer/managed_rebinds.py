@@ -20,7 +20,7 @@ class ManagedRebindContractsMixin:
         if (
             not isinstance(expression.target, Identifier)
             or target_type is None
-            or (target_type.base not in {"string", "Mutex"} and target_type.base not in self.class_table)
+            or (target_type.base not in {"string", "Mutex"} and target_type.base not in self.declarations.class_table)
         ):
             return False
         symbol = self.scope.lookup(expression.target.name)
@@ -119,7 +119,7 @@ class ManagedRebindContractsMixin:
 
         receiver_type = self._canonical_type(self._infer_type(expression.obj))
         if custom_property_getter(
-            self.class_table,
+            self.declarations.class_table,
             receiver_type,
             expression.field,
         ):

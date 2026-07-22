@@ -1,6 +1,6 @@
 """Structured-IR contracts for concrete runtime ARC metadata."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.arc_metadata import descriptor_symbol
 from src.compiler.python.ir.gen.cycle_metadata import (
@@ -17,14 +17,14 @@ from src.compiler.python.parser.parser import Parser
 
 def _generate(source: str):
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, analyzed.errors
     return IRGenerator(analyzed).generate()
 
 
 def _generator(source: str) -> IRGenerator:
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, analyzed.errors
     return IRGenerator(analyzed)
 

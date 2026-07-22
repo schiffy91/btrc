@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir import nodes as ir_nodes
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.errors import CodegenError
@@ -42,7 +42,7 @@ COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(nam
 
 def _generate(source: str, *, freestanding: bool = False):
     program = Parser(Lexer(source, "<ir-decls>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
     return IRGenerator(analyzed, freestanding=freestanding).generate()
 

@@ -106,7 +106,7 @@ def test_imported_units_are_cached_across_keystrokes(tmp_path):
 
 
 def test_seeded_analysis_matches_full_analysis(tmp_path):
-    from src.compiler.python.analyzer.analyzer import Analyzer
+    from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 
     main = tmp_path / "main.btrc"
     source = (
@@ -123,7 +123,7 @@ def test_seeded_analysis_matches_full_analysis(tmp_path):
     # The full-analysis baseline uses a fresh parse (the old pipeline's
     # behavior); analyzing the same AST objects twice is not supported.
     w2 = Workspace()
-    full = Analyzer().analyze(w2.compose(w2.parse_active(str(main), source)).program)
+    full = SemanticAnalyzer().analyze(w2.compose(w2.parse_active(str(main), source)).program)
     key = lambda d: (d.message, d.line, d.severity)  # noqa: E731
     seeded_diags = [key(d) for d in seeded.diags if d.file == str(main)]
     full_diags = [key(d) for d in full.diags if d.file == str(main)]

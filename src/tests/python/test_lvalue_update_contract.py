@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
@@ -176,7 +176,7 @@ int main() {
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<lvalue-update>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 @functools.lru_cache(maxsize=1)

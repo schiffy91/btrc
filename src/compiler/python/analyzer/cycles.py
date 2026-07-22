@@ -5,7 +5,7 @@ class CycleAnalysisMixin:
     def _runtime_managed_names(self, type_expr) -> set[str]:
         if type_expr is None or type_expr.is_array or type_expr.pointer_depth > 1:
             return set()
-        names = {name for name in self.class_table if self._is_subclass(name, type_expr.base)}
+        names = {name for name in self.declarations.class_table if self._is_subclass(name, type_expr.base)}
         for argument in type_expr.generic_args:
             names.update(self._runtime_managed_names(argument))
         return names
@@ -29,7 +29,7 @@ class CycleAnalysisMixin:
         """
         # Build adjacency: class → set of class types referenced in its fields
         refs: dict[str, set[str]] = {}
-        for name, ci in self.class_table.items():
+        for name, ci in self.declarations.class_table.items():
             field_types: set[str] = set()
             for _storage_name, fd in ci.instance_storage:
                 field_types.update(self._runtime_managed_names(fd.type))
@@ -49,6 +49,6 @@ class CycleAnalysisMixin:
                     continue
                 visited.add(cur)
                 if cur == name:
-                    self.class_table[name].is_cyclable = True
+                    self.declarations.class_table[name].is_cyclable = True
                     break
                 stack.extend(refs.get(cur, set()))

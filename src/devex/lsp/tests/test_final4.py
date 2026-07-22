@@ -57,17 +57,17 @@ def test_completion_stdlib_class_static_methods_offered():
 
 def test_unlocated_analyzer_error_becomes_diagnostic(monkeypatch):
     # an analyzer diag without a position (line/col 0) maps to a 1:1 diagnostic
-    from src.compiler.python.analyzer.analyzer import Analyzer
     from src.compiler.python.analyzer.core import Diag
+    from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 
-    real = Analyzer.analyze
+    real = SemanticAnalyzer.analyze
 
     def fake(self, program):
         res = real(self, program)
         res.diags.append(Diag("a problem with no position", 0, 0))
         return res
 
-    monkeypatch.setattr(Analyzer, "analyze", fake)
+    monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
     r = compute_diagnostics("file:///t.btrc", "int main() { return 0; }\n")
     assert any("no position" in d.message for d in r.diagnostics)
     bad = next(d for d in r.diagnostics if "no position" in d.message)

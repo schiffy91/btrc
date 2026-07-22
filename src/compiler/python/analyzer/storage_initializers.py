@@ -45,7 +45,7 @@ class StorageInitializerContractsMixin:
         if isinstance(expression, NullLiteral):
             return "address"
         if isinstance(expression, Identifier):
-            if expression.name in self.function_table:
+            if expression.name in self.declarations.function_table:
                 return "address"
             symbol = self.global_scope.symbols.get(expression.name)
             if symbol and symbol.type and symbol.type.is_array:
@@ -110,12 +110,12 @@ class StorageInitializerContractsMixin:
 
     def _is_static_address_operand(self, expression) -> bool:
         if isinstance(expression, Identifier):
-            return bool(expression.name in self.function_table or expression.name in self.global_scope.symbols)
+            return bool(expression.name in self.declarations.function_table or expression.name in self.global_scope.symbols)
         if isinstance(expression, FieldAccessExpr):
             if expression.arrow:
                 return False
             if isinstance(expression.obj, Identifier):
-                owner = self.class_table.get(expression.obj.name)
+                owner = self.declarations.class_table.get(expression.obj.name)
                 if owner and expression.field in owner.static_fields:
                     return True
             return self._is_static_address_operand(expression.obj)

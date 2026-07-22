@@ -87,7 +87,7 @@ class GenericValidationMixin:
         if type_expr is None:
             return True
         valid = True
-        cls = self.class_table.get(type_expr.base)
+        cls = self.declarations.class_table.get(type_expr.base)
         if cls is not None and cls.generic_params:
             valid = self._validate_generic_arguments(
                 f"{owner} via {type_expr.base}",
@@ -102,7 +102,7 @@ class GenericValidationMixin:
 
     def _validate_generic_specialization(self, type_expr):
         args = type_expr.generic_args or []
-        cls = self.class_table.get(type_expr.base)
+        cls = self.declarations.class_table.get(type_expr.base)
         if cls is None or not cls.generic_params:
             return True
         valid = self._validate_generic_arguments(type_expr.base, args, type_expr.line, type_expr.col)
@@ -143,9 +143,9 @@ class GenericValidationMixin:
     def _validate_generic_arity(self, type_expr, base_is_parameter):
         if base_is_parameter:
             return
-        declaration = self.class_table.get(type_expr.base)
+        declaration = self.declarations.class_table.get(type_expr.base)
         if declaration is None:
-            declaration = self.interface_table.get(type_expr.base)
+            declaration = self.declarations.interface_table.get(type_expr.base)
         expected = (
             len(declaration.generic_params) if declaration is not None else _RUNTIME_GENERIC_ARITIES.get(type_expr.base)
         )
@@ -166,9 +166,9 @@ class GenericValidationMixin:
     def _collect_concrete_specialization(self, type_expr, active, base_is_parameter):
         args = tuple(type_expr.generic_args)
         key = type_expr.base
-        cls = self.class_table.get(key)
+        cls = self.declarations.class_table.get(key)
         registered = bool(cls and cls.generic_params and not base_is_parameter)
-        runtime = cls is None and key not in self.interface_table and key in _UNREGISTERED_GENERIC_INSTANCE_BASES
+        runtime = cls is None and key not in self.declarations.interface_table and key in _UNREGISTERED_GENERIC_INSTANCE_BASES
         unresolved = any(type_references_names(argument, active) for argument in args)
         instances = self.generic_instances.setdefault(key, []) if registered or runtime else []
         normalized = tuple(self._normalize_type_key(argument) for argument in args)

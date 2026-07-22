@@ -13,9 +13,9 @@ class ValidationMixin:
         if (
             isinstance(expr.obj, Identifier)
             and self.scope.lookup(expr.obj.name) is None
-            and expr.obj.name in self.rich_enum_table
+            and expr.obj.name in self.declarations.rich_enum_table
         ):
-            declaration = self.rich_enum_table[expr.obj.name]
+            declaration = self.declarations.rich_enum_table[expr.obj.name]
             if not call_target and not any(variant.name == expr.field for variant in declaration.variants):
                 self._error(
                     f"Rich enum '{declaration.name}' has no variant '{expr.field}'",
@@ -26,9 +26,9 @@ class ValidationMixin:
         if (
             isinstance(expr.obj, Identifier)
             and self.scope.lookup(expr.obj.name) is None
-            and expr.obj.name in self.class_table
+            and expr.obj.name in self.declarations.class_table
         ):
-            self._validate_static_member_access(expr, self.class_table[expr.obj.name])
+            self._validate_static_member_access(expr, self.declarations.class_table[expr.obj.name])
             return
         # Nullable safety: warn on non-optional access on nullable types
         if (
@@ -54,7 +54,7 @@ class ValidationMixin:
             if expr.field not in valid:
                 self._error(f"Mutex<T> has no method '{expr.field}'", expr.line, expr.col)
             return
-        if obj_type and obj_type.base in self.rich_enum_table:
+        if obj_type and obj_type.base in self.declarations.rich_enum_table:
             if expr.field not in {"tag", "data"} and not (call_target and expr.field == "toString"):
                 self._error(
                     f"Rich enum '{obj_type.base}' has no field '{expr.field}'",
@@ -74,8 +74,8 @@ class ValidationMixin:
             return
         if obj_type and self._validate_struct_field_access(expr, obj_type):
             return
-        if obj_type and obj_type.base in self.class_table:
-            cls = self.class_table[obj_type.base]
+        if obj_type and obj_type.base in self.declarations.class_table:
+            cls = self.declarations.class_table[obj_type.base]
             if expr.field in cls.properties:
                 prop = cls.properties[expr.field]
                 if prop.access == "private":

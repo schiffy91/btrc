@@ -23,7 +23,7 @@ class ScalarInferenceMixin:
             numeric = numeric_result_type(
                 self._canonical_type(left),
                 self._canonical_type(right),
-                frozenset(self.enum_table),
+                frozenset(self.declarations.enum_table),
             )
             if numeric is not None:
                 return numeric
@@ -55,7 +55,7 @@ class ScalarInferenceMixin:
         numeric = numeric_result_type(
             self._canonical_type(true_type),
             self._canonical_type(false_type),
-            frozenset(self.enum_table),
+            frozenset(self.declarations.enum_table),
         )
         if numeric is not None:
             return numeric
@@ -72,5 +72,5 @@ class ScalarInferenceMixin:
         return TypeExpr(
             base=base,
             generic_args=generic_args,
-            pointer_depth=1 if base in self.class_table else 0,
+            pointer_depth=1 if base in self.declarations.class_table else 0,
         )

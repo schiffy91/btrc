@@ -30,7 +30,7 @@ class CallValidationMixin:
         if (
             isinstance(expr.callee, Identifier)
             and expr.callee.name == "gpu_id"
-            and expr.callee.name not in self.function_table
+            and expr.callee.name not in self.declarations.function_table
             and ((symbol := self.scope.lookup(expr.callee.name)) is None or symbol.kind == "function")
         ):
             if not self.in_gpu_function:
@@ -61,7 +61,7 @@ class CallValidationMixin:
         if self._is_raw_lifetime_call(expr):
             self._validate_raw_lifetime_call(expr)
         if gpu_builtin_call_uses_intrinsic(self, expr):
-            if name in self.function_table:
+            if name in self.declarations.function_table:
                 # A canonical bodyless hosted prototype is superseded by the
                 # closed GPU intrinsic in this context. Preserve that resolved
                 # identity for CPU-fallback lowering.
@@ -85,8 +85,8 @@ class CallValidationMixin:
                     expr.arg_names,
                 )
             return
-        if name in self.function_table:
-            function = self.function_table[name]
+        if name in self.declarations.function_table:
+            function = self.declarations.function_table[name]
             self._validate_call_signature(
                 function.name,
                 function.params,
@@ -122,8 +122,8 @@ class CallValidationMixin:
         if name in GENERIC_INTRINSICS:
             self._validate_generic_intrinsic_call(expr)
             return
-        if name in self.class_table:
-            cls = self.class_table[name]
+        if name in self.declarations.class_table:
+            cls = self.declarations.class_table[name]
             if cls.is_abstract:
                 self._error(f"Cannot instantiate abstract class '{cls.name}'", expr.line, expr.col)
             inferred = self._infer_constructor_call_type(expr, cls)
@@ -154,9 +154,9 @@ class CallValidationMixin:
         if (
             isinstance(callee.obj, Identifier)
             and self.scope.lookup(callee.obj.name) is None
-            and callee.obj.name in self.class_table
+            and callee.obj.name in self.declarations.class_table
         ):
-            cls = self.class_table[callee.obj.name]
+            cls = self.declarations.class_table[callee.obj.name]
             method = cls.methods.get(callee.field)
             if method is None:
                 self._error(f"Class '{cls.name}' has no class method '{callee.field}'", expr.line, expr.col)
@@ -182,9 +182,9 @@ class CallValidationMixin:
             self._collect_method_instance(expr, cls, method, None, substitutions)
             return
 
-        if not receiver_type or receiver_type.base not in self.class_table:
+        if not receiver_type or receiver_type.base not in self.declarations.class_table:
             return
-        cls = self.class_table[receiver_type.base]
+        cls = self.declarations.class_table[receiver_type.base]
         method = cls.methods.get(callee.field)
         if method is None:
             return

@@ -6,7 +6,7 @@ import os
 import time
 from collections.abc import Callable
 
-from ..analyzer.analyzer import Analyzer
+from ..analyzer.semantic_analyzer import SemanticAnalyzer
 from ..artifacts.stdlib.consumer import StdlibArchiveConsumer
 from ..ast_nodes import Program
 from ..frontend.dependencies import ResolvedSource
@@ -39,7 +39,7 @@ class CompilerPipeline:
         *,
         resolver: SourceResolver | None = None,
         parser: FrontendParser | None = None,
-        analyzer_factory: Callable[[], Analyzer] = Analyzer,
+        analyzer_factory: Callable[[], SemanticAnalyzer] = SemanticAnalyzer,
         lowerer: Callable = generate_ir,
         optimizer: Callable = optimize,
         emitter_factory: Callable[[], CEmitter] = CEmitter,

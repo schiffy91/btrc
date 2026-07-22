@@ -34,14 +34,14 @@ class GeneratedSymbolContractsMixin:
 
     def _claim_generated_symbol(self, symbol, owner, line, col, claims) -> None:
         validate_generated_symbol_ownership(self, symbol, owner, line, col)
-        source_kind = self._top_level_kinds.get(symbol)
+        source_kind = self.declarations.top_level_kinds.get(symbol)
         if source_kind is not None:
             self._error(
                 f"Generated C symbol '{symbol}' for {owner} collides with source {source_kind} '{symbol}'",
                 line,
                 col,
             )
-        if symbol in self._source_macro_names:
+        if symbol in self.declarations.source_macro_names:
             self._error(
                 f"Generated C symbol '{symbol}' for {owner} collides with source macro '{symbol}'",
                 line,
@@ -58,7 +58,7 @@ class GeneratedSymbolContractsMixin:
             claims[symbol] = owner
 
     def _reject_generated_member_macro(self, symbol, owner, line, col) -> None:
-        if symbol in self._source_macro_names:
+        if symbol in self.declarations.source_macro_names:
             self._error(
                 f"Generated C member '{symbol}' for {owner} collides with source macro '{symbol}'",
                 line,

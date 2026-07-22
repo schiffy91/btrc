@@ -51,7 +51,7 @@ class RawDeallocationContractsMixin:
         symbol = self.scope.lookup(name)
         if symbol is not None and symbol.kind != "function":
             return False
-        declaration = self.function_table.get(name)
+        declaration = self.declarations.function_table.get(name)
         return bool(
             declaration is None or declaration.body is None or self._hosted_name_bypasses_source_definition(name)
         )
@@ -74,10 +74,10 @@ class RawDeallocationContractsMixin:
         symbol = self.scope.lookup(callee.name)
         if symbol is not None and symbol.kind != "function":
             return False
-        declaration = self.function_table.get(callee.name)
+        declaration = self.declarations.function_table.get(callee.name)
         if declaration is not None:
             return declaration.body is None or self._hosted_call_bypasses_source_definition(call)
-        return callee.name not in self.class_table and symbol is None
+        return callee.name not in self.declarations.class_table and symbol is None
 
     def _validate_raw_lifetime_call(self, call) -> None:
         """Reject values whose lifetime is owned by a btrc runtime protocol."""

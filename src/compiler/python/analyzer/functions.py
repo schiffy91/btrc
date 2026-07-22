@@ -29,7 +29,7 @@ class FunctionsMixin:
 
     def _analyze_class(self, decl):
         prev_class = self.current_class
-        self.current_class = self.class_table[decl.name]
+        self.current_class = self.declarations.class_table[decl.name]
         for member in decl.members:
             if isinstance(member, FieldDecl):
                 member.type = self._upgrade_class_type(member.type)

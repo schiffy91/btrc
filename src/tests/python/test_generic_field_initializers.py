@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -272,6 +272,6 @@ def test_throwing_generic_default_abandons_initialized_cycle(
 )
 def test_array_field_default_without_persistent_storage_fails_closed(source) -> None:
     program = Parser(Lexer(source, "<field-default>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
 
     assert any("persistent backing storage" in error for error in analyzed.errors)

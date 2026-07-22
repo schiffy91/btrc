@@ -1,8 +1,8 @@
-"""Analyzer contracts for the structural parallel-range loop form."""
+"""SemanticAnalyzer contracts for the structural parallel-range loop form."""
 
 import dataclasses
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import Identifier
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.lexer import Lexer
@@ -33,7 +33,7 @@ def test_parallel_range_binding_is_typed_inside_body():
             "<parallel-range>",
         ).tokenize()
     ).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
 
     assert analyzed.errors == []
     uses = [node for node in _walk(program) if isinstance(node, Identifier) and node.name == "index"]

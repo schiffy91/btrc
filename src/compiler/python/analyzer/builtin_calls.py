@@ -10,10 +10,10 @@ from ..type_identity import is_semantic_scalar_string
 class BuiltinCallValidationMixin:
     def _validate_builtin_method_call(self, expression, receiver_type) -> bool:
         callee = expression.callee
-        if isinstance(callee.obj, Identifier) and callee.obj.name in self.rich_enum_table:
+        if isinstance(callee.obj, Identifier) and callee.obj.name in self.declarations.rich_enum_table:
             self._validate_rich_enum_constructor(expression)
             return True
-        if isinstance(callee.obj, Identifier) and callee.obj.name in self.class_table:
+        if isinstance(callee.obj, Identifier) and callee.obj.name in self.declarations.class_table:
             return False
 
         receiver_type = self._canonical_type(receiver_type)
@@ -64,7 +64,7 @@ class BuiltinCallValidationMixin:
                 )
             return True
 
-        if receiver_type and receiver_type.base in self.rich_enum_table:
+        if receiver_type and receiver_type.base in self.declarations.rich_enum_table:
             if callee.field != "toString":
                 self._error(
                     f"Rich enum '{receiver_type.base}' has no method '{callee.field}'",
@@ -98,7 +98,7 @@ class BuiltinCallValidationMixin:
     def _is_builtin_scalar_receiver(self, type_expr) -> bool:
         return bool(
             type_expr
-            and (type_expr.base in self._NUMERIC_TYPES or type_expr.base == "bool" or type_expr.base in self.enum_table)
+            and (type_expr.base in self._NUMERIC_TYPES or type_expr.base == "bool" or type_expr.base in self.declarations.enum_table)
             and type_expr.pointer_depth == 0
             and not type_expr.is_array
             and not type_expr.generic_args
@@ -144,7 +144,7 @@ class BuiltinCallValidationMixin:
 
     def _validate_rich_enum_constructor(self, expression):
         callee = expression.callee
-        enum_decl = self.rich_enum_table[callee.obj.name]
+        enum_decl = self.declarations.rich_enum_table[callee.obj.name]
         variant = next(
             (item for item in enum_decl.variants if item.name == callee.field),
             None,

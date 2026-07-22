@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
@@ -23,7 +23,7 @@ COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(nam
 
 def _analyze(source):
     program = Parser(Lexer(source, "<qualifier-contract>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def _emit(source):

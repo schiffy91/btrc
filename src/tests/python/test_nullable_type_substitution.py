@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.generics.core import _resolve_type_c
 from src.compiler.python.ir.gen.type_render_context import type_render_scope
@@ -279,7 +279,7 @@ def test_outer_storage_add_and_remove_preserve_nullable_boundary() -> None:
 def test_intrinsic_reference_depth_distinguishes_string_pointer_storage() -> None:
     scalar = TypeExpr(base="string", pointer_depth=1, is_nullable=True)
     pointer = TypeExpr(base="string", pointer_depth=2, is_nullable=True)
-    analyzer = Analyzer()
+    analyzer = SemanticAnalyzer()
 
     assert type_to_c(scalar) == "char*"
     assert type_to_c(pointer) == "char**"

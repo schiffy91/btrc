@@ -59,7 +59,7 @@ class ExpressionOwnershipContractsMixin:
                 from ..class_storage import custom_property_getter
 
                 return custom_property_getter(
-                    self.class_table,
+                    self.declarations.class_table,
                     self._canonical_type(self._infer_type(expression.obj)),
                     expression.field,
                 ) and not isinstance(expression.obj, (SelfExpr, SuperExpr))
@@ -70,7 +70,7 @@ class ExpressionOwnershipContractsMixin:
             receiver = self._canonical_type(self._infer_type(expression.obj))
             protocol = indexed_protocol(
                 receiver,
-                self.class_table,
+                self.declarations.class_table,
                 active_type_params=self._active_storage_type_parameters(),
             )
             return bool(protocol and protocol.getter is not None)
@@ -116,7 +116,7 @@ class ExpressionOwnershipContractsMixin:
             and not type_expr.is_array
             and type_expr.pointer_depth <= 1
             and (
-                type_expr.base in {"string", "Mutex"} or (not active_type_param and type_expr.base in self.class_table)
+                type_expr.base in {"string", "Mutex"} or (not active_type_param and type_expr.base in self.declarations.class_table)
             )
         )
 
@@ -163,7 +163,7 @@ class ExpressionOwnershipContractsMixin:
             }.get(operator, "")
         )
         operand_type = self._canonical_type(self._infer_type(operand))
-        class_info = self.class_table.get(operand_type.base) if operand_type else None
+        class_info = self.declarations.class_table.get(operand_type.base) if operand_type else None
         return bool(magic and class_info and magic in class_info.methods)
 
     def _known_language_call(self, expression) -> bool:
@@ -172,11 +172,11 @@ class ExpressionOwnershipContractsMixin:
             symbol = self.scope.lookup(callee.name)
             if symbol is not None and symbol.kind != "function":
                 return False
-            return callee.name == "Mutex" or callee.name in self.class_table or callee.name in self.function_table
+            return callee.name == "Mutex" or callee.name in self.declarations.class_table or callee.name in self.declarations.function_table
         if not isinstance(callee, FieldAccessExpr):
             return False
         if isinstance(callee.obj, Identifier):
-            owner = None if self.scope.lookup(callee.obj.name) is not None else self.class_table.get(callee.obj.name)
+            owner = None if self.scope.lookup(callee.obj.name) is not None else self.declarations.class_table.get(callee.obj.name)
             if owner is not None and callee.field in owner.methods:
                 return True
         receiver = self._canonical_type(self._infer_type(callee.obj))
@@ -186,10 +186,10 @@ class ExpressionOwnershipContractsMixin:
             return True
         if receiver.base == "Mutex" and callee.field == "get":
             return True
-        owner = self.class_table.get(receiver.base)
+        owner = self.declarations.class_table.get(receiver.base)
         if owner is not None and callee.field in owner.methods:
             return True
-        interface = self.interface_table.get(receiver.base)
+        interface = self.declarations.interface_table.get(receiver.base)
         return bool(interface is not None and callee.field in interface.methods)
 
     def _string_call_produces_owned_result(self, expression) -> bool:
@@ -212,7 +212,7 @@ class ExpressionOwnershipContractsMixin:
             return bool(method and method.tracked)
         if callee.field != "toString" or receiver is None:
             return False
-        return receiver.base != "bool" and receiver.base not in self.enum_table
+        return receiver.base != "bool" and receiver.base not in self.declarations.enum_table
 
 
 __all__ = ["ExpressionOwnershipContractsMixin"]

@@ -24,7 +24,7 @@ class HostedAbiContractsMixin:
         return self._hosted_name_bypasses_source_definition(call.callee.name)
 
     def _hosted_name_bypasses_source_definition(self, name: str) -> bool:
-        declaration = self.function_table.get(name)
+        declaration = self.declarations.function_table.get(name)
         if declaration is None or declaration.body is None:
             return False
         if not hosted_owned_name(name):
@@ -50,7 +50,7 @@ class HostedAbiContractsMixin:
                 return False
         elif name in local_names:
             return False
-        declaration = self.function_table.get(name)
+        declaration = self.declarations.function_table.get(name)
         return bool(
             declaration is None or declaration.body is None or self._hosted_name_bypasses_source_definition(name)
         )
@@ -80,7 +80,7 @@ class HostedAbiContractsMixin:
                         getattr(argument, "line", call.line),
                         getattr(argument, "col", call.col),
                     )
-            return self.function_table.get(name) is None
+            return self.declarations.function_table.get(name) is None
         if any(call.arg_names or ()):
             self._error(
                 f"Hosted function '{name}()' does not accept named arguments",

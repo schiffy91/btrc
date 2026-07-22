@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import FunctionDecl
 from src.compiler.python.cli_archive import _stamp_stdlib_declarations
 from src.compiler.python.gen_hosted_abi_btrc import render_files
@@ -53,7 +53,7 @@ SOURCE_ROOT = Path(__file__).parents[2]
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<hosted-abi>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def test_registry_model_rejects_incoherent_effects() -> None:
@@ -151,7 +151,7 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
                 declarations.setdefault(declaration.name, []).append(declaration)
     assert len(declarations) == 73
     assert declarations.keys() == HOSTED_NATIVE_FUNCTIONS.keys()
-    analyzer = Analyzer()
+    analyzer = SemanticAnalyzer()
     for name, variants in declarations.items():
         spec = HOSTED_NATIVE_FUNCTIONS[name]
         assert spec.parameters is not None
@@ -238,7 +238,7 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
     parsed = pipeline.parse(resolved, "process.btrc", options)
     declaration = next(item for item in parsed.program.declarations if getattr(item, "name", "") == "environ")
     assert not is_compiler_stdlib_source(declaration.source_file)
-    errors = Analyzer().analyze(parsed.program).errors
+    errors = SemanticAnalyzer().analyze(parsed.program).errors
     assert any("environ" in error and "hosted C symbol" in error for error in errors)
 
 
@@ -274,7 +274,7 @@ def test_stdlib_cannot_take_hosted_lifetime_value_through_user_shadow() -> None:
     source_free, stdlib_wrapper = program.declarations
     source_free.source_file = "<user>"
     stdlib_wrapper.source_file = compiler_stdlib_source()
-    errors = Analyzer().analyze(program).errors
+    errors = SemanticAnalyzer().analyze(program).errors
     assert any("Hosted lifetime function 'free' must be called directly" in error for error in errors)
 
 

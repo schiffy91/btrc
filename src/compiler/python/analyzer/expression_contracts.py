@@ -85,7 +85,7 @@ class ExpressionContractsMixin:
         nominal_reference = bool(
             type_expr
             and not active_type_param
-            and (type_expr.base in self.class_table or type_expr.base in self.interface_table)
+            and (type_expr.base in self.declarations.class_table or type_expr.base in self.declarations.interface_table)
         )
         return bool(
             type_expr
@@ -140,9 +140,9 @@ class ExpressionContractsMixin:
                     self._canonical_type(left),
                     self._canonical_type(right),
                     left_is_optional_value=(isinstance(expression.left, FieldAccessExpr) and expression.left.optional),
-                    class_table=self.class_table,
-                    interface_table=self.interface_table,
-                    enum_names=frozenset(self.enum_table),
+                    class_table=self.declarations.class_table,
+                    interface_table=self.declarations.interface_table,
+                    enum_names=frozenset(self.declarations.enum_table),
                 )
             except OperatorTypeError as error:
                 self._error(str(error), expression.line, expression.col)
@@ -171,9 +171,9 @@ class ExpressionContractsMixin:
                     operator,
                     self._canonical_type(left),
                     self._canonical_type(right),
-                    class_table=self.class_table,
-                    interface_table=self.interface_table,
-                    enum_names=frozenset(self.enum_table),
+                    class_table=self.declarations.class_table,
+                    interface_table=self.declarations.interface_table,
+                    enum_names=frozenset(self.declarations.enum_table),
                 )
             except OperatorTypeError as error:
                 self._error(str(error), expression.line, expression.col)
@@ -225,7 +225,7 @@ class ExpressionContractsMixin:
     ) -> bool:
         left = self._canonical_type(left)
         right = self._canonical_type(right)
-        enum_names = frozenset(self.enum_table)
+        enum_names = frozenset(self.declarations.enum_table)
         if not (is_numeric_type(left, enum_names) and is_numeric_type(right, enum_names)) or integer_mix_is_portable(
             left, right
         ):

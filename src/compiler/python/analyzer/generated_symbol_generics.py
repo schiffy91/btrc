@@ -11,7 +11,7 @@ _CYCLE_COLLECTIONS = frozenset({"Vector", "Array", "List", "Map", "Set"})
 def claim_generic_instance_symbols(analyzer, declarations, claims) -> None:
     for base_name, instances in analyzer.generic_instances.items():
         declaration = declarations.get(base_name)
-        info = analyzer.class_table.get(base_name)
+        info = analyzer.declarations.class_table.get(base_name)
         if declaration is None or info is None:
             continue
         for arguments in instances:

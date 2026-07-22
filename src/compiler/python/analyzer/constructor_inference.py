@@ -14,7 +14,7 @@ class ConstructorInferenceMixin:
             return left or right
         if not (isinstance(expression, CallExpr) and isinstance(expression.callee, Identifier)):
             return False
-        cls = self.class_table.get(expression.callee.name)
+        cls = self.declarations.class_table.get(expression.callee.name)
         if not (
             cls
             and cls.generic_params

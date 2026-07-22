@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -525,7 +525,7 @@ def test_output_kernel_in_arbitrary_expression_is_rejected() -> None:
         "int main() { int[] xs = {1, 2}; return dbl(xs)[0]; }"
     )
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
-    errors = Analyzer().analyze(program).errors
+    errors = SemanticAnalyzer().analyze(program).errors
     assert any(
         "only valid as an array declaration initializer or direct array assignment statement" in error
         for error in errors

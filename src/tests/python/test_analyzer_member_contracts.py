@@ -1,6 +1,6 @@
 """Interface, inherited-member, and property semantic contracts."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -8,7 +8,7 @@ from src.tests.python.test_codegen import emit_c
 
 def _errors(source: str) -> list[str]:
     program = Parser(Lexer(source, "<member-contracts>").tokenize()).parse()
-    return Analyzer().analyze(program).errors
+    return SemanticAnalyzer().analyze(program).errors
 
 
 def _program(source: str):
@@ -171,7 +171,7 @@ def test_inherited_field_and_auto_property_storage_collisions_are_rejected():
 
 
 def test_pre_resolved_class_tables_are_not_merged_or_validated_twice():
-    base = Analyzer().analyze(
+    base = SemanticAnalyzer().analyze(
         _program("""
             class Base { public int value; }
             class Child extends Base { public int extra; }
@@ -179,8 +179,7 @@ def test_pre_resolved_class_tables_are_not_merged_or_validated_twice():
     )
     assert base.errors == []
 
-    incremental = Analyzer()
-    incremental.class_table = dict(base.class_table)
+    incremental = SemanticAnalyzer(seed=base)
     result = incremental.analyze(_program("int main() { return 0; }"))
 
     assert not _has(result.errors, "conflicts with inherited storage")

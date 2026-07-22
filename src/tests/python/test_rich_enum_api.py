@@ -1,6 +1,6 @@
 """Public rich-enum method API and generated-symbol boundary."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -8,7 +8,7 @@ from src.compiler.python.parser.parser import Parser
 def _errors(source: str) -> list[str]:
     tokens = Lexer(source, "<rich-enum-api>").tokenize()
     program = Parser(tokens).parse()
-    return Analyzer().analyze(program).errors
+    return SemanticAnalyzer().analyze(program).errors
 
 
 def test_rich_enum_to_string_is_a_public_zero_argument_method() -> None:

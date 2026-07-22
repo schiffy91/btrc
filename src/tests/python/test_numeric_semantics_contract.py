@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.numeric_literals import integer_literal_type
 from src.compiler.python.parser.core import ParseError
@@ -20,7 +20,7 @@ COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(nam
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<numeric-contract>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def _errors(source: str) -> str:

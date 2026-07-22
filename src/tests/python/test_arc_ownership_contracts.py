@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.generator import IRGenerator
@@ -474,7 +474,7 @@ RETURN_PROJECTION_SOURCE = r"""
 
 def _emit(source: str) -> str:
     program = Parser(Lexer(source, "<arc-ownership>").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert analyzed.errors == []
     return CEmitter().emit(optimize(IRGenerator(analyzed).generate()))
 

@@ -66,7 +66,7 @@ class ForInAnalysisMixin:
                 stmt.line,
                 stmt.col,
             )
-        class_info = self.class_table.get(iter_type.base) if iter_type else None
+        class_info = self.declarations.class_table.get(iter_type.base) if iter_type else None
         owned_first = bool(class_info and "iterLen" in class_info.methods and "iterGet" in class_info.methods)
         owned_second = bool(owned_first and "iterValueAt" in class_info.methods)
         self._push_scope()

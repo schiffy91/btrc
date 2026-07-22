@@ -54,7 +54,7 @@ class UpdateContractsMixin:
         if (
             expression.op != "="
             and canonical_target is not None
-            and (canonical_target.base in self.class_table or canonical_target.base in {"string", "Mutex"})
+            and (canonical_target.base in self.declarations.class_table or canonical_target.base in {"string", "Mutex"})
         ):
             supported_physical = isinstance(expression.target, (Identifier, FieldAccessExpr)) and not virtual_target
             if not supported_physical:
@@ -233,7 +233,7 @@ class UpdateContractsMixin:
         if not isinstance(target, FieldAccessExpr):
             return
         receiver_type = self._infer_type(target.obj)
-        class_info = self.class_table.get(receiver_type.base) if receiver_type else None
+        class_info = self.declarations.class_table.get(receiver_type.base) if receiver_type else None
         prop = class_info.properties.get(target.field) if class_info else None
         if prop is None:
             return
@@ -263,7 +263,7 @@ class UpdateContractsMixin:
         if type_expr is None or self._is_pointer_value(type_expr):
             return False
         name = type_expr.base.removeprefix("struct ")
-        declaration = self.struct_table.get(name)
+        declaration = self.declarations.struct_table.get(name)
         if declaration is None:
             return False
         seen = set() if seen is None else seen

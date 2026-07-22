@@ -30,7 +30,7 @@ class AggregateContractsMixin:
         if canonical is None:
             return False
         struct_name = canonical.base.removeprefix("struct ")
-        declaration = self.struct_table.get(struct_name)
+        declaration = self.declarations.struct_table.get(struct_name)
         if declaration is None:
             return False
         if not any(field.name == expression.field for field in declaration.fields):

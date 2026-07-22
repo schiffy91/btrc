@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.nodes import IRBinOp, IRCast
 from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
@@ -65,7 +65,7 @@ int main() {
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<numeric-comparison>").tokenize()).parse()
-    return Analyzer().analyze(program)
+    return SemanticAnalyzer().analyze(program)
 
 
 def _generate(source: str):

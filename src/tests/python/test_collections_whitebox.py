@@ -2,7 +2,7 @@
 A bare typed list/map literal lowers to a Vector/Map constructor call; drive the
 lowering functions directly on literal nodes from an analyzed program."""
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import (
     FunctionDecl,
     ListLiteral,
@@ -16,7 +16,7 @@ from src.compiler.python.parser.parser import Parser
 
 
 def _gen_and_inits(src):
-    analyzed = Analyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
+    analyzed = SemanticAnalyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
     gen = IRGenerator(analyzed)
     inits = []
     for d in analyzed.program.declarations:
