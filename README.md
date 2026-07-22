@@ -43,7 +43,7 @@ I’ve wanted a modern, ergonomic take on C for years: something fast, simple, c
 
 btrc is defined through a formal [EBNF grammar](src/language/grammar.ebnf), which mathematically defines every keyword and operator; an [algebraic AST spec](src/language/ast.asdl) defines every node type for the language graph; and a compiler pipeline consumes both the spec and the graph, walking your code through six stages (lexical analysis, syntax analysis, semantic analysis, intermediate code generation, code optimization, code generation). However, instead of outputting an intermediate language like LLVM or assembly code directly, it outputs C code. I don't expect folks will want to look at the C code outside of debugging errors, but it should resemble something that a human could have written (but more verbose and with a lot more underscores). You *should* be able to read it, debug it, and link it anything (or link anything else to it). It's just C11.
 
-Depending on how you define things, it might be more accurate to call btrc a transpiler rather than a compiler. You get gcc and clang compatibility for free, but you also inherit many of C's limitations. There is no borrow checker or lifetime analysis here. I did mitigate some of the pain with a simple Automatic Reference Counting (ARC) system that automatically handles most memory management (even dealing with cycles and cleaning up allocations during exceptions). That said, it won't prevent all use-after-free bugs. Just like in C, you can absolutely still shoot yourself in the foot if you aren't careful.
+Depending on how you define things, it might be more accurate to call btrc a transpiler rather than a compiler. You get gcc and clang compatibility for free, but you also inherit many of C's limitations. There is no Rust-style borrow checker here. The analyzer does enforce managed-value ownership and lifetime rules at call, assignment, projection, aggregate, and exception boundaries, while ARC handles most managed-object cleanup (including cycles and allocations unwound by exceptions). Raw pointers and explicit destruction remain C-like, so the compiler still cannot prevent every use-after-free or dangling-pointer bug.
 
 ## Should I Use It?
 
@@ -73,9 +73,9 @@ make build
 gcc hello.c -o hello -lm
 ./hello
 
-# Compile with explicit imports only
-./bin/btrcpy --no-stdlib tool.btrc -o tool.c
-nix run .#btrc -- --no-stdlib tool.btrc -o tool.c
+# Strict imports are the default. Legacy projects can opt out temporarily.
+./bin/btrcpy tool.btrc -o tool.c
+./bin/btrcpy --relaxed-imports tool.btrc -o tool.c
 
 # Or use the Python compiler directly
 python3 -m src.compiler.python.main hello.btrc -o hello.c
@@ -84,6 +84,28 @@ python3 -m src.compiler.python.main hello.btrc -o hello.c
 The flake exports the compiler as `packages.<system>.btrcpy`,
 `packages.<system>.btrc`, and `apps.<system>.btrc`, so downstream flakes can
 depend on BTRC directly instead of shelling into this repository.
+
+Useful compiler modes include:
+
+```bash
+# Build the stdlib once, then emit program-only C against that archive.
+./bin/btrcpy --build-stdlib build/stdlib
+./bin/btrcpy --stdlib build/stdlib app.btrc -o app.c
+
+# Reassert the strict default and bypass the transpilation cache.
+./bin/btrcpy --strict-imports --no-cache app.btrc -o app.c
+
+# Temporarily compile a legacy project with implicit cross-file visibility.
+./bin/btrcpy --relaxed-imports app.btrc -o app.c
+
+# Keep all generated declarations for inspection, or profile compiler phases.
+./bin/btrcpy --no-dce app.btrc -o app.c
+./bin/btrcpy --profile app.btrc -o app.c
+```
+
+See [the precompiled-stdlib design](docs/design/precompiled-stdlib.md) for the
+archive layout and cross-translation-unit ownership contract. Run
+`./bin/btrcpy --help` for the complete current option list.
 
 ## What You Get Over C
 
@@ -107,10 +129,16 @@ depend on BTRC directly instead of shelling into this repository.
 
 ## Imports and Stdlib
 
-The compiler still supports C-style `#include "file.btrc"` for compatibility,
-but new code should prefer `import`. Imports are textual today, but they give
-programs a cleaner and more declarative way to state dependency order while the
-module system matures.
+Strict imports are the language, API, and CLI default. Every source file must
+import the files that own the top-level language symbols it references. An
+`import` edge is directed and transitive: an importer sees its dependency, but
+the dependency does not see back into the importer, and sibling imports do not
+see one another automatically.
+
+The compiler still supports C-style `#include "file.btrc"` for compatibility.
+btrc includes are textual compilation-unit composition, so include-connected
+fragments share visibility in both directions. New modular code should prefer
+`import`; `--relaxed-imports` is the explicit legacy opt-out.
 
 ```
 import std.{cli, fs, json, process, toml, ui}
@@ -133,18 +161,22 @@ may contain at most 64 MiB across 10,000 unique files, import nesting is capped
 at 256 levels, and a directory glob scans at most 100,000 entries. Exceeding a
 limit produces a compiler diagnostic instead of exhausting the host process.
 
-Use `--no-stdlib` when building programs that vendor or explicitly import the
-stdlib themselves. This is useful for downstream projects that need deterministic
-include ordering or a checked-in stdlib snapshot.
+Explicit imports are always resolved. `--no-stdlib` only disables the implicit
+stdlib composition used by `--relaxed-imports`; it has no effect on normal
+strict-mode imports. See the normative
+[import and compilation-unit contract](docs/language/imports.md) for visibility,
+deduplication, source-macro, enum-member, and compatibility semantics.
 
 The current stdlib surfaces are intentionally practical:
 
 - `Strings` for object-oriented string helpers, conversion, splitting, joining,
-  padding, and comparisons
+  padding, and comparisons, plus `StringBuilder` for amortized text assembly
 - `Command`, `CommandOutput`, `UnixShell`, `ShellWords`, `UnixPipe`, and
   `ChildProcess` for shell/process orchestration
-- `FileSystem`, `PathTools`, `Directory`, and `FileStatus` for filesystem work
-- `JsonObject`, `JsonValue`, and `Toml` for small declarative config files
+- `FileSystem`, `PathTools`, `Directory`, `DirectoryLease`, and `FileStatus` for
+  filesystem work, including identity-matched recursive removal
+- `JsonObject`, `JsonValue`, and `Toml` for declarative data, including compact,
+  pretty, and canonical newline-terminated JSON document serialization
 - `CliArgs`, `CliCommand`, `CliCommandLine`, and `CliHelp` for simple CLIs
 - `UiDocument`, `Window`, `Tray`, `DaemonSpec`, and related daemon/UI models for
   lightweight native-app scaffolding
@@ -205,7 +237,7 @@ it never guesses that a package name refers to a same-named local file. Use
 - Full C interop -- call any C library, use any C header
 - `#include`, `struct`, `typedef`, `extern` -- all still work
 - Same mental model: stack vs heap, pointers, manual lifetime management
-- Generated C is strict C11 -- compiles with any C11 compiler (gcc, clang, MSVC)
+- Generated C is strict C11 -- continuously tested with GCC and Clang; Windows bundles use MinGW-w64
 
 ---
 
@@ -1143,26 +1175,39 @@ examples/
 ## Build & Test
 
 ```bash
+make all                    # Build and verify the complete developer tree
 make build                  # Create bin/btrcpy wrapper script (Python reference compiler)
 make package                # Build the Python sdist, then its installable wheel
 make wheel                  # Build only the installable Python wheel
 make btrcc                  # Build the self-hosted compiler for THIS machine -> bin/btrcc
 make test                   # Everything: unit + LSP + debugger + language on BOTH compilers
+make test-unit              # Python compiler unit and code-generation tests
+make test-lsp               # Language-server tests
+make test-debug             # Debug-adapter tests (requires lldb + a C compiler)
+make test-selfhost          # Self-hosted lexer parity
 make test-btrc              # Language corpus through the Python reference compiler
 make test-btrc-selfhost     # Language corpus through the self-hosted compiler (btrcc)
+make bootstrap              # Prove the self-hosted compiler's byte-stable fixed point
 make test-c11               # Strict, warning-free C11: gcc + clang at -O0 through -O3
+make generated-check        # Verify every committed generated source is current
+make hosted-abi-check       # Verify generated hosted-ABI policy tables
 make lint                   # Run ruff linter
 make format                 # Format with ruff
+make format-check           # Check formatting without modifying files
 make test-generate-goldens  # Regenerate golden .stdout files
 make stubs-generate         # Regenerate built-in type stubs
 make extension              # Package VS Code extension (.vsix)
 make extension-install      # Install VS Code extension (dev)
 make examples               # Build and run examples
 make gpu                    # Install WebGPU + GLFW and build GPU runtime
+make gpu-required           # Build GPU runtime and fail if production deps are absent
+make gui                    # Build the GUI runtime
 make examples-game          # Build the 3D engine game
 make examples-triangle      # Build the GPU triangle example
 make examples-sgd           # Build the GPU SGD example
 make examples-todo          # Build the todo example
+make examples-gui           # Build and run the headless GUI example
+make bench                  # Build and run transpile/compile/runtime benchmarks
 make devcontainer           # Generate .devcontainer/ and build image
 make clean                  # Remove build artifacts
 ```

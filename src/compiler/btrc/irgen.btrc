@@ -316,6 +316,8 @@ class IRGen {
     public GpuRegistry gpu;
     public GpuCpuContext gpuCpu;
     public GpuHostContext gpuHost;
+    public RuntimeHelperRegistry runtimeHelpers;
+    public RuntimeHelperReferenceCollector runtimeHelperReferences;
     /* astNodeKey(declaration) -> active #pragma pack alignment. */
     public Map<string, int> packAlignments;
     /* Runtime helpers referenced during lowering (name -> true). */
@@ -506,6 +508,9 @@ class IRGen {
         self.gpu = GpuRegistry();
         self.gpuCpu = GpuCpuContext();
         self.gpuHost = GpuHostContext();
+        self.runtimeHelpers = RuntimeHelperRegistry();
+        self.runtimeHelperReferences =
+            RuntimeHelperReferenceCollector(self.runtimeHelpers);
         self.packAlignments = {};
         self.usedHelpers = {};
         self.dceEnabled = true;
@@ -3388,12 +3393,14 @@ class IRGen {
         int fi = 0;
         while (fi < m.functions.len) {
             IRFunction fn = m.functions.get(fi);
-            if (fn.body != null) { scanHelpersInNode(fn.body, used); }
+            if (fn.body != null) {
+                self.runtimeHelperReferences.collect(fn.body, used);
+            }
             fi = fi + 1;
         }
         int globalHelperIndex = 0;
         while (globalHelperIndex < m.global_decls.len) {
-            scanHelpersInNode(
+            self.runtimeHelperReferences.collect(
                 m.global_decls.get(globalHelperIndex).init, used);
             globalHelperIndex = globalHelperIndex + 1;
         }
@@ -3417,13 +3424,13 @@ class IRGen {
 
         /* Structured declarations can depend on a helper-owned ABI without a
          * call node (managed structs embed __btrc_arc_header). */
-        collectStructuredHelperRoots(m, used);
+        self.runtimeHelperReferences.collectStructuredRoots(m, used);
 
         /* Resolve transitive dependencies (mirrors collect_helpers worklist). */
         Vector<string> worklist = used.keys();
         while (worklist.len > 0) {
             string cur = worklist.pop();
-            Vector<string> deps = helperDeps(cur);
+            Vector<string> deps = self.runtimeHelpers.dependencies(cur);
             int d = 0;
             while (d < deps.len) {
                 string dep = deps.get(d);
@@ -3439,7 +3446,7 @@ class IRGen {
         Vector<string> work2 = used.keys();
         while (work2.len > 0) {
             string cur = work2.pop();
-            string src = helperSource(cur);
+            string src = self.runtimeHelpers.source(cur);
             Map<string, bool> sourceHelpers = {};
             scanTextForNames(src, order, sourceHelpers);
             Vector<string> sourceNames = sourceHelpers.keys();
@@ -3458,7 +3465,7 @@ class IRGen {
         while (i < order.len) {
             string name = order.get(i);
             if (used.has(name)) {
-                m.helpers.push(helperSource(name));
+                m.helpers.push(self.runtimeHelpers.source(name));
             }
             i = i + 1;
         }
@@ -9281,45 +9288,6 @@ void optimizeModule(IRModule m) {
     eliminateDeadFunctions(m);
     eliminateDeadGpuKernels(m);
     eliminateDeadStructs(m);
-}
-
-/* Recursively collect runtime-helper references in an IR node into `used`.
- * A helper is referenced when it appears as a call callee or function name
- * (var). Mirrors optimizer._collect_helper_refs. */
-void scanHelpersInNode(IRNode? n, Map<string, bool> used) {
-    if (n == null) { return; }
-    /* Call callee. */
-    if (n.callee != "" && !used.has(n.callee) && helperSource(n.callee) != "") {
-        used.put(n.callee, true);
-    }
-    /* Explicit function-symbol value. */
-    if (n.kind == IRK_FUNCTION_REF && !used.has(n.name)
-            && helperSource(n.name) != "") {
-        used.put(n.name, true);
-    }
-    /* Recurse into all sub-node fields. */
-    scanHelpersInNode(n.left, used);
-    scanHelpersInNode(n.right, used);
-    scanHelpersInNode(n.operand, used);
-    scanHelpersInNode(n.expr, used);
-    scanHelpersInNode(n.obj, used);
-    scanHelpersInNode(n.index, used);
-    scanHelpersInNode(n.condition, used);
-    scanHelpersInNode(n.true_expr, used);
-    scanHelpersInNode(n.false_expr, used);
-    scanHelpersInNode(n.init, used);
-    scanHelpersInNode(n.value, used);
-    scanHelpersInNode(n.target, used);
-    scanHelpersInNode(n.then_block, used);
-    scanHelpersInNode(n.else_block, used);
-    scanHelpersInNode(n.body, used);
-    scanHelpersInNode(n.update, used);
-    scanHelpersInNode(n.result, used);
-    scanHelpersInNode(n.array_size, used);
-    int ai = 0;
-    while (ai < n.args.len) { scanHelpersInNode(n.args.get(ai), used); ai = ai + 1; }
-    int si = 0;
-    while (si < n.stmts.len) { scanHelpersInNode(n.stmts.get(si), used); si = si + 1; }
 }
 
 /* True if any declaration in the program uses try/catch or throw (mirrors

@@ -51,7 +51,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-stdlib",
         action="store_true",
-        help="Don't auto-include stdlib .btrc files; use explicit includes only",
+        help="Disable stdlib auto-composition in relaxed mode; explicit imports still resolve",
     )
     parser.add_argument(
         "--freestanding",
@@ -60,11 +60,20 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "a single btrc_rt.h seam (for kernel/embedded targets). Writes a "
         "reference btrc_rt.h next to the output.",
     )
-    parser.add_argument(
+    import_group = parser.add_mutually_exclusive_group()
+    import_group.add_argument(
         "--strict-imports",
+        dest="strict_imports",
         action="store_true",
-        help="Require every file to import the top-level symbols it references",
+        help="Require every file to import the top-level symbols it references (default)",
     )
+    import_group.add_argument(
+        "--relaxed-imports",
+        dest="strict_imports",
+        action="store_false",
+        help="Allow legacy implicit cross-file visibility and auto-compose the stdlib",
+    )
+    parser.set_defaults(strict_imports=True)
     parser.add_argument(
         "--debug",
         action="store_true",

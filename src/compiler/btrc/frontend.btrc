@@ -5,10 +5,9 @@
  *
  *     #include / import resolution  ->  stdlib composition  ->  combined source
  *
- * The combined source string is byte-identical to what btrcpy composes via
- * `src.compiler.python.frontend.resolve_frontend_source(...).source`, so the
- * self-hosted compiler can compile real, stdlib-using programs (matching the
- * default `btrcpy`, not just `btrcpy --no-stdlib`).
+ * The resolved bundle is byte-identical to btrcpy for the same import mode.
+ * Strict per-file imports are the default; legacy whole-stdlib composition is
+ * available only through the explicit relaxed compatibility mode.
  *
  * Faithful port of:
  *   - resolve_frontend_source / _resolve_includes_mapped / _resolve_traced
@@ -99,6 +98,161 @@ class FeLine {
         self.text = text;
         self.sourceFile = sourceFile;
         self.lineNumber = lineNumber;
+    }
+}
+
+enum FeDependencyKind {
+    FE_DEPENDENCY_IMPORT = 1,
+    FE_DEPENDENCY_INCLUDE = 2,
+};
+
+class FeDependencyEdge {
+    public string target;
+    public int kind;
+
+    public FeDependencyEdge(string target, int kind) {
+        self.target = target;
+        self.kind = kind;
+    }
+}
+
+/* Typed dependency graph for per-file visibility. Language imports remain
+ * directed; legacy #include edges are traversed in both directions because
+ * their source fragments form one compilation unit. */
+class FeDependencyGraph {
+    public Map<string, Vector<FeDependencyEdge>> outgoing;
+    public Map<string, Vector<string>> includeParents;
+
+    public FeDependencyGraph() {
+        self.outgoing = {};
+        self.includeParents = {};
+    }
+
+    public string identity(string path) {
+        return feCanonicalPathIdentity(path);
+    }
+
+    public void ensureSource(string source) {
+        string canonical = self.identity(source);
+        if (!self.outgoing.has(canonical)) {
+            Vector<FeDependencyEdge> empty = [];
+            self.outgoing.put(canonical, empty);
+        }
+        if (!self.includeParents.has(canonical)) {
+            Vector<string> emptyParents = [];
+            self.includeParents.put(canonical, emptyParents);
+        }
+    }
+
+    public bool containsEdge(Vector<FeDependencyEdge> edges,
+                             string target, int kind) {
+        int index = 0;
+        while (index < edges.len) {
+            FeDependencyEdge edge = edges.get(index);
+            if (edge.kind == kind && edge.target.equals(target)) { return true; }
+            index++;
+        }
+        return false;
+    }
+
+    public bool containsPath(Vector<string> paths, string target) {
+        int index = 0;
+        while (index < paths.len) {
+            if (paths.get(index).equals(target)) { return true; }
+            index++;
+        }
+        return false;
+    }
+
+    public void add(string source, string target, int kind) {
+        string canonicalSource = self.identity(source);
+        string canonicalTarget = self.identity(target);
+        self.ensureSource(canonicalSource);
+        self.ensureSource(canonicalTarget);
+        Vector<FeDependencyEdge> edges = self.outgoing.get(canonicalSource);
+        if (!self.containsEdge(edges, canonicalTarget, kind)) {
+            edges.push(FeDependencyEdge(canonicalTarget, kind));
+        }
+        if (kind == FE_DEPENDENCY_INCLUDE) {
+            Vector<string> parents = self.includeParents.get(canonicalTarget);
+            if (!self.containsPath(parents, canonicalSource)) {
+                parents.push(canonicalSource);
+            }
+        }
+    }
+
+    public void addImport(string source, string target) {
+        self.add(source, target, FE_DEPENDENCY_IMPORT);
+    }
+
+    public void addInclude(string source, string target) {
+        self.add(source, target, FE_DEPENDENCY_INCLUDE);
+    }
+
+    public void queueUnseen(string path, Map<string, bool> seen,
+                            Vector<string> pending) {
+        if (!seen.has(path)) { pending.push(path); }
+    }
+
+    public Map<string, bool> visibilityReachable(string source) {
+        string start = self.identity(source);
+        Map<string, bool> seen = {};
+        Vector<string> pending = [start];
+        int index = 0;
+        while (index < pending.len) {
+            string current = pending.get(index);
+            index++;
+            if (seen.has(current)) { continue; }
+            seen.put(current, true);
+            if (self.outgoing.has(current)) {
+                Vector<FeDependencyEdge> edges = self.outgoing.get(current);
+                int edgeIndex = 0;
+                while (edgeIndex < edges.len) {
+                    self.queueUnseen(edges.get(edgeIndex).target, seen, pending);
+                    edgeIndex++;
+                }
+            }
+            if (self.includeParents.has(current)) {
+                Vector<string> parents = self.includeParents.get(current);
+                int parentIndex = 0;
+                while (parentIndex < parents.len) {
+                    self.queueUnseen(parents.get(parentIndex), seen, pending);
+                    parentIndex++;
+                }
+            }
+        }
+        return seen;
+    }
+}
+
+class FeResolvedSource {
+    public string userSource;
+    public string source;
+    public string stdlibSource;
+    public Vector<FeLine> userLines;
+    public FeDependencyGraph dependencies;
+    public bool strictImports;
+    public int stdlibLineCount;
+    public string rootSourcePath;
+
+    public FeResolvedSource(string userSource, string source,
+                            string stdlibSource, Vector<FeLine> userLines,
+                            FeDependencyGraph dependencies, bool strictImports,
+                            int stdlibLineCount, string rootSourcePath) {
+        self.userSource = userSource;
+        self.source = source;
+        self.stdlibSource = stdlibSource;
+        self.userLines = userLines;
+        self.dependencies = dependencies;
+        self.strictImports = strictImports;
+        self.stdlibLineCount = stdlibLineCount;
+        self.rootSourcePath = rootSourcePath;
+    }
+
+    public FeLine? userLineForCombined(int line) {
+        int index = line - self.stdlibLineCount - 1;
+        if (index < 0 || index >= self.userLines.len) { return null; }
+        return self.userLines.get(index);
     }
 }
 
@@ -822,12 +976,13 @@ string feCIncludeDirective(string path) {
  * _inline_paths: .c files become a literal `#include "<abs>"` line; .btrc files
  * are resolved recursively. */
 void feInlinePaths(Vector<string> paths, string absPath, Vector<FeLine> out,
-                   Map<string, bool> included, FeResolutionBudget budget,
-                   int depth) {
+                   Map<string, bool> included, FeDependencyGraph dependencies,
+                   FeResolutionBudget budget, int depth) {
     int i = 0;
     while (i < paths.len) {
         string fullPath = paths.get(i);
         string absFull = feAbsPath(fullPath);
+        dependencies.addImport(absPath, absFull);
         if (feEndsWith(fullPath, ".c")) {
             string identity = feCanonicalPathIdentity(absFull);
             if (!included.has(identity)) {
@@ -838,7 +993,8 @@ void feInlinePaths(Vector<string> paths, string absPath, Vector<FeLine> out,
             }
         } else {
             string content = feReadRequiredSource(fullPath);
-            feResolveTracedIntoBudget(content, fullPath, included, out, budget, depth);
+            feResolveTracedIntoBudget(
+                content, fullPath, included, out, dependencies, budget, depth);
         }
         i = i + 1;
     }
@@ -852,10 +1008,12 @@ void feInlinePaths(Vector<string> paths, string absPath, Vector<FeLine> out,
  * replaced by the imported declarations; every other line is emitted verbatim. */
 void feResolveTracedIntoBudget(string source, string sourcePath,
                                Map<string, bool> included, Vector<FeLine> out,
+                               FeDependencyGraph dependencies,
                                FeResolutionBudget budget, int depth) {
     string absPath = feAbsPath(sourcePath);
     string identity = feCanonicalPathIdentity(absPath);
     string sourceDir = feDirName(absPath);
+    dependencies.ensureSource(absPath);
     if (included.has(identity)) {
         return;  /* circular/repeat include guard */
     }
@@ -886,9 +1044,11 @@ void feResolveTracedIntoBudget(string source, string sourcePath,
             if (dir.kind.equals("btrc_include")) {
                 string resolved = feResolveIncludePath(dir.payload, sourceDir);
                 if (resolved.length() > 0) {
+                    dependencies.addInclude(absPath, resolved);
                     string content = feReadRequiredSource(resolved);
                     feResolveTracedIntoBudget(
-                        content, resolved, included, out, budget, depth + 1);
+                        content, resolved, included, out, dependencies,
+                        budget, depth + 1);
                 } else {
                     fprintf(stderr,
                         "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
@@ -897,7 +1057,8 @@ void feResolveTracedIntoBudget(string source, string sourcePath,
                 }
             } else {
                 Vector<string> paths = feImportSpecPaths(dir.payload, sourceDir);
-                feInlinePaths(paths, absPath, out, included, budget, depth + 1);
+                feInlinePaths(paths, absPath, out, included, dependencies,
+                              budget, depth + 1);
             }
         } else if (covered.has(lineNumber)) {
             /* continuation line of a multi-line directive: skip */
@@ -909,9 +1070,11 @@ void feResolveTracedIntoBudget(string source, string sourcePath,
 }
 
 void feResolveTracedInto(string source, string sourcePath,
-                         Map<string, bool> included, Vector<FeLine> out) {
+                         Map<string, bool> included, Vector<FeLine> out,
+                         FeDependencyGraph dependencies) {
     FeResolutionBudget budget = FeResolutionBudget();
-    feResolveTracedIntoBudget(source, sourcePath, included, out, budget, 0);
+    feResolveTracedIntoBudget(
+        source, sourcePath, included, out, dependencies, budget, 0);
 }
 
 /* Resolve includes/imports for `source` and return the resolved source text
@@ -919,7 +1082,8 @@ void feResolveTracedInto(string source, string sourcePath,
 string feResolveIncludes(string source, string sourcePath) {
     Map<string, bool> included = {};
     Vector<FeLine> out = [];
-    feResolveTracedInto(source, sourcePath, included, out);
+    FeDependencyGraph dependencies = FeDependencyGraph();
+    feResolveTracedInto(source, sourcePath, included, out, dependencies);
     Vector<string> texts = [];
     int i = 0;
     while (i < out.len) {
@@ -991,20 +1155,55 @@ string feGetStdlibSource(string userSource) {
 
 /* ----- top-level entry: compose the full source ---------------------------- */
 
-/* Resolve includes/imports and compose the stdlib, returning the combined
- * source string. Mirrors resolve_frontend_source(...).source with
- * include_stdlib defaulting to true, strict_imports=false. */
+class FeFrontendResolver {
+    public bool includeStdlib;
+    public bool strictImports;
+    public Map<string, bool> included;
+    public FeDependencyGraph dependencies;
+    public FeResolutionBudget budget;
+
+    public FeFrontendResolver(bool includeStdlib, bool strictImports) {
+        self.includeStdlib = includeStdlib;
+        self.strictImports = strictImports;
+        self.included = {};
+        self.dependencies = FeDependencyGraph();
+        self.budget = FeResolutionBudget();
+    }
+
+    public FeResolvedSource resolve(string source, string sourcePath) {
+        Vector<FeLine> userLines = [];
+        feResolveTracedIntoBudget(
+            source, sourcePath, self.included, userLines,
+            self.dependencies, self.budget, 0);
+
+        Vector<string> userTexts = [];
+        int lineIndex = 0;
+        while (lineIndex < userLines.len) {
+            userTexts.push(userLines.get(lineIndex).text);
+            lineIndex++;
+        }
+        string userSource = feJoinLines(userTexts);
+        string stdlibSource = "";
+        if (self.includeStdlib && !self.strictImports) {
+            stdlibSource = feGetStdlibSource(userSource);
+        }
+        string separator = stdlibSource.length() > 0 ? "\n" : "";
+        feCheckCombinedSourceSize(stdlibSource, separator, userSource);
+        string combined = stdlibSource.length() > 0
+            ? stdlibSource + "\n" + userSource : userSource;
+        int stdlibLineCount = stdlibSource.length() > 0
+            ? feSplitLines(stdlibSource).len : 0;
+        return FeResolvedSource(
+            userSource, combined, stdlibSource, userLines, self.dependencies,
+            self.strictImports, stdlibLineCount, feAbsPath(sourcePath));
+    }
+}
+
+/* Compatibility entry for the standalone frontend composition tool. Its
+ * normal path follows the strict compiler default. */
 string feResolveFrontendSource(string source, string sourcePath,
                                bool includeStdlib) {
-    string userSource = feResolveIncludes(source, sourcePath);
-    string stdlibSource = "";
-    if (includeStdlib) {
-        stdlibSource = feGetStdlibSource(userSource);
-    }
-    string separator = stdlibSource.length() > 0 ? "\n" : "";
-    feCheckCombinedSourceSize(stdlibSource, separator, userSource);
-    if (stdlibSource.length() > 0) {
-        return stdlibSource + "\n" + userSource;
-    }
-    return userSource;
+    FeFrontendResolver resolver = FeFrontendResolver(includeStdlib, true);
+    FeResolvedSource resolved = resolver.resolve(source, sourcePath);
+    return resolved.source;
 }

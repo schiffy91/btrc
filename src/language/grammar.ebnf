@@ -154,10 +154,13 @@
   -- Import declaration
   -- ----------------------------------------------------------------
   --
-  -- Imports are resolved by the front-end *after* parsing (see frontend.py):
-  -- each ImportDecl spec is mapped to one or more files whose declarations are
-  -- spliced in. Because import is now a real keyword parsed from the token
-  -- stream, imports inside comments/strings are never resolved.
+  -- Imports are directed visibility dependencies resolved by the front-end.
+  -- Each ImportDecl spec maps to one or more files whose declarations are
+  -- composed once. Strict per-file visibility is the language default; legacy
+  -- btrc #include edges instead join fragments into one compilation unit. See
+  -- docs/language/imports.md for the normative dependency semantics. Because
+  -- import is a real keyword parsed from the token stream, occurrences inside
+  -- comments and strings are never resolved.
 
   import_decl = "import" import_spec [ ";" ] ;
 

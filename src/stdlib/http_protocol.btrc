@@ -1,4 +1,5 @@
 /* Stateless HTTP text codecs and status metadata. */
+import std.http_framing;
 
 class HttpUrl {
     class string decode(string value) {

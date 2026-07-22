@@ -1,0 +1,49 @@
+/* Runtime-helper lookup owned by IR generation and optimization. */
+
+class RuntimeHelperRegistry {
+    private CoreRuntimeCatalog core;
+    private TryCatchRuntimeCatalog tryCatch;
+
+    public RuntimeHelperRegistry() {
+        self.core = CoreRuntimeCatalog();
+        self.tryCatch = TryCatchRuntimeCatalog();
+    }
+
+    public string source(string name) {
+        if (cycleRuntimeHasHelper(name)) {
+            return cycleRuntimeHelperSource(name);
+        }
+        if (stringOwnershipRuntimeHasHelper(name)) {
+            return stringOwnershipRuntimeHelperSource(name);
+        }
+        if (self.tryCatch.has(name)) {
+            return self.tryCatch.source(name);
+        }
+        if (processRuntimeHasHelper(name)) {
+            return processRuntimeHelperSource(name);
+        }
+        if (threadRuntimeHasHelper(name)) {
+            return threadRuntimeHelperSource(name);
+        }
+        return self.core.source(name);
+    }
+
+    public Vector<string> dependencies(string name) {
+        if (cycleRuntimeHasHelper(name)) {
+            return cycleRuntimeHelperDependencies(name);
+        }
+        if (stringOwnershipRuntimeHasHelper(name)) {
+            return stringOwnershipRuntimeHelperDependencies(name);
+        }
+        if (self.tryCatch.has(name)) {
+            return self.tryCatch.dependencies(name);
+        }
+        if (processRuntimeHasHelper(name)) {
+            return processRuntimeHelperDependencies(name);
+        }
+        if (threadRuntimeHasHelper(name)) {
+            return threadRuntimeHelperDependencies(name);
+        }
+        return self.core.dependencies(name);
+    }
+}

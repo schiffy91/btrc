@@ -130,7 +130,7 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
     nodes = _source("ir_nodes.btrc")
     generator = _source("irgen.btrc")
     emitter = _source("emitter.btrc")
-    helper_reachability = _source("helper_reachability.btrc")
+    helper_reachability = _source("ir/runtime/reference_collector.btrc")
     field_schema = nodes[nodes.index("class IRStructField {") : nodes.index("class IRStructDef {")]
 
     assert "public IRNode array_size;" in field_schema
@@ -141,7 +141,7 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
     assert emitter.count("self.structFieldDeclaration(") == 2
     assert "collectStructRefsNode(field.array_size, knownNames, fr);" in generator
     assert "collectStructRefsNode(field.array_size, knownNames, refs);" in generator
-    assert "scanHelpersInNode(field.array_size, used);" in helper_reachability
+    assert "self.collect(field.array_size, used);" in helper_reachability
     assert 'f.name + "["' not in generator
     assert "irExprText" not in generator
 
@@ -185,6 +185,7 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     numeric = _source("numeric_semantics.btrc")
     operators = _source("operator_semantics.btrc")
     helpers = _source("ir_nodes.btrc")
+    runtime = _source("ir/runtime/core_catalog.btrc")
 
     assert main.index('#include "numeric_semantics.btrc"') < main.index('#include "irgen.btrc"')
     assert main.index('#include "operator_semantics.btrc"') < main.index('#include "irgen.btrc"')
@@ -213,11 +214,11 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     assert pointer < nullable < array
     assert "__builtin_choose_expr" not in helpers
     assert "__typeof__" not in helpers
-    assert "#define __btrc_div" in helpers
-    assert "#define __btrc_mod" in helpers
-    assert "__btrc_hash_real" in helpers
+    assert "#define __btrc_div" in runtime
+    assert "#define __btrc_mod" in runtime
+    assert "__btrc_hash_real" in runtime
     for obsolete in ("__btrc_eq", "__btrc_lt", "__btrc_gt", "__btrc_hash"):
-        assert f'if (name == "{obsolete}")' not in helpers
+        assert f'if (name == "{obsolete}")' not in runtime
         assert f'order.push("{obsolete}")' not in helpers
 
 
@@ -249,18 +250,17 @@ def test_cycle_suspect_callable_is_split_from_thread_state() -> None:
 
 
 def test_optional_launder_callable_is_split_from_cleanup_state() -> None:
-    runtime = _source("trycatch_runtime_state.btrc")
-    dependencies = _source("trycatch_runtime_dependencies.btrc")
+    catalog = _source("ir/runtime/trycatch/catalog.btrc")
 
-    assert 'if (name == "__btrc_launder_state")' in runtime
-    assert 'if (name == "__btrc_launder")' in runtime
-    cleanup = dependencies[dependencies.index('else if (name == "__btrc_try_state_cleanup")') :]
+    assert 'self.sources.put("__btrc_launder_state"' in catalog
+    assert 'self.sources.put("__btrc_launder"' in catalog
+    cleanup = catalog[catalog.index('else if (name == "__btrc_try_state_cleanup")') :]
     assert 'out.push("__btrc_launder_state")' in cleanup
     assert 'out.push("__btrc_launder")' not in cleanup
 
 
 def test_selfhost_runtime_helpers_mirror_portable_python_contracts() -> None:
-    helpers = _source("ir_nodes.btrc")
+    helpers = _source("ir/runtime/core_catalog.btrc")
     generator = _source("irgen.btrc")
 
     modulo = helpers[helpers.index('if (name == "__btrc_mod")') : helpers.index('if (name == "__btrc_div_int")')]

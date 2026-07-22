@@ -8,6 +8,7 @@ import sys
 from . import pkg
 from .frontend_c_imports import c_include_directive as _c_include_directive
 from .frontend_limits import ResolutionBudget
+from .frontend_models import SourceDependencyGraph
 from .frontend_path_scan import scan_import_directory
 from .frontend_stdlib import (
     _discover_stdlib_files,
@@ -108,7 +109,7 @@ def _inline_paths(
     abs_path: str,
     line_number: int,
     included: set[str],
-    graph: dict[str, set[str]],
+    graph: SourceDependencyGraph,
     out: list[tuple[str, str, int]],
     budget: ResolutionBudget,
     depth: int,
@@ -116,7 +117,7 @@ def _inline_paths(
     """Splice resolved import/include targets into ``out`` (recursing)."""
     for full_path in paths:
         abs_full = os.path.abspath(full_path)
-        graph[abs_path].add(abs_full)
+        graph.add_import(abs_path, abs_full)
         if full_path.endswith(".c"):
             identity = os.path.normcase(os.path.realpath(abs_full))
             if identity in included:
@@ -141,7 +142,7 @@ def _resolve_traced(
     source: str,
     source_path: str,
     included: set[str],
-    graph: dict[str, set[str]],
+    graph: SourceDependencyGraph,
     budget: ResolutionBudget,
     depth: int,
 ) -> list[tuple[str, str, int]]:
@@ -155,7 +156,7 @@ def _resolve_traced(
     abs_path = os.path.abspath(source_path)
     identity = os.path.normcase(os.path.realpath(abs_path))
     source_dir = os.path.dirname(abs_path)
-    graph.setdefault(abs_path, set())
+    graph.ensure_source(abs_path)
     if identity in included:
         return []  # circular/repeat include guard; caller still recorded the edge
     budget.enter(source, abs_path, depth)
@@ -171,7 +172,7 @@ def _resolve_traced(
         if directive is not None:
             if directive.kind == "btrc_include":
                 full = os.path.abspath(_resolve_include_path(directive.payload, source_dir))
-                graph[abs_path].add(full)
+                graph.add_include(abs_path, full)
                 out.extend(
                     _resolve_traced(
                         _read_import_source(full),
@@ -208,9 +209,9 @@ def _resolve_includes_mapped(
     included: set[str] | None = None,
     *,
     exit_on_error: bool = True,
-) -> tuple[str, list[str], list[tuple[str, int]], dict[str, set[str]]]:
+) -> tuple[str, list[str], list[tuple[str, int]], SourceDependencyGraph]:
     """Resolve imports with both file and original-line mapping."""
-    graph: dict[str, set[str]] = {}
+    graph = SourceDependencyGraph()
     try:
         traced = _resolve_traced(
             source,

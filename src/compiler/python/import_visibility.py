@@ -2,20 +2,20 @@
 
 Reference collection is scope-aware: identifiers bound by an enclosing
 function/method/lambda parameter, local variable declaration, for-loop
-variable, or catch variable are *local* and never treated as references to
-top-level symbols — a local named like a top-level symbol must not demand an
-import. Only expression identifiers are scope-filtered; type references
-(TypeExpr) always name top-level types or generic parameters.
+variable, or catch variable are local and never treated as references to
+top-level symbols. Type references always name top-level types or generic
+parameters.
 """
 
 from __future__ import annotations
 
 import os
-from collections import deque
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import Any
 
 from . import ast_nodes as ast
+from .frontend_models import SourceDependencyGraph
+from .source_macros import source_macro_name
 
 _NAMED_DECLS = (
     ast.ClassDecl,
@@ -25,54 +25,22 @@ _NAMED_DECLS = (
     ast.EnumDecl,
     ast.RichEnumDecl,
     ast.TypedefDecl,
+    ast.VarDeclStmt,
 )
 
 
-def _decl_name(decl: Any) -> str:
-    if isinstance(decl, ast.TypedefDecl):
-        return decl.alias
-    return getattr(decl, "name", "")
+@dataclass(frozen=True)
+class ImportReference:
+    name: str
+    line: int
+    col: int
 
 
-def _line_file(provenance: list[str], line: int) -> str | None:
-    if 1 <= line <= len(provenance):
-        return provenance[line - 1]
-    return None
-
-
-def _canonical_file(path: str) -> str:
-    return os.path.normcase(os.path.realpath(os.path.abspath(path)))
-
-
-def _canonical_graph(graph: dict[str, set[str]]) -> dict[str, set[str]]:
-    canonical: dict[str, set[str]] = {}
-    for source, targets in graph.items():
-        canonical.setdefault(_canonical_file(source), set()).update(_canonical_file(target) for target in targets)
-    return canonical
-
-
-def _reachable_files(start: str, graph: dict[str, set[str]]) -> set[str]:
-    seen = {start}
-    queue = deque(graph.get(start, set()))
-    while queue:
-        path = queue.popleft()
-        if path in seen:
-            continue
-        seen.add(path)
-        queue.extend(graph.get(path, set()) - seen)
-    return seen
-
-
-class _RefCollector:
-    """Walk a declaration collecting top-level name references.
-
-    ``scope`` is a stack of frames holding locally-bound names (params,
-    var-decls, loop/catch variables); identifiers bound in any active frame
-    are skipped.
-    """
+class ImportReferenceCollector:
+    """Collect top-level references while respecting lexical scopes."""
 
     def __init__(self, generic_params: set[str]):
-        self.refs: list[tuple[str, int, int]] = []
+        self.refs: list[ImportReference] = []
         self.generic_params = generic_params
         self.scope: list[set[str]] = [set()]
 
@@ -84,7 +52,7 @@ class _RefCollector:
             return
         if not typename and self._bound(name):
             return
-        self.refs.append((name, line or 1, col or 1))
+        self.refs.append(ImportReference(name, line or 1, col or 1))
 
     def _in_frame(self, names, *nodes) -> None:
         self.scope.append(set(names))
@@ -121,8 +89,11 @@ class _RefCollector:
             self.generic_params = outer
             return
         if isinstance(node, (ast.FunctionDecl, ast.MethodDecl)):
+            outer = self.generic_params
+            self.generic_params = outer | set(getattr(node, "generic_params", []))
             self.visit(node.return_type)
             self._in_frame({p.name for p in node.params}, node.params, node.body)
+            self.generic_params = outer
             return
         if isinstance(node, ast.LambdaExpr):
             self.visit(node.return_type)
@@ -135,7 +106,7 @@ class _RefCollector:
         if isinstance(node, ast.VarDeclStmt):
             self.visit(node.type)
             self.visit(node.initializer)
-            self.scope[-1].add(node.name)  # bound from here on
+            self.scope[-1].add(node.name)
             return
         if isinstance(node, (ast.ForInStmt, ast.ParallelForStmt)):
             self.visit(node.iterable)
@@ -143,11 +114,11 @@ class _RefCollector:
             self._in_frame(names, node.body)
             return
         if isinstance(node, ast.CForStmt):
-            # The init var-decl scopes over condition/update/body.
             self._in_frame((), node.init, node.condition, node.update, node.body)
             return
         if isinstance(node, ast.TryCatchStmt):
             self.visit(node.try_block)
+            self.visit(node.catch_type)
             self._in_frame({node.catch_var}, node.catch_block)
             self.visit(node.finally_block)
             return
@@ -161,59 +132,88 @@ class _RefCollector:
             self.visit(getattr(node, field.name))
 
 
-def _symbol_files(program: ast.Program, provenance: list[str]) -> dict[str, set[str]]:
-    """Every file declaring each top-level name (duplicates keep all files)."""
-    symbols: dict[str, set[str]] = {}
-    for decl in program.declarations:
-        if not isinstance(decl, _NAMED_DECLS):
-            continue
-        name = _decl_name(decl)
-        source_file = _line_file(provenance, getattr(decl, "line", 0))
-        if name and source_file:
-            symbols.setdefault(name, set()).add(_canonical_file(source_file))
-    return symbols
+class ImportVisibilityChecker:
+    """Validate AST references against resolved source dependency reachability."""
 
+    def __init__(
+        self,
+        program: ast.Program,
+        provenance: list[str],
+        graph: SourceDependencyGraph,
+    ):
+        self.program = program
+        self.provenance = provenance
+        self.graph = graph
 
-def check_visibility(
-    program: ast.Program, provenance: list[str], graph: dict[str, set[str]]
-) -> list[tuple[str, int, int]]:
-    """Return import-visibility errors as ``(message, line, col)`` tuples.
+    @staticmethod
+    def _decl_name(decl: Any) -> str:
+        if isinstance(decl, ast.TypedefDecl):
+            return decl.alias
+        return getattr(decl, "name", "")
 
-    A reference is satisfied when *any* file declaring the symbol is the
-    referencing file itself or reachable through its imports.
-    """
-    graph = _canonical_graph(graph)
-    symbol_files = _symbol_files(program, provenance)
-    reachable_cache: dict[str, set[str]] = {}
-    errors: list[tuple[str, int, int]] = []
+    def _line_file(self, line: int) -> str | None:
+        if 1 <= line <= len(self.provenance):
+            return self.provenance[line - 1]
+        return None
 
-    for decl in program.declarations:
-        if not isinstance(decl, _NAMED_DECLS):
-            continue
-        source_file = _line_file(provenance, getattr(decl, "line", 0))
-        if source_file is None:
-            continue
-        display_file = os.path.abspath(source_file)
-        source_file = _canonical_file(source_file)
-        reachable = reachable_cache.setdefault(source_file, _reachable_files(source_file, graph))
-        collector = _RefCollector(set(getattr(decl, "generic_params", [])))
-        collector.visit(decl)
-
-        seen_refs: set[tuple[str, int, int]] = set()
-        for name, line, col in collector.refs:
-            ref_key = (name, line, col)
-            if ref_key in seen_refs:
+    def _symbol_files(self) -> dict[str, set[str]]:
+        symbols: dict[str, set[str]] = {}
+        for decl in self.program.declarations:
+            if isinstance(decl, ast.PreprocessorDirective):
+                name = source_macro_name(decl.text) or ""
+            elif isinstance(decl, _NAMED_DECLS):
+                name = self._decl_name(decl)
+            else:
                 continue
-            seen_refs.add(ref_key)
-            declaring = symbol_files.get(name)
-            if not declaring or declaring & reachable:
+            source_file = self._line_file(getattr(decl, "line", 0))
+            if not source_file:
                 continue
-            shown = os.path.basename(sorted(declaring)[0])
-            errors.append(
-                (
-                    f"'{name}' is defined in {shown} but {os.path.basename(display_file)} does not import it",
-                    line,
-                    col,
-                )
+            canonical_file = SourceDependencyGraph.canonical_file(source_file)
+            if name:
+                symbols.setdefault(name, set()).add(canonical_file)
+            if isinstance(decl, ast.EnumDecl):
+                for value in decl.values:
+                    if value.name:
+                        symbols.setdefault(value.name, set()).add(canonical_file)
+        return symbols
+
+    def check(self) -> list[tuple[str, int, int]]:
+        """Return visibility failures as ``(message, line, col)`` tuples."""
+
+        symbol_files = self._symbol_files()
+        reachable_cache: dict[str, set[str]] = {}
+        errors: list[tuple[str, int, int]] = []
+
+        for decl in self.program.declarations:
+            if not isinstance(decl, _NAMED_DECLS):
+                continue
+            source_file = self._line_file(getattr(decl, "line", 0))
+            if source_file is None:
+                continue
+            display_file = os.path.abspath(source_file)
+            canonical_file = SourceDependencyGraph.canonical_file(source_file)
+            reachable = reachable_cache.setdefault(
+                canonical_file,
+                self.graph.visibility_reachable(canonical_file),
             )
-    return errors
+            collector = ImportReferenceCollector(set(getattr(decl, "generic_params", [])))
+            collector.visit(decl)
+
+            seen_refs: set[ImportReference] = set()
+            for reference in collector.refs:
+                if reference in seen_refs:
+                    continue
+                seen_refs.add(reference)
+                declaring = symbol_files.get(reference.name)
+                if not declaring or declaring & reachable:
+                    continue
+                owner = os.path.basename(sorted(declaring)[0])
+                errors.append(
+                    (
+                        f"'{reference.name}' is defined in {owner} but "
+                        f"{os.path.basename(display_file)} does not import it",
+                        reference.line,
+                        reference.col,
+                    )
+                )
+        return errors

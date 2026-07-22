@@ -32,7 +32,7 @@ from .frontend_stdlib import (
     get_stdlib_source,
     get_stdlib_source_mapped,
 )
-from .import_visibility import check_visibility
+from .import_visibility import ImportVisibilityChecker
 from .lexer import Lexer
 from .parser.parser import Parser
 from .source_provenance import compiler_stdlib_source, stamp_nested_declaration_sources
@@ -73,7 +73,7 @@ def resolve_frontend_source(
     source_path: str,
     *,
     include_stdlib: bool = True,
-    strict_imports: bool = False,
+    strict_imports: bool = True,
     map_stdlib_positions: bool = False,
     profile: dict[str, float] | None = None,
 ) -> FrontendSource:
@@ -169,9 +169,7 @@ def _compiler_resolved_stdlib_import(
             return False
     except (OSError, ValueError):
         return False
-    return any(
-        canonical == os.path.realpath(imported) for imports in frontend_source.graph.values() for imported in imports
-    )
+    return frontend_source.graph.has_target(canonical)
 
 
 def lex_parse_frontend_source(
@@ -225,7 +223,11 @@ def lex_parse_frontend_source(
         _timed(profile, "parse", start)
 
     if frontend_source.strict_imports:
-        errors = check_visibility(program, frontend_source.provenance, frontend_source.graph)
+        errors = ImportVisibilityChecker(
+            program,
+            frontend_source.provenance,
+            frontend_source.graph,
+        ).check()
         if errors:
             raise FrontendVisibilityError(errors)
 
@@ -250,7 +252,7 @@ def compile_frontend(
     *,
     filename: str | None = None,
     include_stdlib: bool = True,
-    strict_imports: bool = False,
+    strict_imports: bool = True,
     use_ast_cache: bool = True,
     map_stdlib_positions: bool = False,
     debug: bool = False,

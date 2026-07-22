@@ -17,6 +17,9 @@ from src.compiler.python.ir.optimizer import optimize
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 COLLECTION_SOURCE = r"""
+import std.map;
+import std.set;
+import std.vector;
 #include <assert.h>
 int main() {
     Vector<int> indexed = [1, 2];

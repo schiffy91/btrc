@@ -39,7 +39,7 @@ EXPECTED_OPERATION_HELPERS = (
 )
 
 _BRANCH_START_PATTERN = re.compile(
-    r"^    (?:\} )?(?:else )?if \((.*?)\) \{",
+    r"^[ \t]+(?:\} )?(?:else )?if \((.*?)\) \{",
     re.MULTILINE | re.DOTALL,
 )
 
@@ -101,17 +101,18 @@ def test_common_helpers_precede_public_string_operations():
 
 def test_self_hosted_string_helper_source_exactly_matches_python_registry():
     ir_source = Path("src/compiler/btrc/ir_nodes.btrc").read_text()
+    core_catalog = Path("src/compiler/btrc/ir/runtime/core_catalog.btrc").read_text()
     ownership_runtime = Path("src/compiler/btrc/string_runtime_helpers.btrc").read_text()
     ownership_source = ownership_runtime.split("Vector<string> stringOwnershipRuntimeHelperDependencies", 1)[0]
     blocks: dict[str, str] = {}
     pattern = re.compile(
-        r'^    if \(name == "([^"]+)"\) \{\n(.*?)^    \}',
+        r'^([ \t]+)if \(name == "([^"]+)"\) \{\n(.*?)^\1\}',
         re.MULTILINE | re.DOTALL,
     )
-    for source in (ir_source, ownership_source):
+    for source in (core_catalog, ownership_source):
         for match in pattern.finditer(source):
-            literals = re.findall(r'"(?:\\.|[^"\\])*"', match.group(2))
-            blocks[match.group(1)] = "".join(ast.literal_eval(item) for item in literals)
+            literals = re.findall(r'"(?:\\.|[^"\\])*"', match.group(3))
+            blocks[match.group(2)] = "".join(ast.literal_eval(item) for item in literals)
 
     for name, helper in (STRING_OWNERSHIP | STRING_POOL | STRING).items():
         assert blocks.get(name) == helper.c_source, name
@@ -134,7 +135,7 @@ def test_self_hosted_string_helper_source_exactly_matches_python_registry():
     for name, helper in ownership_runtime_helpers.items():
         assert header_map.get(name, []) == helper.required_headers, name
 
-    helper_dependencies = ir_source.split("Vector<string> helperDeps", 1)[1].split("Vector<string> helperHeaders", 1)[0]
+    helper_dependencies = core_catalog.split("public Vector<string> dependencies", 1)[1]
     helper_dependency_map = _named_branch_values(helper_dependencies, r'out\.push\("([^"]+)"\)')
     for name, helper in STRING.items():
         if name not in {"__btrc_string_or_empty", "__btrc_string_alloc"}:

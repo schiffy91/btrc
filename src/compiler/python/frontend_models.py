@@ -2,12 +2,110 @@
 
 import hashlib
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import cached_property
 
 from .analyzer.core import AnalyzedProgram
 from .ast_nodes import Program
 from .tokens import Token
+
+
+class SourceDependencyKind(Enum):
+    """The source-composition relationship represented by a graph edge."""
+
+    IMPORT = "import"
+    INCLUDE = "include"
+
+
+@dataclass(frozen=True)
+class SourceDependency:
+    """One typed outgoing dependency from a source file."""
+
+    target: str
+    kind: SourceDependencyKind
+
+
+@dataclass
+class SourceDependencyGraph:
+    """Typed source graph with language visibility semantics.
+
+    ``import`` is directed. Legacy btrc ``#include`` composes both files into
+    one compilation unit, so visibility traversal treats include edges as
+    reciprocal while retaining their distinct edge kind here.
+    """
+
+    _outgoing: dict[str, set[SourceDependency]] = field(default_factory=dict)
+
+    @staticmethod
+    def canonical_file(path: str) -> str:
+        return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+    def ensure_source(self, source: str) -> None:
+        self._outgoing.setdefault(os.path.abspath(source), set())
+
+    def add(self, source: str, target: str, kind: SourceDependencyKind) -> None:
+        source = os.path.abspath(source)
+        target = os.path.abspath(target)
+        self.ensure_source(source)
+        self.ensure_source(target)
+        self._outgoing[source].add(SourceDependency(target, kind))
+
+    def add_import(self, source: str, target: str) -> None:
+        self.add(source, target, SourceDependencyKind.IMPORT)
+
+    def add_include(self, source: str, target: str) -> None:
+        self.add(source, target, SourceDependencyKind.INCLUDE)
+
+    def dependencies_from(self, source: str) -> frozenset[SourceDependency]:
+        return frozenset(self._outgoing.get(os.path.abspath(source), ()))
+
+    def iter_edges(self) -> Iterator[tuple[str, SourceDependency]]:
+        for source, dependencies in self._outgoing.items():
+            for dependency in dependencies:
+                yield source, dependency
+
+    def has_target(self, target: str) -> bool:
+        canonical_target = self.canonical_file(target)
+        return any(self.canonical_file(dependency.target) == canonical_target for _, dependency in self.iter_edges())
+
+    def cache_records(self) -> tuple[tuple[str, str, str], ...]:
+        """Canonical, deterministic edge records for artifact identities."""
+
+        return tuple(
+            sorted(
+                (
+                    self.canonical_file(source),
+                    dependency.kind.value,
+                    self.canonical_file(dependency.target),
+                )
+                for source, dependency in self.iter_edges()
+            )
+        )
+
+    def visibility_reachable(self, start: str) -> set[str]:
+        """Return files visible from ``start`` under import/include rules."""
+
+        adjacency: dict[str, set[str]] = {}
+        for source, dependency in self.iter_edges():
+            canonical_source = self.canonical_file(source)
+            canonical_target = self.canonical_file(dependency.target)
+            adjacency.setdefault(canonical_source, set()).add(canonical_target)
+            adjacency.setdefault(canonical_target, set())
+            if dependency.kind is SourceDependencyKind.INCLUDE:
+                adjacency[canonical_target].add(canonical_source)
+
+        canonical_start = self.canonical_file(start)
+        seen = {canonical_start}
+        pending = list(adjacency.get(canonical_start, ()))
+        while pending:
+            path = pending.pop()
+            if path in seen:
+                continue
+            seen.add(path)
+            pending.extend(adjacency.get(path, ()) - seen)
+        return seen
 
 
 @dataclass
@@ -19,8 +117,8 @@ class FrontendSource:
     stdlib_source: str = ""
     provenance: list[str] = field(default_factory=list)
     source_positions: list[tuple[str, int]] = field(default_factory=list)
-    graph: dict[str, set[str]] = field(default_factory=dict)
-    strict_imports: bool = False
+    graph: SourceDependencyGraph = field(default_factory=SourceDependencyGraph)
+    strict_imports: bool = True
     root_source_path: str = ""
 
     @cached_property
@@ -102,12 +200,16 @@ class FrontendSource:
             digest.update(len(encoded).to_bytes(8, "big"))
             digest.update(encoded)
 
-        add_text("btrc-source-provenance-v1")
+        add_text("btrc-source-provenance-v2")
         add_text(self.root_source_path)
         for source_file, native_line in self.source_positions:
             normalized = os.path.abspath(source_file) if os.path.exists(source_file) else source_file
             add_text(normalized)
             digest.update(int(native_line).to_bytes(8, "big", signed=True))
+        for source, kind, target in self.graph.cache_records():
+            add_text(source)
+            add_text(kind)
+            add_text(target)
         return digest.hexdigest()
 
 
@@ -140,7 +242,7 @@ class FrontendResult:
     user_program: Program | None = None
     provenance: list[str] = field(default_factory=list)
     source_positions: list[tuple[str, int]] = field(default_factory=list)
-    graph: dict[str, set[str]] = field(default_factory=dict)
+    graph: SourceDependencyGraph = field(default_factory=SourceDependencyGraph)
 
 
 class FrontendVisibilityError(Exception):

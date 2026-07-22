@@ -110,7 +110,8 @@ def main():
     # Check disk cache (only for default compilation, not debug/emit modes).
     # --stdlib produces different output for the same source (program-only,
     # partitioned against the archive), so it must not share the default cache.
-    cache_source = f"strict-imports\0{source}" if args.strict_imports else source
+    import_mode = "strict" if args.strict_imports else "relaxed"
+    cache_source = f"import-mode={import_mode}\0{source}"
     cache_source_identity = frontend_source.cache_identity()
     use_cache = (
         not args.no_cache

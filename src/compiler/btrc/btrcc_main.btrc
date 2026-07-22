@@ -3,16 +3,19 @@
  * Composes the full pipeline (front-end -> lexer -> parser -> analyzer ->
  * IR gen -> emitter) and prints C source to stdout.
  *
- * By default the front-end composes the stdlib and resolves #include/import
- * directives (byte-identical source to `btrcpy`); `--no-stdlib` reads a single
- * file raw (the original behavior, matching `btrcpy --no-stdlib`).
+ * Strict per-file imports are the default. Legacy #include fragments share a
+ * compilation unit; language imports remain directed. --relaxed-imports is
+ * the explicit compatibility mode that auto-composes the stdlib.
  *
  * Usage:
- *   btrcc <file.btrc>              # stdlib auto-composed + includes resolved
- *   btrcc --no-stdlib <file.btrc>  # explicit imports only (no implicit stdlib)
+ *   btrcc <file.btrc>              # strict imports (default)
+ *   btrcc --relaxed-imports <file.btrc> # legacy implicit stdlib visibility
+ *   btrcc --no-stdlib <file.btrc>  # disable relaxed stdlib auto-composition
  *   btrcc --no-dce <file.btrc>     # preserve every emitted declaration
  *   btrcc --stdlib-dir             # print the active stdlib directory
  */
+
+import std.*;
 
 #include "tokens.btrc"
 #include "ast/node.btrc"
@@ -44,6 +47,7 @@
 #include "operator_semantics.btrc"
 #include "source_runtime_symbols.btrc"
 #include "source_macro_symbols.btrc"
+#include "import_visibility.btrc"
 #include "source_macro_call_shapes.btrc"
 #include "generated/hosted_abi/tables.btrc"
 #include "hosted_abi.btrc"
@@ -135,11 +139,7 @@
 #include "cycle_runtime_dependencies_lifecycle.btrc"
 #include "cycle_runtime_helpers.btrc"
 #include "string_runtime_helpers.btrc"
-#include "trycatch_runtime_state.btrc"
-#include "trycatch_runtime_cleanup.btrc"
-#include "trycatch_runtime_control.btrc"
-#include "trycatch_runtime_dependencies.btrc"
-#include "trycatch_runtime_helpers.btrc"
+#include "ir/runtime/trycatch/catalog.btrc"
 #include "process_runtime.btrc"
 #include "thread_runtime_threads.btrc"
 #include "thread_runtime_mutex_core.btrc"
@@ -148,13 +148,15 @@
 #include "thread_runtime_helpers.btrc"
 #include "cleanup_ir.btrc"
 #include "ir_nodes.btrc"
+#include "ir/runtime/core_catalog.btrc"
+#include "ir/runtime/registry.btrc"
+#include "ir/runtime/reference_collector.btrc"
 #include "ir_completion.btrc"
 #include "gpu_ir_nodes.btrc"
 #include "ir_top_nodes.btrc"
 #include "destructor_hooks.btrc"
 #include "preprocessor_ir.btrc"
 #include "typedef_lowering.btrc"
-#include "helper_reachability.btrc"
 #include "global_reachability.btrc"
 #include "function_symbols.btrc"
 #include "default_argument_literals.btrc"
@@ -279,33 +281,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     string raw = feReadRequiredSource(path);
-    /* Includes/imports are always explicit source dependencies. --no-stdlib
-     * disables only implicit stdlib composition, matching btrcpy. */
-    Map<string, bool> includedSourceFiles = {};
-    Vector<FeLine> userLines = [];
-    feResolveTracedInto(raw, path, includedSourceFiles, userLines);
-    Vector<string> userTexts = [];
-    int userLineIndex = 0;
-    while (userLineIndex < userLines.len) {
-        userTexts.push(userLines.get(userLineIndex).text);
-        userLineIndex = userLineIndex + 1;
-    }
-    string userSource = feJoinLines(userTexts);
-    string src = userSource;
-    int stdlibLineCount = 0;
-    if (options.includeStdlib) {
-        string stdlibSource = feGetStdlibSource(userSource);
-        if (stdlibSource != "") {
-            stdlibLineCount = feSplitLines(stdlibSource).len;
-            feCheckCombinedSourceSize(stdlibSource, "\n", userSource);
-            src = stdlibSource + "\n" + userSource;
-        } else {
-            feCheckCombinedSourceSize("", "", userSource);
-        }
-    } else {
-        feCheckCombinedSourceSize("", "", userSource);
-    }
-    Lexer lx = Lexer(src, g);
+    FeFrontendResolver resolver = FeFrontendResolver(
+        options.includeStdlib, options.strictImports);
+    FeResolvedSource resolved = resolver.resolve(raw, path);
+    Lexer lx = Lexer(resolved.source, g);
     Vector<Token> toks = lx.tokenize();
     if (lx.failed) {
         fprintf(stderr, "error: %s\n", lx.diagnostic);
@@ -317,12 +296,27 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error: %s\n", p.diagnostic);
         return 1;
     }
-    hostedAbiStampProgramSources(prog, stdlibLineCount, userLines, path);
+    if (options.strictImports) {
+        FeImportVisibilityChecker visibility =
+            FeImportVisibilityChecker(prog, resolved);
+        Vector<FeVisibilityDiagnostic> diagnostics = visibility.check();
+        if (diagnostics.len > 0) {
+            int diagnosticIndex = 0;
+            while (diagnosticIndex < diagnostics.len) {
+                fprintf(stderr, "%s\n", diagnostics.get(diagnosticIndex).render());
+                diagnosticIndex++;
+            }
+            return 1;
+        }
+    }
+    hostedAbiStampProgramSources(
+        prog, resolved.stdlibLineCount, resolved.userLines, path);
 
     Analyzed a = analyzeProgram(prog);
     semanticValidateProgram(prog, a);
     closeProgramGenericExpressionGraph(prog, a);
-    IRGen gen = IRGen(a, path, stdlibLineCount, userLines);
+    IRGen gen = IRGen(
+        a, path, resolved.stdlibLineCount, resolved.userLines);
     gen.dceEnabled = options.runDce;
     IRModule m = gen.generate(prog);
     CEmitter em = CEmitter();

@@ -1,6 +1,10 @@
 /* HTTP/1.1 server lifecycle, request parsing, and response emission. */
 import std.bytes;
+import std.http_framing;
+import std.http_protocol;
 import std.http_response_headers;
+import std.http_socket;
+import std.http_types;
 import std.strings;
 import std.vector;
 

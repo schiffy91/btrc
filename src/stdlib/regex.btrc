@@ -36,6 +36,7 @@
  * Auto-included; depends only on libc and Vector.
  */
 
+import std.strings;
 import std.vector;
 
 #include <regex.h>

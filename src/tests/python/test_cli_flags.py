@@ -42,6 +42,7 @@ def compile_btrc(tmp_path, monkeypatch, source, *flags, name="prog"):
 PURE = "int sq(int n) { return n * n; }\nint main() { return sq(7); }\n"
 PRINTS = 'int main() { print("hi"); return 0; }\n'
 USES_VECTOR = (
+    "import std.vector;\n"
     "int main() { Vector<int> v = [1, 2, 3]; v.push(4);\n  int t = 0; for x in v { t = t + x; } print(t); return 0; }\n"
 )
 USES_THREAD = "int main() { Thread<int> t = spawn(() => 42); return t.join() == 42 ? 0 : 1; }\n"
@@ -176,8 +177,15 @@ def test_dce_keeps_one_liner_small(tmp_path, monkeypatch):
 
 
 def test_no_dce_emits_full_stdlib(tmp_path, monkeypatch):
-    lean, _ = compile_btrc(tmp_path, monkeypatch, PRINTS, name="lean")
-    full, _ = compile_btrc(tmp_path, monkeypatch, PRINTS, "--no-dce", name="full")
+    lean, _ = compile_btrc(tmp_path, monkeypatch, PRINTS, "--relaxed-imports", name="lean")
+    full, _ = compile_btrc(
+        tmp_path,
+        monkeypatch,
+        PRINTS,
+        "--relaxed-imports",
+        "--no-dce",
+        name="full",
+    )
     assert len(full.splitlines()) > 3 * len(lean.splitlines())
 
 

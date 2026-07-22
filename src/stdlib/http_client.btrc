@@ -1,4 +1,5 @@
 /* HTTPS-capable curl client and platform browser launcher. */
+import std.http_framing;
 import std.process;
 import std.strings;
 import std.vector;

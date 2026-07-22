@@ -1,5 +1,6 @@
 /* HTTP request and response value types. */
 import std.bytes;
+import std.http_protocol;
 import std.map;
 import std.strings;
 import std.vector;
@@ -44,11 +45,11 @@ class HttpRequest {
             if (pair.isEmpty()) { continue; }
             int eq = Strings.find(pair, "=", 0);
             if (eq < 0) {
-                out.put(HttpServer.urlDecode(pair), "");
+                out.put(HttpUrl.decode(pair), "");
             } else {
                 string k = pair.substring(0, eq);
                 string v = pair.substring(eq + 1, pair.len() - (eq + 1));
-                out.put(HttpServer.urlDecode(k), HttpServer.urlDecode(v));
+                out.put(HttpUrl.decode(k), HttpUrl.decode(v));
             }
         }
         return out;

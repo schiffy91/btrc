@@ -3,6 +3,7 @@
 class BtrccOptions {
     public bool valid;
     public bool includeStdlib;
+    public bool strictImports;
     public bool runDce;
     public bool showHelp;
     public bool showStdlibDirectory;
@@ -12,6 +13,7 @@ class BtrccOptions {
     public BtrccOptions() {
         self.valid = true;
         self.includeStdlib = true;
+        self.strictImports = true;
         self.runDce = true;
         self.showHelp = false;
         self.showStdlibDirectory = false;
@@ -22,8 +24,15 @@ class BtrccOptions {
 
 class BtrccDriverOptions {
     class string usage() {
-        return "usage: btrcc [--no-stdlib] [--no-dce] [--] <file.btrc>\n"
-            + "       btrcc --stdlib-dir";
+        return "usage: btrcc [--strict-imports | --relaxed-imports] "
+            + "[--no-stdlib] [--no-dce] [--] <file.btrc>\n"
+            + "       btrcc --stdlib-dir\n\n"
+            + "Strict imports are the default; --strict-imports explicitly "
+            + "asserts that mode.\n"
+            + "--relaxed-imports enables legacy implicit cross-file visibility "
+            + "and stdlib composition.\n"
+            + "--no-stdlib disables relaxed stdlib composition; explicit "
+            + "imports still resolve.";
     }
 
     class BtrccOptions invalid(BtrccOptions options, string diagnostic) {
@@ -35,10 +44,27 @@ class BtrccDriverOptions {
     class BtrccOptions parse(int argc, char** argv) {
         BtrccOptions options = new BtrccOptions();
         int index = 1;
+        int importMode = 0;
         while (index < argc) {
             string option = Strings.copy(argv[index]);
             if (option.equals("--no-stdlib")) {
                 options.includeStdlib = false;
+            } else if (option.equals("--strict-imports")) {
+                if (importMode < 0) {
+                    return BtrccDriverOptions.invalid(
+                        options,
+                        "--strict-imports cannot be combined with --relaxed-imports");
+                }
+                importMode = 1;
+                options.strictImports = true;
+            } else if (option.equals("--relaxed-imports")) {
+                if (importMode > 0) {
+                    return BtrccDriverOptions.invalid(
+                        options,
+                        "--relaxed-imports cannot be combined with --strict-imports");
+                }
+                importMode = -1;
+                options.strictImports = false;
             } else if (option.equals("--no-dce")) {
                 options.runDce = false;
             } else if (option.equals("--stdlib-dir")) {

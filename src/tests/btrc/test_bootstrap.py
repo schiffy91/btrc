@@ -103,7 +103,16 @@ def _transpile_with_python(project_root: str, data_root: str, in_btrc: str, out_
     # sys.executable: under xdist the worker can be a Nix env-wrapper path that
     # is not directly executable from a subprocess.
     r = _run(
-        [*PYTHON, "-m", "src.compiler.python.main", in_btrc, "--no-cache", "-o", out_c],
+        [
+            *PYTHON,
+            "-m",
+            "src.compiler.python.main",
+            in_btrc,
+            "--strict-imports",
+            "--no-cache",
+            "-o",
+            out_c,
+        ],
         cwd=project_root,
         env={**os.environ, "BTRC_HOME": data_root, "PYTHONPATH": project_root},
         timeout=BOOTSTRAP_TIMEOUT,
@@ -127,7 +136,7 @@ def _btrcc(binary: str, in_btrc: str, out_c: str, *, data_root: str, workdir: st
     output = os.path.join(REPO, out_c)
     with open(output, "w") as generated:
         r = _run_process(
-            [binary, in_btrc],
+            [binary, "--strict-imports", in_btrc],
             cwd=workdir,
             env={**os.environ, "BTRC_HOME": data_root},
             stdout=generated,

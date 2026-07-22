@@ -17,10 +17,9 @@ from src.compiler.python.ir.helpers.trycatch import TRYCATCH
 
 AUDITED = {name: helper for name, helper in (ALLOC | DIVMOD | MATH | TRYCATCH | HASH | CYCLES | THREADS).items()}
 MIRROR = Path("src/compiler/btrc/ir_nodes.btrc")
-TRYCATCH_SOURCE_MIRRORS = tuple(
-    Path(f"src/compiler/btrc/trycatch_runtime_{suffix}.btrc") for suffix in ("state", "cleanup", "control")
-)
-TRYCATCH_DEPENDENCY_MIRROR = Path("src/compiler/btrc/trycatch_runtime_dependencies.btrc")
+RUNTIME_REGISTRY = Path("src/compiler/btrc/ir/runtime/registry.btrc")
+CORE_CATALOG = Path("src/compiler/btrc/ir/runtime/core_catalog.btrc")
+TRYCATCH_CATALOG = Path("src/compiler/btrc/ir/runtime/trycatch/catalog.btrc")
 CYCLE_SOURCE_MIRRORS = tuple(
     Path(f"src/compiler/btrc/cycle_runtime_{suffix}.btrc")
     for suffix in (
@@ -55,23 +54,28 @@ THREAD_DEPENDENCY_MIRROR = Path("src/compiler/btrc/thread_runtime_helpers.btrc")
 def _self_hosted_sources(source: str) -> dict[str, str]:
     blocks: dict[str, str] = {}
     pattern = re.compile(
-        r'^    if \(name == "([^"]+)"\) \{\n(.*?)^    \}',
+        r'^([ \t]+)if \(name == "([^"]+)"\) \{\n(.*?)^\1\}',
         re.MULTILINE | re.DOTALL,
     )
     for match in pattern.finditer(source):
-        literals = re.findall(r'"(?:\\.|[^"\\])*"', match.group(2))
-        blocks[match.group(1)] = "".join(ast.literal_eval(item) for item in literals)
+        literals = re.findall(r'"(?:\\.|[^"\\])*"', match.group(3))
+        blocks[match.group(2)] = "".join(ast.literal_eval(item) for item in literals)
     return blocks
 
 
 def _mirrored_sources() -> dict[str, str]:
-    mirrored = _self_hosted_sources(MIRROR.read_text())
-    for path in (
-        *TRYCATCH_SOURCE_MIRRORS,
-        *CYCLE_SOURCE_MIRRORS,
-        *THREAD_SOURCE_MIRRORS,
-    ):
+    mirrored = _self_hosted_sources(CORE_CATALOG.read_text())
+    for path in (*CYCLE_SOURCE_MIRRORS, *THREAD_SOURCE_MIRRORS):
         mirrored.update(_self_hosted_sources(path.read_text()))
+    catalog = TRYCATCH_CATALOG.read_text()
+    pattern = re.compile(
+        r'^        self\.sources\.put\("([^"]+)",\n(.*?)'
+        r"(?=^        self\.sources\.put\(|^    \})",
+        re.MULTILINE | re.DOTALL,
+    )
+    for match in pattern.finditer(catalog):
+        literals = re.findall(r'"(?:\\.|[^"\\])*"', match.group(2))
+        mirrored[match.group(1)] = "".join(ast.literal_eval(item) for item in literals)
     return mirrored
 
 
@@ -98,12 +102,23 @@ def test_runtime_helpers_do_not_aggregate_initialize_local_error_buffers():
     assert not offenders
 
 
+def test_trycatch_catalog_is_instance_owned_by_runtime_registry():
+    catalog = TRYCATCH_CATALOG.read_text()
+    registry = RUNTIME_REGISTRY.read_text()
+
+    assert "class TryCatchRuntimeCatalog" in catalog
+    assert "private Map<string, string> sources;" in catalog
+    assert "private CoreRuntimeCatalog core;" in registry
+    assert "private TryCatchRuntimeCatalog tryCatch;" in registry
+    assert "self.core = CoreRuntimeCatalog();" in registry
+    assert "self.tryCatch = TryCatchRuntimeCatalog();" in registry
+    assert "trycatchRuntime" not in catalog + registry
+
+
 def test_split_runtime_families_have_no_legacy_helper_branches():
-    source = MIRROR.read_text()
-    helper_sources = source[source.index("string helperSource") : source.index("Vector<string> helperDeps")]
-    helper_dependencies = source[
-        source.index("Vector<string> helperDeps") : source.index("Vector<string> helperHeaders")
-    ]
+    source = CORE_CATALOG.read_text()
+    helper_sources = source[source.index("public string source") : source.index("public Vector<string> dependencies")]
+    helper_dependencies = source[source.index("public Vector<string> dependencies") :]
 
     for name in set(CYCLES) | set(TRYCATCH) | set(THREADS):
         marker = f'if (name == "{name}")'
@@ -112,9 +127,9 @@ def test_split_runtime_families_have_no_legacy_helper_branches():
 
 
 def test_self_hosted_dependency_edges_cover_checked_runtime_roots():
-    source = MIRROR.read_text()
+    source = CORE_CATALOG.read_text()
     cycle_source = "\n".join(path.read_text() for path in CYCLE_DEPENDENCY_MIRRORS)
-    trycatch_source = TRYCATCH_DEPENDENCY_MIRROR.read_text()
+    trycatch_source = TRYCATCH_CATALOG.read_text()
     thread_source = THREAD_DEPENDENCY_MIRROR.read_text()
     required_edges = {
         "__btrc_math_lcm": "__btrc_math_gcd",
@@ -176,7 +191,7 @@ def test_self_hosted_dependency_edges_cover_checked_runtime_roots():
         elif helper in THREADS:
             dependency_source = thread_source[thread_source.index("threadRuntimeHelperDependencies") :]
         else:
-            dependency_source = source[source.index("helperDeps") :]
+            dependency_source = source[source.index("public Vector<string> dependencies") :]
         marker = f'if (name == "{helper}")'
         start = dependency_source.index(marker)
         next_if = dependency_source.find("if (name ==", start + len(marker))

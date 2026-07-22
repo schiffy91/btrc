@@ -80,7 +80,7 @@ WIN_COMPAT := -I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h
 
 $(BTRCC_C): $(BTRCC_INPUTS) | hosted-abi-check
 	@mkdir -p dist
-	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/btrcc_main.btrc --no-cache -o $(BTRCC_C)
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/btrcc_main.btrc --strict-imports --no-cache -o $(BTRCC_C)
 
 btrcc-release-c: generated-check
 	$(MAKE) --no-print-directory $(BTRCC_C)
