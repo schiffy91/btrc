@@ -108,7 +108,10 @@ def test_extension_packaging_stages_lsp_payload(tmp_path):
     bundle_root = module.prepare(ext_dir=ext_dir, repo_root=REPO_ROOT)
 
     assert (bundle_root / "src" / "devex" / "lsp" / "server.py").exists()
-    assert (bundle_root / "src" / "compiler" / "python" / "frontend.py").exists()
+    compiler_root = bundle_root / "src" / "compiler" / "python"
+    assert (compiler_root / "compiler.py").exists()
+    assert (compiler_root / "pipeline" / "pipeline.py").exists()
+    assert (compiler_root / "frontend" / "resolver.py").exists()
     assert not (bundle_root / "src" / "compiler" / "btrc").exists()
     assert (bundle_root / "src" / "language" / "grammar.ebnf").exists()
     assert (bundle_root / "src" / "stdlib" / "process.btrc").exists()

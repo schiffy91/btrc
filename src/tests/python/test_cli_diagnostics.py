@@ -2,12 +2,11 @@
 native line/col and quote that file's source line, identically in both cache
 modes (default stdlib-AST cache and --no-cache combined-source parse)."""
 
-import sys
-
 import pytest
 
-from src.compiler.python import main as m
+from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.analyzer.core import Diag
+from src.compiler.python.cli.compiler_cli import CompilerCLI
 
 MODES = pytest.mark.parametrize("mode", [[], ["--no-cache"]], ids=["default", "no-cache"])
 
@@ -27,9 +26,8 @@ def write(path, content):
 def compile_err(monkeypatch, capsys, workdir, argv):
     """Drive main() in-process, expect failure, return stderr."""
     monkeypatch.chdir(workdir)
-    monkeypatch.setattr(sys, "argv", ["btrc"] + argv + ["-o", "/dev/null"])
     with pytest.raises(SystemExit):
-        m.main()
+        CompilerCLI().run([*argv, "-o", "/dev/null"])
     return capsys.readouterr().err
 
 
@@ -67,7 +65,7 @@ def test_analyzer_error_identical_across_modes(tmp_path, monkeypatch, capsys, wo
 def test_message_containing_at_survives(tmp_path, monkeypatch, capsys, workdir):
     src = write(tmp_path / "at.btrc", "int main() { return 0; }\n")
     msg = "variable shadows a parameter declared at 3:1"
-    real = m.Analyzer.analyze
+    real = Analyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
@@ -75,7 +73,7 @@ def test_message_containing_at_survives(tmp_path, monkeypatch, capsys, workdir):
         result.diags.append(Diag(msg, 1, 5, "error", None))
         return result
 
-    monkeypatch.setattr(m.Analyzer, "analyze", fake)
+    monkeypatch.setattr(Analyzer, "analyze", fake)
     err = compile_err(monkeypatch, capsys, workdir, [src])
     assert msg in err  # full message intact, " at 3:1" tail not stripped
     assert f"--> {src}:1:5" in err  # position comes from the Diag, not the text
@@ -83,7 +81,7 @@ def test_message_containing_at_survives(tmp_path, monkeypatch, capsys, workdir):
 
 def test_warning_diag_native_position(tmp_path, monkeypatch, capsys, workdir):
     src = write(tmp_path / "w.btrc", 'int main() { print("OK"); return 0; }\n')
-    real = m.Analyzer.analyze
+    real = Analyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
@@ -91,11 +89,10 @@ def test_warning_diag_native_position(tmp_path, monkeypatch, capsys, workdir):
         result.diags.append(Diag("suspicious cast", 1, 14, "warning", None))
         return result
 
-    monkeypatch.setattr(m.Analyzer, "analyze", fake)
+    monkeypatch.setattr(Analyzer, "analyze", fake)
     monkeypatch.chdir(workdir)
     # Default (split-space) mode: injected diag lines are user-source native.
-    monkeypatch.setattr(sys, "argv", ["btrc", src, "-o", "/dev/null"])
-    m.main()  # warnings do not abort
+    CompilerCLI().run([src, "-o", "/dev/null"])  # warnings do not abort
     err = capsys.readouterr().err
     assert f"warning: suspicious cast\n  --> {src}:1:14" in err
 

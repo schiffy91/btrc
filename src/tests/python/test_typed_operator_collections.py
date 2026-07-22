@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.frontend import compile_frontend
+from src.compiler.python import Compiler
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
@@ -60,7 +60,7 @@ int main() {
 
 @functools.lru_cache(maxsize=1)
 def _emit_collection_runtime() -> str:
-    analyzed = compile_frontend(
+    analyzed = Compiler().compile_frontend(
         COLLECTION_SOURCE,
         __file__,
         filename="<typed-collections>",

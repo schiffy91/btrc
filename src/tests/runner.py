@@ -26,7 +26,7 @@ import tempfile
 
 import pytest
 
-from src.compiler.python.frontend import compile_frontend
+from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
@@ -52,6 +52,8 @@ BTRC_CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 BTRC_CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
 if not BTRC_CC:
     raise ValueError("BTRC_CC must name a C compiler")
+
+_PYTHON_COMPILER = Compiler()
 
 
 def _positive_timeout_seconds(raw: str | None, *, name: str, default: float) -> float:
@@ -95,11 +97,11 @@ def _transpile_python(btrc_path, btrc_file):
     """Transpile a .btrc file to C via the reference Python compiler API."""
     with open(btrc_path) as f:
         source = f.read()
-    frontend = compile_frontend(
+    frontend = _PYTHON_COMPILER.compile_frontend(
         source,
         btrc_path,
+        CompilerOptions(map_stdlib_positions=True),
         filename=os.path.basename(btrc_file),
-        map_stdlib_positions=True,
     )
     analyzed = frontend.analyzed
     assert not analyzed.errors, f"Analyzer errors: {analyzed.errors}"

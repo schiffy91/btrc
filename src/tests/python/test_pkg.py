@@ -476,8 +476,6 @@ def test_package_import_paths_raises_not_exits(tmp_path):
 
 
 def test_error_is_canonical_frontend_exception():
-    from src.compiler.python.frontend import (
-        IncludeResolutionError as FrontendError,
-    )
+    from src.compiler.python.pkg import IncludeResolutionError as FrontendError
 
     assert FrontendError is IncludeResolutionError

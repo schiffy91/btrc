@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from src.compiler.python.ast_nodes import ImportDecl
 from src.compiler.python.cache_keys import toolchain_hash
-from src.compiler.python.frontend import _defined_stdlib_names
+from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.lexer import Lexer, LexerError
 from src.compiler.python.parser.core import ParseError
 from src.compiler.python.parser.parser import Parser
@@ -105,7 +105,7 @@ def parse_unit(path: str, source: str) -> FileUnit:
         path=os.path.abspath(path),
         source=source,
         content_hash=content_hash,
-        defined_names=frozenset(_defined_stdlib_names(source)),
+        defined_names=frozenset(StdlibRepository().defined_names(source)),
     )
     try:
         unit.tokens = Lexer(source, os.path.basename(path)).tokenize()

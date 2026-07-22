@@ -9,17 +9,15 @@ from regression.
 import os
 import shutil
 import subprocess
-import sys
 
 import pytest
 
-import src.compiler.python.main as m
+from src.compiler.python.cli.compiler_cli import CompilerCLI
 from src.compiler.python.ir.emitter_debug import _c_line_filename
 
 
 def run_main(monkeypatch, argv):
-    monkeypatch.setattr(sys, "argv", ["btrc"] + argv)
-    m.main()
+    CompilerCLI().run(argv)
 
 
 def test_emit_modes_are_mutually_exclusive(monkeypatch, capsys):

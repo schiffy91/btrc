@@ -1,13 +1,15 @@
 import pytest
 
 from src.compiler.python import frontend_limits
-from src.compiler.python.frontend import IncludeResolutionError
-from src.compiler.python.main import resolve_includes
+from src.compiler.python.frontend.resolver import SourceResolver
+from src.compiler.python.pkg import IncludeResolutionError
+
+RESOLVER = SourceResolver()
 
 
 def test_std_brace_import_resolves_stdlib():
     source = "import std.{strings, json}\nint main() { return 0; }"
-    resolved = resolve_includes(source, "main.btrc")
+    resolved = RESOLVER.resolve_includes(source, "main.btrc")
 
     assert "class Strings" in resolved
     assert "class JsonObject" in resolved
@@ -23,7 +25,7 @@ def test_relative_bulk_imports_are_sorted_and_recursive(tmp_path):
     (root / "lib" / "a.btrc").write_text("class A {}\n")
     (nested / "c.btrc").write_text("class C {}\n")
 
-    resolved = resolve_includes((root / "main.btrc").read_text(), str(root / "main.btrc"))
+    resolved = RESOLVER.resolve_includes((root / "main.btrc").read_text(), str(root / "main.btrc"))
 
     assert resolved.index("class A") < resolved.index("class B")
     assert "class C" in resolved
@@ -39,7 +41,7 @@ def test_resolved_import_source_has_an_aggregate_byte_limit(tmp_path, monkeypatc
     monkeypatch.setattr(frontend_limits, "MAX_RESOLVED_SOURCE_BYTES", total - 1)
 
     with pytest.raises(IncludeResolutionError, match="resolved source exceeds"):
-        resolve_includes(root.read_text(), str(root), exit_on_error=False)
+        RESOLVER.resolve_includes(root.read_text(), str(root), exit_on_error=False)
 
 
 def test_import_graph_depth_is_bounded_before_python_recursion(tmp_path, monkeypatch):
@@ -52,7 +54,7 @@ def test_import_graph_depth_is_bounded_before_python_recursion(tmp_path, monkeyp
     monkeypatch.setattr(frontend_limits, "MAX_IMPORT_DEPTH", 1)
 
     with pytest.raises(IncludeResolutionError, match="maximum depth"):
-        resolve_includes(root.read_text(), str(root), exit_on_error=False)
+        RESOLVER.resolve_includes(root.read_text(), str(root), exit_on_error=False)
 
 
 def test_import_graph_unique_file_count_is_bounded(tmp_path, monkeypatch):
@@ -63,7 +65,7 @@ def test_import_graph_unique_file_count_is_bounded(tmp_path, monkeypatch):
     monkeypatch.setattr(frontend_limits, "MAX_RESOLVED_FILES", 2)
 
     with pytest.raises(IncludeResolutionError, match="file limit"):
-        resolve_includes(root.read_text(), str(root), exit_on_error=False)
+        RESOLVER.resolve_includes(root.read_text(), str(root), exit_on_error=False)
 
 
 def test_directory_import_is_bounded_while_scanning(tmp_path, monkeypatch):
@@ -74,7 +76,7 @@ def test_directory_import_is_bounded_while_scanning(tmp_path, monkeypatch):
     monkeypatch.setattr(frontend_limits, "MAX_RESOLVED_FILES", 2)
 
     with pytest.raises(IncludeResolutionError, match="import directory exceeds"):
-        resolve_includes("import ./modules/*\n", str(tmp_path / "main.btrc"), exit_on_error=False)
+        RESOLVER.resolve_includes("import ./modules/*\n", str(tmp_path / "main.btrc"), exit_on_error=False)
 
 
 def test_directory_import_scan_counts_non_source_entries(tmp_path, monkeypatch):
@@ -85,4 +87,4 @@ def test_directory_import_scan_counts_non_source_entries(tmp_path, monkeypatch):
     monkeypatch.setattr(frontend_limits, "MAX_IMPORT_SCAN_ENTRIES", 2)
 
     with pytest.raises(IncludeResolutionError, match="entry scan limit"):
-        resolve_includes("import ./modules/*\n", str(tmp_path / "main.btrc"), exit_on_error=False)
+        RESOLVER.resolve_includes("import ./modules/*\n", str(tmp_path / "main.btrc"), exit_on_error=False)

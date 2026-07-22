@@ -6,14 +6,22 @@ import os
 import pickle
 import shutil
 import subprocess
-import sys
 
 import pytest
 
+from src.compiler.python import Compiler
 from src.compiler.python import frontend_imports as frontend_imports
 from src.compiler.python import frontend_stdlib as frontend_stdlib
-from src.compiler.python import main as m
 from src.compiler.python import stdlib_ast_cache as ast_cache
+from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.cli.compiler_cli import CompilerCLI
+from src.compiler.python.cli_diagnostics import format_error
+from src.compiler.python.frontend.resolver import SourceResolver
+from src.compiler.python.frontend.stdlib import StdlibRepository
+from src.compiler.python.pkg import IncludeResolutionError
+
+RESOLVER = SourceResolver()
+STDLIB = StdlibRepository()
 
 # --------------------------------------------------------------------------
 # helpers
@@ -27,8 +35,7 @@ def write(path, content):
 
 
 def run_main(monkeypatch, argv):
-    monkeypatch.setattr(sys, "argv", ["btrc"] + argv)
-    m.main()
+    CompilerCLI().run(argv)
 
 
 HELLO = 'int main() { print("PASS"); return 0; }\n'
@@ -246,14 +253,14 @@ def test_analyzer_error_fallback_format(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "af.btrc", BARE)
 
-    real = m.Analyzer.analyze
+    real = Analyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
         result.errors.append("a bare error with no location")
         return result
 
-    monkeypatch.setattr(m.Analyzer, "analyze", fake)
+    monkeypatch.setattr(Analyzer, "analyze", fake)
     with pytest.raises(SystemExit):
         run_main(monkeypatch, [src, "--no-cache"])
     assert "a bare error with no location" in capsys.readouterr().err
@@ -263,14 +270,14 @@ def test_analyzer_error_bad_location(tmp_path, monkeypatch, capsys):
     """A ' at x:y' suffix with non-integer coords falls through to plain print."""
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "ab.btrc", BARE)
-    real = m.Analyzer.analyze
+    real = Analyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
         result.errors.append("bad loc at foo:bar")
         return result
 
-    monkeypatch.setattr(m.Analyzer, "analyze", fake)
+    monkeypatch.setattr(Analyzer, "analyze", fake)
     with pytest.raises(SystemExit):
         run_main(monkeypatch, [src, "--no-cache"])
     assert "bad loc" in capsys.readouterr().err
@@ -280,7 +287,7 @@ def test_analyzer_warning(tmp_path, monkeypatch, capsys):
     """Warnings are printed (with and without location) but do not abort."""
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "w.btrc", HELLO)
-    real = m.Analyzer.analyze
+    real = Analyzer.analyze
 
     def fake(self, program):
         result = real(self, program)
@@ -289,7 +296,7 @@ def test_analyzer_warning(tmp_path, monkeypatch, capsys):
         result.warnings.append("bad warning at x:y")
         return result
 
-    monkeypatch.setattr(m.Analyzer, "analyze", fake)
+    monkeypatch.setattr(Analyzer, "analyze", fake)
     run_main(monkeypatch, [src, "--no-cache", "-o", str(tmp_path / "w.c")])
     err = capsys.readouterr().err
     assert "warning:" in err
@@ -302,14 +309,14 @@ def test_analyzer_warning(tmp_path, monkeypatch, capsys):
 
 
 def test_format_error_normal():
-    out = m._format_error("line one\nline two\n", "f.btrc", "boom", 2, 3)
+    out = format_error("line one\nline two\n", "f.btrc", "boom", 2, 3)
     assert "boom" in out and "f.btrc:2:3" in out and "line two" in out and "^" in out
 
 
 def test_format_error_out_of_range():
-    out = m._format_error("only line\n", "f.btrc", "boom", 99, 1)
+    out = format_error("only line\n", "f.btrc", "boom", 99, 1)
     assert out == "error: boom\n --> f.btrc:99:1"
-    out2 = m._format_error("x", "f.btrc", "boom", 0, 1)
+    out2 = format_error("x", "f.btrc", "boom", 0, 1)
     assert "--> f.btrc:0:1" in out2
 
 
@@ -322,7 +329,7 @@ def test_resolve_hash_include(tmp_path):
     write(tmp_path / "lib.btrc", "int helper() { return 7; }\n")
     main_src = '#include "lib.btrc"\nint main() { return helper(); }\n'
     p = write(tmp_path / "m.btrc", main_src)
-    resolved = m.resolve_includes(main_src, p)
+    resolved = RESOLVER.resolve_includes(main_src, p)
     assert "int helper" in resolved
 
 
@@ -330,7 +337,7 @@ def test_resolve_missing_include(tmp_path, capsys):
     main_src = '#include "ghost.btrc"\nint main() { return 0; }\n'
     p = write(tmp_path / "m.btrc", main_src)
     with pytest.raises(SystemExit):
-        m.resolve_includes(main_src, p)
+        RESOLVER.resolve_includes(main_src, p)
     assert "not found" in capsys.readouterr().err
 
 
@@ -339,8 +346,8 @@ def test_resolve_invalid_utf8_include_reports_resolution_error(tmp_path):
     included.write_bytes(b"int helper() { return 1; }\xff")
     source = '#include "invalid.btrc"\nint main() { return 0; }\n'
     root = write(tmp_path / "main.btrc", source)
-    with pytest.raises(m.IncludeResolutionError, match="not valid UTF-8"):
-        m.resolve_includes(source, root, exit_on_error=False)
+    with pytest.raises(IncludeResolutionError, match="not valid UTF-8"):
+        RESOLVER.resolve_includes(source, root, exit_on_error=False)
 
 
 def test_resolve_circular_include(tmp_path):
@@ -348,7 +355,7 @@ def test_resolve_circular_include(tmp_path):
     b = tmp_path / "b.btrc"
     a.write_text('#include "b.btrc"\nint a() { return 1; }\n')
     b.write_text('#include "a.btrc"\nint b() { return 2; }\n')
-    resolved = m.resolve_includes(a.read_text(), str(a))
+    resolved = RESOLVER.resolve_includes(a.read_text(), str(a))
     assert "int a" in resolved and "int b" in resolved  # no infinite loop
 
 
@@ -361,28 +368,28 @@ def test_resolve_symlink_cycle_uses_canonical_identity(tmp_path):
     except OSError as error:
         pytest.skip(f"directory symlinks unavailable: {error}")
 
-    resolved = m.resolve_includes(source, str(path))
+    resolved = RESOLVER.resolve_includes(source, str(path))
     assert resolved.count("int a()") == 1
 
 
 def test_import_stdlib_single(tmp_path):
     src = "import std.math;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "class Math" in resolved or "Math" in resolved
 
 
 def test_import_stdlib_brace(tmp_path):
     src = "import std.{math, json};\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "Math" in resolved and "Json" in resolved
 
 
 def test_import_stdlib_glob(tmp_path):
     src = "import std.*;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "class Vector" in resolved
 
 
@@ -390,7 +397,7 @@ def test_import_stdlib_not_found(tmp_path, capsys):
     src = "import std.nonexistent_module;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     with pytest.raises(SystemExit):
-        m.resolve_includes(src, p)
+        RESOLVER.resolve_includes(src, p)
     assert "not found" in capsys.readouterr().err
 
 
@@ -398,7 +405,7 @@ def test_import_relative_file(tmp_path):
     write(tmp_path / "rel.btrc", "int rel() { return 1; }\n")
     src = "import ./rel.btrc;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "int rel" in resolved
 
 
@@ -406,7 +413,7 @@ def test_import_relative_quoted(tmp_path):
     write(tmp_path / "rel.btrc", "int relq() { return 1; }\n")
     src = 'import "./rel.btrc";\nint main() { return 0; }\n'
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "int relq" in resolved
 
 
@@ -417,7 +424,7 @@ def test_import_directory_direct_glob(tmp_path):
     write(d / "two.btrc", "int two() { return 2; }\n")
     src = "import ./mods/*;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "int one" in resolved and "int two" in resolved
 
 
@@ -427,7 +434,7 @@ def test_import_directory_recursive_glob(tmp_path):
     write(d / "x.btrc", "int deepx() { return 1; }\n")
     src = "import ./deep/**;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "int deepx" in resolved
 
 
@@ -435,7 +442,7 @@ def test_import_directory_not_found(tmp_path, capsys):
     src = "import ./missing_dir/*;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     with pytest.raises(SystemExit):
-        m.resolve_includes(src, p)
+        RESOLVER.resolve_includes(src, p)
     assert "not found" in capsys.readouterr().err
 
 
@@ -445,7 +452,7 @@ def test_import_plain_directory(tmp_path):
     write(d / "a.btrc", "int plaina() { return 1; }\n")
     src = "import ./plain;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "int plaina" in resolved
 
 
@@ -453,7 +460,7 @@ def test_import_c_file(tmp_path):
     write(tmp_path / "native.c", "int native(void) { return 1; }\n")
     src = "import ./native.c;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert '#include "' in resolved and "native.c" in resolved
 
 
@@ -466,13 +473,13 @@ def test_repeated_c_import_is_emitted_once_by_canonical_identity(tmp_path):
         pytest.skip(f"file symlinks unavailable: {error}")
     source = "import ./native.c;\nimport ./native_alias.c;\nint main() { return native(); }\n"
     root = write(tmp_path / "main.btrc", source)
-    resolved = m.resolve_includes(source, root)
+    resolved = RESOLVER.resolve_includes(source, root)
     assert resolved.count("#include") == 1
 
 
 @pytest.mark.parametrize("unsafe", ['bad"name.c', "bad\nname.c", "bad??/name.c"])
 def test_c_import_rejects_paths_that_c11_cannot_quote_safely(unsafe):
-    with pytest.raises(m.IncludeResolutionError, match="cannot import C file"):
+    with pytest.raises(IncludeResolutionError, match="cannot import C file"):
         frontend_imports._c_include_directive(unsafe)
 
 
@@ -516,26 +523,26 @@ def test_brace_import_expands_into_names():
 
 
 def test_discover_stdlib_files():
-    files = m._discover_stdlib_files()
+    files = STDLIB.discover_files()
     assert files[0] == "vector.btrc"  # foundation first
     assert "strings.btrc" in files
 
 
 def test_get_stdlib_source_skips_redefined():
     # User redefining Vector means vector.btrc is skipped → shorter output.
-    full = m.get_stdlib_source("")
-    skipped = m.get_stdlib_source("class Vector<T> { public int len; }\n")
+    full = STDLIB.source("")
+    skipped = STDLIB.source("class Vector<T> { public int len; }\n")
     assert len(skipped) < len(full)
 
 
 def test_get_stdlib_source_skips_redefined_interface():
-    skipped = m.get_stdlib_source("interface Iterable<T> { bool hasNext(); }\n")
+    skipped = STDLIB.source("interface Iterable<T> { bool hasNext(); }\n")
     assert "interface Iterable" not in skipped
 
 
 def test_find_stdlib_file_subdir():
     # gui/gui.btrc lives in a subdirectory; basename lookup should find it.
-    path = m._find_stdlib_file("gui.btrc")
+    path = STDLIB.find_file("gui.btrc")
     assert path is not None and path.endswith("gui.btrc")
 
 
@@ -543,7 +550,7 @@ def test_cached_stdlib_decls_roundtrip(tmp_path, monkeypatch):
     cache_dir = tmp_path / "cache"
     monkeypatch.setenv("BTRC_CACHE_DIR", str(cache_dir))
     stdlib_src = "class Tiny { public int x; public Tiny(int x) { self.x = x; } }\n"
-    first = m._cached_stdlib_decls(stdlib_src)
+    first = STDLIB.cached_declarations(stdlib_src)
     assert first  # parsed
     cache_files = list(cache_dir.glob("stdlib-*.ast.json"))
     assert len(cache_files) == 1
@@ -553,7 +560,7 @@ def test_cached_stdlib_decls_roundtrip(tmp_path, monkeypatch):
         raise AssertionError("cache hit reparsed the stdlib")
 
     monkeypatch.setattr(frontend_stdlib.Parser, "parse", unexpected_parse)
-    second = m._cached_stdlib_decls(stdlib_src)
+    second = STDLIB.cached_declarations(stdlib_src)
     assert second == first
 
 
@@ -596,7 +603,7 @@ def test_cached_stdlib_decls_write_failure(tmp_path, monkeypatch):
         raise OSError("disk full")
 
     monkeypatch.setattr(ast_cache, "atomic_write_json", boom)
-    decls = m._cached_stdlib_decls("class TinyW { public int x; public TinyW(int x) { self.x = x; } }\n")
+    decls = STDLIB.cached_declarations("class TinyW { public int x; public TinyW(int x) { self.x = x; } }\n")
     assert decls
 
 
@@ -605,7 +612,7 @@ def test_cached_stdlib_decls_unavailable_cache_still_parses(monkeypatch):
         raise PermissionError("read-only cache root")
 
     monkeypatch.setattr(frontend_stdlib, "resolve_cache_dir", unavailable)
-    decls = m._cached_stdlib_decls("class Cacheless { public int x; public Cacheless() { self.x = 1; } }\n")
+    decls = STDLIB.cached_declarations("class Cacheless { public int x; public Cacheless() { self.x = 1; } }\n")
     assert decls
 
 
@@ -613,29 +620,34 @@ def test_disk_cache_write_failure_does_not_fail_compilation(tmp_path, monkeypatc
     source = write(tmp_path / "cacheless.btrc", "int main() { return 0; }\n")
     output = tmp_path / "cacheless.c"
 
-    def unavailable(*_args, **_kwargs):
-        raise PermissionError("read-only cache root")
+    class UnavailableCache:
+        def load(self, *_args, **_kwargs):
+            return None
 
-    monkeypatch.setattr(m, "cache_store", unavailable)
-    run_main(monkeypatch, ["--no-stdlib", source, "-o", str(output)])
+        def store(self, *_args, **_kwargs):
+            raise PermissionError("read-only cache root")
+
+    CompilerCLI(Compiler(cache=UnavailableCache())).run(
+        ["--no-stdlib", source, "-o", str(output)]
+    )
     assert "int main(void)" in output.read_text()
 
 
 def test_discover_stdlib_files_missing_dir(monkeypatch):
     monkeypatch.setattr(frontend_stdlib, "_get_stdlib_dir", lambda: "/no/such/stdlib/dir")
-    assert m._discover_stdlib_files() == []
+    assert STDLIB.discover_files() == []
 
 
 def test_get_stdlib_source_missing_listed_file(monkeypatch):
     monkeypatch.setattr(frontend_stdlib, "_discover_stdlib_files", lambda: ["does_not_exist.btrc"])
-    assert m.get_stdlib_source("") == ""  # listed-but-absent file skipped
+    assert STDLIB.source("") == ""  # listed-but-absent file skipped
 
 
 def test_resolve_include_via_stdlib(tmp_path):
     # No local math.btrc → #include resolves to the stdlib copy (line 186).
     src = '#include "math.btrc"\nint main() { return 0; }\n'
     p = write(tmp_path / "ms.btrc", src)
-    resolved = m.resolve_includes(src, p)
+    resolved = RESOLVER.resolve_includes(src, p)
     assert "Math" in resolved
 
 
@@ -643,7 +655,7 @@ def test_import_relative_ghost(tmp_path, capsys):
     src = "import ./ghost_file.btrc;\nint main() { return 0; }\n"
     p = write(tmp_path / "g.btrc", src)
     with pytest.raises(SystemExit):
-        m.resolve_includes(src, p)
+        RESOLVER.resolve_includes(src, p)
     assert "not found" in capsys.readouterr().err
 
 
@@ -653,10 +665,10 @@ def test_cached_stdlib_decls_corrupt_cache(tmp_path, monkeypatch):
     cache_dir.mkdir()
     monkeypatch.setenv("BTRC_CACHE_DIR", str(cache_dir))
     stdlib_src = "class Tiny2 { public int x; public Tiny2(int x) { self.x = x; } }\n"
-    path = ast_cache.cache_path(str(cache_dir), m._STDLIB_AST_VERSION, stdlib_src)
+    path = ast_cache.cache_path(str(cache_dir), STDLIB.ast_version, stdlib_src)
     with open(path, "wb") as cache_file:
         cache_file.write(b"not valid JSON")
-    decls = m._cached_stdlib_decls(stdlib_src)  # must reparse, not crash
+    decls = STDLIB.cached_declarations(stdlib_src)  # must reparse, not crash
     assert decls
     with open(path, encoding="utf-8") as cache_file:
         assert json.load(cache_file)["schema"] == ast_cache.SCHEMA_VERSION
@@ -676,7 +688,7 @@ def test_cached_stdlib_decls_never_executes_legacy_pickle(tmp_path, monkeypatch)
         pickle.dump(Exploit(), cache_file)
     monkeypatch.setenv("BTRC_CACHE_DIR", str(cache_dir))
 
-    decls = m._cached_stdlib_decls("class Safe { public int x; public Safe() { self.x = 0; } }\n")
+    decls = STDLIB.cached_declarations("class Safe { public int x; public Safe() { self.x = 0; } }\n")
 
     assert decls and not marker.exists()
     assert not legacy.exists()

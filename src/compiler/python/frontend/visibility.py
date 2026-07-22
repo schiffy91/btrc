@@ -1,21 +1,20 @@
-"""Per-file import visibility checks for resolved btrc programs.
-
-Reference collection is scope-aware: identifiers bound by an enclosing
-function/method/lambda parameter, local variable declaration, for-loop
-variable, or catch variable are local and never treated as references to
-top-level symbols. Type references always name top-level types or generic
-parameters.
-"""
+"""Scope-aware, per-file strict-import visibility validation."""
 
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any
 
-from . import ast_nodes as ast
-from .frontend_models import SourceDependencyGraph
-from .source_macros import source_macro_name
+from .. import ast_nodes as ast
+from ..source_macros import (
+    source_macro_name,
+    source_macro_replacement_identifiers,
+    source_macro_replacement_member_identifiers,
+    source_symbol_directive,
+)
+from .dependencies import SourceDependencyGraph
 
 _NAMED_DECLS = (
     ast.ClassDecl,
@@ -27,6 +26,15 @@ _NAMED_DECLS = (
     ast.TypedefDecl,
     ast.VarDeclStmt,
 )
+_REFERENCE_DECLS = _NAMED_DECLS + (ast.PreprocessorDirective,)
+
+
+class FrontendVisibilityError(Exception):
+    """Strict-import visibility failures."""
+
+    def __init__(self, errors: list[tuple[str, int, int]]):
+        self.errors = errors
+        super().__init__("strict import visibility failed")
 
 
 @dataclass(frozen=True)
@@ -54,19 +62,34 @@ class ImportReferenceCollector:
             return
         self.refs.append(ImportReference(name, line or 1, col or 1))
 
-    def _in_frame(self, names, *nodes) -> None:
+    def _in_frame(self, names: Iterable[str], *nodes) -> None:
         self.scope.append(set(names))
         for node in nodes:
             self.visit(node)
         self.scope.pop()
+
+    def _visit_callable(self, node, *, implicit: Iterable[str] = ()) -> None:
+        """Visit defaults left-to-right, binding each parameter afterwards."""
+
+        outer = self.generic_params
+        self.generic_params = outer | set(getattr(node, "generic_params", ()))
+        self.visit(node.return_type)
+        self.scope.append(set(implicit))
+        for parameter in node.params:
+            self.visit(parameter.type)
+            self.visit(parameter.default)
+            self.scope[-1].add(parameter.name)
+        self.visit(getattr(node, "body", None))
+        self.scope.pop()
+        self.generic_params = outer
 
     def visit(self, node: Any) -> None:
         if node is None:
             return
         if isinstance(node, ast.TypeExpr):
             self.add(node.base, node.line, node.col, typename=True)
-            for arg in node.generic_args:
-                self.visit(arg)
+            for argument in node.generic_args:
+                self.visit(argument)
             self.visit(node.array_size)
             return
         if isinstance(node, ast.Identifier):
@@ -76,8 +99,8 @@ class ImportReferenceCollector:
             outer = self.generic_params
             self.generic_params = outer | set(node.generic_params)
             self.add(node.parent or "", node.line, node.col, typename=True)
-            for iface in node.interfaces:
-                self.add(iface, node.line, node.col, typename=True)
+            for interface in node.interfaces:
+                self.add(interface, node.line, node.col, typename=True)
             self.visit(node.members)
             self.generic_params = outer
             return
@@ -88,17 +111,34 @@ class ImportReferenceCollector:
             self.visit(node.methods)
             self.generic_params = outer
             return
-        if isinstance(node, (ast.FunctionDecl, ast.MethodDecl)):
-            outer = self.generic_params
-            self.generic_params = outer | set(getattr(node, "generic_params", []))
-            self.visit(node.return_type)
-            self._in_frame({p.name for p in node.params}, node.params, node.body)
-            self.generic_params = outer
+        if isinstance(node, ast.FunctionDecl):
+            self._visit_callable(node)
+            return
+        if isinstance(node, ast.MethodDecl):
+            implicit = () if node.access == "class" else ("self",)
+            self._visit_callable(node, implicit=implicit)
+            return
+        if isinstance(node, ast.MethodSig):
+            self._visit_callable(node)
+            return
+        if isinstance(node, ast.PropertyDecl):
+            self.visit(node.type)
+            implicit = () if node.access == "class" else ("self",)
+            self._in_frame(implicit, node.getter_body)
+            self._in_frame((*implicit, "value"), node.setter_body)
+            return
+        if isinstance(node, ast.RichEnumDecl):
+            for variant in node.variants:
+                self.scope.append(set())
+                for parameter in variant.params:
+                    self.visit(parameter.type)
+                    self.visit(parameter.default)
+                    self.scope[-1].add(parameter.name)
+                self.scope.pop()
             return
         if isinstance(node, ast.LambdaExpr):
-            self.visit(node.return_type)
             self.visit(node.captures)
-            self._in_frame({p.name for p in node.params}, node.params, node.body)
+            self._visit_callable(node)
             return
         if isinstance(node, ast.Block):
             self._in_frame((), node.statements)
@@ -115,6 +155,12 @@ class ImportReferenceCollector:
             return
         if isinstance(node, ast.CForStmt):
             self._in_frame((), node.init, node.condition, node.update, node.body)
+            return
+        if isinstance(node, ast.SwitchStmt):
+            self.visit(node.value)
+            for case in node.cases:
+                self.visit(case.value)
+                self._in_frame((), case.body)
             return
         if isinstance(node, ast.TryCatchStmt):
             self.visit(node.try_block)
@@ -133,23 +179,26 @@ class ImportReferenceCollector:
 
 
 class ImportVisibilityChecker:
-    """Validate AST references against resolved source dependency reachability."""
+    """Validate AST references against resolved dependency reachability."""
 
     def __init__(
         self,
         program: ast.Program,
-        provenance: list[str],
+        provenance: tuple[str, ...] | list[str],
         graph: SourceDependencyGraph,
-    ):
+        *,
+        external_symbol_files: Mapping[str, Iterable[str]] | None = None,
+    ) -> None:
         self.program = program
         self.provenance = provenance
         self.graph = graph
+        self.external_symbol_files = external_symbol_files or {}
 
     @staticmethod
-    def _decl_name(decl: Any) -> str:
-        if isinstance(decl, ast.TypedefDecl):
-            return decl.alias
-        return getattr(decl, "name", "")
+    def _decl_name(declaration: Any) -> str:
+        if isinstance(declaration, ast.TypedefDecl):
+            return declaration.alias
+        return getattr(declaration, "name", "")
 
     def _line_file(self, line: int) -> str | None:
         if 1 <= line <= len(self.provenance):
@@ -157,25 +206,51 @@ class ImportVisibilityChecker:
         return None
 
     def _symbol_files(self) -> dict[str, set[str]]:
-        symbols: dict[str, set[str]] = {}
-        for decl in self.program.declarations:
-            if isinstance(decl, ast.PreprocessorDirective):
-                name = source_macro_name(decl.text) or ""
-            elif isinstance(decl, _NAMED_DECLS):
-                name = self._decl_name(decl)
+        symbols = {
+            name: {SourceDependencyGraph.canonical_file(path) for path in paths}
+            for name, paths in self.external_symbol_files.items()
+        }
+        for declaration in self.program.declarations:
+            if isinstance(declaration, ast.PreprocessorDirective):
+                name = source_macro_name(declaration.text) or ""
+            elif isinstance(declaration, _NAMED_DECLS):
+                name = self._decl_name(declaration)
             else:
                 continue
-            source_file = self._line_file(getattr(decl, "line", 0))
+            source_file = self._line_file(getattr(declaration, "line", 0))
             if not source_file:
                 continue
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
             if name:
                 symbols.setdefault(name, set()).add(canonical_file)
-            if isinstance(decl, ast.EnumDecl):
-                for value in decl.values:
+            if isinstance(declaration, ast.EnumDecl):
+                for value in declaration.values:
                     if value.name:
                         symbols.setdefault(value.name, set()).add(canonical_file)
+            elif isinstance(declaration, ast.RichEnumDecl):
+                for variant in declaration.variants:
+                    if variant.name:
+                        symbols.setdefault(variant.name, set()).add(canonical_file)
         return symbols
+
+    @staticmethod
+    def _macro_references(declaration: ast.PreprocessorDirective) -> list[ImportReference]:
+        directive = source_symbol_directive(declaration.text)
+        if directive is None:
+            return []
+        members = set(source_macro_replacement_member_identifiers(directive))
+        return [
+            ImportReference(name, declaration.line or 1, declaration.col or 1)
+            for name in source_macro_replacement_identifiers(directive)
+            if name not in members
+        ]
+
+    def _references(self, declaration) -> list[ImportReference]:
+        if isinstance(declaration, ast.PreprocessorDirective):
+            return self._macro_references(declaration)
+        collector = ImportReferenceCollector(set(getattr(declaration, "generic_params", ())))
+        collector.visit(declaration)
+        return collector.refs
 
     def check(self) -> list[tuple[str, int, int]]:
         """Return visibility failures as ``(message, line, col)`` tuples."""
@@ -184,10 +259,10 @@ class ImportVisibilityChecker:
         reachable_cache: dict[str, set[str]] = {}
         errors: list[tuple[str, int, int]] = []
 
-        for decl in self.program.declarations:
-            if not isinstance(decl, _NAMED_DECLS):
+        for declaration in self.program.declarations:
+            if not isinstance(declaration, _REFERENCE_DECLS):
                 continue
-            source_file = self._line_file(getattr(decl, "line", 0))
+            source_file = self._line_file(getattr(declaration, "line", 0))
             if source_file is None:
                 continue
             display_file = os.path.abspath(source_file)
@@ -196,11 +271,9 @@ class ImportVisibilityChecker:
                 canonical_file,
                 self.graph.visibility_reachable(canonical_file),
             )
-            collector = ImportReferenceCollector(set(getattr(decl, "generic_params", [])))
-            collector.visit(decl)
 
             seen_refs: set[ImportReference] = set()
-            for reference in collector.refs:
+            for reference in self._references(declaration):
                 if reference in seen_refs:
                     continue
                 seen_refs.add(reference)

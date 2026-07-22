@@ -37,15 +37,15 @@ import tempfile
 import time
 
 from src.compiler.python.analyzer.analyzer import Analyzer
-from src.compiler.python.frontend import get_stdlib_source
+from src.compiler.python.frontend.resolver import SourceResolver
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
-from src.compiler.python.main import resolve_includes
 from src.compiler.python.parser.parser import Parser
 
 BENCH_DIR = os.path.join(os.path.dirname(__file__), "benchmarks")
+SOURCE_RESOLVER = SourceResolver()
 
 
 @dataclasses.dataclass
@@ -118,10 +118,11 @@ def _prepare_source(btrc_path: str) -> tuple[str, str]:
     """Resolve includes + auto-include stdlib, exactly as the test runner does."""
     with open(btrc_path) as f:
         source = f.read()
-    source = resolve_includes(source, btrc_path)
-    stdlib_source = get_stdlib_source(source)
-    if stdlib_source:
-        source = stdlib_source + "\n" + source
+    source = SOURCE_RESOLVER.resolve(
+        source,
+        btrc_path,
+        strict_imports=False,
+    ).source
     return source, os.path.basename(btrc_path)
 
 

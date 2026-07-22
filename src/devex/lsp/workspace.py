@@ -18,13 +18,10 @@ from dataclasses import dataclass
 from src.compiler.python import pkg
 from src.compiler.python.ast_nodes import Program
 from src.compiler.python.cache_keys import resolve_cache_dir
-from src.compiler.python.frontend import (
-    IncludeResolutionError,
-    _discover_stdlib_files,
-    _get_stdlib_dir,
-    import_spec_paths,
-)
+from src.compiler.python.frontend.resolver import SourceResolver
+from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.frontend_limits import ResolutionBudget
+from src.compiler.python.pkg import IncludeResolutionError
 from src.compiler.python.source_io import MAX_SOURCE_BYTES, SourceReadError, read_source
 from src.devex.lsp.package_resolution import PackageResolver
 from src.devex.lsp.unit_cache import (
@@ -67,6 +64,8 @@ class Workspace(WorkspaceCacheMixin):
     def __init__(self):
         self._init_caches()
         self._package_resolver = PackageResolver()
+        self._stdlib = StdlibRepository()
+        self._source_resolver = SourceResolver(self._stdlib)
         self._stdlib_units: list[FileUnit] | None = None
         self._stdlib_lock = threading.Lock()  # one stdlib build/analysis at a time
         # included paths -> AnalyzedProgram, LRU-capped (see _STDLIB_BASE_CACHE_MAX)
@@ -120,7 +119,8 @@ class Workspace(WorkspaceCacheMixin):
         with self._stdlib_lock:
             if self._stdlib_units is None:  # warmup + first didOpen race: build once
                 loaded = [
-                    self._load_stdlib_unit(os.path.join(_get_stdlib_dir(), fname)) for fname in _discover_stdlib_files()
+                    self._load_stdlib_unit(os.path.join(self._stdlib.directory(), filename))
+                    for filename in self._stdlib.discover_files()
                 ]
                 # Single atomic assignment of the filtered list: a concurrent
                 # reader never observes None placeholders.
@@ -163,7 +163,7 @@ class Workspace(WorkspaceCacheMixin):
             for line, spec in unit.import_specs:
                 attr = line if unit is active else attribute_line
                 try:
-                    paths = import_spec_paths(spec, os.path.dirname(unit.path))
+                    paths = self._source_resolver.import_paths(spec, os.path.dirname(unit.path))
                 except IncludeResolutionError as e:
                     import_errors.append((attr, str(e)))
                     continue

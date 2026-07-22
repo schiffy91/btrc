@@ -22,7 +22,7 @@ import re
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
-from src.compiler.python.frontend import _get_stdlib_dir
+from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.tokens import KEYWORDS, Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current
@@ -132,7 +132,7 @@ def _is_stdlib_file(path: str | None) -> bool:
     """True when *path* lives under the installed stdlib directory."""
     if not path:
         return False
-    stdlib_dir = os.path.abspath(_get_stdlib_dir())
+    stdlib_dir = os.path.abspath(StdlibRepository().directory())
     return os.path.abspath(path).startswith(stdlib_dir + os.sep)
 
 

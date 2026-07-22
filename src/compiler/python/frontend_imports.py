@@ -6,9 +6,9 @@ import os
 import sys
 
 from . import pkg
+from .frontend.dependencies import SourceDependencyGraph
 from .frontend_c_imports import c_include_directive as _c_include_directive
 from .frontend_limits import ResolutionBudget
-from .frontend_models import SourceDependencyGraph
 from .frontend_path_scan import scan_import_directory
 from .frontend_stdlib import (
     _discover_stdlib_files,

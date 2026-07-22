@@ -64,16 +64,14 @@ def _toolchain_files(scope: str) -> list[str]:
         os.path.join(_COMPILER_DIR, "ast_nodes.py"),
         os.path.join(_COMPILER_DIR, "ast_codec.py"),
         os.path.join(_COMPILER_DIR, "cache_io.py"),
-        os.path.join(_COMPILER_DIR, "frontend.py"),
         os.path.join(_COMPILER_DIR, "frontend_imports.py"),
-        os.path.join(_COMPILER_DIR, "frontend_models.py"),
         os.path.join(_COMPILER_DIR, "frontend_stdlib.py"),
         os.path.join(_COMPILER_DIR, "import_scan.py"),
-        os.path.join(_COMPILER_DIR, "import_visibility.py"),
         os.path.join(_COMPILER_DIR, "pkg.py"),
         os.path.join(_COMPILER_DIR, "source_io.py"),
         os.path.join(_COMPILER_DIR, "stdlib_ast_cache.py"),
     ]
+    paths.extend(_python_files_under("frontend", "pipeline"))
     paths.extend(_python_files_under("parser"))
     if scope == "full":
         # Generated C can be shaped by orchestration, archive, freestanding,

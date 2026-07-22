@@ -9,10 +9,10 @@ from contextlib import suppress
 from . import stdlib_ast_cache
 from .cache_keys import resolve_cache_dir, toolchain_hash
 from .frontend_limits import ResolutionBudget
-from .frontend_models import StdlibSource
 from .import_scan import scan_directives
 from .lexer import Lexer
 from .parser.parser import Parser
+from .pipeline.models import StdlibSource
 from .pkg import IncludeResolutionError
 from .source_io import SourceReadError, read_source
 
@@ -145,7 +145,7 @@ def get_stdlib_source_mapped(user_source: str = "") -> StdlibSource:
         file_lines, file_positions = _stdlib_file_source(content, fpath)
         lines.extend(file_lines)
         source_positions.extend(file_positions)
-    return StdlibSource(source="\n".join(lines), source_positions=source_positions)
+    return StdlibSource(source="\n".join(lines), source_positions=tuple(source_positions))
 
 
 def _find_stdlib_file(include_path: str) -> str | None:

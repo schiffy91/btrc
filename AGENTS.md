@@ -162,12 +162,26 @@ prove the strict-import path.
 
 ```
 src/compiler/python/
+  __init__.py                   durable Compiler/Options/Result API
+  compiler.py                   application object + compiled-C cache policy
+  main.py                       thin process entry point
+  pipeline/
+    models.py                   immutable options + cross-stage results
+    pipeline.py                 ordered six-stage orchestration
+  frontend/
+    dependencies.py             ResolvedSource + typed dependency graph
+    resolver.py                 package/import/include/stdlib resolution
+    stdlib.py                   stdlib discovery, composition, symbol ownership
+    parser.py                   lex/parse modes + AST provenance
+    visibility.py               per-file strict-import validation
+  cli/
+    compiler_cli.py             arguments, diagnostics, and user-facing file I/O
+
   ebnf.py                       EBNF grammar parser → GrammarInfo
   tokens.py                     Token + TokenType enum
   lexer.py                      grammar-driven tokenizer
   lexer_literals.py             number/string literal parsing
   ast_nodes.py                  GENERATED from src/language/ast.asdl
-  main.py                       pipeline entry point + CLI
   cache_io.py                   atomic JSON/text cache writes
   cache_keys.py                 cache paths + toolchain fingerprints
   disk_cache.py                 on-disk compiled-C cache

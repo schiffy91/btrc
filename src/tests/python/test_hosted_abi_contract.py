@@ -8,10 +8,6 @@ import pytest
 from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.ast_nodes import FunctionDecl
 from src.compiler.python.cli_archive import _stamp_stdlib_declarations
-from src.compiler.python.frontend import (
-    lex_parse_frontend_source,
-    resolve_frontend_source,
-)
 from src.compiler.python.gen_hosted_abi_btrc import render_files
 from src.compiler.python.hosted_abi import (
     HOSTED_FUNCTIONS,
@@ -45,6 +41,8 @@ from src.compiler.python.hosted_abi_native import (
 from src.compiler.python.hosted_abi_runtime import SOURCE_RUNTIME_HELPERS
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.pipeline.models import CompilerOptions
+from src.compiler.python.pipeline.pipeline import CompilerPipeline
 from src.compiler.python.source_provenance import (
     compiler_stdlib_source,
     is_compiler_stdlib_source,
@@ -230,12 +228,14 @@ def test_source_runtime_helper_roots_are_generated_from_the_registry() -> None:
 def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
     stdlib_path = SOURCE_ROOT / "stdlib" / "process.btrc"
     source = '#include "process.btrc"\nextern char** environ;\nint main() { return 0; }'
-    resolved = resolve_frontend_source(
+    pipeline = CompilerPipeline()
+    options = CompilerOptions(include_stdlib=False, use_ast_cache=False)
+    resolved = pipeline.resolve(
         source,
         str(stdlib_path),
-        include_stdlib=False,
+        options,
     )
-    parsed = lex_parse_frontend_source(resolved, "process.btrc", use_ast_cache=False)
+    parsed = pipeline.parse(resolved, "process.btrc", options)
     declaration = next(item for item in parsed.program.declarations if getattr(item, "name", "") == "environ")
     assert not is_compiler_stdlib_source(declaration.source_file)
     errors = Analyzer().analyze(parsed.program).errors
@@ -245,8 +245,10 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
 def test_resolved_stdlib_import_receives_authenticated_provenance(tmp_path: Path) -> None:
     root = tmp_path / "main.btrc"
     source = "import std.process;\nint main() { return 0; }"
-    resolved = resolve_frontend_source(source, str(root), include_stdlib=False)
-    parsed = lex_parse_frontend_source(resolved, root.name, use_ast_cache=False)
+    pipeline = CompilerPipeline()
+    options = CompilerOptions(include_stdlib=False, use_ast_cache=False)
+    resolved = pipeline.resolve(source, str(root), options)
+    parsed = pipeline.parse(resolved, root.name, options)
     declaration = next(item for item in parsed.program.declarations if getattr(item, "name", "") == "environ")
     assert is_compiler_stdlib_source(declaration.source_file)
 

@@ -23,7 +23,7 @@ import os
 from lsprotocol import types as lsp
 
 from src.compiler.python import pkg
-from src.compiler.python.frontend import _get_stdlib_dir
+from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.tokens import TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current
@@ -125,7 +125,7 @@ def _module_imports(result: AnalysisResult):
     """
     from src.devex.lsp.diagnostics import WORKSPACE
 
-    stdlib_dir = os.path.abspath(_get_stdlib_dir())
+    stdlib_dir = os.path.abspath(StdlibRepository().directory())
     active = os.path.abspath(result.path) if result.path else None
     active_dir = os.path.dirname(active) if active else None
     manifest = pkg.find_manifest(active_dir) if active_dir else None

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.frontend_models import FrontendSource
+from src.compiler.python.frontend.dependencies import ResolvedSource
 
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
@@ -30,16 +30,16 @@ def _run(command: list[str], *, environment: dict[str, str]) -> subprocess.Compl
 def test_declaration_line_map_disambiguates_split_user_and_stdlib_coordinates(tmp_path: Path) -> None:
     stdlib = tmp_path / "stdlib.btrc"
     user = tmp_path / "user.btrc"
-    source = FrontendSource(
+    source = ResolvedSource(
         user_source="user one\nuser two",
         source="stdlib one\nstdlib two\nuser one\nuser two",
         stdlib_source="stdlib one\nstdlib two",
-        source_positions=[
+        source_positions=(
             (str(stdlib), 10),
             (str(stdlib), 11),
             (str(user), 20),
             (str(user), 21),
-        ],
+        ),
     )
 
     assert source.map_declaration_line(1, str(stdlib), split_spaces=True) == (str(stdlib), 10)
@@ -53,10 +53,10 @@ def test_cache_identity_covers_root_import_path_and_native_line(tmp_path: Path) 
     second_import = tmp_path / "second" / "defaults.btrc"
 
     def identity(source_root: Path, imported: Path, native_line: int) -> str:
-        return FrontendSource(
+        return ResolvedSource(
             user_source="int value = 1;",
             source="int value = 1;",
-            source_positions=[(str(imported), native_line)],
+            source_positions=((str(imported), native_line),),
             root_source_path=str(source_root.resolve()),
         ).cache_identity()
 

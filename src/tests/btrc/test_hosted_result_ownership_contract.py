@@ -10,11 +10,6 @@ import pytest
 
 from src.compiler.python import frontend_stdlib
 from src.compiler.python.ast_nodes import CallExpr, Identifier, TypeExpr
-from src.compiler.python.frontend import (
-    analyze_frontend_program,
-    lex_parse_frontend_source,
-    resolve_frontend_source,
-)
 from src.compiler.python.hosted_abi import HOSTED_FUNCTIONS
 from src.compiler.python.hosted_abi_model import (
     CHAR_PTR,
@@ -30,6 +25,8 @@ from src.compiler.python.ir.gen.hosted_result_conversion import (
     hosted_string_conversion_mode,
 )
 from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.pipeline.models import CompilerOptions
+from src.compiler.python.pipeline.pipeline import CompilerPipeline
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair, run_strict_pair
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
@@ -124,18 +121,19 @@ def _compile_hosted_shadow_pair(
     selfhost_c.write_text(selfhost.stdout)
 
     monkeypatch.setattr(frontend_stdlib, "_get_stdlib_dir", lambda: str(stdlib))
-    resolved = resolve_frontend_source(
-        HOSTED_SHADOW_USER,
-        str(program),
+    pipeline = CompilerPipeline()
+    options = CompilerOptions(
         include_stdlib=True,
         map_stdlib_positions=True,
-    )
-    parsed = lex_parse_frontend_source(
-        resolved,
-        program.name,
         use_ast_cache=False,
     )
-    analyzed = analyze_frontend_program(parsed.program)
+    resolved = pipeline.resolve(
+        HOSTED_SHADOW_USER,
+        str(program),
+        options,
+    )
+    parsed = pipeline.parse(resolved, program.name, options)
+    analyzed = pipeline.analyze(parsed.program)
     assert not analyzed.errors, analyzed.errors
     reference_c = tmp_path / "hosted-result-shadow.reference.c"
     reference_c.write_text(

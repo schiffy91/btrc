@@ -17,13 +17,15 @@ import pytest
 from src.compiler.python import (
     cache_keys,
     disk_cache,
-    frontend,
     frontend_stdlib,
     stdlib_archive,
 )
 from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
 from src.compiler.python.artifacts.publication.storage import ArtifactStorage
 from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
+from src.compiler.python.frontend.stdlib import StdlibRepository
+
+STDLIB = StdlibRepository()
 
 
 def _archive_publisher() -> StdlibArchivePublisher:
@@ -60,13 +62,14 @@ def test_full_scope_covers_codegen_sources():
     assert any(p.startswith("analyzer") for p in extra)
     assert any(p.startswith("ir") for p in extra)
     assert "main.py" in extra
-    assert "cli_options.py" in extra
+    assert "cli/compiler_cli.py" in extra
     # Parser sources are in both scopes; grammar + ASDL too.
     assert any(p.endswith("grammar.ebnf") for p in frontend_files)
     assert any(p.endswith("ast.asdl") for p in frontend_files)
     assert any(p.endswith("ast_nodes.py") for p in frontend_files)
     assert any(p.endswith("ast_codec.py") for p in frontend_files)
-    assert any(p.endswith("frontend.py") for p in frontend_files)
+    assert any(p.endswith("frontend/resolver.py") for p in frontend_files)
+    assert any(p.endswith("frontend/visibility.py") for p in frontend_files)
     assert any(p.endswith("import_scan.py") for p in frontend_files)
 
 
@@ -190,13 +193,13 @@ def test_disk_cache_input_path_anchors_project_root(tmp_path, monkeypatch):
 
 
 def test_stdlib_ast_version_is_derived():
-    assert cache_keys.toolchain_hash("frontend") == frontend._STDLIB_AST_VERSION
+    assert cache_keys.toolchain_hash("frontend") == STDLIB.ast_version
 
 
 def test_stale_stdlib_ast_is_not_served_after_toolchain_change(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "c"))
     src = "class CacheProbe { public int x; public CacheProbe(int x) { self.x = x; } }\n"
-    first = frontend._cached_stdlib_decls(src)
+    first = STDLIB.cached_declarations(src)
     assert first
     artifacts = os.listdir(tmp_path / "c")
     assert len(artifacts) == 1 and artifacts[0].endswith(".ast.json")
@@ -204,7 +207,7 @@ def test_stale_stdlib_ast_is_not_served_after_toolchain_change(tmp_path, monkeyp
     # A toolchain change produces a different AST version -> different key:
     # the old JSON entry is orphaned, never served.
     monkeypatch.setattr(frontend_stdlib, "_STDLIB_AST_VERSION", "f" * 16)
-    frontend._cached_stdlib_decls(src)
+    STDLIB.cached_declarations(src)
     assert len(os.listdir(tmp_path / "c")) == 2  # reparsed + stored under new key
 
 

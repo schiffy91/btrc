@@ -8,11 +8,8 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python import frontend_stdlib
-from src.compiler.python.frontend import (
-    analyze_frontend_program,
-    lex_parse_frontend_source,
-    resolve_frontend_source,
-)
+from src.compiler.python.pipeline.models import CompilerOptions
+from src.compiler.python.pipeline.pipeline import CompilerPipeline
 from src.tests.btrc.production_readiness_harness import (
     compile_diagnostic_pair,
     run_strict_pair,
@@ -354,18 +351,19 @@ def test_hosted_stdlib_function_values_fail_closed_under_user_shadows(
 
     stdlib = data_root / "stdlib"
     monkeypatch.setattr(frontend_stdlib, "_get_stdlib_dir", lambda: str(stdlib))
-    resolved = resolve_frontend_source(
-        user_source,
-        str(program),
+    pipeline = CompilerPipeline()
+    options = CompilerOptions(
         include_stdlib=True,
         map_stdlib_positions=True,
-    )
-    parsed = lex_parse_frontend_source(
-        resolved,
-        program.name,
         use_ast_cache=False,
     )
-    analyzed = analyze_frontend_program(parsed.program)
+    resolved = pipeline.resolve(
+        user_source,
+        str(program),
+        options,
+    )
+    parsed = pipeline.parse(resolved, program.name, options)
+    analyzed = pipeline.analyze(parsed.program)
     assert any(diagnostic in error for error in analyzed.errors), analyzed.errors
 
 

@@ -16,9 +16,12 @@ from src.compiler.python.ast_nodes import (
     StdGlob,
     StdModules,
 )
-from src.compiler.python.frontend import IncludeResolutionError, resolve_includes
+from src.compiler.python.frontend.resolver import SourceResolver
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.pkg import IncludeResolutionError
+
+RESOLVER = SourceResolver()
 
 
 def _parse(src: str):
@@ -146,7 +149,7 @@ def test_import_owning_its_line_is_accepted():
 
 def test_resolve_std_brace(tmp_path):
     src = "import std.{strings, json}\nint main() { return 0; }"
-    resolved = resolve_includes(src, write(tmp_path / "m.btrc", src))
+    resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "class Strings" in resolved
     assert "class JsonObject" in resolved
     assert "import std" not in resolved
@@ -154,21 +157,21 @@ def test_resolve_std_brace(tmp_path):
 
 def test_resolve_std_glob(tmp_path):
     src = "import std.*\nint main() { return 0; }"
-    resolved = resolve_includes(src, write(tmp_path / "m.btrc", src))
+    resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "class Vector" in resolved
 
 
 def test_resolve_relative_file(tmp_path):
     write(tmp_path / "rel.btrc", "int relfn() { return 1; }\n")
     src = "import ./rel.btrc;\nint main() { return 0; }"
-    resolved = resolve_includes(src, write(tmp_path / "m.btrc", src))
+    resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "int relfn" in resolved
 
 
 def test_resolve_quoted_relative(tmp_path):
     write(tmp_path / "rel.btrc", "int relq() { return 1; }\n")
     src = 'import "./rel.btrc";\nint main() { return 0; }'
-    resolved = resolve_includes(src, write(tmp_path / "m.btrc", src))
+    resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "int relq" in resolved
 
 
@@ -178,7 +181,7 @@ def test_resolve_directory_glob_sorted(tmp_path):
     write(d / "b.btrc", "int bb() { return 2; }\n")
     write(d / "a.btrc", "int aa() { return 1; }\n")
     src = "import ./mods/*\nint main() { return 0; }"
-    resolved = resolve_includes(src, write(tmp_path / "m.btrc", src))
+    resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert resolved.index("int aa") < resolved.index("int bb")
 
 
@@ -187,7 +190,7 @@ def test_resolve_recursive_glob(tmp_path):
     nested.mkdir(parents=True)
     write(nested / "c.btrc", "int cc() { return 3; }\n")
     src = "import ./deep/**\nint main() { return 0; }"
-    resolved = resolve_includes(src, write(tmp_path / "m.btrc", src))
+    resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "int cc" in resolved
 
 
@@ -195,11 +198,11 @@ def test_resolve_commented_import_ignored(tmp_path):
     # The headline fix end to end: a commented-out import never resolves, so a
     # bogus module reference inside a comment does not fail the build.
     src = "/* import std.nonexistent_xyz; */\nint main() { return 0; }"
-    resolved = resolve_includes(src, write(tmp_path / "m.btrc", src))
+    resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "main" in resolved  # resolved fine; no IncludeResolutionError
 
 
 def test_resolve_missing_std_module_errors(tmp_path):
     src = "import std.nonexistent_xyz\nint main() { return 0; }"
     with pytest.raises(IncludeResolutionError):
-        resolve_includes(src, write(tmp_path / "m.btrc", src), exit_on_error=False)
+        RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src), exit_on_error=False)

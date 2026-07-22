@@ -1,16 +1,19 @@
-import sys
-
 import pytest
 
-from src.compiler.python import main as m
-from src.compiler.python.frontend import compile_frontend
-from src.compiler.python.frontend_models import (
+from src.compiler.python import Compiler, CompilerOptions
+from src.compiler.python.cli.compiler_cli import CompilerCLI
+from src.compiler.python.frontend.dependencies import SourceDependencyKind
+from src.compiler.python.frontend.resolver import SourceResolver
+from src.compiler.python.frontend.stdlib import StdlibRepository
+from src.compiler.python.frontend.visibility import (
     FrontendVisibilityError,
-    SourceDependencyKind,
+    ImportVisibilityChecker,
 )
-from src.compiler.python.import_visibility import ImportVisibilityChecker
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+
+_STDLIB = StdlibRepository()
+_RESOLVER = SourceResolver(_STDLIB)
 
 
 def write(path, content):
@@ -20,9 +23,14 @@ def write(path, content):
 
 def visibility_errors(entry):
     source = entry.read_text()
-    resolved, provenance, graph = m.resolve_includes_traced(source, str(entry))
+    resolved, provenance, graph = _RESOLVER.resolve_includes_traced(source, str(entry))
     program = Parser(Lexer(resolved, entry.name).tokenize()).parse()
-    return ImportVisibilityChecker(program, provenance, graph).check()
+    return ImportVisibilityChecker(
+        program,
+        provenance,
+        graph,
+        external_symbol_files=_STDLIB.symbol_files(),
+    ).check()
 
 
 def test_direct_import_grants_cross_file_access(tmp_path):
@@ -70,7 +78,7 @@ def test_legacy_include_fragments_share_one_compilation_unit(tmp_path):
     entry = tmp_path / "main.btrc"
     write(entry, '#include "a.btrc"\n#include "b.btrc"\nint main() { return 0; }\n')
 
-    resolved, provenance, graph = m.resolve_includes_traced(entry.read_text(), str(entry))
+    resolved, provenance, graph = _RESOLVER.resolve_includes_traced(entry.read_text(), str(entry))
     program = Parser(Lexer(resolved, entry.name).tokenize()).parse()
 
     assert ImportVisibilityChecker(program, provenance, graph).check() == []
@@ -107,9 +115,8 @@ def test_strict_imports_cli_reports_visibility_error(tmp_path, monkeypatch, caps
     write(tmp_path / "a.btrc", "B makeB() { B b = new B(); return b; }\n")
     entry = write(tmp_path / "main.btrc", "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
-    monkeypatch.setattr(sys, "argv", ["btrc", entry, *flags, "--no-cache"])
     with pytest.raises(SystemExit) as exc:
-        m.main()
+        CompilerCLI().run([entry, *flags, "--no-cache"])
 
     assert exc.value.code == 1
     assert "'B' is defined in b.btrc but a.btrc does not import it" in capsys.readouterr().err
@@ -124,12 +131,7 @@ def test_relaxed_imports_is_an_explicit_legacy_opt_out(tmp_path, monkeypatch):
         "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n",
     )
 
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["btrc", entry, "--relaxed-imports", "--no-cache"],
-    )
-    m.main()
+    CompilerCLI().run([entry, "--relaxed-imports", "--no-cache"])
 
     assert (tmp_path / "main.c").is_file()
 
@@ -141,10 +143,10 @@ def test_compile_frontend_api_defaults_to_strict_imports(tmp_path):
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     with pytest.raises(FrontendVisibilityError):
-        compile_frontend(
+        Compiler().compile_frontend(
             entry.read_text(),
             str(entry),
-            include_stdlib=False,
+            CompilerOptions(include_stdlib=False),
         )
 
 
@@ -161,19 +163,19 @@ def test_cache_identity_prevents_valid_graph_from_masking_missing_import(tmp_pat
     )
 
     write(consumer, "import ./b.btrc;\nB makeB() { return new B(); }\n")
-    valid = m.resolve_frontend_source(entry.read_text(), str(entry), include_stdlib=False)
-    monkeypatch.setattr(sys, "argv", ["btrc", str(entry)])
-    m.main()
+    valid = _RESOLVER.resolve(entry.read_text(), str(entry), include_stdlib=False)
+    cli = CompilerCLI()
+    cli.run([str(entry)])
     capsys.readouterr()
 
     write(consumer, "import ./c.btrc;\nB makeB() { return new B(); }\n")
-    invalid = m.resolve_frontend_source(entry.read_text(), str(entry), include_stdlib=False)
+    invalid = _RESOLVER.resolve(entry.read_text(), str(entry), include_stdlib=False)
     assert invalid.source == valid.source
     assert invalid.source_positions == valid.source_positions
     assert invalid.cache_identity() != valid.cache_identity()
 
     with pytest.raises(SystemExit) as error:
-        m.main()
+        cli.run([str(entry)])
 
     assert error.value.code == 1
     assert "'B' is defined in b.btrc but a.btrc does not import it" in (capsys.readouterr().err)
@@ -200,6 +202,7 @@ def test_loop_and_catch_variables_are_scoped(tmp_path):
     write(tmp_path / "b.btrc", "class Item {}\n")
     write(
         tmp_path / "a.btrc",
+        "import std.vector;\n"
         "int scan(Vector<int> xs) {\n"
         "    int total = 0;\n"
         "    for Item in xs { total += Item; }\n"  # loop var shadows class
@@ -326,3 +329,106 @@ def test_duplicate_symbol_satisfied_by_any_declaring_file(tmp_path):
     # uses2 imports impl2 (one of the declaring files): satisfied, even though
     # impl1 also declares 'helper' and was registered first.
     assert visibility_errors(entry) == []
+
+
+def test_compiler_known_stdlib_type_still_requires_its_module_import(tmp_path):
+    entry = tmp_path / "main.btrc"
+    write(entry, "int main() { Vector<int> values = []; return values.len; }\n")
+
+    errors = visibility_errors(entry)
+
+    assert errors
+    assert errors[0][0] == "'Vector' is defined in vector.btrc but main.btrc does not import it"
+
+
+def test_property_setter_value_is_an_implicit_local(tmp_path):
+    write(tmp_path / "globals.btrc", "int value = 42;\n")
+    write(
+        tmp_path / "gauge.btrc",
+        "class Gauge {\n"
+        "    private int stored;\n"
+        "    public int reading {\n"
+        "        get { return self.stored; }\n"
+        "        set { self.stored = value; }\n"
+        "    }\n"
+        "}\n",
+    )
+    entry = tmp_path / "main.btrc"
+    write(entry, "import ./globals.btrc;\nimport ./gauge.btrc;\nint main() { return 0; }\n")
+
+    assert visibility_errors(entry) == []
+
+
+def test_parameter_defaults_bind_parameters_left_to_right(tmp_path):
+    write(tmp_path / "globals.btrc", "int later = 42;\n")
+    write(
+        tmp_path / "consumer.btrc",
+        "int choose(int first = later, int later = 0) { return first + later; }\n",
+    )
+    entry = tmp_path / "main.btrc"
+    write(entry, "import ./globals.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
+
+    errors = visibility_errors(entry)
+
+    assert errors
+    assert errors[0][0] == "'later' is defined in globals.btrc but consumer.btrc does not import it"
+
+
+def test_parameter_default_can_reference_an_earlier_parameter(tmp_path):
+    write(tmp_path / "globals.btrc", "int first = 42;\n")
+    write(
+        tmp_path / "consumer.btrc",
+        "int choose(int first = 0, int later = first + 1) { return later; }\n",
+    )
+    entry = tmp_path / "main.btrc"
+    write(entry, "import ./globals.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
+
+    assert visibility_errors(entry) == []
+
+
+def test_rich_enum_defaults_bind_variant_parameters_left_to_right(tmp_path):
+    write(tmp_path / "globals.btrc", "int left = 42;\n")
+    write(
+        tmp_path / "pair.btrc",
+        "enum class Pair { Pair(int left, int right = left + 1) }\n",
+    )
+    entry = tmp_path / "main.btrc"
+    write(entry, "import ./globals.btrc;\nimport ./pair.btrc;\nint main() { return 0; }\n")
+
+    assert visibility_errors(entry) == []
+
+
+def test_switch_case_locals_do_not_leak_into_sibling_cases(tmp_path):
+    write(tmp_path / "globals.btrc", "int shared = 42;\n")
+    write(
+        tmp_path / "consumer.btrc",
+        "int choose(int branch) {\n"
+        "    switch (branch) {\n"
+        "        case 0: int shared = 1; return shared;\n"
+        "        default: return shared;\n"
+        "    }\n"
+        "}\n",
+    )
+    entry = tmp_path / "main.btrc"
+    write(entry, "import ./globals.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
+
+    errors = visibility_errors(entry)
+
+    assert errors
+    assert errors[0][0] == "'shared' is defined in globals.btrc but consumer.btrc does not import it"
+
+
+def test_macro_replacement_references_require_import_but_member_names_do_not(tmp_path):
+    write(tmp_path / "globals.btrc", "int shared = 42;\nint member = 7;\n")
+    write(
+        tmp_path / "macros.btrc",
+        "#define READ() shared\n#define FIELD(object) ((object).member)\n",
+    )
+    entry = tmp_path / "main.btrc"
+    write(entry, "import ./globals.btrc;\nimport ./macros.btrc;\nint main() { return 0; }\n")
+
+    errors = visibility_errors(entry)
+
+    assert [message for message, _, _ in errors] == [
+        "'shared' is defined in globals.btrc but macros.btrc does not import it"
+    ]

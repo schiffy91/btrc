@@ -2,11 +2,12 @@
 
 import sys
 
+from .analyzer.analyzer import Analyzer
 from .artifacts.publication.publisher import ArtifactPublisher
 from .artifacts.publication.storage import ArtifactStorage
 from .artifacts.stdlib.publisher import StdlibArchivePublisher
 from .cli_diagnostics import format_error
-from .frontend import analyze_frontend_program, get_stdlib_source
+from .frontend.stdlib import StdlibRepository
 from .ir.gen.errors import CodegenError
 from .ir.gen.generator import generate_ir
 from .lexer import Lexer, LexerError
@@ -29,7 +30,7 @@ def build_stdlib_archive(out_dir: str) -> None:
     """Compile the entire stdlib into a linkable archive in ``out_dir``."""
     from .stdlib_archive import build_archive
 
-    stdlib_source = get_stdlib_source("")
+    stdlib_source = StdlibRepository().source("")
     if not stdlib_source.strip():
         print("error: no stdlib sources found", file=sys.stderr)
         raise SystemExit(1)
@@ -52,7 +53,7 @@ def build_stdlib_archive(out_dir: str) -> None:
         )
         raise SystemExit(1) from error
 
-    analyzed = analyze_frontend_program(program)
+    analyzed = Analyzer().analyze(program)
     if analyzed.errors:
         for error in analyzed.errors:
             print(f"error: {error}", file=sys.stderr)
@@ -73,28 +74,3 @@ def build_stdlib_archive(out_dir: str) -> None:
 
         codegen_error_exit(error)
     print(f"Built stdlib archive → {out_dir}")
-
-
-def partition_against_stdlib(module, program, stdlib_dir: str) -> None:
-    """Validate and apply a prebuilt stdlib archive to one program module."""
-    from .stdlib_archive import (
-        ArchiveVersionError,
-        load_manifest,
-        partition_for_archive,
-        reject_user_overrides,
-    )
-
-    try:
-        storage = ArtifactStorage()
-        publication = ArtifactPublisher(storage)
-        publisher = StdlibArchivePublisher(publication)
-        manifest = load_manifest(
-            stdlib_dir,
-            get_stdlib_source(""),
-            publisher,
-        )
-        reject_user_overrides(program, manifest)
-    except ArchiveVersionError as error:
-        print(f"error: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
-    partition_for_archive(module, manifest)

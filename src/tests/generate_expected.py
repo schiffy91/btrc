@@ -12,16 +12,11 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.compiler.python.analyzer.analyzer import Analyzer
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import generate_ir
-from src.compiler.python.ir.optimizer import optimize
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.main import get_stdlib_source, resolve_includes
-from src.compiler.python.parser.parser import Parser
+from src.compiler.python import Compiler, CompilerOptions
 from src.tests.corpus_files import language_test_files
 
 BTRC_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+COMPILER = Compiler()
 
 
 def generate_expected():
@@ -38,20 +33,21 @@ def generate_expected():
         try:
             with open(btrc_path) as f:
                 source = f.read()
-            source = resolve_includes(source, btrc_path)
-            stdlib_source = get_stdlib_source(source)
-            if stdlib_source:
-                source = stdlib_source + "\n" + source
-
-            tokens = Lexer(source, btrc_file).tokenize()
-            program = Parser(tokens).parse()
-            analyzed = Analyzer().analyze(program)
-            if analyzed.errors:
+            compiled = COMPILER.compile(
+                source,
+                btrc_path,
+                CompilerOptions(use_cache=False),
+            )
+            if compiled.failure is not None:
+                print(f"  SKIP {relative_path}: {compiled.failure}")
+                continue
+            if compiled.analyzed is not None and compiled.analyzed.errors:
                 print(f"  SKIP {relative_path}: analyzer errors")
                 continue
-            ir_module = generate_ir(analyzed)
-            ir_module = optimize(ir_module)
-            c_source = CEmitter().emit(ir_module)
+            c_source = compiled.c_source
+            if c_source is None:
+                print(f"  SKIP {relative_path}: compiler emitted no C")
+                continue
 
             with tempfile.NamedTemporaryFile(suffix=".c", delete=False, mode="w") as f:
                 f.write(c_source)

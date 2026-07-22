@@ -8,17 +8,17 @@ while emitting far less C.
 
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from src.compiler.python import main as m
 from src.compiler.python import stdlib_archive as sa
 from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
 from src.compiler.python.artifacts.publication.storage import ArtifactStorage
 from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
+from src.compiler.python.cli.compiler_cli import CompilerCLI
+from src.compiler.python.frontend.stdlib import StdlibRepository
 
 
 def _archive_publisher() -> StdlibArchivePublisher:
@@ -26,8 +26,7 @@ def _archive_publisher() -> StdlibArchivePublisher:
 
 
 def run_main(monkeypatch, argv):
-    monkeypatch.setattr(sys, "argv", ["btrc"] + argv)
-    m.main()
+    CompilerCLI().run(argv)
 
 
 # A program that crosses the archive boundary in the ways that matter: temp
@@ -35,6 +34,9 @@ def run_main(monkeypatch, argv):
 # a user-type generic (Vector<Item> — NOT in the archive, emitted locally), and
 # objects with destructors (the shared destroyed-pointer guard).
 CROSS_BOUNDARY_PROG = """
+import std.map;
+import std.vector;
+
 class Item {
     public string name;
     public Item(string name) { self.name = name; }
@@ -281,7 +283,7 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
         assert (out / name).exists(), name
     manifest = sa.load_manifest(
         str(out),
-        m.get_stdlib_source(""),
+        StdlibRepository().source(""),
         _archive_publisher(),
     )
     # The archive must provide a substantial, real interface.
