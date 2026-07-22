@@ -51,7 +51,7 @@ void semanticValidateMacroName(string name, Node site) {
         semanticValidationFail("Macro name '" + name
             + "' is reserved by C11 at file scope", site);
     }
-    if (hostedAbiOwnedName(name)) {
+    if (HostedAbi.ownedName(name)) {
         semanticValidationFail("Macro name '" + name
             + "' is a compiler-owned hosted C symbol", site);
     }
@@ -67,7 +67,7 @@ void semanticValidateUndefName(string name, Node site) {
         semanticValidationFail("Source #undef name '" + name
             + "' is reserved by C11 at file scope", site);
     }
-    if (hostedAbiOwnedName(name)) {
+    if (HostedAbi.ownedName(name)) {
         semanticValidationFail("Source #undef of compiler-owned hosted C symbol '"
             + name + "' is not allowed", site);
     }
@@ -116,7 +116,7 @@ void semanticRejectPreprocessorSymbol(string symbol, string action,
             + " compiler-generated C symbol '" + symbol + "' for "
             + state.generatedSymbols.get(symbol) + " is not allowed", site);
     }
-    if (compilerOwnedUnresolvedSymbol(symbol)) {
+    if (SourceRuntimeSymbols.compilerOwnedUnresolved(symbol)) {
         semanticValidationFail(action
             + " compiler-owned C symbol '" + symbol
             + "' is not allowed", site);
@@ -126,11 +126,11 @@ void semanticRejectPreprocessorSymbol(string symbol, string action,
 void semanticValidateMacroReplacementSymbol(string macroName,
         string sourceText, string symbol, Node site,
         SemanticValidationState state) {
-    if (hostedAbiRawLifetimeArity(symbol) > 0) {
+    if (HostedAbi.rawLifetimeArity(symbol) > 0) {
         semanticValidationFail("Raw lifetime consumer '" + symbol
             + "' cannot be referenced from macro replacement '"
             + macroName + "'", site);
-    } else if (hostedAbiMacroReferenceRequiresSemanticCall(symbol)) {
+    } else if (HostedAbi.macroReferenceRequiresSemanticCall(symbol)) {
         semanticValidationFail("Hosted function '" + symbol
             + "' requires semantic call analysis and cannot be referenced "
             + "from macro replacement '" + macroName + "'", site);

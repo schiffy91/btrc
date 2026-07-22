@@ -1255,7 +1255,7 @@ class IRGen {
     }
 
     public void activateSourceLexicalBinding(string name) {
-        string cName = sourceLexicalBindingCNameForAnalysis(
+        string cName = HostedAbi.lexicalBindingCNameForAnalysis(
             name, self.analyzed);
         if (self.sourceLexicalCNameActive(cName)) {
             /* C lexical shadowing cannot expose an outer same-named owner to
@@ -1900,7 +1900,7 @@ class IRGen {
                 Node par = v.params.get(p);
                 IRStructField variantField = IRStructField(
                     typeToC(par.type, self.analyzed),
-                    sourceLexicalBindingCName(par.name));
+                    HostedAbi.lexicalBindingCName(par.name));
                 variantField.is_volatile = par.type != null
                     && par.type.is_volatile;
                 variantField.effective_is_volatile =
@@ -1937,8 +1937,8 @@ class IRGen {
                     v.name, false);
                 constructorBody.push(irAssign(
                     irFieldAccess(payload,
-                        sourceLexicalBindingCName(par.name), false),
-                    irVar(sourceLexicalBindingCNameForAnalysis(
+                        HostedAbi.lexicalBindingCName(par.name), false),
+                    irVar(HostedAbi.lexicalBindingCNameForAnalysis(
                         par.name, self.analyzed))));
                 p2 = p2 + 1;
             }
@@ -2797,7 +2797,7 @@ class IRGen {
                     setter.params.push(IRParam(name + "*", "self"));
                     setter.params.push(lowerNamedSourceTypeParam(
                         mem.type, propertyType,
-                        sourceLexicalBindingCNameForAnalysis(
+                        HostedAbi.lexicalBindingCNameForAnalysis(
                             "value", self.analyzed),
                         self.analyzed));
                     m.function_decls.push(setter);
@@ -2844,7 +2844,7 @@ class IRGen {
             Node p = params.get(i);
             if (i > 0) { s = s + ", "; }
             s = s + typeToC(p.type, self.analyzed) + " "
-                + sourceLexicalBindingCNameForAnalysis(
+                + HostedAbi.lexicalBindingCNameForAnalysis(
                     p.name, self.analyzed);
             i = i + 1;
         }
@@ -2918,7 +2918,7 @@ class IRGen {
                 newFn.params.push(lowerSourceParam(
                     ctor.params.get(p), self.analyzed));
                 initArgs.push(irVar(
-                    sourceLexicalBindingCNameForAnalysis(
+                    HostedAbi.lexicalBindingCNameForAnalysis(
                         ctor.params.get(p).name, self.analyzed)));
                 p = p + 1;
             }
@@ -3276,7 +3276,7 @@ class IRGen {
             m.functions.push(g);
         }
         if (prop.has_setter) {
-            string valueCName = sourceLexicalBindingCNameForAnalysis(
+            string valueCName = HostedAbi.lexicalBindingCNameForAnalysis(
                 "value", self.analyzed);
             IRFunction s = IRFunction();
             s.name = name + "_set_" + prop.name;
@@ -3352,7 +3352,7 @@ class IRGen {
                     Node p = mem.params.get(j);
                     fn.params.push(lowerSourceParam(p, self.analyzed));
                     callArgs.push(irVar(
-                        sourceLexicalBindingCNameForAnalysis(
+                        HostedAbi.lexicalBindingCNameForAnalysis(
                             p.name, self.analyzed)));
                     j = j + 1;
                 }
@@ -3728,7 +3728,7 @@ class IRGen {
             Node p = params.get(i);
             if (i > 0) { s = s + ", "; }
             s = s + typeToC(p.type, self.analyzed) + " "
-                + sourceLexicalBindingCNameForAnalysis(
+                + HostedAbi.lexicalBindingCNameForAnalysis(
                     p.name, self.analyzed);
             i = i + 1;
         }
@@ -4588,7 +4588,7 @@ class IRGen {
                     while (li < lcaps.len) {
                         string cn = lcaps.get(li);
                         IRNode fa = irFieldAccess(irVar(evar),
-                            sourceLexicalBindingCName(cn), false);
+                            HostedAbi.lexicalBindingCName(cn), false);
                         /* Emit as a statement-level IRK_ASSIGN (the emitter
                          * handles assignment as a statement, not an expression). */
                         out.push(irAssign(fa,
@@ -5741,7 +5741,7 @@ class IRGen {
                         self.defaultSourceFile(node.line)));
                 }
             }
-            if (sourceRuntimeHelperSymbol(node.name)
+            if (SourceRuntimeSymbols.helper(node.name)
                     && !varTypes.has(node.name)
                     && !self.analyzed.funcTable.has(node.name)) {
                 self.useHelper(node.name);
@@ -5992,7 +5992,7 @@ class IRGen {
                 string cty = typeToC(
                     self.resolveBodyType(varTypes.get(cn)), self.analyzed);
                 IRStructField captureField = IRStructField(
-                    cty, sourceLexicalBindingCName(cn));
+                    cty, HostedAbi.lexicalBindingCName(cn));
                 Node captureType = self.resolveBodyType(varTypes.get(cn));
                 captureField.is_volatile = captureType != null
                     && captureType.is_volatile;
@@ -6047,9 +6047,9 @@ class IRGen {
                 string cn = capNames.get(ci2);
                 string cty = typeToC(varTypes.get(cn), self.analyzed);
                 IRNode fa = irFieldAccess(irVar("__env"),
-                    sourceLexicalBindingCName(cn), true);
+                    HostedAbi.lexicalBindingCName(cn), true);
                 IRNode captureDeclaration = irVarDecl(
-                    cty, sourceLexicalBindingCNameForAnalysis(
+                    cty, HostedAbi.lexicalBindingCNameForAnalysis(
                         cn, self.analyzed), fa);
                 Node captureType = self.resolveBodyType(varTypes.get(cn));
                 captureDeclaration.is_volatile = captureType != null
@@ -6370,7 +6370,7 @@ class IRGen {
                 string cty = typeToC(
                     self.resolveBodyType(varTypes.get(cn)), self.analyzed);
                 IRStructField captureField = IRStructField(
-                    cty, sourceLexicalBindingCName(cn));
+                    cty, HostedAbi.lexicalBindingCName(cn));
                 Node captureType = self.resolveBodyType(varTypes.get(cn));
                 captureField.is_volatile = captureType != null
                     && captureType.is_volatile;
@@ -6402,9 +6402,9 @@ class IRGen {
                 string cty = typeToC(
                     self.resolveBodyType(varTypes.get(cn)), self.analyzed);
                 IRNode fa = irFieldAccess(irVar("__env"),
-                    sourceLexicalBindingCName(cn), true);
+                    HostedAbi.lexicalBindingCName(cn), true);
                 IRNode captureDeclaration = irVarDecl(
-                    cty, sourceLexicalBindingCNameForAnalysis(
+                    cty, HostedAbi.lexicalBindingCNameForAnalysis(
                         cn, self.analyzed), fa);
                 Node captureType = self.resolveBodyType(varTypes.get(cn));
                 captureDeclaration.is_volatile = captureType != null
@@ -6511,16 +6511,16 @@ class IRGen {
         while (cpi < capNames.len) {
             string cn = capNames.get(cpi);
             IRNode tgt = irFieldAccess(irVar(seVar),
-                sourceLexicalBindingCName(cn), true);
+                HostedAbi.lexicalBindingCName(cn), true);
             sequence.push(irBinOp(tgt, "=",
-                irVar(sourceLexicalBindingCNameForAnalysis(
+                irVar(HostedAbi.lexicalBindingCNameForAnalysis(
                     cn, self.analyzed))));
             /* ARC: keep captured class instances alive until the thread finishes
              * (paired with the release in the wrapper cleanup). */
             Node? ct = varTypes.get(cn);
             if (irManagedType(self, ct)) {
                 sequence.push(irManagedRetainValue(
-                    self, irVar(sourceLexicalBindingCNameForAnalysis(
+                    self, irVar(HostedAbi.lexicalBindingCNameForAnalysis(
                         cn, self.analyzed)), ct));
             }
             cpi = cpi + 1;
@@ -8055,7 +8055,7 @@ class IRGen {
                         callableType, args);
                 }
             }
-            if (sourceRuntimeHelperSymbol(name)) {
+            if (SourceRuntimeSymbols.helper(name)) {
                 self.useHelper(name);
                 return irCall(name, args);
             }
@@ -8168,7 +8168,7 @@ class IRGen {
                 string capture = captures.get(captureIndex);
                 sequence.push(irBinOp(
                     irFieldAccess(irVar(envVar),
-                        sourceLexicalBindingCName(capture), false),
+                        HostedAbi.lexicalBindingCName(capture), false),
                     "=", irVar(self.sourceLexicalReferenceCName(capture))));
                 captureIndex = captureIndex + 1;
             }
@@ -8765,7 +8765,7 @@ class IRGen {
      * routes through the getter except for the active accessor's own backing. */
     public string sourceFieldCName(
             Node node, Map<string, Node> varTypes) {
-        if (!hostedAbiMacroName(node.field)
+        if (!HostedAbi.macroName(node.field)
                 || node.obj == null
                 || node.obj.kind != NK_FIELD_ACCESS_EXPR
                 || node.obj.obj == null
@@ -8792,7 +8792,7 @@ class IRGen {
                 while (parameterIndex < variant.params.len) {
                     if (variant.params.get(parameterIndex).name
                             == node.field) {
-                        return sourceLexicalBindingCName(
+                        return HostedAbi.lexicalBindingCName(
                             node.field);
                     }
                     parameterIndex = parameterIndex + 1;

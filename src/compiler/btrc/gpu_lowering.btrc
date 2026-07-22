@@ -114,7 +114,7 @@ bool tryLowerGpuCpuReturn(IRGen gen, Node statement,
         checked.push(irVar(gen.gpuCpu.array_lengths.get(
             statement.value_node.name)));
         out.push(irReturn(irIndex(
-            irVar(sourceLexicalBindingCNameForAnalysis(
+            irVar(HostedAbi.lexicalBindingCNameForAnalysis(
                 statement.value_node.name, gen.analyzed)),
             irCall("__btrc_gpu_checked_index", checked))));
     } else {
@@ -255,7 +255,7 @@ void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
         wrapper.params.push(lowerSourceParam(
             parameter, gen.analyzed));
         invocationArgs.push(irVar(
-            sourceLexicalBindingCNameForAnalysis(
+            HostedAbi.lexicalBindingCNameForAnalysis(
                 parameter.name, gen.analyzed)));
         if (parameter.type.is_array) {
             string length = gpuLengthName(parameter.name);

@@ -72,7 +72,7 @@ def _check_builtins() -> bool:
 def main() -> int:
     valid = _check_ast_sources()
     valid = _check_builtins() and valid
-    valid = gen_hosted_abi_btrc.check_generated() == 0 and valid
+    valid = gen_hosted_abi_btrc.HostedAbiBtrcGenerator().check() == 0 and valid
     if valid:
         print("All generated sources are current.")
         return 0

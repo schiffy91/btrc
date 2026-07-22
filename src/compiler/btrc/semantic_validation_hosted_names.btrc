@@ -8,7 +8,7 @@ bool semanticPublicNativeBinding(string name) {
 
 bool semanticTrustedNativeBinding(string name, Node site) {
     return semanticPublicNativeBinding(name)
-        || hostedAbiCompilerStdlibNode(site);
+        || HostedAbiProvenance.compilerStdlibNode(site);
 }
 
 bool semanticHostedGeneratedNameSite(Node site) {
@@ -21,8 +21,8 @@ bool semanticHostedGeneratedNameSite(Node site) {
 
 void semanticValidateHostedDeclaredName(
         string name, string subject, Node site, bool cNameGenerated) {
-    if (name != "" && hostedAbiOwnedName(name)
-            && hostedAbiMacroName(name)
+    if (name != "" && HostedAbi.ownedName(name)
+            && HostedAbi.macroName(name)
             && !cNameGenerated
             && !semanticHostedGeneratedNameSite(site)
             && !semanticHostedTrustedEnviron(site)) {
@@ -32,7 +32,7 @@ void semanticValidateHostedDeclaredName(
 }
 
 bool semanticHostedTrustedEnviron(Node declaration) {
-    if (!hostedAbiCompilerStdlibNode(declaration)
+    if (!HostedAbiProvenance.compilerStdlibNode(declaration)
             || declaration.kind != NK_VAR_DECL_STMT
             || declaration.name != "environ"
             || declaration.initializer != null
@@ -46,7 +46,7 @@ bool semanticHostedTrustedEnviron(Node declaration) {
 }
 
 bool semanticHostedTrustedWinsize(Node declaration) {
-    return hostedAbiCompilerStdlibNode(declaration)
+    return HostedAbiProvenance.compilerStdlibNode(declaration)
         && declaration.kind == NK_STRUCT_DECL
         && declaration.name == "winsize"
         && declaration.is_forward;
@@ -55,7 +55,7 @@ bool semanticHostedTrustedWinsize(Node declaration) {
 void semanticValidateHostedTopLevelName(Node declaration) {
     if (!semanticNamedTopLevel(declaration)) { return; }
     string name = semanticTopLevelName(declaration);
-    if (!hostedAbiOwnedName(name)
+    if (!HostedAbi.ownedName(name)
             || declaration.kind == NK_FUNCTION_DECL
             || semanticHostedTrustedEnviron(declaration)
             || semanticHostedTrustedWinsize(declaration)) {

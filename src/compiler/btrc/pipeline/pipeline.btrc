@@ -49,7 +49,7 @@ class CompilerPipeline {
             }
         }
 
-        hostedAbiStampProgramSources(
+        HostedAbiProvenance.stampProgramSources(
             program, resolved.stdlibLineCount, resolved.userLines, sourcePath);
         Analyzed analyzed = analyzeProgram(program);
         semanticValidateProgram(program, analyzed);

@@ -37,13 +37,13 @@ void gpuAppendDispatchPipeline(IRGen gen, IRGpuKernel kernel,
         Node parameter = kernel.declaration.params.get(p);
         if (!parameter.type.is_array) {
             IRNode value = irVar(
-                sourceLexicalBindingCNameForAnalysis(
+                HostedAbi.lexicalBindingCNameForAnalysis(
                     parameter.name, gen.analyzed));
             if (parameter.type.base == "bool") {
                 value = irTernary(value, irLiteral("1U"), irLiteral("0U"));
             }
             body.push(irAssign(irFieldAccess(irVar(uniforms),
-                sourceLexicalBindingCName(parameter.name), false), value));
+                HostedAbi.lexicalBindingCName(parameter.name), false), value));
         }
         p = p + 1;
     }
@@ -202,7 +202,7 @@ void gpuAppendDispatchExecution(IRGen gen, IRGpuKernel kernel,
             Vector<IRNode> read = [];
             read.push(irVar(gpu)); read.push(irVar(bufferNames.get(b)));
             read.push(irCast("void*",
-                irVar(sourceLexicalBindingCNameForAnalysis(
+                irVar(HostedAbi.lexicalBindingCNameForAnalysis(
                     buffer.name, gen.analyzed))));
             read.push(irBinOp(irVar(gpuLengthName(buffer.name)), "*",
                 irSizeofType(buffer.elem_type == "f32" ? "float" : "int")));

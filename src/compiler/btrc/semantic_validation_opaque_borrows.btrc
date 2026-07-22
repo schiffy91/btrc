@@ -7,7 +7,7 @@ Node? semanticHostedReturnAliasArgument(Node? expression,
             || expression.callee.kind != NK_IDENTIFIER) { return null; }
     string name = expression.callee.name;
     if (!semanticHostedCallUsesOwnedSymbol(name, state, vars)) { return null; }
-    int parameter = hostedAbiReturnAliasParameter(name);
+    int parameter = HostedAbi.returnAliasParameter(name);
     if (parameter < 0 || parameter >= expression.args.len) { return null; }
     return expression.args.get(parameter);
 }

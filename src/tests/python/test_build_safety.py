@@ -255,7 +255,9 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     assert setuptools["exclude-package-data"]["src.compiler.btrc"] == ["fe_debug*.btrc"]
     hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/tables.btrc"
     assert hosted_tables.is_file()
-    assert '#include "exact_00.btrc"' in hosted_tables.read_text()
+    hosted_source = hosted_tables.read_text()
+    assert "class GeneratedHostedAbi" in hosted_source
+    assert '#include "' not in hosted_source
 
 
 def test_nix_runtime_packages_use_the_filtered_runtime_source():

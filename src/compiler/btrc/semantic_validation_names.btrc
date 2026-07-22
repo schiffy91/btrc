@@ -61,7 +61,7 @@ bool semanticLexicalBindingShadowsType(
         || state.analyzed.structTable.has(name)
         || state.analyzed.typedefTable.has(name)
         || state.interfaces.has(name)
-        || hostedAbiTypedefName(name);
+        || HostedAbi.typedefName(name);
 }
 
 void semanticValidateLexicalBindingName(
@@ -235,7 +235,7 @@ void semanticValidateDeclarationNames(Node program) {
                 int rawValueIndex = 0;
                 while (rawValueIndex < declaration.values.len) {
                     Node rawValue = declaration.values.get(rawValueIndex);
-                    if (hostedAbiOwnedName(rawValue.name)) {
+                    if (HostedAbi.ownedName(rawValue.name)) {
                         semanticValidationFail("Enum value name '"
                             + rawValue.name
                             + "' collides with a compiler-owned hosted C symbol",

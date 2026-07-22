@@ -10,7 +10,7 @@ bool gpuCallResolvesToBuiltin(Node? expression, Analyzed analyzed,
     if (!analyzed.funcTable.has(name)) { return true; }
     if (analyzed.hostedCallKeys.has(astNodeKey(expression))) { return true; }
     Node declaration = analyzed.funcTable.get(name);
-    return declaration.body_node == null && hostedAbiExactFunction(name);
+    return declaration.body_node == null && HostedAbi.exactFunction(name);
 }
 
 string gpuContextualExprBase(Node? expression, Analyzed analyzed,

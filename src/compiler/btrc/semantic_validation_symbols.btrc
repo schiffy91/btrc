@@ -14,7 +14,7 @@ void semanticClaimSymbol(Map<string, string> symbols, string symbol,
 void semanticClaimGeneratedSymbol(SemanticValidationState state,
         Map<string, string> symbols, string symbol,
         string owner, Node site) {
-    if (hostedAbiOwnedName(symbol)) {
+    if (HostedAbi.ownedName(symbol)) {
         semanticValidationFail("Emitted C symbol '" + symbol + "' for "
             + owner + " collides with compiler-owned hosted C symbol", site);
     }

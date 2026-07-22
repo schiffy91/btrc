@@ -17,9 +17,9 @@ void semanticValidateGeneratedSymbolReference(Node identifier,
                 + " is not allowed",
             identifier);
     }
-    bool supported = sourceRuntimeHelperSymbol(symbol)
-        || (directCall && sourceRuntimeIntrinsicSymbol(symbol));
-    if (compilerOwnedUnresolvedSymbol(symbol) && !supported) {
+    bool supported = SourceRuntimeSymbols.helper(symbol)
+        || (directCall && SourceRuntimeSymbols.intrinsic(symbol));
+    if (SourceRuntimeSymbols.compilerOwnedUnresolved(symbol) && !supported) {
         semanticValidationFail(
             action + " compiler-owned C symbol '" + symbol
                 + "' is not allowed",

@@ -2,15 +2,15 @@
 
 void semanticValidateDirectHostedOpaqueArguments(string name, Node call,
         SemanticValidationState state, Map<string, Node> vars) {
-    int parameterCount = hostedAbiParameterCount(name);
+    int parameterCount = HostedAbi.parameterCount(name);
     int argumentIndex = 0;
     while (argumentIndex < call.args.len
             && argumentIndex < parameterCount) {
         Node expected = makePrimType(
-            hostedAbiParameterBase(name, argumentIndex));
-        expected.pointer_depth = hostedAbiParameterPointerDepth(
+            HostedAbi.parameterBase(name, argumentIndex));
+        expected.pointer_depth = HostedAbi.parameterPointerDepth(
             name, argumentIndex);
-        expected.is_const = hostedAbiParameterConst(name, argumentIndex);
+        expected.is_const = HostedAbi.parameterConst(name, argumentIndex);
         semanticValidateOpaqueCallArgument(
             null, argumentIndex, expected,
             call.args.get(argumentIndex), name, true, state, vars);
@@ -20,20 +20,20 @@ void semanticValidateDirectHostedOpaqueArguments(string name, Node call,
 
 bool semanticHostedCallBypassesSourceDefinition(
         string name, SemanticValidationState state) {
-    if (!hostedAbiFunctionOwnedName(name)
+    if (!HostedAbi.functionOwnedName(name)
             || !state.analyzed.funcTable.has(name)
             || state.callable == null
-            || !hostedAbiCompilerStdlibNode(state.callable)) {
+            || !HostedAbiProvenance.compilerStdlibNode(state.callable)) {
         return false;
     }
     Node declaration = state.analyzed.funcTable.get(name);
     return declaration.body_node != null
-        && !hostedAbiCompilerStdlibNode(declaration);
+        && !HostedAbiProvenance.compilerStdlibNode(declaration);
 }
 
 bool semanticHostedCallUsesOwnedSymbol(string name,
         SemanticValidationState state, Map<string, Node> vars) {
-    if (!hostedAbiFunctionOwnedName(name) || vars.has(name)) { return false; }
+    if (!HostedAbi.functionOwnedName(name) || vars.has(name)) { return false; }
     if (!state.analyzed.funcTable.has(name)) {
         return !state.analyzed.isClass(name);
     }
@@ -67,7 +67,7 @@ void semanticValidateUnknownHostedOpaqueArguments(string name, Node call,
 
 void semanticValidateDirectHostedCall(string name, Node call,
         SemanticValidationState state, Map<string, Node> vars) {
-    if (!hostedAbiExactFunction(name)) {
+    if (!HostedAbi.exactFunction(name)) {
         semanticValidateUnknownHostedOpaqueArguments(name, call, state, vars);
         return;
     }
@@ -79,13 +79,13 @@ void semanticValidateDirectHostedCall(string name, Node call,
         }
         nameIndex = nameIndex + 1;
     }
-    int expectedCount = hostedAbiParameterCount(name);
+    int expectedCount = HostedAbi.parameterCount(name);
     bool arityValid = call.args.len == expectedCount;
-    if (hostedAbiVariadic(name)) {
+    if (HostedAbi.variadic(name)) {
         arityValid = call.args.len >= expectedCount;
     }
     if (!arityValid) {
-        string qualifier = hostedAbiVariadic(name) ? "at least " : "";
+        string qualifier = HostedAbi.variadic(name) ? "at least " : "";
         semanticValidationFail("'" + name + "()' expects " + qualifier
             + Strings.fromInt(expectedCount) + " argument(s) but got "
             + Strings.fromInt(call.args.len), call);
@@ -94,9 +94,9 @@ void semanticValidateDirectHostedCall(string name, Node call,
     semanticValidateDirectHostedOpaqueArguments(name, call, state, vars);
     int index = 0;
     while (index < expectedCount) {
-        Node expected = makePrimType(hostedAbiParameterBase(name, index));
-        expected.pointer_depth = hostedAbiParameterPointerDepth(name, index);
-        expected.is_const = hostedAbiParameterConst(name, index);
+        Node expected = makePrimType(HostedAbi.parameterBase(name, index));
+        expected.pointer_depth = HostedAbi.parameterPointerDepth(name, index);
+        expected.is_const = HostedAbi.parameterConst(name, index);
         Node argument = call.args.get(index);
         semanticValidateVolatileReferenceConversion(
             expected, argument,
@@ -128,6 +128,6 @@ bool semanticValidateHostedIdentifierCall(Node call,
     bool bypass = semanticHostedCallBypassesSourceDefinition(name, state);
     state.analyzed.hostedCallKeys.put(astNodeKey(call), true);
     semanticValidateDirectHostedCall(name, call, state, vars);
-    return hostedAbiExactFunction(name)
+    return HostedAbi.exactFunction(name)
         || bypass || !state.analyzed.funcTable.has(name);
 }

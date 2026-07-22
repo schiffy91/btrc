@@ -123,7 +123,7 @@ bool semanticRawExpressionCarriesParam(Node? expression, string name,
                     expression.callee.name, state, vars)) {
                 return false;
             }
-            int parameter = hostedAbiReturnAliasParameter(
+            int parameter = HostedAbi.returnAliasParameter(
                 expression.callee.name);
             return parameter >= 0 && parameter < expression.args.len
                 && semanticRawExpressionCarriesParam(
@@ -181,7 +181,7 @@ bool semanticRawParameterBorrowOnly(Node declaration, int parameterIndex,
 
 bool semanticRawUnresolvedCallBorrowOnly(Node callee, int argumentIndex) {
     return callee != null && callee.kind == NK_IDENTIFIER
-        && hostedAbiParameterReadOnlyBorrow(callee.name, argumentIndex);
+        && HostedAbi.parameterReadOnlyBorrow(callee.name, argumentIndex);
 }
 
 bool semanticRawParamCallSafe(Node call, string parameterName, string owner,

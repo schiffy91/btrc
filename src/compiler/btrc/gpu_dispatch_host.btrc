@@ -29,7 +29,7 @@ void gpuAppendUnavailable(IRGen gen, IRGpuKernel kernel,
     int p = 0;
     while (p < kernel.declaration.params.len) {
         Node parameter = kernel.declaration.params.get(p);
-        cpuArgs.push(irVar(sourceLexicalBindingCNameForAnalysis(
+        cpuArgs.push(irVar(HostedAbi.lexicalBindingCNameForAnalysis(
             parameter.name, gen.analyzed)));
         if (parameter.type.is_array) {
             cpuArgs.push(irVar(gpuLengthName(parameter.name)));
@@ -200,7 +200,7 @@ IRFunction buildGpuDispatchHelper(IRGen gen, IRGpuKernel kernel,
         Vector<IRNode> write = [];
         write.push(irVar(gpu)); write.push(irVar(name));
         write.push(irCast("void*",
-            irVar(sourceLexicalBindingCNameForAnalysis(
+            irVar(HostedAbi.lexicalBindingCNameForAnalysis(
                 buffer.name, gen.analyzed))));
         write.push(irBinOp(irVar(gpuLengthName(buffer.name)), "*",
             irSizeofType(buffer.elem_type == "f32" ? "float" : "int")));

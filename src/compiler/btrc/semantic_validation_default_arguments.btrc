@@ -54,7 +54,7 @@ void semanticRejectConstructorDefaultInstanceMember(string name, Node site,
             || state.analyzed.isEnum(name)
             || state.analyzed.isRichEnum(name)
             || state.analyzed.isEnumValue(name)
-            || sourceRuntimeHelperSymbol(name) || isCIntegerIdentifier(name)
+            || SourceRuntimeSymbols.helper(name) || isCIntegerIdentifier(name)
             || name == "NULL" || name == "__func__"
             || name == "stdin" || name == "stdout" || name == "stderr") {
         return;

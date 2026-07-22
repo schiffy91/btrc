@@ -23,7 +23,7 @@ class IRRawProjectionContextBuilder {
                 && expression.callee.kind == NK_IDENTIFIER
                 && self.generator.analyzed.hostedCallKeys.has(
                     astNodeKey(expression))) {
-            int parameter = hostedAbiReturnAliasParameter(
+            int parameter = HostedAbi.returnAliasParameter(
                 expression.callee.name);
             if (parameter >= 0 && parameter < expression.args.len) {
                 Node alias = expression.args.get(parameter);

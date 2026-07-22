@@ -117,7 +117,7 @@ void semanticValidateUnary(Node expression, SemanticValidationState state,
                 expression.operand, state, vars)
             || (expression.operand.kind == NK_IDENTIFIER
                 && (state.analyzed.funcNames.has(expression.operand.name)
-                    || sourceRuntimeHelperSymbol(
+                    || SourceRuntimeSymbols.helper(
                         expression.operand.name)));
         if (!addressable) {
             Node? invalidType = semanticInferType(

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from src.compiler.python import check_generated
-from src.compiler.python.hosted_abi_generation_io import check_generated_files, publish_generated_files
+from src.compiler.python.gen_hosted_abi_btrc import GeneratedSourcePublication
 
 REPO = Path(__file__).resolve().parents[3]
 GENERATED_PATHS = (
@@ -78,17 +78,17 @@ def test_hosted_freshness_ignores_checkout_write_bits_but_generation_normalizes_
     source.write_text("current\n", encoding="utf-8")
     source.chmod(0o666)
     files = {source: "current\n"}
-
-    assert check_generated_files(files, generated=generated, legacy_root=tmp_path, legacy_globs=()) == 0
-
-    publish_generated_files(
-        files,
+    publication = GeneratedSourcePublication(
         generated=generated,
         dispatcher=source,
         legacy_root=tmp_path,
         legacy_globs=(),
         mode=0o644,
     )
+
+    assert publication.check(files) == 0
+
+    publication.publish(files)
     assert stat.S_IMODE(source.stat().st_mode) == 0o644
 
 

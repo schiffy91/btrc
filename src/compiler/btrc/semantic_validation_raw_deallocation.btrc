@@ -1,7 +1,7 @@
 /* Semantic boundary between raw C allocation APIs and managed ownership. */
 
 int semanticRawLifetimeArity(string name) {
-    return hostedAbiRawLifetimeArity(name);
+    return HostedAbi.rawLifetimeArity(name);
 }
 
 bool semanticHostedRawLifetimeValue(string name,
@@ -97,19 +97,19 @@ int semanticHostedDeallocatorCompatibility(Node expression,
     }
     string name = expression.callee.name;
     bool nullAlias = semanticHostedAliasArgumentIsNull(name, expression);
-    string deallocator = hostedAbiReturnDeallocator(name);
+    string deallocator = HostedAbi.returnDeallocator(name);
     if (nullAlias) {
-        string conditional = hostedAbiReturnAliasNullDeallocator(name);
+        string conditional = HostedAbi.returnAliasNullDeallocator(name);
         if (conditional != "") { deallocator = conditional; }
     }
     if (deallocator != "") {
         return deallocator == family ? 1 : -1;
     }
     if (semanticHostedReturnEffectForCall(name, expression) != "alias"
-            || hostedAbiReturnAliasShape(name) != "exact") {
+            || HostedAbi.returnAliasShape(name) != "exact") {
         return -1;
     }
-    int aliasIndex = hostedAbiReturnAliasParameter(name);
+    int aliasIndex = HostedAbi.returnAliasParameter(name);
     if (aliasIndex < 0 || aliasIndex >= expression.args.len) { return -1; }
     return semanticHostedDeallocatorCompatibility(
         expression.args.get(aliasIndex), family, state, vars);
@@ -176,7 +176,7 @@ void semanticValidateRawLifetimeCall(Node call,
                 argument);
         }
     }
-    string family = hostedAbiConsumeDeallocator(name);
+    string family = HostedAbi.consumeDeallocator(name);
     if (semanticHostedDeallocatorCompatibility(
             argument, family, state, vars) < 0) {
         semanticValidationFail(name

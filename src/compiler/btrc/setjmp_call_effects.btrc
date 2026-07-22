@@ -13,8 +13,8 @@ SetjmpFunctionEffect setjmpUnknownEffect(int count) {
 }
 
 SetjmpFunctionEffect? setjmpHostedEffect(string name, int count) {
-    if (!hostedAbiExactFunction(name)) { return null; }
-    int parameterCount = hostedAbiParameterCount(name);
+    if (!HostedAbi.exactFunction(name)) { return null; }
+    int parameterCount = HostedAbi.parameterCount(name);
     if (parameterCount < 0) { return setjmpUnknownEffect(count); }
     SetjmpFunctionEffect effect = SetjmpFunctionEffect();
     int index = 0;
@@ -22,9 +22,9 @@ SetjmpFunctionEffect? setjmpHostedEffect(string name, int count) {
         if (index >= parameterCount) {
             setjmpAddParameterEffect(effect.writes, index, 1);
             setjmpAddParameterEffect(effect.captures, index, 1);
-        } else if (hostedAbiParameterPointerDepth(name, index) > 0) {
+        } else if (HostedAbi.parameterPointerDepth(name, index) > 0) {
             string parameterEffect =
-                hostedAbiParameterEffect(name, index);
+                HostedAbi.parameterEffect(name, index);
             if (parameterEffect == "mutate"
                     || parameterEffect == "consume"
                     || parameterEffect == "unknown") {
@@ -37,13 +37,13 @@ SetjmpFunctionEffect? setjmpHostedEffect(string name, int count) {
         }
         index = index + 1;
     }
-    if (hostedAbiReturnEffect(name) == "alias") {
-        int alias = hostedAbiReturnAliasParameter(name);
+    if (HostedAbi.returnEffect(name) == "alias") {
+        int alias = HostedAbi.returnAliasParameter(name);
         if (alias >= 0) {
             setjmpAddParameterEffect(effect.returns, alias, 1);
         }
     }
-    effect.unknownReturn = hostedAbiReturnEffect(name) == "opaque";
+    effect.unknownReturn = HostedAbi.returnEffect(name) == "opaque";
     return effect;
 }
 

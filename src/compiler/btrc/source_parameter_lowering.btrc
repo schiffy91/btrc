@@ -8,7 +8,7 @@
 IRParam lowerResolvedSourceParam(Node parameter, Node? resolvedType,
         string cType, Analyzed analyzed) {
     IRParam result = IRParam(cType,
-        sourceLexicalBindingCNameForAnalysis(parameter.name, analyzed));
+        HostedAbi.lexicalBindingCNameForAnalysis(parameter.name, analyzed));
     result.is_volatile = resolvedType != null
         && resolvedType.is_volatile;
     result.effective_is_volatile = typeEffectiveOuterVolatile(

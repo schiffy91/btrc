@@ -185,9 +185,9 @@ void semanticValidateOpaqueCallArgument(Node? declaration,
         return;
     }
     bool hostedBorrow = bodylessFfi
-        && (hostedAbiParameterReadOnlyBorrow(label, parameterIndex)
+        && (HostedAbi.parameterReadOnlyBorrow(label, parameterIndex)
             || (semanticExplicitOpaqueStorageAddress(argument)
-                && hostedAbiParameterNonescaping(
+                && HostedAbi.parameterNonescaping(
                     label, parameterIndex)));
     if (hostedBorrow
             || (declaration != null

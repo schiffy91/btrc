@@ -142,15 +142,15 @@ Vector<Node> ownershipParamsForCall(IRGen generator, Node call,
         Map<string, Node> varTypes) {
     if (call.callee != null && call.callee.kind == NK_IDENTIFIER
             && generator.analyzed.hostedCallKeys.has(astNodeKey(call))
-            && hostedAbiExactFunction(call.callee.name)) {
+            && HostedAbi.exactFunction(call.callee.name)) {
         Vector<Node> hosted = [];
         int index = 0;
-        while (index < hostedAbiParameterCount(call.callee.name)) {
+        while (index < HostedAbi.parameterCount(call.callee.name)) {
             Node typeExpr = makePrimType(
-                hostedAbiParameterBase(call.callee.name, index));
-            typeExpr.pointer_depth = hostedAbiParameterPointerDepth(
+                HostedAbi.parameterBase(call.callee.name, index));
+            typeExpr.pointer_depth = HostedAbi.parameterPointerDepth(
                 call.callee.name, index);
-            typeExpr.is_const = hostedAbiParameterConst(
+            typeExpr.is_const = HostedAbi.parameterConst(
                 call.callee.name, index);
             hosted.push(ownershipSyntheticParam(
                 Strings.fromInt(index), typeExpr));

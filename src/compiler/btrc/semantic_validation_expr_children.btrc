@@ -149,7 +149,7 @@ void semanticValidateExprChildren(Node expression,
             || state.analyzed.isEnum(name)
             || state.analyzed.isRichEnum(name)
             || state.analyzed.isEnumValue(name)
-            || sourceRuntimeHelperSymbol(name)
+            || SourceRuntimeSymbols.helper(name)
             || isCIntegerIdentifier(name) || name == "NULL"
             || name == "__func__"
             || name == "stdin"

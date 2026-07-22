@@ -12,7 +12,7 @@ IRFunction spawnCaptureReleaseAdapter(IRGen generator, string name,
     body.push(irVarDecl(envType, "__env",
         irCast(envType, irVar("__raw"))));
     IRNode field = irFieldAccess(
-        irVar("__env"), sourceLexicalBindingCName(fieldName), true);
+        irVar("__env"), HostedAbi.lexicalBindingCName(fieldName), true);
     body.push(irVarDecl(
         typeToC(captureType, generator.analyzed),
         "__value", field));

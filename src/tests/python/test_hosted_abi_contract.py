@@ -8,7 +8,7 @@ import pytest
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import FunctionDecl
 from src.compiler.python.cli_archive import _stamp_stdlib_declarations
-from src.compiler.python.gen_hosted_abi_btrc import render_files
+from src.compiler.python.gen_hosted_abi_btrc import HostedAbiBtrcGenerator
 from src.compiler.python.hosted_abi import (
     HOSTED_FUNCTIONS,
     HOSTED_TYPE_NAMES,
@@ -203,25 +203,28 @@ def test_source_string_adopters_are_derived_from_the_canonical_registry() -> Non
     assert not hosted_source_helper_adopts_raw_string("__btrc_str_track", 1)
 
 
-def test_generated_registry_is_current_and_respects_file_caps() -> None:
-    files = render_files()
-    assert files
-    for path, expected in files.items():
-        assert path.read_text() == expected
-        assert path.stat().st_mode & 0o777 == 0o644
-        assert len(expected.splitlines()) <= 300
+def test_generated_registry_is_current_and_has_one_domain_owner() -> None:
+    files = HostedAbiBtrcGenerator().render_files()
+    assert len(files) == 1
+    [(path, expected)] = files.items()
+    assert path.name == "tables.btrc"
+    assert path.read_text() == expected
+    assert path.stat().st_mode & 0o777 == 0o644
+    assert "class GeneratedHostedAbi" in expected
+    assert '#include "' not in expected
 
 
 def test_source_runtime_helper_roots_are_generated_from_the_registry() -> None:
-    files = render_files()
+    files = HostedAbiBtrcGenerator().render_files()
     generated_names = set()
-    for path, source in files.items():
-        if path.name.startswith("source_helper_"):
-            generated_names.update(re.findall(r'name == "([^"]+)"', source))
+    for source in files.values():
+        method = source.split("class bool sourceRuntimeHelperChunk0", 1)[1]
+        method = method.split("    }", 1)[0]
+        generated_names.update(re.findall(r'name == "([^"]+)"', method))
     assert generated_names == SOURCE_RUNTIME_HELPERS
 
     source_runtime = (SOURCE_ROOT / "compiler" / "btrc" / "source_runtime_symbols.btrc").read_text()
-    assert "hostedAbiSourceRuntimeHelperGenerated(name)" in source_runtime
+    assert "GeneratedHostedAbi.sourceRuntimeHelper(name)" in source_runtime
     assert not any(name in source_runtime for name in SOURCE_RUNTIME_HELPERS)
 
 

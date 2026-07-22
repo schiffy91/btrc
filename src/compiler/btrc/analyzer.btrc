@@ -1589,7 +1589,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                     && !a.hostedCallKeys.has(hostedCallKey)) {
                 return a.funcRetTypes.get(callee.name);
             }
-            Node? hostedResult = hostedAbiSemanticResultType(callee.name);
+            Node? hostedResult = HostedAbi.semanticResultType(callee.name);
             if (hostedResult != null) { return hostedResult; }
             Node? builtinResult = a.builtinCallResultType(callee.name);
             if (builtinResult != null) { return builtinResult; }

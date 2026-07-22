@@ -90,7 +90,7 @@ bool ownershipCallOmitsBorrowedProjectionGuard(IRGen generator,
             || call.callee.kind != NK_IDENTIFIER) { return false; }
     OwnershipCallOperand operand = operands.get(index);
     if (operand.parameterIndex < 0
-            || !hostedAbiParameterReadOnlyBorrow(
+            || !HostedAbi.parameterReadOnlyBorrow(
                 call.callee.name, operand.parameterIndex)) {
         return false;
     }

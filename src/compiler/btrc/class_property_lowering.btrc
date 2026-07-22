@@ -28,7 +28,7 @@ void emitInheritedPropertyForwardDecls(IRGen generator, Node declaration,
                     declaration.name + "*", "self"));
                 setter.params.push(lowerNamedSourceTypeParam(
                     property.type, propertyType,
-                    sourceLexicalBindingCNameForAnalysis(
+                    HostedAbi.lexicalBindingCNameForAnalysis(
                         "value", generator.analyzed),
                     generator.analyzed));
                 module.function_decls.push(setter);
@@ -65,7 +65,7 @@ void emitInheritedProperties(IRGen generator, Node declaration,
                 module.functions.push(getter);
             }
             if (property.has_setter) {
-                string valueCName = sourceLexicalBindingCNameForAnalysis(
+                string valueCName = HostedAbi.lexicalBindingCNameForAnalysis(
                     "value", generator.analyzed);
                 IRFunction setter = IRFunction();
                 setter.name = declaration.name + "_set_" + property.name;
@@ -132,7 +132,7 @@ void emitGenericPropertyForwardDecls(IRGen generator, GenInstance instance,
                     instance.mangled + "*", "self"));
                 setter.params.push(lowerNamedSourceTypeParam(
                     resolvedType, propertyType,
-                    sourceLexicalBindingCNameForAnalysis(
+                    HostedAbi.lexicalBindingCNameForAnalysis(
                         "value", generator.analyzed),
                     generator.analyzed));
                 module.function_decls.push(setter);
@@ -195,7 +195,7 @@ void emitGenericProperties(IRGen generator, GenInstance instance,
                 module.functions.push(getter);
             }
             if (property.has_setter) {
-                string valueCName = sourceLexicalBindingCNameForAnalysis(
+                string valueCName = HostedAbi.lexicalBindingCNameForAnalysis(
                     "value", generator.analyzed);
                 IRFunction setter = IRFunction();
                 setter.name = instance.mangled + "_set_" + property.name;

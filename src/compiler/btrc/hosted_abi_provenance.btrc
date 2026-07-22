@@ -1,66 +1,68 @@
 /* Compiler-authenticated provenance for hosted-ABI trust decisions. */
 
-string hostedAbiStdlibSourceMarker() {
-    return "compiler:stdlib";
-}
-
-string hostedAbiUserSourceMarker() {
-    return "compiler:user";
-}
-
-bool hostedAbiCompilerStdlibNode(Node site) {
-    return site.source_file != null
-        && site.source_file == hostedAbiStdlibSourceMarker();
-}
-
-void hostedAbiStampNestedDeclarations(Node declaration, string marker) {
-    if (declaration.kind == NK_CLASS_DECL) {
-        int memberIndex = 0;
-        while (memberIndex < declaration.members.len) {
-            declaration.members.get(memberIndex).source_file = marker;
-            memberIndex = memberIndex + 1;
-        }
-    } else if (declaration.kind == NK_INTERFACE_DECL) {
-        int methodIndex = 0;
-        while (methodIndex < declaration.methods.len) {
-            declaration.methods.get(methodIndex).source_file = marker;
-            methodIndex = methodIndex + 1;
-        }
-    } else if (declaration.kind == NK_RICH_ENUM_DECL) {
-        int variantIndex = 0;
-        while (variantIndex < declaration.variants.len) {
-            declaration.variants.get(variantIndex).source_file = marker;
-            variantIndex = variantIndex + 1;
-        }
+class HostedAbiProvenance {
+    class string stdlibSourceMarker() {
+        return "compiler:stdlib";
     }
-}
 
-bool hostedAbiResolvedStdlibImport(string sourceFile, string rootPath) {
-    string sourceIdentity = feCanonicalPathIdentity(sourceFile);
-    string rootIdentity = feCanonicalPathIdentity(rootPath);
-    string stdlibIdentity = feCanonicalPathIdentity(feStdlibDir());
-    return sourceIdentity != rootIdentity
-        && sourceIdentity.startsWith(stdlibIdentity + "/");
-}
+    class string userSourceMarker() {
+        return "compiler:user";
+    }
 
-void hostedAbiStampProgramSources(Node program, int stdlibLineCount,
-        Vector<FeLine> userLines, string rootPath) {
-    int index = 0;
-    while (index < program.declarations.len) {
-        Node declaration = program.declarations.get(index);
-        string marker = hostedAbiUserSourceMarker();
-        if (stdlibLineCount > 0 && declaration.line <= stdlibLineCount) {
-            marker = hostedAbiStdlibSourceMarker();
-        } else {
-            int userLine = declaration.line - stdlibLineCount;
-            if (userLine > 0 && userLine <= userLines.len
-                    && hostedAbiResolvedStdlibImport(
-                        userLines.get(userLine - 1).sourceFile, rootPath)) {
-                marker = hostedAbiStdlibSourceMarker();
+    class bool compilerStdlibNode(Node site) {
+        return site.source_file != null
+            && site.source_file == HostedAbiProvenance.stdlibSourceMarker();
+    }
+
+    class void stampNestedDeclarations(Node declaration, string marker) {
+        if (declaration.kind == NK_CLASS_DECL) {
+            int memberIndex = 0;
+            while (memberIndex < declaration.members.len) {
+                declaration.members.get(memberIndex).source_file = marker;
+                memberIndex = memberIndex + 1;
+            }
+        } else if (declaration.kind == NK_INTERFACE_DECL) {
+            int methodIndex = 0;
+            while (methodIndex < declaration.methods.len) {
+                declaration.methods.get(methodIndex).source_file = marker;
+                methodIndex = methodIndex + 1;
+            }
+        } else if (declaration.kind == NK_RICH_ENUM_DECL) {
+            int variantIndex = 0;
+            while (variantIndex < declaration.variants.len) {
+                declaration.variants.get(variantIndex).source_file = marker;
+                variantIndex = variantIndex + 1;
             }
         }
-        declaration.source_file = marker;
-        hostedAbiStampNestedDeclarations(declaration, marker);
-        index = index + 1;
+    }
+
+    class bool resolvedStdlibImport(string sourceFile, string rootPath) {
+        string sourceIdentity = feCanonicalPathIdentity(sourceFile);
+        string rootIdentity = feCanonicalPathIdentity(rootPath);
+        string stdlibIdentity = feCanonicalPathIdentity(feStdlibDir());
+        return sourceIdentity != rootIdentity
+            && sourceIdentity.startsWith(stdlibIdentity + "/");
+    }
+
+    class void stampProgramSources(Node program, int stdlibLineCount,
+            Vector<FeLine> userLines, string rootPath) {
+        int index = 0;
+        while (index < program.declarations.len) {
+            Node declaration = program.declarations.get(index);
+            string marker = HostedAbiProvenance.userSourceMarker();
+            if (stdlibLineCount > 0 && declaration.line <= stdlibLineCount) {
+                marker = HostedAbiProvenance.stdlibSourceMarker();
+            } else {
+                int userLine = declaration.line - stdlibLineCount;
+                if (userLine > 0 && userLine <= userLines.len
+                        && HostedAbiProvenance.resolvedStdlibImport(
+                            userLines.get(userLine - 1).sourceFile, rootPath)) {
+                    marker = HostedAbiProvenance.stdlibSourceMarker();
+                }
+            }
+            declaration.source_file = marker;
+            HostedAbiProvenance.stampNestedDeclarations(declaration, marker);
+            index = index + 1;
+        }
     }
 }

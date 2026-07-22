@@ -1,7 +1,7 @@
 /* Managed-string storage contracts for hosted raw pointer results. */
 
 bool semanticHostedAliasArgumentIsNull(string name, Node call) {
-    int index = hostedAbiReturnAliasParameter(name);
+    int index = HostedAbi.returnAliasParameter(name);
     if (index < 0 || index >= call.args.len) { return false; }
     Node argument = call.args.get(index);
     while (argument.kind == NK_CAST_EXPR) {
@@ -13,18 +13,18 @@ bool semanticHostedAliasArgumentIsNull(string name, Node call) {
 
 string semanticHostedReturnEffectForCall(string name, Node call) {
     if (semanticHostedAliasArgumentIsNull(name, call)) {
-        string conditional = hostedAbiReturnAliasNullEffect(name);
+        string conditional = HostedAbi.returnAliasNullEffect(name);
         if (conditional != "") { return conditional; }
     }
-    return hostedAbiReturnEffect(name);
+    return HostedAbi.returnEffect(name);
 }
 
 string semanticHostedReturnDeallocatorForCall(string name, Node call) {
     if (semanticHostedAliasArgumentIsNull(name, call)) {
-        string conditional = hostedAbiReturnAliasNullDeallocator(name);
+        string conditional = HostedAbi.returnAliasNullDeallocator(name);
         if (conditional != "") { return conditional; }
     }
-    return hostedAbiReturnDeallocator(name);
+    return HostedAbi.returnDeallocator(name);
 }
 
 string semanticDirectHostedReturnEffect(Node? expression,
@@ -68,7 +68,7 @@ void semanticValidateManagedStringSource(Node? expected, Node? value,
 void semanticValidateSourceHelperConsumer(string name, int index,
         Node argument, SemanticValidationState state,
         Map<string, Node> vars) {
-    if (!hostedAbiSourceAdoptingHelper(name, index)) {
+    if (!HostedAbi.sourceAdoptingHelper(name, index)) {
         return;
     }
     if (semanticRawLifetimeUsesStaticString(argument, state, vars)) {

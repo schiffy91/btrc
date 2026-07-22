@@ -134,13 +134,13 @@ void semanticValidateMacroLanguageSymbol(string macroName,
 
 Node? semanticMacroReadOnlyExpected(string sourceText, string parameter) {
     string callee = sourceMacroDirectCallName(sourceText);
-    if (callee == "" || !hostedAbiExactFunction(callee)
-            || hostedAbiVariadic(callee)
-            || hostedAbiMacroReferenceRequiresSemanticCall(callee)) {
+    if (callee == "" || !HostedAbi.exactFunction(callee)
+            || HostedAbi.variadic(callee)
+            || HostedAbi.macroReferenceRequiresSemanticCall(callee)) {
         return null;
     }
     Vector<string> arguments = sourceMacroDirectCallArguments(sourceText);
-    if (arguments.len != hostedAbiParameterCount(callee)) { return null; }
+    if (arguments.len != HostedAbi.parameterCount(callee)) { return null; }
     int occurrenceCount = 0;
     int safeIndex = -1;
     int index = 0;
@@ -150,17 +150,17 @@ Node? semanticMacroReadOnlyExpected(string sourceText, string parameter) {
         occurrenceCount = occurrenceCount + occurrences;
         if (occurrences == 1
                 && sourceMacroUnwrapGroups(arguments.get(index)) == parameter
-                && hostedAbiParameterReadOnlyBorrow(callee, index)) {
+                && HostedAbi.parameterReadOnlyBorrow(callee, index)) {
             safeIndex = index;
         }
         index = index + 1;
     }
     if (occurrenceCount != 1 || safeIndex < 0) { return null; }
     Node expected = makePrimType(
-        hostedAbiParameterBase(callee, safeIndex));
-    expected.pointer_depth = hostedAbiParameterPointerDepth(
+        HostedAbi.parameterBase(callee, safeIndex));
+    expected.pointer_depth = HostedAbi.parameterPointerDepth(
         callee, safeIndex);
-    expected.is_const = hostedAbiParameterConst(callee, safeIndex);
+    expected.is_const = HostedAbi.parameterConst(callee, safeIndex);
     return expected;
 }
 
