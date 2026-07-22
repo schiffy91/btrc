@@ -47,7 +47,7 @@ class ForInAnalysisMixin:
             if self._array_target_has_capacity(stmt.iterable, iter_type):
                 self.array_iteration_capacity_ids.add(id(stmt.iterable))
             else:
-                self._error(
+                self.context.error(
                     "Array for-in iterable has no provable element capacity",
                     stmt.line,
                     stmt.col,
@@ -61,7 +61,7 @@ class ForInAnalysisMixin:
                 stmt.col,
             )
         if self._contains_thread_storage(elem_type) or self._contains_thread_storage(value_type):
-            self._error(
+            self.context.error(
                 "for-in loop variables cannot own a Thread handle; declare a fresh local owner inside the loop",
                 stmt.line,
                 stmt.col,

@@ -246,7 +246,7 @@ class OpaqueBorrowContractsMixin:
             return
         if not self._expression_is_opaque_borrow(value):
             return
-        self._error(
+        self.context.error(
             f"{subject} cannot persist a managed value as a raw representation; "
             "use it only in a non-persisting expression or a proven borrow-only FFI call",
             getattr(value, "line", line),
@@ -282,7 +282,7 @@ class OpaqueBorrowContractsMixin:
             )
         ):
             return
-        self._error(
+        self.context.error(
             f"Argument to '{label}()' cannot forward a managed value as a raw "
             "representation because the parameter is not proven borrow-only",
             getattr(argument, "line", 0),

@@ -20,7 +20,7 @@ class BuiltinCallValidationMixin:
         if is_semantic_scalar_string(receiver_type):
             spec = STRING_METHODS.get(callee.field)
             if spec is None:
-                self._error(
+                self.context.error(
                     f"String has no method '{callee.field}'",
                     expression.line,
                     expression.col,
@@ -35,7 +35,7 @@ class BuiltinCallValidationMixin:
                 self._validate_builtin_signature("Thread.join", [], expression)
                 self._validate_thread_join_receiver(expression)
             else:
-                self._error(
+                self.context.error(
                     f"Thread<T> has no method '{callee.field}'",
                     expression.line,
                     expression.col,
@@ -57,7 +57,7 @@ class BuiltinCallValidationMixin:
                 if callee.field == "destroy":
                     self._validate_mutex_destroy_receiver(expression)
             else:
-                self._error(
+                self.context.error(
                     f"Mutex<T> has no method '{callee.field}'",
                     expression.line,
                     expression.col,
@@ -66,7 +66,7 @@ class BuiltinCallValidationMixin:
 
         if receiver_type and receiver_type.base in self.declarations.rich_enum_table:
             if callee.field != "toString":
-                self._error(
+                self.context.error(
                     f"Rich enum '{receiver_type.base}' has no method '{callee.field}'",
                     expression.line,
                     expression.col,
@@ -81,7 +81,7 @@ class BuiltinCallValidationMixin:
 
         if self._is_builtin_scalar_receiver(receiver_type):
             if callee.field != "toString":
-                self._error(
+                self.context.error(
                     f"Type '{self._format_type(receiver_type)}' has no method '{callee.field}'",
                     expression.line,
                     expression.col,
@@ -98,7 +98,11 @@ class BuiltinCallValidationMixin:
     def _is_builtin_scalar_receiver(self, type_expr) -> bool:
         return bool(
             type_expr
-            and (type_expr.base in self._NUMERIC_TYPES or type_expr.base == "bool" or type_expr.base in self.declarations.enum_table)
+            and (
+                type_expr.base in self._NUMERIC_TYPES
+                or type_expr.base == "bool"
+                or type_expr.base in self.declarations.enum_table
+            )
             and type_expr.pointer_depth == 0
             and not type_expr.is_array
             and not type_expr.generic_args
@@ -106,13 +110,13 @@ class BuiltinCallValidationMixin:
 
     def _validate_builtin_signature(self, name, expected_types, expression):
         if any(expression.arg_names or []):
-            self._error(
+            self.context.error(
                 f"'{name}()' does not accept named arguments",
                 expression.line,
                 expression.col,
             )
         if len(expression.args) != len(expected_types):
-            self._error(
+            self.context.error(
                 f"'{name}()' expects {len(expected_types)} argument(s) but got {len(expression.args)}",
                 expression.line,
                 expression.col,
@@ -134,7 +138,7 @@ class BuiltinCallValidationMixin:
             )
             actual = self._infer_type(argument)
             if actual and not self._types_compatible(expected, actual):
-                self._error(
+                self.context.error(
                     f"Argument {index} to '{name}()' expects "
                     f"'{self._format_type(expected)}' but got "
                     f"'{self._format_type(actual)}'",
@@ -150,7 +154,7 @@ class BuiltinCallValidationMixin:
             None,
         )
         if variant is None:
-            self._error(
+            self.context.error(
                 f"Rich enum '{enum_decl.name}' has no variant '{callee.field}'",
                 expression.line,
                 expression.col,
@@ -185,7 +189,7 @@ class BuiltinCallValidationMixin:
                 continue
             if id(default) not in self.rich_enum_unsafe_default_ids:
                 continue
-            self._error(
+            self.context.error(
                 f"Omitted default for rich-enum payload "
                 f"'{enum_decl.name}.{variant.name}.{parameter.name}' produces "
                 "a caller-owned temporary; rich-enum payloads are shallow "

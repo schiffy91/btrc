@@ -17,14 +17,14 @@ class EnumContractsMixin:
                     allowed_enum_members=prior,
                 )
                 if not valid:
-                    self._error(
+                    self.context.error(
                         f"Enum value '{value.name}' requires an integral constant expression using only earlier members",
                         value.line,
                         value.col,
                     )
                     numeric = None
                 elif numeric is not None and not (_C11_INT_MIN <= numeric <= _C11_INT_MAX):
-                    self._error(
+                    self.context.error(
                         f"Enum value '{value.name}' is outside the strict-C11 int range",
                         value.line,
                         value.col,
@@ -33,7 +33,7 @@ class EnumContractsMixin:
             else:
                 numeric = previous + 1 if previous is not None else None
                 if numeric is not None and not (_C11_INT_MIN <= numeric <= _C11_INT_MAX):
-                    self._error(
+                    self.context.error(
                         f"Implicit enum value '{value.name}' is outside the strict-C11 int range",
                         value.line,
                         value.col,

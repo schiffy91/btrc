@@ -58,7 +58,7 @@ class CallableValueValidationMixin:
             return False
         if not self._callable_value_escapes(expected, value):
             return False
-        self._error(
+        self.context.error(
             "A capturing lambda cannot escape through a bare __fn_ptr; a closure value is required",
             line,
             col,
@@ -95,9 +95,9 @@ class CallableValueValidationMixin:
 
     def _validate_fn_ptr_call(self, name, expected_types, args, line, col, arg_names=None):
         if any(arg_names or ()):
-            self._error(f"'{name}()' function-pointer calls do not support named arguments", line, col)
+            self.context.error(f"'{name}()' function-pointer calls do not support named arguments", line, col)
         if len(args) != len(expected_types):
-            self._error(f"'{name}()' expects {len(expected_types)} argument(s) but got {len(args)}", line, col)
+            self.context.error(f"'{name}()' expects {len(expected_types)} argument(s) but got {len(args)}", line, col)
             return
         for index, (expected, arg) in enumerate(zip(expected_types, args), 1):
             self._validate_managed_string_source(
@@ -130,7 +130,7 @@ class CallableValueValidationMixin:
             )
             actual = self._infer_type(arg)
             if actual and not self._types_compatible(expected, actual):
-                self._error(
+                self.context.error(
                     f"Argument {index} to '{name}()' expects "
                     f"'{self._format_type(expected)}' but got "
                     f"'{self._format_type(actual)}'",

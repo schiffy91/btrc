@@ -62,7 +62,7 @@ class HostedResultContractsMixin:
             or (contract[0] == RETURN_FRESH and contract[1] == DEALLOC_FREE)
         ):
             return
-        self._error(
+        self.context.error(
             f"{subject} cannot implicitly convert raw 'char*' storage to "
             "managed 'string' because its ownership is not proven; transfer "
             "fresh storage with __btrc_str_track() or make an explicit copy",

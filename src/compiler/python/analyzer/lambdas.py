@@ -39,7 +39,7 @@ class LambdaAnalysisMixin:
         captures: dict[str, TypeExpr] = {}
         self._lambda_contexts.append((outer_symbols, captures))
         self._push_scope()
-        self._validate_parameter_names(expr.params, "lambda")
+        self.declaration_policy.validate_parameter_names(expr.params, "lambda")
         declared_params = set()
         active_type_params = self._active_storage_type_parameters()
         for param in expr.params:
@@ -58,7 +58,7 @@ class LambdaAnalysisMixin:
                 "parameter",
             )
             if param.default is not None:
-                self._error(
+                self.context.error(
                     "Lambda parameters cannot have default arguments",
                     param.line,
                     param.col,
@@ -107,7 +107,7 @@ class LambdaAnalysisMixin:
                 and not self._is_nonpointer_void_object(expr.return_type)
                 and not self._block_must_terminate(expr.body.body)
             ):
-                self._error(
+                self.context.error(
                     "Non-void lambda does not return a value on every path",
                     expr.line,
                     expr.col,
@@ -126,7 +126,7 @@ class LambdaAnalysisMixin:
         if expr.return_type is None:
             inferred, conflicts = self._infer_lambda_return_details(expr)
             for actual in conflicts:
-                self._error(
+                self.context.error(
                     "Lambda has inconsistent inferred return types "
                     f"'{self._format_type(inferred)}' and "
                     f"'{self._format_type(actual)}'",
@@ -139,7 +139,7 @@ class LambdaAnalysisMixin:
         environment_captures = [name for name in captures if outer_symbols[name].captures_environment]
         if environment_captures:
             names = ", ".join(environment_captures)
-            self._error(
+            self.context.error(
                 f"A lambda cannot capture an environment-bearing callable ({names}); a closure value is required",
                 expr.line,
                 expr.col,
@@ -148,7 +148,7 @@ class LambdaAnalysisMixin:
             name for name, capture_type in captures.items() if self._contains_thread_storage(capture_type)
         ]
         for name in thread_captures:
-            self._error(
+            self.context.error(
                 f"A lambda cannot capture Thread handle '{name}'; join it "
                 "before capture or create a fresh owner inside the lambda",
                 expr.line,

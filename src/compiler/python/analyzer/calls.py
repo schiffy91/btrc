@@ -34,9 +34,9 @@ class CallValidationMixin:
             and ((symbol := self.scope.lookup(expr.callee.name)) is None or symbol.kind == "function")
         ):
             if not self.in_gpu_function:
-                self._error("gpu_id() can only be called inside @gpu functions", expr.line, expr.col)
+                self.context.error("gpu_id() can only be called inside @gpu functions", expr.line, expr.col)
             if expr.args:
-                self._error("gpu_id() takes no arguments", expr.line, expr.col)
+                self.context.error("gpu_id() takes no arguments", expr.line, expr.col)
 
         if isinstance(expr.callee, Identifier):
             self._validate_source_macro_call(expr)
@@ -107,13 +107,13 @@ class CallValidationMixin:
             return
         if name == "Mutex":
             if any(expr.arg_names or []):
-                self._error(
+                self.context.error(
                     "'Mutex()' does not accept named arguments",
                     expr.line,
                     expr.col,
                 )
             if len(expr.args) != 1:
-                self._error(
+                self.context.error(
                     f"'Mutex()' expects 1 argument but got {len(expr.args)}",
                     expr.line,
                     expr.col,
@@ -125,7 +125,7 @@ class CallValidationMixin:
         if name in self.declarations.class_table:
             cls = self.declarations.class_table[name]
             if cls.is_abstract:
-                self._error(f"Cannot instantiate abstract class '{cls.name}'", expr.line, expr.col)
+                self.context.error(f"Cannot instantiate abstract class '{cls.name}'", expr.line, expr.col)
             inferred = self._infer_constructor_call_type(expr, cls)
             if len(inferred.generic_args) == len(cls.generic_params):
                 self._collect_generic_instances(inferred)
@@ -159,7 +159,7 @@ class CallValidationMixin:
             cls = self.declarations.class_table[callee.obj.name]
             method = cls.methods.get(callee.field)
             if method is None:
-                self._error(f"Class '{cls.name}' has no class method '{callee.field}'", expr.line, expr.col)
+                self.context.error(f"Class '{cls.name}' has no class method '{callee.field}'", expr.line, expr.col)
                 return
             substitutions = self._method_substitutions(expr, cls, method, receiver_type=None)
             self._validate_call_signature(
@@ -189,7 +189,7 @@ class CallValidationMixin:
         if method is None:
             return
         if method.access == "class":
-            self._error(
+            self.context.error(
                 f"Class method '{callee.field}' must be called on '{cls.name}', not on an instance",
                 expr.line,
                 expr.col,
@@ -224,7 +224,7 @@ class CallValidationMixin:
             if inferred:
                 substitutions.update(inferred)
             else:
-                self._error(
+                self.context.error(
                     f"Cannot infer consistent type arguments for generic method '{method.name}()'",
                     expr.line,
                     expr.col,
@@ -246,14 +246,14 @@ class CallValidationMixin:
             and cls.constructor.access == "private"
             and (self.current_class is None or self.current_class.name != cls.name)
         ):
-            self._error(
+            self.context.error(
                 f"Cannot call private constructor of class '{cls.name}'",
                 line,
                 col,
             )
         if cls.constructor is None:
             if args:
-                self._error(
+                self.context.error(
                     f"Class '{cls.name}' has no constructor but was called with {len(args)} argument(s)", line, col
                 )
             return

@@ -43,7 +43,7 @@ class ExceptionAnalysisMixin:
                 self._collect_generic_instances(catch_type)
                 self._record_node_type(statement, catch_type)
                 if not (catch_type.base == "string" and catch_type.pointer_depth == 0):
-                    self._error(
+                    self.context.error(
                         f"Catch type '{catch_type.base}' is not supported — "
                         "exceptions carry a string message; "
                         f"use 'string {statement.catch_var}' or an untyped "

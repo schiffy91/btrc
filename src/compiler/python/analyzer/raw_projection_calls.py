@@ -37,7 +37,7 @@ def validate_conditional_raw_projection_call(analyzer, call) -> None:
             ),
         )
         if choice is not None:
-            analyzer._error(
+            analyzer.context.error(
                 _CONDITIONAL_STORAGE_ERROR,
                 getattr(choice, "line", call.line),
                 getattr(choice, "col", call.col),

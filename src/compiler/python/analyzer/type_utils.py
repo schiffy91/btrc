@@ -5,8 +5,9 @@ from __future__ import annotations
 from ..ast_nodes import TypeExpr
 from ..numeric_semantics import is_known_integer_typedef_name
 from ..string_methods import STRING_METHODS
-from ..type_composition import compose_type_expr, nullable_collapses_reference_layer
+from ..type_composition import nullable_collapses_reference_layer
 from ..type_identity import TypeShapeError, substitute_type_expr
+from .declarations.type_resolution import canonical_declaration_type
 
 
 class TypeUtilsMixin:
@@ -239,14 +240,11 @@ class TypeUtilsMixin:
 
     def _canonical_type(self, type_expr, seen=None):
         """Resolve typedef aliases while preserving use-site modifiers."""
-        if type_expr is None or type_expr.base not in self.declarations.typedef_table:
-            return type_expr
-        seen = set() if seen is None else seen
-        if type_expr.base in seen:
-            return type_expr
-        seen.add(type_expr.base)
-        resolved = self._canonical_type(self.declarations.typedef_table[type_expr.base], seen)
-        return compose_type_expr(type_expr, resolved, reference_shape=resolved)
+        return canonical_declaration_type(
+            type_expr,
+            self.declarations.typedef_table,
+            seen,
+        )
 
     def _is_interface_subtype(self, child: str, parent: str) -> bool:
         """Whether an interface is the same as or transitively extends another."""

@@ -10,7 +10,7 @@ class IndexExpressionContractsMixin:
         if object_type is None:
             return
         if object_type.base == "Tuple":
-            self._error(
+            self.context.error(
                 "Tuple values are not dynamically indexable; use ._N fields",
                 expression.line,
                 expression.col,
@@ -35,7 +35,7 @@ class IndexExpressionContractsMixin:
                     substitutions = protocol.substitutions(object_type)
                     expected_index = self._substitute_type(expected_index, substitutions)
             if not assigning and protocol.getter is None:
-                self._error(
+                self.context.error(
                     f"Type '{self._format_type(object_type)}' has no indexed getter; "
                     "indexing requires an instance get(index) method",
                     expression.line,
@@ -56,7 +56,7 @@ class IndexExpressionContractsMixin:
         )
         if expected_index is not None and index_type:
             if not self._types_compatible(expected_index, index_type):
-                self._error(
+                self.context.error(
                     f"Index expression expects "
                     f"'{self._format_type(expected_index)}' but got "
                     f"'{self._format_type(index_type)}'",
@@ -64,7 +64,7 @@ class IndexExpressionContractsMixin:
                     expression.index.col,
                 )
         elif integral_index and index_type and not self._is_integral_value(index_type):
-            self._error(
+            self.context.error(
                 "Index expression must have an integral type",
                 expression.index.line,
                 expression.index.col,
@@ -73,14 +73,14 @@ class IndexExpressionContractsMixin:
         indexable = expected_index is not None or integral_index or protocol is not None
         if not indexable:
             if object_type.base in self.declarations.class_table:
-                self._error(
+                self.context.error(
                     f"Type '{self._format_type(object_type)}' has no indexed getter; "
                     "indexing requires an instance get(index) method",
                     expression.line,
                     expression.col,
                 )
             else:
-                self._error(
+                self.context.error(
                     f"Type '{self._format_type(object_type)}' is not indexable",
                     expression.line,
                     expression.col,

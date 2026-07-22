@@ -4,7 +4,7 @@ modes (default stdlib-AST cache and --no-cache combined-source parse)."""
 
 import pytest
 
-from src.compiler.python.analyzer.core import Diag
+from src.compiler.python.analyzer.core_models import Diag
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.cli.compiler_cli import CompilerCLI
 

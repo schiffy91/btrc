@@ -28,14 +28,14 @@ class IndexedUpdateContractsMixin:
         setter = protocol.setter
         getter = protocol.getter
         if setter is None:
-            self._error(
+            self.context.error(
                 f"Type '{self._format_type(receiver_type)}' has no indexed setter; "
                 "it has no void instance set(index, value) method",
                 line,
                 col,
             )
         if require_getter and getter is None:
-            self._error(
+            self.context.error(
                 f"Type '{self._format_type(receiver_type)}' has no indexed getter; "
                 "indexing requires an instance get(index) method",
                 line,
@@ -59,7 +59,7 @@ class IndexedUpdateContractsMixin:
                 expected_index,
                 actual_index,
             ):
-                self._error(
+                self.context.error(
                     f"Indexed {method.name} expects index type "
                     f"'{self._format_type(expected_index)}' but got "
                     f"'{self._format_type(actual_index)}'",
@@ -80,7 +80,7 @@ class IndexedUpdateContractsMixin:
             expected_value,
             actual_value,
         ):
-            self._error(
+            self.context.error(
                 f"Indexed setter expects value type "
                 f"'{self._format_type(expected_value)}' but got "
                 f"'{self._format_type(actual_value)}'",
@@ -96,7 +96,7 @@ class IndexedUpdateContractsMixin:
             protocol.class_info.name,
         )
         if self.current_class is None or self.current_class.name != owner:
-            self._error(
+            self.context.error(
                 f"Cannot access private indexed method '{method.name}' of class '{owner}'",
                 line,
                 col,

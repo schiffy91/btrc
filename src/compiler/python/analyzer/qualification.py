@@ -46,7 +46,7 @@ class QualificationMixin:
         missing = sorted(required - set(available))
         if not missing:
             return True
-        self._error(
+        self.context.error(
             f"{subject} would discard volatile storage qualification at "
             f"pointer depth {missing[0]}; use a typedef that preserves the "
             "qualified pointee instead of unsupported layered pointer qualifiers",

@@ -14,7 +14,7 @@ class CallTargetContractsMixin:
         if isinstance(callee, FieldAccessExpr):
             abstract_owner = self._abstract_method_owner(callee)
             if abstract_owner is not None:
-                self._error(
+                self.context.error(
                     f"Abstract method '{abstract_owner}.{callee.field}' cannot be called without runtime dispatch",
                     call.line,
                     call.col,
@@ -24,7 +24,7 @@ class CallTargetContractsMixin:
                 return
             inferred = self._infer_type(callee)
             if inferred is not None and self._function_pointer_signature(inferred) is None:
-                self._error(
+                self.context.error(
                     f"Expression of type '{self._format_type(inferred)}' is not callable",
                     call.line,
                     call.col,
@@ -32,7 +32,7 @@ class CallTargetContractsMixin:
             return
         inferred = self._infer_type(callee)
         if inferred is not None and self._function_pointer_signature(inferred) is None:
-            self._error(
+            self.context.error(
                 f"Expression of type '{self._format_type(inferred)}' is not callable",
                 call.line,
                 call.col,
@@ -45,7 +45,7 @@ class CallTargetContractsMixin:
             if self._function_pointer_signature(symbol.type) is not None:
                 return
             rendered = self._format_type(symbol.type) if symbol.type else "unknown"
-            self._error(
+            self.context.error(
                 f"Resolved value '{name}' of type '{rendered}' is not callable",
                 identifier.line,
                 identifier.col,
@@ -56,10 +56,10 @@ class CallTargetContractsMixin:
         if symbol is not None:
             return
         if name in self.declarations.enum_table or name in self.declarations.rich_enum_table:
-            self._error(f"Type '{name}' is not directly callable", identifier.line, identifier.col)
+            self.context.error(f"Type '{name}' is not directly callable", identifier.line, identifier.col)
             return
         if name in self.declarations.enum_member_owners:
-            self._error(f"Enum member '{name}' is not callable", identifier.line, identifier.col)
+            self.context.error(f"Enum member '{name}' is not callable", identifier.line, identifier.col)
 
     def _known_field_callable(self, callee) -> bool:
         if isinstance(callee.obj, Identifier):

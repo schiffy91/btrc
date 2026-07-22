@@ -17,7 +17,7 @@ def validate_default_macro_context(analyzer, identifier) -> None:
         _CONTEXT_SENSITIVE_PREDEFINED,
     ):
         return
-    analyzer._error(
+    analyzer.context.error(
         f"Source macro '{identifier.name}' cannot be used in a default "
         "argument because it expands to a context-sensitive predefined identifier",
         identifier.line,
@@ -40,7 +40,7 @@ def validate_constructor_default_member(analyzer, identifier, *, direct_callee=F
         member = owner.properties.get(name) or owner.fields.get(name) or owner.methods.get(name)
     if member is None or member.access == "class" or getattr(member, "is_constructor", False):
         return False
-    analyzer._error(
+    analyzer.context.error(
         f"Constructor defaults cannot reference instance member '{name}' before allocation",
         identifier.line,
         identifier.col,

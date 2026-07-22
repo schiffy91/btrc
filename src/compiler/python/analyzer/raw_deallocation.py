@@ -59,7 +59,7 @@ class RawDeallocationContractsMixin:
     def _validate_raw_lifetime_value(self, expression, direct_callee) -> bool:
         if direct_callee or not self._is_hosted_raw_lifetime_value(expression.name):
             return False
-        self._error(
+        self.context.error(
             f"Hosted lifetime function '{expression.name}' must be called "
             "directly and cannot be stored or forwarded as a value",
             expression.line,
@@ -86,14 +86,14 @@ class RawDeallocationContractsMixin:
         if expected is None:
             return
         if len(call.args) != expected:
-            self._error(
+            self.context.error(
                 f"'{name}()' expects {expected} argument(s) but got {len(call.args)}",
                 call.line,
                 call.col,
             )
             return
         if any(call.arg_names or ()):
-            self._error(
+            self.context.error(
                 f"'{name}()' does not accept named arguments",
                 call.line,
                 call.col,
@@ -102,7 +102,7 @@ class RawDeallocationContractsMixin:
 
         argument = call.args[0]
         if self._raw_lifetime_uses_static_string(argument):
-            self._error(
+            self.context.error(
                 f"{name}() cannot consume static string storage; "
                 "only heap memory owned by a raw allocator may be consumed",
                 getattr(argument, "line", call.line),
@@ -128,7 +128,7 @@ class RawDeallocationContractsMixin:
             family,
         )
         if compatibility is False:
-            self._error(
+            self.context.error(
                 f"{name}() cannot consume storage returned by "
                 f"{producer}() because it is not compatible with the "
                 f"'{family}' deallocator family",
@@ -167,7 +167,7 @@ class RawDeallocationContractsMixin:
             guidance = "call Mutex.destroy() or let its owning scope clean it up"
         else:
             guidance = "use 'delete' so the owning slot is cleared safely"
-        self._error(
+        self.context.error(
             f"{name}() cannot consume managed value of type '{self._format_type(argument_type)}'; {guidance}",
             getattr(argument, "line", call.line),
             getattr(argument, "col", call.col),

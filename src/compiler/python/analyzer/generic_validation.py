@@ -35,7 +35,7 @@ class GenericValidationMixin:
             return
         reported.add(marker)
         self._reported_type_shape_errors = reported
-        self._error(message, error_line, error_col)
+        self.context.error(message, error_line, error_col)
 
     def _validate_generic_arguments(self, owner, args, line=0, col=0):
         valid = True
@@ -168,7 +168,9 @@ class GenericValidationMixin:
         key = type_expr.base
         cls = self.declarations.class_table.get(key)
         registered = bool(cls and cls.generic_params and not base_is_parameter)
-        runtime = cls is None and key not in self.declarations.interface_table and key in _UNREGISTERED_GENERIC_INSTANCE_BASES
+        runtime = (
+            cls is None and key not in self.declarations.interface_table and key in _UNREGISTERED_GENERIC_INSTANCE_BASES
+        )
         unresolved = any(type_references_names(argument, active) for argument in args)
         instances = self.generic_instances.setdefault(key, []) if registered or runtime else []
         normalized = tuple(self._normalize_type_key(argument) for argument in args)

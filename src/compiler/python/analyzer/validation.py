@@ -17,7 +17,7 @@ class ValidationMixin:
         ):
             declaration = self.declarations.rich_enum_table[expr.obj.name]
             if not call_target and not any(variant.name == expr.field for variant in declaration.variants):
-                self._error(
+                self.context.error(
                     f"Rich enum '{declaration.name}' has no variant '{expr.field}'",
                     expr.line,
                     expr.col,
@@ -37,7 +37,7 @@ class ValidationMixin:
             and not getattr(expr, "optional", False)
             and not self._is_known_nonnull(expr.obj)
         ):
-            self._warning(
+            self.context.warning(
                 f"Non-optional access '.{expr.field}' on nullable type "
                 f"'{obj_type.base}?' — use '?.{expr.field}' or check for null",
                 expr.line,
@@ -47,16 +47,16 @@ class ValidationMixin:
         if obj_type and obj_type.base == "Thread":
             valid = {"join"}
             if expr.field not in valid:
-                self._error(f"Thread<T> has no method '{expr.field}'", expr.line, expr.col)
+                self.context.error(f"Thread<T> has no method '{expr.field}'", expr.line, expr.col)
             return
         if obj_type and obj_type.base == "Mutex":
             valid = {"get", "set", "destroy"}
             if expr.field not in valid:
-                self._error(f"Mutex<T> has no method '{expr.field}'", expr.line, expr.col)
+                self.context.error(f"Mutex<T> has no method '{expr.field}'", expr.line, expr.col)
             return
         if obj_type and obj_type.base in self.declarations.rich_enum_table:
             if expr.field not in {"tag", "data"} and not (call_target and expr.field == "toString"):
-                self._error(
+                self.context.error(
                     f"Rich enum '{obj_type.base}' has no field '{expr.field}'",
                     expr.line,
                     expr.col,
@@ -64,7 +64,7 @@ class ValidationMixin:
             return
         if obj_type and obj_type.base == "string":
             if not call_target:
-                self._error(
+                self.context.error(
                     f"Type 'string' has no field '{expr.field}'; use a string method call",
                     expr.line,
                     expr.col,
@@ -81,24 +81,24 @@ class ValidationMixin:
                 if prop.access == "private":
                     owner = cls.property_owners.get(expr.field, cls.name)
                     if self.current_class is None or self.current_class.name != owner:
-                        self._error(
+                        self.context.error(
                             f"Cannot access private property '{expr.field}' of class '{owner}'", expr.line, expr.col
                         )
                 if self._assignment_target_depth == 0 and not prop.has_getter:
-                    self._error(f"Property '{expr.field}' has no getter", expr.line, expr.col)
+                    self.context.error(f"Property '{expr.field}' has no getter", expr.line, expr.col)
                 return
             if expr.field in cls.fields:
                 field_decl = cls.fields[expr.field]
                 if field_decl.access == "private":
                     owner = cls.field_owners.get(expr.field, cls.name)
                     if self.current_class is None or self.current_class.name != owner:
-                        self._error(
+                        self.context.error(
                             f"Cannot access private field '{expr.field}' of class '{owner}'", expr.line, expr.col
                         )
             elif expr.field in cls.methods:
                 method = cls.methods[expr.field]
                 if method.access == "class":
-                    self._error(
+                    self.context.error(
                         f"Class method '{expr.field}' must be accessed on '{cls.name}', not on an instance",
                         expr.line,
                         expr.col,
@@ -106,11 +106,11 @@ class ValidationMixin:
                 if method.access == "private":
                     owner = cls.method_owners.get(expr.field, cls.name)
                     if self.current_class is None or self.current_class.name != owner:
-                        self._error(
+                        self.context.error(
                             f"Cannot access private method '{expr.field}' of class '{owner}'", expr.line, expr.col
                         )
             else:
-                self._error(f"Class '{cls.name}' has no field or method '{expr.field}'", expr.line, expr.col)
+                self.context.error(f"Class '{cls.name}' has no field or method '{expr.field}'", expr.line, expr.col)
 
     def _validate_static_member_access(self, expression, class_info) -> None:
         name = expression.field
@@ -127,7 +127,7 @@ class ValidationMixin:
         method = class_info.methods.get(name)
         if method is not None:
             if method.access != "class":
-                self._error(
+                self.context.error(
                     f"Method '{name}' is not a class method, cannot access it statically",
                     expression.line,
                     expression.col,
@@ -142,13 +142,13 @@ class ValidationMixin:
             )
             return
         if name in class_info.fields or name in class_info.properties:
-            self._error(
+            self.context.error(
                 f"Instance member '{name}' cannot be accessed on class '{class_info.name}'",
                 expression.line,
                 expression.col,
             )
             return
-        self._error(
+        self.context.error(
             f"Class '{class_info.name}' has no static field or method '{name}'",
             expression.line,
             expression.col,
@@ -156,7 +156,7 @@ class ValidationMixin:
 
     def _validate_private_member_access(self, member, owner, kind, name, expression):
         if member.access == "private" and (self.current_class is None or self.current_class.name != owner):
-            self._error(
+            self.context.error(
                 f"Cannot access private {kind} '{name}' of class '{owner}'",
                 expression.line,
                 expression.col,
@@ -164,17 +164,17 @@ class ValidationMixin:
 
     def _validate_self(self, expr):
         if self._analyzing_constructor_default:
-            self._error(
+            self.context.error(
                 "Constructor defaults cannot reference 'self' before allocation",
                 expr.line,
                 expr.col,
             )
         elif self.current_class is None:
-            self._error("'self' used outside of a class", expr.line, expr.col)
+            self.context.error("'self' used outside of a class", expr.line, expr.col)
         elif self.current_method is None:
-            self._error("'self' used outside of a method", expr.line, expr.col)
+            self.context.error("'self' used outside of a method", expr.line, expr.col)
         elif self.current_method.access == "class":
-            self._error("'self' cannot be used in a class (static) method", expr.line, expr.col)
+            self.context.error("'self' cannot be used in a class (static) method", expr.line, expr.col)
 
 
 __all__ = ["ValidationMixin"]

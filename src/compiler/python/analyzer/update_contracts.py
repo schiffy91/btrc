@@ -17,14 +17,14 @@ class UpdateContractsMixin:
             isinstance(operand, FloatLiteral) and operand.value == 0.0
         )
         if zero:
-            self._error("Division by zero", operand.line, operand.col)
+            self.context.error("Division by zero", operand.line, operand.col)
 
     def _validate_assignment(self, expression):
         if isinstance(expression.target, FieldAccessExpr) and expression.target.optional:
-            self._error("Optional-chain expression is not assignable", expression.line, expression.col)
+            self.context.error("Optional-chain expression is not assignable", expression.line, expression.col)
             return
         if not self._is_lvalue(expression.target):
-            self._error("Assignment target is not assignable", expression.line, expression.col)
+            self.context.error("Assignment target is not assignable", expression.line, expression.col)
             return
         if not self._validate_mutable_target(expression.target, expression.line, expression.col):
             return
@@ -58,7 +58,7 @@ class UpdateContractsMixin:
         ):
             supported_physical = isinstance(expression.target, (Identifier, FieldAccessExpr)) and not virtual_target
             if not supported_physical:
-                self._error(
+                self.context.error(
                     "Managed compound updates require a direct local/global or physical field; "
                     "use an explicit local value and simple store for virtual or indirect targets",
                     expression.line,
@@ -112,7 +112,7 @@ class UpdateContractsMixin:
                 return
             canonical_target = self._canonical_type(target)
             if canonical_target and canonical_target.base == "Thread":
-                self._error(
+                self.context.error(
                     "Thread owner variables are single-assignment; declare a new owner for a fresh Thread result",
                     expression.line,
                     expression.col,
@@ -124,14 +124,14 @@ class UpdateContractsMixin:
             ):
                 if self._gpu_output_element_compatible(target, source):
                     return
-                self._error(
+                self.context.error(
                     "Array-returning @gpu output element type is not compatible with the target storage",
                     expression.line,
                     expression.col,
                 )
                 return
             if not self._types_compatible(target, source):
-                self._error(
+                self.context.error(
                     f"Cannot assign '{self._format_type(source)}' to '{self._format_type(target)}'",
                     expression.line,
                     expression.col,
@@ -162,7 +162,7 @@ class UpdateContractsMixin:
         else:
             valid = self._is_numeric_value(target) and self._is_numeric_value(source)
         if not valid:
-            self._error(
+            self.context.error(
                 f"Operator '{expression.op}' is not defined for "
                 f"'{self._format_type(target)}' and "
                 f"'{self._format_type(source)}'",
@@ -215,7 +215,7 @@ class UpdateContractsMixin:
         else:
             return
         if not valid:
-            self._error(
+            self.context.error(
                 f"Unary operator '{expression.op}' is not defined for '{self._format_type(operand_type)}'",
                 expression.line,
                 expression.col,
@@ -238,20 +238,20 @@ class UpdateContractsMixin:
         if prop is None:
             return
         if not prop.has_setter and not (allow_getter_storage and prop.has_getter):
-            self._error(f"Property '{target.field}' has no setter", line, col)
+            self.context.error(f"Property '{target.field}' has no setter", line, col)
         if require_getter and not prop.has_getter:
-            self._error(f"Property '{target.field}' has no getter", line, col)
+            self.context.error(f"Property '{target.field}' has no getter", line, col)
 
     def _validate_mutable_target(self, target, line, col) -> bool:
         target_type = self._canonical_type(self._infer_type(target))
         if target_type is not None and target_type.is_const and not self._is_pointer_value(target_type):
-            self._error("Cannot modify const-qualified storage", line, col)
+            self.context.error("Cannot modify const-qualified storage", line, col)
             return False
         if self._target_has_const_receiver(target):
-            self._error("Cannot modify through a const-qualified receiver", line, col)
+            self.context.error("Cannot modify through a const-qualified receiver", line, col)
             return False
         if self._aggregate_has_const_member(target_type):
-            self._error(
+            self.context.error(
                 "Cannot assign an aggregate containing const-qualified storage",
                 line,
                 col,

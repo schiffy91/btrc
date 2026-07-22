@@ -75,7 +75,7 @@ def claim_generic_method_symbols(analyzer, claims) -> None:
 def validate_generated_symbol_ownership(analyzer, symbol, owner, line, col) -> None:
     """Reject a synthesized spelling owned by the canonical hosted registry."""
     if hosted_owned_name(symbol):
-        analyzer._error(
+        analyzer.context.error(
             f"Generated C symbol '{symbol}' for {owner} collides with compiler-owned hosted C symbol '{symbol}'",
             line,
             col,
@@ -84,7 +84,7 @@ def validate_generated_symbol_ownership(analyzer, symbol, owner, line, col) -> N
 
 def validate_generated_symbol_references(analyzer, program, claims) -> None:
     """Resolve deferred identifiers after every generated claim is known."""
-    for declaration in analyzer._decls_with_file(program):
+    for declaration in analyzer.context.declarations(program):
         if isinstance(declaration, PreprocessorDirective):
             _validate_preprocessor_symbols(analyzer, declaration, claims)
         for node in _walk_ast(declaration):
@@ -98,7 +98,7 @@ def validate_generated_symbol_references(analyzer, program, claims) -> None:
             action = "Direct call to" if direct_call else "Source reference to"
             owner = claims.get(symbol)
             if owner is not None:
-                analyzer._error(
+                analyzer.context.error(
                     f"{action} compiler-generated C symbol '{symbol}' for {owner} is not allowed",
                     node.line,
                     node.col,
@@ -106,13 +106,13 @@ def validate_generated_symbol_references(analyzer, program, claims) -> None:
                 continue
             supported = is_source_runtime_helper(symbol) or (direct_call and is_source_runtime_intrinsic(symbol))
             if is_compiler_owned_symbol(symbol) and not supported:
-                analyzer._error(
+                analyzer.context.error(
                     f"{action} compiler-owned C symbol '{symbol}' is not allowed",
                     node.line,
                     node.col,
                 )
             elif not direct_call and not symbol.isupper() and not supported:
-                analyzer._error(
+                analyzer.context.error(
                     f"Unresolved identifier '{symbol}' used as a value",
                     node.line,
                     node.col,
@@ -133,7 +133,7 @@ def _validate_preprocessor_symbols(analyzer, declaration, claims) -> None:
         )
         return
     if source_macro_uses_token_paste(directive):
-        analyzer._error(
+        analyzer.context.error(
             f"Source macro '{directive.name}' uses token pasting, which can construct compiler-owned C symbols",
             declaration.line,
             declaration.col,
@@ -157,13 +157,13 @@ def _validate_macro_replacement_symbol(
 ) -> None:
     """Apply semantic policies to one parsed replacement identifier."""
     if hosted_raw_lifetime_arity(symbol) is not None:
-        analyzer._error(
+        analyzer.context.error(
             f"Raw lifetime consumer '{symbol}' cannot be referenced from macro replacement '{macro_name}'",
             declaration.line,
             declaration.col,
         )
     elif hosted_macro_reference_requires_semantic_call(symbol):
-        analyzer._error(
+        analyzer.context.error(
             f"Hosted function '{symbol}' requires semantic call analysis and cannot be referenced from macro replacement '{macro_name}'",
             declaration.line,
             declaration.col,
@@ -194,13 +194,13 @@ def _reject_preprocessor_symbol(
 ) -> None:
     owner = claims.get(symbol)
     if owner is not None:
-        analyzer._error(
+        analyzer.context.error(
             f"{action} compiler-generated C symbol '{symbol}' for {owner} is not allowed",
             declaration.line,
             declaration.col,
         )
     elif is_compiler_owned_symbol(symbol):
-        analyzer._error(
+        analyzer.context.error(
             f"{action} compiler-owned C symbol '{symbol}' is not allowed",
             declaration.line,
             declaration.col,

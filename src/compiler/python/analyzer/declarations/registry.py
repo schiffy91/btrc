@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 
 from ...ast_nodes import (
     ClassDecl,
@@ -22,28 +20,11 @@ from ...ast_nodes import (
     VarDeclStmt,
 )
 from ...class_storage import instance_storage_name
+from ..analysis_context import AnalysisContext
 from ..core_models import AnalyzedProgram, ClassInfo, InterfaceInfo, Scope
 from .inheritance import InheritanceResolver
+from .policy import DeclarationPolicy
 from .top_level import TopLevelRegistrar
-
-
-@dataclass(frozen=True)
-class DeclarationServices:
-    """The narrow semantic policies required during declaration registration."""
-
-    declarations: Callable[[Program], Iterable[object]]
-    error: Callable[..., None]
-    validate_declared_name: Callable[..., bool]
-    validate_generic_parameter_names: Callable[..., None]
-    validate_parameter_names: Callable[..., None]
-    validate_array_return_declaration: Callable[..., None]
-    validate_inherited_member_names: Callable[..., None]
-    hosted_type_declaration_allowed: Callable[..., bool]
-    hosted_object_declaration_allowed: Callable[..., bool]
-    function_declarations_compatible: Callable[..., bool]
-    merge_function_defaults: Callable[..., None]
-    global_scope: Scope
-    current_source_file: Callable[[], str | None]
 
 
 class DeclarationRegistry:
@@ -51,11 +32,13 @@ class DeclarationRegistry:
 
     def __init__(
         self,
-        services: DeclarationServices,
+        context: AnalysisContext,
+        global_scope: Scope,
         *,
         seed: AnalyzedProgram | None = None,
     ) -> None:
-        self.services = services
+        self.context = context
+        self.global_scope = global_scope
         self.class_table: dict[str, ClassInfo] = {}
         self.function_table: dict[str, FunctionDecl] = {}
         self.typedef_table: dict[str, TypeExpr] = {}
@@ -72,6 +55,7 @@ class DeclarationRegistry:
         self.global_declarations: dict[str, object] = {}
         self.global_definitions: dict[str, object] = {}
         self.struct_definitions: dict[str, object] = {}
+        self.policy = DeclarationPolicy(context, self)
         self.top_level = TopLevelRegistrar(self)
         self.inheritance = InheritanceResolver(self)
         if seed is not None:
@@ -91,11 +75,11 @@ class DeclarationRegistry:
             sys.setrecursionlimit(40000)
         pre_resolved_classes = {id(info) for info in self.class_table.values()}
         self.top_level.initialize(program)
-        for declaration in self.services.declarations(program):
+        for declaration in self.context.declarations(program):
             if isinstance(declaration, InterfaceDecl):
                 self._register_interface(declaration)
         self.declared_type_names = set()
-        for declaration in self.services.declarations(program):
+        for declaration in self.context.declarations(program):
             if isinstance(declaration, ClassDecl):
                 self._register_class(declaration)
             elif isinstance(declaration, FunctionDecl):
@@ -103,9 +87,9 @@ class DeclarationRegistry:
             elif isinstance(declaration, StructDecl):
                 self.top_level.register_struct(declaration)
             elif isinstance(declaration, EnumDecl):
-                self.top_level.register_simple_enum(declaration)
+                self.top_level.enums.register_simple(declaration)
             elif isinstance(declaration, RichEnumDecl):
-                self.top_level.register_rich_enum(declaration)
+                self.top_level.enums.register_rich(declaration)
             elif isinstance(declaration, TypedefDecl):
                 self.top_level.claim_name(
                     declaration.alias,
@@ -122,7 +106,7 @@ class DeclarationRegistry:
     def resolve_interface_parents(self, program: Program) -> None:
         declarations = {
             declaration.name: declaration
-            for declaration in self.services.declarations(program)
+            for declaration in self.context.declarations(program)
             if isinstance(declaration, InterfaceDecl)
         }
         visiting: set[str] = set()
@@ -133,7 +117,7 @@ class DeclarationRegistry:
                 return
             declaration = declarations[name]
             if name in visiting:
-                self.services.error(
+                self.context.error(
                     f"Circular interface inheritance involving '{name}'",
                     declaration.line,
                     declaration.col,
@@ -143,7 +127,7 @@ class DeclarationRegistry:
             info = self.interface_table[name]
             if info.parent:
                 if info.parent not in self.interface_table:
-                    self.services.error(
+                    self.context.error(
                         f"Parent interface '{info.parent}' not found",
                         declaration.line,
                         declaration.col,
@@ -160,14 +144,14 @@ class DeclarationRegistry:
             resolve(name)
 
     def _register_interface(self, declaration: InterfaceDecl) -> None:
-        services = self.services
+        policy = self.policy
         self.top_level.claim_name(
             declaration.name,
             "interface",
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
         )
-        services.validate_generic_parameter_names(
+        policy.validate_generic_parameter_names(
             declaration.generic_params,
             f"interface '{declaration.name}'",
             declaration.line,
@@ -179,7 +163,7 @@ class DeclarationRegistry:
             generic_params=declaration.generic_params,
         )
         for method in declaration.methods:
-            services.validate_declared_name(
+            policy.validate_name(
                 method.name,
                 "Interface method",
                 method.name_line or method.line,
@@ -187,13 +171,13 @@ class DeclarationRegistry:
                 allow_magic=True,
                 c_name_generated=True,
             )
-            services.validate_parameter_names(
+            policy.validate_parameter_names(
                 method.params,
                 f"interface method '{declaration.name}.{method.name}'",
             )
-            services.validate_array_return_declaration(method, declaration.name)
+            policy.callables.validate_array_return(method, declaration.name)
             if method.name in info.methods:
-                services.error(
+                self.context.error(
                     f"Duplicate method '{method.name}' in interface '{declaration.name}'",
                     method.line,
                     method.col,
@@ -202,14 +186,14 @@ class DeclarationRegistry:
         self.interface_table[declaration.name] = info
 
     def _register_class(self, declaration: ClassDecl) -> None:
-        services = self.services
+        policy = self.policy
         self.top_level.claim_name(
             declaration.name,
             "class",
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
         )
-        services.validate_generic_parameter_names(
+        policy.validate_generic_parameter_names(
             declaration.generic_params,
             f"class '{declaration.name}'",
             declaration.line,
@@ -229,14 +213,14 @@ class DeclarationRegistry:
         storage_names = {"__arc", "__rc", "__cycle_safe_rc"}
         for member in declaration.members:
             if isinstance(member, FieldDecl):
-                services.validate_declared_name(
+                policy.validate_name(
                     member.name,
                     "Field",
                     member.name_line or member.line,
                     member.name_col or member.col,
                 )
                 if member.name in fields:
-                    services.error(
+                    self.context.error(
                         f"Duplicate field '{member.name}' in class '{declaration.name}'",
                         member.line,
                         member.col,
@@ -247,7 +231,7 @@ class DeclarationRegistry:
                 target[member.name] = member
                 info.field_owners[member.name] = declaration.name
             elif isinstance(member, MethodDecl):
-                services.validate_declared_name(
+                policy.validate_name(
                     member.name,
                     "Method",
                     member.name_line or member.line,
@@ -255,18 +239,18 @@ class DeclarationRegistry:
                     allow_magic=True,
                     c_name_generated=True,
                 )
-                services.validate_generic_parameter_names(
+                policy.validate_generic_parameter_names(
                     member.generic_params,
                     f"method '{declaration.name}.{member.name}'",
                     member.line,
                     member.col,
                 )
-                services.validate_parameter_names(
+                policy.validate_parameter_names(
                     member.params,
                     f"method '{declaration.name}.{member.name}'",
                 )
                 if member.name in methods:
-                    services.error(
+                    self.context.error(
                         f"Duplicate method '{member.name}' in class '{declaration.name}'",
                         member.line,
                         member.col,
@@ -278,7 +262,7 @@ class DeclarationRegistry:
                 info.methods[member.name] = member
                 info.method_owners[member.name] = declaration.name
             elif isinstance(member, PropertyDecl):
-                services.validate_declared_name(
+                policy.validate_name(
                     member.name,
                     "Property",
                     member.name_line or member.line,
@@ -286,7 +270,7 @@ class DeclarationRegistry:
                     c_name_generated=True,
                 )
                 if member.name in properties:
-                    services.error(
+                    self.context.error(
                         f"Duplicate property '{member.name}' in class '{declaration.name}'",
                         member.line,
                         member.col,
@@ -298,7 +282,7 @@ class DeclarationRegistry:
             storage_name = instance_storage_name(member)
             if storage_name is not None:
                 if storage_name in storage_names:
-                    services.error(
+                    self.context.error(
                         f"Instance storage name '{storage_name}' collides with another member in class '{declaration.name}'",
                         member.line,
                         member.col,
@@ -309,4 +293,4 @@ class DeclarationRegistry:
         self.class_table[declaration.name] = info
 
 
-__all__ = ["DeclarationRegistry", "DeclarationServices"]
+__all__ = ["DeclarationRegistry"]

@@ -34,7 +34,7 @@ class SourceMacroContractsMixin:
             return False
         macro_name = directive.name
         if any(call.arg_names or ()):
-            self._error(
+            self.context.error(
                 f"Source macro '{macro_name}' does not accept named arguments",
                 call.line,
                 call.col,
@@ -42,7 +42,7 @@ class SourceMacroContractsMixin:
         read_only = _read_only_macro_parameters(directive)
         for index, argument in enumerate(call.args):
             if self._macro_argument_is_callable(argument):
-                self._error(
+                self.context.error(
                     f"Source macro '{macro_name}' cannot accept callable argument "
                     f"{index + 1} because macro expansion bypasses semantic call analysis",
                     getattr(argument, "line", call.line),
@@ -55,7 +55,7 @@ class SourceMacroContractsMixin:
             expected = read_only.get(parameter)
             if expected is not None and self._macro_read_only_argument_is_safe(expected, argument):
                 continue
-            self._error(
+            self.context.error(
                 f"Source macro '{macro_name}' cannot accept managed or opaque-borrow "
                 f"argument {index + 1} because its expansion is not a proven read-only hosted call",
                 getattr(argument, "line", call.line),
@@ -116,7 +116,7 @@ class SourceMacroContractsMixin:
                 self._source_macro_type_parameters(),
             ):
                 continue
-            self._error(
+            self.context.error(
                 f"Source macro '{directive.name}' cannot capture managed or callable "
                 f"value '{name}' because macro expansion bypasses semantic analysis",
                 call.line,
@@ -132,7 +132,7 @@ def validate_macro_replacement_language_symbol(
 ) -> None:
     """Reject source-language symbols whose C expansion is not transparent."""
     if symbol in analyzer.declarations.class_table or symbol in analyzer.declarations.interface_table:
-        analyzer._error(
+        analyzer.context.error(
             f"Language type '{symbol}' cannot be referenced from macro replacement '{directive.name}'",
             declaration.line,
             declaration.col,
@@ -150,7 +150,7 @@ def validate_macro_replacement_language_symbol(
             for type_expr in (function.return_type, *(parameter.type for parameter in function.params))
         )
         if directive.function_like or bare_alias or sensitive:
-            analyzer._error(
+            analyzer.context.error(
                 f"Language callable '{symbol}' requires semantic call analysis and "
                 f"cannot be referenced from macro replacement '{directive.name}'",
                 declaration.line,
@@ -162,7 +162,7 @@ def validate_macro_replacement_language_symbol(
         and symbol in source_macro_replacement_member_identifiers(directive)
         and _language_method_named(analyzer, symbol)
     ):
-        analyzer._error(
+        analyzer.context.error(
             f"Language method '{symbol}' cannot be referenced from macro replacement '{directive.name}'",
             declaration.line,
             declaration.col,
@@ -170,7 +170,7 @@ def validate_macro_replacement_language_symbol(
         return
     global_decl = analyzer.declarations.global_declarations.get(symbol)
     if global_decl is not None and _macro_type_requires_boundary(analyzer, global_decl.type):
-        analyzer._error(
+        analyzer.context.error(
             f"Managed source value '{symbol}' cannot be referenced from macro replacement '{directive.name}'",
             declaration.line,
             declaration.col,

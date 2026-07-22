@@ -60,15 +60,15 @@ class ExpressionsMixin:
             self._validate_self(expr)
         elif isinstance(expr, SuperExpr):
             if self._analyzing_constructor_default:
-                self._error(
+                self.context.error(
                     "Constructor defaults cannot reference 'super' before allocation",
                     expr.line,
                     expr.col,
                 )
             elif not self.current_class:
-                self._error("'super' can only be used inside a class", expr.line, expr.col)
+                self.context.error("'super' can only be used inside a class", expr.line, expr.col)
             elif not self.current_class.parent:
-                self._error(
+                self.context.error(
                     f"'super' cannot be used in class '{self.current_class.name}' which does not extend another class",
                     expr.line,
                     expr.col,
@@ -188,7 +188,7 @@ class ExpressionsMixin:
                             continue
                         el_type = self._infer_type(el)
                         if el_type and not self._types_compatible(first_type, el_type):
-                            self._error(
+                            self.context.error(
                                 f"List element {i} has type '{el_type.base}' but expected '{first_type.base}'",
                                 getattr(el, "line", 0),
                                 getattr(el, "col", 0),
@@ -216,7 +216,7 @@ class ExpressionsMixin:
             self._collect_generic_instances(tuple_type)
         elif isinstance(expr, LambdaExpr):
             if self._inside_generic_declaration():
-                self._error(
+                self.context.error(
                     "Lambda expressions are not supported inside generic declarations",
                     expr.line,
                     expr.col,
@@ -235,13 +235,13 @@ class ExpressionsMixin:
                 self._reject_thread_value_escape(arg, "passed as arguments")
             if expr.type.base == "Mutex":
                 if any(expr.arg_names or []):
-                    self._error(
+                    self.context.error(
                         "'new Mutex<T>()' does not accept named arguments",
                         expr.line,
                         expr.col,
                     )
                 if len(expr.args) != 1:
-                    self._error(
+                    self.context.error(
                         "'new Mutex<T>()' expects exactly 1 argument",
                         expr.line,
                         expr.col,
@@ -258,7 +258,7 @@ class ExpressionsMixin:
                     )
                     self._validate_mutex_volatile_initializer(expected, expr)
                     if actual and not self._types_compatible(expected, actual):
-                        self._error(
+                        self.context.error(
                             f"Mutex initializer expects "
                             f"'{self._format_type(expected)}' but got "
                             f"'{self._format_type(actual)}'",
@@ -268,7 +268,7 @@ class ExpressionsMixin:
             if expr.type.base in self.declarations.class_table:
                 cls = self.declarations.class_table[expr.type.base]
                 if cls.is_abstract:
-                    self._error(
+                    self.context.error(
                         f"Cannot instantiate abstract class '{cls.name}'",
                         expr.line,
                         expr.col,
@@ -277,7 +277,7 @@ class ExpressionsMixin:
                 self._validate_constructor_args(cls, expr.args, expr.arg_names, expr.line, expr.col, substitutions)
         elif isinstance(expr, SpawnExpr):
             if self._inside_generic_declaration() and not isinstance(expr.fn, LambdaExpr):
-                self._error(
+                self.context.error(
                     "spawn expressions are not supported inside generic declarations",
                     expr.line,
                     expr.col,

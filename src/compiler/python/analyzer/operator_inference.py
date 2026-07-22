@@ -50,7 +50,7 @@ class OperatorInferenceMixin:
         cls = self.declarations.class_table.get(receiver_type.base)
         owner = cls.method_owners.get(method.name, cls.name) if cls else ""
         if method.access == "private" and (self.current_class is None or self.current_class.name != owner):
-            self._error(
+            self.context.error(
                 f"Cannot use private operator '{owner}.{method.name}' outside its class",
                 expression.line,
                 expression.col,

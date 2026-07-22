@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from ..ast_nodes import MethodDecl, Program, RichEnumDecl, TypeExpr
+from .analysis_context import AnalysisContext
 from .core_models import (
     AnalyzedProgram,
     ClassInfo,
-    Diag,
     Occurrence,
     Scope,
     SymbolInfo,
@@ -17,15 +17,12 @@ from .core_models import (
 
 
 class AnalyzerBase:
-    def __init__(self):
+    def __init__(self, context: AnalysisContext):
+        self.context = context
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = {}
         self.generic_method_call_args: dict[int, tuple] = {}
         self._hosted_call_ids: set[int] = set()
-        self.errors: list[str] = []
-        self.warnings: list[str] = []
-        self.diags: list[Diag] = []
-        self.current_source_file: str | None = None
         self.scope: Scope = Scope()
         self.global_scope: Scope = self.scope
         self.current_class: ClassInfo | None = None
@@ -90,10 +87,10 @@ class AnalyzerBase:
         self._validate_aggregate_declarations(program)
         from .rich_enum_defaults import analyze_rich_enum_defaults
 
-        for declaration in self._decls_with_file(program):
+        for declaration in self.context.declarations(program):
             if isinstance(declaration, RichEnumDecl):
                 analyze_rich_enum_defaults(self, declaration)
-        for decl in self._decls_with_file(program):
+        for decl in self.context.declarations(program):
             self._analyze_decl(decl)
         from .generic_instance_closure import close_generic_instance_graph
 
@@ -120,35 +117,11 @@ class AnalyzerBase:
             rich_enum_table=self.declarations.rich_enum_table,
             rich_enum_unsafe_default_ids=set(self.rich_enum_unsafe_default_ids),
             array_iteration_capacity_ids=set(self.array_iteration_capacity_ids),
-            errors=self.errors,
-            warnings=self.warnings,
-            diags=self.diags,
+            errors=self.context.errors,
+            warnings=self.context.warnings,
+            diags=self.context.diagnostics,
             occurrences=self.occurrences,
         )
-
-    def _decls_with_file(self, program: Program):
-        """Iterate top-level decls, tracking their source-file provenance.
-
-        ``ImportDecl`` is skipped: the CLI front-end resolves imports away
-        before analysis, but the LSP composes programs that may still contain
-        them, so analysis treats them as no-ops everywhere.
-        """
-        from ..ast_nodes import ImportDecl
-
-        for decl in program.declarations:
-            if isinstance(decl, ImportDecl):
-                continue
-            self.current_source_file = getattr(decl, "source_file", None)
-            yield decl
-        self.current_source_file = None
-
-    def _error(self, msg: str, line: int = 0, col: int = 0):
-        self.errors.append(f"{msg} at {line}:{col}")
-        self.diags.append(Diag(msg, line, col, "error", self.current_source_file))
-
-    def _warning(self, msg: str, line: int = 0, col: int = 0):
-        self.warnings.append(f"{msg} at {line}:{col}")
-        self.diags.append(Diag(msg, line, col, "warning", self.current_source_file))
 
     def _push_scope(self):
         self.scope = Scope(parent=self.scope)
@@ -180,6 +153,41 @@ class AnalyzerBase:
             kind,
             decl_line=line,
             decl_col=col,
-            decl_file=self.current_source_file,
+            decl_file=self.context.current_source_file,
             owned_storage=owned_storage,
         )
+
+    def _claim_local_binding(
+        self,
+        name,
+        kind,
+        line=0,
+        col=0,
+        *,
+        c_name_generated=False,
+    ) -> bool:
+        """Claim a name in exactly the current lexical scope."""
+        self.declaration_policy.validate_name(
+            name,
+            kind.capitalize(),
+            line,
+            col,
+            c_name_generated=c_name_generated,
+        )
+        existing = self.scope.symbols.get(name)
+        if existing is None or existing.kind == "function":
+            outer = self.scope.parent.lookup(name) if self.scope.parent else None
+            if outer is not None and self._contains_thread_storage(outer.type):
+                self.context.error(
+                    f"Binding '{name}' cannot shadow an active Thread owner",
+                    line,
+                    col,
+                )
+                return False
+            return True
+        self.context.error(
+            f"Duplicate {kind} name '{name}' in the same scope",
+            line,
+            col,
+        )
+        return False

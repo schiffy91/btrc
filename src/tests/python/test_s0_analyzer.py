@@ -21,9 +21,7 @@ def parse(source: str):
 
 def analyze(source: str):
     program = parse(source)
-    analyzer = SemanticAnalyzer()
-    analyzer.analyze(program)
-    return analyzer, program
+    return SemanticAnalyzer().analyze(program), program
 
 
 # --- S0-9: child class declared before its parent ---

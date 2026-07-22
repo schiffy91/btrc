@@ -22,7 +22,7 @@ class CallSignatureContractsMixin:
         self._validate_call_arity(name, params, args, names, line, col)
         transferred = frozenset()
         if declaration is not None:
-            from ..ir.gen.call_effects import owned_transfer_param_indices
+            from ..ownership_effects import owned_transfer_param_indices
 
             transferred = owned_transfer_param_indices(declaration)
         for param_index, arg_index in self._bound_arguments(params, names):
@@ -93,14 +93,14 @@ class CallSignatureContractsMixin:
             actual = self._infer_type(argument)
             if actual and gpu_array_parameter:
                 if not self._array_target_has_capacity(argument, actual):
-                    self._error(
+                    self.context.error(
                         f"Argument '{params[param_index].name}' to '{name}()' "
                         "has no provable readable GPU buffer capacity",
                         argument_line,
                         argument_col,
                     )
                 elif not self._gpu_input_has_compatible_storage(argument, expected, actual):
-                    self._error(
+                    self.context.error(
                         f"Argument '{params[param_index].name}' to '{name}()' "
                         "does not have an ABI-compatible GPU buffer element type",
                         argument_line,
@@ -109,7 +109,7 @@ class CallSignatureContractsMixin:
                 continue
             compatible = actual and self._types_compatible(expected, actual)
             if actual and not compatible:
-                self._error(
+                self.context.error(
                     f"Argument '{params[param_index].name}' to '{name}()' "
                     f"expects '{self._format_type(expected)}' but got "
                     f"'{self._format_type(actual)}'",

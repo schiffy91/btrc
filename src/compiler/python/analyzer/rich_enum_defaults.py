@@ -17,7 +17,7 @@ def analyze_rich_enum_defaults(analyzer, declaration) -> None:
             analyzer.current_callable = variant
             analyzer._push_scope()
             try:
-                analyzer._validate_default_params(
+                analyzer.declaration_policy.validate_default_parameters(
                     variant.params,
                     variant.line,
                     variant.col,

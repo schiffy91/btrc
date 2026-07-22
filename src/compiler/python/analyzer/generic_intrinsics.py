@@ -13,18 +13,18 @@ class GenericIntrinsicValidationMixin:
         name = expr.callee.name
         expected = 1 if name == "__btrc_hash" else 2
         if len(expr.args) != expected:
-            self._error(
+            self.context.error(
                 f"{name} expects {expected} operand(s), got {len(expr.args)}",
                 expr.line,
                 expr.col,
             )
             return
         if any(expr.arg_names or []):
-            self._error(f"{name} accepts positional operands only", expr.line, expr.col)
+            self.context.error(f"{name} accepts positional operands only", expr.line, expr.col)
             return
         operand_types = [self._canonical_type(self._infer_type(argument)) for argument in expr.args]
         if any(item is None for item in operand_types):
-            self._error(
+            self.context.error(
                 f"cannot resolve all operand types for {name}",
                 expr.line,
                 expr.col,
@@ -35,7 +35,7 @@ class GenericIntrinsicValidationMixin:
         try:
             self._validate_generic_intrinsic_types(name, operand_types)
         except OperatorTypeError as error:
-            self._error(str(error), expr.line, expr.col)
+            self.context.error(str(error), expr.line, expr.col)
 
     def _validate_generic_intrinsic_types(self, name, operand_types):
         context = {

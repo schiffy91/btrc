@@ -25,7 +25,7 @@ class CallConsumptionContractsMixin:
                 continue
             argument = args[argument_index]
             if not self._argument_produces_owned_result(argument):
-                self._error(
+                self.context.error(
                     f"Argument to consuming parameter "
                     f"'{declaration.params[parameter_index].name}' of "
                     f"'{label}()' must be a fresh caller-owned managed value",
@@ -35,7 +35,7 @@ class CallConsumptionContractsMixin:
         for parameter_index in transferred - supplied:
             parameter = declaration.params[parameter_index]
             if parameter.default is None or not self._argument_produces_owned_result(parameter.default):
-                self._error(
+                self.context.error(
                     f"Default for consuming parameter '{parameter.name}' of "
                     f"'{label}()' must produce a fresh managed value",
                     parameter.line,

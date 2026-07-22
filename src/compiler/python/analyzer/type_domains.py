@@ -48,7 +48,7 @@ class TypeDomainContractsMixin(
             effective_outer_const(type_expr, self.declarations.typedef_table)
             or effective_outer_volatile(type_expr, self.declarations.typedef_table)
         ):
-            self._error(
+            self.context.error(
                 f"{subject} cannot carry an outer const/volatile qualifier; C discards qualifiers on returned values",
                 type_line,
                 type_col,
@@ -82,7 +82,7 @@ class TypeDomainContractsMixin(
             and canonical.base == "Mutex"
             and (canonical.pointer_depth > 0 or canonical.is_array or canonical.is_const)
         ):
-            self._error(
+            self.context.error(
                 "Mutex<T> owner type must be one direct mutable handle; pointer, array, and const Mutex shapes are not supported",
                 type_line,
                 type_col,
@@ -93,7 +93,7 @@ class TypeDomainContractsMixin(
             and canonical.base not in self.declarations.class_table
             and self._contains_mutex_storage(canonical)
         ):
-            self._error(
+            self.context.error(
                 f"{subject} cannot embed a Mutex handle in shallow by-value storage; keep Mutex<T> as a direct managed value",
                 type_line,
                 type_col,
@@ -109,14 +109,14 @@ class TypeDomainContractsMixin(
             and canonical.base == "Thread"
             and (canonical.pointer_depth > 0 or canonical.is_array or canonical.is_const or canonical.is_nullable)
         ):
-            self._error(
+            self.context.error(
                 "Thread<T> owner type must be one direct mutable handle; "
                 "pointer, array, const, and nullable Thread shapes are not supported",
                 type_line,
                 type_col,
             )
         if role in {"field", "parameter"} and self._contains_thread_storage(type_expr):
-            self._error(
+            self.context.error(
                 f"{subject} cannot own a Thread handle; keep each Thread<T> "
                 "in one initialized local variable or return it",
                 type_line,
@@ -125,20 +125,20 @@ class TypeDomainContractsMixin(
         if canonical and canonical.base == "Thread" and canonical.generic_args:
             result_type = canonical.generic_args[0]
             if self._thread_result_contains_unsized_array(result_type):
-                self._error(
+                self.context.error(
                     "Thread<T> result type cannot contain an unsized array; "
                     "return a managed collection or another explicitly owned value",
                     type_line,
                     type_col,
                 )
             if self._contains_thread_storage(result_type):
-                self._error(
+                self.context.error(
                     "Thread<T> result type cannot contain another Thread handle",
                     type_line,
                     type_col,
                 )
             if self._contains_mutex_storage(result_type):
-                self._error(
+                self.context.error(
                     "Thread<T> result type cannot contain a Mutex handle",
                     type_line,
                     type_col,
@@ -148,7 +148,7 @@ class TypeDomainContractsMixin(
             ) and self._thread_result_aggregate_contains_managed_reference(
                 result_type,
             ):
-                self._error(
+                self.context.error(
                     "Thread<T> aggregate result type cannot contain string or "
                     "class references; return the managed value directly or use "
                     "a scalar-only aggregate",
@@ -156,13 +156,13 @@ class TypeDomainContractsMixin(
                     type_col,
                 )
         if role not in {"alias", "return"} and self._is_nonpointer_void_object(canonical):
-            self._error(
+            self.context.error(
                 f"{subject} cannot have scalar/non-pointer void type",
                 type_line,
                 type_col,
             )
         if not self._is_known_declaration_type(type_expr, active_type_params):
-            self._error(
+            self.context.error(
                 f"{subject} uses unknown by-value type '{self._format_type(type_expr)}'",
                 type_line,
                 type_col,
@@ -223,9 +223,9 @@ class TypeDomainContractsMixin(
 
     def _validate_storage_qualifiers(self, type_expr, subject, role, line, col) -> None:
         if type_expr.is_static and type_expr.is_extern:
-            self._error(f"{subject} cannot be both static and extern", line, col)
+            self.context.error(f"{subject} cannot be both static and extern", line, col)
         if role in {"parameter", "field"} and (type_expr.is_static or type_expr.is_extern):
-            self._error(
+            self.context.error(
                 f"{subject} cannot carry static/extern storage qualifiers",
                 line,
                 col,

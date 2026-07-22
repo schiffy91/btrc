@@ -15,6 +15,19 @@ from .core import SymbolInfo
 
 
 class FunctionsMixin:
+    def _param_symbol(self, param) -> SymbolInfo:
+        """Build a parameter symbol using its represented runtime value."""
+        value_type = (
+            param.type if self.in_gpu_function and param.type.is_array else self._array_parameter_value_type(param.type)
+        )
+        return self._local_symbol(
+            param.name,
+            value_type,
+            "param",
+            param.name_line or param.line,
+            param.name_col or param.col,
+        )
+
     def _analyze_decl(self, decl):
         if isinstance(decl, ClassDecl):
             self._analyze_class(decl)
@@ -75,7 +88,7 @@ class FunctionsMixin:
         prev_return_type = self.current_return_type
 
         if method.is_gpu:
-            self._error(
+            self.context.error(
                 "@gpu is only supported on top-level functions; methods have no WGSL dispatch lowering",
                 method.line,
                 method.col,
@@ -87,14 +100,18 @@ class FunctionsMixin:
         self.current_return_type = TypeExpr(base="void") if is_constructor else method.return_type
         if not is_constructor:
             method.return_type = self._upgrade_class_type(method.return_type)
-            self._validate_array_return_declaration(
+            self.declaration_policy.callables.validate_array_return(
                 method,
                 self.current_class.name if self.current_class else None,
             )
             self.current_return_type = self._array_value_type(method.return_type)
 
         self._push_scope()
-        self._validate_default_params(method.params, method.line, method.col)
+        self.declaration_policy.validate_default_parameters(
+            method.params,
+            method.line,
+            method.col,
+        )
 
         if method.access != "class":
             self_type = self._current_self_type()
@@ -153,7 +170,7 @@ class FunctionsMixin:
             and not self._block_must_terminate(method.body)
         ):
             class_name = self.current_class.name if self.current_class else ""
-            self._error(
+            self.context.error(
                 f"Method '{class_name}.{method.name}' has non-void return type but no return statement",
                 method.line,
                 method.col,
@@ -180,7 +197,7 @@ class FunctionsMixin:
             self.scope.define("self", SymbolInfo("self", self_type, "param"))
             self._analyze_root_block(prop.getter_body)
             if not self._block_must_terminate(prop.getter_body):
-                self._error(
+                self.context.error(
                     f"Property getter '{self.current_class.name}.{prop.name}' does not return a value on every path",
                     prop.line,
                     prop.col,
@@ -226,11 +243,15 @@ class FunctionsMixin:
         for param in func.params:
             param.type = self._upgrade_class_type(param.type)
         func.return_type = self._upgrade_class_type(func.return_type)
-        self._validate_array_return_declaration(func)
+        self.declaration_policy.callables.validate_array_return(func)
         self.current_return_type = self._array_value_type(func.return_type)
 
         self._push_scope()
-        self._validate_default_params(func.params, func.line, func.col)
+        self.declaration_policy.validate_default_parameters(
+            func.params,
+            func.line,
+            func.col,
+        )
         self.scope.define(
             func.name,
             self._local_symbol(
@@ -292,7 +313,9 @@ class FunctionsMixin:
             and func.body
             and not self._block_must_terminate(func.body)
         ):
-            self._error(f"Function '{func.name}' has non-void return type but no return statement", func.line, func.col)
+            self.context.error(
+                f"Function '{func.name}' has non-void return type but no return statement", func.line, func.col
+            )
 
         self._pop_scope()
         self.current_callable = prev_callable

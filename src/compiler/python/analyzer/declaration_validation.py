@@ -17,7 +17,7 @@ from ..qualifier_provenance import effective_outer_const
 
 class RegisteredDeclarationValidationMixin:
     def _validate_registered_declarations(self, program) -> None:
-        declarations = list(self._decls_with_file(program))
+        declarations = list(self.context.declarations(program))
         for declaration in declarations:
             if isinstance(declaration, EnumDecl):
                 self._validate_enum_declaration(declaration)
@@ -56,7 +56,7 @@ class RegisteredDeclarationValidationMixin:
                             parameter.type,
                             self.declarations.typedef_table,
                         ):
-                            self._error(
+                            self.context.error(
                                 "Rich-enum payload "
                                 f"'{declaration.name}.{variant.name}.{parameter.name}' "
                                 "cannot use const storage until rich-enum "
@@ -84,7 +84,7 @@ class RegisteredDeclarationValidationMixin:
                 )
 
     def _validate_function_signature_types(self, function) -> None:
-        self._validate_hosted_abi_declaration(function)
+        self.declaration_policy.hosted.validate_function(function)
         self._validate_declared_type(
             function.return_type,
             f"Return type of function '{function.name}'",
@@ -106,7 +106,7 @@ class RegisteredDeclarationValidationMixin:
             "local",
         )
         self._validate_parameter_bounds(function.params, function.name)
-        self._validate_main_signature(function)
+        self.declaration_policy.callables.validate_main_signature(function)
 
     def _validate_class_declaration_types(self, declaration) -> None:
         class_parameters = set(declaration.generic_params)
@@ -165,7 +165,10 @@ class RegisteredDeclarationValidationMixin:
                     member.params,
                     f"{declaration.name}.{member.name}",
                 )
-                self._validate_class_callable_shape(declaration, member)
+                self.declaration_policy.callables.validate_class_shape(
+                    declaration,
+                    member,
+                )
 
     def _validate_interface_declaration_types(self, declaration) -> None:
         active = set(declaration.generic_params)

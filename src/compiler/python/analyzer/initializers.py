@@ -44,9 +44,9 @@ class InitializerValidationMixin:
         if actual is None:
             return
         if is_semantic_scalar_void(actual):
-            self._error(f"{subject} cannot be initialized from a void expression", line, col)
+            self.context.error(f"{subject} cannot be initialized from a void expression", line, col)
         elif not contextual and not self._types_compatible(expected, actual):
-            self._error(
+            self.context.error(
                 f"{subject} expects '{self._format_type(expected)}' but got '{self._format_type(actual)}'",
                 line,
                 col,
@@ -82,7 +82,7 @@ class InitializerValidationMixin:
             return False
 
         if len(initializer.elements) > len(fields):
-            self._error(
+            self.context.error(
                 f"{subject} has {len(initializer.elements)} initializer elements "
                 f"but {aggregate_name} has {len(fields)} fields",
                 line,
@@ -95,7 +95,7 @@ class InitializerValidationMixin:
                 field_type,
                 self._infer_type(element),
             ):
-                self._error(
+                self.context.error(
                     "Implicit class-to-string conversion is not supported "
                     f"inside {aggregate_name}; prepare an owned string local "
                     f"for field '{field_name}' first",
@@ -139,7 +139,7 @@ class InitializerValidationMixin:
                 expected_element,
                 self._infer_type(element),
             ):
-                self._error(
+                self.context.error(
                     "Implicit class-to-string conversion is not supported "
                     "inside a shallow array initializer; prepare owned "
                     "string locals first",
@@ -189,7 +189,7 @@ class InitializerValidationMixin:
             return
         actual = self._infer_type(element)
         if actual and not self._types_compatible(expected, actual):
-            self._error(
+            self.context.error(
                 f"{subject} expects '{self._format_type(expected)}' elements but got '{self._format_type(actual)}'",
                 getattr(element, "line", line),
                 getattr(element, "col", col),

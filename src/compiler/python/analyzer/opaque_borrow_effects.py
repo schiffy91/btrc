@@ -43,19 +43,17 @@ class OpaqueBorrowEffectsMixin(
         self._raw_borrow_effect_visiting.add(key)
         owner = self._raw_borrow_owner(declaration)
         local_names = raw_local_names(declaration)
-        previous_file = self.current_source_file
         previous_locals = getattr(self, "_raw_borrow_proof_local_names", None)
-        self.current_source_file = provenance
         self._raw_borrow_proof_local_names = local_names
         try:
-            result = self._raw_parameter_uses_are_safe(
-                body,
-                params[index].name,
-                owner,
-                local_names,
-            )
+            with self.context.source(provenance):
+                result = self._raw_parameter_uses_are_safe(
+                    body,
+                    params[index].name,
+                    owner,
+                    local_names,
+                )
         finally:
-            self.current_source_file = previous_file
             self._raw_borrow_proof_local_names = previous_locals
             self._raw_borrow_effect_visiting.remove(key)
         cache[key] = result

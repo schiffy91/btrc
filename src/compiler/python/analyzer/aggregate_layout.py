@@ -19,39 +19,47 @@ class AggregateLayoutContractsMixin:
     def _validate_aggregate_declarations(self, program) -> None:
         """Reject source layouts that no strict-C declaration order can satisfy."""
 
-        declarations = list(self._decls_with_file(program))
+        declarations = list(self.context.declarations(program))
         self._validate_typedef_cycles(declarations)
         graph: dict[str, set[str]] = {}
         owners = {}
-        previous_file = self.current_source_file
         for declaration in declarations:
-            self.current_source_file = getattr(declaration, "source_file", None)
-            if isinstance(declaration, StructDecl) and not declaration.is_forward:
-                owners[declaration.name] = declaration
-                graph[declaration.name] = set()
-                for field in declaration.fields:
-                    subject = f"Struct field '{declaration.name}.{field.name}'"
-                    self._validate_complete_aggregate_use(field.type, subject, field.line, field.col)
-                    graph[declaration.name].update(self._value_aggregate_names(field.type))
-            elif isinstance(declaration, RichEnumDecl):
-                owners[declaration.name] = declaration
-                graph[declaration.name] = set()
-                for variant in declaration.variants:
-                    for parameter in variant.params:
-                        subject = f"Rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'"
-                        self._validate_complete_aggregate_use(
-                            parameter.type,
-                            subject,
-                            parameter.line,
-                            parameter.col,
-                        )
-                        graph[declaration.name].update(self._value_aggregate_names(parameter.type))
-            elif isinstance(declaration, FunctionDecl) and declaration.body:
-                self._validate_callable_complete_types(declaration, declaration.name)
-            elif isinstance(declaration, ClassDecl):
-                self._validate_class_complete_types(declaration)
-        self.current_source_file = previous_file
+            with self.context.source(getattr(declaration, "source_file", None)):
+                self._collect_aggregate_dependencies(declaration, graph, owners)
         self._report_dependency_cycles(graph, owners, "Aggregate")
+
+    def _collect_aggregate_dependencies(self, declaration, graph, owners) -> None:
+        if isinstance(declaration, StructDecl) and not declaration.is_forward:
+            owners[declaration.name] = declaration
+            graph[declaration.name] = set()
+            for field in declaration.fields:
+                subject = f"Struct field '{declaration.name}.{field.name}'"
+                self._validate_complete_aggregate_use(
+                    field.type,
+                    subject,
+                    field.line,
+                    field.col,
+                )
+                graph[declaration.name].update(self._value_aggregate_names(field.type))
+        elif isinstance(declaration, RichEnumDecl):
+            owners[declaration.name] = declaration
+            graph[declaration.name] = set()
+            for variant in declaration.variants:
+                for parameter in variant.params:
+                    subject = f"Rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'"
+                    self._validate_complete_aggregate_use(
+                        parameter.type,
+                        subject,
+                        parameter.line,
+                        parameter.col,
+                    )
+                    graph[declaration.name].update(
+                        self._value_aggregate_names(parameter.type),
+                    )
+        elif isinstance(declaration, FunctionDecl) and declaration.body:
+            self._validate_callable_complete_types(declaration, declaration.name)
+        elif isinstance(declaration, ClassDecl):
+            self._validate_class_complete_types(declaration)
 
     def _validate_callable_complete_types(self, declaration, owner) -> None:
         if not getattr(declaration, "is_constructor", False):
@@ -101,9 +109,9 @@ class AggregateLayoutContractsMixin:
         if name not in self.declarations.struct_table or name in self.declarations.struct_definitions:
             return True
         if sizeof:
-            self._error(f"{subject} cannot use incomplete type '{name}'", line, col)
+            self.context.error(f"{subject} cannot use incomplete type '{name}'", line, col)
         else:
-            self._error(f"{subject} uses incomplete struct '{name}'", line, col)
+            self.context.error(f"{subject} uses incomplete struct '{name}'", line, col)
         return False
 
     def _value_aggregate_names(self, type_expr) -> set[str]:
@@ -152,14 +160,12 @@ class AggregateLayoutContractsMixin:
                     if key not in reported:
                         reported.add(key)
                         owner = owners[name]
-                        previous_file = self.current_source_file
-                        self.current_source_file = getattr(owner, "source_file", None)
-                        self._error(
-                            f"{label} dependency cycle involving " + " -> ".join(f"'{item}'" for item in cycle),
-                            owner.line,
-                            owner.col,
-                        )
-                        self.current_source_file = previous_file
+                        with self.context.source(getattr(owner, "source_file", None)):
+                            self.context.error(
+                                f"{label} dependency cycle involving " + " -> ".join(f"'{item}'" for item in cycle),
+                                owner.line,
+                                owner.col,
+                            )
             stack.pop()
             state[name] = 2
 
@@ -181,7 +187,7 @@ class AggregateLayoutContractsMixin:
         if canonical is None:
             return
         if is_semantic_scalar_void(canonical):
-            self._error("sizeof cannot be applied to void", line, col)
+            self.context.error("sizeof cannot be applied to void", line, col)
             return
         self._validate_complete_aggregate_use(canonical, "sizeof", line, col, sizeof=True)
 

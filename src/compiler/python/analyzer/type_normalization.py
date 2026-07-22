@@ -55,7 +55,7 @@ class TypeNormalizationMixin:
             # the implicit one-level ``Item`` value.
             return replace(type_expr, generic_args=upgraded_args)
         if type_expr.pointer_depth == 1 and not type_expr.is_nullable and not auto_upgraded:
-            self._error(
+            self.context.error(
                 f"Redundant pointer for class type '{type_expr.base}' — "
                 f"classes are always heap-allocated. "
                 f"Use '{type_expr.base}' instead of '{type_expr.base}*'",
@@ -86,7 +86,7 @@ class TypeNormalizationMixin:
         generic-instance collection and body validation; this pass establishes
         only the order-independent type context they consume.
         """
-        for decl in self._decls_with_file(program):
+        for decl in self.context.declarations(program):
             if isinstance(decl, FunctionDecl):
                 for param in decl.params:
                     param.type = self._upgrade_class_type(param.type)

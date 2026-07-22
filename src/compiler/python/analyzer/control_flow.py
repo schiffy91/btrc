@@ -50,7 +50,7 @@ class ControlFlowAnalysisMixin:
                 missing = enum_values - covered
                 if missing:
                     names = ", ".join(sorted(missing))
-                    self._error(
+                    self.context.error(
                         f"Switch on enum '{val_type.base}' is not exhaustive, missing: {names}",
                         getattr(stmt, "line", 0),
                         getattr(stmt, "col", 0),
@@ -85,7 +85,7 @@ class ControlFlowAnalysisMixin:
                 stmt.col,
             )
         if self._contains_thread_storage(elem_type):
-            self._error(
+            self.context.error(
                 "parallel-for variables cannot own a Thread handle",
                 stmt.line,
                 stmt.col,
@@ -111,13 +111,13 @@ class ControlFlowAnalysisMixin:
                 declaration = stmt.init.var_decl
                 self._analyze_var_decl(declaration)
                 if declaration.type and (declaration.type.is_static or declaration.type.is_extern):
-                    self._error(
+                    self.context.error(
                         "C-style for initializer cannot use static or extern storage",
                         declaration.line,
                         declaration.col,
                     )
                 if declaration.type and declaration.type.is_array:
-                    self._error(
+                    self.context.error(
                         "C-style for initializer cannot declare an array",
                         declaration.line,
                         declaration.col,

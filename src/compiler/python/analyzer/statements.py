@@ -48,7 +48,7 @@ class StatementsMixin:
                 if found_terminal:
                     line = getattr(stmt, "line", 0)
                     col = getattr(stmt, "col", 0)
-                    self._error("Unreachable code after return/throw/break/continue", line, col)
+                    self.context.error("Unreachable code after return/throw/break/continue", line, col)
                     break
                 self._analyze_stmt(stmt)
                 self._previous_statement = stmt
@@ -95,7 +95,7 @@ class StatementsMixin:
                         stmt.col,
                     )
                 if self._is_nonpointer_void_object(self.current_return_type):
-                    self._error("Void function or method cannot return a value", stmt.line, stmt.col)
+                    self.context.error("Void function or method cannot return a value", stmt.line, stmt.col)
                 elif self.current_return_type:
                     ret_type = self._infer_type(stmt.value)
                     escaping_callable = self._validate_callable_value(
@@ -109,7 +109,7 @@ class StatementsMixin:
                         and ret_type
                         and not self._return_type_compatible(self.current_return_type, ret_type)
                     ):
-                        self._error(
+                        self.context.error(
                             f"Return type mismatch: expected "
                             f"'{self._format_type(self.current_return_type)}' "
                             f"but got '{self._format_type(ret_type)}'",
@@ -117,7 +117,7 @@ class StatementsMixin:
                             stmt.col,
                         )
             elif self.current_return_type and not self._is_nonpointer_void_object(self.current_return_type):
-                self._error(
+                self.context.error(
                     f"Non-void function or method must return '{self._format_type(self.current_return_type)}'",
                     stmt.line,
                     stmt.col,
@@ -165,10 +165,10 @@ class StatementsMixin:
                 self._validate_ownership_operand(stmt)
         elif isinstance(stmt, BreakStmt):
             if self.break_depth == 0:
-                self._error("'break' statement outside of loop or switch", stmt.line, stmt.col)
+                self.context.error("'break' statement outside of loop or switch", stmt.line, stmt.col)
         elif isinstance(stmt, ContinueStmt):
             if self.loop_depth == 0:
-                self._error("'continue' statement outside of loop", stmt.line, stmt.col)
+                self.context.error("'continue' statement outside of loop", stmt.line, stmt.col)
 
     def _return_type_compatible(self, expected, actual) -> bool:
         expected = self._array_value_type(expected)

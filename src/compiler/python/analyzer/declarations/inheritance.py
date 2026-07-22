@@ -38,7 +38,7 @@ class InheritanceResolver:
     def claim_member_name(self, declaration, member, kind, declared) -> None:
         existing = declared.get(member.name)
         if existing and existing != kind and "property" in (existing, kind):
-            self.registry.services.error(
+            self.registry.context.error(
                 f"Member '{member.name}' in class '{declaration.name}' is declared as both {existing} and {kind}",
                 member.line,
                 member.col,
@@ -50,7 +50,7 @@ class InheritanceResolver:
         if not info.parent or info.parent not in registry.class_table:
             return
         parent = registry.class_table[info.parent]
-        registry.services.validate_inherited_member_names(info, parent)
+        registry.policy.validate_inherited_member_names(info, parent)
         own_fields = {name: field for name, field in info.fields.items() if name not in parent.fields}
         info.fields = {**parent.fields, **own_fields}
         own_field_owners = {name: owner for name, owner in info.field_owners.items() if name not in parent.fields}

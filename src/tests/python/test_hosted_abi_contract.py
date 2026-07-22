@@ -157,10 +157,9 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
         assert spec.parameters is not None
         assert spec.return_effect != "opaque" or spec.result.pointer_depth == 0
         for declaration in variants:
-            assert analyzer._hosted_abi_type(declaration.return_type) == spec.result
-            assert (
-                tuple(analyzer._hosted_abi_type(parameter.type) for parameter in declaration.params) == spec.parameters
-            )
+            hosted = analyzer.declaration_policy.hosted
+            assert hosted.abi_type(declaration.return_type) == spec.result
+            assert tuple(hosted.abi_type(parameter.type) for parameter in declaration.params) == spec.parameters
             if name == "btrc_tray_take_command":
                 assert declaration.return_type.base == "char"
                 assert declaration.return_type.pointer_depth == 1

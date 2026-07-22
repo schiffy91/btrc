@@ -32,7 +32,7 @@ class ValueContractsMixin:
             or not self._thread_copy_source(value)
         ):
             return False
-        self._error(
+        self.context.error(
             "Thread handles cannot be copied; transfer a fresh spawn() or function-call result instead",
             line,
             col,
@@ -57,7 +57,7 @@ class ValueContractsMixin:
     def _reject_fresh_thread_result(self, expression) -> bool:
         if expression is None or not self._is_fresh_thread_result(expression):
             return False
-        self._error(
+        self.context.error(
             self._FRESH_THREAD_RESULT_DIAGNOSTIC,
             expression.line,
             expression.col,
@@ -71,7 +71,7 @@ class ValueContractsMixin:
             return False
         if self._reject_fresh_thread_result(expression):
             return True
-        self._error(
+        self.context.error(
             "Thread-producing expression must be a direct spawn() or Thread-returning call before it can be consumed",
             expression.line,
             expression.col,
@@ -85,7 +85,7 @@ class ValueContractsMixin:
             or self._is_fresh_thread_result(expression)
         ):
             return
-        self._error(
+        self.context.error(
             "Thread transfer must use one unique local owner or a direct fresh result",
             expression.line,
             expression.col,
@@ -98,7 +98,7 @@ class ValueContractsMixin:
             or self._is_fresh_thread_result(expression)
         ):
             return
-        self._error(
+        self.context.error(
             "Only a direct fresh Thread result can be discarded safely",
             expression.line,
             expression.col,
@@ -107,7 +107,7 @@ class ValueContractsMixin:
     def _reject_thread_value_escape(self, expression, destination) -> bool:
         if not self._is_thread_value(expression):
             return False
-        self._error(
+        self.context.error(
             f"Thread handles cannot be {destination}; join or return the unique owner instead",
             expression.line,
             expression.col,
@@ -122,7 +122,7 @@ class ValueContractsMixin:
         if isinstance(receiver, TernaryExpr):
             consumable = not self._thread_copy_source(receiver)
         if callee.optional or not consumable:
-            self._error(
+            self.context.error(
                 "Thread.join() receiver must be a unique local owner or a fresh Thread result",
                 expression.line,
                 expression.col,
@@ -131,15 +131,15 @@ class ValueContractsMixin:
     def _validate_spawn_expr(self, expression):
         callable_type = self._canonical_type(self._infer_type(expression.fn))
         if not isinstance(expression.fn, LambdaExpr) and not (callable_type and callable_type.base == "__fn_ptr"):
-            self._error("spawn expects a lambda or function pointer", expression.line, expression.col)
+            self.context.error("spawn expects a lambda or function pointer", expression.line, expression.col)
         elif not isinstance(expression.fn, LambdaExpr) and self._captures_environment(expression.fn):
-            self._error(
+            self.context.error(
                 "A capturing lambda alias cannot be spawned; pass the lambda literal directly",
                 expression.line,
                 expression.col,
             )
         elif not isinstance(expression.fn, LambdaExpr) and not self._is_pthread_entry_type(callable_type):
-            self._error(
+            self.context.error(
                 "Non-lambda spawn requires __fn_ptr<void*, void*>; use a lambda adapter for other signatures",
                 expression.line,
                 expression.col,
@@ -151,7 +151,7 @@ class ValueContractsMixin:
         for capture in expression.fn.captures:
             capture_type = self._canonical_type(capture.type)
             if (capture_type and capture_type.is_array) or self._thread_result_contains_unsized_array(capture.type):
-                self._error(
+                self.context.error(
                     f"spawn cannot capture array storage through '{capture.name}'; "
                     "copy it into a scalar-only struct or managed collection",
                     expression.line,
@@ -161,7 +161,7 @@ class ValueContractsMixin:
             if not self._is_direct_managed_thread_result(
                 capture.type
             ) and self._thread_result_aggregate_contains_managed_reference(capture.type):
-                self._error(
+                self.context.error(
                     f"spawn cannot capture shallow aggregate '{capture.name}' "
                     "containing string or class references; capture managed values directly",
                     expression.line,
@@ -193,14 +193,14 @@ class ValueContractsMixin:
         expression = statement.expr
         operand_type = self._canonical_type(self._infer_type(expression))
         if isinstance(expression, SelfExpr) and not isinstance(statement, KeepStmt):
-            self._error(
+            self.context.error(
                 "Managed method receiver 'self' is borrowed and cannot be consumed",
                 statement.line,
                 statement.col,
             )
             return
         if not self._is_lvalue(expression):
-            self._error("Ownership operation requires an assignable value", statement.line, statement.col)
+            self.context.error("Ownership operation requires an assignable value", statement.line, statement.col)
             return
         if isinstance(statement, DeleteStmt):
             operation = "delete"
@@ -212,14 +212,14 @@ class ValueContractsMixin:
             isinstance(expression, IndexExpr) and self._is_protocol_index_projection(expression)
         )
         if indirect:
-            self._error(
+            self.context.error(
                 f"{operation} cannot target a property or protocol index; store it in a direct lvalue first",
                 statement.line,
                 statement.col,
             )
             return
         if not self._is_lifetime_stable_storage(expression):
-            self._error(
+            self.context.error(
                 f"{operation} requires storage rooted in a stable owner; bind temporary owners to a local first",
                 statement.line,
                 statement.col,
@@ -235,7 +235,7 @@ class ValueContractsMixin:
             operand_type,
         )
         if operand_type and operand_type.base == "Thread":
-            self._error(
+            self.context.error(
                 f"{operation} is not valid for type '{self._format_type(operand_type)}'",
                 statement.line,
                 statement.col,
@@ -256,7 +256,7 @@ class ValueContractsMixin:
             )
             if operand_type.base in type_params:
                 return
-            self._error(
+            self.context.error(
                 f"Ownership operation is not valid for '{self._format_type(operand_type)}'",
                 statement.line,
                 statement.col,

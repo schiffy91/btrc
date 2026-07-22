@@ -30,7 +30,7 @@ class ArrayContractsMixin:
             return
         count = len(initializer.elements)
         if count > bound.value:
-            self._error(
+            self.context.error(
                 f"{subject} has {count} elements but fixed array bound is {bound.value}",
                 line,
                 col,
@@ -43,7 +43,7 @@ class ArrayContractsMixin:
         if self._is_gpu_output_assignment(expression):
             if self._array_target_has_capacity(expression.target, target):
                 return False
-            self._error(
+            self.context.error(
                 "Array-returning @gpu assignment target has no provable writable capacity",
                 expression.line,
                 expression.col,
@@ -54,7 +54,7 @@ class ArrayContractsMixin:
         if self._is_pointer_backed_array_target(expression.target, canonical):
             return False
         subject = "Fixed array" if canonical.array_size is not None else "Array object"
-        self._error(
+        self.context.error(
             f"{subject} '{self._format_type(canonical)}' is not assignable",
             expression.line,
             expression.col,
@@ -64,7 +64,7 @@ class ArrayContractsMixin:
     def _inferred_array_binding_type(self, inferred, initializer):
         """Represent `var alias = arrayValue` as a pointer-valued binding."""
         if isinstance(initializer, BraceInitializer):
-            self._error(
+            self.context.error(
                 "Cannot infer array storage for 'var' from a brace initializer; use an explicit array declaration",
                 initializer.line,
                 initializer.col,
@@ -106,7 +106,7 @@ class ArrayContractsMixin:
                 (BraceInitializer, ListLiteral),
             )
         ):
-            self._error(
+            self.context.error(
                 f"{subject} cannot use temporary aggregate backing for an array parameter",
                 line,
                 col,
@@ -143,7 +143,7 @@ class ArrayContractsMixin:
             and not represented.is_array
             and isinstance(initializer, (BraceInitializer, ListLiteral))
         ):
-            self._error(
+            self.context.error(
                 f"{subject} cannot use aggregate backing for a pointer-valued array field",
                 line,
                 col,
@@ -155,13 +155,13 @@ class ArrayContractsMixin:
         aggregate = isinstance(initializer, (BraceInitializer, ListLiteral))
         if canonical is not None and canonical.is_array and represented is not None and not represented.is_array:
             if self._is_gpu_array_initializer(initializer):
-                self._error(
+                self.context.error(
                     f"{subject} cannot materialize an array-returning @gpu result through a pointer-valued array alias",
                     line,
                     col,
                 )
             elif aggregate:
-                self._error(
+                self.context.error(
                     f"{subject} cannot use an array initializer for a pointer-valued array alias",
                     line,
                     col,
@@ -173,7 +173,7 @@ class ArrayContractsMixin:
             and not aggregate
             and not self._is_gpu_array_initializer(initializer)
         ):
-            self._error(f"{subject} requires an array initializer", line, col)
+            self.context.error(f"{subject} requires an array initializer", line, col)
 
     def _array_target_value_type(self, target, inferred):
         if isinstance(target, Identifier):

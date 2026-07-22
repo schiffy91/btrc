@@ -41,7 +41,7 @@ class CastContractsMixin:
             target,
             expression.expr,
         ):
-            self._error(
+            self.context.error(
                 "Pointer/integer casts require intptr_t or uintptr_t",
                 expression.line,
                 expression.col,
@@ -50,7 +50,7 @@ class CastContractsMixin:
 
         if self._is_void_value(source):
             if not self._is_void_value(target):
-                self._error(
+                self.context.error(
                     f"Cannot cast void expression to '{self._format_type(target)}'",
                     expression.line,
                     expression.col,
@@ -66,7 +66,7 @@ class CastContractsMixin:
             and not target.is_array
             and not target.generic_args
         ):
-            self._error(
+            self.context.error(
                 f"Cannot cast scalar '{self._format_type(source)}' to aggregate struct '{struct_name}'",
                 expression.line,
                 expression.col,
@@ -77,7 +77,7 @@ class CastContractsMixin:
             and target.pointer_depth == 0
             and not target.is_array
         ):
-            self._error(
+            self.context.error(
                 f"Cannot cast scalar '{self._format_type(source)}' to "
                 f"runtime generic value '{self._format_type(target)}'",
                 expression.line,
@@ -108,7 +108,7 @@ class CastContractsMixin:
             return True
         if base.endswith("_t"):
             return True
-        self._error(f"Unknown type '{base}' in cast", expression.line, expression.col)
+        self.context.error(f"Unknown type '{base}' in cast", expression.line, expression.col)
         return False
 
     def _is_void_value(self, type_expr) -> bool:

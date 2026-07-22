@@ -37,7 +37,7 @@ class ConversionContractsMixin:
             expression.col,
         )
         if not self._types_compatible(expected, right_type):
-            self._error(
+            self.context.error(
                 f"Operator '{operator}' expects "
                 f"'{self._format_type(expected)}' but got "
                 f"'{self._format_type(right_type)}'",

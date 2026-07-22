@@ -57,7 +57,7 @@ def test_completion_stdlib_class_static_methods_offered():
 
 def test_unlocated_analyzer_error_becomes_diagnostic(monkeypatch):
     # an analyzer diag without a position (line/col 0) maps to a 1:1 diagnostic
-    from src.compiler.python.analyzer.core import Diag
+    from src.compiler.python.analyzer.core_models import Diag
     from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 
     real = SemanticAnalyzer.analyze

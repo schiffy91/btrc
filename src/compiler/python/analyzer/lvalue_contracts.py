@@ -76,13 +76,15 @@ class LvalueContractsMixin:
         operand = expression.operand
         name = getattr(operand, "name", None)
         valid = (
-            self._is_lifetime_stable_storage(operand) or name in self.declarations.function_table or is_source_runtime_helper(name)
+            self._is_lifetime_stable_storage(operand)
+            or name in self.declarations.function_table
+            or is_source_runtime_helper(name)
         )
         if valid:
             return
         operand_type = self._infer_type(operand)
         spelling = self._format_type(operand_type) if operand_type is not None else "unknown"
-        self._error(
+        self.context.error(
             f"Unary operator '&' is not defined for '{spelling}'",
             expression.line,
             expression.col,

@@ -9,7 +9,7 @@ class AggregateContractsMixin:
             return False
         suffix = expression.field[1:] if expression.field.startswith("_") else ""
         if not suffix.isdigit() or expression.field != f"_{int(suffix)}":
-            self._error(
+            self.context.error(
                 f"Tuple has no field '{expression.field}'; use '_N' for a zero-based element index",
                 expression.line,
                 expression.col,
@@ -17,7 +17,7 @@ class AggregateContractsMixin:
             return True
         index = int(suffix)
         if index >= len(canonical.generic_args):
-            self._error(
+            self.context.error(
                 f"Tuple field '{expression.field}' is out of range for {len(canonical.generic_args)} element(s)",
                 expression.line,
                 expression.col,
@@ -34,7 +34,7 @@ class AggregateContractsMixin:
         if declaration is None:
             return False
         if not any(field.name == expression.field for field in declaration.fields):
-            self._error(
+            self.context.error(
                 f"Struct '{struct_name}' has no field '{expression.field}'",
                 expression.line,
                 expression.col,

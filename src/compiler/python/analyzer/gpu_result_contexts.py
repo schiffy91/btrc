@@ -11,7 +11,7 @@ class GpuResultContextContractsMixin:
     def _validate_gpu_array_result_context(self, expression) -> None:
         """Reject an output dispatch unless this exact call owns the boundary."""
         if self._is_gpu_array_initializer(expression) and expression is not self._gpu_array_result_boundary:
-            self._error(
+            self.context.error(
                 GPU_ARRAY_RESULT_CONTEXT_DIAGNOSTIC,
                 expression.line,
                 expression.col,

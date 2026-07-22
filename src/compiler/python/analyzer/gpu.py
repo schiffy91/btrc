@@ -63,7 +63,7 @@ def validate_gpu_function(analyzer: AnalyzerBase, func) -> None:
                 and not inherited_capacity
                 and not analyzer._array_target_has_capacity(param.default, actual)
             ):
-                analyzer._error(
+                analyzer.context.error(
                     f"Default for parameter '{param.name}' has no provable readable GPU buffer capacity",
                     getattr(param.default, "line", line),
                     getattr(param.default, "col", col),
@@ -76,14 +76,16 @@ def validate_gpu_function(analyzer: AnalyzerBase, func) -> None:
     if ret and not analyzer._is_nonpointer_void_object(ret):
         if ret.is_array:
             if ret.base not in _GPU_ARRAY_ELEM_TYPES:
-                analyzer._error(
+                analyzer.context.error(
                     f"@gpu function '{name}' return type must be void or a "
                     f"typed array (int[] or float[]), got '{ret.base}[]'",
                     line,
                     col,
                 )
         else:
-            analyzer._error(f"@gpu function '{name}' must return void or a typed array, got '{ret.base}'", line, col)
+            analyzer.context.error(
+                f"@gpu function '{name}' must return void or a typed array, got '{ret.base}'", line, col
+            )
 
     scalar_params = frozenset(param.name for param in func.params if not param.type.is_array)
     array_params = frozenset(param.name for param in func.params if param.type.is_array)
@@ -106,16 +108,16 @@ def _validate_gpu_type(
         return
 
     if type_expr.is_nullable:
-        analyzer._error(f"@gpu function '{func_name}': nullable types not allowed in {context}", line, col)
+        analyzer.context.error(f"@gpu function '{func_name}': nullable types not allowed in {context}", line, col)
         return
 
     if type_expr.pointer_depth > 0:
-        analyzer._error(f"@gpu function '{func_name}': pointer types not allowed in {context}", line, col)
+        analyzer.context.error(f"@gpu function '{func_name}': pointer types not allowed in {context}", line, col)
         return
 
     if type_expr.is_array and allow_array:
         if type_expr.is_const or type_expr.is_volatile:
-            analyzer._error(
+            analyzer.context.error(
                 f"@gpu function '{func_name}': GPU array buffers are read-write "
                 f"and cannot be const- or volatile-qualified in {context}",
                 line,
@@ -123,7 +125,7 @@ def _validate_gpu_type(
             )
             return
         if type_expr.base not in _GPU_ARRAY_ELEM_TYPES:
-            analyzer._error(
+            analyzer.context.error(
                 f"@gpu function '{func_name}': array element type must be "
                 f"int or float in {context}, got '{type_expr.base}'",
                 line,
@@ -132,15 +134,15 @@ def _validate_gpu_type(
         return
 
     if type_expr.is_array and not allow_array:
-        analyzer._error(f"@gpu function '{func_name}': array types not allowed in {context}", line, col)
+        analyzer.context.error(f"@gpu function '{func_name}': array types not allowed in {context}", line, col)
         return
 
     if type_expr.generic_args:
-        analyzer._error(f"@gpu function '{func_name}': generic types not allowed in {context}", line, col)
+        analyzer.context.error(f"@gpu function '{func_name}': generic types not allowed in {context}", line, col)
         return
 
     if type_expr.base not in _GPU_SCALAR_TYPES:
-        analyzer._error(
+        analyzer.context.error(
             f"@gpu function '{func_name}': type '{type_expr.base}' not allowed in {context} (use int, float, or bool)",
             line,
             col,
@@ -219,10 +221,12 @@ def _validate_gpu_stmt(context: GpuValidationContext, stmt) -> None:
         pass  # allowed
 
     elif isinstance(stmt, (ForInStmt, TryCatchStmt, ThrowStmt, DeleteStmt, KeepStmt, ReleaseStmt)):
-        analyzer._error(f"@gpu function '{func_name}': '{type(stmt).__name__}' not allowed in GPU functions", line, col)
+        analyzer.context.error(
+            f"@gpu function '{func_name}': '{type(stmt).__name__}' not allowed in GPU functions", line, col
+        )
 
     else:
-        analyzer._error(f"@gpu function '{func_name}': unsupported statement '{type(stmt).__name__}'", line, col)
+        analyzer.context.error(f"@gpu function '{func_name}': unsupported statement '{type(stmt).__name__}'", line, col)
 
 
 def _validate_gpu_update(context: GpuValidationContext, expression) -> None:

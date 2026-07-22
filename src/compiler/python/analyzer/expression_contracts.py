@@ -145,7 +145,7 @@ class ExpressionContractsMixin:
                     enum_names=frozenset(self.declarations.enum_table),
                 )
             except OperatorTypeError as error:
-                self._error(str(error), expression.line, expression.col)
+                self.context.error(str(error), expression.line, expression.col)
             return
         if operator in ("&&", "||"):
             valid = left.base == right.base == "bool"
@@ -176,12 +176,12 @@ class ExpressionContractsMixin:
                     enum_names=frozenset(self.declarations.enum_table),
                 )
             except OperatorTypeError as error:
-                self._error(str(error), expression.line, expression.col)
+                self.context.error(str(error), expression.line, expression.col)
             return
         else:
             return
         if not valid:
-            self._error(
+            self.context.error(
                 f"Operator '{operator}' is not defined for "
                 f"'{self._format_type(left)}' and '{self._format_type(right)}'",
                 expression.line,
@@ -208,7 +208,7 @@ class ExpressionContractsMixin:
             and not self._types_compatible(true_type, false_type)
             and not self._types_compatible(false_type, true_type)
         ):
-            self._error(
+            self.context.error(
                 "Ternary branches have incompatible types "
                 f"'{self._format_type(true_type)}' and "
                 f"'{self._format_type(false_type)}'",
@@ -230,7 +230,7 @@ class ExpressionContractsMixin:
             left, right
         ):
             return True
-        self._error(
+        self.context.error(
             f"{context} mixes ABI-dependent integer type "
             f"'{self._format_type(left)}' with '{self._format_type(right)}'; "
             "cast explicitly to a fixed-width or built-in integer type",

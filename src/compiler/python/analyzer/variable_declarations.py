@@ -25,7 +25,7 @@ class VariableDeclarationAnalysisMixin:
         explicit_type = stmt.type is not None
         if stmt.type is None:
             if stmt.initializer is None:
-                self._error(f"'var' declaration of '{stmt.name}' requires an initializer", stmt.line, stmt.col)
+                self.context.error(f"'var' declaration of '{stmt.name}' requires an initializer", stmt.line, stmt.col)
                 stmt.type = TypeExpr(base="int")
                 if define_binding:
                     self.scope.define(stmt.name, self._var_symbol(stmt))
@@ -33,13 +33,13 @@ class VariableDeclarationAnalysisMixin:
             self._analyze_gpu_array_initializer(stmt.initializer, stmt.type)
             inferred = self._infer_type(stmt.initializer)
             if inferred is None:
-                self._error(f"Cannot infer type for 'var' declaration of '{stmt.name}'", stmt.line, stmt.col)
+                self.context.error(f"Cannot infer type for 'var' declaration of '{stmt.name}'", stmt.line, stmt.col)
                 stmt.type = TypeExpr(base="int")
                 if define_binding:
                     self.scope.define(stmt.name, self._var_symbol(stmt))
                 return
             if is_semantic_scalar_void(inferred):
-                self._error(
+                self.context.error(
                     f"Cannot assign void expression to variable '{stmt.name}'",
                     stmt.line,
                     stmt.col,
@@ -151,7 +151,7 @@ class VariableDeclarationAnalysisMixin:
                 stmt.col,
             )
             if is_semantic_scalar_void(init_type):
-                self._error(f"Cannot assign void expression to variable '{stmt.name}'", stmt.line, stmt.col)
+                self.context.error(f"Cannot assign void expression to variable '{stmt.name}'", stmt.line, stmt.col)
             elif init_type and stmt.type and not self._types_compatible(stmt.type, init_type):
                 is_empty_literal = (
                     (isinstance(stmt.initializer, ListLiteral) and not stmt.initializer.elements)
@@ -159,7 +159,7 @@ class VariableDeclarationAnalysisMixin:
                     or isinstance(stmt.initializer, BraceInitializer)
                 )
                 if not is_empty_literal:
-                    self._error(
+                    self.context.error(
                         f"Cannot assign '{init_type.base}' to variable '{stmt.name}' of type '{stmt.type.base}'",
                         stmt.line,
                         stmt.col,
@@ -203,7 +203,7 @@ class VariableDeclarationAnalysisMixin:
         src_sym = self.scope.lookup(src_name)
         if not src_sym or not src_sym.type or src_sym.type.base not in self.declarations.class_table:
             return
-        self._warning(
+        self.context.warning(
             f"Aliasing managed variable '{src_name}' — "
             f"'{stmt.name}' shares the same reference without incrementing refcount. "
             f"Use 'keep {stmt.name};' if both variables should own the object",

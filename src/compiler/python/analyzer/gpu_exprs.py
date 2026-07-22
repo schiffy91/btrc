@@ -86,7 +86,7 @@ class GpuValidationContext:
         )
 
     def error(self, message: str, node) -> None:
-        self.analyzer._error(
+        self.analyzer.context.error(
             f"@gpu function '{self.function_name}': {message}",
             getattr(node, "line", 0),
             getattr(node, "col", 0),

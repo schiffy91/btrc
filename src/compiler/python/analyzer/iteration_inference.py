@@ -29,10 +29,10 @@ class _IterationInferenceMixin:
                     substitutions = dict(zip(cls.generic_params, iter_type.generic_args))
                     return self._substitute_type(result, substitutions)
                 return result
-            self._error(f"Type '{iter_type.base}' is not iterable", line, col)
+            self.context.error(f"Type '{iter_type.base}' is not iterable", line, col)
             return None
         if iter_type.base in ("int", "float", "double", "bool"):
-            self._error(f"Type '{iter_type.base}' is not iterable", line, col)
+            self.context.error(f"Type '{iter_type.base}' is not iterable", line, col)
             return None
         return None
 
@@ -45,7 +45,7 @@ class _IterationInferenceMixin:
         cls = self.declarations.class_table.get(iter_type.base)
         method = cls.methods.get("iterValueAt") if cls else None
         if method is None:
-            self._error(
+            self.context.error(
                 f"Type '{iter_type.base}' does not support key/value iteration",
                 line,
                 col,

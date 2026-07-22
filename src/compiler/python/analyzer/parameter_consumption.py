@@ -22,7 +22,7 @@ class ParameterConsumptionContractsMixin:
         if isinstance(statement, ReleaseStmt) and self._release_balances_keep(expression):
             return
         if symbol.kind in {"capture", "lambda_param"} and not symbol.owned_storage:
-            self._error(
+            self.context.error(
                 "Borrowed managed lambda bindings cannot be released or deleted; bind an owned local first",
                 statement.line,
                 statement.col,
@@ -31,7 +31,7 @@ class ParameterConsumptionContractsMixin:
         if symbol.kind != "param":
             return
         if self.in_virtual_setter or self._is_index_setter_value_param(expression.name):
-            self._error(
+            self.context.error(
                 "Property/index setter value parameters cannot consume their "
                 "argument because assignment results must remain valid",
                 statement.line,
@@ -51,7 +51,7 @@ class ParameterConsumptionContractsMixin:
             -1,
         )
         if index not in transferred:
-            self._error(
+            self.context.error(
                 "Managed parameter consumption must be an unconditional leading "
                 "release/delete so callers can prove ownership transfer",
                 statement.line,

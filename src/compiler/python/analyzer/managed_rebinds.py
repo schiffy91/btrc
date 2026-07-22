@@ -51,7 +51,7 @@ class ManagedRebindContractsMixin:
         )
         if not needs_owner:
             return False
-        self._error(
+        self.context.error(
             "Borrowed managed bindings cannot be rebound; declare an owned "
             "local before assigning or applying a compound update",
             expression.line,

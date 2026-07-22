@@ -23,7 +23,7 @@ class IdentifierContractsMixin:
         if self._validate_raw_lifetime_value(expression, direct_callee):
             return
         if not direct_callee and self._hosted_function_value_uses_owned_symbol(name):
-            self._error(
+            self.context.error(
                 f"Hosted function '{name}' cannot be stored or forwarded as a "
                 "value because bare __fn_ptr does not preserve its exact C "
                 "ABI and effects; call it directly",
@@ -36,7 +36,7 @@ class IdentifierContractsMixin:
         if name in self.declarations.class_table:
             if direct_callee or qualification_receiver:
                 return
-            self._error(
+            self.context.error(
                 f"Type name '{name}' cannot be used as a runtime value",
                 expression.line,
                 expression.col,
@@ -45,7 +45,7 @@ class IdentifierContractsMixin:
         if name in self.declarations.enum_table or name in self.declarations.rich_enum_table:
             if direct_callee or qualification_receiver:
                 return
-            self._error(
+            self.context.error(
                 f"Type name '{name}' cannot be used as a runtime value",
                 expression.line,
                 expression.col,
@@ -56,7 +56,7 @@ class IdentifierContractsMixin:
             return
         if len(owners) > 1:
             enums = ", ".join(sorted(owner or "<anonymous>" for owner in owners))
-            self._error(
+            self.context.error(
                 f"Ambiguous enum member '{name}' belongs to {enums}; qualify it",
                 expression.line,
                 expression.col,

@@ -16,7 +16,7 @@ class GeneratedSymbolContractsMixin:
     def _validate_generated_c_symbols(self, program) -> None:
         claims: dict[str, str] = {}
         generic_declarations = {}
-        for declaration in self._decls_with_file(program):
+        for declaration in self.context.declarations(program):
             if isinstance(declaration, FunctionDecl) and declaration.is_gpu:
                 claim_gpu_symbols(self, declaration, claims)
             elif isinstance(declaration, ClassDecl):
@@ -36,20 +36,20 @@ class GeneratedSymbolContractsMixin:
         validate_generated_symbol_ownership(self, symbol, owner, line, col)
         source_kind = self.declarations.top_level_kinds.get(symbol)
         if source_kind is not None:
-            self._error(
+            self.context.error(
                 f"Generated C symbol '{symbol}' for {owner} collides with source {source_kind} '{symbol}'",
                 line,
                 col,
             )
         if symbol in self.declarations.source_macro_names:
-            self._error(
+            self.context.error(
                 f"Generated C symbol '{symbol}' for {owner} collides with source macro '{symbol}'",
                 line,
                 col,
             )
         previous = claims.get(symbol)
         if previous is not None:
-            self._error(
+            self.context.error(
                 f"Generated C symbol '{symbol}' for {owner} collides with {previous}",
                 line,
                 col,
@@ -59,7 +59,7 @@ class GeneratedSymbolContractsMixin:
 
     def _reject_generated_member_macro(self, symbol, owner, line, col) -> None:
         if symbol in self.declarations.source_macro_names:
-            self._error(
+            self.context.error(
                 f"Generated C member '{symbol}' for {owner} collides with source macro '{symbol}'",
                 line,
                 col,

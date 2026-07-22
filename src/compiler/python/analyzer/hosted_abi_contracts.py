@@ -14,6 +14,7 @@ from ..hosted_abi import (
     hosted_return_effect,
     hosted_source_helper_adopts_raw_string,
 )
+from ..source_provenance import is_compiler_stdlib_source
 
 
 class HostedAbiContractsMixin:
@@ -29,9 +30,9 @@ class HostedAbiContractsMixin:
             return False
         if not hosted_owned_name(name):
             return False
-        return self._hosted_stdlib_source(self.current_source_file) and not self._hosted_stdlib_source(
-            getattr(declaration, "source_file", None)
-        )
+        return is_compiler_stdlib_source(
+            self.context.current_source_file,
+        ) and not is_compiler_stdlib_source(getattr(declaration, "source_file", None))
 
     def _hosted_call_uses_owned_symbol(self, call, *, local_names=None) -> bool:
         if not isinstance(call.callee, Identifier):
@@ -66,14 +67,14 @@ class HostedAbiContractsMixin:
         self._hosted_call_ids.add(id(call))
         if name == "assert":
             if any(call.arg_names or ()) or len(call.args) != 1:
-                self._error("'assert()' expects exactly 1 positional argument", call.line, call.col)
+                self.context.error("'assert()' expects exactly 1 positional argument", call.line, call.col)
             return True
 
         spec = hosted_function(name)
         if spec is None or spec.parameters is None:
             for argument in call.args:
                 if self._expression_is_opaque_borrow(argument):
-                    self._error(
+                    self.context.error(
                         f"Argument to hosted function '{name}()' cannot forward a "
                         "managed value as a raw representation because its ABI "
                         "effect is not proven read-only",
@@ -82,7 +83,7 @@ class HostedAbiContractsMixin:
                     )
             return self.declarations.function_table.get(name) is None
         if any(call.arg_names or ()):
-            self._error(
+            self.context.error(
                 f"Hosted function '{name}()' does not accept named arguments",
                 call.line,
                 call.col,
@@ -92,7 +93,7 @@ class HostedAbiContractsMixin:
         valid_arity = len(call.args) >= expected_count if spec.variadic else len(call.args) == expected_count
         if not valid_arity:
             qualifier = "at least " if spec.variadic else ""
-            self._error(
+            self.context.error(
                 f"'{name}()' expects {qualifier}{expected_count} argument(s) but got {len(call.args)}",
                 call.line,
                 call.col,
@@ -122,7 +123,7 @@ class HostedAbiContractsMixin:
                 and not self._hosted_argument_type_is_deferred(expected, actual)
                 and not self._types_compatible(expected, actual)
             ):
-                self._error(
+                self.context.error(
                     f"Argument {index + 1} to hosted function '{name}()' "
                     f"expects '{self._format_type(expected)}' but got "
                     f"'{self._format_type(actual)}'",
@@ -149,7 +150,7 @@ class HostedAbiContractsMixin:
         if not hosted_source_helper_adopts_raw_string(name, index):
             return
         if self._raw_lifetime_uses_static_string(argument):
-            self._error(
+            self.context.error(
                 f"{name}() cannot adopt static string storage; pass fresh raw heap storage",
                 getattr(argument, "line", call.line),
                 getattr(argument, "col", call.col),
@@ -157,7 +158,7 @@ class HostedAbiContractsMixin:
             return
         managed = self._opaque_managed_origin_type(argument)
         if managed is not None:
-            self._error(
+            self.context.error(
                 f"{name}() cannot adopt an already-managed value of type "
                 f"'{self._format_type(managed)}'; pass fresh raw heap storage",
                 getattr(argument, "line", call.line),
@@ -189,7 +190,7 @@ class HostedAbiContractsMixin:
         )
         if effect == RETURN_FRESH and deallocator == DEALLOC_FREE:
             return
-        self._error(
+        self.context.error(
             f"{name}() cannot adopt storage returned by "
             f"{producer_name}() because it is not proven fresh "
             "free-compatible allocation",
