@@ -2,7 +2,7 @@
 
 import sys
 
-from .analyzer.analyzer import Analyzer
+from .analyzer.semantic_analyzer import SemanticAnalyzer
 from .artifacts.publication.publisher import ArtifactPublisher
 from .artifacts.publication.storage import ArtifactStorage
 from .artifacts.stdlib.publisher import StdlibArchivePublisher
@@ -53,7 +53,7 @@ def build_stdlib_archive(out_dir: str) -> None:
         )
         raise SystemExit(1) from error
 
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     if analyzed.errors:
         for error in analyzed.errors:
             print(f"error: {error}", file=sys.stderr)
