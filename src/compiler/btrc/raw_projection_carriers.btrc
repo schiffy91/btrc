@@ -27,7 +27,7 @@ class RawProjectionCarrierContext {
         self.preparedExpressions.put(key, true);
         if (typeExpr != null) {
             self.expressionTypes.put(key, typeExpr);
-            self.managedTypes.put(typeShapeKey(typeExpr), managed);
+            self.managedTypes.put(TypeIdentity.shapeKey(typeExpr), managed);
         }
         if (overridden) { self.overriddenExpressions.put(key, true); }
     }
@@ -45,8 +45,8 @@ class RawProjectionCarrierContext {
 
     public bool managedType(Node? typeExpr) {
         return typeExpr != null
-            && self.managedTypes.has(typeShapeKey(typeExpr))
-            && self.managedTypes.get(typeShapeKey(typeExpr));
+            && self.managedTypes.has(TypeIdentity.shapeKey(typeExpr))
+            && self.managedTypes.get(TypeIdentity.shapeKey(typeExpr));
     }
 
     public Node? aliasArgument(Node? expression) {

@@ -35,7 +35,7 @@ int semanticReferenceDepth(Node typeExpr) {
     bool intrinsicReference = typeExpr.base == "string"
         || typeExpr.base == "Thread" || typeExpr.base == "Mutex"
         || typeExpr.base == "__fn_ptr";
-    if (typeNullableCollapsesReferenceLayer(
+    if (TypeComposition.nullableCollapsesReferenceLayer(
             typeExpr, intrinsicReference)) {
         depth = depth - 1;
     }
@@ -71,7 +71,7 @@ bool semanticIsCStringPointer(Node? typeExpr) {
 
 bool semanticIsReferenceType(Node? typeExpr, Analyzed analyzed) {
     if (typeExpr == null) { return false; }
-    if (semanticIsNullType(typeExpr) || isSemanticScalarString(typeExpr)) {
+    if (semanticIsNullType(typeExpr) || TypeComposition.isSemanticScalarString(typeExpr)) {
         return true;
     }
     return typeExpr.pointer_depth > 0 || typeExpr.is_array
@@ -85,7 +85,7 @@ bool semanticGenericArgsEqual(Vector<Node> left, Vector<Node> right) {
     if (left.len != right.len) { return false; }
     int index = 0;
     while (index < left.len) {
-        if (typeShapeKey(left.get(index)) != typeShapeKey(right.get(index))) {
+        if (TypeIdentity.shapeKey(left.get(index)) != TypeIdentity.shapeKey(right.get(index))) {
             return false;
         }
         index = index + 1;
@@ -163,8 +163,8 @@ bool semanticReferenceTypesCompatible(
     if (semanticIsVoidPointer(left) || semanticIsVoidPointer(right)) {
         return true;
     }
-    if ((isSemanticScalarString(left) && semanticIsCStringPointer(right))
-            || (isSemanticScalarString(right)
+    if ((TypeComposition.isSemanticScalarString(left) && semanticIsCStringPointer(right))
+            || (TypeComposition.isSemanticScalarString(right)
                 && semanticIsCStringPointer(left))) {
         return true;
     }
@@ -186,8 +186,8 @@ bool semanticIsComparisonOperator(string op) {
 int semanticComparisonDomain(
         string op, Node? left, Node? right, Analyzed analyzed) {
     if (left == null || right == null) { return OP_DOMAIN_UNRESOLVED; }
-    bool leftString = isSemanticScalarString(left);
-    bool rightString = isSemanticScalarString(right);
+    bool leftString = TypeComposition.isSemanticScalarString(left);
+    bool rightString = TypeComposition.isSemanticScalarString(right);
     if (leftString || rightString) {
         if ((leftString || semanticIsCStringPointer(left)
                     || semanticIsNullType(left))
@@ -214,7 +214,7 @@ int semanticComparisonDomain(
 
 int semanticHashDomain(Node? operand, Analyzed analyzed) {
     if (operand == null) { return HASH_DOMAIN_INVALID; }
-    if (isSemanticScalarString(operand)) { return HASH_DOMAIN_STRING; }
+    if (TypeComposition.isSemanticScalarString(operand)) { return HASH_DOMAIN_STRING; }
     if (numericIsFloating(operand)) { return HASH_DOMAIN_FLOATING; }
     if (numericIsType(operand, analyzed)) { return HASH_DOMAIN_INTEGRAL; }
     if (operand.base == "__fn_ptr") { return HASH_DOMAIN_INVALID; }

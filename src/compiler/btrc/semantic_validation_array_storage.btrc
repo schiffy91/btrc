@@ -242,7 +242,7 @@ bool semanticGpuBufferElementsExact(Node? expectedType, Node? actualType,
     Node? expected = semanticGpuBufferElementType(expectedType, state);
     Node? actual = semanticGpuBufferElementType(actualType, state);
     return expected != null && actual != null
-        && typeShapeKey(expected) == typeShapeKey(actual);
+        && TypeIdentity.shapeKey(expected) == TypeIdentity.shapeKey(actual);
 }
 
 void semanticValidateGpuArrayParameter(Node callable, Node parameter,

@@ -48,7 +48,7 @@ bool callableBoundaryTypeContainsManagedSeen(
     if (canonicalType == null) { return false; }
     Node canonical = canonicalType;
     if (callableBoundaryManagedType(generator, canonical)) { return true; }
-    string key = typeShapeKey(canonical);
+    string key = TypeIdentity.shapeKey(canonical);
     if (active.has(key)) { return false; }
     active.put(key, true);
     bool contains = false;

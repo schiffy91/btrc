@@ -18,7 +18,7 @@ string semanticHostedNormalizedBase(string base) {
 
 int semanticHostedPointerDepth(Node typeNode) {
     int depth = typeNode.pointer_depth;
-    if (typeNullableCollapsesReferenceLayer(
+    if (TypeComposition.nullableCollapsesReferenceLayer(
             typeNode, typeNode.base == "string")) {
         depth = depth - 1;
     }

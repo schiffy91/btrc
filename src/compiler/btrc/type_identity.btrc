@@ -2,326 +2,336 @@
  * Position and array-bound expressions are deliberately absent from identity:
  * they do not change the represented runtime type shape. */
 
-bool typeIdentityAsciiLetter(char value) {
-    return (value >= 'A' && value <= 'Z')
-        || (value >= 'a' && value <= 'z');
-}
+import std.map;
+import std.strings;
+import std.vector;
 
-bool typeIdentityAsciiDigit(char value) {
-    return value >= '0' && value <= '9';
-}
+class TypeIdentity {
+    class bool asciiLetter(char value) {
+        return (value >= 'A' && value <= 'Z')
+            || (value >= 'a' && value <= 'z');
+    }
 
-bool typeIdentitySafeBase(string base) {
-    int length = base.length();
-    if (length == 0 || !typeIdentityAsciiLetter(base[0])) { return false; }
-    if (length >= 2 && base[0] == 'Z' && base[1] == 'Q') { return false; }
-    int index = 1;
-    while (index < length) {
-        char value = base[index];
-        if (!typeIdentityAsciiLetter(value) && !typeIdentityAsciiDigit(value)) {
-            return false;
+    class bool asciiDigit(char value) {
+        return value >= '0' && value <= '9';
+    }
+
+    class bool safeBase(string base) {
+        int length = base.length();
+        if (length == 0 || !TypeIdentity.asciiLetter(base[0])) { return false; }
+        if (length >= 2 && base[0] == 'Z' && base[1] == 'Q') { return false; }
+        int index = 1;
+        while (index < length) {
+            char value = base[index];
+            if (!TypeIdentity.asciiLetter(value) && !TypeIdentity.asciiDigit(value)) {
+                return false;
+            }
+            index = index + 1;
         }
-        index = index + 1;
+        return true;
     }
-    return true;
-}
 
-string typeIdentityUtf8Hex(string value) {
-    string digits = "0123456789abcdef";
-    string encoded = "";
-    int index = 0;
-    while (index < value.length()) {
-        int byteValue = (int)((unsigned char)value[index]);
-        encoded = encoded + chr(digits[byteValue / 16]);
-        encoded = encoded + chr(digits[byteValue % 16]);
-        index = index + 1;
-    }
-    return encoded;
-}
-
-string typeIdentityField(string tag, string value) {
-    return tag + Strings.fromInt(value.length()) + "_" + value;
-}
-
-int typeIdentityQualifierBits(Node typeExpr) {
-    int bits = 0;
-    if (typeExpr.is_const) { bits = bits + 1; }
-    if (typeExpr.is_static) { bits = bits + 2; }
-    if (typeExpr.is_extern) { bits = bits + 4; }
-    if (typeExpr.is_volatile) { bits = bits + 8; }
-    return bits;
-}
-
-string typeIdentityEncodeType(Node typeExpr);
-
-string typeIdentityEncodeTypes(Vector<Node> args) {
-    string encoded = "k" + Strings.fromInt(args.len);
-    int index = 0;
-    while (index < args.len) {
-        encoded = encoded
-            + typeIdentityField("t", typeIdentityEncodeType(args.get(index)));
-        index = index + 1;
-    }
-    return encoded;
-}
-
-string typeIdentityEncodeType(Node typeExpr) {
-    string encodedBase = typeIdentityUtf8Hex(typeExpr.base);
-    string shape = "p" + Strings.fromInt(typeExpr.pointer_depth)
-        + "n" + Strings.fromInt(typeExpr.is_nullable ? 1 : 0)
-        + "o" + Strings.fromInt(typeExpr.nullable_outer_depth)
-        + "a" + Strings.fromInt(typeExpr.is_array ? 1 : 0)
-        + "q" + Strings.fromInt(typeIdentityQualifierBits(typeExpr));
-    return typeIdentityField("b", encodedBase) + shape
-        + typeIdentityEncodeTypes(typeExpr.generic_args);
-}
-
-string typeIdentityEncodeNameAndTypes(string base, Vector<Node> args) {
-    return typeIdentityField("b", typeIdentityUtf8Hex(base))
-        + typeIdentityEncodeTypes(args);
-}
-
-/* Position-independent semantic key. The encoding is recursive and
- * length-delimited, so no two TypeExpr trees can share a key. */
-string typeShapeKey(Node typeExpr) {
-    return typeIdentityEncodeType(typeExpr);
-}
-
-string genericInstanceKey(string base, Vector<Node> args) {
-    return typeIdentityEncodeNameAndTypes(base, args);
-}
-
-string methodInstanceKey(string classBase, Vector<Node> classArgs,
-                         string methodName, Vector<Node> methodArgs) {
-    return typeIdentityEncodeNameAndTypes(classBase, classArgs)
-        + typeIdentityField("m", typeIdentityUtf8Hex(methodName))
-        + typeIdentityEncodeTypes(methodArgs);
-}
-
-bool typeReferencesNames(Node? typeExpr, Map<string, bool> names) {
-    if (typeExpr == null) { return false; }
-    if (names.has(typeExpr.base)) { return true; }
-    int index = 0;
-    while (index < typeExpr.generic_args.len) {
-        if (typeReferencesNames(typeExpr.generic_args.get(index), names)) {
-            return true;
+    class string utf8Hex(string value) {
+        string digits = "0123456789abcdef";
+        string encoded = "";
+        int index = 0;
+        while (index < value.length()) {
+            int byteValue = (int)((unsigned char)value[index]);
+            encoded = encoded + chr(digits[byteValue / 16]);
+            encoded = encoded + chr(digits[byteValue % 16]);
+            index = index + 1;
         }
-        index = index + 1;
+        return encoded;
     }
-    return false;
-}
 
-string genericArgumentProblem(Node typeExpr) {
-    if (typeExpr.is_const) {
-        return "generic arguments cannot be const-qualified";
+    class string field(string tag, string value) {
+        return tag + Strings.fromInt(value.length()) + "_" + value;
     }
-    if (typeExpr.is_static) {
-        return "generic arguments cannot be static-qualified";
-    }
-    if (typeExpr.is_extern) {
-        return "generic arguments cannot be extern-qualified";
-    }
-    if (typeExpr.is_volatile) {
-        return "generic arguments cannot be volatile-qualified";
-    }
-    int index = 0;
-    while (index < typeExpr.generic_args.len) {
-        string problem = genericArgumentProblem(typeExpr.generic_args.get(index));
-        if (problem != "") { return problem; }
-        index = index + 1;
-    }
-    return "";
-}
 
-void typeShapeFail(string message) {
-    fprintf(stderr, "error: %s\n", message);
-    exit(1);
-}
-
-void ensureSupportedGenericArguments(Vector<Node> args) {
-    int index = 0;
-    while (index < args.len) {
-        string problem = genericArgumentProblem(args.get(index));
-        if (problem != "") { typeShapeFail(problem); }
-        index = index + 1;
+    class int qualifierBits(Node typeExpr) {
+        int bits = 0;
+        if (typeExpr.is_const) { bits = bits + 1; }
+        if (typeExpr.is_static) { bits = bits + 2; }
+        if (typeExpr.is_extern) { bits = bits + 4; }
+        if (typeExpr.is_volatile) { bits = bits + 8; }
+        return bits;
     }
-}
 
-bool typeIdentityLegacyComponentPossible(Node typeExpr) {
-    return typeExpr.generic_args.len == 0
-        && typeIdentitySafeBase(typeExpr.base)
-        && typeExpr.nullable_outer_depth == 0
-        && !typeExpr.is_const && !typeExpr.is_static
-        && !typeExpr.is_extern && !typeExpr.is_volatile;
-}
-
-string typeIdentityLegacyComponent(Node typeExpr) {
-    string component = typeExpr.base;
-    if (typeExpr.pointer_depth > 0) {
-        component = component + "_p"
-            + Strings.fromInt(typeExpr.pointer_depth);
-    }
-    if (typeExpr.is_nullable) { component = component + "_n"; }
-    if (typeExpr.is_array) { component = component + "_a"; }
-    return component;
-}
-
-bool typeIdentityLegacySequencePossible(Vector<Node> args) {
-    int index = 0;
-    while (index < args.len) {
-        Node argument = args.get(index);
-        if (!typeIdentityLegacyComponentPossible(argument)) { return false; }
-        if (args.len > 1 && (argument.pointer_depth > 0
-                || argument.is_nullable || argument.is_array)) {
-            return false;
+    class string encodeTypes(Vector<Node> args) {
+        string encoded = "k" + Strings.fromInt(args.len);
+        int index = 0;
+        while (index < args.len) {
+            encoded = encoded
+                + TypeIdentity.field("t", TypeIdentity.encode(args.get(index)));
+            index = index + 1;
         }
-        index = index + 1;
+        return encoded;
     }
-    return true;
-}
 
-string typeIdentityLegacySequence(Vector<Node> args) {
-    string sequence = "";
-    int index = 0;
-    while (index < args.len) {
-        if (index > 0) { sequence = sequence + "_"; }
-        sequence = sequence + typeIdentityLegacyComponent(args.get(index));
-        index = index + 1;
+    class string encode(Node typeExpr) {
+        string encodedBase = TypeIdentity.utf8Hex(typeExpr.base);
+        string shape = "p" + Strings.fromInt(typeExpr.pointer_depth)
+            + "n" + Strings.fromInt(typeExpr.is_nullable ? 1 : 0)
+            + "o" + Strings.fromInt(typeExpr.nullable_outer_depth)
+            + "a" + Strings.fromInt(typeExpr.is_array ? 1 : 0)
+            + "q" + Strings.fromInt(TypeIdentity.qualifierBits(typeExpr));
+        return TypeIdentity.field("b", encodedBase) + shape
+            + TypeIdentity.encodeTypes(typeExpr.generic_args);
     }
-    return sequence;
-}
 
-string typeSymbolComponent(Node typeExpr) {
-    if (typeIdentityLegacyComponentPossible(typeExpr)) {
-        return typeIdentityLegacyComponent(typeExpr);
+    class string encodeNameAndTypes(string base, Vector<Node> args) {
+        return TypeIdentity.field("b", TypeIdentity.utf8Hex(base))
+            + TypeIdentity.encodeTypes(args);
     }
-    return "ZQt" + typeIdentityEncodeType(typeExpr);
-}
 
-/* Structural primitive: unlike writable class specializations, Tuple and
- * __fn_ptr are allowed to carry qualified component types. */
-string mangleGenericSymbol(string base, Vector<Node> args) {
-    if (typeIdentitySafeBase(base) && typeIdentityLegacySequencePossible(args)) {
-        string legacy = typeIdentityLegacySequence(args);
-        if (legacy == "") { return "btrc_" + base; }
-        return "btrc_" + base + "_" + legacy;
+    /* Position-independent semantic key. The encoding is recursive and
+     * length-delimited, so no two TypeExpr trees can share a key. */
+    class string shapeKey(Node typeExpr) {
+        return TypeIdentity.encode(typeExpr);
     }
-    return "btrc_ZQg" + typeIdentityEncodeNameAndTypes(base, args);
-}
 
-/* Writable class specialization entry point: fail closed on qualifiers. */
-string mangleGenericType(string base, Vector<Node> args) {
-    ensureSupportedGenericArguments(args);
-    return mangleGenericSymbol(base, args);
-}
+    class string genericInstanceKey(string base, Vector<Node> args) {
+        return TypeIdentity.encodeNameAndTypes(base, args);
+    }
 
-string mangleMethodInstanceSymbol(string classBase, Vector<Node> classArgs,
-                                  string methodName, Vector<Node> methodArgs) {
-    ensureSupportedGenericArguments(classArgs);
-    ensureSupportedGenericArguments(methodArgs);
-    bool legacy = typeIdentitySafeBase(classBase)
-        && typeIdentitySafeBase(methodName)
-        && typeIdentityLegacySequencePossible(classArgs)
-        && typeIdentityLegacySequencePossible(methodArgs);
-    if (legacy) {
-        string classPart = classBase;
-        if (classArgs.len > 0) {
-            classPart = "btrc_" + classBase + "_"
-                + typeIdentityLegacySequence(classArgs);
+    class string methodInstanceKey(string classBase, Vector<Node> classArgs,
+                             string methodName, Vector<Node> methodArgs) {
+        return TypeIdentity.encodeNameAndTypes(classBase, classArgs)
+            + TypeIdentity.field("m", TypeIdentity.utf8Hex(methodName))
+            + TypeIdentity.encodeTypes(methodArgs);
+    }
+
+    class bool referencesNames(Node? typeExpr, Map<string, bool> names) {
+        if (typeExpr == null) { return false; }
+        if (names.has(typeExpr.base)) { return true; }
+        int index = 0;
+        while (index < typeExpr.generic_args.len) {
+            if (TypeIdentity.referencesNames(typeExpr.generic_args.get(index), names)) {
+                return true;
+            }
+            index = index + 1;
         }
-        string methodPart = "_" + methodName;
-        string methodLegacy = typeIdentityLegacySequence(methodArgs);
-        if (methodLegacy != "") {
-            methodPart = methodPart + "_" + methodLegacy;
-        }
-        return classPart + methodPart;
-    }
-    string payload = typeIdentityEncodeNameAndTypes(classBase, classArgs)
-        + typeIdentityField("m", typeIdentityUtf8Hex(methodName))
-        + typeIdentityEncodeTypes(methodArgs);
-    return "btrc_ZQm" + payload;
-}
-
-string mangleFunctionPointerSymbol(Vector<Node> args) {
-    if (typeIdentityLegacySequencePossible(args)) {
-        return "__btrc_fn_" + typeIdentityLegacySequence(args);
-    }
-    return "__btrc_fn_ZQf" + typeIdentityEncodeTypes(args);
-}
-
-bool typeResolvedReferenceShape(Node typeExpr) {
-    return typeExpr.pointer_depth > 0 || typeExpr.is_array
-        || typeIntrinsicReferenceShape(typeExpr);
-}
-
-bool typeNullableCollapsesReferenceLayer(
-        Node typeExpr, bool baseIsReference) {
-    if (!typeExpr.is_nullable || typeExpr.pointer_depth <= 0) {
         return false;
     }
-    int innerStorage = typeExpr.pointer_depth
-        + (typeExpr.is_array ? 1 : 0)
-        - typeExpr.nullable_outer_depth;
-    return innerStorage > 1
-        || (baseIsReference && innerStorage > 0);
-}
 
-int typeAppliedSubstitutionPointerDepth(
-        Node placeholder, bool referenceShape) {
-    return placeholder.pointer_depth
-        - (typeNullableCollapsesReferenceLayer(
-            placeholder, referenceShape) ? 1 : 0);
-}
-
-int typeSubstitutionPointerDepth(Node placeholder, Node resolved) {
-    return resolved.pointer_depth
-        + typeAppliedSubstitutionPointerDepth(
-            placeholder, typeResolvedReferenceShape(resolved));
-}
-
-Node composeTypeExpr(Node applied, Node resolved, bool referenceShape) {
-    bool collapseApplied = typeNullableCollapsesReferenceLayer(
-        applied, referenceShape);
-    int appliedPointerDepth = applied.pointer_depth
-        - (collapseApplied ? 1 : 0);
-    int survivingShellStorage = appliedPointerDepth
-        + (applied.is_array ? 1 : 0);
-    Node result = copyTypeExpr(resolved);
-    result.pointer_depth = resolved.pointer_depth + appliedPointerDepth;
-    result.is_array = applied.is_array || resolved.is_array;
-    if (applied.array_size != null) {
-        result.array_size = applied.array_size;
+    class string genericArgumentProblem(Node typeExpr) {
+        if (typeExpr.is_const) {
+            return "generic arguments cannot be const-qualified";
+        }
+        if (typeExpr.is_static) {
+            return "generic arguments cannot be static-qualified";
+        }
+        if (typeExpr.is_extern) {
+            return "generic arguments cannot be extern-qualified";
+        }
+        if (typeExpr.is_volatile) {
+            return "generic arguments cannot be volatile-qualified";
+        }
+        int index = 0;
+        while (index < typeExpr.generic_args.len) {
+            string problem = TypeIdentity.genericArgumentProblem(
+                typeExpr.generic_args.get(index));
+            if (problem != "") { return problem; }
+            index = index + 1;
+        }
+        return "";
     }
-    result.is_const = applied.is_const || resolved.is_const;
-    result.is_nullable = applied.is_nullable || resolved.is_nullable;
-    if (resolved.is_nullable) {
-        result.nullable_outer_depth = resolved.nullable_outer_depth
-            + survivingShellStorage;
-    } else if (applied.is_nullable) {
-        if (collapseApplied) {
-            result.nullable_outer_depth = survivingShellStorage;
+
+    class void fail(string message) {
+        fprintf(stderr, "error: %s\n", message);
+        exit(1);
+    }
+
+    class void ensureSupportedGenericArguments(Vector<Node> args) {
+        int index = 0;
+        while (index < args.len) {
+            string problem = TypeIdentity.genericArgumentProblem(args.get(index));
+            if (problem != "") { TypeIdentity.fail(problem); }
+            index = index + 1;
+        }
+    }
+
+    class bool legacyComponentPossible(Node typeExpr) {
+        return typeExpr.generic_args.len == 0
+            && TypeIdentity.safeBase(typeExpr.base)
+            && typeExpr.nullable_outer_depth == 0
+            && !typeExpr.is_const && !typeExpr.is_static
+            && !typeExpr.is_extern && !typeExpr.is_volatile;
+    }
+
+    class string legacyComponent(Node typeExpr) {
+        string component = typeExpr.base;
+        if (typeExpr.pointer_depth > 0) {
+            component = component + "_p"
+                + Strings.fromInt(typeExpr.pointer_depth);
+        }
+        if (typeExpr.is_nullable) { component = component + "_n"; }
+        if (typeExpr.is_array) { component = component + "_a"; }
+        return component;
+    }
+
+    class bool legacySequencePossible(Vector<Node> args) {
+        int index = 0;
+        while (index < args.len) {
+            Node argument = args.get(index);
+            if (!TypeIdentity.legacyComponentPossible(argument)) { return false; }
+            if (args.len > 1 && (argument.pointer_depth > 0
+                    || argument.is_nullable || argument.is_array)) {
+                return false;
+            }
+            index = index + 1;
+        }
+        return true;
+    }
+
+    class string legacySequence(Vector<Node> args) {
+        string sequence = "";
+        int index = 0;
+        while (index < args.len) {
+            if (index > 0) { sequence = sequence + "_"; }
+            sequence = sequence + TypeIdentity.legacyComponent(args.get(index));
+            index = index + 1;
+        }
+        return sequence;
+    }
+
+    class string symbolComponent(Node typeExpr) {
+        if (TypeIdentity.legacyComponentPossible(typeExpr)) {
+            return TypeIdentity.legacyComponent(typeExpr);
+        }
+        return "ZQt" + TypeIdentity.encode(typeExpr);
+    }
+
+    /* Structural primitive: unlike writable class specializations, Tuple and
+     * __fn_ptr are allowed to carry qualified component types. */
+    class string mangleGenericSymbol(string base, Vector<Node> args) {
+        if (TypeIdentity.safeBase(base)
+                && TypeIdentity.legacySequencePossible(args)) {
+            string legacy = TypeIdentity.legacySequence(args);
+            if (legacy == "") { return "btrc_" + base; }
+            return "btrc_" + base + "_" + legacy;
+        }
+        return "btrc_ZQg" + TypeIdentity.encodeNameAndTypes(base, args);
+    }
+
+    /* Writable class specialization entry point: fail closed on qualifiers. */
+    class string mangleGenericType(string base, Vector<Node> args) {
+        TypeIdentity.ensureSupportedGenericArguments(args);
+        return TypeIdentity.mangleGenericSymbol(base, args);
+    }
+
+    class string mangleMethodInstanceSymbol(string classBase, Vector<Node> classArgs,
+                                      string methodName, Vector<Node> methodArgs) {
+        TypeIdentity.ensureSupportedGenericArguments(classArgs);
+        TypeIdentity.ensureSupportedGenericArguments(methodArgs);
+        bool legacy = TypeIdentity.safeBase(classBase)
+            && TypeIdentity.safeBase(methodName)
+            && TypeIdentity.legacySequencePossible(classArgs)
+            && TypeIdentity.legacySequencePossible(methodArgs);
+        if (legacy) {
+            string classPart = classBase;
+            if (classArgs.len > 0) {
+                classPart = "btrc_" + classBase + "_"
+                    + TypeIdentity.legacySequence(classArgs);
+            }
+            string methodPart = "_" + methodName;
+            string methodLegacy = TypeIdentity.legacySequence(methodArgs);
+            if (methodLegacy != "") {
+                methodPart = methodPart + "_" + methodLegacy;
+            }
+            return classPart + methodPart;
+        }
+        string payload = TypeIdentity.encodeNameAndTypes(classBase, classArgs)
+            + TypeIdentity.field("m", TypeIdentity.utf8Hex(methodName))
+            + TypeIdentity.encodeTypes(methodArgs);
+        return "btrc_ZQm" + payload;
+    }
+
+    class string mangleFunctionPointerSymbol(Vector<Node> args) {
+        if (TypeIdentity.legacySequencePossible(args)) {
+            return "__btrc_fn_" + TypeIdentity.legacySequence(args);
+        }
+        return "__btrc_fn_ZQf" + TypeIdentity.encodeTypes(args);
+    }
+
+}
+
+class TypeComposition {
+    class bool resolvedReferenceShape(Node typeExpr) {
+        return typeExpr.pointer_depth > 0 || typeExpr.is_array
+            || typeIntrinsicReferenceShape(typeExpr);
+    }
+
+    class bool nullableCollapsesReferenceLayer(
+            Node typeExpr, bool baseIsReference) {
+        if (!typeExpr.is_nullable || typeExpr.pointer_depth <= 0) {
+            return false;
+        }
+        int innerStorage = typeExpr.pointer_depth
+            + (typeExpr.is_array ? 1 : 0)
+            - typeExpr.nullable_outer_depth;
+        return innerStorage > 1
+            || (baseIsReference && innerStorage > 0);
+    }
+
+    class int appliedSubstitutionPointerDepth(
+            Node placeholder, bool referenceShape) {
+        return placeholder.pointer_depth
+            - (TypeComposition.nullableCollapsesReferenceLayer(
+                placeholder, referenceShape) ? 1 : 0);
+    }
+
+    class int substitutionPointerDepth(Node placeholder, Node resolved) {
+        return resolved.pointer_depth
+            + TypeComposition.appliedSubstitutionPointerDepth(
+                placeholder, TypeComposition.resolvedReferenceShape(resolved));
+    }
+
+    class Node compose(Node applied, Node resolved, bool referenceShape) {
+        bool collapseApplied = TypeComposition.nullableCollapsesReferenceLayer(
+            applied, referenceShape);
+        int appliedPointerDepth = applied.pointer_depth
+            - (collapseApplied ? 1 : 0);
+        int survivingShellStorage = appliedPointerDepth
+            + (applied.is_array ? 1 : 0);
+        Node result = copyTypeExpr(resolved);
+        result.pointer_depth = resolved.pointer_depth + appliedPointerDepth;
+        result.is_array = applied.is_array || resolved.is_array;
+        if (applied.array_size != null) {
+            result.array_size = applied.array_size;
+        }
+        result.is_const = applied.is_const || resolved.is_const;
+        result.is_nullable = applied.is_nullable || resolved.is_nullable;
+        if (resolved.is_nullable) {
+            result.nullable_outer_depth = resolved.nullable_outer_depth
+                + survivingShellStorage;
+        } else if (applied.is_nullable) {
+            if (collapseApplied) {
+                result.nullable_outer_depth = survivingShellStorage;
+            } else {
+                result.nullable_outer_depth = applied.nullable_outer_depth;
+            }
         } else {
-            result.nullable_outer_depth = applied.nullable_outer_depth;
+            result.nullable_outer_depth = 0;
         }
-    } else {
-        result.nullable_outer_depth = 0;
+        result.is_static = applied.is_static || resolved.is_static;
+        result.is_extern = applied.is_extern || resolved.is_extern;
+        result.is_volatile = applied.is_volatile || resolved.is_volatile;
+        if (applied.line != 0) { result.line = applied.line; }
+        if (applied.col != 0) { result.col = applied.col; }
+        return result;
     }
-    result.is_static = applied.is_static || resolved.is_static;
-    result.is_extern = applied.is_extern || resolved.is_extern;
-    result.is_volatile = applied.is_volatile || resolved.is_volatile;
-    if (applied.line != 0) { result.line = applied.line; }
-    if (applied.col != 0) { result.col = applied.col; }
-    return result;
-}
 
-bool isSemanticScalarString(Node? typeExpr) {
-    if (typeExpr == null || typeExpr.base != "string"
-            || typeExpr.generic_args.len > 0 || typeExpr.is_array) {
-        return false;
+    class bool isSemanticScalarString(Node? typeExpr) {
+        if (typeExpr == null || typeExpr.base != "string"
+                || typeExpr.generic_args.len > 0 || typeExpr.is_array) {
+            return false;
+        }
+        int depth = typeExpr.pointer_depth;
+        if (TypeComposition.nullableCollapsesReferenceLayer(typeExpr, true)) {
+            depth = depth - 1;
+        }
+        return depth == 0;
     }
-    int depth = typeExpr.pointer_depth;
-    if (typeNullableCollapsesReferenceLayer(typeExpr, true)) {
-        depth = depth - 1;
-    }
-    return depth == 0;
+
 }

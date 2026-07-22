@@ -85,7 +85,7 @@ bool semanticDirectManagedThreadResult(
         Node? typeExpr, SemanticValidationState state) {
     Node? canonical = semanticResolveAliases(typeExpr, state);
     if (canonical == null || canonical.is_array) { return false; }
-    bool scalarString = isSemanticScalarString(canonical);
+    bool scalarString = TypeComposition.isSemanticScalarString(canonical);
     bool classReference = canonical.pointer_depth <= 1
         && (state.analyzed.isClass(canonical.base)
             || (canonical.generic_args.len > 0

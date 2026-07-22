@@ -10,11 +10,11 @@ bool preprocessorSpace(char value) {
 }
 
 bool preprocessorIdentifierStart(char value) {
-    return typeIdentityAsciiLetter(value) || value == '_';
+    return TypeIdentity.asciiLetter(value) || value == '_';
 }
 
 bool preprocessorIdentifierPart(char value) {
-    return preprocessorIdentifierStart(value) || typeIdentityAsciiDigit(value);
+    return preprocessorIdentifierStart(value) || TypeIdentity.asciiDigit(value);
 }
 
 bool preprocessorTrigraphSuffix(char value) {

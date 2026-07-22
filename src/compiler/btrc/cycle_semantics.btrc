@@ -23,11 +23,11 @@ Node genericCycleRootType(GenInstance instance) {
 
 string genericCycleTypeKey(Node typeExpr) {
     if (typeExpr.generic_args.len > 0) {
-        return "generic:" + genericInstanceKey(
+        return "generic:" + TypeIdentity.genericInstanceKey(
             typeExpr.base, typeExpr.generic_args);
     }
-    return "class:" + typeIdentityField(
-        "b", typeIdentityUtf8Hex(typeExpr.base));
+    return "class:" + TypeIdentity.field(
+        "b", TypeIdentity.utf8Hex(typeExpr.base));
 }
 
 bool genericCycleManagedType(Analyzed analyzed, Node? typeExpr) {
@@ -36,7 +36,7 @@ bool genericCycleManagedType(Analyzed analyzed, Node? typeExpr) {
     Node resolved = canonical;
     if (mutexPayloadType(analyzed, resolved) != null) { return true; }
     int depth = resolved.pointer_depth;
-    if (typeNullableCollapsesReferenceLayer(resolved, false)) { depth--; }
+    if (TypeComposition.nullableCollapsesReferenceLayer(resolved, false)) { depth--; }
     if (depth > 1) { return false; }
     return analyzed.isClass(resolved.base)
         || (resolved.generic_args.len > 0

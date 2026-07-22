@@ -14,8 +14,8 @@ Node composeTypedefType(Node useType, Node originalType) {
             "Nested array composition through typedef is not supported",
             useType);
     }
-    return composeTypeExpr(useType, originalType,
-        typeResolvedReferenceShape(originalType));
+    return TypeComposition.compose(useType, originalType,
+        TypeComposition.resolvedReferenceShape(originalType));
 }
 
 /* Resolve only the alias naming the represented value. Generic arguments keep

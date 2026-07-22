@@ -665,7 +665,7 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
         if (!methodSubs.has(gp)) { ok = false; }
         else {
             Node arg = methodSubs.get(gp);
-            if (typeReferencesNames(arg, tparams)) { ok = false; }
+            if (TypeIdentity.referencesNames(arg, tparams)) { ok = false; }
             else { methodArgs.push(arg); }
         }
         mp = mp + 1;
@@ -699,7 +699,7 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
         vsi = vsi + 1;
     }
 
-    string key = methodInstanceKey(
+    string key = TypeIdentity.methodInstanceKey(
         classBase, classArgs, method, methodArgs);
     if (!a.methodGenSeen.has(key)) {
         a.methodGenSeen.put(key, true);
@@ -831,9 +831,9 @@ Map<string, bool> mergeTypeParameterSets(
 void validateGenericArgumentsForOwner(string owner, Vector<Node> args) {
     int index = 0;
     while (index < args.len) {
-        string problem = genericArgumentProblem(args.get(index));
+        string problem = TypeIdentity.genericArgumentProblem(args.get(index));
         if (problem != "") {
-            typeShapeFail("Generic argument " + Strings.fromInt(index + 1)
+            TypeIdentity.fail("Generic argument " + Strings.fromInt(index + 1)
                 + " for '" + owner + "' is invalid: " + problem);
         }
         index = index + 1;
@@ -1182,12 +1182,12 @@ void registerGenericInstanceWithUnresolved(
         validateGenericClassSpecialization(t, a);
     }
     if (a.genericClassTable.has(base)
-            && !typeReferencesNames(t, unresolved)) {
+            && !TypeIdentity.referencesNames(t, unresolved)) {
         /* By this point class-typed args have been upgraded to pointers in the
          * AST by upgradeProgramGenericArgs, so the mangled name carries the
          * `_p1` suffix and the per-instance type map resolves T to a pointer. */
-        string mangled = mangleGenericType(base, t.generic_args);
-        string key = genericInstanceKey(base, t.generic_args);
+        string mangled = TypeIdentity.mangleGenericType(base, t.generic_args);
+        string key = TypeIdentity.genericInstanceKey(base, t.generic_args);
         if (!a.genericSeen.has(key)) {
             a.genericSeen.put(key, true);
             a.genericInstances.push(GenInstance(base, t.generic_args, mangled));
@@ -1961,7 +1961,7 @@ void collectIdentifiersList(Vector<Node> xs, Map<string, bool> names) {
  * TypeExpr map. Mirrors generics.core._resolve_type. Combines pointer depths when
  * a T* member is resolved against a pointer concrete type. */
 bool genericSubstitutionReferenceShape(Node typeExpr, Analyzed analyzed) {
-    return typeResolvedReferenceShape(typeExpr)
+    return TypeComposition.resolvedReferenceShape(typeExpr)
         || analyzed.isClass(typeExpr.base)
         || analyzed.isGenericClass(typeExpr.base);
 }
@@ -1976,10 +1976,10 @@ Node resolveGenericType(Node? t, Map<string, Node> typeMap,
             resolved, analyzed.typedefTable);
         if (canonical != null) { referenceShape = canonical; }
         if (t.is_array && referenceShape.is_array) {
-            typeShapeFail("nested array composition for type parameter '"
+            TypeIdentity.fail("nested array composition for type parameter '"
                 + t.base + "' is not supported");
         }
-        return composeTypeExpr(t, resolved,
+        return TypeComposition.compose(t, resolved,
             genericSubstitutionReferenceShape(referenceShape, analyzed));
     }
     if (t.generic_args.len > 0) {
@@ -2157,7 +2157,7 @@ bool isCOpaqueValueIdentifier(string name) {
 /* True for the btrc `string` scalar (base "string", no generics, depth 0).
  * Mirrors types.is_string_type. */
 bool isStringType(Node? t) {
-    return isSemanticScalarString(t);
+    return TypeComposition.isSemanticScalarString(t);
 }
 
 /* Return type of a builtin string method (mirrors type_utils

@@ -81,7 +81,7 @@ DefaultArgumentTarget defaultArgumentConstructorTypeTarget(
     }
     string prefix = instance.base;
     if (instance.generic_args.len > 0) {
-        prefix = mangleGenericType(instance.base, instance.generic_args);
+        prefix = TypeIdentity.mangleGenericType(instance.base, instance.generic_args);
     }
     DefaultArgumentTarget target = DefaultArgumentTarget(
         declaration, prefix + "_new");
@@ -145,7 +145,7 @@ DefaultArgumentTarget defaultArgumentMethodTarget(IRGen generator,
     }
     string prefix = ownerName;
     if (classArguments.len > 0) {
-        prefix = mangleGenericType(ownerName, classArguments);
+        prefix = TypeIdentity.mangleGenericType(ownerName, classArguments);
     }
     string cName = prefix + "_" + concreteMethod.name;
     if (concreteMethod.generic_params.len > 0) {

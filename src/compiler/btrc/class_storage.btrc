@@ -64,7 +64,7 @@ Node? resolvedInstanceMemberType(
 string instanceFunctionPrefix(Analyzed analyzed, Node receiverType) {
     if (receiverType.generic_args.len > 0
             && analyzed.isGenericClass(receiverType.base)) {
-        return mangleGenericType(
+        return TypeIdentity.mangleGenericType(
             receiverType.base, receiverType.generic_args);
     }
     return receiverType.base;

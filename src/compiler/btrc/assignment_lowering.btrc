@@ -75,7 +75,7 @@ IRNode lowerPlainAssignment(IRGen generator, Node node,
         if (receiverType != null && receiverType.generic_args.len > 0
                 && receiverType.pointer_depth == 0
                 && generator.analyzed.isGenericClass(receiverType.base)) {
-            string mangled = mangleGenericType(
+            string mangled = TypeIdentity.mangleGenericType(
                 receiverType.base, receiverType.generic_args);
             Vector<IRNode> arguments = [];
             arguments.push(generator.lowerExpr(indexed.obj, varTypes));

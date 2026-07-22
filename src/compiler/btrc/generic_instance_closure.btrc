@@ -200,7 +200,7 @@ void closeGenericInstanceGraph(Analyzed analyzed) {
             MethodGenInstance instance =
                 analyzed.methodGenInstances.get(methodIndex);
             methodIndex = methodIndex + 1;
-            string key = methodInstanceKey(instance.classBase,
+            string key = TypeIdentity.methodInstanceKey(instance.classBase,
                 instance.classArgs, instance.methodName,
                 instance.methodArgs);
             if (!processedMethods.has(key)) {

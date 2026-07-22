@@ -23,7 +23,7 @@ int packPushAlignment(string text) {
     string valueText = compact.substring(prefix.length(), valueLength);
     int index = 0;
     while (index < valueText.length()) {
-        if (!typeIdentityAsciiDigit(valueText[index])) { return -1; }
+        if (!TypeIdentity.asciiDigit(valueText[index])) { return -1; }
         index = index + 1;
     }
     return Strings.toInt(valueText);
@@ -94,7 +94,7 @@ Map<string, int> declarationPackAlignments(Node program) {
  * [ret, param1, param2, ...]. */
 string fnPtrTypedefName(Node t, Analyzed a) {
     /* Mangled name from ALL generic args (ret + params). */
-    string mangled = mangleFunctionPointerSymbol(t.generic_args);
+    string mangled = TypeIdentity.mangleFunctionPointerSymbol(t.generic_args);
     if (!a.fnPtrTypes.has(mangled)) {
         /* Register nested callback components first so every typedef is visible
          * before a later typedef names it in a return or parameter type. */
@@ -120,7 +120,7 @@ bool typeAliasBaseIsReference(string base, Analyzed analyzed) {
         aliasUse, analyzed.typedefTable);
     if (canonical == null) { return false; }
     Node resolved = canonical;
-    return typeResolvedReferenceShape(resolved)
+    return TypeComposition.resolvedReferenceShape(resolved)
         || analyzed.isClass(resolved.base)
         || (resolved.generic_args.len > 0
             && analyzed.isGenericClass(resolved.base));
@@ -152,8 +152,8 @@ string typeToC(Node t, Analyzed a) {
      * (the AST pass that mirrors the reference's _upgrade_class_type), so the
      * mangled name carries the `_p1` suffix (`btrc_Vector_OwnedItem_p1`). */
     else if (t.generic_args.len > 0) {
-        if (base == "Tuple") { c = mangleGenericSymbol(base, t.generic_args); }
-        else { c = mangleGenericType(base, t.generic_args); }
+        if (base == "Tuple") { c = TypeIdentity.mangleGenericSymbol(base, t.generic_args); }
+        else { c = TypeIdentity.mangleGenericType(base, t.generic_args); }
     } else if (base == "string") { c = "char*"; }
     else if (base == "bool") { c = "bool"; }
     else if (base == "byte") { c = "unsigned char"; }
@@ -163,7 +163,7 @@ string typeToC(Node t, Analyzed a) {
     int depth = t.pointer_depth;
     bool baseIsReference = c.endsWith("*") || base == "__fn_ptr"
         || typeAliasBaseIsReference(base, a);
-    if (typeNullableCollapsesReferenceLayer(t, baseIsReference)) {
+    if (TypeComposition.nullableCollapsesReferenceLayer(t, baseIsReference)) {
         depth = depth - 1;
     }
     int p = 0;
@@ -2456,7 +2456,7 @@ class IRGen {
          * bare class name. */
         string selfMangled = inst.classBase;
         if (inst.classArgs.len > 0) {
-            selfMangled = mangleGenericType(inst.classBase, inst.classArgs);
+            selfMangled = TypeIdentity.mangleGenericType(inst.classBase, inst.classArgs);
         }
         string fnName = genericMethodInstanceName(
             inst.classBase, inst.classArgs, inst.methodName, inst.methodArgs);
@@ -3683,7 +3683,7 @@ class IRGen {
             i = i + 1;
         }
         if (t.base == "Tuple" && t.generic_args.len > 0) {
-            string mangled = mangleGenericSymbol("Tuple", t.generic_args);
+            string mangled = TypeIdentity.mangleGenericSymbol("Tuple", t.generic_args);
             if (!seen.has(mangled)) {
                 seen.put(mangled, true);
                 order.push(mangled);
@@ -4487,7 +4487,7 @@ class IRGen {
                     if (init0.kind == NK_CALL_EXPR && init0.callee != null
                             && init0.callee.kind == NK_IDENTIFIER
                             && self.analyzed.isGenericClass(init0.callee.name)) {
-                        string mangled = mangleGenericType(declType.base, declType.generic_args);
+                        string mangled = TypeIdentity.mangleGenericType(declType.base, declType.generic_args);
                         Vector<IRNode> newArgs = init.args;
                         init = irCall(mangled + "_new", newArgs);
                     }
@@ -4857,7 +4857,7 @@ class IRGen {
         if (ts == null || ts.kind != NK_METHOD_DECL) { return false; }
         if (ts.params.len > 0) { return false; }
         if (ts.return_type == null
-                || !isSemanticScalarString(ts.return_type)) { return false; }
+                || !TypeComposition.isSemanticScalarString(ts.return_type)) { return false; }
         return true;
     }
 
@@ -4866,7 +4866,7 @@ class IRGen {
     public IRNode toStringCall(Node sourceType, IRNode value) {
         string prefix = sourceType.base;
         if (sourceType.generic_args.len > 0 && self.analyzed.isGenericClass(sourceType.base)) {
-            prefix = mangleGenericType(sourceType.base, sourceType.generic_args);
+            prefix = TypeIdentity.mangleGenericType(sourceType.base, sourceType.generic_args);
         }
         Vector<IRNode> ca = [];
         ca.push(value);
@@ -5533,7 +5533,7 @@ class IRGen {
     public void lowerIterableForIn(Node node, IRNode irIter, Node iterType, string varName, Map<string, Node> varTypes, Vector<IRNode> out) {
         string calleePrefix = iterType.base;
         if (self.analyzed.isGenericClass(iterType.base)) {
-            calleePrefix = mangleGenericType(
+            calleePrefix = TypeIdentity.mangleGenericType(
                 iterType.base, iterType.generic_args);
         }
         string idx = self.freshTemp("__i");
@@ -7020,7 +7020,7 @@ class IRGen {
                 sequence.push(irBinOp(index, "=", indexValue));
                 string prefix = receiverType.base;
                 if (self.analyzed.isGenericClass(receiverType.base)) {
-                    prefix = mangleGenericType(
+                    prefix = TypeIdentity.mangleGenericType(
                         receiverType.base, receiverType.generic_args);
                 }
                 if (node.op == "=") {
@@ -7194,7 +7194,7 @@ class IRGen {
                     index, "=", self.lowerExpr(target.index, varTypes)));
                 string prefix = receiverType.base;
                 if (self.analyzed.isGenericClass(receiverType.base)) {
-                    prefix = mangleGenericType(
+                    prefix = TypeIdentity.mangleGenericType(
                         receiverType.base, receiverType.generic_args);
                 }
                 Vector<IRNode> getterArgs = [];
@@ -7411,7 +7411,7 @@ class IRGen {
             args.push(left);
             args.push(right);
             return irCall(
-                mangleGenericType(leftType.base, leftType.generic_args)
+                TypeIdentity.mangleGenericType(leftType.base, leftType.generic_args)
                     + "_" + magic,
                 args);
         }
@@ -7427,12 +7427,12 @@ class IRGen {
             return irBinOp(left, op, right);
         }
         if (op == "+"
-                && (isSemanticScalarString(leftType)
+                && (TypeComposition.isSemanticScalarString(leftType)
                     || semanticIsCStringPointer(leftType))
-                && (isSemanticScalarString(rightType)
+                && (TypeComposition.isSemanticScalarString(rightType)
                     || semanticIsCStringPointer(rightType))
-                && (isSemanticScalarString(leftType)
-                    || isSemanticScalarString(rightType))) {
+                && (TypeComposition.isSemanticScalarString(leftType)
+                    || TypeComposition.isSemanticScalarString(rightType))) {
             self.useHelper("__btrc_strcat");
             self.useHelper("__btrc_str_track");
             Vector<IRNode> catArgs = [];
@@ -7451,8 +7451,8 @@ class IRGen {
             if (domain == OP_DOMAIN_INVALID) {
                 string leftLabel = "unknown";
                 string rightLabel = "unknown";
-                if (leftType != null) { leftLabel = typeShapeKey(leftType); }
-                if (rightType != null) { rightLabel = typeShapeKey(rightType); }
+                if (leftType != null) { leftLabel = TypeIdentity.shapeKey(leftType); }
+                if (rightType != null) { rightLabel = TypeIdentity.shapeKey(rightType); }
                 /* Generic instances emit every method before function DCE. An
                  * invalid typed operator in an unreachable method must not
                  * reject the whole instance (for example Vector<UiNode>.min).
@@ -7631,7 +7631,7 @@ class IRGen {
                     && self.analyzed.isGenericClass(ot.base)) {
                 Node? gmm = self.analyzed.genericClassMethod(ot.base, "__neg__");
                 if (gmm != null) {
-                    string gmangled = mangleGenericType(ot.base, ot.generic_args);
+                    string gmangled = TypeIdentity.mangleGenericType(ot.base, ot.generic_args);
                     Vector<IRNode> gnargs = [];
                     gnargs.push(operand);
                     return irCall(gmangled + "___neg__", gnargs);
@@ -7682,7 +7682,7 @@ class IRGen {
         Node? elementExpected = null;
         Node concreteExpected = self.resolveBodyType(expected);
         if (expected != null && concreteExpected.generic_args.len > 0) {
-            mangled = mangleGenericType(
+            mangled = TypeIdentity.mangleGenericType(
                 concreteExpected.base, concreteExpected.generic_args);
             elementExpected = concreteExpected.generic_args.get(0);
         } else if (node.elements.len > 0) {
@@ -7697,7 +7697,7 @@ class IRGen {
                  * mangle matches the registered instance (`btrc_Vector_GraphNode_p1`,
                  * not `btrc_Vector_GraphNode`). */
                 upgradeConcreteTypeGenericArgs(vt, self.analyzed);
-                mangled = mangleGenericType("Vector", vt.generic_args);
+                mangled = TypeIdentity.mangleGenericType("Vector", vt.generic_args);
                 elementExpected = vt.generic_args.get(0);
             }
         }
@@ -7760,7 +7760,7 @@ class IRGen {
         Node tt = makePrimType("Tuple");
         tt.generic_args = elemTypes;
         upgradeConcreteTypeGenericArgs(tt, self.analyzed);
-        string mangled = mangleGenericSymbol("Tuple", tt.generic_args);
+        string mangled = TypeIdentity.mangleGenericSymbol("Tuple", tt.generic_args);
         Vector<string> fields = [];
         Vector<IRNode> elems = [];
         int j = 0;
@@ -7780,7 +7780,7 @@ class IRGen {
         Node? valueExpected = null;
         Node concreteExpected = self.resolveBodyType(expected);
         if (expected != null && concreteExpected.generic_args.len > 1) {
-            mangled = mangleGenericType(
+            mangled = TypeIdentity.mangleGenericType(
                 concreteExpected.base, concreteExpected.generic_args);
             keyExpected = concreteExpected.generic_args.get(0);
             valueExpected = concreteExpected.generic_args.get(1);
@@ -7799,7 +7799,7 @@ class IRGen {
                 /* Class key/value types upgrade to pointers so the mangle matches
                  * the registered instance (e.g. `btrc_Map_int_OwnedItem_p1`). */
                 upgradeConcreteTypeGenericArgs(mt, self.analyzed);
-                mangled = mangleGenericType("Map", mt.generic_args);
+                mangled = TypeIdentity.mangleGenericType("Map", mt.generic_args);
                 keyExpected = mt.generic_args.get(0);
                 valueExpected = mt.generic_args.get(1);
             }
@@ -7890,7 +7890,7 @@ class IRGen {
         if (node.elements.len == 0) {
             if (expected != null && expected.generic_args.len > 0
                     && self.analyzed.isGenericClass(expected.base)) {
-                string mangled = mangleGenericType(expected.base, expected.generic_args);
+                string mangled = TypeIdentity.mangleGenericType(expected.base, expected.generic_args);
                 Vector<IRNode> newArgs = [];
                 return irCall(mangled + "_new", newArgs);
             }
@@ -8572,7 +8572,7 @@ class IRGen {
          * (mirrors methods.lower_method_call's generic branch). */
         if (ot != null && ot.generic_args.len > 0
                 && self.analyzed.isGenericClass(ot.base)) {
-            string mangled = mangleGenericType(ot.base, ot.generic_args);
+            string mangled = TypeIdentity.mangleGenericType(ot.base, ot.generic_args);
             IRNode obj = self.lowerExpr(objNode, varTypes);
             Vector<IRNode> gmargs = self.lowerArgs(node, varTypes);
             Node? gm = self.analyzed.genericClassMethod(ot.base, method);
@@ -8735,7 +8735,7 @@ class IRGen {
         string baseName = node.type.base;
         string typeName = newType.base;
         if (newType.generic_args.len > 0 && self.analyzed.isGenericClass(typeName)) {
-            typeName = mangleGenericType(typeName, newType.generic_args);
+            typeName = TypeIdentity.mangleGenericType(typeName, newType.generic_args);
         }
         Vector<IRNode> args = self.lowerArgs(node, varTypes);
         if (newType.base == "Mutex") {
@@ -8921,7 +8921,7 @@ class IRGen {
                     objectType, "get", self.analyzed))) {
             string prefix = objectType.base;
             if (self.analyzed.isGenericClass(objectType.base)) {
-                prefix = mangleGenericType(
+                prefix = TypeIdentity.mangleGenericType(
                     objectType.base, objectType.generic_args);
             }
             Vector<IRNode> arguments = [];

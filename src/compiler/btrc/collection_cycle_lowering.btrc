@@ -5,7 +5,7 @@ bool genericTypeHasCycleVisitor(IRGen generator, Node typeExpr) {
             || typeExpr.pointer_depth > 1 || typeExpr.is_array) {
         return false;
     }
-    string mangled = mangleGenericType(
+    string mangled = TypeIdentity.mangleGenericType(
         typeExpr.base, typeExpr.generic_args);
     int index = 0;
     while (index < generator.analyzed.genericInstances.len) {
@@ -22,7 +22,7 @@ bool genericTypeHasCycleVisitor(IRGen generator, Node typeExpr) {
 
 string cycleEdgeEmittedName(Node typeExpr) {
     if (typeExpr.generic_args.len > 0) {
-        return mangleGenericType(typeExpr.base, typeExpr.generic_args);
+        return TypeIdentity.mangleGenericType(typeExpr.base, typeExpr.generic_args);
     }
     return typeExpr.base;
 }

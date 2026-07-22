@@ -6,12 +6,12 @@ bool sourceMacroSpace(char value) {
 }
 
 bool sourceMacroIdentifierStart(char value) {
-    return typeIdentityAsciiLetter(value) || value == '_';
+    return TypeIdentity.asciiLetter(value) || value == '_';
 }
 
 bool sourceMacroIdentifierPart(char value) {
     return sourceMacroIdentifierStart(value)
-        || typeIdentityAsciiDigit(value);
+        || TypeIdentity.asciiDigit(value);
 }
 
 string sourceMacroNormalizeSplices(string sourceText) {

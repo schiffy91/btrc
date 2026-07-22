@@ -108,36 +108,42 @@ def test_identity_contract_has_one_shared_implementation() -> None:
     assert '#include "../type_identity.btrc"' in lexer_stage
     assert "import ../frontend/stage.btrc;" in parser_stage
     assert "import ../parser/stage.btrc;" in analyzer_stage
-    assert "string mangleGenericType(" not in generator
+    assert "TypeIdentity.mangleGenericType(" in generator
+    assert "mangleGenericType(" not in generator.replace(
+        "TypeIdentity.mangleGenericType(",
+        "",
+    )
     assert "string mangleTypeName(" not in generator
+    assert "class TypeIdentity {" in identity
+    assert "class TypeComposition {" in identity
     for contract in (
-        "typeShapeKey",
-        "genericInstanceKey",
-        "typeReferencesNames",
-        'return "ZQt" + typeIdentityEncodeType(typeExpr);',
-        'return "btrc_ZQg" + typeIdentityEncodeNameAndTypes(base, args);',
+        "class string shapeKey(",
+        "class string genericInstanceKey(",
+        "class bool referencesNames(",
+        'return "ZQt" + TypeIdentity.encode(typeExpr);',
+        'return "btrc_ZQg" + TypeIdentity.encodeNameAndTypes(base, args);',
         'return "btrc_ZQm" + payload;',
-        'return "__btrc_fn_ZQf" + typeIdentityEncodeTypes(args);',
-        "typeIdentityQualifierBits",
-        "typeResolvedReferenceShape",
-        "typeAppliedSubstitutionPointerDepth",
-        "typeSubstitutionPointerDepth",
-        "composeTypeExpr",
-        "isSemanticScalarString",
+        'return "__btrc_fn_ZQf" + TypeIdentity.encodeTypes(args);',
+        "class int qualifierBits(",
+        "class bool resolvedReferenceShape(",
+        "class int appliedSubstitutionPointerDepth(",
+        "class int substitutionPointerDepth(",
+        "class Node compose(",
+        "class bool isSemanticScalarString(",
     ):
         assert contract in identity
     pointer = identity.index('component = component + "_p"')
     nullable = identity.index('component = component + "_n"')
     array = identity.index('component = component + "_a"')
     assert pointer < nullable < array
-    assert "genericInstanceKey(base, t.generic_args)" in analyzer
-    assert "methodInstanceKey(" in analyzer
-    assert "typeReferencesNames(t, unresolved)" in analyzer
+    assert "TypeIdentity.genericInstanceKey(base, t.generic_args)" in analyzer
+    assert "TypeIdentity.methodInstanceKey(" in analyzer
+    assert "TypeIdentity.referencesNames(t, unresolved)" in analyzer
     assert "isConcreteType" not in analyzer
     assert "nested array composition for type parameter" in analyzer
     assert "resolved, analyzed.typedefTable" in analyzer
     assert "genericSubstitutionReferenceShape" in analyzer
-    assert "return composeTypeExpr(t, resolved," in analyzer
+    assert "return TypeComposition.compose(t, resolved," in analyzer
 
 
 def test_identity_atoms_run_under_strict_c11(identity_driver) -> None:

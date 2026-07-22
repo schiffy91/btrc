@@ -33,7 +33,7 @@ bool requiresTargetStringConversion(IRGen generator,
         Node? targetType, Node? sourceType) {
     Node? target = preparedCanonicalType(generator, targetType);
     Node? source = preparedCanonicalType(generator, sourceType);
-    return target != null && isSemanticScalarString(target)
+    return target != null && TypeComposition.isSemanticScalarString(target)
         && generator.sourceHasToString(source);
 }
 
@@ -42,7 +42,7 @@ string hostedStringConversionMode(IRGen generator, Node expression,
     Node? target = preparedCanonicalType(generator, targetType);
     Node? source = preparedCanonicalType(generator, sourceType);
     if (target == null || source == null
-            || !isSemanticScalarString(target)
+            || !TypeComposition.isSemanticScalarString(target)
             || !semanticIsCStringPointer(source)) {
         return "";
     }

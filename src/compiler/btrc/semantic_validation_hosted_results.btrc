@@ -48,7 +48,7 @@ void semanticValidateManagedStringSource(Node? expected, Node? value,
     Node? actual = semanticResolveAliases(
         semanticInferType(value, state, vars), state);
     if (target == null || actual == null
-            || !isSemanticScalarString(target)
+            || !TypeComposition.isSemanticScalarString(target)
             || !semanticIsCStringPointer(actual)) {
         return;
     }

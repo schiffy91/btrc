@@ -56,9 +56,9 @@ IRNode lowerResolvedGenericConstructorCall(IRGen generator, Node call,
             generator, constructor.params, substitutions,
             call.arg_names, args, call.args, varTypes);
         return irCall(
-            mangleGenericType(name, instance.generic_args) + "_new",
+            TypeIdentity.mangleGenericType(name, instance.generic_args) + "_new",
             ordered);
     }
     return irCall(
-        mangleGenericType(name, instance.generic_args) + "_new", args);
+        TypeIdentity.mangleGenericType(name, instance.generic_args) + "_new", args);
 }

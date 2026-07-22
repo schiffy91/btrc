@@ -2,6 +2,6 @@
 
 string genericMethodInstanceName(string classBase, Vector<Node> classArgs,
                                  string methodName, Vector<Node> methodArgs) {
-    return mangleMethodInstanceSymbol(
+    return TypeIdentity.mangleMethodInstanceSymbol(
         classBase, classArgs, methodName, methodArgs);
 }

@@ -125,8 +125,8 @@ void semanticValidateAssignment(Node expression,
     }
     string op = expression.op.substring(0, expression.op.length() - 1);
     bool valid = false;
-    if (op == "+" && isSemanticScalarString(target)
-            && (isSemanticScalarString(source)
+    if (op == "+" && TypeComposition.isSemanticScalarString(target)
+            && (TypeComposition.isSemanticScalarString(source)
                 || semanticIsCStringPointer(source))) {
         valid = true;
     } else if (op == "&" || op == "|" || op == "^"

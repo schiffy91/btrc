@@ -87,8 +87,8 @@ void semanticValidateBinary(Node expression, SemanticValidationState state,
     } else if (op == "+" || op == "-") {
         valid = (numericIsType(left, state.analyzed)
                 && numericIsType(right, state.analyzed))
-            || (op == "+" && isSemanticScalarString(left)
-                && isSemanticScalarString(right))
+            || (op == "+" && TypeComposition.isSemanticScalarString(left)
+                && TypeComposition.isSemanticScalarString(right))
             || (semanticRawPointer(left, state.analyzed)
                 && semanticIntegralType(right, state.analyzed))
             || (op == "+" && semanticIntegralType(left, state.analyzed)

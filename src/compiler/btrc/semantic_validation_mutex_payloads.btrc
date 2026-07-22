@@ -16,7 +16,7 @@ bool semanticMutexDirectManagedValue(
         Node? typeExpr, SemanticValidationState state) {
     Node? canonical = semanticResolveAliases(typeExpr, state);
     if (canonical == null || canonical.is_array) { return false; }
-    return isSemanticScalarString(canonical)
+    return TypeComposition.isSemanticScalarString(canonical)
         || (canonical.pointer_depth <= 1
             && (state.analyzed.isClass(canonical.base)
                 || (canonical.generic_args.len > 0

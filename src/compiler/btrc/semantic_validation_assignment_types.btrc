@@ -87,12 +87,12 @@ bool semanticAssignmentCompatible(Node? target, Node? source,
             && resolvedTarget.base != "bool" && resolvedSource.base != "bool") {
         return true;
     }
-    if (isSemanticScalarString(resolvedTarget)
+    if (TypeComposition.isSemanticScalarString(resolvedTarget)
             && semanticIsCStringPointer(resolvedSource)) {
         return true;
     }
     if (semanticIsCStringPointer(resolvedTarget)
-            && isSemanticScalarString(resolvedSource)) {
+            && TypeComposition.isSemanticScalarString(resolvedSource)) {
         return true;
     }
     if (semanticIsVoidPointer(resolvedTarget)
@@ -120,7 +120,7 @@ bool semanticAssignmentCompatible(Node? target, Node? source,
         return semanticSpecializationIsSubtype(
             resolvedSource, resolvedTarget, state.analyzed);
     }
-    if (isSemanticScalarString(resolvedTarget)
+    if (TypeComposition.isSemanticScalarString(resolvedTarget)
             && semanticSourceHasToString(resolvedSource, state)) {
         return true;
     }
@@ -149,13 +149,13 @@ bool semanticSourceHasToString(Node? source,
     }
     return method != null && method.kind == NK_METHOD_DECL
         && method.params.len == 0 && method.return_type != null
-        && isSemanticScalarString(method.return_type);
+        && TypeComposition.isSemanticScalarString(method.return_type);
 }
 
 bool semanticRequiresTargetStringConversion(Node? target, Node? source,
         SemanticValidationState state) {
     Node? resolvedTarget = semanticResolveAliases(target, state);
     return resolvedTarget != null
-        && isSemanticScalarString(resolvedTarget)
+        && TypeComposition.isSemanticScalarString(resolvedTarget)
         && semanticSourceHasToString(source, state);
 }

@@ -5,9 +5,9 @@
 
 int qualifierAppliedStorageLayers(Node typeExpr, Node? target) {
     bool referenceShape = target != null
-        && typeResolvedReferenceShape(target);
+        && TypeComposition.resolvedReferenceShape(target);
     int pointerDepth = typeExpr.pointer_depth;
-    if (typeNullableCollapsesReferenceLayer(
+    if (TypeComposition.nullableCollapsesReferenceLayer(
             typeExpr, referenceShape)) {
         pointerDepth = pointerDepth - 1;
     }
@@ -85,9 +85,9 @@ bool typeEffectiveOuterVolatile(Node? typeExpr,
         return false;
     }
     Node target = typedefs.get(typeExpr.base);
-    bool referenceShape = typeResolvedReferenceShape(target);
+    bool referenceShape = TypeComposition.resolvedReferenceShape(target);
     int pointerDepth = typeExpr.pointer_depth;
-    if (typeNullableCollapsesReferenceLayer(
+    if (TypeComposition.nullableCollapsesReferenceLayer(
             typeExpr, referenceShape)) {
         pointerDepth = pointerDepth - 1;
     }
@@ -109,9 +109,9 @@ bool typeEffectiveOuterVolatileInner(Node? typeExpr,
     }
     visiting.put(typeExpr.base, true);
     Node target = typedefs.get(typeExpr.base);
-    bool referenceShape = typeResolvedReferenceShape(target);
+    bool referenceShape = TypeComposition.resolvedReferenceShape(target);
     int pointerDepth = typeExpr.pointer_depth;
-    if (typeNullableCollapsesReferenceLayer(
+    if (TypeComposition.nullableCollapsesReferenceLayer(
             typeExpr, referenceShape)) {
         pointerDepth = pointerDepth - 1;
     }
