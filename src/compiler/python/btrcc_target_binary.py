@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from .artifact_storage import open_regular
+from .artifacts.publication.storage import ArtifactStorage
 from .btrcc_binary_formats import read_executable_machine
 
 
@@ -80,7 +80,7 @@ def validate_target_binary(path: Path, target: str) -> None:
     spec = target_spec(target)
     descriptor = -1
     try:
-        descriptor = open_regular(path)
+        descriptor = ArtifactStorage().open_regular(path)
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = -1
             machine = read_executable_machine(stream, spec.binary_format)

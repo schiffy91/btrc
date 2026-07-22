@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.btrcc_bundle import build_bundle
+from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
 from src.tests.python.btrcc_binary_fixtures import binary_payload
 
 
@@ -44,7 +44,7 @@ def _manifest(bundle: Path) -> dict[str, object]:
 
 def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -84,7 +84,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
 
 def test_tar_archive_is_byte_reproducible_and_metadata_normalized(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source", "linux-arm64")
-    first = build_bundle(
+    first = BundleBuilder().build(
         binary=binary,
         target="linux-arm64",
         output_dir=tmp_path / "first",
@@ -93,7 +93,7 @@ def test_tar_archive_is_byte_reproducible_and_metadata_normalized(tmp_path: Path
     )
     binary.touch()
     (source_root / "src/stdlib/vector.btrc").touch()
-    second = build_bundle(
+    second = BundleBuilder().build(
         binary=binary,
         target="linux-arm64",
         output_dir=tmp_path / "second",
@@ -117,13 +117,13 @@ def test_tar_archive_is_byte_reproducible_and_metadata_normalized(tmp_path: Path
 
 def test_windows_bundle_uses_exe_and_deterministic_zip(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source", "windows-x64")
-    first = build_bundle(
+    first = BundleBuilder().build(
         binary=binary,
         target="windows-x64",
         output_dir=tmp_path / "first",
         source_root=source_root,
     )
-    second = build_bundle(
+    second = BundleBuilder().build(
         binary=binary,
         target="windows-x64",
         output_dir=tmp_path / "second",
@@ -153,13 +153,13 @@ def test_windows_bundle_uses_exe_and_deterministic_zip(tmp_path: Path) -> None:
 def test_invalid_target_names_are_rejected(tmp_path: Path, target: str) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     with pytest.raises(ValueError, match="invalid target"):
-        build_bundle(binary=binary, target=target, output_dir=tmp_path / "dist", source_root=source_root)
+        BundleBuilder().build(binary=binary, target=target, output_dir=tmp_path / "dist", source_root=source_root)
 
 
 def test_unknown_well_formed_target_is_rejected(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     with pytest.raises(ValueError, match="unsupported bundle target"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-riscv64",
             output_dir=tmp_path / "dist",
@@ -185,7 +185,7 @@ def test_mislabeled_binary_format_or_architecture_is_rejected(
     source_root, binary = _fixture(tmp_path / "source", binary_target)
     output = tmp_path / "dist"
     with pytest.raises(ValueError, match=f"does not match target {bundle_target!r}"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target=bundle_target,
             output_dir=output,
@@ -197,7 +197,7 @@ def test_mislabeled_binary_format_or_architecture_is_rejected(
 @pytest.mark.parametrize("target", ["macos-x64", "macos-arm64"])
 def test_macos_target_formats_are_accepted(tmp_path: Path, target: str) -> None:
     source_root, binary = _fixture(tmp_path / "source", target)
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=tmp_path / "dist",
@@ -211,7 +211,7 @@ def test_macos_target_formats_are_accepted(tmp_path: Path, target: str) -> None:
 def test_epoch_outside_archive_metadata_range_is_rejected(tmp_path: Path, epoch: int) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     with pytest.raises(ValueError, match="archive epoch"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=tmp_path / "dist",
@@ -225,7 +225,7 @@ def test_missing_or_symlinked_runtime_inputs_are_rejected(tmp_path: Path) -> Non
     grammar = source_root / "src/language/grammar.ebnf"
     grammar.unlink()
     with pytest.raises(ValueError, match="required grammar"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=tmp_path / "dist",
@@ -237,7 +237,7 @@ def test_missing_or_symlinked_runtime_inputs_are_rejected(tmp_path: Path) -> Non
     outside.write_text("class Outside {}\n", encoding="utf-8")
     (source_root / "src/stdlib/linked.btrc").symlink_to(outside)
     with pytest.raises(ValueError, match="link or reparse point"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=tmp_path / "dist",
@@ -250,7 +250,7 @@ def test_missing_or_symlinked_license_is_rejected(tmp_path: Path) -> None:
     license_file = source_root / "LICENSE"
     license_file.unlink()
     with pytest.raises(ValueError, match="required license"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=tmp_path / "missing-dist",
@@ -261,7 +261,7 @@ def test_missing_or_symlinked_license_is_rejected(tmp_path: Path) -> None:
     outside.write_text("outside\n", encoding="utf-8")
     license_file.symlink_to(outside)
     with pytest.raises(ValueError, match="required license"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=tmp_path / "linked-dist",
@@ -274,7 +274,7 @@ def test_unknown_runtime_source_types_fail_closed(tmp_path: Path) -> None:
     unknown = source_root / "src/stdlib/runtime.wgsl"
     unknown.write_text("runtime asset\n", encoding="utf-8")
     with pytest.raises(ValueError, match="unknown stdlib runtime source type"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=tmp_path / "dist",
@@ -286,7 +286,7 @@ def test_incomplete_stdlib_is_rejected_before_packaging(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     (source_root / "src/stdlib/strings.btrc").unlink()
     with pytest.raises(ValueError, match="required stdlib runtime source is missing"):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=tmp_path / "dist",
@@ -297,7 +297,7 @@ def test_incomplete_stdlib_is_rejected_before_packaging(tmp_path: Path) -> None:
 def test_archive_and_checksum_replace_symlinks_without_following_them(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     output = tmp_path / "dist"
-    first = build_bundle(
+    first = BundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=output,
@@ -310,7 +310,7 @@ def test_archive_and_checksum_replace_symlinks_without_following_them(tmp_path: 
     first.archive.symlink_to(sentinel)
     first.checksum.symlink_to(sentinel)
 
-    rebuilt = build_bundle(
+    rebuilt = BundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=output,
@@ -343,7 +343,7 @@ def test_archive_writers_do_not_follow_predictable_temporary_symlinks(
     legacy_archive_temp.symlink_to(sentinel)
     legacy_checksum_temp.symlink_to(sentinel)
 
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=output,

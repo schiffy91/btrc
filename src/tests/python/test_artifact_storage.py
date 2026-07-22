@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.artifact_storage as storage
+import src.compiler.python.artifacts.publication.storage as storage_module
+from src.compiler.python.artifacts.publication.storage import ArtifactStorage
 
 
 def _observe_close(monkeypatch: pytest.MonkeyPatch) -> list[int]:
@@ -18,7 +19,7 @@ def _observe_close(monkeypatch: pytest.MonkeyPatch) -> list[int]:
         closed.append(descriptor)
         close(descriptor)
 
-    monkeypatch.setattr(storage.os, "close", observed)
+    monkeypatch.setattr(storage_module.os, "close", observed)
     return closed
 
 
@@ -33,9 +34,9 @@ def test_open_regular_closes_descriptor_when_fstat_fails(
     def fail_fstat(descriptor: int):
         raise OSError("injected fstat failure")
 
-    monkeypatch.setattr(storage.os, "fstat", fail_fstat)
+    monkeypatch.setattr(storage_module.os, "fstat", fail_fstat)
     with pytest.raises(OSError, match="injected fstat failure"):
-        storage.open_regular(artifact)
+        ArtifactStorage().open_regular(artifact)
 
     assert len(closed) == 1
 
@@ -56,7 +57,7 @@ def test_open_regular_closes_descriptor_when_lstat_fails(
 
     monkeypatch.setattr(Path, "lstat", fail_lstat)
     with pytest.raises(OSError, match="injected lstat failure"):
-        storage.open_regular(artifact)
+        ArtifactStorage().open_regular(artifact)
 
     assert len(closed) == 1
 
@@ -71,17 +72,17 @@ def test_fsync_directory_does_not_swallow_windows_identity_failure(
     def fail_fstat(descriptor: int):
         raise OSError("injected identity failure")
 
-    monkeypatch.setattr(storage.os, "name", "nt")
-    monkeypatch.setattr(storage.os, "fstat", fail_fstat)
+    monkeypatch.setattr(storage_module.os, "name", "nt")
+    monkeypatch.setattr(storage_module.os, "fstat", fail_fstat)
     with pytest.raises(OSError, match="injected identity failure"):
-        storage.fsync_directory(directory)
+        ArtifactStorage().fsync_directory(directory)
 
 
 def test_destination_exists_accepts_a_stable_regular_file(tmp_path: Path) -> None:
     destination = tmp_path / "artifact"
     destination.write_bytes(b"payload")
 
-    assert storage.destination_exists(destination, is_directory=False)
+    assert ArtifactStorage().destination_exists(destination, is_directory=False)
 
 
 def test_destination_exists_does_not_preserve_a_symlink_file(tmp_path: Path) -> None:
@@ -93,7 +94,7 @@ def test_destination_exists_does_not_preserve_a_symlink_file(tmp_path: Path) -> 
     except OSError as error:
         pytest.skip(f"symlinks are unavailable: {error}")
 
-    assert not storage.destination_exists(destination, is_directory=False)
+    assert not ArtifactStorage().destination_exists(destination, is_directory=False)
     assert destination.is_symlink()
     assert target.read_bytes() == b"payload"
 
@@ -108,7 +109,7 @@ def test_destination_exists_rejects_a_symlink_directory(tmp_path: Path) -> None:
         pytest.skip(f"symlinks are unavailable: {error}")
 
     with pytest.raises(ValueError, match="invalid publication destination"):
-        storage.destination_exists(destination, is_directory=True)
+        ArtifactStorage().destination_exists(destination, is_directory=True)
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are unavailable")
@@ -117,4 +118,4 @@ def test_destination_exists_rejects_a_special_file(tmp_path: Path) -> None:
     os.mkfifo(destination)
 
     with pytest.raises(ValueError, match="invalid publication destination"):
-        storage.destination_exists(destination, is_directory=False)
+        ArtifactStorage().destination_exists(destination, is_directory=False)

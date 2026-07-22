@@ -15,15 +15,20 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.artifact_publication as transaction_module
-import src.compiler.python.btrcc_bundle_publish as bundle_publish_module
-import src.compiler.python.btrcc_bundle_validation as bundle_validation_module
+import src.compiler.python.artifacts.publication.publisher as transaction_module
+import src.compiler.python.artifacts.selfhost_bundle.validator as bundle_validation_module
 import src.compiler.python.bundle_archive_source as archive_source_module
-from src.compiler.python.btrcc_bundle import build_bundle
-from src.compiler.python.btrcc_bundle_archive import write_checksum
-from src.compiler.python.btrcc_bundle_publish import (
-    bundle_publication_lock,
+from src.compiler.python.artifacts.publication.publisher import (
+    ArtifactPublisher,
+    PublishedArtifact,
 )
+from src.compiler.python.artifacts.publication.storage import ArtifactStorage
+from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
+from src.compiler.python.artifacts.selfhost_bundle.publisher import (
+    SelfhostBundlePublisher,
+)
+from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
+from src.compiler.python.btrcc_bundle_archive import write_checksum
 from src.tests.python.test_btrcc_bundle import _fixture, _manifest
 
 
@@ -33,7 +38,11 @@ def _hold_publication_lock(
     entered,
     release,
 ) -> None:
-    with bundle_publication_lock(Path(output_dir), bundle_name):
+    publication = ArtifactPublisher(ArtifactStorage())
+    with SelfhostBundlePublisher(publication, BundleValidator()).lock(
+        Path(output_dir),
+        bundle_name,
+    ):
         entered.set()
         if not release.wait(10):
             raise TimeoutError("parent did not release bundle publication lock")
@@ -46,7 +55,11 @@ def _wait_for_publication_lock(
     entered,
 ) -> None:
     attempted.set()
-    with bundle_publication_lock(Path(output_dir), bundle_name):
+    publication = ArtifactPublisher(ArtifactStorage())
+    with SelfhostBundlePublisher(publication, BundleValidator()).lock(
+        Path(output_dir),
+        bundle_name,
+    ):
         entered.set()
 
 
@@ -79,13 +92,14 @@ def test_publication_failure_restores_every_previous_artifact(
         replace(source, destination)
 
     monkeypatch.setattr(transaction_module.os, "replace", fail_archive_publish)
+    publisher = ArtifactPublisher(ArtifactStorage())
     with pytest.raises(OSError, match="injected archive"):
-        transaction_module.publish_artifacts(
+        publisher.publish(
             "bundle",
             (
-                transaction_module.PublishedArtifact(staged_bundle, bundle, True),
-                transaction_module.PublishedArtifact(staged_archive, archive),
-                transaction_module.PublishedArtifact(staged_checksum, checksum),
+                PublishedArtifact(staged_bundle, bundle, True),
+                PublishedArtifact(staged_archive, archive),
+                PublishedArtifact(staged_checksum, checksum),
             ),
         )
 
@@ -123,7 +137,8 @@ def test_publication_replaces_file_symlinks_without_preserving_them(
     staged_checksum.write_bytes(b"new checksum")
     records = []
     replacements = []
-    write_journal = transaction_module._write_journal
+    publisher = ArtifactPublisher(ArtifactStorage())
+    write_journal = publisher._write_journal
     replace = transaction_module.os.replace
 
     def observe_journal(path: Path, record: dict) -> None:
@@ -134,15 +149,15 @@ def test_publication_replaces_file_symlinks_without_preserving_them(
         replacements.append((Path(source), Path(destination)))
         replace(source, destination)
 
-    monkeypatch.setattr(transaction_module, "_write_journal", observe_journal)
+    monkeypatch.setattr(publisher, "_write_journal", observe_journal)
     monkeypatch.setattr(transaction_module.os, "replace", observe_replace)
 
-    transaction_module.publish_artifacts(
+    publisher.publish(
         name,
         (
-            transaction_module.PublishedArtifact(staged_bundle, bundle, True),
-            transaction_module.PublishedArtifact(staged_archive, archive),
-            transaction_module.PublishedArtifact(staged_checksum, checksum),
+            PublishedArtifact(staged_bundle, bundle, True),
+            PublishedArtifact(staged_archive, archive),
+            PublishedArtifact(staged_checksum, checksum),
         ),
     )
 
@@ -154,9 +169,9 @@ def test_publication_replaces_file_symlinks_without_preserving_them(
     assert sentinel.read_bytes() == b"must-not-change"
     assert records[0]["state"] == "publishing"
     assert records[0]["previous"] == [True, False, False]
-    assert (bundle, transaction_module._backup_path(tmp_path, name, 0)) in replacements
-    assert (archive, transaction_module._backup_path(tmp_path, name, 1)) not in replacements
-    assert (checksum, transaction_module._backup_path(tmp_path, name, 2)) not in replacements
+    assert (bundle, publisher._backup_path(tmp_path, name, 0)) in replacements
+    assert (archive, publisher._backup_path(tmp_path, name, 1)) not in replacements
+    assert (checksum, publisher._backup_path(tmp_path, name, 2)) not in replacements
     assert not (tmp_path / f".{name}.publish.journal").exists()
     assert not any((tmp_path / f".{name}.publish.previous-{index}").exists() for index in range(3))
 
@@ -177,28 +192,29 @@ def test_recovery_restores_regular_backup_and_unlinks_file_symlinks(
         checksum.symlink_to(sentinel)
     except OSError as error:
         pytest.skip(f"symlinks are unavailable: {error}")
+    publisher = ArtifactPublisher(ArtifactStorage())
     artifacts = (
-        transaction_module.PublishedArtifact(tmp_path / "staged-bundle", bundle, True),
-        transaction_module.PublishedArtifact(tmp_path / "staged-archive", archive),
-        transaction_module.PublishedArtifact(tmp_path / "staged-checksum", checksum),
+        PublishedArtifact(tmp_path / "staged-bundle", bundle, True),
+        PublishedArtifact(tmp_path / "staged-archive", archive),
+        PublishedArtifact(tmp_path / "staged-checksum", checksum),
     )
 
-    backup_bundle = transaction_module._backup_path(tmp_path, name, 0)
+    backup_bundle = publisher._backup_path(tmp_path, name, 0)
     backup_bundle.mkdir()
     (backup_bundle / "marker").write_bytes(b"old bundle")
 
     stages = []
     for index in range(len(artifacts)):
-        stage = transaction_module._stage_path(tmp_path, name, index)
+        stage = publisher._stage_path(tmp_path, name, index)
         stage.write_bytes(b"partially published")
         stages.append(stage)
-    journal = transaction_module._control_path(tmp_path, name, "journal")
-    transaction_module._write_journal(
+    journal = publisher._control_path(tmp_path, name, "journal")
+    publisher._write_journal(
         journal,
-        transaction_module._journal_record(artifacts, "publishing", [True, False, False]),
+        publisher._journal_record(artifacts, "publishing", [True, False, False]),
     )
 
-    transaction_module._recover(tmp_path, name, artifacts)
+    publisher._recover(tmp_path, name, artifacts)
 
     assert (bundle / "marker").read_bytes() == b"old bundle"
     assert not archive.exists() and not archive.is_symlink()
@@ -215,29 +231,30 @@ def test_concurrent_same_target_builds_serialize_publication(
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     output = tmp_path / "dist"
-    write_journal = transaction_module._write_journal
+    write_journal = ArtifactPublisher._write_journal
     state_lock = threading.Lock()
     active = 0
     maximum_active = 0
 
-    def observed_write_journal(*args, **kwargs) -> None:
+    def observed_write_journal(self, *args, **kwargs) -> None:
         nonlocal active, maximum_active
         with state_lock:
             active += 1
             maximum_active = max(maximum_active, active)
         try:
             time.sleep(0.05)
-            write_journal(*args, **kwargs)
+            write_journal(self, *args, **kwargs)
         finally:
             with state_lock:
                 active -= 1
 
-    monkeypatch.setattr(transaction_module, "_write_journal", observed_write_journal)
+    monkeypatch.setattr(ArtifactPublisher, "_write_journal", observed_write_journal)
     errors: list[BaseException] = []
+    builder = BundleBuilder()
 
     def build() -> None:
         try:
-            build_bundle(
+            builder.build(
                 binary=binary,
                 target="linux-x64",
                 output_dir=output,
@@ -303,7 +320,7 @@ def test_publication_lock_does_not_follow_a_symlink(tmp_path: Path) -> None:
     (output / ".btrcc-linux-x64.publish.lock").symlink_to(sentinel)
 
     with pytest.raises((OSError, ValueError)):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=output,
@@ -318,19 +335,16 @@ def test_final_staged_validation_rejects_post_archive_bundle_mutation(
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     output = tmp_path / "dist"
-    validate = bundle_publish_module.btrcc_bundle_validation.validate_bundle_generation
+    validator = BundleValidator()
+    validate = validator.validate_generation
 
     def mutate_then_validate(bundle: Path, *args) -> None:
         (bundle / "README.md").write_text("changed after archiving\n", encoding="utf-8")
         validate(bundle, *args)
 
-    monkeypatch.setattr(
-        bundle_publish_module.btrcc_bundle_validation,
-        "validate_bundle_generation",
-        mutate_then_validate,
-    )
+    monkeypatch.setattr(validator, "validate_generation", mutate_then_validate)
     with pytest.raises(ValueError, match=r"changed size|does not match its manifest"):
-        build_bundle(
+        BundleBuilder(validator=validator).build(
             binary=binary,
             target="linux-x64",
             output_dir=output,
@@ -346,7 +360,7 @@ def test_generation_validator_rejects_coherently_rechecksummed_archive_payload(
     tmp_path: Path,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source", "windows-x64")
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target="windows-x64",
         output_dir=tmp_path / "dist",
@@ -370,7 +384,7 @@ def test_generation_validator_rejects_coherently_rechecksummed_archive_payload(
     write_checksum(result.archive)
 
     with pytest.raises(ValueError, match="does not match the manifest"):
-        bundle_validation_module.validate_bundle_generation(
+        BundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -385,7 +399,7 @@ def test_generation_validator_normalizes_malformed_archive_error(
     target: str,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source", target)
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=tmp_path / "dist",
@@ -395,7 +409,7 @@ def test_generation_validator_normalizes_malformed_archive_error(
     write_checksum(result.archive)
 
     with pytest.raises(ValueError, match="valid tar or ZIP"):
-        bundle_validation_module.validate_bundle_generation(
+        BundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -406,7 +420,7 @@ def test_generation_validator_normalizes_malformed_archive_error(
 
 def test_generation_validator_rejects_backslash_manifest_path(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -418,7 +432,7 @@ def test_generation_validator_rejects_backslash_manifest_path(tmp_path: Path) ->
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ValueError, match="invalid file record"):
-        bundle_validation_module.validate_bundle_generation(
+        BundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -432,7 +446,7 @@ def test_generation_validator_bounds_unexpected_sparse_file_before_hashing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -450,7 +464,7 @@ def test_generation_validator_bounds_unexpected_sparse_file_before_hashing(
 
     monkeypatch.setattr(archive_source_module, "_discover_regular", observe_discovery)
     with pytest.raises(ValueError, match="unexpected entries"):
-        bundle_validation_module.validate_bundle_generation(
+        BundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -466,7 +480,8 @@ def test_final_validation_rejects_identical_content_inode_replacement(
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     output = tmp_path / "dist"
-    capture = bundle_validation_module._capture_bundle
+    validator = BundleValidator()
+    capture = validator._capture_bundle
     captures = 0
 
     def replace_after_capture(bundle: Path, *args):
@@ -481,9 +496,9 @@ def test_final_validation_rejects_identical_content_inode_replacement(
         captures += 1
         return snapshot
 
-    monkeypatch.setattr(bundle_validation_module, "_capture_bundle", replace_after_capture)
+    monkeypatch.setattr(validator, "_capture_bundle", replace_after_capture)
     with pytest.raises(ValueError, match="bundle changed"):
-        build_bundle(
+        BundleBuilder(validator=validator).build(
             binary=binary,
             target="linux-x64",
             output_dir=output,
@@ -493,7 +508,7 @@ def test_final_validation_rejects_identical_content_inode_replacement(
 
 def test_generation_validator_rejects_noncanonical_bundle_mode(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -501,7 +516,7 @@ def test_generation_validator_rejects_noncanonical_bundle_mode(tmp_path: Path) -
     )
     (result.bundle / "README.md").chmod(0o600)
     with pytest.raises(ValueError, match="noncanonical mode"):
-        bundle_validation_module.validate_bundle_generation(
+        BundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -528,7 +543,7 @@ def test_generation_validator_uses_host_staging_mode_contract(
     expected: int,
 ) -> None:
     assert (
-        bundle_validation_module._expected_staged_mode(
+        BundleValidator()._expected_staged_mode(
             is_directory=is_directory,
             is_executable=is_executable,
             host_os_name=host_os_name,
@@ -543,7 +558,7 @@ def test_generation_validator_binds_target_check_to_captured_executable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -566,7 +581,7 @@ def test_generation_validator_binds_target_check_to_captured_executable(
     )
 
     with pytest.raises(ValueError, match="archive source changed while packaging"):
-        bundle_validation_module.validate_bundle_generation(
+        BundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -581,7 +596,7 @@ def test_generation_validator_rejects_noncanonical_archive_mode(
     target: str,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source", target)
-    result = build_bundle(
+    result = BundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=tmp_path / "dist",
@@ -626,7 +641,7 @@ def test_generation_validator_rejects_noncanonical_archive_mode(
     os.replace(replacement, result.archive)
     write_checksum(result.archive)
     with pytest.raises(ValueError, match="noncanonical mode"):
-        bundle_validation_module.validate_bundle_generation(
+        BundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,

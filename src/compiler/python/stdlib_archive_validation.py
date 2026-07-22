@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 
+from .artifacts.stdlib.publisher import StdlibArchivePublisher
 from .cache_io import load_json, open_regular_binary
 from .cache_keys import toolchain_hash
 
@@ -88,11 +89,10 @@ def load_manifest(
     stdlib_dir: str,
     stdlib_source: str,
     manifest_name: str,
+    publisher: StdlibArchivePublisher,
 ) -> dict:
     """Load an archive manifest and verify compiler and canonical stdlib bytes."""
-    from .stdlib_archive_publish import stdlib_publication_in_progress
-
-    if stdlib_publication_in_progress(stdlib_dir):
+    if publisher.publication_in_progress(stdlib_dir):
         raise ArchiveVersionError(
             f"stdlib archive in '{stdlib_dir}' is being updated; retry after the publication completes"
         )

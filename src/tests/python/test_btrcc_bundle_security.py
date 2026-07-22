@@ -12,11 +12,14 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.btrcc_bundle as bundle_module
+import src.compiler.python.artifacts.selfhost_bundle.builder as builder_module
+import src.compiler.python.artifacts.selfhost_bundle.copier as copier_module
+import src.compiler.python.artifacts.selfhost_bundle.validator as validation_module
 import src.compiler.python.btrcc_bundle_archive as archive_module
-import src.compiler.python.btrcc_bundle_validation as validation_module
 import src.compiler.python.bundle_archive_source as archive_source_module
-from src.compiler.python.btrcc_bundle import build_bundle
+from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
+from src.compiler.python.artifacts.selfhost_bundle.copier import BundleCopier
+from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
 from src.compiler.python.btrcc_bundle_archive import write_tar_gz, write_zip
 from src.tests.python.test_btrcc_bundle import _fixture, _manifest
 
@@ -80,7 +83,7 @@ def test_bundle_copy_rejects_same_inode_same_size_mutation_during_read(
     destination = tmp_path / "destination"
     source.write_bytes(b"a" * (2 * 1024 * 1024))
     initial = source.stat()
-    original_fdopen = bundle_module.os.fdopen
+    original_fdopen = copier_module.os.fdopen
 
     def mutating_fdopen(descriptor: int, *args, **kwargs):
         stream = original_fdopen(descriptor, *args, **kwargs)
@@ -89,9 +92,9 @@ def test_bundle_copy_rejects_same_inode_same_size_mutation_during_read(
             lambda: _replace_contents_in_place(source, b"b" * initial.st_size, initial.st_mtime_ns),
         )
 
-    monkeypatch.setattr(bundle_module.os, "fdopen", mutating_fdopen)
+    monkeypatch.setattr(copier_module.os, "fdopen", mutating_fdopen)
     with pytest.raises(ValueError, match="changed while being copied"):
-        bundle_module._copy_file(source, destination, 0o644, 0)
+        BundleCopier().copy(source, destination, 0o644, 0)
 
     changed = source.stat()
     assert (changed.st_dev, changed.st_ino, changed.st_size) == (
@@ -109,14 +112,14 @@ def test_bundle_copy_accepts_content_neutral_metadata_churn(
     destination = tmp_path / "destination"
     payload = b"stable" * (1024 * 1024)
     source.write_bytes(payload)
-    original_fdopen = bundle_module.os.fdopen
+    original_fdopen = copier_module.os.fdopen
 
     def touching_fdopen(descriptor: int, *args, **kwargs):
         stream = original_fdopen(descriptor, *args, **kwargs)
         return _MutatingReader(stream, source.touch)
 
-    monkeypatch.setattr(bundle_module.os, "fdopen", touching_fdopen)
-    bundle_module._copy_file(source, destination, 0o644, 7)
+    monkeypatch.setattr(copier_module.os, "fdopen", touching_fdopen)
+    BundleCopier().copy(source, destination, 0o644, 7)
 
     assert destination.read_bytes() == payload
 
@@ -143,7 +146,7 @@ def test_artifact_hash_rejects_same_inode_growth(
 
     monkeypatch.setattr(validation_module.os, "fdopen", mutating_fdopen)
     with pytest.raises(ValueError, match="changed size"):
-        validation_module._hash_artifact(artifact)
+        BundleValidator()._hash_artifact(artifact)
     assert artifact.stat().st_size == initial.st_size + 1
 
 
@@ -314,7 +317,7 @@ def test_archive_is_created_from_private_staging(
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source", target)
     output = tmp_path / "dist"
-    original = bundle_module.write_zip if target.startswith("windows-") else bundle_module.write_tar_gz
+    original = builder_module.write_zip if target.startswith("windows-") else builder_module.write_tar_gz
     observed = False
 
     def observing_writer(bundle: Path, destination: Path, epoch: int) -> None:
@@ -326,8 +329,8 @@ def test_archive_is_created_from_private_staging(
         original(bundle, destination, epoch)
 
     name = "write_zip" if target.startswith("windows-") else "write_tar_gz"
-    monkeypatch.setattr(bundle_module, name, observing_writer)
-    result = build_bundle(
+    monkeypatch.setattr(builder_module, name, observing_writer)
+    result = BundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=output,

@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.btrcc_bundle import build_bundle
+from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
+from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
 from src.compiler.python.btrcc_bundle_archive import write_checksum
-from src.compiler.python.btrcc_bundle_validation import validate_bundle_generation
 from src.tests.python.test_btrcc_bundle import _fixture
 
 
 def _bundle(tmp_path: Path, target: str):
     source_root, binary = _fixture(tmp_path / "source", target)
-    return build_bundle(
+    return BundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=tmp_path / "dist",
@@ -27,7 +27,7 @@ def _bundle(tmp_path: Path, target: str):
 
 
 def _validate(result) -> None:
-    validate_bundle_generation(
+    BundleValidator().validate_generation(
         result.bundle,
         result.archive,
         result.checksum,

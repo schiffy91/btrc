@@ -2,6 +2,9 @@
 
 import sys
 
+from .artifacts.publication.publisher import ArtifactPublisher
+from .artifacts.publication.storage import ArtifactStorage
+from .artifacts.stdlib.publisher import StdlibArchivePublisher
 from .cli_diagnostics import format_error
 from .frontend import analyze_frontend_program, get_stdlib_source
 from .ir.gen.errors import CodegenError
@@ -57,7 +60,14 @@ def build_stdlib_archive(out_dir: str) -> None:
 
     try:
         ir_module = generate_ir(analyzed, debug=False, source_file="<stdlib>")
-        build_archive(out_dir, ir_module, stdlib_source)
+        storage = ArtifactStorage()
+        publication = ArtifactPublisher(storage)
+        build_archive(
+            out_dir,
+            ir_module,
+            stdlib_source,
+            StdlibArchivePublisher(publication),
+        )
     except CodegenError as error:
         from .cli_diagnostics import codegen_error_exit
 
@@ -75,7 +85,14 @@ def partition_against_stdlib(module, program, stdlib_dir: str) -> None:
     )
 
     try:
-        manifest = load_manifest(stdlib_dir, get_stdlib_source(""))
+        storage = ArtifactStorage()
+        publication = ArtifactPublisher(storage)
+        publisher = StdlibArchivePublisher(publication)
+        manifest = load_manifest(
+            stdlib_dir,
+            get_stdlib_source(""),
+            publisher,
+        )
         reject_user_overrides(program, manifest)
     except ArchiveVersionError as error:
         print(f"error: {error}", file=sys.stderr)

@@ -21,6 +21,13 @@ from src.compiler.python import (
     frontend_stdlib,
     stdlib_archive,
 )
+from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
+from src.compiler.python.artifacts.publication.storage import ArtifactStorage
+from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
+
+
+def _archive_publisher() -> StdlibArchivePublisher:
+    return StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
 
 
 @pytest.fixture
@@ -244,7 +251,14 @@ def test_archive_manifest_is_stamped_and_validated(tmp_path):
     source = "stdlib source"
     manifest = _archive_manifest(source)
     _write_archive(tmp_path, manifest)
-    assert stdlib_archive.load_manifest(str(tmp_path), source)["types"] == []
+    assert (
+        stdlib_archive.load_manifest(
+            str(tmp_path),
+            source,
+            _archive_publisher(),
+        )["types"]
+        == []
+    )
 
 
 @pytest.mark.skipif(os.name == "nt", reason="final-symlink archive contract is POSIX-only")
@@ -261,7 +275,14 @@ def test_archive_validation_accepts_final_symlink_manifest_and_artifacts(tmp_pat
         path.rename(target)
         path.symlink_to(target.name)
 
-    assert stdlib_archive.load_manifest(str(tmp_path), source)["types"] == []
+    assert (
+        stdlib_archive.load_manifest(
+            str(tmp_path),
+            source,
+            _archive_publisher(),
+        )["types"]
+        == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -282,7 +303,7 @@ def test_archive_manifest_rejects_missing_or_empty_artifacts(tmp_path, name, con
     _write_archive(tmp_path, manifest, artifacts)
 
     with pytest.raises(stdlib_archive.ArchiveVersionError, match=message):
-        stdlib_archive.load_manifest(str(tmp_path), source)
+        stdlib_archive.load_manifest(str(tmp_path), source, _archive_publisher())
 
 
 def test_archive_manifest_rejects_modified_artifact(tmp_path):
@@ -292,7 +313,7 @@ def test_archive_manifest_rejects_modified_artifact(tmp_path):
         header.write("/* tampered */\n")
 
     with pytest.raises(stdlib_archive.ArchiveVersionError, match="modified"):
-        stdlib_archive.load_manifest(str(tmp_path), source)
+        stdlib_archive.load_manifest(str(tmp_path), source, _archive_publisher())
 
 
 @pytest.mark.parametrize(
@@ -321,7 +342,7 @@ def test_archive_manifest_refuses_invalid_typed_macro_records(
         stdlib_archive.ArchiveVersionError,
         match="invalid or unsupported",
     ):
-        stdlib_archive.load_manifest(str(tmp_path), source)
+        stdlib_archive.load_manifest(str(tmp_path), source, _archive_publisher())
 
 
 def test_archive_manifest_refused_on_toolchain_mismatch(tmp_path):
@@ -329,7 +350,7 @@ def test_archive_manifest_refused_on_toolchain_mismatch(tmp_path):
     stale = _archive_manifest(source, toolchain="0" * 16)
     (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(stale))
     with pytest.raises(stdlib_archive.ArchiveVersionError, match="different compiler"):
-        stdlib_archive.load_manifest(str(tmp_path), source)
+        stdlib_archive.load_manifest(str(tmp_path), source, _archive_publisher())
 
 
 def test_archive_manifest_refused_on_stdlib_source_mismatch(tmp_path):
@@ -337,7 +358,11 @@ def test_archive_manifest_refused_on_stdlib_source_mismatch(tmp_path):
     (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(json.dumps(manifest))
 
     with pytest.raises(stdlib_archive.ArchiveVersionError, match="different standard library"):
-        stdlib_archive.load_manifest(str(tmp_path), "current or user-overridden stdlib")
+        stdlib_archive.load_manifest(
+            str(tmp_path),
+            "current or user-overridden stdlib",
+            _archive_publisher(),
+        )
 
 
 def test_raw_top_level_manifest_requires_regeneration(tmp_path):
@@ -354,7 +379,7 @@ def test_raw_top_level_manifest_requires_regeneration(tmp_path):
         stdlib_archive.ArchiveVersionError,
         match=r"invalid or unsupported.*regenerate",
     ):
-        stdlib_archive.load_manifest(str(tmp_path), source)
+        stdlib_archive.load_manifest(str(tmp_path), source, _archive_publisher())
 
 
 @pytest.mark.parametrize("payload", ["not json", "{}", '{"schema":1,"types":"wrong"}'])
@@ -362,4 +387,8 @@ def test_archive_manifest_refuses_corrupt_or_unsupported_schema(tmp_path, payloa
     (tmp_path / stdlib_archive.MANIFEST_NAME).write_text(payload)
 
     with pytest.raises(stdlib_archive.ArchiveVersionError, match="invalid or unsupported"):
-        stdlib_archive.load_manifest(str(tmp_path), "stdlib source")
+        stdlib_archive.load_manifest(
+            str(tmp_path),
+            "stdlib source",
+            _archive_publisher(),
+        )

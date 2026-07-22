@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.artifact_publication as transaction_module
+import src.compiler.python.artifacts.publication.publisher as transaction_module
+from src.compiler.python.artifacts.publication.publisher import (
+    ArtifactPublisher,
+    PublishedArtifact,
+)
+from src.compiler.python.artifacts.publication.storage import ArtifactStorage
+from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
 from src.compiler.python.cache_keys import toolchain_hash
 from src.compiler.python.stdlib_archive import (
     HEADER_NAME,
@@ -20,7 +26,6 @@ from src.compiler.python.stdlib_archive import (
     ArchiveVersionError,
     load_manifest,
 )
-from src.compiler.python.stdlib_archive_publish import publish_stdlib_archive
 
 
 def _bundle_candidates(root: Path, generation: str) -> tuple[Path, Path, Path]:
@@ -35,13 +40,17 @@ def _bundle_candidates(root: Path, generation: str) -> tuple[Path, Path, Path]:
     return bundle, archive, checksum
 
 
-def _publish_bundle(output: Path, candidate: tuple[Path, Path, Path]) -> None:
-    transaction_module.publish_artifacts(
+def _publish_bundle(
+    publisher: ArtifactPublisher,
+    output: Path,
+    candidate: tuple[Path, Path, Path],
+) -> None:
+    publisher.publish(
         "bundle",
         (
-            transaction_module.PublishedArtifact(candidate[0], output / "bundle", True),
-            transaction_module.PublishedArtifact(candidate[1], output / "bundle.tar.gz"),
-            transaction_module.PublishedArtifact(candidate[2], output / "bundle.tar.gz.sha256"),
+            PublishedArtifact(candidate[0], output / "bundle", True),
+            PublishedArtifact(candidate[1], output / "bundle.tar.gz"),
+            PublishedArtifact(candidate[2], output / "bundle.tar.gz.sha256"),
         ),
     )
 
@@ -49,6 +58,7 @@ def _publish_bundle(output: Path, candidate: tuple[Path, Path, Path]) -> None:
 def _crash_bundle_publication(output_text: str, candidate_text: str) -> None:
     output = Path(output_text)
     candidate = _bundle_candidates(Path(candidate_text), "interrupted")
+    publisher = ArtifactPublisher(ArtifactStorage())
     replace = transaction_module.os.replace
 
     def exit_after_first_payload(source, destination) -> None:
@@ -57,7 +67,7 @@ def _crash_bundle_publication(output_text: str, candidate_text: str) -> None:
             os._exit(91)
 
     transaction_module.os.replace = exit_after_first_payload
-    _publish_bundle(output, candidate)
+    _publish_bundle(publisher, output, candidate)
 
 
 def _stdlib_payload(generation: str) -> tuple[str, str]:
@@ -83,9 +93,14 @@ def _stdlib_manifest(source: str, header: str, impl: str) -> dict:
     }
 
 
-def _publish_stdlib(output: Path, source: str, generation: str) -> None:
+def _publish_stdlib(
+    publisher: StdlibArchivePublisher,
+    output: Path,
+    source: str,
+    generation: str,
+) -> None:
     header, impl = _stdlib_payload(generation)
-    publish_stdlib_archive(
+    publisher.publish(
         str(output),
         HEADER_NAME,
         header,
@@ -99,13 +114,20 @@ def _publish_stdlib(output: Path, source: str, generation: str) -> None:
 def _concurrent_stdlib_writer(output: str, source: str, generation: str, start) -> None:
     if not start.wait(10):
         raise TimeoutError("parent did not start concurrent archive writers")
-    _publish_stdlib(Path(output), source, generation)
+    publication = ArtifactPublisher(ArtifactStorage())
+    _publish_stdlib(
+        StdlibArchivePublisher(publication),
+        Path(output),
+        source,
+        generation,
+    )
 
 
 def test_interrupted_bundle_transaction_restores_prior_generation(tmp_path: Path) -> None:
     output = tmp_path / "dist"
     output.mkdir()
-    _publish_bundle(output, _bundle_candidates(tmp_path / "old", "old"))
+    publisher = ArtifactPublisher(ArtifactStorage())
+    _publish_bundle(publisher, output, _bundle_candidates(tmp_path / "old", "old"))
     context = multiprocessing.get_context("spawn")
     process = context.Process(
         target=_crash_bundle_publication,
@@ -118,7 +140,7 @@ def test_interrupted_bundle_transaction_restores_prior_generation(tmp_path: Path
 
     missing = tuple(tmp_path / "missing" / name for name in ("bundle", "archive", "checksum"))
     with pytest.raises(ValueError, match="missing"):
-        _publish_bundle(output, missing)
+        _publish_bundle(publisher, output, missing)
 
     assert (output / "bundle/marker").read_text(encoding="utf-8") == "old"
     assert (output / "bundle.tar.gz").read_bytes() == b"archive-old"
@@ -139,21 +161,26 @@ def test_recovery_rejects_symlinked_backup_from_forged_journal(tmp_path: Path) -
     checksum.write_bytes(b"checksum-old")
     missing = tmp_path / "missing"
     artifacts = (
-        transaction_module.PublishedArtifact(missing / "bundle", bundle, True),
-        transaction_module.PublishedArtifact(missing / "archive", archive),
-        transaction_module.PublishedArtifact(missing / "checksum", checksum),
+        PublishedArtifact(missing / "bundle", bundle, True),
+        PublishedArtifact(missing / "archive", archive),
+        PublishedArtifact(missing / "checksum", checksum),
     )
     sentinel = tmp_path / "sentinel"
     sentinel.write_bytes(b"must-not-change")
     (output / ".bundle.publish.previous-1").symlink_to(sentinel)
     journal = output / ".bundle.publish.journal"
-    transaction_module._write_journal(
+    publisher = ArtifactPublisher(ArtifactStorage())
+    publisher._write_journal(
         journal,
-        transaction_module._journal_record(artifacts, "publishing", [True, True, True]),
+        publisher._journal_record(artifacts, "publishing", [True, True, True]),
     )
 
     with pytest.raises((OSError, ValueError)):
-        _publish_bundle(output, (missing / "bundle", missing / "archive", missing / "checksum"))
+        _publish_bundle(
+            publisher,
+            output,
+            (missing / "bundle", missing / "archive", missing / "checksum"),
+        )
 
     assert sentinel.read_bytes() == b"must-not-change"
     assert archive.read_bytes() == b"archive-old"
@@ -186,7 +213,9 @@ def test_concurrent_stdlib_writers_leave_one_valid_generation(tmp_path: Path) ->
                 writer.terminate()
             writer.join(10)
 
-    load_manifest(str(output), source)
+    reader_publication = ArtifactPublisher(ArtifactStorage())
+    reader = StdlibArchivePublisher(reader_publication)
+    load_manifest(str(output), source, reader)
     header = (output / HEADER_NAME).read_text(encoding="utf-8")
     impl = (output / IMPL_NAME).read_text(encoding="utf-8")
     assert any(f" {generation} " in header and f" {generation} " in impl for generation in ("alpha", "beta", "gamma"))
@@ -198,7 +227,9 @@ def test_stdlib_reader_gets_retryable_mismatch_during_publication(
 ) -> None:
     source = "canonical stdlib"
     output = tmp_path / "archive"
-    _publish_stdlib(output, source, "old")
+    publication = ArtifactPublisher(ArtifactStorage())
+    publisher = StdlibArchivePublisher(publication)
+    _publish_stdlib(publisher, output, source, "old")
     replace = os.replace
     payload_published = threading.Event()
     release_writer = threading.Event()
@@ -215,7 +246,7 @@ def test_stdlib_reader_gets_retryable_mismatch_during_publication(
 
     def publish() -> None:
         try:
-            _publish_stdlib(output, source, "new")
+            _publish_stdlib(publisher, output, source, "new")
         except BaseException as error:
             errors.append(error)
 
@@ -224,12 +255,12 @@ def test_stdlib_reader_gets_retryable_mismatch_during_publication(
     try:
         assert payload_published.wait(10)
         with pytest.raises(ArchiveVersionError, match=r"being updated.*retry"):
-            load_manifest(str(output), source)
+            load_manifest(str(output), source, publisher)
     finally:
         release_writer.set()
         writer.join(10)
 
     assert errors == []
-    load_manifest(str(output), source)
+    load_manifest(str(output), source, publisher)
     assert " new " in (output / HEADER_NAME).read_text(encoding="utf-8")
     assert " new " in (output / IMPL_NAME).read_text(encoding="utf-8")

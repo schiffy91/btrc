@@ -37,13 +37,13 @@ from __future__ import annotations
 import hashlib
 
 from . import stdlib_archive_validation as _archive_validation
+from .artifacts.stdlib.publisher import StdlibArchivePublisher
 from .cache_keys import toolchain_hash
 from .stdlib_archive_helpers import (
     ARCHIVE_HELPER_API_NAMES,
     derive_archive_api_decls,
     derive_archive_api_impl,
 )
-from .stdlib_archive_publish import publish_stdlib_archive
 from .stdlib_shared_state import (
     complete_shared_helpers,
     derive_shared_decls,
@@ -197,7 +197,12 @@ def _build_manifest(
     }
 
 
-def build_archive(out_dir: str, module, stdlib_source: str) -> dict:
+def build_archive(
+    out_dir: str,
+    module,
+    stdlib_source: str,
+    publisher: StdlibArchivePublisher,
+) -> dict:
     """Transform ``module`` and write the header, impl, and manifest into
     ``out_dir``. Returns the manifest dict.
     """
@@ -216,7 +221,7 @@ def build_archive(out_dir: str, module, stdlib_source: str) -> dict:
         {HEADER_NAME: header, IMPL_NAME: impl},
     )
 
-    publish_stdlib_archive(
+    publisher.publish(
         out_dir,
         HEADER_NAME,
         header,
@@ -228,12 +233,17 @@ def build_archive(out_dir: str, module, stdlib_source: str) -> dict:
     return manifest
 
 
-def load_manifest(stdlib_dir: str, stdlib_source: str) -> dict:
+def load_manifest(
+    stdlib_dir: str,
+    stdlib_source: str,
+    publisher: StdlibArchivePublisher,
+) -> dict:
     """Load and validate an archive against the canonical whole stdlib."""
     return _archive_validation.load_manifest(
         stdlib_dir,
         stdlib_source,
         MANIFEST_NAME,
+        publisher,
     )
 
 

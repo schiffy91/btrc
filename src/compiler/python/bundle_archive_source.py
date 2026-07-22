@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from . import artifact_paths as _paths
+from .artifacts.publication.storage import ArtifactStorage, ReparsePointError
 
 _CHUNK_SIZE = 1024 * 1024
 ContentSnapshot = tuple[bytes, int]
@@ -52,7 +52,7 @@ def _validate_regular_identity(entry: ArchiveEntry, descriptor: int) -> None:
     if (
         not stat.S_ISREG(opened.st_mode)
         or not stat.S_ISREG(current.st_mode)
-        or _paths.metadata_is_reparse_point(current)
+        or ArtifactStorage().metadata_is_reparse_point(current)
         or _metadata_identity(opened) != expected
         or _metadata_identity(current) != expected
     ):
@@ -104,8 +104,8 @@ def _discover_regular(
 
 def _entry(path: Path, metadata: os.stat_result, *, expected_size: int | None = None) -> ArchiveEntry:
     is_directory = stat.S_ISDIR(metadata.st_mode)
-    if _paths.metadata_is_reparse_point(metadata):
-        raise _paths.ReparsePointError(path)
+    if ArtifactStorage().metadata_is_reparse_point(metadata):
+        raise ReparsePointError(path)
     if not is_directory and not stat.S_ISREG(metadata.st_mode):
         raise ValueError(f"archive source must be a regular file or directory: {path}")
     if expected_size is not None and metadata.st_size != expected_size:
@@ -122,7 +122,7 @@ def _entry(path: Path, metadata: os.stat_result, *, expected_size: int | None = 
 
 
 def bundle_entries(bundle: Path) -> list[ArchiveEntry]:
-    return [_entry(path, metadata) for path, metadata in _paths.real_tree_entries(bundle)]
+    return [_entry(path, metadata) for path, metadata in ArtifactStorage().real_tree_entries(bundle)]
 
 
 def _expected_children(files: Mapping[str, int], directories: Set[str]) -> dict[str, set[str]]:
@@ -135,9 +135,10 @@ def _expected_children(files: Mapping[str, int], directories: Set[str]) -> dict[
 
 
 def _validate_directory_entries(bundle: Path, expected: dict[str, set[str]]) -> None:
+    storage = ArtifactStorage()
     for relative, expected_names in expected.items():
         directory = bundle if relative == "." else bundle / relative
-        metadata = _paths.require_real_directory(
+        metadata = storage.require_real_directory(
             directory,
             "archive source directory",
         )
@@ -146,12 +147,12 @@ def _validate_directory_entries(bundle: Path, expected: dict[str, set[str]]) -> 
             for entry in entries:
                 child = directory / entry.name
                 child_metadata = entry.stat(follow_symlinks=False)
-                if _paths.metadata_is_reparse_point(child_metadata):
-                    raise _paths.ReparsePointError(child)
+                if storage.metadata_is_reparse_point(child_metadata):
+                    raise ReparsePointError(child)
                 actual.add(entry.name)
                 if len(actual) > len(expected_names):
                     raise ValueError(f"archive source tree has unexpected entries: {directory}")
-        current = _paths.require_real_directory(
+        current = storage.require_real_directory(
             directory,
             "archive source directory",
         )
@@ -168,7 +169,7 @@ def bounded_bundle_entries(
 ) -> list[ArchiveEntry]:
     """Capture exactly a manifest-bounded tree without hashing surprises."""
 
-    _paths.require_real_directory(bundle, "archive root")
+    ArtifactStorage().require_real_directory(bundle, "archive root")
     _validate_directory_entries(bundle, _expected_children(files, directories))
     paths = [bundle, *(bundle / path for path in directories), *(bundle / path for path in files)]
     paths.sort(key=lambda path: path.as_posix())
@@ -232,7 +233,7 @@ def validate_directory(entry: ArchiveEntry) -> None:
     if (
         not entry.is_directory
         or not stat.S_ISDIR(metadata.st_mode)
-        or _paths.metadata_is_reparse_point(metadata)
+        or ArtifactStorage().metadata_is_reparse_point(metadata)
         or _metadata_identity(metadata) != _entry_identity(entry)
     ):
         raise _changed(entry)

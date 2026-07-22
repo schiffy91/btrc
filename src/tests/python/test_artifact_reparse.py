@@ -11,9 +11,12 @@ from types import SimpleNamespace
 
 import pytest
 
-import src.compiler.python.artifact_paths as paths
-import src.compiler.python.artifact_storage as storage
-from src.compiler.python.btrcc_bundle import build_bundle
+import src.compiler.python.artifacts.publication.storage as storage_module
+from src.compiler.python.artifacts.publication.storage import (
+    ArtifactStorage,
+    ReparsePointError,
+)
+from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
 from src.compiler.python.btrcc_bundle_archive import write_tar_gz, write_zip
 from src.tests.python.test_btrcc_bundle import _fixture
 
@@ -24,12 +27,12 @@ def _classify_path_as_reparse(
 ) -> None:
     marked = path.lstat()
     identity = marked.st_dev, marked.st_ino
-    original = paths.metadata_is_reparse_point
+    original = ArtifactStorage.metadata_is_reparse_point
 
-    def classify(metadata: os.stat_result) -> bool:
-        return (metadata.st_dev, metadata.st_ino) == identity or original(metadata)
+    def classify(self: ArtifactStorage, metadata: os.stat_result) -> bool:
+        return (metadata.st_dev, metadata.st_ino) == identity or original(self, metadata)
 
-    monkeypatch.setattr(paths, "metadata_is_reparse_point", classify)
+    monkeypatch.setattr(ArtifactStorage, "metadata_is_reparse_point", classify)
 
 
 def test_reparse_tag_is_recognized_without_symlink_mode() -> None:
@@ -39,8 +42,9 @@ def test_reparse_tag_is_recognized_without_symlink_mode() -> None:
     )
     directory = SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_reparse_tag=0)
 
-    assert paths.metadata_is_reparse_point(junction)
-    assert not paths.metadata_is_reparse_point(directory)
+    storage = ArtifactStorage()
+    assert storage.metadata_is_reparse_point(junction)
+    assert not storage.metadata_is_reparse_point(directory)
 
 
 def test_tree_walker_rejects_reparse_directory_before_descent(
@@ -53,15 +57,15 @@ def test_tree_walker_rejects_reparse_directory_before_descent(
     (marked / "outside-payload").write_bytes(b"outside")
     _classify_path_as_reparse(monkeypatch, marked)
     scanned: list[Path] = []
-    scandir = paths.os.scandir
+    scandir = storage_module.os.scandir
 
     def observe_scandir(directory: Path):
         scanned.append(Path(directory))
         return scandir(directory)
 
-    monkeypatch.setattr(paths.os, "scandir", observe_scandir)
-    with pytest.raises(paths.ReparsePointError, match="link or reparse point"):
-        paths.real_tree_entries(root)
+    monkeypatch.setattr(storage_module.os, "scandir", observe_scandir)
+    with pytest.raises(ReparsePointError, match="link or reparse point"):
+        ArtifactStorage().real_tree_entries(root)
 
     assert scanned == [root]
 
@@ -79,7 +83,7 @@ def test_archive_writers_apply_reparse_policy_to_every_entry(
     _classify_path_as_reparse(monkeypatch, payload)
     destination = tmp_path / "archive"
 
-    with pytest.raises(paths.ReparsePointError, match="link or reparse point"):
+    with pytest.raises(ReparsePointError, match="link or reparse point"):
         writer(bundle, destination, 0)
     assert not destination.exists()
 
@@ -102,12 +106,12 @@ def test_artifact_boundaries_apply_the_shared_reparse_policy(
 
     if boundary == "destination":
         with pytest.raises(ValueError, match="invalid publication destination"):
-            storage.destination_exists(output, is_directory=True)
+            ArtifactStorage().destination_exists(output, is_directory=True)
         return
 
     subject = "bundle source root" if boundary == "source" else "bundle output directory"
     with pytest.raises(ValueError, match=subject):
-        build_bundle(
+        BundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=output,
@@ -136,10 +140,10 @@ def test_windows_junction_is_rejected_as_archive_entry_and_destination(
 
     try:
         assert junction.is_junction()
-        with pytest.raises(paths.ReparsePointError, match="link or reparse point"):
+        with pytest.raises(ReparsePointError, match="link or reparse point"):
             write_zip(bundle, tmp_path / "archive.zip", 0)
         with pytest.raises(ValueError, match="invalid publication destination"):
-            storage.destination_exists(junction, is_directory=True)
+            ArtifactStorage().destination_exists(junction, is_directory=True)
     finally:
         if junction.is_junction():
             junction.rmdir()

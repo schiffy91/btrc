@@ -16,6 +16,13 @@ import pytest
 
 from src.compiler.python import main as m
 from src.compiler.python import stdlib_archive as sa
+from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
+from src.compiler.python.artifacts.publication.storage import ArtifactStorage
+from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
+
+
+def _archive_publisher() -> StdlibArchivePublisher:
+    return StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
 
 
 def run_main(monkeypatch, argv):
@@ -272,7 +279,11 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     assert "Built stdlib archive" in capsys.readouterr().out
     for name in (sa.HEADER_NAME, sa.IMPL_NAME, sa.MANIFEST_NAME):
         assert (out / name).exists(), name
-    manifest = sa.load_manifest(str(out), m.get_stdlib_source(""))
+    manifest = sa.load_manifest(
+        str(out),
+        m.get_stdlib_source(""),
+        _archive_publisher(),
+    )
     # The archive must provide a substantial, real interface.
     assert len(manifest["functions"]) > 100
     assert {macro["name"] for macro in manifest["macros"]} >= {

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.btrcc_bundle import build_bundle
+from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
 from src.compiler.python.btrcc_target_binary import host_target, target_spec
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
@@ -52,7 +52,7 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
     tmp_path: Path,
 ) -> None:
     target = host_target()
-    distribution = build_bundle(
+    distribution = BundleBuilder().build(
         binary=semantic_btrcc,
         target=target,
         output_dir=tmp_path / "dist",
