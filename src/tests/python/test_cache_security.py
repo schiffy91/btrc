@@ -114,6 +114,19 @@ def test_stdlib_cache_pruning_state_is_instance_owned(tmp_path):
     assert not legacy.exists()
 
 
+def test_stdlib_cache_retries_pruning_after_unavailable_directory(tmp_path):
+    cache = StdlibAstCache()
+    cache_dir = tmp_path / "created-later"
+
+    cache.prune(str(cache_dir))
+
+    cache_dir.mkdir()
+    legacy = cache_dir / "stdlib-legacy.ast"
+    legacy.write_bytes(b"unsafe pickle")
+    cache.prune(str(cache_dir))
+    assert not legacy.exists()
+
+
 def test_disk_cache_atomic_failure_preserves_previous_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
     disk_cache.store("source", "old output")

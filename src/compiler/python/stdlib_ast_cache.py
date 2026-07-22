@@ -78,12 +78,12 @@ class StdlibAstCache:
         """Remove unsafe legacy pickles immediately and expired JSON entries."""
         if cache_dir in self._pruned_dirs:
             return
-        self._pruned_dirs.add(cache_dir)
         cutoff = time.time() - self.max_age_seconds
         try:
             names = os.listdir(cache_dir)
         except OSError:
             return
+        self._pruned_dirs.add(cache_dir)
         for name in names:
             if not name.startswith(_PREFIX):
                 continue
