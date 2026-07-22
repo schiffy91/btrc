@@ -43,7 +43,7 @@ string hostedStringConversionMode(IRGen generator, Node expression,
     Node? source = preparedCanonicalType(generator, sourceType);
     if (target == null || source == null
             || !TypeComposition.isSemanticScalarString(target)
-            || !semanticIsCStringPointer(source)) {
+            || !OperatorSemantics.isCStringPointer(source)) {
         return "";
     }
     if (expression.kind != NK_CALL_EXPR || expression.callee == null

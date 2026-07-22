@@ -15,9 +15,24 @@ from src.tests.btrc.test_semantic_validation import (
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
-def _compile_both(semantic_btrcc: Path, tmp_path: Path, source: str):
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+def _compile_both(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+    *,
+    no_dce: bool = False,
+):
+    selfhost, selfhost_source = _compile_source(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        no_dce=no_dce,
+    )
+    reference, reference_source = _compile_reference_source(
+        tmp_path,
+        source,
+        no_dce=no_dce,
+    )
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     return selfhost_source, reference_source
@@ -153,6 +168,8 @@ def test_aggregate_fields_and_typedefs_preserve_object_qualifiers(
     tmp_path: Path,
 ) -> None:
     source = """
+        #include <string.h>
+
         typedef volatile int VolatileInt;
         typedef volatile int* VolatilePointer;
 
@@ -175,9 +192,20 @@ def test_aggregate_fields_and_typedefs_preserve_object_qualifiers(
         }
 
         int inspect((volatile int, volatile int*) tuple) { return 0; }
-        int main() { return 0; }
+        int main() {
+            int backing = 0;
+            Payload value = Payload.Value(1, &backing);
+            Payload empty = Payload.Empty();
+            return strcmp(value.toString(), "Value") == 0
+                && strcmp(empty.toString(), "Empty") == 0 ? 0 : 1;
+        }
     """
-    generated = _compile_both(semantic_btrcc, tmp_path, source)
+    generated = _compile_both(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        no_dce=True,
+    )
 
     for index, path in enumerate(generated):
         c_source = path.read_text()

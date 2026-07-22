@@ -4842,7 +4842,7 @@ class IRGen {
      * string (mirrors stringable.has_to_string). */
     public bool sourceHasToString(Node? sourceType) {
         if (sourceType == null || sourceType.is_array
-                || semanticValueDepth(sourceType, self.analyzed) != 1) {
+                || OperatorSemantics.valueDepth(sourceType, self.analyzed) != 1) {
             return false;
         }
         Node? ts = null;
@@ -6138,7 +6138,7 @@ class IRGen {
             return false;
         }
         if (resolved.base == "__fn_ptr") { return true; }
-        return !semanticIsReferenceType(resolved, self.analyzed);
+        return !OperatorSemantics.isReferenceType(resolved, self.analyzed);
     }
 
     public bool isFreshThreadResult(Node? expression, Node? resultType) {
@@ -7307,7 +7307,7 @@ class IRGen {
             Node leftType, Node rightType) {
         IRNode loweredLeft = left;
         IRNode loweredRight = right;
-        Node? resultType = numericResultType(
+        Node? resultType = NumericSemantics.resultType(
             leftType, rightType, self.analyzed);
         if (resultType == null) {
             self.typedOperatorFail(
@@ -7323,7 +7323,7 @@ class IRGen {
             args.push(irCast(resultC, loweredRight));
             return irCast(resultC, irCall(helper, args));
         }
-        if (numericOperandsNeedCast(leftType, rightType, self.analyzed)) {
+        if (NumericSemantics.operandsNeedCast(leftType, rightType, self.analyzed)) {
             loweredLeft = irCast(resultC, loweredLeft);
             loweredRight = irCast(resultC, loweredRight);
         }
@@ -7333,7 +7333,7 @@ class IRGen {
     public IRNode lowerNumericComparisonValues(
             string op, IRNode left, IRNode right,
             Node leftType, Node rightType) {
-        Node? resultType = numericResultType(
+        Node? resultType = NumericSemantics.resultType(
             leftType, rightType, self.analyzed);
         if (resultType == null) {
             self.typedOperatorFail(
@@ -7350,14 +7350,14 @@ class IRGen {
 
     public IRNode lowerReferenceEqualityValues(string op,
             IRNode left, IRNode right, Node leftType, Node rightType) {
-        if (semanticIsNullType(leftType) || semanticIsNullType(rightType)) {
+        if (OperatorSemantics.isNullType(leftType) || OperatorSemantics.isNullType(rightType)) {
             Node? functionType = null;
             if (leftType.base == "__fn_ptr") { functionType = leftType; }
             if (rightType.base == "__fn_ptr") { functionType = rightType; }
             if (functionType != null) {
                 IRNode typedNull = irCast(
                     typeToC(functionType, self.analyzed), irLiteral("0"));
-                if (semanticIsNullType(leftType)) {
+                if (OperatorSemantics.isNullType(leftType)) {
                     return irBinOp(typedNull, op, right);
                 }
                 return irBinOp(left, op, typedNull);
@@ -7387,7 +7387,7 @@ class IRGen {
     public IRNode? lowerOverloadedValues(string op, IRNode left, IRNode right,
             Node? leftType, Node? rightType) {
         if (leftType == null) { return null; }
-        string magic = semanticBinaryOperatorMethod(op);
+        string magic = OperatorSemantics.binaryMethodName(op);
         if (magic == "") { return null; }
         if (self.analyzed.isClass(leftType.base)) {
             Node? method = self.analyzed.classMethod(leftType.base, magic);
@@ -7428,9 +7428,9 @@ class IRGen {
         }
         if (op == "+"
                 && (TypeComposition.isSemanticScalarString(leftType)
-                    || semanticIsCStringPointer(leftType))
+                    || OperatorSemantics.isCStringPointer(leftType))
                 && (TypeComposition.isSemanticScalarString(rightType)
-                    || semanticIsCStringPointer(rightType))
+                    || OperatorSemantics.isCStringPointer(rightType))
                 && (TypeComposition.isSemanticScalarString(leftType)
                     || TypeComposition.isSemanticScalarString(rightType))) {
             self.useHelper("__btrc_strcat");
@@ -7442,8 +7442,8 @@ class IRGen {
             trackArgs.push(irCall("__btrc_strcat", catArgs));
             return irCall("__btrc_str_track", trackArgs);
         }
-        if (semanticIsComparisonOperator(op)) {
-            int domain = semanticComparisonDomain(
+        if (OperatorSemantics.isComparisonOperator(op)) {
+            int domain = OperatorSemantics.comparisonDomain(
                 op, leftType, rightType, self.analyzed);
             if (domain == OP_DOMAIN_UNRESOLVED) {
                 return irBinOp(left, op, right);
@@ -7478,14 +7478,14 @@ class IRGen {
         }
         if ((op == "+" || op == "-" || op == "*" || op == "&"
                 || op == "|" || op == "^")
-                && numericIsType(leftType, self.analyzed)
-                && numericIsType(rightType, self.analyzed)) {
+                && NumericSemantics.isType(leftType, self.analyzed)
+                && NumericSemantics.isType(rightType, self.analyzed)) {
             return self.lowerNumericValues(
                 op, left, right, leftType, rightType);
         }
         if (op == "/" || op == "%") {
-            if (!numericIsType(leftType, self.analyzed)
-                    || !numericIsType(rightType, self.analyzed)) {
+            if (!NumericSemantics.isType(leftType, self.analyzed)
+                    || !NumericSemantics.isType(rightType, self.analyzed)) {
                 self.typedOperatorFail(
                     "operator '" + op + "' requires numeric operands");
             }
@@ -7517,10 +7517,10 @@ class IRGen {
                     self, falseValue, falseType);
             }
         }
-        Node? resultType = numericResultType(
+        Node? resultType = NumericSemantics.resultType(
             trueType, falseType, self.analyzed);
         if (resultType != null && trueType != null && falseType != null
-                && numericOperandsNeedCast(
+                && NumericSemantics.operandsNeedCast(
                     trueType, falseType, self.analyzed)) {
             string resultC = typeToC(resultType, self.analyzed);
             trueValue = irCast(resultC, trueValue);
@@ -7563,7 +7563,7 @@ class IRGen {
         /* Null coalescing evaluates `a` once at the expression site. Only its
          * declaration may be hoisted out of an enclosing control expression. */
         if (op == "??") {
-            if (semanticOptionalValueCoalesce(
+            if (OperatorSemantics.isOptionalValueCoalesce(
                     node.left, leftType, rightType, self.analyzed)) {
                 if (!irReplaceOptionalPresenceFallback(left, right)) {
                     self.typedOperatorFail(
@@ -7573,7 +7573,7 @@ class IRGen {
             }
             string tmp = self.freshTemp("__nc");
             Node? resultType = leftType;
-            if (semanticIsNullType(leftType)) { resultType = rightType; }
+            if (OperatorSemantics.isNullType(leftType)) { resultType = rightType; }
             string cType = "void*";
             if (resultType != null) {
                 cType = typeToC(resultType, self.analyzed);
@@ -7962,7 +7962,7 @@ class IRGen {
 
         Node? operandType = self.intrinsicOperandType(
             node.args.get(0), varTypes);
-        int domain = semanticHashDomain(operandType, self.analyzed);
+        int domain = OperatorSemantics.hashDomain(operandType, self.analyzed);
         if (domain == HASH_DOMAIN_STRING) {
             self.useHelper("__btrc_hash_str");
             Vector<IRNode> hashArgs = [];
@@ -8234,10 +8234,10 @@ class IRGen {
             return irCast("void", irLiteral("0"));
         }
         if (returnType.is_nullable
-                || semanticIsReferenceType(returnType, self.analyzed)) {
+                || OperatorSemantics.isReferenceType(returnType, self.analyzed)) {
             return irLiteral("NULL");
         }
-        if (numericIsType(returnType, self.analyzed)) {
+        if (NumericSemantics.isType(returnType, self.analyzed)) {
             return irLiteral("0");
         }
         Vector<string> noFields = [];

@@ -18,7 +18,7 @@ bool semanticKnownDeclarationType(
     }
     string base = typeExpr.base;
     return state.typeParams.has(base)
-        || numericIsIntegralBase(base) || numericIsStandardTypedef(base)
+        || NumericSemantics.isIntegralBase(base) || NumericSemantics.isStandardTypedef(base)
         || base == "float" || base == "double" || base == "long double"
         || base == "bool" || base == "string" || base == "void"
         || semanticRuntimeTypeBase(base)

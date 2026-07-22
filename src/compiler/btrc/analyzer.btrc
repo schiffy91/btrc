@@ -1359,16 +1359,16 @@ void collectGenericsExpr(Node e, Analyzed a,
  * the type is unknown (mirrors Python's node_types.get returning None). */
 Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     if (node == null) { return null; }
-    if (node.kind == NK_INT_LITERAL) { return integerLiteralType(node.raw); }
-    if (node.kind == NK_FLOAT_LITERAL) { return floatLiteralType(node.raw); }
+    if (node.kind == NK_INT_LITERAL) { return NumericSemantics.integerLiteralType(node.raw); }
+    if (node.kind == NK_FLOAT_LITERAL) { return NumericSemantics.floatLiteralType(node.raw); }
     if (node.kind == NK_BOOL_LITERAL) { return makePrimType("bool"); }
     if (node.kind == NK_CHAR_LITERAL) { return makePrimType("char"); }
     if (node.kind == NK_STRING_LITERAL) { return makePrimType("string"); }
     if (node.kind == NK_F_STRING_LITERAL) { return makePrimType("string"); }
     if (node.kind == NK_SIZEOF_EXPR) { return makePrimType("size_t"); }
-    if (node.kind == NK_NULL_LITERAL) { return makeSemanticNullType(); }
+    if (node.kind == NK_NULL_LITERAL) { return OperatorSemantics.nullType(); }
     if (node.kind == NK_IDENTIFIER) {
-        if (node.name == "NULL") { return makeSemanticNullType(); }
+        if (node.name == "NULL") { return OperatorSemantics.nullType(); }
         if (varTypes.has(node.name)) { return varTypes.get(node.name); }
         if (a.funcTable.has(node.name)) {
             return argTypeForInference(node, a, varTypes);
@@ -1405,16 +1405,16 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     if (node.kind == NK_BINARY_EXPR) {
         Node? leftType = inferSpecializationType(node.left, a, varTypes);
         Node? rightType = inferSpecializationType(node.right, a, varTypes);
-        Node? overloaded = operatorOverloadReturnType(
+        Node? overloaded = OperatorSemantics.overloadReturnType(
             leftType, node.op, false, a);
         if (overloaded != null) { return overloaded; }
         /* Comparison/logical ops yield bool. Arithmetic follows the shared,
          * operand-order-independent numeric contract. */
         if (isComparisonOp(node.op)) { return makePrimType("bool"); }
-        Node? pointerType = operatorPointerArithmeticType(
+        Node? pointerType = OperatorSemantics.pointerArithmeticType(
             leftType, rightType, node.op, a);
         if (pointerType != null) { return pointerType; }
-        Node? numericType = numericResultType(leftType, rightType, a);
+        Node? numericType = NumericSemantics.resultType(leftType, rightType, a);
         if (numericType != null) { return numericType; }
         if (leftType != null) { return leftType; }
         return rightType;
@@ -1450,7 +1450,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 return typeWithoutOuterPointers(operandType, 1);
             }
         }
-        Node? overloaded = operatorOverloadReturnType(
+        Node? overloaded = OperatorSemantics.overloadReturnType(
             operandType, node.op, true, a);
         if (overloaded != null) { return overloaded; }
         return operandType;
@@ -1652,7 +1652,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             if (ot != null && method == "toString"
                     && ot.pointer_depth == 0 && !ot.is_array
                     && ot.generic_args.len == 0
-                    && (numericIsType(ot, a) || ot.base == "bool"
+                    && (NumericSemantics.isType(ot, a) || ot.base == "bool"
                         || a.isEnum(ot.base)
                         || a.isRichEnum(ot.base))) {
                 return makePrimType("string");
@@ -1721,12 +1721,12 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             node.true_expr, a, varTypes);
         Node? falseType = inferSpecializationType(
             node.false_expr, a, varTypes);
-        Node? numericType = numericResultType(trueType, falseType, a);
+        Node? numericType = NumericSemantics.resultType(trueType, falseType, a);
         if (numericType != null) { return numericType; }
-        if (semanticIsNullType(trueType) && falseType != null) {
+        if (OperatorSemantics.isNullType(trueType) && falseType != null) {
             return falseType;
         }
-        if (semanticIsNullType(falseType) && trueType != null) {
+        if (OperatorSemantics.isNullType(falseType) && trueType != null) {
             return trueType;
         }
         if (trueType != null) { return trueType; }

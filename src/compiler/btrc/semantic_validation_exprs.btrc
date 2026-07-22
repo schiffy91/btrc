@@ -10,7 +10,7 @@ bool semanticRawPointer(Node? typeExpr, Analyzed analyzed) {
 
 bool semanticHasBinaryOverload(
         Node leftType, string op, SemanticValidationState state) {
-    string magic = semanticBinaryOperatorMethod(op);
+    string magic = OperatorSemantics.binaryMethodName(op);
     if (magic == "") { return false; }
     Node? method = null;
     if (state.analyzed.isClass(leftType.base)) {
@@ -43,9 +43,9 @@ void semanticOperatorFailure(Node expression, Node left, Node right) {
 void semanticValidatePortableNumericMix(
         Node site, Node left, Node right, string context,
         SemanticValidationState state) {
-    if (numericIsType(left, state.analyzed)
-            && numericIsType(right, state.analyzed)
-            && !numericIntegerMixIsPortable(left, right)) {
+    if (NumericSemantics.isType(left, state.analyzed)
+            && NumericSemantics.isType(right, state.analyzed)
+            && !NumericSemantics.integerMixIsPortable(left, right)) {
         semanticValidationFail(context + " mixes ABI-dependent integer type '"
             + semanticFormatType(left) + "' with '"
             + semanticFormatType(right)
@@ -71,10 +71,10 @@ void semanticValidateBinary(Node expression, SemanticValidationState state,
     string op = expression.op;
     bool valid = false;
     if (op == "??") {
-        bool optionalScalar = semanticOptionalValueCoalesce(
+        bool optionalScalar = OperatorSemantics.isOptionalValueCoalesce(
             expression.left, left, right, state.analyzed);
         valid = optionalScalar
-            || (semanticIsReferenceType(left, state.analyzed)
+            || (OperatorSemantics.isReferenceType(left, state.analyzed)
                 && (semanticAssignmentCompatible(left, right, state)
                     || semanticAssignmentCompatible(right, left, state)));
     } else if (op == "&&" || op == "||") {
@@ -85,8 +85,8 @@ void semanticValidateBinary(Node expression, SemanticValidationState state,
         valid = semanticIntegralType(left, state.analyzed)
             && semanticIntegralType(right, state.analyzed);
     } else if (op == "+" || op == "-") {
-        valid = (numericIsType(left, state.analyzed)
-                && numericIsType(right, state.analyzed))
+        valid = (NumericSemantics.isType(left, state.analyzed)
+                && NumericSemantics.isType(right, state.analyzed))
             || (op == "+" && TypeComposition.isSemanticScalarString(left)
                 && TypeComposition.isSemanticScalarString(right))
             || (semanticRawPointer(left, state.analyzed)
@@ -95,14 +95,14 @@ void semanticValidateBinary(Node expression, SemanticValidationState state,
                 && semanticRawPointer(right, state.analyzed))
             || (op == "-" && semanticRawPointer(left, state.analyzed)
                 && semanticRawPointer(right, state.analyzed)
-                && semanticReferenceTypesCompatible(
+                && OperatorSemantics.referenceTypesCompatible(
                     left, right, state.analyzed));
     } else if (op == "*" || op == "/" || op == "%") {
-        valid = numericIsType(left, state.analyzed)
-            && numericIsType(right, state.analyzed)
+        valid = NumericSemantics.isType(left, state.analyzed)
+            && NumericSemantics.isType(right, state.analyzed)
             && left.base != "bool" && right.base != "bool";
-    } else if (semanticIsComparisonOperator(op)) {
-        valid = semanticComparisonDomain(
+    } else if (OperatorSemantics.isComparisonOperator(op)) {
+        valid = OperatorSemantics.comparisonDomain(
             op, left, right, state.analyzed) != OP_DOMAIN_INVALID;
     } else {
         return;
@@ -142,7 +142,7 @@ void semanticValidateUnary(Node expression, SemanticValidationState state,
         valid = operand.pointer_depth > 0 || operand.is_array;
     } else if (expression.op == "++" || expression.op == "--") {
         valid = semanticIsLvalue(expression.operand, state, vars)
-            && ((numericIsType(operand, state.analyzed)
+            && ((NumericSemantics.isType(operand, state.analyzed)
                     && operand.base != "bool")
                 || operand.pointer_depth > 0);
         if (valid) {
@@ -155,7 +155,7 @@ void semanticValidateUnary(Node expression, SemanticValidationState state,
                 expression.operand, state, vars, expression);
         }
     } else if (expression.op == "+" || expression.op == "-") {
-        valid = numericIsType(operand, state.analyzed)
+        valid = NumericSemantics.isType(operand, state.analyzed)
             && operand.base != "bool";
     } else if (expression.op == "~") {
         valid = semanticIntegralType(operand, state.analyzed);

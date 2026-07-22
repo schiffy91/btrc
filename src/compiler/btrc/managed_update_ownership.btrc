@@ -2,7 +2,7 @@
 
 bool irManagedCompoundKeepsRhs(
         IRGen generator, Node targetType, string op) {
-    string magic = semanticBinaryOperatorMethod(op);
+    string magic = OperatorSemantics.binaryMethodName(op);
     if (magic == "") { return false; }
     Node? method = null;
     if (generator.analyzed.isClass(targetType.base)) {

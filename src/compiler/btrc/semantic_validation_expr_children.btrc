@@ -243,9 +243,9 @@ void semanticValidateExprChildren(Node expression,
                 && callable != null) {
             Node typedCallable = callable;
             if (typedCallable.generic_args.len != 2
-                    || !semanticIsVoidPointer(
+                    || !OperatorSemantics.isVoidPointer(
                         typedCallable.generic_args.get(0))
-                    || !semanticIsVoidPointer(
+                    || !OperatorSemantics.isVoidPointer(
                         typedCallable.generic_args.get(1))) {
                 semanticValidationFail(
                     "Non-lambda spawn requires __fn_ptr<void*, void*>; use a "

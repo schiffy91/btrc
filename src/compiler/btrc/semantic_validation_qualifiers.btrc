@@ -46,7 +46,7 @@ Node? semanticQualifierOperatorResult(Node expression,
             semanticQualifierDeclaredType(
                 expression.operand, state, vars),
             state.analyzed.typedefTable);
-        return operatorOverloadReturnType(
+        return OperatorSemantics.overloadReturnType(
             receiver,
             expression.op, true, state.analyzed);
     }
@@ -55,7 +55,7 @@ Node? semanticQualifierOperatorResult(Node expression,
             semanticQualifierDeclaredType(
                 expression.left, state, vars),
             state.analyzed.typedefTable);
-        return operatorOverloadReturnType(
+        return OperatorSemantics.overloadReturnType(
             receiver,
             expression.op, false, state.analyzed);
     }

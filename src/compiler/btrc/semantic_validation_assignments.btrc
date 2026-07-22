@@ -127,15 +127,15 @@ void semanticValidateAssignment(Node expression,
     bool valid = false;
     if (op == "+" && TypeComposition.isSemanticScalarString(target)
             && (TypeComposition.isSemanticScalarString(source)
-                || semanticIsCStringPointer(source))) {
+                || OperatorSemantics.isCStringPointer(source))) {
         valid = true;
     } else if (op == "&" || op == "|" || op == "^"
             || op == "<<" || op == ">>") {
         valid = semanticIntegralType(target, state.analyzed)
             && semanticIntegralType(source, state.analyzed);
     } else {
-        valid = numericIsType(target, state.analyzed)
-            && numericIsType(source, state.analyzed)
+        valid = NumericSemantics.isType(target, state.analyzed)
+            && NumericSemantics.isType(source, state.analyzed)
             && target.base != "bool" && source.base != "bool";
     }
     if (!valid) { semanticOperatorFailure(expression, target, source); }

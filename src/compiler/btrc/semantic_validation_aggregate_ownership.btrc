@@ -164,7 +164,7 @@ bool semanticExpressionOwnsResult(Node? expression,
         if (expression.op == "+" && isStringType(result)) { return true; }
         Node? left = semanticInferType(expression.left, state, vars);
         if (left == null) { return false; }
-        string magic = semanticBinaryOperatorMethod(expression.op);
+        string magic = OperatorSemantics.binaryMethodName(expression.op);
         if (magic == "") { return false; }
         if (state.analyzed.isClass(left.base)) {
             return state.analyzed.classMethod(left.base, magic) != null;

@@ -36,7 +36,7 @@ bool semanticOpaqueRawCarrierType(Node? typeExpr,
     Node typeValue = canonical;
     if (typeValue.pointer_depth > 0) { return true; }
     return typeValue.base != "bool"
-        && numericIsType(typeValue, state.analyzed);
+        && NumericSemantics.isType(typeValue, state.analyzed);
 }
 
 bool semanticOpaqueProjectionCarrierType(Node? typeExpr,

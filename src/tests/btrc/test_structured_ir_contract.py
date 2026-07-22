@@ -1,5 +1,6 @@
 """White-box contracts for the self-hosted compiler's structured IR."""
 
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
@@ -197,11 +198,15 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     assert "import ../analyzer/stage.btrc;" in ir_stage
     assert '#include "../irgen.btrc"' in ir_stage
     assert "formatCIntegerLiteral(node.raw, node.value_int)" in generator
-    assert "integerLiteralType(node.raw)" in _source("analyzer.btrc")
-    assert "numericResultType" in numeric
-    assert "numericOperandsNeedCast" in numeric
-    assert "semanticReferenceTypesCompatible" in operators
-    assert "semanticSpecializationIsSubtype" in operators
+    assert "NumericSemantics.integerLiteralType(node.raw)" in _source("analyzer.btrc")
+    assert "class NumericSemantics {" in numeric
+    assert "class Node? resultType(" in numeric
+    assert "class bool operandsNeedCast(" in numeric
+    assert "class OperatorSemantics {" in operators
+    assert "class bool referenceTypesCompatible(" in operators
+    assert "class bool specializationIsSubtype(" in operators
+    assert "NumericSemantics.resultType(" in generator
+    assert "OperatorSemantics.comparisonDomain(" in generator
     assert "lowerStringComparisonValues" in generator
     assert 'freshTemp("__btrc_cmp_left")' in generator
     assert 'freshTemp("__btrc_cmp_right")' in generator
@@ -226,6 +231,20 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     for obsolete in ("__btrc_eq", "__btrc_lt", "__btrc_gt", "__btrc_hash"):
         assert f'if (name == "{obsolete}")' not in runtime
         assert f'order.push("{obsolete}")' not in runtime_registry
+
+
+def test_numeric_and_operator_behavior_has_domain_owners() -> None:
+    numeric = _source("numeric_semantics.btrc")
+    operators = _source("operator_semantics.btrc")
+    loose_behavior = re.compile(
+        r"^(?:bool|int|string|Node\??) [A-Za-z_][A-Za-z0-9_]*\(",
+        re.MULTILINE,
+    )
+
+    assert loose_behavior.search(numeric) is None
+    assert loose_behavior.search(operators) is None
+    assert numeric.count("class NumericSemantics {") == 1
+    assert operators.count("class OperatorSemantics {") == 1
 
 
 def test_destroyed_query_has_its_own_helper_node() -> None:

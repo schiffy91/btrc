@@ -149,13 +149,13 @@ int semanticStaticInitializerCategory(
         int operand = semanticStaticInitializerCategory(
             expression.expr, state);
         if (target == null || operand == SC_INVALID) { return SC_INVALID; }
-        if (semanticIsReferenceType(target, state.analyzed)) {
+        if (OperatorSemantics.isReferenceType(target, state.analyzed)) {
             if (operand == SC_INTEGER || operand == SC_ADDRESS) {
                 return SC_ADDRESS;
             }
             return SC_INVALID;
         }
-        if (numericIsType(target, state.analyzed)
+        if (NumericSemantics.isType(target, state.analyzed)
                 && (operand == SC_INTEGER || operand == SC_ARITHMETIC)) {
             if (semanticIntegralType(target, state.analyzed)) {
                 return SC_INTEGER;

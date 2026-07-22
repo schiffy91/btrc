@@ -26,7 +26,7 @@ void semanticValidatePointerIntegerCast(Node expression,
         return;
     }
     if (scalar.pointer_depth == 0 && !scalar.is_array
-            && numericIsType(scalar, state.analyzed)) {
+            && NumericSemantics.isType(scalar, state.analyzed)) {
         semanticValidationFail(
             "Pointer/integer casts require intptr_t or uintptr_t",
             expression);

@@ -165,8 +165,8 @@ bool semanticTypeContainsParams(
 }
 
 bool semanticIntegralType(Node? typeExpr, Analyzed analyzed) {
-    return typeExpr != null && numericIsType(typeExpr, analyzed)
-        && !numericIsFloating(typeExpr);
+    return typeExpr != null && NumericSemantics.isType(typeExpr, analyzed)
+        && !NumericSemantics.isFloating(typeExpr);
 }
 
 bool semanticBoolType(Node? typeExpr) {

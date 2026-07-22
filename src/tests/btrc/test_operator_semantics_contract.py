@@ -11,8 +11,6 @@ import pytest
 from src.tests.btrc.test_type_identity_contract import (
     CC,
     REPO,
-    SELFHOST,
-    _build_driver,
     _run,
 )
 
@@ -21,13 +19,8 @@ COMPILER_ENV = {**os.environ, "BTRC_HOME": str(REPO / "src")}
 
 
 @pytest.fixture(scope="module")
-def operator_compiler(tmp_path_factory) -> Path:
-    output = tmp_path_factory.mktemp("selfhost-operator-compiler")
-    return _build_driver(
-        SELFHOST / "btrcc_main.btrc",
-        output / "btrcc",
-        output / "cache",
-    )
+def operator_compiler(semantic_btrcc: Path) -> Path:
+    return semantic_btrcc
 
 
 INVALID_OPERATORS = (

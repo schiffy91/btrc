@@ -3,8 +3,8 @@
 bool semanticScalarConditionType(
         Node? typeExpr, SemanticValidationState state) {
     if (typeExpr == null) { return false; }
-    return numericIsType(typeExpr, state.analyzed)
-        || semanticIsReferenceType(typeExpr, state.analyzed);
+    return NumericSemantics.isType(typeExpr, state.analyzed)
+        || OperatorSemantics.isReferenceType(typeExpr, state.analyzed);
 }
 
 bool semanticThreadCopySource(Node value) {

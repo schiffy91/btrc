@@ -36,6 +36,7 @@ def _compile_source(
     source: str,
     *,
     no_stdlib: bool = True,
+    no_dce: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     program = tmp_path / "program.btrc"
     generated = tmp_path / "program.c"
@@ -43,6 +44,8 @@ def _compile_source(
     command = [str(compiler)]
     if no_stdlib:
         command.append("--no-stdlib")
+    if no_dce:
+        command.append("--no-dce")
     command.append(str(program))
     result = _run(command, timeout=120 if not no_stdlib else 30)
     if result.returncode == 0:
@@ -53,21 +56,25 @@ def _compile_source(
 def _compile_reference_source(
     tmp_path: Path,
     source: str,
+    *,
+    no_dce: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     program = tmp_path / "reference.btrc"
     generated = tmp_path / "reference.c"
     program.write_text(source)
+    command = [
+        "python3",
+        "-m",
+        "src.compiler.python.main",
+        str(program),
+        "--no-stdlib",
+        "--no-cache",
+    ]
+    if no_dce:
+        command.append("--no-dce")
+    command.extend(["-o", str(generated)])
     result = _run(
-        [
-            "python3",
-            "-m",
-            "src.compiler.python.main",
-            str(program),
-            "--no-stdlib",
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
+        command,
         env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "reference-cache")},
         timeout=120,
     )
@@ -445,8 +452,6 @@ def test_semantic_stage_precedes_structured_ir_lowering() -> None:
     analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
     ir_stage = (SELFHOST / "ir/stage.btrc").read_text()
 
-    assert pipeline.index("semanticValidateProgram(program, analyzed)") < pipeline.index(
-        "IRGen lowerer = IRGen("
-    )
+    assert pipeline.index("semanticValidateProgram(program, analyzed)") < pipeline.index("IRGen lowerer = IRGen(")
     assert '#include "../semantic_validation_decls.btrc"' in analyzer_stage
     assert "import ../analyzer/stage.btrc;" in ir_stage
