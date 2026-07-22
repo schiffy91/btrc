@@ -125,8 +125,9 @@ F. **IR hygiene**: `_fn_ptr_typedefs` module-global onto the generator (CMP-18,
    cross-compile leak); mangling includes pointer depth (CMP-19,
    `Vector<int*>` vs `Vector<int>` collide today); consolidate the three
    IR→C-text renderers and shrink the 13 files emitting raw C outside the
-   emitter (CMP-20) — incremental, file-by-file, alongside the >300-line
-   decomposition (13 violations listed in CMP-(b)).
+   emitter (CMP-20) — incremental, ownership-by-ownership, consolidating or
+   decomposing modules only where responsibilities and dependency direction
+   justify a boundary.
 
 G. **Single source of truth sweep**: builtin names (`print`/`len`/…) stop
    shadowing user functions (CMP-22 — builtin check precedes function-table

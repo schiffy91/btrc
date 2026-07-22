@@ -200,10 +200,14 @@ src/compiler/python/
     primary.py                   atoms: literals, new, sizeof, cast, fstring
     lambdas.py                   verbose + arrow lambda parsing
 
-  analyzer/                      semantic analysis (mixin-based)
-    analyzer.py                  assembles Analyzer from mixins
-    core.py                      data structures (ClassInfo, Scope, SymbolInfo)
-    registration.py              pass 1: register declarations
+  analyzer/                      semantic analysis (composition migration)
+    semantic_analyzer.py         durable SemanticAnalyzer composition root
+    core.py                      remaining orchestration + analysis context
+    core_models.py               semantic result, declaration, and symbol models
+    declarations/                owned pass-one declaration registration
+      registry.py                declaration indexes + registration cascade
+      top_level.py               values, structs, enums, and source macros
+      inheritance.py             dependency-ordered class metadata inheritance
     statements.py                statement analysis
     expressions.py               expression analysis + type inference
     type_inference.py            var type deduction

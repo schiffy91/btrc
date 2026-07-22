@@ -110,10 +110,13 @@ src/compiler/python/
   lexer/
   parser/
   analyzer/
-    analyzer.py               SemanticAnalyzer composition root
+    semantic_analyzer.py      SemanticAnalyzer composition root
     context.py
     model.py
     declarations/
+      registry.py             declaration indexes + registration cascade
+      top_level.py            values, structs, enums, and source macros
+      inheritance.py          class metadata inheritance
     types/
     expressions/
     statements/
