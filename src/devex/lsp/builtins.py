@@ -311,6 +311,7 @@ STDLIB_STATIC_METHODS: dict[str, list[BuiltinMember]] = {
         BuiltinMember("safeLogPath", "bool", "method", [("string", "path")], "safeLogPath"),
     ],
     "DaemonControlProtocol": [
+        BuiltinMember("pauseBeforeRetry", "bool", "method", [("long long", "deadline")], "pauseBeforeRetry"),
         BuiltinMember("randomToken", "string", "method", [], "randomToken"),
         BuiltinMember("record", "DaemonControlRecord", "method", [("string", "pidFile")], "record"),
         BuiltinMember("probe", "bool", "method", [("string", "pidFile"), ("DaemonControlRecord", "record"), ("int", "timeoutMilliseconds")], "probe"),
