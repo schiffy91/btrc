@@ -1,6 +1,8 @@
 /* Set collision + resize correctness: after growing well past the 75% load
  * factor, EVERY inserted key must still resolve (rehash / % cap math is a
  * prime self-host divergence point). Then a remove + backward-shift check. */
+import std.set;
+
 #include <assert.h>
 #include <stdio.h>
 

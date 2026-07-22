@@ -2,6 +2,8 @@
  * Vector<Animal> with Dog/Cat pushed in. Iterating and calling speak()
  * dispatches STATICALLY to the element's declared type (Animal), so every
  * element yields the base "..." regardless of the runtime subclass. */
+import std.vector;
+
 #include <assert.h>
 
 class Animal {

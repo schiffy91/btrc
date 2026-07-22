@@ -3,6 +3,11 @@
  * List of objects, scope-exit, early-return, nested collections, and aliasing
  * (which must NOT double-free).
  */
+import std.list;
+import std.map;
+import std.set;
+import std.vector;
+
 #include <assert.h>
 
 int live = 0;

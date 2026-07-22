@@ -1,4 +1,6 @@
 /* Canonical pretty JSON: exact layout, insertion order, and escaping. */
+import std.json;
+
 #include <assert.h>
 
 int main() {

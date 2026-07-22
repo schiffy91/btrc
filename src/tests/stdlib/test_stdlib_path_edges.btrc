@@ -1,6 +1,8 @@
 /* PathTools.basename / dirname edge cases: trailing slashes, root, empty string,
  * and a relative no-slash path. These hit the loops that strip trailing '/' and
  * scan backward for the last separator. */
+import std.fs;
+
 #include <assert.h>
 
 int main() {

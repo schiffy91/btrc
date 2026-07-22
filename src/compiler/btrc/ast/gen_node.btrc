@@ -1,4 +1,9 @@
-import std.*;
+import std.bytes;
+import std.fs;
+import std.io;
+import std.map;
+import std.strings;
+import std.vector;
 
 #include "asdl.btrc"
 #include "../frontend_source_io.btrc"
@@ -379,6 +384,9 @@ int main() {
     L.push(" * DO NOT EDIT BY HAND. btrc lacks dynamic dispatch/downcast, so the AST");
     L.push(" * is one Node with a `kind` tag + the union of all fields.");
     L.push(" */");
+    L.push("");
+    L.push("import std.strings;");
+    L.push("import std.vector;");
     L.push("");
 
     // NodeKind enum

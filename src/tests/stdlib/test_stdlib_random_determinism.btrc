@@ -1,6 +1,9 @@
 /* Random determinism: re-seeding with the same value reproduces the sequence.
  * Each Random owns an independent PCG stream, and seed() sets the seeded gate
  * so the first generated value skips seedTime(). */
+import std.random;
+import std.vector;
+
 #include <assert.h>
 #include "../../stdlib/random.btrc"
 

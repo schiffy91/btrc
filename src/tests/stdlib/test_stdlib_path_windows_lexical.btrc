@@ -1,4 +1,7 @@
 /* Windows path rules are pure and therefore testable on every host. */
+import std.fs;
+import std.platform;
+
 #include "../../compiler/btrc/frontend_paths.btrc"
 int main() {
     if (Platform.isWindows()) {

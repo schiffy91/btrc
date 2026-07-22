@@ -1,5 +1,8 @@
 /* Math float counterparts: fsum(Vector<float>), fclamp(val,lo,hi), fsign(x),
  * plus the empty / single-element Vector boundary for fsum and sum. */
+import std.math;
+import std.vector;
+
 #include <assert.h>
 #include "../../stdlib/math.btrc"
 

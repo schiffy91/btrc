@@ -1,5 +1,7 @@
 /* Shared literal contracts for source spellings emitted as strict C11. */
 
+import std.strings;
+
 bool lexerIsHexDigit(char value) {
     return Strings.isDigit(value)
         || (value >= 'a' && value <= 'f')

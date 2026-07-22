@@ -1,6 +1,8 @@
 /* Map.getOrDefault on a MISSING key returns the fallback (vs the stored value
  * for a present key). putIfAbsent must NOT overwrite an existing key but DOES
  * insert a new one. The miss / no-op paths were not explicitly asserted. */
+import std.map;
+
 #include <assert.h>
 #include <stdio.h>
 

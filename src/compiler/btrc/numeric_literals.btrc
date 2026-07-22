@@ -4,6 +4,8 @@
  * signed host int.  Literal magnitudes are accumulated in unsigned long long,
  * then checked against the exact C11 candidate list for their radix/suffix. */
 
+#include <float.h>
+
 class IntegerLiteralInfo {
     public bool valid;
     public unsigned long long magnitude;

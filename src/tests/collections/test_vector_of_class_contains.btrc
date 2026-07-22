@@ -1,6 +1,8 @@
 /* Vector<Class>.contains / indexOf use reference (__btrc_eq) semantics on
  * class instances. A pushed instance is found by identity; a distinct,
  * never-pushed instance is not (indexOf == -1). */
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

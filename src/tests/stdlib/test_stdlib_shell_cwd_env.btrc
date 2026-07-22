@@ -1,6 +1,9 @@
 /* UnixShell.run with cwd= (cd prefix) and env= (NAME=value prefix) rendering,
  * plus a multi-KB stdin round-trip through the temp-file mechanism and a
  * simultaneous stderr=collect capture. Hermetic: cwd is /tmp, no network. */
+import std.process;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

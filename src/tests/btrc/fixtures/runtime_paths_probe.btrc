@@ -1,3 +1,5 @@
+import std.strings;
+
 #include "../../../compiler/btrc/runtime_paths.btrc"
 
 int main(int argc, char** argv) {

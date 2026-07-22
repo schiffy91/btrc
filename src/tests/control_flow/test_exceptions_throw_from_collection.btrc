@@ -2,6 +2,8 @@
  * (msgs[i]) and an object field (obj.message). These involve a heap read to
  * produce the thrown value, exercising temp lifetime on the throw path. The
  * corpus only throws literals and simple variables. */
+import std.vector;
+
 #include <assert.h>
 
 class Box {

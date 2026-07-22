@@ -1,3 +1,5 @@
+import std.map;
+
 #include <stdio.h>
 class Store {
     public Map<string, int> inventory = {};

@@ -5,6 +5,8 @@
  * literals never leak a partial token stream to later compiler stages.
  */
 
+import std.strings;
+
 void lexerReadNumber(Lexer lex) {
     int line = lex.line;
     int col = lex.col;

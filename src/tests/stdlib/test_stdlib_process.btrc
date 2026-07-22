@@ -1,4 +1,8 @@
 /* ExecResult.trimmed() + UnixShell.run() — the run-and-trim idiom. */
+import std.platform;
+import std.process;
+import std.vector;
+
 #include <assert.h>
 
 string rendered(Command command) {

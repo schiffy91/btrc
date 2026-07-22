@@ -1,4 +1,7 @@
 // Test Set<T> data structure
+import std.set;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

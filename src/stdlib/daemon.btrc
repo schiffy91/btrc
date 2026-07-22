@@ -3,6 +3,7 @@
  * managers can consume DaemonSpec without changing app code.
  */
 
+import std.fs;
 import std.daemon_control;
 import std.daemon_control_files;
 import std.daemon_control_protocol;

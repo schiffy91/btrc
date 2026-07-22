@@ -1,6 +1,8 @@
 /* A nested owned collection (Vector<Vector<Obj>>) released via an EARLY RETURN.
  * Both the outer and inner collections, and all elements, must be released
  * exactly once on the early-exit path. */
+import std.vector;
+
 #include <assert.h>
 
 int alive = 0;

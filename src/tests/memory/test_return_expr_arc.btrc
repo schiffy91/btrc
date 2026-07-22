@@ -2,6 +2,8 @@
 // managed object must evaluate BEFORE the scope's ARC release. Previously the
 // local was released first, freeing the object the return expression then used
 // (use-after-free), e.g. `return builder.build();`.
+import std.vector;
+
 #include <assert.h>
 
 class Builder {

@@ -1,6 +1,8 @@
 // Vector.map driven by arrow lambdas, including a map(...).map(...) chain
 // where one collection result feeds directly into the next map call.
 // (Existing map tests use only verbose-function / named-function forms.)
+import std.vector;
+
 #include <assert.h>
 
 int main() {

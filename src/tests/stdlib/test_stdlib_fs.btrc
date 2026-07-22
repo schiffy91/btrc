@@ -1,5 +1,7 @@
 /* Filesystem: PathTools path math + a real temp-dir write/read/exists/cleanup
  * round-trip through the FileSystem facade. */
+import std.fs;
+
 #include <assert.h>
 #include <string.h>
 

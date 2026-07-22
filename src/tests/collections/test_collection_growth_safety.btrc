@@ -1,4 +1,7 @@
 /* Collection growth must preserve ownership and terminate for self-extension. */
+import std.list;
+import std.vector;
+
 #include <assert.h>
 
 int liveItems = 0;

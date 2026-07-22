@@ -1,5 +1,7 @@
 /* Comparator-driven sorting: Vector.sortBy / sortedBy.
  * less(a, b) returns true when a should come before b. */
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

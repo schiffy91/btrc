@@ -1,4 +1,6 @@
 // Test for-in loops over collections with break and continue
+import std.vector;
+
 #include <assert.h>
 
 int main() {

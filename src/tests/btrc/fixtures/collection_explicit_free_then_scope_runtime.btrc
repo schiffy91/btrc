@@ -1,3 +1,9 @@
+import std.array;
+import std.list;
+import std.map;
+import std.set;
+import std.vector;
+
 int liveCollectionItems = 0;
 int destroyedCollectionItems = 0;
 

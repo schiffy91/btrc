@@ -1,4 +1,5 @@
 /* Binary PPM P6 round-trips, comments/CRLF, and adversarial header bounds. */
+import std.bytes;
 import std.image;
 import std.fs;
 

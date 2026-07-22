@@ -1,6 +1,8 @@
 /* Vector boundary results that return values rather than aborting:
  * indexOf miss returns -1, slice past the end yields an empty vector, an
  * empty vector reports size 0 / isEmpty, and take/drop clamp to bounds. */
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

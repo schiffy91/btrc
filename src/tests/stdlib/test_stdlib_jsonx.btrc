@@ -1,6 +1,9 @@
 /* The deprecated Json (jsonx) string-scan extractors: esc / str escaping,
  * getString on a present vs non-string value, getStringFrom with an offset, and
  * getStringAfter when the anchor is missing (returns ""). */
+import std.jsonx;
+import std.strings;
+
 #include <assert.h>
 
 int main() {

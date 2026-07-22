@@ -3,6 +3,8 @@
  * called directly with an explicit pointer + count. toStringLossy returns the
  * full-length view (NUL terminator appended once at the end), distinct from
  * toString which stops at the first embedded NUL. */
+import std.bytes;
+
 #include <assert.h>
 
 int main() {

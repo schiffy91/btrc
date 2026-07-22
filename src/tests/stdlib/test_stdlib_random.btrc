@@ -1,4 +1,7 @@
 /* Test stdlib random: Random class */
+import std.random;
+import std.vector;
+
 #include <assert.h>
 #include "../../stdlib/random.btrc"
 

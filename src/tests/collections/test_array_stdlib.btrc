@@ -1,5 +1,7 @@
 /* Test Array<T> stdlib */
 
+import std.array;
+
 int main() {
     // Create and fill
     Array<int> a = new Array<int>(5);

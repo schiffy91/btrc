@@ -2,6 +2,10 @@
  * blob containing embedded NUL bytes round-trips byte-exactly through
  * writeBytes / readBytes, exercising the multi-chunk fread loop and the Bytes
  * realloc growth path. Hermetic: one temp file, removed at the end. */
+import std.bytes;
+import std.fs;
+import std.io;
+
 #include <assert.h>
 
 int main() {

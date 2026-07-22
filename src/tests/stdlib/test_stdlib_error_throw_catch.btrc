@@ -2,6 +2,8 @@
  * carries a string, so an Error object's message (toString()) can be thrown and
  * caught as `string`. Also verifies the structured .code routing survives the
  * round trip via a side object. */
+import std.error;
+
 #include <assert.h>
 
 int main() {

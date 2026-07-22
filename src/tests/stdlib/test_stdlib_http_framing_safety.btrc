@@ -1,4 +1,11 @@
 /* Hermetic HTTP/1.1 framing, validation, and binary-body regressions. */
+import std.bytes;
+import std.http_client;
+import std.http_server;
+import std.http_types;
+import std.strings;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

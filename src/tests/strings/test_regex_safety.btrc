@@ -1,5 +1,7 @@
 /* Regex bounds and output growth: invalid slices are harmless, large literal
  * replacements grow safely, and zero-width substitutions always progress. */
+import std.regex;
+
 #include <assert.h>
 
 int main() {

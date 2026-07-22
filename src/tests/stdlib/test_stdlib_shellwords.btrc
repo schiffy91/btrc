@@ -5,6 +5,8 @@
  *   - envAssignment splits NAME=value and quotes the value;
  *   - envAssignment throws on a missing '=' or a bad variable name;
  *   - redact replaces a sensitive substring. */
+import std.process;
+
 #include <assert.h>
 
 int main() {

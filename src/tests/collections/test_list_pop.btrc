@@ -1,4 +1,6 @@
 // Test List.pop() and string List operations
+import std.vector;
+
 #include <assert.h>
 
 int main() {

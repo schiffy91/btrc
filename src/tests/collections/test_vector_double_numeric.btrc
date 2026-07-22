@@ -2,6 +2,8 @@
  * double/long comparison and arithmetic codegen differs from int (only
  * Vector<float> indexOf was tested elsewhere). Built via push() so the
  * element type is explicit. */
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

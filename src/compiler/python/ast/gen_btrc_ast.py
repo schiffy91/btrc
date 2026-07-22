@@ -139,6 +139,9 @@ def generate(module) -> str:
         " * is one Node with a `kind` tag + the union of all fields.",
         " */",
         "",
+        "import std.strings;",
+        "import std.vector;",
+        "",
     ]
     B._emit_node_kind_enum(module, L)
     B._emit_simple_enums(module, L)

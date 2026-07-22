@@ -1,6 +1,8 @@
 /* JsonValue and legacy JsonText safety boundaries: malformed control bytes,
  * recursion limits, numeric overflow, defined int conversion, and full escape
  * decoding through the shared JSON string parser. */
+import std.json;
+
 #include <assert.h>
 #include <string.h>
 

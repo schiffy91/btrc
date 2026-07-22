@@ -5,6 +5,11 @@
  * identities resolve symlinks and Windows case/separator aliases.  The pure
  * `For` helpers also make Windows semantics testable on non-Windows hosts. */
 
+import std.fs;
+import std.platform;
+import std.strings;
+import std.vector;
+
 bool fePathIsSeparatorFor(char value, bool windows) {
     return value == '/' || (windows && value == '\\');
 }

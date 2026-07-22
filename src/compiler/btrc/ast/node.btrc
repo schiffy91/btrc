@@ -5,6 +5,9 @@
  * is one Node with a `kind` tag + the union of all fields.
  */
 
+import std.strings;
+import std.vector;
+
 enum NodeKind {
     NK_NONE = 0,
     NK_PROGRAM,

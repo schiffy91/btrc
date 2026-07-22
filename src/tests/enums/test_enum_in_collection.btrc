@@ -1,3 +1,5 @@
+import std.vector;
+
 #include <assert.h>
 
 // Simple (int-backed) enum used as a collection element type.

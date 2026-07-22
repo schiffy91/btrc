@@ -1,5 +1,7 @@
 /* Math rounding methods: ceil/floor return float; round/truncate cast a
  * libc double result to int ((int)round(x), (int)trunc(x)). */
+import std.math;
+
 #include <assert.h>
 #include "../../stdlib/math.btrc"
 

@@ -1,4 +1,6 @@
 /* Vector<T> owns class elements it stores. */
+import std.vector;
+
 #include <assert.h>
 
 int live_items = 0;

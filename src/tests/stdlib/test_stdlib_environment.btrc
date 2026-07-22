@@ -1,6 +1,8 @@
 /* Environment.has(name) and Environment.get fallback semantics: a set-but-EMPTY
  * variable is treated as absent (both has() and get() fall back). Uses setenv to
  * stay hermetic — no dependence on the ambient environment. */
+import std.platform;
+
 #include <assert.h>
 #include <stdlib.h>
 

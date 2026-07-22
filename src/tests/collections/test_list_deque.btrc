@@ -1,6 +1,8 @@
 /* Linked List<T> deque API: pushFront / pushBack / popFront / popBack /
  * front / back. These exercise the head/tail pointer juggling that a
  * self-hosted port is most likely to get wrong. */
+import std.list;
+
 #include <assert.h>
 #include <stdio.h>
 

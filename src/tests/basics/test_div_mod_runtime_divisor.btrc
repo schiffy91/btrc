@@ -1,6 +1,8 @@
 // Division and modulo with a NON-constant (runtime) divisor route through
 // the safe int div/mod helpers. Exercises that path for positive and
 // negative runtime divisors with C truncation/sign semantics intact.
+import std.vector;
+
 #include <assert.h>
 
 int main() {

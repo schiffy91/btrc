@@ -3,6 +3,10 @@
  *
  * These are the deterministic, socket-free helpers. Local socket framing and
  * short-write coverage lives in test_stdlib_http_socket_io.btrc. */
+import std.http_server;
+import std.http_types;
+import std.map;
+
 #include <assert.h>
 
 int main() {

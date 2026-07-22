@@ -4,8 +4,6 @@
  * import this manifest, preserving a directed stage dependency graph.
  */
 
-import std.*;
-
 #include "../tokens.btrc"
 #include "../ast/node.btrc"
 #include "../type_shapes.btrc"

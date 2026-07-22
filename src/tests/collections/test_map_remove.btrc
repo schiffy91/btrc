@@ -1,3 +1,5 @@
+import std.map;
+
 #include <stdio.h>
 int main() {
     Map<string, int> m = {"alice": 30, "bob": 25, "carol": 35};

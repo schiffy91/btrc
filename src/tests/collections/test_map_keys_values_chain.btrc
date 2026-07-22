@@ -1,6 +1,9 @@
 /* The Vector returned by Map.keys() / Map.values() is a first-class Vector
  * usable with the full Vector API. Hash-map iteration order is unspecified,
  * so we sort the keys before asserting order. */
+import std.map;
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

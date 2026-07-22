@@ -1,6 +1,10 @@
 // Collection-heavy: exercises monomorphized List/Map/Set over several element
 // types, plus the functional helpers (map/filter/reduce). Stresses generic
 // instantiation in IR gen and keeps a realistic subset of stdlib reachable.
+import std.list;
+import std.map;
+import std.set;
+
 int main() {
     List<int> xs = [1, 2, 3, 4, 5];
     xs.push(6);

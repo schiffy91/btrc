@@ -2,6 +2,8 @@
  * continue, and normal iteration end). Each iteration builds a fresh
  * Vector<Obj>; break/continue must still release the collection and its
  * elements. */
+import std.vector;
+
 #include <assert.h>
 
 int alive = 0;

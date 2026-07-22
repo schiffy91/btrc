@@ -50,6 +50,20 @@ def _selfhost(compiler: Path, program: Path, *flags: str):
 
 
 @pytest.mark.parametrize("flags", ((), ("--strict-imports",)), ids=("default", "explicit"))
+def test_real_corpus_source_compiles_in_both_strict_modes(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    flags: tuple[str, ...],
+) -> None:
+    program = REPO / "src/tests/collections/test_vector_bool.btrc"
+    selfhost = _selfhost(semantic_btrcc, program, *flags)
+    reference = _reference(program, tmp_path / "reference.c", *flags)
+
+    assert selfhost.returncode == 0 and selfhost.stdout.strip(), selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+
+
+@pytest.mark.parametrize("flags", ((), ("--strict-imports",)), ids=("default", "explicit"))
 @pytest.mark.parametrize(
     ("owner_source", "consumer_source", "symbol"),
     (
@@ -178,11 +192,7 @@ def test_implicit_and_lexical_bindings_have_frontend_parity(
     (tmp_path / "owner.btrc").write_text(owner_source)
     (tmp_path / "consumer.btrc").write_text(consumer_source)
     program = tmp_path / "program.btrc"
-    program.write_text(
-        "import ./owner.btrc;\n"
-        "import ./consumer.btrc;\n"
-        "int main() { return 0; }\n"
-    )
+    program.write_text("import ./owner.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
 
     selfhost = _selfhost(semantic_btrcc, program)
     reference = _reference(program, tmp_path / "reference.c")
@@ -230,11 +240,7 @@ def test_lexical_scope_visibility_diagnostics_are_exactly_equal(
     (tmp_path / "owner.btrc").write_text(owner_source)
     (tmp_path / "consumer.btrc").write_text(consumer_source)
     program = tmp_path / "program.btrc"
-    program.write_text(
-        "import ./owner.btrc;\n"
-        "import ./consumer.btrc;\n"
-        "int main() { return 0; }\n"
-    )
+    program.write_text("import ./owner.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
 
     selfhost = _selfhost(semantic_btrcc, program, *flags)
     reference = _reference(program, tmp_path / "reference.c", *flags)
@@ -254,16 +260,9 @@ def test_macro_replacement_dependency_diagnostics_are_exactly_equal(
 ) -> None:
     (tmp_path / "owner.btrc").write_text("int shared = 42;\n")
     (tmp_path / "macros.btrc").write_text("#define READ_SHARED() shared\n")
-    (tmp_path / "consumer.btrc").write_text(
-        "import ./macros.btrc;\n"
-        "int readShared() { return READ_SHARED(); }\n"
-    )
+    (tmp_path / "consumer.btrc").write_text("import ./macros.btrc;\nint readShared() { return READ_SHARED(); }\n")
     program = tmp_path / "program.btrc"
-    program.write_text(
-        "import ./owner.btrc;\n"
-        "import ./consumer.btrc;\n"
-        "int main() { return 0; }\n"
-    )
+    program.write_text("import ./owner.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
 
     selfhost = _selfhost(semantic_btrcc, program, *flags)
     reference = _reference(program, tmp_path / "reference.c", *flags)

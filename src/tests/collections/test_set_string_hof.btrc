@@ -3,6 +3,8 @@
  * monomorphization, so the string instantiation — which exercises the
  * strcmp-based __btrc_eq path inside the lowered loops — is never compiled
  * or run by any existing test. */
+import std.set;
+
 #include <assert.h>
 #include <stdio.h>
 

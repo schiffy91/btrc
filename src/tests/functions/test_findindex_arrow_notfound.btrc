@@ -1,5 +1,7 @@
 // Vector.findIndex with arrow-lambda predicates: a not-found result (-1)
 // and a found result returning the correct index.
+import std.vector;
+
 #include <assert.h>
 
 int main() {

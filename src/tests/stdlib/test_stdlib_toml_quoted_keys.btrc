@@ -1,5 +1,7 @@
 /* Assignment delimiters inside quoted TOML keys are data, not the key/value
  * separator. Basic-string escapes are decoded consistently with JSON escapes. */
+import std.toml;
+
 #include <assert.h>
 
 int main() {

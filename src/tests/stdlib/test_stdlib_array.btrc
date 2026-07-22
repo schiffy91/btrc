@@ -1,5 +1,7 @@
 /* Array<T>: fixed-size array — get/set/fill/contains/indexOf/swap/reverse and
  * for-in via the Iterable protocol. */
+import std.array;
+
 #include <assert.h>
 
 int main() {

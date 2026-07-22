@@ -5,6 +5,9 @@
 // generic_args[0] -> key var, generic_args[1] -> value var; IR gen emits the
 // {mangled}_iterValueAt call for the second loop variable) is otherwise
 // untested. Also exercises break and continue over that path.
+import std.iterable;
+import std.vector;
+
 #include <assert.h>
 
 class Pairs<K, V> implements Iterable {

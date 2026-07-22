@@ -1,5 +1,7 @@
 /* Vector.fill() over an already-populated vector overwrites every slot;
  * verify every element afterward. Then swap() boundary (first <-> last). */
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

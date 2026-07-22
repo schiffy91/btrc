@@ -1,5 +1,7 @@
 /* Non-mutating TypeExpr shape copies shared by semantic transformations. */
 
+import std.vector;
+
 bool typeIntrinsicReferenceShape(Node typeExpr) {
     return typeExpr.base == "Array" || typeExpr.base == "List"
         || typeExpr.base == "Map" || typeExpr.base == "Mutex"

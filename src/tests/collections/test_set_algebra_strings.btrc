@@ -2,6 +2,8 @@
  * isSubsetOf/isSupersetOf on string elements. Every set-algebra test in the
  * corpus uses Set<int>; string elements exercise the strcmp/hash-of-bytes
  * comparison path that no test currently covers. */
+import std.set;
+
 #include <assert.h>
 #include <stdio.h>
 

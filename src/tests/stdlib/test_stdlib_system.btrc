@@ -1,3 +1,14 @@
+import std.cli;
+import std.daemon;
+import std.fs;
+import std.json;
+import std.pattern;
+import std.platform;
+import std.process;
+import std.strings;
+import std.ui;
+import std.vector;
+
 int main(int argc, char** argv) {
     assert(Platform.isUnix());
     assert(!Platform.isWindows());

@@ -1,4 +1,6 @@
 /* Date/time values fail closed before C narrowing or floating/integer UB. */
+import std.datetime;
+
 #include <assert.h>
 #include <float.h>
 #include <limits.h>

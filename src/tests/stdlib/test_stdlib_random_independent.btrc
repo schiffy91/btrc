@@ -1,5 +1,7 @@
 /* Random instances own their streams, and randint handles the full signed-int
  * domain without overflowing its inclusive span calculation. */
+import std.random;
+
 #include <assert.h>
 #include "../../stdlib/random.btrc"
 

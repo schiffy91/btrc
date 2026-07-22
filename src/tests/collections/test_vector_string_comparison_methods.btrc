@@ -3,6 +3,8 @@
  * __btrc_lt path, which differs from the primitive path. sort()/contains()/
  * indexOf()/min()/max() are covered for strings elsewhere, but these four
  * methods are only tested on Vector<int>. */
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

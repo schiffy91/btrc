@@ -1,3 +1,5 @@
+import std.vector;
+
 #include <stdio.h>
 class Bag {
     public Vector<int> items = [];

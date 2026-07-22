@@ -1,4 +1,6 @@
 /* Test stdlib datetime: DateTime, Timer */
+import std.datetime;
+
 #include <assert.h>
 #include "../../stdlib/datetime.btrc"
 

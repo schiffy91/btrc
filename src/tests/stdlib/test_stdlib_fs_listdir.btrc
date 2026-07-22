@@ -2,6 +2,9 @@
  * Directory class is tested directly elsewhere, but the FileSystem.listDir entry
  * point most callers use is never invoked. Hermetic: a fresh temp dir with two
  * known files, removed at the end. ('.' and '..' are filtered by entries().) */
+import std.fs;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

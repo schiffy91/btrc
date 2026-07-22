@@ -1,5 +1,7 @@
 /* sortBy must be a STABLE sort: elements with equal sort keys keep their
  * original relative order. sortedBy is non-mutating. */
+import std.vector;
+
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>

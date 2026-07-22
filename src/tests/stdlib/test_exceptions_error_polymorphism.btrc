@@ -3,6 +3,9 @@
  * inherited toString() in a loop. test_stdlib_error only does flat field access on
  * individually-typed locals; it never stores subclasses in a collection nor
  * dispatches over them. */
+import std.error;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

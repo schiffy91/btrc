@@ -1,6 +1,8 @@
 /* Map subscript syntax: read m[k], write m[k] = v (insert + overwrite).
  * Existing Map tests only use .put / .get; the subscript lowering for Map
  * is a distinct code path. */
+import std.map;
+
 #include <assert.h>
 #include <stdio.h>
 

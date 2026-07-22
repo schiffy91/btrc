@@ -1,3 +1,5 @@
+import std.vector;
+
 #include <assert.h>
 
 int nodeAlive = 0;

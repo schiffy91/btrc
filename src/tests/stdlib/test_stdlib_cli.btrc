@@ -1,4 +1,6 @@
 /* CliArgs flag/command/value lookup, CliCommand aliases, and CliHelp rendering. */
+import std.cli;
+
 #include <assert.h>
 
 int main() {

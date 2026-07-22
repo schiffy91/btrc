@@ -1,5 +1,11 @@
 /* Typed collection visitors must traverse every managed storage shape without
  * touching primitive storage or collecting externally reachable non-cycles. */
+import std.array;
+import std.list;
+import std.map;
+import std.set;
+import std.vector;
+
 #include <assert.h>
 
 int live_nodes = 0;

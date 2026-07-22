@@ -1,6 +1,8 @@
 /* Linked List<T> single-node boundary: pushing one element then popping it
  * must reset BOTH head and tail to null. These are the classic
  * `if (prev != null) ... else ...` branches in popBack/popFront. */
+import std.list;
+
 #include <assert.h>
 #include <stdio.h>
 

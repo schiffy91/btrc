@@ -1,6 +1,8 @@
 /* Map.merge() with OVERLAPPING keys: existing keys are overwritten by the
  * other map's values, and new keys are added. Only one thin merge test
  * existed. */
+import std.map;
+
 #include <assert.h>
 #include <stdio.h>
 

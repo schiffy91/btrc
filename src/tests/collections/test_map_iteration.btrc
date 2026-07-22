@@ -1,4 +1,7 @@
 // Test Map iteration via .keys() and .values()
+import std.map;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

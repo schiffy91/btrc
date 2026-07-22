@@ -1,4 +1,6 @@
 /* Image file loads fail closed on open, read, decode, and close errors. */
+import std.bytes;
+import std.io;
 import std.image;
 import std.fs;
 

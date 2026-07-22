@@ -1,3 +1,5 @@
+import std.map;
+
 #include <assert.h>
 
 // Simple (int-backed) enum used as the KEY type of a Map<Color, int>.

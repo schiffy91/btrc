@@ -1,5 +1,7 @@
 // Recursion whose return type is a non-primitive (Vector and a class
 // instance) — exercises ARC + recursion interaction.
+import std.vector;
+
 #include <assert.h>
 
 // recursively build a descending Vector<int>

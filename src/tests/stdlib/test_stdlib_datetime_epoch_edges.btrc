@@ -1,6 +1,8 @@
 /* DateTime.toUnix / fromUnix across hard branches of the Hinnant civil-from-days
  * algorithm: the epoch itself, a pre-1970 (negative) timestamp, a leap day, and
  * round-tripping through both directions. */
+import std.datetime;
+
 #include <assert.h>
 #include "../../stdlib/datetime.btrc"
 

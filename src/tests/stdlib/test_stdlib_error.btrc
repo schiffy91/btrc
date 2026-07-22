@@ -1,5 +1,7 @@
 /* Error hierarchy: base Error + typed subclasses carry message and code,
  * and toString() returns the message (via inheritance). */
+import std.error;
+
 #include <assert.h>
 #include <string.h>
 

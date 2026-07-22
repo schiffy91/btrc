@@ -1,3 +1,6 @@
+import std.map;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

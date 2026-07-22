@@ -1,4 +1,6 @@
 // Test that lambdas can access global variables
+import std.vector;
+
 #include <assert.h>
 
 int counter = 0;

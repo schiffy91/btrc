@@ -1,5 +1,8 @@
 // Splitting and joining: Strings.split / Strings.join statics plus the
 // Vector<string> instance .join() form, including empty-segment edges.
+import std.strings;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

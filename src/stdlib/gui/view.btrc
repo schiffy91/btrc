@@ -18,6 +18,8 @@
  * (and resizing the surface to match) is automatically responsive.
  */
 
+import std.vector;
+
 class View {
     public string kind;     /* column | row | text | button | checkbox | spacer | box */
     public string text;

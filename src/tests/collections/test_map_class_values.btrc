@@ -1,5 +1,7 @@
 /* Map whose VALUES are class instances: store, look up, and method-call the
  * retrieved object. Exercises has() on present and absent keys. */
+import std.map;
+
 #include <assert.h>
 #include <stdio.h>
 

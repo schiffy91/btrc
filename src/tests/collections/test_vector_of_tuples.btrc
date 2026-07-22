@@ -1,5 +1,7 @@
 /* Tuple as a collection element: push / get / iterate a Vector<(int,string)>.
  * No test stores tuples in a collection. */
+import std.vector;
+
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>

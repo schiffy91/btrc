@@ -1,4 +1,6 @@
 // Test List edge cases: pop bounds, slice negative indices, operations near boundaries
+import std.vector;
+
 #include <assert.h>
 
 int main() {

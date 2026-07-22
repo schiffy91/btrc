@@ -3,6 +3,9 @@
  * .startsWith / .endsWith / .length / .substring / .contains plus splitting the
  * message via Strings.split. Also contrasts a typed `catch (string e)` against an
  * untyped `catch (e)` to confirm both bind the same usable string. */
+import std.strings;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

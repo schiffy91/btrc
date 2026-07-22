@@ -1,6 +1,8 @@
 // The same loop-variable name reused across sequential for-in loops in the same
 // scope. Each range-for declares its own loop variable, so two `for i in ...`
 // at the same scope must not collide or produce a redeclaration error.
+import std.vector;
+
 #include <assert.h>
 
 int main() {

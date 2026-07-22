@@ -1,6 +1,8 @@
 /* Vector<bool> element type: contains / indexOf / count / get on booleans.
  * __btrc_eq codegen for bool differs from int. No collection test in the
  * suite stores or compares booleans. */
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

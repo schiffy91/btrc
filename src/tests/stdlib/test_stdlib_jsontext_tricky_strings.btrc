@@ -1,6 +1,9 @@
 /* JsonText balanced-scan helpers over values that themselves contain '}' / '{'
  * and escaped quotes inside string literals. The balanced scanners must treat
  * those bytes as ordinary string content, not structure. */
+import std.json;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

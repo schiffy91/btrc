@@ -2,6 +2,8 @@
  * their own Result inline, so the shipped one is never exercised. Covers the Ok
  * and Err variants, unwrap / unwrapErr, and ARC teardown of the stored generic
  * fields under delete. */
+import std.result;
+
 #include <assert.h>
 #include "../../stdlib/result.btrc"
 

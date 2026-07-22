@@ -8,6 +8,8 @@
  * Assertions track ui.btrc's actual output exactly: void elements render bare
  * (<br>, no self-closing slash), attributes are escaped, and the
  * document is a single line beginning with the lowercase <!doctype html>. */
+import std.ui;
+
 #include <assert.h>
 
 int main() {

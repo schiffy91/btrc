@@ -7,6 +7,8 @@
  * Build + run (macOS):   make            (this folder)
  * Headless hosts (no GUI session) print a notice and exit cleanly.
  */
+import std.ui;
+
 #include "tray/tray.btrc"
 
 int main() {

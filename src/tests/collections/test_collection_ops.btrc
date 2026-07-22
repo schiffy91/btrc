@@ -1,4 +1,8 @@
 // Test List.map(), List.extend(), Set.unite/intersect/subtract
+import std.map;
+import std.set;
+import std.vector;
+
 #include <assert.h>
 
 int double_it(int x) { return x * 2; }

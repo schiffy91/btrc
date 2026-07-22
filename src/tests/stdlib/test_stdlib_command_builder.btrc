@@ -3,6 +3,9 @@
  * plus each argument shell-quoted (safe args pass through; an arg with a space
  * is single-quoted). The single .arg() path is covered elsewhere; this exercises
  * the loop in args() and the two-token flag(), plus their quoting in render(). */
+import std.process;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

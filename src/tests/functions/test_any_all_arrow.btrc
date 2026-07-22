@@ -1,5 +1,7 @@
 // Vector.any / Vector.all with arrow-lambda predicates, including the
 // short-circuit true on first match and false on first failure.
+import std.vector;
+
 #include <assert.h>
 
 int main() {

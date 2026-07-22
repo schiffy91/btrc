@@ -1,4 +1,6 @@
 /* Test auto-destructor: __del__ method and recursive delete */
+import std.vector;
+
 #include <assert.h>
 
 int resource_freed = 0;

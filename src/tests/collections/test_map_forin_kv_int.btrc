@@ -1,6 +1,8 @@
 /* Two-variable for k,v iteration over a Map with INT keys and int values,
  * using BOTH the key and the value. Exercises iterGet + iterValueAt with
  * non-string types (only string-key kv iteration was tested). */
+import std.map;
+
 #include <assert.h>
 #include <stdio.h>
 

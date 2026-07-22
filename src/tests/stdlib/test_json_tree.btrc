@@ -1,6 +1,8 @@
 /* JsonValue: real recursive JSON tree — parse, navigate, stringify round-trip,
  * \uXXXX unescape, malformed-input safety, deep nesting. Output is fully
  * deterministic (no raw float formatting in the printed lines). */
+import std.json;
+
 #include <assert.h>
 #include <string.h>
 

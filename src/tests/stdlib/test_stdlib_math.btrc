@@ -1,4 +1,7 @@
 /* Test stdlib math: Math static methods */
+import std.math;
+import std.vector;
+
 #include <assert.h>
 #include "../../stdlib/math.btrc"
 

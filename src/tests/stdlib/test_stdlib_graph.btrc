@@ -1,4 +1,11 @@
 /* std.graph: graph JSON parsing, CLI args, and dependency traversal. */
+import std.cli;
+import std.fs;
+import std.graph;
+import std.io;
+import std.map;
+import std.vector;
+
 #include <assert.h>
 #include <string.h>
 

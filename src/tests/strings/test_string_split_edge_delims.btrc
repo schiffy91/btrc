@@ -1,5 +1,8 @@
 // Strings.split preserves empty fields on both sides of an explicit delimiter,
 // matching conventional split-with-separator semantics.
+import std.strings;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

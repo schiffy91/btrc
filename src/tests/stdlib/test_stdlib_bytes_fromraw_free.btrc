@@ -1,6 +1,8 @@
 /* Bytes.fromRaw(char*, int) class factory and the idempotency of free():
  * fromRaw copies an explicit byte count, and free() nulls the buffer so a second
  * free() (or __del__ after an explicit free) is a no-op. */
+import std.bytes;
+
 #include <assert.h>
 
 int main() {

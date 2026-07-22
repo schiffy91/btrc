@@ -1,6 +1,8 @@
 // String-heavy: f-strings (lowered to snprintf sequences) and the string-method
 // helper family (contains/indexOf/substring/case/trim/split/join). Stresses the
 // f-string lowering and string runtime-helper selection.
+import std.list;
+
 string describe(string name, int age) {
     return f"{name} is {age} years old";
 }

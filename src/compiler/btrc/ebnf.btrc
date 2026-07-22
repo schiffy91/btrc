@@ -6,6 +6,10 @@
  * No regex (the Python version's re uses are replaced by manual scanning).
  */
 
+import std.map;
+import std.strings;
+import std.vector;
+
 class GrammarInfo {
     public Map<string, string> keywordToToken;   // "int"  -> "INT"
     public Vector<string> operators;             // sorted longest-first

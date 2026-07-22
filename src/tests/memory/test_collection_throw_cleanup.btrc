@@ -1,6 +1,8 @@
 /* A collection of owned objects unwound by an exception: a Vector<Obj> built
  * inside a try block is released -- along with its elements -- when a throw
  * unwinds the scope before any explicit free(). */
+import std.vector;
+
 #include <assert.h>
 
 int alive = 0;

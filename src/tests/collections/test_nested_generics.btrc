@@ -1,4 +1,7 @@
 // Test nested generic types: 2-level and 3-level nesting
+import std.map;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

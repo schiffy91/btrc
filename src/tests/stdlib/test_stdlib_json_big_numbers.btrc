@@ -1,6 +1,8 @@
 /* JsonValue numeric edges: integers near 2^53 round-trip through parse/asInt,
  * makeInt stringify has no decimal point, negative zero parses to 0, and a large
  * integer stringifies back to its source text (JsonNum.format double->%lld). */
+import std.json;
+
 #include <assert.h>
 
 int main() {

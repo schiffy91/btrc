@@ -1,5 +1,7 @@
 /* nanosleep reports an interrupted wait through EINTR and the remaining
  * duration.  Timer.sleep must resume rather than returning early. */
+import std.datetime;
+
 #include <assert.h>
 #include <signal.h>
 #include <sys/time.h>

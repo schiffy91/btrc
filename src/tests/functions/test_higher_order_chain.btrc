@@ -1,5 +1,7 @@
 // Chained higher-order methods: the result of one lambda-driven collection
 // call flows directly into the next (filter -> map -> reduce).
+import std.vector;
+
 #include <assert.h>
 
 int main() {

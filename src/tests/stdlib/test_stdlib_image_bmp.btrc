@@ -1,4 +1,5 @@
 /* Uncompressed BMP 24/32-bit layouts: padding, orientation, alpha, and errors. */
+import std.bytes;
 import std.image;
 import std.fs;
 

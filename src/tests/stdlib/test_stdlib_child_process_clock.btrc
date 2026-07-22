@@ -1,4 +1,6 @@
 /* Strict-C11 boundary coverage for child-process monotonic deadlines. */
+import std.process;
+
 #include <assert.h>
 
 int main() {

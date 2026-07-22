@@ -1,6 +1,8 @@
 /* Linked List<T> O(n) get/set node-chain traversal plus indexOf/contains
  * walking the chain via __btrc_eq. Different code path than Vector's pointer
  * arithmetic. Uses string elements to exercise string equality on List. */
+import std.list;
+
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>

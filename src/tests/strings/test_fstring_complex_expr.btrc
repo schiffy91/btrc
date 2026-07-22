@@ -1,5 +1,7 @@
 // f-string interpolating complex expressions: call chains, a ternary, a
 // method-of-method, a non-null nullable, and f-string + concatenation.
+import std.vector;
+
 #include <assert.h>
 
 int main() {

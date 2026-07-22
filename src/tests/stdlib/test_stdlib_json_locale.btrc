@@ -1,4 +1,7 @@
 /* JSON numbers use their grammar's '.' radix even when LC_NUMERIC uses ','. */
+import std.json;
+import std.strings;
+
 #include <assert.h>
 #include <locale.h>
 #include <string.h>

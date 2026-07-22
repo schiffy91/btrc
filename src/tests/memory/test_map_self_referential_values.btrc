@@ -2,6 +2,8 @@
  * cross-reference each other via fields are also stored in a Map<int,Node>.
  * Freeing the map releases the map's retained refs without double-freeing the
  * still-live objects; scope exit then reclaims the remaining cycle. */
+import std.map;
+
 #include <assert.h>
 
 int alive = 0;

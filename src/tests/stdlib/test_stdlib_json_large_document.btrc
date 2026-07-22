@@ -1,5 +1,8 @@
 /* Closure-sized regression: completion and byte-stable round-trips matter;
  * wall-clock timing intentionally does not form part of the contract. */
+import std.json;
+import std.strings;
+
 #include <assert.h>
 
 class JsonClosureFixture {

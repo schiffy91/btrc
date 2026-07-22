@@ -1,5 +1,8 @@
 /* UiNode void elements beyond br/img (hr, input, link, meta render bare with no
  * closing tag) and childrenFrom() which appends a whole list of children. */
+import std.ui;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

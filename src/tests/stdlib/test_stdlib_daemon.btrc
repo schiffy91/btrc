@@ -1,5 +1,14 @@
 /* Capability-based daemon supervision: lifecycle, restart behavior, private
  * state, and adversarial control-file cases. */
+import std.daemon;
+import std.daemon_control;
+import std.daemon_control_protocol;
+import std.datetime;
+import std.fs;
+import std.io;
+import std.platform;
+import std.process;
+
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>

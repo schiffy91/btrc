@@ -1,5 +1,7 @@
 // Vector.sortBy with duplicate / equal keys: the comparator returns false
 // for equal elements, and the sorted result groups equal keys correctly.
+import std.vector;
+
 #include <assert.h>
 
 int main() {

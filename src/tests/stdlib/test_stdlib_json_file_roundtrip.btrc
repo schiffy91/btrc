@@ -2,6 +2,9 @@
  * JsonValue.readFile. All other json tests parse from in-memory strings; the
  * file entry points are never invoked. Hermetic: a fresh temp dir, removed at
  * the end. (JsonValue has no writeFile — only JsonObject writes.) */
+import std.fs;
+import std.json;
+
 #include <assert.h>
 
 int main() {

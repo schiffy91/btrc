@@ -1,3 +1,5 @@
+import std.vector;
+
 #include <stdio.h>
 int main() {
     Vector<float> vals = [1.5, 2.5, 3.5, 2.5];

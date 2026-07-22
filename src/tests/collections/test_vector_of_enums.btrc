@@ -1,6 +1,9 @@
 /* Collection of ENUM elements: contains / indexOf on a Vector, and dedup on
  * a Set. An enum compiles to an int, but __btrc_eq / __btrc_hash for an
  * enum-typed collection element is untested. */
+import std.set;
+import std.vector;
+
 #include <assert.h>
 #include <stdio.h>
 

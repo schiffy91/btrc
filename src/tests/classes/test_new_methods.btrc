@@ -1,4 +1,8 @@
 // Test isEmpty(), insert(), string reverse/removePrefix/removeSuffix
+import std.map;
+import std.set;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

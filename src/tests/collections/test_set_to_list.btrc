@@ -1,3 +1,6 @@
+import std.set;
+import std.vector;
+
 #include <stdio.h>
 int main() {
     Set<int> s = {};

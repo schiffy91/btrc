@@ -1,6 +1,9 @@
 // for-in over List<T> (linked list) and Set<T>, asserting iteration order and
 // membership. The List for-in path only appears in memory/bench tests; a
 // focused control-flow ordering assert is missing.
+import std.list;
+import std.set;
+
 #include <assert.h>
 
 int main() {

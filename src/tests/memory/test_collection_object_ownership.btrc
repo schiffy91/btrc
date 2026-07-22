@@ -1,4 +1,9 @@
 /* Stdlib collections retain class elements they store. */
+import std.list;
+import std.map;
+import std.set;
+import std.vector;
+
 #include <assert.h>
 
 int live_items = 0;

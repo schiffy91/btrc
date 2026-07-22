@@ -1,5 +1,7 @@
 /* A reference cycle formed through a Vector field is reclaimed by typed
  * collection-slot traversal in both compilers. */
+import std.vector;
+
 #include <assert.h>
 
 int node_count = 0;

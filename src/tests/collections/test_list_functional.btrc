@@ -1,4 +1,6 @@
 // Test List higher-order methods: forEach, filter, any, all
+import std.vector;
+
 #include <assert.h>
 
 int sum_acc = 0;

@@ -1,6 +1,9 @@
 // for-in over a user-defined class implementing the Iterable protocol
 // (iterLen + iterGet). All other for-in tests use built-in collections; the
 // custom-class iterable path is never exercised in the control-flow suite.
+import std.iterable;
+import std.vector;
+
 #include <assert.h>
 
 class Squares<T> implements Iterable {

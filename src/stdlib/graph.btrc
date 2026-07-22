@@ -5,6 +5,7 @@
  * domain-specific readiness checks and node execution in their own runners.
  */
 
+import std.io;
 import std.cli;
 import std.console;
 import std.fs;

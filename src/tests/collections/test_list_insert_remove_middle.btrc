@@ -1,6 +1,8 @@
 /* Linked List<T> middle insert / middle remove: the genuine idx != 0 &&
  * idx != len branch that rewires cur.prev.next and cur.next.prev.
  * Distinct from the pushFront/pushBack shortcuts at the ends. */
+import std.list;
+
 #include <assert.h>
 #include <stdio.h>
 

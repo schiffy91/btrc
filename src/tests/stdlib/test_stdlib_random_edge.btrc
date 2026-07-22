@@ -1,6 +1,9 @@
 /* Random edge cases: randint with swapped bounds stays in range (no modulo
  * by zero / out-of-range result), degenerate single-value ranges, and
  * choice from a single-element vector. */
+import std.random;
+import std.vector;
+
 #include <assert.h>
 
 int main() {

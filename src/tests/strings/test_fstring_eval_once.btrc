@@ -2,6 +2,8 @@
 // once. The lowering does a measure pass (snprintf NULL/0 sizing) and a write
 // pass; previously it emitted the interpolated expression in BOTH passes, so
 // any side effect (counter increment, pop(), I/O) ran twice.
+import std.vector;
+
 #include <assert.h>
 #include <string.h>
 

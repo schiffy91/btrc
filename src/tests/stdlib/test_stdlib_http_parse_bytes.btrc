@@ -6,6 +6,10 @@
  * req.body (the string view) is the truncated text view.
  *
  * Hermetic + deterministic: a request is assembled in memory; no sockets. */
+import std.bytes;
+import std.http_server;
+import std.http_types;
+
 #include <assert.h>
 
 int main() {

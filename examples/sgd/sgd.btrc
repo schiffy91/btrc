@@ -11,6 +11,8 @@
  * Tune the loop bound in sgdUpdate() to adjust runtime.
  */
 
+import std.vector;
+
 #include <gpu.btrc>
 
 // ── GPU kernel ─────────────────────────────────────────────

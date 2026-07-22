@@ -1,6 +1,8 @@
 /* Generic method bodies use the same structured switch/parallel/exception
  * lowering contract as ordinary methods. In particular, throw statements must
  * never disappear during monomorphization. */
+import std.vector;
+
 #include <assert.h>
 
 int throwingReturnValue() {

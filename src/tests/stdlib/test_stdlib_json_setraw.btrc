@@ -3,6 +3,8 @@
  * touches. It distinguishes the quoted vs unquoted code path in stringify():
  * setString wraps its value in quotes and escapes it; setRaw emits the value
  * verbatim. */
+import std.json;
+
 #include <assert.h>
 
 int main() {

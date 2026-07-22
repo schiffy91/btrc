@@ -1,6 +1,8 @@
 /* Math trigonometric methods: sin/cos/tan/asin/acos/atan/atan2.
  * Each delegates to the same-named libc function; this exercises the
  * method-shadows-libc-symbol resolution path. */
+import std.math;
+
 #include <assert.h>
 #include "../../stdlib/math.btrc"
 

@@ -1,4 +1,8 @@
-import std.*;
+import std.bytes;
+import std.fs;
+import std.io;
+import std.strings;
+import std.vector;
 
 #include "asdl.btrc"
 #include "../frontend_source_io.btrc"

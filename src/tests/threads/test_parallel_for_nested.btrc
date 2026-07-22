@@ -1,3 +1,5 @@
+import std.vector;
+
 #include <assert.h>
 // Nested `parallel for`. parallel-for was only tested flat before; a parallel
 // for inside another parallel for exercises nested lowering to sequential loops.

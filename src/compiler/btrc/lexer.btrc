@@ -9,6 +9,9 @@
  * every Python `source[a:b]` becomes `source.substring(a, b - a)`.
  */
 
+import std.strings;
+import std.vector;
+
 #include "lexer_preprocessor.btrc"
 
 class Lexer {

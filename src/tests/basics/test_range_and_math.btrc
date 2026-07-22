@@ -1,4 +1,8 @@
 // Test range() with negative step and Math.sum/fsum
+import std.map;
+import std.set;
+import std.vector;
+
 #include <assert.h>
 #include <math.h>
 

@@ -3,6 +3,8 @@
  * corpus only nests 2 levels and always catches the inner throw. This pins the
  * try-stack pop discipline across multiple frames and the finally ordering:
  * innermost finally runs first, then the next, then the outer catch. */
+import std.vector;
+
 #include <assert.h>
 
 int main() {
