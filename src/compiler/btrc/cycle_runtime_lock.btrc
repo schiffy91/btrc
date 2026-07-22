@@ -1,6 +1,6 @@
 /* Generated-equivalent runtime text kept in parity with the Python compiler. */
 
-string cycleRuntimeLockSource(string name) {
+    public string lockSource(string name) {
     if (name == "__btrc_arc_lock_state") {
         return "/* One process-wide lock domain for ARC topology. */\n"
             + "static atomic_flag __btrc_arc_lock_flag = ATOMIC_FLAG_INIT;\n"

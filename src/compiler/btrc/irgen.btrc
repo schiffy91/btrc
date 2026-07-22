@@ -89,17 +89,6 @@ Map<string, int> declarationPackAlignments(Node program) {
     return alignments;
 }
 
-/* C function name for a monomorphized generic-METHOD instance:
- * {class_part}_{method}_{method_arg_mangles}, e.g. btrc_Vector_int_mapTo_string
- * for Vector<int>.mapTo<string>. The class part is mangleGenericType for a
- * generic owner, or the bare class base for a non-generic owner. Mirrors
- * generics.methods_mono.generic_method_instance_name. */
-string genericMethodInstanceName(string classBase, Vector<Node> classArgs,
-                                 string methodName, Vector<Node> methodArgs) {
-    return mangleMethodInstanceSymbol(
-        classBase, classArgs, methodName, methodArgs);
-}
-
 /* Get/create the typedef name for a function-pointer type and register the
  * source TypeExpr for later typed declaration generation. generic_args is
  * [ret, param1, param2, ...]. */
@@ -3388,7 +3377,7 @@ class IRGen {
          * bodies + structured macros, rather than the lowering-time accumulator —
          * helpers referenced only by dead-eliminated functions must NOT survive
          * (mirrors optimizer._eliminate_dead_helpers, which scans final IR). */
-        Vector<string> order = canonicalHelperOrder();
+        Vector<string> order = self.runtimeHelpers.order();
         Map<string, bool> used = {};
         int fi = 0;
         while (fi < m.functions.len) {
@@ -3475,7 +3464,8 @@ class IRGen {
         Vector<string> usedNames = used.keys();
         int hi = 0;
         while (hi < usedNames.len) {
-            Vector<string> headers = helperHeaders(usedNames.get(hi));
+            Vector<string> headers =
+                self.runtimeHelpers.headers(usedNames.get(hi));
             int hj = 0;
             while (hj < headers.len) {
                 requireSystemInclude(m, headers.get(hj));
@@ -9247,21 +9237,6 @@ string stringMethodHelper(string method) {
     if (method == "removeSuffix") { return "__btrc_removeSuffix"; }
     if (method == "split") { return "__btrc_split"; }
     return "";
-}
-
-/* True for string methods whose helper returns a fresh heap string and must be
- * wrapped in __btrc_str_track (mirrors the tracked= flag in STRING_METHODS). */
-bool stringMethodTracked(string method) {
-    if (method == "trim" || method == "lstrip" || method == "rstrip"
-            || method == "toUpper" || method == "toLower" || method == "substring"
-            || method == "replace" || method == "repeat" || method == "reverse"
-            || method == "capitalize" || method == "title" || method == "swapCase"
-            || method == "padLeft" || method == "padRight" || method == "center"
-            || method == "zfill" || method == "removePrefix" || method == "removeSuffix"
-            ) {
-        return true;
-    }
-    return false;
 }
 
 void abortGen() {

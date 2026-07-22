@@ -1,13 +1,8 @@
-#include "tokens.btrc"
-#include "ast/node.btrc"
-#include "ebnf.btrc"
-#include "lexer.btrc"
-#include "literal_text.btrc"
-#include "numeric_literals.btrc"
-#include "parser.btrc"
-#include "frontend_source_io.btrc"
+import ./parser/stage.btrc;
+
 #include "driver_output.btrc"
 int main(int argc, char** argv) {
+  BtrccOutput output = BtrccOutput(stdout);
   if (argc < 2) { print("usage: parse <file.btrc>"); return 1; }
   string gt = feReadRequiredSource("src/language/grammar.ebnf");
   GrammarInfo g = parseGrammar(gt);
@@ -24,7 +19,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "error: %s\n", p.diagnostic);
     return 1;
   }
-  if (printLineChecked(prog.canon(0))) { return 0; }
+  if (output.writeLine(prog.canon(0))) { return 0; }
   fprintf(stderr, "parse: error: cannot write standard output\n");
   return 1;
 }

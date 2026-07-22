@@ -1,0 +1,54 @@
+/* IR-specific adapter for the analyzer-owned raw-projection traversal. */
+
+class IRRawProjectionContextBuilder {
+    private IRGen generator;
+    private Map<string, Node> varTypes;
+
+    public IRRawProjectionContextBuilder(
+            IRGen generator, Map<string, Node> varTypes) {
+        self.generator = generator;
+        self.varTypes = varTypes;
+    }
+
+    public void prepareExpression(
+            RawProjectionCarrierContext context, Node? expression) {
+        if (expression == null || context.prepared(expression)) { return; }
+        Node? typeExpr = self.generator.resolvedExpressionType(
+            expression, self.varTypes);
+        context.recordExpression(expression, typeExpr,
+            irManagedType(self.generator, typeExpr),
+            self.generator.owningTempOverrides.has(astNodeKey(expression)));
+        if (expression.kind == NK_CALL_EXPR
+                && expression.callee != null
+                && expression.callee.kind == NK_IDENTIFIER
+                && self.generator.analyzed.hostedCallKeys.has(
+                    astNodeKey(expression))) {
+            int parameter = hostedAbiReturnAliasParameter(
+                expression.callee.name);
+            if (parameter >= 0 && parameter < expression.args.len) {
+                Node alias = expression.args.get(parameter);
+                context.recordAlias(expression, alias);
+                self.prepareExpression(context, alias);
+            }
+        }
+        self.prepareExpression(context, expression.expr);
+        self.prepareExpression(context, expression.operand);
+        self.prepareExpression(context, expression.left);
+        self.prepareExpression(context, expression.right);
+        self.prepareExpression(context, expression.true_expr);
+        self.prepareExpression(context, expression.false_expr);
+        self.prepareExpression(context, expression.obj);
+        int argument = 0;
+        while (argument < expression.args.len) {
+            self.prepareExpression(context, expression.args.get(argument));
+            argument++;
+        }
+    }
+
+    public RawProjectionCarrierContext build(Node? expression) {
+        RawProjectionCarrierContext context =
+            RawProjectionCarrierContext(self.generator.analyzed);
+        self.prepareExpression(context, expression);
+        return context;
+    }
+}

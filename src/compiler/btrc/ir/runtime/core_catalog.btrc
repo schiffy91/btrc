@@ -171,6 +171,11 @@ class CoreRuntimeCatalog {
                 + "}";
         }
         /* --- string category shared primitives (STRING_COMMON) --- */
+        if (name == "__btrc_string_or_empty") {
+            return "static inline const char* __btrc_string_or_empty(const char* s) {\n"
+                + "    return s ? s : \"\";\n"
+                + "}";
+        }
         if (name == "__btrc_string_length") {
             return "static inline int __btrc_string_length(const char* s) {\n"
                 + "    if (!s) return 0;\n"
@@ -189,7 +194,7 @@ class CoreRuntimeCatalog {
                 + "    char* result = (char*)__btrc_safe_realloc(\n"
                 + "        NULL, (size_t)length + 1);\n"
                 + "    result[length] = '\\0';\n"
-                + "    return result;\n"
+                + "    return __btrc_string_adopt(result);\n"
                 + "}";
         }
         if (name == "__btrc_ascii_upper") {
@@ -941,7 +946,10 @@ class CoreRuntimeCatalog {
     public Vector<string> dependencies(string name) {
         Vector<string> out = [];
         if (name == "__btrc_parseInt") { out.push("__btrc_parseLong"); }
-        else if (name == "__btrc_string_alloc") { out.push("__btrc_safe_realloc"); }
+        else if (name == "__btrc_string_alloc") {
+            out.push("__btrc_safe_realloc");
+            out.push("__btrc_string_adopt");
+        }
         else if (name == "__btrc_str_track") {
             out.push("__btrc_str_pool_globals");
             out.push("__btrc_safe_realloc");
@@ -1021,5 +1029,90 @@ class CoreRuntimeCatalog {
         /* math category dependency edges (mirrors math.py depends_on). */
         else if (name == "__btrc_math_lcm") { out.push("__btrc_math_gcd"); }
         return out;
+    }
+
+    public void appendFoundationOrder(Vector<string> order) {
+        order.push("__btrc_strdup");
+        order.push("__btrc_safe_realloc");
+        order.push("__btrc_safe_calloc");
+        order.push("__btrc_div");
+        order.push("__btrc_mod");
+        order.push("__btrc_div_int");
+        order.push("__btrc_div_double");
+        order.push("__btrc_mod_int");
+    }
+
+    public void appendStringAndMathOrder(Vector<string> order) {
+        order.push("__btrc_string_or_empty");
+        order.push("__btrc_string_length");
+        order.push("__btrc_string_alloc");
+        order.push("__btrc_ascii_upper");
+        order.push("__btrc_ascii_lower");
+        order.push("__btrc_ascii_space");
+        order.push("__btrc_substring");
+        order.push("__btrc_trim");
+        order.push("__btrc_toUpper");
+        order.push("__btrc_toLower");
+        order.push("__btrc_replace");
+        order.push("__btrc_split");
+        order.push("__btrc_repeat");
+        order.push("__btrc_reverse");
+        order.push("__btrc_removePrefix");
+        order.push("__btrc_removeSuffix");
+        order.push("__btrc_capitalize");
+        order.push("__btrc_title");
+        order.push("__btrc_swapCase");
+        order.push("__btrc_padLeft");
+        order.push("__btrc_padRight");
+        order.push("__btrc_center");
+        order.push("__btrc_lstrip");
+        order.push("__btrc_rstrip");
+        order.push("__btrc_zfill");
+        order.push("__btrc_strcat");
+        order.push("__btrc_join");
+        order.push("__btrc_charAt");
+        order.push("__btrc_indexOf");
+        order.push("__btrc_lastIndexOf");
+        order.push("__btrc_isEmpty");
+        order.push("__btrc_startsWith");
+        order.push("__btrc_endsWith");
+        order.push("__btrc_strContains");
+        order.push("__btrc_count");
+        order.push("__btrc_find");
+        order.push("__btrc_isDigitStr");
+        order.push("__btrc_isAlphaStr");
+        order.push("__btrc_isBlank");
+        order.push("__btrc_isUpper");
+        order.push("__btrc_isLower");
+        order.push("__btrc_isAlnumStr");
+        order.push("__btrc_utf8_charlen");
+        order.push("__btrc_charLen");
+        order.push("__btrc_parseLong");
+        order.push("__btrc_parseInt");
+        order.push("__btrc_parseBool");
+        order.push("__btrc_intToString");
+        order.push("__btrc_longToString");
+        order.push("__btrc_longLongToString");
+        order.push("__btrc_uintToString");
+        order.push("__btrc_ulongToString");
+        order.push("__btrc_ulongLongToString");
+        order.push("__btrc_floatToString");
+        order.push("__btrc_doubleToString");
+        order.push("__btrc_longDoubleToString");
+        order.push("__btrc_charToString");
+        order.push("__btrc_fromInt");
+        order.push("__btrc_fromFloat");
+        order.push("__btrc_math_factorial");
+        order.push("__btrc_math_gcd");
+        order.push("__btrc_math_lcm");
+        order.push("__btrc_math_fibonacci");
+        order.push("__btrc_math_isPrime");
+        order.push("__btrc_math_sum_int");
+        order.push("__btrc_math_fsum");
+    }
+
+    public void appendHashOrder(Vector<string> order) {
+        order.push("__btrc_hash_real");
+        order.push("__btrc_hash_str");
     }
 }

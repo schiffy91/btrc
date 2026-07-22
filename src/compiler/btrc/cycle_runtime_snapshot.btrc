@@ -1,6 +1,6 @@
 /* Exclusive graph-snapshot admission for synchronous ARC operations. */
 
-string cycleRuntimeSnapshotSource(string name) {
+    public string snapshotSource(string name) {
     if (name == "__btrc_arc_snapshot_gate_state") {
         return "/* Publish snapshot intent before waiting for topology owners. */\n"
             + "static _Atomic int __btrc_arc_snapshot_pending = 0;"

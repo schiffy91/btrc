@@ -189,6 +189,10 @@ class FeDependencyGraph {
         self.add(source, target, FE_DEPENDENCY_INCLUDE);
     }
 
+    public bool hasSource(string source) {
+        return self.outgoing.has(self.identity(source));
+    }
+
     public void queueUnseen(string path, Map<string, bool> seen,
                             Vector<string> pending) {
         if (!seen.has(path)) { pending.push(path); }

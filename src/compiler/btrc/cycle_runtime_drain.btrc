@@ -1,6 +1,6 @@
 /* Generated-equivalent drain runtime text kept in compiler parity. */
 
-string cycleRuntimeDrainSource(string name) {
+    public string drainSource(string name) {
     if (name == "__btrc_arc_drain") {
         return "static void __btrc_arc_drain_deferred(int force_cycles) {\n"
             + "    if (__btrc_arc_draining) return;\n"

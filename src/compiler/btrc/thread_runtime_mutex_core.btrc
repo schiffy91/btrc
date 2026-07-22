@@ -1,5 +1,5 @@
 /* Exact self-hosted mirror of the Python Mutex core helper registry. */
-string threadRuntimeMutexCoreSource(string name) {
+    public string mutexCoreSource(string name) {
     if (name == "__btrc_mutex_val_types") {
         return "typedef void* (*__btrc_mutex_value_access)(const void*);\n"
             + "typedef void (*__btrc_mutex_value_callback)(\n"

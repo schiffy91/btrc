@@ -1,0 +1,16 @@
+/* Source string-method ownership policy shared by validation and lowering. */
+
+bool stringMethodTracked(string method) {
+    if (method == "trim" || method == "lstrip" || method == "rstrip"
+            || method == "toUpper" || method == "toLower"
+            || method == "substring" || method == "replace"
+            || method == "repeat" || method == "reverse"
+            || method == "capitalize" || method == "title"
+            || method == "swapCase" || method == "padLeft"
+            || method == "padRight" || method == "center"
+            || method == "zfill" || method == "removePrefix"
+            || method == "removeSuffix") {
+        return true;
+    }
+    return false;
+}

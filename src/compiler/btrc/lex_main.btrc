@@ -1,9 +1,9 @@
-#include "tokens.btrc"
-#include "ebnf.btrc"
-#include "lexer.btrc"
+import ./lexer/stage.btrc;
+
 #include "frontend_source_io.btrc"
 #include "driver_output.btrc"
 int main(int argc, char** argv) {
+  BtrccOutput output = BtrccOutput(stdout);
   if (argc < 2) { print("usage: lex <file.btrc>"); return 1; }
   string grammarText = feReadRequiredSource("src/language/grammar.ebnf");
   GrammarInfo g = parseGrammar(grammarText);
@@ -16,13 +16,13 @@ int main(int argc, char** argv) {
   }
   int i = 0;
   while (i < toks.len) {
-    if (!driverWriteStdoutChunk(toks.get(i).repr(), true)) {
+    if (!output.writeChunk(toks.get(i).repr(), true)) {
       fprintf(stderr, "lex: error: cannot write standard output\n");
       return 1;
     }
     i = i + 1;
   }
-  if (driverFlushStdout()) { return 0; }
+  if (output.flush()) { return 0; }
   fprintf(stderr, "lex: error: cannot write standard output\n");
   return 1;
 }

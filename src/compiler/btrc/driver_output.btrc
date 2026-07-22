@@ -1,30 +1,36 @@
-/* Checked command-line output helpers for the self-hosted driver. */
+/* Checked process output owned by a concrete stream instance. */
 
-bool driverWriteStdoutChunk(string value, bool trailingNewline) {
-    if (value == null) { return false; }
-    int length = value.length();
-    if (length > 0
-            && fwrite(value, 1, (size_t)length, stdout) != (size_t)length) {
-        return false;
+class BtrccOutput {
+    private FILE* stream;
+
+    public BtrccOutput(FILE* stream) {
+        self.stream = stream;
     }
-    if (trailingNewline && fputc('\n', stdout) == EOF) { return false; }
-    return ferror(stdout) == 0;
-}
 
-bool driverFlushStdout() {
-    if (fflush(stdout) != 0) { return false; }
-    return ferror(stdout) == 0;
-}
+    public bool writeChunk(string value, bool trailingNewline) {
+        if (value == null || self.stream == NULL) { return false; }
+        int length = value.length();
+        if (length > 0
+                && fwrite(value, 1, (size_t)length, self.stream)
+                    != (size_t)length) {
+            return false;
+        }
+        if (trailingNewline && fputc('\n', self.stream) == EOF) {
+            return false;
+        }
+        return ferror(self.stream) == 0;
+    }
 
-bool driverWriteStdout(string value, bool trailingNewline) {
-    return driverWriteStdoutChunk(value, trailingNewline)
-        && driverFlushStdout();
-}
+    public bool flush() {
+        if (self.stream == NULL || fflush(self.stream) != 0) { return false; }
+        return ferror(self.stream) == 0;
+    }
 
-bool printNoNL(string value) {
-    return driverWriteStdout(value, false);
-}
+    public bool write(string value, bool trailingNewline = false) {
+        return self.writeChunk(value, trailingNewline) && self.flush();
+    }
 
-bool printLineChecked(string value) {
-    return driverWriteStdout(value, true);
+    public bool writeLine(string value) {
+        return self.write(value, true);
+    }
 }

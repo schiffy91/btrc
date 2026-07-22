@@ -1,31 +1,5 @@
 /* Closed WGSL builtin vocabulary and type families. */
 
-bool gpuBuiltin(string name) {
-    return name == "abs" || name == "ceil" || name == "clamp"
-        || name == "cos" || name == "exp" || name == "floor"
-        || name == "log" || name == "max" || name == "min"
-        || name == "pow" || name == "round" || name == "sin"
-        || name == "sqrt" || name == "tan";
-}
-
-int gpuBuiltinArity(string name) {
-    if (name == "clamp") { return 3; }
-    if (name == "max" || name == "min" || name == "pow") { return 2; }
-    return 1;
-}
-
-bool gpuFloatBuiltin(string name) {
-    return name == "ceil" || name == "cos" || name == "exp"
-        || name == "floor" || name == "log" || name == "pow"
-        || name == "round" || name == "sin" || name == "sqrt"
-        || name == "tan";
-}
-
-bool gpuSameTypeBuiltin(string name) {
-    return name == "abs" || name == "clamp"
-        || name == "max" || name == "min";
-}
-
 void gpuValidateBinaryTypes(Node expression, string left, string right) {
     string op = expression.op;
     if (op == "%" && (left != "int" || right != "int")) {

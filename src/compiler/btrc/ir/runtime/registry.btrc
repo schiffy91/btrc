@@ -2,48 +2,112 @@
 
 class RuntimeHelperRegistry {
     private CoreRuntimeCatalog core;
+    private CycleRuntimeSourceCatalog cycleSources;
+    private CycleRuntimeDependencyCatalog cycleDependencies;
+    private CycleRuntimeCatalog cycles;
+    private StringOwnershipRuntimeCatalog stringOwnership;
     private TryCatchRuntimeCatalog tryCatch;
+    private ProcessRuntimeSourceCatalog processSources;
+    private ProcessRuntimeCatalog process;
+    private ThreadRuntimeSourceCatalog threadSources;
+    private ThreadRuntimeCatalog threads;
+    private Vector<string> canonicalOrder;
+    private Map<string, bool> members;
 
     public RuntimeHelperRegistry() {
         self.core = CoreRuntimeCatalog();
+        self.cycleSources = CycleRuntimeSourceCatalog();
+        self.cycleDependencies = CycleRuntimeDependencyCatalog();
+        self.cycles = CycleRuntimeCatalog(
+            self.cycleSources, self.cycleDependencies);
+        self.stringOwnership = StringOwnershipRuntimeCatalog();
         self.tryCatch = TryCatchRuntimeCatalog();
+        self.processSources = ProcessRuntimeSourceCatalog();
+        self.process = ProcessRuntimeCatalog(self.processSources);
+        self.threadSources = ThreadRuntimeSourceCatalog();
+        self.threads = ThreadRuntimeCatalog(self.threadSources);
+        self.canonicalOrder = self.buildCanonicalOrder();
+        self.members = {};
+        int index = 0;
+        while (index < self.canonicalOrder.len) {
+            self.members.put(self.canonicalOrder.get(index), true);
+            index = index + 1;
+        }
     }
 
+    public bool has(string name) { return self.members.has(name); }
+
     public string source(string name) {
-        if (cycleRuntimeHasHelper(name)) {
-            return cycleRuntimeHelperSource(name);
+        if (self.cycles.has(name)) {
+            return self.cycles.source(name);
         }
-        if (stringOwnershipRuntimeHasHelper(name)) {
-            return stringOwnershipRuntimeHelperSource(name);
+        if (self.stringOwnership.has(name)) {
+            return self.stringOwnership.source(name);
         }
         if (self.tryCatch.has(name)) {
             return self.tryCatch.source(name);
         }
-        if (processRuntimeHasHelper(name)) {
-            return processRuntimeHelperSource(name);
+        if (self.process.has(name)) {
+            return self.process.source(name);
         }
-        if (threadRuntimeHasHelper(name)) {
-            return threadRuntimeHelperSource(name);
+        if (self.threads.has(name)) {
+            return self.threads.source(name);
         }
         return self.core.source(name);
     }
 
     public Vector<string> dependencies(string name) {
-        if (cycleRuntimeHasHelper(name)) {
-            return cycleRuntimeHelperDependencies(name);
+        if (self.cycles.has(name)) {
+            return self.cycles.dependencies(name);
         }
-        if (stringOwnershipRuntimeHasHelper(name)) {
-            return stringOwnershipRuntimeHelperDependencies(name);
+        if (self.stringOwnership.has(name)) {
+            return self.stringOwnership.dependencies(name);
         }
         if (self.tryCatch.has(name)) {
             return self.tryCatch.dependencies(name);
         }
-        if (processRuntimeHasHelper(name)) {
-            return processRuntimeHelperDependencies(name);
+        if (self.process.has(name)) {
+            return self.process.dependencies(name);
         }
-        if (threadRuntimeHasHelper(name)) {
-            return threadRuntimeHelperDependencies(name);
+        if (self.threads.has(name)) {
+            return self.threads.dependencies(name);
         }
         return self.core.dependencies(name);
+    }
+
+    public Vector<string> headers(string name) {
+        if (self.cycles.has(name)) { return self.cycles.headers(name); }
+        if (self.stringOwnership.has(name)) {
+            return self.stringOwnership.headers(name);
+        }
+        if (self.tryCatch.has(name)) { return self.tryCatch.headers(name); }
+        if (self.process.has(name)) { return self.process.headers(name); }
+        if (self.threads.has(name)) { return self.threads.headers(name); }
+        Vector<string> out = [];
+        return out;
+    }
+
+    public Vector<string> order() {
+        Vector<string> out = [];
+        int index = 0;
+        while (index < self.canonicalOrder.len) {
+            out.push(self.canonicalOrder.get(index));
+            index = index + 1;
+        }
+        return out;
+    }
+
+    private Vector<string> buildCanonicalOrder() {
+        Vector<string> order = [];
+        self.core.appendFoundationOrder(order);
+        self.stringOwnership.appendOrder(order);
+        self.core.appendStringAndMathOrder(order);
+        self.tryCatch.appendPreludeOrder(order);
+        self.core.appendHashOrder(order);
+        self.cycles.appendOrder(order);
+        self.tryCatch.appendCleanupOrder(order);
+        self.process.appendOrder(order);
+        self.threads.appendOrder(order);
+        return order;
     }
 }

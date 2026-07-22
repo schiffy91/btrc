@@ -1,6 +1,6 @@
 /* Dependency metadata for ARC lifecycle, graph, and boundary atoms. */
 
-Vector<string> cycleRuntimeLifecycleDependencies(string name) {
+    public Vector<string> lifecycleDependencies(string name) {
     Vector<string> out = [];
     if (name == "__btrc_arc_retain") {
         out.push("__btrc_arc_validate");
@@ -186,5 +186,5 @@ Vector<string> cycleRuntimeLifecycleDependencies(string name) {
         out.push("__btrc_cycle_collector_state");
         return out;
     }
-    return out;
+        return out;
 }

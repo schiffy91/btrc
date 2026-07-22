@@ -10,14 +10,12 @@
  *   (cd /tmp/shv && frontend F.btrc) | diff - oracle_source.txt
  */
 
-#include "tokens.btrc"
-#include "ebnf.btrc"
-#include "lexer.btrc"
-#include "frontend_paths.btrc"
-#include "frontend.btrc"
+import ./frontend/stage.btrc;
+
 #include "driver_output.btrc"
 
 int main(int argc, char** argv) {
+    BtrccOutput output = BtrccOutput(stdout);
     if (argc < 2) {
         Console.error("usage: frontend [--no-stdlib] <file.btrc>");
         return 1;
@@ -38,7 +36,7 @@ int main(int argc, char** argv) {
     string path = Strings.copy(argv[argIdx]);
     string src = feReadRequiredSource(path);
     string composed = feResolveFrontendSource(src, path, includeStdlib);
-    if (printNoNL(composed)) { return 0; }
+    if (output.write(composed)) { return 0; }
     fprintf(stderr, "frontend: error: cannot write standard output\n");
     return 1;
 }

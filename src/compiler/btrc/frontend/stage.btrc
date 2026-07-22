@@ -1,0 +1,6 @@
+/* Public manifest for source discovery, dependency resolution, and provenance. */
+
+import ../lexer/stage.btrc;
+
+#include "../frontend_paths.btrc"
+#include "../frontend.btrc"

@@ -1,14 +1,5 @@
 /* Typed cycle traversal for managed slots inside built-in collections. */
 
-string cycleVisitorName(string emittedName) {
-    return "__btrc_arc_visit_" + emittedName;
-}
-
-bool isCycleCollection(string base) {
-    return base == "Vector" || base == "Array" || base == "List"
-        || base == "Map" || base == "Set";
-}
-
 bool genericTypeHasCycleVisitor(IRGen generator, Node typeExpr) {
     if (typeExpr == null || typeExpr.generic_args.len == 0
             || typeExpr.pointer_depth > 1 || typeExpr.is_array) {

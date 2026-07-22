@@ -1,6 +1,6 @@
 /* Generated-equivalent runtime text kept in parity with the Python compiler. */
 
-string cycleRuntimeRetainSource(string name) {
+    public string retainSource(string name) {
     if (name == "__btrc_arc_retain") {
         return "static inline int __btrc_arc_retain(void* object) {\n"
             + "    if (!object) return 0;\n"

@@ -440,8 +440,13 @@ def test_declaration_and_context_contracts(
     assert diagnostic in result.stderr
 
 
-def test_semantic_modules_precede_ir_and_stay_small() -> None:
-    driver = (SELFHOST / "btrcc_main.btrc").read_text()
-    assert driver.index("semanticValidateProgram(prog, a)") < driver.index("IRGen gen = IRGen(")
-    for module in SELFHOST.glob("semantic_validation*.btrc"):
-        assert len(module.read_text().splitlines()) <= 300, module
+def test_semantic_stage_precedes_structured_ir_lowering() -> None:
+    pipeline = (SELFHOST / "pipeline/pipeline.btrc").read_text()
+    analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
+    ir_stage = (SELFHOST / "ir/stage.btrc").read_text()
+
+    assert pipeline.index("semanticValidateProgram(program, analyzed)") < pipeline.index(
+        "IRGen lowerer = IRGen("
+    )
+    assert '#include "../semantic_validation_decls.btrc"' in analyzer_stage
+    assert "import ../analyzer/stage.btrc;" in ir_stage

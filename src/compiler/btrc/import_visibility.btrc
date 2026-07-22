@@ -66,14 +66,47 @@ class FeImportReferenceCollector {
         frame.put(name, true);
     }
 
-    public Vector<string> parameterNames(Vector<Node> parameters) {
-        Vector<string> names = [];
+    public void visitParameters(Vector<Node> parameters) {
         int index = 0;
         while (index < parameters.len) {
-            names.push(parameters.get(index).name);
+            Node parameter = parameters.get(index);
+            self.visit(parameter.type);
+            self.visit(parameter.default_);
+            self.bind(parameter.name);
             index++;
         }
-        return names;
+    }
+
+    public bool macroUsesBareName(string sourceText, string name) {
+        string text = sourceMacroReplacementText(sourceText);
+        int index = 0;
+        while (index < text.length()) {
+            char value = text[index];
+            if (value == '"' || value == '\'') {
+                index = sourceMacroSkipQuoted(text, index, value);
+            } else if (sourceMacroIdentifierStart(value)) {
+                int start = index;
+                index++;
+                while (index < text.length()
+                        && sourceMacroIdentifierPart(text[index])) {
+                    index++;
+                }
+                int previous = start - 1;
+                while (previous >= 0 && sourceMacroSpace(text[previous])) {
+                    previous--;
+                }
+                bool memberAccess = previous >= 0 && text[previous] == '.';
+                memberAccess = memberAccess || (previous >= 1
+                    && text[previous - 1] == '-' && text[previous] == '>');
+                if (!memberAccess
+                        && text.substring(start, index - start) == name) {
+                    return true;
+                }
+            } else {
+                index++;
+            }
+        }
+        return false;
     }
 
     public Vector<string> addGenericParameters(Vector<string> parameters) {
@@ -134,12 +167,14 @@ class FeImportReferenceCollector {
             self.removeGenericParameters(added);
             return;
         }
-        if (node.kind == NK_FUNCTION_DECL || node.kind == NK_METHOD_DECL) {
+        if (node.kind == NK_FUNCTION_DECL || node.kind == NK_METHOD_DECL
+                || node.kind == NK_METHOD_SIG) {
             Vector<string> added =
                 self.addGenericParameters(node.generic_params);
             self.visit(node.return_type);
-            self.pushScope(self.parameterNames(node.params));
-            self.visitList(node.params);
+            Vector<string> empty = [];
+            self.pushScope(empty);
+            self.visitParameters(node.params);
             self.visit(node.body_node);
             self.popScope();
             self.removeGenericParameters(added);
@@ -148,9 +183,26 @@ class FeImportReferenceCollector {
         if (node.kind == NK_LAMBDA_EXPR) {
             self.visit(node.return_type);
             self.visitList(node.captures);
-            self.pushScope(self.parameterNames(node.params));
-            self.visitList(node.params);
+            Vector<string> empty = [];
+            self.pushScope(empty);
+            self.visitParameters(node.params);
             self.visit(node.body_node);
+            self.popScope();
+            return;
+        }
+        if (node.kind == NK_PROPERTY_DECL) {
+            self.visit(node.type);
+            self.visit(node.getter_body);
+            Vector<string> setterNames = ["value"];
+            self.pushScope(setterNames);
+            self.visit(node.setter_body);
+            self.popScope();
+            return;
+        }
+        if (node.kind == NK_RICH_ENUM_VARIANT) {
+            Vector<string> empty = [];
+            self.pushScope(empty);
+            self.visitParameters(node.params);
             self.popScope();
             return;
         }
@@ -186,6 +238,20 @@ class FeImportReferenceCollector {
             self.popScope();
             return;
         }
+        if (node.kind == NK_SWITCH_STMT) {
+            self.visit(node.value_node);
+            int caseIndex = 0;
+            while (caseIndex < node.cases.len) {
+                Node clause = node.cases.get(caseIndex);
+                self.visit(clause.value_node);
+                Vector<string> empty = [];
+                self.pushScope(empty);
+                self.visitList(clause.body_nlist);
+                self.popScope();
+                caseIndex++;
+            }
+            return;
+        }
         if (node.kind == NK_TRY_CATCH_STMT) {
             self.visit(node.try_block);
             self.visit(node.catch_type);
@@ -194,6 +260,19 @@ class FeImportReferenceCollector {
             self.visit(node.catch_block);
             self.popScope();
             self.visit(node.finally_block);
+            return;
+        }
+        if (node.kind == NK_PREPROCESSOR_DIRECTIVE) {
+            Vector<string> identifiers =
+                sourceMacroReplacementIdentifiers(node.text);
+            int identifierIndex = 0;
+            while (identifierIndex < identifiers.len) {
+                string identifier = identifiers.get(identifierIndex);
+                if (self.macroUsesBareName(node.text, identifier)) {
+                    self.add(identifier, node.line, node.col, false);
+                }
+                identifierIndex++;
+            }
             return;
         }
 
@@ -321,6 +400,74 @@ class FeImportVisibilityChecker {
         symbols.put(name, owners);
     }
 
+    public void addDeclarationSymbols(Map<string, Vector<string>> symbols,
+                                      Node declaration, string owner) {
+        if (self.isNamedDeclaration(declaration)) {
+            self.addSymbolOwner(
+                symbols, self.declarationName(declaration), owner);
+        }
+        if (declaration.kind == NK_ENUM_DECL) {
+            int valueIndex = 0;
+            while (valueIndex < declaration.values.len) {
+                self.addSymbolOwner(
+                    symbols, declaration.values.get(valueIndex).name, owner);
+                valueIndex++;
+            }
+        }
+        if (declaration.kind == NK_RICH_ENUM_DECL) {
+            int variantIndex = 0;
+            while (variantIndex < declaration.variants.len) {
+                self.addSymbolOwner(
+                    symbols, declaration.variants.get(variantIndex).name, owner);
+                variantIndex++;
+            }
+        }
+        if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
+            self.addSymbolOwner(
+                symbols, sourceMacroName(declaration.text), owner);
+        }
+    }
+
+    public void addUncomposedStdlibSymbols(
+            Map<string, Vector<string>> symbols) {
+        Vector<string> files = feDiscoverStdlibFiles();
+        GrammarInfo grammar = feGrammar();
+        int fileIndex = 0;
+        while (fileIndex < files.len) {
+            string path = feJoinPath(feStdlibDir(), files.get(fileIndex));
+            fileIndex++;
+            if (self.resolved.dependencies.hasSource(path)
+                    || !FileSystem.isFile(path)) {
+                continue;
+            }
+            string source = feReadRequiredSource(path);
+            Lexer lexer = Lexer(source, grammar);
+            Vector<Token> tokens = lexer.tokenize();
+            if (lexer.failed) {
+                fprintf(stderr,
+                    "error: cannot index standard-library source '%s': %s\n",
+                    path, lexer.diagnostic);
+                exit(1);
+            }
+            Parser parser = Parser(tokens, grammar);
+            Node stdlibProgram = parser.parseProgram();
+            if (parser.failed) {
+                fprintf(stderr,
+                    "error: cannot index standard-library source '%s': %s\n",
+                    path, parser.diagnostic);
+                exit(1);
+            }
+            string owner = self.resolved.dependencies.identity(path);
+            int declarationIndex = 0;
+            while (declarationIndex < stdlibProgram.declarations.len) {
+                self.addDeclarationSymbols(
+                    symbols,
+                    stdlibProgram.declarations.get(declarationIndex), owner);
+                declarationIndex++;
+            }
+        }
+    }
+
     public Map<string, Vector<string>> symbolFiles() {
         Map<string, Vector<string>> symbols = {};
         int index = 0;
@@ -330,26 +477,11 @@ class FeImportVisibilityChecker {
             if (line != null) {
                 string owner =
                     self.resolved.dependencies.identity(line.sourceFile);
-                if (self.isNamedDeclaration(declaration)) {
-                    self.addSymbolOwner(
-                        symbols, self.declarationName(declaration), owner);
-                }
-                if (declaration.kind == NK_ENUM_DECL) {
-                    int valueIndex = 0;
-                    while (valueIndex < declaration.values.len) {
-                        self.addSymbolOwner(
-                            symbols, declaration.values.get(valueIndex).name,
-                            owner);
-                        valueIndex++;
-                    }
-                }
-                if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
-                    self.addSymbolOwner(
-                        symbols, sourceMacroName(declaration.text), owner);
-                }
+                self.addDeclarationSymbols(symbols, declaration, owner);
             }
             index++;
         }
+        self.addUncomposedStdlibSymbols(symbols);
         return symbols;
     }
 
@@ -370,7 +502,10 @@ class FeImportVisibilityChecker {
         while (declarationIndex < self.program.declarations.len) {
             Node declaration = self.program.declarations.get(declarationIndex);
             declarationIndex++;
-            if (!self.isNamedDeclaration(declaration)) { continue; }
+            if (!self.isNamedDeclaration(declaration)
+                    && declaration.kind != NK_PREPROCESSOR_DIRECTIVE) {
+                continue;
+            }
             FeLine? declarationLine =
                 self.resolved.userLineForCombined(declaration.line);
             if (declarationLine == null) { continue; }

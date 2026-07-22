@@ -1,14 +1,17 @@
+import std.*;
+
 #include "asdl.btrc"
 #include "../frontend_source_io.btrc"
 #include "../driver_output.btrc"
 int main() {
+  BtrccOutput output = BtrccOutput(stdout);
   string src = feReadRequiredSource("src/language/ast.asdl");
   AsdlParser p = AsdlParser(src);
   Vector<AType> types = p.parse();
   int i = 0;
   while (i < types.len) {
     AType t = types.get(i);
-    if (!driverWriteStdoutChunk(
+    if (!output.writeChunk(
             f"TYPE {t.name} ctors={t.ctors.len} attrs={t.attrs.len}", true)) {
       fprintf(stderr, "asdl_dump: error: cannot write standard output\n");
       return 1;
@@ -16,14 +19,14 @@ int main() {
     int j = 0;
     while (j < t.ctors.len) {
       ACtor c = t.ctors.get(j);
-      if (!driverWriteStdoutChunk(f"  CTOR {c.name} fields={c.fields.len}", true)) {
+      if (!output.writeChunk(f"  CTOR {c.name} fields={c.fields.len}", true)) {
         fprintf(stderr, "asdl_dump: error: cannot write standard output\n");
         return 1;
       }
       int k = 0;
       while (k < c.fields.len) {
         AField f = c.fields.get(k);
-        if (!driverWriteStdoutChunk(
+        if (!output.writeChunk(
                 f"    F {f.typeName} {f.name} seq={f.seq} opt={f.opt}", true)) {
           fprintf(stderr, "asdl_dump: error: cannot write standard output\n");
           return 1;
@@ -35,7 +38,7 @@ int main() {
     int a = 0;
     while (a < t.attrs.len) {
       AField f = t.attrs.get(a);
-      if (!driverWriteStdoutChunk(
+      if (!output.writeChunk(
               f"    ATTR {f.typeName} {f.name} seq={f.seq} opt={f.opt}", true)) {
         fprintf(stderr, "asdl_dump: error: cannot write standard output\n");
         return 1;
@@ -44,7 +47,7 @@ int main() {
     }
     i = i + 1;
   }
-  if (driverFlushStdout()) { return 0; }
+  if (output.flush()) { return 0; }
   fprintf(stderr, "asdl_dump: error: cannot write standard output\n");
   return 1;
 }

@@ -1,6 +1,6 @@
 /* Generated-equivalent cycle-boundary text kept in compiler parity. */
 
-string cycleRuntimeBoundarySource(string name) {
+    public string boundarySource(string name) {
     if (name == "__btrc_collect_cycles") {
         return "static void __btrc_collect_cycles(void) {\n"
             + "    __btrc_arc_drain_deferred(1);\n"

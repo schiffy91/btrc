@@ -1,219 +1,221 @@
 /* Thread/Mutex helper routing and exact dependency metadata. */
 
-bool threadRuntimeHasHelper(string name) {
-    return name == "__btrc_thread_spawn"
-        || name == "__btrc_thread_finish"
-        || name == "__btrc_thread_destroy_handle"
-        || name == "__btrc_thread_box_dispose"
-        || name == "__btrc_thread_arc_dispose"
-        || name == "__btrc_thread_string_dispose"
-        || name == "__btrc_thread_dispose_guarded"
-        || name == "__btrc_thread_join"
-        || name == "__btrc_thread_free"
-        || name == "__btrc_mutex_val_types"
-        || name == "__btrc_mutex_value_callback_guard"
-        || name == "__btrc_mutex_finalize_callback_guard"
-        || name == "__btrc_mutex_val_create"
-        || name == "__btrc_mutex_arc_retain"
-        || name == "__btrc_mutex_arc_release"
-        || name == "__btrc_mutex_arc_finalize"
-        || name == "__btrc_mutex_string_retain"
-        || name == "__btrc_mutex_string_release"
-        || name == "__btrc_mutex_arc_type"
-        || name == "__btrc_mutex_val_get"
-        || name == "__btrc_mutex_val_set";
-}
-string threadRuntimeHelperSource(string name) {
-    string source = threadRuntimeThreadSource(name);
-    if (source != "") { return source; }
-    source = threadRuntimeMutexCoreSource(name);
-    if (source != "") { return source; }
-    source = threadRuntimeMutexArcSource(name);
-    if (source != "") { return source; }
-    return threadRuntimeMutexOpsSource(name);
-}
+class ThreadRuntimeCatalog {
+    private ThreadRuntimeSourceCatalog sources;
+    private Map<string, bool> members;
+    private Vector<string> emissionOrder;
 
-Vector<string> threadRuntimeHelperDependencies(string name) {
-    Vector<string> out = [];
-    if (name == "__btrc_thread_spawn") {
-        out.push("__btrc_safe_realloc");
-        out.push("__btrc_try_state_cleanup");
-        out.push("__btrc_arc_thread_state_cleanup");
-        out.push("__btrc_arc_callback_types");
-        out.push("__btrc_arc_guard_hook");
-        out.push("__btrc_throw");
-        return out;
+    public ThreadRuntimeCatalog(ThreadRuntimeSourceCatalog sources) {
+        self.sources = sources;
+        self.emissionOrder = [
+            "__btrc_thread_spawn",
+            "__btrc_thread_finish",
+            "__btrc_thread_destroy_handle",
+            "__btrc_thread_box_dispose",
+            "__btrc_thread_arc_dispose",
+            "__btrc_thread_string_dispose",
+            "__btrc_thread_dispose_guarded",
+            "__btrc_thread_join",
+            "__btrc_thread_free",
+            "__btrc_mutex_val_types",
+            "__btrc_mutex_value_callback_guard",
+            "__btrc_mutex_finalize_callback_guard",
+            "__btrc_mutex_arc_retain",
+            "__btrc_mutex_arc_release",
+            "__btrc_mutex_arc_finalize",
+            "__btrc_mutex_string_retain",
+            "__btrc_mutex_string_release",
+            "__btrc_mutex_arc_type",
+            "__btrc_mutex_val_create",
+            "__btrc_mutex_val_get",
+            "__btrc_mutex_val_set"
+        ];
+        self.members = {};
+        int index = 0;
+        while (index < self.emissionOrder.len) {
+            self.members.put(self.emissionOrder.get(index), true);
+            index = index + 1;
+        }
     }
-    if (name == "__btrc_thread_finish") {
-        out.push("__btrc_thread_spawn");
-        return out;
-    }
-    if (name == "__btrc_thread_destroy_handle") {
-        out.push("__btrc_thread_spawn");
-        return out;
-    }
-    if (name == "__btrc_thread_box_dispose") {
-        out.push("__btrc_thread_spawn");
-        return out;
-    }
-    if (name == "__btrc_thread_arc_dispose") {
-        out.push("__btrc_thread_spawn");
-        out.push("__btrc_arc_release");
-        out.push("__btrc_flush_cycles");
-        return out;
-    }
-    if (name == "__btrc_thread_string_dispose") {
-        out.push("__btrc_thread_spawn");
-        out.push("__btrc_string_release");
-        return out;
-    }
-    if (name == "__btrc_thread_dispose_guarded") {
-        out.push("__btrc_thread_spawn");
-        out.push("__btrc_arc_guard_hook");
-        return out;
-    }
-    if (name == "__btrc_thread_join") {
-        out.push("__btrc_thread_finish");
-        out.push("__btrc_thread_destroy_handle");
-        out.push("__btrc_thread_dispose_guarded");
-        out.push("__btrc_raise_captured");
-        return out;
-    }
-    if (name == "__btrc_thread_free") {
-        out.push("__btrc_thread_finish");
-        out.push("__btrc_thread_destroy_handle");
-        out.push("__btrc_thread_dispose_guarded");
-        out.push("__btrc_raise_captured");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_types") {
-        out.push("__btrc_arc_callback_types");
-        return out;
-    }
-    if (name == "__btrc_mutex_value_callback_guard") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_arc_guard_hook");
-        return out;
-    }
-    if (name == "__btrc_mutex_finalize_callback_guard") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_arc_guard_hook");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_create") {
-        out.push("__btrc_mutex_arc_type");
-        out.push("__btrc_mutex_value_callback_guard");
-        out.push("__btrc_raise_captured");
-        out.push("__btrc_safe_realloc");
-        return out;
-    }
-    if (name == "__btrc_mutex_arc_retain") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_arc_retain");
-        out.push("__btrc_arc_retain_edge");
-        return out;
-    }
-    if (name == "__btrc_mutex_arc_release") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_arc_release");
-        out.push("__btrc_arc_release_edge");
-        out.push("__btrc_arc_unlink_edge");
-        return out;
-    }
-    if (name == "__btrc_mutex_arc_finalize") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_flush_cycles");
-        return out;
-    }
-    if (name == "__btrc_mutex_string_retain") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_string_retain");
-        return out;
-    }
-    if (name == "__btrc_mutex_string_release") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_string_release");
-        return out;
-    }
-    if (name == "__btrc_mutex_arc_type") {
-        out.push("__btrc_mutex_val_types");
-        out.push("__btrc_arc_topology_begin");
-        out.push("__btrc_arc_topology_leave");
-        out.push("__btrc_mark_destroyed");
-        out.push("__btrc_throw");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_get") {
-        out.push("__btrc_mutex_value_callback_guard");
-        out.push("__btrc_mutex_finalize_callback_guard");
-        out.push("__btrc_arc_topology_begin");
-        out.push("__btrc_arc_topology_leave");
-        out.push("__btrc_raise_captured");
-        out.push("__btrc_safe_realloc");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_set") {
-        out.push("__btrc_mutex_value_callback_guard");
-        out.push("__btrc_mutex_finalize_callback_guard");
-        out.push("__btrc_arc_topology_begin");
-        out.push("__btrc_arc_topology_leave");
-        out.push("__btrc_raise_captured");
-        return out;
-    }
-    return out;
-}
 
-Vector<string> threadRuntimeHelperHeaders(string name) {
-    Vector<string> out = [];
-    if (name == "__btrc_thread_spawn") {
-        out.push("pthread.h");
-        out.push("string.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_types") {
-        out.push("pthread.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_create") {
-        out.push("string.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_arc_type") {
-        out.push("stdio.h");
-        out.push("stdlib.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_get") {
-        out.push("string.h");
-        return out;
-    }
-    if (name == "__btrc_mutex_val_set") {
-        out.push("string.h");
-        return out;
-    }
-    return out;
-}
+    public bool has(string name) { return self.members.has(name); }
 
-void appendThreadRuntimeHelperOrder(Vector<string> order) {
-    order.push("__btrc_thread_spawn");
-    order.push("__btrc_thread_finish");
-    order.push("__btrc_thread_destroy_handle");
-    order.push("__btrc_thread_box_dispose");
-    order.push("__btrc_thread_arc_dispose");
-    order.push("__btrc_thread_string_dispose");
-    order.push("__btrc_thread_dispose_guarded");
-    order.push("__btrc_thread_join");
-    order.push("__btrc_thread_free");
-    order.push("__btrc_mutex_val_types");
-    order.push("__btrc_mutex_value_callback_guard");
-    order.push("__btrc_mutex_finalize_callback_guard");
-    order.push("__btrc_mutex_arc_retain");
-    order.push("__btrc_mutex_arc_release");
-    order.push("__btrc_mutex_arc_finalize");
-    order.push("__btrc_mutex_string_retain");
-    order.push("__btrc_mutex_string_release");
-    order.push("__btrc_mutex_arc_type");
-    order.push("__btrc_mutex_val_create");
-    order.push("__btrc_mutex_val_get");
-    order.push("__btrc_mutex_val_set");
+    public string source(string name) {
+        string source = self.sources.threadSource(name);
+        if (source != "") { return source; }
+        source = self.sources.mutexCoreSource(name);
+        if (source != "") { return source; }
+        source = self.sources.mutexArcSource(name);
+        if (source != "") { return source; }
+        return self.sources.mutexOpsSource(name);
+    }
+
+    public Vector<string> dependencies(string name) {
+        Vector<string> out = [];
+        if (name == "__btrc_thread_spawn") {
+            out.push("__btrc_safe_realloc");
+            out.push("__btrc_try_state_cleanup");
+            out.push("__btrc_arc_thread_state_cleanup");
+            out.push("__btrc_arc_callback_types");
+            out.push("__btrc_arc_guard_hook");
+            out.push("__btrc_throw");
+            return out;
+        }
+        if (name == "__btrc_thread_finish") {
+            out.push("__btrc_thread_spawn");
+            return out;
+        }
+        if (name == "__btrc_thread_destroy_handle") {
+            out.push("__btrc_thread_spawn");
+            return out;
+        }
+        if (name == "__btrc_thread_box_dispose") {
+            out.push("__btrc_thread_spawn");
+            return out;
+        }
+        if (name == "__btrc_thread_arc_dispose") {
+            out.push("__btrc_thread_spawn");
+            out.push("__btrc_arc_release");
+            out.push("__btrc_flush_cycles");
+            return out;
+        }
+        if (name == "__btrc_thread_string_dispose") {
+            out.push("__btrc_thread_spawn");
+            out.push("__btrc_string_release");
+            return out;
+        }
+        if (name == "__btrc_thread_dispose_guarded") {
+            out.push("__btrc_thread_spawn");
+            out.push("__btrc_arc_guard_hook");
+            return out;
+        }
+        if (name == "__btrc_thread_join") {
+            out.push("__btrc_thread_finish");
+            out.push("__btrc_thread_destroy_handle");
+            out.push("__btrc_thread_dispose_guarded");
+            out.push("__btrc_raise_captured");
+            return out;
+        }
+        if (name == "__btrc_thread_free") {
+            out.push("__btrc_thread_finish");
+            out.push("__btrc_thread_destroy_handle");
+            out.push("__btrc_thread_dispose_guarded");
+            out.push("__btrc_raise_captured");
+            return out;
+        }
+        if (name == "__btrc_mutex_val_types") {
+            out.push("__btrc_arc_callback_types");
+            return out;
+        }
+        if (name == "__btrc_mutex_value_callback_guard") {
+            out.push("__btrc_mutex_val_types");
+            out.push("__btrc_arc_guard_hook");
+            return out;
+        }
+        if (name == "__btrc_mutex_finalize_callback_guard") {
+            out.push("__btrc_mutex_val_types");
+            out.push("__btrc_arc_guard_hook");
+            return out;
+        }
+        if (name == "__btrc_mutex_val_create") {
+            out.push("__btrc_mutex_arc_type");
+            out.push("__btrc_mutex_value_callback_guard");
+            out.push("__btrc_raise_captured");
+            out.push("__btrc_safe_realloc");
+            return out;
+        }
+        if (name == "__btrc_mutex_arc_retain") {
+            out.push("__btrc_mutex_val_types");
+            out.push("__btrc_arc_retain");
+            out.push("__btrc_arc_retain_edge");
+            return out;
+        }
+        if (name == "__btrc_mutex_arc_release") {
+            out.push("__btrc_mutex_val_types");
+            out.push("__btrc_arc_release");
+            out.push("__btrc_arc_release_edge");
+            out.push("__btrc_arc_unlink_edge");
+            return out;
+        }
+        if (name == "__btrc_mutex_arc_finalize") {
+            out.push("__btrc_mutex_val_types");
+            out.push("__btrc_flush_cycles");
+            return out;
+        }
+        if (name == "__btrc_mutex_string_retain") {
+            out.push("__btrc_mutex_val_types");
+            out.push("__btrc_string_retain");
+            return out;
+        }
+        if (name == "__btrc_mutex_string_release") {
+            out.push("__btrc_mutex_val_types");
+            out.push("__btrc_string_release");
+            return out;
+        }
+        if (name == "__btrc_mutex_arc_type") {
+            out.push("__btrc_mutex_val_types");
+            out.push("__btrc_arc_topology_begin");
+            out.push("__btrc_arc_topology_leave");
+            out.push("__btrc_mark_destroyed");
+            out.push("__btrc_throw");
+            return out;
+        }
+        if (name == "__btrc_mutex_val_get") {
+            out.push("__btrc_mutex_value_callback_guard");
+            out.push("__btrc_mutex_finalize_callback_guard");
+            out.push("__btrc_arc_topology_begin");
+            out.push("__btrc_arc_topology_leave");
+            out.push("__btrc_raise_captured");
+            out.push("__btrc_safe_realloc");
+            return out;
+        }
+        if (name == "__btrc_mutex_val_set") {
+            out.push("__btrc_mutex_value_callback_guard");
+            out.push("__btrc_mutex_finalize_callback_guard");
+            out.push("__btrc_arc_topology_begin");
+            out.push("__btrc_arc_topology_leave");
+            out.push("__btrc_raise_captured");
+            return out;
+        }
+        return out;
+    }
+
+    public Vector<string> headers(string name) {
+        Vector<string> out = [];
+        if (name == "__btrc_thread_spawn") {
+            out.push("pthread.h");
+            out.push("string.h");
+            return out;
+        }
+        if (name == "__btrc_mutex_val_types") {
+            out.push("pthread.h");
+            return out;
+        }
+        if (name == "__btrc_mutex_val_create") {
+            out.push("string.h");
+            return out;
+        }
+        if (name == "__btrc_mutex_arc_type") {
+            out.push("stdio.h");
+            out.push("stdlib.h");
+            return out;
+        }
+        if (name == "__btrc_mutex_val_get") {
+            out.push("string.h");
+            return out;
+        }
+        if (name == "__btrc_mutex_val_set") {
+            out.push("string.h");
+            return out;
+        }
+        return out;
+    }
+
+    public void appendOrder(Vector<string> order) {
+        int index = 0;
+        while (index < self.emissionOrder.len) {
+            order.push(self.emissionOrder.get(index));
+            index = index + 1;
+        }
+    }
 }

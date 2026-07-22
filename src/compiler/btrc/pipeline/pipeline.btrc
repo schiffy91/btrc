@@ -1,0 +1,65 @@
+/* Instance-owned orchestration for the self-hosted compiler pipeline. */
+
+class CompilerPipeline {
+    private GrammarInfo grammar;
+
+    public CompilerPipeline(GrammarInfo grammar) {
+        self.grammar = grammar;
+    }
+
+    private BtrccCompilationResult failure(string diagnostic) {
+        return BtrccCompilationResult(false, "", diagnostic);
+    }
+
+    private string visibilityDiagnostic(
+            Vector<FeVisibilityDiagnostic> diagnostics) {
+        Vector<string> rendered = [];
+        int index = 0;
+        while (index < diagnostics.len) {
+            rendered.push(diagnostics.get(index).render());
+            index++;
+        }
+        return Strings.join(rendered, "\n");
+    }
+
+    public BtrccCompilationResult compile(string source, string sourcePath,
+                                          BtrccOptions options) {
+        FeFrontendResolver resolver = FeFrontendResolver(
+            options.includeStdlib, options.strictImports);
+        FeResolvedSource resolved = resolver.resolve(source, sourcePath);
+
+        Lexer lexer = Lexer(resolved.source, self.grammar);
+        Vector<Token> tokens = lexer.tokenize();
+        if (lexer.failed) {
+            return self.failure("error: " + lexer.diagnostic);
+        }
+
+        Parser parser = Parser(tokens, self.grammar);
+        Node program = parser.parseProgram();
+        if (parser.failed) {
+            return self.failure("error: " + parser.diagnostic);
+        }
+
+        if (options.strictImports) {
+            FeImportVisibilityChecker visibility =
+                FeImportVisibilityChecker(program, resolved);
+            Vector<FeVisibilityDiagnostic> diagnostics = visibility.check();
+            if (diagnostics.len > 0) {
+                return self.failure(self.visibilityDiagnostic(diagnostics));
+            }
+        }
+
+        hostedAbiStampProgramSources(
+            program, resolved.stdlibLineCount, resolved.userLines, sourcePath);
+        Analyzed analyzed = analyzeProgram(program);
+        semanticValidateProgram(program, analyzed);
+        closeProgramGenericExpressionGraph(program, analyzed);
+
+        IRGen lowerer = IRGen(
+            analyzed, sourcePath, resolved.stdlibLineCount, resolved.userLines);
+        lowerer.dceEnabled = options.runDce;
+        IRModule module = lowerer.generate(program);
+        CEmitter emitter = CEmitter();
+        return BtrccCompilationResult(true, emitter.emit(module), "");
+    }
+}

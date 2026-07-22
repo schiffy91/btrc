@@ -4,287 +4,272 @@
  * participate in retain/release; literals and borrowed FFI strings are no-ops.
  */
 
-bool stringOwnershipRuntimeHasHelper(string name) {
-    return name == "__btrc_string_or_empty"
-        || name == "__btrc_string_registry"
-        || name == "__btrc_string_registry_lock_state"
-        || name == "__btrc_string_registry_lock"
-        || name == "__btrc_string_registry_hash"
-        || name == "__btrc_string_registry_slot"
-        || name == "__btrc_string_registry_count"
-        || name == "__btrc_string_registry_resize"
-        || name == "__btrc_string_adopt"
-        || name == "__btrc_string_retain"
-        || name == "__btrc_string_release"
-        || name == "__btrc_string_release_cleanup"
-        || name == "__btrc_string_live_count"
-        || name == "__btrc_str_track"
-        || name == "__btrc_str_flush"
-        || name == "__btrc_string_alloc";
-}
+class StringOwnershipRuntimeCatalog {
+    private Map<string, bool> members;
+    private Vector<string> emissionOrder;
 
-string stringOwnershipRuntimeHelperSource(string name) {
-    if (name == "__btrc_string_or_empty") {
-        return "static inline const char* __btrc_string_or_empty(const char* s) {\n"
-            + "    return s ? s : \"\";\n"
-            + "}";
+    public StringOwnershipRuntimeCatalog() {
+        self.emissionOrder = [
+            "__btrc_string_registry",
+            "__btrc_string_registry_lock_state",
+            "__btrc_string_registry_lock",
+            "__btrc_string_registry_hash",
+            "__btrc_string_registry_slot",
+            "__btrc_string_registry_count",
+            "__btrc_string_registry_resize",
+            "__btrc_string_adopt",
+            "__btrc_string_retain",
+            "__btrc_string_release",
+            "__btrc_string_release_cleanup",
+            "__btrc_string_live_count",
+            "__btrc_str_track",
+            "__btrc_str_flush"
+        ];
+        self.members = {};
+        int index = 0;
+        while (index < self.emissionOrder.len) {
+            self.members.put(self.emissionOrder.get(index), true);
+            index = index + 1;
+        }
     }
-    if (name == "__btrc_string_registry") {
-        return "typedef struct __btrc_string_entry {\n"
-            + "    char* value;\n"
-            + "    size_t references;\n"
-            + "    struct __btrc_string_entry* next;\n"
-            + "} __btrc_string_entry;\n"
-            + "\n"
-            + "static __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\n"
-            + "static __btrc_string_entry** __btrc_string_buckets =\n"
-            + "    __btrc_string_inline_buckets;\n"
-            + "static size_t __btrc_string_bucket_count = 64;";
-    }
-    if (name == "__btrc_string_registry_lock_state") {
-        return "static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;";
-    }
-    if (name == "__btrc_string_registry_lock") {
-        return "static inline void __btrc_string_registry_lock(void) {\n"
-            + "    unsigned int delay = 1;\n"
-            + "    while (atomic_flag_test_and_set_explicit(\n"
-            + "            &__btrc_string_lock, memory_order_acquire)) {\n"
-            + "        for (unsigned int spin = 0; spin < delay; spin++) {\n"
-            + "            atomic_signal_fence(memory_order_seq_cst);\n"
-            + "        }\n"
-            + "        if (delay < 1024) delay *= 2;\n"
-            + "    }\n"
-            + "}\n"
-            + "\n"
-            + "static inline void __btrc_string_registry_unlock(void) {\n"
-            + "    atomic_flag_clear_explicit(&__btrc_string_lock, memory_order_release);\n"
-            + "}";
-    }
-    if (name == "__btrc_string_registry_hash") {
-        return "static inline size_t __btrc_string_hash(const char* value, size_t buckets) {\n"
-            + "    uintptr_t bits = (uintptr_t)(const void*)value;\n"
-            + "    bits ^= bits >> 17;\n"
-            + "    bits *= (uintptr_t)0xed5ad4bbU;\n"
-            + "    bits ^= bits >> 11;\n"
-            + "    return (size_t)(bits % (uintptr_t)buckets);\n"
-            + "}";
-    }
-    if (name == "__btrc_string_registry_slot") {
-        return "static inline __btrc_string_entry** __btrc_string_slot(const char* value) {\n"
-            + "    size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);\n"
-            + "    __btrc_string_entry** slot = &__btrc_string_buckets[index];\n"
-            + "    while (*slot && (*slot)->value != value) slot = &(*slot)->next;\n"
-            + "    return slot;\n"
-            + "}";
-    }
-    if (name == "__btrc_string_registry_count") {
-        return "static size_t __btrc_string_entry_count = 0;";
-    }
-    if (name == "__btrc_string_registry_resize") {
-        return "static inline void __btrc_string_registry_resize(size_t capacity) {\n"
-            + "    __btrc_string_entry** old_buckets = __btrc_string_buckets;\n"
-            + "    size_t old_capacity = __btrc_string_bucket_count;\n"
-            + "    __btrc_string_entry** buckets = (__btrc_string_entry**)\n"
-            + "        __btrc_safe_calloc(capacity, sizeof(__btrc_string_entry*));\n"
-            + "    for (size_t index = 0; index < old_capacity; index++) {\n"
-            + "        __btrc_string_entry* entry = old_buckets[index];\n"
-            + "        while (entry) {\n"
-            + "            __btrc_string_entry* next = entry->next;\n"
-            + "            size_t target = __btrc_string_hash(entry->value, capacity);\n"
-            + "            entry->next = buckets[target];\n"
-            + "            buckets[target] = entry;\n"
-            + "            entry = next;\n"
-            + "        }\n"
-            + "    }\n"
-            + "    if (old_buckets == __btrc_string_inline_buckets) {\n"
-            + "        memset(__btrc_string_inline_buckets, 0,\n"
-            + "            sizeof(__btrc_string_inline_buckets));\n"
-            + "    } else {\n"
-            + "        free(old_buckets);\n"
-            + "    }\n"
-            + "    __btrc_string_buckets = buckets;\n"
-            + "    __btrc_string_bucket_count = capacity;\n"
-            + "}";
-    }
-    if (name == "__btrc_string_adopt") {
-        return "static inline char* __btrc_string_adopt(char* value) {\n"
-            + "    if (!value) return NULL;\n"
-            + "    __btrc_string_entry* candidate = (__btrc_string_entry*)\n"
-            + "        __btrc_safe_realloc(NULL, sizeof(__btrc_string_entry));\n"
-            + "    candidate->value = value;\n"
-            + "    candidate->references = 1;\n"
-            + "    candidate->next = NULL;\n"
-            + "\n"
-            + "    __btrc_string_registry_lock();\n"
-            + "    __btrc_string_entry** slot = __btrc_string_slot(value);\n"
-            + "    if (*slot) {\n"
-            + "        __btrc_string_registry_unlock();\n"
-            + "        free(candidate);\n"
-            + "        return value;\n"
-            + "    }\n"
-            + "    if (__btrc_string_entry_count >= __btrc_string_bucket_count\n"
-            + "            - __btrc_string_bucket_count / 4) {\n"
-            + "        if (__btrc_string_bucket_count > SIZE_MAX / 2) {\n"
-            + "            __btrc_string_registry_unlock();\n"
-            + "            fprintf(stderr, \"btrc: string registry overflow\\n\");\n"
-            + "            exit(1);\n"
-            + "        }\n"
-            + "        __btrc_string_registry_resize(__btrc_string_bucket_count * 2);\n"
-            + "        slot = __btrc_string_slot(value);\n"
-            + "    }\n"
-            + "    candidate->next = *slot;\n"
-            + "    *slot = candidate;\n"
-            + "    __btrc_string_entry_count++;\n"
-            + "    __btrc_string_registry_unlock();\n"
-            + "    return value;\n"
-            + "}";
-    }
-    if (name == "__btrc_string_retain") {
-        return "static inline char* __btrc_string_retain(const char* value) {\n"
-            + "    if (!value) return NULL;\n"
-            + "    __btrc_string_registry_lock();\n"
-            + "    if (__btrc_string_bucket_count != 0) {\n"
-            + "        __btrc_string_entry* entry = *__btrc_string_slot(value);\n"
-            + "        if (entry) {\n"
-            + "            if (entry->references == SIZE_MAX) {\n"
-            + "                __btrc_string_registry_unlock();\n"
-            + "                fprintf(stderr, \"btrc: string reference overflow\\n\");\n"
-            + "                exit(1);\n"
-            + "            }\n"
-            + "            entry->references++;\n"
-            + "        }\n"
-            + "    }\n"
-            + "    __btrc_string_registry_unlock();\n"
-            + "    return (char*)value;\n"
-            + "}";
-    }
-    if (name == "__btrc_string_release") {
-        return "static inline void __btrc_string_release(const char* value) {\n"
-            + "    if (!value) return;\n"
-            + "    __btrc_string_entry* removed = NULL;\n"
-            + "    __btrc_string_entry** retired_buckets = NULL;\n"
-            + "    __btrc_string_registry_lock();\n"
-            + "    __btrc_string_entry** slot = __btrc_string_slot(value);\n"
-            + "    __btrc_string_entry* entry = *slot;\n"
-            + "    if (entry && entry->references > 1) {\n"
-            + "        entry->references--;\n"
-            + "    } else if (entry) {\n"
-            + "        *slot = entry->next;\n"
-            + "        removed = entry;\n"
-            + "        __btrc_string_entry_count--;\n"
-            + "        if (__btrc_string_entry_count == 0\n"
-            + "                && __btrc_string_buckets != __btrc_string_inline_buckets) {\n"
-            + "            retired_buckets = __btrc_string_buckets;\n"
-            + "            __btrc_string_buckets = __btrc_string_inline_buckets;\n"
-            + "            __btrc_string_bucket_count = 64;\n"
-            + "            memset(__btrc_string_inline_buckets, 0,\n"
-            + "                sizeof(__btrc_string_inline_buckets));\n"
-            + "        }\n"
-            + "    }\n"
-            + "    __btrc_string_registry_unlock();\n"
-            + "    if (removed) {\n"
-            + "        free(removed->value);\n"
-            + "        free(removed);\n"
-            + "    }\n"
-            + "    free(retired_buckets);\n"
-            + "}";
-    }
-    if (name == "__btrc_string_release_cleanup") {
-        return "static inline void __btrc_string_release_cleanup(void* value) {\n"
-            + "    __btrc_string_release((const char*)value);\n"
-            + "}";
-    }
-    if (name == "__btrc_string_live_count") {
-        return "static inline size_t __btrc_string_live_count(void) {\n"
-            + "    __btrc_string_registry_lock();\n"
-            + "    size_t result = __btrc_string_entry_count;\n"
-            + "    __btrc_string_registry_unlock();\n"
-            + "    return result;\n"
-            + "}";
-    }
-    if (name == "__btrc_str_track") {
-        return "static inline char* __btrc_str_track(char* s) {\n"
-            + "    return __btrc_string_adopt(s);\n"
-            + "}";
-    }
-    if (name == "__btrc_str_flush") {
-        return "static inline void __btrc_str_flush(void) {\n"
-            + "    /* Retained for source compatibility; ownership is explicit. */\n"
-            + "}";
-    }
-    if (name == "__btrc_string_alloc") {
-        return "static inline char* __btrc_string_alloc(int length) {\n"
-            + "    if (length < 0) {\n"
-            + "        fprintf(stderr, \"btrc: negative string allocation\\n\"); exit(1);\n"
-            + "    }\n"
-            + "    char* result = (char*)__btrc_safe_realloc(\n"
-            + "        NULL, (size_t)length + 1);\n"
-            + "    result[length] = '\\0';\n"
-            + "    return __btrc_string_adopt(result);\n"
-            + "}";
-    }
-    return "";
-}
 
-Vector<string> stringOwnershipRuntimeHelperDependencies(string name) {
-    Vector<string> out = [];
-    if (name == "__btrc_string_registry_lock") {
-        out.push("__btrc_string_registry_lock_state");
-    } else if (name == "__btrc_string_registry_slot") {
-        out.push("__btrc_string_registry");
-        out.push("__btrc_string_registry_hash");
-    } else if (name == "__btrc_string_registry_resize") {
-        out.push("__btrc_string_registry");
-        out.push("__btrc_string_registry_hash");
-        out.push("__btrc_safe_calloc");
-    } else if (name == "__btrc_string_adopt") {
-        out.push("__btrc_string_registry_resize");
-        out.push("__btrc_string_registry_slot");
-        out.push("__btrc_string_registry_lock");
-        out.push("__btrc_string_registry_count");
-        out.push("__btrc_safe_realloc");
-    } else if (name == "__btrc_string_retain") {
-        out.push("__btrc_string_registry_slot");
-        out.push("__btrc_string_registry_lock");
-    } else if (name == "__btrc_string_release") {
-        out.push("__btrc_string_registry_slot");
-        out.push("__btrc_string_registry_lock");
-        out.push("__btrc_string_registry_count");
-    } else if (name == "__btrc_string_live_count") {
-        out.push("__btrc_string_registry_lock");
-        out.push("__btrc_string_registry_count");
-    } else if (name == "__btrc_string_release_cleanup") {
-        out.push("__btrc_string_release");
-    } else if (name == "__btrc_str_track") {
-        out.push("__btrc_string_adopt");
-    } else if (name == "__btrc_string_alloc") {
-        out.push("__btrc_safe_realloc");
-        out.push("__btrc_string_adopt");
-    }
-    return out;
-}
+    public bool has(string name) { return self.members.has(name); }
 
-Vector<string> stringOwnershipRuntimeHelperHeaders(string name) {
-    Vector<string> out = [];
-    if (name == "__btrc_string_registry_lock_state") {
-        out.push("stdatomic.h");
+    public string source(string name) {
+        if (name == "__btrc_string_registry") {
+            return "typedef struct __btrc_string_entry {\n"
+                + "    char* value;\n"
+                + "    size_t references;\n"
+                + "    struct __btrc_string_entry* next;\n"
+                + "} __btrc_string_entry;\n"
+                + "\n"
+                + "static __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\n"
+                + "static __btrc_string_entry** __btrc_string_buckets =\n"
+                + "    __btrc_string_inline_buckets;\n"
+                + "static size_t __btrc_string_bucket_count = 64;";
+        }
+        if (name == "__btrc_string_registry_lock_state") {
+            return "static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;";
+        }
+        if (name == "__btrc_string_registry_lock") {
+            return "static inline void __btrc_string_registry_lock(void) {\n"
+                + "    unsigned int delay = 1;\n"
+                + "    while (atomic_flag_test_and_set_explicit(\n"
+                + "            &__btrc_string_lock, memory_order_acquire)) {\n"
+                + "        for (unsigned int spin = 0; spin < delay; spin++) {\n"
+                + "            atomic_signal_fence(memory_order_seq_cst);\n"
+                + "        }\n"
+                + "        if (delay < 1024) delay *= 2;\n"
+                + "    }\n"
+                + "}\n"
+                + "\n"
+                + "static inline void __btrc_string_registry_unlock(void) {\n"
+                + "    atomic_flag_clear_explicit(&__btrc_string_lock, memory_order_release);\n"
+                + "}";
+        }
+        if (name == "__btrc_string_registry_hash") {
+            return "static inline size_t __btrc_string_hash(const char* value, size_t buckets) {\n"
+                + "    uintptr_t bits = (uintptr_t)(const void*)value;\n"
+                + "    bits ^= bits >> 17;\n"
+                + "    bits *= (uintptr_t)0xed5ad4bbU;\n"
+                + "    bits ^= bits >> 11;\n"
+                + "    return (size_t)(bits % (uintptr_t)buckets);\n"
+                + "}";
+        }
+        if (name == "__btrc_string_registry_slot") {
+            return "static inline __btrc_string_entry** __btrc_string_slot(const char* value) {\n"
+                + "    size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);\n"
+                + "    __btrc_string_entry** slot = &__btrc_string_buckets[index];\n"
+                + "    while (*slot && (*slot)->value != value) slot = &(*slot)->next;\n"
+                + "    return slot;\n"
+                + "}";
+        }
+        if (name == "__btrc_string_registry_count") {
+            return "static size_t __btrc_string_entry_count = 0;";
+        }
+        if (name == "__btrc_string_registry_resize") {
+            return "static inline void __btrc_string_registry_resize(size_t capacity) {\n"
+                + "    __btrc_string_entry** old_buckets = __btrc_string_buckets;\n"
+                + "    size_t old_capacity = __btrc_string_bucket_count;\n"
+                + "    __btrc_string_entry** buckets = (__btrc_string_entry**)\n"
+                + "        __btrc_safe_calloc(capacity, sizeof(__btrc_string_entry*));\n"
+                + "    for (size_t index = 0; index < old_capacity; index++) {\n"
+                + "        __btrc_string_entry* entry = old_buckets[index];\n"
+                + "        while (entry) {\n"
+                + "            __btrc_string_entry* next = entry->next;\n"
+                + "            size_t target = __btrc_string_hash(entry->value, capacity);\n"
+                + "            entry->next = buckets[target];\n"
+                + "            buckets[target] = entry;\n"
+                + "            entry = next;\n"
+                + "        }\n"
+                + "    }\n"
+                + "    if (old_buckets == __btrc_string_inline_buckets) {\n"
+                + "        memset(__btrc_string_inline_buckets, 0,\n"
+                + "            sizeof(__btrc_string_inline_buckets));\n"
+                + "    } else {\n"
+                + "        free(old_buckets);\n"
+                + "    }\n"
+                + "    __btrc_string_buckets = buckets;\n"
+                + "    __btrc_string_bucket_count = capacity;\n"
+                + "}";
+        }
+        if (name == "__btrc_string_adopt") {
+            return "static inline char* __btrc_string_adopt(char* value) {\n"
+                + "    if (!value) return NULL;\n"
+                + "    __btrc_string_entry* candidate = (__btrc_string_entry*)\n"
+                + "        __btrc_safe_realloc(NULL, sizeof(__btrc_string_entry));\n"
+                + "    candidate->value = value;\n"
+                + "    candidate->references = 1;\n"
+                + "    candidate->next = NULL;\n"
+                + "\n"
+                + "    __btrc_string_registry_lock();\n"
+                + "    __btrc_string_entry** slot = __btrc_string_slot(value);\n"
+                + "    if (*slot) {\n"
+                + "        __btrc_string_registry_unlock();\n"
+                + "        free(candidate);\n"
+                + "        return value;\n"
+                + "    }\n"
+                + "    if (__btrc_string_entry_count >= __btrc_string_bucket_count\n"
+                + "            - __btrc_string_bucket_count / 4) {\n"
+                + "        if (__btrc_string_bucket_count > SIZE_MAX / 2) {\n"
+                + "            __btrc_string_registry_unlock();\n"
+                + "            fprintf(stderr, \"btrc: string registry overflow\\n\");\n"
+                + "            exit(1);\n"
+                + "        }\n"
+                + "        __btrc_string_registry_resize(__btrc_string_bucket_count * 2);\n"
+                + "        slot = __btrc_string_slot(value);\n"
+                + "    }\n"
+                + "    candidate->next = *slot;\n"
+                + "    *slot = candidate;\n"
+                + "    __btrc_string_entry_count++;\n"
+                + "    __btrc_string_registry_unlock();\n"
+                + "    return value;\n"
+                + "}";
+        }
+        if (name == "__btrc_string_retain") {
+            return "static inline char* __btrc_string_retain(const char* value) {\n"
+                + "    if (!value) return NULL;\n"
+                + "    __btrc_string_registry_lock();\n"
+                + "    if (__btrc_string_bucket_count != 0) {\n"
+                + "        __btrc_string_entry* entry = *__btrc_string_slot(value);\n"
+                + "        if (entry) {\n"
+                + "            if (entry->references == SIZE_MAX) {\n"
+                + "                __btrc_string_registry_unlock();\n"
+                + "                fprintf(stderr, \"btrc: string reference overflow\\n\");\n"
+                + "                exit(1);\n"
+                + "            }\n"
+                + "            entry->references++;\n"
+                + "        }\n"
+                + "    }\n"
+                + "    __btrc_string_registry_unlock();\n"
+                + "    return (char*)value;\n"
+                + "}";
+        }
+        if (name == "__btrc_string_release") {
+            return "static inline void __btrc_string_release(const char* value) {\n"
+                + "    if (!value) return;\n"
+                + "    __btrc_string_entry* removed = NULL;\n"
+                + "    __btrc_string_entry** retired_buckets = NULL;\n"
+                + "    __btrc_string_registry_lock();\n"
+                + "    __btrc_string_entry** slot = __btrc_string_slot(value);\n"
+                + "    __btrc_string_entry* entry = *slot;\n"
+                + "    if (entry && entry->references > 1) {\n"
+                + "        entry->references--;\n"
+                + "    } else if (entry) {\n"
+                + "        *slot = entry->next;\n"
+                + "        removed = entry;\n"
+                + "        __btrc_string_entry_count--;\n"
+                + "        if (__btrc_string_entry_count == 0\n"
+                + "                && __btrc_string_buckets != __btrc_string_inline_buckets) {\n"
+                + "            retired_buckets = __btrc_string_buckets;\n"
+                + "            __btrc_string_buckets = __btrc_string_inline_buckets;\n"
+                + "            __btrc_string_bucket_count = 64;\n"
+                + "            memset(__btrc_string_inline_buckets, 0,\n"
+                + "                sizeof(__btrc_string_inline_buckets));\n"
+                + "        }\n"
+                + "    }\n"
+                + "    __btrc_string_registry_unlock();\n"
+                + "    if (removed) {\n"
+                + "        free(removed->value);\n"
+                + "        free(removed);\n"
+                + "    }\n"
+                + "    free(retired_buckets);\n"
+                + "}";
+        }
+        if (name == "__btrc_string_release_cleanup") {
+            return "static inline void __btrc_string_release_cleanup(void* value) {\n"
+                + "    __btrc_string_release((const char*)value);\n"
+                + "}";
+        }
+        if (name == "__btrc_string_live_count") {
+            return "static inline size_t __btrc_string_live_count(void) {\n"
+                + "    __btrc_string_registry_lock();\n"
+                + "    size_t result = __btrc_string_entry_count;\n"
+                + "    __btrc_string_registry_unlock();\n"
+                + "    return result;\n"
+                + "}";
+        }
+        if (name == "__btrc_str_track") {
+            return "static inline char* __btrc_str_track(char* s) {\n"
+                + "    return __btrc_string_adopt(s);\n"
+                + "}";
+        }
+        if (name == "__btrc_str_flush") {
+            return "static inline void __btrc_str_flush(void) {\n"
+                + "    /* Retained for source compatibility; ownership is explicit. */\n"
+                + "}";
+        }
+        return "";
     }
-    return out;
-}
 
-void appendStringOwnershipRuntimeHelperOrder(Vector<string> order) {
-    order.push("__btrc_string_registry");
-    order.push("__btrc_string_registry_lock_state");
-    order.push("__btrc_string_registry_lock");
-    order.push("__btrc_string_registry_hash");
-    order.push("__btrc_string_registry_slot");
-    order.push("__btrc_string_registry_count");
-    order.push("__btrc_string_registry_resize");
-    order.push("__btrc_string_adopt");
-    order.push("__btrc_string_retain");
-    order.push("__btrc_string_release");
-    order.push("__btrc_string_release_cleanup");
-    order.push("__btrc_string_live_count");
-    order.push("__btrc_str_track");
-    order.push("__btrc_str_flush");
+    public Vector<string> dependencies(string name) {
+        Vector<string> out = [];
+        if (name == "__btrc_string_registry_lock") {
+            out.push("__btrc_string_registry_lock_state");
+        } else if (name == "__btrc_string_registry_slot") {
+            out.push("__btrc_string_registry");
+            out.push("__btrc_string_registry_hash");
+        } else if (name == "__btrc_string_registry_resize") {
+            out.push("__btrc_string_registry");
+            out.push("__btrc_string_registry_hash");
+            out.push("__btrc_safe_calloc");
+        } else if (name == "__btrc_string_adopt") {
+            out.push("__btrc_string_registry_resize");
+            out.push("__btrc_string_registry_slot");
+            out.push("__btrc_string_registry_lock");
+            out.push("__btrc_string_registry_count");
+            out.push("__btrc_safe_realloc");
+        } else if (name == "__btrc_string_retain") {
+            out.push("__btrc_string_registry_slot");
+            out.push("__btrc_string_registry_lock");
+        } else if (name == "__btrc_string_release") {
+            out.push("__btrc_string_registry_slot");
+            out.push("__btrc_string_registry_lock");
+            out.push("__btrc_string_registry_count");
+        } else if (name == "__btrc_string_live_count") {
+            out.push("__btrc_string_registry_lock");
+            out.push("__btrc_string_registry_count");
+        } else if (name == "__btrc_string_release_cleanup") {
+            out.push("__btrc_string_release");
+        } else if (name == "__btrc_str_track") {
+            out.push("__btrc_string_adopt");
+        }
+        return out;
+    }
+
+    public Vector<string> headers(string name) {
+        Vector<string> out = [];
+        if (name == "__btrc_string_registry_lock_state") {
+            out.push("stdatomic.h");
+        }
+        return out;
+    }
+
+    public void appendOrder(Vector<string> order) {
+        int index = 0;
+        while (index < self.emissionOrder.len) {
+            order.push(self.emissionOrder.get(index));
+            index = index + 1;
+        }
+    }
 }

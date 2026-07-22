@@ -1,5 +1,5 @@
 /* Exact self-hosted mirror of the Python Mutex ARC helper registry. */
-string threadRuntimeMutexArcSource(string name) {
+    public string mutexArcSource(string name) {
     if (name == "__btrc_mutex_arc_retain") {
         return "static void __btrc_mutex_arc_retain(\n"
             + "        const void* storage, __btrc_mutex_value_access access,\n"

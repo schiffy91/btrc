@@ -1,0 +1,12 @@
+/* Thread/Mutex helper C sources and their owned routing metadata. */
+
+class ThreadRuntimeSourceCatalog {
+    public ThreadRuntimeSourceCatalog() {}
+
+#include "thread_runtime_threads.btrc"
+#include "thread_runtime_mutex_core.btrc"
+#include "thread_runtime_mutex_arc.btrc"
+#include "thread_runtime_mutex_ops.btrc"
+}
+
+#include "thread_runtime_helpers.btrc"

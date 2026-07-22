@@ -1,6 +1,6 @@
 /* Darwin spawn helper mirror for compiler/python/ir/helpers/process.py. */
 
-string processRuntimeSpawnSource(string name) {
+    public string spawnSource(string name) {
     if (name != "__btrc_posix_spawn_cloexec") { return ""; }
     return "#if defined(__APPLE__)\n"
         + "#include <spawn.h>\n"

@@ -1,6 +1,6 @@
 /* Dependency metadata for ARC state, lock, and incoming-edge atoms. */
 
-Vector<string> cycleRuntimeStateDependencies(string name) {
+    public Vector<string> stateDependencies(string name) {
     Vector<string> out = [];
     if (name == "__btrc_arc_header_of") {
         out.push("__btrc_arc_callback_types");
@@ -130,5 +130,5 @@ Vector<string> cycleRuntimeStateDependencies(string name) {
         out.push("__btrc_safe_realloc");
         return out;
     }
-    return out;
+        return out;
 }

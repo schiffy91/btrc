@@ -1,6 +1,6 @@
 /* Generated-equivalent runtime text kept in parity with the Python compiler. */
 
-string cycleRuntimeAbandonSource(string name) {
+    public string abandonSource(string name) {
     if (name == "__btrc_arc_abandon_graph") {
         return "static void __btrc_abandon_snapshot_edge(\n"
             + "        volatile void* slot_storage, __btrc_arc_slot_access_fn access,\n"

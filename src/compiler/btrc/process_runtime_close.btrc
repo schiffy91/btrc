@@ -1,6 +1,6 @@
 /* Descriptor-closing helper mirror for compiler/python/ir/helpers/process.py. */
 
-string processRuntimeCloseSource(string name) {
+    public string closeSource(string name) {
     if (name == "__btrc_descriptor_close_bound") {
         return "#if defined(__APPLE__)\n"
             + "#include <sys/sysctl.h>\n"

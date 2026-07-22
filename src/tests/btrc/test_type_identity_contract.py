@@ -98,12 +98,16 @@ def selfhost_compiler(tmp_path_factory) -> Path:
 
 
 def test_identity_contract_has_one_shared_implementation() -> None:
-    main = (SELFHOST / "btrcc_main.btrc").read_text()
+    lexer_stage = (SELFHOST / "lexer/stage.btrc").read_text()
+    parser_stage = (SELFHOST / "parser/stage.btrc").read_text()
+    analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
     identity = (SELFHOST / "type_identity.btrc").read_text()
     analyzer = (SELFHOST / "analyzer.btrc").read_text()
     generator = (SELFHOST / "irgen.btrc").read_text()
 
-    assert main.index('#include "type_identity.btrc"') < main.index('#include "analyzer.btrc"')
+    assert '#include "../type_identity.btrc"' in lexer_stage
+    assert "import ../frontend/stage.btrc;" in parser_stage
+    assert "import ../parser/stage.btrc;" in analyzer_stage
     assert "string mangleGenericType(" not in generator
     assert "string mangleTypeName(" not in generator
     for contract in (

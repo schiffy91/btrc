@@ -10,11 +10,11 @@ class RuntimeHelperReferenceCollector {
     public void collect(IRNode? node, Map<string, bool> used) {
         if (node == null) { return; }
         if (node.callee != "" && !used.has(node.callee)
-                && self.helpers.source(node.callee) != "") {
+                && self.helpers.has(node.callee)) {
             used.put(node.callee, true);
         }
         if (node.kind == IRK_FUNCTION_REF && !used.has(node.name)
-                && self.helpers.source(node.name) != "") {
+                && self.helpers.has(node.name)) {
             used.put(node.name, true);
         }
 

@@ -1,6 +1,6 @@
 /* Generated-equivalent runtime text kept in parity with the Python compiler. */
 
-string cycleRuntimeIncomingSource(string name) {
+    public string incomingSource(string name) {
     if (name == "__btrc_arc_reverse_state") {
         return "/* Scratch state for exact reverse-root classification. */\n"
             + "static void** __btrc_reverse_queue = NULL;\n"

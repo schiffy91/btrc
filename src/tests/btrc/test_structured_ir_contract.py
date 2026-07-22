@@ -179,17 +179,23 @@ def test_selfhost_enum_symbols_are_structured_variable_references() -> None:
 
 
 def test_selfhost_portability_lowering_is_structured() -> None:
-    main = _source("btrcc_main.btrc")
+    parser_stage = _source("parser/stage.btrc")
+    analyzer_stage = _source("analyzer/stage.btrc")
+    ir_stage = _source("ir/stage.btrc")
     generator = _source("irgen.btrc")
     identity = _source("type_identity.btrc")
     numeric = _source("numeric_semantics.btrc")
     operators = _source("operator_semantics.btrc")
     helpers = _source("ir_nodes.btrc")
     runtime = _source("ir/runtime/core_catalog.btrc")
+    runtime_registry = _source("ir/runtime/registry.btrc")
 
-    assert main.index('#include "numeric_semantics.btrc"') < main.index('#include "irgen.btrc"')
-    assert main.index('#include "operator_semantics.btrc"') < main.index('#include "irgen.btrc"')
-    assert main.index('#include "literal_text.btrc"') < main.index('#include "irgen.btrc"')
+    assert '#include "../literal_text.btrc"' in parser_stage
+    assert '#include "../numeric_semantics.btrc"' in analyzer_stage
+    assert '#include "../operator_semantics.btrc"' in analyzer_stage
+    assert "import ../parser/stage.btrc;" in analyzer_stage
+    assert "import ../analyzer/stage.btrc;" in ir_stage
+    assert '#include "../irgen.btrc"' in ir_stage
     assert "formatCIntegerLiteral(node.raw, node.value_int)" in generator
     assert "integerLiteralType(node.raw)" in _source("analyzer.btrc")
     assert "numericResultType" in numeric
@@ -219,7 +225,7 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     assert "__btrc_hash_real" in runtime
     for obsolete in ("__btrc_eq", "__btrc_lt", "__btrc_gt", "__btrc_hash"):
         assert f'if (name == "{obsolete}")' not in runtime
-        assert f'order.push("{obsolete}")' not in helpers
+        assert f'order.push("{obsolete}")' not in runtime_registry
 
 
 def test_destroyed_query_has_its_own_helper_node() -> None:

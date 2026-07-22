@@ -1,6 +1,6 @@
 /* Generated-equivalent pthread result runtime text. */
 
-string threadRuntimeThreadSource(string name) {
+    public string threadSource(string name) {
     if (name == "__btrc_thread_spawn") {
         return "typedef void (*__btrc_thread_result_dispose)(void*, void*);\n"
             + "typedef void (*__btrc_thread_arg_dispose)(void*);\n"

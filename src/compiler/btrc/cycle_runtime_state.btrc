@@ -1,6 +1,6 @@
 /* Generated-equivalent runtime text kept in parity with the Python compiler. */
 
-string cycleRuntimeStateSource(string name) {
+    public string stateSource(string name) {
     if (name == "__btrc_arc_callback_types") {
         return "/* Type-erased ARC metadata shared by ownership paths. */\n"
             + "typedef int __btrc_arc_count;\n"

@@ -1,6 +1,6 @@
 /* Deferred partial-construction teardown outside active topology scopes. */
 
-string cycleRuntimeAbandonQueueSource(string name) {
+    public string abandonQueueSource(string name) {
     if (name == "__btrc_arc_abandon_callback_state") {
         return "typedef void (*__btrc_abandon_drain_fn)(void);\n"
             + "static _Thread_local __btrc_abandon_drain_fn\n"

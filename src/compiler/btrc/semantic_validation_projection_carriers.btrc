@@ -2,10 +2,12 @@
 
 void semanticValidateConditionalRawProjectionCall(Node call,
         SemanticValidationState state, Map<string, Node> vars) {
-    RawProjectionCarrierContext context =
-        new RawProjectionCarrierContext(state, null, vars);
+    SemanticRawProjectionContextBuilder builder =
+        SemanticRawProjectionContextBuilder(state, vars);
     int index = 0;
     while (index < call.args.len) {
+        RawProjectionCarrierContext context =
+            builder.build(call.args.get(index));
         RawProjectionCarrier? carrier = rawProjectionCarrier(
             call.args.get(index), context);
         Node? choice = rawProjectionFirstBranchStorageChoice(

@@ -1,6 +1,6 @@
 /* Executable-descriptor helper mirror for compiler/python/ir/helpers. */
 
-string processRuntimeDescriptorSource(string name) {
+    public string descriptorSource(string name) {
     if (name == "__btrc_process_descriptors_supported") {
         return """static int __btrc_process_descriptors_supported(void) {
 #if defined(__linux__)

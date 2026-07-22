@@ -13,8 +13,9 @@ void ownershipCollectProjectionStorageWithPolicy(IRGen generator,
         bool omitBorrowedGuard) {
     if (expression == null || generator.owningTempOverrides.has(
             astNodeKey(expression))) { return; }
-    RawProjectionCarrierContext context =
-        new RawProjectionCarrierContext(null, generator, varTypes);
+    IRRawProjectionContextBuilder builder =
+        IRRawProjectionContextBuilder(generator, varTypes);
+    RawProjectionCarrierContext context = builder.build(expression);
     RawProjectionCarrier? carrier = rawProjectionCarrier(
         expression, context);
     if (carrier == null || carrier.kind != "leaf") { return; }

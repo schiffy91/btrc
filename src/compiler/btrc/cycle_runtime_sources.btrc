@@ -1,0 +1,19 @@
+/* ARC helper C sources, split into cohesive method fragments for readability. */
+
+class CycleRuntimeSourceCatalog {
+    public CycleRuntimeSourceCatalog() {}
+
+#include "cycle_runtime_state.btrc"
+#include "cycle_runtime_lock.btrc"
+#include "cycle_runtime_snapshot.btrc"
+#include "cycle_runtime_incoming.btrc"
+#include "cycle_runtime_retain.btrc"
+#include "cycle_runtime_collector_prefix.btrc"
+#include "cycle_runtime_collector_suffix.btrc"
+#include "cycle_runtime_release.btrc"
+#include "cycle_runtime_lifecycle.btrc"
+#include "cycle_runtime_abandon.btrc"
+#include "cycle_runtime_abandon_queue.btrc"
+#include "cycle_runtime_drain.btrc"
+#include "cycle_runtime_boundaries.btrc"
+}

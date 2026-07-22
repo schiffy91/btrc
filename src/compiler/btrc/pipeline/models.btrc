@@ -1,0 +1,36 @@
+/* Cross-stage application models for the self-hosted compiler. */
+
+class BtrccOptions {
+    public bool valid;
+    public bool includeStdlib;
+    public bool strictImports;
+    public bool runDce;
+    public bool showHelp;
+    public bool showStdlibDirectory;
+    public int inputIndex;
+    public string diagnostic;
+
+    public BtrccOptions() {
+        self.valid = true;
+        self.includeStdlib = true;
+        self.strictImports = true;
+        self.runDce = true;
+        self.showHelp = false;
+        self.showStdlibDirectory = false;
+        self.inputIndex = 1;
+        self.diagnostic = "";
+    }
+}
+
+class BtrccCompilationResult {
+    public bool success;
+    public string output;
+    public string diagnostic;
+
+    public BtrccCompilationResult(bool success, string output,
+                                  string diagnostic) {
+        self.success = success;
+        self.output = output;
+        self.diagnostic = diagnostic;
+    }
+}

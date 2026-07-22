@@ -1,0 +1,5 @@
+/* Analyzer-owned emitted symbol contract for source destructors. */
+
+string destructorHookName(string ownerName) {
+    return "__btrc_" + ownerName + "_destructor_hook";
+}

@@ -20,7 +20,7 @@ def _function(source: str, signature: str) -> str:
 def test_member_queries_use_complete_constant_time_indexes() -> None:
     analyzer = (SELFHOST / "analyzer.btrc").read_text()
     index = (SELFHOST / "analyzed_member_index.btrc").read_text()
-    driver = (SELFHOST / "btrcc_main.btrc").read_text()
+    analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
 
     for signature in (
         "    public Node? classMember(",
@@ -44,7 +44,10 @@ def test_member_queries_use_complete_constant_time_indexes() -> None:
     registration_end = analyzer.index("/* `var` (untyped) module-level variables")
     assert analyzer.index("indexAnalyzedMembers(a);") < registration_end
     assert "analyzed.memberIndexReady = true;" in index
-    assert '#include "analyzer.btrc"\n#include "analyzed_member_index.btrc"' in driver
+    assert (
+        '#include "../analyzer.btrc"\n'
+        '#include "../analyzed_member_index.btrc"'
+    ) in analyzer_stage
 
 
 def test_indexed_method_namespace_ignores_child_value_member(

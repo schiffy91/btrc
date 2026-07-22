@@ -1,6 +1,6 @@
 /* Generated-equivalent graph-scratch runtime text kept in compiler parity. */
 
-string cycleRuntimeGraphSource(string name) {
+    public string graphSource(string name) {
     if (name == "__btrc_cycle_collector_state") {
         return "\n"
             + "/* ARC cycle collector: typed graph snapshot, O(vertices + edges). */\n"

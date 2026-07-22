@@ -2,10 +2,6 @@
  * class lowering. A source return exits this function, never the terminal
  * compiler-owned destructor that detaches fields and frees the object. */
 
-string destructorHookName(string ownerName) {
-    return "__btrc_" + ownerName + "_destructor_hook";
-}
-
 IRFunction buildDestructorHook(
         string ownerName, Vector<IRNode> body) {
     IRFunction hook = IRFunction();

@@ -1,5 +1,5 @@
 /* Exact self-hosted mirror of the Python Mutex operation helper registry. */
-string threadRuntimeMutexOpsSource(string name) {
+    public string mutexOpsSource(string name) {
     if (name == "__btrc_mutex_val_get") {
         return "static void* __btrc_mutex_val_get(__btrc_mutex_val_t* m) {\n"
             + "    if (!m) {\n"

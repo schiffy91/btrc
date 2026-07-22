@@ -329,4 +329,45 @@ class TryCatchRuntimeCatalog {
         }
         return out;
     }
+
+    public Vector<string> headers(string name) {
+        Vector<string> out = [];
+        if (name == "__btrc_raise_captured") {
+            out.push("stdio.h");
+            out.push("stdlib.h");
+        } else if (name == "__btrc_copy_error_message") {
+            out.push("string.h");
+        } else if (name == "__btrc_trycatch_globals") {
+            out.push("setjmp.h");
+        }
+        return out;
+    }
+
+    public void appendPreludeOrder(Vector<string> order) {
+        order.push("__btrc_try_level");
+        order.push("__btrc_trycatch_globals");
+        order.push("__btrc_copy_error_message");
+        order.push("__btrc_try_capacity");
+        order.push("__btrc_cleanup_capacity");
+        order.push("__btrc_launder_state");
+        order.push("__btrc_launder");
+        order.push("__btrc_push_try");
+    }
+
+    public void appendCleanupOrder(Vector<string> order) {
+        order.push("__btrc_cleanup_types");
+        order.push("__btrc_register_cleanup_kind");
+        order.push("__btrc_register_cleanup");
+        order.push("__btrc_register_direct_cleanup");
+        order.push("__btrc_discard_cleanups");
+        order.push("__btrc_cleanup_mark");
+        order.push("__btrc_discard_cleanups_to");
+        order.push("__btrc_arc_guard_hook");
+        order.push("__btrc_raise_captured");
+        order.push("__btrc_run_cleanup_guarded");
+        order.push("__btrc_flush_cycles_guarded");
+        order.push("__btrc_run_cleanups");
+        order.push("__btrc_throw");
+        order.push("__btrc_try_state_cleanup");
+    }
 }

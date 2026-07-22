@@ -1,21 +1,5 @@
 /* Source preprocessor mutations share one parser and symbol boundary. */
 
-Node? cPredefinedIdentifierType(string name) {
-    if (name == "__DATE__" || name == "__FILE__"
-            || name == "__TIME__") {
-        Node result = makePrimType("char");
-        result.pointer_depth = 1;
-        result.is_const = true;
-        return result;
-    }
-    if (name == "__STDC_VERSION__") { return makePrimType("long"); }
-    if (name == "__LINE__" || name == "__STDC__"
-            || name == "__STDC_HOSTED__") {
-        return makePrimType("int");
-    }
-    return null;
-}
-
 bool sourceMacroSpace(char value) {
     return value == ' ' || value == '\t'
         || value == '\f' || value == '\v' || value == '\r';

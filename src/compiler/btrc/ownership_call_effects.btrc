@@ -75,39 +75,3 @@ Node? ownershipCallableForCall(IRGen generator, Node call,
     }
     return null;
 }
-
-Map<int, bool> ownershipOwnedTransferParams(Node? declaration) {
-    Map<int, bool> empty = {};
-    if (declaration == null || declaration.body_node == null
-            || declaration.params.len == 0) {
-        return empty;
-    }
-    Map<string, int> indices = {};
-    int index = 0;
-    while (index < declaration.params.len) {
-        Node parameter = declaration.params.get(index);
-        if (!parameter.keep_) { indices.put(parameter.name, index); }
-        index = index + 1;
-    }
-    Map<int, bool> transferred = {};
-    Vector<Node> statements = declaration.body_node.statements;
-    int position = 0;
-    while (position < statements.len) {
-        Node statement = statements.get(position);
-        if ((statement.kind == NK_DELETE_STMT
-                || statement.kind == NK_RELEASE_STMT)
-                && statement.expr != null
-                && statement.expr.kind == NK_IDENTIFIER
-                && indices.has(statement.expr.name)) {
-            transferred.put(indices.get(statement.expr.name), true);
-        } else if (statement.kind == NK_RETURN_STMT
-                && statement.value_node == null
-                && position == statements.len - 1) {
-            return transferred;
-        } else {
-            return empty;
-        }
-        position = position + 1;
-    }
-    return transferred;
-}
