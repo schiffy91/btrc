@@ -29,6 +29,13 @@ class ConversionContractsMixin:
         expected = method.params[0].type
         if substitutions:
             expected = self._substitute_type(expected, substitutions)
+        self._validate_volatile_reference_conversion(
+            expected,
+            expression.right,
+            f"Operator '{operator}' argument",
+            expression.line,
+            expression.col,
+        )
         if not self._types_compatible(expected, right_type):
             self._error(
                 f"Operator '{operator}' expects "

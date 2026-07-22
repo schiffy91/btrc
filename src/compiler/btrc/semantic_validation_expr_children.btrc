@@ -78,7 +78,7 @@ void semanticValidateNew(Node expression, SemanticValidationState state,
         return;
     }
     semanticValidateSignature(className, constructor.params, expression,
-        substitutions, state, vars);
+        substitutions, false, state, vars);
 }
 
 void semanticValidateMapEntries(Vector<Node> entries,
@@ -192,6 +192,7 @@ void semanticValidateExprChildren(Node expression,
         semanticValidateExpr(expression.expr, state, vars);
         semanticRejectThreadValueEscape(
             expression.expr, "cast", state, vars);
+        semanticValidatePointerIntegerCast(expression, state, vars);
     } else if (expression.kind == NK_SIZEOF_EXPR) {
         if (expression.operand != null
                 && expression.operand.kind == NK_SIZEOF_EXPR_OP) {

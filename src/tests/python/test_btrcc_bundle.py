@@ -13,9 +13,14 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.btrcc_bundle import build_bundle
+from src.tests.python.btrcc_binary_fixtures import binary_payload
 
 
-def _fixture(root: Path) -> tuple[Path, Path]:
+def _binary_payload(target: str) -> bytes:
+    return binary_payload(target)
+
+
+def _fixture(root: Path, target: str = "linux-x64") -> tuple[Path, Path]:
     (root / "src/language").mkdir(parents=True)
     (root / "src/language/grammar.ebnf").write_text("@lexical\n", encoding="utf-8")
     (root / "src/stdlib/gui").mkdir(parents=True)
@@ -29,7 +34,7 @@ def _fixture(root: Path) -> tuple[Path, Path]:
     (root / "pyproject.toml").write_text('[project]\nversion = "9.8.7"\n', encoding="utf-8")
     (root / "LICENSE").write_text("fixture license\n", encoding="utf-8")
     binary = root / "built-btrcc"
-    binary.write_bytes(b"compiler-binary")
+    binary.write_bytes(_binary_payload(target))
     return root, binary
 
 
@@ -50,7 +55,8 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
     executable = result.bundle / "bin/btrcc"
     grammar = result.bundle / "share/btrc/language/grammar.ebnf"
     nested = result.bundle / "share/btrc/stdlib/gui/gui.btrc"
-    assert executable.read_bytes() == b"compiler-binary"
+    expected_binary = _binary_payload("linux-x64")
+    assert executable.read_bytes() == expected_binary
     assert (result.bundle / "LICENSE").read_text(encoding="utf-8") == "fixture license\n"
     assert grammar.is_file() and nested.is_file()
     readme = (result.bundle / "README.md").read_text(encoding="utf-8")
@@ -65,7 +71,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
     assert manifest["target"] == "linux-x64"
     assert manifest["data_root"] == "share/btrc"
     entries = {entry["path"]: entry for entry in manifest["files"]}
-    assert entries["bin/btrcc"]["sha256"] == hashlib.sha256(b"compiler-binary").hexdigest()
+    assert entries["bin/btrcc"]["sha256"] == hashlib.sha256(expected_binary).hexdigest()
     assert entries["LICENSE"]["sha256"] == hashlib.sha256(b"fixture license\n").hexdigest()
     for relative, entry in entries.items():
         payload = result.bundle / relative
@@ -77,7 +83,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
 
 
 def test_tar_archive_is_byte_reproducible_and_metadata_normalized(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = _fixture(tmp_path / "source", "linux-arm64")
     first = build_bundle(
         binary=binary,
         target="linux-arm64",
@@ -110,7 +116,7 @@ def test_tar_archive_is_byte_reproducible_and_metadata_normalized(tmp_path: Path
 
 
 def test_windows_bundle_uses_exe_and_deterministic_zip(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = _fixture(tmp_path / "source", "windows-x64")
     first = build_bundle(
         binary=binary,
         target="windows-x64",
@@ -150,6 +156,57 @@ def test_invalid_target_names_are_rejected(tmp_path: Path, target: str) -> None:
         build_bundle(binary=binary, target=target, output_dir=tmp_path / "dist", source_root=source_root)
 
 
+def test_unknown_well_formed_target_is_rejected(tmp_path: Path) -> None:
+    source_root, binary = _fixture(tmp_path / "source")
+    with pytest.raises(ValueError, match="unsupported bundle target"):
+        build_bundle(
+            binary=binary,
+            target="linux-riscv64",
+            output_dir=tmp_path / "dist",
+            source_root=source_root,
+        )
+
+
+@pytest.mark.parametrize(
+    ("binary_target", "bundle_target"),
+    [
+        ("linux-x64", "linux-arm64"),
+        ("linux-arm64", "linux-x64"),
+        ("macos-x64", "macos-arm64"),
+        ("macos-arm64", "macos-x64"),
+        ("linux-x64", "windows-x64"),
+    ],
+)
+def test_mislabeled_binary_format_or_architecture_is_rejected(
+    tmp_path: Path,
+    binary_target: str,
+    bundle_target: str,
+) -> None:
+    source_root, binary = _fixture(tmp_path / "source", binary_target)
+    output = tmp_path / "dist"
+    with pytest.raises(ValueError, match=f"does not match target {bundle_target!r}"):
+        build_bundle(
+            binary=binary,
+            target=bundle_target,
+            output_dir=output,
+            source_root=source_root,
+        )
+    assert not list(output.glob("btrcc-*"))
+
+
+@pytest.mark.parametrize("target", ["macos-x64", "macos-arm64"])
+def test_macos_target_formats_are_accepted(tmp_path: Path, target: str) -> None:
+    source_root, binary = _fixture(tmp_path / "source", target)
+    result = build_bundle(
+        binary=binary,
+        target=target,
+        output_dir=tmp_path / "dist",
+        source_root=source_root,
+    )
+    assert result.archive.name == f"btrcc-{target}.tar.gz"
+    assert _manifest(result.bundle)["executable"] == "bin/btrcc"
+
+
 @pytest.mark.parametrize("epoch", [-1, 0x100000000])
 def test_epoch_outside_archive_metadata_range_is_rejected(tmp_path: Path, epoch: int) -> None:
     source_root, binary = _fixture(tmp_path / "source")
@@ -179,7 +236,7 @@ def test_missing_or_symlinked_runtime_inputs_are_rejected(tmp_path: Path) -> Non
     outside = source_root / "outside.btrc"
     outside.write_text("class Outside {}\n", encoding="utf-8")
     (source_root / "src/stdlib/linked.btrc").symlink_to(outside)
-    with pytest.raises(ValueError, match="must not be a symlink"):
+    with pytest.raises(ValueError, match="link or reparse point"):
         build_bundle(
             binary=binary,
             target="linux-x64",
@@ -276,7 +333,7 @@ def test_archive_writers_do_not_follow_predictable_temporary_symlinks(
     target: str,
     archive_name: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = _fixture(tmp_path / "source", target)
     output = tmp_path / "dist"
     output.mkdir()
     sentinel = tmp_path / "sentinel"

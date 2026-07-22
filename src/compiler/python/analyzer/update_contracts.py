@@ -29,7 +29,11 @@ class UpdateContractsMixin:
         if not self._validate_mutable_target(expression.target, expression.line, expression.col):
             return
         self._validate_property_update(
-            expression.target, require_getter=expression.op != "=", line=expression.line, col=expression.col
+            expression.target,
+            require_getter=expression.op != "=",
+            allow_getter_storage=self._is_gpu_output_assignment(expression),
+            line=expression.line,
+            col=expression.col,
         )
         self._validate_indexed_update(
             expression.target,
@@ -63,6 +67,7 @@ class UpdateContractsMixin:
                 return
         if self._validate_fixed_array_assignment(target, expression):
             return
+        target = self._array_target_value_type(expression.target, target)
         self._contextualize_generic_constructor(target, expression.value)
         source = self._infer_type(expression.value)
         if target is None:
@@ -74,6 +79,23 @@ class UpdateContractsMixin:
         if isinstance(expression.value, NullLiteral) and self._is_active_type_parameter(target):
             return
         if expression.op == "=":
+            declared_target = (
+                self._declared_projection_type(expression.target)
+                if isinstance(expression.target, FieldAccessExpr)
+                else (
+                    self.scope.lookup(expression.target.name).type
+                    if isinstance(expression.target, Identifier)
+                    and self.scope.lookup(expression.target.name) is not None
+                    else target
+                )
+            )
+            self._validate_volatile_reference_conversion(
+                declared_target,
+                expression.value,
+                "Assignment",
+                expression.line,
+                expression.col,
+            )
             self._validate_managed_string_source(
                 target,
                 expression.value,
@@ -92,6 +114,18 @@ class UpdateContractsMixin:
             if canonical_target and canonical_target.base == "Thread":
                 self._error(
                     "Thread owner variables are single-assignment; declare a new owner for a fresh Thread result",
+                    expression.line,
+                    expression.col,
+                )
+                return
+            if self._is_gpu_output_assignment(expression) and self._array_target_has_capacity(
+                expression.target,
+                target,
+            ):
+                if self._gpu_output_element_compatible(target, source):
+                    return
+                self._error(
+                    "Array-returning @gpu output element type is not compatible with the target storage",
                     expression.line,
                     expression.col,
                 )
@@ -187,7 +221,15 @@ class UpdateContractsMixin:
                 expression.col,
             )
 
-    def _validate_property_update(self, target, *, require_getter, line, col):
+    def _validate_property_update(
+        self,
+        target,
+        *,
+        require_getter,
+        line,
+        col,
+        allow_getter_storage=False,
+    ):
         if not isinstance(target, FieldAccessExpr):
             return
         receiver_type = self._infer_type(target.obj)
@@ -195,7 +237,7 @@ class UpdateContractsMixin:
         prop = class_info.properties.get(target.field) if class_info else None
         if prop is None:
             return
-        if not prop.has_setter:
+        if not prop.has_setter and not (allow_getter_storage and prop.has_getter):
             self._error(f"Property '{target.field}' has no setter", line, col)
         if require_getter and not prop.has_getter:
             self._error(f"Property '{target.field}' has no getter", line, col)

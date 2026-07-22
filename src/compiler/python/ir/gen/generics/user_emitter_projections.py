@@ -18,8 +18,15 @@ def lower_generic_field_access(emitter, expression):
         emitter._resolve_expr_type(expression.obj),
         expression.field,
     )
+    from ..assignment_ownership import borrowed_projection_owner_operands
+
+    dependencies = borrowed_projection_owner_operands(
+        expression.obj,
+        owns=emitter._owns_expr,
+        overridden=lambda node: id(node) in emitter._arc_overrides,
+    )
     sequenced = emitter._sequence_owned_nodes(
-        [expression.obj],
+        [*dependencies, expression.obj],
         expression,
         lambda: _plain_field_access(emitter, expression),
         pin_nodes=[expression.obj] if custom_getter else [],
@@ -38,8 +45,15 @@ def lower_generic_index(emitter, expression):
         emitter._gen.analyzed.class_table,
         method="get",
     )
+    from ..assignment_ownership import borrowed_projection_owner_operands
+
+    dependencies = borrowed_projection_owner_operands(
+        expression.obj,
+        owns=emitter._owns_expr,
+        overridden=lambda node: id(node) in emitter._arc_overrides,
+    )
     sequenced = emitter._sequence_owned_nodes(
-        [expression.obj, expression.index],
+        [*dependencies, expression.obj, expression.index],
         expression,
         lambda: _plain_index(emitter, expression),
         pin_nodes=[expression.obj] if protocol_getter is not None else [],
@@ -99,7 +113,7 @@ def _plain_field_access(emitter, expression):
             callee=f"{prefix}_get_{field}",
             args=[receiver],
         )
-    return IRFieldAccess(
+    result = IRFieldAccess(
         obj=receiver,
         field=field,
         arrow=bool(
@@ -111,6 +125,9 @@ def _plain_field_access(emitter, expression):
             )
         ),
     )
+    from ...storage_provenance import record_array_projection
+
+    return record_array_projection(result, emitter._resolve_expr_type(expression))
 
 
 def _plain_index(emitter, expression):
@@ -133,7 +150,9 @@ def _plain_index(emitter, expression):
             else receiver_type.base
         )
         return IRCall(callee=f"{target}_get", args=[receiver, index])
-    return IRIndex(obj=receiver, index=index)
+    from ...storage_provenance import record_index_storage
+
+    return record_index_storage(IRIndex(obj=receiver, index=index), receiver_type)
 
 
 __all__ = ["lower_generic_field_access", "lower_generic_index"]

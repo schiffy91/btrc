@@ -165,6 +165,17 @@ bool semanticRawParameterBorrowOnly(Node declaration, int parameterIndex,
     return safe;
 }
 
+bool semanticExplicitOpaqueStorageAddress(Node? expression) {
+    Node? current = expression;
+    while (current != null && current.kind == NK_CAST_EXPR) {
+        current = current.expr;
+    }
+    return current != null && current.kind == NK_UNARY_EXPR
+        && current.op == "&" && current.operand != null
+        && (current.operand.kind == NK_FIELD_ACCESS_EXPR
+            || current.operand.kind == NK_INDEX_EXPR);
+}
+
 void semanticValidateOpaqueCallArgument(Node? declaration,
         int parameterIndex, Node? expected, Node argument, string label,
         bool bodylessFfi, SemanticValidationState state,
@@ -173,8 +184,12 @@ void semanticValidateOpaqueCallArgument(Node? declaration,
             || !semanticExpressionIsOpaqueBorrow(argument, state, vars)) {
         return;
     }
-    if ((bodylessFfi
-            && hostedAbiParameterReadOnlyBorrow(label, parameterIndex))
+    bool hostedBorrow = bodylessFfi
+        && (hostedAbiParameterReadOnlyBorrow(label, parameterIndex)
+            || (semanticExplicitOpaqueStorageAddress(argument)
+                && hostedAbiParameterNonescaping(
+                    label, parameterIndex)));
+    if (hostedBorrow
             || (declaration != null
             && semanticRawParameterBorrowOnly(
                 declaration, parameterIndex, state))) { return; }

@@ -1,12 +1,10 @@
 """Translation-unit declaration and dependency generation."""
 
 from ...ast_nodes import (
-    BraceInitializer,
     ClassDecl,
     EnumDecl,
     FunctionDecl,
     ImportDecl,
-    ListLiteral,
     PreprocessorDirective,
     RichEnumDecl,
     StructDecl,
@@ -16,9 +14,7 @@ from ...ast_nodes import (
 from ..nodes import (
     CType,
     IRFunctionDecl,
-    IRGlobalDecl,
     IRInclude,
-    IRLiteral,
     IRMacroDef,
     IRParam,
     IRStructForward,
@@ -191,6 +187,7 @@ class _ModuleGenerationMixin:
                     IRTypedefDef(
                         target_type=CType(text=type_to_c(decl.original)),
                         name=decl.alias,
+                        is_volatile=bool(decl.original.is_volatile),
                     )
                 )
             elif isinstance(decl, VarDeclStmt):
@@ -221,57 +218,9 @@ class _ModuleGenerationMixin:
                 lower_preprocessor(self, decl)
 
     def _emit_global_var(self, decl: VarDeclStmt, *, force_external=False):
-        if decl.initializer is not None:
-            from .callable_boundaries import reject_persistent_callable_escape
+        from .module_globals import emit_global_var
 
-            reject_persistent_callable_escape(
-                self,
-                decl.type,
-                decl.initializer,
-                "global storage",
-            )
-        if (
-            decl.type
-            and decl.type.is_array
-            and (decl.type.array_size is not None or isinstance(decl.initializer, (BraceInitializer, ListLiteral)))
-        ):
-            from ...type_composition import strip_outer_storage
-            from .aggregate_initializers import lower_static_initializer
-            from .expressions import lower_expr
-
-            element_type = strip_outer_storage(decl.type, array=True)
-            is_extern = bool(decl.type.is_extern and not force_external)
-            self.module.global_decls.append(
-                IRGlobalDecl(
-                    c_type=CType(text=type_to_c(element_type)),
-                    name=decl.name,
-                    init=(lower_static_initializer(self, decl.initializer) if decl.initializer else None),
-                    array_size=(
-                        lower_expr(self, decl.type.array_size)
-                        if decl.type.array_size is not None
-                        else IRLiteral(text=str(len(decl.initializer.elements)))
-                    ),
-                    is_static=not (is_extern or force_external),
-                    is_extern=is_extern,
-                    is_volatile=bool(decl.type.is_volatile),
-                )
-            )
-            return
-        c_type = type_to_c(decl.type) if decl.type else "int"
-        is_extern = bool(getattr(decl.type, "is_extern", False) and not force_external)
-        is_volatile = bool(getattr(decl.type, "is_volatile", False))
-        from .aggregate_initializers import lower_static_initializer
-
-        self.module.global_decls.append(
-            IRGlobalDecl(
-                c_type=CType(text=c_type),
-                name=decl.name,
-                init=(lower_static_initializer(self, decl.initializer) if decl.initializer and not is_extern else None),
-                is_static=not (is_extern or force_external),
-                is_extern=is_extern,
-                is_volatile=is_volatile,
-            )
-        )
+        emit_global_var(self, decl, force_external=force_external)
 
     def _emit_fn_ptr_typedefs(self):
         """Emit function-pointer typedefs accumulated during lowering."""

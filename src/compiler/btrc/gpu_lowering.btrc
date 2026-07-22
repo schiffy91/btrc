@@ -197,10 +197,8 @@ void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
     int p = 0;
     while (p < declaration.params.len) {
         Node parameter = declaration.params.get(p);
-        worker.params.push(IRParam(
-            typeToC(parameter.type, gen.analyzed),
-            sourceLexicalBindingCNameForAnalysis(
-                parameter.name, gen.analyzed)));
+        worker.params.push(lowerSourceParam(
+            parameter, gen.analyzed));
         varTypes.put(parameter.name, parameter.type);
         if (parameter.type.is_array) {
             string length = gpuLengthName(parameter.name);
@@ -240,7 +238,7 @@ void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
     int workerParam = 0;
     while (workerParam < worker.params.len) {
         IRParam parameter = worker.params.get(workerParam);
-        workerPrototype.params.push(IRParam(parameter.c_type, parameter.name));
+        workerPrototype.params.push(copyIRParam(parameter));
         workerParam = workerParam + 1;
     }
     module.function_decls.push(workerPrototype);
@@ -254,10 +252,8 @@ void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
     p = 0;
     while (p < declaration.params.len) {
         Node parameter = declaration.params.get(p);
-        wrapper.params.push(IRParam(
-            typeToC(parameter.type, gen.analyzed),
-            sourceLexicalBindingCNameForAnalysis(
-                parameter.name, gen.analyzed)));
+        wrapper.params.push(lowerSourceParam(
+            parameter, gen.analyzed));
         invocationArgs.push(irVar(
             sourceLexicalBindingCNameForAnalysis(
                 parameter.name, gen.analyzed)));
@@ -306,7 +302,7 @@ void emitGpuCpuFallback(IRGen gen, Node declaration, IRModule module) {
     int fp = 0;
     while (fp < wrapper.params.len) {
         IRParam parameter = wrapper.params.get(fp);
-        prototype.params.push(IRParam(parameter.c_type, parameter.name));
+        prototype.params.push(copyIRParam(parameter));
         fp = fp + 1;
     }
     module.function_decls.push(prototype);

@@ -5,9 +5,11 @@
 enum Priority { LOW, MEDIUM, HIGH, CRITICAL };
 
 int main() {
+    Priority p = MEDIUM;
+
     assert(LOW < HIGH);
     assert(CRITICAL > MEDIUM);
-    assert(MEDIUM <= MEDIUM);
+    assert(p <= MEDIUM);
     assert(HIGH >= LOW);
 
     // arithmetic between enum constants
@@ -15,7 +17,6 @@ int main() {
     assert(span == 3);
 
     // mixing an enum constant with an int literal
-    Priority p = MEDIUM;
     assert(p + 1 == HIGH);
     assert(p - 1 == LOW);
 

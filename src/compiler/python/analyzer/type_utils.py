@@ -94,6 +94,8 @@ class TypeUtilsMixin:
         """Check if source type can be assigned to target type."""
         if target is None or source is None:
             return False
+        target = self._array_value_type(target)
+        source = self._array_value_type(source)
         target = self._canonical_type(target)
         source = self._canonical_type(source)
 

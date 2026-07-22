@@ -6,9 +6,8 @@ from dataclasses import dataclass
 
 from ..gpu_names import GpuDispatchNames
 from ..nodes import CType, IRGpuBuffer, IRGpuKernel, IRLiteral, IRParam, IRVar
-from .gpu_arguments import buffer_length_name
-from .parameters import source_binding_c_name
-from .types import type_to_c
+from .gpu_argument_bindings import buffer_length_name
+from .parameters import lower_source_param, source_binding_c_name
 
 OUTPUT_PARAM = "__gpu_output"
 OUTPUT_CAPACITY = "__gpu_output_capacity"
@@ -50,12 +49,7 @@ class GpuDispatchSpec:
     def helper_params(self) -> list[IRParam]:
         params: list[IRParam] = []
         for parameter in self.declaration.params:
-            params.append(
-                IRParam(
-                    c_type=CType(text=type_to_c(parameter.type)),
-                    name=source_binding_c_name(parameter.name, self.analyzed),
-                )
-            )
+            params.append(lower_source_param(parameter, analyzed=self.analyzed))
             if parameter.type and parameter.type.is_array:
                 params.append(
                     IRParam(

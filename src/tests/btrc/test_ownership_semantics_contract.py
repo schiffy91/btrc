@@ -89,6 +89,45 @@ def test_delete_of_bare_type_parameter_stays_rejected(semantic_btrcc: Path, tmp_
     assert "delete requires a concrete allocation type" in result.stderr
 
 
+def test_generic_scalar_result_is_not_misclassified_as_owned(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <stdlib.h>
+        #define ABS_VALUE(value) abs(value)
+
+        class Values<T> {
+            public T value;
+            public T get(int index) {
+                (void)index;
+                return self.value;
+            }
+        }
+        class Reader<T> {
+            public int read(Values<T> values) {
+                return ABS_VALUE(values[0]);
+            }
+        }
+        int main() {
+            Values<int> values = new Values<int>();
+            values.value = -42;
+            Reader<int> reader = new Reader<int>();
+            int result = reader.read(values);
+            delete reader;
+            delete values;
+            return result == 42 ? 0 : 1;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-scalar")
+    _strict_build_and_run(reference_source, tmp_path / "reference-generic-scalar")
+
+
 @pytest.mark.parametrize(
     "source, diagnostic",
     [

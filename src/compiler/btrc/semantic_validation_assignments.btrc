@@ -6,7 +6,22 @@ void semanticValidateAssignment(Node expression,
         semanticValidationFail("Assignment target is not assignable", expression);
     }
     semanticRejectShallowStore(expression, state, vars);
-    Node? target = semanticInferType(expression.target, state, vars);
+    Node? storageTarget = semanticInferType(
+        expression.target, state, vars);
+    bool gpuArrayOutput = expression.op == "="
+        && semanticGpuArrayResultCall(expression.value_node, state, vars);
+    bool gpuTargetHasCapacity = gpuArrayOutput
+        && semanticArrayTargetHasCapacity(
+            expression.target, storageTarget, state, vars);
+    if (gpuArrayOutput && !gpuTargetHasCapacity) {
+        semanticValidationFail(
+            "Array-returning @gpu assignment target has no provable "
+                + "writable capacity",
+            expression.target);
+    }
+    Node? target = storageTarget;
+    target = semanticAssignmentTargetValueType(
+        expression.target, target, state, vars);
     Node? source = semanticInferType(expression.value_node, state, vars);
     semanticValidateOpaqueBorrowStorage(
         target, expression.value_node, "Assignment", state, vars);
@@ -50,14 +65,22 @@ void semanticValidateAssignment(Node expression,
         Node? setterType = semanticIndexedSetterValueType(
             expression.target, state, vars);
         if (setterType != null) { target = setterType; }
+        Node? qualifiedTarget = semanticQualifierDeclaredType(
+            expression.target, state, vars);
+        if (setterType != null) { qualifiedTarget = setterType; }
+        semanticValidateVolatileReferenceConversion(
+            qualifiedTarget, expression.value_node,
+            "Assignment", state, vars);
         semanticValidateTypedInitializer(target, expression.value_node,
             "Assignment", state, vars);
     }
     semanticValidatePropertyMutation(expression.target,
-        expression.op != "=", state, vars, expression);
+        expression.op != "=", gpuTargetHasCapacity,
+        state, vars, expression);
     semanticValidateIndexedMutation(expression.target,
         expression.op != "=", state, vars, expression);
-    semanticValidateMutableTarget(target, state, expression);
+    semanticValidateMutableTarget(
+        target, state, expression, gpuTargetHasCapacity);
     semanticValidateTargetReceiverMutability(
         expression.target, state, vars, expression);
     if (target == null || source == null) { return; }
@@ -76,7 +99,16 @@ void semanticValidateAssignment(Node expression,
                     + "new owner for a fresh Thread result",
                 expression);
         }
-        if (!semanticContextualAggregateInitializer(expression.value_node)
+        if (gpuTargetHasCapacity
+                && !semanticGpuOutputElementCompatible(
+                    storageTarget, source, state)) {
+            semanticValidationFail(
+                "Array-returning @gpu output element type is not compatible "
+                    + "with the target storage",
+                expression);
+        }
+        if (!gpuTargetHasCapacity
+                && !semanticContextualAggregateInitializer(expression.value_node)
                 && !semanticAssignmentCompatible(target, source, state)) {
             semanticValidationFail("Cannot assign '"
                 + semanticFormatType(source) + "' to '"

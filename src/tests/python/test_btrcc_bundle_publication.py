@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import multiprocessing
 import os
@@ -91,6 +92,121 @@ def test_publication_failure_restores_every_previous_artifact(
     assert (bundle / "marker").read_text(encoding="utf-8") == "old bundle"
     assert archive.read_bytes() == b"old archive"
     assert checksum.read_bytes() == b"old checksum"
+
+
+def test_publication_replaces_file_symlinks_without_preserving_them(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    name = "bundle"
+    bundle = tmp_path / name
+    archive = tmp_path / "bundle.tar.gz"
+    checksum = tmp_path / "bundle.tar.gz.sha256"
+    sentinel = tmp_path / "sentinel"
+    sentinel.write_bytes(b"must-not-change")
+    bundle.mkdir()
+    (bundle / "marker").write_bytes(b"old bundle")
+    try:
+        archive.symlink_to(sentinel)
+        checksum.symlink_to(sentinel)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable: {error}")
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    staged_bundle = staging / name
+    staged_bundle.mkdir()
+    (staged_bundle / "marker").write_bytes(b"new bundle")
+    staged_archive = staging / archive.name
+    staged_archive.write_bytes(b"new archive")
+    staged_checksum = staging / checksum.name
+    staged_checksum.write_bytes(b"new checksum")
+    records = []
+    replacements = []
+    write_journal = transaction_module._write_journal
+    replace = transaction_module.os.replace
+
+    def observe_journal(path: Path, record: dict) -> None:
+        records.append(record)
+        write_journal(path, record)
+
+    def observe_replace(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
+        replacements.append((Path(source), Path(destination)))
+        replace(source, destination)
+
+    monkeypatch.setattr(transaction_module, "_write_journal", observe_journal)
+    monkeypatch.setattr(transaction_module.os, "replace", observe_replace)
+
+    transaction_module.publish_artifacts(
+        name,
+        (
+            transaction_module.PublishedArtifact(staged_bundle, bundle, True),
+            transaction_module.PublishedArtifact(staged_archive, archive),
+            transaction_module.PublishedArtifact(staged_checksum, checksum),
+        ),
+    )
+
+    assert (bundle / "marker").read_bytes() == b"new bundle"
+    assert archive.read_bytes() == b"new archive"
+    assert checksum.read_bytes() == b"new checksum"
+    assert not archive.is_symlink()
+    assert not checksum.is_symlink()
+    assert sentinel.read_bytes() == b"must-not-change"
+    assert records[0]["state"] == "publishing"
+    assert records[0]["previous"] == [True, False, False]
+    assert (bundle, transaction_module._backup_path(tmp_path, name, 0)) in replacements
+    assert (archive, transaction_module._backup_path(tmp_path, name, 1)) not in replacements
+    assert (checksum, transaction_module._backup_path(tmp_path, name, 2)) not in replacements
+    assert not (tmp_path / f".{name}.publish.journal").exists()
+    assert not any((tmp_path / f".{name}.publish.previous-{index}").exists() for index in range(3))
+
+
+def test_recovery_restores_regular_backup_and_unlinks_file_symlinks(
+    tmp_path: Path,
+) -> None:
+    name = "bundle"
+    bundle = tmp_path / name
+    archive = tmp_path / "bundle.tar.gz"
+    checksum = tmp_path / "bundle.tar.gz.sha256"
+    bundle.mkdir()
+    (bundle / "marker").write_bytes(b"new bundle")
+    sentinel = tmp_path / "sentinel"
+    sentinel.write_bytes(b"must-not-change")
+    try:
+        archive.symlink_to(sentinel)
+        checksum.symlink_to(sentinel)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable: {error}")
+    artifacts = (
+        transaction_module.PublishedArtifact(tmp_path / "staged-bundle", bundle, True),
+        transaction_module.PublishedArtifact(tmp_path / "staged-archive", archive),
+        transaction_module.PublishedArtifact(tmp_path / "staged-checksum", checksum),
+    )
+
+    backup_bundle = transaction_module._backup_path(tmp_path, name, 0)
+    backup_bundle.mkdir()
+    (backup_bundle / "marker").write_bytes(b"old bundle")
+
+    stages = []
+    for index in range(len(artifacts)):
+        stage = transaction_module._stage_path(tmp_path, name, index)
+        stage.write_bytes(b"partially published")
+        stages.append(stage)
+    journal = transaction_module._control_path(tmp_path, name, "journal")
+    transaction_module._write_journal(
+        journal,
+        transaction_module._journal_record(artifacts, "publishing", [True, False, False]),
+    )
+
+    transaction_module._recover(tmp_path, name, artifacts)
+
+    assert (bundle / "marker").read_bytes() == b"old bundle"
+    assert not archive.exists() and not archive.is_symlink()
+    assert not checksum.exists() and not checksum.is_symlink()
+    assert sentinel.read_bytes() == b"must-not-change"
+    assert not journal.exists()
+    assert not any(stage.exists() for stage in stages)
+    assert not backup_bundle.exists()
 
 
 def test_concurrent_same_target_builds_serialize_publication(
@@ -229,7 +345,7 @@ def test_final_staged_validation_rejects_post_archive_bundle_mutation(
 def test_generation_validator_rejects_coherently_rechecksummed_archive_payload(
     tmp_path: Path,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = _fixture(tmp_path / "source", "windows-x64")
     result = build_bundle(
         binary=binary,
         target="windows-x64",
@@ -268,7 +384,7 @@ def test_generation_validator_normalizes_malformed_archive_error(
     tmp_path: Path,
     target: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = _fixture(tmp_path / "source", target)
     result = build_bundle(
         binary=binary,
         target=target,
@@ -394,12 +510,77 @@ def test_generation_validator_rejects_noncanonical_bundle_mode(tmp_path: Path) -
         )
 
 
+@pytest.mark.parametrize(
+    ("host_os_name", "is_directory", "is_executable", "expected"),
+    [
+        ("posix", True, False, 0o755),
+        ("posix", False, True, 0o755),
+        ("posix", False, False, 0o644),
+        ("nt", True, False, 0o777),
+        ("nt", False, True, 0o666),
+        ("nt", False, False, 0o666),
+    ],
+)
+def test_generation_validator_uses_host_staging_mode_contract(
+    host_os_name: str,
+    is_directory: bool,
+    is_executable: bool,
+    expected: int,
+) -> None:
+    assert (
+        bundle_validation_module._expected_staged_mode(
+            is_directory=is_directory,
+            is_executable=is_executable,
+            host_os_name=host_os_name,
+        )
+        == expected
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows prevents replacing an open executable")
+def test_generation_validator_binds_target_check_to_captured_executable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_root, binary = _fixture(tmp_path / "source")
+    result = build_bundle(
+        binary=binary,
+        target="linux-x64",
+        output_dir=tmp_path / "dist",
+        source_root=source_root,
+    )
+    executable = result.bundle / "bin/btrcc"
+    replacement = tmp_path / "btrcc-replacement"
+    replacement.write_bytes(executable.read_bytes())
+    replacement.chmod(0o755)
+    original_validate = bundle_validation_module.validate_target_binary_stream
+
+    def swap_after_target_check(stream, target: str) -> None:
+        original_validate(stream, target)
+        replacement.replace(executable)
+
+    monkeypatch.setattr(
+        bundle_validation_module,
+        "validate_target_binary_stream",
+        swap_after_target_check,
+    )
+
+    with pytest.raises(ValueError, match="archive source changed while packaging"):
+        bundle_validation_module.validate_bundle_generation(
+            result.bundle,
+            result.archive,
+            result.checksum,
+            result.bundle.name,
+            result.archive.name,
+        )
+
+
 @pytest.mark.parametrize("target", ["linux-x64", "windows-x64"])
 def test_generation_validator_rejects_noncanonical_archive_mode(
     tmp_path: Path,
     target: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = _fixture(tmp_path / "source", target)
     result = build_bundle(
         binary=binary,
         target=target,
@@ -424,9 +605,16 @@ def test_generation_validator_rejects_noncanonical_archive_mode(
     else:
         with (
             tarfile.open(result.archive, "r:gz") as source,
+            replacement.open("wb") as raw,
+            gzip.GzipFile(
+                filename="",
+                mode="wb",
+                fileobj=raw,
+                mtime=0,
+            ) as compressed,
             tarfile.open(
-                replacement,
-                "w:gz",
+                fileobj=compressed,
+                mode="w",
                 format=tarfile.PAX_FORMAT,
             ) as destination,
         ):

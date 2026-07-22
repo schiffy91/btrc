@@ -74,7 +74,13 @@ def _compile_reference_source(
     return result, generated
 
 
-def _strict_build_and_run(generated: Path, output: Path) -> None:
+def _strict_build_and_run(
+    generated: Path,
+    output: Path,
+    *,
+    optimization: str | None = None,
+) -> None:
+    optimization_flags = [optimization] if optimization is not None else []
     build = _run(
         [
             *CC,
@@ -83,6 +89,7 @@ def _strict_build_and_run(generated: Path, output: Path) -> None:
             "-Wall",
             "-Wextra",
             "-Werror",
+            *optimization_flags,
             str(generated),
             "-o",
             str(output),
@@ -149,6 +156,42 @@ def test_nested_loop_break_does_not_escape_outer_loop(semantic_btrcc: Path, tmp_
     result, generated = _compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     _strict_build_and_run(generated, tmp_path / "nested-break")
+
+
+def test_try_finally_without_catch_preserves_try_return_proof(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        int finallyRuns = 0;
+        int run() {
+            try {
+                return 7;
+            } finally {
+                finallyRuns += 1;
+            }
+        }
+        int main() {
+            return run() == 7 && finallyRuns == 0 ? 0 : 1;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert "__btrc_finally_pending" not in selfhost_source.read_text()
+    assert "__btrc_finally_pending" not in reference_source.read_text()
+    _strict_build_and_run(
+        selfhost_source,
+        tmp_path / "selfhost-try-finally-return",
+        optimization="-O0",
+    )
+    _strict_build_and_run(
+        reference_source,
+        tmp_path / "reference-try-finally-return",
+        optimization="-O0",
+    )
 
 
 def test_optional_receiver_runs_once_and_fallback_stays_lazy(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -263,6 +306,14 @@ def test_scalar_string_join_is_rejected(semantic_btrcc: Path, tmp_path: Path) ->
             "class Box { private int value { get; set; } } "
             "void write(Box box) { box.value = 1; } int main() { return 0; }",
             "Cannot access private property 'value' of class 'Box'",
+        ),
+        (
+            "class Box { public int values[2] { get; set; } } int main() { return 0; }",
+            "Property 'Box.values' cannot use fixed-size array storage; use an instance field plus accessors",
+        ),
+        (
+            "class Item { public Item() {} } class Box { public Item values[2]; } int main() { return 0; }",
+            "Field 'Box.values' cannot contain managed elements without elementwise ownership support",
         ),
         (
             "class Base { private int value; } class Child extends Base { "
@@ -391,6 +442,6 @@ def test_declaration_and_context_contracts(
 
 def test_semantic_modules_precede_ir_and_stay_small() -> None:
     driver = (SELFHOST / "btrcc_main.btrc").read_text()
-    assert driver.index("semanticValidateProgram(prog, a)") < driver.index("IRGen gen = IRGen(a)")
+    assert driver.index("semanticValidateProgram(prog, a)") < driver.index("IRGen gen = IRGen(")
     for module in SELFHOST.glob("semantic_validation*.btrc"):
         assert len(module.read_text().splitlines()) <= 300, module

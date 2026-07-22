@@ -45,6 +45,10 @@ def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
 
     # Get the iterable type from the analyzer
     iter_type = gen.analyzed.node_types.get(id(iterable))
+    if id(iterable) in gen.analyzed.array_iteration_capacity_ids:
+        from .iteration_arrays import lower_fixed_array_for_in
+
+        return lower_fixed_array_for_in(gen, node, iter_type)
     ir_iter = _lower_expr(gen, iterable)
 
     # Iterable protocol: any class with iterLen + iterGet methods

@@ -60,7 +60,19 @@ def emit_generic_lifecycle(
         register_cycle_visitor(gen, mangled)
 
     ctor = cls_info.constructor
-    ctor_params = [lower_source_param(param, emitter.resolve_c, gen.analyzed) for param in ctor.params] if ctor else []
+    ctor_params = (
+        [
+            lower_source_param(
+                param,
+                emitter.resolve_c,
+                gen.analyzed,
+                resolved_type=emitter._resolve(param.type),
+            )
+            for param in ctor.params
+        ]
+        if ctor
+        else []
+    )
     declarations = _lifecycle_declarations(mangled, ctor_params)
     destructor_hook = build_generic_destructor_hook(
         cls_info,

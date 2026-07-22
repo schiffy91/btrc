@@ -139,6 +139,10 @@ def lvalue_kind(context: LValueContext, target) -> str:
 
 
 def _direct_plan(context, target, value_type) -> LValuePlan:
+    lowered_target = context.lower_expr(target)
+    from ..storage_provenance import direct_storage_root
+
+    storage_root = direct_storage_root(lowered_target)
     rendered = context.target_c_type(target, value_type) if context.target_c_type is not None else None
     declaration = context.declare(
         "__btrc_lvalue",
@@ -147,7 +151,11 @@ def _direct_plan(context, target, value_type) -> LValuePlan:
         rendered=rendered,
     )
     pointer = IRVar(name=declaration.name)
-    load = IRDeref(expr=pointer)
+    load = IRDeref(
+        expr=pointer,
+        storage_root=storage_root or "",
+        storage_root_known=True,
+    )
     return LValuePlan(
         context=context,
         value_type=value_type,
@@ -158,7 +166,7 @@ def _direct_plan(context, target, value_type) -> LValuePlan:
             IRBinOp(
                 left=pointer,
                 op="=",
-                right=IRAddressOf(expr=context.lower_expr(target)),
+                right=IRAddressOf(expr=lowered_target),
             )
         ],
     )

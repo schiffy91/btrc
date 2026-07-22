@@ -33,7 +33,8 @@ void semanticAddMethodSubstitutions(Node method, Node call,
 
 void semanticValidateSignature(string label, Vector<Node> params,
         Node call, Map<string, Node> substitutions,
-        SemanticValidationState state, Map<string, Node> vars) {
+        bool gpuDispatch, SemanticValidationState state,
+        Map<string, Node> vars) {
     Map<string, bool> supplied = {};
     int positional = 0;
     bool sawNamed = false;
@@ -77,8 +78,24 @@ void semanticValidateSignature(string label, Vector<Node> params,
                 state.analyzed);
         }
         Node argument = call.args.get(argumentIndex);
+        Node? resolvedGpuExpected = semanticResolveAliases(expected, state);
+        bool gpuArrayParameter = gpuDispatch
+            && resolvedGpuExpected != null
+            && resolvedGpuExpected.is_array;
+        if (!gpuArrayParameter
+                && !semanticContextualAggregateInitializer(argument)) {
+            Node? parameterValueType = semanticArrayParameterValueType(
+                expected, state);
+            if (parameterValueType != null) {
+                expected = parameterValueType;
+            }
+        }
         contextualizeGenericConstructor(
             expected, argument, state, vars);
+        semanticValidateVolatileReferenceConversion(
+            expected, argument,
+            "Argument '" + parameter.name + "' to '" + label + "()'",
+            state, vars);
         /* Parameters receive expression values.  Apply initializer-shape
          * validation only when the argument is an aggregate literal; an
          * existing array expression is passed through the normal type-
@@ -89,7 +106,20 @@ void semanticValidateSignature(string label, Vector<Node> params,
                     + label + "()'", state, vars);
         }
         Node? actual = semanticInferType(argument, state, vars);
-        if (actual != null
+        if (actual != null && gpuArrayParameter) {
+            if (!semanticArrayTargetHasCapacity(
+                    argument, actual, state, vars)) {
+                semanticValidationFail("Argument '" + parameter.name
+                    + "' to '" + label + "()' has no provable readable "
+                    + "GPU buffer capacity", argument);
+            }
+            if (!semanticGpuInputHasCompatibleStorage(
+                    argument, expected, actual, state, vars)) {
+                semanticValidationFail("Argument '" + parameter.name
+                    + "' to '" + label + "()' does not have an "
+                    + "ABI-compatible GPU buffer element type", argument);
+            }
+        } else if (actual != null
                 && !semanticContextualAggregateInitializer(argument)
                 && !semanticAssignmentCompatible(expected, actual, state)) {
             semanticValidationFail("Argument '" + parameter.name + "' to '"

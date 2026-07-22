@@ -1,47 +1,25 @@
-"""Direct-write analysis for C11 setjmp qualification."""
+"""Storage-identity write queries for C11 setjmp qualification."""
 
 from __future__ import annotations
 
 import dataclasses
 
 from ..nodes import (
-    IRAssign,
-    IRBinOp,
     IRBlock,
-    IRCall,
     IRDoWhile,
-    IRExprStmt,
-    IRFieldAccess,
     IRFor,
     IRIf,
-    IRIndex,
-    IRReturn,
+    IRSizeof,
     IRStmtExpr,
     IRSwitch,
-    IRUnaryOp,
-    IRVar,
     IRVarDecl,
     IRWhile,
 )
 
-_ASSIGNMENT_OPS = frozenset(
-    (
-        "=",
-        "+=",
-        "-=",
-        "*=",
-        "/=",
-        "%=",
-        "&=",
-        "|=",
-        "^=",
-        "<<=",
-        ">>=",
-    )
-)
-
 
 def contains_setjmp(value: object) -> bool:
+    from ..nodes import IRCall
+
     if isinstance(value, IRCall):
         return value.callee == "setjmp"
     if dataclasses.is_dataclass(value):
@@ -51,23 +29,10 @@ def contains_setjmp(value: object) -> bool:
     return False
 
 
-def _storage_root(value: object) -> str | None:
-    """Return the directly modified automatic object, excluding pointees."""
-
-    if isinstance(value, IRVar):
-        return value.name
-    if isinstance(value, IRFieldAccess) and not value.arrow:
-        return _storage_root(value.obj)
-    if isinstance(value, IRIndex):
-        return _storage_root(value.obj)
-    return None
-
-
 class _MutationCollector:
-    """Collect writes to names declared before a setjmp invocation."""
-
-    def __init__(self):
-        self.names: set[str] = set()
+    def __init__(self, effects):
+        self.flow = effects.flow
+        self.storages = set()
 
     def block(self, block: IRBlock | None, bound=None) -> None:
         if block is None:
@@ -76,43 +41,41 @@ class _MutationCollector:
         for statement in block.stmts:
             self._statement(statement, local)
 
-    def _write(self, target, bound) -> None:
-        name = _storage_root(target)
-        if name is not None and name not in bound:
-            self.names.add(name)
+    def _record(self, value, bound) -> None:
+        for origin in self.flow.writes.get(id(value), ()):
+            if origin.depth == 0 and origin.storage.identity not in bound:
+                self.storages.add(origin.storage)
 
-    def _expression(self, value: object, bound) -> None:
-        if isinstance(value, IRBinOp) and value.op in _ASSIGNMENT_OPS:
-            self._write(value.left, bound)
-        elif isinstance(value, IRUnaryOp) and value.op in ("++", "--"):
-            self._write(value.operand, bound)
+    def _expression(self, value, bound) -> None:
+        if value is None:
+            return
+        self._record(value, bound)
+        if isinstance(value, IRSizeof):
+            return
         if isinstance(value, IRStmtExpr):
+            local = set(bound)
             for statement in value.stmts:
-                self._statement(statement, bound)
-            self._expression(value.result, bound)
+                self._statement(statement, local)
+            self._expression(value.result, local)
             return
         if dataclasses.is_dataclass(value):
             for field in dataclasses.fields(value):
-                self._expression(getattr(value, field.name), bound)
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                self._expression(item, bound)
+                child = getattr(value, field.name)
+                items = child if isinstance(child, (list, tuple)) else (child,)
+                for item in items:
+                    self._expression(item, bound)
+
+    def _declaration(self, declaration, bound) -> None:
+        self._expression(declaration.array_size, bound)
+        storage = self.flow.storages.get(id(declaration))
+        if storage is not None:
+            bound.add(storage.identity)
+        self._expression(declaration.init, bound)
 
     def _statement(self, statement, bound) -> None:
+        self._record(statement, bound)
         if isinstance(statement, IRVarDecl):
-            # C block scope starts after the declarator.  A VLA bound can
-            # therefore still name (and mutate) an outer declaration with the
-            # same spelling, while the initializer resolves to the new object.
-            self._expression(statement.array_size, bound)
-            bound.add(statement.name)
-            self._expression(statement.init, bound)
-        elif isinstance(statement, IRAssign):
-            self._write(statement.target, bound)
-            self._expression(statement.target, bound)
-            self._expression(statement.value, bound)
-        elif isinstance(statement, (IRReturn, IRExprStmt)):
-            value = statement.value if isinstance(statement, IRReturn) else statement.expr
-            self._expression(value, bound)
+            self._declaration(statement, bound)
         elif isinstance(statement, IRIf):
             self._expression(statement.condition, bound)
             self.block(statement.then_block, bound)
@@ -121,26 +84,55 @@ class _MutationCollector:
             self._expression(statement.condition, bound)
             self.block(statement.body, bound)
         elif isinstance(statement, IRFor):
-            loop_bound = set(bound)
-            if statement.init is not None:
-                self._statement(statement.init, loop_bound)
-            self._expression(statement.condition, loop_bound)
-            self._expression(statement.update, loop_bound)
-            self.block(statement.body, loop_bound)
+            local = set(bound)
+            if isinstance(statement.init, IRVarDecl):
+                self._declaration(statement.init, local)
+            else:
+                self._expression(statement.init, local)
+            self._expression(statement.condition, local)
+            self._expression(statement.update, local)
+            self.block(statement.body, local)
         elif isinstance(statement, IRSwitch):
             self._expression(statement.value, bound)
             for case in statement.cases:
-                case_bound = set(bound)
-                self._expression(case.value, case_bound)
+                local = set(bound)
+                self._expression(case.value, local)
                 for child in case.body:
-                    self._statement(child, case_bound)
+                    self._statement(child, local)
         elif isinstance(statement, IRBlock):
             self.block(statement, bound)
+        else:
+            self._expression(statement, bound)
 
 
-def mutated_names(block: IRBlock | None) -> set[str]:
-    """Return direct writes to storage declared outside ``block``."""
+def mutated_names(block: IRBlock | None, *, effects, summarize: bool = False):
+    """Return exact storage identities modified outside ``block`` declarations."""
 
-    collector = _MutationCollector()
+    del summarize
+    collector = _MutationCollector(effects)
     collector.block(block)
-    return collector.names
+    return collector.storages
+
+
+def loop_mutated_names(statement: IRFor | IRWhile | IRDoWhile, *, effects):
+    statements = []
+    if statement.condition is not None:
+        from ..nodes import IRExprStmt
+
+        statements.append(IRExprStmt(expr=statement.condition))
+    update = getattr(statement, "update", None)
+    if update is not None:
+        from ..nodes import IRExprStmt
+
+        statements.append(IRExprStmt(expr=update))
+    if statement.body is not None:
+        statements.append(statement.body)
+    return mutated_names(IRBlock(stmts=statements), effects=effects)
+
+
+def switch_fallthrough_mutated_names(statement: IRSwitch, index: int, *, effects):
+    modified = set()
+    while index + 1 < len(statement.cases) and statement.cases[index].falls_through:
+        index += 1
+        modified.update(mutated_names(IRBlock(stmts=statement.cases[index].body), effects=effects))
+    return modified

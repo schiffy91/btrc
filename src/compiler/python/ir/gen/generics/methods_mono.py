@@ -104,7 +104,14 @@ def _emit_one_method_instance(gen, class_base, cls_info, method, class_args, met
     ret_c = emitter.resolve_c(method.return_type) if method.return_type else "void"
     params_ir = [IRParam(c_type=CType(text=f"{self_mangled}*"), name="self")]
     for p in method.params:
-        params_ir.append(lower_source_param(p, emitter.resolve_c, emitter._gen.analyzed))
+        params_ir.append(
+            lower_source_param(
+                p,
+                emitter.resolve_c,
+                emitter._gen.analyzed,
+                resolved_type=emitter._resolve(p.type),
+            )
+        )
 
     body_stmts = emitter.emit_stmts(method.body.statements) if method.body else []
     if not body_stmts:

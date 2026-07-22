@@ -1,6 +1,7 @@
 """Storage-duration, array-bound, and class-field contracts."""
 
 from ..ast_nodes import BraceInitializer, CallExpr, Identifier, ListLiteral
+from ..type_composition import strip_outer_storage
 
 
 class StorageContractsMixin:
@@ -82,6 +83,17 @@ class StorageContractsMixin:
                 declaration.line,
                 declaration.col,
             )
+        if (
+            type_expr.is_array
+            and type_expr.array_size is None
+            and declaration.initializer is None
+            and not type_expr.is_extern
+        ):
+            self._error(
+                f"{subject} requires an array bound or initializer",
+                declaration.line,
+                declaration.col,
+            )
         initializer_list = isinstance(declaration.initializer, (BraceInitializer, ListLiteral))
         if (
             type_expr.is_array
@@ -126,7 +138,11 @@ class StorageContractsMixin:
     def _is_gpu_array_initializer(self, expression) -> bool:
         if not isinstance(expression, CallExpr) or not isinstance(expression.callee, Identifier):
             return False
-        function = self.function_table.get(expression.callee.name)
+        name = expression.callee.name
+        symbol = self.scope.lookup(name)
+        if symbol is not None and symbol.kind != "function":
+            return False
+        function = self.function_table.get(name)
         return bool(function and function.is_gpu and function.return_type.is_array)
 
     def _validate_array_bound(self, type_expr, subject, context) -> None:
@@ -173,6 +189,15 @@ class StorageContractsMixin:
         context = "static" if field.access == "class" else "field"
         self._validate_array_bound(field.type, subject, context)
         canonical = self._canonical_type(field.type)
+        if canonical and canonical.is_array and canonical.array_size is not None:
+            element = strip_outer_storage(canonical, array=True)
+            potentially_managed = element.base in set(class_decl.generic_params)
+            if self._managed_result_type(element) or potentially_managed:
+                self._error(
+                    f"{subject} cannot contain managed elements without elementwise ownership support",
+                    field.line,
+                    field.col,
+                )
         if (
             field.access != "class"
             and field.initializer is not None
@@ -226,6 +251,12 @@ class StorageContractsMixin:
                 prop.col,
             )
         canonical = self._canonical_type(prop.type)
+        if canonical and canonical.is_array and canonical.array_size is not None:
+            self._error(
+                f"{subject} cannot use fixed-size array storage; use an instance field plus accessors",
+                prop.line,
+                prop.col,
+            )
         if prop.has_setter and canonical and canonical.is_const and not self._is_pointer_value(canonical):
             self._error(
                 f"{subject} cannot have a setter for scalar const storage",

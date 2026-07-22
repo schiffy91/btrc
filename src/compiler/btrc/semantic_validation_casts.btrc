@@ -1,0 +1,34 @@
+/* Strict-C pointer/integer cast portability. */
+
+bool semanticCastPointerRepresentation(Node? typeExpr,
+        SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    return canonical != null && (canonical.is_array
+        || canonical.pointer_depth > 0
+        || (semanticManagedOwnershipType(canonical, state)
+            && !state.typeParams.has(canonical.base)));
+}
+
+void semanticValidatePointerIntegerCast(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node? target = semanticResolveAliases(
+        expression.target_type, state);
+    Node? source = semanticResolveAliases(
+        semanticInferType(expression.expr, state, vars), state);
+    if (target == null || source == null) { return; }
+    bool sourcePointer = semanticCastPointerRepresentation(source, state);
+    bool targetPointer = semanticCastPointerRepresentation(target, state);
+    if (sourcePointer == targetPointer) { return; }
+    if (targetPointer && !sourcePointer
+            && semanticKnownNumericZero(expression.expr)) { return; }
+    Node scalar = sourcePointer ? target : source;
+    if (scalar.base == "intptr_t" || scalar.base == "uintptr_t") {
+        return;
+    }
+    if (scalar.pointer_depth == 0 && !scalar.is_array
+            && numericIsType(scalar, state.analyzed)) {
+        semanticValidationFail(
+            "Pointer/integer casts require intptr_t or uintptr_t",
+            expression);
+    }
+}

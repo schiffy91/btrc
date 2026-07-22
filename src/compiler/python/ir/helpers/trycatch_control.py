@@ -7,8 +7,8 @@ TRYCATCH_CONTROL = {
         c_source=(
             "static _Noreturn void __btrc_throw(const char* msg) {\n"
             '    const char* text = msg ? msg : "Unknown exception";\n'
-            "    strncpy(__btrc_error_msg, text, 1023);\n"
-            "    __btrc_error_msg[1023] = '\\0';\n"
+            "    __btrc_copy_error_message(\n"
+            "        __btrc_error_msg, sizeof __btrc_error_msg, text);\n"
             "    if (__btrc_try_top < 0) {\n"
             "        __btrc_run_cleanups(-1);\n"
             '        fprintf(stderr, "Unhandled exception: %s\\n", __btrc_error_msg);\n'
@@ -20,7 +20,11 @@ TRYCATCH_CONTROL = {
             "    longjmp(__btrc_try_stack[level]->env, 1);\n"
             "}"
         ),
-        depends_on=["__btrc_trycatch_globals", "__btrc_run_cleanups"],
+        depends_on=[
+            "__btrc_trycatch_globals",
+            "__btrc_copy_error_message",
+            "__btrc_run_cleanups",
+        ],
     ),
     "__btrc_try_state_cleanup": HelperDef(
         c_source=(

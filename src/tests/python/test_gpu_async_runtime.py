@@ -14,12 +14,79 @@ PENDING_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_pending_list.c"
 RUNTIME_SOURCES = ["btrc_gpu.c", "btrc_gpu_async.c", "btrc_gpu_surface.c"]
 _COMPILE_TIMEOUT_SECONDS = 120
 _RUN_TIMEOUT_SECONDS = 90
+_TSAN_PROBE = """\
+#include <pthread.h>
+
+static void *run(void *unused) {
+    return unused;
+}
+
+int main(void) {
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, run, NULL) != 0) return 1;
+    return pthread_join(thread, NULL) == 0 ? 0 : 2;
+}
+"""
 
 
 def _compile_strict_c11(compiler: str, output: Path, sources: list[Path], flags: list[str]) -> None:
     strict = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors"]
     command = [compiler, *flags, *strict, *map(str, sources), "-o", str(output)]
     subprocess.run(command, check=True, timeout=_COMPILE_TIMEOUT_SECONDS)
+
+
+def _tsan_compile_flags(flags: list[str]) -> list[str]:
+    return [
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-pedantic-errors",
+        "-O1",
+        "-g",
+        "-fsanitize=thread",
+        "-fno-omit-frame-pointer",
+        "-pthread",
+        f"-I{GPU}",
+        *flags,
+    ]
+
+
+def _compile_tsan(compiler: str, output: Path, sources: list[Path], flags: list[str]):
+    return subprocess.run(
+        [compiler, *_tsan_compile_flags(flags), *map(str, sources), "-o", str(output)],
+        capture_output=True,
+        text=True,
+        timeout=_COMPILE_TIMEOUT_SECONDS,
+    )
+
+
+def _run_tsan(executable: Path):
+    return subprocess.run(
+        [str(executable)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TSAN_OPTIONS": "halt_on_error=1"},
+        timeout=_RUN_TIMEOUT_SECONDS,
+    )
+
+
+def _compile_tsan_probe(tmp_path: Path, compiler: str, flags: list[str]) -> Path:
+    source = tmp_path / "tsan-runtime-probe.c"
+    executable = tmp_path / "tsan-runtime-probe"
+    source.write_text(_TSAN_PROBE, encoding="utf-8")
+    compiled = _compile_tsan(compiler, executable, [source], flags)
+    if compiled.returncode != 0:
+        pytest.skip(f"ThreadSanitizer is unavailable: {compiled.stderr}")
+    return executable
+
+
+def _probe_darwin_tsan_runtime(executable: Path) -> None:
+    result = _run_tsan(executable)
+    silent_signal = result.returncode < 0 and not result.stdout and not result.stderr
+    if silent_signal:
+        pytest.skip("ThreadSanitizer runtime crashes on an independent exact-flags probe")
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_gpu_async_backend_contracts_are_explicit() -> None:
@@ -119,48 +186,29 @@ def test_gpu_concurrency_contracts_under_thread_sanitizer(
     compiler = shutil.which(compiler_name)
     if not compiler:
         pytest.skip(f"{compiler_name} ThreadSanitizer is unavailable")
+    probe = _compile_tsan_probe(tmp_path, compiler, flags)
     executable = tmp_path / f"gpu-{name}-tsan"
-    compile_result = subprocess.run(
-        [
-            compiler,
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-pedantic-errors",
-            "-O1",
-            "-g",
-            "-fsanitize=thread",
-            "-fno-omit-frame-pointer",
-            "-pthread",
-            f"-I{GPU}",
-            *flags,
-            *map(str, sources),
-            "-o",
-            str(executable),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=_COMPILE_TIMEOUT_SECONDS,
-    )
-    if compile_result.returncode != 0:
-        pytest.skip(f"ThreadSanitizer is unavailable: {compile_result.stderr}")
-    result = subprocess.run(
-        [str(executable)],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "TSAN_OPTIONS": "halt_on_error=1"},
-        timeout=_RUN_TIMEOUT_SECONDS,
-    )
+    compile_result = _compile_tsan(compiler, executable, sources, flags)
+    assert compile_result.returncode == 0, compile_result.stderr
+    if sys.platform == "darwin":
+        _probe_darwin_tsan_runtime(probe)
+    result = _run_tsan(executable)
     unavailable = "unexpected memory mapping" in result.stderr
     if result.returncode != 0 and unavailable:
         pytest.skip(f"ThreadSanitizer runtime is unavailable: {result.stderr}")
-    assert result.returncode == 0, result.stderr
+    failure = result.stderr or result.stdout
+    if result.returncode < 0 and not failure:
+        failure = f"GPU ThreadSanitizer harness terminated by signal {-result.returncode}"
+    assert result.returncode == 0, failure
 
 
 def test_gpu_archive_rule_asserts_runtime_membership() -> None:
     makefile = (ROOT / "Makefile").read_text()
+    runtime = (GPU / "btrc_gpu.c").read_text()
     assert "GPU_BACKEND_CFLAGS ?= -DBTRC_GPU_WGPU_NATIVE" in makefile
+    assert "GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)" in makefile
+    assert "$(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS)" in makefile
+    assert "pthreads on POSIX hosts" in runtime
     archive_cleanup = makefile.index('rm -f "$$D/build/libbtrc_gpu.a"')
     dependency_probe = makefile.index("for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c")
     assert archive_cleanup < dependency_probe
@@ -169,6 +217,14 @@ def test_gpu_archive_rule_asserts_runtime_membership() -> None:
     assert "btrc_gpu_async.o $$D/build/btrc_gpu_surface.o" in makefile
     assert r'grep -q "btrc_gpu_async\\.o$$"' in makefile
     assert r'grep -q "btrc_gpu_surface\\.o$$"' in makefile
+
+
+@pytest.mark.parametrize("example", ["game", "triangle", "sgd"])
+def test_gpu_example_link_commands_include_platform_thread_flags(example: str) -> None:
+    makefile = (ROOT / "examples" / example / "Makefile").read_text()
+    assert "GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)" in makefile
+    link_flags = next(line for line in makefile.splitlines() if line.startswith("LDFLAGS"))
+    assert "$(GPU_THREAD_FLAGS)" in link_flags
 
 
 def test_surface_bridge_has_windows_and_linux_implementations() -> None:

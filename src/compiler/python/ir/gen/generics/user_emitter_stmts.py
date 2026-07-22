@@ -164,6 +164,16 @@ class _UserGenericStmtMixin(
         ]
 
     def _var_decl(self, s) -> list[IRStmt]:
+        from .user_emitter_variables import (
+            generic_local_storage,
+            lower_generic_array_var_decl,
+        )
+
+        # Only an explicit source array declarator owns backing storage here.
+        # An alias whose canonical type is an array remains a pointer-valued
+        # slot and deliberately follows the ordinary declaration path below.
+        if s.type and s.type.is_array:
+            return lower_generic_array_var_decl(self, s)
         c_type = self.resolve_c(s.type)
         resolved = None
         if s.type:
@@ -208,6 +218,7 @@ class _UserGenericStmtMixin(
             c_type=CType(text=c_type),
             name=binding_c_name,
             init=init,
+            **generic_local_storage(s, self, resolved),
         )
         if resolved is not None:
             self._var_types[s.name] = resolved

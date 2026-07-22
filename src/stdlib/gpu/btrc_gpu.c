@@ -4,7 +4,8 @@
  * This file is strict C11 on every platform. The small macOS Metal/Cocoa
  * surface bridge lives in btrc_gpu_surface_macos.m.
  *
- * Links against: libwgpu_native (or Dawn), GLFW, platform frameworks
+ * Links against: libwgpu_native (or Dawn), GLFW, platform frameworks, and
+ * pthreads on POSIX hosts (the Windows implementation uses CRITICAL_SECTION).
  */
 
 #include "btrc_gpu.h"
@@ -335,8 +336,15 @@ void* btrc_gpu_init(void* win_) {
     if (!win || !win->glfw) { return NULL; }
     GPU_* gpu = (GPU_*)calloc(1, sizeof(GPU_));
     if (!gpu) { return NULL; }
-    btrc_gpu_pending_list_init(&gpu->pending_async);
+    if (!btrc_gpu_pending_list_init(&gpu->pending_async)) {
+        free(gpu);
+        return NULL;
+    }
     if (!retain_window(win)) {
+        if (!btrc_gpu_pending_list_destroy(&gpu->pending_async)) {
+            fprintf(stderr, "[btrc-gpu] pending-list mutex destroy failed\n");
+            return NULL;
+        }
         free(gpu);
         return NULL;
     }
@@ -426,6 +434,10 @@ void btrc_gpu_destroy(void* gpu_) {
     }
     release_pending_async_callers(gpu);
     release_window(gpu->window);
+    if (!btrc_gpu_pending_list_destroy(&gpu->pending_async)) {
+        fprintf(stderr, "[btrc-gpu] pending-list mutex destroy failed\n");
+        return;
+    }
     free(gpu);
 }
 
@@ -648,14 +660,17 @@ void btrc_gpu_end_frame(void* gpu_) {
 void* btrc_gpu_init_compute(void) {
     GPU_* gpu = (GPU_*)calloc(1, sizeof(GPU_));
     if (!gpu) { return NULL; }
-    btrc_gpu_pending_list_init(&gpu->pending_async);
+    if (!btrc_gpu_pending_list_init(&gpu->pending_async)) {
+        free(gpu);
+        return NULL;
+    }
     gpu->window = NULL;
     gpu->surface = NULL;
 
     gpu->instance = create_gpu_instance();
     if (!gpu->instance) {
         /* Non-fatal: callers probe via btrc_gpu_available() and fall back to CPU. */
-        free(gpu);
+        btrc_gpu_destroy(gpu);
         return NULL;
     }
 

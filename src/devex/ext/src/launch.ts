@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { PythonSupportProbe, supportsBtrcPython } from './python_runtime';
+import { isLaunchableFile } from './launchable_file';
 
 export interface BtrcLaunchConfig {
     pythonPath: string;
@@ -17,6 +18,7 @@ export interface BtrcLaunchContext {
     config: BtrcLaunchConfig;
     env?: NodeJS.ProcessEnv;
     exists?: (candidate: string) => boolean;
+    isExecutableFile?: (candidate: string) => boolean;
     supportsPython?: PythonSupportProbe;
     signal?: AbortSignal;
 }
@@ -34,9 +36,22 @@ function pathExists(context: BtrcLaunchContext, candidate: string): boolean {
     return (context.exists ?? fs.existsSync)(candidate);
 }
 
+function isExecutableFile(context: BtrcLaunchContext, candidate: string): boolean {
+    if (context.isExecutableFile) { return context.isExecutableFile(candidate); }
+    return isLaunchableFile(candidate);
+}
+
 function commandPath(context: BtrcLaunchContext, command: string): string | undefined {
     const env = context.env ?? process.env;
-    const exts = process.platform === 'win32' ? ['.exe', '.cmd', ''] : [''];
+    const windowsExecutableExtensions = (
+        env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD'
+    ).split(';').map((extension) => {
+        const normalized = extension.trim().toLowerCase();
+        return normalized && !normalized.startsWith('.') ? `.${normalized}` : normalized;
+    }).filter(Boolean);
+    const exts = process.platform === 'win32'
+        ? [...new Set([...windowsExecutableExtensions, ''])]
+        : [''];
     const extraDirs = [
         path.join(env.HOME || '', '.nix-profile', 'bin'),
         path.join('/etc', 'profiles', 'per-user', env.USER || '', 'bin'),
@@ -50,7 +65,7 @@ function commandPath(context: BtrcLaunchContext, command: string): string | unde
         if (!dir) { continue; }
         for (const ext of exts) {
             const candidate = path.join(dir, command + ext);
-            if (pathExists(context, candidate)) { return candidate; }
+            if (isExecutableFile(context, candidate)) { return candidate; }
         }
     }
     return undefined;
@@ -59,29 +74,46 @@ function commandPath(context: BtrcLaunchContext, command: string): string | unde
 function resolveCommand(context: BtrcLaunchContext, command: string): string | undefined {
     if (!command) { return undefined; }
     if (path.isAbsolute(command)) {
-        return pathExists(context, command) ? command : undefined;
+        return isExecutableFile(context, command) ? command : undefined;
     }
     return commandPath(context, command);
 }
 
-function sourceTreeServer(context: BtrcLaunchContext): { serverScript: string, projectRoot: string, source: string } | undefined {
+interface LocalServer {
+    serverScript: string;
+    projectRoot: string;
+    source: string;
+}
+
+function sourceTreeServers(context: BtrcLaunchContext): LocalServer[] {
     const candidates = [
-        context.workspaceRoot,
-        path.resolve(context.extensionPath, '..', '..', '..'),
-        path.join(context.extensionPath, 'server'),
+        { projectRoot: context.workspaceRoot, source: 'sourceTree' },
+        {
+            projectRoot: path.resolve(context.extensionPath, '..', '..', '..'),
+            source: 'sourceTree',
+        },
+        {
+            projectRoot: path.join(context.extensionPath, 'server'),
+            source: 'bundledServer',
+        },
     ];
+    const servers: LocalServer[] = [];
+    const seen = new Set<string>();
     for (const candidate of candidates) {
-        if (!candidate) { continue; }
-        const probe = path.join(candidate, 'src', 'devex', 'lsp', 'server.py');
+        if (!candidate.projectRoot) { continue; }
+        const projectRoot = path.resolve(candidate.projectRoot);
+        if (seen.has(projectRoot)) { continue; }
+        seen.add(projectRoot);
+        const probe = path.join(projectRoot, 'src', 'devex', 'lsp', 'server.py');
         if (pathExists(context, probe)) {
-            return {
+            servers.push({
                 serverScript: probe,
-                projectRoot: candidate,
-                source: candidate.endsWith(`${path.sep}server`) ? 'bundledServer' : 'sourceTree',
-            };
+                projectRoot,
+                source: candidate.source,
+            });
         }
     }
-    return undefined;
+    return servers;
 }
 
 async function pythonLaunch(
@@ -168,15 +200,49 @@ function workspaceCommandLaunch(
 
 export async function resolveServerLaunch(context: BtrcLaunchContext): Promise<BtrcServerLaunch | undefined> {
     if (context.signal?.aborted) { return undefined; }
+    const sharedSupportsPython = context.supportsPython ?? supportsBtrcPython;
+    const supportResults = new Map<string, Promise<boolean>>();
+    const resolutionContext: BtrcLaunchContext = {
+        ...context,
+        supportsPython: (command, signal) => {
+            let result = supportResults.get(command);
+            if (!result) {
+                result = Promise.resolve()
+                    .then(() => sharedSupportsPython(command, signal))
+                    .catch(() => false);
+                supportResults.set(command, result);
+            }
+            return result;
+        },
+    };
     const workspaceRoot = context.workspaceRoot;
     const command = context.config.serverCommand.trim();
     const defaultCwd = workspaceRoot ?? context.extensionPath;
-    const localServer = sourceTreeServer(context);
+    const localServers = sourceTreeServers(context);
+    const attemptedLocalServers = new Set<string>();
+
+    const launchLocalServers = async (
+        candidates: LocalServer[],
+    ): Promise<BtrcServerLaunch | undefined> => {
+        for (const localServer of candidates) {
+            if (attemptedLocalServers.has(localServer.serverScript)) { continue; }
+            attemptedLocalServers.add(localServer.serverScript);
+            const launch = await pythonLaunch(
+                resolutionContext,
+                localServer.serverScript,
+                localServer.projectRoot,
+                localServer.source,
+            );
+            if (launch) { return launch; }
+            if (context.signal?.aborted) { return undefined; }
+        }
+        return undefined;
+    };
 
     if (context.config.serverPath && pathExists(context, context.config.serverPath)) {
         const serverScript = context.config.serverPath;
         const projectRoot = path.resolve(path.dirname(serverScript), '..', '..', '..');
-        return await pythonLaunch(context, serverScript, projectRoot, 'serverPath');
+        return await pythonLaunch(resolutionContext, serverScript, projectRoot, 'serverPath');
     }
 
     if (context.config.serverCommandExplicit && path.isAbsolute(command)) {
@@ -189,8 +255,12 @@ export async function resolveServerLaunch(context: BtrcLaunchContext): Promise<B
     // A live btrc checkout in the workspace is the most accurate server (it
     // tracks uncommitted compiler/LSP changes, unlike a nix store snapshot).
     // Prefer it unless the user explicitly configured a server command.
-    if (localServer && localServer.source === 'sourceTree' && !context.config.serverCommandExplicit) {
-        const launch = await pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
+    const preferredLocalServer = localServers[0];
+    if (
+        preferredLocalServer?.source === 'sourceTree'
+        && !context.config.serverCommandExplicit
+    ) {
+        const launch = await launchLocalServers([preferredLocalServer]);
         if (launch) { return launch; }
         if (context.signal?.aborted) { return undefined; }
     }
@@ -206,8 +276,8 @@ export async function resolveServerLaunch(context: BtrcLaunchContext): Promise<B
         return { command: commandCandidate, args: [], cwd: defaultCwd, source: 'serverCommand' };
     }
 
-    if (localServer) {
-        const launch = await pythonLaunch(context, localServer.serverScript, localServer.projectRoot, localServer.source);
+    if (localServers.length > 0) {
+        const launch = await launchLocalServers(localServers);
         if (launch) { return launch; }
         if (context.signal?.aborted) { return undefined; }
     }

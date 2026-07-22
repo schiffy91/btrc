@@ -63,6 +63,14 @@ def test_generated_checker_reports_drift_without_rewriting(tmp_path: Path, monke
     assert "generated source is stale: generated.py" in capsys.readouterr().err
 
 
+def test_generated_checker_accepts_windows_checkout_line_endings(tmp_path: Path, monkeypatch) -> None:
+    generated = tmp_path / "generated.py"
+    generated.write_bytes(b"first\r\nsecond\r\n")
+    monkeypatch.setattr(check_generated, "REPO_ROOT", tmp_path)
+
+    assert check_generated._matches(generated, b"first\nsecond\n", "make regenerate")
+
+
 def test_hosted_freshness_ignores_checkout_write_bits_but_generation_normalizes_them(tmp_path: Path) -> None:
     generated = tmp_path / "generated"
     generated.mkdir()

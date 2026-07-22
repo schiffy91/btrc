@@ -1,0 +1,259 @@
+/* Fail closed when a volatile automatic would lose a pointee qualifier.
+ * btrc currently models only an outer object qualifier, so it cannot express
+ * the layered C type required by an address or array-decay alias. */
+
+Vector<IRGlobalDecl> setjmpQualifierGlobals;
+
+IRNode? setjmpVisibleAutomatic(string name, Vector<IRNode> visible) {
+    int index = visible.len - 1;
+    while (index >= 0) {
+        IRNode declaration = visible.get(index);
+        if (declaration.name == name) { return declaration; }
+        index = index - 1;
+    }
+    return null;
+}
+
+IRParam? setjmpVisibleParameter(string name, Vector<IRParam> params) {
+    int index = 0;
+    while (index < params.len) {
+        IRParam parameter = params.get(index);
+        if (parameter.name == name) { return parameter; }
+        index = index + 1;
+    }
+    return null;
+}
+
+IRGlobalDecl? setjmpVisibleGlobal(string name) {
+    int index = setjmpQualifierGlobals.len - 1;
+    while (index >= 0) {
+        IRGlobalDecl declaration = setjmpQualifierGlobals.get(index);
+        if (declaration.name == name) { return declaration; }
+        index = index - 1;
+    }
+    return null;
+}
+
+void addSetjmpSafetyVisible(Vector<IRNode> visible, IRNode? declaration) {
+    if (declaration != null && declaration.kind == IRK_VAR_DECL) {
+        visible.push(declaration);
+    }
+}
+
+void rejectSetjmpQualifierAlias(string name, bool inferred) {
+    string reason = "has explicitly volatile storage";
+    if (inferred) {
+        reason = "is modified across try/throw and requires volatile storage";
+    }
+    fprintf(stderr,
+        "error: storage object '%s' %s; its address or array decay requires unsupported layered pointer qualifiers\n",
+        name, reason);
+    exit(1);
+}
+
+bool compilerSetjmpAutomatic(string name) {
+    return name.startsWith("__btrc_")
+        && !name.startsWith("__btrc_source_");
+}
+
+void validateSetjmpQualifierExpression(IRNode? node,
+        Vector<IRNode> visible, Vector<IRParam> params,
+        int parentKind, string parentField) {
+    if (node == null) { return; }
+    if (node.kind == IRK_STMT_EXPR) {
+        Vector<IRNode> local = copySetjmpVisible(visible);
+        int statementIndex = 0;
+        while (statementIndex < node.stmts.len) {
+            validateSetjmpQualifierStatement(
+                node.stmts.get(statementIndex), local, params);
+            statementIndex = statementIndex + 1;
+        }
+        validateSetjmpQualifierExpression(
+            node.result, local, params, node.kind, "result");
+        return;
+    }
+    if (node.kind == IRK_ADDRESS_OF && node.source_address
+            && parentKind != IRK_SIZEOF) {
+        string root = irDirectStorageRoot(node.expr);
+        if (root != "" && !compilerSetjmpAutomatic(root)) {
+            IRNode? declaration = setjmpVisibleAutomatic(root, visible);
+            if (declaration != null && declaration.is_volatile
+                    && declaration.setjmp_inferred_volatile) {
+                rejectSetjmpQualifierAlias(
+                    root, true);
+            }
+            if (declaration == null) {
+                IRParam? parameter = setjmpVisibleParameter(root, params);
+                if (parameter != null && parameter.is_volatile
+                        && parameter.setjmp_inferred_volatile) {
+                    rejectSetjmpQualifierAlias(
+                        root, true);
+                }
+            }
+        }
+    }
+    if (node.kind == IRK_VAR && !compilerSetjmpAutomatic(node.name)) {
+        IRNode? declaration = setjmpVisibleAutomatic(node.name, visible);
+        bool safeIndex = parentKind == IRK_INDEX && parentField == "obj";
+        if (declaration != null && declaration.is_volatile
+                && declaration.setjmp_inferred_volatile
+                && declaration.is_array_decl
+                && parentKind != IRK_SIZEOF && !safeIndex) {
+            rejectSetjmpQualifierAlias(node.name, true);
+        }
+        return;
+    }
+    if (node.kind == IRK_FIELD_ACCESS && node.array_storage_known
+            && node.array_storage_root != ""
+            && !compilerSetjmpAutomatic(node.array_storage_root)
+            && parentKind != IRK_SIZEOF
+            && !(parentKind == IRK_INDEX && parentField == "obj")) {
+        IRNode? declaration = setjmpVisibleAutomatic(
+            node.array_storage_root, visible);
+        if (declaration != null && declaration.is_volatile
+                && declaration.setjmp_inferred_volatile) {
+            rejectSetjmpQualifierAlias(
+                node.array_storage_root, true);
+        }
+        if (declaration == null) {
+            IRParam? parameter = setjmpVisibleParameter(
+                node.array_storage_root, params);
+            if (parameter != null && parameter.is_volatile
+                    && parameter.setjmp_inferred_volatile) {
+                rejectSetjmpQualifierAlias(
+                    node.array_storage_root, true);
+            }
+        }
+    }
+    validateSetjmpQualifierExpression(
+        node.left, visible, params, node.kind, "left");
+    validateSetjmpQualifierExpression(
+        node.right, visible, params, node.kind, "right");
+    validateSetjmpQualifierExpression(
+        node.operand, visible, params, node.kind, "operand");
+    validateSetjmpQualifierExpression(
+        node.expr, visible, params, node.kind, "expr");
+    validateSetjmpQualifierExpression(
+        node.obj, visible, params, node.kind, "obj");
+    validateSetjmpQualifierExpression(
+        node.index, visible, params, node.kind, "index");
+    validateSetjmpQualifierExpression(
+        node.condition, visible, params, node.kind, "condition");
+    validateSetjmpQualifierExpression(
+        node.true_expr, visible, params, node.kind, "true_expr");
+    validateSetjmpQualifierExpression(
+        node.false_expr, visible, params, node.kind, "false_expr");
+    validateSetjmpQualifierExpression(
+        node.array_size, visible, params, node.kind, "array_size");
+    validateSetjmpQualifierExpression(
+        node.init, visible, params, node.kind, "init");
+    validateSetjmpQualifierExpression(
+        node.value, visible, params, node.kind, "value");
+    validateSetjmpQualifierExpression(
+        node.target, visible, params, node.kind, "target");
+    validateSetjmpQualifierExpression(
+        node.update, visible, params, node.kind, "update");
+    validateSetjmpQualifierExpression(
+        node.result, visible, params, node.kind, "result");
+    int index = 0;
+    while (index < node.args.len) {
+        validateSetjmpQualifierExpression(
+            node.args.get(index), visible, params, node.kind, "args");
+        index = index + 1;
+    }
+}
+
+void validateSetjmpQualifierBlock(IRNode? block,
+        Vector<IRNode> inherited, Vector<IRParam> params) {
+    if (block == null) { return; }
+    Vector<IRNode> visible = copySetjmpVisible(inherited);
+    int index = 0;
+    while (index < block.stmts.len) {
+        validateSetjmpQualifierStatement(
+            block.stmts.get(index), visible, params);
+        index = index + 1;
+    }
+}
+
+void validateSetjmpQualifierStatement(IRNode statement,
+        Vector<IRNode> visible, Vector<IRParam> params) {
+    if (statement.kind == IRK_VAR_DECL) {
+        validateSetjmpQualifierExpression(
+            statement.array_size, visible, params, statement.kind, "array_size");
+        addSetjmpSafetyVisible(visible, statement);
+        validateSetjmpQualifierExpression(
+            statement.init, visible, params, statement.kind, "init");
+        return;
+    }
+    if (statement.kind == IRK_IF) {
+        validateSetjmpQualifierExpression(
+            statement.condition, visible, params, statement.kind, "condition");
+        validateSetjmpQualifierBlock(statement.then_block, visible, params);
+        validateSetjmpQualifierBlock(statement.else_block, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
+        validateSetjmpQualifierExpression(
+            statement.condition, visible, params, statement.kind, "condition");
+        validateSetjmpQualifierBlock(statement.body, visible, params);
+        return;
+    }
+    if (statement.kind == IRK_FOR) {
+        Vector<IRNode> local = copySetjmpVisible(visible);
+        if (statement.init != null) {
+            validateSetjmpQualifierStatement(statement.init, local, params);
+        }
+        validateSetjmpQualifierExpression(
+            statement.condition, local, params, statement.kind, "condition");
+        validateSetjmpQualifierExpression(
+            statement.update, local, params, statement.kind, "update");
+        validateSetjmpQualifierBlock(statement.body, local, params);
+        return;
+    }
+    if (statement.kind == IRK_SWITCH) {
+        validateSetjmpQualifierExpression(
+            statement.value, visible, params, statement.kind, "value");
+        int caseIndex = 0;
+        while (caseIndex < statement.args.len) {
+            IRNode caseNode = statement.args.get(caseIndex);
+            Vector<IRNode> local = copySetjmpVisible(visible);
+            validateSetjmpQualifierExpression(
+                caseNode.value, local, params, caseNode.kind, "value");
+            int childIndex = 0;
+            while (childIndex < caseNode.stmts.len) {
+                validateSetjmpQualifierStatement(
+                    caseNode.stmts.get(childIndex), local, params);
+                childIndex = childIndex + 1;
+            }
+            caseIndex = caseIndex + 1;
+        }
+        return;
+    }
+    if (statement.kind == IRK_BLOCK) {
+        validateSetjmpQualifierBlock(statement, visible, params);
+        return;
+    }
+    validateSetjmpQualifierExpression(
+        statement, visible, params, IRK_NONE, "");
+}
+
+void validateSetjmpQualifierSafety(IRFunction definition) {
+    Vector<IRNode> visible = [];
+    validateSetjmpQualifierBlock(
+        definition.body, visible, definition.params);
+}
+
+void validateGlobalQualifierSafety(IRModule module) {
+    setjmpQualifierGlobals = module.global_decls;
+    Vector<IRNode> visible = [];
+    Vector<IRParam> params = [];
+    int index = 0;
+    while (index < module.global_decls.len) {
+        IRGlobalDecl declaration = module.global_decls.get(index);
+        validateSetjmpQualifierExpression(
+            declaration.array_size, visible, params, IRK_NONE, "array_size");
+        validateSetjmpQualifierExpression(
+            declaration.init, visible, params, IRK_NONE, "init");
+        index = index + 1;
+    }
+}

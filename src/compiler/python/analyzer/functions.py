@@ -15,12 +15,6 @@ from .core import SymbolInfo
 
 
 class FunctionsMixin:
-    def _param_symbol(self, param) -> SymbolInfo:
-        """SymbolInfo for a parameter, pinned to its name token span."""
-        nl = param.name_line or param.line
-        nc = param.name_col or param.col
-        return self._local_symbol(param.name, param.type, "param", nl, nc)
-
     def _analyze_decl(self, decl):
         if isinstance(decl, ClassDecl):
             self._analyze_class(decl)
@@ -41,16 +35,25 @@ class FunctionsMixin:
                 member.type = self._upgrade_class_type(member.type)
                 self._collect_generic_instances(member.type)
                 if member.initializer:
+                    field_value_type = self._array_field_value_type(member)
+                    if member.access == "class":
+                        self._validate_pointer_backed_array_field_initializer(
+                            member,
+                            member.initializer,
+                            f"Field '{decl.name}.{member.name}'",
+                            member.line,
+                            member.col,
+                        )
                     self._analyze_expr(member.initializer)
                     self._validate_callable_storage(
-                        member.type,
+                        field_value_type,
                         member.initializer,
                         True,
                         member.line,
                         member.col,
                     )
                     self._validate_typed_initializer(
-                        member.type,
+                        field_value_type,
                         member.initializer,
                         f"Field '{decl.name}.{member.name}'",
                         member.line,
@@ -61,20 +64,6 @@ class FunctionsMixin:
             elif isinstance(member, PropertyDecl):
                 self._analyze_property(member)
         self.current_class = prev_class
-
-    def _validate_default_params(self, params, line, col):
-        """Ensure default parameters come after all non-default parameters."""
-        seen_default = False
-        for param in params:
-            if param.default is not None:
-                seen_default = True
-            elif seen_default:
-                self._error(
-                    f"Non-default parameter '{param.name}' follows default parameter",
-                    param.line or line,
-                    param.col or col,
-                )
-                break
 
     def _analyze_method(self, method):
         prev_method = self.current_method
@@ -102,6 +91,7 @@ class FunctionsMixin:
                 method,
                 self.current_class.name if self.current_class else None,
             )
+            self.current_return_type = self._array_value_type(method.return_type)
 
         self._push_scope()
         self._validate_default_params(method.params, method.line, method.col)
@@ -112,6 +102,14 @@ class FunctionsMixin:
         for param in method.params:
             self._collect_generic_instances(param.type)
             if param.default is not None:
+                parameter_value_type = self._array_parameter_value_type(param.type)
+                self._validate_array_parameter_default(
+                    param.type,
+                    param.default,
+                    f"Default for parameter '{param.name}'",
+                    param.line or method.line,
+                    param.col or method.col,
+                )
                 previous_parameter_default = self._analyzing_parameter_default
                 previous_constructor_default = self._analyzing_constructor_default
                 self._analyzing_parameter_default = True
@@ -122,10 +120,14 @@ class FunctionsMixin:
                     self._analyzing_parameter_default = previous_parameter_default
                     self._analyzing_constructor_default = previous_constructor_default
                 self._validate_callable_storage(
-                    param.type, param.default, True, param.line or method.line, param.col or method.col
+                    parameter_value_type,
+                    param.default,
+                    True,
+                    param.line or method.line,
+                    param.col or method.col,
                 )
                 self._validate_typed_initializer(
-                    param.type,
+                    parameter_value_type,
                     param.default,
                     f"Default for parameter '{param.name}'",
                     param.line or method.line,
@@ -172,7 +174,7 @@ class FunctionsMixin:
         prev_return_type = self.current_return_type
         self.current_method = synthetic_method
         if prop.getter_body:
-            self.current_return_type = prop.type
+            self.current_return_type = self._array_value_type(prop.type)
             self._push_scope()
             self_type = self._current_self_type()
             self.scope.define("self", SymbolInfo("self", self_type, "param"))
@@ -191,7 +193,14 @@ class FunctionsMixin:
             self._push_scope()
             self_type = self._current_self_type()
             self.scope.define("self", SymbolInfo("self", self_type, "param"))
-            self.scope.define("value", SymbolInfo("value", prop.type, "param"))
+            self.scope.define(
+                "value",
+                SymbolInfo(
+                    "value",
+                    self._array_parameter_value_type(prop.type),
+                    "param",
+                ),
+            )
             self._analyze_root_block(prop.setter_body)
             self._pop_scope()
             self.in_virtual_setter = previous_virtual_setter
@@ -218,6 +227,7 @@ class FunctionsMixin:
             param.type = self._upgrade_class_type(param.type)
         func.return_type = self._upgrade_class_type(func.return_type)
         self._validate_array_return_declaration(func)
+        self.current_return_type = self._array_value_type(func.return_type)
 
         self._push_scope()
         self._validate_default_params(func.params, func.line, func.col)
@@ -230,6 +240,14 @@ class FunctionsMixin:
         for param in func.params:
             self._collect_generic_instances(param.type)
             if param.default is not None:
+                parameter_value_type = self._array_parameter_value_type(param.type)
+                self._validate_array_parameter_default(
+                    param.type,
+                    param.default,
+                    f"Default for parameter '{param.name}'",
+                    param.line or func.line,
+                    param.col or func.col,
+                )
                 previous_parameter_default = self._analyzing_parameter_default
                 self._analyzing_parameter_default = True
                 try:
@@ -237,10 +255,14 @@ class FunctionsMixin:
                 finally:
                     self._analyzing_parameter_default = previous_parameter_default
                 self._validate_callable_storage(
-                    param.type, param.default, True, param.line or func.line, param.col or func.col
+                    parameter_value_type,
+                    param.default,
+                    True,
+                    param.line or func.line,
+                    param.col or func.col,
                 )
                 self._validate_typed_initializer(
-                    param.type,
+                    parameter_value_type,
                     param.default,
                     f"Default for parameter '{param.name}'",
                     param.line or func.line,

@@ -51,7 +51,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     if node.type and node.type.is_array:
         from .array_variables import lower_array_var_decl
 
-        result = lower_array_var_decl(gen, node, _storage_metadata(node))
+        result = lower_array_var_decl(gen, node, _storage_metadata(gen, node))
         if external_declaration:
             result.append(_mark_external_declaration_used(gen.source_binding_c_name(node.name)))
         gen._fn_ptr_envs.pop(node.name, None)
@@ -141,7 +141,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         c_type=CType(text=c_type),
         name=binding_c_name,
         init=init,
-        **_storage_metadata(node),
+        **_storage_metadata(gen, node),
     )
     gen._func_var_decls.append(var_decl)
     from .c_array_scopes import declare_c_binding
@@ -223,12 +223,18 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     return result
 
 
-def _storage_metadata(node: VarDeclStmt) -> dict[str, bool]:
+def _storage_metadata(gen: IRGenerator, node: VarDeclStmt) -> dict[str, bool]:
+    from ...qualifier_provenance import effective_outer_volatile
+
     type_expr = node.type
     return {
         "is_static": bool(getattr(type_expr, "is_static", False)),
         "is_extern": bool(getattr(type_expr, "is_extern", False)),
         "is_volatile": bool(getattr(type_expr, "is_volatile", False)),
+        "effective_is_volatile": effective_outer_volatile(
+            type_expr,
+            gen.analyzed.typedef_table,
+        ),
     }
 
 

@@ -71,6 +71,7 @@ class IRParam:
     c_type: CType
     name: str
     is_volatile: bool = False
+    effective_is_volatile: bool = False
 
 
 @dataclass
@@ -118,6 +119,7 @@ class IRVarDecl(IRStmt):
     is_extern: bool = False
     cleanup_slot: IRCleanupSlot | None = None
     is_cycle_return_temp: bool = False
+    effective_is_volatile: bool = False
 
 
 @dataclass

@@ -240,9 +240,13 @@ def projection_is_owned_call(gen, expression) -> bool:
         return False
     if isinstance(expression, IndexExpr):
         return indexed_protocol_info(receiver_type, gen.analyzed.class_table, method="get") is not None
-    # Properties are field-like borrowed projections even though their C
-    # representation uses a generated getter function.
-    return False
+    from ...class_storage import custom_property_getter
+
+    return custom_property_getter(
+        gen.analyzed.class_table,
+        receiver_type,
+        expression.field,
+    )
 
 
 def _overloaded_result_is_owned(

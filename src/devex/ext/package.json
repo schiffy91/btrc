@@ -8,6 +8,13 @@
   "engines": {
     "vscode": "^1.85.0"
   },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The btrc language server and debugger execute project-local compiler and environment configuration."
+    },
+    "virtualWorkspaces": false
+  },
   "categories": [
     "Programming Languages"
   ],
@@ -141,8 +148,8 @@
       "properties": {
         "btrc.pythonPath": {
           "type": "string",
-          "default": "python3",
-          "description": "Path to a Python 3.13+ interpreter for the bundled btrc language server and compiler"
+          "default": "",
+          "description": "Path to a Python 3.13+ interpreter for the bundled btrc language server and compiler. When empty, uses python on Windows and python3 elsewhere."
         },
         "btrc.serverPath": {
           "type": "string",
@@ -152,7 +159,7 @@
         "btrc.serverCommand": {
           "type": "string",
           "default": "btrc-lsp",
-          "description": "Command or absolute path for the btrc language server, defaulting to btrc-lsp. Workspace direnv takes precedence for relative commands; shell.nix and flake.nix also take precedence when btrc.useNixDevShell is enabled."
+          "description": "Foreground command or absolute path for the btrc language server, defaulting to btrc-lsp. The command must remain alive for the server lifetime; daemonizing wrappers cannot be owned reliably on Windows. Workspace direnv takes precedence for relative commands; shell.nix and flake.nix also take precedence when btrc.useNixDevShell is enabled."
         },
         "btrc.useNixDevShell": {
           "type": "boolean",
@@ -174,19 +181,21 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run prepare-lsp && npm run esbuild-base",
-    "esbuild-base": "esbuild ./src/extension.ts ./src/launch.ts ./src/debug_launch.ts ./src/python_runtime.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
+    "esbuild-base": "esbuild ./src/extension.ts ./src/launch.ts ./src/debug_launch.ts ./src/python_runtime.ts ./src/client_lifecycle.ts ./src/process_tree.ts ./src/server_process.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
     "compile": "npm run esbuild-base",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run compile && node --test test/*.test.js",
-    "prepare-lsp": "python3 scripts/prepare_lsp_package.py",
+    "prepare-lsp": "node scripts/run_prepare_lsp.js",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
     "package": "vsce package --out btrc.vsix --allow-missing-repository",
     "install-ext": "npm run package && code --install-extension btrc.vsix --force"
   },
   "dependencies": {
+    "cross-spawn": "^7.0.6",
     "vscode-languageclient": "^9.0.0"
   },
   "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^18.19.0",
     "@types/vscode": "1.85.0",
     "@vscode/vsce": "^3.0.0",

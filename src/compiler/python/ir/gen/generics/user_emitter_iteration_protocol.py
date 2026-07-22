@@ -29,6 +29,10 @@ def lower_iterable_forin(emitter, statement) -> list:
     from ..errors import CodegenError
 
     iter_type = emitter._resolve_expr_type(statement.iterable)
+    if id(statement.iterable) in emitter._gen.analyzed.array_iteration_capacity_ids:
+        from .user_emitter_iteration_arrays import lower_fixed_array_forin
+
+        return lower_fixed_array_forin(emitter, statement, iter_type)
     if iter_type and iter_type.base == "string":
         return lower_string_forin(emitter, statement)
     if not (iter_type and emitter._gen):

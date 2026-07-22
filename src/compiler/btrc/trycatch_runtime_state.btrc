@@ -10,6 +10,20 @@ string trycatchRuntimeStateSource(string name) {
             + "static _Thread_local __btrc_try_frame** __btrc_try_stack = NULL;\n"
             + "static _Thread_local char __btrc_error_msg[1024] = \"\";";
     }
+    if (name == "__btrc_copy_error_message") {
+        return "static inline void __btrc_copy_error_message(\n"
+            + "        char* destination, size_t capacity, const char* source) {\n"
+            + "    if (!destination || capacity == 0) return;\n"
+            + "    if (!source) {\n"
+            + "        destination[0] = '\\0';\n"
+            + "        return;\n"
+            + "    }\n"
+            + "    size_t length = 0;\n"
+            + "    while (length < capacity - 1 && source[length] != '\\0') length++;\n"
+            + "    memmove(destination, source, length);\n"
+            + "    destination[length] = '\\0';\n"
+            + "}";
+    }
     if (name == "__btrc_try_capacity") {
         return "static _Thread_local int __btrc_try_cap = 16;";
     }

@@ -23,7 +23,7 @@ void semanticValidateMutexDestroyReceiver(Node call, Node receiver,
     Node? receiverType = semanticInferType(receiver, state, vars);
     semanticValidateTargetReceiverMutability(
         receiver, state, vars, call);
-    semanticValidateMutableTarget(receiverType, state, call);
+    semanticValidateMutableTarget(receiverType, state, call, false);
     if (receiver.kind == NK_IDENTIFIER
             && state.borrowedBindings.has(receiver.name)) {
         semanticValidationFail(

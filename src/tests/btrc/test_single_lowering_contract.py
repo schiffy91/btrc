@@ -59,3 +59,20 @@ def test_print_and_constructor_arguments_are_lowered_once_without_dce(
     for _frontend, generated in compiled:
         assert generated.read_text().count("static int __btrc_lambda_") == 2
     run_strict_pair(compiled, tmp_path)
+
+
+def test_function_pointer_reassignment_rhs_is_lowered_once_without_dce(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    repository = Path(__file__).resolve().parents[3]
+    source = (repository / "src/tests/functions/test_fnptr_variable_reassign.btrc").read_text()
+    compiled = compile_no_dce_pair(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "fnptr-reassignment-single-lowering",
+    )
+    for _frontend, generated in compiled:
+        assert generated.read_text().count("static int __btrc_lambda_") == 1
+    run_strict_pair(compiled, tmp_path)

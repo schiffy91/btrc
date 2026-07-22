@@ -396,7 +396,9 @@ class Parser {
                                         tok.line, tok.col,
                                         nameTok.line, nameTok.col,
                                         is_abstract_method, keep_return);
-        } else if (self.check("LBRACE") && self.isPropertyStart()) {
+        }
+        self.parseDeclaratorArraySuffix(type_expr);
+        if (self.check("LBRACE") && self.isPropertyStart()) {
             return self.parseProperty(access, type_expr, name, tok.line, tok.col,
                                       nameTok.line, nameTok.col);
         } else {

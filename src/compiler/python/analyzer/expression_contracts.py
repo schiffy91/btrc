@@ -81,8 +81,11 @@ class ExpressionContractsMixin:
 
     def _is_raw_pointer_value(self, type_expr) -> bool:
         type_expr = self._canonical_type(type_expr)
+        active_type_param = bool(type_expr and type_expr.base in self._active_storage_type_parameters())
         nominal_reference = bool(
-            type_expr and (type_expr.base in self.class_table or type_expr.base in self.interface_table)
+            type_expr
+            and not active_type_param
+            and (type_expr.base in self.class_table or type_expr.base in self.interface_table)
         )
         return bool(
             type_expr

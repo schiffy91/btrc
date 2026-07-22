@@ -2,25 +2,32 @@ import * as vscode from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
-    ServerOptions,
 } from 'vscode-languageclient/node';
 import { resolveServerLaunch } from './launch';
 import { findDebugAdapterScript, findBtrcpy } from './debug_launch';
-import { createPythonSupportProbe, PythonSupportProbe } from './python_runtime';
+import {
+    createPythonSupportProbe,
+    PythonSupportProbe,
+    resolvePythonCommand,
+} from './python_runtime';
+import { ClientLifecycle, errorMessage } from './client_lifecycle';
+import { ServerProcessOwner } from './server_process';
 
-let client: LanguageClient | undefined;
-let outputChannel: vscode.OutputChannel;
+let activationController: AbortController | undefined;
+let languageClientLifecycle: ClientLifecycle | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    outputChannel = vscode.window.createOutputChannel('btrc Language Server');
+    const outputChannel = vscode.window.createOutputChannel('btrc Language Server');
     context.subscriptions.push(outputChannel);
 
     const lifecycle = new AbortController();
+    activationController = lifecycle;
     const supportsPython = createPythonSupportProbe({ signal: lifecycle.signal });
     context.subscriptions.push({ dispose: () => lifecycle.abort() });
 
     const config = vscode.workspace.getConfiguration('btrc');
-    registerDebugging(context, config, supportsPython);
+    const pythonPath = resolvePythonCommand(config.get<string>('pythonPath', ''));
+    registerDebugging(context, pythonPath, supportsPython);
     const pythonInspect = config.inspect<string>('pythonPath');
     const pythonExplicit = !!(pythonInspect && (
         pythonInspect.workspaceFolderValue ??
@@ -37,7 +44,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         extensionPath: context.extensionPath,
         workspaceRoot,
         config: {
-            pythonPath: config.get<string>('pythonPath', 'python3'),
+            pythonPath,
             serverPath: config.get<string>('serverPath', ''),
             serverCommand: config.get<string>('serverCommand', 'btrc-lsp').trim(),
             serverCommandExplicit,
@@ -63,58 +70,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (launch.projectRoot) { outputChannel.appendLine(`Project root: ${launch.projectRoot}`); }
     outputChannel.appendLine(`Working directory: ${launch.cwd}`);
 
-    const serverOptions: ServerOptions = {
-        command: launch.command,
-        args: launch.args,
-        options: {
-            cwd: launch.cwd,
-        },
-    };
+    const serverProcess = new ServerProcessOwner(launch);
+    const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.btrc');
+    context.subscriptions.push(fileWatcher);
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: 'file', language: 'btrc' }],
         synchronize: {
-            fileEvents: vscode.workspace.createFileSystemWatcher('**/*.btrc'),
+            fileEvents: fileWatcher,
         },
         outputChannel,
     };
 
-    client = new LanguageClient(
+    const client = new LanguageClient(
         'btrc',
         'btrc Language Server',
-        serverOptions,
+        serverProcess.serverOptions,
         clientOptions
     );
 
-    client.start().then(
+    const managedClient = new ClientLifecycle(client, serverProcess);
+    languageClientLifecycle = managedClient;
+    const startResult = managedClient.start();
+    void startResult.then(
         () => {
+            if (lifecycle.signal.aborted) { return; }
             outputChannel.appendLine('btrc language server started successfully.');
         },
-        (error: Error) => {
-            outputChannel.appendLine(`Failed to start btrc language server: ${error.message}`);
+        (error: unknown) => {
+            if (lifecycle.signal.aborted) { return; }
+            const message = errorMessage(error);
+            outputChannel.appendLine(`Failed to start btrc language server: ${message}`);
             vscode.window.showErrorMessage(
-                `btrc language server failed to start: ${error.message}. ` +
+                `btrc language server failed to start: ${message}. ` +
                 'Check the "btrc Language Server" output channel for details.'
             );
-        }
-    );
+        },
+    ).catch(() => undefined);
 
     context.subscriptions.push({
         dispose: () => {
-            if (client) {
-                client.stop();
-            }
+            // VS Code disposables cannot await asynchronous cleanup. Consume
+            // errors here; deactivate() returns the same shared stop operation.
+            void managedClient.stop().catch(() => undefined);
         },
     });
 }
 
 function registerDebugging(
     context: vscode.ExtensionContext,
-    config: vscode.WorkspaceConfiguration,
+    pythonPath: string,
     supportsPython: PythonSupportProbe,
 ) {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const pythonPath = config.get<string>('pythonPath', 'python3') || 'python3';
 
     // Build the native debug binary + drive lldb via the btrc DAP adapter.
     const factory: vscode.DebugAdapterDescriptorFactory = {
@@ -126,7 +134,7 @@ function registerDebugging(
                     'folder or reinstall the extension.');
                 return undefined;
             }
-            // Any python3 works as the launcher: the adapter re-execs itself under
+            // Any supported Python works as the launcher: the adapter re-execs itself under
             // an interpreter that can import the lldb module.
             return new vscode.DebugAdapterExecutable(pythonPath, [adapter]);
         },
@@ -181,9 +189,10 @@ function registerDebugging(
         vscode.debug.registerDebugConfigurationProvider('btrc', provider));
 }
 
-export function deactivate(): Thenable<void> | undefined {
-    if (client) {
-        return client.stop();
-    }
-    return undefined;
+export async function deactivate(): Promise<void> {
+    activationController?.abort();
+    const managedClient = languageClientLifecycle;
+    activationController = undefined;
+    languageClientLifecycle = undefined;
+    if (managedClient) { await managedClient.stop(); }
 }

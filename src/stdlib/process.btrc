@@ -669,7 +669,11 @@ class ChildProcess {
     }
 
     class ExecResult failure(string command, string message) {
-        return ExecResult(127, "", message, command);
+        return ExecResult(
+            127,
+            Strings.copy(""),
+            Strings.copy(message),
+            Strings.copy(command));
     }
 
     class string render(string executable, Vector<string> arguments) {

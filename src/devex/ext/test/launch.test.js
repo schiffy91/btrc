@@ -1,8 +1,33 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
-const { resolveServerLaunch } = require('../out/launch.js');
+const { resolveServerLaunch: resolveNativeServerLaunch } = require('../out/launch.js');
 const { createPythonSupportProbe } = require('../out/python_runtime.js');
+
+function portablePath(value) {
+    return value
+        .replace(/^[A-Za-z]:[\\/]/, '/')
+        .replaceAll('\\', '/');
+}
+
+async function resolveServerLaunch(context) {
+    const launch = await resolveNativeServerLaunch(context);
+    if (!launch) { return launch; }
+    return {
+        ...launch,
+        command: portablePath(launch.command),
+        args: launch.args.map(portablePath),
+        cwd: portablePath(launch.cwd),
+        serverScript: launch.serverScript && portablePath(launch.serverScript),
+        projectRoot: launch.projectRoot && portablePath(launch.projectRoot),
+    };
+}
+
+function venvPython(projectRoot) {
+    return process.platform === 'win32'
+        ? `${projectRoot}/src/devex/lsp/.venv/Scripts/python.exe`
+        : `${projectRoot}/src/devex/lsp/.venv/bin/python3`;
+}
 
 const config = {
     pythonPath: 'python3',
@@ -15,9 +40,11 @@ const config = {
 
 function context(files, overrides = {}) {
     const existing = new Set(files);
+    const nonExecutable = new Set(overrides.nonExecutable ?? []);
+    const supportsPython = overrides.supportsPython ?? (() => true);
     return {
         extensionPath: '/extension',
-        workspaceRoot: '/workspace',
+        workspaceRoot: overrides.workspaceRoot ?? '/workspace',
         config: { ...config, ...overrides.config },
         env: {
             HOME: '/home/alex',
@@ -25,8 +52,15 @@ function context(files, overrides = {}) {
             PATH: ['/bin', '/profile/bin'].join(path.delimiter),
             ...overrides.env,
         },
-        exists: (candidate) => existing.has(candidate),
-        supportsPython: overrides.supportsPython ?? (() => true),
+        exists: (candidate) => existing.has(portablePath(candidate)),
+        isExecutableFile: (candidate) => {
+            const portable = portablePath(candidate);
+            return existing.has(portable) && !nonExecutable.has(portable);
+        },
+        supportsPython: (candidate, signal) => supportsPython(
+            portablePath(candidate),
+            signal,
+        ),
         signal: overrides.signal,
     };
 }
@@ -48,7 +82,7 @@ test('explicit serverPath wins over commands and workspace shells', async () => 
 });
 
 test('explicit serverPath skips an unsupported project venv and uses Nix', async () => {
-    const staleVenv = '/repo/src/devex/lsp/.venv/bin/python3';
+    const staleVenv = venvPython('/repo');
     const launch = await resolveServerLaunch(context([
         '/repo/src/devex/lsp/server.py',
         staleVenv,
@@ -97,6 +131,18 @@ test('explicit relative serverCommand finds direnv when VS Code has a sparse PAT
     assert.equal(launch.source, 'direnv');
     assert.equal(launch.command, '/opt/homebrew/bin/direnv');
     assert.deepEqual(launch.args, ['exec', '/workspace', 'btrc-lsp']);
+});
+
+test('command discovery skips an existing but unlaunchable PATH candidate', async () => {
+    const launch = await resolveServerLaunch(context([
+        '/bin/btrc-lsp',
+        '/profile/bin/btrc-lsp',
+    ], {
+        nonExecutable: ['/bin/btrc-lsp'],
+    }));
+
+    assert.equal(launch.source, 'serverCommand');
+    assert.equal(launch.command, '/profile/bin/btrc-lsp');
 });
 
 test('explicit relative serverCommand prefers workspace shell.nix before PATH', async () => {
@@ -186,6 +232,17 @@ test('absolute serverCommand is respected directly', async () => {
     assert.deepEqual(launch.args, []);
 });
 
+test('Windows command discovery honors PATHEXT command scripts', {
+    skip: process.platform !== 'win32' && 'Windows PATHEXT behavior',
+}, async () => {
+    const launch = await resolveServerLaunch(context([
+        '/bin/btrc-lsp.bat',
+    ], { env: { PATHEXT: '.BAT' } }));
+
+    assert.equal(launch.source, 'serverCommand');
+    assert.equal(launch.command, '/bin/btrc-lsp.bat');
+});
+
 test('explicit relative serverCommand resolves on PATH before local server fallback', async () => {
     // No direnv/.envrc/shell.nix/flake.nix: the explicitly configured command
     // must win over a discovered bundled server instead of being ignored.
@@ -262,7 +319,7 @@ test('unsupported ambient Python never launches the bundled server', async () =>
     assert.equal(launch, undefined);
 });
 
-test('revisited source-tree fallback reuses the cached Python result', async () => {
+test('source-tree resolution does not retry the same failed candidate', async () => {
     let calls = 0;
     const supportsPython = createPythonSupportProbe({
         probe: async () => {
@@ -279,6 +336,38 @@ test('revisited source-tree fallback reuses the cached Python result', async () 
 
     assert.equal(launch, undefined);
     assert.equal(calls, 1);
+});
+
+test('an unlaunchable workspace server does not mask a bundled server', async () => {
+    const bundledPython = venvPython('/extension/server');
+    const launch = await resolveServerLaunch(context([
+        '/workspace/src/devex/lsp/server.py',
+        '/extension/server/src/devex/lsp/server.py',
+        bundledPython,
+    ], {
+        config: { serverCommand: '' },
+        supportsPython: async (candidate) => candidate === bundledPython,
+    }));
+
+    assert.equal(launch.source, 'bundledServer');
+    assert.equal(launch.command, bundledPython);
+    assert.equal(launch.serverScript, '/extension/server/src/devex/lsp/server.py');
+});
+
+test('workspace command still precedes lower-priority local fallbacks', async () => {
+    const bundledPython = venvPython('/extension/server');
+    const launch = await resolveServerLaunch(context([
+        '/workspace/src/devex/lsp/server.py',
+        '/workspace/.envrc',
+        '/bin/direnv',
+        '/extension/server/src/devex/lsp/server.py',
+        bundledPython,
+    ], {
+        supportsPython: async (candidate) => candidate === bundledPython,
+    }));
+
+    assert.equal(launch.source, 'direnv');
+    assert.equal(launch.command, '/bin/direnv');
 });
 
 test('cancellation stops a pending Python server resolution', async () => {
@@ -321,6 +410,19 @@ test('btrc checkout in workspace prefers live source tree over workspace flake',
         'python3',
         '/workspace/src/devex/lsp/server.py',
     ]);
+});
+
+test('a workspace directory named server remains a live source tree', async () => {
+    const workspaceRoot = '/checkout/server';
+    const launch = await resolveServerLaunch(context([
+        `${workspaceRoot}/src/devex/lsp/server.py`,
+        `${workspaceRoot}/.envrc`,
+        '/bin/direnv',
+    ], { workspaceRoot }));
+
+    assert.equal(launch.source, 'sourceTree');
+    assert.equal(launch.command, 'python3');
+    assert.deepEqual(launch.args, [`${workspaceRoot}/src/devex/lsp/server.py`]);
 });
 
 test('explicit serverCommand still prefers workspace flake over live source tree', async () => {

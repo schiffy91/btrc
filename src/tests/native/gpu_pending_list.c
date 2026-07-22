@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
 
@@ -76,7 +77,7 @@ static void* reap(void* raw) {
 
 int main(void) {
     BtrcGPUPendingList list;
-    btrc_gpu_pending_list_init(&list);
+    assert(btrc_gpu_pending_list_init(&list));
     atomic_init(&producers_done, 0);
     atomic_init(&nodes_released, 0);
 
@@ -98,5 +99,7 @@ int main(void) {
     assert(atomic_load_explicit(
                &nodes_released, memory_order_relaxed) == NODE_COUNT);
     assert(btrc_gpu_pending_list_take_all(&list) == NULL);
+    assert(btrc_gpu_pending_list_destroy(&list));
+    assert(btrc_gpu_pending_list_destroy(&list));
     return 0;
 }

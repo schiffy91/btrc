@@ -1,5 +1,23 @@
 /* Direct hosted-call resolution, signatures, and source-shadow provenance. */
 
+void semanticValidateDirectHostedOpaqueArguments(string name, Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    int parameterCount = hostedAbiParameterCount(name);
+    int argumentIndex = 0;
+    while (argumentIndex < call.args.len
+            && argumentIndex < parameterCount) {
+        Node expected = makePrimType(
+            hostedAbiParameterBase(name, argumentIndex));
+        expected.pointer_depth = hostedAbiParameterPointerDepth(
+            name, argumentIndex);
+        expected.is_const = hostedAbiParameterConst(name, argumentIndex);
+        semanticValidateOpaqueCallArgument(
+            null, argumentIndex, expected,
+            call.args.get(argumentIndex), name, true, state, vars);
+        argumentIndex = argumentIndex + 1;
+    }
+}
+
 bool semanticHostedCallBypassesSourceDefinition(
         string name, SemanticValidationState state) {
     if (!hostedAbiFunctionOwnedName(name)
@@ -80,6 +98,11 @@ void semanticValidateDirectHostedCall(string name, Node call,
         expected.pointer_depth = hostedAbiParameterPointerDepth(name, index);
         expected.is_const = hostedAbiParameterConst(name, index);
         Node argument = call.args.get(index);
+        semanticValidateVolatileReferenceConversion(
+            expected, argument,
+            "Argument " + Strings.fromInt(index + 1)
+                + " to hosted function '" + name + "()'",
+            state, vars);
         Node? actual = semanticInferType(argument, state, vars);
         if (actual != null
                 && !semanticHostedArgumentTypeDeferred(

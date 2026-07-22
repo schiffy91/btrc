@@ -18,7 +18,11 @@ class IndexedUpdateContractsMixin:
         receiver_type = self._infer_type(target.obj)
         from ..index_protocol import indexed_protocol
 
-        protocol = indexed_protocol(receiver_type, self.class_table)
+        protocol = indexed_protocol(
+            receiver_type,
+            self.class_table,
+            active_type_params=self._active_storage_type_parameters(),
+        )
         if protocol is None:
             return
         setter = protocol.setter

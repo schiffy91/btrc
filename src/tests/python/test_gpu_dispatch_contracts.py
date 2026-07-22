@@ -8,6 +8,7 @@ import pytest
 
 from src.compiler.python.analyzer.analyzer import Analyzer
 from src.compiler.python.ir.gen.errors import CodegenError
+from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -15,6 +16,16 @@ from src.tests.python.test_gpu_dispatch_failures import (
     COMPILERS,
     _compile_with_gpu_stubs,
 )
+
+
+def _analyzer_errors(source: str) -> list[str]:
+    program = Parser(Lexer(source, "<gpu-capacity>").tokenize()).parse()
+    return Analyzer().analyze(program).errors
+
+
+def _analyzed_despite_errors(source: str):
+    program = Parser(Lexer(source, "<gpu-capacity>").tokenize()).parse()
+    return Analyzer().analyze(program)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
@@ -68,11 +79,66 @@ def test_named_gpu_arguments_and_defaults_follow_parameter_order(
 
 
 def test_unsized_pointer_gpu_input_is_rejected() -> None:
-    with pytest.raises(CodegenError, match="GPU array argument 'xs' has no provable capacity"):
-        emit_c(
-            "@gpu\nvoid update(int[] xs) { int i = gpu_id(); xs[i] += 1; }\n"
-            "void run(int[] xs) { update(xs); } int main() { return 0; }"
-        )
+    errors = _analyzer_errors(
+        "@gpu\nvoid update(int[] xs) { int i = gpu_id(); xs[i] += 1; }\n"
+        "void run(int[] xs) { update(xs); } int main() { return 0; }"
+    )
+    assert any("no provable readable GPU buffer capacity" in error for error in errors)
+
+
+@pytest.mark.parametrize("qualifier", ["const", "volatile"])
+def test_qualified_gpu_array_parameters_are_rejected(qualifier: str) -> None:
+    errors = _analyzer_errors(
+        f"@gpu void inspect({qualifier} int[] xs) {{ int i = gpu_id(); int value = xs[i]; }} int main() {{ return 0; }}"
+    )
+
+    assert any("GPU array buffers are read-write" in error for error in errors)
+
+
+def test_fixed_bound_parameter_output_is_rejected_by_semantics_and_codegen() -> None:
+    analyzed = _analyzed_despite_errors(
+        "@gpu int[] copy(int[] xs) { int i = gpu_id(); return xs[i]; } "
+        "void fill(int out[2]) { int[] xs = {1, 2}; out = copy(xs); } "
+        "int main() { return 0; }"
+    )
+    assert any("no provable writable capacity" in error for error in analyzed.errors)
+    with pytest.raises(CodegenError, match="no provable writable capacity"):
+        IRGenerator(analyzed).generate()
+
+
+def test_incomplete_extern_output_is_rejected_by_semantics_and_codegen() -> None:
+    analyzed = _analyzed_despite_errors(
+        "extern int out[]; "
+        "@gpu int[] copy(int[] xs) { int i = gpu_id(); return xs[i]; } "
+        "int main() { int[] xs = {1}; out = copy(xs); return 0; }"
+    )
+    assert any("no provable writable capacity" in error for error in analyzed.errors)
+    with pytest.raises(CodegenError, match="no provable writable capacity"):
+        IRGenerator(analyzed).generate()
+
+
+def test_global_array_alias_input_is_rejected_by_semantics_and_codegen() -> None:
+    analyzed = _analyzed_despite_errors(
+        "typedef int[] Values; int backing[2] = {1, 2}; "
+        "Values view = backing; "
+        "@gpu void bump(int[] xs) { int i = gpu_id(); xs[i] += 1; } "
+        "int main() { bump(view); return 0; }"
+    )
+    assert any("no provable readable GPU buffer capacity" in error for error in analyzed.errors)
+    with pytest.raises(CodegenError, match="has no provable capacity"):
+        IRGenerator(analyzed).generate()
+
+
+def test_unknown_capacity_gpu_array_default_is_rejected_semantically() -> None:
+    errors = _analyzer_errors(
+        "extern int defaults[]; "
+        "@gpu int[] copy(int[] values = defaults) { "
+        "int i = gpu_id(); return values[i]; } "
+        "int main() { int[] output = copy(); return output[0]; }"
+    )
+    assert any(
+        "Default for parameter 'values' has no provable readable GPU buffer capacity" in error for error in errors
+    )
 
 
 def test_hosted_macro_named_real_array_is_rejected_before_capacity_lowering() -> None:
@@ -101,17 +167,19 @@ def test_hosted_macro_named_real_array_is_rejected_before_capacity_lowering() ->
     ],
 )
 def test_pointer_shadow_does_not_borrow_outer_gpu_array_extent(source: str) -> None:
-    with pytest.raises(CodegenError, match="has no provable capacity"):
-        emit_c(source)
+    errors = _analyzer_errors(source)
+    assert any(
+        "array bound or initializer" in error or "no provable readable GPU buffer capacity" in error for error in errors
+    )
 
 
 def test_pointer_output_shadow_does_not_borrow_outer_array_capacity() -> None:
-    with pytest.raises(CodegenError, match="no provable writable capacity"):
-        emit_c(
-            "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
-            "void run() { int[] out = {0}; { int[] out; int[] xs = {1}; "
-            "out = copy(xs); } } int main() { return 0; }"
-        )
+    errors = _analyzer_errors(
+        "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
+        "void run() { int[] out = {0}; { int[] out; int[] xs = {1}; "
+        "out = copy(xs); } } int main() { return 0; }"
+    )
+    assert any("array bound or initializer" in error for error in errors)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
@@ -128,7 +196,17 @@ def test_zero_length_collection_result_uses_nonzero_c_storage(
         "new Vector<int>(raw, 0); int[] out = copy(empty); return 0; }"
     )
     c_source = emit_c(source)
-    assert re.search(r"int out\[\(\([^]]+->len > 0\) \? [^]]+->len : 1\)\];", c_source)
+    size = re.search(
+        r"int (__gpu_len_\d+);.*?\(\1 = __gpu_arg_\d+->len\)",
+        c_source,
+        re.DOTALL,
+    )
+    assert size is not None
+    name = re.escape(size.group(1))
+    assert re.search(
+        rf"int out\[\(\({name} > 0\) \? {name} : 1\)\];",
+        c_source,
+    )
     executable = _compile_with_gpu_stubs(
         tmp_path,
         source,
@@ -153,22 +231,22 @@ def test_explicit_gpu_output_bound_is_evaluated_once() -> None:
 
 
 def test_unsized_pointer_output_target_is_rejected() -> None:
-    with pytest.raises(CodegenError, match="no provable writable capacity"):
-        emit_c(
-            "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
-            "void fill(int[] out) { int[] xs = {1}; out = copy(xs); }\n"
-            "int main() { return 0; }"
-        )
+    errors = _analyzer_errors(
+        "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
+        "void fill(int[] out) { int[] xs = {1}; out = copy(xs); }\n"
+        "int main() { return 0; }"
+    )
+    assert any("no provable writable capacity" in error for error in errors)
 
 
 def test_departed_array_shadow_does_not_lend_capacity_to_parameter() -> None:
-    with pytest.raises(CodegenError, match="no provable writable capacity"):
-        emit_c(
-            "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
-            "void fill(int[] out) { { int[] out = {0}; } int[] xs = {1}; "
-            "out = copy(xs); }\n"
-            "int main() { return 0; }"
-        )
+    errors = _analyzer_errors(
+        "@gpu\nint[] copy(int[] xs) { int i = gpu_id(); return xs[i]; }\n"
+        "void fill(int[] out) { { int[] out = {0}; } int[] xs = {1}; "
+        "out = copy(xs); }\n"
+        "int main() { return 0; }"
+    )
+    assert any("no provable writable capacity" in error for error in errors)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")

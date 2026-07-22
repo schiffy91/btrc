@@ -27,16 +27,33 @@ void semanticValidateVariable(Node declaration,
     semanticRejectRuntimeInterfaceType(declaration.type, declaration, state);
     contextualizeGenericConstructor(
         declaration.type, declaration.initializer, state, vars);
-    semanticValidateExpr(declaration.initializer, state, vars);
+    semanticValidateGpuArrayInitializer(
+        declaration.initializer, declaration.type, state, vars);
     bool previousOwnedOpaqueVariable = state.allowOwnedOpaqueVariable;
     state.allowOwnedOpaqueVariable = semanticExpressionOwnsResult(
         declaration.initializer, state, vars);
-    Node? declared = declaration.type;
+    Node? declared = semanticArrayValueType(
+        declaration.type, state);
+    Node? sourceDeclared = semanticResolveAliases(
+        declaration.type, state);
+    Node? representedDeclared = semanticResolveAliases(declared, state);
+    if (semanticGpuArrayResultCall(
+            declaration.initializer, state, vars)
+            && sourceDeclared != null && sourceDeclared.is_array
+            && representedDeclared != null
+            && !representedDeclared.is_array) {
+        semanticValidationFail("Initializer for '" + declaration.name
+            + "' cannot materialize an array-returning @gpu result through "
+            + "a pointer-valued array alias", declaration);
+    }
+    semanticValidateTypedInitializer(declared, declaration.initializer,
+        "Initializer for '" + declaration.name + "'", state, vars);
+    /* Typed initializer validation owns qualifier loss before its opaque
+     * representation check.  Keep the preliminary-type check afterward for
+     * inferred `var` bindings whose target type is not available yet. */
     semanticValidateOpaqueBorrowStorage(
         preliminaryType, declaration.initializer,
         "Variable '" + declaration.name + "'", state, vars);
-    semanticValidateTypedInitializer(declared, declaration.initializer,
-        "Initializer for '" + declaration.name + "'", state, vars);
     state.allowOwnedOpaqueVariable = previousOwnedOpaqueVariable;
     Node? actual = semanticInferType(
         declaration.initializer, state, vars);
@@ -49,11 +66,17 @@ void semanticValidateVariable(Node declaration,
             semanticValidationFail("'var' declaration of '" + declaration.name
                 + "' requires an initializer", declaration);
         }
+        if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
+            semanticValidationFail("Cannot infer array storage for 'var' from "
+                + "a brace initializer; use an explicit array declaration",
+                declaration);
+        }
         if (actual == null) {
             semanticValidationFail("Cannot infer type for 'var' declaration of '"
                 + declaration.name + "'", declaration);
         }
-        declared = actual;
+        declared = semanticInferredBindingValueType(
+            actual, declaration.initializer, state, vars);
     } else if (actual != null
             && !semanticAssignmentCompatible(declared, actual, state)
             && !semanticContextualAggregateInitializer(
@@ -81,6 +104,9 @@ void semanticValidateReturn(Node statement, SemanticValidationState state,
     Node expectedReturn = state.returnType;
     semanticValidateOpaqueBorrowStorage(
         expectedReturn, statement.value_node, "Return value", state, vars);
+    semanticValidateVolatileReferenceConversion(
+        expectedReturn, statement.value_node,
+        "Return value", state, vars);
     if (!state.gpuCallable || !expectedReturn.is_array) {
         semanticValidateTypedInitializer(expectedReturn, statement.value_node,
             "Return value", state, vars);
@@ -206,7 +232,8 @@ void semanticValidateStmt(Node statement, SemanticValidationState state,
     } else if (statement.kind == NK_EXPR_STMT) {
         Node? previousStandalone = state.standaloneExpression;
         state.standaloneExpression = statement.expr;
-        semanticValidateExpr(statement.expr, state, vars);
+        semanticValidateGpuResultStatement(
+            statement.expr, state, vars);
         state.standaloneExpression = previousStandalone;
         semanticValidateThreadExpressionDiscard(
             statement.expr, state, vars);

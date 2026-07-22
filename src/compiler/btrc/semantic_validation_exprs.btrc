@@ -147,10 +147,10 @@ void semanticValidateUnary(Node expression, SemanticValidationState state,
                 || operand.pointer_depth > 0);
         if (valid) {
             semanticValidatePropertyMutation(expression.operand,
-                true, state, vars, expression);
+                true, false, state, vars, expression);
             semanticValidateIndexedMutation(expression.operand,
                 true, state, vars, expression);
-            semanticValidateMutableTarget(operand, state, expression);
+            semanticValidateMutableTarget(operand, state, expression, false);
             semanticValidateTargetReceiverMutability(
                 expression.operand, state, vars, expression);
         }
@@ -172,6 +172,7 @@ void semanticValidateUnary(Node expression, SemanticValidationState state,
 void semanticValidateExpr(Node? expression, SemanticValidationState state,
         Map<string, Node> vars) {
     if (expression == null) { return; }
+    semanticValidateGpuArrayResultContext(expression, state, vars);
     if (expression.kind == NK_BINARY_EXPR) {
         semanticValidateExpr(expression.left, state, vars);
         semanticValidateExpr(expression.right, state, vars);

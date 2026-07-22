@@ -1,0 +1,209 @@
+/* Exact volatile provenance for implicit reference conversions.
+ *
+ * Semantic type normalization intentionally expands typedefs, but qualifier
+ * placement depends on the declarator boundary.  These queries therefore use
+ * declared expression types and transform qualifier depths alongside the
+ * expression shape instead of inferring from flattened C types. */
+
+Node? semanticQualifierDeclaredType(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return null; }
+    if (expression.kind == NK_IDENTIFIER
+            && vars.has(expression.name)) {
+        return vars.get(expression.name);
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        return expression.target_type;
+    }
+    return inferTypeRaw(expression, state.analyzed, vars);
+}
+
+bool semanticQualifierRawIndex(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node? declared = semanticQualifierDeclaredType(
+        expression.obj, state, vars);
+    Node? objectType = semanticResolveAliases(declared, state);
+    return objectType != null && (objectType.is_array
+        || semanticRawIndexedPointerInState(objectType, state));
+}
+
+Node? semanticQualifierIndexResult(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node? declared = semanticQualifierDeclaredType(
+        expression.obj, state, vars);
+    /* Expand only the receiver alias.  Fully resolving nested generic
+     * arguments would turn Source<P>.get() from P into its flattened C shape
+     * and erase the typedef boundary that places volatile on the pointee. */
+    return semanticIndexResultTypeInState(
+        resolveOuterTypedefType(
+            declared, state.analyzed.typedefTable), state);
+}
+
+Node? semanticQualifierOperatorResult(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression.kind == NK_UNARY_EXPR) {
+        Node? receiver = resolveOuterTypedefType(
+            semanticQualifierDeclaredType(
+                expression.operand, state, vars),
+            state.analyzed.typedefTable);
+        return operatorOverloadReturnType(
+            receiver,
+            expression.op, true, state.analyzed);
+    }
+    if (expression.kind == NK_BINARY_EXPR) {
+        Node? receiver = resolveOuterTypedefType(
+            semanticQualifierDeclaredType(
+                expression.left, state, vars),
+            state.analyzed.typedefTable);
+        return operatorOverloadReturnType(
+            receiver,
+            expression.op, false, state.analyzed);
+    }
+    return null;
+}
+
+bool semanticExpressionVolatileAtDepth(Node? expression, int depth,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null || depth < 0) { return false; }
+    if (expression.kind == NK_INDEX_EXPR) {
+        if (!semanticQualifierRawIndex(expression, state, vars)) {
+            return typeVolatileAtDepth(
+                semanticQualifierIndexResult(expression, state, vars),
+                state.analyzed.typedefTable, depth);
+        }
+        return semanticExpressionVolatileAtDepth(
+            expression.obj, depth + 1, state, vars);
+    }
+    if (expression.kind == NK_UNARY_EXPR) {
+        Node? overloaded = semanticQualifierOperatorResult(
+            expression, state, vars);
+        if (overloaded != null) {
+            return typeVolatileAtDepth(overloaded,
+                state.analyzed.typedefTable, depth);
+        }
+        if (expression.op == "&") {
+            if (depth == 0) { return false; }
+            return semanticExpressionVolatileAtDepth(
+                expression.operand, depth - 1, state, vars);
+        }
+        if (expression.op == "*") {
+            return semanticExpressionVolatileAtDepth(
+                expression.operand, depth + 1, state, vars);
+        }
+        if (expression.op == "!") { return false; }
+        return semanticExpressionVolatileAtDepth(
+            expression.operand, depth, state, vars);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        return semanticExpressionVolatileAtDepth(
+                expression.true_expr, depth, state, vars)
+            || semanticExpressionVolatileAtDepth(
+                expression.false_expr, depth, state, vars);
+    }
+    if (expression.kind == NK_ASSIGN_EXPR) {
+        return depth > 0 && semanticExpressionVolatileAtDepth(
+            expression.target, depth, state, vars);
+    }
+    if (expression.kind == NK_BINARY_EXPR) {
+        Node? overloaded = semanticQualifierOperatorResult(
+            expression, state, vars);
+        if (overloaded != null) {
+            return typeVolatileAtDepth(overloaded,
+                state.analyzed.typedefTable, depth);
+        }
+        if (expression.op == "??") {
+            return semanticExpressionVolatileAtDepth(
+                    expression.left, depth, state, vars)
+                || semanticExpressionVolatileAtDepth(
+                    expression.right, depth, state, vars);
+        }
+    }
+    Node? declared = semanticQualifierDeclaredType(
+        expression, state, vars);
+    return typeVolatileAtDepth(
+        declared, state.analyzed.typedefTable, depth);
+}
+
+int semanticExpressionVolatileMaxDepth(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return -1; }
+    if (expression.kind == NK_INDEX_EXPR) {
+        if (!semanticQualifierRawIndex(expression, state, vars)) {
+            return typeVolatileMaxDepth(
+                semanticQualifierIndexResult(expression, state, vars),
+                state.analyzed.typedefTable);
+        }
+        int nested = semanticExpressionVolatileMaxDepth(
+            expression.obj, state, vars);
+        return nested > 0 ? nested - 1 : -1;
+    }
+    if (expression.kind == NK_UNARY_EXPR) {
+        Node? overloaded = semanticQualifierOperatorResult(
+            expression, state, vars);
+        if (overloaded != null) {
+            return typeVolatileMaxDepth(
+                overloaded, state.analyzed.typedefTable);
+        }
+        int nested = semanticExpressionVolatileMaxDepth(
+            expression.operand, state, vars);
+        if (nested < 0) { return -1; }
+        if (expression.op == "&") { return nested + 1; }
+        if (expression.op == "*") {
+            return nested > 0 ? nested - 1 : -1;
+        }
+        if (expression.op == "!") { return -1; }
+        return nested;
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        int left = semanticExpressionVolatileMaxDepth(
+            expression.true_expr, state, vars);
+        int right = semanticExpressionVolatileMaxDepth(
+            expression.false_expr, state, vars);
+        return left > right ? left : right;
+    }
+    if (expression.kind == NK_ASSIGN_EXPR) {
+        int target = semanticExpressionVolatileMaxDepth(
+            expression.target, state, vars);
+        return target > 0 ? target : -1;
+    }
+    if (expression.kind == NK_BINARY_EXPR) {
+        Node? overloaded = semanticQualifierOperatorResult(
+            expression, state, vars);
+        if (overloaded != null) {
+            return typeVolatileMaxDepth(
+                overloaded, state.analyzed.typedefTable);
+        }
+        if (expression.op == "??") {
+            int left = semanticExpressionVolatileMaxDepth(
+                expression.left, state, vars);
+            int right = semanticExpressionVolatileMaxDepth(
+                expression.right, state, vars);
+            return left > right ? left : right;
+        }
+    }
+    return typeVolatileMaxDepth(
+        semanticQualifierDeclaredType(expression, state, vars),
+        state.analyzed.typedefTable);
+}
+
+void semanticValidateVolatileReferenceConversion(Node? target,
+        Node? value, string subject, SemanticValidationState state,
+        Map<string, Node> vars) {
+    if (target == null || value == null) { return; }
+    int depth = 1;
+    int maximum = semanticExpressionVolatileMaxDepth(
+        value, state, vars);
+    while (depth <= maximum) {
+        if (semanticExpressionVolatileAtDepth(
+                    value, depth, state, vars)
+                && !typeVolatileAtDepth(
+                    target, state.analyzed.typedefTable, depth)) {
+            semanticValidationFail(subject
+                + " would discard volatile storage qualification at pointer depth "
+                + Strings.fromInt(depth)
+                + "; use a typedef that preserves the qualified pointee instead of unsupported layered pointer qualifiers",
+                value);
+        }
+        depth = depth + 1;
+    }
+}

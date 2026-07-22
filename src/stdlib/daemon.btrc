@@ -170,7 +170,8 @@ class DaemonController {
                 operation);
         }
         DaemonControlRecord record = DaemonControlProtocol.record(spec.pidFile);
-        if (!record.valid || !DaemonControlProtocol.probe(spec.pidFile, record)) {
+        if (!record.valid || !DaemonControlProtocol.probe(
+                spec.pidFile, record, 2500)) {
             return self.result(125, "daemon supervisor failed its liveness handshake",
                 operation);
         }
@@ -199,13 +200,17 @@ class DaemonController {
         return true;
     }
 
-    public ExecResult stop(DaemonSpec spec) {
+    public ExecResult stop(DaemonSpec spec,
+                           int timeoutMilliseconds = 7500) {
         string operation = "daemon stop";
         if (!self.validSpec(spec)) {
             return self.result(125, "unsafe daemon specification", operation);
         }
+        if (timeoutMilliseconds <= 0) {
+            return self.result(125, "invalid daemon stop timeout", operation);
+        }
         DaemonControlRecord record = DaemonControlProtocol.record(spec.pidFile);
-        if (!record.valid || !DaemonControlProtocol.probe(spec.pidFile, record)) {
+        if (!record.valid) {
             return self.result(1, "daemon supervisor is not responding", operation);
         }
         string stop = DaemonControlPaths.stop(spec.pidFile, record.token);
@@ -218,7 +223,7 @@ class DaemonController {
                 operation);
         }
         if (!DaemonControlProtocol.waitForRemoval(
-                spec.pidFile, record, 5000)) {
+                spec.pidFile, record, timeoutMilliseconds)) {
             return self.result(124,
                 "daemon did not confirm termination before the deadline",
                 operation);
@@ -232,7 +237,8 @@ class DaemonController {
             return self.result(125, "unsafe daemon specification", operation);
         }
         DaemonControlRecord record = DaemonControlProtocol.record(spec.pidFile);
-        if (!record.valid || !DaemonControlProtocol.probe(spec.pidFile, record)) {
+        if (!record.valid || !DaemonControlProtocol.probe(
+                spec.pidFile, record, 1500)) {
             return self.result(1, "daemon supervisor is not responding", operation);
         }
         return self.result(0, "", operation);

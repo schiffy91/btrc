@@ -15,6 +15,7 @@ from ..nodes import (
     IRLiteral,
 )
 from .arguments import arg_names_for, lower_arg_values, order_args_for_params
+from .call_callees import materialize_callable_callee
 from .call_contracts import resolved_params_for_call
 from .expressions import lower_expr
 from .sync_methods import lower_consuming_sync_method, lower_sync_method
@@ -66,10 +67,14 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     # lower so ``obj.callback(args)`` invokes the stored function pointer.
     from .callable_fields import callable_field_signature
 
-    if callable_field_signature(gen, node.callee) is not None:
-        return IRCall(
-            callee=lower_expr(gen, node.callee),
-            args=lower_arg_values(gen, node.args),
+    signature = callable_field_signature(gen, node.callee)
+    if signature is not None:
+        return materialize_callable_callee(
+            gen,
+            node.callee,
+            lower_expr(gen, node.callee),
+            signature,
+            lower_arg_values(gen, node.args),
         )
 
     # Rich enum constructor: Color.RGB(255, 0, 0) → Color_RGB(255, 0, 0)

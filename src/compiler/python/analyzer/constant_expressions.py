@@ -143,6 +143,12 @@ class ConstantExpressionMixin:
             return False, None
         owner = expression.obj.name
         values = self.enum_table.get(owner)
+        if values is None and owner in self.rich_enum_table:
+            if enum_owner is not None:
+                return False, None
+            for index, variant in enumerate(self.rich_enum_table[owner].variants):
+                if expression.field == variant.name:
+                    return True, index
         if values is None or expression.field not in values:
             return False, None
         if enum_owner is not None and (owner != enum_owner or expression.field not in allowed):

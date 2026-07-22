@@ -45,6 +45,15 @@ void semanticValidateDeclaredType(Node? typeExpr, string subject,
         semanticValidationFail(subject
             + " cannot carry static/extern storage qualifiers", site);
     }
+    if (role == "return"
+            && (typeEffectiveOuterConst(
+                    typeExpr, state.analyzed.typedefTable)
+                || typeEffectiveOuterVolatile(
+                    typeExpr, state.analyzed.typedefTable))) {
+        semanticValidationFail(subject
+            + " cannot carry an outer const/volatile qualifier; "
+            + "C discards qualifiers on returned values", site);
+    }
     Node? canonical = semanticResolveAliases(typeExpr, state);
     if (canonical != null && canonical.base == "Mutex"
             && (canonical.pointer_depth > 0 || canonical.is_array
@@ -112,7 +121,8 @@ void semanticValidateDeclaredType(Node? typeExpr, string subject,
                 site);
         }
     }
-    if (role != "return" && semanticScalarVoid(canonical)) {
+    if (role != "return" && role != "alias"
+            && semanticScalarVoid(canonical)) {
         semanticValidationFail(subject
             + " cannot have scalar/non-pointer void type", site);
     }
@@ -161,7 +171,7 @@ void semanticValidateAggregateDeclarationTypes(
             }
         } else if (declaration.kind == NK_TYPEDEF_DECL) {
             semanticValidateDeclaredType(declaration.original,
-                "Typedef '" + declaration.alias + "'", "return",
+                "Typedef '" + declaration.alias + "'", "alias",
                 declaration, state);
         } else if (declaration.kind == NK_INTERFACE_DECL) {
             Map<string, bool> previousParams =
@@ -198,6 +208,15 @@ void semanticValidateAggregateDeclarationTypes(
                         "Rich-enum payload '" + declaration.name + "."
                             + variant.name + "." + parameter.name + "'",
                         "parameter", parameter, state);
+                    if (typeEffectiveOuterConst(
+                            parameter.type,
+                            state.analyzed.typedefTable)) {
+                        semanticValidationFail("Rich-enum payload '"
+                            + declaration.name + "." + variant.name + "."
+                            + parameter.name + "' cannot use const storage "
+                            + "until rich-enum constructors use structured "
+                            + "initialization", parameter);
+                    }
                     parameterIndex = parameterIndex + 1;
                 }
                 variantIndex = variantIndex + 1;

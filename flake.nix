@@ -1,6 +1,6 @@
 {
   description = "btrc — a modern take on C";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
   outputs = { self, nixpkgs }:
     let
       lib = nixpkgs.lib;
@@ -57,7 +57,7 @@
           # btrc-lsp on PATH: the VSCode extension launches the language server
           # via `nix develop <workspace> --command btrc-lsp`.
           packages = cfg.packages pkgs ++ [ self.packages.${system}.btrc-lsp ];
-          GPU_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.wgpu-native.dev}/include/webgpu -I${pkgs.glfw}/include"
+          GPU_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.wgpu-native.dev}/include/webgpu -I${pkgs.glfw.dev}/include"
             + lib.optionalString pkgs.stdenv.hostPlatform.isLinux
               " -I${pkgs.wayland.dev}/include";
           GPU_LDFLAGS = "-L${pkgs.wgpu-native}/lib -lwgpu_native -L${pkgs.glfw}/lib -lglfw"
@@ -100,7 +100,6 @@
         runtimeSource = sourceSubset {
           prefixes = runtimePrefixes;
           excludedPrefixes = [
-            "src/compiler/python/tests/"
             "src/devex/lsp/tests/"
             "src/stdlib/gpu/build/"
             "src/stdlib/gui/build/"
@@ -114,7 +113,6 @@
           ];
           files = [ "flake.lock" ];
           excludedPrefixes = [
-            "src/compiler/python/tests/"
             "src/devex/debug/tests/"
             "src/devex/ext/btrc.vsix"
             "src/devex/ext/debug/"
@@ -152,7 +150,7 @@
           version = extensionVersion;
           src = extensionSource;
           sourceRoot = "source/src/devex/ext";
-          npmDepsHash = "sha256-irbS7G2WHGkr8gjfeaL8i+HNkiSzW8jhu1yZQ8D0hHQ=";
+          npmDepsHash = "sha256-Onn3nJ4r8wTjX/32gc+75CNmid32yxdqnntB0xsZjcI=";
           npmInstallFlags = [ "--ignore-scripts" ];
           npmRebuildFlags = [ "--ignore-scripts" ];
           nodejs = pkgs.nodejs_22;

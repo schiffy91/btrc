@@ -2,6 +2,10 @@
 
 import re
 
+import pytest
+
+from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.setjmp_volatility import apply_setjmp_volatility
 from src.compiler.python.ir.nodes import (
     CType,
@@ -20,7 +24,14 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
+from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
+
+
+def analyze_source(source):
+    program = Parser(Lexer(source, "<test>").tokenize()).parse()
+    return Analyzer().analyze(program)
 
 
 def test_setjmp_functions_qualify_params_loops_and_capture_locals():
@@ -166,18 +177,215 @@ def test_try_local_c_aggregate_is_not_volatile():
 def test_unmodified_aggregate_parameter_is_not_volatile():
     emitted = emit_c("""
         struct Probe { int value; };
-        int readProbe(struct Probe* probe) { return probe->value; }
+        int readValue(int* value) { return *value; }
+        int readProbe(struct Probe* probe) { return readValue(&probe->value); }
         int run(struct Probe probe) {
             int result = 0;
-            try { result = readProbe(&probe); throw "done"; }
+            int* alias = &probe.value;
+            try {
+                result = readProbe(&probe) + readValue(alias);
+                throw "done";
+            }
             catch (string message) {}
             return result;
         }
-        int main() { struct Probe probe = {42}; return run(probe); }
+        int main() { struct Probe probe = {21}; return run(probe) == 42 ? 0 : 1; }
     """)
 
     assert "int run(struct Probe probe)" in emitted
     assert "volatile struct Probe" not in emitted
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        """
+        volatile int globalValue = 0;
+        int* globalAlias = &globalValue;
+        int main() { return *globalAlias; }
+        """,
+        """
+        volatile int globalValues[1] = {0};
+        void take(int* values) {}
+        int main() { take(globalValues); return 0; }
+        """,
+        """
+        void mutate(int* value) { *value = 1; }
+        int main() {
+            int value = 0;
+            try { mutate(&value); throw "done"; } catch (string error) {}
+            return value;
+        }
+        """,
+        """
+        void mutate(int* value) { *value = 1; }
+        int main() {
+            int value = 0; int* alias = &value;
+            try { mutate(alias); throw "done"; } catch (string error) {}
+            return value;
+        }
+        """,
+        """
+        void mutate(int* values) { values[0] = 1; }
+        int main() {
+            int values[1] = {0};
+            try { mutate(values); throw "done"; } catch (string error) {}
+            return values[0];
+        }
+        """,
+        """
+        int main() {
+            int value = 0; int* alias = &value;
+            try { value = 1; throw "done"; } catch (string error) {}
+            return *alias;
+        }
+        """,
+        """
+        void take(int* values) {}
+        struct Probe { int values[2]; };
+        int main() {
+            struct Probe probe = {{0, 0}};
+            try { probe.values[0] = 1; throw "done"; }
+            catch (string error) {}
+            take(probe.values);
+            return 0;
+        }
+        """,
+        """
+        int main() {
+            int values[1] = {0}; int* alias = values;
+            try { values[0] = 1; throw "done"; } catch (string error) {}
+            return alias[0];
+        }
+        """,
+        """
+        int main() {
+            int values[1] = {0}; int* alias = &values[0];
+            try { values[0] = 1; throw "done"; } catch (string error) {}
+            return alias[0];
+        }
+        """,
+        """
+        struct Probe { int value; };
+        int main() {
+            struct Probe probe = {0}; int* alias = &probe.value;
+            try { probe.value = 1; throw "done"; } catch (string error) {}
+            return *alias;
+        }
+        """,
+        """
+        int main() {
+            int first = 0; int second = 1; int* pointer = &first;
+            int** alias = &pointer;
+            try { pointer = &second; throw "done"; } catch (string error) {}
+            return **alias;
+        }
+        """,
+        """
+        int run(int value) {
+            int* alias = &value;
+            try { value = 1; throw "done"; } catch (string error) {}
+            return *alias;
+        }
+        int main() { return run(0); }
+        """,
+        """
+        int main() {
+            volatile int value = 0;
+            volatile int* alias = &value;
+            return alias[0];
+        }
+        """,
+        """
+        void mutate(int* value) { *value = 1; }
+        void forwardMutation(int* value) { mutate(value); }
+        int main() {
+            int value = 0;
+            try { forwardMutation(&value); throw "done"; }
+            catch (string error) {}
+            return value;
+        }
+        """,
+        """
+        int* escaped;
+        void remember(int* value) { escaped = value; }
+        int main() {
+            int value = 0;
+            try { remember(&value); throw "done"; }
+            catch (string error) {}
+            return value;
+        }
+        """,
+        """
+        class Box<T> {
+            public Box() {}
+            public int run(int value) {
+                int* alias = &value;
+                try { value = 1; throw "done"; } catch (string error) {}
+                return *alias;
+            }
+        }
+        int main() { Box<int> box = new Box<int>(); return box.run(0); }
+        """,
+    ),
+)
+def test_volatile_storage_aliases_fail_at_the_owning_stage(source):
+    analyzed = analyze_source(source)
+    qualifier_errors = [error for error in analyzed.errors if "would discard volatile storage qualification" in error]
+    if qualifier_errors:
+        assert "volatile" in source
+        assert "unsupported layered pointer qualifiers" in qualifier_errors[0]
+        return
+    assert not analyzed.errors
+    with pytest.raises(
+        CodegenError,
+        match=r"unsupported layered pointer qualifiers|escapes into unmodelled storage",
+    ):
+        emit_c(source)
+
+
+def test_outer_volatile_pointer_global_uses_cross_front_declarator_semantics():
+    emitted = emit_c("""
+        int value = 7;
+        volatile int* pointer = &value;
+        int main() { return *pointer == 7 ? 0 : 1; }
+    """)
+
+    assert "int* volatile pointer = (&value);" in emitted
+
+
+def test_unaliased_and_shadowed_setjmp_storage_remains_supported():
+    emitted = emit_c("""
+        int main() {
+            int value = 0;
+            try { value = 1; throw "done"; } catch (string error) {}
+            int size = sizeof(&value);
+            {
+                int value = 2;
+                int* alias = &value;
+                size = size + *alias;
+            }
+            return value + size;
+        }
+    """)
+
+    assert "volatile int value = 0;" in emitted
+
+
+def test_static_shadow_does_not_qualify_outer_automatic():
+    emitted = emit_c("""
+        int main() {
+            int value = 0;
+            {
+                static int value = 0;
+                try { value = 1; throw "done"; } catch (string error) {}
+            }
+            return value;
+        }
+    """)
+
+    assert "volatile int value = 0;" not in emitted
+    assert re.search(r"static int value(?:_\d+)? = 0;", emitted)
 
 
 def test_cleanup_scope_markers_precede_registration_and_normal_discard():

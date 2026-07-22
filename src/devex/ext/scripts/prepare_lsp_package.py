@@ -121,7 +121,7 @@ def _write_server_flake(target: Path) -> None:
     target.write_text(
         """{
   description = "Bundled btrc language server";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
   outputs = { nixpkgs, ... }:
     let
       systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];

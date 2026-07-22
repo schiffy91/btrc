@@ -16,6 +16,7 @@ class SemanticValidationState {
     public Node? callable;
     public Node? previousStatement;
     public Node? standaloneExpression;
+    public Node? gpuArrayResultBoundary;
     public Map<string, bool> parameterNames;
     public Map<string, bool> borrowedBindings;
     /* Lexical binding identity reduced to the property needed by capture
@@ -51,6 +52,7 @@ class SemanticValidationState {
         self.callable = null;
         self.previousStatement = null;
         self.standaloneExpression = null;
+        self.gpuArrayResultBoundary = null;
         self.parameterNames = {};
         self.borrowedBindings = {};
         self.localBindings = {};

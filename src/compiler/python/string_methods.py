@@ -6,7 +6,7 @@ lowering. Consumed by:
   - ir/gen/methods.py       -> dispatch to runtime helpers during lowering
 
 The C source for every helper named here lives in ir/helpers/strings_*.py
-under the same helper name; tests/test_truth_sweep.py cross-checks that.
+under the same helper name; src/tests/python/test_truth_sweep.py cross-checks it.
 
 ``helper=None`` methods are lowered specially in ir/gen/methods.py: the
 strlen/strcmp inlines (len/byteLen/length/equals) and the conversions in

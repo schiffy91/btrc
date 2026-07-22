@@ -66,7 +66,8 @@ class _TypeEmitterMixin:
         self._line(f"{self._function_signature(declaration)};")
 
     def _emit_typedef(self, typedef: IRTypedefDef):
-        self._line(f"typedef {typedef.target_type} {typedef.name};")
+        target_type = _volatile_type(str(typedef.target_type), typedef.is_volatile)
+        self._line(f"typedef {target_type} {typedef.name};")
         self._line("")
 
     def _emit_tagged_union(self, tagged: IRTaggedUnionDef):
@@ -76,7 +77,8 @@ class _TypeEmitterMixin:
             self._line(f"typedef struct {data_name} {{")
             self._indent += 1
             for field in variant.fields:
-                self._line(f"{field.c_type} {field.name};")
+                c_type = _volatile_type(str(field.c_type), field.is_volatile)
+                self._line(f"{c_type} {field.name};")
             self._indent -= 1
             self._line(f"}} {data_name};")
             self._line("")
@@ -103,7 +105,8 @@ class _TypeEmitterMixin:
         self._indent += 1
         for field in struct.fields:
             suffix = f"[{self._expr(field.array_size)}]" if field.array_size is not None else ""
-            self._line(f"{field.c_type} {field.name}{suffix};")
+            c_type = _volatile_type(str(field.c_type), field.is_volatile)
+            self._line(f"{c_type} {field.name}{suffix};")
         self._indent -= 1
         self._line("};")
         if struct.pack_alignment is not None:

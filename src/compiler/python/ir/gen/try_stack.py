@@ -12,6 +12,7 @@ from ..nodes import (
     IRIf,
     IRIndex,
     IRLiteral,
+    IRSizeof,
     IRUnaryOp,
     IRVar,
     IRVarDecl,
@@ -82,29 +83,21 @@ def capture_finally_error(error_name, pending_name=None):
                 value=IRLiteral(text="true"),
             )
         )
-    statements.extend(
-        [
-            IRExprStmt(
-                expr=IRCall(
-                    callee="strncpy",
-                    args=[
-                        IRCast(
-                            target_type=CType(text="char*"),
-                            expr=IRVar(name=error_name),
-                        ),
-                        IRVar(name="__btrc_error_msg"),
-                        IRLiteral(text="1023"),
-                    ],
-                )
-            ),
-            IRAssign(
-                target=IRIndex(
-                    obj=IRVar(name=error_name),
-                    index=IRLiteral(text="1023"),
-                ),
-                value=IRLiteral(text="'\\0'"),
-            ),
-        ]
+    statements.append(
+        IRExprStmt(
+            expr=IRCall(
+                callee="__btrc_copy_error_message",
+                args=[
+                    IRCast(
+                        target_type=CType(text="char*"),
+                        expr=IRVar(name=error_name),
+                    ),
+                    IRSizeof(operand=IRVar(name=error_name)),
+                    IRVar(name="__btrc_error_msg"),
+                ],
+                helper_ref="__btrc_copy_error_message",
+            )
+        )
     )
     return statements
 

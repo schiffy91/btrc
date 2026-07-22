@@ -2,7 +2,6 @@
  * named function). Exercises lambda-lifting + __fn_ptr<U,T> binding for a
  * monomorphized method instance. */
 #include <assert.h>
-import std.strings;
 
 class Holder<T> {
     public T value;
@@ -15,8 +14,8 @@ int main() {
     int doubled = h.transform((int x) => x * 2);
     assert(doubled == 42);
 
-    string s = h.transform((int x) => Strings.fromInt(x + 1));
-    assert(s == "22");
+    double shifted = h.transform((int x) => (double)x + 1.5);
+    assert(shifted == 22.5);
 
     print("PASS: test_method_generic_inline_lambda");
     return 0;

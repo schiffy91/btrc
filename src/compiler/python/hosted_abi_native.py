@@ -29,6 +29,7 @@ HOSTED_NATIVE_INTERNAL_NAMES = frozenset(
         "btrc_gpu_async_release",
         "btrc_gpu_async_wait",
         "btrc_gpu_create_surface",
+        "btrc_gpu_pending_list_destroy",
         "btrc_gpu_pending_list_init",
         "btrc_gpu_pending_list_lock",
         "btrc_gpu_pending_list_merge",

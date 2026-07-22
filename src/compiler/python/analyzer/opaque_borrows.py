@@ -2,16 +2,19 @@
 
 from ..ast_nodes import (
     BinaryExpr,
+    BraceInitializer,
     CallExpr,
     CastExpr,
     FieldAccessExpr,
     Identifier,
     IndexExpr,
+    NewExpr,
     StringLiteral,
     TernaryExpr,
     UnaryExpr,
 )
 from ..hosted_abi import (
+    hosted_parameter_is_nonescaping,
     hosted_parameter_is_read_only_borrow,
     hosted_return_alias_parameter,
 )
@@ -23,7 +26,45 @@ _NON_CARRYING_BINARY_OPS = frozenset({"==", "!=", "<", "<=", ">", ">=", "&&", "|
 class OpaqueBorrowContractsMixin:
     def _opaque_projection_carrier_type(self, type_expr) -> bool:
         canonical = self._canonical_type(type_expr)
-        return bool(canonical and (canonical.pointer_depth > 0 or canonical.base in {"intptr_t", "uintptr_t"}))
+        return bool(
+            canonical
+            and (canonical.is_array or canonical.pointer_depth > 0 or canonical.base in {"intptr_t", "uintptr_t"})
+        )
+
+    def _opaque_projection_embeds_storage(self, expression) -> bool:
+        """Whether a field/index result still denotes its receiver's storage."""
+        canonical = self._canonical_type(self._infer_type(expression))
+        return bool(canonical and canonical.is_array)
+
+    def _has_temporary_projection_storage(self, expression) -> bool:
+        """Whether a projection's backing storage dies with this expression."""
+        if expression is None:
+            return False
+        if self._has_temporary_managed_owner(expression):
+            return True
+        result_type = self._canonical_type(self._infer_type(expression))
+        struct_name = result_type.base.removeprefix("struct ") if result_type else ""
+        temporary_struct = bool(
+            result_type
+            and result_type.pointer_depth == 0
+            and not result_type.is_array
+            and struct_name in self.struct_table
+        )
+        if isinstance(expression, (CallExpr, BraceInitializer)):
+            return temporary_struct
+        if isinstance(expression, CastExpr):
+            return self._has_temporary_projection_storage(expression.expr)
+        if isinstance(expression, (FieldAccessExpr, IndexExpr)):
+            return self._has_temporary_projection_storage(expression.obj)
+        if isinstance(expression, TernaryExpr):
+            return self._has_temporary_projection_storage(
+                expression.true_expr
+            ) or self._has_temporary_projection_storage(expression.false_expr)
+        if isinstance(expression, BinaryExpr) and expression.op == "??":
+            return self._has_temporary_projection_storage(expression.left) or self._has_temporary_projection_storage(
+                expression.right
+            )
+        return isinstance(expression, NewExpr) and temporary_struct
 
     def _hosted_return_alias_argument(self, expression):
         if not isinstance(expression, CallExpr) or not isinstance(
@@ -90,10 +131,13 @@ class OpaqueBorrowContractsMixin:
                 expression.false_expr
             )
         if isinstance(expression, (IndexExpr, FieldAccessExpr)):
-            if self._opaque_projection_carrier_type(
-                self._infer_type(expression)
-            ) and self._expression_carries_opaque_borrow(expression.obj):
-                return self._opaque_managed_origin_type(expression.obj)
+            origin = self._opaque_managed_origin_type(expression.obj)
+            carries = self._expression_carries_opaque_borrow(expression.obj)
+            embedded = self._opaque_projection_embeds_storage(expression)
+            if self._opaque_projection_carrier_type(self._infer_type(expression)) and (
+                carries or (embedded and (origin or self._has_temporary_projection_storage(expression.obj)))
+            ):
+                return origin
             return None
         alias_argument = self._hosted_return_alias_argument(expression)
         if alias_argument is not None:
@@ -115,6 +159,22 @@ class OpaqueBorrowContractsMixin:
         if isinstance(expression, UnaryExpr):
             if expression.op == "!":
                 return False
+            if expression.op == "&":
+                operand = expression.operand
+                return bool(
+                    self._opaque_projection_carrier_type(self._infer_type(expression))
+                    and (
+                        self._expression_carries_opaque_borrow(operand)
+                        or (
+                            isinstance(operand, (FieldAccessExpr, IndexExpr))
+                            and (
+                                self._opaque_managed_origin_type(operand.obj)
+                                or self._expression_carries_opaque_borrow(operand.obj)
+                                or self._has_temporary_projection_storage(operand.obj)
+                            )
+                        )
+                    )
+                )
             if expression.op == "*":
                 return bool(
                     self._opaque_projection_carrier_type(self._infer_type(expression))
@@ -136,9 +196,19 @@ class OpaqueBorrowContractsMixin:
                 expression.true_expr
             ) or self._expression_carries_opaque_borrow(expression.false_expr)
         if isinstance(expression, (IndexExpr, FieldAccessExpr)):
+            embedded = self._opaque_projection_embeds_storage(expression)
             return bool(
                 self._opaque_projection_carrier_type(self._infer_type(expression))
-                and self._expression_carries_opaque_borrow(expression.obj)
+                and (
+                    self._expression_carries_opaque_borrow(expression.obj)
+                    or (
+                        embedded
+                        and (
+                            self._opaque_managed_origin_type(expression.obj)
+                            or self._has_temporary_projection_storage(expression.obj)
+                        )
+                    )
+                )
             )
         alias_argument = self._hosted_return_alias_argument(expression)
         if alias_argument is not None:
@@ -151,6 +221,17 @@ class OpaqueBorrowContractsMixin:
         return bool(
             self._opaque_managed_type(self._infer_type(expression))
             or self._expression_carries_opaque_borrow(expression)
+        )
+
+    @staticmethod
+    def _explicit_opaque_storage_address(expression) -> bool:
+        """Recognize an explicit address without blessing representation casts."""
+        while isinstance(expression, CastExpr):
+            expression = expression.expr
+        return bool(
+            isinstance(expression, UnaryExpr)
+            and expression.op == "&"
+            and isinstance(expression.operand, (FieldAccessExpr, IndexExpr))
         )
 
     def _validate_opaque_borrow_storage(
@@ -186,7 +267,14 @@ class OpaqueBorrowContractsMixin:
             return
         if not self._expression_is_opaque_borrow(argument):
             return
-        if (bodyless_ffi and hosted_parameter_is_read_only_borrow(label, parameter_index)) or (
+        hosted_borrow = bodyless_ffi and (
+            hosted_parameter_is_read_only_borrow(label, parameter_index)
+            or (
+                self._explicit_opaque_storage_address(argument)
+                and hosted_parameter_is_nonescaping(label, parameter_index)
+            )
+        )
+        if hosted_borrow or (
             declaration is not None
             and self._raw_parameter_is_borrow_only(
                 declaration,

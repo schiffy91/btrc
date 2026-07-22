@@ -29,6 +29,7 @@ Vector<string> trycatchRuntimeHelperDependencies(string name) {
     } else if (name == "__btrc_arc_guard_hook") {
         out.push("__btrc_arc_callback_types");
         out.push("__btrc_push_try");
+        out.push("__btrc_copy_error_message");
     } else if (name == "__btrc_raise_captured") {
         out.push("__btrc_arc_callback_types");
     } else if (name == "__btrc_flush_cycles_guarded") {
@@ -47,6 +48,7 @@ Vector<string> trycatchRuntimeHelperDependencies(string name) {
         out.push("__btrc_cleanup_types");
     } else if (name == "__btrc_throw") {
         out.push("__btrc_trycatch_globals");
+        out.push("__btrc_copy_error_message");
         out.push("__btrc_run_cleanups");
     } else if (name == "__btrc_try_state_cleanup") {
         out.push("__btrc_trycatch_globals");

@@ -17,6 +17,7 @@ from ..ast_nodes import (
     SwitchStmt,
     ThrowStmt,
     TryCatchStmt,
+    TypeExpr,
     VarDeclStmt,
     WhileStmt,
 )
@@ -72,6 +73,13 @@ class StatementsMixin:
                     stmt.col,
                 )
                 self._validate_opaque_borrow_storage(
+                    self.current_return_type,
+                    stmt.value,
+                    "Return value",
+                    stmt.line,
+                    stmt.col,
+                )
+                self._validate_volatile_reference_conversion(
                     self.current_return_type,
                     stmt.value,
                     "Return value",
@@ -138,7 +146,7 @@ class StatementsMixin:
             previous_root = self._standalone_expression_root
             self._standalone_expression_root = stmt.expr
             try:
-                self._analyze_expr(stmt.expr)
+                self._analyze_gpu_result_statement(stmt.expr)
             finally:
                 self._standalone_expression_root = previous_root
             self._validate_thread_expression_discard(stmt.expr)
@@ -163,14 +171,20 @@ class StatementsMixin:
                 self._error("'continue' statement outside of loop", stmt.line, stmt.col)
 
     def _return_type_compatible(self, expected, actual) -> bool:
-        if (
-            self.in_gpu_function
-            and expected.is_array
-            and expected.base == actual.base
-            and actual.pointer_depth == 0
-            and not actual.generic_args
-        ):
+        expected = self._array_value_type(expected)
+        if self.in_gpu_function and expected.is_array:
             # An array-returning kernel may either return the destination
             # buffer or one element for the current gpu_id invocation.
-            return True
+            element_type = TypeExpr(
+                base=expected.base,
+                generic_args=expected.generic_args,
+                pointer_depth=expected.pointer_depth,
+                is_const=expected.is_const,
+                is_nullable=expected.is_nullable,
+                nullable_outer_depth=expected.nullable_outer_depth,
+                is_static=expected.is_static,
+                is_extern=expected.is_extern,
+                is_volatile=expected.is_volatile,
+            )
+            return self._types_compatible(expected, actual) or self._types_compatible(element_type, actual)
         return self._types_compatible(expected, actual)

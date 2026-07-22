@@ -80,6 +80,10 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
             "using only earlier members",
         ),
         (
+            "enum class Payload { Empty } enum E { A = Payload.Empty }; int main() { return 0; }",
+            "using only earlier members",
+        ),
+        (
             'int main() { switch ("x") { default: return 0; } }',
             "Switch subject must be integral",
         ),
@@ -122,6 +126,10 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
         (
             'int main() { int values[2] = {1, "bad"}; return 0; }',
             "element 1 expects 'int' but got 'string'",
+        ),
+        (
+            "int main() { int[] source = {1}; int[] copy = source; return 0; }",
+            "requires an array initializer",
         ),
         (
             "Map<int, int> values = {}; int main() { return 0; }",
@@ -219,6 +227,16 @@ def test_invalid_declaration_contracts_are_rejected(
                 return strcmp(value.toString(), "FIRST");
             }
         """,
+        """
+            enum class Payload { First, Second }
+            int selected = Payload.Second;
+            int main() {
+                switch (selected) {
+                    case Payload.Second: return 0;
+                    default: return 1;
+                }
+            }
+        """,
         "void main() { return; }",
         """
             #include <time.h>
@@ -296,11 +314,11 @@ def test_valid_declaration_contracts_compile_strictly(
 
 
 def test_native_abi_allowlist_only_permits_bodyless_prototype(semantic_btrcc: Path, tmp_path: Path) -> None:
-    prototype = "int btrc_gpu_init(); int main() { return 0; }"
+    prototype = "bool btrc_gpu_available(); int main() { return 0; }"
     accepted, _ = _compile_source(semantic_btrcc, tmp_path, prototype)
     assert accepted.returncode == 0, accepted.stderr
 
-    definition = "int btrc_gpu_init() { return 0; } int main() { return 0; }"
+    definition = "bool btrc_gpu_available() { return true; } int main() { return 0; }"
     rejected, _ = _compile_source(semantic_btrcc, tmp_path, definition)
     assert rejected.returncode == 1
     assert "compiler-reserved 'btrc_' prefix" in rejected.stderr

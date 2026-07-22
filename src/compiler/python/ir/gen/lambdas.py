@@ -10,6 +10,7 @@ from ...ast_nodes import (
     LambdaExprBody,
     ReturnStmt,
 )
+from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import (
     CType,
     IRAddressOf,
@@ -58,6 +59,11 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRFunctionRef:
                 IRStructField(
                     c_type=CType(text=c_type),
                     name=source_binding_c_name(cap.name),
+                    is_volatile=bool(cap.type and cap.type.is_volatile),
+                    effective_is_volatile=effective_outer_volatile(
+                        cap.type,
+                        gen.analyzed.typedef_table,
+                    ),
                 )
             )
         gen.module.struct_defs.append(IRStructDef(name=env_name, fields=cap_fields))
@@ -96,6 +102,11 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRFunctionRef:
                 IRVarDecl(
                     c_type=CType(text=c_type),
                     name=source_binding_c_name(cap.name, gen.analyzed),
+                    is_volatile=bool(cap.type and cap.type.is_volatile),
+                    effective_is_volatile=effective_outer_volatile(
+                        cap.type,
+                        gen.analyzed.typedef_table,
+                    ),
                     init=IRFieldAccess(
                         obj=IRVar(name="__env"),
                         field=source_binding_c_name(cap.name),

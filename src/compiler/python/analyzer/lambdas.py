@@ -97,7 +97,7 @@ class LambdaAnalysisMixin:
                 active_type_params=active_type_params,
             )
             self._collect_generic_instances(expr.return_type)
-            self.current_return_type = expr.return_type
+            self.current_return_type = self._array_value_type(expr.return_type)
         else:
             self.current_return_type = None
         if isinstance(expr.body, LambdaBlock):
@@ -114,6 +114,14 @@ class LambdaAnalysisMixin:
                 )
         elif isinstance(expr.body, LambdaExprBody):
             self._analyze_expr(expr.body.expression)
+            if expr.return_type is not None:
+                self._validate_volatile_reference_conversion(
+                    expr.return_type,
+                    expr.body.expression,
+                    "Lambda return value",
+                    expr.line,
+                    expr.col,
+                )
 
         if expr.return_type is None:
             inferred, conflicts = self._infer_lambda_return_details(expr)

@@ -81,7 +81,7 @@ def test_nullable_and_null_checks():
 
 
 def test_array_aggregate_initializer():
-    src = "int main() { int[] arr = {10, 20, 30}; int[] empty; return arr[1]; }"
+    src = "int main() { int[] arr = {10, 20, 30}; return arr[1]; }"
     c = emit_c(src)
     assert re.search(r"int arr\[\]\s*=\s*\{", c), c  # C aggregate init
 

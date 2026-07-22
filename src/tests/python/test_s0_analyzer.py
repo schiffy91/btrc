@@ -269,10 +269,11 @@ class TestUnknownCastTarget:
         an, _ = analyze(src)
         assert an.errors == []
 
-    def test_pointer_cast_to_unknown_stays_permissive(self):
-        # Explicit pointer syntax is unambiguous C interop — not flagged.
+    def test_pointer_cast_to_unknown_requires_portable_integer_carrier(self):
+        # Strict C requires integer/pointer round-trips through intptr_t or
+        # uintptr_t even when the pointee names an opaque hosted type.
         an, _ = analyze("void f(int a) { var x = (FILE*) a; }")
-        assert an.errors == []
+        assert any("Pointer/integer casts require intptr_t or uintptr_t" in error for error in an.errors)
 
 
 # --- S0-14: long binary chains — linear time, no RecursionError ---

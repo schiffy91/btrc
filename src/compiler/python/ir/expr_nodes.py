@@ -42,6 +42,8 @@ class IRVar(IRExpr):
     """Variable reference by C name."""
 
     name: str = ""
+    array_storage_root: str = ""
+    array_storage_known: bool = False
 
 
 @dataclass
@@ -108,6 +110,8 @@ class IRFieldAccess(IRExpr):
     obj: IRExpr = None
     field: str = ""
     arrow: bool = False
+    array_storage_root: str = ""
+    array_storage_known: bool = False
 
 
 @dataclass
@@ -165,6 +169,8 @@ class IRIndex(IRExpr):
 
     obj: IRExpr = None
     index: IRExpr = None
+    storage_root: str = ""
+    storage_root_known: bool = False
 
 
 @dataclass
@@ -172,6 +178,7 @@ class IRAddressOf(IRExpr):
     """Address-of operator."""
 
     expr: IRExpr = None
+    source_expression: bool = False
 
 
 @dataclass
@@ -179,6 +186,8 @@ class IRDeref(IRExpr):
     """Dereference operator."""
 
     expr: IRExpr = None
+    storage_root: str = ""
+    storage_root_known: bool = False
 
 
 @dataclass

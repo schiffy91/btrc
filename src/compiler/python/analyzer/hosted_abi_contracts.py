@@ -109,6 +109,13 @@ class HostedAbiContractsMixin:
                 name,
                 bodyless_ffi=True,
             )
+            self._validate_volatile_reference_conversion(
+                expected,
+                argument,
+                f"Argument {index + 1} to hosted function '{name}()'",
+                getattr(argument, "line", call.line),
+                getattr(argument, "col", call.col),
+            )
             actual = self._infer_type(argument)
             if (
                 actual is not None

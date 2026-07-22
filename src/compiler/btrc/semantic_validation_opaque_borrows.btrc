@@ -42,8 +42,64 @@ bool semanticOpaqueRawCarrierType(Node? typeExpr,
 bool semanticOpaqueProjectionCarrierType(Node? typeExpr,
         SemanticValidationState state) {
     Node? canonical = semanticResolveAliases(typeExpr, state);
-    return canonical != null && (canonical.pointer_depth > 0
+    return canonical != null && (canonical.is_array
+        || canonical.pointer_depth > 0
         || canonical.base == "intptr_t" || canonical.base == "uintptr_t");
+}
+
+bool semanticOpaqueProjectionEmbedsStorage(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    Node? canonical = semanticResolveAliases(
+        semanticInferType(expression, state, vars), state);
+    return canonical != null && canonical.is_array;
+}
+
+bool semanticHasTemporaryProjectionStorage(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null) { return false; }
+    if (semanticHasTemporaryManagedOwner(expression, state, vars)) {
+        return true;
+    }
+    Node? resultType = semanticResolveAliases(
+        semanticInferType(expression, state, vars), state);
+    string structName = "";
+    if (resultType != null) {
+        structName = resultType.base;
+        if (structName.startsWith("struct ")) {
+            structName = structName.substring(
+                7, structName.length() - 7);
+        }
+    }
+    bool temporaryStruct = resultType != null
+        && resultType.pointer_depth == 0 && !resultType.is_array
+        && state.analyzed.structTable.has(structName);
+    if (expression.kind == NK_CALL_EXPR
+            || expression.kind == NK_BRACE_INITIALIZER) {
+        return temporaryStruct;
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        return semanticHasTemporaryProjectionStorage(
+            expression.expr, state, vars);
+    }
+    if (expression.kind == NK_FIELD_ACCESS_EXPR
+            || expression.kind == NK_INDEX_EXPR) {
+        return semanticHasTemporaryProjectionStorage(
+            expression.obj, state, vars);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        return semanticHasTemporaryProjectionStorage(
+                expression.true_expr, state, vars)
+            || semanticHasTemporaryProjectionStorage(
+                expression.false_expr, state, vars);
+    }
+    if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+        return semanticHasTemporaryProjectionStorage(
+                expression.left, state, vars)
+            || semanticHasTemporaryProjectionStorage(
+                expression.right, state, vars);
+    }
+    return expression.kind == NK_NEW_EXPR && temporaryStruct;
 }
 
 Node? semanticOpaqueManagedOrigin(Node? expression,
@@ -84,11 +140,19 @@ Node? semanticOpaqueManagedOrigin(Node? expression,
     }
     if (expression.kind == NK_INDEX_EXPR
             || expression.kind == NK_FIELD_ACCESS_EXPR) {
+        Node? origin = semanticOpaqueManagedOrigin(
+            expression.obj, state, vars);
+        bool carries = semanticExpressionCarriesOpaqueBorrow(
+            expression.obj, state, vars);
+        bool embedded = semanticOpaqueProjectionEmbedsStorage(
+            expression, state, vars);
         if (semanticOpaqueProjectionCarrierType(
                 semanticInferType(expression, state, vars), state)
-                && semanticExpressionCarriesOpaqueBorrow(
-                    expression.obj, state, vars)) {
-            return semanticOpaqueManagedOrigin(expression.obj, state, vars);
+                && (carries || (embedded
+                    && (origin != null
+                        || semanticHasTemporaryProjectionStorage(
+                            expression.obj, state, vars))))) {
+            return origin;
         }
         return null;
     }
@@ -119,6 +183,26 @@ bool semanticExpressionCarriesOpaqueBorrow(Node? expression,
     }
     if (expression.kind == NK_UNARY_EXPR) {
         if (expression.op == "!") { return false; }
+        if (expression.op == "&") {
+            Node? operand = expression.operand;
+            Node? projectionReceiver = null;
+            if (operand != null
+                    && (operand.kind == NK_FIELD_ACCESS_EXPR
+                        || operand.kind == NK_INDEX_EXPR)) {
+                projectionReceiver = operand.obj;
+            }
+            return semanticOpaqueProjectionCarrierType(
+                    semanticInferType(expression, state, vars), state)
+                && (semanticExpressionCarriesOpaqueBorrow(
+                        operand, state, vars)
+                    || (projectionReceiver != null
+                        && (semanticOpaqueManagedOrigin(
+                                projectionReceiver, state, vars) != null
+                            || semanticExpressionCarriesOpaqueBorrow(
+                                projectionReceiver, state, vars)
+                            || semanticHasTemporaryProjectionStorage(
+                                projectionReceiver, state, vars))));
+        }
         if (expression.op == "*") {
             return semanticOpaqueProjectionCarrierType(
                     semanticInferType(expression, state, vars), state)
@@ -152,10 +236,17 @@ bool semanticExpressionCarriesOpaqueBorrow(Node? expression,
     }
     if (expression.kind == NK_INDEX_EXPR
             || expression.kind == NK_FIELD_ACCESS_EXPR) {
+        bool embedded = semanticOpaqueProjectionEmbedsStorage(
+            expression, state, vars);
         return semanticOpaqueProjectionCarrierType(
                 semanticInferType(expression, state, vars), state)
-            && semanticExpressionCarriesOpaqueBorrow(
-                expression.obj, state, vars);
+            && (semanticExpressionCarriesOpaqueBorrow(
+                    expression.obj, state, vars)
+                || (embedded
+                    && (semanticOpaqueManagedOrigin(
+                            expression.obj, state, vars) != null
+                        || semanticHasTemporaryProjectionStorage(
+                            expression.obj, state, vars))));
     }
     Node? aliasArgument = semanticHostedReturnAliasArgument(
         expression, state, vars);

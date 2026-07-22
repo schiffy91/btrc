@@ -281,7 +281,7 @@ def _lower_unary_plain(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
 
     operand = lower_expr(gen, node.operand)
     if op == "&":
-        return IRAddressOf(expr=operand)
+        return IRAddressOf(expr=operand, source_expression=True)
     if op == "*":
         return IRDeref(expr=operand)
     # Operator overloading: -obj where obj is class with __neg__

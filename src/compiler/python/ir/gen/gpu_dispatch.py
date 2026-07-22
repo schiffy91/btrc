@@ -12,17 +12,15 @@ from ..nodes import (
     IRCall,
     IRCommaExpr,
     IRExpr,
+    IRExprStmt,
     IRFunctionDef,
     IRStmtExpr,
     IRStructDef,
     IRStructField,
 )
 from .errors import CodegenError
-from .gpu_arguments import (
-    GpuArgumentPlan,
-    buffer_length_name,
-    prepare_gpu_arguments,
-)
+from .gpu_argument_bindings import buffer_length_name
+from .gpu_arguments import GpuArgumentPlan, prepare_gpu_arguments
 from .gpu_dispatch_execute import execution_and_recovery
 from .gpu_dispatch_model import GpuDispatchSpec
 from .gpu_dispatch_pipeline import (
@@ -30,19 +28,20 @@ from .gpu_dispatch_pipeline import (
     uniforms_and_pipeline,
 )
 from .gpu_dispatch_setup import initial_state, storage_buffers
-from .gpu_outputs import assignment_target, declaration_capacity
+from .gpu_outputs import declaration_capacity
 from .parameters import source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
     from .generator import IRGenerator
+    from .gpu_host import GpuHostLowering
 
 
 @dataclass
 class GpuOutputDeclaration:
     setup: list
     array_length: IRExpr | None
-    call: IRCall
+    call: IRExpr
 
 
 def lower_gpu_call(
@@ -50,7 +49,10 @@ def lower_gpu_call(
     function_name: str,
     ast_args: list,
     arg_names: list[str],
-    ir_args: list[IRExpr],
+    ir_args: list[IRExpr] | None,
+    *,
+    call=None,
+    host: GpuHostLowering | None = None,
 ) -> IRExpr:
     """Lower a void kernel call or reject an unsafe array-valued context."""
 
@@ -66,6 +68,8 @@ def lower_gpu_call(
         ast_args,
         arg_names,
         ir_args,
+        call=call,
+        host=host,
     )
     call = IRCall(callee=spec.helper_name, args=arguments.helper_args)
     return _expression_local_call(arguments, call)
@@ -73,6 +77,10 @@ def lower_gpu_call(
 
 def output_gpu_call_name(gen: IRGenerator, expression) -> str | None:
     if not (isinstance(expression, CallExpr) and isinstance(expression.callee, Identifier)):
+        return None
+    from .gpu import is_direct_gpu_call
+
+    if not is_direct_gpu_call(gen, expression):
         return None
     name = expression.callee.name
     kernel = getattr(gen, "_gpu_kernels", {}).get(name)
@@ -85,10 +93,10 @@ def lower_gpu_output_declaration(
     gen: IRGenerator,
     call: CallExpr,
     target: IRExpr,
+    *,
+    host: GpuHostLowering | None = None,
 ) -> GpuOutputDeclaration:
     """Lower an output kernel used to initialize a C array declaration."""
-
-    from .arguments import lower_arg_values
 
     name = output_gpu_call_name(gen, call)
     if name is None:
@@ -98,7 +106,9 @@ def lower_gpu_output_declaration(
         name,
         call.args,
         _arg_names(call),
-        lower_arg_values(gen, call.args),
+        None,
+        call=call,
+        host=host,
     )
     helper_call = IRCall(
         callee=spec.helper_name,
@@ -109,9 +119,9 @@ def lower_gpu_output_declaration(
         ],
     )
     return GpuOutputDeclaration(
-        setup=arguments.initialized_declarations,
+        setup=_statement_setup(arguments),
         array_length=arguments.dispatch_length,
-        call=helper_call,
+        call=_call_with_cleanup(arguments, helper_call),
     )
 
 
@@ -120,24 +130,27 @@ def lower_gpu_output_assignment(
     call: CallExpr,
     ast_target,
     target: IRExpr,
+    *,
+    host: GpuHostLowering | None = None,
 ) -> IRExpr:
     """Lower direct output readback through an existing array lvalue."""
-
-    from .arguments import lower_arg_values
 
     name = output_gpu_call_name(gen, call)
     if name is None:
         raise CodegenError("expected an array-returning @gpu call")
+    output = _host(gen, host).output_target(ast_target, target)
     spec, arguments = _prepare_site(
         gen,
         name,
         call.args,
         _arg_names(call),
-        lower_arg_values(gen, call.args),
+        None,
+        call=call,
+        host=host,
     )
-    output = assignment_target(gen, ast_target, target)
-    arguments.declarations.extend(output.declarations)
-    arguments.assignments.extend(output.assignments)
+    arguments.declarations[:0] = output.declarations
+    arguments.assignments[:0] = output.assignments
+    arguments.cleanup.extend(output.cleanup)
     helper_call = IRCall(
         callee=spec.helper_name,
         args=[*arguments.helper_args, output.data, output.capacity],
@@ -150,7 +163,10 @@ def _prepare_site(
     function_name: str,
     ast_args: list,
     arg_names: list[str],
-    ir_args: list[IRExpr],
+    ir_args: list[IRExpr] | None,
+    *,
+    call=None,
+    host: GpuHostLowering | None = None,
 ) -> tuple[GpuDispatchSpec, GpuArgumentPlan]:
     kernel = gen._gpu_kernels[function_name]
     declaration = gen.analyzed.function_table[function_name]
@@ -164,29 +180,31 @@ def _prepare_site(
         result_elem_type=result_elem_type,
         cpu_fallback=f"{function_name}__gpucpu",
     )
-    from .arguments import order_args_and_nodes_for_params
-
-    ast_args, ir_args = order_args_and_nodes_for_params(
-        gen,
-        declaration.params,
-        ast_args,
-        arg_names,
-        ir_args,
-        reject_missing=True,
-    )
     arguments = prepare_gpu_arguments(
         gen,
         declaration,
         ast_args,
+        arg_names,
         ir_args,
+        _host(gen, host),
+        call=call,
     )
     _register_dispatch_helper(gen, spec)
     return spec, arguments
 
 
+def _host(gen: IRGenerator, host: GpuHostLowering | None) -> GpuHostLowering:
+    if host is not None:
+        return host
+    from .gpu_host import ordinary_gpu_host
+
+    return ordinary_gpu_host(gen)
+
+
 def _register_dispatch_helper(gen: IRGenerator, spec: GpuDispatchSpec) -> None:
     from .gpu_dispatch_model import wgsl_to_c
 
+    gen.require_runtime_include("btrc_gpu.h")
     uniform_types = dict(spec.kernel.uniform_params)
     uniform_fields = [
         IRStructField(
@@ -244,9 +262,26 @@ def _expression_local_call(
     return IRStmtExpr(
         stmts=arguments.declarations,
         result=IRCommaExpr(
-            expressions=[*arguments.assignments, call],
+            expressions=[
+                *arguments.assignments,
+                call,
+                *arguments.cleanup,
+            ],
         ),
     )
+
+
+def _statement_setup(arguments: GpuArgumentPlan) -> list:
+    return [
+        *arguments.declarations,
+        *(IRExprStmt(expr=expression) for expression in arguments.assignments),
+    ]
+
+
+def _call_with_cleanup(arguments: GpuArgumentPlan, call: IRCall) -> IRExpr:
+    if not arguments.cleanup:
+        return call
+    return IRCommaExpr(expressions=[call, *arguments.cleanup])
 
 
 def _result_element_type(declaration) -> str:

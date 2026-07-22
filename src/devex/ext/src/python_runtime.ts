@@ -1,4 +1,6 @@
-import { ChildProcess, spawn } from 'node:child_process';
+import { ChildProcess } from 'node:child_process';
+import spawn from 'cross-spawn';
+import { ProcessTree } from './process_tree';
 
 const DEFAULT_PROBE_TIMEOUT_MS = 5000;
 const VERSION_CHECK = 'import sys; raise SystemExit(0 if sys.version_info >= (3, 13) else 1)';
@@ -14,13 +16,13 @@ export interface PythonProbeOptions {
     probe?: PythonSupportProbe;
 }
 
-function stopProbe(child: ChildProcess): void {
-    if (child.exitCode !== null || child.signalCode !== null) { return; }
-    try {
-        child.kill('SIGKILL');
-    } catch {
-        // A concurrently exiting process needs no further cleanup.
-    }
+/** Resolve an optional setting to the conventional interpreter for this host. */
+export function resolvePythonCommand(
+    configured: string | undefined,
+    platform: NodeJS.Platform = process.platform,
+): string {
+    if (configured?.trim()) { return configured; }
+    return platform === 'win32' ? 'python' : 'python3';
 }
 
 /** Probe one interpreter without blocking the extension host. */
@@ -33,24 +35,30 @@ export function probeBtrcPython(
 
     return new Promise((resolve) => {
         let child: ChildProcess;
+        let processTree: ProcessTree;
         let timer: NodeJS.Timeout | undefined;
         let settled = false;
 
-        const finish = (supported: boolean, stop: boolean = false) => {
+        const finish = (supported: boolean) => {
             if (settled) { return; }
             settled = true;
             if (timer) { clearTimeout(timer); }
             signal?.removeEventListener('abort', onAbort);
-            if (stop) { stopProbe(child); }
-            resolve(supported);
+            void processTree.stop().then(
+                () => resolve(supported),
+                () => resolve(false),
+            );
         };
-        const onAbort = () => finish(false, true);
+        const onAbort = () => finish(false);
 
         try {
-            child = spawn(command, ['-c', VERSION_CHECK], {
+            const detached = process.platform !== 'win32';
+            child = spawn(command, ['-I', '-S', '-c', VERSION_CHECK], {
+                detached,
                 stdio: 'ignore',
                 windowsHide: true,
             });
+            processTree = new ProcessTree(child, { detached });
         } catch {
             resolve(false);
             return;
@@ -61,7 +69,7 @@ export function probeBtrcPython(
             finish(code === 0 && exitSignal === null);
         });
         signal?.addEventListener('abort', onAbort, { once: true });
-        timer = setTimeout(() => finish(false, true), Math.max(1, timeoutMs));
+        timer = setTimeout(() => finish(false), Math.max(1, timeoutMs));
         if (signal?.aborted) { onAbort(); }
     });
 }
@@ -91,7 +99,7 @@ function awaitUnlessCancelled(
     });
 }
 
-/** Create a probe that shares in-flight work and caches outcomes by command. */
+/** Create a probe that shares in-flight work without caching stale outcomes. */
 export function createPythonSupportProbe(
     options: PythonProbeOptions = {},
 ): PythonSupportProbe {
@@ -109,6 +117,13 @@ export function createPythonSupportProbe(
                 .then(() => run(command, options.signal))
                 .catch(() => false);
             results.set(command, result);
+            void result.then(() => {
+                // Executables and PATH entries can change during an extension
+                // session. Share concurrent work, then revalidate later calls.
+                if (results.get(command) === result) {
+                    results.delete(command);
+                }
+            });
         }
         return awaitUnlessCancelled(result, signal);
     };

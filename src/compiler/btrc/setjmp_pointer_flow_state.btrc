@@ -1,0 +1,222 @@
+/* Mutable abstract state for self-hosted setjmp pointer provenance. */
+
+bool setjmpCompilerOwnedStorage(string name) {
+    return name.startsWith("__btrc_")
+        && !name.startsWith("__btrc_source_");
+}
+
+class SetjmpPointerFlow {
+    public SetjmpPointerFlowResult result;
+    public Vector<SetjmpNameBinding> bindings;
+    public Vector<SetjmpStorage> parameters;
+    public Vector<SetjmpAliasSlot> state;
+    public Map<string, bool> typeAliases;
+    public Map<string, int> typeDepths;
+    public Map<string, bool> voidAliases;
+    public Map<string, SetjmpFunctionEffect> functionEffects;
+    public Map<string, SetjmpFunctionEffect> externalEffects;
+    public int nextIdentity;
+
+    public SetjmpPointerFlow(IRFunction definition,
+            Vector<SetjmpNameBinding> globals,
+            Map<string, bool> typeAliases,
+            Map<string, int> typeDepths,
+            Map<string, bool> voidAliases,
+            Map<string, SetjmpFunctionEffect> functionEffects,
+            Map<string, SetjmpFunctionEffect> externalEffects) {
+        self.result = SetjmpPointerFlowResult();
+        self.bindings = [];
+        self.parameters = [];
+        self.state = [];
+        self.typeAliases = typeAliases;
+        self.typeDepths = typeDepths;
+        self.voidAliases = voidAliases;
+        self.functionEffects = functionEffects;
+        self.externalEffects = externalEffects;
+        self.nextIdentity = 1;
+        int index = 0;
+        while (index < globals.len) {
+            SetjmpNameBinding binding = globals.get(index);
+            self.bindings.push(binding);
+            if (binding.storage.identity >= self.nextIdentity) {
+                self.nextIdentity = binding.storage.identity + 1;
+            }
+            index = index + 1;
+        }
+        index = 0;
+        while (index < definition.params.len) {
+            IRParam parameter = definition.params.get(index);
+            SetjmpStorage storage = self.newStorage(parameter.name,
+                "parameter", setjmpRenderedPointerDepth(
+                    parameter.c_type, typeAliases, typeDepths), false);
+            self.bindings.push(SetjmpNameBinding(parameter.name, storage));
+            self.parameters.push(storage);
+            self.result.parameters.push(
+                SetjmpParameterStorage(parameter, storage));
+            if (storage.isPointer) {
+                Vector<SetjmpOrigin> initial = [];
+                initial.push(SetjmpOrigin(storage, 1, false));
+                self.state.push(SetjmpAliasSlot(storage, initial));
+            }
+            index = index + 1;
+        }
+    }
+
+    public SetjmpStorage newStorage(string name, string kind,
+            int pointerDepth, bool array) {
+        SetjmpStorage storage = SetjmpStorage(self.nextIdentity, name,
+            kind, pointerDepth != 0, pointerDepth,
+            array, setjmpCompilerOwnedStorage(name));
+        self.nextIdentity = self.nextIdentity + 1;
+        return storage;
+    }
+
+    public SetjmpStorage? resolve(string name) {
+        int index = self.bindings.len - 1;
+        while (index >= 0) {
+            SetjmpNameBinding binding = self.bindings.get(index);
+            if (binding.name == name) { return binding.storage; }
+            index = index - 1;
+        }
+        return null;
+    }
+
+    public SetjmpStorage declare(IRNode declaration) {
+        SetjmpStorage? existing =
+            setjmpDeclarationStorage(self.result, declaration);
+        if (existing != null) {
+            self.bindings.push(
+                SetjmpNameBinding(declaration.name, existing));
+            return existing;
+        }
+        string kind = "automatic";
+        if (declaration.is_static) { kind = "static"; }
+        if (declaration.is_extern) { kind = "extern"; }
+        SetjmpStorage storage = self.newStorage(declaration.name, kind,
+            setjmpRenderedPointerDepth(declaration.c_type,
+                self.typeAliases, self.typeDepths),
+            declaration.is_array_decl || declaration.array_size != null);
+        self.bindings.push(SetjmpNameBinding(declaration.name, storage));
+        self.result.declarations.push(
+            SetjmpDeclarationStorage(declaration, storage));
+        return storage;
+    }
+
+    public SetjmpAliasSlot? stateSlot(
+            Vector<SetjmpAliasSlot> source, SetjmpStorage storage) {
+        int index = 0;
+        while (index < source.len) {
+            if (source.get(index).storage.identity == storage.identity) {
+                return source.get(index);
+            }
+            index = index + 1;
+        }
+        return null;
+    }
+
+    public Vector<SetjmpOrigin> aliases(SetjmpStorage storage) {
+        SetjmpAliasSlot? slot = self.stateSlot(self.state, storage);
+        if (slot != null) { return copySetjmpOrigins(slot.origins); }
+        Vector<SetjmpOrigin> empty = [];
+        return empty;
+    }
+
+    public void replaceAliases(SetjmpStorage storage,
+            Vector<SetjmpOrigin> origins) {
+        SetjmpAliasSlot? slot = self.stateSlot(self.state, storage);
+        if (slot == null) {
+            self.state.push(SetjmpAliasSlot(
+                storage, copySetjmpOrigins(origins)));
+        } else {
+            slot.origins = copySetjmpOrigins(origins);
+        }
+    }
+
+    public void mergeAliases(SetjmpStorage storage,
+            Vector<SetjmpOrigin> origins) {
+        SetjmpAliasSlot? slot = self.stateSlot(self.state, storage);
+        if (slot == null) {
+            self.state.push(SetjmpAliasSlot(
+                storage, copySetjmpOrigins(origins)));
+        } else {
+            setjmpAddOrigins(slot.origins, origins);
+        }
+    }
+
+    public Vector<SetjmpAliasSlot> copyState(
+            Vector<SetjmpAliasSlot> source) {
+        Vector<SetjmpAliasSlot> result = [];
+        int index = 0;
+        while (index < source.len) {
+            SetjmpAliasSlot slot = source.get(index);
+            result.push(SetjmpAliasSlot(
+                slot.storage, copySetjmpOrigins(slot.origins)));
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public Vector<SetjmpAliasSlot> joinStates(
+            Vector<SetjmpAliasSlot> left,
+            Vector<SetjmpAliasSlot> right) {
+        Vector<SetjmpAliasSlot> result = self.copyState(left);
+        int index = 0;
+        while (index < right.len) {
+            SetjmpAliasSlot slot = right.get(index);
+            SetjmpAliasSlot? existing = self.stateSlot(
+                result, slot.storage);
+            if (existing == null) {
+                result.push(SetjmpAliasSlot(
+                    slot.storage, copySetjmpOrigins(slot.origins)));
+            } else {
+                setjmpAddOrigins(existing.origins, slot.origins);
+            }
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public bool storageVisible(SetjmpStorage storage) {
+        int index = 0;
+        while (index < self.bindings.len) {
+            if (self.bindings.get(index).storage.identity
+                    == storage.identity) { return true; }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public void leaveScope(int bindingCount) {
+        while (self.bindings.len > bindingCount) { self.bindings.pop(); }
+        Vector<SetjmpAliasSlot> visible = [];
+        int index = 0;
+        while (index < self.state.len) {
+            SetjmpAliasSlot slot = self.state.get(index);
+            if (self.storageVisible(slot.storage)) { visible.push(slot); }
+            index = index + 1;
+        }
+        self.state = visible;
+    }
+}
+
+SetjmpStorage? setjmpDeclarationStorage(
+        SetjmpPointerFlowResult result, IRNode declaration) {
+    int index = 0;
+    while (index < result.declarations.len) {
+        SetjmpDeclarationStorage entry = result.declarations.get(index);
+        if (entry.declaration == declaration) { return entry.storage; }
+        index = index + 1;
+    }
+    return null;
+}
+
+SetjmpStorage? setjmpParameterStorage(
+        SetjmpPointerFlowResult result, IRParam parameter) {
+    int index = 0;
+    while (index < result.parameters.len) {
+        SetjmpParameterStorage entry = result.parameters.get(index);
+        if (entry.parameter == parameter) { return entry.storage; }
+        index = index + 1;
+    }
+    return null;
+}

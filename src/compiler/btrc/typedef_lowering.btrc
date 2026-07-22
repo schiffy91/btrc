@@ -61,8 +61,10 @@ void lowerTypedefDeclarations(
     index = 0;
     while (index < ordered.len) {
         Node declaration = ordered.get(index);
-        module.typedef_defs.push(IRTypedefDef(
-            typeToC(declaration.original, analyzed), declaration.alias));
+        IRTypedefDef definition = IRTypedefDef(
+            typeToC(declaration.original, analyzed), declaration.alias);
+        definition.is_volatile = declaration.original.is_volatile;
+        module.typedef_defs.push(definition);
         index = index + 1;
     }
 }

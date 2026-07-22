@@ -7,6 +7,7 @@ from ..type_identity import is_semantic_scalar_void
 class InitializerValidationMixin:
     def _validate_typed_initializer(self, expected, initializer, subject, line, col):
         """Validate an already-analyzed initializer against its declared type."""
+        expected = self._array_value_type(expected)
         self._validate_managed_string_source(
             expected,
             initializer,
@@ -15,6 +16,13 @@ class InitializerValidationMixin:
             col,
         )
         self._validate_opaque_borrow_storage(
+            expected,
+            initializer,
+            subject,
+            line,
+            col,
+        )
+        self._validate_volatile_reference_conversion(
             expected,
             initializer,
             subject,
@@ -57,7 +65,15 @@ class InitializerValidationMixin:
         struct_name = canonical.base.removeprefix("struct ")
         declaration = self.struct_table.get(struct_name)
         if declaration is not None and not declaration.is_forward:
-            fields = [(field.name, field.type) for field in declaration.fields]
+            for field, element in zip(declaration.fields, initializer.elements):
+                self._validate_pointer_backed_array_field_initializer(
+                    field,
+                    element,
+                    f"Field '{field.name}'",
+                    getattr(element, "line", line),
+                    getattr(element, "col", col),
+                )
+            fields = [(field.name, self._array_field_value_type(field)) for field in declaration.fields]
             aggregate_name = f"struct '{struct_name}'"
         elif canonical.base == "Tuple":
             fields = [(f"_{index}", argument) for index, argument in enumerate(canonical.generic_args)]
@@ -149,6 +165,13 @@ class InitializerValidationMixin:
             getattr(element, "col", col),
         )
         self._validate_opaque_borrow_storage(
+            expected,
+            element,
+            subject,
+            line,
+            col,
+        )
+        self._validate_volatile_reference_conversion(
             expected,
             element,
             subject,

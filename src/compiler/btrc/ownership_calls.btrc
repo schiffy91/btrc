@@ -274,8 +274,9 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
         int laterIndex = pinIndex + 1;
         while (laterIndex < result.len) {
             OwnershipCallOperand later = result.get(laterIndex);
-            if (later.defaultArgument || ownershipExpressionHasEffect(
-                    generator, later.expression, varTypes)) {
+            if (later.defaultArgument || later.needsConversion
+                    || ownershipExpressionHasEffect(
+                        generator, later.expression, varTypes)) {
                 laterEffect = true;
             }
             laterIndex = laterIndex + 1;
@@ -361,10 +362,21 @@ Node? ownershipInstanceReceiver(IRGen generator, Node call) {
     return receiver;
 }
 
-Node? ownershipEvaluatedCallee(Node call) {
+Node? ownershipEvaluatedCallee(IRGen generator, Node call,
+        Map<string, Node> varTypes) {
     Node? callee = call.callee;
-    if (callee == null || callee.kind == NK_IDENTIFIER
-            || callee.kind == NK_FIELD_ACCESS_EXPR
+    if (callee == null) { return null; }
+    if (callee.kind == NK_IDENTIFIER) {
+        if (generator.hasClosureEnv(callee.name)
+                || !varTypes.has(callee.name)
+                || directFunctionPointerType(
+                    generator.resolvedExpressionType(callee, varTypes),
+                    generator.analyzed) == null) {
+            return null;
+        }
+        return callee;
+    }
+    if (callee.kind == NK_FIELD_ACCESS_EXPR
             || callee.kind == NK_LAMBDA_EXPR) {
         return null;
     }
@@ -395,10 +407,20 @@ bool ownershipCallNeedsBoundary(bool receiverGuarded, bool forceOrder,
 
 IRNode lowerCallWithOwnership(IRGen generator, Node call,
         Map<string, Node> varTypes) {
+    if (generator.unevaluatedDepth > 0) {
+        return generator.lowerCallCore(call, varTypes);
+    }
     generator.rejectCallClosureEscapes(call, varTypes);
     if (call.callee != null
             && call.callee.kind == NK_FIELD_ACCESS_EXPR
             && call.callee.optional) {
+        return generator.lowerCallCore(call, varTypes);
+    }
+    if (call.callee != null
+            && call.callee.kind == NK_IDENTIFIER
+            && generator.gpu.kernels.has(call.callee.name)
+            && !generator.hasClosureEnv(call.callee.name)
+            && !varTypes.has(call.callee.name)) {
         return generator.lowerCallCore(call, varTypes);
     }
     Node? declaration = ownershipCallableForCall(
@@ -417,7 +439,7 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
         receiver = ownershipInstanceReceiver(generator, call);
     }
     if (receiver == null) {
-        receiver = ownershipEvaluatedCallee(call);
+        receiver = ownershipEvaluatedCallee(generator, call, varTypes);
     }
     Node? receiverType = null;
     bool receiverOwned = false;
@@ -456,7 +478,8 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
         || orderedFieldCall
         || orderedBuiltin
         || orderedHosted
-        || (calleeType != null && calleeType.base == "__fn_ptr");
+        || directFunctionPointerType(
+            calleeType, generator.analyzed) != null;
     bool forceOrder = languageCall
         && ownershipCallRequiresOrder(
             generator, receiver, operands, varTypes)
@@ -464,14 +487,19 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
     string callKey = astNodeKey(call);
     bool convertsHostedResult =
         generator.hostedResultConversionModes.has(callKey);
+    bool hasProjectionRoots = ownershipCallHasProjectionRoots(
+        generator, call, receiver, operands, varTypes);
     if (!ownershipCallNeedsBoundary(
-            receiverOwned || receiverPinned, forceOrder, operands)) {
+            receiverOwned || receiverPinned || hasProjectionRoots,
+            forceOrder, operands)) {
         return lowerRequestedHostedStringResult(
             generator, call,
             generator.lowerCallCore(call, varTypes));
     }
     OwnershipBoundary boundary = OwnershipBoundary();
     if (receiver != null) {
+        ownershipAddCallProjectionRoots(
+            boundary, generator, receiver, varTypes);
         if (receiverType == null) {
             opaqueOperandOrderFail(
                 receiver, "call arguments", true);
@@ -482,6 +510,10 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
     int index = 0;
     while (index < operands.len) {
         OwnershipCallOperand operand = operands.get(index);
+        ownershipAddCallProjectionRootsWithPolicy(
+            boundary, generator, operand.expression, varTypes,
+            ownershipCallOmitsBorrowedProjectionGuard(
+                generator, call, operands, index, varTypes));
         if (operand.typeExpr == null) {
             bool trailing = index + 1 == operands.len
                 && (index > 0 || receiver != null)
@@ -530,6 +562,9 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
 
 IRNode lowerNewWithOwnership(IRGen generator, Node expression,
         Map<string, Node> varTypes) {
+    if (generator.unevaluatedDepth > 0) {
+        return generator.lowerNewCore(expression, varTypes);
+    }
     Vector<Node> params = ownershipParamsForCall(
         generator, expression, varTypes);
     Vector<OwnershipCallOperand> operands = ownershipCallOperands(
@@ -537,13 +572,20 @@ IRNode lowerNewWithOwnership(IRGen generator, Node expression,
     bool forceOrder = operands.len > 1
         && ownershipOperandsHaveConcreteTypes(operands)
         && ownershipOperandsHaveEffect(generator, operands, varTypes);
-    if (!ownershipCallNeedsBoundary(false, forceOrder, operands)) {
+    bool hasProjectionRoots = ownershipCallHasProjectionRoots(
+        generator, expression, null, operands, varTypes);
+    if (!ownershipCallNeedsBoundary(
+            hasProjectionRoots, forceOrder, operands)) {
         return generator.lowerNewCore(expression, varTypes);
     }
     OwnershipBoundary boundary = OwnershipBoundary();
     int index = 0;
     while (index < operands.len) {
         OwnershipCallOperand operand = operands.get(index);
+        ownershipAddCallProjectionRootsWithPolicy(
+            boundary, generator, operand.expression, varTypes,
+            ownershipCallOmitsBorrowedProjectionGuard(
+                generator, expression, operands, index, varTypes));
         if (operand.defaultArgument) {
             Node effectiveType = operand.targetType;
             boundary.addLoweredCallOperand(generator,

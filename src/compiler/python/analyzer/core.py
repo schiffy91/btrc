@@ -42,6 +42,9 @@ class AnalyzerBase:
         # Only the root expression of an ExprStmt may consume a physical
         # Mutex slot through `.destroy()`.
         self._standalone_expression_root = None
+        # The one array-returning GPU call currently permitted to materialize
+        # directly into declaration or assignment storage.
+        self._gpu_array_result_boundary = None
         self.in_virtual_setter: bool = False
         self.current_return_type: TypeExpr | None = None
         self.in_gpu_function: bool = False
@@ -50,6 +53,7 @@ class AnalyzerBase:
         self.break_depth: int = 0
         self._assignment_target_depth: int = 0
         self._analyzed_array_bounds: set[int] = set()
+        self.array_iteration_capacity_ids: set[int] = set()
         self._nonnull_paths: set = set()
         # Symbol identities whose storage address has escaped. A later call can
         # rebind those locals indirectly, so nullable refinements for them are
@@ -78,6 +82,7 @@ class AnalyzerBase:
         self._unresolved_direct_callee_ids: set[int] = set()
         self._unresolved_c_symbol_reference_ids: set[int] = set()
         self._hosted_call_ids = set()
+        self.array_iteration_capacity_ids = set()
         self.rich_enum_unsafe_default_ids = set()
         self._register_declarations(program)
         # Registered types are a shared inference context. Normalize all of
@@ -109,6 +114,11 @@ class AnalyzerBase:
             generic_method_instances=self.generic_method_instances,
             generic_method_call_args=self.generic_method_call_args,
             function_table=self.function_table,
+            global_var_types={
+                name: declaration.type
+                for name, declaration in self._global_declarations.items()
+                if declaration.type is not None
+            },
             hosted_call_ids=self._hosted_call_ids,
             typedef_table=self.typedef_table,
             struct_table=self.struct_table,
@@ -117,6 +127,7 @@ class AnalyzerBase:
             interface_table=self.interface_table,
             rich_enum_table=self.rich_enum_table,
             rich_enum_unsafe_default_ids=set(self.rich_enum_unsafe_default_ids),
+            array_iteration_capacity_ids=set(self.array_iteration_capacity_ids),
             errors=self.errors,
             warnings=self.warnings,
             diags=self.diags,

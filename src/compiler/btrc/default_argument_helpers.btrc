@@ -240,9 +240,7 @@ void defaultArgumentAppendParameters(Vector<IRParam> destination,
     int index = 0;
     while (index < parameterIndex) {
         Node parameter = parameters.get(index);
-        destination.push(IRParam(
-            typeToC(parameter.type, analyzed),
-            sourceLexicalBindingCName(parameter.name)));
+        destination.push(lowerSourceParam(parameter, analyzed));
         index = index + 1;
     }
 }

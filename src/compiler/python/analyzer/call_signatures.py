@@ -1,6 +1,6 @@
 """Typed source-call signature validation."""
 
-from ..type_composition import strip_outer_storage
+from ..ast_nodes import BraceInitializer, ListLiteral
 
 
 class CallSignatureContractsMixin:
@@ -33,7 +33,20 @@ class CallSignatureContractsMixin:
                 expected = self._substitute_type(expected, substitutions)
             if expected.base in unresolved:
                 continue
+            gpu_array_parameter = bool(
+                gpu_dispatch and (canonical_expected := self._canonical_type(expected)) and canonical_expected.is_array
+            )
             argument = args[arg_index]
+            if isinstance(argument, (BraceInitializer, ListLiteral)):
+                self._validate_array_object_initializer(
+                    expected,
+                    argument,
+                    f"Argument '{params[param_index].name}' to '{name}()'",
+                    getattr(argument, "line", line),
+                    getattr(argument, "col", col),
+                )
+            if not gpu_array_parameter:
+                expected = self._array_parameter_initializer_type(expected, argument)
             self._validate_opaque_call_argument(
                 declaration,
                 param_index,
@@ -41,6 +54,13 @@ class CallSignatureContractsMixin:
                 argument,
                 name,
                 bodyless_ffi=bodyless_ffi,
+            )
+            self._validate_volatile_reference_conversion(
+                expected,
+                argument,
+                f"Argument '{params[param_index].name}' to '{name}()'",
+                getattr(argument, "line", line),
+                getattr(argument, "col", col),
             )
             argument_line = getattr(argument, "line", line)
             argument_col = getattr(argument, "col", col)
@@ -71,10 +91,23 @@ class CallSignatureContractsMixin:
             ):
                 continue
             actual = self._infer_type(argument)
-            compatible = actual and (
-                self._types_compatible(expected, actual)
-                or (gpu_dispatch and self._gpu_buffer_argument_compatible(expected, actual))
-            )
+            if actual and gpu_array_parameter:
+                if not self._array_target_has_capacity(argument, actual):
+                    self._error(
+                        f"Argument '{params[param_index].name}' to '{name}()' "
+                        "has no provable readable GPU buffer capacity",
+                        argument_line,
+                        argument_col,
+                    )
+                elif not self._gpu_input_has_compatible_storage(argument, expected, actual):
+                    self._error(
+                        f"Argument '{params[param_index].name}' to '{name}()' "
+                        "does not have an ABI-compatible GPU buffer element type",
+                        argument_line,
+                        argument_col,
+                    )
+                continue
+            compatible = actual and self._types_compatible(expected, actual)
             if actual and not compatible:
                 self._error(
                     f"Argument '{params[param_index].name}' to '{name}()' "
@@ -83,17 +116,6 @@ class CallSignatureContractsMixin:
                     argument_line,
                     argument_col,
                 )
-
-    def _gpu_buffer_argument_compatible(self, expected, actual) -> bool:
-        return bool(
-            expected.is_array
-            and actual.base in ("Array", "Vector")
-            and len(actual.generic_args) == 1
-            and self._types_compatible(
-                strip_outer_storage(expected, array=True),
-                actual.generic_args[0],
-            )
-        )
 
 
 __all__ = ["CallSignatureContractsMixin"]

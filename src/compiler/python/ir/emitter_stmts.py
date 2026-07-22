@@ -41,7 +41,9 @@ def _qualified_global_type(decl: IRGlobalDecl) -> str:
 
 class _StmtEmitterMixin:
     def _emit_global_decl(self, decl: IRGlobalDecl):
-        suffix = f"[{self._expr(decl.array_size)}]" if decl.array_size is not None else ""
+        suffix = (
+            f"[{self._expr(decl.array_size)}]" if decl.array_size is not None else "[]" if decl.is_unsized_array else ""
+        )
         initializer = f" = {self._expr(decl.init)}" if decl.init else ""
         self._line(f"{_qualified_global_type(decl)} {decl.name}{suffix}{initializer};")
 

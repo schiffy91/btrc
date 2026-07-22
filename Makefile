@@ -13,6 +13,7 @@ GPU_OBJC    ?= clang
 # The repository links wgpu-native, whose WaitAny entry point aborts. Override
 # this only when linking a conforming webgpu.h implementation such as Dawn.
 GPU_BACKEND_CFLAGS ?= -DBTRC_GPU_WGPU_NATIVE
+GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)
 NATIVE_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic
 PYTEST      := python3 -m pytest
 # Self-host fixture compiles are memory-heavy; callers may raise this explicitly.
@@ -169,7 +170,7 @@ gpu: ## Build GPU runtime library (skips if deps missing)
 		if [ "$$probe_ok" -ne 1 ]; then \
 			echo "GPU runtime skipped (missing windowing/WebGPU headers)"; exit 0; \
 		fi && \
-		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$D/build/btrc_gpu.o" && \
+		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$D/build/btrc_gpu.o" && \
 		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_async.c" -o "$$D/build/btrc_gpu_async.o" && \
 		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_surface.c" -o "$$D/build/btrc_gpu_surface.o" && \
 		objects="$$D/build/btrc_gpu.o $$D/build/btrc_gpu_async.o $$D/build/btrc_gpu_surface.o" && \

@@ -1,0 +1,258 @@
+/* Fixed-point write, capture, and return-alias summaries for setjmp. */
+
+SetjmpFunctionEffect setjmpUnknownEffect(int count) {
+    SetjmpFunctionEffect effect = SetjmpFunctionEffect();
+    int index = 0;
+    while (index < count) {
+        setjmpAddParameterEffect(effect.writes, index, 1);
+        setjmpAddParameterEffect(effect.captures, index, 1);
+        index = index + 1;
+    }
+    effect.unknownReturn = true;
+    return effect;
+}
+
+SetjmpFunctionEffect? setjmpHostedEffect(string name, int count) {
+    if (!hostedAbiExactFunction(name)) { return null; }
+    int parameterCount = hostedAbiParameterCount(name);
+    if (parameterCount < 0) { return setjmpUnknownEffect(count); }
+    SetjmpFunctionEffect effect = SetjmpFunctionEffect();
+    int index = 0;
+    while (index < count) {
+        if (index >= parameterCount) {
+            setjmpAddParameterEffect(effect.writes, index, 1);
+            setjmpAddParameterEffect(effect.captures, index, 1);
+        } else if (hostedAbiParameterPointerDepth(name, index) > 0) {
+            string parameterEffect =
+                hostedAbiParameterEffect(name, index);
+            if (parameterEffect == "mutate"
+                    || parameterEffect == "consume"
+                    || parameterEffect == "unknown") {
+                setjmpAddParameterEffect(effect.writes, index, 1);
+            }
+            if (parameterEffect == "consume"
+                    || parameterEffect == "unknown") {
+                setjmpAddParameterEffect(effect.captures, index, 1);
+            }
+        }
+        index = index + 1;
+    }
+    if (hostedAbiReturnEffect(name) == "alias") {
+        int alias = hostedAbiReturnAliasParameter(name);
+        if (alias >= 0) {
+            setjmpAddParameterEffect(effect.returns, alias, 1);
+        }
+    }
+    effect.unknownReturn = hostedAbiReturnEffect(name) == "opaque";
+    return effect;
+}
+
+SetjmpFunctionEffect setjmpExternalEffect(string name, string returnType,
+        Vector<IRParam> params, Map<string, bool> typeAliases) {
+    SetjmpFunctionEffect? hosted = setjmpHostedEffect(name, params.len);
+    if (hosted != null) { return hosted; }
+    SetjmpFunctionEffect effect = SetjmpFunctionEffect();
+    int index = 0;
+    while (index < params.len) {
+        if (setjmpIsPointerType(
+                params.get(index).c_type, typeAliases)) {
+            setjmpAddParameterEffect(effect.writes, index, 1);
+            setjmpAddParameterEffect(effect.captures, index, 1);
+            if (setjmpIsPointerType(returnType, typeAliases)) {
+                setjmpAddParameterEffect(effect.returns, index, 1);
+            }
+        }
+        index = index + 1;
+    }
+    effect.unknownReturn = setjmpIsPointerType(
+        returnType, typeAliases);
+    return effect;
+}
+
+SetjmpFunctionEffect setjmpFlowEffectFor(
+        SetjmpPointerFlow flow, string callee, int count) {
+    if (flow.functionEffects.has(callee)) {
+        return flow.functionEffects.get(callee);
+    }
+    if (flow.externalEffects.has(callee)) {
+        return flow.externalEffects.get(callee);
+    }
+    SetjmpFunctionEffect? hosted = setjmpHostedEffect(callee, count);
+    return hosted == null ? setjmpUnknownEffect(count) : hosted;
+}
+
+class SetjmpCallEffects {
+    public Map<string, SetjmpFunctionEffect> functionEffects;
+    public Map<string, SetjmpFunctionEffect> externalEffects;
+    public SetjmpPointerFlowResult flow;
+
+    public SetjmpCallEffects(
+            Map<string, SetjmpFunctionEffect> functionEffects,
+            Map<string, SetjmpFunctionEffect> externalEffects,
+            SetjmpPointerFlowResult flow) {
+        self.functionEffects = functionEffects;
+        self.externalEffects = externalEffects;
+        self.flow = flow;
+    }
+
+    public SetjmpFunctionEffect effectFor(string callee, int count) {
+        if (self.functionEffects.has(callee)) {
+            return self.functionEffects.get(callee);
+        }
+        if (self.externalEffects.has(callee)) {
+            return self.externalEffects.get(callee);
+        }
+        SetjmpFunctionEffect? hosted = setjmpHostedEffect(callee, count);
+        return hosted == null ? setjmpUnknownEffect(count) : hosted;
+    }
+
+    public Vector<SetjmpOrigin> pointerOrigins(IRNode? value) {
+        return copySetjmpOrigins(self.flow.originsFor(value));
+    }
+}
+
+Vector<SetjmpNameBinding> setjmpGlobalStorages(IRModule module,
+        Map<string, bool> typeAliases,
+        Map<string, int> typeDepths) {
+    Vector<SetjmpNameBinding> globals = [];
+    int index = 0;
+    while (index < module.global_decls.len) {
+        IRGlobalDecl declaration = module.global_decls.get(index);
+        int pointerDepth = setjmpRenderedPointerDepth(
+            declaration.c_type, typeAliases, typeDepths);
+        SetjmpStorage storage = SetjmpStorage(index + 1,
+            declaration.name, "global", pointerDepth != 0, pointerDepth,
+            declaration.array_size != null || declaration.is_unsized_array,
+            setjmpCompilerOwnedStorage(declaration.name));
+        globals.push(SetjmpNameBinding(declaration.name, storage));
+        index = index + 1;
+    }
+    return globals;
+}
+
+int setjmpParameterIndex(
+        Vector<SetjmpStorage> parameters, SetjmpStorage storage) {
+    int index = 0;
+    while (index < parameters.len) {
+        if (parameters.get(index).identity == storage.identity) {
+            return index;
+        }
+        index = index + 1;
+    }
+    return -1;
+}
+
+void setjmpSummarizeOrigins(Vector<SetjmpOrigin> origins,
+        Vector<SetjmpStorage> parameters,
+        Vector<SetjmpParameterEffect> effects) {
+    int index = 0;
+    while (index < origins.len) {
+        SetjmpOrigin origin = origins.get(index);
+        int parameterIndex = setjmpParameterIndex(
+            parameters, origin.storage);
+        if (parameterIndex >= 0 && origin.depth != 0) {
+            int depth = origin.depth;
+            int declaredDepth =
+                parameters.get(parameterIndex).pointerDepth;
+            if (depth > declaredDepth) { depth = -1; }
+            setjmpAddParameterEffect(effects, parameterIndex, depth);
+        }
+        index = index + 1;
+    }
+}
+
+SetjmpFunctionEffect setjmpFlowSummary(SetjmpPointerFlowResult flow,
+        Vector<SetjmpStorage> parameters) {
+    SetjmpFunctionEffect effect = SetjmpFunctionEffect();
+    int index = 0;
+    while (index < flow.writes.len) {
+        setjmpSummarizeOrigins(flow.writes.get(index).origins,
+            parameters, effect.writes);
+        index = index + 1;
+    }
+    setjmpSummarizeOrigins(
+        flow.captures, parameters, effect.captures);
+    setjmpSummarizeOrigins(flow.returns, parameters, effect.returns);
+    return effect;
+}
+
+Vector<SetjmpStorage> setjmpFlowParameters(
+        SetjmpPointerFlowResult flow, IRFunction definition) {
+    Vector<SetjmpStorage> parameters = [];
+    int index = 0;
+    while (index < definition.params.len) {
+        SetjmpStorage? storage =
+            setjmpParameterStorage(flow, definition.params.get(index));
+        if (storage != null) { parameters.push(storage); }
+        index = index + 1;
+    }
+    return parameters;
+}
+
+Map<string, SetjmpCallEffects> buildSetjmpCallEffects(IRModule module) {
+    Map<string, bool> typeAliases = {};
+    Map<string, bool> readOnlyAliases = {};
+    buildSetjmpPointerTypeFacts(
+        module, typeAliases, readOnlyAliases);
+    Map<string, int> typeDepths = {};
+    buildSetjmpPointerDepths(module, typeAliases, typeDepths);
+    Map<string, bool> voidAliases = {};
+    buildSetjmpVoidTypeFacts(module, voidAliases);
+    Map<string, bool> definitions = {};
+    Map<string, SetjmpFunctionEffect> summaries = {};
+    int index = 0;
+    while (index < module.functions.len) {
+        IRFunction definition = module.functions.get(index);
+        if (definition.body != null) {
+            definitions.put(definition.name, true);
+            summaries.put(definition.name, SetjmpFunctionEffect());
+        }
+        index = index + 1;
+    }
+    Map<string, SetjmpFunctionEffect> external = {};
+    index = 0;
+    while (index < module.function_decls.len) {
+        IRFunctionDecl declaration = module.function_decls.get(index);
+        if (!definitions.has(declaration.name)) {
+            external.put(declaration.name, setjmpExternalEffect(
+                declaration.name, declaration.return_type,
+                declaration.params, typeAliases));
+        }
+        index = index + 1;
+    }
+    Vector<SetjmpNameBinding> globals =
+        setjmpGlobalStorages(module, typeAliases, typeDepths);
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        index = 0;
+        while (index < module.functions.len) {
+            IRFunction definition = module.functions.get(index);
+            if (definition.body != null) {
+                SetjmpPointerFlowResult flow = analyzeSetjmpPointerFlow(
+                    definition, globals, typeAliases, typeDepths,
+                    voidAliases, summaries, external);
+                SetjmpFunctionEffect summary = setjmpFlowSummary(
+                    flow, setjmpFlowParameters(flow, definition));
+                if (summaries.get(definition.name).merge(summary)) {
+                    changed = true;
+                }
+            }
+            index = index + 1;
+        }
+    }
+    Map<string, SetjmpCallEffects> contexts = {};
+    index = 0;
+    while (index < module.functions.len) {
+        IRFunction definition = module.functions.get(index);
+        if (definition.body != null) {
+            SetjmpPointerFlowResult flow = analyzeSetjmpPointerFlow(
+                definition, globals, typeAliases, typeDepths,
+                voidAliases, summaries, external);
+            contexts.put(definition.name,
+                SetjmpCallEffects(summaries, external, flow));
+        }
+        index = index + 1;
+    }
+    return contexts;
+}

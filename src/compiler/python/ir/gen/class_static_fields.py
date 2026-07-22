@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import BraceInitializer, FieldDecl, ListLiteral
+from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import CType, IRGlobalDecl, IRLiteral
 from .types import type_to_c
 
@@ -43,6 +44,10 @@ def emit_static_fields(gen: IRGenerator, declaration: ClassDecl) -> None:
                 array_size=array_size,
                 is_static=True,
                 is_volatile=bool(field.type.is_volatile),
+                effective_is_volatile=effective_outer_volatile(
+                    field.type,
+                    gen.analyzed.typedef_table,
+                ),
             )
         )
 
@@ -59,7 +64,8 @@ def _static_field_type(gen, field):
         return field_type, lower_expr(gen, field.type.array_size)
     if isinstance(field.initializer, (BraceInitializer, ListLiteral)):
         return field_type, IRLiteral(text=str(len(field.initializer.elements)))
-    return field_type, None
+    # Without backing storage an unsized array is a rebindable pointer slot.
+    return field.type, None
 
 
 __all__ = ["emit_static_fields"]

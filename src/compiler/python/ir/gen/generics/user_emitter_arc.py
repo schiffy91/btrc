@@ -138,6 +138,7 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
         pin_nodes=(),
         force=False,
         prepared_values=None,
+        void_result=False,
     ):
         """Evaluate eager operands once and stabilize managed values."""
         operands = self._owned_node_operands(
@@ -149,6 +150,13 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
         )
         if operands is None:
             return None
+        if void_result:
+            return self._sequence_call(
+                operands,
+                None,
+                build,
+                result_c_type="void",
+            )
         return self._sequence_call(
             operands,
             expression,
@@ -177,6 +185,8 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
         force=False,
         prepared_values=None,
     ):
+        if self._unevaluated_depth > 0:
+            return None
         specs = []
         prepared_values = prepared_values or {}
         keep_ids = {id(node) for node in keep_nodes}
@@ -216,6 +226,8 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
             return None
         for _node, type_expr, _owned, _keep, _pin, _prepared in specs:
             self._require_operand_type(type_expr)
+        from .user_operand_overrides import deferred_generic_operand
+
         return [
             CallOperand(
                 node=node,
@@ -230,6 +242,7 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
                 pin=pin,
                 owned=owned,
                 lowered=prepared.value if prepared is not None else None,
+                lower_with_overrides=(None if prepared is not None else deferred_generic_operand(self, node)),
             )
             for node, type_expr, owned, keep, pin, prepared in specs
         ]

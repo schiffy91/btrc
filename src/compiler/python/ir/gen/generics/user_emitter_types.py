@@ -19,7 +19,16 @@ class _UserGenericTypeMixin:
             if analyzed_type:
                 return self._resolve(analyzed_type)
         if isinstance(expression, Identifier):
-            return self._var_types.get(expression.name)
+            lexical_type = self._var_types.get(expression.name)
+            if lexical_type is not None:
+                return lexical_type
+            if self._gen:
+                global_type = self._gen.analyzed.global_var_types.get(
+                    expression.name,
+                )
+                if global_type is not None:
+                    return self._resolve(global_type)
+            return None
         if isinstance(expression, SelfExpr):
             return self._self_type()
         if isinstance(expression, FieldAccessExpr):
@@ -48,7 +57,9 @@ class _UserGenericTypeMixin:
         class_info = self._gen.analyzed.class_table.get(receiver_type.base)
         if not class_info:
             return None
-        member = class_info.fields.get(field_name) or class_info.properties.get(field_name)
+        fields = getattr(class_info, "fields", {})
+        properties = getattr(class_info, "properties", {})
+        member = fields.get(field_name) or properties.get(field_name)
         if not member or not member.type:
             return None
         from .core import _resolve_type

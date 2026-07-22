@@ -3,7 +3,9 @@
 from ....source_runtime_symbols import is_source_runtime_helper
 from ...nodes import IRCall, IRVar
 from ..call_builtins import lower_len, lower_typed_print
+from ..call_callees import materialize_callable_callee
 from ..generic_intrinsics import lower_generic_intrinsic
+from ..type_resolution import function_pointer_signature
 from ..typed_operators import operator_context
 from .user_builtin_methods import lower_generic_builtin_method
 from .user_call_arguments import order_generic_call_arguments
@@ -32,6 +34,10 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                 value,
             ),
         )
+        from .user_gpu_dispatch import is_direct_generic_gpu_call
+
+        if is_direct_generic_gpu_call(self, expression):
+            return self._plain_call(expression)
         from ..hosted_result_conversion import (
             lower_hosted_string_conversion,
             requested_hosted_string_conversion,
@@ -65,7 +71,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             getattr(expression, "arg_names", []) or [],
             receiver,
             owned_transfer_param_indices(declaration),
-            callee=expression.callee if callable_field else evaluated_callee(expression),
+            callee=(expression.callee if callable_field else evaluated_callee(self, expression)),
             pin_receiver=receiver_pin_required(
                 self._gen,
                 receiver,
@@ -95,7 +101,8 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
 
         if isinstance(expression.callee, Identifier) and self._gen:
             name = expression.callee.name
-            is_builtin = name not in self._var_types and name not in self._gen.analyzed.function_table
+            is_variable = name in self._var_types or name in self._gen.analyzed.global_var_types
+            is_builtin = not is_variable and name not in self._gen.analyzed.function_table
             if is_builtin and name == "print":
                 return lower_typed_print(
                     self._gen,
@@ -111,18 +118,27 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                     self._resolve_expr_type(argument),
                 )
 
-        args = [self._expr(arg) for arg in expression.args]
         arg_names = getattr(expression, "arg_names", []) or []
         params = self._params_for_call(expression)
 
         if isinstance(expression.callee, Identifier):
-            name = expression.callee.name
-            if name in self._var_types:
-                from .user_emitter_bindings import source_binding_c_name
+            from .user_gpu_dispatch import (
+                is_direct_generic_gpu_call,
+                lower_generic_gpu_call,
+            )
 
-                return IRCall(
-                    callee=IRVar(name=source_binding_c_name(self, name)),
-                    args=args,
+            if is_direct_generic_gpu_call(self, expression):
+                return lower_generic_gpu_call(self, expression, None)
+
+        args = [self._expr(arg) for arg in expression.args]
+
+        if isinstance(expression.callee, Identifier):
+            name = expression.callee.name
+            variable_callee = name in self._var_types or bool(self._gen and name in self._gen.analyzed.global_var_types)
+            if variable_callee:
+                return self._callable_expression_call(
+                    expression.callee,
+                    args,
                 )
             if self._gen and name == "Mutex" and name not in self._gen.analyzed.function_table:
                 if len(args) != 1:
@@ -176,9 +192,9 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             receiver = expression.callee.obj
             method_name = expression.callee.field
             if self._callable_field(expression):
-                return IRCall(
-                    callee=self._expr(expression.callee),
-                    args=args,
+                return self._callable_expression_call(
+                    expression.callee,
+                    args,
                 )
             from ..rich_enum_calls import lower_generic_rich_enum_call
 
@@ -258,7 +274,25 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                 )
             return IRCall(callee=method_name, args=[receiver_ir, *args])
 
-        return IRCall(
-            callee=self._expr(expression.callee),
-            args=args,
+        return self._callable_expression_call(expression.callee, args)
+
+    def _callable_expression_call(self, callee_node, args):
+        callee = self._expr(callee_node)
+        if self._gen is None:
+            return IRCall(callee=callee, args=args)
+        signature = function_pointer_signature(
+            self._resolve_expr_type(callee_node),
+            self._typedefs(),
+        )
+        if signature is None:
+            return IRCall(callee=callee, args=args)
+        return materialize_callable_callee(
+            self._gen,
+            callee_node,
+            callee,
+            signature,
+            args,
+            callee_materialized=id(callee_node) in self._arc_overrides,
+            fresh_temp=self._fresh_temp,
+            record_decl=self._func_var_decls.append,
         )

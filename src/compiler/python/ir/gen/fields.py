@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
     """Lower field access, handling optional chaining and special types."""
     from .managed_values import is_managed_type
-    from .ownership import projection_is_owned_call
+    from .ownership import owns_result, projection_is_owned_call
     from .ownership_boundary import sequence_owned_operands
 
     result_type = gen.analyzed.node_types.get(id(node))
@@ -49,9 +49,16 @@ def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
         gen.analyzed.node_types.get(id(node.obj)),
         node.field,
     )
+    from .assignment_ownership import borrowed_projection_owner_operands
+
+    dependencies = borrowed_projection_owner_operands(
+        node.obj,
+        owns=lambda expression: owns_result(gen, expression),
+        overridden=lambda expression: id(expression) in gen._owning_temp_overrides,
+    )
     sequenced = sequence_owned_operands(
         gen,
-        [node.obj],
+        [*dependencies, node.obj],
         build=lambda: _lower_field_access_plain(gen, node),
         result_type=result_type,
         pin_nodes=[node.obj] if custom_getter else [],
@@ -165,11 +172,14 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
             ),
         )
 
-    return IRFieldAccess(
+    field = IRFieldAccess(
         obj=obj,
         field=field_name,
         arrow=receiver_uses_arrow(gen, obj_type, explicit=node.arrow),
     )
+    from ..storage_provenance import record_array_projection
+
+    return record_array_projection(field, gen.analyzed.node_types.get(id(node)))
 
 
 def receiver_uses_arrow(gen: IRGenerator, receiver_type, *, explicit: bool = False) -> bool:
@@ -221,7 +231,7 @@ def _optional_zero(gen, result_type):
 def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
     """Lower index expression: list[i] → List_get(list, i), map[k] → Map_get(map, k)."""
     from .managed_values import is_managed_type
-    from .ownership import projection_is_owned_call
+    from .ownership import owns_result, projection_is_owned_call
     from .ownership_boundary import sequence_owned_operands
 
     result_type = gen.analyzed.node_types.get(id(node))
@@ -232,9 +242,16 @@ def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
         gen.analyzed.class_table,
         method="get",
     )
+    from .assignment_ownership import borrowed_projection_owner_operands
+
+    dependencies = borrowed_projection_owner_operands(
+        node.obj,
+        owns=lambda expression: owns_result(gen, expression),
+        overridden=lambda expression: id(expression) in gen._owning_temp_overrides,
+    )
     sequenced = sequence_owned_operands(
         gen,
-        [node.obj, node.index],
+        [*dependencies, node.obj, node.index],
         build=lambda: _lower_index_plain(gen, node),
         result_type=result_type,
         pin_nodes=[node.obj] if protocol_getter is not None else [],
@@ -269,4 +286,6 @@ def _lower_index_plain(gen: IRGenerator, node: IndexExpr) -> IRExpr:
             else obj_type.base
         )
         return IRCall(callee=f"{prefix}_get", args=[obj, index])
-    return IRIndex(obj=obj, index=index)
+    from ..storage_provenance import record_index_storage
+
+    return record_index_storage(IRIndex(obj=obj, index=index), obj_type)

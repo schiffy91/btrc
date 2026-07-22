@@ -198,7 +198,7 @@ def test_ordinary_static_calls_from_generic_methods_bind_without_receiver(
     for generated in (selfhost_source, reference_source):
         emitted = generated.read_text()
         assert "Tools_add(1, 4)" in emitted
-        assert "Tools_add(3, 2)" in emitted
+        assert emitted.count("__btrc_default_Tools_add_2(") >= 2
         assert "Tools_add(Tools" not in emitted
     _strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-static")
     _strict_build_and_run(reference_source, tmp_path / "python-generic-static")

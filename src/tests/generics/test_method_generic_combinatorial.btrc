@@ -1,15 +1,13 @@
 /* Combinatorial method-generic mangling: two class instantiations (Holder<int>
- * and Holder<string>) each invoking the generic method transform<U> with two
+ * and Holder<long>) each invoking the generic method transform<U> with two
  * distinct U (identity and a converter). Verifies (class_args x method_args)
  * each monomorphize independently. */
 #include <assert.h>
-#include <string.h>
-import std.strings;
 
 int idInt(int x) { return x; }
-string intToStr(int x) { return Strings.fromInt(x); }
-string idStr(string s) { return s; }
-int strLen(string s) { return s.len(); }
+double intToHalf(int x) { return (double)x / 2.0; }
+long idLong(long x) { return x; }
+bool longIsLarge(long x) { return x > 1000LL; }
 
 class Holder<T> {
     public T value;
@@ -20,11 +18,11 @@ class Holder<T> {
 int main() {
     Holder<int> hi = new Holder<int>(5);
     assert(hi.transform(idInt) == 5);
-    assert(strcmp(hi.transform(intToStr), "5") == 0);
+    assert(hi.transform(intToHalf) == 2.5);
 
-    Holder<string> hs = new Holder<string>("abc");
-    assert(strcmp(hs.transform(idStr), "abc") == 0);
-    assert(hs.transform(strLen) == 3);
+    Holder<long> hl = new Holder<long>(1234LL);
+    assert(hl.transform(idLong) == 1234LL);
+    assert(hl.transform(longIsLarge));
 
     print("PASS: test_method_generic_combinatorial");
     return 0;

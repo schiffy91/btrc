@@ -131,9 +131,8 @@ IRFunction buildGpuDispatchHelper(IRGen gen, IRGpuKernel kernel,
     int p = 0;
     while (p < declaration.params.len) {
         Node parameter = declaration.params.get(p);
-        fn.params.push(IRParam(typeToC(parameter.type, gen.analyzed),
-            sourceLexicalBindingCNameForAnalysis(
-                parameter.name, gen.analyzed)));
+        fn.params.push(lowerSourceParam(
+            parameter, gen.analyzed));
         if (parameter.type.is_array) {
             fn.params.push(IRParam("int", gpuLengthName(parameter.name)));
         }

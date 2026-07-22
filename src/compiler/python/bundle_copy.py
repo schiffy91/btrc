@@ -8,6 +8,8 @@ import stat
 from pathlib import Path
 from typing import BinaryIO
 
+from . import artifact_paths as _paths
+
 _CHUNK_SIZE = 1024 * 1024
 
 
@@ -24,6 +26,7 @@ def _validate_identity(
     if (
         not stat.S_ISREG(opened.st_mode)
         or not stat.S_ISREG(current.st_mode)
+        or _paths.metadata_is_reparse_point(current)
         or opened_identity != _identity(current)
         or (expected is not None and opened_identity != expected)
     ):

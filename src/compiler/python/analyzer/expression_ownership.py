@@ -15,6 +15,8 @@ from ..ast_nodes import (
     MapLiteral,
     NewExpr,
     NullLiteral,
+    SelfExpr,
+    SuperExpr,
     TernaryExpr,
     UnaryExpr,
 )
@@ -60,13 +62,17 @@ class ExpressionOwnershipContractsMixin:
                     self.class_table,
                     self._canonical_type(self._infer_type(expression.obj)),
                     expression.field,
-                )
+                ) and not isinstance(expression.obj, (SelfExpr, SuperExpr))
             if not isinstance(expression, IndexExpr):
                 return False
             from ..index_protocol import indexed_protocol
 
             receiver = self._canonical_type(self._infer_type(expression.obj))
-            protocol = indexed_protocol(receiver, self.class_table)
+            protocol = indexed_protocol(
+                receiver,
+                self.class_table,
+                active_type_params=self._active_storage_type_parameters(),
+            )
             return bool(protocol and protocol.getter is not None)
         if isinstance(expression, TernaryExpr):
             return self._conditional_produces_owned_result(
@@ -104,11 +110,14 @@ class ExpressionOwnershipContractsMixin:
         return self._expression_produces_owned_result(expression)
 
     def _managed_result_type(self, type_expr) -> bool:
+        active_type_param = bool(type_expr and type_expr.base in self._active_storage_type_parameters())
         return bool(
             type_expr
             and not type_expr.is_array
             and type_expr.pointer_depth <= 1
-            and (type_expr.base in {"string", "Mutex"} or type_expr.base in self.class_table)
+            and (
+                type_expr.base in {"string", "Mutex"} or (not active_type_param and type_expr.base in self.class_table)
+            )
         )
 
     def _conditional_produces_owned_result(self, result, branches) -> bool:

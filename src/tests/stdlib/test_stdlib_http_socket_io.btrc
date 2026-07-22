@@ -1,3 +1,4 @@
+// BTRC_TEST_REQUIRES: loopback-listener
 /* Deterministic local-socket coverage for split reads/writes and close framing. */
 #include <assert.h>
 #include <fcntl.h>

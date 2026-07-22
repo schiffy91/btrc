@@ -80,9 +80,7 @@ def test_cache_is_epoch_scoped_and_bypasses_mutable_contexts() -> None:
     assert generate.index("disableExpressionInferenceMemo(self.analyzed)") < generate.index(
         "registerGpuKernels(self, prog, m)"
     )
-    assert generate.rindex("disableExpressionInferenceMemo(self.analyzed)") > generate.index(
-        "self.collectHelpers(m)"
-    )
+    assert generate.rindex("disableExpressionInferenceMemo(self.analyzed)") > generate.index("self.collectHelpers(m)")
     assert gpu_fallback.index("gen.resetFuncVarDecls();") < gpu_fallback.index(
         "gen.lowerBlock(declaration.body_node, varTypes)"
     )

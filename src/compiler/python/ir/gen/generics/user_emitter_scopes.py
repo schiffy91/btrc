@@ -59,9 +59,9 @@ def emit_scoped_stmts(emitter, statements, *, iteration_bindings=()) -> list[IRS
         leave_generic_scope(emitter, frame)
 
 
-def declare_local(emitter, name: str) -> str:
+def declare_local(emitter, name: str, *, c_name: str | None = None) -> str:
     """Record a lexical declaration, including borrowed shadowing slots."""
-    c_name = declare_source_binding(emitter, name)
+    c_name = declare_source_binding(emitter, name, c_name=c_name)
     if emitter._local_ownership_scopes:
         emitter._local_ownership_scopes[-1][name] = None
     return c_name

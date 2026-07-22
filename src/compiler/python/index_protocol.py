@@ -42,9 +42,11 @@ class IndexedProtocol:
         return dict(zip(self.class_info.generic_params, object_type.generic_args))
 
 
-def indexed_protocol(type_expr, class_table) -> IndexedProtocol | None:
+def indexed_protocol(type_expr, class_table, *, active_type_params=None) -> IndexedProtocol | None:
     """Describe a direct class value that declares ``get`` or ``set``."""
     if type_expr is None or type_expr.is_array:
+        return None
+    if active_type_params and type_expr.base in active_type_params:
         return None
     info = class_table.get(type_expr.base)
     if info is None:

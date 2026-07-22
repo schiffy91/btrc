@@ -7,13 +7,17 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import artifact_paths as _paths
+from .artifact_storage import open_regular as _open_regular
 from .btrcc_bundle_archive import write_checksum, write_tar_gz, write_zip
 from .btrcc_bundle_publish import publish_bundle_artifacts
+from .btrcc_target_binary import TargetSpec, target_spec, validate_target_binary
 from .bundle_copy import copy_file as _copy_file
 
 FORMAT_VERSION = 1
@@ -32,11 +36,19 @@ class BundleResult:
 
 def _project_version(source_root: Path) -> str:
     pyproject = source_root / "pyproject.toml"
+    descriptor = -1
     try:
-        project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
+        descriptor = _open_regular(pyproject)
+        stream = os.fdopen(descriptor, "r", encoding="utf-8")
+        descriptor = -1
+        with stream:
+            project = tomllib.loads(stream.read())["project"]
         version = project["version"]
     except (FileNotFoundError, KeyError, tomllib.TOMLDecodeError) as error:
         raise ValueError(f"cannot read project version from {pyproject}: {error}") from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
     if not isinstance(version, str) or not version:
         raise ValueError(f"project.version in {pyproject} must be a non-empty string")
     return version
@@ -44,14 +56,16 @@ def _project_version(source_root: Path) -> str:
 
 def _source_files(stdlib: Path) -> list[Path]:
     files: list[Path] = []
-    for path in sorted(stdlib.rglob("*"), key=lambda value: value.as_posix()):
+
+    def excluded(path: Path) -> bool:
         relative = path.relative_to(stdlib)
-        if any(part in EXCLUDED_DIRECTORIES for part in relative.parts):
+        return any(part in EXCLUDED_DIRECTORIES for part in relative.parts)
+
+    for path, metadata in _paths.real_tree_entries(stdlib, exclude=excluded):
+        if path == stdlib or stat.S_ISDIR(metadata.st_mode):
             continue
-        if path.is_symlink():
-            raise ValueError(f"runtime source must not be a symlink: {path}")
-        if not path.is_file():
-            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"runtime source must be a regular file: {path}")
         if path.suffix not in RUNTIME_SUFFIXES:
             raise ValueError(f"unknown stdlib runtime source type: {path}")
         files.append(path)
@@ -62,24 +76,33 @@ def _source_files(stdlib: Path) -> list[Path]:
 
 
 def _hash_entry(path: Path, bundle: Path) -> dict[str, object]:
+    descriptor = _open_regular(path)
+    try:
+        stream = os.fdopen(descriptor, "rb")
+        descriptor = -1
+        with stream:
+            payload = stream.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
     return {
         "path": path.relative_to(bundle).as_posix(),
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "size": path.stat().st_size,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size": len(payload),
     }
 
 
-def _write_manifest(bundle: Path, target: str, version: str, epoch: int) -> None:
+def _write_manifest(bundle: Path, target: str, spec: TargetSpec, version: str, epoch: int) -> None:
     payload_files = [
         path
-        for path in sorted(bundle.rglob("*"), key=lambda value: value.as_posix())
-        if path.is_file() and path.name != "manifest.json"
+        for path, metadata in _paths.real_tree_entries(bundle)
+        if stat.S_ISREG(metadata.st_mode) and path.name != "manifest.json"
     ]
     manifest = {
         "format_version": FORMAT_VERSION,
         "version": version,
         "target": target,
-        "executable": "bin/btrcc.exe" if target.startswith("windows-") else "bin/btrcc",
+        "executable": spec.executable,
         "data_root": "share/btrc",
         "files": [_hash_entry(path, bundle) for path in payload_files],
     }
@@ -93,8 +116,8 @@ def _write_manifest(bundle: Path, target: str, version: str, epoch: int) -> None
     os.utime(destination, (epoch, epoch), follow_symlinks=False)
 
 
-def _write_readme(bundle: Path, target: str, version: str, epoch: int) -> None:
-    executable = "bin\\btrcc.exe" if target.startswith("windows-") else "bin/btrcc"
+def _write_readme(bundle: Path, target: str, spec: TargetSpec, version: str, epoch: int) -> None:
+    executable = spec.executable.replace("/", "\\") if spec.archive_suffix == ".zip" else spec.executable
     text = f"""btrcc {version} ({target})
 
 This is a relocatable self-hosted btrc compiler bundle. Keep bin/ and
@@ -126,7 +149,11 @@ SHA-256 digest of every bundled payload file.
 
 def _normalize_tree(bundle: Path, epoch: int) -> None:
     for directory in sorted(
-        (path for path in bundle.rglob("*") if path.is_dir()),
+        (
+            path
+            for path, metadata in _paths.real_tree_entries(bundle)
+            if path != bundle and stat.S_ISDIR(metadata.st_mode)
+        ),
         key=lambda value: len(value.parts),
         reverse=True,
     ):
@@ -149,38 +176,50 @@ def build_bundle(
 
     if not TARGET_PATTERN.fullmatch(target) or ".." in target:
         raise ValueError(f"invalid target name: {target!r}")
+    spec = target_spec(target)
     if epoch < 0 or epoch > MAX_ARCHIVE_EPOCH:
         raise ValueError(f"archive epoch must be between 0 and {MAX_ARCHIVE_EPOCH}")
-    if binary.is_symlink() or not binary.is_file():
-        raise ValueError(f"compiler binary is not a regular file: {binary}")
+    try:
+        _paths.require_real_regular(binary, "compiler binary")
+    except (FileNotFoundError, ValueError):
+        raise ValueError(f"compiler binary is not a regular file: {binary}") from None
+    _paths.require_real_directory(source_root, "bundle source root")
     grammar = source_root / "src" / "language" / "grammar.ebnf"
     stdlib = source_root / "src" / "stdlib"
     license_file = source_root / "LICENSE"
-    if grammar.is_symlink() or not grammar.is_file():
-        raise ValueError(f"required grammar is missing or not a regular file: {grammar}")
-    if not stdlib.is_dir() or stdlib.is_symlink():
-        raise ValueError(f"required stdlib directory is missing or invalid: {stdlib}")
-    if license_file.is_symlink() or not license_file.is_file():
-        raise ValueError(f"required license is missing or not a regular file: {license_file}")
+    try:
+        _paths.require_real_regular(grammar, "required grammar")
+    except (FileNotFoundError, ValueError):
+        raise ValueError(f"required grammar is missing or not a regular file: {grammar}") from None
+    try:
+        _paths.require_real_directory(stdlib, "required stdlib directory")
+    except (FileNotFoundError, ValueError):
+        raise ValueError(f"required stdlib directory is missing or invalid: {stdlib}") from None
+    try:
+        _paths.require_real_regular(license_file, "required license")
+    except (FileNotFoundError, ValueError):
+        raise ValueError(f"required license is missing or not a regular file: {license_file}") from None
     runtime_sources = _source_files(stdlib)
     bundle_name = f"btrcc-{target}"
     output_dir.mkdir(parents=True, exist_ok=True)
+    _paths.require_real_directory(output_dir, "bundle output directory")
     with tempfile.TemporaryDirectory(prefix=f".{bundle_name}.", dir=output_dir) as temporary:
         staged = Path(temporary) / bundle_name
-        executable_name = "btrcc.exe" if target.startswith("windows-") else "btrcc"
+        executable_name = Path(spec.executable).name
         _copy_file(binary, staged / "bin" / executable_name, 0o755, epoch)
+        validate_target_binary(staged / spec.executable, target)
         _copy_file(license_file, staged / "LICENSE", 0o644, epoch)
         _copy_file(grammar, staged / "share" / "btrc" / "language" / grammar.name, 0o644, epoch)
         for source in runtime_sources:
             _copy_file(source, staged / "share" / "btrc" / "stdlib" / source.relative_to(stdlib), 0o644, epoch)
         bundle_version = version or _project_version(source_root)
-        _write_readme(staged, target, bundle_version, epoch)
-        _write_manifest(staged, target, bundle_version, epoch)
+        _write_readme(staged, target, spec, bundle_version, epoch)
+        _write_manifest(staged, target, spec, bundle_version, epoch)
         _normalize_tree(staged, epoch)
         bundle = output_dir / bundle_name
-        archive_name = f"{bundle_name}.zip" if target.startswith("windows-") else f"{bundle_name}.tar.gz"
+        archive_name = f"{bundle_name}{spec.archive_suffix}"
         staged_archive = Path(temporary) / archive_name
-        if target.startswith("windows-"):
+        if spec.archive_suffix == ".zip":
             write_zip(staged, staged_archive, epoch)
         else:
             write_tar_gz(staged, staged_archive, epoch)

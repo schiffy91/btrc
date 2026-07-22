@@ -1,11 +1,14 @@
 /* GPU call-site lowering and per-site helper registration. */
 
-string gpuCallKernelName(IRGen gen, Node expression) {
+string gpuCallKernelName(IRGen gen, Node expression,
+        Map<string, Node> varTypes) {
     if (expression == null || expression.kind != NK_CALL_EXPR
             || expression.callee == null
             || expression.callee.kind != NK_IDENTIFIER) { return ""; }
     string name = expression.callee.name;
-    if (gen.gpu.kernels.has(name)) { return name; }
+    if (gen.gpu.kernels.has(name)
+            && !gen.hasClosureEnv(name)
+            && !varTypes.has(name)) { return name; }
     return "";
 }
 
@@ -54,13 +57,107 @@ void appendGpuPreparedSequence(GpuPreparedCall prepared,
     }
 }
 
+void appendGpuPreparedCleanup(GpuPreparedCall prepared,
+        Vector<IRNode> out) {
+    int index = 0;
+    while (index < prepared.cleanup.len) {
+        out.push(irExprStmt(prepared.cleanup.get(index)));
+        index = index + 1;
+    }
+}
+
+void appendGpuOutputTargetSequence(GpuOutputTargetPlan plan,
+        Vector<IRNode> out) {
+    int declaration = 0;
+    while (declaration < plan.declarations.len) {
+        out.push(plan.declarations.get(declaration));
+        declaration = declaration + 1;
+    }
+    int expression = 0;
+    while (expression < plan.sequence.len) {
+        out.push(irExprStmt(plan.sequence.get(expression)));
+        expression = expression + 1;
+    }
+}
+
+void appendGpuOutputTargetCleanup(GpuOutputTargetPlan plan,
+        Vector<IRNode> out) {
+    int index = 0;
+    while (index < plan.cleanup.len) {
+        out.push(irExprStmt(plan.cleanup.get(index)));
+        index = index + 1;
+    }
+}
+
+OwnershipBoundary? gpuOutputTargetBoundary(IRGen gen, Node target,
+        Map<string, Node> varTypes) {
+    Vector<Node> operands = [];
+    Vector<bool> owned = [];
+    Vector<bool> kept = [];
+    collectOwnedAssignmentTargetOperands(
+        gen, target, varTypes, operands, owned, kept, false);
+    bool required = false;
+    int index = 0;
+    while (index < owned.len) {
+        if (owned.get(index) || kept.get(index)) { required = true; }
+        index = index + 1;
+    }
+    if (!required) { return null; }
+    OwnershipBoundary boundary = OwnershipBoundary();
+    index = 0;
+    while (index < operands.len) {
+        Node operand = operands.get(index);
+        Node? operandType = gen.resolvedExpressionType(
+            operand, varTypes);
+        ownershipRequireType(operandType, operand);
+        boundary.addOperand(gen, operand, operandType,
+            owned.get(index), kept.get(index), varTypes);
+        index = index + 1;
+    }
+    return boundary;
+}
+
+void appendOwnedGpuOutputDispatch(IRGen gen, OwnershipBoundary boundary,
+        GpuPreparedCall prepared, GpuOutputTargetPlan output,
+        string helper, Vector<IRNode> helperArgs, Vector<IRNode> out) {
+    Vector<IRNode> declarations = output.declarations;
+    int index = 0;
+    while (index < prepared.declarations.len) {
+        declarations.push(prepared.declarations.get(index));
+        index = index + 1;
+    }
+    Vector<IRNode> sequence = output.sequence;
+    index = 0;
+    while (index < prepared.sequence.len) {
+        sequence.push(prepared.sequence.get(index));
+        index = index + 1;
+    }
+    sequence.push(irCall(helper, helperArgs));
+    index = 0;
+    while (index < prepared.cleanup.len) {
+        sequence.push(prepared.cleanup.get(index));
+        index = index + 1;
+    }
+    index = 0;
+    while (index < output.cleanup.len) {
+        sequence.push(output.cleanup.get(index));
+        index = index + 1;
+    }
+    boundary.restore(gen);
+    IRNode dispatch = irStmtExpr(
+        declarations, irCommaExpr(sequence));
+    out.push(irExprStmt(boundary.finish(
+        gen, dispatch, null, false)));
+}
+
 bool tryLowerGpuStatement(IRGen gen, Node statement,
         Map<string, Node> varTypes, Vector<IRNode> out) {
     Node call = null;
     Node target = null;
     bool declarationOutput = false;
     if (statement.kind == NK_VAR_DECL_STMT) {
-        string kernelName = gpuCallKernelName(gen, statement.initializer);
+        string kernelName = gpuCallKernelName(
+            gen, statement.initializer, varTypes);
         if (kernelName != ""
                 && gen.gpu.kernels.get(kernelName).output_buffer != null) {
             call = statement.initializer;
@@ -71,7 +168,8 @@ bool tryLowerGpuStatement(IRGen gen, Node statement,
             && statement.expr != null
             && statement.expr.kind == NK_ASSIGN_EXPR
             && statement.expr.op == "=") {
-        string kernelName = gpuCallKernelName(gen, statement.expr.value_node);
+        string kernelName = gpuCallKernelName(
+            gen, statement.expr.value_node, varTypes);
         if (kernelName != ""
                 && gen.gpu.kernels.get(kernelName).output_buffer != null) {
             call = statement.expr.value_node;
@@ -81,10 +179,37 @@ bool tryLowerGpuStatement(IRGen gen, Node statement,
     if (call == null) { return false; }
     string name = call.callee.name;
     IRGpuKernel kernel = gen.gpu.kernels.get(name);
-    Vector<IRNode> lowered = gen.lowerArgs(call, varTypes);
+    OwnershipBoundary? outputBoundary = null;
+    if (!declarationOutput) {
+        outputBoundary = gpuOutputTargetBoundary(
+            gen, target, varTypes);
+    }
+    GpuOutputTargetPlan outputPlan = null;
+    if (!declarationOutput) {
+        IRNode loweredTarget = gen.lowerExpr(target, varTypes);
+        outputPlan = prepareGpuOutputTarget(
+            gen, target, loweredTarget, varTypes);
+    }
+    IRNode explicitCapacity = null;
+    if (declarationOutput && statement.type != null
+            && statement.type.array_size != null) {
+        string sizeName = gen.freshTemp("__gpu_output_size");
+        IRNode sizeDeclaration = irVarDecl(
+            "int", sizeName,
+            gen.lowerExpr(statement.type.array_size, varTypes));
+        gen.funcVarDecls.push(sizeDeclaration);
+        out.push(sizeDeclaration);
+        explicitCapacity = irVar(sizeName);
+    }
+    Vector<IRNode> lowered = [];
     GpuPreparedCall prepared = prepareGpuCall(
-        gen, kernel, call, lowered, varTypes);
-    appendGpuPreparedSequence(prepared, out);
+        gen, kernel, call, lowered, varTypes, true);
+    if (outputBoundary == null) {
+        if (!declarationOutput) {
+            appendGpuOutputTargetSequence(outputPlan, out);
+        }
+        appendGpuPreparedSequence(prepared, out);
+    }
     IRNode outputValue = null;
     IRNode capacity = null;
     if (declarationOutput) {
@@ -94,24 +219,39 @@ bool tryLowerGpuStatement(IRGen gen, Node statement,
             gpuLoweringFail(statement,
                 "GPU array result requires an array declaration");
         }
+        IRNode logicalCapacity = prepared.dispatch_length;
+        if (explicitCapacity != null) {
+            logicalCapacity = explicitCapacity;
+        }
         IRNode storageCapacity = irTernary(
-            irBinOp(prepared.dispatch_length, ">", irLiteral("0")),
-            prepared.dispatch_length, irLiteral("1"));
+            irBinOp(logicalCapacity, ">", irLiteral("0")),
+            logicalCapacity, irLiteral("1"));
         out.push(irArrayVarDecl(gpuCElementType(kernel), statement.name,
             storageCapacity, null));
         outputValue = irVar(statement.name);
-        capacity = prepared.dispatch_length;
+        capacity = logicalCapacity;
         varTypes.put(statement.name, resultType);
-        gen.gpuHost.array_lengths.put(statement.name, capacity);
+        gen.gpuHost.array_lengths.put(
+            statement.name, prepared.dispatch_length);
+        gen.gpuHost.unknown_array_lengths.remove(statement.name);
     } else {
-        outputValue = gen.lowerExpr(target, varTypes);
-        capacity = gpuOutputCapacity(gen, target);
+        outputValue = outputPlan.data;
+        capacity = outputPlan.capacity;
     }
     string helper = ensureGpuDispatchHelper(gen, kernel);
     Vector<IRNode> helperArgs = prepared.helper_args;
     helperArgs.push(outputValue);
     helperArgs.push(capacity);
-    out.push(gpuCallStatement(helper, helperArgs));
+    if (outputBoundary != null) {
+        appendOwnedGpuOutputDispatch(gen, outputBoundary,
+            prepared, outputPlan, helper, helperArgs, out);
+    } else {
+        out.push(gpuCallStatement(helper, helperArgs));
+        appendGpuPreparedCleanup(prepared, out);
+        if (!declarationOutput) {
+            appendGpuOutputTargetCleanup(outputPlan, out);
+        }
+    }
     return true;
 }
 
@@ -123,10 +263,14 @@ IRNode lowerGpuDispatchExpression(IRGen gen, string name, Node call,
             "GPU array result must initialize or assign a capacity-known array");
     }
     GpuPreparedCall prepared = prepareGpuCall(
-        gen, kernel, call, loweredArgs, varTypes);
+        gen, kernel, call, loweredArgs, varTypes, true);
     string helper = ensureGpuDispatchHelper(gen, kernel);
     Vector<IRNode> sequence = prepared.sequence;
     sequence.push(irCall(helper, prepared.helper_args));
-    sequence.push(irLiteral("0"));
+    int index = 0;
+    while (index < prepared.cleanup.len) {
+        sequence.push(prepared.cleanup.get(index));
+        index = index + 1;
+    }
     return irStmtExpr(prepared.declarations, irCommaExpr(sequence));
 }

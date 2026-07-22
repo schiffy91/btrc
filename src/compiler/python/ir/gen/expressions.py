@@ -100,7 +100,15 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
         return IRVar(name="self")
 
     if isinstance(node, SuperExpr):
-        return IRVar(name="self")
+        parent_type = gen.analyzed.node_types.get(id(node))
+        if parent_type is None:
+            from .errors import CodegenError
+
+            raise CodegenError("unresolved super expression")
+        return IRCast(
+            target_type=CType(text=type_to_c(parent_type)),
+            expr=IRVar(name="self"),
+        )
 
     if isinstance(node, BinaryExpr):
         from .operators import _lower_binary
@@ -221,7 +229,7 @@ def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
     if predefined is not None:
         return IRLiteral(text=predefined)
     if gen.local_ownership_declared(name):
-        return IRVar(name=gen.source_binding_c_name(name))
+        return _source_identifier_var(gen, node, gen.source_binding_c_name(name))
     if is_source_runtime_helper(name) and not gen.local_ownership_declared(name):
         gen.use_helper(name)
         return IRFunctionRef(name=name)
@@ -239,15 +247,34 @@ def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
         from .function_symbols import source_function_c_name
 
         return IRFunctionRef(name=source_function_c_name(gen.analyzed, name))
-    return IRVar(name=name)
+    return _source_identifier_var(gen, node, name)
+
+
+def _source_identifier_var(gen, node, c_name):
+    from ..storage_provenance import record_array_value
+
+    return record_array_value(
+        IRVar(name=c_name),
+        gen.analyzed.node_types.get(id(node)),
+    )
 
 
 def _lower_sizeof(gen: IRGenerator, node: SizeofExpr) -> IRExpr:
     if isinstance(node.operand, SizeofType):
         return IRSizeof(operand=CType(text=type_to_c(node.operand.type)))
     elif isinstance(node.operand, SizeofExprOp):
-        inner = lower_expr(gen, node.operand.expr)
-        return IRSizeof(operand=inner)
+        expression = node.operand.expr
+        expression_type = gen.analyzed.node_types.get(id(expression))
+        # Non-array expression size depends only on its semantic C type. This
+        # also keeps intrinsically statement-shaped values (f-strings,
+        # collection literals, ownership conversions) out of strict-C sizeof.
+        if expression_type is not None and not expression_type.is_array and not isinstance(expression, StringLiteral):
+            return IRSizeof(operand=CType(text=type_to_c(expression_type)))
+        gen._unevaluated_depth += 1
+        try:
+            return IRSizeof(operand=lower_expr(gen, expression))
+        finally:
+            gen._unevaluated_depth -= 1
     return IRSizeof(operand=CType(text="void"))
 
 

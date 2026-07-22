@@ -6,6 +6,15 @@
  * formatting. Output ends with a trailing newline (lines joined by "\n" + "\n").
  */
 
+string qualifyVolatileObjectType(string ctype, bool isVolatile) {
+    if (!isVolatile) { return ctype; }
+    int length = ctype.length();
+    if (length > 0 && ctype.substring(length - 1, 1) == "*") {
+        return ctype + " volatile";
+    }
+    return "volatile " + ctype;
+}
+
 class CEmitter {
     public Vector<string> lines;
     public int indent;
@@ -216,7 +225,9 @@ class CEmitter {
         if (field.array_size != null) {
             suffix = "[" + self.expr(field.array_size) + "]";
         }
-        return field.c_type + " " + field.name + suffix + ";";
+        string ctype = qualifyVolatileObjectType(
+            field.c_type, field.is_volatile);
+        return ctype + " " + field.name + suffix + ";";
     }
 
     public void emitStruct(IRStructDef s) {
@@ -239,7 +250,9 @@ class CEmitter {
     }
 
     public void emitTypedef(IRTypedefDef d) {
-        self.line(f"typedef {d.target_type} {d.name};");
+        string targetType = qualifyVolatileObjectType(
+            d.target_type, d.is_volatile);
+        self.line(f"typedef {targetType} {d.name};");
         self.line("");
     }
 
@@ -296,13 +309,13 @@ class CEmitter {
         string storage = "";
         if (d.is_static) { storage = "static "; }
         else if (d.is_extern) { storage = "extern "; }
-        string vol = "";
-        if (d.is_volatile) { vol = "volatile "; }
+        string ctype = qualifyVolatileObjectType(d.c_type, d.is_volatile);
         string suffix = "";
         if (d.array_size != null) { suffix = "[" + self.expr(d.array_size) + "]"; }
+        else if (d.is_unsized_array) { suffix = "[]"; }
         string initializer = "";
         if (d.init != null) { initializer = " = " + self.expr(d.init); }
-        self.line(storage + vol + d.c_type + " " + d.name + suffix + initializer + ";");
+        self.line(storage + ctype + " " + d.name + suffix + initializer + ";");
     }
 
     /* --- function emission --- */
@@ -330,15 +343,8 @@ class CEmitter {
             while (i < declarations.len) {
                 IRParam p = declarations.get(i);
                 if (i > 0) { params = params + ", "; }
-                string paramType = p.c_type;
-                if (p.is_volatile) {
-                    int length = paramType.length();
-                    if (length > 0 && paramType.substring(length - 1, 1) == "*") {
-                        paramType = paramType + " volatile";
-                    } else {
-                        paramType = "volatile " + paramType;
-                    }
-                }
+                string paramType = qualifyVolatileObjectType(
+                    p.c_type, p.is_volatile);
                 params = params + paramType + " " + p.name;
                 i = i + 1;
             }
@@ -502,15 +508,8 @@ class CEmitter {
         string storage = "";
         if (declaration.is_static) { storage = "static "; }
         else if (declaration.is_extern) { storage = "extern "; }
-        string ctype = declaration.c_type;
-        if (declaration.is_volatile) {
-            int length = ctype.length();
-            if (length > 0 && ctype.substring(length - 1, 1) == "*") {
-                ctype = ctype + " volatile";
-            } else {
-                ctype = "volatile " + ctype;
-            }
-        }
+        string ctype = qualifyVolatileObjectType(
+            declaration.c_type, declaration.is_volatile);
         return storage + ctype;
     }
 

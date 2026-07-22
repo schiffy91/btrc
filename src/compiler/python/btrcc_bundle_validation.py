@@ -13,10 +13,15 @@ from typing import BinaryIO
 
 from . import btrcc_bundle_validation_archive
 from .artifact_storage import open_regular
+from .btrcc_archive_metadata import canonical_epoch
+from .btrcc_target_binary import target_spec, validate_target_binary_stream
 from .bundle_archive_source import (
     ContentSnapshot,
     bounded_bundle_entries,
     validate_bundle_snapshot,
+)
+from .bundle_archive_source import (
+    open_regular as open_archive_entry,
 )
 
 _MANIFEST_PATH = "share/btrc/manifest.json"
@@ -32,7 +37,8 @@ class _BundleSnapshot:
     files: dict[str, ContentSnapshot]
     directories: frozenset[str]
     executable: str
-    entries: tuple[tuple[str, int, int, int, bool], ...]
+    modified_time: int
+    entries: tuple[tuple[str, int, int, int, int, bool], ...]
 
 
 def _identity(metadata: os.stat_result) -> tuple[int, int, int]:
@@ -83,7 +89,7 @@ def _manifest_records(
     encoded: bytes,
     bundle_name: str,
     archive_name: str,
-) -> tuple[dict[str, ContentSnapshot], str]:
+) -> tuple[dict[str, ContentSnapshot], str, str]:
     try:
         manifest = json.loads(
             encoded.decode("utf-8"),
@@ -101,9 +107,12 @@ def _manifest_records(
     ):
         raise ValueError("bundle manifest has an invalid schema")
     target = manifest["target"]
-    windows = target.startswith("windows-")
-    expected_archive = f"{bundle_name}.zip" if windows else f"{bundle_name}.tar.gz"
-    executable = "bin/btrcc.exe" if windows else "bin/btrcc"
+    try:
+        spec = target_spec(target)
+    except ValueError as error:
+        raise ValueError("bundle manifest does not match its target artifacts") from error
+    expected_archive = f"{bundle_name}{spec.archive_suffix}"
+    executable = spec.executable
     if (
         not manifest["version"]
         or bundle_name != f"btrcc-{target}"
@@ -135,7 +144,7 @@ def _manifest_records(
         records[path] = bytes.fromhex(digest), size
     if list(records) != sorted(records) or executable not in records:
         raise ValueError("bundle manifest file records are not canonical")
-    return records, executable
+    return records, executable, target
 
 
 def _expected_directories(files: set[str]) -> frozenset[str]:
@@ -153,9 +162,24 @@ def _read_manifest(bundle: Path) -> bytes:
         return _read_exact(stream, os.fstat(stream.fileno()).st_size)
 
 
+def _expected_staged_mode(
+    *,
+    is_directory: bool,
+    is_executable: bool,
+    host_os_name: str,
+) -> int:
+    """Return the mode exposed by the host for a canonical staged entry."""
+
+    if host_os_name == "nt":
+        # Windows stat reports writable files as 0666 and directories as 0777;
+        # chmod cannot represent the canonical POSIX archive execute/group bits.
+        return 0o777 if is_directory else 0o666
+    return 0o755 if is_directory or is_executable else 0o644
+
+
 def _capture_bundle(bundle: Path, bundle_name: str, archive_name: str) -> _BundleSnapshot:
     encoded = _read_manifest(bundle)
-    records, executable = _manifest_records(encoded, bundle_name, archive_name)
+    records, executable, target = _manifest_records(encoded, bundle_name, archive_name)
     expected_files = set(records) | {_MANIFEST_PATH}
     directories = _expected_directories(expected_files)
     sizes = {path: content[1] for path, content in records.items()}
@@ -168,15 +192,38 @@ def _capture_bundle(bundle: Path, bundle_name: str, archive_name: str) -> _Bundl
         actual = actual_files.get(path)
         if actual is None or actual.content != expected:
             raise ValueError(f"bundle file does not match its manifest: {path}")
+    with open_archive_entry(actual_files[executable]) as stream:
+        validate_target_binary_stream(stream, target)
     state = []
+    modified_time = canonical_epoch(entry.modified_time_ns for entry in entries)
     for entry in entries:
         relative = entry.path.relative_to(bundle).as_posix()
-        expected_mode = 0o755 if entry.is_directory or relative == executable else 0o644
+        expected_mode = _expected_staged_mode(
+            is_directory=entry.is_directory,
+            is_executable=relative == executable,
+            host_os_name=os.name,
+        )
         if stat.S_IMODE(entry.mode) != expected_mode:
             raise ValueError(f"bundle artifact has a noncanonical mode: {relative}")
-        state.append((relative, entry.device, entry.inode, entry.mode, entry.is_directory))
+        state.append(
+            (
+                relative,
+                entry.device,
+                entry.inode,
+                entry.mode,
+                entry.modified_time_ns,
+                entry.is_directory,
+            )
+        )
     validate_bundle_snapshot(bundle, entries, files=sizes, directories=directories)
-    return _BundleSnapshot(encoded, records, directories, executable, tuple(state))
+    return _BundleSnapshot(
+        encoded,
+        records,
+        directories,
+        executable,
+        modified_time,
+        tuple(state),
+    )
 
 
 def _expected_archive(
@@ -239,8 +286,13 @@ def validate_bundle_generation(
             expected_files,
             expected_dirs,
             expected_modes,
+            snapshot.modified_time,
         )
     if _hash_artifact(archive) != digest_before or _checksum_text(checksum) != checksum_before:
         raise ValueError("bundle archive changed while being validated")
-    if _capture_bundle(bundle, bundle_name, archive_name) != snapshot:
+    try:
+        final_snapshot = _capture_bundle(bundle, bundle_name, archive_name)
+    except ValueError as error:
+        raise ValueError("bundle changed while its archive was being validated") from error
+    if final_snapshot != snapshot:
         raise ValueError("bundle changed while its archive was being validated")

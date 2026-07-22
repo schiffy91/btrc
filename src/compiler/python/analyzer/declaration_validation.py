@@ -12,6 +12,7 @@ from ..ast_nodes import (
     StructDecl,
     TypedefDecl,
 )
+from ..qualifier_provenance import effective_outer_const
 
 
 class RegisteredDeclarationValidationMixin:
@@ -51,6 +52,18 @@ class RegisteredDeclarationValidationMixin:
                             parameter.col,
                             role="field",
                         )
+                        if effective_outer_const(
+                            parameter.type,
+                            self.typedef_table,
+                        ):
+                            self._error(
+                                "Rich-enum payload "
+                                f"'{declaration.name}.{variant.name}.{parameter.name}' "
+                                "cannot use const storage until rich-enum "
+                                "constructors use structured initialization",
+                                parameter.line,
+                                parameter.col,
+                            )
                         self._validate_array_bound(
                             parameter.type,
                             f"rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'",
@@ -62,7 +75,7 @@ class RegisteredDeclarationValidationMixin:
                     f"Typedef '{declaration.alias}'",
                     declaration.line,
                     declaration.col,
-                    role="return",
+                    role="alias",
                 )
                 self._validate_array_bound(
                     declaration.original,

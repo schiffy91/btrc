@@ -1,0 +1,34 @@
+/* Structured physical fields shared by ordinary and generic class layouts. */
+
+IRStructField lowerInstanceStorageField(IRGen generator, Node member,
+        string storage, bool generic, Map<string, Node> typeMap) {
+    Node fieldType = member.type;
+    string cType = typeToC(fieldType, generator.analyzed);
+    if (generic) {
+        fieldType = resolveGenericType(
+            member.type, typeMap, generator.analyzed);
+        cType = genericTypeToC(
+            member.type, typeMap, generator.analyzed);
+    }
+
+    IRStructField field = IRStructField(cType, storage);
+    field.is_volatile = fieldType != null && fieldType.is_volatile;
+    field.effective_is_volatile = typeEffectiveOuterVolatile(
+        fieldType, generator.analyzed.typedefTable);
+    if (fieldType.is_array && fieldType.array_size != null) {
+        Node elementType = typeWithoutOuterArray(fieldType);
+        field.c_type = typeToC(elementType, generator.analyzed);
+        Map<string, Node> noVariables = {};
+        bool savedGeneric = generator.inGenericMethod;
+        Map<string, Node> savedTypeMap = generator.activeTypeMap;
+        if (generic) {
+            generator.inGenericMethod = true;
+            generator.activeTypeMap = typeMap;
+        }
+        field.array_size = generator.lowerExpr(
+            fieldType.array_size, noVariables);
+        generator.inGenericMethod = savedGeneric;
+        generator.activeTypeMap = savedTypeMap;
+    }
+    return field;
+}

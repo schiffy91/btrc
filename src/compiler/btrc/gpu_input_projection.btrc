@@ -1,0 +1,59 @@
+/* Projection roots whose storage must survive a split GPU dispatch call. */
+
+Node? gpuStructProjectionRoot(IRGen gen, Node? expression,
+        Map<string, Node> varTypes) {
+    if (expression == null || (expression.kind != NK_FIELD_ACCESS_EXPR
+            && expression.kind != NK_INDEX_EXPR)) { return null; }
+    Node? receiver = expression.obj;
+    if (receiver == null
+            || gen.owningTempOverrides.has(astNodeKey(receiver))) {
+        return null;
+    }
+    Node? receiverType = gen.resolvedExpressionType(
+        receiver, varTypes);
+    if (receiver.kind == NK_CALL_EXPR && receiverType != null
+            && receiverType.pointer_depth == 0
+            && !receiverType.is_array
+            && gen.analyzed.structTable.has(receiverType.base)) {
+        return receiver;
+    }
+    return gpuStructProjectionRoot(gen, receiver, varTypes);
+}
+
+Node? gpuManagedProjectionRoot(IRGen gen, Node? expression,
+        Map<string, Node> varTypes) {
+    if (expression == null || (expression.kind != NK_FIELD_ACCESS_EXPR
+            && expression.kind != NK_INDEX_EXPR)) { return null; }
+    Node? receiver = expression.obj;
+    if (receiver == null) { return null; }
+    string key = astNodeKey(receiver);
+    if (!gen.owningTempOverrides.has(key)) {
+        Node? receiverType = gen.resolvedExpressionType(
+            receiver, varTypes);
+        if (irManagedType(gen, receiverType)) { return receiver; }
+    }
+    return gpuManagedProjectionRoot(gen, receiver, varTypes);
+}
+
+void gpuAddInputProjectionRoots(OwnershipBoundary boundary,
+        IRGen gen, Node expression, Map<string, Node> varTypes) {
+    ownershipAddCallProjectionRoots(
+        boundary, gen, expression, varTypes);
+    Node? managedRoot = gpuManagedProjectionRoot(
+        gen, expression, varTypes);
+    if (managedRoot != null) {
+        Node? managedType = gen.resolvedExpressionType(
+            managedRoot, varTypes);
+        ownershipRequireType(managedType, managedRoot);
+        boundary.addOperand(gen, managedRoot,
+            managedType, false, true, varTypes);
+    }
+    Node? root = gpuStructProjectionRoot(
+        gen, expression, varTypes);
+    if (root == null
+            || gen.owningTempOverrides.has(astNodeKey(root))) { return; }
+    Node? rootType = gen.resolvedExpressionType(root, varTypes);
+    ownershipRequireType(rootType, root);
+    boundary.addOperand(
+        gen, root, rootType, false, false, varTypes);
+}

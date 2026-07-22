@@ -378,3 +378,13 @@ def test_bundle_flake_python_matches_repo_lsp_python():
     repo_py = re.search(r"lspPython = pkgs\.(python\d+)\.withPackages", repo_flake)
     assert repo_py, "repo flake no longer defines lspPython"
     assert bundle_py.group(1) == repo_py.group(1)
+
+
+def test_bundle_flake_nixpkgs_matches_repo_flake():
+    script = _PREPARE.read_text()
+    bundle_input = re.search(r'inputs\.nixpkgs\.url = "([^"]+)"', script)
+    assert bundle_input, "bundle flake no longer declares its nixpkgs input"
+    repo_flake = (REPO_ROOT / "flake.nix").read_text()
+    repo_input = re.search(r'inputs\.nixpkgs\.url = "([^"]+)"', repo_flake)
+    assert repo_input, "repo flake no longer declares its nixpkgs input"
+    assert bundle_input.group(1) == repo_input.group(1)

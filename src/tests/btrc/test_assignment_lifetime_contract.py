@@ -1,5 +1,6 @@
 """Assignment target lifetime and source-order regressions."""
 
+import re
 from pathlib import Path
 
 from src.tests.btrc.runtime_ownership_harness import (
@@ -9,9 +10,79 @@ from src.tests.btrc.runtime_ownership_harness import (
 from src.tests.btrc.test_ownership_semantics_contract import (
     _compile_reference_source,
 )
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.test_semantic_validation import (
+    _compile_source,
+    _strict_build_and_run,
+)
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+
+
+def test_assignment_boundary_dispatches_directly_to_plain_core() -> None:
+    repository = Path(__file__).resolve().parents[3]
+    source = (repository / "src/compiler/btrc/ownership_assignment_boundary.btrc").read_text()
+    start = source.index("IRNode? lowerOwnedAssignment(")
+    end = source.index("IRNode? lowerOwnedUnaryUpdate(", start)
+    boundary = source[start:end]
+    assert "lowerPlainAssignment(" in boundary
+    assert "generator.lowerExpr(expression" not in boundary
+
+
+def test_nested_managed_field_assignment_has_one_result_boundary(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = r"""
+        #include <assert.h>
+
+        int live_nodes = 0;
+
+        class Node {
+            public Node direct;
+            public Node() { live_nodes++; self.direct = null; }
+            public void __del__() { live_nodes--; }
+        }
+
+        Node makeChain() {
+            Node root = new Node();
+            root.direct = new Node();
+            return root;
+        }
+
+        void closeCycle(Node root) {
+            root.direct.direct = root;
+        }
+
+        int main() {
+            {
+                Node root = makeChain();
+                closeCycle(root);
+            }
+            assert(live_nodes == 0);
+            return 0;
+        }
+    """
+    selfhost, selfhost_c = _compile_source(
+        semantic_btrcc,
+        tmp_path,
+        source,
+    )
+    reference, reference_c = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+
+    selfhost_body = selfhost_c.read_text().rsplit("void closeCycle(", 1)[1].split("\nint main(void)", 1)[0]
+    boundary_pattern = r"\b__btrc_boundary_result_\d+\b"
+    assert len(set(re.findall(boundary_pattern, selfhost_body))) == 1
+
+    _strict_build_and_run(
+        selfhost_c,
+        tmp_path / "selfhost-nested-field-assignment",
+    )
+    _strict_build_and_run(
+        reference_c,
+        tmp_path / "reference-nested-field-assignment",
+    )
 
 
 def test_assignment_targets_survive_destructive_rhs(

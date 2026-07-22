@@ -82,9 +82,16 @@ def _assert_pool_terminal_contract(generated: str) -> None:
     ) or re.search(r"self\s*->\s*item\s*=\s*NULL", body)
     assert detached is not None, f"{destroy_name} must detach its managed item before terminal free:\n{body}"
     assert re.search(r"(?<!\w)free\s*\(\s*self\s*\)", body), body
-    assert re.search(rf"\b{re.escape(free_method)}\s*\([^;]*,\s*73\s*\)", generated), (
-        "the explicit source call to Pool.free(73) was not emitted"
+    direct_marker_call = re.search(
+        rf"\b{re.escape(free_method)}\s*\([^;]*,\s*73\s*\)",
+        generated,
     )
+    temp_marker_call = re.search(
+        rf"(\w+)\s*=\s*73[^;]*\b{re.escape(free_method)}\s*\([^;]*,\s*\1\s*\)",
+        generated,
+        re.S,
+    )
+    assert direct_marker_call or temp_marker_call, "the explicit source call to Pool.free(73) was not emitted"
 
 
 @pytest.fixture(scope="module")

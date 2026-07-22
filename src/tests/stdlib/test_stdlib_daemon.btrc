@@ -34,6 +34,25 @@ int main() {
     assert(FileSystem.isDir(dir));
     assert(FileSystem.chmod(dir, 448) == 0); // 0700
 
+    // Timeout zero observes current state exactly once; negative timeouts do
+    // not turn favorable filesystem state into a successful operation.
+    string timeoutPid = PathTools.join(dir, "timeout.control");
+    string timeoutToken = "fedcba9876543210fedcba9876543210";
+    writeControlRecord(timeoutPid, timeoutToken, 12345);
+    DaemonControlRecord timeoutRecord = DaemonControlProtocol.record(
+        timeoutPid);
+    assert(timeoutRecord.valid);
+    assert(DaemonControlProtocol.waitForRecord(timeoutPid, 0));
+    assert(!DaemonControlProtocol.waitForRecord(timeoutPid, -1));
+    assert(!DaemonControlProtocol.waitForRemoval(
+        timeoutPid, timeoutRecord, 0));
+    assert(!DaemonControlProtocol.probe(timeoutPid, timeoutRecord, -1));
+    assert(unlink(timeoutPid) == 0);
+    assert(DaemonControlProtocol.waitForRemoval(
+        timeoutPid, timeoutRecord, 0));
+    assert(!DaemonControlProtocol.waitForRemoval(
+        timeoutPid, timeoutRecord, -1));
+
     string pidFile = PathTools.join(dir, "live.control");
     string logFile = PathTools.join(dir, "live.log");
     DaemonSpec rendered = DaemonSpec(
@@ -66,13 +85,18 @@ int main() {
     assert(FileSystem.chmod(privateHome, 448) == 0);
     assert(setenv("HOME", privateHome, 1) == 0);
     DaemonSpec defaultLive = DaemonSpec(
-        "default-live", Command("sleep").arg("20"));
+        "default-live", Command("sleep").arg("60"));
     assert(controller.start(defaultLive).ok());
     string defaultState = PathTools.dirname(defaultLive.pidFile);
     FileStatus defaultStateStatus = FileStatus(defaultState);
     assert(defaultStateStatus.isDir());
     assert((defaultStateStatus.mode & 511) == 448);
-    assert(controller.stop(defaultLive).ok());
+    ExecResult defaultStop = controller.stop(defaultLive);
+    if (!defaultStop.ok()) {
+        fprintf(stderr, "default daemon stop failed (%d): %s\n",
+            defaultStop.code, defaultStop.err);
+    }
+    assert(defaultStop.ok());
     assert(unlink(defaultLive.logFile) == 0);
     if (previousHome.isEmpty()) {
         assert(unsetenv("HOME") == 0);
@@ -84,7 +108,7 @@ int main() {
     assert(rmdir(btrcState) == 0);
     assert(rmdir(privateHome) == 0);
 
-    DaemonSpec live = DaemonSpec("btrclive", Command("sleep").arg("20"))
+    DaemonSpec live = DaemonSpec("btrclive", Command("sleep").arg("60"))
         .pid(pidFile)
         .log(logFile);
     ExecResult liveStart = controller.start(live);
@@ -98,6 +122,33 @@ int main() {
     assert(controller.stop(live).ok());
     assert(!FileSystem.exists(pidFile));
     assert(!controller.status(live).ok());
+
+    // stop writes its token-bound request before waiting for confirmation.
+    // A temporarily descheduled supervisor can therefore resume and honor the
+    // request within the caller's one operation deadline.
+    DaemonSpec paused = DaemonSpec("paused", Command("sleep").arg("60"))
+        .pid(PathTools.join(dir, "paused.control"))
+        .log(PathTools.join(dir, "paused.log"));
+    assert(controller.start(paused).ok());
+    DaemonControlRecord pausedRecord = DaemonControlProtocol.record(
+        paused.pidFile);
+    assert(pausedRecord.valid);
+    assert(kill((pid_t)pausedRecord.supervisorPid, SIGSTOP) == 0);
+    ExecResult resumeScheduled = UnixShell().run(
+        f"(sleep 2; kill -CONT {pausedRecord.supervisorPid}) "
+            + "</dev/null >/dev/null 2>&1 &",
+        logFailure=false);
+    if (!resumeScheduled.ok()) {
+        kill((pid_t)pausedRecord.supervisorPid, SIGCONT);
+    }
+    assert(resumeScheduled.ok());
+    Timer pausedTimer = Timer();
+    pausedTimer.start();
+    assert(controller.stop(paused, timeoutMilliseconds=5000).ok());
+    pausedTimer.stop();
+    assert(pausedTimer.elapsedMillis() >= 1500.0f);
+    assert(pausedTimer.elapsedMillis() < 5000.0f);
+    assert(!FileSystem.exists(paused.pidFile));
 
     // autoRestart is implemented by the local supervisor, not just retained
     // as metadata for external service managers.
@@ -121,7 +172,7 @@ int main() {
     // record disappears only after the entire group is confirmed gone.
     string stubbornPid = PathTools.join(dir, "stubborn.control");
     string descendantFile = PathTools.join(dir, "stubborn-descendant");
-    string stubbornScript = "trap '' TERM; sleep 20 & echo $! > "
+    string stubbornScript = "trap '' TERM; sleep 60 & echo $! > "
         + UnixShell.quote(descendantFile) + "; wait";
     DaemonSpec stubborn = DaemonSpec("stubborn",
         Command("/bin/sh").arg("-c")
@@ -138,7 +189,7 @@ int main() {
     assert(controller.stop(stubborn).ok());
     timer.stop();
     assert(timer.elapsedMillis() >= 700.0f);
-    assert(timer.elapsedMillis() < 5000.0f);
+    assert(timer.elapsedMillis() < 8000.0f);
     assert(!FileSystem.exists(stubbornPid));
     int goneAttempts = 50;
     while (goneAttempts > 0 && kill((pid_t)descendantPid, 0) == 0) {
@@ -151,7 +202,7 @@ int main() {
     // A syntactically valid forged record pointing at an unrelated process
     // cannot redirect stop(): there is no capability acknowledgement.
     ExecResult spawned = UnixShell().run(
-        "sleep 20 </dev/null >/dev/null 2>&1 & echo $!",
+        "sleep 60 </dev/null >/dev/null 2>&1 & echo $!",
         logFailure=false);
     assert(spawned.ok());
     int unrelatedPid = DaemonControlRecord.parsePid(spawned.trimmed());
@@ -162,7 +213,7 @@ int main() {
     DaemonSpec forged = DaemonSpec("forged", Command("true"))
         .pid(forgedPid)
         .log(PathTools.join(dir, "forged.log"));
-    assert(!controller.stop(forged).ok());
+    assert(!controller.stop(forged, timeoutMilliseconds=250).ok());
     assert(kill((pid_t)unrelatedPid, 0) == 0 || errno == EPERM);
     kill((pid_t)unrelatedPid, SIGKILL);
     assert(FileSystem.exists(forgedPid));
@@ -176,7 +227,7 @@ int main() {
         .pid(stalePid)
         .log(PathTools.join(dir, "stale.log"));
     assert(!controller.status(stale).ok());
-    assert(!controller.stop(stale).ok());
+    assert(!controller.stop(stale, timeoutMilliseconds=250).ok());
     assert(FileSystem.exists(stalePid));
     assert(unlink(stalePid) == 0);
 

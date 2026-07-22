@@ -1,0 +1,41 @@
+/* A setjmp-backed try/catch followed by a write in the same switch case must
+ * preserve the pre-switch automatic across the continuation.  Each case is a
+ * lexical sequence of its own, so volatility analysis must not flatten or
+ * bypass the statements that follow the try/catch. */
+#include <assert.h>
+
+int main() {
+    int value = 0;
+    switch (1) {
+        case 1:
+            try {
+                throw "expected";
+            } catch (string error) {
+                assert(error.equals("expected"));
+            }
+            value = value + 1;
+            break;
+        default:
+            assert(false);
+    }
+
+    assert(value == 1);
+
+    int fallthroughValue = 0;
+    switch (1) {
+        case 1:
+            try {
+                throw "fallthrough";
+            } catch (string error) {
+                assert(error.equals("fallthrough"));
+            }
+        case 2:
+            fallthroughValue = fallthroughValue + 1;
+            break;
+        default:
+            assert(false);
+    }
+    assert(fallthroughValue == 1);
+    print("PASS: test_exceptions_switch_case_continuation");
+    return 0;
+}

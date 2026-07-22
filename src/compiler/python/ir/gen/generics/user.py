@@ -6,10 +6,12 @@ from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
 from ....type_identity import generic_instance_key, type_references_names
-from ...nodes import CType, IRStructDef, IRStructField, IRStructForward
+from ...nodes import IRStructDef, IRStructForward
 from ..arc_metadata import arc_header_field
+from ..class_storage_fields import lower_instance_storage_field
 from ..types import mangle_generic_type, type_to_c
-from .core import _resolve_type, _resolve_type_c
+from .core import _resolve_type
+from .user_emitter import _UserGenericEmitter
 from .user_methods import _emit_user_generic_methods
 
 if TYPE_CHECKING:
@@ -93,14 +95,27 @@ def _emit_user_generic_instance(gen: IRGenerator, base_name: str, args: list[Typ
     # A concrete generic instance carries the same first-member ARC header as
     # an ordinary class; its descriptor is emitted by the lifecycle pass.
     fields = [arc_header_field(gen)]
+    bound_emitter = _UserGenericEmitter(
+        type_map,
+        mangled,
+        type_to_c,
+        gen=gen,
+        cls_info=cls_info,
+    )
     for name, fd in cls_info.instance_storage:
-        c_type = _resolve_type_c(
+        resolved = _resolve_type(
             fd.type,
             type_map,
             gen.analyzed.typedef_table,
-            render=type_to_c,
         )
-        fields.append(IRStructField(c_type=CType(text=c_type), name=name))
+        fields.append(
+            lower_instance_storage_field(
+                gen,
+                name,
+                resolved,
+                bound_lowerer=bound_emitter._expr,
+            )
+        )
     gen.module.struct_defs.append(IRStructDef(name=mangled, fields=fields))
 
     # Emit constructor, destructor, and methods

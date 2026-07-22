@@ -3,6 +3,7 @@
 // unary operand: (int)-d casts -d, (long)*p casts *p, etc. Existing tests only
 // cover a cast followed by a binary operator, never a unary operand.
 #include <assert.h>
+#include <stdint.h>
 
 int main() {
     // cast of a unary negation
@@ -21,8 +22,9 @@ int main() {
     bool b = false;
     assert((int)!b == 1);
 
-    // cast of an address-of, then back: (long)&x is the pointer value, nonzero
-    assert((long)&x != 0);
+    // cast of an address-of through C's portable signed pointer-width carrier;
+    // const makes the type syntax explicit while '&' remains the unary operand
+    assert((const intptr_t)&x != (intptr_t)0);
 
     print("PASS: test_cast_followed_by_unary");
     return 0;

@@ -26,9 +26,11 @@ void emitInheritedPropertyForwardDecls(IRGen generator, Node declaration,
                     "void", false);
                 setter.params.push(IRParam(
                     declaration.name + "*", "self"));
-                setter.params.push(IRParam(propertyType,
+                setter.params.push(lowerNamedSourceTypeParam(
+                    property.type, propertyType,
                     sourceLexicalBindingCNameForAnalysis(
-                        "value", generator.analyzed)));
+                        "value", generator.analyzed),
+                    generator.analyzed));
                 module.function_decls.push(setter);
             }
         }
@@ -70,7 +72,9 @@ void emitInheritedProperties(IRGen generator, Node declaration,
                 setter.return_type = "void";
                 setter.params.push(IRParam(
                     declaration.name + "*", "self"));
-                setter.params.push(IRParam(propertyType, valueCName));
+                setter.params.push(lowerNamedSourceTypeParam(
+                    property.type, propertyType, valueCName,
+                    generator.analyzed));
                 Vector<IRNode> arguments = [];
                 arguments.push(irCast(parent + "*", irVar("self")));
                 arguments.push(irVar(valueCName));
@@ -126,9 +130,11 @@ void emitGenericPropertyForwardDecls(IRGen generator, GenInstance instance,
                     "void", true);
                 setter.params.push(IRParam(
                     instance.mangled + "*", "self"));
-                setter.params.push(IRParam(propertyType,
+                setter.params.push(lowerNamedSourceTypeParam(
+                    resolvedType, propertyType,
                     sourceLexicalBindingCNameForAnalysis(
-                        "value", generator.analyzed)));
+                        "value", generator.analyzed),
+                    generator.analyzed));
                 module.function_decls.push(setter);
             }
         }
@@ -141,6 +147,7 @@ void emitGenericProperties(IRGen generator, GenInstance instance,
     string savedReturnCType = generator.currentReturnCType;
     Node? savedReturnType = generator.currentReturnTypeNode;
     bool savedReturnOwned = generator.currentReturnOwned;
+    string savedPropertyBacking = generator.currentPropertyBacking;
     int index = 0;
     while (index < declaration.members.len) {
         Node property = declaration.members.get(index);
@@ -164,12 +171,20 @@ void emitGenericProperties(IRGen generator, GenInstance instance,
                 } else {
                     generator.currentReturnCType = propertyType;
                     generator.currentReturnTypeNode = resolvedType;
-                    generator.currentReturnOwned = false;
+                    /* Custom getters are call-shaped +1 projections. */
+                    generator.currentReturnOwned = true;
+                    if (propertyNeedsBacking(property)) {
+                        generator.currentPropertyBacking = property.name;
+                    } else {
+                        generator.currentPropertyBacking = "";
+                    }
                     generator.resetFuncVarDecls();
                     Map<string, Node> variables = genericPropertyVarTypes(
                         generator, instance, property, typeMap, false);
                     IRNode block = generator.lowerBlock(
                         property.getter_body, variables);
+                    generator.currentPropertyBacking =
+                        savedPropertyBacking;
                     int statement = 0;
                     while (statement < block.stmts.len) {
                         body.push(block.stmts.get(statement));
@@ -188,7 +203,9 @@ void emitGenericProperties(IRGen generator, GenInstance instance,
                 setter.is_static = true;
                 setter.params.push(IRParam(
                     instance.mangled + "*", "self"));
-                setter.params.push(IRParam(propertyType, valueCName));
+                setter.params.push(lowerNamedSourceTypeParam(
+                    resolvedType, propertyType, valueCName,
+                    generator.analyzed));
                 Vector<IRNode> body = [];
                 if (property.setter_body == null) {
                     emitAutoPropertyStore(generator, resolvedType,
@@ -198,6 +215,11 @@ void emitGenericProperties(IRGen generator, GenInstance instance,
                     generator.currentReturnCType = "void";
                     generator.currentReturnTypeNode = null;
                     generator.currentReturnOwned = false;
+                    if (propertyNeedsBacking(property)) {
+                        generator.currentPropertyBacking = property.name;
+                    } else {
+                        generator.currentPropertyBacking = "";
+                    }
                     generator.resetFuncVarDecls();
                     Map<string, Node> variables = genericPropertyVarTypes(
                         generator, instance, property, typeMap, true);
@@ -209,6 +231,8 @@ void emitGenericProperties(IRGen generator, GenInstance instance,
                     generator.activateSourceLexicalBinding("value");
                     IRNode block = generator.lowerBlock(
                         property.setter_body, variables);
+                    generator.currentPropertyBacking =
+                        savedPropertyBacking;
                     generator.restoreSourceLexicalBindings(sourceBindings);
                     int statement = 0;
                     while (statement < block.stmts.len) {
@@ -225,4 +249,5 @@ void emitGenericProperties(IRGen generator, GenInstance instance,
     generator.currentReturnCType = savedReturnCType;
     generator.currentReturnTypeNode = savedReturnType;
     generator.currentReturnOwned = savedReturnOwned;
+    generator.currentPropertyBacking = savedPropertyBacking;
 }

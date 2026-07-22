@@ -134,13 +134,15 @@ void semanticClaimEnumSymbols(Node declaration,
     int index = 0;
     while (index < declaration.values.len) {
         Node value = declaration.values.get(index);
-        string emittedName = value.name;
-        if (declaration.name != "") {
-            emittedName = declaration.name + "_" + value.name;
+        if (declaration.name == "") {
+            semanticClaimSymbol(symbols, value.name,
+                "enum value '" + value.name + "'", value);
+        } else {
+            string emittedName = declaration.name + "_" + value.name;
+            semanticClaimGeneratedSymbol(state, symbols, emittedName,
+                "enum value '" + declaration.name + "." + value.name + "'",
+                value);
         }
-        semanticClaimGeneratedSymbol(state, symbols, emittedName,
-            "enum value '" + declaration.name + "." + value.name + "'",
-            value);
         index = index + 1;
     }
     if (declaration.name != "") {

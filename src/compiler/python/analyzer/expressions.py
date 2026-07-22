@@ -256,6 +256,7 @@ class ExpressionsMixin:
                         expr.line,
                         expr.col,
                     )
+                    self._validate_mutex_volatile_initializer(expected, expr)
                     if actual and not self._types_compatible(expected, actual):
                         self._error(
                             f"Mutex initializer expects "

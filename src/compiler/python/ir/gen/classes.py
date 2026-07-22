@@ -12,6 +12,7 @@ from ...ast_nodes import (
     StructDecl,
     TypeExpr,
 )
+from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import (
     CType,
     IRStructDef,
@@ -36,6 +37,7 @@ from .class_properties import (
     emit_property as _emit_property,
 )
 from .class_static_fields import emit_static_fields as _emit_static_fields
+from .class_storage_fields import lower_instance_storage_field
 from .class_visitors import emit_class_visitor
 from .types import type_to_c
 
@@ -61,10 +63,25 @@ def emit_struct_decl(gen: IRGenerator, decl: StructDecl):
                     c_type=CType(text=type_to_c(base_type)),
                     name=f.name,
                     array_size=lower_expr(gen, f.type.array_size),
+                    is_volatile=bool(f.type.is_volatile),
+                    effective_is_volatile=effective_outer_volatile(
+                        f.type,
+                        gen.analyzed.typedef_table,
+                    ),
                 )
             )
         else:
-            fields.append(IRStructField(c_type=CType(text=type_to_c(f.type)), name=f.name))
+            fields.append(
+                IRStructField(
+                    c_type=CType(text=type_to_c(f.type)),
+                    name=f.name,
+                    is_volatile=bool(f.type and f.type.is_volatile),
+                    effective_is_volatile=effective_outer_volatile(
+                        f.type,
+                        gen.analyzed.typedef_table,
+                    ),
+                )
+            )
     gen.module.struct_defs.append(
         IRStructDef(
             name=decl.name,
@@ -139,12 +156,7 @@ def _emit_class_struct(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
     fields.append(arc_header_field(gen))
 
     for storage_name, member in cls_info.instance_storage:
-        fields.append(
-            IRStructField(
-                c_type=CType(text=type_to_c(member.type)),
-                name=storage_name,
-            )
-        )
+        fields.append(lower_instance_storage_field(gen, storage_name, member.type))
 
     gen.module.struct_defs.append(
         IRStructDef(

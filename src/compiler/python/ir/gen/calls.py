@@ -27,6 +27,7 @@ from .arguments import (
     resolved_constructor_params,
 )
 from .call_builtins import lower_len, lower_mutex_constructor, lower_print
+from .call_callees import lower_callee_expression
 from .errors import CodegenError
 from .function_symbols import source_function_c_name
 from .generic_intrinsics import lower_generic_intrinsic
@@ -39,7 +40,6 @@ if TYPE_CHECKING:
 def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     """Lower a function/method call."""
     from .callable_boundaries import reject_unsafe_managed_callback_arguments
-    from .expressions import lower_expr
 
     reject_unsafe_managed_callback_arguments(gen, node)
 
@@ -63,6 +63,11 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     if isinstance(node.callee, Identifier):
         name = node.callee.name
         is_local = gen.local_ownership_declared(name)
+        from .gpu import lower_direct_gpu_call
+
+        direct_gpu = lower_direct_gpu_call(gen, node)
+        if direct_gpu is not None:
+            return direct_gpu
         args = lower_arg_values(gen, node.args)
 
         # Lexical callables shadow functions, constructors, and special forms.
@@ -76,11 +81,8 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
                 )
             )
             return IRCall(callee=fn_name, args=args)
-        if is_local:
-            return IRCall(
-                callee=IRVar(name=gen.source_binding_c_name(name)),
-                args=args,
-            )
+        if is_local or name in gen.analyzed.global_var_types:
+            return lower_callee_expression(gen, node.callee, args)
 
         source_call = name in gen.analyzed.function_table and id(node) not in gen.analyzed.hosted_call_ids
 
@@ -117,6 +119,7 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
                 node.args,
                 arg_names_for(node, len(node.args)),
                 args,
+                call=node,
             )
 
         # Mutex(val) constructor → __btrc_mutex_val_create(boxed_val)
@@ -166,7 +169,7 @@ def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
 
     # Generic/complex callee
     args = lower_arg_values(gen, node.args)
-    return IRCall(callee=lower_expr(gen, node.callee), args=args)
+    return lower_callee_expression(gen, node.callee, args)
 
 
 def _fill_defaults(

@@ -35,11 +35,14 @@ from .expression_contracts import ExpressionContractsMixin
 from .expression_ownership import ExpressionOwnershipContractsMixin
 from .expressions import ExpressionsMixin
 from .for_in_analysis import ForInAnalysisMixin
+from .function_parameters import FunctionParameterContractsMixin
 from .functions import FunctionsMixin
 from .generated_symbols import GeneratedSymbolContractsMixin
 from .generic_intrinsics import GenericIntrinsicValidationMixin
 from .generic_methods import GenericMethodsMixin
 from .generic_validation import GenericValidationMixin
+from .gpu_array_contracts import GpuArrayContractsMixin
+from .gpu_result_contexts import GpuResultContextContractsMixin
 from .hierarchy import HierarchyValidationMixin
 from .hosted_abi_contracts import HostedAbiContractsMixin
 from .hosted_abi_declarations import HostedAbiDeclarationContractsMixin
@@ -91,6 +94,8 @@ class Analyzer(
     AggregateContractsMixin,
     AggregateLayoutContractsMixin,
     ArrayContractsMixin,
+    GpuArrayContractsMixin,
+    GpuResultContextContractsMixin,
     CastContractsMixin,
     DeclarationNamesMixin,
     DeclarationContractsMixin,
@@ -147,6 +152,7 @@ class Analyzer(
     VariableDeclarationAnalysisMixin,
     StatementsMixin,
     SourceMacroContractsMixin,
+    FunctionParameterContractsMixin,
     FunctionsMixin,
     OccurrencesMixin,
     DeclarationRegistrationMixin,

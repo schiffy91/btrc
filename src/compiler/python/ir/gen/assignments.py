@@ -54,7 +54,7 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
         from .assignment_result_ownership import virtual_assignment_rhs_owns_result
         from .ownership_boundary import sequence_owned_operands
 
-        result_type = gen.analyzed.node_types.get(id(node))
+        result_type = None if _is_gpu_output_assignment(gen, node) else gen.analyzed.node_types.get(id(node))
         prepared_targets = _prepared_index_targets(gen, node)
         rhs_supplies_result = bool(
             node.op == "="
@@ -130,6 +130,14 @@ def _prepared_index_targets(gen, node):
 
 def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     """Lower one assignment after any owning target is stabilized."""
+    # Array-returning GPU dispatch writes through an existing array/collection
+    # target; it does not rebind a managed collection owner.  Recognize that
+    # storage operation before the ordinary ARC assignment handlers lower its
+    # RHS as an unsupported value-producing GPU call.
+    gpu_assignment = _lower_gpu_assignment(gen, node)
+    if gpu_assignment is not None:
+        return gpu_assignment
+
     from .local_arc import lower_managed_local_assignment
 
     managed_local = lower_managed_local_assignment(gen, node)
@@ -142,26 +150,16 @@ def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     if managed_field is not None:
         return managed_field
 
-    gpu_assignment = _lower_gpu_assignment(gen, node)
-    if gpu_assignment is not None:
-        return gpu_assignment
-
     from .updates import generator_update_context, lower_assignment
 
     return lower_assignment(generator_update_context(gen), node)
 
 
 def _lower_gpu_assignment(gen: IRGenerator, node: AssignExpr):
-    if node.op != "=":
-        return None
-    from ...ast_nodes import CallExpr
-    from .gpu_dispatch import lower_gpu_output_assignment, output_gpu_call_name
-
-    if not isinstance(node.value, CallExpr):
-        return None
-    if output_gpu_call_name(gen, node.value) is None:
+    if not _is_gpu_output_assignment(gen, node):
         return None
     from .expressions import lower_expr
+    from .gpu_dispatch import lower_gpu_output_assignment
 
     target = lower_expr(gen, node.target)
     return lower_gpu_output_assignment(
@@ -169,6 +167,22 @@ def _lower_gpu_assignment(gen: IRGenerator, node: AssignExpr):
         node.value,
         node.target,
         target,
+    )
+
+
+def _is_gpu_output_assignment(gen: IRGenerator, node: AssignExpr) -> bool:
+    if not isinstance(node, AssignExpr) or node.op != "=":
+        return False
+    from ...ast_nodes import CallExpr
+    from .gpu_dispatch import output_gpu_call_name
+
+    return (
+        isinstance(node.value, CallExpr)
+        and output_gpu_call_name(
+            gen,
+            node.value,
+        )
+        is not None
     )
 
 

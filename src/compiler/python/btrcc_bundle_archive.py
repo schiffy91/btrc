@@ -12,6 +12,7 @@ import zipfile
 from pathlib import Path
 
 from . import bundle_archive_source as _archive_source
+from .btrcc_archive_metadata import canonical_tar_info, canonical_zip_timestamp
 
 _ArchiveEntry = _archive_source.ArchiveEntry
 _bundle_entries = _archive_source.bundle_entries
@@ -44,20 +45,13 @@ def _portable_mode(entry: _ArchiveEntry, bundle: Path) -> int:
 def _tar_info(entry: _ArchiveEntry, bundle: Path, epoch: int) -> tarfile.TarInfo:
     relative = entry.path.relative_to(bundle.parent).as_posix()
     name = relative + ("/" if entry.is_directory else "")
-    info = tarfile.TarInfo(name)
-    info.mtime = epoch
-    info.uid = 0
-    info.gid = 0
-    info.uname = ""
-    info.gname = ""
-    if entry.is_directory:
-        info.type = tarfile.DIRTYPE
-        info.mode = _portable_mode(entry, bundle)
-    else:
-        info.type = tarfile.REGTYPE
-        info.mode = _portable_mode(entry, bundle)
-        info.size = entry.size
-    return info
+    return canonical_tar_info(
+        name,
+        is_directory=entry.is_directory,
+        mode=_portable_mode(entry, bundle),
+        size=entry.size,
+        modified_time=epoch,
+    )
 
 
 def write_tar_gz(bundle: Path, destination: Path, epoch: int) -> None:
@@ -98,14 +92,6 @@ def write_tar_gz(bundle: Path, destination: Path, epoch: int) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def _zip_timestamp(epoch: int) -> tuple[int, int, int, int, int, int]:
-    # ZIP cannot represent dates before 1980-01-01.
-    import datetime
-
-    value = datetime.datetime.fromtimestamp(max(epoch, 315532800), datetime.UTC)
-    return value.year, value.month, value.day, value.hour, value.minute, value.second & ~1
-
-
 def write_zip(bundle: Path, destination: Path, epoch: int) -> None:
     """Write a deterministic ZIP archive with portable Unix mode metadata."""
 
@@ -129,7 +115,7 @@ def write_zip(bundle: Path, destination: Path, epoch: int) -> None:
                 for entry in entries:
                     relative = entry.path.relative_to(bundle.parent).as_posix()
                     name = relative + ("/" if entry.is_directory else "")
-                    info = zipfile.ZipInfo(name, _zip_timestamp(epoch))
+                    info = zipfile.ZipInfo(name, canonical_zip_timestamp(epoch))
                     info.create_system = 3
                     if entry.is_directory:
                         _validate_directory(entry)

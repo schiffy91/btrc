@@ -154,6 +154,14 @@ void semanticValidateForIn(Node statement, SemanticValidationState state,
                     "String iteration has exactly one loop variable", statement);
             }
         } else if (iterableType != null && iterableType.is_array) {
+            if (!semanticArrayTargetHasCapacity(
+                    statement.iterable, iterableType, state, vars)) {
+                semanticValidationFail(
+                    "Array for-in iterable has no provable element capacity",
+                    statement);
+            }
+            state.analyzed.arrayIterationCapacityKeys.put(
+                astNodeKey(statement.iterable), true);
             first = typeWithoutOuterArray(iterableType);
             if (statement.var_name2 != null) {
                 semanticValidationFail(

@@ -46,6 +46,15 @@ void semanticValidateClassBodies(Node declaration,
                 "field '" + declaration.name + "." + member.name + "'",
                 "field", member, state, fieldVars);
             Node? canonicalField = semanticResolveAliases(member.type, state);
+            if (canonicalField != null && canonicalField.is_array
+                    && canonicalField.array_size != null) {
+                Node elementType = typeWithoutOuterArray(canonicalField);
+                if (semanticManagedOwnershipType(elementType, state)) {
+                    semanticValidationFail("Field '" + declaration.name + "."
+                        + member.name + "' cannot contain managed elements "
+                        + "without elementwise ownership support", member);
+                }
+            }
             if (member.access == "class" && canonicalField != null
                     && canonicalField.base == "Mutex") {
                 semanticValidationFail("Static field '" + declaration.name
@@ -62,6 +71,20 @@ void semanticValidateClassBodies(Node declaration,
                     member);
             }
             if (member.initializer != null) {
+                Node? fieldValueType = semanticArrayFieldValueType(
+                    member, state);
+                Node? canonicalFieldValue = semanticResolveAliases(
+                    fieldValueType, state);
+                if (member.access == "class"
+                        && canonicalField != null && canonicalField.is_array
+                        && canonicalFieldValue != null
+                        && !canonicalFieldValue.is_array
+                        && semanticAggregateArrayBacking(
+                            member.initializer)) {
+                    semanticValidationFail("Field '" + declaration.name + "."
+                        + member.name + "' cannot use aggregate backing for "
+                        + "a pointer-valued array field", member);
+                }
                 if (member.access != "class" && canonicalField != null
                         && canonicalField.is_array
                         && (member.initializer.kind == NK_BRACE_INITIALIZER
@@ -82,7 +105,7 @@ void semanticValidateClassBodies(Node declaration,
                 contextualizeGenericConstructor(
                     member.type, member.initializer, state, fieldVars);
                 semanticValidateExpr(member.initializer, state, fieldVars);
-                semanticValidateTypedInitializer(member.type,
+                semanticValidateTypedInitializer(fieldValueType,
                     member.initializer, "Field '" + declaration.name + "."
                         + member.name + "'", state, fieldVars);
                 Node? actual = semanticInferType(
@@ -91,7 +114,7 @@ void semanticValidateClassBodies(Node declaration,
                         && !semanticContextualAggregateInitializer(
                             member.initializer)
                         && !semanticAssignmentCompatible(
-                            member.type, actual, state)) {
+                            fieldValueType, actual, state)) {
                     semanticValidationFail("Field '" + declaration.name + "."
                         + member.name + "' expects '"
                         + semanticFormatType(member.type) + "' but got '"
@@ -107,6 +130,12 @@ void semanticValidateClassBodies(Node declaration,
             semanticRejectRuntimeInterfaceType(member.type, member, state);
             Node? canonicalProperty =
                 semanticResolveAliases(member.type, state);
+            if (canonicalProperty != null && canonicalProperty.is_array
+                    && canonicalProperty.array_size != null) {
+                semanticValidationFail("Property '" + declaration.name + "."
+                    + member.name + "' cannot use fixed-size array storage; "
+                    + "use an instance field plus accessors", member);
+            }
             if (member.has_setter && canonicalProperty != null
                     && canonicalProperty.is_const
                     && canonicalProperty.pointer_depth == 0) {

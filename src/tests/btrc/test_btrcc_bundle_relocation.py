@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.btrcc_bundle import build_bundle
+from src.compiler.python.btrcc_target_binary import host_target, target_spec
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -50,14 +51,15 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
+    target = host_target()
     distribution = build_bundle(
         binary=semantic_btrcc,
-        target="native-relocation-test",
+        target=target,
         output_dir=tmp_path / "dist",
         source_root=REPO,
         epoch=0,
     )
-    compiler = distribution.bundle / "bin/btrcc"
+    compiler = distribution.bundle / target_spec(target).executable
     data_root = distribution.bundle / "share/btrc"
     unrelated = tmp_path / "unrelated-working-directory"
     unrelated.mkdir()

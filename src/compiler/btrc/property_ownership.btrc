@@ -47,8 +47,9 @@ IRNode lowerPropertyStoreCore(IRGen generator, Node assignment,
         assignment.value_node, varTypes);
     value = generator.upcastClassPointer(
         propertyType, sourceType, value);
-    if (target.obj.kind == NK_SELF_EXPR
-            && propertyNeedsBacking(property)) {
+    if (propertyTargetUsesBacking(
+            target.obj, target.field,
+            generator.currentPropertyBacking)) {
         return irBinOp(irFieldAccess(receiver,
             instanceStorageName(property), true), "=", value);
     }
@@ -79,8 +80,9 @@ IRNode lowerPropertyStoreWithOwnership(IRGen generator, Node assignment,
         Node receiverType, Node property, Node propertyType,
         Map<string, Node> varTypes) {
     Node target = assignment.target;
-    bool directBacking = target.obj.kind == NK_SELF_EXPR
-        && propertyNeedsBacking(property);
+    bool directBacking = propertyTargetUsesBacking(
+        target.obj, target.field,
+        generator.currentPropertyBacking);
     if (directBacking) {
         return lowerPropertyStoreCore(generator, assignment,
             receiverType, property, propertyType, varTypes);

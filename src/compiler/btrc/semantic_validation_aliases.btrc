@@ -9,8 +9,26 @@ Node? semanticResolveAliases(Node? typeExpr,
     return resolveTypedefType(typeExpr, state.analyzed.typedefTable);
 }
 
+/* An array typedef names its C pointer value (`typedef T* Alias`), while a raw
+ * outer `T[]` declarator still denotes array storage. Preserve that source
+ * boundary before canonical alias expansion erases it. */
+Node? semanticArrayValueType(Node? typeExpr,
+        SemanticValidationState state) {
+    Node? canonical = semanticResolveAliases(typeExpr, state);
+    if (typeExpr == null || canonical == null
+            || typeExpr.is_array || !canonical.is_array) {
+        return typeExpr;
+    }
+    return typeWithOuterPointer(typeWithoutOuterArray(canonical));
+}
+
 Node? semanticInferType(Node? expression, SemanticValidationState state,
         Map<string, Node> vars) {
+    if (expression != null && expression.kind == NK_INDEX_EXPR) {
+        Node? objectType = semanticInferType(expression.obj, state, vars);
+        return semanticResolveAliases(
+            semanticIndexResultTypeInState(objectType, state), state);
+    }
     if (state.gpuCallable) {
         return semanticResolveAliases(
             gpuContextualExprType(expression, state.analyzed, vars), state);

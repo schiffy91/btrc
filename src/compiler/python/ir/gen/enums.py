@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import EnumDecl, RichEnumDecl
+from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import (
     CType,
     IRAssign,
@@ -124,6 +125,11 @@ def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
                 IRStructField(
                     c_type=CType(text=type_to_c(param.type)),
                     name=source_binding_c_name(param.name),
+                    is_volatile=bool(param.type and param.type.is_volatile),
+                    effective_is_volatile=effective_outer_volatile(
+                        param.type,
+                        gen.analyzed.typedef_table,
+                    ),
                 )
                 for param in variant.params
             ],

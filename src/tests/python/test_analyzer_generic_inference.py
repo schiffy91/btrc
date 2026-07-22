@@ -21,6 +21,24 @@ def test_nested_generic_field_substitutes_recursively():
     assert result.errors == []
 
 
+def test_generic_assignment_retains_substituted_member_storage_types():
+    result = _analyze("""
+        class Values<T> {
+            public T value;
+            public T[] data;
+            public T[] view { get; set; }
+        }
+        void run() {
+            int backing[2] = {1, 2};
+            Values<int> values = new Values<int>();
+            values.value = -42;
+            values.data = backing;
+            values.view = backing;
+        }
+    """)
+    assert result.errors == []
+
+
 def test_generic_constructor_call_infers_class_arguments_from_parameters():
     result = _analyze("""
         class Box<T> {

@@ -110,20 +110,22 @@ int main(int argc, char** argv) {
     assert(daemonApp.daemon.name.equals("demo"));
     assert(rmdir(daemonDir) == 0);
 
-    string path = "/tmp/btrc_stdlib_system_helpers.txt";
-    FileSystem.writeText(path, "contents");
-    FileStatus status = FileStatus(path);
+    string systemFixtureDir = FileSystem.tempDir("btrc_stdlib_system");
+    assert(!systemFixtureDir.isEmpty());
+    string helpersPath = PathTools.join(systemFixtureDir, "helpers.txt");
+    assert(FileSystem.writeText(helpersPath, "contents"));
+    FileStatus status = FileStatus(helpersPath);
     assert(status.exists());
     assert(status.isFile());
-    assert(FileSystem.exists(path));
-    assert(FileSystem.isFile(path));
-    assert(!FileSystem.isDir(path));
-    assert(FileSystem.readText(path).equals("contents"));
+    assert(FileSystem.exists(helpersPath));
+    assert(FileSystem.isFile(helpersPath));
+    assert(!FileSystem.isDir(helpersPath));
+    assert(FileSystem.readText(helpersPath).equals("contents"));
     assert(PathTools.basename("/tmp/example.txt").equals("example.txt"));
     assert(PathTools.dirname("/tmp/example.txt").equals("/tmp"));
     assert(PathTools.join("/tmp", "example.txt").equals("/tmp/example.txt"));
-    FileSystem.removeRecursive(path);
-    assert(!FileSystem.exists(path));
+    assert(FileSystem.removeRecursive(helpersPath) == 0);
+    assert(!FileSystem.exists(helpersPath));
 
     string tempDir = FileSystem.tempDir("btrc-stdlib-fs");
     assert(tempDir.len() > 0);
@@ -171,11 +173,12 @@ int main(int argc, char** argv) {
     assert(parsed.getBool("enabled", false));
     assert(parsed.getInt("generation", 0) == 42);
 
-    var jsonPath = "/tmp/btrc_stdlib_system.json";
+    var jsonPath = PathTools.join(systemFixtureDir, "system.json");
     parsed.writeFile(jsonPath);
     var loaded = JsonObject.readFile(jsonPath);
     assert(loaded.getString("target", "").equals("Standard-Boot"));
-    FileSystem.removeRecursive(jsonPath);
+    assert(FileSystem.removeRecursive(systemFixtureDir) == 0);
+    assert(!FileSystem.exists(systemFixtureDir));
 
     print("PASS: test_stdlib_system");
     return 0;

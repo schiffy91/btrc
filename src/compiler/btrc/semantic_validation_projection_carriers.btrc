@@ -1,0 +1,21 @@
+/* Conditional raw carriers need branch-local storage stabilization. */
+
+void semanticValidateConditionalRawProjectionCall(Node call,
+        SemanticValidationState state, Map<string, Node> vars) {
+    RawProjectionCarrierContext context =
+        new RawProjectionCarrierContext(state, null, vars);
+    int index = 0;
+    while (index < call.args.len) {
+        RawProjectionCarrier? carrier = rawProjectionCarrier(
+            call.args.get(index), context);
+        Node? choice = rawProjectionFirstBranchStorageChoice(
+            carrier, context);
+        if (choice != null) {
+            semanticValidationFail(
+                "Conditional raw projection call arguments require "
+                    + "branch-local backing storage",
+                choice);
+        }
+        index = index + 1;
+    }
+}

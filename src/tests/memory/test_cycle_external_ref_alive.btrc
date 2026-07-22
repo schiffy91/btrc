@@ -39,7 +39,7 @@ int main() {
     assert(ext.next.id == 2);
 
     // Drop the external reference: now the cycle is unreachable and reclaimable.
-    delete ext;
+    release ext;
     assert(node_count == 0);
 
     print("PASS: test_cycle_external_ref_alive");

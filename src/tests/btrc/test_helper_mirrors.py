@@ -108,17 +108,23 @@ def test_mirrored_helpers_execute_without_libm(
         btrcc_driver,
         tmp_path,
         "#include <assert.h>\n"
+        "class MagicOps<T> {\n"
+        "    public MagicOps() {}\n"
+        "    public uint hash(T value) { return __btrc_hash(value); }\n"
+        "}\n"
         "int main() {\n"
         '    assert("  +12tail".toLong() == 12);\n'
         '    assert("999999999999999999999999".toInt() == 2147483647);\n'
         '    assert("yes".toBool() && !"false".toBool() && !"0".toBool());\n'
         "    assert(7.9 % 2.0 == 1);\n"
-        "    uint zeroHash = (uint)__btrc_hash_real(0.0);\n"
-        "    uint negativeZeroHash = (uint)__btrc_hash_real(-0.0);\n"
+        "    MagicOps<double> reals = new MagicOps<double>();\n"
+        "    uint zeroHash = reals.hash(0.0);\n"
+        "    uint negativeZeroHash = reals.hash(-0.0);\n"
         "    assert(zeroHash == negativeZeroHash);\n"
-        "    uint infinityHash = (uint)__btrc_hash_real(INFINITY);\n"
-        "    uint sameInfinityHash = (uint)__btrc_hash_real(INFINITY);\n"
+        "    uint infinityHash = reals.hash(INFINITY);\n"
+        "    uint sameInfinityHash = reals.hash(INFINITY);\n"
         "    assert(infinityHash == sameInfinityHash);\n"
+        "    delete reals;\n"
         "    return 0;\n"
         "}\n",
     )

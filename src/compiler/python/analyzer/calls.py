@@ -9,6 +9,7 @@ from .gpu_type_contracts import gpu_builtin_call_uses_intrinsic
 
 class CallValidationMixin:
     def _analyze_call(self, expr):
+        self._validate_gpu_array_result_context(expr)
         raw_lifetime = self._is_raw_lifetime_call(expr)
         if isinstance(expr.callee, Identifier):
             self._analyze_identifier_value(expr.callee, direct_callee=True)
@@ -20,6 +21,11 @@ class CallValidationMixin:
             self._analyze_expr(arg)
             if not raw_lifetime or index != 0:
                 self._reject_thread_value_escape(arg, "passed as arguments")
+        from .raw_projection_calls import (
+            validate_conditional_raw_projection_call,
+        )
+
+        validate_conditional_raw_projection_call(self, expr)
 
         if (
             isinstance(expr.callee, Identifier)

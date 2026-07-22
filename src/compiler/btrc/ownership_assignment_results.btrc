@@ -27,8 +27,9 @@ Node? irVirtualAssignmentValueType(IRGen generator, Node? target,
         return null;
     }
     Node property = member;
-    if (target.obj.kind == NK_SELF_EXPR
-            && propertyNeedsBacking(property)) {
+    if (propertyTargetUsesBacking(
+            target.obj, target.field,
+            generator.currentPropertyBacking)) {
         return null;
     }
     return resolvedInstanceMemberType(
@@ -59,6 +60,20 @@ bool irPropertyGetterProjection(IRGen generator, Node? expression,
         return false;
     }
     return true;
+}
+
+bool irCustomPropertyGetterProjection(IRGen generator, Node? expression,
+        Map<string, Node> varTypes) {
+    if (expression == null
+            || expression.kind != NK_FIELD_ACCESS_EXPR) {
+        return false;
+    }
+    Node? receiverType = generator.resolvedExpressionType(
+        expression.obj, varTypes);
+    Node? member = instanceMemberForType(
+        generator.analyzed, receiverType, expression.field);
+    return member != null && member.kind == NK_PROPERTY_DECL
+        && member.getter_body != null;
 }
 
 bool irVirtualAssignmentRhsOwnsResult(IRGen generator, Node assignment,

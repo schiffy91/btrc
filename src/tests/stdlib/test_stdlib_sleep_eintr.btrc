@@ -17,11 +17,13 @@ void armInterrupt() {
     alarmTimer.it_interval.tv_usec = 0;
     alarmTimer.it_value.tv_sec = 0;
     alarmTimer.it_value.tv_usec = 50000;
-    assert(setitimer(ITIMER_REAL, &alarmTimer, NULL) == 0);
+    int realTimer = (int)ITIMER_REAL;
+    assert(setitimer(realTimer, &alarmTimer, NULL) == 0);
 }
 
 int main() {
-    signal(SIGALRM, interruptSleep);
+    int alarmSignal = (int)SIGALRM;
+    signal(alarmSignal, interruptSleep);
 
     armInterrupt();
     Timer secondsTimer = Timer();

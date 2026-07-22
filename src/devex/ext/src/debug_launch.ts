@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { PythonSupportProbe, supportsBtrcPython } from './python_runtime';
+import { isLaunchableFile } from './launchable_file';
 
 /**
  * Locate the btrc debug adapter entry script (btrc_dap.py).
@@ -51,8 +52,14 @@ export async function findBtrcpy(
     };
     if (workspaceRoot) {
         const wrapper = path.join(workspaceRoot, 'bin', 'btrcpy');
-        if (fs.existsSync(wrapper)) {
-            return { cmd: [wrapper], cwd: workspaceRoot };
+        if (isLaunchableFile(wrapper)) {
+            // The checkout wrapper is a Python script. Always use the
+            // configured interpreter so debugging cannot silently select a
+            // different Python through its shebang.
+            if (await pythonIsSupported()) {
+                return { cmd: [pythonPath, wrapper], cwd: workspaceRoot };
+            }
+            if (signal?.aborted) { return undefined; }
         }
         const mainPy = path.join(workspaceRoot, 'src', 'compiler', 'python', 'main.py');
         if (fs.existsSync(mainPy)) {

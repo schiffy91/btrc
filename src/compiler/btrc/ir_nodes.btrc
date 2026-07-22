@@ -76,12 +76,22 @@ class IRNode {
     /* IRFieldAccess */
     public string field;
     public bool arrow;
+    /* Resolved direct-storage identity for source indexes and lowered derefs.
+     * An empty known root means the lvalue changes a pointee, not the pointer
+     * automatic itself. */
+    public string storage_root;
+    public bool storage_root_known;
+    public bool source_address;
+    public string array_storage_root;
+    public bool array_storage_known;
 
     /* statements */
     public string c_type;        /* IRVarDecl type text */
     public bool is_array_decl;   /* IRVarDecl declarator carries [] */
     public IRNode array_size;    /* optional local array/VLA bound */
-    public bool is_volatile;     /* IRVarDecl: emit `volatile` (setjmp/longjmp rule) */
+    public bool is_volatile;     /* Physical qualifier emitted in this declarator. */
+    public bool effective_is_volatile; /* Semantic outer-object qualification. */
+    public bool setjmp_inferred_volatile;
     public bool is_static;       /* IRVarDecl storage class */
     public bool is_extern;       /* IRVarDecl storage class */
     public bool is_cycle_return_temp; /* Boundary-pass provenance marker. */
@@ -120,10 +130,17 @@ class IRNode {
         self.target_type = "";
         self.field = "";
         self.arrow = false;
+        self.storage_root = "";
+        self.storage_root_known = false;
+        self.source_address = false;
+        self.array_storage_root = "";
+        self.array_storage_known = false;
         self.c_type = "";
         self.is_array_decl = false;
         self.array_size = null;
         self.is_volatile = false;
+        self.effective_is_volatile = false;
+        self.setjmp_inferred_volatile = false;
         self.is_static = false;
         self.is_extern = false;
         self.is_cycle_return_temp = false;
@@ -140,6 +157,39 @@ class IRNode {
         self.stmts = [];
         self.result = null;
     }
+}
+
+string irDirectStorageRoot(IRNode? node) {
+    if (node == null) { return ""; }
+    if (node.kind == IRK_VAR) { return node.name; }
+    if (node.kind == IRK_FIELD_ACCESS) {
+        if (node.arrow) { return ""; }
+        return irDirectStorageRoot(node.obj);
+    }
+    if ((node.kind == IRK_INDEX || node.kind == IRK_DEREF)
+            && node.storage_root_known) {
+        return node.storage_root;
+    }
+    if (node.kind == IRK_INDEX) {
+        return irDirectStorageRoot(node.obj);
+    }
+    return "";
+}
+
+IRNode irRecordArrayProjection(IRNode field, bool isArray) {
+    if (isArray) {
+        field.array_storage_known = true;
+        field.array_storage_root = irDirectStorageRoot(field);
+    }
+    return field;
+}
+
+IRNode irRecordArrayValue(IRNode value, bool isArray) {
+    if (isArray) {
+        value.array_storage_known = true;
+        value.array_storage_root = irDirectStorageRoot(value);
+    }
+    return value;
 }
 
 /* --- IR construction helpers (return a freshly-built node, never alias) --- */
@@ -437,10 +487,14 @@ class IRParam {
     public string c_type;
     public string name;
     public bool is_volatile;
+    public bool effective_is_volatile;
+    public bool setjmp_inferred_volatile;
     public IRParam(string c_type, string name) {
         self.c_type = c_type;
         self.name = name;
         self.is_volatile = false;
+        self.effective_is_volatile = false;
+        self.setjmp_inferred_volatile = false;
     }
 }
 
@@ -449,10 +503,14 @@ class IRStructField {
     public string c_type;
     public string name;
     public IRNode array_size;
+    public bool is_volatile;
+    public bool effective_is_volatile;
     public IRStructField(string c_type, string name) {
         self.c_type = c_type;
         self.name = name;
         self.array_size = null;
+        self.is_volatile = false;
+        self.effective_is_volatile = false;
     }
 }
 
@@ -473,9 +531,11 @@ class IRStructDef {
 class IRTypedefDef {
     public string target_type;
     public string name;
+    public bool is_volatile;
     public IRTypedefDef(string target_type, string name) {
         self.target_type = target_type;
         self.name = name;
+        self.is_volatile = false;
     }
 }
 
@@ -504,17 +564,21 @@ class IRGlobalDecl {
     public string name;
     public IRNode init;
     public IRNode array_size;
+    public bool is_unsized_array;
     public bool is_static;
     public bool is_extern;
     public bool is_volatile;
+    public bool effective_is_volatile;
     public IRGlobalDecl(string c_type, string name) {
         self.c_type = c_type;
         self.name = name;
         self.init = null;
         self.array_size = null;
+        self.is_unsized_array = false;
         self.is_static = true;
         self.is_extern = false;
         self.is_volatile = false;
+        self.effective_is_volatile = false;
     }
 }
 
@@ -1647,6 +1711,7 @@ Vector<string> helperHeaders(string name) {
         out.push("stdio.h");
         out.push("stdlib.h");
     }
+    else if (name == "__btrc_copy_error_message") { out.push("string.h"); }
     else if (name == "__btrc_trycatch_globals") { out.push("setjmp.h"); }
     else if (name == "__btrc_thread_spawn"
             || name == "__btrc_mutex_val_create") {
@@ -1747,6 +1812,7 @@ Vector<string> canonicalHelperOrder() {
     /* trycatch (registry.py category order: after string/math, before hash) */
     order.push("__btrc_try_level");
     order.push("__btrc_trycatch_globals");
+    order.push("__btrc_copy_error_message");
     order.push("__btrc_try_capacity");
     order.push("__btrc_cleanup_capacity");
     order.push("__btrc_launder_state");

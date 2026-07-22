@@ -114,6 +114,13 @@ class CallableValueValidationMixin:
                 arg,
                 name,
             )
+            self._validate_volatile_reference_conversion(
+                expected,
+                arg,
+                f"Argument {index} to '{name}()'",
+                getattr(arg, "line", line),
+                getattr(arg, "col", col),
+            )
             self._contextualize_aggregate_initializer(
                 expected,
                 arg,

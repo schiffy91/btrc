@@ -3,6 +3,11 @@
 bool semanticManagedOwnershipType(
         Node? typeExpr, SemanticValidationState state) {
     if (typeExpr == null) { return false; }
+    if (state.typeParams.has(typeExpr.base)) {
+        return !typeExpr.is_array
+            && (typeExpr.pointer_depth == 0
+                || (typeExpr.is_nullable && typeExpr.pointer_depth == 1));
+    }
     return !typeExpr.is_array && typeExpr.pointer_depth <= 1
         && (isStringType(typeExpr)
             || (typeExpr.base == "Mutex"
@@ -151,6 +156,7 @@ void semanticValidateOwnership(Node statement,
     if (operand == null) {
         semanticValidationFail("Cannot determine operand type for "
             + operation, statement);
+        return;
     }
     if (semanticOwnershipUsesIndirectLvalue(
             statement.expr, state, vars)) {
@@ -171,7 +177,8 @@ void semanticValidateOwnership(Node statement,
          * allocation family: monomorphization selects its destroy function.
          * Only a bare type parameter leaves delete's allocation kind unknown. */
         if (statement.kind == NK_DELETE_STMT) {
-            if (!semanticManagedOwnershipType(operand, state)) {
+            if (state.typeParams.has(operand.base)
+                    || !semanticManagedOwnershipType(operand, state)) {
                 semanticValidationFail(
                     "delete requires a concrete allocation type", statement);
             }
@@ -194,6 +201,6 @@ void semanticValidateOwnership(Node statement,
     if (statement.kind != NK_KEEP_STMT) {
         semanticValidateTargetReceiverMutability(
             statement.expr, state, vars, statement);
-        semanticValidateMutableTarget(operand, state, statement);
+        semanticValidateMutableTarget(operand, state, statement, false);
     }
 }

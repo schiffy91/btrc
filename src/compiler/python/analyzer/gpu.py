@@ -19,6 +19,7 @@ from ..ast_nodes import (
     DeleteStmt,
     ExprStmt,
     ForInStmt,
+    Identifier,
     IfStmt,
     KeepStmt,
     ReleaseStmt,
@@ -50,8 +51,25 @@ def validate_gpu_function(analyzer: AnalyzerBase, func) -> None:
     line, col = func.line, func.col
 
     # Validate parameters
+    prior_array_params: set[str] = set()
     for param in func.params:
         _validate_gpu_type(analyzer, param.type, f"parameter '{param.name}'", name, line, col, allow_array=True)
+        canonical = analyzer._canonical_type(param.type)
+        if canonical is not None and canonical.is_array and param.default is not None:
+            actual = analyzer._infer_type(param.default)
+            inherited_capacity = isinstance(param.default, Identifier) and param.default.name in prior_array_params
+            if (
+                actual is not None
+                and not inherited_capacity
+                and not analyzer._array_target_has_capacity(param.default, actual)
+            ):
+                analyzer._error(
+                    f"Default for parameter '{param.name}' has no provable readable GPU buffer capacity",
+                    getattr(param.default, "line", line),
+                    getattr(param.default, "col", col),
+                )
+        if canonical is not None and canonical.is_array:
+            prior_array_params.add(param.name)
 
     # Validate return type
     ret = func.return_type
@@ -96,6 +114,14 @@ def _validate_gpu_type(
         return
 
     if type_expr.is_array and allow_array:
+        if type_expr.is_const or type_expr.is_volatile:
+            analyzer._error(
+                f"@gpu function '{func_name}': GPU array buffers are read-write "
+                f"and cannot be const- or volatile-qualified in {context}",
+                line,
+                col,
+            )
+            return
         if type_expr.base not in _GPU_ARRAY_ELEM_TYPES:
             analyzer._error(
                 f"@gpu function '{func_name}': array element type must be "

@@ -182,6 +182,11 @@ bool irExpressionOwnsResult(IRGen generator, Node? expression,
     if (expression.kind == NK_FIELD_ACCESS_EXPR
             || expression.kind == NK_INDEX_EXPR) {
         if (!managedResult) { return false; }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR
+                && irCustomPropertyGetterProjection(
+                    generator, expression, varTypes)) {
+            return true;
+        }
         if (irExpressionOwnsResult(
                 generator, expression.obj, varTypes)) { return true; }
         if (expression.kind == NK_FIELD_ACCESS_EXPR

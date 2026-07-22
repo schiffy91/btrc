@@ -16,6 +16,23 @@ TRYCATCH_STATE = {
         required_headers=["setjmp.h"],
         depends_on=["__btrc_try_level"],
     ),
+    "__btrc_copy_error_message": HelperDef(
+        c_source=(
+            "static inline void __btrc_copy_error_message(\n"
+            "        char* destination, size_t capacity, const char* source) {\n"
+            "    if (!destination || capacity == 0) return;\n"
+            "    if (!source) {\n"
+            "        destination[0] = '\\0';\n"
+            "        return;\n"
+            "    }\n"
+            "    size_t length = 0;\n"
+            "    while (length < capacity - 1 && source[length] != '\\0') length++;\n"
+            "    memmove(destination, source, length);\n"
+            "    destination[length] = '\\0';\n"
+            "}"
+        ),
+        required_headers=["string.h"],
+    ),
     "__btrc_try_capacity": HelperDef(
         c_source="static _Thread_local int __btrc_try_cap = 16;",
     ),

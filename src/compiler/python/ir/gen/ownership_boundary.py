@@ -32,6 +32,8 @@ def sequence_owned_operands(
     ``force`` establishes source order even for scalar operands. ``pin_nodes``
     keeps borrowed managed values alive while later operands execute.
     """
+    if getattr(gen, "_unevaluated_depth", 0) > 0:
+        return None
     specs = []
     prepared_values = prepared_values or {}
     keep_ids = {id(node) for node in keep_nodes}
@@ -85,23 +87,55 @@ def sequence_owned_operands(
 
         raise CodegenError("owned expression sequencing requires concrete analyzed operand types")
 
-    operands = [
-        CallOperand(
-            node=node,
-            type_expr=type_expr,
-            c_type=operand_c_type(
-                gen,
-                node,
-                type_expr,
-                render=type_to_c,
-            ),
-            keep=keep,
-            pin=pin,
-            owned=owned,
-            lowered=prepared.value if prepared is not None else None,
+    spec_types = {id(node): type_expr for node, type_expr, *_rest in specs}
+
+    def lower_with_overrides(node, overrides):
+        previous = {key: gen._owning_temp_overrides.get(key) for key in overrides}
+        previous_types = {key: gen._type_temp_overrides.get(key) for key in overrides}
+        gen._owning_temp_overrides.update(overrides)
+        gen._type_temp_overrides.update({key: spec_types[key] for key in overrides if key in spec_types})
+        try:
+            from .expressions import lower_expr
+
+            return lower_expr(gen, node)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    gen._owning_temp_overrides.pop(key, None)
+                else:
+                    gen._owning_temp_overrides[key] = value
+            for key, value in previous_types.items():
+                if value is None:
+                    gen._type_temp_overrides.pop(key, None)
+                else:
+                    gen._type_temp_overrides[key] = value
+
+    operands = []
+    for node, type_expr, owned, keep, pin, prepared in specs:
+        operands.append(
+            CallOperand(
+                node=node,
+                type_expr=type_expr,
+                c_type=operand_c_type(
+                    gen,
+                    node,
+                    type_expr,
+                    render=type_to_c,
+                ),
+                keep=keep,
+                pin=pin,
+                owned=owned,
+                lowered=prepared.value if prepared is not None else None,
+                lower_with_overrides=(
+                    None
+                    if prepared is not None
+                    else lambda overrides, node=node: lower_with_overrides(
+                        node,
+                        overrides,
+                    )
+                ),
+            )
         )
-        for node, type_expr, owned, keep, pin, prepared in specs
-    ]
 
     def build_with_overrides(overrides):
         previous = {key: gen._owning_temp_overrides.get(key) for key in overrides}

@@ -1,25 +1,8 @@
 /* Function/method calls, field access, and indexing validation. */
 
-void semanticValidateDirectHostedOpaqueArguments(string name, Node call,
-        SemanticValidationState state, Map<string, Node> vars) {
-    int parameterCount = hostedAbiParameterCount(name);
-    int argumentIndex = 0;
-    while (argumentIndex < call.args.len
-            && argumentIndex < parameterCount) {
-        Node expected = makePrimType(
-            hostedAbiParameterBase(name, argumentIndex));
-        expected.pointer_depth = hostedAbiParameterPointerDepth(
-            name, argumentIndex);
-        expected.is_const = hostedAbiParameterConst(name, argumentIndex);
-        semanticValidateOpaqueCallArgument(
-            null, argumentIndex, expected,
-            call.args.get(argumentIndex), name, true, state, vars);
-        argumentIndex = argumentIndex + 1;
-    }
-}
-
 void semanticValidateCall(Node call, SemanticValidationState state,
         Map<string, Node> vars) {
+    semanticValidateConditionalRawProjectionCall(call, state, vars);
     semanticValidateSourceMacroCall(call, state, vars);
     if (semanticRawLifetimeCall(call, state, vars)) {
         semanticValidateRawLifetimeCall(call, state, vars);
@@ -37,31 +20,7 @@ void semanticValidateCall(Node call, SemanticValidationState state,
     if (callee == null) { return; }
     if (callee.kind == NK_IDENTIFIER) {
         string name = callee.name;
-        if (vars.has(name)) {
-            Node? resolvedCallable = directFunctionPointerType(
-                vars.get(name), state.analyzed);
-            if (resolvedCallable == null) {
-                semanticValidationFail("Value '" + name
-                    + "' is not callable", call);
-            }
-            Node callable = resolvedCallable;
-            Vector<Node> params = [];
-            int index = 1;
-            while (index < callable.generic_args.len) {
-                Node parameter = Node();
-                parameter.kind = NK_PARAM;
-                parameter.name = Strings.fromInt(index);
-                parameter.type = callable.generic_args.get(index);
-                params.push(parameter);
-                index = index + 1;
-            }
-            semanticValidateSignature(name, params, call,
-                noSubstitutions, state, vars);
-            semanticValidateOpaqueCallArguments(
-                null, params, call, name, noSubstitutions, false,
-                state, vars);
-            return;
-        }
+        if (semanticValidateCallableValueCall(call, name, state, vars)) { return; }
         if (semanticValidateGpuBuiltinCall(call, state, vars)) { return; }
         if (semanticValidateHostedIdentifierCall(call, state, vars)) {
             return;
@@ -73,7 +32,7 @@ void semanticValidateCall(Node call, SemanticValidationState state,
                 noSubstitutions, functionDecl.body_node == null,
                 state, vars);
             semanticValidateSignature(name, functionDecl.params, call,
-                noSubstitutions, state, vars);
+                noSubstitutions, functionDecl.is_gpu, state, vars);
             semanticValidateTransferredArguments(
                 functionDecl, call, state, vars);
             return;
@@ -111,7 +70,7 @@ void semanticValidateCall(Node call, SemanticValidationState state,
                     constructor, constructor.params, call, name,
                     noSubstitutions, false, state, vars);
                 semanticValidateSignature(name, constructor.params, call,
-                    noSubstitutions, state, vars);
+                    noSubstitutions, false, state, vars);
                 semanticValidateTransferredArguments(
                     constructor, call, state, vars);
             }
@@ -148,7 +107,7 @@ void semanticValidateCall(Node call, SemanticValidationState state,
                 constructor, constructor.params, call, name,
                 substitutions, false, state, vars);
             semanticValidateSignature(name, constructor.params, call,
-                substitutions, state, vars);
+                substitutions, false, state, vars);
             semanticValidateTransferredArguments(
                 constructor, call, state, vars);
             return;
@@ -162,7 +121,7 @@ void semanticValidateCall(Node call, SemanticValidationState state,
             null, callee.params, call, "lambda", noSubstitutions, false,
             state, vars);
         semanticValidateSignature("lambda", callee.params, call,
-            noSubstitutions, state, vars);
+            noSubstitutions, false, state, vars);
         return;
     }
     if (callee.kind == NK_FIELD_ACCESS_EXPR
@@ -178,7 +137,8 @@ void semanticValidateCall(Node call, SemanticValidationState state,
         }
         Node concreteVariant = variant;
         semanticValidateSignature(callee.obj.name + "." + callee.field,
-            concreteVariant.params, call, noSubstitutions, state, vars);
+            concreteVariant.params, call, noSubstitutions,
+            false, state, vars);
         semanticValidateOpaqueCallArguments(
             null, concreteVariant.params, call,
             callee.obj.name + "." + callee.field,
@@ -199,7 +159,7 @@ void semanticValidateCall(Node call, SemanticValidationState state,
             callableIndex = callableIndex + 1;
         }
         semanticValidateSignature("callable", callableParams, call,
-            noSubstitutions, state, vars);
+            noSubstitutions, false, state, vars);
         semanticValidateOpaqueCallArguments(
             null, callableParams, call, "callable",
             noSubstitutions, false, state, vars);
@@ -229,7 +189,8 @@ void semanticValidateCall(Node call, SemanticValidationState state,
         semanticValidateMethodAccess(
             className, concreteMethod, state, call);
         semanticValidateSignature(className + "." + methodName,
-            concreteMethod.params, call, noSubstitutions, state, vars);
+            concreteMethod.params, call, noSubstitutions,
+            false, state, vars);
         semanticValidateOpaqueCallArguments(
             concreteMethod, concreteMethod.params, call,
             className + "." + methodName, noSubstitutions, false,
@@ -262,7 +223,7 @@ void semanticValidateCall(Node call, SemanticValidationState state,
         }
         Vector<Node> noParameters = [];
         semanticValidateSignature(canonicalReceiver.base + ".toString",
-            noParameters, call, noSubstitutions, state, vars);
+            noParameters, call, noSubstitutions, false, state, vars);
         return;
     }
     if (isStringType(receiver)) {
@@ -300,7 +261,7 @@ void semanticValidateCall(Node call, SemanticValidationState state,
         receiver.base + "." + methodName, substitutions, false,
         state, vars);
     semanticValidateSignature(receiver.base + "." + methodName,
-        concreteMethod.params, call, substitutions, state, vars);
+        concreteMethod.params, call, substitutions, false, state, vars);
     semanticValidateTransferredArguments(
         concreteMethod, call, state, vars);
 }

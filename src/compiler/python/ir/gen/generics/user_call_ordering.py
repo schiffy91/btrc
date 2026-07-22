@@ -1,13 +1,17 @@
 """Evaluation-order classification for monomorphized generic calls."""
 
 
-def evaluated_callee(expression):
+def evaluated_callee(context, expression):
     """Return a side-effecting callable value that precedes call arguments."""
     from ....ast_nodes import FieldAccessExpr, Identifier, LambdaExpr
 
     callee = expression.callee
-    simple_callee = (Identifier, FieldAccessExpr, LambdaExpr)
-    return None if isinstance(callee, simple_callee) else callee
+    if isinstance(callee, Identifier):
+        is_variable = callee.name in context._var_types or bool(
+            context._gen is not None and callee.name in context._gen.analyzed.global_var_types
+        )
+        return callee if is_variable else None
+    return None if isinstance(callee, (FieldAccessExpr, LambdaExpr)) else callee
 
 
 def language_ordered_call(context, expression, declaration) -> bool:
@@ -43,8 +47,15 @@ def language_ordered_call(context, expression, declaration) -> bool:
             return True
         if receiver_type is not None and receiver_type.base == "Mutex":
             return True
-    callee_type = context._resolve_expr_type(callee)
-    return bool(callee_type is not None and callee_type.base == "__fn_ptr")
+    from ..type_resolution import function_pointer_signature
+
+    return (
+        function_pointer_signature(
+            context._resolve_expr_type(callee),
+            context._typedefs(),
+        )
+        is not None
+    )
 
 
 __all__ = ["evaluated_callee", "language_ordered_call"]

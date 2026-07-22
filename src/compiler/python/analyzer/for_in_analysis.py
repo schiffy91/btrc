@@ -43,6 +43,15 @@ class ForInAnalysisMixin:
         self.loop_depth += 1
         self.break_depth += 1
         iter_type = self._infer_type(stmt.iterable)
+        if iter_type and iter_type.is_array:
+            if self._array_target_has_capacity(stmt.iterable, iter_type):
+                self.array_iteration_capacity_ids.add(id(stmt.iterable))
+            else:
+                self._error(
+                    "Array for-in iterable has no provable element capacity",
+                    stmt.line,
+                    stmt.col,
+                )
         elem_type = self._get_element_type(iter_type, stmt.line, stmt.col)
         value_type = None
         if stmt.var_name2:

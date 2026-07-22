@@ -1,6 +1,7 @@
 """Shared lowering for source parameters and object qualifiers."""
 
 from ...hosted_abi import HOSTED_MACROS, HOSTED_TYPEDEF_NAMES
+from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import CType, IRParam
 from .types import type_to_c
 
@@ -62,15 +63,47 @@ def source_field_c_name(analyzed, receiver, name: str, *, resolve_type=None) -> 
     return source_binding_c_name(name)
 
 
-def lower_source_param(parameter, render=type_to_c, analyzed=None) -> IRParam:
+def lower_source_param(
+    parameter,
+    render=type_to_c,
+    analyzed=None,
+    *,
+    resolved_type=None,
+) -> IRParam:
+    return lower_named_source_type_param(
+        parameter.type,
+        render(parameter.type),
+        parameter.name,
+        analyzed,
+        resolved_type=resolved_type,
+    )
+
+
+def lower_named_source_type_param(
+    type_expr,
+    c_type,
+    name,
+    analyzed=None,
+    *,
+    resolved_type=None,
+) -> IRParam:
+    """Lower a synthesized parameter that represents one source-typed slot."""
+
+    represented_type = resolved_type or type_expr
+    typedefs = analyzed.typedef_table if analyzed is not None else {}
     return IRParam(
-        c_type=CType(text=render(parameter.type)),
-        name=source_binding_c_name(parameter.name, analyzed),
-        is_volatile=bool(parameter.type and parameter.type.is_volatile),
+        c_type=c_type if isinstance(c_type, CType) else CType(text=c_type),
+        name=source_binding_c_name(name, analyzed),
+        is_volatile=bool(represented_type and represented_type.is_volatile),
+        effective_is_volatile=effective_outer_volatile(
+            represented_type,
+            typedefs,
+        ),
     )
 
 
 __all__ = [
+    "lower_named_source_type_param",
     "lower_source_param",
     "source_binding_c_name",
     "source_field_c_name",

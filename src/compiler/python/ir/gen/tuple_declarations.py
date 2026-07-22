@@ -12,6 +12,7 @@ from ...ast_nodes import (
     TypedefDecl,
     VarDeclStmt,
 )
+from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import CType, IRStructDef, IRStructField, IRStructForward
 from .types import mangle_tuple_type, type_to_c
 
@@ -32,6 +33,11 @@ def emit_tuple_structs(gen) -> None:
                     IRStructField(
                         c_type=CType(text=type_to_c(argument)),
                         name=f"_{index}",
+                        is_volatile=bool(argument.is_volatile),
+                        effective_is_volatile=effective_outer_volatile(
+                            argument,
+                            gen.analyzed.typedef_table,
+                        ),
                     )
                     for index, argument in enumerate(arguments)
                 ],

@@ -25,29 +25,39 @@ jobs:
       - run: chmod -R a+w .
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= lint format-check
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= package extension
-      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-dist
+      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-linux-x64
       - name: Run the relocatable Linux x64 compiler bundle
         run: |
-          workspace="$PWD"
+          set -euo pipefail
           test "$(uname -m)" = x86_64
-          podman run --rm -v "$workspace:/workspace:ro" btrc-devcontainer:latest \
-            bash -euo pipefail -c '
-              test "$(uname -m)" = x86_64
-              unset BTRC_HOME
-              compiler=/workspace/dist/btrcc-linux-x64/bin/btrcc
-              source=/workspace/src/tests/strings/test_braces_in_code_gen.btrc
-              expected=/workspace/src/tests/strings/expected/test_braces_in_code_gen.stdout
-              expected_stdlib=/workspace/dist/btrcc-linux-x64/share/btrc/stdlib
-              work=$(mktemp -d)
-              trap '\''rm -rf "$work"'\'' EXIT
-              actual_stdlib=$(cd "$work" && "$compiler" --stdlib-dir)
-              test "$actual_stdlib" = "$expected_stdlib"
-              (cd "$work" && "$compiler" "$source") > "$work/program.c"
-              cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-                "$work/program.c" -o "$work/program" -lm -lpthread
-              (cd "$work" && ./program) > "$work/program.stdout"
-              cmp "$work/program.stdout" "$expected"
-            '
+          unset BTRC_HOME
+          (cd dist && sha256sum -c btrcc-linux-x64.tar.gz.sha256)
+          source="$GITHUB_WORKSPACE/src/tests/strings/test_braces_in_code_gen.btrc"
+          expected="$GITHUB_WORKSPACE/src/tests/strings/expected/test_braces_in_code_gen.stdout"
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          tar -xzf dist/btrcc-linux-x64.tar.gz -C "$work"
+          compiler="$work/btrcc-linux-x64/bin/btrcc"
+          expected_stdlib="$work/btrcc-linux-x64/share/btrc/stdlib"
+          run="$work/run"
+          mkdir "$run"
+          actual_stdlib=$(cd "$run" && "$compiler" --stdlib-dir)
+          test "$actual_stdlib" = "$expected_stdlib"
+          (cd "$run" && "$compiler" "$source") > "$run/program.c"
+          cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+            "$run/program.c" -o "$run/program" -lm -lpthread
+          (cd "$run" && ./program) > "$run/program.stdout"
+          cmp "$run/program.stdout" "$expected"
+      - name: Retain the Linux x64 release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: btrcc-linux-x64
+          path: |
+            dist/btrcc-linux-x64.tar.gz
+            dist/btrcc-linux-x64.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
       - name: Verify release builds did not mutate generated sources
         run: |
           paths=(src/compiler/python/ast_nodes.py src/compiler/btrc/ast/node.btrc src/compiler/btrc/generated/hosted_abi src/devex/lsp/builtins.py)
@@ -55,3 +65,49 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all -- "${paths[@]}")"
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= gpu-required test
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= test-c11
+
+  linux-arm64-bundle:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      - name: Build and run the native Linux arm64 release archive
+        run: |
+          test "$(uname -m)" = aarch64
+          nix develop --command make NIX= btrcc-linux-arm64
+          # The quoted script is expanded by the nested Bash, not this shell.
+          # shellcheck disable=SC2016
+          nix develop --command bash -euo pipefail -c '
+            test "$(uname -m)" = aarch64
+            unset BTRC_HOME
+            (cd dist && sha256sum -c btrcc-linux-arm64.tar.gz.sha256)
+            source="$GITHUB_WORKSPACE/src/tests/strings/test_braces_in_code_gen.btrc"
+            expected="$GITHUB_WORKSPACE/src/tests/strings/expected/test_braces_in_code_gen.stdout"
+            work=$(mktemp -d)
+            trap '\''rm -rf "$work"'\'' EXIT
+            tar -xzf dist/btrcc-linux-arm64.tar.gz -C "$work"
+            compiler="$work/btrcc-linux-arm64/bin/btrcc"
+            expected_stdlib="$work/btrcc-linux-arm64/share/btrc/stdlib"
+            run="$work/run"
+            mkdir "$run"
+            actual_stdlib=$(cd "$run" && "$compiler" --stdlib-dir)
+            test "$actual_stdlib" = "$expected_stdlib"
+            (cd "$run" && "$compiler" "$source") > "$run/program.c"
+            cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+              "$run/program.c" -o "$run/program" -lm -lpthread
+            (cd "$run" && ./program) > "$run/program.stdout"
+            cmp "$run/program.stdout" "$expected"
+          '
+      - name: Retain the Linux arm64 release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: btrcc-linux-arm64
+          path: |
+            dist/btrcc-linux-arm64.tar.gz
+            dist/btrcc-linux-arm64.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

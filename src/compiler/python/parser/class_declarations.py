@@ -101,6 +101,7 @@ class ClassDeclarationsMixin:
                 is_abstract=is_abstract_method,
                 keep_return=keep_return,
             )
+        self._parse_declarator_array_suffix(type_expr)
         if self._check(TokenType.LBRACE) and self._is_property_start():
             return self._parse_property(
                 access,

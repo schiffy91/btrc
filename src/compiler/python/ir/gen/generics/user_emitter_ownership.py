@@ -212,7 +212,13 @@ class _UserGenericOwnershipMixin:
                 )
                 is not None
             )
-        return False
+        from ....class_storage import custom_property_getter
+
+        return custom_property_getter(
+            self._gen.analyzed.class_table,
+            receiver_type,
+            expression.field,
+        )
 
     def _is_managed_type(self, type_expr):
         if not self._gen:

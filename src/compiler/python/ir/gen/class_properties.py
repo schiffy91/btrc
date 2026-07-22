@@ -29,7 +29,10 @@ from .managed_values import (
     retain_edge_value,
     unlink_edge_value,
 )
-from .parameters import source_binding_c_name
+from .parameters import (
+    lower_named_source_type_param,
+    source_binding_c_name,
+)
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -66,7 +69,12 @@ def emit_property(
                 return_type=CType(text="void"),
                 params=[
                     IRParam(c_type=CType(text=f"{name}*"), name="self"),
-                    IRParam(c_type=CType(text=prop_type), name=value_name),
+                    lower_named_source_type_param(
+                        prop.type,
+                        prop_type,
+                        "value",
+                        gen.analyzed,
+                    ),
                 ],
                 body=body,
             )
@@ -126,7 +134,12 @@ def emit_inherited_properties(
                             c_type=CType(text=f"{declaration.name}*"),
                             name="self",
                         ),
-                        IRParam(c_type=prop_type, name=value_name),
+                        lower_named_source_type_param(
+                            prop.type,
+                            prop_type,
+                            "value",
+                            gen.analyzed,
+                        ),
                     ],
                     body=IRBlock(
                         stmts=[
@@ -163,7 +176,10 @@ def _getter_body(gen, prop, backing, prop_type):
     gen._func_var_decls = []
     gen.current_return_c_type = prop_type
     gen.current_return_type = prop.type
-    gen.current_return_owned = False
+    # A custom managed getter is a call-shaped projection and returns +1.
+    # Borrowed branches are promoted by ordinary return lowering; freshly
+    # owned branches transfer their existing reference.
+    gen.current_return_owned = True
     previous_backing = gen.current_property_backing
     gen.current_property_backing = prop.name if property_needs_backing(prop) else None
     try:

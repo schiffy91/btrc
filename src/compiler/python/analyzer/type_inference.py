@@ -27,22 +27,24 @@ from ..ast_nodes import (
     SizeofExpr,
     SpawnExpr,
     StringLiteral,
+    SuperExpr,
     TernaryExpr,
     TupleLiteral,
     TypeExpr,
     UnaryExpr,
 )
 from ..numeric_literals import float_literal_type
-from ..reference_semantics import is_scalar_string_type
+from ..qualifier_provenance import strip_outer_storage_through_typedef
 from .c_call_types import (
     c_integer_identifier,
     c_opaque_value_identifier,
     c_predefined_identifier_type,
 )
+from .index_type_inference import _IndexTypeInferenceMixin
 from .iteration_inference import _IterationInferenceMixin
 
 
-class TypeInferenceMixin(_IterationInferenceMixin):
+class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
     def _infer_type(self, expr) -> TypeExpr | None:
         """Infer a type, memoizing results to avoid quadratic re-inference."""
         if expr is None:
@@ -104,6 +106,13 @@ class TypeInferenceMixin(_IterationInferenceMixin):
             if self.current_class:
                 return self._current_self_type()
             return None
+        elif isinstance(expr, SuperExpr):
+            if self.current_class and self.current_class.parent:
+                return TypeExpr(
+                    base=self.current_class.parent,
+                    pointer_depth=1,
+                )
+            return None
         elif isinstance(expr, FieldAccessExpr):
             return self._infer_field_access_type(expr)
         elif isinstance(expr, CallExpr):
@@ -113,43 +122,7 @@ class TypeInferenceMixin(_IterationInferenceMixin):
                 return replace(expr.type, pointer_depth=0)
             return TypeExpr(base=expr.type.base, generic_args=expr.type.generic_args, pointer_depth=1)
         elif isinstance(expr, IndexExpr):
-            obj_type = self._infer_type(expr.obj)
-            if obj_type and obj_type.base in ("Vector", "List", "Array", "Set") and len(obj_type.generic_args) == 1:
-                # Generic with 1 arg (List, Array, Set): element = args[0]
-                return obj_type.generic_args[0]
-            if obj_type and obj_type.base == "Map" and len(obj_type.generic_args) == 2:
-                return obj_type.generic_args[1]
-            if is_scalar_string_type(obj_type):
-                return TypeExpr(base="char", is_const=obj_type.is_const)
-            if obj_type and obj_type.is_array:
-                from ..type_composition import strip_outer_storage
-
-                return strip_outer_storage(obj_type, array=True)
-            if (
-                obj_type
-                and obj_type.pointer_depth > 0
-                and (obj_type.base not in self.class_table or obj_type.pointer_depth > 1)
-            ):
-                from ..type_composition import strip_outer_storage
-
-                return strip_outer_storage(obj_type)
-            from ..index_protocol import indexed_protocol
-
-            protocol = indexed_protocol(obj_type, self.class_table)
-            if protocol is not None:
-                getter = protocol.getter
-                setter = protocol.setter
-                value_type = None
-                if getter is not None:
-                    value_type = getter.return_type
-                elif setter is not None:
-                    value_type = setter.params[1].type
-                if value_type is not None and obj_type.generic_args:
-                    substitutions = protocol.substitutions(obj_type)
-                    value_type = self._substitute_type(value_type, substitutions)
-                if value_type is not None:
-                    return value_type
-            return None
+            return self._infer_index_type(expr)
         elif isinstance(expr, BinaryExpr):
             return self._infer_binary_type(expr)
         elif isinstance(expr, CastExpr):
@@ -158,6 +131,7 @@ class TypeInferenceMixin(_IterationInferenceMixin):
             operand_type = self._infer_type(expr.operand)
             if operand_type is None:
                 return None
+            canonical_operand = self._canonical_type(operand_type)
             if expr.op == "&":
                 if isinstance(expr.operand, Identifier) and expr.operand.name in self.function_table:
                     return operand_type
@@ -165,14 +139,19 @@ class TypeInferenceMixin(_IterationInferenceMixin):
 
                 return add_outer_pointer(operand_type, clear_array=True)
             if expr.op == "*":
-                if operand_type.is_array:
+                if canonical_operand and (canonical_operand.is_array or canonical_operand.pointer_depth > 0):
                     from ..type_composition import strip_outer_storage
 
-                    return strip_outer_storage(operand_type, array=True)
-                if operand_type.pointer_depth > 0:
-                    from ..type_composition import strip_outer_storage
-
-                    return strip_outer_storage(operand_type)
+                    preserved = strip_outer_storage_through_typedef(
+                        operand_type,
+                        self.typedef_table,
+                    )
+                    if preserved is not None:
+                        return preserved
+                    return strip_outer_storage(
+                        canonical_operand,
+                        array=canonical_operand.is_array,
+                    )
             if expr.op == "!":
                 return TypeExpr(base="bool")
             overloaded = self._operator_return_type(operand_type, expr.op, unary=True)
@@ -224,6 +203,9 @@ class TypeInferenceMixin(_IterationInferenceMixin):
             enum_values = self.enum_table.get(expr.obj.name)
             if enum_values is not None and expr.field in enum_values:
                 return TypeExpr(base=expr.obj.name or "int")
+            rich_enum = self.rich_enum_table.get(expr.obj.name)
+            if rich_enum and any(variant.name == expr.field for variant in rich_enum.variants):
+                return TypeExpr(base="int")
             class_info = self.class_table.get(expr.obj.name) if self.scope.lookup(expr.obj.name) is None else None
             if class_info and expr.field in class_info.static_fields:
                 return class_info.static_fields[expr.field].type

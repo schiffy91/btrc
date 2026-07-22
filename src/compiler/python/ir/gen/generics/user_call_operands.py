@@ -1,16 +1,12 @@
 """Call-operand planning for monomorphized generic methods."""
 
 from ..arguments import bind_arg_nodes_to_params
-from ..call_boundary import CallOperand
 from ..evaluation_order import (
-    borrowed_value_can_be_pinned,
     has_observable_effect,
-    operand_c_type,
 )
 from .user_call_arguments import (
     generic_call_argument_type,
     in_generic_call_argument_context,
-    lower_generic_call_argument,
 )
 
 
@@ -28,7 +24,7 @@ def generic_call_operands(
     call=None,
 ):
     """Plan concrete, source-ordered operands for one generic call."""
-    if not emitter._gen:
+    if not emitter._gen or emitter._unevaluated_depth > 0:
         return []
     bindings = bind_arg_nodes_to_params(params, ast_args, arg_names)
     from ..default_argument_calls import bound_nodes_by_parameter
@@ -131,35 +127,69 @@ def generic_call_operands(
                 param_index,
             )
         )
-    effects = [
-        is_default
-        or bool(
-            target_type is not None
-            and requires_target_value_conversion(
+
+    def spec_has_effect(spec):
+        argument, _type, target_type, _keep, _owned, _transferred, param, is_default, _index = spec
+        return (
+            is_default
+            or bool(
+                target_type is not None
+                and requires_target_value_conversion(
+                    emitter._gen,
+                    argument,
+                    target_type,
+                    generic_call_argument_type(
+                        emitter,
+                        param,
+                        argument,
+                        is_default=is_default,
+                    ),
+                )
+            )
+            or has_observable_effect(
                 emitter._gen,
                 argument,
-                target_type,
-                generic_call_argument_type(
+                type_of=lambda value, param=param, is_default=is_default: generic_call_argument_type(
                     emitter,
                     param,
-                    argument,
+                    value,
                     is_default=is_default,
                 ),
             )
         )
-        or has_observable_effect(
-            emitter._gen,
-            argument,
-            type_of=lambda value, param=param, is_default=is_default: generic_call_argument_type(
-                emitter,
-                param,
+
+    source_effects = [spec_has_effect(spec) for spec in specs]
+    from ....hosted_alias_carriers import hosted_alias_argument
+    from ..call_projection_operands import (
+        expand_projection_owner_specs,
+        readonly_hosted_borrow_needs_no_guard,
+    )
+    from ..projection_storage import projection_storage_operands
+
+    specs, deferred = expand_projection_owner_specs(
+        specs,
+        owners_for=lambda expression: projection_storage_operands(
+            expression,
+            type_of=emitter._resolve_expr_type,
+            is_managed=emitter._is_managed_type,
+            owns=emitter._owns_expr,
+            overridden=lambda value: id(value) in emitter._arc_overrides,
+            struct_table=emitter._gen.analyzed.struct_table,
+            return_alias_argument=lambda value: hosted_alias_argument(
                 value,
-                is_default=is_default,
+                emitter._gen.analyzed.hosted_call_ids,
             ),
-        )
-        for argument, _type, target_type, _keep, _owned, _transferred, param, is_default, _index in specs
-    ]
-    ownership_required = any(
+        ),
+        type_of=emitter._resolve_expr_type,
+        omit_borrowed_guard=lambda spec, index: readonly_hosted_borrow_needs_no_guard(
+            call,
+            spec[-1],
+            has_later_effects=any(source_effects[index + 1 :]),
+            hosted_call_ids=emitter._gen.analyzed.hosted_call_ids,
+        ),
+    )
+    effects = [spec_has_effect(spec) for spec in specs]
+    ownership_required = bool(deferred) or any(
         keep or owned for _argument, _type, _target, keep, owned, _transferred, _param, _default, _index in specs
     )
     types_complete = all(
@@ -177,6 +207,7 @@ def generic_call_operands(
         emitter,
         specs,
         effects,
+        deferred,
         call=call,
         params=params,
         bound_nodes=bound_nodes,
@@ -188,112 +219,27 @@ def _lower_operands(
     emitter,
     specs,
     effects,
+    deferred,
     *,
     call,
     params,
     bound_nodes,
     receiver,
 ):
-    from ..prepared_values import prepare_value
+    from .user_call_operand_lowering import (
+        lower_planned_generic_call_operands,
+    )
 
-    operands = []
-    final_index = len(specs) - 1
-    for index, (
-        argument,
-        argument_type,
-        target_type,
-        keep,
-        owned,
-        transferred,
-        param,
-        is_default,
-        param_index,
-    ) in enumerate(specs):
-        emitter._require_operand_type(argument_type)
-        pin = bool(
-            borrowed_value_can_be_pinned(argument)
-            and index < final_index
-            and any(effects[index + 1 :])
-            and emitter._is_managed_type(argument_type)
-            and not owned
-        )
-        prepared = None
-        lower_with_overrides = None
-        if is_default:
-            if call is None or param_index is None:
-                from ..errors import CodegenError
-
-                raise CodegenError("default argument lowering requires a resolved call target")
-            from ..default_argument_calls import default_call_builder
-
-            lower_with_overrides = default_call_builder(
-                emitter._gen,
-                call,
-                params,
-                param_index,
-                bound_nodes,
-                receiver_node=receiver,
-                resolve_argument_type=emitter._resolve_expr_type,
-            )
-            argument_type = target_type
-            owned = emitter._is_managed_type(argument_type)
-        elif target_type is not None:
-            prepared = prepare_value(
-                emitter._gen,
-                argument,
-                target_type,
-                lower_expr=lambda value, param=param, is_default=is_default: lower_generic_call_argument(
-                    emitter,
-                    param,
-                    value,
-                    is_default=is_default,
-                ),
-                type_of=lambda value, param=param, is_default=is_default: generic_call_argument_type(
-                    emitter,
-                    param,
-                    value,
-                    is_default=is_default,
-                ),
-                owns_result=lambda value, param=param, is_default=is_default: bool(
-                    id(value) not in emitter._arc_overrides
-                    and in_generic_call_argument_context(
-                        emitter,
-                        param,
-                        is_default,
-                        lambda value=value: emitter._owns_expr(value),
-                    )
-                ),
-                render_type=emitter.iter_value_c,
-                fresh_temp=emitter._fresh_temp,
-                cleanup_active=emitter._exception_cleanup_active(),
-                record_decl=emitter._func_var_decls.append,
-                activate_cleanup=emitter._activate_cleanup_registration,
-            )
-            argument_type = prepared.effective_type
-            owned = prepared.owned
-        operands.append(
-            CallOperand(
-                node=argument,
-                type_expr=argument_type,
-                c_type=(
-                    emitter.iter_value_c(argument_type)
-                    if prepared is not None or lower_with_overrides is not None
-                    else operand_c_type(
-                        emitter._gen,
-                        argument,
-                        argument_type,
-                        render=emitter.iter_value_c,
-                    )
-                ),
-                keep=keep,
-                pin=pin,
-                owned=owned,
-                transferred=transferred,
-                lowered=prepared.value if prepared is not None else None,
-                lower_with_overrides=lower_with_overrides,
-            )
-        )
-    return operands
+    return lower_planned_generic_call_operands(
+        emitter,
+        specs,
+        effects,
+        deferred,
+        call=call,
+        params=params,
+        bound_nodes=bound_nodes,
+        receiver=receiver,
+    )
 
 
 __all__ = ["generic_call_operands"]

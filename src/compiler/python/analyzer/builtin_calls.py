@@ -125,6 +125,13 @@ class BuiltinCallValidationMixin:
                 argument,
                 name,
             )
+            self._validate_volatile_reference_conversion(
+                expected,
+                argument,
+                f"Argument {index} to '{name}()'",
+                getattr(argument, "line", expression.line),
+                getattr(argument, "col", expression.col),
+            )
             actual = self._infer_type(argument)
             if actual and not self._types_compatible(expected, actual):
                 self._error(

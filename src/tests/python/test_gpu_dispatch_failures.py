@@ -8,10 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.errors import CodegenError
+from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "gpu"
 
 _GPU_DECLS = r"""
 #include <stdbool.h>
@@ -176,6 +179,7 @@ def _compile_with_gpu_stubs(
         "-Wextra",
         "-Werror",
         "-pedantic",
+        f"-I{GPU_INCLUDE}",
         str(unit),
         "-lm",
     ]
@@ -225,7 +229,15 @@ def test_array_return_declaration_is_a_sized_readback_target() -> None:
         "@gpu\nint[] dbl(int[] xs) { int i = gpu_id(); return xs[i] * 2; }\n"
         "int main() { int[] xs = {1, 2}; int[] out = dbl(xs); return out[0]; }"
     )
-    assert ("int out[(((sizeof(xs) / sizeof(xs[0])) > 0) ? (sizeof(xs) / sizeof(xs[0])) : 1)];") in c_source
+    length = re.search(
+        r"int (__gpu_len_\d+);.*?\(\1 = \(sizeof\(xs\) / sizeof\(xs\[0\]\)\)\)",
+        c_source,
+        re.DOTALL,
+    )
+    assert length is not None
+    length_name = length.group(1)
+    declaration = "int out[((" + f"{length_name} > 0) ? {length_name} : 1)];"
+    assert declaration in c_source
     prefix = _dispatch_prefixes(c_source)[0]
     assert f"btrc_gpu_read_buffer_checked({prefix}_gpu, {prefix}_buf_output, __gpu_output," in c_source
     assert re.search(
@@ -426,7 +438,10 @@ def test_collection_field_buffer_argument_uses_one_structured_temp() -> None:
     match = re.search(r"btrc_Vector_int\* (__gpu_arg_\d+);", c_source)
     assert match is not None
     temp = match.group(1)
-    assert f"({temp} = holder->values)" in c_source
+    assert re.search(
+        rf"\({temp} = (?:holder|__gpu_projection_root_\d+)->values\)",
+        c_source,
+    )
     assert f"{temp}->len" in c_source
     assert f"{temp}->data" in c_source
     assert "/* expr */" not in c_source
@@ -465,11 +480,15 @@ def test_collection_argument_precedes_inferred_gpu_result_array() -> None:
         "int main() { int[] raw = {1}; Vector<int> value = "
         "new Vector<int>(raw, 1); int[] out = copy(value); return out[0]; }"
     )
-    temp = re.search(r"btrc_Vector_int\* (__gpu_arg_\d+) = value;", c_source)
+    temp = re.search(r"btrc_Vector_int\* (__gpu_arg_\d+);", c_source)
+    length = re.search(r"int (__gpu_len_\d+);", c_source)
     assert temp is not None
-    assert c_source.index(temp.group(0)) < c_source.index(
-        f"int out[(({temp.group(1)}->len > 0) ? {temp.group(1)}->len : 1)];"
-    )
+    assert length is not None
+    assignment = f"({temp.group(1)} = value)"
+    length_snapshot = f"({length.group(1)} = {temp.group(1)}->len)"
+    declaration = "int out[((" + f"{length.group(1)} > 0) ? {length.group(1)} : 1)];"
+    assert c_source.index(assignment) < c_source.index(length_snapshot)
+    assert c_source.index(length_snapshot) < c_source.index(declaration)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
@@ -501,14 +520,16 @@ def test_mixed_parameter_order_uses_source_order_on_cpu_fallback(
 
 
 def test_output_kernel_in_arbitrary_expression_is_rejected() -> None:
-    with pytest.raises(
-        CodegenError,
-        match="only valid as an array declaration initializer or direct array assignment",
-    ):
-        emit_c(
-            "@gpu\nint[] dbl(int[] xs) { int i = gpu_id(); return xs[i] * 2; }\n"
-            "int main() { int[] xs = {1, 2}; return dbl(xs)[0]; }"
-        )
+    source = (
+        "@gpu\nint[] dbl(int[] xs) { int i = gpu_id(); return xs[i] * 2; }\n"
+        "int main() { int[] xs = {1, 2}; return dbl(xs)[0]; }"
+    )
+    program = Parser(Lexer(source, "<test>").tokenize()).parse()
+    errors = Analyzer().analyze(program).errors
+    assert any(
+        "only valid as an array declaration initializer or direct array assignment statement" in error
+        for error in errors
+    )
 
 
 def _dispatch_prefixes(c_source: str) -> list[str]:

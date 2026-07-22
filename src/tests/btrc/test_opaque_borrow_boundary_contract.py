@@ -20,6 +20,11 @@ FIXTURES = Path(__file__).with_name("fixtures")
 
 INVALID_CASES = (
     pytest.param(
+        "class Box<T> { public void store(T value) { T* raw = value; } } int main() { return 0; }",
+        "cannot persist a managed value as a raw representation",
+        id="active-generic-parameter",
+    ),
+    pytest.param(
         "class Box {} int main() { Box owner = new Box(); void* raw = (void*)owner; return raw == null; }",
         "cannot persist a managed value as a raw representation",
         id="direct-local",
@@ -190,6 +195,76 @@ INVALID_CASES = (
         'int main() { realloc((void*)"literal", 16); return 0; }',
         "cannot consume static string storage",
         id="resize-static-literal-cast",
+    ),
+    pytest.param(
+        "class Holder { public int values[1]; } int main() { int* raw = (new Holder()).values; return raw[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="temporary-class-array-local",
+    ),
+    pytest.param(
+        "class Holder { public int values[1]; } int main() { "
+        "int* raw = null; raw = (new Holder()).values; return raw[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="temporary-class-array-assignment",
+    ),
+    pytest.param(
+        "class Holder { public int values[1]; } "
+        "int* get() { return (new Holder()).values; } "
+        "int main() { return get()[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="temporary-class-array-return",
+    ),
+    pytest.param(
+        "struct Holder { int values[1]; }; "
+        "Holder make() { Holder value = {{1}}; return value; } "
+        "int main() { int* raw = make().values; return raw[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="temporary-struct-array-local",
+    ),
+    pytest.param(
+        "class Holder { public int values[1]; } int main() { "
+        "int* raw = (int*)((new Holder()).values); return raw[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="temporary-class-array-cast",
+    ),
+    pytest.param(
+        "class Holder { public int values[1]; } int main() { "
+        "int* raw = true ? (new Holder()).values : (new Holder()).values; "
+        "return raw[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="temporary-class-array-ternary",
+    ),
+    pytest.param(
+        "class Holder { public int values[1]; public Holder(int value) { "
+        "self.values[0] = value; } } int main() { "
+        "Holder owner = new Holder(1); int* raw = owner.values; "
+        "owner = new Holder(2); return raw[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="stable-class-array-rebound",
+    ),
+    pytest.param(
+        "class Holder { public int value; public Holder(int value) { "
+        "self.value = value; } } int main() { "
+        "Holder owner = new Holder(1); int* raw = &(owner.value); "
+        "owner = new Holder(2); return raw[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="stable-class-field-address-rebound",
+    ),
+    pytest.param(
+        "class Holder { public int values[1]; public Holder(int value) { "
+        "self.values[0] = value; } } int main() { "
+        "Holder owner = new Holder(1); int* raw = owner.values + 0; "
+        "owner = new Holder(2); return raw[0]; }",
+        "cannot persist a managed value as a raw representation",
+        id="stable-class-array-offset-rebound",
+    ),
+    pytest.param(
+        "int* identity(int* value) { return value; } "
+        "class Holder { public int values[1]; } int main() { "
+        "Holder owner = new Holder(); int* raw = identity(owner.values); "
+        "return raw[0]; }",
+        "parameter is not proven borrow-only",
+        id="managed-array-forwarded-through-returning-call",
     ),
 )
 

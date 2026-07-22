@@ -10,6 +10,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from . import artifact_paths as _paths
+
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _PROCESS_LOCK = threading.Lock()
 
@@ -47,6 +49,7 @@ def publication_lock(directory: Path, name: str) -> Iterator[None]:
     if not _NAME_PATTERN.fullmatch(name):
         raise ValueError(f"invalid publication name: {name!r}")
     directory.mkdir(parents=True, exist_ok=True)
+    _paths.require_real_directory(directory, "publication output directory")
     path = directory / f".{name}.publish.lock"
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -59,6 +62,7 @@ def publication_lock(directory: Path, name: str) -> Iterator[None]:
             if (
                 not stat.S_ISREG(opened.st_mode)
                 or not stat.S_ISREG(current.st_mode)
+                or _paths.metadata_is_reparse_point(current)
                 or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
             ):
                 raise ValueError(f"publication lock is not a stable regular file: {path}")

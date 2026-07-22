@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from ...analyzer.core import ClassInfo
 from ...ast_nodes import ClassDecl, MethodDecl, PropertyDecl
 from ..nodes import CType, IRFunctionDecl, IRParam
-from .parameters import lower_source_param
+from .parameters import lower_named_source_type_param, lower_source_param
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -108,11 +108,8 @@ def _property_declarations(
     declaration: PropertyDecl,
     analyzed,
 ) -> list[IRFunctionDecl]:
-    from .parameters import source_binding_c_name
-
     prop_type = CType(text=type_to_c(declaration.type))
     self_param = IRParam(c_type=CType(text=f"{class_name}*"), name="self")
-    value_name = source_binding_c_name("value", analyzed)
     result = []
     if declaration.has_getter:
         result.append(
@@ -129,7 +126,12 @@ def _property_declarations(
                 return_type=CType(text="void"),
                 params=[
                     self_param,
-                    IRParam(c_type=prop_type, name=value_name),
+                    lower_named_source_type_param(
+                        declaration.type,
+                        prop_type,
+                        "value",
+                        analyzed,
+                    ),
                 ],
             )
         )

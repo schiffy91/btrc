@@ -12,10 +12,23 @@ bool semanticSameTypeShape(Node left, Node right, Analyzed analyzed) {
         && semanticGenericArgsEqual(left.generic_args, right.generic_args);
 }
 
-/* Callable return types can acquire an implicit reference spelling during
- * declaration normalization (Item -> Item*, scalar string qualifiers, etc.).
- * Those spellings have the same C return ABI. Parameter components remain
- * exact because changing their qualified pointer shape is not ABI-safe. */
+bool semanticCallableComponentSameTypeShape(
+        Node left, Node right, Analyzed analyzed) {
+    return left.base == right.base
+        && semanticValueDepth(left, analyzed)
+            == semanticValueDepth(right, analyzed)
+        && left.is_array == right.is_array
+        && left.is_nullable == right.is_nullable
+        && left.nullable_outer_depth == right.nullable_outer_depth
+        && left.is_const == right.is_const
+        && left.is_volatile == right.is_volatile
+        && semanticGenericArgsEqual(left.generic_args, right.generic_args);
+}
+
+/* Callable components can acquire an implicit class-reference spelling during
+ * declaration normalization (Item -> Item*).  Compare that effective value
+ * depth while keeping arrays, nullability, qualifiers, and nested generic
+ * identities exact. */
 bool semanticCallableAssignmentCompatible(
         Node target, Node source, Analyzed analyzed) {
     if (target.base != "__fn_ptr" || source.base != "__fn_ptr"
@@ -25,16 +38,15 @@ bool semanticCallableAssignmentCompatible(
     }
     Node targetReturn = target.generic_args.get(0);
     Node sourceReturn = source.generic_args.get(0);
-    if (targetReturn.base != sourceReturn.base
-            || semanticValueDepth(targetReturn, analyzed)
-                != semanticValueDepth(sourceReturn, analyzed)
-            || targetReturn.is_array != sourceReturn.is_array) {
+    if (!semanticCallableComponentSameTypeShape(
+            targetReturn, sourceReturn, analyzed)) {
         return false;
     }
     int index = 1;
     while (index < target.generic_args.len) {
-        if (typeShapeKey(target.generic_args.get(index))
-                != typeShapeKey(source.generic_args.get(index))) {
+        if (!semanticCallableComponentSameTypeShape(
+                target.generic_args.get(index),
+                source.generic_args.get(index), analyzed)) {
             return false;
         }
         index = index + 1;
@@ -44,8 +56,10 @@ bool semanticCallableAssignmentCompatible(
 
 bool semanticAssignmentCompatible(Node? target, Node? source,
         SemanticValidationState state) {
-    Node? resolvedTarget = semanticResolveAliases(target, state);
-    Node? resolvedSource = semanticResolveAliases(source, state);
+    Node? valueTarget = semanticArrayValueType(target, state);
+    Node? valueSource = semanticArrayValueType(source, state);
+    Node? resolvedTarget = semanticResolveAliases(valueTarget, state);
+    Node? resolvedSource = semanticResolveAliases(valueSource, state);
     if (resolvedTarget == null || resolvedSource == null) { return false; }
     if (semanticTypeContainsParams(resolvedTarget, state.typeParams)
             || semanticTypeContainsParams(resolvedSource, state.typeParams)) {

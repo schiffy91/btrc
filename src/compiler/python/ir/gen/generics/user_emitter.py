@@ -10,7 +10,6 @@ from ...nodes import (
     IRExpr,
     IRFunctionRef,
     IRLiteral,
-    IRSizeof,
     IRStmt,
     IRVar,
 )
@@ -61,6 +60,7 @@ class _UserGenericEmitter(
         self._collection_edge_keeps = bool(cls_info and cls_info.name in PUBLIC_COLLECTION_BASES)
         self._arc_overrides = {}
         self._arc_type_overrides = {}
+        self._unevaluated_depth = 0
         self._current_property_backing = None
         reset_scope_state(self)
 
@@ -180,7 +180,13 @@ class _UserGenericEmitter(
             if predefined is not None:
                 return IRLiteral(text=predefined)
             if e.name in self._var_types:
-                return IRVar(name=source_binding_c_name(self, e.name))
+                from .user_emitter_identifiers import generic_identifier_reference
+
+                return generic_identifier_reference(
+                    self,
+                    e,
+                    source_binding_c_name(self, e.name),
+                )
             if self._gen and is_source_runtime_helper(e.name) and e.name not in self._var_types:
                 self._gen.use_helper(e.name)
                 return IRFunctionRef(name=e.name)
@@ -188,7 +194,9 @@ class _UserGenericEmitter(
                 from ..function_symbols import source_function_c_name
 
                 return IRFunctionRef(name=source_function_c_name(self._gen.analyzed, e.name))
-            return IRVar(name=e.name)
+            from .user_emitter_identifiers import generic_identifier_reference
+
+            return generic_identifier_reference(self, e, e.name)
         if isinstance(e, IntLiteral):
             return IRLiteral(text=format_c_integer_literal(e.raw, e.value))
         if isinstance(e, FloatLiteral):
@@ -233,15 +241,9 @@ class _UserGenericEmitter(
         raise unsupported_node("generic method expression", e)
 
     def _sizeof(self, operand) -> IRExpr:
-        from ....ast_nodes import SizeofExprOp, SizeofType
+        from .user_emitter_sizeof import lower_generic_sizeof
 
-        if isinstance(operand, SizeofType):
-            return IRSizeof(operand=CType(text=self.resolve_c(operand.type)))
-        if isinstance(operand, SizeofExprOp):
-            return IRSizeof(operand=self._expr(operand.expr))
-        from ..errors import unsupported_node
-
-        raise unsupported_node("generic sizeof operand", operand)
+        return lower_generic_sizeof(self, operand)
 
     def _collection_literal(self, target: str, lit, target_type=None) -> IRExpr:
         """Build a collection using its contextual concrete target type."""

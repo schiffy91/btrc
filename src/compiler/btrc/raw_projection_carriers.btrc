@@ -1,0 +1,210 @@
+/* Branch-preserving AST traversal for raw storage carriers. */
+
+class RawProjectionCarrierContext {
+    public SemanticValidationState? semantic;
+    public IRGen? generator;
+    public Map<string, Node> varTypes;
+
+    public RawProjectionCarrierContext(SemanticValidationState? semantic,
+            IRGen? generator, Map<string, Node> varTypes) {
+        self.semantic = semantic;
+        self.generator = generator;
+        self.varTypes = varTypes;
+    }
+
+    public Node? expressionType(Node? expression) {
+        if (expression == null) { return null; }
+        if (self.semantic != null) {
+            SemanticValidationState state = self.semantic;
+            return semanticResolveAliases(
+                semanticInferType(expression, state, self.varTypes), state);
+        }
+        if (self.generator != null) {
+            IRGen activeGenerator = self.generator;
+            return activeGenerator.resolvedExpressionType(
+                expression, self.varTypes);
+        }
+        return null;
+    }
+
+    public bool managedType(Node? typeExpr) {
+        if (self.semantic != null) {
+            SemanticValidationState state = self.semantic;
+            return semanticOpaqueManagedType(typeExpr, state);
+        }
+        if (self.generator != null) {
+            IRGen activeGenerator = self.generator;
+            return irManagedType(activeGenerator, typeExpr);
+        }
+        return false;
+    }
+
+    public Node? aliasArgument(Node? expression) {
+        if (expression == null || expression.kind != NK_CALL_EXPR
+                || expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER) { return null; }
+        if (self.semantic != null) {
+            SemanticValidationState state = self.semantic;
+            return semanticHostedReturnAliasArgument(
+                expression, state, self.varTypes);
+        }
+        if (self.generator == null) { return null; }
+        IRGen activeGenerator = self.generator;
+        if (!activeGenerator.analyzed.hostedCallKeys.has(
+                astNodeKey(expression))) { return null; }
+        int parameter = hostedAbiReturnAliasParameter(
+            expression.callee.name);
+        if (parameter < 0 || parameter >= expression.args.len) {
+            return null;
+        }
+        return expression.args.get(parameter);
+    }
+
+    public bool overridden(Node? expression) {
+        if (expression == null || self.generator == null) { return false; }
+        IRGen activeGenerator = self.generator;
+        return activeGenerator.owningTempOverrides.has(
+            astNodeKey(expression));
+    }
+
+    public Analyzed analyzed() {
+        if (self.semantic != null) {
+            SemanticValidationState state = self.semantic;
+            return state.analyzed;
+        }
+        IRGen activeGenerator = self.generator;
+        return activeGenerator.analyzed;
+    }
+}
+
+class RawProjectionCarrier {
+    public string kind;
+    public Node expression;
+    public bool directStorage;
+    public Vector<RawProjectionCarrier> branches;
+
+    public RawProjectionCarrier(string kind, Node expression,
+            bool directStorage) {
+        self.kind = kind;
+        self.expression = expression;
+        self.directStorage = directStorage;
+        self.branches = [];
+    }
+}
+
+bool rawProjectionCarrierType(Node? typeExpr,
+        RawProjectionCarrierContext context) {
+    return typeExpr != null && !context.managedType(typeExpr)
+        && (typeExpr.is_array || typeExpr.pointer_depth > 0
+            || typeExpr.base == "intptr_t"
+            || typeExpr.base == "uintptr_t");
+}
+
+bool rawProjectionDirectStorage(Node? expression,
+        RawProjectionCarrierContext context) {
+    if (expression == null || expression.kind == NK_SELF_EXPR
+            || expression.kind == NK_SUPER_EXPR) { return false; }
+    return context.managedType(context.expressionType(expression));
+}
+
+RawProjectionCarrier rawProjectionLeaf(Node expression,
+        bool directStorage) {
+    return new RawProjectionCarrier("leaf", expression, directStorage);
+}
+
+RawProjectionCarrier rawProjectionChoice(Node expression) {
+    return new RawProjectionCarrier("choice", expression, false);
+}
+
+void rawProjectionAddBranch(RawProjectionCarrier choice,
+        RawProjectionCarrier? branch) {
+    if (branch != null) { choice.branches.push(branch); }
+}
+
+RawProjectionCarrier? rawProjectionCarrier(Node? expression,
+        RawProjectionCarrierContext context) {
+    return rawProjectionCarrierImpl(expression, false, context);
+}
+
+RawProjectionCarrier? rawProjectionCarrierImpl(Node? expression,
+        bool addressed, RawProjectionCarrierContext context) {
+    if (expression == null) { return null; }
+    Node? aliasArgument = context.aliasArgument(expression);
+    if (aliasArgument != null) {
+        RawProjectionCarrier? aliasCarrier = rawProjectionCarrierImpl(
+            aliasArgument, false, context);
+        if (aliasCarrier != null) { return aliasCarrier; }
+        if (rawProjectionDirectStorage(aliasArgument, context)) {
+            return rawProjectionLeaf(aliasArgument, true);
+        }
+        return null;
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        if (!rawProjectionCarrierType(
+                context.expressionType(expression), context)) { return null; }
+        RawProjectionCarrier? castCarrier = rawProjectionCarrierImpl(
+            expression.expr, false, context);
+        if (castCarrier != null) { return castCarrier; }
+        if (rawProjectionDirectStorage(expression.expr, context)) {
+            return rawProjectionLeaf(expression.expr, true);
+        }
+        return null;
+    }
+    if (expression.kind == NK_UNARY_EXPR && expression.op == "&") {
+        return rawProjectionCarrierImpl(
+            expression.operand, true, context);
+    }
+    if (expression.kind == NK_UNARY_EXPR && expression.op == "*"
+            && (addressed || rawProjectionCarrierType(
+                context.expressionType(expression), context))) {
+        return rawProjectionCarrierImpl(
+            expression.operand, false, context);
+    }
+    if (expression.kind == NK_TERNARY_EXPR) {
+        if (!addressed && !rawProjectionCarrierType(
+                context.expressionType(expression), context)) { return null; }
+        RawProjectionCarrier choice = rawProjectionChoice(expression);
+        rawProjectionAddBranch(choice, rawProjectionCarrierImpl(
+            expression.true_expr, addressed, context));
+        rawProjectionAddBranch(choice, rawProjectionCarrierImpl(
+            expression.false_expr, addressed, context));
+        return choice;
+    }
+    if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+        if (!addressed && !rawProjectionCarrierType(
+                context.expressionType(expression), context)) { return null; }
+        RawProjectionCarrier choice = rawProjectionChoice(expression);
+        rawProjectionAddBranch(choice, rawProjectionCarrierImpl(
+            expression.left, addressed, context));
+        rawProjectionAddBranch(choice, rawProjectionCarrierImpl(
+            expression.right, addressed, context));
+        return choice;
+    }
+    if (expression.kind == NK_BINARY_EXPR
+            && (expression.op == "+" || expression.op == "-")) {
+        if (!rawProjectionCarrierType(
+                context.expressionType(expression), context)) { return null; }
+        if (rawProjectionCarrierType(
+                context.expressionType(expression.left), context)) {
+            RawProjectionCarrier? leftCarrier = rawProjectionCarrierImpl(
+                expression.left, false, context);
+            if (leftCarrier != null) { return leftCarrier; }
+        }
+        if (expression.op == "+" && rawProjectionCarrierType(
+                context.expressionType(expression.right), context)) {
+            return rawProjectionCarrierImpl(
+                expression.right, false, context);
+        }
+        return null;
+    }
+    if ((expression.kind == NK_FIELD_ACCESS_EXPR
+            || expression.kind == NK_INDEX_EXPR)
+            && (addressed || rawProjectionCarrierType(
+                context.expressionType(expression), context))) {
+        RawProjectionCarrier? nested = rawProjectionCarrierImpl(
+            expression.obj, false, context);
+        if (nested != null) { return nested; }
+        return rawProjectionLeaf(expression, false);
+    }
+    return null;
+}

@@ -1,0 +1,108 @@
+/* Backing storage for unconditional raw-projection leaves. */
+
+class RawProjectionStorageRoot {
+    public Node expression;
+    public bool managed;
+
+    public RawProjectionStorageRoot(Node expression, bool managed) {
+        self.expression = expression;
+        self.managed = managed;
+    }
+}
+
+RawProjectionStorageRoot? rawProjectionStorageRoot(
+        RawProjectionCarrier carrier,
+        RawProjectionCarrierContext context) {
+    if (carrier.kind != "leaf") { return null; }
+    return rawProjectionStorageRootExpr(
+        carrier.expression, carrier.directStorage, context);
+}
+
+RawProjectionStorageRoot? rawProjectionStorageRootExpr(Node? expression,
+        bool directStorage, RawProjectionCarrierContext context) {
+    if (expression == null) { return null; }
+    if (directStorage) {
+        if (rawProjectionDirectStorage(expression, context)) {
+            return new RawProjectionStorageRoot(expression, true);
+        }
+        return null;
+    }
+    if (expression.kind == NK_CAST_EXPR) {
+        return rawProjectionStorageRootExpr(
+            expression.expr, false, context);
+    }
+    if (expression.kind == NK_UNARY_EXPR && expression.op == "*") {
+        return rawProjectionStorageRootExpr(
+            expression.operand, false, context);
+    }
+    if (expression.kind == NK_BINARY_EXPR
+            && (expression.op == "+" || expression.op == "-")) {
+        if (rawProjectionCarrierType(
+                context.expressionType(expression.left), context)) {
+            return rawProjectionStorageRootExpr(
+                expression.left, false, context);
+        }
+        if (expression.op == "+" && rawProjectionCarrierType(
+                context.expressionType(expression.right), context)) {
+            return rawProjectionStorageRootExpr(
+                expression.right, false, context);
+        }
+        return null;
+    }
+    if (expression.kind != NK_FIELD_ACCESS_EXPR
+            && expression.kind != NK_INDEX_EXPR) { return null; }
+    Node? receiver = expression.obj;
+    if (receiver == null || context.overridden(receiver)) { return null; }
+    Node? receiverType = context.expressionType(receiver);
+    if (context.managedType(receiverType)
+            && receiver.kind != NK_SELF_EXPR
+            && receiver.kind != NK_SUPER_EXPR) {
+        return new RawProjectionStorageRoot(receiver, true);
+    }
+    string structName = rawProjectionStructName(receiverType);
+    if (receiver.kind == NK_CALL_EXPR && receiverType != null
+            && receiverType.pointer_depth == 0
+            && !receiverType.is_array && structName != ""
+            && context.analyzed().structTable.has(structName)) {
+        return new RawProjectionStorageRoot(receiver, false);
+    }
+    return rawProjectionStorageRootExpr(receiver, false, context);
+}
+
+string rawProjectionStructName(Node? typeExpr) {
+    if (typeExpr == null) { return ""; }
+    string name = typeExpr.base;
+    if (name.startsWith("struct ")) {
+        return name.substring(7, name.length() - 7);
+    }
+    return name;
+}
+
+bool rawProjectionCarrierHasStorage(RawProjectionCarrier carrier,
+        RawProjectionCarrierContext context) {
+    if (carrier.kind == "leaf") {
+        return rawProjectionStorageRoot(carrier, context) != null;
+    }
+    int index = 0;
+    while (index < carrier.branches.len) {
+        if (rawProjectionCarrierHasStorage(
+                carrier.branches.get(index), context)) { return true; }
+        index = index + 1;
+    }
+    return false;
+}
+
+Node? rawProjectionFirstBranchStorageChoice(
+        RawProjectionCarrier? carrier,
+        RawProjectionCarrierContext context) {
+    if (carrier == null || carrier.kind != "choice") { return null; }
+    int index = 0;
+    while (index < carrier.branches.len) {
+        if (rawProjectionCarrierHasStorage(
+                carrier.branches.get(index), context)) {
+            return carrier.expression;
+        }
+        index = index + 1;
+    }
+    return null;
+}

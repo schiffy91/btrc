@@ -63,7 +63,7 @@ def test_function_values_have_explicit_reachability_provenance(
         source = generated.read_text()
         assert _definition("addressed").search(source)
         assert not _definition("shadowed").search(source)
-        assert "return shadowed(41);" in source
+        assert "invoke(callback)" in source
 
     run_strict_pair(compiled, tmp_path)
 

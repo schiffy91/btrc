@@ -139,8 +139,8 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
     assert "return irCallExpr(lambdaExpr, lambdaArgs);" in generator
     assert 'suffix = "[" + self.expr(field.array_size) + "]";' in emitter
     assert emitter.count("self.structFieldDeclaration(") == 2
-    assert "collectStructRefsNode(field.array_size, names, fr);" in generator
-    assert "collectStructRefsNode(field.array_size, names, refs);" in generator
+    assert "collectStructRefsNode(field.array_size, knownNames, fr);" in generator
+    assert "collectStructRefsNode(field.array_size, knownNames, refs);" in generator
     assert "scanHelpersInNode(field.array_size, used);" in helper_reachability
     assert 'f.name + "["' not in generator
     assert "irExprText" not in generator

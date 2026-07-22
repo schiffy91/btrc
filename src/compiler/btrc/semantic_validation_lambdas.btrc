@@ -25,7 +25,11 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
                 parameter);
         }
         if (parameter.type != null) {
-            bodyVars.put(parameter.name, parameter.type);
+            Node? parameterValueType = semanticArrayParameterValueType(
+                parameter.type, state);
+            if (parameterValueType != null) {
+                bodyVars.put(parameter.name, parameterValueType);
+            }
         }
         index = index + 1;
     }
@@ -79,6 +83,8 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
     int previousBreak = state.breakDepth;
     Node resultType = inferredLambdaReturnType(
         expression, state.analyzed, vars);
+    Node? representedResult = semanticArrayValueType(resultType, state);
+    if (representedResult != null) { resultType = representedResult; }
     state.returnType = resultType;
     state.loopDepth = 0;
     state.breakDepth = 0;
@@ -86,6 +92,9 @@ void semanticValidateLambda(Node expression, SemanticValidationState state,
     Node body = expression.body_node;
     if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
         semanticValidateExpr(body.expression, state, bodyVars);
+        semanticValidateVolatileReferenceConversion(
+            resultType, body.expression,
+            "Lambda return value", state, bodyVars);
         Node? actual = semanticInferType(body.expression, state, bodyVars);
         if (actual == null) {
             semanticValidationFail(

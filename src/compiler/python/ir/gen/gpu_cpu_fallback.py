@@ -26,10 +26,10 @@ from ..nodes import (
     IRVarDecl,
 )
 from .errors import CodegenError
-from .gpu_arguments import buffer_length_name
+from .gpu_argument_bindings import buffer_length_name
 from .gpu_dispatch_model import OUTPUT_CAPACITY, OUTPUT_PARAM
 from .isolated_context import isolated_function_context
-from .parameters import source_binding_c_name
+from .parameters import lower_source_param, source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -159,12 +159,7 @@ def _source_signature(decl: FunctionDecl, analyzed) -> _SourceSignature:
     args = []
     lengths = {}
     for parameter in decl.params:
-        params.append(
-            IRParam(
-                c_type=CType(text=type_to_c(parameter.type)),
-                name=source_binding_c_name(parameter.name, analyzed),
-            )
-        )
+        params.append(lower_source_param(parameter, analyzed=analyzed))
         args.append(IRVar(name=source_binding_c_name(parameter.name, analyzed)))
         if parameter.type and parameter.type.is_array:
             length_name = buffer_length_name(parameter.name)

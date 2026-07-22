@@ -65,5 +65,5 @@ void semanticValidateStringCall(Node call, SemanticValidationState state,
     }
     Map<string, Node> substitutions = {};
     semanticValidateSignature("string." + method, params, call,
-        substitutions, state, vars);
+        substitutions, false, state, vars);
 }

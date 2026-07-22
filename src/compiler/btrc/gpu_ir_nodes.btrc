@@ -64,6 +64,16 @@ class GpuCpuContext {
     }
 }
 
+class GpuHostSnapshot {
+    public Map<string, IRNode> array_lengths;
+    public Map<string, bool> unknown_array_lengths;
+
+    public GpuHostSnapshot() {
+        self.array_lengths = {};
+        self.unknown_array_lengths = {};
+    }
+}
+
 class GpuHostContext {
     public Map<string, IRNode> array_lengths;
     public Map<string, bool> unknown_array_lengths;
@@ -76,5 +86,30 @@ class GpuHostContext {
     public void clear() {
         self.array_lengths = {};
         self.unknown_array_lengths = {};
+    }
+
+    public GpuHostSnapshot snapshot() {
+        GpuHostSnapshot result = GpuHostSnapshot();
+        Vector<string> known = self.array_lengths.keys();
+        int index = 0;
+        while (index < known.len) {
+            string name = known.get(index);
+            result.array_lengths.put(
+                name, self.array_lengths.get(name));
+            index = index + 1;
+        }
+        Vector<string> unknown = self.unknown_array_lengths.keys();
+        index = 0;
+        while (index < unknown.len) {
+            string name = unknown.get(index);
+            result.unknown_array_lengths.put(name, true);
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public void restore(GpuHostSnapshot saved) {
+        self.array_lengths = saved.array_lengths;
+        self.unknown_array_lengths = saved.unknown_array_lengths;
     }
 }

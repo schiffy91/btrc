@@ -50,27 +50,28 @@ def _assert_isolated_finalizer(generated: str, hook_counter: str) -> None:
     assert len(hooks) == 1, f"expected one isolated source destructor hook for {hook_counter}, found {sorted(hooks)}"
     hook_name, hook_body = next(iter(hooks.items()))
     assert re.search(r"\breturn\s*;", hook_body), hook_body
+    assert re.search(
+        rf"__btrc_arc_type[^;=]*=\s*\{{[^;]*\b{re.escape(hook_name)}\b",
+        generated,
+    )
 
     terminal = {
         name: body
         for name, body in functions.items()
-        if name.endswith("_destroy")
+        if name == hook_name.removeprefix("__btrc_").removesuffix("_destructor_hook") + "_destroy"
         and re.search(r"\bfree\s*\(\s*self\s*\)", body)
         and re.search(r"self\s*->\s*first", body)
         and re.search(r"self\s*->\s*second", body)
-        and re.search(rf"\b{re.escape(hook_name)}\s*\(", body)
     }
-    assert len(terminal) == 1, (
-        f"expected one terminal destructor to call {hook_name} and finalize two fields, found {sorted(terminal)}"
-    )
+    assert len(terminal) == 1, f"expected one terminal destructor to finalize two fields, found {sorted(terminal)}"
     terminal_body = next(iter(terminal.values()))
-    hook_call = re.search(rf"\b{re.escape(hook_name)}\s*\(", terminal_body)
     terminal_free = re.search(r"\bfree\s*\(\s*self\s*\)", terminal_body)
-    assert hook_call is not None and terminal_free is not None
+    assert terminal_free is not None
+    assert not re.search(rf"\b{re.escape(hook_name)}\s*\(", terminal_body)
     first_detach = _detach_position(terminal_body, "first")
     second_detach = _detach_position(terminal_body, "second")
-    assert hook_call.start() < first_detach < terminal_free.start()
-    assert hook_call.start() < second_detach < terminal_free.start()
+    assert first_detach < terminal_free.start()
+    assert second_detach < terminal_free.start()
 
 
 @pytest.fixture(scope="module")

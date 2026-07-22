@@ -7,6 +7,7 @@ def reset_source_bindings(emitter, parameters=()) -> None:
     """Start one generated function with its source-parameter identities."""
     emitter._local_c_name_scopes = []
     emitter._source_parameter_c_names = {}
+    emitter._c_array_scopes = [{parameter.name: False for parameter in parameters}]
     for parameter in parameters:
         bind_source_parameter(emitter, parameter.name)
 
@@ -15,16 +16,19 @@ def bind_source_parameter(emitter, name: str, c_name: str | None = None) -> str:
     """Record the emitted identity of a source-level parameter."""
     c_name = c_name or _base_c_name(emitter, name)
     emitter._source_parameter_c_names[name] = c_name
+    emitter._c_array_scopes[0][name] = False
     return c_name
 
 
 def push_source_binding_scope(emitter) -> None:
     emitter._local_c_name_scopes.append({})
+    emitter._c_array_scopes.append({})
 
 
 def pop_source_binding_scope(emitter) -> None:
     if emitter._local_c_name_scopes:
         emitter._local_c_name_scopes.pop()
+        emitter._c_array_scopes.pop()
 
 
 def declare_source_binding(emitter, name: str, *, c_name: str | None = None) -> str:
@@ -36,6 +40,7 @@ def declare_source_binding(emitter, name: str, *, c_name: str | None = None) -> 
         return scope[name]
     c_name = c_name or next_source_binding_c_name(emitter, name)
     scope[name] = c_name
+    emitter._c_array_scopes[-1][name] = False
     return c_name
 
 

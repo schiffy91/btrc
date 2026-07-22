@@ -52,6 +52,8 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         self._mutex_value_adapters: dict[str, str] = {}
         # Track which helpers are needed
         self._used_helpers: set[str] = set()
+        self._gpu_kernels = {}
+        self._emitted_gpu_functions: set[str] = set()
         # Current class context (for method lowering)
         self.current_class: ClassInfo | None = None
         self.current_class_name: str = ""
@@ -92,6 +94,9 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
         # node id -> the IRVar that replaces it during call lowering.
         self._owning_temp_overrides: dict[int, IRVar] = {}
         self._type_temp_overrides: dict[int, object] = {}
+        # `sizeof(expr)` needs the source expression's C type and must never
+        # introduce evaluation-order or ARC statement-expression boundaries.
+        self._unevaluated_depth = 0
 
     def generate(self) -> IRModule:
         """Generate the complete IR module from the analyzed program."""
@@ -105,6 +110,9 @@ class IRGenerator(_OwnershipStateMixin, _ModuleGenerationMixin):
             # twice still emits every declaration before its first consumer.
             self._emit_fn_ptr_typedefs()
             self._emit_structs()
+            from .gpu_registration import emit_gpu_functions
+
+            emit_gpu_functions(self)
             self._emit_generic_collections()
             self._emit_enums()
             self._emit_declarations()

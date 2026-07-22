@@ -213,6 +213,22 @@ SemanticIntegerConstant semanticIntegerConstant(
     }
     if (expression.kind == NK_FIELD_ACCESS_EXPR
             && expression.obj.kind == NK_IDENTIFIER
+            && state.analyzed.richEnumTable.has(expression.obj.name)) {
+        if (restrictEnum) { return semanticInvalidConstant(); }
+        Node declaration = state.analyzed.richEnumTable.get(
+            expression.obj.name);
+        int variantIndex = 0;
+        while (variantIndex < declaration.variants.len) {
+            if (declaration.variants.get(variantIndex).name
+                    == expression.field) {
+                return semanticKnownConstant(variantIndex);
+            }
+            variantIndex = variantIndex + 1;
+        }
+        return semanticInvalidConstant();
+    }
+    if (expression.kind == NK_FIELD_ACCESS_EXPR
+            && expression.obj.kind == NK_IDENTIFIER
             && state.analyzed.enumContains(
                 expression.obj.name, expression.field)) {
         string owner = expression.obj.name;

@@ -64,6 +64,28 @@ def assignment_target_operands(target, *, stabilize_receiver: Callable) -> list:
     return [target]
 
 
+def borrowed_projection_owner_operands(
+    expression,
+    *,
+    owns: Callable,
+    overridden: Callable = lambda _expression: False,
+) -> list:
+    """Return owned receivers backing an otherwise borrowed projection."""
+
+    if overridden(expression) or owns(expression):
+        return []
+    if not isinstance(expression, (FieldAccessExpr, IndexExpr)):
+        return []
+    receiver = expression.obj
+    if not overridden(receiver) and owns(receiver):
+        return [receiver]
+    return borrowed_projection_owner_operands(
+        receiver,
+        owns=owns,
+        overridden=overridden,
+    )
+
+
 def kept_target_operands(target, operands, *, type_of: Callable, is_managed: Callable, owns: Callable) -> tuple:
     """Return borrowed managed operands that must outlive target evaluation."""
     if not isinstance(target, (FieldAccessExpr, IndexExpr)):
@@ -97,6 +119,7 @@ def _receiver_operands(receiver, *, stabilize_receiver: Callable) -> list:
 
 __all__ = [
     "assignment_target_operands",
+    "borrowed_projection_owner_operands",
     "kept_target_operands",
     "property_projection",
     "virtual_assignment_target",

@@ -1,0 +1,228 @@
+/* Pointer shape and pointee constness through rendered C typedefs. */
+
+bool setjmpTypeDecoration(string word) {
+    return word == "const" || word == "volatile";
+}
+
+string setjmpBareTypeWord(string text) {
+    string trimmed = text.trim();
+    if (trimmed.contains("*") || trimmed.contains("[")
+            || trimmed.contains("]") || trimmed.contains("(")
+            || trimmed.contains(")")) { return ""; }
+    Vector<string> words = Strings.split(trimmed, " ");
+    string candidate = "";
+    int index = 0;
+    while (index < words.len) {
+        string word = words.get(index).trim();
+        if (word != "" && !setjmpTypeDecoration(word)) {
+            if (candidate != "") { return ""; }
+            candidate = word;
+        }
+        index = index + 1;
+    }
+    return candidate;
+}
+
+string setjmpSingleAliasWord(string text, Map<string, bool> aliases) {
+    Vector<string> words = Strings.split(text.trim(), " ");
+    string candidate = "";
+    int index = 0;
+    while (index < words.len) {
+        string word = words.get(index).trim();
+        if (word != "" && !setjmpTypeDecoration(word)) {
+            if (candidate != "") { return ""; }
+            candidate = word;
+        }
+        index = index + 1;
+    }
+    return aliases.has(candidate) ? candidate : "";
+}
+
+string setjmpUnadornedAlias(
+        string cType, Map<string, bool> aliases) {
+    string text = cType.trim();
+    if (text.contains("*") || text.contains("[")
+            || text.contains("]") || text.contains("(")
+            || text.contains(")")) { return ""; }
+    return setjmpSingleAliasWord(text, aliases);
+}
+
+string setjmpPointerBaseAlias(
+        string cType, Map<string, bool> aliases) {
+    return setjmpSingleAliasWord(
+        Strings.replace(cType, "*", " "), aliases);
+}
+
+int setjmpPointerDepth(string cType) {
+    int count = 0;
+    int index = 0;
+    while (index < cType.length()) {
+        if (cType[index] == '*') { count = count + 1; }
+        index = index + 1;
+    }
+    return count;
+}
+
+bool setjmpIsPointerType(
+        string cType, Map<string, bool> aliases) {
+    return cType.contains("*")
+        || setjmpUnadornedAlias(cType, aliases) != "";
+}
+
+bool setjmpHasReadOnlyPointee(string cType,
+        Map<string, bool> aliases, Map<string, bool> readOnly) {
+    string text = cType.trim();
+    string alias = setjmpUnadornedAlias(text, aliases);
+    if (alias != "") { return readOnly.has(alias); }
+    string pointerBase = setjmpPointerBaseAlias(text, aliases);
+    return text.startsWith("const ")
+        && setjmpPointerDepth(text) == 1 && pointerBase == "";
+}
+
+void buildSetjmpPointerTypeFacts(IRModule module,
+        Map<string, bool> aliases, Map<string, bool> readOnly) {
+    Map<string, string> targets = {};
+    Map<string, bool> definitions = {};
+    int index = 0;
+    while (index < module.typedef_defs.len) {
+        IRTypedefDef definition = module.typedef_defs.get(index);
+        targets.put(definition.name, definition.target_type);
+        definitions.put(definition.name, true);
+        index = index + 1;
+    }
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        Vector<string> names = definitions.keys();
+        index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            string target = targets.get(name).trim();
+            string inherited = setjmpUnadornedAlias(
+                target, definitions);
+            bool pointer = target.contains("*")
+                || (inherited != "" && aliases.has(inherited));
+            if (pointer && !aliases.has(name)) {
+                aliases.put(name, true);
+                changed = true;
+            }
+            index = index + 1;
+        }
+    }
+    changed = true;
+    while (changed) {
+        changed = false;
+        Vector<string> names = definitions.keys();
+        index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            string target = targets.get(name).trim();
+            string inherited = setjmpUnadornedAlias(
+                target, definitions);
+            string pointerBase = setjmpPointerBaseAlias(
+                target, definitions);
+            bool immutable = inherited != "" && readOnly.has(inherited);
+            if (target.contains("*")) {
+                immutable = target.startsWith("const ")
+                    && setjmpPointerDepth(target) == 1
+                    && (pointerBase == "" || !aliases.has(pointerBase));
+            }
+            if (immutable && !readOnly.has(name)) {
+                readOnly.put(name, true);
+                changed = true;
+            }
+            index = index + 1;
+        }
+    }
+}
+
+void buildSetjmpPointerDepths(IRModule module,
+        Map<string, bool> aliases, Map<string, int> depths) {
+    Map<string, string> targets = {};
+    Map<string, bool> definitions = {};
+    int index = 0;
+    while (index < module.typedef_defs.len) {
+        IRTypedefDef definition = module.typedef_defs.get(index);
+        targets.put(definition.name, definition.target_type);
+        definitions.put(definition.name, true);
+        index = index + 1;
+    }
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        Vector<string> names = definitions.keys();
+        index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            string target = targets.get(name).trim();
+            int stars = setjmpPointerDepth(target);
+            string inherited = setjmpUnadornedAlias(
+                target, definitions);
+            string pointerBase = setjmpPointerBaseAlias(
+                target, definitions);
+            bool ready = stars > 0;
+            int depth = stars;
+            if (stars == 0 && inherited != "" && depths.has(inherited)) {
+                ready = true;
+                depth = depths.get(inherited);
+            } else if (stars > 0 && pointerBase != ""
+                    && aliases.has(pointerBase)) {
+                ready = depths.has(pointerBase);
+                if (ready) { depth = depth + depths.get(pointerBase); }
+            }
+            if (ready && !depths.has(name)) {
+                depths.put(name, depth);
+                changed = true;
+            }
+            index = index + 1;
+        }
+    }
+}
+
+int setjmpRenderedPointerDepth(string cType,
+        Map<string, bool> aliases, Map<string, int> depths) {
+    int stars = setjmpPointerDepth(cType);
+    string alias = setjmpUnadornedAlias(cType, aliases);
+    if (stars == 0 && alias != "" && depths.has(alias)) {
+        return depths.get(alias);
+    }
+    string pointerBase = setjmpPointerBaseAlias(cType, aliases);
+    if (pointerBase != "" && depths.has(pointerBase)) {
+        stars = stars + depths.get(pointerBase);
+    }
+    if (stars == 0 && setjmpIsPointerType(cType, aliases)) { return -1; }
+    return stars;
+}
+
+void buildSetjmpVoidTypeFacts(
+        IRModule module, Map<string, bool> voidAliases) {
+    Map<string, string> targets = {};
+    int index = 0;
+    while (index < module.typedef_defs.len) {
+        IRTypedefDef definition = module.typedef_defs.get(index);
+        targets.put(definition.name, definition.target_type);
+        index = index + 1;
+    }
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        Vector<string> names = targets.keys();
+        index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            string base = setjmpBareTypeWord(targets.get(name));
+            if ((base == "void" || voidAliases.has(base))
+                    && !voidAliases.has(name)) {
+                voidAliases.put(name, true);
+                changed = true;
+            }
+            index = index + 1;
+        }
+    }
+}
+
+bool setjmpIsVoidType(
+        string cType, Map<string, bool> voidAliases) {
+    string base = setjmpBareTypeWord(cType);
+    return base == "void" || voidAliases.has(base);
+}

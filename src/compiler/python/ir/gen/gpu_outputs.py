@@ -17,7 +17,7 @@ from ..nodes import (
     IRVarDecl,
 )
 from .errors import CodegenError
-from .gpu_arguments import bare_array_length, is_heap_collection
+from .gpu_arguments import backed_global_array, backed_static_field, bare_array_length, is_heap_collection
 from .types import type_to_c
 
 if TYPE_CHECKING:
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 class GpuOutputTarget:
     declarations: list[IRVarDecl]
     assignments: list[IRExpr]
+    cleanup: list[IRExpr]
     data: IRExpr
     capacity: IRExpr
 
@@ -61,46 +62,192 @@ def assignment_target(
 
     target_type = gen.analyzed.node_types.get(id(ast_target))
     if is_heap_collection(target_type):
-        temp_name = gen.fresh_temp("__gpu_output_target")
-        stable = IRVar(name=temp_name)
-        return GpuOutputTarget(
-            declarations=[
-                IRVarDecl(
-                    c_type=CType(text=type_to_c(target_type)),
-                    name=temp_name,
-                )
-            ],
-            assignments=[IRBinOp(left=stable, op="=", right=ir_target)],
-            data=IRFieldAccess(obj=stable, field="data", arrow=True),
-            capacity=IRFieldAccess(obj=stable, field="len", arrow=True),
+        from .ownership import owns_result
+
+        return collection_assignment_target(
+            gen,
+            ast_target,
+            target_type,
+            ir_target,
+            render_type=type_to_c,
+            fresh_temp=gen.fresh_temp,
+            record_declaration=gen._func_var_decls.append,
+            cleanup_active=gen.exception_cleanup_active,
+            activate_cleanup=gen.mark_cleanup_registration,
+            owned=bool(id(ast_target) not in gen._owning_temp_overrides and owns_result(gen, ast_target)),
         )
 
     if target_type is None or target_type.pointer_depth > 0:
         raise _unknown_capacity(ast_target)
     if not target_type.is_array:
         raise CodegenError("array-returning @gpu assignment requires an array or collection target")
-    if (
-        isinstance(ast_target, Identifier)
-        and target_type.array_size is None
-        and not _is_local_c_array(gen, ast_target.name)
-    ):
-        # An unsized array parameter is a C pointer at runtime. sizeof(param)
-        # would report pointer width, not writable element capacity.
+    if isinstance(ast_target, Identifier):
+        local_status = _local_c_array_status(gen, ast_target.name)
+        if local_status is False:
+            # Every array parameter uses pointer ABI, including source `T p[N]`.
+            raise _unknown_capacity(ast_target)
+        if local_status is None and not backed_global_array(gen, ast_target.name):
+            raise _unknown_capacity(ast_target)
+    elif target_type.array_size is None and not backed_static_field(gen, ast_target):
         raise _unknown_capacity(ast_target)
-    if not isinstance(ast_target, Identifier) and target_type.array_size is None:
-        raise _unknown_capacity(ast_target)
+    if not isinstance(ast_target, Identifier):
+        from .expressions import lower_expr
+
+        return array_projection_assignment_target(
+            ir_target,
+            target_type,
+            capacity=(
+                lower_expr(gen, target_type.array_size)
+                if target_type.array_size is not None
+                else bare_array_length(ir_target)
+            ),
+            render_type=type_to_c,
+            fresh_temp=gen.fresh_temp,
+            record_declaration=gen._func_var_decls.append,
+        )
     return GpuOutputTarget(
         declarations=[],
         assignments=[],
+        cleanup=[],
         data=ir_target,
         capacity=bare_array_length(ir_target),
     )
 
 
-def _is_local_c_array(gen: IRGenerator, name: str) -> bool:
+def array_projection_assignment_target(
+    ir_target,
+    target_type,
+    *,
+    capacity,
+    render_type,
+    fresh_temp,
+    record_declaration,
+) -> GpuOutputTarget:
+    """Snapshot a nontrivial fixed-array LHS before RHS evaluation."""
+
+    data_name = fresh_temp("__gpu_output_data")
+    length_name = fresh_temp("__gpu_output_len")
+    data_declaration = IRVarDecl(
+        c_type=CType(text=render_type(target_type)),
+        name=data_name,
+    )
+    length_declaration = IRVarDecl(
+        c_type=CType(text="int"),
+        name=length_name,
+    )
+    record_declaration(data_declaration)
+    record_declaration(length_declaration)
+    data = IRVar(name=data_name)
+    length = IRVar(name=length_name)
+    return GpuOutputTarget(
+        declarations=[data_declaration, length_declaration],
+        assignments=[
+            IRBinOp(left=data, op="=", right=ir_target),
+            IRBinOp(
+                left=length,
+                op="=",
+                right=capacity,
+            ),
+        ],
+        cleanup=[],
+        data=data,
+        capacity=length,
+    )
+
+
+def collection_assignment_target(
+    gen,
+    ast_target,
+    target_type,
+    ir_target,
+    *,
+    render_type,
+    fresh_temp,
+    record_declaration,
+    cleanup_active,
+    activate_cleanup,
+    owned,
+) -> GpuOutputTarget:
+    """Pin the collection denoted by the LHS before lowering RHS effects."""
+
+    from .call_boundary_cleanup import register_temporary, release_and_clear
+    from .managed_values import retain_value
+
+    temp_name = fresh_temp("__gpu_output_target")
+    declaration = IRVarDecl(
+        c_type=CType(text=render_type(target_type)),
+        name=temp_name,
+    )
+    record_declaration(declaration)
+    stable = IRVar(name=temp_name)
+    declarations = [declaration]
+    assignments = [IRBinOp(left=stable, op="=", right=ir_target)]
+    if not owned:
+        assignments.append(retain_value(gen, stable, target_type))
+    register_temporary(
+        gen,
+        declaration,
+        target_type,
+        declarations,
+        assignments,
+        fresh_temp,
+        cleanup_active(),
+        "__btrc_gpu_output_cleanup",
+        activate_cleanup,
+    )
+    cleanup = release_and_clear(
+        gen,
+        stable,
+        target_type,
+        declarations,
+        fresh_temp,
+        record_declaration,
+        render_type(target_type),
+    )
+    from ...type_composition import add_outer_pointer
+
+    data_name = fresh_temp("__gpu_output_data")
+    length_name = fresh_temp("__gpu_output_len")
+    data_declaration = IRVarDecl(
+        c_type=CType(text=render_type(add_outer_pointer(target_type.generic_args[0]))),
+        name=data_name,
+    )
+    length_declaration = IRVarDecl(
+        c_type=CType(text="int"),
+        name=length_name,
+    )
+    declarations.extend((data_declaration, length_declaration))
+    record_declaration(data_declaration)
+    record_declaration(length_declaration)
+    data = IRVar(name=data_name)
+    length = IRVar(name=length_name)
+    assignments.extend(
+        (
+            IRBinOp(
+                left=data,
+                op="=",
+                right=IRFieldAccess(obj=stable, field="data", arrow=True),
+            ),
+            IRBinOp(
+                left=length,
+                op="=",
+                right=IRFieldAccess(obj=stable, field="len", arrow=True),
+            ),
+        )
+    )
+    return GpuOutputTarget(
+        declarations=declarations,
+        assignments=assignments,
+        cleanup=cleanup,
+        data=data,
+        capacity=length,
+    )
+
+
+def _local_c_array_status(gen: IRGenerator, name: str) -> bool | None:
     from .c_array_scopes import local_c_array_status
 
-    return local_c_array_status(gen, name) is True
+    return local_c_array_status(gen, name)
 
 
 def _unknown_capacity(ast_target) -> CodegenError:

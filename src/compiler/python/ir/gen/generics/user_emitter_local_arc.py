@@ -156,6 +156,10 @@ def lower_generic_expression_statement(emitter, expression):
         return emitter._release_expression(expression.callee.obj)
     result_type = emitter._resolve_expr_type(expression)
     value = emitter._expr(expression)
+    from .user_gpu_dispatch import is_generic_gpu_output_assignment
+
+    if is_generic_gpu_output_assignment(emitter, expression):
+        return [IRExprStmt(expr=value)]
     if not emitter._is_managed_type(result_type) or not emitter._owns_expr(expression):
         return [IRExprStmt(expr=value)]
     temporary = _temporary(emitter, "__btrc_discarded", result_type)

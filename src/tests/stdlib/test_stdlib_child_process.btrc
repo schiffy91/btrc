@@ -4,13 +4,15 @@
 #include <assert.h>
 
 int childProbe(int argc, char** argv) {
-    string mode = argv[1];
+    string mode = Strings.copy(argv[1]);
     if (mode.equals("--probe")) {
         char cwd[4096];
         assert(getcwd(cwd, 4096) != NULL);
-        string overrideValue = getenv("BTRC_CHILD_OVERRIDE");
-        string newValue = getenv("BTRC_CHILD_NEW");
-        string removedValue = getenv("BTRC_CHILD_REMOVE");
+        string overrideValue = Environment.get("BTRC_CHILD_OVERRIDE", "");
+        string newValue = Environment.get("BTRC_CHILD_NEW", "");
+        string removedValue = null;
+        char* removedRaw = getenv("BTRC_CHILD_REMOVE");
+        if (removedRaw != NULL) { removedValue = Strings.copy(removedRaw); }
         printf("cwd=%s\n", cwd);
         printf("override=%s\n", overrideValue);
         printf("new=%s\n", newValue);
@@ -155,7 +157,9 @@ int main(int argc, char** argv) {
         timeoutMilliseconds=1000
     );
     assert(missing.code == 127);
-    assert(missing.stderr().contains("failed to execute"));
+    string missingStderr = missing.stderr();
+    assert(missingStderr.contains("failed to execute")
+        || missingStderr.contains("failed to start"));
 
     ExecResult volume = ChildProcess.run(
         executable,

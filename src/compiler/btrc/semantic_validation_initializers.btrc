@@ -14,6 +14,23 @@ bool semanticContextualAggregateInitializer(Node? initializer) {
             || initializer.kind == NK_MAP_LITERAL);
 }
 
+bool semanticGpuArrayResultCall(Node? expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (expression == null || expression.kind != NK_CALL_EXPR
+            || expression.callee == null
+            || expression.callee.kind != NK_IDENTIFIER) {
+        return false;
+    }
+    string name = expression.callee.name;
+    if (vars.has(name) || !state.analyzed.funcTable.has(name)) {
+        return false;
+    }
+    Node declaration = state.analyzed.funcTable.get(name);
+    return declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu
+        && declaration.return_type != null
+        && declaration.return_type.is_array;
+}
+
 void semanticValidateInitializerValue(Node expected, Node value,
         string subject, SemanticValidationState state,
         Map<string, Node> vars);
@@ -52,7 +69,9 @@ void semanticValidateStructInitializer(Node expected, Node initializer,
     int index = 0;
     while (index < initializer.elements.len) {
         Node field = declaration.fields.get(index);
-        semanticValidateInitializerValue(field.type,
+        Node? fieldValueType = semanticArrayFieldValueType(field, state);
+        if (fieldValueType == null) { fieldValueType = field.type; }
+        semanticValidateInitializerValue(fieldValueType,
             initializer.elements.get(index),
             subject + " field '" + field.name + "'", state, vars);
         index = index + 1;
@@ -80,9 +99,14 @@ void semanticValidateMapInitializer(Node expected, Node initializer,
 void semanticValidateInitializerValue(Node expected, Node value,
         string subject, SemanticValidationState state,
         Map<string, Node> vars) {
+    semanticValidateVolatileReferenceConversion(
+        expected, value, subject, state, vars);
+    Node? valueExpected = semanticArrayValueType(expected, state);
+    if (valueExpected == null) { return; }
+    Node representedExpected = valueExpected;
     contextualizeGenericConstructor(
-        expected, value, state, vars);
-    Node? canonical = semanticResolveAliases(expected, state);
+        representedExpected, value, state, vars);
+    Node? canonical = semanticResolveAliases(representedExpected, state);
     if (canonical == null) { return; }
     if (value.kind == NK_MAP_LITERAL) {
         semanticValidateMapInitializer(
@@ -92,6 +116,10 @@ void semanticValidateInitializerValue(Node expected, Node value,
     if (canonical.is_array) {
         if (value.kind != NK_BRACE_INITIALIZER
                 && value.kind != NK_LIST_LITERAL) {
+            /* Array-valued GPU dispatch is the sole expression form that
+             * materializes array storage. Ordinary C arrays remain
+             * non-copyable and must still use a contextual initializer. */
+            if (semanticGpuArrayResultCall(value, state, vars)) { return; }
             semanticValidationFail(subject
                 + " requires an array initializer", value);
         }
@@ -168,15 +196,20 @@ void semanticValidateTypedInitializer(Node? expected, Node? initializer,
         string subject, SemanticValidationState state,
         Map<string, Node> vars) {
     if (expected == null || initializer == null) { return; }
+    semanticValidateVolatileReferenceConversion(
+        expected, initializer, subject, state, vars);
+    Node? valueExpected = semanticArrayValueType(expected, state);
+    if (valueExpected == null) { return; }
+    Node representedExpected = valueExpected;
     contextualizeGenericConstructor(
-        expected, initializer, state, vars);
+        representedExpected, initializer, state, vars);
     semanticValidateManagedStringSource(
-        expected, initializer, subject, state, vars);
+        representedExpected, initializer, subject, state, vars);
     semanticValidateOpaqueBorrowStorage(
-        expected, initializer, subject, state, vars);
+        representedExpected, initializer, subject, state, vars);
     semanticRejectShallowInitializer(
-        expected, initializer, state, vars);
-    Node? canonical = semanticResolveAliases(expected, state);
+        representedExpected, initializer, state, vars);
+    Node? canonical = semanticResolveAliases(representedExpected, state);
     bool aggregate = initializer.kind == NK_BRACE_INITIALIZER
         || initializer.kind == NK_LIST_LITERAL
         || initializer.kind == NK_MAP_LITERAL;
@@ -188,5 +221,5 @@ void semanticValidateTypedInitializer(Node? expected, Node? initializer,
         return;
     }
     semanticValidateInitializerValue(
-        expected, initializer, subject, state, vars);
+        representedExpected, initializer, subject, state, vars);
 }

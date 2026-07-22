@@ -151,6 +151,49 @@ def test_source_declarations_lower_to_typed_module_nodes():
     assert all(isinstance(item, (IRInclude, IRMacroDef)) for item in module.preprocessor_decls)
 
 
+def test_aggregate_fields_and_typedefs_keep_volatile_ir_metadata():
+    module = _generate("""
+        typedef volatile int VolatileInt;
+        typedef volatile int* VolatilePointer;
+        struct Storage {
+            volatile int scalar;
+            volatile int* pointer;
+            volatile int values[2];
+        };
+        class Box {
+            public volatile int scalar;
+            public volatile int* pointer;
+            public volatile int values[2];
+        }
+        enum class Payload {
+            Value(volatile int scalar, volatile int* pointer), Empty
+        }
+        int inspect((volatile int, volatile int*) tuple) { return 0; }
+        int main() { return 0; }
+    """)
+
+    assert all(definition.is_volatile for definition in module.typedef_defs)
+    source_fields = [
+        field
+        for definition in (*module.struct_defs, *module.tagged_union_defs)
+        for field in (
+            definition.fields
+            if isinstance(definition, ir_nodes.IRStructDef)
+            else [field for variant in definition.variants for field in variant.fields]
+        )
+        if field.name in {"scalar", "pointer", "values", "_0", "_1"}
+    ]
+    assert source_fields
+    assert all(field.is_volatile for field in source_fields)
+
+    emitted = CEmitter().emit(module)
+    assert "typedef volatile int VolatileInt;" in emitted
+    assert "typedef int* volatile VolatilePointer;" in emitted
+    assert "volatile int values[2];" in emitted
+    assert "volatile int _0;" in emitted
+    assert "int* volatile _1;" in emitted
+
+
 def test_generic_callable_prototypes_are_typed():
     module = _generate("""
         class Box<T> {

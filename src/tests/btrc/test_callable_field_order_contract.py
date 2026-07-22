@@ -84,6 +84,82 @@ SOURCE = """
     }
 """
 
+IDENTIFIER_SOURCE = """
+    #include <assert.h>
+
+    typedef __fn_ptr<int, int> Unary;
+
+    int original(int value) { return 100 + value; }
+    int replacement(int value) { return 200 + value; }
+
+    extern Unary callback;
+    Unary callback = original;
+    static const volatile Unary qualifiedCallback = original;
+    const volatile Unary externalCallback = original;
+
+    int replaceCallback() {
+        callback = replacement;
+        return 2;
+    }
+
+    int replaceSlot(Unary* slot) {
+        *slot = replacement;
+        return 2;
+    }
+
+    class GenericCaller<T> {
+        public Unary field;
+
+        public int mutateField() {
+            self.field = replacement;
+            return 2;
+        }
+
+        public int invokeField() {
+            self.field = original;
+            int result = self.field(self.mutateField());
+            assert(self.field(3) == 203);
+            return result;
+        }
+
+        public int invokeLocal() {
+            Unary local = original;
+            int result = local(replaceSlot(&local));
+            assert(local(3) == 203);
+            return result;
+        }
+
+        public int invokeGlobal() {
+            callback = original;
+            int result = callback(replaceCallback());
+            assert(callback(3) == 203);
+            return result;
+        }
+
+        public int invokeSource() {
+            return original(2);
+        }
+    }
+
+    int main() {
+        extern const volatile Unary externalCallback;
+        callback = original;
+        int result = callback(replaceCallback());
+        assert(result == 102);
+        assert(callback(3) == 203);
+        assert(qualifiedCallback(4) == 104);
+        assert(externalCallback(5) == 105);
+
+        GenericCaller<int> caller = new GenericCaller<int>();
+        assert(caller.invokeField() == 102);
+        assert(caller.invokeLocal() == 102);
+        assert(caller.invokeGlobal() == 102);
+        assert(caller.invokeSource() == 102);
+        delete caller;
+        return 0;
+    }
+"""
+
 
 def _assert_callable_is_frozen(source: str) -> None:
     main = source.split("int main(void) {", 1)[1]
@@ -100,6 +176,30 @@ def _assert_callable_is_frozen(source: str) -> None:
         main,
         re.DOTALL,
     )
+
+
+def _assert_generic_identifier_is_frozen(
+    source: str,
+    method: str,
+    callee: str,
+    side_effect: str,
+) -> None:
+    match = re.search(
+        rf"{method}\([^)]*\)\s*\{{(?P<body>.*?)return result;",
+        source,
+        re.DOTALL,
+    )
+    assert match is not None, source
+    body = match.group("body")
+    frozen = re.search(
+        rf"(?P<temp>__btrc_(?:callable|call_operand|operand)_\d+)"
+        rf"\s*=\s*{callee}",
+        body,
+    )
+    assert frozen is not None, body
+    suffix = body[frozen.end() :]
+    assert side_effect in suffix
+    assert f"{frozen.group('temp')}(" in suffix
 
 
 def test_callable_field_selection_precedes_argument_side_effects(
@@ -127,4 +227,64 @@ def test_callable_field_selection_precedes_argument_side_effects(
     _strict_build_and_run(
         reference_source,
         tmp_path / "reference-callable-field-order",
+    )
+
+
+def test_callable_identifier_selection_precedes_argument_side_effects(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    selfhost, selfhost_source = _compile_source(
+        semantic_btrcc,
+        tmp_path,
+        IDENTIFIER_SOURCE,
+    )
+    reference, reference_source = _compile_reference_source(
+        tmp_path,
+        IDENTIFIER_SOURCE,
+    )
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+
+    for generated in (selfhost_source, reference_source):
+        main = generated.read_text().split("int main(void) {", 1)[1]
+        frozen = re.search(
+            r"(?P<callable>__btrc_(?:callable|call_operand|operand)_\d+)"
+            r"\s*=\s*callback",
+            main,
+        )
+        assert frozen is not None, main
+        side_effect = main.find("replaceCallback()", frozen.end())
+        invocation = main.find(f"{frozen.group('callable')}(", frozen.end())
+        assert frozen.end() < side_effect < invocation, main
+
+        source = generated.read_text()
+        _assert_generic_identifier_is_frozen(
+            source,
+            "invokeLocal",
+            "local",
+            "replaceSlot(",
+        )
+        _assert_generic_identifier_is_frozen(
+            source,
+            "invokeGlobal",
+            "callback",
+            "replaceCallback(",
+        )
+        assert not re.search(
+            r"const\s+\w+\s+__btrc_callable_\d+",
+            source,
+        )
+        assert not re.search(
+            r"__btrc_callable_\d+\s*=\s*original",
+            source,
+        )
+
+    _strict_build_and_run(
+        selfhost_source,
+        tmp_path / "selfhost-callable-identifier-order",
+    )
+    _strict_build_and_run(
+        reference_source,
+        tmp_path / "reference-callable-identifier-order",
     )

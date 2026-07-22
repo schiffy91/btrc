@@ -1,0 +1,47 @@
+/* Array-returning GPU calls materialize only at explicit host-storage roots. */
+
+void semanticValidateGpuArrayResultContext(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    if (semanticGpuArrayResultCall(expression, state, vars)
+            && state.gpuArrayResultBoundary != expression) {
+        semanticValidationFail(
+            "Array-returning @gpu call is only valid as an array declaration "
+                + "initializer or direct array assignment statement",
+            expression);
+    }
+}
+
+void semanticValidateGpuResultBoundary(Node? expression, Node? boundary,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node? previous = state.gpuArrayResultBoundary;
+    state.gpuArrayResultBoundary = boundary;
+    semanticValidateExpr(expression, state, vars);
+    state.gpuArrayResultBoundary = previous;
+}
+
+void semanticValidateGpuArrayInitializer(Node? expression,
+        Node? declaredType,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node? boundary = null;
+    Node? canonical = semanticResolveAliases(declaredType, state);
+    bool arrayStorage = declaredType == null
+        || (canonical != null && canonical.is_array);
+    if (arrayStorage
+            && semanticGpuArrayResultCall(expression, state, vars)) {
+        boundary = expression;
+    }
+    semanticValidateGpuResultBoundary(
+        expression, boundary, state, vars);
+}
+
+void semanticValidateGpuResultStatement(Node expression,
+        SemanticValidationState state, Map<string, Node> vars) {
+    Node? boundary = null;
+    if (expression.kind == NK_ASSIGN_EXPR && expression.op == "="
+            && semanticGpuArrayResultCall(
+                expression.value_node, state, vars)) {
+        boundary = expression.value_node;
+    }
+    semanticValidateGpuResultBoundary(
+        expression, boundary, state, vars);
+}

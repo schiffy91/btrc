@@ -4,12 +4,34 @@ Map<string, Node> semanticGlobalTypes(Analyzed analyzed) {
     return semanticCloneTypes(analyzed.globalVarTypes);
 }
 
+bool semanticGpuDefaultInheritsArrayCapacity(Node expression,
+        Vector<Node> params, int paramIndex,
+        SemanticValidationState state) {
+    if (expression == null || expression.kind != NK_IDENTIFIER) {
+        return false;
+    }
+    int index = 0;
+    while (index < paramIndex) {
+        Node prior = params.get(index);
+        Node? priorType = semanticResolveAliases(
+            prior.type, state);
+        if (prior.name == expression.name && priorType != null
+                && priorType.is_array) {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
 void semanticValidateParameterDefaults(Vector<Node> params,
         SemanticValidationState state, Map<string, Node> vars, Node owner) {
     bool sawDefault = false;
     int index = 0;
     while (index < params.len) {
         Node parameter = params.get(index);
+        Node? parameterValueType = semanticArrayParameterValueType(
+            parameter.type, state);
         semanticRejectRuntimeInterfaceType(parameter.type, parameter, state);
         if (parameter.default_ != null) {
             sawDefault = true;
@@ -19,16 +41,28 @@ void semanticValidateParameterDefaults(Vector<Node> params,
             state.inParameterDefault = true;
             semanticValidateExpr(parameter.default_, state, vars);
             state.inParameterDefault = previousDefault;
-            semanticValidateTypedInitializer(parameter.type,
+            semanticValidateTypedInitializer(parameterValueType,
                 parameter.default_, "Default for parameter '"
                     + parameter.name + "'", state, vars);
             Node? actual = semanticInferType(
                 parameter.default_, state, vars);
+            Node? gpuParameterType = semanticResolveAliases(
+                parameter.type, state);
+            if (state.gpuCallable && gpuParameterType != null
+                    && gpuParameterType.is_array && actual != null
+                    && !semanticGpuDefaultInheritsArrayCapacity(
+                        parameter.default_, params, index, state)
+                    && !semanticArrayTargetHasCapacity(
+                        parameter.default_, actual, state, vars)) {
+                semanticValidationFail("Default for parameter '"
+                    + parameter.name + "' has no provable readable GPU "
+                    + "buffer capacity", parameter.default_);
+            }
             if (actual != null
                     && !semanticContextualAggregateInitializer(
                         parameter.default_)
                     && !semanticAssignmentCompatible(
-                        parameter.type, actual, state)) {
+                        parameterValueType, actual, state)) {
                 semanticValidationFail("Default for parameter '"
                     + parameter.name + "' expects '"
                     + semanticFormatType(parameter.type) + "' but got '"
@@ -38,7 +72,9 @@ void semanticValidateParameterDefaults(Vector<Node> params,
             semanticValidationFail("Non-default parameter '" + parameter.name
                 + "' follows default parameter", parameter);
         }
-        vars.put(parameter.name, parameter.type);
+        if (parameterValueType != null) {
+            vars.put(parameter.name, parameterValueType);
+        }
         index = index + 1;
     }
 }
@@ -73,9 +109,12 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     }
     state.typeParams = semanticCombinedTypeParams(
         signatureClassParams, callable.generic_params);
+    string returnSubject = classDeclaration == null
+        ? "Return type of function '" + callable.name + "'"
+        : "Return type of method '" + classDeclaration.name + "."
+            + callable.name + "'";
     semanticValidateDeclaredType(callable.return_type,
-        "Callable '" + callable.name + "' return", "return",
-        callable, state);
+        returnSubject, "return", callable, state);
     semanticRejectRuntimeInterfaceType(
         callable.return_type, callable, state);
     int typeIndex = 0;
@@ -86,6 +125,7 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
         semanticValidateDeclaredType(parameter.type,
             "Parameter '" + parameter.name + "'", "parameter",
             parameter, state);
+        semanticValidateGpuArrayParameter(callable, parameter, state);
         semanticRejectRuntimeInterfaceType(
             parameter.type, parameter, state);
         typeIndex = typeIndex + 1;
@@ -128,7 +168,7 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     if (isConstructor) {
         state.returnType = makePrimType("void");
     } else {
-        state.returnType = semanticResolveAliases(
+        state.returnType = semanticArrayValueType(
             callable.return_type, state);
     }
     state.loopDepth = 0;

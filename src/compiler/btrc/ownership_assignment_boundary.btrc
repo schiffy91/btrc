@@ -18,7 +18,10 @@ bool ownedAssignmentPropertyProjection(IRGen generator, Node target,
         member = generator.analyzed.classMember(
             receiverType.base, target.field);
     }
-    return member != null && member.kind == NK_PROPERTY_DECL;
+    return member != null && member.kind == NK_PROPERTY_DECL
+        && !propertyTargetUsesBacking(
+            target.obj, target.field,
+            generator.currentPropertyBacking);
 }
 
 void collectOwnedAssignmentTargetOperands(IRGen generator, Node? target,
@@ -55,16 +58,19 @@ void collectOwnedAssignmentTargetOperands(IRGen generator, Node? target,
             generator, object, varTypes);
         Node? objectType = generator.resolvedExpressionType(
             object, varTypes);
+        bool objectOverridden = generator.owningTempOverrides.has(
+            astNodeKey(object));
         bool objectManaged = irManagedType(generator, objectType)
             && object.kind != NK_SELF_EXPR
             && object.kind != NK_SUPER_EXPR
-            && !generator.owningTempOverrides.has(
-                astNodeKey(object));
+            && !objectOverridden;
         if (objectOwned || objectManaged) {
             operands.push(object);
             owned.push(objectOwned);
             kept.push(objectManaged && !objectOwned);
-        } else {
+        } else if (!objectOverridden) {
+            /* A stabilized projection is the traversal boundary. Its own
+             * receiver has already been evaluated by the enclosing boundary. */
             collectOwnedAssignmentTargetOperands(
                 generator, object, varTypes,
                 operands, owned, kept, true);
@@ -81,6 +87,28 @@ void collectOwnedAssignmentTargetOperands(IRGen generator, Node? target,
     kept.push(irManagedType(generator, indexType)
         && !indexOwned
         && !generator.owningTempOverrides.has(astNodeKey(index)));
+}
+
+void collectOwnedProjectionRoots(IRGen generator, Node? expression,
+        Map<string, Node> varTypes, Vector<Node> roots) {
+    if (expression == null
+            || generator.owningTempOverrides.has(astNodeKey(expression))
+            || irUnconsumedOwnedResult(generator, expression, varTypes)
+            || (expression.kind != NK_FIELD_ACCESS_EXPR
+                && expression.kind != NK_INDEX_EXPR)) {
+        return;
+    }
+    Node? receiver = expression.obj;
+    if (receiver == null
+            || generator.owningTempOverrides.has(astNodeKey(receiver))) {
+        return;
+    }
+    if (irUnconsumedOwnedResult(generator, receiver, varTypes)) {
+        roots.push(receiver);
+        return;
+    }
+    collectOwnedProjectionRoots(
+        generator, receiver, varTypes, roots);
 }
 
 bool irAssignmentPinsBorrowedTarget(IRGen generator, Node? target,
@@ -105,8 +133,8 @@ bool irAssignmentPinsBorrowedTarget(IRGen generator, Node? target,
 
 /* Assignment targets must remain C lvalues even when a nested field/index
  * receiver is a caller-owned temporary. Stabilize target operands first, then
- * recursively lower with overrides installed; that pass sees borrowed slots
- * and emits an assignable projection instead of a result boundary. Mirrors
+ * invoke plain assignment lowering with overrides installed; that pass sees
+ * borrowed slots without redispatching this ownership boundary. Mirrors
  * assignments.lower_assignment_expr in the reference compiler. */
 IRNode? lowerOwnedAssignment(IRGen generator, Node expression,
         Map<string, Node> varTypes) {
@@ -138,7 +166,8 @@ IRNode? lowerOwnedAssignment(IRGen generator, Node expression,
             owned.get(operandIndex), kept.get(operandIndex), varTypes);
         operandIndex = operandIndex + 1;
     }
-    IRNode lowered = generator.lowerExpr(expression, varTypes);
+    IRNode lowered = lowerPlainAssignment(
+        generator, expression, varTypes);
     boundary.restore(generator);
     Node? resultType = generator.resolvedExpressionType(
         expression, varTypes);

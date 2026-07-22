@@ -34,14 +34,16 @@ bool semanticStructContainsConst(Node? typeExpr, Analyzed analyzed,
 }
 
 void semanticValidateMutableTarget(Node? targetType,
-        SemanticValidationState state, Node site) {
+        SemanticValidationState state, Node site,
+        bool allowFixedArrayWrite) {
     Node? resolvedTarget = semanticResolveAliases(targetType, state);
     if (resolvedTarget == null) { return; }
     if (resolvedTarget.is_const && resolvedTarget.pointer_depth == 0) {
         semanticValidationFail("Cannot modify const storage of type '"
             + semanticFormatType(resolvedTarget) + "'", site);
     }
-    if (resolvedTarget.is_array && resolvedTarget.array_size != null) {
+    if (resolvedTarget.is_array && resolvedTarget.array_size != null
+            && !allowFixedArrayWrite) {
         semanticValidationFail("Fixed array '"
             + semanticFormatType(resolvedTarget) + "' is not assignable", site);
     }
@@ -55,6 +57,7 @@ void semanticValidateMutableTarget(Node? targetType,
 }
 
 void semanticValidatePropertyMutation(Node target, bool requireGetter,
+        bool allowGetterStorage,
         SemanticValidationState state, Map<string, Node> vars, Node site) {
     if (target.kind != NK_FIELD_ACCESS_EXPR) { return; }
     Node? receiver = semanticInferType(target.obj, state, vars);
@@ -67,7 +70,8 @@ void semanticValidatePropertyMutation(Node target, bool requireGetter,
     }
     if (member == null || member.kind != NK_PROPERTY_DECL) { return; }
     Node property = member;
-    if (!property.has_setter) {
+    if (!property.has_setter
+            && !(allowGetterStorage && property.has_getter)) {
         semanticValidationFail(
             "Property '" + target.field + "' has no setter", site);
     }

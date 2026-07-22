@@ -58,6 +58,17 @@ def sequence_call_boundary(
     result_owned: bool = False,
 ):
     """Evaluate operands once, invoke, then release call-owned references."""
+    if getattr(gen, "_unevaluated_depth", 0) > 0:
+        values = {}
+        for operand in operands:
+            values[id(operand.node)] = (
+                operand.lower_with_overrides(values)
+                if operand.lower_with_overrides is not None
+                else operand.lowered
+                if operand.lowered is not None
+                else lower_expr(operand.node)
+            )
+        return build_call(values)
     declarations = []
     prefix = []
     handoffs = []

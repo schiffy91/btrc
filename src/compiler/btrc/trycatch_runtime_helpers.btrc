@@ -3,6 +3,7 @@
 bool trycatchRuntimeHasHelper(string name) {
     return name == "__btrc_try_level"
         || name == "__btrc_trycatch_globals"
+        || name == "__btrc_copy_error_message"
         || name == "__btrc_try_capacity"
         || name == "__btrc_launder_state"
         || name == "__btrc_launder"

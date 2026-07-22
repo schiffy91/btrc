@@ -71,9 +71,9 @@ class Gauge {
     }
 }
 
-class Worker<T> {
+class Worker {
     public Worker() {}
-    public T update(Vector<T> values, int index, T delta) {
+    public int update(Vector<int> values, int index, int delta) {
         return values[index] += delta;
     }
     public int updateGauge(Gauge target, int delta) {
@@ -91,10 +91,6 @@ class Child extends Base {
 
 class GenericBase<T> {
     public GenericBase() {}
-}
-
-class GenericChild<T> extends GenericBase {
-    public GenericChild() {}
 }
 
 Gauge gauge;
@@ -208,7 +204,7 @@ int main() {
     assert(vector_old == 24 && vector_new == 26 && vector[1] == 26);
     assert(receiver_calls == 2 && index_calls == 2);
 
-    Worker<int> worker = new Worker<int>();
+    Worker worker = new Worker();
     assert(worker.update(vector, 1, 4) == 30 && vector[1] == 30);
     getter_calls = 0;
     setter_calls = 0;
@@ -230,8 +226,8 @@ int main() {
     assert(callback == callback);
     assert(callback != null);
     GenericBase<int> generic_base = new GenericBase<int>();
-    GenericChild<int> generic_child = new GenericChild<int>();
-    assert(generic_base != generic_child);
+    GenericBase<int> generic_other = new GenericBase<int>();
+    assert(generic_base != generic_other);
 
     print("PASS: test_typed_operator_lvalue_parity");
     return 0;

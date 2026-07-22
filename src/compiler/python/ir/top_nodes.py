@@ -115,6 +115,8 @@ class IRStructField:
     c_type: CType
     name: str
     array_size: IRExpr = None
+    is_volatile: bool = False
+    effective_is_volatile: bool = False
 
 
 @dataclass
@@ -132,6 +134,7 @@ class IRTypedefDef:
 
     target_type: CType
     name: str
+    is_volatile: bool = False
 
 
 @dataclass
@@ -159,9 +162,11 @@ class IRGlobalDecl:
     name: str
     init: IRExpr = None
     array_size: IRExpr = None
+    is_unsized_array: bool = False
     is_static: bool = True
     is_extern: bool = False
     is_volatile: bool = False
+    effective_is_volatile: bool = False
 
 
 @dataclass

@@ -100,8 +100,9 @@ bool semanticStatementTerminates(Node statement) {
     }
     if (statement.kind == NK_TRY_CATCH_STMT) {
         if (semanticBlockTerminates(statement.finally_block)) { return true; }
-        return semanticBlockTerminates(statement.try_block)
-            && statement.catch_block != null
+        bool tryTerminates = semanticBlockTerminates(statement.try_block);
+        if (statement.catch_block == null) { return tryTerminates; }
+        return tryTerminates
             && semanticBlockTerminates(statement.catch_block);
     }
     if (statement.kind == NK_DO_WHILE_STMT) {

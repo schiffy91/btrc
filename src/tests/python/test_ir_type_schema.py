@@ -11,6 +11,7 @@ from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.nodes import (
     CType,
+    IRBinOp,
     IRCall,
     IRCast,
     IRFieldAccess,
@@ -196,14 +197,22 @@ def test_complex_function_pointer_member_calls_preserve_receiver_structure():
         ("callValue", "makeValue", False),
         ("callPointer", "makePointer", True),
     ):
+        materialized = next(
+            node
+            for node in iter_ir_nodes(functions[function_name])
+            if isinstance(node, IRBinOp) and isinstance(node.right, IRFieldAccess)
+        )
+        assert isinstance(materialized.left, IRVar)
+        assert materialized.left.name.startswith("__btrc_callable_")
+        assert materialized.right.arrow is arrow
+        assert materialized.right.field == "apply"
+        assert materialized.right.obj == IRCall(callee=factory_name, args=[])
         member_call = next(
             node
             for node in iter_ir_nodes(functions[function_name])
-            if isinstance(node, IRCall) and isinstance(node.callee, IRFieldAccess)
+            if isinstance(node, IRCall) and node.callee == materialized.left
         )
-        assert member_call.callee.arrow is arrow
-        assert member_call.callee.field == "apply"
-        assert member_call.callee.obj == IRCall(callee=factory_name, args=[])
+        assert member_call.args == [IRLiteral(text="1")]
 
 
 def test_unresolved_generic_constructor_never_guesses_a_registered_instance():

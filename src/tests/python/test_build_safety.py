@@ -131,6 +131,7 @@ def test_devcontainer_external_tools_are_version_and_digest_pinned():
 
 def test_optional_native_backends_only_skip_missing_dependencies():
     makefile = MAKEFILE.read_text()
+    flake = (REPO_ROOT / "flake.nix").read_text()
 
     assert makefile.count(" -E ") >= 3
     assert "$$CC" not in makefile
@@ -138,6 +139,7 @@ def test_optional_native_backends_only_skip_missing_dependencies():
     assert '|| echo "GPU runtime skipped' not in makefile
     assert '|| echo "GUI window backend skipped' not in makefile
     assert '|| echo "GUI font backend skipped' not in makefile
+    assert "-I${pkgs.glfw.dev}/include" in flake
 
 
 def test_btrcc_c_rebuilds_for_every_input_category():
@@ -264,7 +266,7 @@ def test_nix_runtime_packages_use_the_filtered_runtime_source():
     assert "runtimeInputs = [ lspPython pkgs.git ];" in flake
     assert '"src/compiler/python/"' in flake
     assert '"src/devex/lsp/"' in flake
-    assert '"src/compiler/python/tests/"' in flake
+    assert '"src/compiler/python/tests/"' not in flake
     assert '"src/devex/lsp/tests/"' in flake
 
 
@@ -311,5 +313,6 @@ def test_ci_builds_installable_artifacts_and_pins_external_actions():
     assert "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405" in windows
     assert "DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837" in ci
     assert "DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d" in ci
-    assert "3a0ed1e8799a2f8ce2a6e6290a9ff22e6906f8227865911fb7ddedc3cc14cb0c" in windows
+    assert '$ver = "0.16.0"' in windows
+    assert "68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e" in windows
     assert "Get-FileHash -Algorithm SHA256 zig.zip" in windows

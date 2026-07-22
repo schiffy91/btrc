@@ -116,10 +116,8 @@ TRYCATCH_CLEANUP = {
             "    __btrc_push_try();\n"
             "    int guard_level = __btrc_try_top;\n"
             "    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) {\n"
-            "        if (error && error_capacity) {\n"
-            "            strncpy(error, __btrc_error_msg, error_capacity - 1);\n"
-            "            error[error_capacity - 1] = '\\0';\n"
-            "        }\n"
+            "        __btrc_copy_error_message(\n"
+            "            error, error_capacity, __btrc_error_msg);\n"
             "        memcpy(__btrc_error_msg, ambient, sizeof ambient);\n"
             "        return 1;\n"
             "    }\n"
@@ -132,6 +130,7 @@ TRYCATCH_CLEANUP = {
         depends_on=[
             "__btrc_arc_callback_types",
             "__btrc_push_try",
+            "__btrc_copy_error_message",
         ],
     ),
     "__btrc_raise_captured": HelperDef(

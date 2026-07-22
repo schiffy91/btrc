@@ -100,8 +100,6 @@ def emit_gpu_kernel(gen: IRGenerator, decl: FunctionDecl) -> None:
     )
 
     # Store kernel metadata on the generator for call-site lookup
-    if not hasattr(gen, "_gpu_kernels"):
-        gen._gpu_kernels = {}
     gen._gpu_kernels[name] = kernel
 
     # Store kernel as structured IR node — the emitter will emit the
@@ -124,13 +122,55 @@ def lower_gpu_call(
     func_name: str,
     ast_args: list,
     arg_names: list[str],
-    ir_args: list,
+    ir_args: list | None,
+    *,
+    call=None,
 ):
     """Lower a call through the structured dispatch-helper pipeline."""
 
     from .gpu_dispatch import lower_gpu_call as lower_dispatch_call
 
-    return lower_dispatch_call(gen, func_name, ast_args, arg_names, ir_args)
+    return lower_dispatch_call(
+        gen,
+        func_name,
+        ast_args,
+        arg_names,
+        ir_args,
+        call=call,
+    )
+
+
+def is_direct_gpu_call(gen: IRGenerator, node) -> bool:
+    """Whether an identifier kernel call is not shadowed lexically."""
+
+    from ...ast_nodes import Identifier
+
+    if not isinstance(node.callee, Identifier):
+        return False
+    name = node.callee.name
+    return bool(
+        name in getattr(gen, "_gpu_kernels", {})
+        and not gen.local_ownership_declared(name)
+        and name not in gen.analyzed.global_var_types
+        and name not in gen._fn_ptr_envs
+    )
+
+
+def lower_direct_gpu_call(gen: IRGenerator, node):
+    """Lower one unshadowed kernel call without eager outer argument replay."""
+
+    if not is_direct_gpu_call(gen, node):
+        return None
+    from .arguments import arg_names_for
+
+    return lower_gpu_call(
+        gen,
+        node.callee.name,
+        node.args,
+        arg_names_for(node, len(node.args)),
+        None,
+        call=node,
+    )
 
 
 def is_gpu_function(gen: IRGenerator, name: str) -> bool:

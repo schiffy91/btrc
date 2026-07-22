@@ -27,7 +27,13 @@ void emitClassStaticFields(IRGen generator, Node declaration, IRModule module) {
         if (field.kind == NK_FIELD_DECL && field.access == "class") {
             Node storageType = field.type;
             IRGlobalDecl global;
-            if (field.type.is_array) {
+            bool materializedArray = field.type.is_array
+                && (field.type.array_size != null
+                    || (field.initializer != null
+                        && (field.initializer.kind == NK_LIST_LITERAL
+                            || field.initializer.kind
+                                == NK_BRACE_INITIALIZER)));
+            if (materializedArray) {
                 storageType = typeWithoutOuterArray(field.type);
             }
             global = IRGlobalDecl(
@@ -35,6 +41,8 @@ void emitClassStaticFields(IRGen generator, Node declaration, IRModule module) {
                 declaration.name + "_" + field.name);
             global.is_static = true;
             global.is_volatile = field.type.is_volatile;
+            global.effective_is_volatile = typeEffectiveOuterVolatile(
+                field.type, generator.analyzed.typedefTable);
             Map<string, Node> empty = {};
             if (field.type.is_array) {
                 if (field.type.array_size != null) {

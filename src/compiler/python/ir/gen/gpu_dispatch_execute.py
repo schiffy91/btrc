@@ -18,7 +18,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .gpu_arguments import buffer_length_name
+from .gpu_argument_bindings import buffer_length_name
 from .gpu_dispatch_model import OUTPUT_PARAM, GpuDispatchSpec, wgsl_to_c
 from .gpu_dispatch_status import (
     checked_failure_policy,

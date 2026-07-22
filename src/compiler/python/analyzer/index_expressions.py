@@ -5,7 +5,7 @@ class IndexExpressionContractsMixin:
     def _validate_index_expr(self, expression):
         from ..index_protocol import indexed_protocol
 
-        object_type = self._infer_type(expression.obj)
+        object_type = self._canonical_type(self._infer_type(expression.obj))
         index_type = self._infer_type(expression.index)
         if object_type is None:
             return
@@ -19,7 +19,11 @@ class IndexExpressionContractsMixin:
         expected_index = None
         if object_type.base == "Map" and len(object_type.generic_args) == 2:
             expected_index = object_type.generic_args[0]
-        protocol = indexed_protocol(object_type, self.class_table)
+        protocol = indexed_protocol(
+            object_type,
+            self.class_table,
+            active_type_params=self._active_storage_type_parameters(),
+        )
         if expected_index is None and protocol is not None:
             assigning = self._assignment_target_depth > 0
             # Mutation validation checks the exact getter/setter operations.

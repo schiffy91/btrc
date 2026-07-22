@@ -45,7 +45,10 @@ def _matches(path: Path, expected: bytes, regenerate: str) -> bool:
     except OSError as error:
         print(f"generated source is missing or unreadable: {path}: {error}", file=sys.stderr)
         return False
-    if current == expected:
+    # Git may materialize text files with CRLF on Windows even though the
+    # generators use the platform's stdout/text conventions independently.
+    # Freshness is a source-content contract, not a checkout-EOL contract.
+    if current.replace(b"\r\n", b"\n") == expected.replace(b"\r\n", b"\n"):
         return True
     relative = path.relative_to(REPO_ROOT)
     print(f"generated source is stale: {relative}; regenerate with `{regenerate}`", file=sys.stderr)

@@ -1,0 +1,290 @@
+/* Expression transfers for setjmp pointer provenance. */
+
+bool setjmpFlowAssignmentOp(string op) {
+    return op == "=" || op == "+=" || op == "-=" || op == "*="
+        || op == "/=" || op == "%=" || op == "&=" || op == "|="
+        || op == "^=" || op == "<<=" || op == ">>=";
+}
+
+Vector<SetjmpOrigin> setjmpFlowLoad(
+        SetjmpPointerFlow flow, Vector<SetjmpOrigin> origins) {
+    Vector<SetjmpOrigin> loaded = [];
+    int index = 0;
+    while (index < origins.len) {
+        SetjmpOrigin origin = origins.get(index);
+        if (origin.depth < 0) {
+            setjmpAddOrigin(loaded, origin);
+        } else if (origin.depth > 0) {
+            int pointerDepth = origin.storage.pointerDepth;
+            if (pointerDepth < 0) {
+                setjmpAddOrigin(loaded, SetjmpOrigin(origin.storage,
+                    -1, origin.sourceExposed));
+            } else if (origin.depth < pointerDepth) {
+                setjmpAddOrigin(loaded, SetjmpOrigin(origin.storage,
+                    origin.depth + 1, origin.sourceExposed));
+            }
+        } else if (origin.storage.isPointer) {
+            setjmpAddOrigins(loaded, flow.aliases(origin.storage));
+        }
+        index = index + 1;
+    }
+    return loaded;
+}
+
+Vector<SetjmpOrigin> setjmpFlowLocations(
+        SetjmpPointerFlow flow, IRNode? value) {
+    Vector<SetjmpOrigin> locations = [];
+    if (value == null) { return locations; }
+    if (value.kind == IRK_VAR) {
+        SetjmpStorage? storage = flow.resolve(value.name);
+        if (storage != null) {
+            locations.push(SetjmpOrigin(storage, 0, false));
+        }
+        return locations;
+    }
+    if (value.kind == IRK_FIELD_ACCESS && value.arrow) {
+        return copySetjmpOrigins(flow.result.originsFor(value.obj));
+    }
+    if (value.kind == IRK_INDEX || value.kind == IRK_DEREF) {
+        if (value.storage_root_known && value.storage_root != "") {
+            SetjmpStorage? storage = flow.resolve(value.storage_root);
+            if (storage != null) {
+                locations.push(SetjmpOrigin(storage, 0, false));
+            }
+            return locations;
+        }
+        if (value.storage_root_known || value.kind == IRK_DEREF) {
+            IRNode? child = value.obj;
+            if (value.kind == IRK_DEREF) { child = value.expr; }
+            return copySetjmpOrigins(flow.result.originsFor(child));
+        }
+    }
+    string root = irDirectStorageRoot(value);
+    SetjmpStorage? storage = root == "" ? null : flow.resolve(root);
+    if (storage != null) {
+        locations.push(SetjmpOrigin(storage, 0, false));
+    }
+    return locations;
+}
+
+Vector<SetjmpOrigin> setjmpFlowArgumentTargets(SetjmpPointerFlow flow,
+        IRNode argument, int depth) {
+    Vector<SetjmpOrigin> origins =
+        copySetjmpOrigins(flow.result.originsFor(argument));
+    if (depth < 0) {
+        Vector<SetjmpOrigin> saturated = [];
+        Vector<SetjmpOrigin> frontier = copySetjmpOrigins(origins);
+        int index = 0;
+        while (index <= flow.bindings.len && frontier.len > 0) {
+            Vector<SetjmpOrigin> next = [];
+            int originIndex = 0;
+            while (originIndex < frontier.len) {
+                SetjmpOrigin origin = frontier.get(originIndex);
+                SetjmpOrigin concrete = origin.depth > 0
+                    ? SetjmpOrigin(origin.storage, -1,
+                        origin.sourceExposed) : origin;
+                if (setjmpAddOrigin(saturated, concrete)) {
+                    setjmpAddOrigin(next, origin);
+                }
+                originIndex = originIndex + 1;
+            }
+            frontier = setjmpFlowLoad(flow, next);
+            index = index + 1;
+        }
+        return saturated;
+    }
+    int current = 1;
+    while (current < depth) {
+        origins = setjmpFlowLoad(flow, origins);
+        current = current + 1;
+    }
+    return origins;
+}
+
+void setjmpFlowAssignment(SetjmpPointerFlow flow, IRNode node,
+        IRNode? target, IRNode? value, string op) {
+    setjmpFlowExpression(flow, target);
+    Vector<SetjmpOrigin> origins = setjmpFlowExpression(flow, value);
+    Vector<SetjmpOrigin> locations = setjmpFlowLocations(flow, target);
+    flow.result.recordWrite(node, locations);
+    if (op != "=") { return; }
+    Vector<SetjmpStorage> localPointers = [];
+    int index = 0;
+    while (index < locations.len) {
+        SetjmpOrigin location = locations.get(index);
+        if (location.depth == 0 && location.storage.isPointer
+                && !location.storage.isArray
+                && location.storage.automatic()) {
+            bool present = false;
+            int prior = 0;
+            while (prior < localPointers.len) {
+                if (localPointers.get(prior).identity
+                        == location.storage.identity) { present = true; }
+                prior = prior + 1;
+            }
+            if (!present) { localPointers.push(location.storage); }
+        }
+        index = index + 1;
+    }
+    bool onlyLocalPointers = locations.len > 0
+        && localPointers.len == locations.len;
+    if (locations.len == 1 && localPointers.len == 1) {
+        flow.replaceAliases(localPointers.get(0), origins);
+    } else if (onlyLocalPointers) {
+        index = 0;
+        while (index < localPointers.len) {
+            flow.mergeAliases(localPointers.get(index), origins);
+            index = index + 1;
+        }
+    } else if (origins.len > 0) {
+        setjmpAddOrigins(flow.result.captures, origins);
+    }
+}
+
+Vector<SetjmpOrigin> setjmpFlowExpression(
+        SetjmpPointerFlow flow, IRNode? value) {
+    Vector<SetjmpOrigin> origins = [];
+    if (value == null) { return origins; }
+    if (value.kind == IRK_VAR) {
+        SetjmpStorage? storage = flow.resolve(value.name);
+        if (value.array_storage_known && value.array_storage_root != "") {
+            storage = flow.resolve(value.array_storage_root);
+            if (storage != null) {
+                origins.push(SetjmpOrigin(storage, 0, true));
+            }
+        } else if (storage != null && storage.isArray) {
+            origins.push(SetjmpOrigin(storage, 0, true));
+        } else if (storage != null && storage.isPointer) {
+            origins = flow.aliases(storage);
+        }
+    } else if (value.kind == IRK_ADDRESS_OF) {
+        setjmpFlowExpression(flow, value.expr);
+        Vector<SetjmpOrigin> locations =
+            setjmpFlowLocations(flow, value.expr);
+        int index = 0;
+        while (index < locations.len) {
+            SetjmpOrigin location = locations.get(index);
+            origins.push(SetjmpOrigin(location.storage, location.depth,
+                location.sourceExposed || value.source_address));
+            index = index + 1;
+        }
+    } else if (value.kind == IRK_DEREF) {
+        origins = setjmpFlowLoad(
+            flow, setjmpFlowExpression(flow, value.expr));
+    } else if (value.kind == IRK_CAST) {
+        origins = setjmpFlowCastOrigins(flow, value.target_type,
+            setjmpFlowExpression(flow, value.expr));
+    } else if (value.kind == IRK_COMMA_EXPR) {
+        int index = 0;
+        while (index < value.args.len) {
+            origins = setjmpFlowExpression(flow, value.args.get(index));
+            index = index + 1;
+        }
+    } else if (value.kind == IRK_STMT_EXPR) {
+        int bindingCount = flow.bindings.len;
+        int index = 0;
+        while (index < value.stmts.len) {
+            setjmpFlowStatement(flow, value.stmts.get(index));
+            index = index + 1;
+        }
+        origins = setjmpFlowExpression(flow, value.result);
+        flow.leaveScope(bindingCount);
+    } else if (value.kind == IRK_TERNARY) {
+        setjmpFlowExpression(flow, value.condition);
+        Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
+        origins = setjmpFlowExpression(flow, value.true_expr);
+        Vector<SetjmpAliasSlot> leftState = flow.copyState(flow.state);
+        flow.state = flow.copyState(entry);
+        Vector<SetjmpOrigin> right =
+            setjmpFlowExpression(flow, value.false_expr);
+        setjmpAddOrigins(origins, right);
+        flow.state = flow.joinStates(leftState, flow.state);
+    } else if (value.kind == IRK_CALL) {
+        return setjmpFlowCall(flow, value);
+    } else if (value.kind == IRK_BINOP) {
+        if (setjmpFlowAssignmentOp(value.op)) {
+            setjmpFlowAssignment(
+                flow, value, value.left, value.right, value.op);
+            if (value.op == "=") {
+                origins = copySetjmpOrigins(
+                    flow.result.originsFor(value.right));
+            }
+        } else if (value.op == "&&" || value.op == "||"
+                || value.op == "??") {
+            Vector<SetjmpOrigin> left =
+                setjmpFlowExpression(flow, value.left);
+            Vector<SetjmpAliasSlot> leftState =
+                flow.copyState(flow.state);
+            Vector<SetjmpOrigin> right =
+                setjmpFlowExpression(flow, value.right);
+            Vector<SetjmpAliasSlot> rightState =
+                flow.copyState(flow.state);
+            flow.state = flow.joinStates(leftState, rightState);
+            if (value.op == "??") {
+                setjmpAddOrigins(origins, left);
+                setjmpAddOrigins(origins, right);
+            }
+        } else {
+            Vector<SetjmpOrigin> left =
+                setjmpFlowExpression(flow, value.left);
+            Vector<SetjmpOrigin> right =
+                setjmpFlowExpression(flow, value.right);
+            if (value.op == "+" || value.op == "-") {
+                setjmpAddOrigins(origins, left);
+                setjmpAddOrigins(origins, right);
+            }
+        }
+    } else if (value.kind == IRK_UNARYOP) {
+        origins = setjmpFlowExpression(flow, value.operand);
+        if (value.op == "++" || value.op == "--") {
+            flow.result.recordWrite(
+                value, setjmpFlowLocations(flow, value.operand));
+        }
+        if (value.op == "!") { origins = []; }
+    } else if (value.kind == IRK_SIZEOF) {
+        flow.result.recordOrigins(value, origins);
+        return origins;
+    } else if (value.kind == IRK_FIELD_ACCESS) {
+        setjmpFlowExpression(flow, value.obj);
+        if (value.array_storage_known && value.array_storage_root != "") {
+            SetjmpStorage? storage = flow.resolve(value.array_storage_root);
+            if (storage != null) {
+                origins.push(SetjmpOrigin(storage, 0, true));
+            }
+        }
+    } else if (value.kind == IRK_INDEX) {
+        setjmpFlowExpression(flow, value.obj);
+        setjmpFlowExpression(flow, value.index);
+    } else if (value.kind == IRK_INITIALIZER_LIST
+            || value.kind == IRK_COMPOUND_LITERAL) {
+        int index = 0;
+        while (index < value.args.len) {
+            setjmpAddOrigins(origins,
+                setjmpFlowExpression(flow, value.args.get(index)));
+            index = index + 1;
+        }
+    } else {
+        setjmpFlowExpression(flow, value.left);
+        setjmpFlowExpression(flow, value.right);
+        setjmpFlowExpression(flow, value.operand);
+        setjmpFlowExpression(flow, value.expr);
+        setjmpFlowExpression(flow, value.obj);
+        setjmpFlowExpression(flow, value.index);
+        setjmpFlowExpression(flow, value.condition);
+        setjmpFlowExpression(flow, value.true_expr);
+        setjmpFlowExpression(flow, value.false_expr);
+        setjmpFlowExpression(flow, value.init);
+        setjmpFlowExpression(flow, value.value);
+        setjmpFlowExpression(flow, value.target);
+        setjmpFlowExpression(flow, value.update);
+        setjmpFlowExpression(flow, value.result);
+        setjmpFlowExpression(flow, value.array_size);
+        int index = 0;
+        while (index < value.args.len) {
+            setjmpFlowExpression(flow, value.args.get(index));
+            index = index + 1;
+        }
+    }
+    flow.result.recordOrigins(value, origins);
+    return origins;
+}

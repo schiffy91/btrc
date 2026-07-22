@@ -5,9 +5,8 @@
 #include <assert.h>
 #include <string.h>
 import std.vector;
-import std.strings;
 
-string fromInt(int x) { return Strings.fromInt(x); }
+double scaleInt(int x) { return (double)x + 0.5; }
 
 class Bag<T> {
     public Vector<T> items;
@@ -25,10 +24,10 @@ int main() {
     b.add(1);
     b.add(2);
     b.add(3);
-    Vector<string> mapped = b.mapAll(fromInt);
+    Vector<double> mapped = b.mapAll(scaleInt);
     assert(mapped.len == 3);
-    assert(strcmp(mapped.get(0), "1") == 0);
-    assert(strcmp(mapped.get(2), "3") == 0);
+    assert(mapped.get(0) == 1.5);
+    assert(mapped.get(2) == 3.5);
 
     print("PASS: test_generic_field_collection_transform");
     return 0;

@@ -1,6 +1,10 @@
 """Fail-closed domains for types that become concrete C declarations."""
 
 from ..numeric_semantics import is_known_integer_typedef_name
+from ..qualifier_provenance import (
+    effective_outer_const,
+    effective_outer_volatile,
+)
 from ..type_identity import is_semantic_scalar_void
 from .mutex_payload_domains import MutexPayloadDomainContractsMixin
 from .thread_type_domains import ThreadTypeDomainContractsMixin
@@ -40,10 +44,30 @@ class TypeDomainContractsMixin(
         type_line = type_expr.line or line
         type_col = type_expr.col or col
         self._validate_storage_qualifiers(type_expr, subject, role, type_line, type_col)
+        if role == "return" and (
+            effective_outer_const(type_expr, self.typedef_table)
+            or effective_outer_volatile(type_expr, self.typedef_table)
+        ):
+            self._error(
+                f"{subject} cannot carry an outer const/volatile qualifier; C discards qualifiers on returned values",
+                type_line,
+                type_col,
+            )
         self._validate_generic_arity(
             type_expr,
             type_expr.base in set(active_type_params),
         )
+        if type_expr.is_array and type_expr.base in self.typedef_table:
+            alias_target = self._canonical_type(
+                self.typedef_table[type_expr.base],
+            )
+            if alias_target is not None and alias_target.is_array:
+                self._report_type_shape_error(
+                    "Nested array composition through typedef is not supported",
+                    type_expr,
+                    type_line,
+                    type_col,
+                )
         if type_expr.base in self.interface_table and type_expr.base not in set(active_type_params):
             self._report_type_shape_error(
                 f"Interface type '{type_expr.base}' cannot be used as a runtime "
@@ -131,7 +155,7 @@ class TypeDomainContractsMixin(
                     type_line,
                     type_col,
                 )
-        if role != "return" and self._is_nonpointer_void_object(canonical):
+        if role not in {"alias", "return"} and self._is_nonpointer_void_object(canonical):
             self._error(
                 f"{subject} cannot have scalar/non-pointer void type",
                 type_line,

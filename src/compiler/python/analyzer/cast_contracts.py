@@ -36,6 +36,17 @@ class CastContractsMixin:
         if source.base == "Thread":
             self._reject_thread_value_escape(expression.expr, "cast")
             return
+        if self._nonportable_pointer_integer_cast(
+            source,
+            target,
+            expression.expr,
+        ):
+            self._error(
+                "Pointer/integer casts require intptr_t or uintptr_t",
+                expression.line,
+                expression.col,
+            )
+            return
 
         if self._is_void_value(source):
             if not self._is_void_value(target):
@@ -102,6 +113,26 @@ class CastContractsMixin:
 
     def _is_void_value(self, type_expr) -> bool:
         return is_semantic_scalar_void(type_expr)
+
+    def _nonportable_pointer_integer_cast(self, source, target, value) -> bool:
+        source_pointer = bool(source.is_array or source.pointer_depth > 0 or self._managed_result_type(source))
+        target_pointer = bool(target.is_array or target.pointer_depth > 0 or self._managed_result_type(target))
+        if source_pointer == target_pointer:
+            return False
+        if target_pointer and not source_pointer and self._is_known_numeric_zero(value):
+            return False
+        scalar = target if source_pointer else source
+        if scalar.base in {"intptr_t", "uintptr_t"}:
+            return False
+        return bool(
+            scalar.pointer_depth == 0
+            and not scalar.is_array
+            and (
+                self._is_numeric_value(scalar)
+                or self._is_opaque_c_scalar(scalar)
+                or self._is_native_enum_scalar(scalar)
+            )
+        )
 
     def _is_scalar_cast_value(self, type_expr) -> bool:
         if type_expr is None:

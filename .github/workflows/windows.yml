@@ -31,15 +31,44 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.13"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.23.1"
+          cache: npm
+          cache-dependency-path: src/devex/ext/package-lock.json
+
+      - name: Exercise native extension cleanup and package the real VSIX
+        working-directory: src/devex/ext
+        run: |
+          python -m pip install ../../..
+          npm ci
+          npm test
+          npm run package
+          python - <<'PY'
+          from zipfile import ZipFile
+
+          required = {
+              "extension/out/client_lifecycle.js",
+              "extension/out/process_tree.js",
+              "extension/out/server_process.js",
+              "extension/server/src/devex/lsp/server.py",
+              "extension/server/vendor/pygls/__init__.py",
+          }
+          with ZipFile("btrc.vsix") as archive:
+              names = set(archive.namelist())
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit(f"packaged VSIX is missing: {missing}")
+          PY
       # Install zig directly from ziglang.org (no setup action — its mirror 404s
-      # for some releases). 0.15.2 matches the project's flake and bundles the
+      # for some releases). 0.16.0 matches the project's flake and bundles the
       # winpthreads headers for the windows-gnu target (older zig lacks them).
-      - name: Install zig 0.15.2
+      - name: Install zig 0.16.0
         shell: pwsh
         run: |
-          $ver = "0.15.2"
+          $ver = "0.16.0"
           $zip = "zig-x86_64-windows-$ver.zip"
-          $expectedSha256 = "3a0ed1e8799a2f8ce2a6e6290a9ff22e6906f8227865911fb7ddedc3cc14cb0c"
+          $expectedSha256 = "68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e"
           Invoke-WebRequest -Uri "https://ziglang.org/download/$ver/$zip" -OutFile zig.zip
           $actualSha256 = (Get-FileHash -Algorithm SHA256 zig.zip).Hash.ToLowerInvariant()
           if ($actualSha256 -ne $expectedSha256) {
@@ -67,21 +96,41 @@ jobs:
           BTRC_CFLAGS: "-std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h"
         run: python src/tests/btrc/test_bootstrap.py -v
 
-      - name: Build + run a sample btrc program (asserts PASS)
+      - name: Build and run a sample btrc program against its exact golden
         run: |
           python -m src.compiler.python.main src/tests/strings/test_braces_in_code_gen.btrc --no-cache -o dist/win_sample.c
           zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/win_sample.c -o dist/win_sample.exe -lm
-          out=$(./dist/win_sample.exe)
-          echo "$out"
-          echo "$out" | grep -q "^PASS:"
+          ./dist/win_sample.exe > dist/win_sample.stdout
+          python - <<'PY'
+          from pathlib import Path
+
+          def logical_lines(path: str) -> list[str]:
+              return Path(path).read_text(encoding="utf-8").splitlines()
+
+          actual = logical_lines("dist/win_sample.stdout")
+          expected = logical_lines("src/tests/strings/expected/test_braces_in_code_gen.stdout")
+          if actual != expected:
+              raise SystemExit(f"sample output mismatch: {actual!r} != {expected!r}")
+          PY
 
       - name: Prove Windows drive, UNC, and separator semantics
         run: |
           python -m src.compiler.python.main src/tests/stdlib/test_stdlib_path_windows_lexical.btrc --no-cache -o dist/win_paths.c
           zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/win_paths.c -o dist/win_paths.exe -lm
-          out=$(./dist/win_paths.exe)
-          echo "$out"
-          echo "$out" | grep -q "^PASS:"
+          ./dist/win_paths.exe > dist/win_paths.stdout
+          python - <<'PY'
+          from pathlib import Path
+
+          def logical_lines(path: str) -> list[str]:
+              return Path(path).read_text(encoding="utf-8").splitlines()
+
+          actual = logical_lines("dist/win_paths.stdout")
+          expected = logical_lines(
+              "src/tests/stdlib/expected/test_stdlib_path_windows_lexical.stdout"
+          )
+          if actual != expected:
+              raise SystemExit(f"path output mismatch: {actual!r} != {expected!r}")
+          PY
 
       - name: Prove dynamic native realpath compatibility
         run: |
@@ -95,32 +144,76 @@ jobs:
             src/tests/native/win_compat_error_seam.c -o dist/win_compat_error_seam.exe
           ./dist/win_compat_error_seam.exe
 
-      - name: Bundled btrcc transpiles from an unrelated directory
+      - name: Extracted btrcc ZIP transpiles from an unrelated directory
         run: |
           unset BTRC_HOME
-          compiler="$PWD/dist/btrcc-windows-x64/bin/btrcc.exe"
+          archive="$PWD/dist/btrcc-windows-x64.zip"
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          archive = Path("dist/btrcc-windows-x64.zip")
+          with archive.open("rb") as stream:
+              digest = hashlib.file_digest(stream, "sha256").hexdigest()
+          actual = Path(f"{archive}.sha256").read_text(encoding="ascii")
+          expected = f"{digest}  {archive.name}\n"
+          if actual != expected:
+              raise SystemExit(f"archive checksum mismatch: {actual!r} != {expected!r}")
+          PY
+          extract="$(cygpath -u "$RUNNER_TEMP")/btrcc-windows-smoke"
+          rm -rf "$extract"
+          mkdir -p "$extract"
+          python -m zipfile -e "$archive" "$extract"
+          bundle="$extract/btrcc-windows-x64"
+          compiler="$bundle/bin/btrcc.exe"
           source="$PWD/src/tests/strings/test_braces_in_code_gen.btrc"
-          mkdir -p dist/unrelated-cwd
-          stdlib=$(cd dist/unrelated-cwd && "$compiler" --stdlib-dir)
-          echo "stdlib: $stdlib"
-          echo "$stdlib" | grep -q "btrcc-windows-x64.*stdlib"
-          (cd dist/unrelated-cwd && "$compiler" "$source") > dist/from_btrcc.c
+          run="$extract/unrelated-cwd"
+          mkdir "$run"
+          python - "$compiler" "$bundle/share/btrc/stdlib" "$run" <<'PY'
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          completed = subprocess.run(
+              [sys.argv[1], "--stdlib-dir"],
+              cwd=sys.argv[3],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          actual_stdlib = completed.stdout.splitlines()
+          expected_stdlib = [str(Path(sys.argv[2]).resolve())]
+          if actual_stdlib != expected_stdlib:
+              raise SystemExit(
+                  f"stdlib path mismatch: {actual_stdlib!r} != {expected_stdlib!r}"
+              )
+          PY
+          (cd "$run" && "$compiler" "$source") > dist/from_btrcc.c
           test -s dist/from_btrcc.c
           echo "btrcc.exe produced $(wc -l < dist/from_btrcc.c) lines of C"
           # the C btrcc emits must itself build + run on native Windows
           zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/from_btrcc.c -o dist/from_btrcc.exe -lm
-          out=$(./dist/from_btrcc.exe)
-          echo "$out"
-          echo "$out" | grep -q "^PASS:"
+          ./dist/from_btrcc.exe > dist/from_btrcc.stdout
+          python - <<'PY'
+          from pathlib import Path
+
+          def logical_lines(path: str) -> list[str]:
+              return Path(path).read_text(encoding="utf-8").splitlines()
+
+          actual = logical_lines("dist/from_btrcc.stdout")
+          expected = logical_lines("src/tests/strings/expected/test_braces_in_code_gen.stdout")
+          if actual != expected:
+              raise SystemExit(f"bundled output mismatch: {actual!r} != {expected!r}")
+          PY
 
       - name: Bundled btrcc follows its final junction target
         shell: pwsh
         run: |
-          $target = (Resolve-Path ".\dist\btrcc-windows-x64").Path
+          $target = (Resolve-Path "$env:RUNNER_TEMP\btrcc-windows-smoke\btrcc-windows-x64").Path
           New-Item -ItemType Junction -Path ".\dist\btrcc-junction" -Target $target | Out-Null
           $stdlib = & ".\dist\btrcc-junction\bin\btrcc.exe" --stdlib-dir
           if ($LASTEXITCODE -ne 0) { throw "junction compiler invocation failed" }
-          $expected = (Resolve-Path ".\dist\btrcc-windows-x64\share\btrc\stdlib").Path
+          $expected = (Resolve-Path "$target\share\btrc\stdlib").Path
           if ($stdlib -ne $expected) {
             throw "junction resolved to '$stdlib', expected final target '$expected'"
           }
@@ -134,7 +227,7 @@ jobs:
           #include "lib.btrc"
           int main() { print(pathMessage()); return 0; }
           '@
-          $compiler = (Resolve-Path ".\dist\btrcc-windows-x64\bin\btrcc.exe").Path
+          $compiler = (Resolve-Path "$env:RUNNER_TEMP\btrcc-windows-smoke\btrcc-windows-x64\bin\btrcc.exe").Path
           & $compiler "dist\path project\main.btrc" | Set-Content -Encoding utf8NoBOM "dist\path project\program.c"
           if ($LASTEXITCODE -ne 0) { throw "btrcc path compilation failed" }
           zig cc -target $env:ZIG_TARGET -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include $env:WIN_COMPAT_HEADER "dist\path project\program.c" -o "dist\path project\program.exe" -lm
@@ -143,3 +236,14 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $out -ne "PASS: windows path") {
             throw "unexpected path program output: $out"
           }
+
+      - name: Retain the Windows x64 release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: btrcc-windows-x64
+          path: |
+            dist/btrcc-windows-x64.zip
+            dist/btrcc-windows-x64.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

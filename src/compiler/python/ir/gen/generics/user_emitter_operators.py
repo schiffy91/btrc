@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from ...nodes import IRBinOp, IRCommaExpr, IRExpr, IRUnaryOp, IRVar
+from ...nodes import IRBinOp, IRCommaExpr, IRExpr, IRVar
 from ..lvalues import LValueContext
 from ..operator_context import operator_context
 from ..updates import (
     UpdateContext,
     lower_assignment,
-    lower_incdec,
 )
 from .core import _generic_lvalue_c_type
 
@@ -83,23 +82,9 @@ class _UserGenericOperatorMixin:
         return self._unary_expr_plain(expression)
 
     def _unary_expr_plain(self, expression) -> IRExpr:
-        if expression.op in {"++", "--"} and self._gen:
-            result = lower_incdec(self._update_context(), expression)
-            if self._mutates_self_storage(expression.operand):
-                from ..arc_ops import invalidate_cycle_proof
+        from .user_emitter_unary import lower_generic_unary_plain
 
-                return IRCommaExpr(
-                    expressions=[
-                        invalidate_cycle_proof(self._gen, IRVar(name="self")),
-                        result,
-                    ]
-                )
-            return result
-        return IRUnaryOp(
-            op=expression.op,
-            operand=self._expr(expression.operand),
-            prefix=expression.prefix,
-        )
+        return lower_generic_unary_plain(self, expression)
 
     def _assignment_expr(self, expression) -> IRExpr:
         if not self._gen:
@@ -141,10 +126,10 @@ class _UserGenericOperatorMixin:
             from .user_index_targets import prepared_generic_index_targets
 
             result_type = self._resolve_expr_type(expression)
-            prepared_targets = prepared_generic_index_targets(
-                self,
-                expression,
-            )
+            from .user_gpu_dispatch import is_generic_gpu_output_assignment
+
+            gpu_output = is_generic_gpu_output_assignment(self, expression)
+            prepared_targets = prepared_generic_index_targets(self, expression)
             rhs_supplies_result = bool(
                 expression.op == "="
                 and virtual_assignment_rhs_owns_result(
@@ -169,6 +154,7 @@ class _UserGenericOperatorMixin:
                 ),
                 promote_result=(self._is_managed_type(result_type) and not rhs_supplies_result),
                 prepared_values=prepared_targets,
+                void_result=gpu_output,
             )
             if sequenced is not None:
                 result = sequenced
@@ -180,6 +166,12 @@ class _UserGenericOperatorMixin:
         return result
 
     def _assignment_expr_plain(self, expression) -> IRExpr:
+        from .user_gpu_dispatch import lower_generic_gpu_output_assignment
+
+        gpu_assignment = lower_generic_gpu_output_assignment(self, expression)
+        if gpu_assignment is not None:
+            return gpu_assignment
+
         from .user_emitter_local_arc import lower_generic_local_assignment
 
         local_arc = lower_generic_local_assignment(self, expression)

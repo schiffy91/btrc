@@ -15,6 +15,14 @@ bool propertyNeedsBacking(Node property) {
         || propertySetterIsAuto(property);
 }
 
+/* A custom accessor may address its own compiler-owned backing slot directly.
+ * Every access outside that one accessor context remains virtual. */
+bool propertyTargetUsesBacking(Node receiver, string propertyName,
+        string currentPropertyBacking) {
+    return receiver.kind == NK_SELF_EXPR
+        && currentPropertyBacking == propertyName;
+}
+
 /* Return the emitted C member name, or "" for a member with no storage. */
 string instanceStorageName(Node member) {
     if (member.access == "class") { return ""; }

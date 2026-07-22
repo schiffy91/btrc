@@ -53,6 +53,21 @@ def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str,
         return [_track(gen, declaration, node.name)]
 
     if explicit_size is None and node.initializer is None:
+        if storage.get("is_extern"):
+            declaration = _declaration(
+                base_c,
+                binding_c_name,
+                None,
+                storage,
+                None,
+            )
+            gen._func_var_decls.append(declaration)
+            from .c_array_scopes import declare_c_binding
+
+            # This is a real incomplete C array, but it has no provable capacity.
+            declare_c_binding(gen, node.name, is_array=False)
+            gen.declare_local_ownership(node.name, c_name=binding_c_name)
+            return [declaration]
         gen.declare_local_ownership(node.name, c_name=binding_c_name)
         declaration = IRVarDecl(
             c_type=CType(text=f"{base_c}*"),
@@ -107,10 +122,11 @@ def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str,
                 None,
             ),
             node.name,
+            logical_length=inferred_size,
         )
+        ordered_setup = [*size_setup, *plan.setup] if explicit_size is not None else [*plan.setup, *size_setup]
         return [
-            *plan.setup,
-            *size_setup,
+            *ordered_setup,
             declaration,
             IRExprStmt(expr=plan.call),
         ]
@@ -150,9 +166,20 @@ def _declaration(
     )
 
 
-def _track(gen: IRGenerator, declaration: IRVarDecl, source_name: str) -> IRVarDecl:
+def _track(
+    gen: IRGenerator,
+    declaration: IRVarDecl,
+    source_name: str,
+    *,
+    logical_length=None,
+) -> IRVarDecl:
     gen._func_var_decls.append(declaration)
     from .c_array_scopes import declare_c_binding
 
-    declare_c_binding(gen, source_name, is_array=True)
+    declare_c_binding(
+        gen,
+        source_name,
+        is_array=True,
+        logical_length=logical_length,
+    )
     return declaration

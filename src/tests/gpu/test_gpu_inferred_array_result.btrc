@@ -1,0 +1,18 @@
+#include <assert.h>
+#include <btrc_gpu.h>
+
+@gpu
+int[] copy(int[] values) {
+    int i = gpu_id();
+    return values[i];
+}
+
+int main() {
+    int[] values = {3, 5};
+    var output = copy(values);
+    output = copy(output);
+    assert(output[0] == 3);
+    assert(output[1] == 5);
+    print("PASS: test_gpu_inferred_array_result");
+    return 0;
+}

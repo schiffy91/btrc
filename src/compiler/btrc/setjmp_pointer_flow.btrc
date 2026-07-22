@@ -1,0 +1,198 @@
+/* Statement and control-flow transfers for setjmp pointer provenance. */
+
+void setjmpFlowBlock(
+        SetjmpPointerFlow flow, IRNode? block, bool scoped) {
+    if (block == null) { return; }
+    int bindingCount = flow.bindings.len;
+    int index = 0;
+    while (index < block.stmts.len) {
+        setjmpFlowStatement(flow, block.stmts.get(index));
+        index = index + 1;
+    }
+    if (scoped) { flow.leaveScope(bindingCount); }
+}
+
+bool setjmpFlowSameOrigins(
+        Vector<SetjmpOrigin> left, Vector<SetjmpOrigin> right) {
+    if (left.len != right.len) { return false; }
+    int leftIndex = 0;
+    while (leftIndex < left.len) {
+        bool found = false;
+        int rightIndex = 0;
+        while (rightIndex < right.len) {
+            if (setjmpSameOrigin(
+                    left.get(leftIndex), right.get(rightIndex))) {
+                found = true;
+            }
+            rightIndex = rightIndex + 1;
+        }
+        if (!found) { return false; }
+        leftIndex = leftIndex + 1;
+    }
+    return true;
+}
+
+bool setjmpFlowSameState(SetjmpPointerFlow flow,
+        Vector<SetjmpAliasSlot> left,
+        Vector<SetjmpAliasSlot> right) {
+    if (left.len != right.len) { return false; }
+    int index = 0;
+    while (index < left.len) {
+        SetjmpAliasSlot slot = left.get(index);
+        SetjmpAliasSlot? match = flow.stateSlot(right, slot.storage);
+        if (match == null
+                || !setjmpFlowSameOrigins(slot.origins, match.origins)) {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+void setjmpFlowLoop(SetjmpPointerFlow flow, IRNode statement) {
+    Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
+    Vector<SetjmpAliasSlot> header = flow.copyState(flow.state);
+    bool converged = false;
+    while (!converged) {
+        flow.state = flow.copyState(header);
+        setjmpFlowExpression(flow, statement.condition);
+        setjmpFlowBlock(flow, statement.body, true);
+        Vector<SetjmpAliasSlot> updated =
+            flow.joinStates(entry, flow.state);
+        converged = setjmpFlowSameState(flow, header, updated);
+        header = updated;
+    }
+    flow.state = header;
+}
+
+void setjmpFlowFor(SetjmpPointerFlow flow, IRNode statement) {
+    int bindingCount = flow.bindings.len;
+    if (statement.init != null) {
+        if (statement.init.kind == IRK_VAR_DECL
+                || statement.init.kind == IRK_ASSIGN
+                || statement.init.kind == IRK_EXPR_STMT) {
+            setjmpFlowStatement(flow, statement.init);
+        } else {
+            setjmpFlowExpression(flow, statement.init);
+        }
+    }
+    Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
+    Vector<SetjmpAliasSlot> header = flow.copyState(flow.state);
+    bool converged = false;
+    while (!converged) {
+        flow.state = flow.copyState(header);
+        setjmpFlowExpression(flow, statement.condition);
+        setjmpFlowBlock(flow, statement.body, true);
+        setjmpFlowExpression(flow, statement.update);
+        Vector<SetjmpAliasSlot> updated =
+            flow.joinStates(entry, flow.state);
+        converged = setjmpFlowSameState(flow, header, updated);
+        header = updated;
+    }
+    flow.state = header;
+    flow.leaveScope(bindingCount);
+}
+
+void setjmpFlowSwitch(SetjmpPointerFlow flow, IRNode statement) {
+    setjmpFlowExpression(flow, statement.value);
+    Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
+    Vector<SetjmpAliasSlot> exits = flow.copyState(entry);
+    Vector<SetjmpAliasSlot> fallthrough = [];
+    bool hasFallthrough = false;
+    int index = 0;
+    while (index < statement.args.len) {
+        IRNode caseNode = statement.args.get(index);
+        Vector<SetjmpAliasSlot> start = flow.copyState(entry);
+        if (hasFallthrough) {
+            start = flow.joinStates(start, fallthrough);
+        }
+        flow.state = start;
+        setjmpFlowExpression(flow, caseNode.value);
+        IRNode caseBlock = IRNode();
+        caseBlock.kind = IRK_BLOCK;
+        caseBlock.stmts = caseNode.stmts;
+        setjmpFlowBlock(flow, caseBlock, true);
+        if (caseNode.falls_through) {
+            fallthrough = flow.copyState(flow.state);
+            hasFallthrough = true;
+        } else {
+            exits = flow.joinStates(exits, flow.state);
+            hasFallthrough = false;
+        }
+        index = index + 1;
+    }
+    if (hasFallthrough) { exits = flow.joinStates(exits, fallthrough); }
+    flow.state = exits;
+}
+
+void setjmpFlowStatement(SetjmpPointerFlow flow, IRNode statement) {
+    if (statement.kind == IRK_VAR_DECL) {
+        setjmpFlowExpression(flow, statement.array_size);
+        SetjmpStorage storage = flow.declare(statement);
+        Vector<SetjmpOrigin> origins =
+            setjmpFlowExpression(flow, statement.init);
+        if (storage.isPointer && !storage.isArray) {
+            flow.replaceAliases(storage, origins);
+            if (origins.len > 0 && !storage.automatic()) {
+                setjmpAddOrigins(flow.result.captures, origins);
+            }
+        } else if (origins.len > 0) {
+            setjmpAddOrigins(flow.result.captures, origins);
+        }
+        return;
+    }
+    if (statement.kind == IRK_ASSIGN) {
+        setjmpFlowAssignment(flow, statement,
+            statement.target, statement.value, "=");
+        return;
+    }
+    if (statement.kind == IRK_RETURN) {
+        setjmpAddOrigins(flow.result.returns,
+            setjmpFlowExpression(flow, statement.value));
+        return;
+    }
+    if (statement.kind == IRK_EXPR_STMT) {
+        setjmpFlowExpression(flow, statement.expr);
+        return;
+    }
+    if (statement.kind == IRK_IF) {
+        setjmpFlowExpression(flow, statement.condition);
+        Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
+        flow.state = flow.copyState(entry);
+        setjmpFlowBlock(flow, statement.then_block, true);
+        Vector<SetjmpAliasSlot> left = flow.copyState(flow.state);
+        flow.state = flow.copyState(entry);
+        setjmpFlowBlock(flow, statement.else_block, true);
+        flow.state = flow.joinStates(left, flow.state);
+        return;
+    }
+    if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
+        setjmpFlowLoop(flow, statement);
+        return;
+    }
+    if (statement.kind == IRK_FOR) {
+        setjmpFlowFor(flow, statement);
+        return;
+    }
+    if (statement.kind == IRK_SWITCH) {
+        setjmpFlowSwitch(flow, statement);
+        return;
+    }
+    if (statement.kind == IRK_BLOCK) {
+        setjmpFlowBlock(flow, statement, true);
+    }
+}
+
+SetjmpPointerFlowResult analyzeSetjmpPointerFlow(IRFunction definition,
+        Vector<SetjmpNameBinding> globals,
+        Map<string, bool> typeAliases,
+        Map<string, int> typeDepths,
+        Map<string, bool> voidAliases,
+        Map<string, SetjmpFunctionEffect> functionEffects,
+        Map<string, SetjmpFunctionEffect> externalEffects) {
+    SetjmpPointerFlow flow = SetjmpPointerFlow(definition, globals,
+        typeAliases, typeDepths, voidAliases,
+        functionEffects, externalEffects);
+    setjmpFlowBlock(flow, definition.body, false);
+    return flow.result;
+}

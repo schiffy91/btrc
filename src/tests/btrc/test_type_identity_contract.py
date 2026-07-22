@@ -215,7 +215,7 @@ def test_writable_specializations_fail_closed(
     program = tmp_path / "invalid_identity.btrc"
     program.write_text(source)
     result = _run(
-        [str(selfhost_compiler), "--no-stdlib", str(program)],
+        [str(selfhost_compiler), "--no-stdlib", "--no-dce", str(program)],
         timeout=30,
     )
 
@@ -235,7 +235,7 @@ def test_structural_qualified_types_remain_allowed(
         int main() { return 0; }
     """)
     result = _run(
-        [str(selfhost_compiler), "--no-stdlib", str(program)],
+        [str(selfhost_compiler), "--no-stdlib", "--no-dce", str(program)],
         timeout=30,
     )
 

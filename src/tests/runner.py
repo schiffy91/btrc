@@ -16,8 +16,11 @@ single compiler with `pytest --compilers=python` (or `=btrc`); the Makefile wire
 `make test-btrc` (python) and `make test-btrc-selfhost` (btrc).
 """
 
+import math
 import os
+import platform
 import shlex
+import shutil
 import subprocess
 import tempfile
 
@@ -29,9 +32,18 @@ from src.compiler.python.ir.gen.generator import IRGenerator
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.source_provenance import make_ir_source_maps
 from src.tests.corpus_files import language_test_files
+from src.tests.runner_capabilities import (
+    darwin_gpu_flags,
+    darwin_tray_backend_error,
+    declared_capabilities,
+    loopback_listener_error,
+)
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
+_TRAY_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "tray")
+_GPU_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu")
+_GPU_BUILD = os.path.join(_GPU_DIR, "build")
 
 # Compiler and flags configurable via environment.
 # Default to "cc" (the system C compiler), which resolves to the nix
@@ -42,9 +54,41 @@ if not BTRC_CC:
     raise ValueError("BTRC_CC must name a C compiler")
 
 
+def _positive_timeout_seconds(raw: str | None, *, name: str, default: float) -> float:
+    """Parse a positive finite subprocess timeout from the environment."""
+    if raw is None:
+        return default
+    try:
+        seconds = float(raw)
+    except ValueError as error:
+        raise ValueError(f"{name} must be a positive number of seconds") from error
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError(f"{name} must be a positive number of seconds")
+    return seconds
+
+
+BTRC_TRANSPILE_TIMEOUT = _positive_timeout_seconds(
+    os.environ.get("BTRC_TEST_TRANSPILE_TIMEOUT"),
+    name="BTRC_TEST_TRANSPILE_TIMEOUT",
+    default=300.0,
+)
+
+
 def get_btrc_test_files():
     """Recursively find all test_*.btrc files in the shared language corpus."""
     return language_test_files(BTRC_TEST_DIR)
+
+
+def _require_test_capabilities(btrc_path):
+    """Skip corpus cases whose explicitly declared host facility is absent."""
+    required = declared_capabilities(btrc_path)
+    if "loopback-listener" in required:
+        if error := loopback_listener_error():
+            pytest.skip(error)
+    if "native-tray" in required and platform.system() == "Darwin":
+        error = darwin_tray_backend_error(tuple(BTRC_CC), tuple(BTRC_CFLAGS), _TRAY_DIR)
+        if error:
+            pytest.skip(error)
 
 
 def _transpile_python(btrc_path, btrc_file):
@@ -80,7 +124,13 @@ def _transpile_btrc(btrcc, btrc_path):
     writes the C to stdout. The shared fixture supplies an explicit runtime data
     root; the repository cwd keeps test paths and diagnostics deterministic.
     """
-    r = subprocess.run([btrcc, btrc_path], cwd=_REPO_ROOT, capture_output=True, text=True, timeout=120)
+    r = subprocess.run(
+        [btrcc, btrc_path],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
+    )
     assert r.returncode == 0 and r.stdout.strip(), f"btrcc failed to transpile:\nstderr: {r.stderr[:2000]}"
     return r.stdout
 
@@ -92,24 +142,20 @@ def _gcc_flags(c_source, c_path, bin_path):
     if "pthread.h" in c_source:
         gcc_flags.append("-lpthread")
     if "btrc_tray.h" in c_source:
-        import platform
-
-        tray_dir = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "tray")
-        if platform.system() == "Darwin":
-            import subprocess as _sp
-
+        system = platform.system()
+        if system == "Darwin":
             try:
-                _ver = _sp.run([*BTRC_CC, "--version"], capture_output=True, text=True).stdout.lower()
-            except OSError:
-                _ver = ""
+                _ver = subprocess.run([*BTRC_CC, "--version"], capture_output=True, text=True).stdout.lower()
+            except OSError as error:
+                pytest.skip(f"tray shim compiler is unavailable: {error}")
             if "clang" not in _ver:
                 pytest.skip("tray shim needs clang (Objective-C/Cocoa) on macOS")
-            shim = os.path.join(tray_dir, "btrc_tray_macos.m")
+            shim = os.path.join(_TRAY_DIR, "btrc_tray_macos.m")
             gcc_flags = [
                 *BTRC_CC,
+                *BTRC_CFLAGS,
                 "-fobjc-arc",
-                "-std=c11",
-                f"-I{tray_dir}",
+                f"-I{_TRAY_DIR}",
                 c_path,
                 shim,
                 "-framework",
@@ -120,56 +166,41 @@ def _gcc_flags(c_source, c_path, bin_path):
             ]
             if "pthread.h" in c_source:
                 gcc_flags.append("-lpthread")
-        else:
-            import shutil
-            import subprocess as _sp
-
-            if not shutil.which("pkg-config") or _sp.run(["pkg-config", "--exists", "dbus-1"]).returncode != 0:
+        elif system == "Linux":
+            pkg_config = shutil.which("pkg-config")
+            if pkg_config is None:
                 pytest.skip("tray shim needs dbus-1 (pkg-config) on Linux")
-            shim = os.path.join(tray_dir, "btrc_tray_linux.c")
-            cflags = _sp.check_output(["pkg-config", "--cflags", "dbus-1"], text=True).split()
-            libs = _sp.check_output(["pkg-config", "--libs", "dbus-1"], text=True).split()
-            gcc_flags.extend([f"-I{tray_dir}", shim, *cflags, *libs])
+            dependency = subprocess.run(
+                [pkg_config, "--cflags", "--libs", "dbus-1"],
+                capture_output=True,
+                text=True,
+            )
+            if dependency.returncode != 0:
+                pytest.skip("tray shim needs dbus-1 development files (pkg-config) on Linux")
+            shim = os.path.join(_TRAY_DIR, "btrc_tray_linux.c")
+            gcc_flags.extend([f"-I{_TRAY_DIR}", shim, *dependency.stdout.split()])
+        else:
+            pytest.skip(f"native tray corpus is unsupported on {system}")
     if "btrc_gpu.h" in c_source:
-        gpu_build = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu", "build")
-        gpu_dir = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu")
-        if not os.path.exists(os.path.join(gpu_build, "libbtrc_gpu.a")):
+        if not os.path.isfile(os.path.join(_GPU_BUILD, "libbtrc_gpu.a")):
             pytest.skip("GPU runtime not built (run make gpu)")
-        gcc_flags.extend([f"-I{gpu_dir}", f"-L{gpu_build}", "-lbtrc_gpu"])
-        import platform
-
+        gcc_flags.extend([f"-I{_GPU_DIR}", f"-L{_GPU_BUILD}", "-lbtrc_gpu"])
         gpu_cflags = os.environ.get("GPU_CFLAGS")
         gpu_ldflags = os.environ.get("GPU_LDFLAGS")
+        if bool(gpu_cflags) != bool(gpu_ldflags):
+            pytest.skip("WebGPU toolchain is unavailable: GPU_CFLAGS and GPU_LDFLAGS must be set together")
         if gpu_cflags and gpu_ldflags:
             gcc_flags.extend(shlex.split(gpu_cflags))
             gcc_flags.extend(shlex.split(gpu_ldflags))
         elif platform.system() == "Darwin":
-            import subprocess as _sp
-
-            wgpu_prefix = _sp.check_output(["brew", "--prefix", "wgpu-native"], text=True).strip()
-            glfw_prefix = _sp.check_output(["brew", "--prefix", "glfw"], text=True).strip()
-            gcc_flags.extend(
-                [
-                    f"-I{wgpu_prefix}/include",
-                    f"-L{wgpu_prefix}/lib",
-                    "-lwgpu_native",
-                    f"-I{glfw_prefix}/include",
-                    f"-L{glfw_prefix}/lib",
-                    "-lglfw",
-                    "-framework",
-                    "Metal",
-                    "-framework",
-                    "QuartzCore",
-                    "-framework",
-                    "Cocoa",
-                    "-framework",
-                    "IOKit",
-                    "-framework",
-                    "CoreVideo",
-                ]
-            )
-        else:
+            platform_flags, error = darwin_gpu_flags()
+            if error:
+                pytest.skip(error)
+            gcc_flags.extend(platform_flags)
+        elif platform.system() == "Linux":
             gcc_flags.extend(["-lwgpu_native", "-lglfw", "-lpthread"])
+        else:
+            pytest.skip(f"WebGPU toolchain is unavailable on {platform.system()}: set GPU_CFLAGS and GPU_LDFLAGS")
     return gcc_flags
 
 
@@ -185,6 +216,7 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
         assert compile_result.returncode == 0, (
             f"gcc failed:\nstdout: {compile_result.stdout}\nstderr: {compile_result.stderr}"
         )
+        _require_test_capabilities(btrc_path)
         run_result = subprocess.run([bin_path], capture_output=True, text=True, timeout=15)
         assert run_result.returncode == 0, (
             f"Program exited with {run_result.returncode}:\nstdout: {run_result.stdout}\nstderr: {run_result.stderr}"

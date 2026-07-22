@@ -3,6 +3,14 @@
 bool semanticManagedResultType(Node? typeExpr,
         SemanticValidationState state) {
     if (typeExpr == null) { return false; }
+    if (typeExpr.is_array) { return false; }
+    if (state.typeParams.has(typeExpr.base)) {
+        /* A bare T may specialize to a scalar, so its source expression is not
+         * proven to return a fresh managed owner.  Raw-storage validation has
+         * a separate fail-closed classifier for possibly managed T values. */
+        return false;
+    }
+    if (typeExpr.pointer_depth > 1) { return false; }
     return isStringType(typeExpr)
         || state.analyzed.isClass(typeExpr.base)
         || (typeExpr.generic_args.len > 0
@@ -138,9 +146,9 @@ bool semanticExpressionOwnsResult(Node? expression,
             Node? receiver = semanticInferType(
                 expression.obj, state, vars);
             return receiver != null
-                && !semanticRawIndexedPointer(receiver, state.analyzed)
-                && semanticValidIndexedGetter(semanticIndexedMethod(
-                    receiver, "get", state.analyzed));
+                && !semanticRawIndexedPointerInState(receiver, state)
+                && semanticValidIndexedGetter(semanticIndexedMethodInState(
+                    receiver, "get", state));
         }
         return false;
     }

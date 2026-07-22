@@ -2,7 +2,7 @@
 import std.vector;
 import std.strings;
 
-string intToStr(int x) { return Strings.fromInt(x); }
+long intToLong(int x) { return (long)x + 100; }
 int strLen(string s) { return s.len(); }
 
 class Holder<T> {
@@ -15,8 +15,8 @@ int dbl(int x) { return x * 2; }
 
 int main() {
     Vector<int> nums = [1, 2, 3];
-    Vector<string> strs = nums.mapTo(intToStr);
-    print(f"{strs.get(0)},{strs.get(1)},{strs.get(2)}");
+    Vector<long> longs = nums.mapTo(intToLong);
+    print(f"{longs.get(0)},{longs.get(1)},{longs.get(2)}");
 
     Vector<string> words = ["a", "bb", "ccc"];
     Vector<int> lens = words.mapTo(strLen);
@@ -25,8 +25,8 @@ int main() {
     // user generic class with a generic method, two distinct U
     Holder<int> h = new Holder<int>(21);
     int d = h.transform(dbl);
-    string sx = h.transform(intToStr);
-    print(f"{d},{sx}");
+    long lx = h.transform(intToLong);
+    print(f"{d},{lx}");
     print("PASS: test_method_generics");
     return 0;
 }

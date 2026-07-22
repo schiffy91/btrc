@@ -1,0 +1,94 @@
+/* LHS-first, capacity-proven targets for array-returning GPU calls. */
+
+GpuOutputTargetPlan gpuSnapshotArrayOutputTarget(IRGen gen,
+        Node arrayType, IRNode loweredTarget, IRNode capacity) {
+    GpuOutputTargetPlan plan = GpuOutputTargetPlan();
+    string dataName = gen.freshTemp("__gpu_output_data");
+    string lengthName = gen.freshTemp("__gpu_output_len");
+    Node dataType = typeWithOuterPointer(
+        typeWithoutOuterArray(arrayType));
+    IRNode dataDeclaration = irVarDecl(
+        typeToC(dataType, gen.analyzed), dataName, null);
+    IRNode lengthDeclaration = irVarDecl(
+        "int", lengthName, null);
+    plan.declarations.push(dataDeclaration);
+    plan.declarations.push(lengthDeclaration);
+    gen.funcVarDecls.push(dataDeclaration);
+    gen.funcVarDecls.push(lengthDeclaration);
+    plan.sequence.push(irBinOp(
+        irVar(dataName), "=", loweredTarget));
+    plan.sequence.push(irBinOp(
+        irVar(lengthName), "=", capacity));
+    plan.data = irVar(dataName);
+    plan.capacity = irVar(lengthName);
+    return plan;
+}
+
+GpuOutputTargetPlan gpuCollectionOutputTarget(IRGen gen, Node target,
+        Node concrete, IRNode loweredTarget,
+        Map<string, Node> varTypes) {
+    GpuOutputTargetPlan plan = GpuOutputTargetPlan();
+    OwnershipBoundary boundary = OwnershipBoundary();
+    bool ownedTarget = irUnconsumedOwnedResult(
+        gen, target, varTypes);
+    boundary.addLoweredOperand(gen, target, concrete,
+        loweredTarget, ownedTarget, !ownedTarget);
+    IRNode stable = gen.owningTempOverrides.get(astNodeKey(target));
+    string dataName = gen.freshTemp("__gpu_output_data");
+    string lengthName = gen.freshTemp("__gpu_output_len");
+    Node dataType = typeWithOuterPointer(
+        concrete.generic_args.get(0));
+    IRNode dataDeclaration = irVarDecl(
+        typeToC(dataType, gen.analyzed), dataName, null);
+    IRNode lengthDeclaration = irVarDecl(
+        "int", lengthName, null);
+    boundary.declarations.push(dataDeclaration);
+    boundary.declarations.push(lengthDeclaration);
+    gen.funcVarDecls.push(dataDeclaration);
+    gen.funcVarDecls.push(lengthDeclaration);
+    boundary.prefix.push(irBinOp(irVar(dataName), "=",
+        irFieldAccess(stable, "data", true)));
+    boundary.prefix.push(irBinOp(irVar(lengthName), "=",
+        irFieldAccess(stable, "len", true)));
+    plan.declarations = boundary.declarations;
+    plan.sequence = boundary.prefix;
+    plan.cleanup = boundary.suffix;
+    boundary.restore(gen);
+    plan.data = irVar(dataName);
+    plan.capacity = irVar(lengthName);
+    return plan;
+}
+
+GpuOutputTargetPlan prepareGpuOutputTarget(IRGen gen, Node target,
+        IRNode loweredTarget, Map<string, Node> varTypes) {
+    Node? targetType = gpuResolvedHostType(gen, target, varTypes);
+    if (gpuHeapCollection(targetType)) {
+        Node concrete = targetType;
+        return gpuCollectionOutputTarget(
+            gen, target, concrete, loweredTarget, varTypes);
+    }
+    if (targetType == null || targetType.pointer_depth > 0
+            || !targetType.is_array) {
+        gpuLoweringFail(target,
+            "GPU array output target has no provable writable capacity");
+    }
+    Node concreteArray = targetType;
+    if (target.kind == NK_IDENTIFIER) {
+        GpuOutputTargetPlan direct = GpuOutputTargetPlan();
+        direct.data = loweredTarget;
+        direct.capacity = gpuKnownArrayLength(gen, target);
+        return direct;
+    }
+    IRNode? capacity = null;
+    if (concreteArray.array_size != null) {
+        capacity = gen.lowerExpr(concreteArray.array_size, varTypes);
+    } else {
+        capacity = gpuBackedGlobalArrayCapacity(gen, loweredTarget);
+    }
+    if (capacity == null) {
+        gpuLoweringFail(target,
+            "GPU array output target has no provable writable capacity");
+    }
+    return gpuSnapshotArrayOutputTarget(
+        gen, concreteArray, loweredTarget, capacity);
+}

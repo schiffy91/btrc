@@ -177,9 +177,9 @@ class OwnershipBoundary {
             sequence.push(self.handoffs.get(handoffIndex));
             handoffIndex = handoffIndex + 1;
         }
-        bool isVoid = resultType != null
-            && resultType.base == "void"
-            && resultType.pointer_depth == 0;
+        bool isVoid = resultType == null
+            || (resultType.base == "void"
+                && resultType.pointer_depth == 0);
         if (isVoid) {
             sequence.push(expression);
             int suffixIndex = 0;
@@ -365,6 +365,9 @@ bool ownershipExpressionReorderInert(IRGen generator,
 
 IRNode lowerOwnedFieldAccess(IRGen generator, Node expression,
         Map<string, Node> varTypes) {
+    if (generator.unevaluatedDepth > 0) {
+        return generator.lowerFieldAccessCore(expression, varTypes);
+    }
     bool receiverOwned = irUnconsumedOwnedResult(
         generator, expression.obj, varTypes);
     Node? receiverType = generator.resolvedExpressionType(
@@ -373,24 +376,45 @@ IRNode lowerOwnedFieldAccess(IRGen generator, Node expression,
         && irManagedType(generator, receiverType)
         && irPropertyGetterProjection(
             generator, expression, varTypes);
-    if (!receiverOwned && !receiverPinned) {
+    Vector<Node> projectionRoots = [];
+    collectOwnedProjectionRoots(
+        generator, expression.obj, varTypes, projectionRoots);
+    if (!receiverOwned && !receiverPinned
+            && projectionRoots.len == 0) {
         return generator.lowerFieldAccessCore(expression, varTypes);
     }
-    ownershipRequireType(receiverType, expression.obj);
     OwnershipBoundary boundary = OwnershipBoundary();
-    boundary.addOperand(generator, expression.obj,
-        receiverType, receiverOwned, receiverPinned, varTypes);
+    int rootIndex = 0;
+    while (rootIndex < projectionRoots.len) {
+        Node root = projectionRoots.get(rootIndex);
+        Node? rootType = generator.resolvedExpressionType(
+            root, varTypes);
+        ownershipRequireType(rootType, root);
+        boundary.addOperand(generator, root,
+            rootType, true, false, varTypes);
+        rootIndex = rootIndex + 1;
+    }
+    if (receiverOwned || receiverPinned) {
+        ownershipRequireType(receiverType, expression.obj);
+        boundary.addOperand(generator, expression.obj,
+            receiverType, receiverOwned, receiverPinned, varTypes);
+    }
     IRNode lowered = generator.lowerFieldAccessCore(
         expression, varTypes);
     boundary.restore(generator);
     Node? resultType = generator.resolvedExpressionType(
         expression, varTypes);
     return boundary.finish(generator, lowered, resultType,
-        irManagedType(generator, resultType));
+        irManagedType(generator, resultType)
+            && !irCustomPropertyGetterProjection(
+                generator, expression, varTypes));
 }
 
 IRNode lowerOwnedIndex(IRGen generator, Node expression,
         Map<string, Node> varTypes) {
+    if (generator.unevaluatedDepth > 0) {
+        return generator.lowerIndexCore(expression, varTypes);
+    }
     bool objectOwned = irUnconsumedOwnedResult(
         generator, expression.obj, varTypes);
     bool indexOwned = irUnconsumedOwnedResult(
@@ -421,14 +445,29 @@ IRNode lowerOwnedIndex(IRGen generator, Node expression,
         && irManagedType(generator, objectType)
         && expression.obj.kind != NK_SELF_EXPR
         && expression.obj.kind != NK_SUPER_EXPR;
+    Vector<Node> projectionRoots = [];
+    collectOwnedProjectionRoots(
+        generator, expression.obj, varTypes, projectionRoots);
     if (!objectOwned && !objectPinned && !indexOwned
-            && !indexConverted) {
+            && !indexConverted && projectionRoots.len == 0) {
         return generator.lowerIndexCore(expression, varTypes);
     }
     OwnershipBoundary boundary = OwnershipBoundary();
-    ownershipRequireType(objectType, expression.obj);
-    boundary.addOperand(generator, expression.obj,
-        objectType, objectOwned, objectPinned, varTypes);
+    int rootIndex = 0;
+    while (rootIndex < projectionRoots.len) {
+        Node root = projectionRoots.get(rootIndex);
+        Node? rootType = generator.resolvedExpressionType(
+            root, varTypes);
+        ownershipRequireType(rootType, root);
+        boundary.addOperand(generator, root,
+            rootType, true, false, varTypes);
+        rootIndex = rootIndex + 1;
+    }
+    if (objectOwned || objectPinned || projectionRoots.len > 0) {
+        ownershipRequireType(objectType, expression.obj);
+        boundary.addOperand(generator, expression.obj,
+            objectType, objectOwned, objectPinned, varTypes);
+    }
     if (indexConverted) {
         PreparedValue preparedIndex = prepareCallTargetValue(
             generator, expression.index,
@@ -457,6 +496,9 @@ IRNode lowerOwnedIndex(IRGen generator, Node expression,
 
 IRNode lowerOwnedBinary(IRGen generator, Node expression,
         Map<string, Node> varTypes) {
+    if (generator.unevaluatedDepth > 0) {
+        return generator.lowerBinaryCore(expression, varTypes);
+    }
     IRNode? flattened = lowerLongStringConcat(
         generator, expression, varTypes);
     if (flattened != null) { return flattened; }

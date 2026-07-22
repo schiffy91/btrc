@@ -3,7 +3,12 @@
 #define BTRC_GPU_PENDING_LIST_H
 
 #include <stdbool.h>
-#include <stdatomic.h>
+#include <stddef.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
 
 typedef struct BtrcGPUPendingLink BtrcGPUPendingLink;
 
@@ -12,26 +17,57 @@ struct BtrcGPUPendingLink {
 };
 
 typedef struct {
-    atomic_bool locked;
+#ifdef _WIN32
+    CRITICAL_SECTION lock;
+#else
+    pthread_mutex_t lock;
+#endif
     BtrcGPUPendingLink* head;
+    bool lock_initialized;
 } BtrcGPUPendingList;
 
-static inline void btrc_gpu_pending_list_init(BtrcGPUPendingList* list) {
-    atomic_init(&list->locked, false);
+/* Initialization and destruction require exclusive lifetime ownership. All
+ * producers and reapers must stop, and the list must be drained, before
+ * destroy. The destroy operation is idempotent for serial cleanup paths. */
+static inline bool btrc_gpu_pending_list_init(BtrcGPUPendingList* list) {
+    if (!list) { return false; }
     list->head = NULL;
+    list->lock_initialized = false;
+#ifdef _WIN32
+    InitializeCriticalSection(&list->lock);
+#else
+    if (pthread_mutex_init(&list->lock, NULL) != 0) { return false; }
+#endif
+    list->lock_initialized = true;
+    return true;
+}
+
+static inline bool btrc_gpu_pending_list_destroy(BtrcGPUPendingList* list) {
+    if (!list || !list->lock_initialized) { return true; }
+    if (list->head) { return false; }
+#ifdef _WIN32
+    DeleteCriticalSection(&list->lock);
+#else
+    if (pthread_mutex_destroy(&list->lock) != 0) { return false; }
+#endif
+    list->lock_initialized = false;
+    return true;
 }
 
 static inline void btrc_gpu_pending_list_lock(BtrcGPUPendingList* list) {
-    bool expected = false;
-    while (!atomic_compare_exchange_weak_explicit(
-            &list->locked, &expected, true,
-            memory_order_acquire, memory_order_relaxed)) {
-        expected = false;
-    }
+#ifdef _WIN32
+    EnterCriticalSection(&list->lock);
+#else
+    (void)pthread_mutex_lock(&list->lock);
+#endif
 }
 
 static inline void btrc_gpu_pending_list_unlock(BtrcGPUPendingList* list) {
-    atomic_store_explicit(&list->locked, false, memory_order_release);
+#ifdef _WIN32
+    LeaveCriticalSection(&list->lock);
+#else
+    (void)pthread_mutex_unlock(&list->lock);
+#endif
 }
 
 static inline void btrc_gpu_pending_list_prepend(

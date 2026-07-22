@@ -26,7 +26,10 @@ from ..managed_values import (
     retain_edge_value,
     unlink_edge_value,
 )
-from ..parameters import source_binding_c_name
+from ..parameters import (
+    lower_named_source_type_param,
+    source_binding_c_name,
+)
 from .core import _resolve_type
 from .user_emitter_bindings import bind_source_parameter
 
@@ -62,7 +65,13 @@ def emit_generic_properties(gen, mangled, type_map, cls_info, emitter):
             value_name = source_binding_c_name("value", gen.analyzed)
             params = [
                 IRParam(c_type=CType(text=f"{mangled}*"), name="self"),
-                IRParam(c_type=CType(text=property_c), name=value_name),
+                lower_named_source_type_param(
+                    prop.type,
+                    property_c,
+                    "value",
+                    gen.analyzed,
+                    resolved_type=emitter._resolve(prop.type),
+                ),
             ]
             gen.module.function_decls.append(
                 IRFunctionDecl(

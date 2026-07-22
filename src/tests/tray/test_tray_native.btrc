@@ -1,3 +1,4 @@
+// BTRC_TEST_REQUIRES: native-tray
 /* Headless behavioral test for the native system tray binding.
  *
  * Exercises the SystemTray builder + the portable Tray data model it wraps, and

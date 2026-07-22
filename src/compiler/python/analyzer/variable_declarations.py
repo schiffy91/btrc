@@ -30,7 +30,7 @@ class VariableDeclarationAnalysisMixin:
                 if define_binding:
                     self.scope.define(stmt.name, self._var_symbol(stmt))
                 return
-            self._analyze_expr(stmt.initializer)
+            self._analyze_gpu_array_initializer(stmt.initializer, stmt.type)
             inferred = self._infer_type(stmt.initializer)
             if inferred is None:
                 self._error(f"Cannot infer type for 'var' declaration of '{stmt.name}'", stmt.line, stmt.col)
@@ -50,7 +50,17 @@ class VariableDeclarationAnalysisMixin:
                 if define_binding:
                     self.scope.define(stmt.name, self._var_symbol(stmt))
                 return
-            stmt.type = inferred
+            stmt.type = self._inferred_array_binding_type(
+                inferred,
+                stmt.initializer,
+            )
+            self._validate_volatile_reference_conversion(
+                stmt.type,
+                stmt.initializer,
+                f"Variable '{stmt.name}'",
+                stmt.line,
+                stmt.col,
+            )
             if stmt.type.base in self.class_table and stmt.type.pointer_depth == 0:
                 stmt.type = self._upgrade_class_type(stmt.type)
             self._validate_thread_handle_copy(
@@ -79,7 +89,14 @@ class VariableDeclarationAnalysisMixin:
         stmt.type = self._upgrade_class_type(stmt.type)
         self._collect_generic_instances(stmt.type)
         if stmt.initializer:
-            self._analyze_expr(stmt.initializer)
+            self._analyze_gpu_array_initializer(stmt.initializer, stmt.type)
+            self._validate_array_object_initializer(
+                stmt.type,
+                stmt.initializer,
+                f"Initializer for '{stmt.name}'",
+                stmt.line,
+                stmt.col,
+            )
             self._contextualize_aggregate_initializer(
                 stmt.type,
                 stmt.initializer,
@@ -106,6 +123,13 @@ class VariableDeclarationAnalysisMixin:
             self._contextualize_generic_constructor(stmt.type, stmt.initializer)
             init_type = self._infer_type(stmt.initializer)
             self._validate_managed_string_source(
+                stmt.type,
+                stmt.initializer,
+                f"Initializer for '{stmt.name}'",
+                stmt.line,
+                stmt.col,
+            )
+            self._validate_volatile_reference_conversion(
                 stmt.type,
                 stmt.initializer,
                 f"Initializer for '{stmt.name}'",
@@ -157,7 +181,13 @@ class VariableDeclarationAnalysisMixin:
         """SymbolInfo for a local var decl, pinned to its name token span."""
         nl = stmt.name_line or stmt.line
         nc = stmt.name_col or stmt.col
-        symbol = self._local_symbol(stmt.name, stmt.type, "variable", nl, nc)
+        symbol = self._local_symbol(
+            stmt.name,
+            self._array_value_type(stmt.type),
+            "variable",
+            nl,
+            nc,
+        )
         if isinstance(stmt.initializer, LambdaExpr):
             symbol.captures_environment = bool(stmt.initializer.captures)
         elif isinstance(stmt.initializer, Identifier):

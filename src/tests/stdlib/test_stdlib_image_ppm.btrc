@@ -57,11 +57,12 @@ int main() {
     assert(getrlimit(RLIMIT_FSIZE, &originalLimit) == 0);
     struct rlimit zeroLimit = originalLimit;
     zeroLimit.rlim_cur = 0;
-    signal(SIGXFSZ, SIG_IGN);
+    int xfszSignal = (int)SIGXFSZ;
+    signal(xfszSignal, SIG_IGN);
     assert(setrlimit(RLIMIT_FSIZE, &zeroLimit) == 0);
     assert(!ImageIO.savePpm(source, PathTools.join(dir, "disk-full.ppm")));
     assert(setrlimit(RLIMIT_FSIZE, &originalLimit) == 0);
-    signal(SIGXFSZ, SIG_DFL);
+    signal(xfszSignal, SIG_DFL);
 
     FileSystem.removeRecursive(dir);
 

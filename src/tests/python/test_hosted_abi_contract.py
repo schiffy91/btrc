@@ -176,9 +176,9 @@ def test_native_headers_are_exact_or_an_explicit_internal_seam() -> None:
     ):
         for path in directory.glob("*.h"):
             names.update(pattern.findall(path.read_text()))
-    assert len(names) == 88
+    assert len(names) == 89
     assert names == set(HOSTED_NATIVE_FUNCTIONS) | set(HOSTED_NATIVE_INTERNAL_NAMES)
-    assert len(HOSTED_NATIVE_INTERNAL_NAMES) == 15
+    assert len(HOSTED_NATIVE_INTERNAL_NAMES) == 16
 
 
 def test_gpu_init_retained_window_effect_fails_closed() -> None:

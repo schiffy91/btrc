@@ -27,7 +27,6 @@ src/**/*.pyc
 **/.ruff_cache/
 **/.btrc-cache/
 **/.DS_Store
-src/compiler/python/tests/
 src/devex/lsp/tests/
 src/stdlib/gpu/build/
 src/stdlib/gui/build/

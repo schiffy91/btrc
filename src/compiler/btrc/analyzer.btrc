@@ -121,6 +121,8 @@ class Analyzed {
     public bool expressionInferenceMemoEnabled;
     public Map<string, bool> expressionInferenceMemoKnown;
     public Map<string, Node> expressionInferenceMemoValues;
+    /* for-in iterable identity -> semantic proof of real array capacity. */
+    public Map<string, bool> arrayIterationCapacityKeys;
 
     public Analyzed() {
         self.funcRetTypes = {};
@@ -155,6 +157,7 @@ class Analyzed {
         self.expressionInferenceMemoEnabled = false;
         self.expressionInferenceMemoKnown = {};
         self.expressionInferenceMemoValues = {};
+        self.arrayIterationCapacityKeys = {};
     }
 
     /* True if any generic-method monomorphization target exists. */
@@ -1362,7 +1365,11 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             return argTypeForInference(node, a, varTypes);
         }
         if (a.isEnumValue(node.name)) {
-            return makePrimType(a.enumOwnerOf(node.name));
+            string owner = a.enumOwnerOf(node.name);
+            /* Anonymous-enum constants enter C's ordinary integer namespace;
+             * they do not introduce a nominal source type. */
+            if (owner == "") { return makePrimType("int"); }
+            return makePrimType(owner);
         }
         /* Standard stream objects are opaque FILE pointers. The reference
          * analyzer records this type too; preserving it here lets structured
@@ -1407,6 +1414,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return inferSpecializationType(node.target, a, varTypes);
     }
     if (node.kind == NK_UNARY_EXPR) {
+        Node? declaredOperandType = inferTypeRaw(
+            node.operand, a, varTypes);
         Node? operandType = inferSpecializationType(
             node.operand, a, varTypes);
         if (operandType == null) { return null; }
@@ -1422,10 +1431,13 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             return typeWithOuterPointer(addressed);
         }
         if (node.op == "*") {
-            if (operandType.is_array) {
-                return typeWithoutOuterArray(operandType);
-            }
-            if (operandType.pointer_depth > 0) {
+            if (operandType.is_array || operandType.pointer_depth > 0) {
+                Node? preserved = typeWithoutOuterStorageThroughTypedef(
+                    declaredOperandType, a.typedefTable);
+                if (preserved != null) { return preserved; }
+                if (operandType.is_array) {
+                    return typeWithoutOuterArray(operandType);
+                }
                 return typeWithoutOuterPointers(operandType, 1);
             }
         }
@@ -1680,7 +1692,16 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return null;
     }
     if (node.kind == NK_INDEX_EXPR) {
-        Node? ot = inferSpecializationType(node.obj, a, varTypes);
+        Node? declaredObjectType = inferTypeRaw(
+            node.obj, a, varTypes);
+        Node? ot = resolveOuterTypedefType(
+            declaredObjectType, a.typedefTable);
+        if (ot != null && (ot.is_array
+                || semanticRawIndexedPointer(ot, a))) {
+            Node? preserved = typeWithoutOuterStorageThroughTypedef(
+                declaredObjectType, a.typedefTable);
+            if (preserved != null) { return preserved; }
+        }
         return semanticIndexResultType(ot, a);
     }
     if (node.kind == NK_CAST_EXPR) { return node.target_type; }

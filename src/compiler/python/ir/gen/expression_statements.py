@@ -37,6 +37,11 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
         return lower_release_expression(gen, destroy_receiver)
     lowered = lower_expr(gen, node.expr)
 
+    from .assignments import _is_gpu_output_assignment
+
+    if _is_gpu_output_assignment(gen, node.expr):
+        return [IRExprStmt(expr=lowered)]
+
     result_type = gen.analyzed.node_types.get(id(node.expr))
     from .managed_values import is_managed_type
 

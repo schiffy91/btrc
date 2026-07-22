@@ -274,7 +274,7 @@ def test_archive_writers_reject_symlinked_payloads(
     outside.write_bytes(b"outside-bundle")
     (bundle / "linked").symlink_to(outside)
 
-    with pytest.raises(ValueError, match="must not be a symlink"):
+    with pytest.raises(ValueError, match="link or reparse point"):
         writer(bundle, tmp_path / "archive", 0)
 
 
@@ -312,7 +312,7 @@ def test_archive_is_created_from_private_staging(
     monkeypatch: pytest.MonkeyPatch,
     target: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = _fixture(tmp_path / "source", target)
     output = tmp_path / "dist"
     original = bundle_module.write_zip if target.startswith("windows-") else bundle_module.write_tar_gz
     observed = False

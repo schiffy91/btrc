@@ -11,61 +11,65 @@ permissions:
 
 jobs:
   native-bundle:
-    # macos-15 is the GitHub-hosted Apple Silicon image. Keep the architecture
-    # assertion below so an image-label change fails instead of mislabeling a bundle.
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Fixed labels make the bundle architecture an explicit CI contract.
+          - runner: macos-15
+            target: macos-arm64
+            machine: arm64
+          - runner: macos-15-intel
+            target: macos-x64
+            machine: x86_64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       # Pin action implementations by commit so moving tags cannot alter CI.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.13"
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
-      - name: Verify native runner architecture
+      - name: Build the native release archive
         run: |
           test "$(uname -s)" = Darwin
-          test "$(uname -m)" = arm64
-          python --version
-          cc --version
+          test "$(uname -m)" = "${{ matrix.machine }}"
+          nix develop --command make NIX= "btrcc-${{ matrix.target }}"
 
-      - name: Build the native self-hosted compiler bundle
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
+      - name: Run the relocated archive and its strictly compiled output
         run: |
-          set -euo pipefail
-          python -m src.compiler.python.check_generated
-          mkdir -p dist build/btrcc/macos-arm64
-          python -m src.compiler.python.main \
-            src/compiler/btrc/btrcc_main.btrc --no-cache -o dist/btrcc.c
-          cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-            dist/btrcc.c -o build/btrcc/macos-arm64/btrcc -lm -lpthread
-          file build/btrcc/macos-arm64/btrcc | grep -q "arm64"
-          python -m src.compiler.python.btrcc_bundle \
-            --binary build/btrcc/macos-arm64/btrcc \
-            --target macos-arm64 --output-dir dist --source-root .
-          test -x dist/btrcc-macos-arm64/bin/btrcc
-          test -f dist/btrcc-macos-arm64.tar.gz
-          test -f dist/btrcc-macos-arm64.tar.gz.sha256
+          # GitHub resolves matrix expressions before nested Bash evaluates the script.
+          # shellcheck disable=SC2016
+          nix develop --command bash -euo pipefail -c '
+            test "$(uname -m)" = "${{ matrix.machine }}"
+            unset BTRC_HOME
+            (cd dist && shasum -a 256 -c "btrcc-${{ matrix.target }}.tar.gz.sha256")
+            source="$GITHUB_WORKSPACE/src/tests/strings/test_braces_in_code_gen.btrc"
+            expected="$GITHUB_WORKSPACE/src/tests/strings/expected/test_braces_in_code_gen.stdout"
+            work=$(mktemp -d "$RUNNER_TEMP/btrcc-macos-smoke.XXXXXX")
+            trap '\''rm -rf "$work"'\'' EXIT
+            tar -xzf "dist/btrcc-${{ matrix.target }}.tar.gz" -C "$work"
+            root="$work/btrcc-${{ matrix.target }}"
+            compiler="$root/bin/btrcc"
+            expected_stdlib=$(cd "$root/share/btrc/stdlib" && pwd -P)
+            run="$work/run"
+            mkdir "$run"
+            actual_stdlib=$(cd "$run" && "$compiler" --stdlib-dir)
+            test "$actual_stdlib" = "$expected_stdlib"
+            (cd "$run" && "$compiler" "$source") > "$run/program.c"
+            cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+              "$run/program.c" -o "$run/program" -lm -lpthread
+            (cd "$run" && ./program) > "$run/program.stdout"
+            cmp "$run/program.stdout" "$expected"
+          '
 
-      - name: Run the relocated bundle and its strictly compiled output
-        run: |
-          set -euo pipefail
-          unset BTRC_HOME
-          compiler="$GITHUB_WORKSPACE/dist/btrcc-macos-arm64/bin/btrcc"
-          expected_stdlib="$GITHUB_WORKSPACE/dist/btrcc-macos-arm64/share/btrc/stdlib"
-          work=$(mktemp -d "$RUNNER_TEMP/btrcc-macos-smoke.XXXXXX")
-          trap 'rm -rf "$work"' EXIT
-          printf '%s\n' \
-            'int main() {' \
-            '    Vector<string> values = ["relocated", "macos", "bundle"];' \
-            '    print(values.join("-"));' \
-            '    return 0;' \
-            '}' > "$work/program.btrc"
-          actual_stdlib=$(cd "$work" && "$compiler" --stdlib-dir)
-          test "$actual_stdlib" = "$expected_stdlib"
-          (cd "$work" && "$compiler" "$work/program.btrc") > "$work/program.c"
-          cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-            "$work/program.c" -o "$work/program" -lm -lpthread
-          output=$(cd "$work" && ./program)
-          test "$output" = "relocated-macos-bundle"
+      - name: Retain the native macOS release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: btrcc-${{ matrix.target }}
+          path: |
+            dist/btrcc-${{ matrix.target }}.tar.gz
+            dist/btrcc-${{ matrix.target }}.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

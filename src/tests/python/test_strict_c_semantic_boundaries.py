@@ -234,6 +234,30 @@ def test_anonymous_enum_has_structured_unnamed_ir():
     assert "typedef enum {" not in c_source
 
 
+def test_simple_enum_initializer_rejects_rich_enum_tags():
+    errors = _errors("""
+        enum class Payload { Empty }
+        enum Values { Invalid = Payload.Empty };
+    """)
+
+    assert _has(errors, "using only earlier members")
+
+
+def test_rich_enum_tags_remain_integer_constants_outside_enum_initializers():
+    result = _analyze("""
+        enum class Payload { First, Second }
+        int selected = Payload.Second;
+        int main() {
+            switch (selected) {
+                case Payload.Second: return 0;
+                default: return 1;
+            }
+        }
+    """)
+
+    assert result.errors == []
+
+
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_preserved_valid_boundaries_compile_as_strict_c11(tmp_path: Path, c_compiler: str):

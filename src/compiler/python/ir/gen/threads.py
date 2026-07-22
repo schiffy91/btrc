@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import Block, LambdaBlock, LambdaExpr, LambdaExprBody, ReturnStmt
+from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import (
     CType,
     IRBinOp,
@@ -84,6 +85,11 @@ def lower_spawn(gen: IRGenerator, node):
                 IRStructField(
                     c_type=CType(text=c_type),
                     name=source_binding_c_name(cap.name),
+                    is_volatile=bool(cap.type and cap.type.is_volatile),
+                    effective_is_volatile=effective_outer_volatile(
+                        cap.type,
+                        gen.analyzed.typedef_table,
+                    ),
                 )
             )
         gen.module.struct_forwards.append(IRStructForward(name=env_name))
@@ -230,6 +236,11 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type
                 IRVarDecl(
                     c_type=CType(text=c_type),
                     name=source_binding_c_name(cap.name, gen.analyzed),
+                    is_volatile=bool(cap.type and cap.type.is_volatile),
+                    effective_is_volatile=effective_outer_volatile(
+                        cap.type,
+                        gen.analyzed.typedef_table,
+                    ),
                     init=IRFieldAccess(
                         obj=IRVar(name="__env"),
                         field=source_binding_c_name(cap.name),

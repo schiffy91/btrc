@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
+from . import artifact_paths as _paths
+
 _CHUNK_SIZE = 1024 * 1024
 ContentSnapshot = tuple[bytes, int]
 FileIdentity = tuple[int, int, int]
@@ -22,6 +24,7 @@ class ArchiveEntry:
     device: int
     inode: int
     mode: int
+    modified_time_ns: int
     is_directory: bool
     content: ContentSnapshot | None
 
@@ -49,6 +52,7 @@ def _validate_regular_identity(entry: ArchiveEntry, descriptor: int) -> None:
     if (
         not stat.S_ISREG(opened.st_mode)
         or not stat.S_ISREG(current.st_mode)
+        or _paths.metadata_is_reparse_point(current)
         or _metadata_identity(opened) != expected
         or _metadata_identity(current) != expected
     ):
@@ -81,6 +85,7 @@ def _discover_regular(
         device=metadata.st_dev,
         inode=metadata.st_ino,
         mode=metadata.st_mode,
+        modified_time_ns=metadata.st_mtime_ns,
         is_directory=False,
         content=None,
     )
@@ -99,8 +104,8 @@ def _discover_regular(
 
 def _entry(path: Path, metadata: os.stat_result, *, expected_size: int | None = None) -> ArchiveEntry:
     is_directory = stat.S_ISDIR(metadata.st_mode)
-    if stat.S_ISLNK(metadata.st_mode):
-        raise ValueError(f"archive source must not be a symlink: {path}")
+    if _paths.metadata_is_reparse_point(metadata):
+        raise _paths.ReparsePointError(path)
     if not is_directory and not stat.S_ISREG(metadata.st_mode):
         raise ValueError(f"archive source must be a regular file or directory: {path}")
     if expected_size is not None and metadata.st_size != expected_size:
@@ -110,17 +115,14 @@ def _entry(path: Path, metadata: os.stat_result, *, expected_size: int | None = 
         device=metadata.st_dev,
         inode=metadata.st_ino,
         mode=metadata.st_mode,
+        modified_time_ns=metadata.st_mtime_ns,
         is_directory=is_directory,
         content=None if is_directory else _discover_regular(path, metadata, expected_size),
     )
 
 
 def bundle_entries(bundle: Path) -> list[ArchiveEntry]:
-    root_metadata = bundle.lstat()
-    if stat.S_ISLNK(root_metadata.st_mode) or not stat.S_ISDIR(root_metadata.st_mode):
-        raise ValueError(f"archive root must be a real directory: {bundle}")
-    paths = [bundle, *sorted(bundle.rglob("*"), key=lambda path: path.as_posix())]
-    return [_entry(path, path.lstat()) for path in paths]
+    return [_entry(path, metadata) for path, metadata in _paths.real_tree_entries(bundle)]
 
 
 def _expected_children(files: Mapping[str, int], directories: Set[str]) -> dict[str, set[str]]:
@@ -135,15 +137,26 @@ def _expected_children(files: Mapping[str, int], directories: Set[str]) -> dict[
 def _validate_directory_entries(bundle: Path, expected: dict[str, set[str]]) -> None:
     for relative, expected_names in expected.items():
         directory = bundle if relative == "." else bundle / relative
-        metadata = directory.lstat()
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-            raise ValueError(f"archive source directory changed type: {directory}")
+        metadata = _paths.require_real_directory(
+            directory,
+            "archive source directory",
+        )
         actual = set()
         with os.scandir(directory) as entries:
             for entry in entries:
+                child = directory / entry.name
+                child_metadata = entry.stat(follow_symlinks=False)
+                if _paths.metadata_is_reparse_point(child_metadata):
+                    raise _paths.ReparsePointError(child)
                 actual.add(entry.name)
                 if len(actual) > len(expected_names):
                     raise ValueError(f"archive source tree has unexpected entries: {directory}")
+        current = _paths.require_real_directory(
+            directory,
+            "archive source directory",
+        )
+        if _metadata_identity(current) != _metadata_identity(metadata):
+            raise ValueError(f"archive source directory changed type: {directory}")
         if actual != expected_names:
             raise ValueError(f"archive source tree changed before validation: {directory}")
 
@@ -155,9 +168,7 @@ def bounded_bundle_entries(
 ) -> list[ArchiveEntry]:
     """Capture exactly a manifest-bounded tree without hashing surprises."""
 
-    root_metadata = bundle.lstat()
-    if stat.S_ISLNK(root_metadata.st_mode) or not stat.S_ISDIR(root_metadata.st_mode):
-        raise ValueError(f"archive root must be a real directory: {bundle}")
+    _paths.require_real_directory(bundle, "archive root")
     _validate_directory_entries(bundle, _expected_children(files, directories))
     paths = [bundle, *(bundle / path for path in directories), *(bundle / path for path in files)]
     paths.sort(key=lambda path: path.as_posix())
@@ -221,6 +232,7 @@ def validate_directory(entry: ArchiveEntry) -> None:
     if (
         not entry.is_directory
         or not stat.S_ISDIR(metadata.st_mode)
+        or _paths.metadata_is_reparse_point(metadata)
         or _metadata_identity(metadata) != _entry_identity(entry)
     ):
         raise _changed(entry)
@@ -241,6 +253,7 @@ def validate_bundle_snapshot(
 ) -> None:
     """Revalidate the exact tree and every identity/digest after emission."""
 
+    validate_metadata = files is not None and directories is not None
     if files is None or directories is None:
         current = bundle_entries(bundle)
     else:
@@ -252,6 +265,7 @@ def validate_bundle_snapshot(
             before.path != after.path
             or _entry_identity(before) != _entry_identity(after)
             or before.mode != after.mode
+            or (validate_metadata and before.modified_time_ns != after.modified_time_ns)
             or before.is_directory != after.is_directory
             or before.content != after.content
         ):

@@ -7,6 +7,10 @@ from typing import TYPE_CHECKING
 from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier, LambdaExpr
 from ...string_methods import STRING_METHODS
 from .call_boundary import sequence_call_boundary
+from .call_callees import (
+    callable_callee_signature,
+    callable_value_identifier_signature,
+)
 from .call_operand_planning import plan_call_operands
 from .ownership import owns_result
 from .types import type_to_c
@@ -29,6 +33,10 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
     reject_unsafe_managed_callback_arguments(gen, node)
     if isinstance(node.callee, FieldAccessExpr) and node.callee.optional:
         return _lower_call(gen, node)
+    from .gpu import is_direct_gpu_call
+
+    if is_direct_gpu_call(gen, node):
+        return _lower_call(gen, node)
 
     declaration = callable_for_call(gen, node)
     from .call_contracts import resolved_params_for_call
@@ -50,7 +58,7 @@ def lower_call_with_arc(gen: IRGenerator, node: CallExpr):
         node.args,
         _arg_names(node),
         receiver=receiver,
-        callee=node.callee if callable_field else _evaluated_callee(node),
+        callee=node.callee if callable_field else _evaluated_callee(gen, node),
         transferred_params=owned_transfer_param_indices(declaration),
         pin_receiver=receiver_pin_required(
             gen,
@@ -124,10 +132,12 @@ def _instance_receiver(gen, node):
     return receiver
 
 
-def _evaluated_callee(node):
+def _evaluated_callee(gen, node):
     """Return a side-effecting callable value that precedes call arguments."""
     callee = node.callee
-    if isinstance(callee, (Identifier, FieldAccessExpr, LambdaExpr)):
+    if isinstance(callee, Identifier):
+        return callee if callable_value_identifier_signature(gen, callee) is not None else None
+    if isinstance(callee, (FieldAccessExpr, LambdaExpr)):
         return None
     return callee
 
@@ -168,8 +178,7 @@ def _language_ordered_call(gen, node, declaration) -> bool:
         receiver_type = gen.analyzed.node_types.get(id(node.callee.obj))
         if is_mutex_type(gen, receiver_type):
             return True
-    callee_type = gen.analyzed.node_types.get(id(node.callee))
-    return bool(callee_type is not None and callee_type.base == "__fn_ptr")
+    return callable_callee_signature(gen, node.callee) is not None
 
 
 def _lowerer(gen):
