@@ -124,15 +124,6 @@ void semanticValidateReturn(Node statement, SemanticValidationState state,
             "Void function or method cannot return a value", statement);
     }
     Node? actual = semanticInferType(statement.value_node, state, vars);
-    if (state.borrowedReturn
-            && semanticRequiresTargetStringConversion(
-                expectedReturn, actual, state)) {
-        semanticValidationFail(
-            "Borrowed property getter cannot return an implicit "
-                + "class-to-string conversion because conversion creates "
-                + "a caller-owned temporary",
-            statement.value_node);
-    }
     bool compatible = semanticContextualAggregateInitializer(
             statement.value_node)
         || actual == null

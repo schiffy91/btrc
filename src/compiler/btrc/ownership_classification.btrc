@@ -321,34 +321,6 @@ string irManagedLocalType(IRGen generator, string name) {
     return "";
 }
 
-bool irBorrowsFromManagedLocal(IRGen generator, Node? expression) {
-    if (expression == null) { return false; }
-    if (expression.kind == NK_IDENTIFIER) {
-        return irManagedLocalType(generator, expression.name) != "";
-    }
-    if (expression.kind == NK_FIELD_ACCESS_EXPR
-            || expression.kind == NK_INDEX_EXPR) {
-        return irBorrowsFromManagedLocal(generator, expression.obj);
-    }
-    if (expression.kind == NK_ASSIGN_EXPR) {
-        return irBorrowsFromManagedLocal(generator, expression.target);
-    }
-    if (expression.kind == NK_CAST_EXPR) {
-        return irBorrowsFromManagedLocal(generator, expression.expr);
-    }
-    if (expression.kind == NK_TERNARY_EXPR) {
-        return irBorrowsFromManagedLocal(
-            generator, expression.true_expr)
-            || irBorrowsFromManagedLocal(
-                generator, expression.false_expr);
-    }
-    if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
-        return irBorrowsFromManagedLocal(generator, expression.left)
-            || irBorrowsFromManagedLocal(generator, expression.right);
-    }
-    return false;
-}
-
 IRNode irPromoteBorrowedValue(IRGen generator, IRNode lowered,
         Node resultType) {
     string name = generator.freshTemp("__btrc_promoted");

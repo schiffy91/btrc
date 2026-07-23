@@ -80,10 +80,8 @@ def lower_return(
     expression_owned = bool(managed_value_type and prepared.owned)
     owned_value = bool(managed_return and expression_owned)
     returned_local = None
-    local_owned = False
     if managed_value_type and isinstance(node.value, Identifier):
         if gen.managed_local_type(node.value.name) is not None:
-            local_owned = True
             if managed_return and not prepared.converted:
                 owned_value = True
                 returned_local = node.value.name
@@ -99,21 +97,6 @@ def lower_return(
         and gen.local_cleanup_kind(node.value.name) == "thread"
     ):
         returned_local = node.value.name
-
-    if managed_value_type and not gen.current_return_owned:
-        if (
-            expression_owned
-            or local_owned
-            or _borrows_from_owned_local(
-                gen,
-                node.value,
-            )
-        ):
-            from .errors import CodegenError
-
-            raise CodegenError(
-                "borrowed property getter cannot return an owned temporary or a value borrowed from a local owner"
-            )
 
     release_stmts = _emit_return_release(gen, returned_local)
     promote_borrowed = managed_return and not owned_value
@@ -158,34 +141,6 @@ def lower_return(
         *cleanup_discard,
         IRReturn(value=_maybe_launder_return(gen, result)),
     ]
-
-
-def _borrows_from_owned_local(gen, expression) -> bool:
-    from ...ast_nodes import (
-        AssignExpr,
-        BinaryExpr,
-        CastExpr,
-        FieldAccessExpr,
-        Identifier,
-        IndexExpr,
-        TernaryExpr,
-    )
-
-    if isinstance(expression, Identifier):
-        return gen.managed_local_type(expression.name) is not None
-    if isinstance(expression, (FieldAccessExpr, IndexExpr)):
-        return _borrows_from_owned_local(gen, expression.obj)
-    if isinstance(expression, AssignExpr):
-        # Assignment expressions yield the stored lvalue.  A local target, or
-        # a projection rooted in a local owner, still dies with this getter.
-        return _borrows_from_owned_local(gen, expression.target)
-    if isinstance(expression, CastExpr):
-        return _borrows_from_owned_local(gen, expression.expr)
-    if isinstance(expression, TernaryExpr):
-        return any(_borrows_from_owned_local(gen, branch) for branch in (expression.true_expr, expression.false_expr))
-    if isinstance(expression, BinaryExpr) and expression.op == "??":
-        return any(_borrows_from_owned_local(gen, branch) for branch in (expression.left, expression.right))
-    return False
 
 
 def _emit_return_try_pop(gen: IRLowerer) -> list[IRStmt]:

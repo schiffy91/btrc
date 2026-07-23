@@ -35,6 +35,26 @@ def test_custom_property_getter_abi_is_owned_in_every_lowerer() -> None:
     )
 
 
+def test_custom_property_getter_abi_has_no_borrowed_return_policy() -> None:
+    repository = Path(__file__).resolve().parents[3]
+    semantic_sources = (
+        "semantic_validation_types.btrc",
+        "semantic_validation_decls.btrc",
+        "semantic_validation_stmts.btrc",
+    )
+    for name in semantic_sources:
+        source = (repository / "src/compiler/btrc" / name).read_text()
+        assert "borrowedReturn" not in source
+
+    selfhost_returns = (repository / "src/compiler/btrc/ownership_returns.btrc").read_text()
+    selfhost_classification = (repository / "src/compiler/btrc/ownership_classification.btrc").read_text()
+    python_returns = (repository / "src/compiler/python/ir/gen/arc_returns.py").read_text()
+    assert "borrowed property getter" not in selfhost_returns
+    assert "irBorrowsFromManagedLocal" not in selfhost_classification
+    assert "borrowed property getter" not in python_returns
+    assert "_borrows_from_owned_local" not in python_returns
+
+
 def _strict_dual_frontend_runtime(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -149,6 +169,69 @@ def test_custom_property_getter_transfers_nested_local_owners(
     sanitized_build_and_run(
         reference_source,
         tmp_path / f"reference-nested-local-{generic}",
+        toolchain,
+    )
+
+
+@pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
+def test_custom_property_getter_owns_implicit_string_conversion(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    generic: bool,
+) -> None:
+    parameters = "<T>" if generic else ""
+    box_type = "Box<int>" if generic else "Box"
+    source = f"""
+        #include <assert.h>
+
+        int tokensAlive = 0;
+
+        class Token {{
+            public Token() {{ tokensAlive++; }}
+            public void __del__() {{ tokensAlive--; }}
+            public string toString() {{ return "token"; }}
+        }}
+
+        class Box{parameters} {{
+            public Box() {{}}
+            public string label {{
+                get {{ return new Token(); }}
+            }}
+        }}
+
+        int main() {{
+            {box_type} box = new {box_type}();
+            {{
+                string label = box.label;
+                assert(label == "token");
+                assert(tokensAlive == 0);
+            }}
+            delete box;
+            assert(tokensAlive == 0);
+            return 0;
+        }}
+    """
+    selfhost, selfhost_source = _compile_source(
+        semantic_btrcc,
+        tmp_path,
+        source,
+    )
+    reference, reference_source = _compile_reference_source(
+        tmp_path,
+        source,
+    )
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+
+    toolchain = require_sanitizers(tmp_path)
+    sanitized_build_and_run(
+        selfhost_source,
+        tmp_path / f"selfhost-string-conversion-{generic}",
+        toolchain,
+    )
+    sanitized_build_and_run(
+        reference_source,
+        tmp_path / f"reference-string-conversion-{generic}",
         toolchain,
     )
 

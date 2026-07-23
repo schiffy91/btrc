@@ -23,7 +23,6 @@ class SemanticValidationState {
      * analysis: whether the currently resolved name is local rather than the
      * same-spelled global. Scope entry/exit snapshots preserve shadowing. */
     public Map<string, bool> localBindings;
-    public bool borrowedReturn;
     /* Partially evaluated simple-enum constants, keyed by `Enum.member`.
      * The known map distinguishes a legitimate unknown macro-derived value
      * from a missing/invalid member. */
@@ -56,7 +55,6 @@ class SemanticValidationState {
         self.parameterNames = {};
         self.borrowedBindings = {};
         self.localBindings = {};
-        self.borrowedReturn = false;
         self.enumConstantValues = {};
         self.enumConstantKnown = {};
         self.generatedSymbols = {};

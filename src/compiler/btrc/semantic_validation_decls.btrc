@@ -137,7 +137,6 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     int previousLoop = state.loopDepth;
     int previousBreak = state.breakDepth;
     bool previousGpu = state.gpuCallable;
-    bool previousBorrowedReturn = state.borrowedReturn;
     Node? previousCallable = state.callable;
     Map<string, bool> previousParameterNames =
         semanticCloneFlags(state.parameterNames);
@@ -174,7 +173,6 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     state.loopDepth = 0;
     state.breakDepth = 0;
     state.gpuCallable = callable.is_gpu;
-    state.borrowedReturn = callable.has_getter;
     Map<string, bool> parameterNames = semanticParameterNames(
         callable.params, "callable '" + state.owner + "'");
     state.callable = callable;
@@ -208,7 +206,6 @@ void semanticValidateCallableBody(Node callable, Node? classDeclaration,
     state.loopDepth = previousLoop;
     state.breakDepth = previousBreak;
     state.gpuCallable = previousGpu;
-    state.borrowedReturn = previousBorrowedReturn;
     state.callable = previousCallable;
     state.parameterNames = previousParameterNames;
     state.borrowedBindings = previousBorrowedBindings;

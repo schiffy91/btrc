@@ -47,14 +47,6 @@ void lowerOwnedReturn(IRGen generator, Node statement,
         returnedLocal = expression.name;
     }
 
-    if (managedValue && !generator.currentReturnOwned
-            && (expressionOwned || localOwned
-                || (!prepared.converted
-                    && irBorrowsFromManagedLocal(generator, expression)))) {
-        fprintf(stderr, "error: borrowed property getter cannot return an owned temporary or a value borrowed from a local owner\n");
-        abortGen();
-    }
-
     bool ownedValue = managedReturn
         && (expressionOwned || localOwned);
     bool promoteBorrowed = managedReturn && !ownedValue;
