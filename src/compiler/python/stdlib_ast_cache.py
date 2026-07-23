@@ -6,7 +6,7 @@ import hashlib
 import os
 import time
 
-from .ast_codec import decode_ast, encode_ast
+from .ast_codec import AstJsonCodec
 from .cache_io import AtomicFileStore
 
 SCHEMA_VERSION = 1
@@ -25,10 +25,12 @@ class StdlibAstCache:
         schema_version: int = SCHEMA_VERSION,
         max_age_seconds: int = _MAX_AGE,
         file_store: AtomicFileStore | None = None,
+        codec: AstJsonCodec | None = None,
     ) -> None:
         self.schema_version = schema_version
         self.max_age_seconds = max_age_seconds
         self.file_store = file_store or AtomicFileStore()
+        self.codec = codec if codec is not None else AstJsonCodec()
         self._pruned_dirs: set[str] = set()
 
     def path(self, cache_dir: str, frontend_version: str, source: str) -> str:
@@ -49,7 +51,7 @@ class StdlibAstCache:
         if not self._valid_payload(payload, content_hash):
             return None
         try:
-            declarations = [decode_ast(value) for value in payload["declarations"]]
+            declarations = [self.codec.decode(value) for value in payload["declarations"]]
         except (ValueError, TypeError, RecursionError):
             return None
         if not all(hasattr(declaration, "source_file") for declaration in declarations):
@@ -67,7 +69,7 @@ class StdlibAstCache:
             path,
             {
                 "content_hash": content_hash,
-                "declarations": [encode_ast(declaration) for declaration in declarations],
+                "declarations": [self.codec.encode(declaration) for declaration in declarations],
                 "schema": self.schema_version,
             },
         )

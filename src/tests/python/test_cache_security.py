@@ -12,6 +12,7 @@ import pytest
 
 from src.compiler.python import ast_codec, cache_io
 from src.compiler.python.artifacts.cache.compiler_cache import CompilationCache
+from src.compiler.python.ast_codec import AstJsonCodec
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.stdlib_ast_cache import SCHEMA_VERSION, StdlibAstCache
@@ -32,16 +33,32 @@ def test_cache_file_behavior_has_one_explicit_owner() -> None:
     assert loose_behavior == []
 
 
+def test_ast_codec_behavior_has_one_explicit_owner() -> None:
+    module = ast.parse(Path(ast_codec.__file__).read_text())
+    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+    assert loose_behavior == []
+
+
 def test_ast_codec_roundtrip_preserves_schema_markers():
+    codec = AstJsonCodec()
     declarations = _schema_marker_declarations()
-    encoded = [ast_codec.encode_ast(declaration) for declaration in declarations]
-    decoded = [ast_codec.decode_ast(declaration) for declaration in encoded]
+    encoded = [codec.encode(declaration) for declaration in declarations]
+    decoded = [codec.decode(declaration) for declaration in encoded]
 
     assert encoded[0]["fields"]["is_forward"] is True
     assert encoded[1]["fields"]["members"][0]["fields"]["is_constructor"] is True
     assert decoded == declarations
     assert decoded[0].is_forward is True
     assert decoded[1].members[0].is_constructor is True
+
+
+def test_stdlib_cache_owns_its_codec() -> None:
+    codec = AstJsonCodec({})
+
+    cache = StdlibAstCache(codec=codec)
+
+    assert cache.codec is codec
 
 
 def test_stdlib_cache_rejects_nodes_missing_current_marker_fields(tmp_path):
