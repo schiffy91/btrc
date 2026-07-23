@@ -2122,8 +2122,8 @@ class IRGen {
             Node mem = decl.members.get(fi);
             string storage = instanceStorageName(mem);
             if (storage != "") {
-                sd.fields.push(lowerInstanceStorageField(
-                    self, mem, storage, true, typeMap));
+                sd.fields.push(ClassStorageLowerer.genericField(
+                    self, mem, storage, typeMap));
             }
             fi = fi + 1;
         }
@@ -2702,9 +2702,8 @@ class IRGen {
             Node mem = decl.members.get(i);
             string storage = instanceStorageName(mem);
             if (storage != "") {
-                Map<string, Node> noTypeMap = {};
-                sd.fields.push(lowerInstanceStorageField(
-                    self, mem, storage, false, noTypeMap));
+                sd.fields.push(ClassStorageLowerer.field(
+                    self, mem, storage));
             }
             i = i + 1;
         }
@@ -2726,9 +2725,8 @@ class IRGen {
             Node mem = decl.members.get(i);
             string storage = instanceStorageName(mem);
             if (storage != "") {
-                Map<string, Node> noTypeMap = {};
-                sd.fields.push(lowerInstanceStorageField(
-                    self, mem, storage, false, noTypeMap));
+                sd.fields.push(ClassStorageLowerer.field(
+                    self, mem, storage));
             }
             i = i + 1;
         }
