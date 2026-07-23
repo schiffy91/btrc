@@ -33,7 +33,7 @@ class OpaqueBorrowContractsMixin:
 
     def _opaque_projection_embeds_storage(self, expression) -> bool:
         """Whether a field/index result still denotes its receiver's storage."""
-        canonical = self._canonical_type(self._infer_type(expression))
+        canonical = self._canonical_type(self._array_projection_storage_type(expression))
         return bool(canonical and canonical.is_array)
 
     def _has_temporary_projection_storage(self, expression) -> bool:

@@ -47,14 +47,6 @@ bool semanticOpaqueProjectionCarrierType(Node? typeExpr,
         || canonical.base == "intptr_t" || canonical.base == "uintptr_t");
 }
 
-bool semanticOpaqueProjectionEmbedsStorage(Node? expression,
-        SemanticValidationState state, Map<string, Node> vars) {
-    if (expression == null) { return false; }
-    Node? canonical = semanticResolveAliases(
-        semanticInferType(expression, state, vars), state);
-    return canonical != null && canonical.is_array;
-}
-
 bool semanticHasTemporaryProjectionStorage(Node? expression,
         SemanticValidationState state, Map<string, Node> vars) {
     if (expression == null) { return false; }
@@ -144,8 +136,9 @@ Node? semanticOpaqueManagedOrigin(Node? expression,
             expression.obj, state, vars);
         bool carries = semanticExpressionCarriesOpaqueBorrow(
             expression.obj, state, vars);
-        bool embedded = semanticOpaqueProjectionEmbedsStorage(
-            expression, state, vars);
+        SemanticArrayProjectionStorage projectionStorage =
+            SemanticArrayProjectionStorage(state, vars);
+        bool embedded = projectionStorage.embedsBacking(expression);
         if (semanticOpaqueProjectionCarrierType(
                 semanticInferType(expression, state, vars), state)
                 && (carries || (embedded
@@ -236,8 +229,9 @@ bool semanticExpressionCarriesOpaqueBorrow(Node? expression,
     }
     if (expression.kind == NK_INDEX_EXPR
             || expression.kind == NK_FIELD_ACCESS_EXPR) {
-        bool embedded = semanticOpaqueProjectionEmbedsStorage(
-            expression, state, vars);
+        SemanticArrayProjectionStorage projectionStorage =
+            SemanticArrayProjectionStorage(state, vars);
+        bool embedded = projectionStorage.embedsBacking(expression);
         return semanticOpaqueProjectionCarrierType(
                 semanticInferType(expression, state, vars), state)
             && (semanticExpressionCarriesOpaqueBorrow(

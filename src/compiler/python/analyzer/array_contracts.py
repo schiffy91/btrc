@@ -136,6 +136,15 @@ class ArrayContractsMixin:
             return value_type
         return add_outer_pointer(canonical, clear_array=True)
 
+    def _array_projection_storage_type(self, expression):
+        """Return the value representation projected from field storage."""
+        inferred = self._infer_type(expression)
+        if isinstance(expression, FieldAccessExpr):
+            member, _ = self._array_target_member(expression)
+            if member is not None:
+                return self._array_field_value_type(member)
+        return inferred
+
     def _validate_pointer_backed_array_field_initializer(self, field, initializer, subject, line, col) -> None:
         canonical = self._canonical_type(field.type)
         represented = self._canonical_type(self._array_field_value_type(field))

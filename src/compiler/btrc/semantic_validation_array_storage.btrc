@@ -283,3 +283,36 @@ bool semanticGpuOutputElementCompatible(Node? targetType, Node? sourceType,
     return semanticGpuBufferElementsExact(
         target, sourceType, state);
 }
+
+/* Own the distinction between an array-shaped declaration and the value
+ * represented by one of its projections.  Canonical type inference expands
+ * aliases, so it cannot by itself distinguish an embedded `T field[N]` from a
+ * pointer slot declared through `typedef T[] Alias`. */
+class SemanticArrayProjectionStorage {
+    private SemanticValidationState state;
+    private Map<string, Node> vars;
+
+    public SemanticArrayProjectionStorage(
+            SemanticValidationState state, Map<string, Node> vars) {
+        self.state = state;
+        self.vars = vars;
+    }
+
+    private Node? representedType(Node? expression) {
+        if (expression == null) { return null; }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            Node? member = semanticArrayTargetMember(
+                expression, self.state, self.vars);
+            if (member != null) {
+                return semanticArrayFieldValueType(member, self.state);
+            }
+        }
+        return semanticInferType(expression, self.state, self.vars);
+    }
+
+    public bool embedsBacking(Node? expression) {
+        Node? represented = semanticResolveAliases(
+            self.representedType(expression), self.state);
+        return represented != null && represented.is_array;
+    }
+}

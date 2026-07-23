@@ -73,6 +73,39 @@ int main() {
 """
 
 
+POINTER_SLOT_ARRAY_SOURCE = r"""
+typedef int[] Values;
+typedef Values ValuesAlias;
+
+class AliasHolder {
+    public ValuesAlias values;
+
+    public AliasHolder(ValuesAlias values) { self.values = values; }
+
+    public ValuesAlias get() { return self.values; }
+}
+
+class UnsizedHolder {
+    public int[] values;
+
+    public UnsizedHolder(int[] values) { self.values = values; }
+
+    public int* get() { return self.values; }
+}
+
+int main() {
+    int backing[2] = {7, 42};
+    AliasHolder aliasHolder = new AliasHolder(backing);
+    UnsizedHolder unsizedHolder = new UnsizedHolder(backing);
+    bool valid = aliasHolder.get()[1] == 42
+        && unsizedHolder.get()[0] == 7;
+    delete unsizedHolder;
+    delete aliasHolder;
+    return valid ? 0 : 1;
+}
+"""
+
+
 def test_stored_pointer_field_remains_a_raw_value(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -98,6 +131,20 @@ def test_embedded_array_field_remains_managed_backed(
     ):
         assert result.returncode != 0
         assert "cannot persist a managed value as a raw representation" in result.stderr
+
+
+def test_array_alias_and_unsized_fields_remain_pointer_slots(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    compiled = compile_pair(
+        semantic_btrcc,
+        tmp_path,
+        POINTER_SLOT_ARRAY_SOURCE,
+        "opaque-pointer-slot-array-fields",
+        include_stdlib=False,
+    )
+    run_strict_pair(compiled, tmp_path)
 
 
 def test_explicit_field_address_allows_nonescaping_mutation(
