@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 
-from ..frontend_limits import check_combined_source_size
+from ..frontend_limits import SourceResolutionPolicy
 from ..pkg import PackageResolver
 from .dependencies import ResolvedSource
 from .imports import ImportResolver
@@ -21,11 +21,29 @@ class SourceResolver:
         *,
         imports: ImportResolver | None = None,
         package_resolver: PackageResolver | None = None,
+        resolution_policy: SourceResolutionPolicy | None = None,
     ) -> None:
         if imports is not None and stdlib is not None and imports.stdlib is not stdlib:
             raise ValueError("SourceResolver imports and stdlib must share one repository")
-        self.stdlib = imports.stdlib if imports is not None else (stdlib or StdlibRepository())
-        self.imports = imports or ImportResolver(self.stdlib)
+        owned_policy = resolution_policy
+        if owned_policy is None and imports is not None:
+            owned_policy = imports.resolution_policy
+        if owned_policy is None and stdlib is not None:
+            owned_policy = stdlib.resolution_policy
+        self.resolution_policy = owned_policy or SourceResolutionPolicy()
+        if imports is not None and imports.resolution_policy != self.resolution_policy:
+            raise ValueError("SourceResolver and imports must share one source resolution policy")
+        if stdlib is not None and stdlib.resolution_policy != self.resolution_policy:
+            raise ValueError("SourceResolver and stdlib must share one source resolution policy")
+        self.stdlib = (
+            imports.stdlib
+            if imports is not None
+            else (stdlib or StdlibRepository(resolution_policy=self.resolution_policy))
+        )
+        self.imports = imports or ImportResolver(
+            self.stdlib,
+            resolution_policy=self.resolution_policy,
+        )
         self.package_resolver = package_resolver or PackageResolver()
 
     @staticmethod
@@ -71,7 +89,11 @@ class SourceResolver:
                 stdlib_source = self.stdlib.source(user_source)
             self._timed(profile, "stdlib_include", start)
 
-        check_combined_source_size(stdlib_source, "\n" if stdlib_source else "", user_source)
+        self.resolution_policy.validate_combined(
+            stdlib_source,
+            "\n" if stdlib_source else "",
+            user_source,
+        )
         full_source = f"{stdlib_source}\n{user_source}" if stdlib_source else user_source
         return ResolvedSource(
             user_source=user_source,

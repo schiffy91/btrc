@@ -12,7 +12,7 @@ from ..ast_nodes import (
     StdGlob,
     StdModules,
 )
-from ..frontend_limits import ResolutionBudget
+from ..frontend_limits import ResolutionBudget, SourceResolutionPolicy
 from ..pkg import IncludeResolutionError, ResolvedPackages
 from .dependencies import SourceDependencyGraph
 from .source_io import (
@@ -36,11 +36,17 @@ class ImportResolver:
         source_reader: SourceFileReader | None = None,
         directive_scanner: SourceDirectiveScanner | None = None,
         directory_scanner: SourceDirectoryScanner | None = None,
+        resolution_policy: SourceResolutionPolicy | None = None,
     ) -> None:
-        self.stdlib = stdlib or StdlibRepository()
-        self._source_reader = source_reader or SourceFileReader()
+        if stdlib is not None and resolution_policy is not None and stdlib.resolution_policy != resolution_policy:
+            raise ValueError("ImportResolver and stdlib must share one source resolution policy")
+        self.resolution_policy = resolution_policy or (
+            stdlib.resolution_policy if stdlib is not None else SourceResolutionPolicy()
+        )
+        self.stdlib = stdlib or StdlibRepository(resolution_policy=self.resolution_policy)
+        self._source_reader = source_reader or SourceFileReader(self.resolution_policy.max_source_bytes)
         self._directives = directive_scanner or SourceDirectiveScanner()
-        self._directories = directory_scanner or SourceDirectoryScanner()
+        self._directories = directory_scanner or SourceDirectoryScanner(self.resolution_policy)
 
     def import_paths(
         self,
@@ -84,7 +90,7 @@ class ImportResolver:
                 packages,
                 set() if included is None else included,
                 graph,
-                ResolutionBudget(),
+                self.resolution_policy.new_budget(),
                 0,
             )
         except IncludeResolutionError as error:

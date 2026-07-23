@@ -6,7 +6,7 @@ import os
 import re
 from dataclasses import dataclass
 
-from .. import frontend_limits
+from ..frontend_limits import SourceResolutionPolicy
 from ..lexer import Lexer
 from ..pkg import IncludeResolutionError
 from ..tokens import Token, TokenType
@@ -145,12 +145,14 @@ class SourceDirectoryScanner:
 
     def __init__(
         self,
+        policy: SourceResolutionPolicy | None = None,
         *,
         max_entries: int | None = None,
         max_files: int | None = None,
     ) -> None:
-        self._max_entries = frontend_limits.MAX_IMPORT_SCAN_ENTRIES if max_entries is None else max_entries
-        self._max_files = frontend_limits.MAX_RESOLVED_FILES if max_files is None else max_files
+        policy = policy or SourceResolutionPolicy()
+        self._max_entries = policy.max_scan_entries if max_entries is None else max_entries
+        self._max_files = policy.max_files if max_files is None else max_files
         if self._max_entries <= 0 or self._max_files <= 0:
             raise ValueError("import scan limits must be positive")
 

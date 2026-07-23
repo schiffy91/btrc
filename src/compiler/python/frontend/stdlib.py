@@ -8,7 +8,7 @@ from contextlib import suppress
 
 from .. import ast_nodes as ast
 from ..artifacts.cache.compiler_cache import CacheDirectory, ToolchainFingerprint
-from ..frontend_limits import ResolutionBudget
+from ..frontend_limits import SourceResolutionPolicy
 from ..lexer import Lexer
 from ..parser.parser import Parser
 from ..pipeline.models import StdlibSource
@@ -54,11 +54,13 @@ class StdlibRepository:
         directive_scanner: SourceDirectiveScanner | None = None,
         *,
         directory: str | None = None,
+        resolution_policy: SourceResolutionPolicy | None = None,
     ) -> None:
+        self.resolution_policy = resolution_policy or SourceResolutionPolicy()
         self.ast_cache = ast_cache or StdlibAstCache()
         self._cache_directory = cache_directory or CacheDirectory()
         self._ast_version = (fingerprint or ToolchainFingerprint()).digest("frontend")
-        self._source_reader = source_reader or SourceFileReader()
+        self._source_reader = source_reader or SourceFileReader(self.resolution_policy.max_source_bytes)
         self._directives = directive_scanner or SourceDirectiveScanner()
         self._directory = os.path.abspath(directory or _DEFAULT_STDLIB_DIRECTORY)
         self._symbol_files: dict[str, frozenset[str]] | None = None
@@ -107,7 +109,7 @@ class StdlibRepository:
         user_names = self.defined_names(user_source)
         lines: list[str] = []
         source_positions: list[tuple[str, int]] = []
-        budget = ResolutionBudget()
+        budget = self.resolution_policy.new_budget()
         for filename in self.discover_files():
             path = os.path.join(self._directory, filename)
             if not os.path.isfile(path):
