@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python import stdlib_archive as archive
-from src.compiler.python.cli_archive import build_stdlib_archive
+from src.compiler.python.cli_archive import StdlibArchiveBuilder
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.nodes import (
     CType,
@@ -90,7 +90,7 @@ def test_archive_exports_structured_callbacks_with_their_signatures():
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_stdlib_archive_is_warning_clean_under_strict_c11(tmp_path: Path, c_compiler: str):
     output = tmp_path / "stdlib"
-    build_stdlib_archive(str(output))
+    StdlibArchiveBuilder().build(str(output))
 
     subprocess.run(
         [

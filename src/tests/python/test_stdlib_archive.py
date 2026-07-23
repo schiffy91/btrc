@@ -6,6 +6,7 @@ archive) produces byte-identical output to the same program compiled inline,
 while emitting far less C.
 """
 
+import ast
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,6 +19,7 @@ from src.compiler.python.artifacts.publication.publisher import ArtifactPublishe
 from src.compiler.python.artifacts.publication.storage import ArtifactStorage
 from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
 from src.compiler.python.cli.compiler_cli import CompilerCLI
+from src.compiler.python.cli_archive import StdlibArchiveBuilder
 from src.compiler.python.frontend.stdlib import StdlibRepository
 
 
@@ -27,6 +29,16 @@ def _archive_publisher() -> StdlibArchivePublisher:
 
 def run_main(monkeypatch, argv):
     CompilerCLI().run(argv)
+
+
+def test_archive_build_workflow_is_instance_owned():
+    import src.compiler.python.cli_archive as cli_archive
+
+    module = ast.parse(Path(cli_archive.__file__).read_text())
+    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+    assert loose_behavior == []
+    assert callable(StdlibArchiveBuilder().build)
 
 
 # A program that crosses the archive boundary in the ways that matter: temp

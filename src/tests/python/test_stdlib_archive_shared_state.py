@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python import stdlib_archive as archive
-from src.compiler.python.cli_archive import build_stdlib_archive
+from src.compiler.python.cli_archive import StdlibArchiveBuilder
 from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.helpers.cycles import CYCLES
 from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
@@ -441,7 +441,7 @@ def test_shared_capacity_growth_and_reset_cross_archive_boundary(
     c_compiler: str,
 ):
     output = tmp_path / "stdlib"
-    build_stdlib_archive(str(output))
+    StdlibArchiveBuilder().build(str(output))
 
     archive_probe = output / "archive_probe.c"
     program = output / "program.c"

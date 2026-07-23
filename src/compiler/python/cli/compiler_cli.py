@@ -10,7 +10,7 @@ import sys
 from collections.abc import Callable, Sequence
 
 from .. import cli_diagnostics
-from ..cli_archive import build_stdlib_archive
+from ..cli_archive import StdlibArchiveBuilder
 from ..compiler import Compiler
 from ..freestanding import RUNTIME_HEADER
 from ..frontend.stdlib import StdlibRepository
@@ -48,11 +48,11 @@ class CompilerCLI:
         self,
         compiler: Compiler | None = None,
         *,
-        archive_builder: Callable[[str], None] = build_stdlib_archive,
+        archive_builder: Callable[[str], None] | None = None,
         file_io: CompilerFileIO | None = None,
     ) -> None:
         self.compiler = compiler or Compiler()
-        self._archive_builder = archive_builder
+        self._archive_builder = archive_builder or StdlibArchiveBuilder().build
         self._file_io = file_io or CompilerFileIO()
 
     def argument_parser(self) -> argparse.ArgumentParser:
