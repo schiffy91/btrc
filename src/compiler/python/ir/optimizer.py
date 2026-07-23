@@ -42,10 +42,10 @@ def optimize(module: IRModule, *, dce: bool = True) -> IRModule:
 def _materialize_cycle_boundary_helpers(module: IRModule) -> None:
     """Merge helper closure introduced after initial IR helper collection."""
 
-    from .gen.helpers import helper_decls_for_roots
+    from .gen.helpers import RuntimeHelperRegistry
 
     existing = {helper.name for helper in module.helper_decls}
-    boundary = helper_decls_for_roots({"__btrc_flush_cycles"})
+    boundary = RuntimeHelperRegistry().declarations_for({"__btrc_flush_cycles"})
     missing = [helper for helper in boundary if helper.name not in existing]
     module.helper_decls.extend(missing)
     if module.freestanding:

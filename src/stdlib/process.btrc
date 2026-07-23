@@ -979,7 +979,10 @@ class ChildProcess {
         int leasedWorkingDirectory = -1;
         int leasedExecutable = -1;
         string descriptorPreparationError = "";
-        if (descriptorMappingCount > 0) {
+        if (descriptorMappingCount > 0 && descriptorBound < 4) {
+            descriptorPreparationError =
+                "unsupported process descriptor limit\n";
+        } else if (descriptorMappingCount > 0) {
             leasedMappingDescriptors = (int*)calloc(
                 (size_t)descriptorMappingCount, sizeof(int));
             childMappingDescriptors = (int*)calloc(

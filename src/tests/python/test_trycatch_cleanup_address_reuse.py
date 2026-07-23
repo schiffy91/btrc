@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 FIXTURE = Path(__file__).with_name("fixtures") / "trycatch_cleanup_address_reuse.c"
@@ -53,7 +53,7 @@ def _compiler_environment(compiler: str) -> dict[str, str] | None:
 
 
 def _runtime_source() -> str:
-    helpers = "\n\n".join(helper.c_source for helper in helper_decls_for_roots(ROOTS))
+    helpers = "\n\n".join(helper.c_source for helper in RuntimeHelperRegistry().declarations_for(ROOTS))
     return f"{HEADERS}\n{helpers}\n\n{FIXTURE.read_text()}\n"
 
 

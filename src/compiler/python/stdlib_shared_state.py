@@ -138,12 +138,12 @@ def complete_shared_helpers(helper_decls: list) -> tuple[list, frozenset[str]]:
     if not active_groups:
         return helper_decls, frozenset()
 
-    from .ir.gen.helpers import helper_decls_for_roots
+    from .ir.gen.helpers import RuntimeHelperRegistry
     from .stdlib_archive_helpers import ARCHIVE_HELPER_API_GROUPS
 
     completed_roots = set(helper_roots)
     while True:
-        declarations = helper_decls_for_roots(completed_roots)
+        declarations = RuntimeHelperRegistry().declarations_for(completed_roots)
         reachable = {helper.name for helper in declarations}
         active_groups = {group_name for group_name, group in SHARED_STATE_HELPER_GROUPS.items() if reachable & group}
         active_api_groups = {group_name for group_name, group in ARCHIVE_HELPER_API_GROUPS.items() if reachable & group}

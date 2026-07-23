@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 
 ROOTS = {
     "__btrc_safe_calloc",
@@ -25,7 +25,7 @@ ROOTS = {
     "__btrc_flush_cycles",
     "__btrc_cycle_state_cleanup",
 }
-RUNTIME = "\n\n".join(helper.c_source for helper in helper_decls_for_roots(ROOTS))
+RUNTIME = "\n\n".join(helper.c_source for helper in RuntimeHelperRegistry().declarations_for(ROOTS))
 SOURCE = f"""\
 #include <limits.h>
 #include <pthread.h>

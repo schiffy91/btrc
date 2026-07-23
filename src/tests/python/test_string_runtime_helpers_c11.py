@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -113,7 +113,7 @@ int main(void) {
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("root", ROOT_PROGRAMS)
 def test_minimal_string_helper_root_is_warning_clean(tmp_path: Path, c_compiler: str, root: str):
-    helpers = helper_decls_for_roots({root})
+    helpers = RuntimeHelperRegistry().declarations_for({root})
     names = {helper.name for helper in helpers}
     if root == "__btrc_string_retain":
         assert "__btrc_string_registry" in names

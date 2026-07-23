@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 
 ROOTS = {
     "__btrc_safe_calloc",
@@ -29,7 +29,7 @@ ROOTS = {
     "__btrc_arc_thread_state_cleanup",
     "__btrc_cycle_state_cleanup",
 }
-RUNTIME = "\n\n".join(helper.c_source for helper in helper_decls_for_roots(ROOTS))
+RUNTIME = "\n\n".join(helper.c_source for helper in RuntimeHelperRegistry().declarations_for(ROOTS))
 FIXTURE = Path(__file__).with_name("fixtures") / "arc_concurrency_regressions.c"
 MARKER = "/* BTRC_RUNTIME_HELPERS */"
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))

@@ -6,7 +6,7 @@ from pathlib import Path
 from src.compiler.python.ir.cycle_boundaries import (
     install_function_cycle_boundary,
 )
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -146,7 +146,7 @@ def test_edge_only_releases_receive_forced_cycle_boundaries() -> None:
 def test_optimizer_materializes_flush_helper_for_edge_only_program() -> None:
     edge_helper = "__btrc_arc_replace_edge"
     module = IRModule(
-        helper_decls=helper_decls_for_roots({edge_helper}),
+        helper_decls=RuntimeHelperRegistry().declarations_for({edge_helper}),
         function_defs=[
             IRFunctionDef(
                 name="main",

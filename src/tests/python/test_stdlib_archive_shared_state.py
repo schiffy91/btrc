@@ -9,7 +9,7 @@ import pytest
 
 from src.compiler.python import stdlib_archive as archive
 from src.compiler.python.cli_archive import build_stdlib_archive
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.helpers.cycles import CYCLES
 from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
 from src.compiler.python.ir.helpers.trycatch import TRYCATCH
@@ -300,7 +300,7 @@ def test_all_cross_tu_runtime_storage_has_one_explicit_owner_group():
     ],
 )
 def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expected_groups):
-    module = IRModule(helper_decls=helper_decls_for_roots({root}))
+    module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({root}))
 
     archive_owned, declarations = archive.transform_archive_module(module)
     expected = set()
@@ -317,7 +317,7 @@ def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expect
 
 
 def test_worker_arc_state_finalizer_has_cross_tu_linkage():
-    module = IRModule(helper_decls=helper_decls_for_roots({"__btrc_thread_spawn"}))
+    module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({"__btrc_thread_spawn"}))
 
     archive_owned, declarations = archive.transform_archive_module(module)
     cleanup_name = "__btrc_arc_thread_state_cleanup"
@@ -331,7 +331,7 @@ def test_worker_arc_state_finalizer_has_cross_tu_linkage():
 
 
 def test_archive_completes_the_thread_handle_lifecycle_api():
-    module = IRModule(helper_decls=helper_decls_for_roots({"__btrc_thread_spawn"}))
+    module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({"__btrc_thread_spawn"}))
 
     archive_owned, declarations = archive.transform_archive_module(module)
     helpers = {helper.name for helper in module.helper_decls}

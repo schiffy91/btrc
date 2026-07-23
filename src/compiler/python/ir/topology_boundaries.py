@@ -33,12 +33,12 @@ def install_collection_topology_boundary(gen, function: IRFunctionDef) -> bool:
     token = gen.fresh_temp("__btrc_topology_scope")
     cleanup_enabled = bool(getattr(gen, "cross_function_cleanup_enabled", False))
     marker = gen.fresh_temp("__btrc_topology_cleanup") if cleanup_enabled else None
-    gen.use_helper("__btrc_arc_topology_begin")
-    gen.use_helper("__btrc_arc_topology_complete")
+    gen.helpers.use("__btrc_arc_topology_begin")
+    gen.helpers.use("__btrc_arc_topology_complete")
     if cleanup_enabled:
-        gen.use_helper("__btrc_cleanup_mark")
-        gen.use_helper("__btrc_arc_topology_cleanup")
-        gen.use_helper("__btrc_discard_cleanups_to")
+        gen.helpers.use("__btrc_cleanup_mark")
+        gen.helpers.use("__btrc_arc_topology_cleanup")
+        gen.helpers.use("__btrc_discard_cleanups_to")
 
     _rewrite_block(gen, function, function.body, token, marker)
     if sequence_may_fall_through(function.body.stmts):

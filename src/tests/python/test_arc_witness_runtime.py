@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.helpers.alloc import ALLOC
 from src.compiler.python.ir.helpers.cycles import CYCLES
 
@@ -24,7 +24,7 @@ HEADERS = """\
 #include <string.h>
 """
 
-RUNTIME = "\n\n".join(helper.c_source for helper in helper_decls_for_roots(set(ALLOC) | set(CYCLES)))
+RUNTIME = "\n\n".join(helper.c_source for helper in RuntimeHelperRegistry().declarations_for(set(ALLOC) | set(CYCLES)))
 
 HARNESS = r"""
 typedef struct Node {

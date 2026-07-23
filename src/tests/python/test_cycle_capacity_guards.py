@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.helpers.cycles import CYCLES
 
 ROOTS = {
@@ -21,7 +21,7 @@ ROOTS = {
     "__btrc_mark_destroyed",
     "__btrc_suspect",
 }
-RUNTIME = "\n\n".join(helper.c_source for helper in helper_decls_for_roots(ROOTS))
+RUNTIME = "\n\n".join(helper.c_source for helper in RuntimeHelperRegistry().declarations_for(ROOTS))
 FIXTURE = Path(__file__).with_name("fixtures") / "cycle_capacity_guards.c"
 MARKER = "/* BTRC_RUNTIME_HELPERS */"
 SELFHOST = Path("src/compiler/btrc")

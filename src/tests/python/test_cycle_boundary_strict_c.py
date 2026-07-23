@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -27,7 +27,7 @@ COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(nam
 
 def _edge_only_module() -> IRModule:
     helper = "__btrc_arc_release_edge"
-    declarations = helper_decls_for_roots({helper})
+    declarations = RuntimeHelperRegistry().declarations_for({helper})
     headers = sorted({header for declaration in declarations for header in declaration.required_headers})
     return IRModule(
         preprocessor_decls=[IRInclude(header) for header in headers],

@@ -4,7 +4,7 @@ import ast
 import re
 from pathlib import Path
 
-from src.compiler.python.ir.gen.helpers import helper_decls_for_roots
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.helpers.alloc import ALLOC
 from src.compiler.python.ir.helpers.collections import COLLECTIONS
 from src.compiler.python.ir.helpers.cycles import CYCLES
@@ -459,8 +459,8 @@ def test_python_generic_intrinsics_are_not_macro_helpers():
 
 
 def test_throw_roots_the_internal_cleanup_guard_stack():
-    throw_helpers = {declaration.name for declaration in helper_decls_for_roots({"__btrc_throw"})}
-    push_helpers = {declaration.name for declaration in helper_decls_for_roots({"__btrc_push_try"})}
+    throw_helpers = {declaration.name for declaration in RuntimeHelperRegistry().declarations_for({"__btrc_throw"})}
+    push_helpers = {declaration.name for declaration in RuntimeHelperRegistry().declarations_for({"__btrc_push_try"})}
 
     assert "__btrc_trycatch_globals" in throw_helpers
     assert "__btrc_push_try" in throw_helpers
@@ -469,7 +469,7 @@ def test_throw_roots_the_internal_cleanup_guard_stack():
 
 
 def test_topology_cleanup_drain_omits_unused_abandon_queue_storage():
-    helpers = {declaration.name for declaration in helper_decls_for_roots({"__btrc_arc_topology_cleanup"})}
+    helpers = {declaration.name for declaration in RuntimeHelperRegistry().declarations_for({"__btrc_arc_topology_cleanup"})}
 
     assert "__btrc_arc_abandon_queue_drain" in helpers
     assert "__btrc_arc_abandon_callback_state" in helpers
